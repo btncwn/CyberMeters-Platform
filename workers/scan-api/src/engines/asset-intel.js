@@ -471,6 +471,58 @@ export function assetFingerprintSignals(asset) {
   };
 }
 
+function authoritativeDnsNegative(answer) {
+  return answer &&
+    (answer.Status === 0 || answer.Status === 3) &&
+    (!Array.isArray(answer.Answer) || answer.Answer.length === 0);
+}
+
+function dnsRemovalSignal(results) {
+  const fulfilled = results
+    .filter((result) => result.status === "fulfilled")
+    .map((result) => result.value);
+  const evidenceCount = fulfilled.reduce(
+    (total, answer) => total + (Array.isArray(answer?.Answer) ? answer.Answer.length : 0),
+    0,
+  );
+  if (evidenceCount > 0) {
+    return { state: "observed", reason: "active_dns_records_observed", evidence_count: evidenceCount };
+  }
+  if (fulfilled.length === results.length && fulfilled.every(authoritativeDnsNegative)) {
+    return { state: "absent", reason: "authoritative_a_aaaa_absence", evidence_count: 0 };
+  }
+  return { state: "unavailable", reason: "active_dns_evidence_unavailable", evidence_count: 0 };
+}
+
+function httpRemovalSignal(asset) {
+  if (!asset) return { state: "unavailable", reason: "http_probe_unavailable", evidence_count: 0 };
+  if (asset.probe_status === "not_executed") {
+    return { state: "not_assessed", reason: asset.reason || "http_probe_not_executed", evidence_count: 0 };
+  }
+  if (asset.probe_status === "timed_out") {
+    return { state: "unavailable", reason: asset.reason || "http_probe_timeout", evidence_count: 0 };
+  }
+  if (asset.probe_status === "origin_unreachable" || asset.reachable === false && asset.status == null) {
+    return { state: "not_observed", reason: asset.reason || "http_service_not_observed", evidence_count: 0 };
+  }
+  if (Number.isFinite(Number(asset.status))) {
+    return { state: "observed", reason: "http_response_observed", evidence_count: 1 };
+  }
+  return { state: "unavailable", reason: "http_probe_outcome_unavailable", evidence_count: 0 };
+}
+
+export function unavailableRemovalObservations(hosts, reason = "asset_exposure_unavailable") {
+  return [...new Set((hosts || []).map(normalizeHostname).filter(Boolean))].map((host) => ({
+    host,
+    signal_states: {
+      dns_resolution: { state: "unavailable", reason },
+      http_https_service: { state: "unavailable", reason },
+    },
+    active_sources: ["dns_resolution", "http_https_service"],
+    passive_sources: [],
+  }));
+}
+
 /**
  * Probe all discovered subdomains for HTTP/HTTPS reachability and collect
  * lightweight exposure metadata (status, title, server header, tech stack).
@@ -491,11 +543,39 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
   // All probes run in parallel; individual failures return reachable:false records.
   // opts (e.g. opts.fetcher for the reserved SSRF-safe prober) is passed through; the
   // legacy caller passes nothing, so probeAsset uses its default native fetcher.
-  const settled = await Promise.allSettled(targets.map((host) => probeAsset(host, probeOpts)));
+  const assessed = await Promise.all(targets.map(async (host) => {
+    const [probe, a, aaaa] = await Promise.allSettled([
+      probeAsset(host, probeOpts),
+      dnsQuery(host, "A", {
+        accounting: opts.dnsAccounting || opts.accounting || null,
+        signal: opts.signal || null,
+        cache: opts.cache || null,
+      }),
+      dnsQuery(host, "AAAA", {
+        accounting: opts.dnsAccounting || opts.accounting || null,
+        signal: opts.signal || null,
+        cache: opts.cache || null,
+      }),
+    ]);
+    const asset = probe.status === "fulfilled" ? probe.value : null;
+    return {
+      asset,
+      removal_observation: {
+        host: normalizeHostname(host),
+        signal_states: {
+          dns_resolution: dnsRemovalSignal([a, aaaa]),
+          http_https_service: httpRemovalSignal(asset),
+        },
+        // CT/passive discovery may select a target, but it is deliberately not
+        // an active confirmation source and is never recorded in this list.
+        active_sources: ["dns_resolution", "http_https_service"],
+        passive_sources: [],
+      },
+    };
+  }));
 
-  const assets = settled
-    .filter((r) => r.status === "fulfilled")
-    .map((r) => r.value);
+  const assets = assessed.map((row) => row.asset).filter(Boolean);
+  const removalObservations = assessed.map((row) => row.removal_observation);
 
   const reachableCount = assets.filter((a) => a.reachable === true).length;
 
@@ -527,6 +607,7 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
     checked:   targets.length,
     reachable: reachableCount,
     assets,
+    removal_observations: removalObservations,
     source,
     error: null,
     ...(incomplete ? {
