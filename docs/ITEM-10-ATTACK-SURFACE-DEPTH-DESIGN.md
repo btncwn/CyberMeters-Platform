@@ -376,6 +376,10 @@ not started. The separately founder-authorised P3 work is recorded below.
 - Existing P2 mutation, managed-case model and managed-verification validators
   now follow the shared factory, deterministic event and `INSERT OR IGNORE`
   paths instead of asserting the superseded raw ASM insert shape.
+- The standalone email Worker imports the shared managed-case model, so its
+  closure manifest and closure-derived `APP_VERSION` are refreshed as
+  traceability metadata with deployment still
+  `pending_founder_approval`.
 
 ### Schema and Migrations
 
@@ -436,7 +440,9 @@ Claude exact-head review.
 
 ### Deployment IDs
 
-None. P3 forbids deployment.
+None. P3 forbids deployment. The standalone email Worker closure stamp records
+that a separately founder-approved deployment would be required; no deployment
+was attempted.
 
 ### Production Proof
 
@@ -452,6 +458,8 @@ required. Keep migration-102 and append-only asset/case history.
 
 - Migration 102 remains unapplied; deployed P2/P3 persistence/case depth depends
   on a separately approved migration-and-deploy sequence.
+- The email Worker shared-source closure has changed and its manifest remains
+  `pending_founder_approval`; this PR does not authorise that deployment.
 - Lifecycle-specific case verification applies only when every structured
   affected host maps to a non-root tracked asset. Untracked/root or actively
   observed hosts retain the pre-existing module-specific verification contract.
