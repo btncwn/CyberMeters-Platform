@@ -170,7 +170,9 @@ ok("universal route creates via the common factory createManagedCase", /createMa
 
 const asmSrc = stripComments(fs.readFileSync(path.join(enginesDir, "asm-cases.js"), "utf8"));
 ok("ASM auto-open gates soft-deleted workspaces", /deleted_at IS NULL/.test(asmSrc));
-ok("ASM case creation sets domain_key + remediation_id", /domain_key/.test(asmSrc) && /remediation_id/.test(asmSrc));
+ok("ASM case creation delegates domain_key + remediation_id to common factory",
+  /domain_key/.test(asmSrc) && /createManagedCase\(/.test(asmSrc) &&
+  /remediation_id/.test(modelSrc));
 
 const caseDisplayCode = stripComments(fs.readFileSync(path.join(root, "frontend", "src", "lib", "caseDisplay.js"), "utf8"));
 ok("frontend caseDisplay defines NO transition map (cannot invent transitions)",

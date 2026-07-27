@@ -11,6 +11,7 @@ import {
 } from "./attack-surface-signal-completeness.js";
 import { normalizeHostname } from "./hostnames.js";
 import { createId } from "../lib/util.js";
+import { hashToken } from "../lib/auth-crypto.js";
 
 const MAX_RECHECK_HOSTS = 50;
 
@@ -98,6 +99,17 @@ function projectionStatus(lifecycleResult, legacyStatus) {
   if (lifecycleResult.transition === "confirmed_removed") return "inactive";
   if (lifecycleResult.last_observation_state === "observed") return "active";
   return legacyStatus;
+}
+
+async function deterministicAssetEventId(workspaceId, assetId, scanId, eventType) {
+  const digest = await hashToken(JSON.stringify([
+    "attack-surface-asset-lifecycle-event-v1",
+    workspaceId,
+    assetId,
+    scanId,
+    eventType,
+  ]));
+  return `evt-${digest.slice(0, 32)}`;
 }
 
 // Writes all global signal rows and all per-asset rows for one workspace in one
@@ -268,32 +280,38 @@ export async function persistAttackSurfaceLifecycle({
       );
 
       if (result.transition === "confirmed_removed") {
+        const eventId = await deterministicAssetEventId(
+          workspaceId, asset.id, scanId, "asset_no_longer_seen",
+        );
         statements.push(
           env.cybermeters_db
             .prepare(
-              `INSERT INTO asset_events
+              `INSERT OR IGNORE INTO asset_events
                  (id, workspace_id, domain_id, asset_id, scan_id,
                   event_type, hostname, severity, description, created_at)
                VALUES (?,?,?,?,?,'asset_no_longer_seen',?,'low',?,?)`
             )
             .bind(
-              createId("evt"), workspaceId, domainId, asset.id, scanId,
+              eventId, workspaceId, domainId, asset.id, scanId,
               asset.hostname,
               `Asset no longer seen in latest scan: ${asset.hostname}`,
               now,
             )
         );
       } else if (result.transition === "reappeared") {
+        const eventId = await deterministicAssetEventId(
+          workspaceId, asset.id, scanId, "asset_reappeared",
+        );
         statements.push(
           env.cybermeters_db
             .prepare(
-              `INSERT INTO asset_events
+              `INSERT OR IGNORE INTO asset_events
                  (id, workspace_id, domain_id, asset_id, scan_id,
                   event_type, hostname, severity, description, created_at)
                VALUES (?,?,?,?,?,'asset_reappeared',?,'medium',?,?)`
             )
             .bind(
-              createId("evt"), workspaceId, domainId, asset.id, scanId,
+              eventId, workspaceId, domainId, asset.id, scanId,
               asset.hostname,
               `Asset reappeared after being absent: ${asset.hostname}`,
               now,

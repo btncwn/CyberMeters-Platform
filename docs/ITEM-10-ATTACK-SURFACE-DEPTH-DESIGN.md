@@ -2,11 +2,12 @@
 
 Date: 27 July 2026
 
-Canonical base: `3910dbb86c2a0e7ea7be612e8bd5584ff949f738`
-(`origin/main`, Item 10 P1 merged through PR #326)
+Canonical P3 base: `03cf0e74517b2d752c1cc87f2f3357009d2c9bc2`
+(`origin/main`, Item 10 P2 merged through PR #327 and the mandatory CT Provider
+Resilience interlock governance record merged through PR #328)
 
-Status: P2 production integration implemented; CI/PR review pending. No merge,
-deploy or live acceptance.
+Status: P3 asset lifecycle/canonical ASM case depth implemented; CI/PR review
+pending. No merge, migration application, deploy or live acceptance.
 
 ## Before
 
@@ -226,9 +227,28 @@ evidence exists.
 
 ### P3 — managed-case close/reopen depth
 
-- Founder-gated. Not started in P2.
-- Case close/reopen behaviour must consume supported lifecycle evidence through
-  the universal managed-case transition contract.
+- Founder-authorised on canonical base
+  `03cf0e74517b2d752c1cc87f2f3357009d2c9bc2`.
+- Reuse `workspace_assets`, migration 102 observations, `asset_events`,
+  `asm-cases.js`, `asm-case-machine.js`, `createManagedCase` and
+  `canTransitionCase`; no parallel case, lifecycle or alert source.
+- A case in the ASM persisted state `verification_requested` (canonical phase
+  `awaiting_verification`) cannot resolve from one missing finding, one
+  confirmed-removal transition, an incomplete/unavailable scan, a customer
+  assertion or bare scan completion.
+- The first transition to `confirmed_removed` records history and leaves the
+  case awaiting verification. Only a later complete, publishable CyberMeters
+  observation satisfying the same active DNS/HTTP contract can make the
+  canonical `verification_requested → verifying → resolved` transition.
+- `resolved` is the ASM verified/closed outcome that can legally reopen.
+  Recurrence uses the existing
+  `resolved → reopened → remediation_in_progress` path; the terminal ASM
+  `closed` state is not misused because it cannot reopen.
+- DNS-only and HTTP-only assets remain observed. A disappearance-based case
+  decision requires authoritative DNS absence plus a complete HTTP negative.
+- Reappearance retains the same `workspace_assets.id`, appends
+  `asset_reappeared`, reuses the same case and canonical occurrence source, and
+  creates no duplicate case/event/alert on replay.
 
 ### P4 — alert-quality implementation
 
@@ -328,8 +348,116 @@ legacy status during rollback.
 - Customer-surface lifecycle parity, case close/reopen depth and the scoped
   alert-quality implementation remain later founder-gated work.
 
+### P2 Confirmation Later Phases Were Not Started
+
+At the P2 handoff, P3 case close/reopen depth, P4 alert-quality implementation,
+P5 customer-surface parity, Item 11, deployment and Item 14 live acceptance had
+not started. The separately founder-authorised P3 work is recorded below.
+
+## After — P3 Implementation Record
+
+### Files Changed
+
+- `managed-case-model.js` gives every registered case type an explicit
+  registry-owned initial state and allows the canonical factory to create
+  backward-compatible ASM `open` cases. Its insert is race-safe/idempotent and
+  retains canonical remediation/source linkage and recommended actions.
+- `asm-cases.js` replaces the raw ASM case insert with `createManagedCase`,
+  reads current migration-102 lifecycle evidence in one bounded query, gates
+  removal-based verification on a later complete/publishable observation and
+  keeps every status write behind `canTransitionCase`.
+- `attack-surface-lifecycle.js` preserves the P2 threshold/model and gives
+  removal/reappearance `asset_events` deterministic identities with
+  `INSERT OR IGNORE`.
+- `scan-engine.js` explicitly tells the case verifier that its caller is after
+  durable R2/D1 scan finalisation. It adds no scanner or outbound work.
+- Dedicated fixture, deterministic integration, seven required mutations and a
+  faithful multi-scan engine trace are CI-blocking.
+
+### Schema and Migrations
+
+No new migration. P3 reuses migration
+`102-attack-surface-observation-lifecycle.sql` exactly as merged in P2:
+`workspace_assets` lifecycle columns plus the append-only
+`attack_surface_signal_observations` and `asset_lifecycle_observations` tables.
+The validator fresh-applies migration 102 and checks its separation from legacy
+`status`.
+
+Migration 102 has not been applied to production by P3. Application rollback is
+safe: leave the additive schema/history in place and revert the P3 code. Never
+delete append-only lifecycle or case history.
+
+### Behavioural Changes
+
+- New ASM cases use the canonical factory and retain ASM's compatible `open`
+  state; repeated scans reuse the case and occurrence.
+- Missing observation and `not_observed` remain distinct from
+  `confirmed_removed`.
+- Unavailable, incomplete, not-assessed or partial evidence neither advances
+  removal nor resolves a case.
+- The threshold observation that first establishes `confirmed_removed` emits
+  history but does not verify. A later complete/publishable active-source
+  negative supplies structured automated evidence and moves an awaiting ASM
+  case through `verifying` to `resolved`.
+- Customer assertions and illegal/direct edges remain refused. `resolved` is
+  reached only by a system actor with structured observation evidence.
+- Reappearance appends history, preserves asset/case identity and uses the
+  canonical reopen path and alert occurrence source once.
+- DNS resolves/HTTP not served and HTTP served/DNS absent are both `observed`,
+  never asset absence. An unconfirmed takeover candidate remains inconclusive,
+  not a confirmed takeover.
+
+### Tests and Regression
+
+- Deterministic lifecycle/case fixture: 60 assertions covering threshold,
+  awaiting verification, later re-observation, DNS/HTTP facets, takeover
+  honesty, factory/create, canonical transitions, replay dedupe, tenant
+  isolation, soft delete, purge order, bounded no-N+1 reads and migration
+  compatibility including a fail-closed migration-not-yet-applied path.
+- Load-bearing production-source mutation proof: seven of seven required
+  mutants killed (`first removal closes`, `unavailable closes`, `customer
+  assertion verifies`, `new identity on reappearance`, `DNS-only absent`,
+  `direct transition bypass`, `replay duplicates event/case`).
+- Faithful six-scan `runScanEngine` trace: real terminal R2 report → D1 inventory
+  → migration-102 observations → confirmed removal → later case verification →
+  same-identity recurrence/reopen, with no duplicate case/occurrence.
+- Existing P1/P2, ASM remediation, universal factory, managed-case,
+  tenant/purge, alert-occurrence, deadline/subrequest and full regression gates
+  remain required.
+
+### PR and Merge
+
+P3 PR pending. Codex must not merge it. Any reviewed-head change requires a new
+Claude exact-head review.
+
+### Deployment IDs
+
+None. P3 forbids deployment.
+
+### Production Proof
+
+Engineering-only deterministic proof. No production mutation, DNS/TLS/CT
+fixture, paid action or founder live acceptance was performed.
+
+### Rollback
+
+Revert the focused P3 application commit. No destructive data rollback is
+required. Keep migration-102 and append-only asset/case history.
+
+### Residual Risks
+
+- Migration 102 remains unapplied; deployed P2/P3 persistence/case depth depends
+  on a separately approved migration-and-deploy sequence.
+- Lifecycle-specific case verification applies only when every structured
+  affected host maps to a non-root tracked asset. Untracked/root or actively
+  observed hosts retain the pre-existing module-specific verification contract.
+- The 50-host active recheck envelope remains unchanged; overflow stays
+  `not_assessed`.
+- P4 alert-quality implementation, P5 customer-surface parity and Item 14 live
+  acceptance remain outstanding.
+
 ### Confirmation Later Phases Were Not Started
 
-P3 case close/reopen depth, P4 alert-quality implementation, P5
-customer-surface parity, Item 11, deployment and Item 14 live acceptance were
-not started.
+P4 alert-quality implementation, P5 API/snapshot/report/PDF/UI parity, CT
+Provider Resilience R1/R2/R3, deployment, migration 102 application, Item 11 and
+Item 14 execution were not started.

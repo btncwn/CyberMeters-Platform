@@ -1618,7 +1618,14 @@ function buildCanonicalUrlProfile(modules) {
     // resolved cases when the same finding returns. Reuses scan evidence only.
     try {
       await createManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, recommendations, env);
-      await verifyManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, env, { modules, scanQuality });
+      await verifyManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, env, {
+        modules,
+        scanQuality,
+        // This hook runs only after the terminal R2 report and completed D1
+        // status are durable. P3 lifecycle verification must never infer this
+        // from "the engine returned"; publishability is explicit.
+        scanPublished: true,
+      });
     } catch { /* non-fatal — managed cases catch up on the next scan */ }
 
     // Phase 8a.1: Posture Timeline Events — cross-scan email-auth and exposed

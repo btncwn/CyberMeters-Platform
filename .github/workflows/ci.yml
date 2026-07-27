@@ -586,6 +586,15 @@ jobs:
       - name: Validate Item 10 P2 real multi-scan runScanEngine to persistence and lifecycle-event trace
         run: node scripts/validate-item10-attack-surface-p2-engine-trace.js
 
+      - name: Validate Item 10 P3 asset lifecycle and canonical ASM case close/reopen
+        run: node scripts/validate-item10-attack-surface-p3-lifecycle-cases.js
+
+      - name: Validate Item 10 P3 lifecycle/case load-bearing source mutations
+        run: node scripts/validate-item10-attack-surface-p3-mutations.js
+
+      - name: Validate Item 10 P3 faithful runScanEngine to lifecycle and canonical case trace
+        run: node scripts/validate-item10-attack-surface-p3-engine-trace.js
+
       - name: Validate Item 9 P2 certificate production integration (deadlines + shared CT + signal isolation)
         run: node scripts/validate-item9-certificate-p2-integration.js
 

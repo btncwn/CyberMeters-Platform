@@ -121,14 +121,14 @@ runIntegrationMutant("CT advances removal", {
 
 runIntegrationMutant("reappeared creates new identity", {
   mutateLifecycle: (source) => source.replace(
-    '} else if (result.transition === "reappeared") {\n        statements.push(',
+    '} else if (result.transition === "reappeared") {\n        const eventId = await deterministicAssetEventId(',
     `} else if (result.transition === "reappeared") {
         statements.push(
           env.cybermeters_db
             .prepare("UPDATE workspace_assets SET id = ? WHERE id = ? AND workspace_id = ?")
             .bind(createId("asset"), asset.id, workspaceId)
         );
-        statements.push(`,
+        const eventId = await deterministicAssetEventId(`,
   ),
 });
 
