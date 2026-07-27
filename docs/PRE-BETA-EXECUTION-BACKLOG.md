@@ -258,6 +258,79 @@ noisy-but-true vs false-positive — **scoped review; the alert pipeline stays o
 founder-controlled live acceptance (new/removed/reappeared asset, admin surface,
 takeover candidate, KEV signal).
 
+### Reliability interlock — Scan Completion Rate: CT Provider Resilience
+This is a mandatory, unnumbered interlock in the frozen execution order. It is
+docs-governance only at this stage; R1, R2 and R3 implementation has not started.
+
+**PROVEN**
+
+- Read-only production sample, measured 26 July 2026: 46 scans over the preceding
+  seven days; 16 complete and 30 partial; the most recent three days contained
+  0 complete out of 12 scans.
+- Retrieved scan telemetry attributed the observed partial outcomes to `ssl` and/or
+  `subdomains`, the CT-dependent module pair in the current pipeline.
+- Provider-level attribution was unavailable because current error telemetry was
+  insufficient/null.
+- Available measurements do not justify increasing the 19-second whole-scan budget
+  as the remedy; duration attribution itself is currently coarse and must be improved
+  by R1.
+
+**NOT PROVEN / MUST NOT BE CLAIMED**
+
+- Which CT provider is responsible, or in what proportion.
+- That crt.sh or CertSpotter is the demonstrated root cause in CyberMeters production.
+- That cross-scan caching will raise completion from 35% to 90%+.
+- Any specific failover timeout before R1 telemetry supports it.
+
+**SEQUENCING**
+
+- Mandatory after Item 10 engineering-complete.
+- Mandatory before Item 11 begins.
+- Mandatory before Item 14 founder live acceptance.
+- Does not renumber the frozen backlog.
+- Must not run in parallel with Item 10 P2–P5 because the verified collision surface
+  includes `scan-engine.js`, `scan-budget.js`, `ssl-scan.js`, `subdomains-scan.js`,
+  `certificate-signal-completeness.js` and `reserved-scan.js`.
+
+**R1 — TELEMETRY ONLY**
+
+- Provider name and attempt outcome.
+- Timeout/upstream HTTP/status/parse/rate-limit error class.
+- Provider latency.
+- Fresh cache hit, stale cache available and cache miss.
+- Cache age and provenance.
+- Exact signal/evidence that lowered scan completeness.
+- Honest per-module timing attribution.
+- No detection or completeness behaviour change.
+- Telemetry must not consume or materially perturb the 19-second envelope it measures.
+
+**R2 — MEASURED BOUNDED FAILOVER**
+
+- Primary provider → measured bounded timeout → fallback provider → measured bounded
+  timeout → fresh-enough cache → honest unavailable/incomplete.
+- Timeout values must be justified by R1 evidence and must not be pre-baked guesses.
+- No provider failure may become absent, healthy or complete.
+
+**R3 — FRESHNESS-GOVERNED CROSS-SCAN CT CACHE**
+
+- Store source/provider, `fetched_at`, freshness ceiling/expiry, query identity,
+  canonical result identity, completeness, provenance and fresh/stale state.
+- CT freshness ceiling must be a declared per-signal contract value following the
+  Item 9 grade-contract pattern, not a hidden magic constant.
+- Cache presence alone never promotes a signal or scan to complete.
+- Stale evidence is surfaced as stale and never represented as fresh.
+
+**ACCEPTANCE GATE**
+
+- Completion rate improves against a documented pre-deploy baseline.
+- No stale evidence is represented as fresh.
+- No provider failure becomes absent or healthy.
+- No duplicate CT lookup is introduced.
+- The 19-second envelope remains intact.
+- Non-CT sibling signals remain independently publishable.
+- Founder-domain pre/post production evidence is recorded after separately approved
+  deploy.
+
 ### 11. Website / Identity / Shadow IT domain closures
 Three **separately-accepted** sub-items — each is LIVE-ACCEPTED independently and on its
 own evidence. There is **no lumped "Item 11 PASS"**; a verdict is recorded per sub-item.
