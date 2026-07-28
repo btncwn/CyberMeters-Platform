@@ -11,6 +11,8 @@ const workerRoot = path.join(root, "workers", "scan-api", "src");
 const { runScanEngine } = await import(pathToFileURL(path.join(workerRoot, "engines", "scan-engine.js")).href);
 const worker = await import(pathToFileURL(path.join(workerRoot, "index.js")).href);
 
+const NOW = "2026-07-28T09:00:00.000Z";
+const PARTIAL_NOW = new Date(Date.parse(NOW) + 60 * 60 * 1000).toISOString();
 const EXPECTED_ASSERTIONS = 24;
 let passed = 0;
 let failed = 0;
@@ -182,7 +184,7 @@ try {
   };
 
   providerMode = "complete";
-  const completeError = await run("scan-complete", "2026-07-28T09:00:00.000Z", Date.parse("2026-07-28T09:00:00.000Z"));
+  const completeError = await run("scan-complete", NOW, Date.parse(NOW));
   eq("real complete engine trace does not throw", completeError, null);
   const completeScan = db.prepare("SELECT status,scan_quality FROM scans WHERE id='scan-complete'").get();
   eq("real first scan terminal completed", completeScan.status, "completed");
@@ -200,7 +202,7 @@ try {
   eq("real complete scan basis quality", completePayload.basis_scan.scan_quality, "complete");
 
   providerMode = "partial";
-  const partialError = await run("scan-partial", "2026-07-28T10:00:00.000Z", Date.parse("2026-07-28T10:00:00.000Z"));
+  const partialError = await run("scan-partial", PARTIAL_NOW, Date.parse(PARTIAL_NOW));
   eq("real partial engine trace does not throw", partialError, null);
   const partialScan = db.prepare("SELECT status,scan_quality FROM scans WHERE id='scan-partial'").get();
   eq("real second scan terminal completed", partialScan.status, "completed");
