@@ -502,3 +502,90 @@ record final Worker/Pages IDs and the exact restored RRsets.
 
 **Namespace cleanup (7-I) is Item 13's work, not Item 14's** — Item 14 only records the
 verify-only result from §7 (`D7-I-verify`).
+
+---
+
+## Appendix A — Naturally occurring evidence register (pre-acceptance)
+
+Evidence produced by the **live product against real founder-controlled changes**, outside a
+scripted acceptance session. It is recorded here so it is not lost and does not have to be
+re-created during the acceptance session itself.
+
+**Status rule — this appendix records observations, it does not grant acceptance.** No row here
+is a PASS. Each row states which acceptance step it feeds; the founder still executes that step.
+`DEPLOYED ≠ LIVE-ACCEPTED` is unchanged.
+
+### A.1 · 2026-07-27 — first real weekly digests (three workspaces, 08:01Z)
+
+Three per-workspace digests reached the founder inbox from `hello@cybermeters.com`. Screenshots
+retained by the founder outside the repository (evidence-bundle rule, §10).
+
+| # | Workspace | Digest content | Feeds |
+| --- | --- | --- | --- |
+| A.1.1 | **A4 Managed Case Test** | *"No completed assessment was available for this digest period. We'll report changes once full evidence is available."* — the honest quiet path, over a week with **no complete scan**. No fabricated "all quiet"/healthy claim. | **Weekly Digest Truth acceptance** (the scheduled artefact was "the next Monday digest"); also **14-DX** — the ~35% completion problem made customer-visible |
+| A.1.2 | **Turhan Workspace** | 3 changes (2 medium · 1 info): `SPF record changed` and `SPF authorised sending sources changed` on `blackbullbarbers.co.uk`, plus new subdomain `status.cybermeters.com` | **14-D7** (SPF/DMARC detection on real controlled DNS changes) · **14-D10 A1** |
+| A.1.3 | **CyberMeters** | 1 change (1 info): new subdomain `status.cybermeters.com` | **14-D10 A1** · tenant separation |
+
+**Tenant separation observed:** the same underlying event appeared in both workspaces with each
+one's own count (3 vs 1) in its own email. No cross-workspace blending.
+
+**Defect captured live (do not treat as a failure of the digest):** A.1.2 printed
+`added 1 [ip4:c0000200/24]` — the hex-packed CIDR defect, in a real customer email. The email was
+generated at 08:01Z, **before** PR #334 merged (13:59Z) and before any deploy carrying that fix,
+so it correctly reflects pre-fix behaviour. **Verification step:** the digest of **Monday
+2026-08-03** must render `192.0.2.0/24`. That is the natural live check for the SPF CIDR
+Evidence-Fidelity P1 — no scripted scenario needed.
+
+### A.2 · 2026-07-27/28 — full CT discovery chain, then a controlled removal
+
+`status.cybermeters.com` was created by the founder as a Cloudflare Pages custom domain. The
+product observed the whole chain unprompted:
+
+```
+founder adds custom domain → Cloudflare Universal SSL issues a certificate
+→ certificate appears in CT logs → subdomains module discovers the host
+→ asset event written → alert eligibility passed → Monday digest (both workspaces)
+```
+
+**Feeds 14-D10 A1** (new asset appears, identity stable, not missed, not duplicated).
+
+The founder then **removed** the record (28 Jul), and separately removed
+`dmarc-test.blackbullbarbers.co.uk` (GoDaddy, manual — that zone is not on Cloudflare, so the
+Pages removal could not delete it). Both hosts had pointed at the founder's personal public Pages
+lab project; a dedicated `cybermeters-status` Pages project already exists and is the correct
+future home for the status page.
+
+This starts **two independent removal-lifecycle lines** in production:
+
+| | Expected, per the declared policy | Feeds |
+| --- | --- | --- |
+| First complete scan after removal | `not_observed` — **NOT** `confirmed_removed`; no `asset_no_longer_seen` | **14-D10 A2** |
+| After 3 qualifying complete observations · ≥24 h apart · ≥48 h span · active DNS/HTTP only | `confirmed_removed` — the **first real confirmed removal in production** | **14-D10 A3** |
+| CT evidence during the window | must never advance the removal counter | **14-D10 A4** |
+| Any degraded/partial scan in the window | must leave the counter untouched | **14-D10 A5** |
+
+**Baseline recorded at migration-102 application (27 Jul, ~18:20Z):**
+`asset_lifecycle_observations` = 0 rows, `attack_surface_signal_observations` = 0 rows. Every
+lifecycle row that exists afterwards was produced by this window. Each asset's confirmation
+window starts at **its own first qualifying post-deploy complete observation**, not at deploy
+time — read the actual timestamps before scheduling the acceptance session.
+
+**Dependency:** confirmation requires *complete* scans. While completion sits near 35%, these
+lines may stall — which is itself **14-DX** evidence, and the reason the CT resilience interlock
+(R1 → R2 → R3) precedes the session.
+
+### A.3 · Candidate live scenarios found on founder domains (findings, not evidence)
+
+Read-only DNS observations made 28 Jul while cleaning up the lab domains. **Not fixed, not
+verified against sending behaviour** — recorded as real material for the session.
+
+| # | Domain | Observation | Note |
+| --- | --- | --- | --- |
+| A.3.1 | `blackbullbarbers.co.uk` | `MX` → Microsoft 365, but SPF is `v=spf1 include:secureserver.net -all` (GoDaddy only, no `include:spf.protection.outlook.com`) | Mail actually sent via M365 would fail SPF under a hard `-all`. DMARC is `p=none` so nothing is rejected today. **Verify from our own RUA data before changing anything** — `rua=` already flows to `reports.cybermeters.com` with `fo=1`. Doubles as a corroboration test of the SPF/RUA pipeline. |
+| A.3.2 | `sheshire.co.uk` (third founder domain, GoDaddy) | **No `_dmarc` record at all**, with live M365 mail; plus the **same** SPF/M365 mismatch as A.3.1 | The repetition is the point: this is a systemic SMB misconfiguration pattern, not a one-off. |
+| A.3.3 | `sheshire.co.uk` | DNS points at Shopify (apex `23.227.38.65`, `www → shops.myshopify.com`) but Shopify returns **404** on both | **Founder confirmation required.** If no Shopify store still claims the domain this is the classic dangling-domain takeover pattern — exactly what the `subdomain_takeover` module targets. Do not claim takeover; confirm ownership first. |
+
+**Scope note:** these domains are live business assets, not lab targets. `sheshire.co.uk` is not
+currently onboarded, and adding it is a separate founder decision (plan limits, acceptance
+sequencing). It does **not** unlock the deferred Item 8 paid IDN fixture — `.co.uk` still cannot
+register IDN labels.
