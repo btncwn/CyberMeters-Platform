@@ -362,7 +362,7 @@ export default function WorkspaceSupplyChainPage() {
                   <div>
                     <p className="text-lg font-bold text-gray-800 capitalize">{data.asm_maturity.level}</p>
                     <p className="text-xs text-gray-400 mt-1">Based on scan history, vendor visibility, asset coverage, and security posture.</p>
-                    {data.brs_score > 0 && (
+                    {Number.isFinite(data.brs_score) && (
                       <p className="text-xs text-gray-500 mt-2">BRS input: <span className="font-semibold">{data.brs_score}</span></p>
                     )}
                   </div>

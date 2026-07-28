@@ -85,6 +85,7 @@ describe('WorkspaceSupplyChainPage BRS completeness', () => {
     expect(screen.getAllByText('Incomplete')).toHaveLength(3)
     expect(document.body.textContent).not.toMatch(/0\/100|Maturity Score|initial/i)
     expect(screen.queryByText('low')).not.toBeInTheDocument()
+    expect(screen.queryByText(/BRS input:/)).not.toBeInTheDocument()
   })
 
   it('keeps independently trustworthy sibling evidence visible', async () => {
@@ -129,5 +130,40 @@ describe('WorkspaceSupplyChainPage BRS completeness', () => {
     expect(screen.getByText('medium')).toBeInTheDocument()
     expect(screen.getByText('low')).toBeInTheDocument()
     expect(screen.queryByText('Supply Chain Score unavailable')).not.toBeInTheDocument()
+  })
+
+  it('renders an assessed BRS of zero as a real input without degrading the composites', async () => {
+    await renderPage({
+      ...sharedEvidence,
+      supply_chain_score_state: 'assessed',
+      supply_chain_score: 54,
+      supply_chain_score_reason: null,
+      brs_state: 'assessed',
+      brs_score: 0,
+      compliance_readiness: {
+        state: 'assessed',
+        state_reason: null,
+        gdpr: 'low',
+        security_governance: 'low',
+        pci_dss: 'low',
+        coverage: {
+          gdpr: { state: 'assessed', missing_components: [] },
+          security_governance: { state: 'assessed', missing_components: [] },
+          pci_dss: { state: 'assessed', missing_components: [] },
+        },
+      },
+      asm_maturity: {
+        state: 'assessed',
+        state_reason: null,
+        score: 23,
+        level: 'developing',
+        missing_components: [],
+      },
+    })
+    await waitFor(() => expect(screen.getByText(/BRS input:/)).toHaveTextContent('BRS input: 0'))
+    expect(screen.getAllByText('54').length).toBeGreaterThan(0)
+    expect(screen.getByText('developing')).toBeInTheDocument()
+    expect(screen.queryByText('Supply Chain Score unavailable')).not.toBeInTheDocument()
+    expect(screen.queryByText('ASM maturity unavailable')).not.toBeInTheDocument()
   })
 })

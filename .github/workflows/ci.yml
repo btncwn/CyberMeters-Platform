@@ -326,6 +326,9 @@ jobs:
       - name: Validate BRS downstream completeness (sibling evidence + real customer route)
         run: node scripts/validate-brs-downstream-completeness.js
 
+      - name: Validate BRS reconciliation inventory parity with the runtime resolver
+        run: node scripts/validate-brs-reconciliation-runbook.js
+
       # M5.f — canonical per-workspace eight-domain maturity ledger. Maturity is decided
       # deterministically by the backend engine (never the frontend) from the resolver's
       # domain STATE + the managed-case lifecycle + the registry's verification CAPABILITY.

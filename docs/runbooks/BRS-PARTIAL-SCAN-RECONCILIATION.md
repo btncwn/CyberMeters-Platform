@@ -102,8 +102,11 @@ SELECT
     THEN 1 ELSE 0 END
   ) AS legacy_basis_unprovable,
   SUM(CASE
-    WHEN latest_status = 'completed'
-     AND COALESCE(latest_quality, 'unknown') <> 'complete'
+    WHEN latest_status = 'failed'
+      OR (
+        latest_status = 'completed'
+        AND COALESCE(latest_quality, 'unknown') <> 'complete'
+      )
     THEN 1 ELSE 0 END
   ) AS rows_with_latest_incomplete_assessment,
   SUM(CASE

@@ -12,8 +12,8 @@ const supplyChainFile = path.join(root, "workers", "scan-api", "src", "engines",
 const supplyChainPage = path.join(root, "frontend", "src", "pages", "ws", "WorkspaceSupplyChainPage.jsx");
 const portfolioPage = path.join(root, "frontend", "src", "pages", "PortfolioRiskPage.jsx");
 const backendValidator = path.join(root, "scripts", "validate-brs-downstream-completeness.js");
-const EXPECTED_MUTANTS = 5;
-const EXPECTED_ASSERTIONS = 5;
+const EXPECTED_MUTANTS = 6;
+const EXPECTED_ASSERTIONS = 6;
 
 function replaceExactlyOnce(source, anchor, replacement, label) {
   const first = source.indexOf(anchor);
@@ -125,6 +125,20 @@ const mutants = [
     },
     ...frontendCommand("src/pages/__tests__/PortfolioRiskPage.honesty.test.jsx"),
     expected: "distinguishes latest-incomplete historical evidence from never assessed",
+  },
+  {
+    name: "assessed zero hidden as unavailable",
+    files: [supplyChainPage],
+    mutate(files) {
+      files.set(supplyChainPage, replaceExactlyOnce(
+        files.get(supplyChainPage),
+        "Number.isFinite(data.brs_score)",
+        "data.brs_score > 0",
+        this.name,
+      ));
+    },
+    ...frontendCommand("src/pages/ws/__tests__/WorkspaceSupplyChainPage.honesty.test.jsx"),
+    expected: "renders an assessed BRS of zero as a real input without degrading the composites",
   },
 ];
 
