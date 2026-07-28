@@ -323,6 +323,12 @@ jobs:
       - name: Validate BRS partial-scan honesty load-bearing mutations
         run: node scripts/validate-brs-partial-scan-mutations.js
 
+      - name: Validate BRS downstream completeness (sibling evidence + real customer route)
+        run: node scripts/validate-brs-downstream-completeness.js
+
+      - name: Validate BRS downstream completeness load-bearing mutations
+        run: node scripts/validate-brs-downstream-mutations.js
+
       # M5.f — canonical per-workspace eight-domain maturity ledger. Maturity is decided
       # deterministically by the backend engine (never the frontend) from the resolver's
       # domain STATE + the managed-case lifecycle + the registry's verification CAPABILITY.

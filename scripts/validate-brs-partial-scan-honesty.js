@@ -211,7 +211,8 @@ const supply = await computeSupplyChainIntelligence("ws", env);
 eq("sibling consumer masks stale BRS input", supply.brs_score, null);
 eq("sibling consumer publishes BRS incompleteness", supply.brs_state, "latest_incomplete");
 eq("trustworthy sibling vendor evidence remains represented", supply.vendor_summary.active, 1);
-check("trustworthy sibling evidence still yields its own composite", Number.isFinite(supply.supply_chain_score));
+check("incomplete BRS cannot become a downstream numeric composite",
+  supply.supply_chain_score_state === "incomplete" && supply.supply_chain_score === null);
 
 const portfolio = await computePortfolioRisk(["ws"], env);
 eq("portfolio does not expose stale BRS as current", portfolio.portfolio_score, null);

@@ -190,7 +190,16 @@ function ComplianceSection({ compliance }) {
         {items.map(({ label, key }) => (
           <li key={key} className="flex items-center justify-between">
             <span className="text-sm text-gray-700">{label}</span>
-            <ConfidencePill level={compliance[key] || 'low'} />
+            {compliance.coverage?.[key]?.state === 'assessed' && compliance[key] ? (
+              <ConfidencePill level={compliance[key]} />
+            ) : (
+              <span
+                className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200"
+                title={compliance.state_reason || 'This readiness signal is incomplete.'}
+              >
+                Incomplete
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -227,6 +236,11 @@ export default function WorkspaceSupplyChainPage() {
   if (!wsId) return <NoWorkspaceSelected />
 
   const concentrationLevel = data?.concentration_level ?? 'unknown'
+  const supplyChainScoreAssessed =
+    data?.supply_chain_score_state === 'assessed' && Number.isFinite(data?.supply_chain_score)
+  const resilienceAssessed = Number.isFinite(data?.operational_resilience_score)
+  const asmMaturityAssessed =
+    data?.asm_maturity?.state === 'assessed' && Number.isFinite(data?.asm_maturity?.score)
 
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error?.error === 'plan_feature_required' ? null : error?.message} onRetry={load}>
@@ -252,16 +266,19 @@ export default function WorkspaceSupplyChainPage() {
             <StatCard
               icon={Shield}
               label="Supply Chain Score"
-              value={data.supply_chain_score ?? 0}
-              danger={(data.supply_chain_score ?? 0) < 40}
-              warning={(data.supply_chain_score ?? 0) < 65 && (data.supply_chain_score ?? 0) >= 40}
+              value={supplyChainScoreAssessed ? data.supply_chain_score : 'Unavailable'}
+              explanation={supplyChainScoreAssessed ? null : data.supply_chain_score_reason}
+              tone={supplyChainScoreAssessed ? null : 'neutral'}
+              danger={supplyChainScoreAssessed && data.supply_chain_score < 40}
+              warning={supplyChainScoreAssessed && data.supply_chain_score < 65 && data.supply_chain_score >= 40}
             />
             <StatCard
               icon={Zap}
               label="Resilience Score"
-              value={data.operational_resilience_score ?? 0}
-              danger={(data.operational_resilience_score ?? 0) < 40}
-              warning={(data.operational_resilience_score ?? 0) < 65 && (data.operational_resilience_score ?? 0) >= 40}
+              value={resilienceAssessed ? data.operational_resilience_score : 'Unavailable'}
+              tone={resilienceAssessed ? null : 'neutral'}
+              danger={resilienceAssessed && data.operational_resilience_score < 40}
+              warning={resilienceAssessed && data.operational_resilience_score < 65 && data.operational_resilience_score >= 40}
             />
             <StatCard
               icon={AlertTriangle}
@@ -290,8 +307,17 @@ export default function WorkspaceSupplyChainPage() {
               </p>
             </div>
             <div className="flex gap-6">
-              <ScoreRing score={data.supply_chain_score ?? 0}           label="Supply Chain" size={72} />
-              <ScoreRing score={data.operational_resilience_score ?? 0} label="Resilience"   size={72} />
+              {supplyChainScoreAssessed ? (
+                <ScoreRing score={data.supply_chain_score} label="Supply Chain" size={72} />
+              ) : (
+                <div className="max-w-40 text-right">
+                  <p className="text-xs font-semibold">Supply Chain Score unavailable</p>
+                  <p className="text-[10px] mt-1 opacity-75">Current BRS-dependent maturity evidence is incomplete.</p>
+                </div>
+              )}
+              {resilienceAssessed && (
+                <ScoreRing score={data.operational_resilience_score} label="Resilience" size={72} />
+              )}
             </div>
           </div>
 
@@ -330,9 +356,9 @@ export default function WorkspaceSupplyChainPage() {
             {/* ASM maturity */}
             <div className="card p-6">
               <h2 className="font-semibold text-gray-900 mb-4">ASM Programme Maturity</h2>
-              {data.asm_maturity && (
+              {asmMaturityAssessed ? (
                 <div className="flex items-center gap-6">
-                  <ScoreRing score={data.asm_maturity.score ?? 0} label="Maturity Score" size={88} />
+                  <ScoreRing score={data.asm_maturity.score} label="Maturity Score" size={88} />
                   <div>
                     <p className="text-lg font-bold text-gray-800 capitalize">{data.asm_maturity.level}</p>
                     <p className="text-xs text-gray-400 mt-1">Based on scan history, vendor visibility, asset coverage, and security posture.</p>
@@ -341,6 +367,19 @@ export default function WorkspaceSupplyChainPage() {
                     )}
                   </div>
                 </div>
+              ) : data.asm_maturity ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm font-semibold text-amber-800">ASM maturity unavailable</p>
+                  <p className="text-xs text-amber-700 mt-1">{data.asm_maturity.state_reason}</p>
+                  <p className="text-xs text-gray-600 mt-3">
+                    Scan cadence, vendor visibility and asset visibility remain observed
+                    {Number.isFinite(data.asm_maturity.observed_subtotal)
+                      ? ` (${data.asm_maturity.observed_subtotal}/${data.asm_maturity.observed_max_score} observed points)`
+                      : ''}.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">ASM maturity has not been assessed.</p>
               )}
             </div>
           </div>

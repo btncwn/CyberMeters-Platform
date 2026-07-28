@@ -284,7 +284,8 @@ export async function computePortfolioRisk(workspaceIds, env) {
 
     // Supply chain scores per workspace
     db.prepare(`
-      SELECT workspace_id, supply_chain_score, concentration_level, spof_count, critical_vendor_count
+      SELECT workspace_id, supply_chain_score, concentration_level, spof_count,
+             critical_vendor_count, payload_json
       FROM workspace_supply_chain_scores
       WHERE workspace_id IN (${wsIn})
     `).bind(...workspaceIds).all(),
@@ -342,7 +343,14 @@ export async function computePortfolioRisk(workspaceIds, env) {
 
   const scMap = {};
   for (const r of (scRes.status === 'fulfilled' ? (scRes.value?.results ?? []) : [])) {
-    scMap[r.workspace_id] = r;
+    let payload = null;
+    try {
+      payload = r.payload_json ? JSON.parse(r.payload_json) : null;
+    } catch { /* an unparseable legacy payload cannot prove completeness */ }
+    scMap[r.workspace_id] = {
+      ...r,
+      supply_chain_score_state: payload?.supply_chain_score_state ?? 'basis_unproven',
+    };
   }
 
   const sharedVendors = (vendorRes.status === 'fulfilled' ? (vendorRes.value?.results ?? []) : []).map(r => ({
@@ -363,6 +371,9 @@ export async function computePortfolioRisk(workspaceIds, env) {
     const score = brs?.score ?? null;
     const prevScore = hist?.score ?? null;
     const delta = (score != null && prevScore != null) ? (score - prevScore) : null;
+    const supplyChainAssessed = brs?.state === 'assessed'
+      && sc?.supply_chain_score_state === 'assessed'
+      && Number.isFinite(sc?.supply_chain_score);
 
     return {
       workspace_id:        wsId,
@@ -372,13 +383,15 @@ export async function computePortfolioRisk(workspaceIds, env) {
       brs_state:           brs?.state ?? 'not_assessed',
       brs_state_reason:    brs?.state_reason ?? null,
       last_complete_assessment: brs?.last_complete_assessment ?? null,
-      supply_chain_score:  sc?.supply_chain_score ?? null,
+      supply_chain_score:  supplyChainAssessed ? sc.supply_chain_score : null,
       concentration_level: sc?.concentration_level ?? null,
       // M5.e: a workspace with NO supply-chain assessment row is unassessed,
       // not clean — null, never a zero that ranks as healthy.
       spof_count:          sc ? (sc.spof_count ?? 0) : null,
       critical_vendor_count: sc ? (sc.critical_vendor_count ?? 0) : null,
-      supply_chain_state:  sc ? 'assessed' : 'not_assessed',
+      supply_chain_state:  supplyChainAssessed
+        ? 'assessed'
+        : sc ? 'incomplete' : 'not_assessed',
       score_delta_30d:     delta,
       trend:               delta == null ? 'no_data' : delta > TREND_THRESHOLD ? 'improving' : delta < -TREND_THRESHOLD ? 'deteriorating' : 'stable',
     };

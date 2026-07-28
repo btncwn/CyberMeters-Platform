@@ -309,10 +309,12 @@ function computeOperationalResilience(enrichedVendors, cascadingRisks, concentra
  * computeComplianceReadiness(enrichedVendors, brsScore)
  *
  * Returns confidence signals for common compliance frameworks.
- * Outputs: low | medium | high — no legal assertions.
+ * Outputs: low | medium | high only when the BRS-dependent assessment is
+ * complete. Missing BRS is an incomplete assessment, never a low verdict.
  */
 function computeComplianceReadiness(enrichedVendors, brsScore) {
   const active = enrichedVendors.filter(v => v.status === 'active');
+  const brsAssessed = Number.isFinite(brsScore);
 
   // GDPR readiness signals
   const hasIdp = active.some(v => v.category === 'identity_provider');
@@ -321,28 +323,52 @@ function computeComplianceReadiness(enrichedVendors, brsScore) {
     const n = (v.vendor_name || '').toLowerCase();
     return n.includes('eu') || n.includes('europe') || n.includes('gdpr');
   }).length;
-  let gdpr = 'low';
-  if (hasIdp && highRiskCount === 0 && brsScore >= 70) gdpr = 'high';
-  else if (highRiskCount <= 2 && brsScore >= 50) gdpr = 'medium';
+  let gdpr = null;
+  if (brsAssessed) {
+    gdpr = 'low';
+    if (hasIdp && highRiskCount === 0 && brsScore >= 70) gdpr = 'high';
+    else if (highRiskCount <= 2 && brsScore >= 50) gdpr = 'medium';
+  }
 
   // ISO 27001 / security governance signals
   const hasSecurityVendors = active.some(v => v.category === 'security');
   const hasCaVendors = active.some(v => v.category === 'certificate_authority');
-  let security_governance = 'low';
-  if (hasSecurityVendors && hasCaVendors && brsScore >= 75) security_governance = 'high';
-  else if (hasCaVendors && brsScore >= 55) security_governance = 'medium';
+  let security_governance = null;
+  if (brsAssessed) {
+    security_governance = 'low';
+    if (hasSecurityVendors && hasCaVendors && brsScore >= 75) security_governance = 'high';
+    else if (hasCaVendors && brsScore >= 55) security_governance = 'medium';
+  }
 
   // PCI-DSS readiness signals
   const hasPayments = active.some(v => v.category === 'payments');
   const paymentHighRisk = active.filter(v => v.category === 'payments' && v.risk_level === 'high').length;
-  let pci_dss = 'low';
-  if (hasPayments && paymentHighRisk === 0 && brsScore >= 70) pci_dss = 'medium';
-  else if (!hasPayments) pci_dss = 'medium'; // no payment processors detected = less exposure
+  let pci_dss = null;
+  if (brsAssessed) {
+    pci_dss = 'low';
+    if (hasPayments && paymentHighRisk === 0 && brsScore >= 70) pci_dss = 'medium';
+    else if (!hasPayments) pci_dss = 'medium'; // no payment processors detected = less exposure
+  }
+
+  const familyCoverage = (observedSignals) => ({
+    state: brsAssessed ? 'assessed' : 'incomplete',
+    missing_components: brsAssessed ? [] : ['business_risk_score'],
+    observed_signals: observedSignals,
+  });
 
   return {
+    state: brsAssessed ? 'assessed' : 'incomplete',
+    state_reason: brsAssessed
+      ? null
+      : 'Compliance readiness is incomplete because a current complete Business Risk Score is unavailable.',
     gdpr,
     security_governance,
     pci_dss,
+    coverage: {
+      gdpr: familyCoverage({ has_identity_provider: hasIdp, high_risk_vendor_count: highRiskCount, eu_signal_count: euSignals }),
+      security_governance: familyCoverage({ has_security_vendor: hasSecurityVendors, has_certificate_authority: hasCaVendors }),
+      pci_dss: familyCoverage({ has_payment_provider: hasPayments, high_risk_payment_provider_count: paymentHighRisk }),
+    },
     note: 'Confidence signals only. CyberMeters does not certify compliance. Engage a qualified assessor for formal certification.',
   };
 }
@@ -350,34 +376,59 @@ function computeComplianceReadiness(enrichedVendors, brsScore) {
 /**
  * computeAsmMaturity(workspaceData)
  *
- * Estimates ASM programme maturity from available workspace signals.
- * Returns { level: 'initial'|'developing'|'defined'|'managed'|'optimising', score: 0-100 }
+ * Estimates ASM programme maturity from available workspace signals. A
+ * complete 0-100 score exists only when every weighted component is assessed.
  */
 function computeAsmMaturity(workspaceData) {
-  let score = 0;
-  const { total_scans = 0, total_vendors = 0, total_assets = 0, brs_score = 0 } = workspaceData;
+  const { total_scans = 0, total_vendors = 0, total_assets = 0, brs_score = null } = workspaceData;
+  let scanCadenceScore = 0;
+  let vendorVisibilityScore = 0;
+  let assetVisibilityScore = 0;
 
   // Scan cadence
-  if (total_scans >= 20) score += 25;
-  else if (total_scans >= 10) score += 15;
-  else if (total_scans >= 3) score += 8;
-  else if (total_scans >= 1) score += 3;
+  if (total_scans >= 20) scanCadenceScore = 25;
+  else if (total_scans >= 10) scanCadenceScore = 15;
+  else if (total_scans >= 3) scanCadenceScore = 8;
+  else if (total_scans >= 1) scanCadenceScore = 3;
 
   // Vendor visibility
-  if (total_vendors >= 20) score += 20;
-  else if (total_vendors >= 10) score += 12;
-  else if (total_vendors >= 3) score += 6;
+  if (total_vendors >= 20) vendorVisibilityScore = 20;
+  else if (total_vendors >= 10) vendorVisibilityScore = 12;
+  else if (total_vendors >= 3) vendorVisibilityScore = 6;
 
   // Asset visibility
-  if (total_assets >= 50) score += 20;
-  else if (total_assets >= 20) score += 12;
-  else if (total_assets >= 5) score += 6;
+  if (total_assets >= 50) assetVisibilityScore = 20;
+  else if (total_assets >= 20) assetVisibilityScore = 12;
+  else if (total_assets >= 5) assetVisibilityScore = 6;
+
+  const observedComponents = [
+    { component: 'scan_cadence', score: scanCadenceScore, max_score: 25 },
+    { component: 'vendor_visibility', score: vendorVisibilityScore, max_score: 20 },
+    { component: 'asset_visibility', score: assetVisibilityScore, max_score: 20 },
+  ];
+  const observedSubtotal = observedComponents.reduce((sum, component) => sum + component.score, 0);
+
+  if (!Number.isFinite(brs_score)) {
+    return {
+      state: 'incomplete',
+      state_reason: 'ASM maturity is incomplete because a current complete Business Risk Score is unavailable.',
+      level: null,
+      score: null,
+      observed_components: observedComponents,
+      missing_components: ['business_risk_score'],
+      observed_subtotal: observedSubtotal,
+      observed_max_score: 65,
+      possible_score_range: { min: observedSubtotal, max: Math.min(100, observedSubtotal + 35) },
+    };
+  }
 
   // Security posture
-  if (brs_score >= 80) score += 35;
-  else if (brs_score >= 65) score += 25;
-  else if (brs_score >= 50) score += 15;
-  else if (brs_score >= 30) score += 8;
+  let securityPostureScore = 0;
+  if (brs_score >= 80) securityPostureScore = 35;
+  else if (brs_score >= 65) securityPostureScore = 25;
+  else if (brs_score >= 50) securityPostureScore = 15;
+  else if (brs_score >= 30) securityPostureScore = 8;
+  const score = observedSubtotal + securityPostureScore;
 
   const level =
     score >= 80 ? 'optimising' :
@@ -386,7 +437,17 @@ function computeAsmMaturity(workspaceData) {
     score >= 20 ? 'developing' :
     'initial';
 
-  return { level, score: Math.min(100, score) };
+  return {
+    state: 'assessed',
+    state_reason: null,
+    level,
+    score: Math.min(100, score),
+    observed_components: [
+      ...observedComponents,
+      { component: 'business_risk_score', score: securityPostureScore, max_score: 35 },
+    ],
+    missing_components: [],
+  };
 }
 
 function computeDnsResilienceSignalsFromVendors(activeVendors) {
@@ -455,8 +516,8 @@ export async function computeSupplyChainIntelligence(wsId, env) {
       ).bind(wsId).first(),
     ]);
 
-    // M5.e: absent BRS is NOT a zero score — null fails every >= maturity
-    // threshold (conservative) without fabricating a numeric assessment.
+    // Absent BRS is not a zero contribution. Downstream composites stay
+    // explicitly incomplete until a current complete BRS exists.
     const brsScore = brsAssessment?.state === "assessed"
       ? (brsAssessment.score ?? null)
       : null;
@@ -482,12 +543,15 @@ export async function computeSupplyChainIntelligence(wsId, env) {
     // ── Supply chain score (composite) ─────────────────────────────────────
     const concentrationScore = concentration.concentration_score;
     const vendorRiskPenalty  = Math.min(40, enriched.filter(v => v.risk_level === 'high' && v.source_module === 'vendor_risk').length * 5);
-    const supplyChainScore   = Math.max(0, Math.round(
-      concentrationScore * 0.4 +
-      resilienceScore    * 0.35 +
-      asmMaturity.score  * 0.25 -
-      vendorRiskPenalty
-    ));
+    const supplyChainScoreState = asmMaturity.state === 'assessed' ? 'assessed' : 'incomplete';
+    const supplyChainScore = supplyChainScoreState === 'assessed'
+      ? Math.max(0, Math.round(
+        concentrationScore * 0.4 +
+        resilienceScore    * 0.35 +
+        asmMaturity.score  * 0.25 -
+        vendorRiskPenalty
+      ))
+      : null;
 
     // ── Tier counts ─────────────────────────────────────────────────────────
     const tier1Count = enriched.filter(v => v.tier === 1).length;
@@ -508,6 +572,10 @@ export async function computeSupplyChainIntelligence(wsId, env) {
 
     const payload = {
       supply_chain_score:          supplyChainScore,
+      supply_chain_score_state:    supplyChainScoreState,
+      supply_chain_score_reason:   supplyChainScoreState === 'assessed'
+        ? null
+        : 'Supply Chain Score is incomplete because ASM maturity requires a current complete Business Risk Score.',
       operational_resilience_score: resilienceScore,
       concentration_level:         concentration.level,
       critical_vendor_count:       criticalVendors.length,
@@ -533,6 +601,7 @@ export async function computeSupplyChainIntelligence(wsId, env) {
       brs_score: brsScore,
       brs_state: brsAssessment?.state ?? "not_assessed",
       brs_state_reason: brsAssessment?.state_reason ?? null,
+      brs_basis_scan_id: brsAssessment?.basis_scan?.scan_id ?? null,
       last_complete_brs_assessment: brsAssessment?.last_complete_assessment ?? null,
       calculated_at: new Date().toISOString(),
     };
@@ -552,6 +621,12 @@ export async function computeSupplyChainIntelligence(wsId, env) {
  */
 export async function upsertSupplyChainScore(wsId, payload, env) {
   if (!payload) return;
+  // Migration 035 intentionally remains unchanged in this corrective and its
+  // score columns are NOT NULL. An incomplete composite is therefore kept in
+  // the read projection only: never coerce it to zero and never append a
+  // misleading numeric history point. A later assessed run replaces the row.
+  if (payload.supply_chain_score_state !== 'assessed'
+      || !Number.isFinite(payload.supply_chain_score)) return;
   const now = new Date().toISOString();
   const id  = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
   const hid = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);

@@ -33,6 +33,15 @@ remaining row is not safe to publish either: its complete basis cannot be proven
 All five therefore remain masked until a new complete, founder-approved assessment
 establishes the new basis contract.
 
+The mask also propagates to direct BRS-derived consumers. While a workspace BRS is
+unavailable, ASM maturity and the authoritative Supply Chain Score are incomplete
+and non-numeric, and BRS-dependent compliance families are incomplete rather than
+`low`. Independently observed vendor, concentration, asset, scan-cadence and
+operational-resilience evidence remains visible. Legacy numeric supply-chain rows
+may remain inert in D1 because migration 035 requires a non-null score; customer
+reads recompute the completeness projection and portfolio reads require both an
+assessed BRS and an assessed supply-chain payload before publishing that number.
+
 Re-run the inventory read-only:
 
 ```sql
