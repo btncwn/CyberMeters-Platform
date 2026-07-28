@@ -8,6 +8,17 @@ import { customerSafeFailure } from "../lib/errors.js";
 // One retry restores bounded resilience after PR-5.2 removed the duplicate
 // per-consumer lookups. The hard cap is deliberately independent of tunable policy.
 export const CT_PROVIDER_HARD_ATTEMPT_CAP = 2;
+export const CT_PROVIDER_TELEMETRY_ROW_LIMIT = 8;
+export const CT_PROVIDER_TELEMETRY_OUTCOMES = Object.freeze([
+  "ok",
+  "timeout",
+  "http_error",
+  "parse_error",
+  "rate_limited",
+  "network_error",
+]);
+const CT_PROVIDER_TELEMETRY_MODULES = Object.freeze(["ssl", "subdomains"]);
+const CT_PROVIDER_PHYSICAL_ATTEMPT_LIMIT = 4;
 export const CT_PROVIDER_POLICIES = Object.freeze({
   // crt.sh serves a broad suffix query and is historically the slower provider.
   crt_sh: Object.freeze({ timeoutMs: 6_000, maxAttempts: 2, backoffMs: 150 }),
@@ -106,13 +117,41 @@ function transientHttpStatus(status) {
   return status === 408 || status === 429 || (status >= 500 && status <= 599);
 }
 
+function timeoutFailure(error) {
+  const name = String(error?.name || "").toLowerCase();
+  const message = String(error?.message || error || "").toLowerCase();
+  return name === "timeouterror" || message.includes("timeout") || message.includes("timed out");
+}
+
+function safeAttemptObservation(recordAttempt, row) {
+  try {
+    recordAttempt?.(row);
+  } catch {
+    // CT-R1 is observational only. A collector defect cannot change provider I/O.
+  }
+}
+
+function readTelemetryClock(clock) {
+  try {
+    const value = Number(clock?.());
+    return Number.isFinite(value) && Math.abs(value) <= 8.64e15
+      ? value
+      : Date.now();
+  } catch {
+    return Date.now();
+  }
+}
+
 async function fetchAttempt(config, provider, domain, {
   accounting,
   fetcher,
+  recordAttempt,
   signal,
+  telemetryNow,
   timeoutMs,
   timeoutSignal,
 }) {
+  const startedMs = readTelemetryClock(telemetryNow);
   let attempted = false;
   let response;
   try {
@@ -126,6 +165,20 @@ async function fetchAttempt(config, provider, domain, {
     accounting?.recordCompleted?.();
   } catch (err) {
     if (attempted) accounting?.recordError?.(err);
+    const completedMs = readTelemetryClock(telemetryNow);
+    if (attempted) {
+      safeAttemptObservation(recordAttempt, {
+        provider,
+        outcome: timeoutFailure(err) ? "timeout" : "network_error",
+        http_status: null,
+        latency_ms: Math.max(0, completedMs - startedMs),
+        result_count: null,
+        started_at: new Date(startedMs).toISOString(),
+        completed_at: new Date(completedMs).toISOString(),
+        cache_state: "miss",
+        cache_age_s: null,
+      });
+    }
     return {
       result: unavailable(
         provider,
@@ -138,6 +191,20 @@ async function fetchAttempt(config, provider, domain, {
 
   if (!response?.ok) {
     const status = Number(response?.status);
+    const completedMs = readTelemetryClock(telemetryNow);
+    safeAttemptObservation(recordAttempt, {
+      provider,
+      outcome: status === 429
+        ? "rate_limited"
+        : (status === 408 ? "timeout" : "http_error"),
+      http_status: Number.isInteger(status) ? status : null,
+      latency_ms: Math.max(0, completedMs - startedMs),
+      result_count: null,
+      started_at: new Date(startedMs).toISOString(),
+      completed_at: new Date(completedMs).toISOString(),
+      cache_state: "miss",
+      cache_age_s: null,
+    });
     return {
       result: unavailable(provider, domain, `HTTP ${response?.status ?? "unknown"}`),
       transient: transientHttpStatus(status),
@@ -146,6 +213,18 @@ async function fetchAttempt(config, provider, domain, {
 
   const contentType = response.headers?.get?.("content-type") || "";
   if (!contentType.includes("json")) {
+    const completedMs = readTelemetryClock(telemetryNow);
+    safeAttemptObservation(recordAttempt, {
+      provider,
+      outcome: "parse_error",
+      http_status: Number.isInteger(Number(response?.status)) ? Number(response.status) : null,
+      latency_ms: Math.max(0, completedMs - startedMs),
+      result_count: null,
+      started_at: new Date(startedMs).toISOString(),
+      completed_at: new Date(completedMs).toISOString(),
+      cache_state: "miss",
+      cache_age_s: null,
+    });
     return {
       result: unavailable(provider, domain, "non-JSON response"),
       transient: false,
@@ -155,11 +234,35 @@ async function fetchAttempt(config, provider, domain, {
   try {
     const data = await response.json();
     if (!Array.isArray(data)) {
+      const completedMs = readTelemetryClock(telemetryNow);
+      safeAttemptObservation(recordAttempt, {
+        provider,
+        outcome: "parse_error",
+        http_status: Number.isInteger(Number(response?.status)) ? Number(response.status) : null,
+        latency_ms: Math.max(0, completedMs - startedMs),
+        result_count: null,
+        started_at: new Date(startedMs).toISOString(),
+        completed_at: new Date(completedMs).toISOString(),
+        cache_state: "miss",
+        cache_age_s: null,
+      });
       return {
         result: unavailable(provider, domain, "unexpected response shape"),
         transient: false,
       };
     }
+    const completedMs = readTelemetryClock(telemetryNow);
+    safeAttemptObservation(recordAttempt, {
+      provider,
+      outcome: "ok",
+      http_status: Number.isInteger(Number(response?.status)) ? Number(response.status) : null,
+      latency_ms: Math.max(0, completedMs - startedMs),
+      result_count: data.length,
+      started_at: new Date(startedMs).toISOString(),
+      completed_at: new Date(completedMs).toISOString(),
+      cache_state: "miss",
+      cache_age_s: null,
+    });
     return {
       result: {
         provider,
@@ -171,6 +274,18 @@ async function fetchAttempt(config, provider, domain, {
       transient: false,
     };
   } catch (err) {
+    const completedMs = readTelemetryClock(telemetryNow);
+    safeAttemptObservation(recordAttempt, {
+      provider,
+      outcome: "parse_error",
+      http_status: Number.isInteger(Number(response?.status)) ? Number(response.status) : null,
+      latency_ms: Math.max(0, completedMs - startedMs),
+      result_count: null,
+      started_at: new Date(startedMs).toISOString(),
+      completed_at: new Date(completedMs).toISOString(),
+      cache_state: "miss",
+      cache_age_s: null,
+    });
     return {
       result: unavailable(
         provider,
@@ -187,9 +302,11 @@ async function fetchProvider(config, provider, domain, {
   fetcher,
   signal,
   policy,
+  recordAttempt,
   remainingMs,
   now,
   sleep,
+  telemetryNow,
   timeoutSignal,
   recordHealth,
 }) {
@@ -206,7 +323,9 @@ async function fetchProvider(config, provider, domain, {
     const attempt = await fetchAttempt(config, provider, domain, {
       accounting,
       fetcher,
+      recordAttempt,
       signal,
+      telemetryNow,
       timeoutMs: attemptTimeoutMs,
       timeoutSignal,
     });
@@ -244,6 +363,8 @@ export function createCertificateTransparencyCache({
   remainingMs = null,
   now = Date.now,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  captureTelemetry = true,
+  telemetryNow = Date.now,
   timeoutSignal = (ms) => AbortSignal.timeout(ms),
 } = {}) {
   if (typeof fetcher !== "function") {
@@ -252,6 +373,15 @@ export function createCertificateTransparencyCache({
 
   const entries = new Map();
   const providerHealth = new Map();
+  const providerConsumers = new Map();
+  const providerAttempts = [];
+  const recordAttempt = (row) => {
+    if (!captureTelemetry || providerAttempts.length >= CT_PROVIDER_PHYSICAL_ATTEMPT_LIMIT) return;
+    const outcome = CT_PROVIDER_TELEMETRY_OUTCOMES.includes(row?.outcome)
+      ? row.outcome
+      : "network_error";
+    providerAttempts.push({ ...row, outcome });
+  };
   const recordHealth = (provider, row) => {
     providerHealth.set(provider, {
       outcome: row.outcome,
@@ -262,9 +392,13 @@ export function createCertificateTransparencyCache({
   };
 
   return {
-    get(domain, provider, { accounting = null } = {}) {
+    get(domain, provider, { accounting = null, module = null } = {}) {
       const normalizedDomain = normalizeDomain(domain);
       const config = PROVIDERS[provider];
+      if (captureTelemetry && CT_PROVIDER_TELEMETRY_MODULES.includes(module)) {
+        if (!providerConsumers.has(provider)) providerConsumers.set(provider, new Set());
+        providerConsumers.get(provider).add(module);
+      }
       if (!normalizedDomain) {
         recordHealth(provider, {
           outcome: "unavailable", attempts: 0, latency_ms: 0, final_error: "invalid domain",
@@ -284,9 +418,11 @@ export function createCertificateTransparencyCache({
             fetcher,
             signal,
             policy: resolvePolicy(provider, policies),
+            recordAttempt: captureTelemetry ? recordAttempt : null,
             remainingMs,
             now,
             sleep,
+            telemetryNow,
             timeoutSignal,
             recordHealth,
           })
@@ -298,6 +434,31 @@ export function createCertificateTransparencyCache({
       return Object.fromEntries(
         [...providerHealth.entries()].map(([provider, row]) => [provider, { ...row }])
       );
+    },
+    telemetrySnapshot({ modules = {}, scanQuality = null } = {}) {
+      const subdomains = modules?.subdomains || {};
+      const ctDegradedScan = scanQuality?.status !== "complete" &&
+        subdomains?.incomplete === true &&
+        ["ct_source_degraded", "ct_sources_unavailable"].includes(
+          subdomains?.incomplete_reason
+        );
+      const rows = [];
+      for (const attempt of providerAttempts) {
+        for (const module of providerConsumers.get(attempt.provider) || []) {
+          if (rows.length >= CT_PROVIDER_TELEMETRY_ROW_LIMIT) return rows;
+          const completenessImpact = module === "subdomains" &&
+            attempt.outcome !== "ok" &&
+            ctDegradedScan &&
+            Boolean(subdomains?.sources?.[attempt.provider]?.error);
+          rows.push({
+            module,
+            ...attempt,
+            completeness_impact: completenessImpact,
+            affected_signal: completenessImpact ? "subdomain_discovery" : null,
+          });
+        }
+      }
+      return rows;
     },
   };
 }

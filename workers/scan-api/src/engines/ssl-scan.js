@@ -38,7 +38,7 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
   let cert_san_names   = [];
   const ct_sources = { crt_sh: null, certspotter: null };
   try {
-    const crtResult = await ctCache.get(domain, "crt_sh", { accounting });
+    const crtResult = await ctCache.get(domain, "crt_sh", { accounting, module: "ssl" });
     ct_sources.crt_sh = {
       count: crtResult.status === "available" ? crtResult.data.length : 0,
       error: crtResult.status === "unavailable" ? crtResult.error : null,
@@ -93,7 +93,7 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
   // for a host that plainly serves a valid certificate.
   if (cert_not_after == null) {
     try {
-      const certSpotterResult = await ctCache.get(domain, "certspotter", { accounting });
+      const certSpotterResult = await ctCache.get(domain, "certspotter", { accounting, module: "ssl" });
       ct_sources.certspotter = {
         count: certSpotterResult.status === "available" ? certSpotterResult.data.length : 0,
         error: certSpotterResult.status === "unavailable" ? certSpotterResult.error : null,

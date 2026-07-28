@@ -759,8 +759,8 @@ function d1Stub({ fail = false } = {}) {
   sourceGuard("C1B subdomain CT and wildcard DNS carry accounting", subdomainsSrc,
     (s) => /dnsQuery\(wildcardHost, "A", \{ accounting, cache \}\)/.test(s) &&
       /dnsQuery\(wildcardHost, "AAAA", \{ accounting, cache \}\)/.test(s) &&
-      /ctCache\.get\(domain, "crt_sh", \{ accounting \}\)/.test(s) &&
-      /ctCache\.get\(domain, "certspotter", \{ accounting \}\)/.test(s),
+      /ctCache\.get\(domain, "crt_sh", \{ accounting, module: "subdomains" \}\)/.test(s) &&
+      /ctCache\.get\(domain, "certspotter", \{ accounting, module: "subdomains" \}\)/.test(s),
     (s) => s.replace('dnsQuery(wildcardHost, "A", { accounting, cache })', 'dnsQuery(wildcardHost, "A", { cache })'));
   sourceGuard("C1B brute-force DNS leaves carry accounting", subdomainsSrc,
     (s) => /dnsQuery\(host, "A", \{ accounting, cache \}\)/.test(s) && /dnsQuery\(host, "MX", \{ accounting, cache \}\)/.test(s),
