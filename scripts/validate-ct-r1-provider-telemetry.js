@@ -28,9 +28,16 @@ const {
   CT_PROVIDER_TELEMETRY_ROW_LIMIT,
 } = cacheModule;
 const { runSubdomainsModule } = subdomainsModule;
-const { analyzeCtProviderTelemetry, READ_QUERY } = await import(pathToFileURL(
-  path.join(root, "scripts/analyze-ct-provider-telemetry.js")
-).href);
+const analyzerModule = await import(
+  process.env.CT_R1_ANALYZER_MODULE_URL || pathToFileURL(
+    path.join(root, "scripts/analyze-ct-provider-telemetry.js")
+  ).href
+);
+const {
+  analyzeCtProviderTelemetry,
+  CT_TELEMETRY_MEASUREMENT_STATES,
+  READ_QUERY,
+} = analyzerModule;
 const NOW = "2026-07-27T12:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
 
@@ -336,7 +343,7 @@ eq("runtime hard row bound", CT_PROVIDER_TELEMETRY_ROW_LIMIT, 8);
   eq("migration rejects ninth row", ninthRejected, true);
 }
 
-// Analyzer: one complete plus two completion losses, one co-failure.
+// Analyzer: full coverage — one complete plus two completion losses, one co-failure.
 {
   const rows = [];
   const addAttempt = ({
@@ -403,11 +410,19 @@ eq("runtime hard row bound", CT_PROVIDER_TELEMETRY_ROW_LIMIT, 8);
   eq("analysis computes completion denominator", analysis.completion.scans, 3);
   eq("analysis computes founder completion rate",
     analysis.completion.completion_rate_pct, 33.33);
+  eq("analysis reports full telemetry coverage",
+    analysis.telemetry_coverage.telemetry_coverage_pct, 100);
+  eq("analysis freezes measured coverage state",
+    analysis.telemetry_coverage.measurement_state, "measured");
   eq("analysis computes per-class attribution rows",
-    analysis.failure_attribution.length, 3);
+    analysis.failure_attribution.rows.length, 3);
   eq("analysis computes loss percentage",
-    analysis.failure_attribution.every((row) => row.pct_of_completion_loss === 50),
+    analysis.failure_attribution.rows.every((row) => row.pct_of_completion_loss === 50),
     true);
+  eq("analysis full coverage attributes every completion loss",
+    analysis.telemetry_coverage.completion_loss_attributed, 2);
+  eq("analysis full coverage has no unattributed completion loss",
+    analysis.telemetry_coverage.completion_loss_unattributed, 0);
   eq("analysis deduplicates consumer rows for latency",
     analysis.latency_percentiles.reduce((sum, row) => sum + row.attempts, 0), 6);
   eq("analysis computes co-failure count",
@@ -419,6 +434,123 @@ eq("runtime hard row bound", CT_PROVIDER_TELEMETRY_ROW_LIMIT, 8);
     !/\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b/i.test(READ_QUERY));
 }
 
+// Analyzer: scans exist but no CT rows — zero coverage is not a measured zero rate.
+{
+  const rows = [
+    {
+      scan_id: "scan-no-ct-complete",
+      scan_quality: "complete",
+      scan_created_at: "2026-07-26T12:00:00.000Z",
+      module: null,
+      provider: null,
+      outcome: null,
+    },
+    {
+      scan_id: "scan-no-ct-partial",
+      scan_quality: "partial",
+      scan_created_at: "2026-07-26T12:01:00.000Z",
+      module: null,
+      provider: null,
+      outcome: null,
+    },
+  ];
+  const analysis = analyzeCtProviderTelemetry(rows, { nowMs: NOW_MS });
+  eq("no-data completion rate remains independently measurable",
+    analysis.completion.completion_rate_pct, 50);
+  eq("no-data state is explicit",
+    analysis.telemetry_coverage.measurement_state, "not_measured");
+  eq("no-data coverage reports zero percent",
+    analysis.telemetry_coverage.telemetry_coverage_pct, 0);
+  eq("no-data coverage reports all scans without CT telemetry",
+    analysis.telemetry_coverage.scans_without_ct_telemetry, 2);
+  eq("no-data completion loss is honestly unattributed",
+    analysis.telemetry_coverage.completion_loss_unattributed, 1);
+  eq("no-data co-failure rate is null",
+    analysis.co_failure.co_failure_rate_pct, null);
+  eq("no-data attribution is not measured",
+    analysis.failure_attribution.measurement_state, "not_measured");
+  eq("no-data attribution rows are empty",
+    analysis.failure_attribution.rows.length, 0);
+  eq("no-data latency percentiles are null",
+    analysis.latency_percentiles.every((row) =>
+      row.measurement_state === "not_measured" &&
+      row.p50_ms === null &&
+      row.p90_ms === null &&
+      row.p99_ms === null
+    ), true);
+}
+
+// Analyzer: partial coverage — attributed and unattributed loss reconcile exactly.
+{
+  const rows = [
+    {
+      scan_id: "scan-covered-complete",
+      scan_quality: "complete",
+      scan_created_at: "2026-07-26T12:00:00.000Z",
+      module: "ssl",
+      provider: "crt_sh",
+      outcome: "ok",
+      http_status: 200,
+      latency_ms: 10,
+      result_count: 1,
+      started_at: "2026-07-26T12:00:01.000Z",
+      completed_at: "2026-07-26T12:00:01.010Z",
+      completeness_impact: 0,
+    },
+    {
+      scan_id: "scan-covered-partial",
+      scan_quality: "partial",
+      scan_created_at: "2026-07-26T12:01:00.000Z",
+      module: "subdomains",
+      provider: "crt_sh",
+      outcome: "timeout",
+      http_status: null,
+      latency_ms: 30,
+      result_count: null,
+      started_at: "2026-07-26T12:01:01.000Z",
+      completed_at: "2026-07-26T12:01:01.030Z",
+      completeness_impact: 1,
+    },
+    {
+      scan_id: "scan-uncovered-partial",
+      scan_quality: "partial",
+      scan_created_at: "2026-07-26T12:02:00.000Z",
+      module: null,
+      provider: null,
+      outcome: null,
+    },
+  ];
+  const analysis = analyzeCtProviderTelemetry(rows, { nowMs: NOW_MS });
+  eq("partial coverage state is explicit",
+    analysis.telemetry_coverage.measurement_state, "partial_coverage");
+  eq("partial coverage percentage is correct",
+    analysis.telemetry_coverage.telemetry_coverage_pct, 66.67);
+  eq("partial coverage counts scans with telemetry",
+    analysis.telemetry_coverage.scans_with_ct_telemetry, 2);
+  eq("partial coverage counts scans without telemetry",
+    analysis.telemetry_coverage.scans_without_ct_telemetry, 1);
+  eq("partial coverage counts attributed loss",
+    analysis.telemetry_coverage.completion_loss_attributed, 1);
+  eq("partial coverage counts unattributed loss",
+    analysis.telemetry_coverage.completion_loss_unattributed, 1);
+  eq("partial coverage loss accounting reconciles",
+    analysis.telemetry_coverage.completion_loss_attributed +
+      analysis.telemetry_coverage.completion_loss_unattributed,
+    analysis.telemetry_coverage.completion_loss_total);
+}
+
+eq("analyzer no-data vocabulary is frozen",
+  JSON.stringify(CT_TELEMETRY_MEASUREMENT_STATES),
+  JSON.stringify(["not_measured", "partial_coverage", "measured"]));
+
+{
+  const analysis = analyzeCtProviderTelemetry([], { nowMs: NOW_MS });
+  eq("empty-window completion ratio is null",
+    analysis.completion.completion_rate_pct, null);
+  eq("empty-window telemetry coverage ratio is null",
+    analysis.telemetry_coverage.telemetry_coverage_pct, null);
+}
+
 // Static lifecycle and governance anchors.
 {
   const scanEngine = fs.readFileSync(path.join(
@@ -426,12 +558,25 @@ eq("runtime hard row bound", CT_PROVIDER_TELEMETRY_ROW_LIMIT, 8);
     "workers/scan-api/src/engines/scan-engine.js"
   ), "utf8");
   const finalizeIndex = scanEngine.indexOf("const finalized = await finalizeScanResult");
-  const persistIndex = scanEngine.indexOf("await persistCtProviderTelemetry(");
-  ok("CT persistence is after terminal finalization",
-    finalizeIndex >= 0 && persistIndex > finalizeIndex);
-  ok("CT persistence is not inside runCappedModule",
-    persistIndex > scanEngine.indexOf("const runCappedModule") &&
-    persistIndex > scanEngine.indexOf("const scanQuality = buildScanQuality"));
+  const successPersistIndex = scanEngine.indexOf(
+    "await persistCtTelemetryAfterTerminal();",
+    finalizeIndex
+  );
+  const failedFinalizeIndex = scanEngine.indexOf(
+    "await finalizeScanResult(latch, {",
+    scanEngine.indexOf("} catch (err) {")
+  );
+  const failedPersistIndex = scanEngine.indexOf(
+    "await persistCtTelemetryAfterTerminal();",
+    failedFinalizeIndex
+  );
+  ok("CT persistence is after completed terminal finalization",
+    finalizeIndex >= 0 && successPersistIndex > finalizeIndex);
+  ok("CT persistence is after failed terminal finalization",
+    failedFinalizeIndex >= 0 && failedPersistIndex > failedFinalizeIndex);
+  ok("CT persistence helper guards on durable terminal D1 state",
+    /latch\.d1Written !== true[\s\S]*latch\.status !== "completed"[\s\S]*latch\.status !== "failed"/
+      .test(scanEngine));
 
   const indexSource = fs.readFileSync(path.join(
     root,

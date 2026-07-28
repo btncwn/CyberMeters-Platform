@@ -48,7 +48,7 @@ function buildDb() {
   return db;
 }
 
-function makeD1(db, sequence) {
+function makeD1(db, sequence, options = {}) {
   const statement = (sql, args = []) => ({
     __sql: sql,
     bind: (...bound) => statement(sql, bound),
@@ -63,7 +63,22 @@ function makeD1(db, sequence) {
     }),
     run: async () => {
       sequence.push({ sql, args });
+      const isCtWrite = /INSERT INTO ct_provider_telemetry/i.test(sql);
+      if (isCtWrite && options.failCtWrites) {
+        options.ctWriteFailureInjected = true;
+        throw new Error("fixture CT telemetry D1 failure");
+      }
+      if (
+        /INSERT INTO findings/i.test(sql)
+        && options.failFindingsAfterCtWrite
+        && options.ctWriteObserved
+        && !options.findingsFailureInjected
+      ) {
+        options.findingsFailureInjected = true;
+        throw new Error("fixture post-finalize failure");
+      }
       const result = db.prepare(sql).run(...args);
+      if (isCtWrite) options.ctWriteObserved = true;
       return {
         success: true,
         meta: {
@@ -82,7 +97,7 @@ function makeD1(db, sequence) {
   };
 }
 
-function makeR2(store) {
+function makeR2(store, options = {}) {
   return {
     get: async (key) => {
       const body = store.get(String(key));
@@ -92,6 +107,11 @@ function makeR2(store) {
       };
     },
     put: async (key, body) => {
+      options.putAttempts = (options.putAttempts || 0) + 1;
+      if (options.failFirstPut && options.putAttempts === 1) {
+        options.firstPutFailureInjected = true;
+        throw new Error("fixture first terminal R2 failure");
+      }
       store.set(String(key), String(body));
       return {};
     },
@@ -149,35 +169,39 @@ globalThis.fetch = async (input) => {
 };
 Math.random = () => 0.123456789;
 
-const db = buildDb();
-const sequence = [];
-const store = new Map();
-const env = {
-  cybermeters_db: makeD1(db, sequence),
-  cybermeters_reports: makeR2(store),
-  SCAN_CAPACITY_MODE: "legacy",
-  SCAN_SUBREQUEST_LIMIT: "200",
-  SCAN_DEADLINE_MS: "19000",
-  APP_VERSION: "ct-r1-engine-trace",
-};
+function createTraceFixture(options = {}) {
+  const db = buildDb();
+  const sequence = [];
+  const store = new Map();
+  const env = {
+    cybermeters_db: makeD1(db, sequence, options),
+    cybermeters_reports: makeR2(store, options),
+    SCAN_CAPACITY_MODE: "legacy",
+    SCAN_SUBREQUEST_LIMIT: "200",
+    SCAN_DEADLINE_MS: "19000",
+    APP_VERSION: "ct-r1-engine-trace",
+  };
 
-db.prepare("INSERT INTO users (id, email) VALUES ('usr', 'owner@example.com')").run();
-db.prepare(
-  "INSERT INTO workspaces (id, name, deleted_at) VALUES ('ws', 'CT-R1', NULL)"
-).run();
-db.prepare(
-  "INSERT INTO domains (id, user_id, domain) VALUES ('dom', 'usr', 'example.com')"
-).run();
-db.prepare(
-  "INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws', 'dom')"
-).run();
-db.prepare(
-  `INSERT INTO scans
-    (id, workspace_id, domain_id, domain, status, scan_quality, created_at)
-   VALUES ('scan-ct-r1', 'ws', 'dom', 'example.com', 'running', NULL, ?)`
-).run(NOW);
+  db.prepare("INSERT INTO users (id, email) VALUES ('usr', 'owner@example.com')").run();
+  db.prepare(
+    "INSERT INTO workspaces (id, name, deleted_at) VALUES ('ws', 'CT-R1', NULL)"
+  ).run();
+  db.prepare(
+    "INSERT INTO domains (id, user_id, domain) VALUES ('dom', 'usr', 'example.com')"
+  ).run();
+  db.prepare(
+    "INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws', 'dom')"
+  ).run();
+  db.prepare(
+    `INSERT INTO scans
+      (id, workspace_id, domain_id, domain, status, scan_quality, created_at)
+     VALUES ('scan-ct-r1', 'ws', 'dom', 'example.com', 'running', NULL, ?)`
+  ).run(NOW);
+  return { db, sequence, store, env, options };
+}
 
-try {
+async function executeTrace(options = {}) {
+  const fixture = createTraceFixture(options);
   let engineError = null;
   try {
     await runScanEngine(
@@ -185,7 +209,7 @@ try {
       "dom",
       "ws",
       "example.com",
-      env,
+      fixture.env,
       {
         now: () => NOW_MS,
         executionContext: "queue",
@@ -195,6 +219,12 @@ try {
   } catch (error) {
     engineError = error;
   }
+  return { ...fixture, engineError };
+}
+
+try {
+  const completedTrace = await executeTrace();
+  const { db, sequence, store, engineError } = completedTrace;
 
   eq("real runScanEngine completes", engineError, null);
   eq("real engine finalizes completed",
@@ -260,6 +290,81 @@ try {
   ok("all CT writes occur after terminal finalization",
     ctWriteIndexes.length > 0 &&
     ctWriteIndexes.every((index) => index > terminalIndex));
+
+  // A terminal failure after genuine CT attempts must retain those attempts.
+  const failedOptions = { failFirstPut: true };
+  const failedTrace = await executeTrace(failedOptions);
+  eq("failed-terminal trace does not throw", failedTrace.engineError, null);
+  eq("failed-terminal trace injects terminal persistence failure",
+    failedOptions.firstPutFailureInjected, true);
+  eq("failed-terminal trace leaves scan durably failed",
+    failedTrace.db.prepare(
+      "SELECT status FROM scans WHERE id = 'scan-ct-r1'"
+    ).get()?.status,
+    "failed");
+  const failedRows = failedTrace.db.prepare(
+    "SELECT * FROM ct_provider_telemetry WHERE scan_id = 'scan-ct-r1'"
+  ).all();
+  eq("failed-terminal trace persists CT provider rows", failedRows.length, 4);
+  ok("failed-terminal trace respects eight-row bound", failedRows.length <= 8);
+  ok("failed-terminal trace does not leave scan running",
+    failedTrace.db.prepare(
+      "SELECT status FROM scans WHERE id = 'scan-ct-r1'"
+    ).get()?.status !== "running");
+  const failedTerminalIndex = failedTrace.sequence.findIndex((entry) =>
+    /UPDATE scans SET status = \?, score = \?, rating = \?, scan_quality = \?/i
+      .test(entry.sql) &&
+    entry.args[0] === "failed"
+  );
+  const failedCtIndexes = failedTrace.sequence
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => /INSERT INTO ct_provider_telemetry/i.test(entry.sql))
+    .map(({ index }) => index);
+  ok("failed-terminal CT writes occur after failed status write",
+    failedTerminalIndex >= 0 &&
+    failedCtIndexes.length > 0 &&
+    failedCtIndexes.every((index) => index > failedTerminalIndex));
+
+  // Force the catch path after completed finalization and the first CT snapshot
+  // has been written. The once-only guard must suppress a second set.
+  const onceOnlyOptions = { failFindingsAfterCtWrite: true };
+  const onceOnlyTrace = await executeTrace(onceOnlyOptions);
+  eq("finalize-then-catch fixture injects its failure",
+    onceOnlyOptions.findingsFailureInjected, true);
+  eq("finalize-then-catch preserves completed terminal state",
+    onceOnlyTrace.db.prepare(
+      "SELECT status FROM scans WHERE id = 'scan-ct-r1'"
+    ).get()?.status,
+    "completed");
+  eq("finalize-then-catch returns without throwing",
+    onceOnlyTrace.engineError, null);
+  eq("finalize-then-catch persists exactly one CT row set",
+    onceOnlyTrace.db.prepare(
+      "SELECT COUNT(*) AS n FROM ct_provider_telemetry WHERE scan_id = 'scan-ct-r1'"
+    ).get()?.n,
+    rows.length);
+  eq("finalize-then-catch attempts exactly one CT row set",
+    onceOnlyTrace.sequence.filter((entry) =>
+      /INSERT INTO ct_provider_telemetry/i.test(entry.sql)
+    ).length,
+    rows.length);
+
+  // D1 telemetry failure on the failed terminal path remains observational.
+  const telemetryFailureOptions = { failFirstPut: true, failCtWrites: true };
+  const telemetryFailureTrace = await executeTrace(telemetryFailureOptions);
+  eq("failed-path telemetry write failure is injected",
+    telemetryFailureOptions.ctWriteFailureInjected, true);
+  eq("failed-path telemetry write failure does not throw",
+    telemetryFailureTrace.engineError, null);
+  eq("failed-path telemetry write failure preserves failed terminal state",
+    telemetryFailureTrace.db.prepare(
+      "SELECT status FROM scans WHERE id = 'scan-ct-r1'"
+    ).get()?.status,
+    "failed");
+  ok("failed-path telemetry write failure does not leave scan running",
+    telemetryFailureTrace.db.prepare(
+      "SELECT status FROM scans WHERE id = 'scan-ct-r1'"
+    ).get()?.status !== "running");
 } finally {
   globalThis.fetch = originalFetch;
   Math.random = originalRandom;

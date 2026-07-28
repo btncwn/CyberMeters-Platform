@@ -7,6 +7,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+export const CT_TELEMETRY_MEASUREMENT_STATES = Object.freeze([
+  "not_measured",
+  "partial_coverage",
+  "measured",
+]);
+
+const CT_PROVIDERS = Object.freeze(["crt_sh", "certspotter"]);
+
 export const READ_QUERY = `
 SELECT
   s.id AS scan_id,
@@ -76,8 +84,21 @@ export function analyzeCtProviderTelemetry(rows, {
     const key = physicalAttemptKey(row);
     if (!physicalAttempts.has(key)) physicalAttempts.set(key, row);
   }
+  const scansWithTelemetry = new Set(
+    [...physicalAttempts.values()].map((row) => row.scan_id)
+  );
+  const scansWithoutTelemetry = scans.size - scansWithTelemetry.size;
+  const telemetryMeasurementState = scans.size === 0 || scansWithTelemetry.size === 0
+    ? "not_measured"
+    : scansWithTelemetry.size < scans.size
+      ? "partial_coverage"
+      : "measured";
+  const telemetryCoveragePct = scans.size === 0
+    ? null
+    : Number(((scansWithTelemetry.size / scans.size) * 100).toFixed(2));
 
   const attributionSets = new Map();
+  const attributedCompletionLossScans = new Set();
   for (const row of inWindow) {
     if (!row.provider || row.outcome === "ok" || Number(row.completeness_impact) !== 1) {
       continue;
@@ -85,7 +106,12 @@ export function analyzeCtProviderTelemetry(rows, {
     const key = `${row.provider}\u0000${row.outcome}`;
     if (!attributionSets.has(key)) attributionSets.set(key, new Set());
     attributionSets.get(key).add(row.scan_id);
+    if (scans.get(row.scan_id) !== "complete") {
+      attributedCompletionLossScans.add(row.scan_id);
+    }
   }
+  const completionLossAttributed = attributedCompletionLossScans.size;
+  const completionLossUnattributed = Math.max(0, completionLoss - completionLossAttributed);
   const failureAttribution = [...attributionSets.entries()]
     .map(([key, scanIds]) => {
       const [provider, error_class] = key.split("\u0000");
@@ -94,7 +120,7 @@ export function analyzeCtProviderTelemetry(rows, {
         error_class,
         completion_loss_scans: scanIds.size,
         pct_of_completion_loss: completionLoss === 0
-          ? 0
+          ? null
           : Number(((scanIds.size / completionLoss) * 100).toFixed(2)),
       };
     })
@@ -110,14 +136,28 @@ export function analyzeCtProviderTelemetry(rows, {
     if (!latencyByProvider.has(row.provider)) latencyByProvider.set(row.provider, []);
     latencyByProvider.get(row.provider).push(latency);
   }
-  const latencyPercentiles = [...latencyByProvider.entries()]
-    .map(([provider, values]) => ({
-      provider,
-      attempts: values.length,
-      p50_ms: percentile(values, 0.50),
-      p90_ms: percentile(values, 0.90),
-      p99_ms: percentile(values, 0.99),
-    }))
+  const latencyPercentiles = CT_PROVIDERS
+    .map((provider) => {
+      const values = latencyByProvider.get(provider) || [];
+      const measurementState = values.length === 0
+        ? "not_measured"
+        : telemetryMeasurementState === "partial_coverage"
+          ? "partial_coverage"
+          : "measured";
+      return {
+        provider,
+        attempts: values.length,
+        measurement_state: measurementState,
+        message: values.length === 0
+          ? "No latency samples were measured for this provider."
+          : measurementState === "partial_coverage"
+            ? "Percentiles use the available samples; CT telemetry coverage is partial."
+            : "Percentiles use all measured CT attempts in the window.",
+        p50_ms: percentile(values, 0.50),
+        p90_ms: percentile(values, 0.90),
+        p99_ms: percentile(values, 0.99),
+      };
+    })
     .sort((a, b) => a.provider.localeCompare(b.provider));
 
   const providerOutcomesByScan = new Map();
@@ -139,25 +179,69 @@ export function analyzeCtProviderTelemetry(rows, {
     if (crtFailed && certspotterFailed) bothFailed += 1;
   }
 
+  const telemetryCoverageMessage = telemetryMeasurementState === "not_measured"
+    ? scans.size === 0
+      ? "No scans exist in the analysis window; CT telemetry coverage is not measured."
+      : "Scans exist, but none has CT provider telemetry."
+    : telemetryMeasurementState === "partial_coverage"
+      ? "CT provider telemetry exists for only part of the scan population."
+      : "CT provider telemetry covers every scan in the analysis window.";
+  const coFailureMeasurementState = bothAttempted === 0
+    ? "not_measured"
+    : telemetryMeasurementState;
+
   return {
     window_days: windowDays,
     window_start: new Date(windowStartMs).toISOString(),
     window_end: new Date(nowMs).toISOString(),
     completion: {
       scans: scans.size,
+      scans_total: scans.size,
       complete: completed,
       completion_loss: completionLoss,
+      telemetry_measurement_state: telemetryMeasurementState,
+      telemetry_coverage_pct: telemetryCoveragePct,
       completion_rate_pct: scans.size === 0
-        ? 0
+        ? null
         : Number(((completed / scans.size) * 100).toFixed(2)),
+      message: scans.size === 0
+        ? "Completion rate is not measured because no scans exist in the window."
+        : telemetryMeasurementState === "measured"
+          ? "Completion rate is shown with full CT telemetry coverage."
+          : `Completion rate is measured from scans, but provider attribution is ${telemetryMeasurementState}.`,
     },
-    failure_attribution: failureAttribution,
+    telemetry_coverage: {
+      measurement_state: telemetryMeasurementState,
+      message: telemetryCoverageMessage,
+      scans_total: scans.size,
+      scans_with_ct_telemetry: scansWithTelemetry.size,
+      scans_without_ct_telemetry: scansWithoutTelemetry,
+      telemetry_coverage_pct: telemetryCoveragePct,
+      completion_loss_total: completionLoss,
+      completion_loss_attributed: completionLossAttributed,
+      completion_loss_unattributed: completionLossUnattributed,
+    },
+    failure_attribution: {
+      measurement_state: telemetryMeasurementState,
+      message: telemetryMeasurementState === "not_measured"
+        ? "Provider failure attribution is not measured because no CT telemetry rows exist."
+        : telemetryMeasurementState === "partial_coverage"
+          ? "Provider failure attribution uses available rows; uncovered completion loss remains unattributed."
+          : "Provider failure attribution uses full CT telemetry coverage.",
+      rows: failureAttribution,
+    },
     latency_percentiles: latencyPercentiles,
     co_failure: {
+      measurement_state: coFailureMeasurementState,
+      message: bothAttempted === 0
+        ? "Co-failure is not measured because no scan attempted both providers."
+        : coFailureMeasurementState === "partial_coverage"
+          ? "Co-failure uses scans where both providers were measured; overall CT telemetry coverage is partial."
+          : "Co-failure uses all scans where both providers were measured.",
       scans_with_both_providers_attempted: bothAttempted,
       both_providers_failed: bothFailed,
       co_failure_rate_pct: bothAttempted === 0
-        ? 0
+        ? null
         : Number(((bothFailed / bothAttempted) * 100).toFixed(2)),
     },
   };

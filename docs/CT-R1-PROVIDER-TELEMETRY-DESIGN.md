@@ -27,8 +27,22 @@ provider promise. After canonical scan quality exists, the cache projects the
 attempts to their actual module consumers and marks impact only when the existing
 subdomain CT failure caused the existing incomplete contract.
 
-Rows are persisted per-row, best-effort, only after terminal R2+D1 finalization.
-There is no awaited D1 write in module execution.
+Rows are persisted per-row, best-effort, on both terminal paths: after a
+`completed` D1 status write and after a `failed` D1 status write. There is no
+awaited D1 write in module execution.
+
+One local `ctTelemetryPersistenceStarted` guard is set before snapshotting or
+writing the first row. This is deliberately local to one `runScanEngine`
+invocation: if a later post-finalization operation throws and enters the catch
+path after a completed finalize, the catch path observes the same guard and
+cannot write a second set. Setting it before the first write also prevents a
+partially failed best-effort batch from being retried into duplicate attribution.
+
+The engine retains only canonical module and scan-quality context that genuinely
+became available. A failure before either exists still persists the attempts,
+but `completeness_impact` remains false because causality cannot be established.
+The analyzer reports that completion loss as unattributed; it never guesses that
+a provider caused it.
 
 The frozen outcome vocabulary is:
 
@@ -62,6 +76,18 @@ attribution by provider and outcome, nearest-rank p50/p90/p99 physical-attempt
 latency, and both-provider co-failure rate. Duplicated consumer rows are
 deduplicated back to physical attempts for latency and co-failure analysis.
 
+The frozen measurement-state vocabulary is:
+
+`not_measured | partial_coverage | measured`
+
+Every zero-denominator rate and empty percentile sample is null with an explicit
+`not_measured` message, never a fabricated zero. Coverage is first-class:
+`scans_total`, `scans_with_ct_telemetry`, `scans_without_ct_telemetry`,
+`telemetry_coverage_pct`, `completion_loss_total`,
+`completion_loss_attributed`, and `completion_loss_unattributed`. The founder
+completion rate is presented beside its CT telemetry coverage state and
+percentage.
+
 ## Scope Boundaries
 
 CT-R1 includes no failover, retry, timeout, provider ordering, result cache,
@@ -81,3 +107,6 @@ founder gate. This PR authorizes no deployment.
 - A scan cancelled before terminal finalization cannot durably write CT telemetry;
   that preserves the observer-effect boundary and is a known CT-R1 measurement
   limitation.
+- Existing module telemetry also has only the completed-path persistence call.
+  That inherited PR-A1 gap is recorded for a separate focused follow-up and is
+  intentionally not changed by CT-R1.

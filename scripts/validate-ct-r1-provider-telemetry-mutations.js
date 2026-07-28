@@ -15,8 +15,8 @@ const engineValidator = path.join(
   root,
   "scripts/validate-ct-r1-provider-telemetry-engine-trace.js"
 );
-const EXPECTED_MUTANTS = 5;
-const EXPECTED_ASSERTIONS = 11;
+const EXPECTED_MUTANTS = 10;
+const EXPECTED_ASSERTIONS = 21;
 let mutantsKilled = 0;
 let mutantFailures = 0;
 let assertionsPassed = 0;
@@ -40,16 +40,17 @@ function replaceRequired(input, from, to, label) {
 function runMutant({
   name,
   sourceName,
+  sourcePath,
   validator,
   moduleEnv,
   mutate,
   extraEnv = {},
 }) {
   sequence += 1;
-  const sourceFile = path.join(engines, sourceName);
+  const sourceFile = sourcePath || path.join(engines, sourceName);
   const source = fs.readFileSync(sourceFile, "utf8");
   const mutantFile = path.join(
-    engines,
+    path.dirname(sourceFile),
     `.${sourceName.replace(/\.js$/, "")}.ct-r1-mutant.${process.pid}.${sequence}.js`
   );
   fs.writeFileSync(mutantFile, mutate(source));
@@ -70,6 +71,8 @@ function runMutant({
     else {
       mutantFailures += 1;
       console.error(`FAIL ${name}: mutant survived`);
+      if (child.stdout) console.error(child.stdout.trim());
+      if (child.stderr) console.error(child.stderr.trim());
     }
   } finally {
     fs.rmSync(mutantFile, { force: true });
@@ -82,29 +85,22 @@ runMutant({
   validator: engineValidator,
   moduleEnv: "CT_R1_SCAN_ENGINE_MODULE_URL",
   mutate: (source) => {
-    const writeBlock = `    await persistCtProviderTelemetry(
-      scanId,
-      ctCache.telemetrySnapshot({ modules, scanQuality }),
-      env
-    );
-`;
     const removed = replaceRequired(
       source,
-      writeBlock,
+      "    await persistCtTelemetryAfterTerminal();\n",
       "",
       "post-finalization CT write"
     );
     return replaceRequired(
       removed,
-      `      );
-    } catch (err) {`,
-      `      );
+      "    ctTelemetryModules = modules;\n",
+      `    ctTelemetryModules = modules;
       await persistCtProviderTelemetry(
         scanId,
         ctCache.telemetrySnapshot(),
         env
       );
-    } catch (err) {`,
+`,
       "budgeted module insertion point"
     );
   },
@@ -170,6 +166,86 @@ runMutant({
     `        outcome: timeoutFailure(err) ? "timeout" : "network_error",`,
     `        outcome: "network_error",`,
     "timeout outcome classification"
+  ),
+});
+
+runMutant({
+  name: "remove CT persistence from failed terminal path",
+  sourceName: "scan-engine.js",
+  validator: engineValidator,
+  moduleEnv: "CT_R1_SCAN_ENGINE_MODULE_URL",
+  mutate: (source) => replaceRequired(
+    source,
+    `    await finalizeScanResult(latch, {
+      scanId, report: failedReport, score: 0, rating: "unknown", status: "failed", env,
+    });
+    await persistCtTelemetryAfterTerminal();
+`,
+    `    await finalizeScanResult(latch, {
+      scanId, report: failedReport, score: 0, rating: "unknown", status: "failed", env,
+    });
+`,
+    "failed terminal CT persistence"
+  ),
+});
+
+runMutant({
+  name: "drop CT telemetry once-only guard",
+  sourceName: "scan-engine.js",
+  validator: engineValidator,
+  moduleEnv: "CT_R1_SCAN_ENGINE_MODULE_URL",
+  mutate: (source) => replaceRequired(
+    source,
+    `      ctTelemetryPersistenceStarted
+      || latch.d1Written !== true`,
+    `      latch.d1Written !== true`,
+    "once-only persistence guard"
+  ),
+});
+
+const analyzerSource = path.join(root, "scripts/analyze-ct-provider-telemetry.js");
+
+runMutant({
+  name: "report zero for unmeasured co-failure rate",
+  sourceName: "analyze-ct-provider-telemetry.js",
+  sourcePath: analyzerSource,
+  validator: fixtureValidator,
+  moduleEnv: "CT_R1_ANALYZER_MODULE_URL",
+  mutate: (source) => replaceRequired(
+    source,
+    `co_failure_rate_pct: bothAttempted === 0
+        ? null`,
+    `co_failure_rate_pct: bothAttempted === 0
+        ? 0`,
+    "co-failure no-data rate"
+  ),
+});
+
+runMutant({
+  name: "drop first-class CT telemetry coverage count",
+  sourceName: "analyze-ct-provider-telemetry.js",
+  sourcePath: analyzerSource,
+  validator: fixtureValidator,
+  moduleEnv: "CT_R1_ANALYZER_MODULE_URL",
+  mutate: (source) => replaceRequired(
+    source,
+    "      scans_with_ct_telemetry: scansWithTelemetry.size,\n",
+    "",
+    "coverage output field"
+  ),
+});
+
+runMutant({
+  name: "count unattributed completion loss as attributed",
+  sourceName: "analyze-ct-provider-telemetry.js",
+  sourcePath: analyzerSource,
+  validator: fixtureValidator,
+  moduleEnv: "CT_R1_ANALYZER_MODULE_URL",
+  mutate: (source) => replaceRequired(
+    source,
+    "  const completionLossAttributed = attributedCompletionLossScans.size;",
+    "  const completionLossAttributed = completionLoss;",
+    "attributed completion-loss count"
   ),
 });
 

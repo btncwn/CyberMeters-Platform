@@ -367,6 +367,41 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     remainingMs: () => deadline.remainingMs(),
     now,
   });
+  // CT-R1: terminal-only, once-only provider telemetry persistence. Set the
+  // guard before snapshotting/writing so a partial non-fatal D1 failure cannot
+  // be retried into duplicate attribution. The helper refuses to run until the
+  // terminal D1 status has landed, keeping all telemetry I/O outside the
+  // executable scan envelope on both completed and failed paths.
+  let ctTelemetryPersistenceStarted = false;
+  let ctTelemetryModules = null;
+  let ctTelemetryScanQuality = null;
+  const persistCtTelemetryAfterTerminal = async () => {
+    if (
+      ctTelemetryPersistenceStarted
+      || latch.d1Written !== true
+      || (latch.status !== "completed" && latch.status !== "failed")
+    ) return false;
+
+    ctTelemetryPersistenceStarted = true;
+    try {
+      // A failure can occur before the canonical module/quality context exists.
+      // telemetrySnapshot then records genuine attempts but leaves
+      // completeness_impact false; downstream analysis reports the associated
+      // completion loss as unattributed rather than fabricating causality.
+      const completenessContextAvailable =
+        ctTelemetryModules !== null && ctTelemetryScanQuality !== null;
+      const rows = ctCache.telemetrySnapshot({
+        modules: completenessContextAvailable ? ctTelemetryModules : {},
+        scanQuality: completenessContextAvailable ? ctTelemetryScanQuality : null,
+      });
+      await persistCtProviderTelemetry(scanId, rows, env);
+      return true;
+    } catch {
+      // Telemetry is observational: snapshot or persistence failures must never
+      // change a scan's already-durable terminal state.
+      return false;
+    }
+  };
   const createChildSignal = () => {
     const controller = new AbortController();
     if (deadline.signal?.aborted) controller.abort(deadline.signal.reason);
@@ -725,6 +760,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // so brand findings are included in the scored findings array.
       brand_monitoring:          runTyposquatModule(domain),
     };
+    ctTelemetryModules = modules;
     // Heartbeat: discovery + exposure done. An orphan cancelled after this point
     // died in scoring/enrichment/finalization, not discovery.
     await heartbeatScan(env, scanId, "discovery_complete", telemetry.rows.filter((r) => r.outcome === "ok").length);
@@ -1324,6 +1360,7 @@ function buildCanonicalUrlProfile(modules) {
     // Cloudflare Worker free-plan 50-subrequest limit.
     modules.scan_budget = computeScanBudget(bruteforceResult.checked);
     const scanQuality = buildScanQuality(modules);
+    ctTelemetryScanQuality = scanQuality;
     // PR-5.4: backend-owned within-scan monitoring truth. Reuse the SAME
     // per-provider snapshot that is written into execution diagnostics; no new
     // provider call, probe, scan-quality rule or scoring input is introduced.
@@ -1480,11 +1517,7 @@ function buildCanonicalUrlProfile(modules) {
     // Persist per-module telemetry (non-fatal; after the terminal status is written
     // so a telemetry failure can never leave the scan 'running').
     await persistModuleTelemetry(scanId, telemetry, env);
-    await persistCtProviderTelemetry(
-      scanId,
-      ctCache.telemetrySnapshot({ modules, scanQuality }),
-      env
-    );
+    await persistCtTelemetryAfterTerminal();
 
     // Shared by the 091 state persistence below AND the M5.c snapshot build
     // (Phase 8o): both must resolve the eight domains from the SAME Cyber
@@ -2009,7 +2042,10 @@ function buildCanonicalUrlProfile(modules) {
     // If a terminal state was already DURABLY finalized (completed or partial), a
     // later error — e.g. a post-completion persistence phase throwing — must NEVER
     // downgrade it. Refuse to touch it.
-    if (latch.state === "finalized") return;
+    if (latch.state === "finalized") {
+      await persistCtTelemetryAfterTerminal();
+      return;
+    }
 
     // Otherwise the scan is NOT durably finalized (finalization never started, or a
     // first attempt failed partway). Route through the same downgrade-safe finalize:
@@ -2044,6 +2080,7 @@ function buildCanonicalUrlProfile(modules) {
     await finalizeScanResult(latch, {
       scanId, report: failedReport, score: 0, rating: "unknown", status: "failed", env,
     });
+    await persistCtTelemetryAfterTerminal();
 
     // Clean outcome: durably finalized as completed (original or recovered) → no
     // failure audit needed. Otherwise emit an auditable event for the terminal state:
