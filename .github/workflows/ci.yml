@@ -593,6 +593,17 @@ jobs:
       - name: Validate HTTPS observation deadline + lifecycle non-progression (pinned mutants)
         run: node scripts/validate-https-observation-deadline-lifecycle.js
 
+      # PR-A2 — the same root class as PR-A1, one field over. A Cloudflare-synthesised
+      # 520–527/530 on http:// used to set http_redirect_validated=true, so scoring
+      # published the DEFINITIVE medium "HTTP Does Not Redirect to HTTPS" (-5) about an
+      # origin nobody ever reached. The shared classifier now gates the initial hop AND
+      # every follow-on hop; a genuine origin that truly does not redirect still fires.
+      - name: Validate HTTP redirect observation honesty (edge/timeout never validates a redirect verdict)
+        run: node scripts/validate-http-redirect-observation-honesty.js
+
+      - name: Validate HTTP redirect engine trace + lifecycle non-progression (pinned mutants)
+        run: node scripts/validate-http-redirect-engine-lifecycle.js
+
       - name: Validate SSL concurrent CT lookup (reachability ∥ crt.sh/certspotter — max not sum, evidence preserved)
         run: node scripts/validate-ssl-concurrent-ct.js
 
