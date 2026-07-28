@@ -57,6 +57,31 @@ function AlertSeverityBar({ level }) {
   return <span className={`inline-block w-1 self-stretch rounded-full flex-shrink-0 ${cls}`} />
 }
 
+function brsUnavailablePresentation(ranking) {
+  if (ranking.brs_state === 'latest_incomplete') {
+    return {
+      label: ranking.last_complete_assessment ? 'Latest incomplete' : 'Incomplete',
+      detail: ranking.brs_state_reason || 'The latest assessment is incomplete, so no current Business Risk Score is available.',
+    }
+  }
+  if (ranking.brs_state === 'basis_unproven') {
+    return {
+      label: 'Basis unproven',
+      detail: ranking.brs_state_reason || 'The stored Business Risk Score basis cannot be proven complete.',
+    }
+  }
+  if (ranking.brs_state === 'current_not_assessed') {
+    return {
+      label: 'Current score unavailable',
+      detail: ranking.brs_state_reason || 'The latest complete assessment did not produce a proven current Business Risk Score.',
+    }
+  }
+  return {
+    label: 'Not assessed',
+    detail: ranking.brs_state_reason || 'A complete assessment has not established a Business Risk Score yet.',
+  }
+}
+
 // ── Sub-sections ──────────────────────────────────────────────────────────────
 
 function PortfolioScoreRing({ score, band }) {
@@ -104,7 +129,9 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-50">
-          {rankings.map((r, i) => (
+          {rankings.map((r, i) => {
+            const unavailableBrs = brsUnavailablePresentation(r)
+            return (
             <tr key={r.workspace_id} className="hover:bg-gray-50 transition-colors">
               <td className="py-2.5 pr-2 text-gray-300 text-xs font-medium">{i + 1}</td>
               <td className="py-2.5 pr-4">
@@ -123,8 +150,8 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
                     <span className="text-gray-400 text-xs">/100</span>
                   </>
                 ) : (
-                  <span className="text-gray-400 text-sm" title="No completed assessment for this customer environment yet">
-                    Not assessed
+                  <span className="text-gray-400 text-sm" title={unavailableBrs.detail}>
+                    {unavailableBrs.label}
                   </span>
                 )}
               </td>
@@ -151,7 +178,8 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
                 </button>
               </td>
             </tr>
-          ))}
+            )
+          })}
         </tbody>
       </table>
     </div>

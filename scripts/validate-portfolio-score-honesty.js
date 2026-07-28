@@ -80,6 +80,27 @@ function makeEnv(db, writeLog) {
   };
 }
 
+function seedProvenBrs(db, { workspaceId, ownerId, score, riskBand = "fixture" }) {
+  const domainId = `domain-${workspaceId}`;
+  const scanId = `scan-${workspaceId}`;
+  db.prepare("INSERT INTO domains (id,user_id,domain) VALUES (?,?,?)")
+    .run(domainId, ownerId, `${workspaceId}.example.com`);
+  db.prepare(`
+    INSERT INTO scans (id,workspace_id,domain_id,domain,status,scan_quality,created_at)
+    VALUES (?,?,?,?,'completed','complete',datetime('now'))
+  `).run(scanId, workspaceId, domainId, `${workspaceId}.example.com`);
+  db.prepare(`
+    INSERT INTO workspace_brs_scores
+      (workspace_id,score,risk_band,calculated_at,payload_json)
+    VALUES (?,?,?,datetime('now'),?)
+  `).run(workspaceId, score, riskBand, JSON.stringify({
+    basis_contract: "complete_scan/v1",
+    score,
+    risk_band: riskBand,
+    basis_scan: { scan_id: scanId, status: "completed", scan_quality: "complete" },
+  }));
+}
+
 // Same exception list as validate-portfolio-read-purity: rate limiting and session
 // liveness are cross-cutting platform writes, not this route's domain writes.
 const INFRA_WRITE = /^\s*(insert\s+into|update|replace\s+into)\s+(api_rate_limits|user_sessions)\b/i;
@@ -208,7 +229,7 @@ async function main() {
   // ── CASE 3: partial data ───────────────────────────────────────────────────
   // One of two scored, and scored HIGH. The average is 90 — presenting that as the
   // portfolio score lets the unassessed customer silently flatter the verdict.
-  db.prepare("INSERT INTO workspace_brs_scores (workspace_id,score,risk_band,calculated_at) VALUES ('w1',90,'low',datetime('now'))").run();
+  seedProvenBrs(db, { workspaceId: "w1", ownerId: "uA", score: 90, riskBand: "low" });
   const partial = await call();
   ok("partial: score reflects only the assessed environments", partial.data?.portfolio_score === 90, String(partial.data?.portfolio_score));
   ok("partial: state is partial", partial.data?.portfolio_score_state === "partial", partial.data?.portfolio_score_state);
@@ -230,7 +251,7 @@ async function main() {
      partial.data?.executive_summary);
 
   // ── CASE 4: full data ──────────────────────────────────────────────────────
-  db.prepare("INSERT INTO workspace_brs_scores (workspace_id,score,risk_band,calculated_at) VALUES ('w2',30,'high',datetime('now'))").run();
+  seedProvenBrs(db, { workspaceId: "w2", ownerId: "uA", score: 30, riskBand: "high" });
   const full = await call();
   ok("available: state is available", full.data?.portfolio_score_state === "available", full.data?.portfolio_score_state);
   ok("available: score is the mean of both (90+30)/2 = 60", full.data?.portfolio_score === 60, String(full.data?.portfolio_score));
@@ -263,7 +284,7 @@ async function main() {
     d2.prepare("INSERT INTO subscriptions (id,owner_user_id,plan,subscription_status,current_period_end,created_at) VALUES ('sb','u','business','active',datetime('now','+30 days'),datetime('now'))").run();
     d2.prepare("INSERT INTO workspaces (id,owner_user_id,name) VALUES ('w','u','W')").run();
     d2.prepare("INSERT INTO workspace_members (id,workspace_id,user_id,role) VALUES ('m','w','u','admin')").run();
-    d2.prepare("INSERT INTO workspace_brs_scores (workspace_id,score,risk_band,calculated_at) VALUES ('w',?,'x',datetime('now'))").run(score);
+    seedProvenBrs(d2, { workspaceId: "w", ownerId: "u", score, riskBand: "x" });
     const res = await worker.fetch(new Request("https://api.cybermeters.com/api/portfolio/risk", { headers: { Authorization: `Bearer ${t}` } }), e2, ctx);
     return (await res.json()).portfolio_score_band;
   };

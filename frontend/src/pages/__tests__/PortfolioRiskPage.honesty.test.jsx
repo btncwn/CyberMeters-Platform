@@ -171,6 +171,43 @@ describe('PortfolioRiskPage — absent evidence must not render as a verdict', (
       await waitFor(() => expect(screen.getByText('low')).toHaveClass('badge-low'))
       expect(bodyText()).toMatch(/90\/100/)
     })
+
+    it('distinguishes latest-incomplete historical evidence from never assessed', async () => {
+      await renderPage({
+        ...withRows,
+        risk_rankings: [
+          {
+            workspace_id: 'w1',
+            workspace_name: 'Latest Incomplete Ltd',
+            brs_score: null,
+            risk_band: 'unknown',
+            brs_state: 'latest_incomplete',
+            brs_state_reason: 'The latest assessment was partial, so the last complete score is historical evidence only.',
+            last_complete_assessment: { score: 70, historical: true },
+            supply_chain_score: null,
+            spof_count: 0,
+            trend: 'no_data',
+          },
+          {
+            workspace_id: 'w2',
+            workspace_name: 'Never Assessed Ltd',
+            brs_score: null,
+            risk_band: 'unknown',
+            brs_state: 'not_assessed',
+            brs_state_reason: 'Business Risk Score is unavailable until a complete assessment finishes.',
+            last_complete_assessment: null,
+            supply_chain_score: null,
+            spof_count: 0,
+            trend: 'no_data',
+          },
+        ],
+      })
+      const latest = await screen.findByText('Latest incomplete')
+      const never = screen.getByText('Not assessed')
+      expect(latest).toHaveAttribute('title', expect.stringMatching(/last complete score is historical/i))
+      expect(never).toHaveAttribute('title', expect.stringMatching(/until a complete assessment finishes/i))
+      expect(latest.getAttribute('title')).not.toBe(never.getAttribute('title'))
+    })
   })
 
   describe('non-finite score (defensive — `!= null` let NaN through)', () => {

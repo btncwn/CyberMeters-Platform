@@ -131,6 +131,8 @@ export default function WorkspaceBusinessRiskPage() {
     BRS:    t.brs_score,
     ASM:    t.asm_score,
   }))
+  const currentAssessed = data?.state === 'assessed'
+  const lastComplete = data?.last_complete_assessment ?? null
 
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error?.error === 'plan_feature_required' ? null : error?.message} onRetry={load}>
@@ -170,26 +172,65 @@ export default function WorkspaceBusinessRiskPage() {
         ) : data ? (
           <div className="space-y-5">
 
-            {/* Grade + Narrative */}
+            {/* Current assessment */}
             <div className="card p-6">
               <div className="flex flex-col md:flex-row md:items-start gap-6">
-                <GradeBadge grade={data.grade} label={data.band ?? data.grade_label} score={data.score ?? data.brs} />
+                {currentAssessed ? (
+                  <GradeBadge grade={data.grade} label={data.band ?? data.grade_label} score={data.score ?? data.brs} />
+                ) : (
+                  <div className="inline-flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-6 py-5 text-amber-800">
+                    <AlertTriangle className="w-7 h-7 flex-shrink-0" />
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-widest opacity-60">Current assessment</p>
+                      <p className="text-xl font-bold">Business Risk Score unavailable</p>
+                      <p className="text-sm opacity-80">No current grade or risk band is shown.</p>
+                    </div>
+                  </div>
+                )}
                 <div className="flex-1">
                   <p className="text-sm text-gray-700 leading-relaxed mb-4">
-                    {typeof data.summary === 'string' ? data.summary : data.narrative}
+                    {data.state_reason ?? (typeof data.summary === 'string' ? data.summary : data.narrative)}
                   </p>
-                  {data.latest_scan && (
+                  {data.current_assessment && (
                     <div className="text-xs text-gray-400 space-y-0.5">
-                      <p>ASM Score: <span className="font-semibold text-gray-600">{data.latest_scan.asm_score} ({data.latest_scan.asm_rating})</span></p>
-                      <p>Last scan: <span className="font-semibold text-gray-600">{parseServerDate(data.latest_scan.scanned_at).toLocaleString()}</span></p>
+                      <p>Latest assessment quality: <span className="font-semibold text-gray-600">{data.current_assessment.scan_quality}</span></p>
+                      <p>
+                        {data.current_assessment.assessed_at ? 'Latest assessment' : 'Latest scan started'}:{' '}
+                        <span className="font-semibold text-gray-600">
+                          {(data.current_assessment.assessed_at ?? data.current_assessment.scan_started_at)
+                            ? parseServerDate(data.current_assessment.assessed_at ?? data.current_assessment.scan_started_at).toLocaleString()
+                            : 'timestamp unavailable'}
+                        </span>
+                      </p>
+                      <p>Latest scan ID: <span className="font-mono text-gray-600">{data.current_assessment.scan_id}</span></p>
                     </div>
                   )}
                 </div>
               </div>
             </div>
 
+            {!currentAssessed && lastComplete && (
+              <div className="card p-6 border border-blue-100 bg-blue-50/40">
+                <p className="text-xs font-semibold uppercase tracking-widest text-blue-500 mb-2">Historical evidence</p>
+                <h2 className="text-sm font-semibold text-gray-900 mb-2">Last complete Business Risk Score</h2>
+                <p className="text-2xl font-bold text-gray-900">
+                  {lastComplete.score}<span className="text-sm font-normal text-gray-400">/100</span>
+                  <span className="ml-3 text-sm font-semibold text-gray-600">
+                    Grade {lastComplete.grade} · {lastComplete.risk_band}
+                  </span>
+                </p>
+                <p className="text-xs text-gray-500 mt-3">
+                  Historical/stale — basis scan <span className="font-mono">{lastComplete.basis_scan?.scan_id}</span>
+                  {' · '}
+                  {lastComplete.basis_scan?.assessed_at
+                    ? parseServerDate(lastComplete.basis_scan.assessed_at).toLocaleString()
+                    : 'timestamp unavailable'}
+                </p>
+              </div>
+            )}
+
             {/* Top Business Risks */}
-            {(data.top_business_risks ?? data.top_concerns ?? []).length > 0 && (
+            {currentAssessed && (data.top_business_risks ?? data.top_concerns ?? []).length > 0 && (
               <div className="card p-6">
                 <h2 className="text-sm font-semibold text-gray-900 mb-4">Top Business Risks</h2>
                 <div className="space-y-3">
@@ -219,7 +260,7 @@ export default function WorkspaceBusinessRiskPage() {
             )}
 
             {/* Category Breakdown */}
-            <div className="card p-6">
+            {currentAssessed && <div className="card p-6">
               <h2 className="text-sm font-semibold text-gray-900 mb-2">Category Breakdown</h2>
               <p className="text-xs text-gray-400 mb-4">
                 BRS = (Email Trust 25%) + (Website Trust 20%) + (Operational Continuity 20%) + (Attack Surface 20%) + (Brand Risk 15%)
@@ -235,10 +276,10 @@ export default function WorkspaceBusinessRiskPage() {
                   />
                 ))}
               </div>
-            </div>
+            </div>}
 
             {/* Workspace Context */}
-            <div className="card p-6">
+            {currentAssessed && <div className="card p-6">
               <h2 className="text-sm font-semibold text-gray-900 mb-4">Workspace Intelligence</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div className="rounded-lg bg-gray-50 px-4 py-3">
@@ -264,7 +305,7 @@ export default function WorkspaceBusinessRiskPage() {
                   </p>
                 </div>
               </div>
-            </div>
+            </div>}
 
             {/* Trend chart */}
             {trendData.length > 1 && (

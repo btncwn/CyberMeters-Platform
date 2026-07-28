@@ -358,6 +358,7 @@ async function checkBusinessRiskBehaviourAndMigration094() {
   ok("E: GET /business-risk performs no domain writes when absent", domainWrites(none.writes).length === 0, domainWrites(none.writes).join(" | "));
 
   const persistedPayload = {
+    basis_contract: "complete_scan/v1",
     score: 64,
     brs: 64,
     risk_band: "moderate",
@@ -366,14 +367,19 @@ async function checkBusinessRiskBehaviourAndMigration094() {
     grade_label: "moderate",
     narrative: "Persisted canonical payload.",
     top_concerns: [{ title: "Concern" }],
-    latest_scan: { scan_id: "scan1" },
+    basis_scan: {
+      scan_id: "scan1", status: "completed", scan_quality: "complete",
+      assessed_at: "2026-07-17T12:00:00Z", scan_started_at: "2026-07-17T11:59:00Z",
+    },
     workspace_context: { asset_count: 2 },
     calculated_at: "2026-07-17T12:00:00Z",
   };
   db.prepare("INSERT INTO workspace_brs_scores (workspace_id, score, risk_band, calculated_at, payload_json) VALUES (?, ?, ?, ?, ?)")
     .run(workspace, 64, "moderate", "2026-07-17T12:00:00Z", JSON.stringify(persistedPayload));
   db.prepare("INSERT INTO domains (id, user_id, domain) VALUES ('dom1', 'u_owner', 'example.com')").run();
-  db.prepare("INSERT INTO historical_scores (id, workspace_id, domain_id, scan_id, domain, score, rating, brs_score, created_at) VALUES ('hs1', ?, 'dom1', 'scan1', 'example.com', 80, 'good', 64, '2026-07-17T12:00:00Z')")
+  db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, score, rating, status, scan_quality, created_at) VALUES ('scan1', ?, 'dom1', 'example.com', 80, 'good', 'completed', 'complete', '2026-07-17T11:59:00Z')")
+    .run(workspace);
+  db.prepare("INSERT INTO historical_scores (id, workspace_id, domain_id, scan_id, domain, score, rating, brs_score, scan_quality, created_at) VALUES ('hs1', ?, 'dom1', 'scan1', 'example.com', 80, 'good', 64, 'complete', '2026-07-17T12:00:00Z')")
     .run(workspace);
   const withPayload = await call();
   eq("E: persisted payload is served, not recomputed", withPayload.data.narrative, persistedPayload.narrative);
@@ -381,11 +387,11 @@ async function checkBusinessRiskBehaviourAndMigration094() {
   ok("E: GET /business-risk performs no domain writes when payload exists", domainWrites(withPayload.writes).length === 0, domainWrites(withPayload.writes).join(" | "));
 
   const brsRoute = getSource("workers/scan-api/src/routes/workspace-analytics.js");
-  ok("E: GET /business-risk selects payload_json", /SELECT score, risk_band, calculated_at, payload_json/.test(brsRoute));
+  const brsEngine = getSource("workers/scan-api/src/engines/business-risk.js");
+  ok("E: canonical BRS reader selects payload_json", /SELECT workspace_id, score, risk_band, calculated_at, payload_json/.test(brsEngine));
   ok("E: GET /business-risk does not call computeAndPersistWorkspaceBrs", !/computeAndPersistWorkspaceBrs\s*\(/.test(brsRoute));
   ok("E: GET /business-risk does not update/insert workspace_brs_scores", !/INSERT OR REPLACE INTO workspace_brs_scores|UPDATE workspace_brs_scores/.test(brsRoute));
 
-  const brsEngine = getSource("workers/scan-api/src/engines/business-risk.js");
   ok("E: finalize producer persists current payload_json", /INSERT OR REPLACE INTO workspace_brs_scores[\s\S]{0,220}payload_json/.test(brsEngine));
   ok("E: finalize producer appends history row after same calculation", /INSERT INTO workspace_brs_score_history/.test(brsEngine) && /JSON\.stringify\(payload\)/.test(brsEngine));
 
@@ -423,7 +429,12 @@ async function checkMspParity() {
   db.prepare("INSERT INTO users (id,email,name,plan,status,email_verified,mfa_enabled) VALUES ('msp','msp@example.com','MSP','business','active',1,0)").run();
   db.prepare("INSERT INTO workspaces (id,name,owner_user_id,created_at,updated_at) VALUES ('w1','Alpha','msp',datetime('now'),datetime('now'))").run();
   db.prepare("INSERT INTO workspaces (id,name,owner_user_id,created_at,updated_at) VALUES ('w2','Beta','msp',datetime('now'),datetime('now'))").run();
-  db.prepare("INSERT INTO workspace_brs_scores (workspace_id, score, risk_band, calculated_at) VALUES ('w1', 90, 'low', datetime('now'))").run();
+  db.prepare("INSERT INTO domains (id,user_id,domain) VALUES ('dom','msp','example.com')").run();
+  db.prepare("INSERT INTO scans (id,workspace_id,domain_id,domain,status,scan_quality,created_at) VALUES ('w1-scan','w1','dom','example.com','completed','complete',datetime('now'))").run();
+  db.prepare("INSERT INTO workspace_brs_scores (workspace_id, score, risk_band, calculated_at, payload_json) VALUES ('w1', 90, 'low', datetime('now'), ?)").run(JSON.stringify({
+    basis_contract: "complete_scan/v1", score: 90, risk_band: "low", grade: "A",
+    basis_scan: { scan_id: "w1-scan", status: "completed", scan_quality: "complete" },
+  }));
   const env = makeEnv(db, []);
   const portfolio = await computePortfolioRisk(["w1", "w2"], env);
   eq("F: partial MSP portfolio average excludes unassessed workspace", portfolio.portfolio_score, 90);
@@ -565,8 +576,8 @@ const MUTATIONS = [
   {
     name: "failed query → clean zero",
     file: "workers/scan-api/src/engines/portfolio-risk.js",
-    mutate: (s) => s.replace("const brsMap = {};", "const brsMap = {}; if (brsRes.status === 'rejected') brsMap.__failed = { score: 0 };"),
-    expect: () => /brsMap\.__failed/.test(getSource("workers/scan-api/src/engines/portfolio-risk.js")) ? "failed portfolio query converted into zero" : null,
+    mutate: (s) => s.replace("const brsMap = brsRes.status === 'fulfilled' ? brsRes.value : new Map();", "const brsMap = brsRes.status === 'fulfilled' ? brsRes.value : new Map([['__failed', { score: 0 }]]);"),
+    expect: () => /new Map\(\[\['__failed', \{ score: 0 \}\]\]\)/.test(getSource("workers/scan-api/src/engines/portfolio-risk.js")) ? "failed portfolio query converted into zero" : null,
   },
   {
     name: "portfolio executive summary drops degraded query state",
@@ -607,7 +618,7 @@ const MUTATIONS = [
   {
     name: "restore /business-risk write-on-read",
     file: "workers/scan-api/src/routes/workspace-analytics.js",
-    mutate: (s) => s.replace("return json({ ...payload, workspace_name: ws.name, state: \"assessed\", trend });", "await env.cybermeters_db.prepare('INSERT INTO workspace_brs_score_history (id, workspace_id, score) VALUES (?,?,?)').bind('x', wsId, payload.score).run(); return json({ ...payload, workspace_name: ws.name, state: \"assessed\", trend });"),
+    mutate: (s) => s.replace("return json({ ...assessment, workspace_name: ws.name, trend });", "await env.cybermeters_db.prepare('INSERT INTO workspace_brs_score_history (id, workspace_id, score) VALUES (?,?,?)').bind('x', wsId, assessment.score).run(); return json({ ...assessment, workspace_name: ws.name, trend });"),
     expect: () => /INSERT INTO workspace_brs_score_history/.test(getSource("workers/scan-api/src/routes/workspace-analytics.js")) ? "GET /business-risk writes on read" : null,
   },
   {

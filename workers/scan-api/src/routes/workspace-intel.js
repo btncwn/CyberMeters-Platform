@@ -191,9 +191,9 @@ export async function workspaceIntelRoutes(rctx) {
     }
 
     // GET /api/workspaces/:id/supply-chain
-    //   Returns the latest supply chain intelligence for the workspace.
-    //   Computed post-scan (Phase 8i) and read from workspace_supply_chain_scores.
-    //   Falls back to on-demand computation if no persisted row exists.
+    //   Returns supply chain intelligence projected against the current
+    //   canonical BRS assessment. A legacy persisted composite cannot be
+    //   returned directly because its complete BRS basis may be unprovable.
     //   Returns: { supply_chain_score, operational_resilience_score, concentration_level,
     //              critical_vendor_count, tier1_count, tier2_count, tier3_count, spof_count,
     //              critical_vendors, dependency_graph, cascading_risks, concentration,
@@ -214,19 +214,9 @@ export async function workspaceIntelRoutes(rctx) {
       }
 
       try {
-        // Try reading from persisted score first
-        const persisted = await env.cybermeters_db
-          .prepare('SELECT payload_json FROM workspace_supply_chain_scores WHERE workspace_id = ?')
-          .bind(wsId)
-          .first();
-
-        if (persisted?.payload_json) {
-          try {
-            return json(JSON.parse(persisted.payload_json));
-          } catch { /* fall through to on-demand */ }
-        }
-
-        // On-demand computation (no scan has run yet or table not migrated)
+        // Recompute the read projection from D1-only sibling evidence and the
+        // canonical BRS resolver. This masks pre-contract persisted numbers as
+        // soon as their BRS basis becomes incomplete or unprovable.
         const payload = await computeSupplyChainIntelligence(wsId, env);
         if (!payload) return json({ error: 'No supply chain data available. Run a scan first.' }, 404);
         return json(payload);
