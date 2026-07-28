@@ -257,7 +257,18 @@ export function computeScore(modules, domain) {
     //    (Google Front End, Cloudflare Workers, etc.) that respond differently to
     //    scanner IPs than to real browsers.  We cannot confirm plaintext HTTP
     //    remains accessible, so we must not generate a scored finding.
-    const redirectValidated       = modules.ssl?.http_redirect_chain?.http_redirect_validated !== false;
+    // PR-A2: the DEFINITIVE "HTTP Does Not Redirect to HTTPS" verdict (medium,
+    // score_impact -5) requires POSITIVE origin evidence, not merely the absence of
+    // an explicit false. `!== false` treated a missing field as validated, so any
+    // producer that failed to set it — or a Cloudflare edge Response, which used to
+    // set it TRUE — reached the definitive branch. The redirect chain now carries an
+    // observation state from the shared classifier; a verdict is only sayable when
+    // the initial hop was a genuine origin_response.
+    const redirectChain           = modules.ssl?.http_redirect_chain;
+    const redirectObservation     = redirectChain?.observation_state;
+    const redirectValidated       = redirectObservation
+      ? redirectObservation === "origin_response"
+      : redirectChain?.http_redirect_validated !== false;   // legacy reports (no state)
     const headersFinalHttps       = modules.headers?.final_https !== false;
     const enterpriseEdgeUncertain = ENTERPRISE_DOMAINS.has(domain)
       && redirectValidated

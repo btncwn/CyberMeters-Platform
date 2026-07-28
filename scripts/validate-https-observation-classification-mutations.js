@@ -166,8 +166,11 @@ const MUTATIONS = [
     // publish "Assessed — no material issue observed".
     name: "M7 module incompleteness is gated on probe EXECUTION again, not on evidence",
     target: SSL,
-    from: "    ...(httpsAvailable === true ? {} : {\n      incomplete: true,",
-    to:   "    ...(httpsProbeExecuted ? {} : {\n      incomplete: true,",
+    // PR-A2 re-point: the gate now also requires observed redirect evidence
+    // (`httpsAvailable === true && redirectEvidenceObserved`). Re-gating it on mere
+    // probe EXECUTION must still be caught.
+    from: "    ...((httpsAvailable === true && redirectEvidenceObserved) ? {} : {",
+    to:   "    ...((httpsProbeExecuted) ? {} : {",
     check: async (mod) => {
       const m = await sslWith(mod, async () => edgeResponse(522));
       return m.incomplete !== true;   // edge error would stop marking the module incomplete

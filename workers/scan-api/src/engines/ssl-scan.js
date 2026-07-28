@@ -237,23 +237,41 @@ export async function runSslModule(domain, opts = {}) {
   const httpOrigUrl = `http://${domain}`;
   const httpRes = await safeFetch(httpOrigUrl, { method: "HEAD", redirect: "manual", accounting });
   let httpRedirectsToHttps = false;
-  // http_redirect_validated starts false — only set true when safeFetch returns a
-  // response (not null).  A null response means the fetch was blocked or timed out
-  // (geo-routing, bot protection, firewall) and we cannot draw conclusions about
-  // redirect behaviour.  The scoring engine skips ssl_no_http_redirect when this
-  // stays false to avoid false positives on enterprise edge deployments.
+
+  // PR-A2 — the redirect chain is classified by the SAME shared observation
+  // classifier as the HTTPS probe (lib/fetch-observation.js), on the initial hop
+  // AND on every follow-on hop.
+  //
+  // `http_redirect_validated` used to be set true whenever safeFetch returned a
+  // non-null Response. A Cloudflare-synthesised 520–527/530 IS a non-null Response,
+  // so the chain was marked *validated* on evidence that never reached the
+  // customer's origin, and scoring.js then took its DEFINITIVE branch:
+  // "HTTP Does Not Redirect to HTTPS", medium, score_impact -5 — a verdict about a
+  // server nobody ever spoke to. This is the same root class as PR-A1, one field
+  // over: probe execution read as evidence completion.
+  //
+  // Validation now requires a GENUINE ORIGIN response. Anything else — edge error,
+  // timeout, refusal, block — is honestly "not observed", exactly as a null
+  // response already was.
+  const httpObservation = classifyFetchObservation({ response: httpRes });
+  const redirectHops = [{
+    hop:           1,
+    url:           httpOrigUrl,
+    state:         httpObservation.state,
+    reason:        httpObservation.reason,
+    origin_status: httpObservation.origin_status,
+  }];
+  const redirectEvidenceObserved = httpObservation.transport_observed === true;
+
   let http_redirect_chain = {
     original_url:            httpOrigUrl,
     final_url:               null,
     redirect_count:          0,
-    http_redirect_validated: false,
+    http_redirect_validated: redirectEvidenceObserved,
   };
 
-  if (httpRes) {
-    // We got a response — the chain is at least partially observable.
-    http_redirect_chain.http_redirect_validated = true;
-
-    const status1 = httpRes.status;
+  if (redirectEvidenceObserved) {
+    const status1 = httpObservation.origin_status;
     const rawLoc1 = httpRes.headers.get("location") || "";
     if ([301, 302, 307, 308].includes(status1) && rawLoc1) {
       let loc1;
@@ -264,13 +282,24 @@ export async function runSslModule(domain, opts = {}) {
         httpRedirectsToHttps = true;
         http_redirect_chain = { original_url: httpOrigUrl, final_url: loc1, redirect_count: 1, http_redirect_validated: true };
       } else {
-        // First hop stayed on HTTP — follow one more hop to catch http→http→https
+        // First hop stayed on HTTP — follow one more hop to catch http→http→https.
+        // The second hop is classified too: a chain that ends in a Cloudflare edge
+        // error has not been observed to reach HTTPS, and must not be read as one
+        // that has.
         const hop2 = await safeFetch(loc1, { method: "HEAD", redirect: "manual", accounting });
-        if (hop2) {
+        const hop2Observation = classifyFetchObservation({ response: hop2 });
+        redirectHops.push({
+          hop:           2,
+          url:           loc1,
+          state:         hop2Observation.state,
+          reason:        hop2Observation.reason,
+          origin_status: hop2Observation.origin_status,
+        });
+        if (hop2Observation.transport_observed === true) {
           const rawLoc2 = hop2.headers.get("location") || "";
           let loc2;
           try { loc2 = new URL(rawLoc2, loc1).href; } catch { loc2 = rawLoc2; }
-          if ([301, 302, 307, 308].includes(hop2.status) && loc2.startsWith("https://")) {
+          if ([301, 302, 307, 308].includes(hop2Observation.origin_status) && loc2.startsWith("https://")) {
             httpRedirectsToHttps = true;
             http_redirect_chain = { original_url: httpOrigUrl, final_url: loc2, redirect_count: 2, http_redirect_validated: true };
           }
@@ -278,6 +307,13 @@ export async function runSslModule(domain, opts = {}) {
       }
     }
   }
+  // Additive observation metadata + bounded per-hop provenance (≤ 2 hops, matching
+  // the chain depth this module follows). Nothing below reads these yet; they exist
+  // so a consumer never has to infer WHY a redirect verdict was withheld.
+  http_redirect_chain.observation_state  = httpObservation.state;
+  http_redirect_chain.observation_reason = httpObservation.reason;
+  http_redirect_chain.observation_completeness = httpObservation.completeness;
+  http_redirect_chain.hop_observations   = redirectHops;
 
   // ── SSL Certificate Expiry (via Certificate Transparency) ───────────────────
   // Resolved concurrently with the reachability probes above (launched at the top
@@ -332,13 +368,25 @@ export async function runSslModule(domain, opts = {}) {
     //                                 preserved so existing consumers are unchanged)
     //   https_origin_not_observed   — a Cloudflare edge Response, no origin answer
     //   https_transport_unavailable — the probe ran and observed no transport
-    ...(httpsAvailable === true ? {} : {
+    //
+    // PR-A2 adds the REDIRECT signal to the same canonical channel. If the HTTP
+    // probe never reached the origin, the redirect verdict is withheld — and a
+    // withheld verdict must not read as a FIXED redirect. Without this, the
+    // definitive finding simply stops being produced, and on an otherwise complete
+    // scan moduleCompletionGate.canVerify('ssl') would let the lifecycle RESOLVE an
+    // open redirect condition: disappearance read as removal.
+    //
+    // Reason precedence: the HTTPS transport gap is the more fundamental one and
+    // wins when both are unobserved.
+    ...((httpsAvailable === true && redirectEvidenceObserved) ? {} : {
       incomplete: true,
-      incomplete_reason: !httpsProbeExecuted
-        ? "https_probe_not_executed"
-        : httpsObservation.state === "cloudflare_edge_error"
-          ? "https_origin_not_observed"
-          : "https_transport_unavailable",
+      incomplete_reason: httpsAvailable !== true
+        ? (!httpsProbeExecuted
+          ? "https_probe_not_executed"
+          : httpsObservation.state === "cloudflare_edge_error"
+            ? "https_origin_not_observed"
+            : "https_transport_unavailable")
+        : "http_redirect_not_observed",
     }),
     // Per-endpoint provenance (bounded: bare + www only). A sibling's more
     // informative reason survives the aggregate rather than being discarded.
