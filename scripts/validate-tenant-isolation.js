@@ -140,6 +140,8 @@ async function main() {
   const tryInsert = (sql, ...a) => { try { db.prepare(sql).run(...a); } catch { /* schema variance — endpoint test still runs */ } };
   tryInsert("INSERT INTO domains (id, user_id, domain) VALUES ('dom1','admin','secret1.example')");
   tryInsert("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws1','dom1')");
+  tryInsert("INSERT INTO domains (id, user_id, domain) VALUES ('dom2','foreign','bravo-owned.example')");
+  tryInsert("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws2','dom2')");
   tryInsert("INSERT INTO workspace_assets (id, workspace_id, domain_id, hostname, asset_type, source, first_seen, last_seen, status, created_at, updated_at) VALUES ('a1','ws1','dom1','asset-SECRET.example','subdomain','ct', datetime('now'), datetime('now'), 'active', datetime('now'), datetime('now'))");
   tryInsert("INSERT INTO managed_cases (id, workspace_id, case_type, domain, finding_id, asset_ref, severity, status, evidence_json, recommended_actions_json, created_at, updated_at) VALUES ('mc-secret','ws1','asm_exposure','secret1.example','admin_surface_high','case-SECRET.example','high','open','{}','[]',datetime('now'),datetime('now'))");
   // workspace_id present so requireScanReadAccess exercises the PRIMARY branch
@@ -222,6 +224,50 @@ async function main() {
   const foreignFake = await call("GET", "/api/workspaces/ws_does_not_exist", T.foreign);
   ok("existence oracle: foreign real-ws vs fake-ws return the same status",
      foreignReal.status === foreignFake.status);
+
+  // Real router/auth/database regression for the /:domain/* family. The actor is
+  // authorised only for ws2. A ws1-only hostname must be indistinguishable from
+  // a hostname absent everywhere when both are requested through ws2's route.
+  // This deliberately drives worker.fetch(), requireAuth(),
+  // requireWorkspaceRole(), emailProtectionRoutes() and resolveWorkspaceDomain()
+  // rather than calling the resolver directly.
+  section("Invariant 8 — workspace-domain route has no existence oracle");
+  const foreignMemberships = db.prepare(
+    "SELECT workspace_id FROM workspace_members WHERE user_id = ? ORDER BY workspace_id"
+  ).all("foreign");
+  ok("oracle actor is authorised only for workspace B",
+     foreignMemberships.length === 1 && foreignMemberships[0].workspace_id === "ws2");
+
+  const foreignExistingDomain = await call(
+    "GET", "/api/workspaces/ws2/domains/secret1.example/dmarc-summary", T.foreign
+  );
+  const nonexistentDomain = await call(
+    "GET", "/api/workspaces/ws2/domains/does-not-exist.example/dmarc-summary", T.foreign
+  );
+  const sanitiseOracleResponse = (response) => ({
+    status: response.status,
+    body: response.data ?? null,
+  });
+  const foreignSanitised = sanitiseOracleResponse(foreignExistingDomain);
+  const nonexistentSanitised = sanitiseOracleResponse(nonexistentDomain);
+  ok("foreign-existing and nonexistent domains have identical sanitised status/body semantics",
+     JSON.stringify(foreignSanitised) === JSON.stringify(nonexistentSanitised));
+  ok("foreign-existing domain is not exposed as a successful route result",
+     foreignExistingDomain.status === 404);
+
+  const oracleBodies = JSON.stringify([foreignSanitised.body, nonexistentSanitised.body]);
+  const forbiddenOracleDetails = [
+    "secret1.example", "dom1", "ws1", "Alpha-SECRET",
+    "owner_user_id", "workspace_id", "domain_id",
+  ];
+  ok("domain oracle responses disclose no existence, ownership, domain id or workspace id detail",
+     forbiddenOracleDetails.every((detail) => !oracleBodies.includes(detail)));
+
+  const ownedDomain = await call(
+    "GET", "/api/workspaces/ws2/domains/bravo-owned.example/dmarc-summary", T.foreign
+  );
+  ok("workspace-B-owned domain still works through the real route",
+     ownedDomain.status === 200 && ownedDomain.data?.domain === "bravo-owned.example");
 
   // ── Invariant 1 (R2): scan reports are ownership-scoped, not key-guessable ──
   // scan_ws1 is owned by ws1 (via dom1). Its R2 object carries REPORT_MARKER, so

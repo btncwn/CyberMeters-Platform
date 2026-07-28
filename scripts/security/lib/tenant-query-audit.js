@@ -5,7 +5,7 @@
 // regressions. It extracts every .prepare()/.exec() SQL string and classifies
 // it against the tenant-owned table set (from the isolation matrix). A query is
 // SAFE when it carries an inline tenant predicate (workspace_id / owner_user_id /
-// owner_id / user_id / subscription_id, or a join to workspace_domains); it is
+// owner_id / user_id / subscription_id); it is
 // REPORTED when it touches a tenant-owned table with no inline tenant predicate
 // (its safety then rests on an out-of-band guard, which must be justified in the
 // suppression file) or matches a high-signal risk pattern.
@@ -17,6 +17,9 @@
 //   global_latest_fallback  — ORDER BY … LIMIT 1 with no tenant predicate
 //   unscoped_tenant_query   — SELECT/UPDATE/DELETE on a tenant table, filtered
 //                             but no inline tenant predicate
+//   workspace_domain_scope_missing — workspace_domains appears without an
+//                             inline tenant predicate; the table/JOIN name alone
+//                             is never proof of workspace scope
 //   body_workspace_trust    — request body role/plan/workspace_id used in code
 //   r2_key_not_workspace_bound — R2 get/put whose key has no workspace/owner/scan
 //                             segment
@@ -47,7 +50,6 @@ export function tenantOwnedTables() {
 // mistaken for scoped just because the column name appears.
 const TENANT_PREDICATE = /\b(workspace_id|owner_user_id|owner_id|subscription_id)\s*(=|<|>|!|\bIN\b|\bIS\b|\bLIKE\b)/i;
 const USER_PREDICATE = /\buser_id\s*(=|<|>|!|\bIN\b|\bIS\b|\bLIKE\b)/i;
-const WS_DOMAIN_JOIN = /workspace_domains/i;
 
 function listSourceFiles() {
   const out = [];
@@ -95,8 +97,8 @@ function referencedTenantTables(sql, tenant) {
   return [...refs];
 }
 
-function hasTenantPredicate(sql) {
-  return TENANT_PREDICATE.test(sql) || USER_PREDICATE.test(sql) || WS_DOMAIN_JOIN.test(sql);
+export function hasTenantPredicate(sql) {
+  return TENANT_PREDICATE.test(sql) || USER_PREDICATE.test(sql);
 }
 
 export function auditSql() {
@@ -115,7 +117,9 @@ export function auditSql() {
       if (scoped) continue;                               // inline tenant predicate → safe
 
       // No inline tenant predicate — classify by pattern.
-      if (/\b(domain|hostname)\s*=\s*\?/i.test(sql) || /\bWHERE\s+domain\b/i.test(sql)) {
+      if (refs.includes("workspace_domains")) {
+        findings.push({ ...base, detector: "workspace_domain_scope_missing", severity: "high" });
+      } else if (/\b(domain|hostname)\s*=\s*\?/i.test(sql) || /\bWHERE\s+domain\b/i.test(sql)) {
         findings.push({ ...base, detector: "hostname_only_ownership", severity: "high" });
       } else if (/order\s+by\b[\s\S]*\blimit\s+1\b/i.test(sql)) {
         findings.push({ ...base, detector: "global_latest_fallback", severity: "high" });

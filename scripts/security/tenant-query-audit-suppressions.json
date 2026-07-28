@@ -1,8 +1,120 @@
 {
   "schema": "cybermeters.tenant-query-audit-suppressions/v1",
   "note": "Each suppression clears one high-signal static finding whose safety rests on an out-of-band guard. Every entry was manually verified against the source. Fingerprints are line-independent (SQL / key-expr / trimmed line) so they survive unrelated edits but change when the guarded statement itself changes — forcing re-review. A finding with no matching suppression fails CI.",
-  "reviewed_on": "2026-07-19",
+  "reviewed_on": "2026-07-28",
   "suppressions": [
+    {
+      "fingerprint": "4ce3d5b17530",
+      "file": "workers/scan-api/src/engines/asm-cases.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "Post-scan ASM case fan-out deliberately enumerates every live workspace linked to the already-running scan's canonical domain_id; it is a background producer, not a customer read.",
+      "contract": "domainId comes from runScanEngine's persisted scan context; each resulting case is written with the enumerated workspace_id through createManagedCase, which revalidates the workspace/domain link and soft-delete state."
+    },
+    {
+      "fingerprint": "b3047512cf5e",
+      "file": "workers/scan-api/src/engines/asset-alert-delivery.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "Post-scan asset-alert delivery intentionally enumerates live workspaces linked to the scan domain so each owner can receive its own workspace-scoped occurrence.",
+      "contract": "The caller supplies the canonical scan domain_id; delivery targets are restricted to returned live links, and the scan's own workspace_id further constrains scan-specific email delivery."
+    },
+    {
+      "fingerprint": "61d07532a94e",
+      "file": "workers/scan-api/src/engines/asset-inventory.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "Scan-finalization inventory persistence intentionally fans the domain observation out to every live workspace linked to the canonical scan domain_id.",
+      "contract": "This is a background write path with no customer response; every subsequent inventory read/write is bound to the enumerated workspace_id and the same domain_id."
+    },
+    {
+      "fingerprint": "cdf9bfde61fd",
+      "file": "workers/scan-api/src/engines/asset-persistence.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "Identity and brand asset persistence share this exact query to fan scan observations out to all workspace links for the canonical scan domain_id.",
+      "contract": "The functions run only from scan finalization; they return no tenant data and every asset/vendor write is explicitly bound to each enumerated workspace_id."
+    },
+    {
+      "fingerprint": "dbd9bd8f2322",
+      "file": "workers/scan-api/src/engines/attack-surface-lifecycle.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "The attack-surface lifecycle producer intentionally enumerates every live workspace linked to the completed scan's domain_id.",
+      "contract": "It is a background, post-scan writer; every observation/history batch is scoped to the enumerated workspace_id and canonical domain_id."
+    },
+    {
+      "fingerprint": "3721dc67d699",
+      "file": "workers/scan-api/src/engines/cert-events.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "Certificate condition production intentionally enumerates all live workspace links for the scan's canonical domain_id.",
+      "contract": "The helper is called from scan finalization, exposes no response data, and every event lookup/write is subsequently bound to the enumerated workspace_id."
+    },
+    {
+      "fingerprint": "fc55c142286e",
+      "file": "workers/scan-api/src/engines/posture-events.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "Posture-event production fans a completed scan's domain evidence out to every workspace linked to that canonical domain_id.",
+      "contract": "This background path returns no tenant data; dedupe reads and event writes are scoped by each enumerated workspace_id plus domain_id."
+    },
+    {
+      "fingerprint": "81185dfea7a0",
+      "file": "workers/scan-api/src/engines/scan-engine.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "The repeated exact query is the scan-finalization fan-out used by supply-chain, Shadow IT, certificate, identity, website, Cyber Essentials, Related Changes, notification, audit and failure-accounting producers.",
+      "contract": "domainId is the canonical domain of the scan being finalized; these are non-customer background paths, and each downstream operation is explicitly scoped to the enumerated workspace_id."
+    },
+    {
+      "fingerprint": "e66a4e25e3ac",
+      "file": "workers/scan-api/src/engines/spf-corroboration.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "SPF/RUA correlation intentionally evaluates the completed scan observation for every workspace linked to its canonical domain_id.",
+      "contract": "This is a scan-finalization producer; subsequent RUA reads and managed-alert emission are bound to each enumerated workspace_id and no cross-tenant response is returned."
+    },
+    {
+      "fingerprint": "d85aed883d30",
+      "file": "workers/scan-api/src/engines/vendor-risk.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "Vendor-risk recomputation intentionally fans a scan-domain update out to every workspace linked to the canonical domain_id.",
+      "contract": "The background helper exposes no customer data and recomputes only the explicitly enumerated workspace_id in each iteration."
+    },
+    {
+      "fingerprint": "ead1a8a013fb",
+      "file": "workers/scan-api/src/index.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "requireDomainRole must discover candidate workspace links for an opaque domain_id before it can ask whether the authenticated caller has the requested role.",
+      "contract": "No domain data is returned from the candidate query; every candidate is passed through requireWorkspaceRole and failure returns null, so an unauthorized link cannot authorize or disclose the domain."
+    },
+    {
+      "fingerprint": "4d5e4dc46d69",
+      "file": "workers/scan-api/src/index.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "Legacy scans without scans.workspace_id require discovery of domain links for the requested opaque scan id before authorization can be evaluated.",
+      "contract": "The scan is first confirmed to lack an owning workspace; every discovered workspace_id is passed through requireWorkspaceRole before report data or R2 keys are reachable."
+    },
+    {
+      "fingerprint": "02b726f68c97",
+      "file": "workers/scan-api/src/index.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "The hourly domain-verification cron intentionally enumerates a bounded set of pending/failed links across all live workspaces.",
+      "contract": "This is a system cron query, not a request read; each row retains its own workspace_id/domain_id pair and verification persistence, notification and audit remain bound to that exact link."
+    },
+    {
+      "fingerprint": "f115fc9f98d4",
+      "file": "workers/scan-api/src/index.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "The verification-window expiry cron intentionally enumerates a bounded cross-workspace batch of expired pending/failed links.",
+      "contract": "This is system telemetry only; every attempt record is written with the row's exact workspace_id/domain_id and no customer response is produced."
+    },
+    {
+      "fingerprint": "1e95f02a03ef",
+      "file": "workers/scan-api/src/lib/domain-verification.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "When no workspace is supplied, verification resolves candidate links for an opaque domain_id so it can determine which, if any, the authenticated caller may verify.",
+      "contract": "Every candidate is checked with requireWorkspaceRole; zero authorized candidates returns the same 404 as absence, and multiple authorized candidates require an explicit workspace_id."
+    },
+    {
+      "fingerprint": "97c5bdd9c4f6",
+      "file": "workers/scan-api/src/lib/events.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "Scan-completion notification production intentionally fans the finalized domain result out to all workspace links for the canonical scan domain_id.",
+      "contract": "This is a background writer with no customer read; createNotificationEvent receives each enumerated workspace_id explicitly and isolates the resulting notification row."
+    },
     {
       "fingerprint": "6133f9493061",
       "file": "workers/scan-api/src/engines/timeline-trust.js",
