@@ -5,6 +5,7 @@
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema } from "./findings.js";
 import { resolveRemediation } from "./remediation-registry.js";
 import { computeWorkspaceVendorRisk } from "./vendor-risk.js";
+import { SCAN_QUALITY, normalizeQuality } from "./assessment-presentation.js";
 import { createId } from "../lib/util.js";
 
 // ── Business Risk Score (BRS) v1 ─────────────────────────────────────────────
@@ -461,8 +462,8 @@ export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
 // recalculates or writes. This function is the ONE producer — it assembles the
 // workspace model (vendors, latest-scan findings, assets), computes, derives
 // the customer payload (narrative, grade, top concerns), and persists
-// workspace_brs_scores (+ one history row per finalized scan — history cadence
-// is scan cadence, never page-view cadence).
+// workspace_brs_scores (+ one history row per COMPLETE finalized scan — partial
+// scans preserve both tables unchanged).
 
 // Workspace-BRS letter grade — a WORKSPACE Business Risk semantic, not a Cyber
 // Metrics Score band (relocated verbatim from the route so exactly one ladder
@@ -471,17 +472,299 @@ export function workspaceBrsGrade(score) {
   return score >= 76 ? "A" : score >= 51 ? "B" : score >= 31 ? "C" : "F";
 }
 
-export async function computeAndPersistWorkspaceBrs(env, workspaceId) {
-  const [latestScanRow, assetRow] = await Promise.all([
+export const WORKSPACE_BRS_BASIS_CONTRACT = "complete_scan/v1";
+
+export const WORKSPACE_BRS_STATES = Object.freeze({
+  ASSESSED: "assessed",
+  LATEST_INCOMPLETE: "latest_incomplete",
+  CURRENT_NOT_ASSESSED: "current_not_assessed",
+  NOT_ASSESSED: "not_assessed",
+  BASIS_UNPROVEN: "basis_unproven",
+});
+
+const workspaceBrsMessage = (state, quality = SCAN_QUALITY.UNKNOWN) => {
+  if (state === WORKSPACE_BRS_STATES.LATEST_INCOMPLETE) {
+    return `The latest assessment was ${quality}, so a current Business Risk Score is unavailable. The last complete score is shown separately as historical evidence.`;
+  }
+  if (state === WORKSPACE_BRS_STATES.CURRENT_NOT_ASSESSED) {
+    return "The latest complete assessment has not produced a proven Business Risk Score. Any earlier complete score is shown separately as historical evidence.";
+  }
+  if (state === WORKSPACE_BRS_STATES.BASIS_UNPROVEN) {
+    return "Business Risk Score is unavailable because the stored score's complete assessment basis cannot be proven.";
+  }
+  return "Business Risk Score is unavailable until a complete assessment finishes.";
+};
+
+function parseWorkspaceBrsPayload(row) {
+  if (!row?.payload_json) return null;
+  try {
+    const parsed = JSON.parse(row.payload_json);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function scanAssessment(row) {
+  if (!row) return null;
+  return {
+    scan_id: row.scan_id,
+    status: row.status,
+    scan_quality: normalizeQuality(row.scan_quality),
+    assessed_at: row.assessed_at ?? null,
+    scan_started_at: row.created_at ?? null,
+    scanned_at: row.created_at ?? null,
+    asm_score: row.score ?? null,
+    asm_rating: row.rating ?? null,
+  };
+}
+
+function provenLastComplete(row, payload, basisRow) {
+  const basis = payload?.basis_scan;
+  const payloadScore = payload?.score ?? payload?.business_risk_score;
+  const score = Number(row?.score);
+  if (
+    payload?.basis_contract !== WORKSPACE_BRS_BASIS_CONTRACT
+    || !basis?.scan_id
+    || basis.scan_id !== basisRow?.scan_id
+    || basisRow?.workspace_id !== row?.workspace_id
+    || basisRow?.status !== "completed"
+    || normalizeQuality(basisRow?.scan_quality) !== SCAN_QUALITY.COMPLETE
+    || normalizeQuality(basis?.scan_quality) !== SCAN_QUALITY.COMPLETE
+    || row?.score == null
+    || payloadScore == null
+    || !Number.isFinite(score)
+    || Number(payloadScore) !== score
+    || String(payload?.risk_band ?? payload?.band ?? "") !== String(row?.risk_band ?? "")
+  ) return null;
+
+  return {
+    assessment_role: "last_complete",
+    historical: false,
+    stale: false,
+    score,
+    business_risk_score: score,
+    brs: score,
+    risk_band: row.risk_band,
+    band: row.risk_band,
+    grade: payload.grade ?? workspaceBrsGrade(score),
+    grade_label: payload.grade_label ?? row.risk_band,
+    calculated_at: row.calculated_at ?? payload.calculated_at ?? null,
+    basis_scan: {
+      scan_id: basisRow.scan_id,
+      status: basisRow.status,
+      scan_quality: SCAN_QUALITY.COMPLETE,
+      assessed_at: basis.assessed_at ?? basisRow.created_at ?? null,
+      scan_started_at: basis.scan_started_at ?? basisRow.created_at ?? null,
+    },
+    summary: payload.summary ?? null,
+    narrative: payload.narrative ?? null,
+    categories: payload.categories ?? null,
+    top_business_risks: payload.top_business_risks ?? [],
+    top_concerns: payload.top_concerns ?? [],
+    workspace_context: payload.workspace_context ?? null,
+  };
+}
+
+/**
+ * Resolve the customer-facing workspace BRS without deriving any health meaning in
+ * a route or frontend. A stored number is current only when its explicit complete
+ * basis is proven and that basis is the latest terminal assessment.
+ */
+export function resolveWorkspaceBrsProjection({ storedRow, latestScan, basisScan }) {
+  const payload = parseWorkspaceBrsPayload(storedRow);
+  const lastComplete = provenLastComplete(storedRow, payload, basisScan);
+  const currentAssessment = scanAssessment(latestScan);
+  const latestQuality = currentAssessment?.scan_quality ?? SCAN_QUALITY.UNKNOWN;
+  const latestIsComplete = currentAssessment?.status === "completed"
+    && latestQuality === SCAN_QUALITY.COMPLETE;
+  const basisIsCurrent = Boolean(
+    lastComplete
+    && currentAssessment
+    && lastComplete.basis_scan.scan_id === currentAssessment.scan_id
+  );
+
+  let state = WORKSPACE_BRS_STATES.NOT_ASSESSED;
+  if (basisIsCurrent && latestIsComplete) state = WORKSPACE_BRS_STATES.ASSESSED;
+  else if (storedRow && !lastComplete) state = WORKSPACE_BRS_STATES.BASIS_UNPROVEN;
+  else if (currentAssessment && !latestIsComplete) state = WORKSPACE_BRS_STATES.LATEST_INCOMPLETE;
+  else if (currentAssessment && latestIsComplete && lastComplete) state = WORKSPACE_BRS_STATES.CURRENT_NOT_ASSESSED;
+
+  if (lastComplete) {
+    lastComplete.historical = state !== WORKSPACE_BRS_STATES.ASSESSED;
+    lastComplete.stale = state !== WORKSPACE_BRS_STATES.ASSESSED;
+  }
+
+  if (state === WORKSPACE_BRS_STATES.ASSESSED) {
+    return {
+      ...payload,
+      state,
+      state_reason: null,
+      current_assessment: {
+        ...currentAssessment,
+        assessed_at: lastComplete.basis_scan.assessed_at,
+        brs_assessed: true,
+        score: lastComplete.score,
+        risk_band: lastComplete.risk_band,
+        grade: lastComplete.grade,
+        basis_scan_id: lastComplete.basis_scan.scan_id,
+      },
+      last_complete_assessment: lastComplete,
+      latest_scan: currentAssessment,
+      basis_scan: lastComplete.basis_scan,
+    };
+  }
+
+  return {
+    state,
+    state_reason: workspaceBrsMessage(state, latestQuality),
+    business_risk_score: null,
+    score: null,
+    brs: null,
+    risk_band: null,
+    band: null,
+    grade: null,
+    grade_label: null,
+    summary: null,
+    narrative: workspaceBrsMessage(state, latestQuality),
+    categories: null,
+    top_business_risks: [],
+    top_concerns: [],
+    workspace_context: null,
+    calculated_at: null,
+    current_assessment: currentAssessment ? {
+      ...currentAssessment,
+      brs_assessed: false,
+      score: null,
+      risk_band: null,
+      grade: null,
+      basis_scan_id: null,
+    } : null,
+    last_complete_assessment: lastComplete,
+    latest_scan: currentAssessment,
+    basis_scan: null,
+  };
+}
+
+/**
+ * Bounded, tenant-keyed reads for the Business Risk API and sibling consumers.
+ * Legacy rows without the explicit complete-scan contract fail closed.
+ */
+export async function readWorkspaceBrsAssessments(env, workspaceIds) {
+  const ids = [...new Set((workspaceIds || []).filter(Boolean))];
+  const result = new Map();
+  if (ids.length === 0) return result;
+  const placeholders = ids.map(() => "?").join(",");
+  const [storedResult, latestResult] = await Promise.all([
+    env.cybermeters_db.prepare(
+      `SELECT workspace_id, score, risk_band, calculated_at, payload_json
+       FROM workspace_brs_scores WHERE workspace_id IN (${placeholders})`
+    ).bind(...ids).all(),
+    env.cybermeters_db.prepare(
+      `SELECT scan_id, workspace_id, status, scan_quality, score, rating, created_at
+       FROM (
+         SELECT id AS scan_id, workspace_id, status, scan_quality, score, rating, created_at,
+                ROW_NUMBER() OVER (PARTITION BY workspace_id ORDER BY created_at DESC, id DESC) AS rn
+         FROM scans
+         WHERE workspace_id IN (${placeholders}) AND status IN ('completed', 'failed')
+       )
+       WHERE rn = 1`
+    ).bind(...ids).all(),
+  ]);
+
+  const storedRows = storedResult?.results ?? [];
+  const storedByWorkspace = new Map(storedRows.map((row) => [row.workspace_id, row]));
+  const latestByWorkspace = new Map((latestResult?.results ?? []).map((row) => [row.workspace_id, row]));
+  const basisIds = [...new Set(storedRows.map((row) =>
+    parseWorkspaceBrsPayload(row)?.basis_scan?.scan_id
+  ).filter(Boolean))];
+  let basisById = new Map();
+  if (basisIds.length > 0) {
+    const basisPlaceholders = basisIds.map(() => "?").join(",");
+    const basisResult = await env.cybermeters_db.prepare(
+      `SELECT id AS scan_id, workspace_id, status, scan_quality, created_at
+       FROM scans WHERE id IN (${basisPlaceholders})`
+    ).bind(...basisIds).all();
+    basisById = new Map((basisResult?.results ?? []).map((row) => [row.scan_id, row]));
+  }
+
+  for (const workspaceId of ids) {
+    const storedRow = storedByWorkspace.get(workspaceId) ?? null;
+    const basisId = parseWorkspaceBrsPayload(storedRow)?.basis_scan?.scan_id;
+    result.set(workspaceId, resolveWorkspaceBrsProjection({
+      storedRow,
+      latestScan: latestByWorkspace.get(workspaceId) ?? null,
+      basisScan: basisById.get(basisId) ?? null,
+    }));
+  }
+  return result;
+}
+
+export async function readWorkspaceBrsAssessment(env, workspaceId) {
+  const assessments = await readWorkspaceBrsAssessments(env, [workspaceId]);
+  return assessments.get(workspaceId) ?? resolveWorkspaceBrsProjection({
+    storedRow: null, latestScan: null, basisScan: null,
+  });
+}
+
+export async function computeAndPersistWorkspaceBrs(env, workspaceId, {
+  scanId,
+  scanQuality,
+  assessedAt,
+} = {}) {
+  const quality = normalizeQuality(scanQuality);
+  if (!workspaceId || !scanId || quality !== SCAN_QUALITY.COMPLETE) {
+    return {
+      persisted: false,
+      state: quality === SCAN_QUALITY.COMPLETE
+        ? WORKSPACE_BRS_STATES.NOT_ASSESSED
+        : WORKSPACE_BRS_STATES.LATEST_INCOMPLETE,
+      scan_id: scanId ?? null,
+      scan_quality: quality,
+    };
+  }
+
+  const [basisScanRow, assetRow] = await Promise.all([
     env.cybermeters_db
-      .prepare(`SELECT s.id AS scan_id, s.score, s.rating, s.created_at
-                FROM scans s WHERE s.workspace_id = ? AND s.status = 'completed'
-                ORDER BY s.created_at DESC LIMIT 1`)
-      .bind(workspaceId).first(),
+      .prepare(`SELECT s.id AS scan_id, s.workspace_id, s.status, s.scan_quality,
+                       s.score, s.rating, s.created_at
+                FROM scans s
+                WHERE s.id = ? AND s.workspace_id = ?
+                  AND s.status = 'completed' AND s.scan_quality = 'complete'
+                LIMIT 1`)
+      .bind(scanId, workspaceId).first(),
     env.cybermeters_db
       .prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND status = 'active'`)
       .bind(workspaceId).first(),
   ]);
+  if (!basisScanRow) {
+    return {
+      persisted: false,
+      state: WORKSPACE_BRS_STATES.NOT_ASSESSED,
+      scan_id: scanId,
+      scan_quality: quality,
+    };
+  }
+  let basisReport = null;
+  try {
+    const object = await env.cybermeters_reports.get(`reports/${basisScanRow.scan_id}.json`);
+    basisReport = object ? await object.json() : null;
+  } catch {
+    basisReport = null;
+  }
+  if (
+    basisReport?.scan_id !== basisScanRow.scan_id
+    || normalizeQuality(basisReport?.scan_quality?.status) !== SCAN_QUALITY.COMPLETE
+    || !Array.isArray(basisReport?.findings)
+  ) {
+    return {
+      persisted: false,
+      state: WORKSPACE_BRS_STATES.NOT_ASSESSED,
+      scan_id: scanId,
+      scan_quality: quality,
+      reason: "complete_report_unavailable",
+    };
+  }
 
   let vendorRows = [];
   try {
@@ -515,22 +798,16 @@ export async function computeAndPersistWorkspaceBrs(env, workspaceId) {
   let findingIds = new Set();
   let criticalFindings = 0;
   let highFindings = 0;
-  if (latestScanRow?.scan_id) {
-    try {
-      const obj = await env.cybermeters_reports.get(`reports/${latestScanRow.scan_id}.json`);
-      if (obj) {
-        const report = await obj.json();
-        const findings = Array.isArray(report.findings) ? report.findings : [];
-        findingIds = expandFindingIds(findings.filter(isActionableFinding));
-        criticalFindings = findings.filter((f) => f.severity === "critical").length;
-        highFindings = findings.filter((f) => f.severity === "high").length;
-      }
-    } catch { /* tolerate missing report */ }
+  if (basisScanRow?.scan_id) {
+    const findings = basisReport.findings;
+    findingIds = expandFindingIds(findings.filter(isActionableFinding));
+    criticalFindings = findings.filter((f) => f.severity === "critical").length;
+    highFindings = findings.filter((f) => f.severity === "high").length;
     if (criticalFindings === 0 && highFindings === 0) {
       try {
         const severityRows = await env.cybermeters_db
           .prepare(`SELECT severity, COUNT(*) AS n FROM findings WHERE scan_id = ? GROUP BY severity`)
-          .bind(latestScanRow.scan_id).all();
+          .bind(basisScanRow.scan_id).all();
         const severityMap = Object.fromEntries((severityRows.results || []).map((r) => [r.severity, r.n]));
         criticalFindings = severityMap.critical || 0;
         highFindings = severityMap.high || 0;
@@ -578,10 +855,16 @@ export async function computeAndPersistWorkspaceBrs(env, workspaceId) {
       recommendation: brs.recommendations[0] || "Review this risk with the responsible business owner.",
       severity: brs.risk_band === "critical" ? "critical" : brs.risk_band === "high" ? "high" : "medium",
     })),
-    latest_scan: latestScanRow ? {
-      scan_id: latestScanRow.scan_id, asm_score: latestScanRow.score,
-      asm_rating: latestScanRow.rating, scanned_at: latestScanRow.created_at,
-    } : null,
+    basis_contract: WORKSPACE_BRS_BASIS_CONTRACT,
+    basis_scan: {
+      scan_id: basisScanRow.scan_id,
+      scan_quality: SCAN_QUALITY.COMPLETE,
+      status: "completed",
+      assessed_at: assessedAt ?? brs.calculated_at,
+      scan_started_at: basisScanRow.created_at,
+      asm_score: basisScanRow.score,
+      asm_rating: basisScanRow.rating,
+    },
     workspace_context: {
       vendor_total: vendorAggregate.scored_vendors.length,
       asset_count: workspaceModel.asset_exposure.asset_count,
@@ -602,5 +885,5 @@ export async function computeAndPersistWorkspaceBrs(env, workspaceId) {
               VALUES (?, ?, ?, ?, ?)`)
     .bind(createId("brshist"), workspaceId, brs.business_risk_score, brs.risk_band, brs.calculated_at)
     .run();
-  return payload;
+  return { ...payload, persisted: true, state: WORKSPACE_BRS_STATES.ASSESSED };
 }

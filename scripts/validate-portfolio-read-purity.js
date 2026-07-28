@@ -22,8 +22,8 @@
 //
 //   3. Nothing reads the table. Not one SELECT exists against
 //      `portfolio_risk_snapshots` anywhere in the repository. The 30-day trend that
-//      the page actually renders comes from `workspace_brs_score_history`
-//      (`portfolio-risk.js:125-131`), a different table with a different key. So the
+//      the page actually renders now comes from complete-only `historical_scores`,
+//      a different table with a scan basis and quality. So the
 //      write was pure cost: unbounded growth, zero readers.
 //
 // That combination is why the write is removed rather than moved to a cron. Moving it
@@ -105,6 +105,27 @@ function makeEnv(db, writeLog) {
   };
 }
 
+function seedProvenBrs(db, { workspaceId, ownerId, score, riskBand }) {
+  const domainId = `domain-${workspaceId}`;
+  const scanId = `scan-${workspaceId}`;
+  db.prepare("INSERT INTO domains (id,user_id,domain) VALUES (?,?,?)")
+    .run(domainId, ownerId, `${workspaceId}.example.com`);
+  db.prepare(`
+    INSERT INTO scans (id,workspace_id,domain_id,domain,status,scan_quality,created_at)
+    VALUES (?,?,?,?,'completed','complete',datetime('now'))
+  `).run(scanId, workspaceId, domainId, `${workspaceId}.example.com`);
+  db.prepare(`
+    INSERT INTO workspace_brs_scores
+      (workspace_id,score,risk_band,calculated_at,payload_json)
+    VALUES (?,?,?,datetime('now'),?)
+  `).run(workspaceId, score, riskBand, JSON.stringify({
+    basis_contract: "complete_scan/v1",
+    score,
+    risk_band: riskBand,
+    basis_scan: { scan_id: scanId, status: "completed", scan_quality: "complete" },
+  }));
+}
+
 // Rate limiting and session liveness are cross-cutting platform writes that fire on
 // EVERY authenticated request, long before any route handler runs. They are not part
 // of the portfolio read path and removing them would be a security regression, not a
@@ -157,10 +178,8 @@ async function main() {
 
   // A non-null portfolio_score is required or the engine short-circuits before the
   // write — a seedless test would "pass" against the broken engine and prove nothing.
-  db.prepare("INSERT INTO workspace_brs_scores (workspace_id, score, risk_band, calculated_at) VALUES (?, ?, ?, datetime('now'))")
-    .run("ws1", 42, "high");
-  db.prepare("INSERT INTO workspace_brs_scores (workspace_id, score, risk_band, calculated_at) VALUES (?, ?, ?, datetime('now'))")
-    .run("ws2", 88, "low");
+  seedProvenBrs(db, { workspaceId: "ws1", ownerId: "userA", score: 42, riskBand: "high" });
+  seedProvenBrs(db, { workspaceId: "ws2", ownerId: "userA", score: 88, riskBand: "low" });
 
   const snapshotCount = () =>
     db.prepare("SELECT COUNT(*) AS n FROM portfolio_risk_snapshots").get().n;

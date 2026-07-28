@@ -13,10 +13,11 @@
 //
 // Data sources:
 //   workspace_brs_scores          — current BRS per workspace
-//   workspace_brs_score_history   — 30-day BRS history (trending)
+//   historical_scores             — complete-only 30-day BRS history (trending)
 //   workspace_supply_chain_scores — supply chain concentration + SPOF data
 //   workspace_vendors             — shared vendor dependency analysis
 //   workspaces                    — workspace names
+import { readWorkspaceBrsAssessments } from "./business-risk.js";
 
 /**
  * riskBand(score) — maps BRS score (0-100, higher=safer) to a risk label.
@@ -264,17 +265,21 @@ export async function computePortfolioRisk(workspaceIds, env) {
     db.prepare(`SELECT id, name FROM workspaces WHERE id IN (${wsIn})`)
       .bind(...workspaceIds).all(),
 
-    // Current BRS per workspace
-    db.prepare(`SELECT workspace_id, score, risk_band FROM workspace_brs_scores WHERE workspace_id IN (${wsIn})`)
-      .bind(...workspaceIds).all(),
+    // Current BRS projection per workspace. This proves the stored complete basis
+    // against the latest terminal assessment before releasing a number.
+    readWorkspaceBrsAssessments(env, workspaceIds),
 
-    // Earliest BRS snapshot in the last 30 days per workspace (for trending)
+    // Complete-only BRS scan points in the last 30 days (for trending). The legacy
+    // workspace_brs_score_history table has no basis scan or quality column, so it
+    // cannot honestly prove that an old point came from complete evidence.
     db.prepare(`
-      SELECT workspace_id, score, risk_band, calculated_at
-      FROM workspace_brs_score_history
+      SELECT workspace_id, brs_score AS score, created_at AS calculated_at
+      FROM historical_scores
       WHERE workspace_id IN (${wsIn})
-        AND calculated_at >= datetime('now', '-30 days')
-      ORDER BY calculated_at ASC
+        AND scan_quality = 'complete'
+        AND brs_score IS NOT NULL
+        AND created_at >= datetime('now', '-30 days')
+      ORDER BY created_at ASC
     `).bind(...workspaceIds).all(),
 
     // Supply chain scores per workspace
@@ -325,10 +330,7 @@ export async function computePortfolioRisk(workspaceIds, env) {
     wsNames[r.id] = r.name || r.id;
   }
 
-  const brsMap = {};
-  for (const r of (brsRes.status === 'fulfilled' ? (brsRes.value?.results ?? []) : [])) {
-    brsMap[r.workspace_id] = { score: r.score, risk_band: r.risk_band };
-  }
+  const brsMap = brsRes.status === 'fulfilled' ? brsRes.value : new Map();
 
   // For trending: take the *first* (oldest) record per workspace in last 30 days
   const brsHistMap = {};
@@ -355,7 +357,7 @@ export async function computePortfolioRisk(workspaceIds, env) {
   const TREND_THRESHOLD = 5; // score change to qualify as improving/deteriorating
 
   const rankings = workspaceIds.map(wsId => {
-    const brs   = brsMap[wsId];
+    const brs   = brsMap.get(wsId);
     const sc    = scMap[wsId];
     const hist  = brsHistMap[wsId];
     const score = brs?.score ?? null;
@@ -367,6 +369,9 @@ export async function computePortfolioRisk(workspaceIds, env) {
       workspace_name:      wsNames[wsId] ?? wsId,
       brs_score:           score,
       risk_band:           score != null ? portfolioRiskBand(score) : 'unknown',
+      brs_state:           brs?.state ?? 'not_assessed',
+      brs_state_reason:    brs?.state_reason ?? null,
+      last_complete_assessment: brs?.last_complete_assessment ?? null,
       supply_chain_score:  sc?.supply_chain_score ?? null,
       concentration_level: sc?.concentration_level ?? null,
       // M5.e: a workspace with NO supply-chain assessment row is unassessed,
@@ -467,7 +472,7 @@ export async function computePortfolioRisk(workspaceIds, env) {
   // `GET /api/portfolio/risk`, so opening a page wrote to the database. Removed rather
   // than moved to a cron because nothing reads that table: there is no SELECT against
   // it anywhere, and the 30-day trend returned below comes from
-  // `workspace_brs_score_history`. Table and rows are kept; the write is gone.
+  // complete-only `historical_scores`. Table and rows are kept; the write is gone.
   // Guarded by `scripts/validate-portfolio-read-purity.js`, which explains the rest.
 
   // ── Score sayability ────────────────────────────────────────────────────────

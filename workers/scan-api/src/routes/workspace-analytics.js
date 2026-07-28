@@ -12,6 +12,7 @@ import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { CYBERMETERS_LOGO_DATA_URI } from "../engines/brand-logo.js";
 import { buildScorecardData, buildScorecardSections } from "../engines/scorecard.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
+import { readWorkspaceBrsAssessment } from "../engines/business-risk.js";
 import { createId } from "../lib/util.js";
 
 export async function workspaceAnalyticsRoutes(rctx) {
@@ -383,44 +384,23 @@ export async function workspaceAnalyticsRoutes(rctx) {
       // its scan-cadence trend — it never writes and never recalculates, so it
       // can never diverge from the canonical persisted value.
       try {
-        const [row, historicalRows] = await Promise.all([
+        const [assessment, historicalRows] = await Promise.all([
+          readWorkspaceBrsAssessment(env, wsId),
           env.cybermeters_db
-            .prepare(`SELECT score, risk_band, calculated_at, payload_json
-                      FROM workspace_brs_scores WHERE workspace_id = ?`)
-            .bind(wsId).first(),
-          env.cybermeters_db
-            .prepare(`SELECT brs_score, score, rating, created_at
+            .prepare(`SELECT brs_score, score, rating, scan_id, scan_quality, created_at
                       FROM historical_scores
-                      WHERE workspace_id = ? AND brs_score IS NOT NULL
+                      WHERE workspace_id = ?
+                        AND scan_quality = 'complete'
+                        AND brs_score IS NOT NULL
                       ORDER BY created_at DESC LIMIT 30`)
             .bind(wsId).all(),
         ]);
 
         const trend = (historicalRows.results ?? []).reverse().map(r => ({
           date: r.created_at, brs_score: r.brs_score, asm_score: r.score,
+          basis_scan_id: r.scan_id, scan_quality: r.scan_quality,
         }));
-
-        let payload = null;
-        if (row?.payload_json) {
-          try { payload = JSON.parse(row.payload_json); } catch { payload = null; }
-        }
-        if (!payload) {
-          // No canonical assessment persisted yet (no finalized scan since the
-          // contract change, or pre-094 row) — honest not-assessed, never a
-          // recomputed number and never a fabricated grade.
-          return json({
-            workspace_name: ws.name,
-            state: "not_assessed",
-            business_risk_score: null, score: null, brs: null,
-            risk_band: row?.risk_band ?? null, band: row?.risk_band ?? null,
-            grade: null, grade_label: row?.risk_band ?? null,
-            narrative: "Business risk has not been assessed yet — it is calculated when a scan completes.",
-            top_concerns: [], latest_scan: null, workspace_context: null,
-            calculated_at: row?.calculated_at ?? null,
-            trend,
-          });
-        }
-        return json({ ...payload, workspace_name: ws.name, state: "assessed", trend });
+        return json({ ...assessment, workspace_name: ws.name, trend });
       } catch (err) {
         return serverError("business-risk", err);
       }

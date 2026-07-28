@@ -3,6 +3,7 @@
 // resilience, compliance readiness, ASM maturity, and the supply-chain intelligence roll-up +
 // D1 persistence. Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 import { normalizeVendorRiskCategory } from "./vendor-risk.js";
+import { readWorkspaceBrsAssessment } from "./business-risk.js";
 
 // ── Supply Chain, Resilience & Third-Party Risk Engine ───────────────────────
 //
@@ -434,7 +435,7 @@ function computeDnsResilienceSignalsFromVendors(activeVendors) {
 export async function computeSupplyChainIntelligence(wsId, env) {
   try {
     // ── Load vendors and workspace context from D1 ──────────────────────────
-    const [vendorRows, wsRow, brsRow, assetRow, scanRow] = await Promise.all([
+    const [vendorRows, wsRow, brsAssessment, assetRow, scanRow] = await Promise.all([
       env.cybermeters_db.prepare(
         `SELECT vendor_name, category, risk_level, status, source_module, confidence, first_seen, last_seen
          FROM workspace_vendors
@@ -443,9 +444,7 @@ export async function computeSupplyChainIntelligence(wsId, env) {
 
       env.cybermeters_db.prepare(`SELECT id, name FROM workspaces WHERE id = ?`).bind(wsId).first(),
 
-      env.cybermeters_db.prepare(
-        `SELECT score AS brs_score FROM workspace_brs_scores WHERE workspace_id = ? ORDER BY calculated_at DESC LIMIT 1`
-      ).bind(wsId).first(),
+      readWorkspaceBrsAssessment(env, wsId),
 
       env.cybermeters_db.prepare(
         `SELECT COUNT(*) AS cnt FROM workspace_assets WHERE workspace_id = ? AND status = 'active'`
@@ -458,7 +457,9 @@ export async function computeSupplyChainIntelligence(wsId, env) {
 
     // M5.e: absent BRS is NOT a zero score — null fails every >= maturity
     // threshold (conservative) without fabricating a numeric assessment.
-    const brsScore = brsRow?.brs_score ?? null;
+    const brsScore = brsAssessment?.state === "assessed"
+      ? (brsAssessment.score ?? null)
+      : null;
     const activeVendors = vendorRows.filter(v => v.status === 'active');
     const enriched = enrichVendors(activeVendors);
 
@@ -530,6 +531,9 @@ export async function computeSupplyChainIntelligence(wsId, env) {
       },
       workspace: { id: wsId, name: wsRow?.name ?? '' },
       brs_score: brsScore,
+      brs_state: brsAssessment?.state ?? "not_assessed",
+      brs_state_reason: brsAssessment?.state_reason ?? null,
+      last_complete_brs_assessment: brsAssessment?.last_complete_assessment ?? null,
       calculated_at: new Date().toISOString(),
     };
 

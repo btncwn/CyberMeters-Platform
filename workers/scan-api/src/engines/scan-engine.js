@@ -1537,7 +1537,10 @@ function buildCanonicalUrlProfile(modules) {
     if (workspaceId) {
       // Compute BRS using scan findings + workspace intelligence data
       let brsScore = null;
-      try {
+      // Only complete evidence may establish a canonical BRS trend point. A partial
+      // scan still gets its technical score/history row, but brs_score remains NULL:
+      // missing findings are not evidence of health.
+      if (scanQuality?.status === "complete") try {
         const findingIds = expandFindingIds(findings.filter(isActionableFinding));
         const [brandRows, vendorRows] = await Promise.all([
           env.cybermeters_db
@@ -1579,7 +1582,11 @@ function buildCanonicalUrlProfile(modules) {
       // pure read that can never diverge from the persisted canonical value.
       // Non-fatal by the 091 doctrine.
       try {
-        await computeAndPersistWorkspaceBrs(env, workspaceId);
+        await computeAndPersistWorkspaceBrs(env, workspaceId, {
+          scanId,
+          scanQuality: scanQuality?.status,
+          assessedAt: completedAt,
+        });
       } catch { /* non-fatal — BRS refreshes on the next finalized scan */ }
 
       // Canonical eight-domain state history (mig 091). Resolved from the report ALREADY
