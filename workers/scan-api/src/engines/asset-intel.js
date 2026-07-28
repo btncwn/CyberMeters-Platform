@@ -7,6 +7,7 @@ import { hostnameFromValue } from "./cloud-storage-scan.js";
 import { normalizeHostname } from "./hostnames.js";
 import { makeSsrfSafeProbeFetch } from "./reserved-probe.js";
 import { dnsQuery } from "./dns.js";
+import { classifyServerErrorStatus } from "../lib/fetch-observation.js";
 
 // ── Module 7: Asset Exposure Engine ──────────────────────────────────────────
 
@@ -112,30 +113,12 @@ function makeDefaultProbeFetch(cache = null) {
 }
 const defaultProbeFetch = makeDefaultProbeFetch();
 
-// Cloudflare-edge error statuses: 520–527 (origin connection/response failures),
-// 530 (1xxx accompanying code, incl. 1016 origin DNS error). These are synthesised
-// by the Cloudflare edge when NO origin produced an HTTP answer — they are never an
-// origin's own response. Require the edge signature (`Server: cloudflare`) as well as
-// the status range: a proxied origin's own 5xx keeps its real status (500/502/503…,
-// outside this range), and a non-Cloudflare host emitting a non-standard 52x without
-// the signature stays server_error (fail toward the stricter not-assessed reading).
-const CF_EDGE_STATUS_MIN = 520;
-const CF_EDGE_STATUS_MAX = 530;
-
-export function classifyServerErrorStatus(status, server) {
-  const edgeSynthesised =
-    status >= CF_EDGE_STATUS_MIN && status <= CF_EDGE_STATUS_MAX &&
-    String(server || "").trim().toLowerCase() === "cloudflare";
-  if (edgeSynthesised) {
-    // Authoritative negative — nothing serves at this name (same evidence class as a
-    // refused connection). Distinct marker so consumers can still see WHY, but never
-    // counted "not assessed": the probe DID complete and observed the public truth.
-    return { probe_status: "origin_unreachable", reason: "cloudflare_edge_error" };
-  }
-  // Genuine origin 5xx — answered, not content-assessable (per the #185 contract this
-  // must never confirm absence or health, so it stays in the not-assessed class).
-  return { probe_status: "server_error", reason: "server_error" };
-}
+// The Cloudflare-edge rule (520–527 / 530 WITH the `Server: cloudflare` signature)
+// now lives in ONE place — lib/fetch-observation.js — and is shared with the SSL
+// module's HTTPS observation classifier, so the two can never drift. Imported at
+// the top of this file and re-exported here so this module's existing importers
+// and the #185 probe contract keep their entry point unchanged.
+export { classifyServerErrorStatus, CF_EDGE_STATUS_MIN, CF_EDGE_STATUS_MAX } from "../lib/fetch-observation.js";
 
 /**
  * Probe a single host over HTTPS (with HTTP fallback) and return exposure metadata.

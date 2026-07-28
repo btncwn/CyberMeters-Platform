@@ -1,10 +1,10 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.07.28-brs-partial-honesty.9060d1cd7a04",
-  "closure_sha256": "9060d1cd7a0415af7de99e8d5eff77451b83ce1136b37efa9bf432ae04857485",
-  "closure_file_count": 81,
-  "scan_api_file_count": 79,
+  "app_version": "2026.07.28-https-observation-classification.e6dba50d677a",
+  "closure_sha256": "e6dba50d677a3f1e6024446aa18e945239cb8724a5ae5660bf5f405b1b5ef263",
+  "closure_file_count": 82,
+  "scan_api_file_count": 80,
   "files": [
     "shared/cyber-essentials-questions.js",
     "workers/email-ingest/src/index.js",
@@ -80,6 +80,7 @@
     "workers/scan-api/src/lib/domain-verification.js",
     "workers/scan-api/src/lib/errors.js",
     "workers/scan-api/src/lib/events.js",
+    "workers/scan-api/src/lib/fetch-observation.js",
     "workers/scan-api/src/lib/http.js",
     "workers/scan-api/src/lib/lifecycle-email.js",
     "workers/scan-api/src/lib/rate-limit.js",

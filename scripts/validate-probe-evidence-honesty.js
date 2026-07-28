@@ -118,7 +118,20 @@ const sslHealthy         = () => ({ ...sslOk, https_available: true, https_probe
 
   const s = fs.readFileSync(srcPath("engines", "ssl-scan.js"), "utf8");
   ok("ssl-scan tracks whether the HTTPS probe executed", /const httpsProbeExecuted = httpsRes !== null \|\| wwwRes !== null/.test(s));
-  ok("ssl-scan makes https_available tri-state", /const httpsAvailable = httpsProbeExecuted \? \(httpsOk \|\| wwwHttpsOk\) : null/.test(s));
+  // https_available is true-or-null from this probe. `false` is RESERVED for positive
+  // TLS/certificate evidence of absence, which a Workers fetch cannot produce — the
+  // old `httpsProbeExecuted ? (httpsOk || wwwHttpsOk) : null` form emitted false for a
+  // Cloudflare edge error and for a genuine origin 5xx, which is how a domain serving
+  // valid TLS earned a CRITICAL "HTTPS Not Available" finding.
+  ok("ssl-scan makes https_available tri-state (true or null, never a fetch-derived false)",
+     /const httpsAvailable = \(httpsOk \|\| wwwHttpsOk\) \? true : null/.test(s));
+  // Comments are stripped: the fix's own explanation names the old `status < 500`
+  // rule, and a prose mention must not read as executable code.
+  const sCode = s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  ok("ssl-scan derives HTTPS observation from the SHARED classifier, not a local status rule",
+     /classifyFetchObservation\(/.test(sCode) && !/status < 500/.test(sCode) && !/status >= 500/.test(sCode));
+  ok("ssl-scan carries explicit observation metadata rather than a bare null",
+     /https_observation_state/.test(s) && /https_observation_reason/.test(s));
   ok("ssl-scan declares incomplete when the probe did not execute", /https_probe_not_executed/.test(s));
 
   const sc = fs.readFileSync(srcPath("engines", "scoring.js"), "utf8")

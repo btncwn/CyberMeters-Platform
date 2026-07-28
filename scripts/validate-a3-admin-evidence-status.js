@@ -141,7 +141,11 @@ const rIssue = await route({ reports: { "reports/s1.json": { domain: "example.co
 ok("route: verified admin surface → issue_detected + total>0", rIssue.evidence_status === "issue_detected" && rIssue.total > 0);
 
 // ── 4. MUTATION HARNESS — the honesty gates are load-bearing ─────────────────
-const rew = (src) => src.replace(/from "\.\/([^"]+)"/g, (_m, f) => `from ${JSON.stringify(absU(f))}`);
+// Rewrites BOTH same-directory (`./x.js`) and parent-directory (`../lib/x.js`)
+// relative imports to absolute file URLs. The mutant is imported from a temp dir, so
+// any relative specifier left untouched fails to resolve — `../lib/...` was missed
+// until the shared fetch-observation classifier introduced one.
+const rew = (src) => src.replace(/from "(\.\.?\/[^"]+)"/g, (_m, f) => `from ${JSON.stringify(absU(f))}`);
 async function mutant(srcPath, from, to) {
   const src = fs.readFileSync(srcPath, "utf8");
   if (!src.includes(from)) return { anchor: false };

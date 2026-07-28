@@ -41,6 +41,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ENG = path.join(ROOT, "workers", "scan-api", "src", "engines");
 const ASSET_SRC = path.join(ENG, "asset-intel.js");
+// The Cloudflare-edge rule moved into this shared module (PR-A) and is consumed by
+// BOTH asset-intel.js and ssl-scan.js — mutating it proves the CLASS, not one caller.
+const FETCHOBS_SRC = path.join(ENG, "..", "lib", "fetch-observation.js");
 const SCANENG_SRC = path.join(ENG, "scan-engine.js");
 const DNS_SRC = path.join(ENG, "dns-scan.js");
 const SCORING_SRC = path.join(ENG, "scoring.js");
@@ -290,6 +293,34 @@ async function mutant(srcPath, from, to) {
   finally { fs.rmSync(dir, { recursive: true, force: true }); }
   return { anchor: true, mod };
 }
+// Mutate a DEPENDENCY of the module under test. The Cloudflare-edge rule now lives
+// in lib/fetch-observation.js and is shared by asset-intel.js and ssl-scan.js, so
+// mutating it into a temp directory would leave the real entry module importing the
+// unmutated original — the mutation would silently no-op. Both the mutated dep and a
+// rewritten entry module are therefore written BESIDE their originals, so every other
+// relative import still resolves, and both are always removed afterwards.
+let depSeq = 0;
+async function mutantDep(depPath, entryPath, from, to) {
+  const depSrc = fs.readFileSync(depPath, "utf8");
+  if (!depSrc.includes(from)) return { anchor: false };
+  const entrySrc = fs.readFileSync(entryPath, "utf8");
+  const n = `${process.pid}.${++depSeq}`;
+  const depName = `.${path.basename(depPath, ".js")}.mutant.${n}.js`;
+  const entryName = `.${path.basename(entryPath, ".js")}.mutant.${n}.js`;
+  const depFile = path.join(path.dirname(depPath), depName);
+  const entryFile = path.join(path.dirname(entryPath), entryName);
+  // Point the entry module's import of the dep at the mutated copy. The dep is
+  // referenced as "../lib/fetch-observation.js" from engines/.
+  const relOriginal = `../${path.basename(path.dirname(depPath))}/${path.basename(depPath)}`;
+  const relMutant = `../${path.basename(path.dirname(depPath))}/${depName}`;
+  if (!entrySrc.includes(relOriginal)) return { anchor: false };
+  fs.writeFileSync(depFile, depSrc.replace(from, to));
+  fs.writeFileSync(entryFile, entrySrc.split(relOriginal).join(relMutant));
+  let mod = null;
+  try { mod = await import(`${pathToFileURL(entryFile).href}?t=${Date.now()}-${Math.random()}`); }
+  finally { fs.rmSync(depFile, { force: true }); fs.rmSync(entryFile, { force: true }); }
+  return { anchor: true, mod };
+}
 const mfetch = (fn, run) => { const prev = globalThis.fetch; globalThis.fetch = fn; return run().finally(() => { globalThis.fetch = prev; }); };
 
 // M1: timeout no longer classified → a timed-out host reads reachable:false (clean).
@@ -424,9 +455,9 @@ const mfetch = (fn, run) => { const prev = globalThis.fetch; globalThis.fetch = 
 // M15: classifier treats EVERY 5xx as edge-synthesised → a genuine all-503 origin
 // error pass falsely reads complete (breaks the #185 contract → B5b/A11 would fail).
 {
-  const m = await mutant(ASSET_SRC,
-    "    status >= CF_EDGE_STATUS_MIN && status <= CF_EDGE_STATUS_MAX &&",
-    "    status >= 500 &&");
+  const m = await mutantDep(FETCHOBS_SRC, ASSET_SRC,
+    "  return code >= CF_EDGE_STATUS_MIN && code <= CF_EDGE_STATUS_MAX &&",
+    "  return code >= 500 &&");
   const r = m.anchor ? await mfetch(() => edgeResponse(503), () => m.mod.runExposureModule("example.com", ["a.example.com"])) : null;
   ok("mutation M15 (edge range widened to all 5xx) → genuine origin 503 falsely complete — CAUGHT",
     m.anchor && !r.incomplete);
@@ -434,7 +465,7 @@ const mfetch = (fn, run) => { const prev = globalThis.fetch; globalThis.fetch = 
 // M16: classifier drops the Server:cloudflare signature requirement → a bare 530 from
 // a non-Cloudflare host falsely reads authoritative (A16 would fail).
 {
-  const m = await mutant(ASSET_SRC,
+  const m = await mutantDep(FETCHOBS_SRC, ASSET_SRC,
     '    String(server || "").trim().toLowerCase() === "cloudflare";',
     "    true;");
   const r = m.anchor ? await mfetch(() => htmlResponse(530), () => m.mod.probeAsset("odd.example.com")) : null;
@@ -445,8 +476,8 @@ const mfetch = (fn, run) => { const prev = globalThis.fetch; globalThis.fetch = 
 // a mail-only-subdomain pass (synthetic CF 530) marks the module incomplete and every
 // scan permanently partial (A13/B8/D6 would fail).
 {
-  const m = await mutant(ASSET_SRC,
-    "  if (edgeSynthesised) {",
+  const m = await mutantDep(FETCHOBS_SRC, ASSET_SRC,
+    "  if (isCloudflareEdgeSynthesised(status, server)) {",
     "  if (false) {");
   const r = m.anchor ? await mfetch(() => edgeResponse(530), () => m.mod.runExposureModule("example.com", ["reports.example.com"])) : null;
   ok("mutation M17 (edge branch removed — the 19 Jul P1 reintroduced) → edge-530 pass falsely incomplete — CAUGHT",

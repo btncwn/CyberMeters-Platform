@@ -571,6 +571,21 @@ jobs:
       - name: Validate passive-probe evidence honesty (timeout/redirect-loop/refused → unknown, never healthy)
         run: node scripts/validate-probe-evidence-honesty.js
 
+      # PR-A — HTTPS Observation Classification (P1). A founder domain serving valid
+      # TLS produced a CRITICAL "HTTPS Not Available" finding and an email telling the
+      # owner to install a certificate, because ssl-scan collapsed "genuine origin
+      # response", "Cloudflare-synthesised edge error" and "not observed" into one
+      # boolean via `status < 500`. One shared classifier now decides, and these three
+      # steps hold the line: matrix → mutation (pinned counts) → faithful engine trace.
+      - name: Validate HTTPS observation classification (origin 5xx proves transport; edge error ≠ absence)
+        run: node scripts/validate-https-observation-classification.js
+
+      - name: Validate HTTPS observation classification mutations (anchor-guarded, pinned mutant count)
+        run: node scripts/validate-https-observation-classification-mutations.js
+
+      - name: Validate HTTPS observation engine trace (no false ssl_not_available through runScanEngine)
+        run: node scripts/validate-https-observation-engine-trace.js
+
       - name: Validate SSL concurrent CT lookup (reachability ∥ crt.sh/certspotter — max not sum, evidence preserved)
         run: node scripts/validate-ssl-concurrent-ct.js
 

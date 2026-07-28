@@ -4,6 +4,7 @@
 // index.js (monolith decomposition, Phase 1c) — no logic change.
 import { safeFetch } from "../lib/http.js";
 import { customerSafeFailure } from "../lib/errors.js";
+import { classifyFetchObservation } from "../lib/fetch-observation.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
 import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertificateSanNames } from "./hostnames.js";
 
@@ -161,42 +162,67 @@ export async function runSslModule(domain, opts = {}) {
     redirect: "manual",
     accounting,
   });
-  const httpsOk = httpsRes !== null && httpsRes.status < 500;
+  // ONE shared classifier decides what this fetch observed (lib/fetch-observation.js).
+  // Any origin status — 2xx/3xx/4xx AND 5xx — proves HTTPS transport: to answer at
+  // all over https:// the handshake completed and a certificate was accepted. A
+  // Cloudflare-synthesised 52x/530 is NOT an origin answer and proves nothing either
+  // way. The old `status < 500` rule got both wrong.
+  const bareObservation = classifyFetchObservation({ response: httpsRes });
+  const httpsOk = bareObservation.transport_observed === true;
 
-  // Try www. fallback if bare domain HTTPS fails
+  // Try www. fallback if the bare domain did not PROVE transport. An edge error or a
+  // timeout on the bare name is inconclusive, not a negative, so the fallback still
+  // runs — it may yet observe a genuine origin.
   let wwwHttpsOk = false;
   let wwwRes = null;
+  let wwwObservation = null;
   if (!httpsOk && !domain.startsWith("www.")) {
     wwwRes = await safeFetch(`https://www.${domain}`, {
       method: "HEAD",
       redirect: "manual",
       accounting,
     });
-    wwwHttpsOk = wwwRes !== null && wwwRes.status < 500;
+    wwwObservation = classifyFetchObservation({ response: wwwRes });
+    wwwHttpsOk = wwwObservation.transport_observed === true;
   }
 
-  // ── Did we actually LOOK? ───────────────────────────────────────────────────
-  // safeFetch returns null for a 10s timeout, a redirect loop, a blocked target or
-  // any thrown error. None of those observed anything about port 443.
+  // ── What did we actually OBSERVE? ───────────────────────────────────────────
+  // Three facts used to collapse into one boolean, and two of them were lies:
   //
-  // This distinction already existed one field below — `http_redirect_validated`
-  // stays false on a null response precisely so the scoring engine will not claim
-  // a redirect verdict it never saw. The same discipline was never applied to
-  // reachability, so a timed-out probe collapsed into `https_available: false`,
-  // and scoring turned that into a CRITICAL finding asserting "TLS handshake
-  // failed or connection refused on port 443" — a claim about the customer's
-  // server that safeFetch cannot make, because a timeout is not a refusal.
+  //   • a genuine origin response          → transport PROVEN
+  //   • a Cloudflare-synthesised 52x/530   → a real Response, but NO origin answered
+  //   • a timeout / refusal / block / null → nothing observed about port 443
   //
-  // https_available is therefore TRI-STATE, matching the platform's existing
-  // unknown vocabulary (probeAsset's `reachable: null`):
-  //   true  — a response was observed over HTTPS
-  //   false — a response was observed and HTTPS is genuinely not serving (>=500)
-  //   null  — WE DID NOT LOOK. Never a security claim.
-  // Consumers that already test `=== true` / `=== false` are unaffected by null;
-  // the two that tested truthiness (`!ssl.https_available`) are corrected in this
-  // same change, because to them null previously meant "not available".
+  // Reading the middle two as `false` is how a domain serving valid TLS produced a
+  // CRITICAL "HTTPS Not Available" finding — "TLS handshake failed or connection
+  // refused on port 443" — and an email telling its owner to install a certificate.
+  // A Workers fetch cannot make that claim: it can PROVE transport, never disprove it.
+  //
+  // https_available keeps its TRI-STATE contract, so every consumer testing
+  // `=== true` / `=== false` is untouched:
+  //   true  — an origin answered over HTTPS (any status, including 5xx)
+  //   false — RESERVED for positive TLS/certificate evidence of absence, which a
+  //           Workers fetch cannot produce. This probe therefore never emits false;
+  //           the certificate signal family owns that verdict.
+  //   null  — not observed. Never a security claim.
+  //
+  // The `false` case is retained in the contract rather than removed because
+  // scoring.js / posture-scoring.js / ce-readiness.js / cert-intel.js all branch on
+  // `=== false`, and a TLS-evidence producer may legitimately set it later.
+  //
+  // The bare null is no longer the whole story: the additive fields below say WHICH
+  // of the non-observations happened, so "edge error" and "we never looked" stay
+  // distinguishable downstream.
+  const httpsObservation = wwwHttpsOk ? wwwObservation : bareObservation;
+  // UNCHANGED CONTRACT. `https_probe_executed` means "the probe came back with a
+  // response we could look at", not "we attempted a request". buildScanQuality,
+  // moduleAssessed() and canVerify('ssl') all depend on that reading: a timed-out
+  // probe must keep this FALSE so the scan degrades to `partial` and can never
+  // verify or resolve an SSL condition. A Cloudflare edge error DOES set it true —
+  // a Response object came back and the edge was genuinely observed — which is
+  // exactly the founder contract ("probe was executed", observation incomplete).
   const httpsProbeExecuted = httpsRes !== null || wwwRes !== null;
-  const httpsAvailable = httpsProbeExecuted ? (httpsOk || wwwHttpsOk) : null;
+  const httpsAvailable = (httpsOk || wwwHttpsOk) ? true : null;
 
   // Check whether plain HTTP redirects to HTTPS.
   // Follow up to 2 hops to handle intermediate http→http→https chains
@@ -258,6 +284,18 @@ export async function runSslModule(domain, opts = {}) {
   return {
     https_available:          httpsAvailable,
     https_probe_executed:     httpsProbeExecuted,
+    // Additive observation metadata — the explicit WHY behind a null, so no consumer
+    // has to guess whether an absent boolean means "edge error", "timed out" or "we
+    // never looked". Purely additive: nothing below reads these yet, and every
+    // existing `=== true` / `=== false` consumer is untouched.
+    //   observed | incomplete | unavailable | not_assessed
+    https_observation_state:  httpsObservation.state,
+    https_observation_reason: httpsObservation.reason,
+    https_observation_completeness: httpsObservation.completeness,
+    // Present ONLY for a genuine origin answer. A 5xx here means the origin served
+    // an error over a working TLS channel — an application-health fact, never
+    // certificate absence and never "traffic is transmitted unencrypted".
+    https_origin_status:      httpsObservation.origin_status,
     // The module did not truly run its reachability check. buildScanQuality reads
     // this into scan_quality `partial`, moduleAssessed() into evidence_insufficient
     // and moduleCompletionGate into "cannot verify" — so an unexecuted probe can
@@ -345,6 +383,13 @@ export async function runSslModule(domain, opts = {}) {
       active_service: {
         probe_executed: httpsProbeExecuted,
         https_available: httpsAvailable,
+        // Same additive observation metadata as the module root, so the per-signal
+        // certificate model can tell an edge error from a probe that never ran
+        // without re-deriving it from a bare null.
+        observation_state: httpsObservation.state,
+        observation_reason: httpsObservation.reason,
+        observation_completeness: httpsObservation.completeness,
+        origin_status: httpsObservation.origin_status,
         endpoint_context: wwwHttpsOk ? `www.${domain}` : domain,
       },
     },
