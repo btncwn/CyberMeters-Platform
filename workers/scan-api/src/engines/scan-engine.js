@@ -557,7 +557,12 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       const [dnsSettled, sslSettled, headersSettled, emailSettled, dmarcSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
         await Promise.allSettled([
           runCappedModule("dns",                  { fallback: () => markDeadlineDeferred({ source: "dns" }), run: ({ accounting, signal }) => runDnsModule(domain, { accounting, signal, cache: dnsCache }) }),
-          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ https_available: false, source: "tls_probe" }), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache }) }),
+          // https_available stays NULL on a deadline-deferred SSL module: the probe
+          // never ran, so it observed nothing. It previously fell back to `false`,
+          // which scoring.js reads as positive evidence of absence and turns into the
+          // CRITICAL "HTTPS Not Available" finding — a second, independent path to the
+          // same false claim the classifier fix closes. Not assessed is not a verdict.
+          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_observation_completeness: "not_assessed", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache }) }),
           runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal }) => runHeadersModule(domain, { accounting, signal }) }),
           runCappedModule("email_security",       { fallback: () => markDeadlineDeferred({ spf: {}, dmarc: {}, dkim: {}, source: "email_security" }), run: ({ accounting, signal }) => runEmailModule(domain, { accounting, signal, cache: dnsCache, dmarcOwnedByCore: true }) }),
           runCappedModule("dmarc_core",           {
