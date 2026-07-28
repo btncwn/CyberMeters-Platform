@@ -34,6 +34,11 @@ Every capability is tagged with exactly one: `DISCOVERED` · `DESIGNED` · `IMPL
 
 ---
 
+**Scenario-level feasibility (separate, founder-directed, post-backlog):**
+`docs/SCENARIO-DETECTION-FEASIBILITY-PROGRAMME.md` — sensor inventory → phishing scenario feasibility →
+ransomware entry-path feasibility → historical backtest → false-positive measurement → founder GO/NO-GO.
+It obeys this Law: a missing link is PARTIAL/FAIL/NOT TESTED, never PASS, and NO-GO is a legitimate outcome.
+
 ## Phases
 
 ### Phase 0 — Detection Availability Foundation (P0/P1: Chronic Partial Scan) — ACTIVE

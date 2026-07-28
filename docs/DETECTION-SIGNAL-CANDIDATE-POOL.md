@@ -9,6 +9,11 @@ Gaps are LIKELY but must be **confirmed against the code before building** — e
 `current_code_status: unverified`. We already use CT for cert *observation*, have SPF/DMARC/DKIM,
 TLS-RPT ingest, Brand DNS enrichment; several candidates DEEPEN those rather than start fresh.
 
+**Related but a DIFFERENT question:** `docs/SCENARIO-DETECTION-FEASIBILITY-PROGRAMME.md` asks whether
+whole attack SCENARIOS (phishing infrastructure, ransomware entry path) can be proven end-to-end from the
+sensors we ALREADY run, with a founder GO/NO-GO gate. This pool proposes NEW individual signals. Do not
+merge the two queues.
+
 ## Selection FILTER
 A signal qualifies only if: **externally observable (→ can reach L4/L5) + detects REAL harm +
 citable to a recognised authority (RFC/CIS/scheme) + has an honest stated limit.**
