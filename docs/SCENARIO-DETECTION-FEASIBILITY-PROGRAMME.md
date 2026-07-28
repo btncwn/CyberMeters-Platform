@@ -32,8 +32,11 @@ Lookalike domain observed
   = phishing DELIVERY observed
 ```
 
-Each ingredient already exists as a sensor. The programme asks whether the **chain** holds, at
-what confidence, and with what false-positive cost.
+**Most infrastructure ingredients already have candidate sensors. The delivery link is
+variant-dependent:** DMARC RUA may support the **customer-domain spoofing** scenario, while
+**lookalike-domain delivery currently lacks a matching inbound-email evidence source** (see §2).
+The programme asks whether the **chain** holds — where it holds at all — at what confidence, and
+with what false-positive cost.
 
 ## The sequence (each step gates the next)
 
@@ -47,8 +50,12 @@ CANNOT see. Live probe modules as of this writing: `dns` · `ssl` · `headers` �
 `known_exploited_vulnerabilities` · `email_security_intelligence` · `cloud_storage_discovery`,
 plus derived phases (historical changes, identity correlation) and the Brand/IDN engines.
 
-This inventory is the foundation for Item 19 (source-fidelity) too — **do not duplicate that
-work; produce one inventory both consume.**
+**Ownership and order — this programme does NOT produce the inventory.** Item 19 (source-fidelity
+and freshness) sits inside the frozen backlog and therefore runs FIRST; **Item 19 owns and
+produces the canonical sensor/source-fidelity inventory.** This post-backlog programme
+**consumes** that inventory and may append **scenario-specific feasibility fields** to it. It must
+never create a second, duplicate inventory. (An earlier draft of this document inverted that
+order — a post-backlog programme cannot lay the foundation for backlog work that precedes it.)
 
 ### 2. Phishing scenario feasibility
 
