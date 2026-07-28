@@ -76,8 +76,11 @@ jobs:
       - name: Full-repo assurance — tenant-isolation invariant matrix (table classification + harness cross-ref)
         run: node scripts/validate-tenant-isolation-matrix.js
 
-      - name: Full-repo assurance — static tenant-query audit (hostname-only / global-latest / R2-key / body-trust)
+      - name: Full-repo assurance — static tenant-query audit (workspace-domain / hostname-only / global-latest / R2-key / body-trust)
         run: node scripts/validate-tenant-query-audit.js
+
+      - name: Full-repo assurance — workspace-domain tenant-scope mutation proof
+        run: node scripts/validate-tenant-scope-assurance-mutations.js
 
       - name: Full-repo assurance — extended two-tenant harness (same-hostname / removed-member / identity)
         run: node scripts/validate-tenant-isolation-extended.js

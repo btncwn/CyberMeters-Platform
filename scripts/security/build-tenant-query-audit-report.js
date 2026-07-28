@@ -5,7 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { auditSql, REPO_ROOT } from "./lib/tenant-query-audit.js";
 
-const BLOCKING = new Set(["hostname_only_ownership", "global_latest_fallback", "r2_key_not_workspace_bound", "body_workspace_trust"]);
+const BLOCKING = new Set(["hostname_only_ownership", "workspace_domain_scope_missing", "global_latest_fallback", "r2_key_not_workspace_bound", "body_workspace_trust"]);
 
 function main() {
   const findings = auditSql();
@@ -24,13 +24,15 @@ function main() {
   L.push("The audit extracts every `.prepare()`/`.exec()` SQL statement and every R2 key");
   L.push("expression from the Worker source, then classifies each against the tenant-owned");
   L.push("table set from the isolation matrix. A statement carrying an inline tenant predicate");
-  L.push("(`workspace_id` / `owner_user_id` / `owner_id` / `user_id` / `subscription_id`, or a");
-  L.push("`workspace_domains` join) is **safe** and not reported.");
+  L.push("(`workspace_id` / `owner_user_id` / `owner_id` / `user_id` / `subscription_id`)");
+  L.push("is **safe** and not reported. A `workspace_domains` JOIN without such a predicate");
+  L.push("is never proof of tenant scope.");
   L.push("");
   L.push("## Detectors");
   L.push("");
   L.push("| Detector | Severity | Gate |");
   L.push("|---|---|---|");
+  L.push("| `workspace_domain_scope_missing` | high | blocking |");
   L.push("| `hostname_only_ownership` | high | blocking |");
   L.push("| `global_latest_fallback` | high | blocking |");
   L.push("| `r2_key_not_workspace_bound` | high | blocking |");
@@ -49,9 +51,10 @@ function main() {
   L.push("");
   L.push("## Mutation proof");
   L.push("");
-  L.push("Removing `workspace_id = ? AND` from any `WHERE workspace_id = ? AND domain = ?`");
-  L.push("statement turns it into a bare `WHERE domain = ?` on a tenant table, which");
-  L.push("`hostname_only_ownership` flags with no suppression → the CI gate fails.");
+  L.push("The anchored source mutant preserves `JOIN workspace_domains` in");
+  L.push("`resolveWorkspaceDomain`, removes only `wd.workspace_id = ?` and its bind, and");
+  L.push("must fail both `validate-tenant-query-audit.js` and the real-router oracle in");
+  L.push("`validate-tenant-isolation.js`. The mutation harness restores the source exactly.");
   L.push("");
   L.push("## Informational: `unscoped_tenant_query` by table");
   L.push("");
