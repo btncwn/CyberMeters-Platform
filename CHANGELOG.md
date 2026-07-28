@@ -5,6 +5,69 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.28-1 — CT-R1 provider telemetry + migration 103 + LABELS/subject cutover — deployed 2026-07-28; **DEPLOYED · TELEMETRY-ONLY · NOT LIVE-ACCEPTED**
+
+First stage of the "Scan Completion Rate — CT Provider Resilience" interlock (R1 telemetry →
+R2 measured failover → R3 freshness-governed cache). **Telemetry only: no CT detection,
+failover, retry, timeout, cache or result behaviour changed** — R1 measures the untreated
+baseline, it does not treat it. Also carries the ASM alert email LABELS coverage fix and the
+count-derived subject-line fix. **Deploy ≠ live acceptance.**
+
+- **Release identity:** deployed main SHA `3a64f8c625936a4908969daf61756b46b3501049`
+  (merge of PR #340, reviewed head `e9fa6c3979a586c63f57909375672999f8a51782`, parents
+  `6f1a8632` + `e9fa6c39`). PR #340 also folds the LABELS/subject work merged earlier as #339
+  plus its corrective. Release tag `v2026.07.28-1` on the deployed commit.
+- **Three P1s found in review and fixed before this shipped** (independent reviewer, three
+  rounds; none reached production): (1) terminal `failed` scans omitted CT telemetry →
+  survivorship bias; (2) the analyzer reported a zero/empty denominator as `0` instead of
+  `null`/`not_measured`; (3) per-row non-fatal writes let a partial row set read as full
+  coverage. Corrective #2 rewrote persistence as a single atomic D1 `batch()` — a statement
+  failure rolls back the whole bounded snapshot, so a scan has all its CT rows or none, and
+  partial persistence can never read as `measured`/`100%`. Proven by a transactional
+  rollback fixture and an 11-mutant pinned harness (11/11 · 23/23).
+- **Migration:** `103-ct-provider-telemetry.sql` **APPLIED to production D1** (2026-07-28,
+  ~01:00Z, founder-approved). Pre-apply backup
+  `cybermeters-db-pre-103-20260728T010017Z.sql` (7,659,526 bytes, SHA-256
+  `73fbe71e34d33a80d37adb33f29dffe06e3479151c87545fb4d1d9140bfccd00`, restored-integrity ok).
+  Additive: new table `ct_provider_telemetry`, two indexes, and a `>= 8` row-bound trigger
+  `trg_ct_provider_telemetry_scan_row_bound`. Data preserved exactly across the apply
+  (11 workspaces / 40 domains / 402 assets; scan count 168 at apply time).
+- **scan-api (`cybermeters-platform`):** production Worker Version ID
+  `dbf3bc5f-1984-4708-919d-99a10201d47c` (Cloudflare deployment
+  `3ee9086a-3e51-4cc6-8450-6c0a3a289343`), deployed with a message carrying CT-R1 +
+  LABELS/subject + migration 103 + the exact SHA; **rollback:**
+  `5624f0a5-151f-4c8e-a6cd-ab00959cad05` (deployment
+  `b45e2981-a05d-4db0-8bab-4b9b37e7e23c`, the `v2026.07.27-3` cutover). **email-ingest not
+  deployed.**
+- **Production smoke:** both scan-api hosts converged on `dbf3bc5f…`; `/health` 200 healthy,
+  `/ready` 200 with `d1:true, r2:true`; unauthenticated `/api/workspaces` 401 on both;
+  `/api/plans` 200 and byte-identical on both; `workers_dev=true`. The custom domain served
+  the previous version briefly during propagation, then converged.
+- **First live provider attribution — the measurement R1 exists to produce.** No manual
+  canary was dispatched (Codex correctly refused to bypass authentication); the **05:00Z
+  scheduled cron scan** of `blackbullbarbers.co.uk` (`scan_817a521b`, completed/partial)
+  wrote the first four CT rows atomically (2 providers × 2 modules):
+
+  | module | provider | outcome | latency | completeness_impact |
+  | --- | --- | --- | --- | --- |
+  | ssl | crt_sh | **parse_error** | 938 ms | 0 |
+  | subdomains | crt_sh | **parse_error** | 938 ms | **1** |
+  | ssl | certspotter | ok | 406 ms | 0 |
+  | subdomains | certspotter | ok | 406 ms | 0 |
+
+  So on this partial scan the loss is attributable to **crt.sh (`parse_error`), not
+  CertSpotter** — measured, where before deploy `error_class` was NULL and the platform was
+  blind at provider level. `completeness_impact` discriminated ssl (0) from subdomains (1)
+  for the same crt.sh failure, so one bad provider on one module did not blanket-kill the
+  sibling signal.
+- **Discipline — what this is NOT:** ONE scan, one data point. **Not** a 7-day trend, **not**
+  statistically meaningful, **not** CT-R2 readiness, **not** a completion-rate improvement
+  claim (R1 changes nothing), **not** live acceptance. The P1-3 fix is confirmed in live
+  shape (four atomic rows = a full set). **P1-1 (failed-terminal persistence) is not yet
+  proven live** — no `failed` terminal scan has occurred since deploy; it will arrive
+  naturally. The seven-day measurement window's untreated-activation boundary is
+  `2026-07-28T01:02:47Z`.
+
 ## v2026.07.27-3 — Item 10 P5 pagination corrective — deployed 2026-07-27; **ITEM 10 ENGINEERING COMPLETE AND DEPLOYED · LIVE ACCEPTANCE DEFERRED TO ITEM 14**
 
 Closes the corrective blocker recorded under `v2026.07.27-2` below. With this cutover
