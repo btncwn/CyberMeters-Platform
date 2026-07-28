@@ -25,7 +25,7 @@ const { moduleCompletionGate } = await import(engUrl("asm-cases.js"));
 
 const NOW = "2026-07-28T13:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
-const EXPECTED_MUTANTS = 5;
+const EXPECTED_MUTANTS = 8;
 
 let passed = 0, failed = 0, killed = 0;
 const ok = (name, cond, detail = "") => {
@@ -88,12 +88,12 @@ function seedOpenRedirectCondition(db) {
 
 // `httpMode` decides ONLY what http:// answers; https:// always serves a genuine
 // origin 200, so any difference is attributable to the redirect observation alone.
-async function trace(httpMode, { seed = false } = {}) {
+async function trace(httpMode, { seed = false, deadlineMs = "19000" } = {}) {
   const db = buildDb(); const store = new Map();
   const env = {
     cybermeters_db: makeD1(db), cybermeters_reports: makeR2(store),
     SCAN_CAPACITY_MODE: "legacy", SCAN_SUBREQUEST_LIMIT: "200",
-    SCAN_DEADLINE_MS: "19000", APP_VERSION: "pra2-trace",
+    SCAN_DEADLINE_MS: deadlineMs, APP_VERSION: "pra2-trace",
   };
   db.prepare("INSERT INTO users (id, email) VALUES ('usr','o@example.com')").run();
   db.prepare("INSERT INTO workspaces (id, name, deleted_at) VALUES ('ws','PR-A2',NULL)").run();
@@ -118,6 +118,13 @@ async function trace(httpMode, { seed = false } = {}) {
       return json({ Status: 0, Answer: [] });
     }
     if (url.protocol === "http:") {
+      // Sequential: hop 1 is a GENUINE origin 301 onto another HTTP URL; the REQUIRED
+      // hop 2 is a Cloudflare-signed 522 with no usable Location.
+      if (httpMode === "seq_edge_hop2") {
+        return host === "example.com"
+          ? new Response("", { status: 301, headers: { location: "http://www.example.com/", server: "nginx" } })
+          : new Response("edge", { status: 522, headers: { server: "cloudflare", "content-type": "text/html" } });
+      }
       if (httpMode === "edge") return new Response("edge", { status: 522, headers: { server: "cloudflare", "content-type": "text/html" } });
       if (httpMode === "no_redirect") return new Response("<html></html>", { status: 200, headers: { server: "nginx", "content-type": "text/html" } });
       return new Response("", { status: 301, headers: { location: `https://${host}/`, server: "nginx" } });
@@ -213,6 +220,67 @@ ok("L: the CANONICAL gate is what defers it (no redirect-specific bypass)",
   moduleCompletionGate({ ssl: { incomplete: true } }, { status: "partial", modules_skipped: ["ssl"] }).canVerify("ssl") === false &&
   moduleCompletionGate({ ssl: {} }, { status: "complete", modules_skipped: [] }).canVerify("ssl") === true);
 
+// ── T4 — SEQUENTIAL: genuine hop 1, Cloudflare-signed hop 2 ─────────────────
+console.log("\n── T4. sequential second hop unobserved (P1-1) ──");
+const seqT = await trace("seq_edge_hop2");
+{
+  const c = seqT.ssl.http_redirect_chain || {};
+  ok("T4: chain NOT validated (hop 1 does not rescue the required hop 2)",
+    c.http_redirect_validated === false, String(c.http_redirect_validated));
+  ok("T4: CHAIN-level state is the failing hop's, not hop 1's origin_response",
+    c.observation_state === "cloudflare_edge_error", String(c.observation_state));
+  ok("T4: both hops retained in bounded provenance",
+    (c.hop_observations || []).length === 2 &&
+    c.hop_observations[0].state === "origin_response" &&
+    c.hop_observations[1].state === "cloudflare_edge_error",
+    JSON.stringify(c.hop_observations));
+  ok("T4: SSL module incomplete via the canonical contract",
+    seqT.ssl.incomplete === true && seqT.ssl.incomplete_reason === "http_redirect_not_observed",
+    JSON.stringify({ i: seqT.ssl.incomplete, r: seqT.ssl.incomplete_reason }));
+  ok("T4: scan_quality is partial (report + D1)",
+    seqT.report?.scan_quality?.status === "partial" && seqT.quality === "partial",
+    JSON.stringify({ rep: seqT.report?.scan_quality?.status, d1: seqT.quality }));
+  ok('T4: NO definitive "HTTP Does Not Redirect to HTTPS" persisted',
+    !seqT.titles.includes("HTTP Does Not Redirect to HTTPS"), seqT.titles.join(" | "));
+  const f = (seqT.report?.findings || []).find((x) => x.id === "ssl_no_http_redirect");
+  ok("T4: no redirect score impact", !f || Number(f.score_impact || 0) === 0, JSON.stringify(f?.score_impact));
+  const ws = seqT.domains.website_security || {};
+  ok("T4: website_security is not a healthy/complete verdict",
+    ws.state !== "assessed_healthy" && ws.coverage !== "complete", JSON.stringify(ws));
+}
+// Lifecycle non-progression on the sequential shape.
+const seqLife = await trace("seq_edge_hop2", { seed: true });
+{
+  const cond = seqLife.db.prepare("SELECT monitoring_status FROM website_security_conditions WHERE id='wsc-redir'").get() || {};
+  const cse = seqLife.db.prepare("SELECT status, verified_at FROM managed_cases WHERE id='mc-redir'").get() || {};
+  const ev = seqLife.db.prepare("SELECT event_type FROM website_security_events WHERE record_id='wsc-redir'").all().map((r) => r.event_type);
+  console.log(`   T4 lifecycle AFTER  condition=${cond.monitoring_status} case=${cse.status} events=[${ev.join(", ")}]`);
+  ok("T4: no condition_resolved on the sequential shape", !ev.includes("condition_resolved"), ev.join(","));
+  ok("T4: case did not advance or verify",
+    cse.status === "awaiting_verification" && cse.verified_at == null, String(cse.status));
+}
+
+// ── T5 — DEADLINE: no HTTP probe ran at all ─────────────────────────────────
+console.log("\n── T5. deadline-deferred SSL (no HTTP probe ran) ──");
+const dlT = await trace("redirect", { deadlineMs: "0", seed: true });
+{
+  const c = dlT.ssl.http_redirect_chain || {};
+  ok("T5: redirect evidence is explicitly not_assessed",
+    c.observation_state === "not_assessed" && c.http_redirect_validated === false,
+    JSON.stringify(c.observation_state));
+  ok('T5: NO "HTTP Does Not Redirect to HTTPS" persisted (P1-2)',
+    !dlT.titles.includes("HTTP Does Not Redirect to HTTPS"), dlT.titles.join(" | "));
+  const f = (dlT.report?.findings || []).find((x) => x.id === "ssl_no_http_redirect");
+  ok("T5: no redirect score impact", !f || Number(f.score_impact || 0) === 0, JSON.stringify(f?.score_impact));
+  ok("T5: scan_quality is partial", dlT.quality === "partial", String(dlT.quality));
+  const cond = dlT.db.prepare("SELECT monitoring_status FROM website_security_conditions WHERE id='wsc-redir'").get() || {};
+  const cse = dlT.db.prepare("SELECT status, verified_at FROM managed_cases WHERE id='mc-redir'").get() || {};
+  const ev = dlT.db.prepare("SELECT event_type FROM website_security_events WHERE record_id='wsc-redir'").all().map((r) => r.event_type);
+  ok("T5: no condition_resolved and no case verification",
+    !ev.includes("condition_resolved") && cse.status === "awaiting_verification" && cse.verified_at == null,
+    `${cond.monitoring_status} / ${cse.status} / [${ev.join(",")}]`);
+}
+
 // ── M — mutations (anchor-guarded, pinned) ──────────────────────────────────
 console.log("\n── M. mutation proof ──");
 const SSL = path.join(root, "workers/scan-api/src/engines/ssl-scan.js");
@@ -247,8 +315,8 @@ const MUTATIONS = [
   {
     name: "M1 an edge Response is restored as redirect-validated",
     target: SSL,
-    from: "  const redirectEvidenceObserved = httpObservation.transport_observed === true;",
-    to:   "  const redirectEvidenceObserved = httpRes !== null;",
+    from: "  let redirectEvidenceObserved = httpObservation.transport_observed === true;",
+    to:   "  let redirectEvidenceObserved = httpRes !== null;",
     check: async (mod) => (await sslOf(mod, edgeResp)).http_redirect_chain.http_redirect_validated === true,
   },
   {
@@ -268,8 +336,8 @@ const MUTATIONS = [
   {
     name: "M3 incomplete evidence is restored to DEFINITIVE scoring",
     target: SCORING,
-    from: "    const redirectValidated       = redirectObservation\n      ? redirectObservation === \"origin_response\"\n      : redirectChain?.http_redirect_validated !== false;   // legacy reports (no state)",
-    to:   "    const redirectValidated       = redirectChain?.http_redirect_validated !== false;",
+    from: "      ? redirectObservation === \"origin_response\"",
+    to:   "      ? true",
     check: async (mod) => {
       // A chain explicitly marked NOT validated but carrying a stale legacy-shaped
       // true would again reach the definitive branch.
@@ -287,6 +355,44 @@ const MUTATIONS = [
     from: "    ...((httpsAvailable === true && redirectEvidenceObserved) ? {} : {",
     to:   "    ...((httpsAvailable === true) ? {} : {",
     check: async (mod) => (await sslOf(mod, edgeResp)).incomplete !== true,
+  },
+  {
+    name: "M6 hop 1's state overrides an incomplete REQUIRED second hop",
+    target: SSL,
+    from: "          redirectEvidenceObserved = false;\n          chainObservation = hop2Observation;",
+    to:   "          chainObservation = httpObservation;",
+    check: async (mod) => {
+      const m = await sslOf(mod, (url) => url.hostname === "example.com"
+        ? new Response("", { status: 301, headers: { location: "http://www.example.com/", server: "nginx" } })
+        : new Response("edge", { status: 522, headers: { server: "cloudflare" } }));
+      // hop 1's origin_response would again be published as the chain verdict.
+      return m.http_redirect_chain.http_redirect_validated === true ||
+             m.http_redirect_chain.observation_state === "origin_response";
+    },
+  },
+  {
+    name: "M7 the `!== false` missing-field semantics are restored in scoring",
+    target: SCORING,
+    from: '      : redirectChain?.http_redirect_validated === true;    // legacy reports (no state)',
+    to:   '      : redirectChain?.http_redirect_validated !== false;',
+    check: async (mod) => {
+      // An ABSENT chain (PR-A1 deadline fallback shape) would again be definitive.
+      const r = mod.computeScore({ ssl: { https_available: null }, headers: { headers: {} }, dns: {}, email_security: {} }, "example.com");
+      const f = (r.findings || []).find((x) => x.id === "ssl_no_http_redirect");
+      return !!f && Number(f.score_impact) === -5;
+    },
+  },
+  {
+    name: "M8 second-hop-derived module incompleteness is dropped",
+    target: SSL,
+    from: "          redirectEvidenceObserved = false;",
+    to:   "          redirectEvidenceObserved = true;",
+    check: async (mod) => {
+      const m = await sslOf(mod, (url) => url.hostname === "example.com"
+        ? new Response("", { status: 301, headers: { location: "http://www.example.com/", server: "nginx" } })
+        : new Response("edge", { status: 522, headers: { server: "cloudflare" } }));
+      return m.incomplete !== true;
+    },
   },
   {
     name: "M5 a GENUINE origin redirect is incorrectly suppressed",

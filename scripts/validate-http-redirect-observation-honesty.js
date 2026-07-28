@@ -130,6 +130,90 @@ console.log("\n── B. second hop classification ──");
     JSON.stringify(m.http_redirect_chain));
 }
 
+// ── B2. SEQUENTIAL CONTRACT — a required later hop can never be rescued ──────
+// The bare/www aggregate rule (any origin response wins) is correct for two
+// INDEPENDENT endpoints and WRONG here: hop 2 is a DEPENDENCY, so hop 1 answering
+// says nothing about it. Previously hop 1's origin_response set the chain state and
+// the module completeness, so a genuine 301 into a Cloudflare-signed 522 published
+// the definitive medium -5 verdict with the required hop unobserved.
+console.log("\n── B2. sequential second-hop contract ──");
+{
+  const m = await sslWith({
+    https: () => originPlain(200),
+    http: (url) => url.hostname === "example.com"
+      ? originRedirect(301, "http://www.example.com/")
+      : edge(522),                       // required hop 2: edge error, NO Location
+  });
+  const c = m.http_redirect_chain;
+  ok("B2: chain validation is FALSE (hop 1 does not rescue hop 2)",
+    c.http_redirect_validated === false, String(c.http_redirect_validated));
+  ok("B2: CHAIN-level state is the failing hop's, not hop 1's origin_response",
+    c.observation_state === "cloudflare_edge_error" &&
+    c.observation_completeness === "incomplete", JSON.stringify(c.observation_state));
+  ok("B2: hop 1 provenance still shows its genuine origin_response",
+    c.hop_observations[0].state === "origin_response" && c.hop_observations.length === 2);
+  ok("B2: module is incomplete via the canonical contract",
+    m.incomplete === true && m.incomplete_reason === "http_redirect_not_observed",
+    JSON.stringify({ i: m.incomplete, r: m.incomplete_reason }));
+  const f = findingOf(m);
+  ok("B2: NO definitive redirect verdict", !f || f.severity !== "medium", JSON.stringify(f && f.severity));
+  ok("B2: NO score impact", !f || Number(f.score_impact || 0) === 0, JSON.stringify(f?.score_impact));
+}
+{
+  // Hop 2 times out — same sequential rule, different inconclusive state.
+  const m = await sslWith({
+    https: () => originPlain(200),
+    http: (url) => { if (url.hostname !== "example.com") throw new TypeError("hop2 timeout");
+      return originRedirect(301, "http://www.example.com/"); },
+  });
+  ok("B2: hop-2 timeout also invalidates the chain",
+    m.http_redirect_chain.http_redirect_validated === false &&
+    m.http_redirect_chain.observation_state === "transport_unavailable" &&
+    m.incomplete === true, JSON.stringify(m.http_redirect_chain.observation_state));
+}
+{
+  // Hop 2 IS observed and simply does not redirect to https → fully observed chain,
+  // so the definitive finding is legitimately sayable.
+  const m = await sslWith({
+    https: () => originPlain(200),
+    http: (url) => url.hostname === "example.com"
+      ? originRedirect(301, "http://www.example.com/")
+      : originPlain(200),
+  });
+  ok("B2: observed hop 2 without an https redirect → chain observed, module complete",
+    m.http_redirect_chain.http_redirect_validated === true && m.incomplete !== true);
+  const f = findingOf(m);
+  ok("B2: …and the definitive finding IS sayable (positive control)",
+    !!f && f.severity === "medium" && Number(f.score_impact) === -5,
+    JSON.stringify(f && { s: f.severity, i: f.score_impact }));
+}
+
+// ── L. LEGACY / MISSING-FIELD MATRIX — absence is never consent ───────────────
+console.log("\n── L. legacy / missing-field matrix ──");
+const definitive = (ssl) => {
+  const f = findingOf(ssl);
+  return !!f && f.severity === "medium" && Number(f.score_impact) === -5;
+};
+{
+  // The ONLY case that may stay definitive: an old report with an explicit true.
+  ok("L: legacy explicit http_redirect_validated=true MAY remain definitive",
+    definitive({ https_available: null, http_redirect_chain: { http_redirect_validated: true } }));
+  ok("L: legacy explicit false is NOT definitive",
+    !definitive({ https_available: null, http_redirect_chain: { http_redirect_validated: false } }));
+  ok("L: MISSING FIELD is NOT definitive (was `!== false` → true)",
+    !definitive({ https_available: null, http_redirect_chain: { original_url: "http://example.com" } }));
+  ok("L: ABSENT CHAIN is NOT definitive — PR-A1's deadline fallback shape",
+    !definitive({ https_available: null, https_probe_executed: false, incomplete: true }));
+  ok("L: absent ssl module entirely is NOT definitive", !definitive(undefined));
+  for (const state of ["cloudflare_edge_error", "transport_unavailable", "not_assessed"]) {
+    ok(`L: observation_state ${state} is NOT definitive`,
+      !definitive({ https_available: null, http_redirect_chain: { http_redirect_validated: true, observation_state: state } }),
+      "an explicit state must override a stale legacy boolean");
+  }
+  ok("L: observation_state origin_response IS definitive (positive control)",
+    definitive({ https_available: null, http_redirect_chain: { http_redirect_validated: false, observation_state: "origin_response" } }));
+}
+
 // ── C. GENUINE BEHAVIOUR PRESERVED ───────────────────────────────────────────
 console.log("\n── C. genuine origin behaviour preserved ──");
 {

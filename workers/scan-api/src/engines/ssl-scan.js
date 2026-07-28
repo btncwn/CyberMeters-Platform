@@ -261,7 +261,21 @@ export async function runSslModule(domain, opts = {}) {
     reason:        httpObservation.reason,
     origin_status: httpObservation.origin_status,
   }];
-  const redirectEvidenceObserved = httpObservation.transport_observed === true;
+  // SEQUENTIAL contract, deliberately NOT the bare/www aggregate rule.
+  //
+  // Those two endpoints are INDEPENDENT — a genuine origin response from either one
+  // is decisive, so precedence lets it win. The redirect chain is a DEPENDENCY: hop 1
+  // answering tells us nothing about hop 2, and hop 2 is REQUIRED whenever hop 1
+  // redirects to another HTTP URL. An earlier origin response can never override an
+  // inconclusive later hop.
+  //
+  // `chainObservation` therefore tracks the FIRST inconclusive REQUIRED hop, and
+  // `redirectEvidenceObserved` means "the entire required redirect decision was
+  // observed" — not merely "hop 1 answered". Previously both came from hop 1 alone,
+  // so a genuine 301 into a Cloudflare-signed 522 published the definitive
+  // "HTTP Does Not Redirect to HTTPS" (medium, -5) with the required hop unobserved.
+  let chainObservation = httpObservation;
+  let redirectEvidenceObserved = httpObservation.transport_observed === true;
 
   let http_redirect_chain = {
     original_url:            httpOrigUrl,
@@ -303,6 +317,14 @@ export async function runSslModule(domain, opts = {}) {
             httpRedirectsToHttps = true;
             http_redirect_chain = { original_url: httpOrigUrl, final_url: loc2, redirect_count: 2, http_redirect_validated: true };
           }
+        } else {
+          // The REQUIRED second hop was not observed (edge error, timeout, refusal,
+          // block). The redirect decision is therefore unobserved as a whole: hop 1's
+          // origin response does not rescue it. Chain-level state comes from THIS hop,
+          // not from hop 1, so downstream sees the real reason.
+          redirectEvidenceObserved = false;
+          chainObservation = hop2Observation;
+          http_redirect_chain.http_redirect_validated = false;
         }
       }
     }
@@ -310,9 +332,12 @@ export async function runSslModule(domain, opts = {}) {
   // Additive observation metadata + bounded per-hop provenance (≤ 2 hops, matching
   // the chain depth this module follows). Nothing below reads these yet; they exist
   // so a consumer never has to infer WHY a redirect verdict was withheld.
-  http_redirect_chain.observation_state  = httpObservation.state;
-  http_redirect_chain.observation_reason = httpObservation.reason;
-  http_redirect_chain.observation_completeness = httpObservation.completeness;
+  // CHAIN-level state — the first inconclusive REQUIRED hop, not hop 1. Publishing
+  // hop 1's `origin_response` while a required later hop was an edge error is what
+  // made an unobserved chain look decisive.
+  http_redirect_chain.observation_state  = chainObservation.state;
+  http_redirect_chain.observation_reason = chainObservation.reason;
+  http_redirect_chain.observation_completeness = chainObservation.completeness;
   http_redirect_chain.hop_observations   = redirectHops;
 
   // ── SSL Certificate Expiry (via Certificate Transparency) ───────────────────

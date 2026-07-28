@@ -266,9 +266,16 @@ export function computeScore(modules, domain) {
     // the initial hop was a genuine origin_response.
     const redirectChain           = modules.ssl?.http_redirect_chain;
     const redirectObservation     = redirectChain?.observation_state;
+    // ABSENCE IS NEVER CONSENT. The legacy branch accepts only an EXPLICIT positive.
+    // `!== false` read a missing field as validated, so PR-A1's deadline fallback —
+    // which carries no http_redirect_chain at all — produced the definitive medium
+    // -5 "HTTP Does Not Redirect to HTTPS" with no HTTP probe having run. A missing
+    // chain, a missing field, false, edge, incomplete, unavailable and not-assessed
+    // are now all non-definitive; only an old report carrying an explicit `true`
+    // keeps working, which is the sole reason the legacy branch exists.
     const redirectValidated       = redirectObservation
       ? redirectObservation === "origin_response"
-      : redirectChain?.http_redirect_validated !== false;   // legacy reports (no state)
+      : redirectChain?.http_redirect_validated === true;    // legacy reports (no state)
     const headersFinalHttps       = modules.headers?.final_https !== false;
     const enterpriseEdgeUncertain = ENTERPRISE_DOMAINS.has(domain)
       && redirectValidated
@@ -388,7 +395,15 @@ export function computeScore(modules, domain) {
     const statusCode          = modules.headers.status_code ?? 0;
     // Enterprise edge uncertainty: see ssl_no_http_redirect gate above for rationale
     const sslNoHttpsRedirect        = !modules.ssl?.http_redirects_to_https;
-    const sslRedirectWasObservable  = modules.ssl?.http_redirect_chain?.http_redirect_validated !== false;
+    // Same explicit-evidence rule as the ssl_no_http_redirect gate above (second
+    // instance of the identical missing-field-as-evidence pattern). "Enterprise edge
+    // uncertainty" asserts a CONTRADICTION between two probes; a redirect we never
+    // observed cannot evidence a contradiction, so it must not be inferred from an
+    // absent field. Prefer the chain's own observation state when present.
+    const hstsRedirectChain         = modules.ssl?.http_redirect_chain;
+    const sslRedirectWasObservable  = hstsRedirectChain?.observation_state
+      ? hstsRedirectChain.observation_state === "origin_response"
+      : hstsRedirectChain?.http_redirect_validated === true;
     const headerEnterpriseUncertain = ENTERPRISE_DOMAINS.has(domain)
       && sslRedirectWasObservable
       && sslNoHttpsRedirect
