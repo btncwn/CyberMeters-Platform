@@ -586,6 +586,13 @@ jobs:
       - name: Validate HTTPS observation engine trace (no false ssl_not_available through runScanEngine)
         run: node scripts/validate-https-observation-engine-trace.js
 
+      # PR-A1 — the false-HEALTHY half. An edge error must not finalize `complete`
+      # and publish "Assessed — no material issue observed". Also guards the deadline
+      # fallback (previously unprotected: reverting it left all 253 harnesses green)
+      # and proves an incomplete scan cannot advance an SSL condition or its case.
+      - name: Validate HTTPS observation deadline + lifecycle non-progression (pinned mutants)
+        run: node scripts/validate-https-observation-deadline-lifecycle.js
+
       - name: Validate SSL concurrent CT lookup (reachability ∥ crt.sh/certspotter — max not sum, evidence preserved)
         run: node scripts/validate-ssl-concurrent-ct.js
 

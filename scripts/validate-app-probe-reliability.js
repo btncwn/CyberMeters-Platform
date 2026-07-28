@@ -455,9 +455,11 @@ const mfetch = (fn, run) => { const prev = globalThis.fetch; globalThis.fetch = 
 // M15: classifier treats EVERY 5xx as edge-synthesised → a genuine all-503 origin
 // error pass falsely reads complete (breaks the #185 contract → B5b/A11 would fail).
 {
+  // PR-A1 re-point: the range test moved into `inEdgeSet` when the predicate was
+  // narrowed to (520..527)||530. Widening it to every 5xx must still be caught.
   const m = await mutantDep(FETCHOBS_SRC, ASSET_SRC,
-    "  return code >= CF_EDGE_STATUS_MIN && code <= CF_EDGE_STATUS_MAX &&",
-    "  return code >= 500 &&");
+    "  const inEdgeSet = (code >= CF_EDGE_STATUS_MIN && code <= CF_EDGE_STATUS_MAX) ||\n    code === CF_EDGE_STATUS_EXTRA;",
+    "  const inEdgeSet = code >= 500;");
   const r = m.anchor ? await mfetch(() => edgeResponse(503), () => m.mod.runExposureModule("example.com", ["a.example.com"])) : null;
   ok("mutation M15 (edge range widened to all 5xx) → genuine origin 503 falsely complete — CAUGHT",
     m.anchor && !r.incomplete);

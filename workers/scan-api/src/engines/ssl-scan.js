@@ -4,7 +4,7 @@
 // index.js (monolith decomposition, Phase 1c) — no logic change.
 import { safeFetch } from "../lib/http.js";
 import { customerSafeFailure } from "../lib/errors.js";
-import { classifyFetchObservation } from "../lib/fetch-observation.js";
+import { aggregateFetchObservations, classifyFetchObservation } from "../lib/fetch-observation.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
 import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertificateSanNames } from "./hostnames.js";
 
@@ -213,7 +213,14 @@ export async function runSslModule(domain, opts = {}) {
   // The bare null is no longer the whole story: the additive fields below say WHICH
   // of the non-observations happened, so "edge error" and "we never looked" stay
   // distinguishable downstream.
-  const httpsObservation = wwwHttpsOk ? wwwObservation : bareObservation;
+  // Aggregate by canonical precedence, keeping BOTH endpoints' provenance. The old
+  // "www if it proved transport, else bare" rule silently discarded the sibling's
+  // reason: bare timeout + www edge error reported transport_unavailable and lost
+  // the edge attribution entirely.
+  const httpsObservation = aggregateFetchObservations([
+    { endpoint: domain, observation: bareObservation },
+    ...(wwwObservation ? [{ endpoint: `www.${domain}`, observation: wwwObservation }] : []),
+  ]);
   // UNCHANGED CONTRACT. `https_probe_executed` means "the probe came back with a
   // response we could look at", not "we attempted a request". buildScanQuality,
   // moduleAssessed() and canVerify('ssl') all depend on that reading: a timed-out
@@ -306,10 +313,36 @@ export async function runSslModule(domain, opts = {}) {
     // it stays valid and is not discarded. What is unknown is whether the site
     // serves HTTPS — which is exactly what `required: ["headers","ssl"]` on the
     // Website Security domain is asking.
-    ...(httpsProbeExecuted ? {} : {
+    // PR-A1 — the gate is EVIDENCE, not EXECUTION.
+    //
+    // This was `httpsProbeExecuted ? {} : {incomplete}`, so a Cloudflare-signed
+    // 522/530 — which DOES return a Response, hence executed:true — never marked the
+    // module incomplete. The scan then finalized `complete` and the Cyber MOT
+    // resolver published website_security and certificates_trust as
+    // "Assessed — no material issue observed" having observed no TLS at all. That is
+    // the false-healthy half of the same defect: swapping a false alarm for a false
+    // all-clear is not a fix.
+    //
+    //     executed  !=  evidence complete
+    //
+    // `https_probe_executed` stays TRUTHFUL above (true for an edge Response). What
+    // changes is that incompleteness is now derived from whether a genuine ORIGIN
+    // response was observed. Reasons are a bounded canonical set:
+    //   https_probe_not_executed    — nothing came back at all (pre-existing value,
+    //                                 preserved so existing consumers are unchanged)
+    //   https_origin_not_observed   — a Cloudflare edge Response, no origin answer
+    //   https_transport_unavailable — the probe ran and observed no transport
+    ...(httpsAvailable === true ? {} : {
       incomplete: true,
-      incomplete_reason: "https_probe_not_executed",
+      incomplete_reason: !httpsProbeExecuted
+        ? "https_probe_not_executed"
+        : httpsObservation.state === "cloudflare_edge_error"
+          ? "https_origin_not_observed"
+          : "https_transport_unavailable",
     }),
+    // Per-endpoint provenance (bounded: bare + www only). A sibling's more
+    // informative reason survives the aggregate rather than being discarded.
+    https_endpoint_observations: httpsObservation.endpoints || [],
     http_redirects_to_https:  httpRedirectsToHttps,
     http_redirect_chain,
     www_fallback_used:        !httpsOk && wwwHttpsOk,

@@ -34,7 +34,7 @@ const SSL = path.join(ENG, "ssl-scan.js");
 const ASSET = path.join(ENG, "asset-intel.js");
 
 // PINNED. Adding a mutation without raising this, or losing one, hard-fails.
-const EXPECTED_MUTANTS = 6;
+const EXPECTED_MUTANTS = 9;
 
 let pass = 0, fail = 0, killed = 0;
 const ok = (name, cond, detail = "") => {
@@ -158,6 +158,47 @@ const MUTATIONS = [
         new Response("x", { status: 530, headers: { server: "some-origin" } }));
       // Without the signature check an ORIGIN's own 530 stops proving transport.
       return m.https_available !== true;
+    },
+  },
+  {
+    // PR-A1 P1 — the false-healthy half. Gating incompleteness on EXECUTION rather
+    // than EVIDENCE is what let a Cloudflare edge error finalize `complete` and
+    // publish "Assessed — no material issue observed".
+    name: "M7 module incompleteness is gated on probe EXECUTION again, not on evidence",
+    target: SSL,
+    from: "    ...(httpsAvailable === true ? {} : {\n      incomplete: true,",
+    to:   "    ...(httpsProbeExecuted ? {} : {\n      incomplete: true,",
+    check: async (mod) => {
+      const m = await sslWith(mod, async () => edgeResponse(522));
+      return m.incomplete !== true;   // edge error would stop marking the module incomplete
+    },
+  },
+  {
+    name: "M8 the inclusive 520–530 Cloudflare range is restored (528/529 wrongly excused)",
+    target: FETCHOBS, entry: SSL,
+    from: "  const inEdgeSet = (code >= CF_EDGE_STATUS_MIN && code <= CF_EDGE_STATUS_MAX) ||\n    code === CF_EDGE_STATUS_EXTRA;",
+    to:   "  const inEdgeSet = code >= CF_EDGE_STATUS_MIN && code <= 530;",
+    check: async (mod) => {
+      const m = await sslWith(mod, async () => edgeResponse(528));
+      // A signed 528 is a genuine origin answer; under the inclusive range it is
+      // excused as an edge error and stops proving transport.
+      return m.https_available !== true;
+    },
+  },
+  {
+    name: "M9 aggregate discards the sibling endpoint's more informative reason",
+    target: FETCHOBS, entry: SSL,
+    from: "  for (const state of AGGREGATE_PRECEDENCE) {",
+    to:   "  for (const state of []) {",
+    check: async (mod) => {
+      // bare timeout + www edge error: precedence must surface the edge reason.
+      let call = 0;
+      const m = await sslWith(mod, async () => {
+        call += 1;
+        if (call === 1) throw new TypeError("bare timeout");
+        return edgeResponse(522);
+      });
+      return m.https_observation_state !== "cloudflare_edge_error";
     },
   },
 ];

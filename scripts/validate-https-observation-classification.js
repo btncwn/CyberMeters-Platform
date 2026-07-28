@@ -41,7 +41,7 @@ const SSL_SRC = path.join(ENG, "ssl-scan.js");
 
 const {
   classifyFetchObservation, isCloudflareEdgeSynthesised, classifyServerErrorStatus,
-  FETCH_OBSERVATION_STATES: S,
+  aggregateFetchObservations, FETCH_OBSERVATION_STATES: S,
 } = await import(pathToFileURL(FETCHOBS_SRC).href);
 const { runSslModule } = await import(pathToFileURL(SSL_SRC).href);
 const { computeScore } = await import(pathToFileURL(path.join(ENG, "scoring.js")).href);
@@ -115,11 +115,84 @@ for (const status of [520, 522, 530]) {
     [originResponse(200), edgeResponse(530), unsignedResponse(522), null]
       .every((resp) => classifyFetchObservation({ response: resp }).transport_observed !== false));
 }
-// The shared edge predicate and the asset-intel adapter agree, by construction.
+// ── PR-A1: EXACT Cloudflare boundary ─────────────────────────────────────────
+// The accepted set is (520..527) OR 530 — NOT the inclusive 520..530 range.
+// 528/529 are not Cloudflare edge codes. The inclusive form was inherited from
+// asset-intel.js at base b141a5fc (whose own comment already said "520–527 … 530");
+// PR-A1 owns and corrects the shared predicate.
+const EDGE_BOUNDARY = [
+  [519, false], [520, true], [521, true], [522, true], [523, true], [524, true],
+  [525, true], [526, true], [527, true], [528, false], [529, false], [530, true],
+  [531, false],
+];
+for (const [status, expected] of EDGE_BOUNDARY) {
+  ok(`A: signed ${status} → edge-synthesised=${expected} (exact boundary)`,
+    isCloudflareEdgeSynthesised(status, "cloudflare") === expected);
+  // Unsigned control: the signature is required at EVERY status in the set.
+  ok(`A: UNSIGNED ${status} → never edge-synthesised (signature required)`,
+    isCloudflareEdgeSynthesised(status, "nginx") === false);
+}
+// The two statuses the inclusive range wrongly excused must now classify as a
+// genuine origin answer end-to-end, not merely fail the predicate.
+for (const status of [528, 529]) {
+  const r = classifyFetchObservation({ response: edgeResponse(status) });
+  ok(`A: signed ${status} is a genuine ORIGIN response (not excused as edge)`,
+    r.state === S.ORIGIN_RESPONSE && r.origin_status === status);
+}
 ok("A: isCloudflareEdgeSynthesised requires BOTH range and signature",
   isCloudflareEdgeSynthesised(530, "cloudflare") === true &&
   isCloudflareEdgeSynthesised(530, "nginx") === false &&
   isCloudflareEdgeSynthesised(500, "cloudflare") === false);
+// asset-intel adapter behaviour under the corrected boundary: signed 528/529 move
+// from `origin_unreachable` to `server_error` — toward the STRICTER not-assessed
+// reading, never toward a cleaner result.
+ok("A: adapter — signed 528/529 are server_error, not origin_unreachable",
+  classifyServerErrorStatus(528, "cloudflare").probe_status === "server_error" &&
+  classifyServerErrorStatus(529, "cloudflare").probe_status === "server_error");
+ok("A: adapter — signed 527 and 530 remain origin_unreachable",
+  classifyServerErrorStatus(527, "cloudflare").probe_status === "origin_unreachable" &&
+  classifyServerErrorStatus(530, "cloudflare").probe_status === "origin_unreachable");
+
+// ── PR-A1: aggregate precedence + endpoint provenance ────────────────────────
+// 1 origin_response → observed · 2 cloudflare_edge_error → incomplete
+// 3 transport_unavailable → unavailable · 4 not_assessed
+const obsOf = (resp) => classifyFetchObservation({ response: resp });
+const agg = (bare, www) => aggregateFetchObservations([
+  { endpoint: "example.com", observation: obsOf(bare) },
+  { endpoint: "www.example.com", observation: obsOf(www) },
+]);
+{
+  const a = agg(null, edgeResponse(522));
+  ok("A: bare timeout + www EDGE → incomplete (sibling's edge reason WINS, not discarded)",
+    a.state === S.CLOUDFLARE_EDGE_ERROR && a.completeness === "incomplete", JSON.stringify(a));
+  ok("A: …and BOTH endpoints keep their own observation",
+    a.endpoints.length === 2 &&
+    a.endpoints[0].state === S.TRANSPORT_UNAVAILABLE &&
+    a.endpoints[1].state === S.CLOUDFLARE_EDGE_ERROR, JSON.stringify(a.endpoints));
+}
+{
+  const a = agg(edgeResponse(522), null);
+  ok("A: bare EDGE + www timeout → incomplete (symmetric)",
+    a.state === S.CLOUDFLARE_EDGE_ERROR && a.completeness === "incomplete");
+}
+{
+  const a = agg(edgeResponse(522), originResponse(500));
+  ok("A: bare EDGE + www ORIGIN 500 → origin_response wins (precedence 1)",
+    a.state === S.ORIGIN_RESPONSE && a.transport_observed === true && a.origin_status === 500);
+}
+{
+  const a = agg(null, originResponse(200));
+  ok("A: bare timeout + www ORIGIN 200 → origin_response wins (precedence 1)",
+    a.state === S.ORIGIN_RESPONSE && a.transport_observed === true);
+}
+{
+  const a = agg(null, null);
+  ok("A: both endpoints inconclusive → transport_unavailable (precedence 3)",
+    a.state === S.TRANSPORT_UNAVAILABLE && a.endpoints.length === 2);
+  const none = aggregateFetchObservations([]);
+  ok("A: no endpoints at all → not_assessed (precedence 4)",
+    none.state === S.NOT_ASSESSED && none.endpoints.length === 0);
+}
 ok("A: asset-intel adapter still returns its legacy shape from the SHARED rule",
   classifyServerErrorStatus(530, "cloudflare").probe_status === "origin_unreachable" &&
   classifyServerErrorStatus(503, "nginx").probe_status === "server_error");

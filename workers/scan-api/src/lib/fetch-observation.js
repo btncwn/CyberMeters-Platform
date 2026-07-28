@@ -45,8 +45,20 @@
 // range), and a non-Cloudflare host emitting a non-standard 52x without the
 // signature must stay in the stricter server-error reading rather than being
 // excused as an edge artefact.
+// The accepted set is 520–527 OR 530 — NOT the inclusive 520–530 range. Cloudflare
+// defines 520–527 and 530; 528 and 529 are not Cloudflare edge codes, so accepting
+// them would excuse a genuine origin status as an edge artefact.
+//
+// PROVENANCE: the inclusive `>= MIN && <= MAX` form was inherited from
+// asset-intel.js at base b141a5fc, where the comment already said "520–527 … 530"
+// while the code said 520–530 — the two disagreed before this work existed. PR-A
+// preserved that byte-identically; PR-A1 now OWNS the shared predicate and
+// corrects it. This narrows asset-intel's behaviour for signed 528/529 only:
+// they move from `origin_unreachable` to `server_error`, i.e. toward the stricter
+// not-assessed reading, never toward a cleaner result.
 export const CF_EDGE_STATUS_MIN = 520;
-export const CF_EDGE_STATUS_MAX = 530;
+export const CF_EDGE_STATUS_MAX = 527;
+export const CF_EDGE_STATUS_EXTRA = 530;
 
 // Canonical observation vocabulary. Values reuse the platform's existing words
 // (observed / unavailable / incomplete / not_assessed) so a consumer that
@@ -77,7 +89,9 @@ export const FETCH_OBSERVATION_COMPLETENESS = Object.freeze({
 export function isCloudflareEdgeSynthesised(status, server) {
   const code = Number(status);
   if (!Number.isFinite(code)) return false;
-  return code >= CF_EDGE_STATUS_MIN && code <= CF_EDGE_STATUS_MAX &&
+  const inEdgeSet = (code >= CF_EDGE_STATUS_MIN && code <= CF_EDGE_STATUS_MAX) ||
+    code === CF_EDGE_STATUS_EXTRA;
+  return inEdgeSet &&
     String(server || "").trim().toLowerCase() === "cloudflare";
 }
 
@@ -162,6 +176,49 @@ export function classifyFetchObservation({ response = null, executed = true, fai
     transport_observed: true,
     origin_status:      status,
   };
+}
+
+// Precedence when several endpoints (bare + www) were observed for ONE logical
+// target. Ranked most to least informative: a proven origin anywhere wins; failing
+// that, an edge error outranks a bare transport failure because it carries a real,
+// attributable reason; "we never looked" is last.
+//
+// Before this, the aggregate simply fell back to the bare-domain observation unless
+// www proved transport, so `bare timeout + www edge error` reported
+// transport_unavailable and DISCARDED the www endpoint's edge reason.
+const AGGREGATE_PRECEDENCE = Object.freeze([
+  FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE,
+  FETCH_OBSERVATION_STATES.CLOUDFLARE_EDGE_ERROR,
+  FETCH_OBSERVATION_STATES.TRANSPORT_UNAVAILABLE,
+  FETCH_OBSERVATION_STATES.NOT_ASSESSED,
+]);
+
+/**
+ * aggregateFetchObservations([{ endpoint, observation }, …])
+ *
+ * Returns { ...winningObservation, endpoints: [ bounded provenance ] }.
+ *
+ * Every endpoint's own state and reason is preserved in `endpoints` — a sibling's
+ * more informative reason is never dropped just because another endpoint lost the
+ * precedence contest. The list is bounded by the caller's endpoint count (two here:
+ * bare and www), so this can never grow unbounded into a report.
+ */
+export function aggregateFetchObservations(entries = []) {
+  const present = entries.filter((e) => e && e.observation);
+  const endpoints = present.map(({ endpoint, observation }) => ({
+    endpoint,
+    state:         observation.state,
+    reason:        observation.reason,
+    origin_status: observation.origin_status,
+  }));
+  if (present.length === 0) {
+    return { ...classifyFetchObservation({ executed: false }), endpoints: [] };
+  }
+  for (const state of AGGREGATE_PRECEDENCE) {
+    const hit = present.find(({ observation }) => observation.state === state);
+    if (hit) return { ...hit.observation, endpoints };
+  }
+  return { ...present[0].observation, endpoints };
 }
 
 /**
