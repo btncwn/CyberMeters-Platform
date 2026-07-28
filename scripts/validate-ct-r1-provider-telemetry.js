@@ -254,18 +254,20 @@ eq("runtime hard row bound", CT_PROVIDER_TELEMETRY_ROW_LIMIT, 8);
 // Persistence is explicitly invoked after collection: module execution made no D1 call.
 {
   const calls = [];
+  let batchCalls = 0;
   const env = {
     cybermeters_db: {
       prepare: (sql) => ({
-        bind: (...args) => ({
-          run: async () => {
-            calls.push({ sql, args });
-            if (process.env.CT_R1_TEST_WRITE_FAILURE === "1") {
-              throw new Error("fixture telemetry write failure");
-            }
-          },
-        }),
+        bind: (...args) => ({ sql, args }),
       }),
+      batch: async (statements) => {
+        batchCalls += 1;
+        calls.push(...statements);
+        if (process.env.CT_R1_TEST_WRITE_FAILURE === "1") {
+          throw new Error("fixture telemetry batch failure");
+        }
+        return statements.map(() => ({ success: true }));
+      },
     },
   };
   eq("provider telemetry collection performs no D1 write", calls.length, 0);
@@ -280,6 +282,7 @@ eq("runtime hard row bound", CT_PROVIDER_TELEMETRY_ROW_LIMIT, 8);
     writeError = error;
   }
   eq("provider telemetry persistence is non-fatal", writeError, null);
+  eq("provider telemetry persistence uses one atomic batch", batchCalls, 1);
   if (process.env.CT_R1_TEST_WRITE_FAILURE !== "1") {
     ok("provider telemetry persistence targets canonical table",
       calls.length > 0 &&

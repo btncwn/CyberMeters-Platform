@@ -27,16 +27,19 @@ provider promise. After canonical scan quality exists, the cache projects the
 attempts to their actual module consumers and marks impact only when the existing
 subdomain CT failure caused the existing incomplete contract.
 
-Rows are persisted per-row, best-effort, on both terminal paths: after a
-`completed` D1 status write and after a `failed` D1 status write. There is no
-awaited D1 write in module execution.
+The bounded row snapshot is persisted in one best-effort D1 `batch()` on both
+terminal paths: after a `completed` D1 status write and after a `failed` D1
+status write. Cloudflare documents batched statements as a SQL transaction: a
+statement failure aborts or rolls back the entire sequence. Therefore a scan
+stores all expected rows or zero rows; a partial snapshot cannot masquerade as
+full analyzer coverage. There is no awaited D1 write in module execution.
 
 One local `ctTelemetryPersistenceStarted` guard is set before snapshotting or
 writing the first row. This is deliberately local to one `runScanEngine`
 invocation: if a later post-finalization operation throws and enters the catch
 path after a completed finalize, the catch path observes the same guard and
-cannot write a second set. Setting it before the first write also prevents a
-partially failed best-effort batch from being retried into duplicate attribution.
+cannot write a second set. Setting it before the batch also prevents a failed
+best-effort transaction from being retried into duplicate attribution.
 
 The engine retains only canonical module and scan-quality context that genuinely
 became available. A failure before either exists still persists the attempts,
@@ -100,7 +103,8 @@ founder gate. This PR authorizes no deployment.
 
 ## Risks and Compatibility
 
-- Telemetry persistence failure is swallowed per row and cannot fail a scan.
+- Telemetry batch failure rolls back to zero rows and is swallowed, so it cannot
+  fail a scan or create partially persisted coverage.
 - Tenancy is inherited through `scan_id`; purge deletes telemetry before scans.
 - Existing module objects, report JSON, scan quality, scores, findings, provider
   calls, cache results, and public APIs retain their current semantics.

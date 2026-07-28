@@ -15,8 +15,8 @@ const engineValidator = path.join(
   root,
   "scripts/validate-ct-r1-provider-telemetry-engine-trace.js"
 );
-const EXPECTED_MUTANTS = 10;
-const EXPECTED_ASSERTIONS = 21;
+const EXPECTED_MUTANTS = 11;
+const EXPECTED_ASSERTIONS = 23;
 let mutantsKilled = 0;
 let mutantFailures = 0;
 let assertionsPassed = 0;
@@ -131,9 +131,9 @@ runMutant({
   extraEnv: { CT_R1_TEST_WRITE_FAILURE: "1" },
   mutate: (source) => replaceRequired(
     source,
-    "    } catch { /* non-fatal per row — telemetry cannot affect scan completion */ }",
-    "    } catch (error) { throw error; }",
-    "per-row non-fatal persistence"
+    "  } catch { /* non-fatal atomic batch — telemetry cannot affect scan completion */ }",
+    "  } catch (error) { throw error; }",
+    "atomic non-fatal persistence"
   ),
 });
 
@@ -246,6 +246,24 @@ runMutant({
     "  const completionLossAttributed = attributedCompletionLossScans.size;",
     "  const completionLossAttributed = completionLoss;",
     "attributed completion-loss count"
+  ),
+});
+
+runMutant({
+  name: "make CT telemetry persistence partial-tolerant",
+  sourceName: "scan-engine.js",
+  validator: engineValidator,
+  moduleEnv: "CT_R1_SCAN_ENGINE_MODULE_URL",
+  mutate: (source) => replaceRequired(
+    source,
+    "    const results = await env.cybermeters_db.batch(statements);",
+    `    const results = [];
+    for (const statement of statements) {
+      try {
+        results.push(await statement.run());
+      } catch { /* mutant: silently retain the other rows */ }
+    }`,
+    "atomic CT telemetry batch"
   ),
 });
 

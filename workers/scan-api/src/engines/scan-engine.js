@@ -315,11 +315,17 @@ export async function persistModuleTelemetry(scanId, telemetry, env) {
 }
 
 // CT-R1: provider-attempt telemetry is collected in memory during module execution
-// and written only after terminal scan finalization. Per-row failure is non-fatal.
+// and written only after terminal scan finalization. D1 batch() is transactional:
+// any statement failure rolls back the whole bounded snapshot, so coverage can
+// never mistake a partial row set for a fully measured scan. Batch failure remains
+// non-fatal and produces zero rows for this scan.
 export async function persistCtProviderTelemetry(scanId, rows, env) {
-  for (const r of (rows || []).slice(0, 8)) {
-    try {
-      await env.cybermeters_db
+  const boundedRows = (rows || []).slice(0, 8);
+  if (boundedRows.length === 0) return;
+
+  try {
+    const statements = boundedRows.map((r) =>
+      env.cybermeters_db
         .prepare(
           `INSERT INTO ct_provider_telemetry
              (id, scan_id, module, provider, outcome, http_status, latency_ms,
@@ -333,9 +339,12 @@ export async function persistCtProviderTelemetry(scanId, rows, env) {
           r.started_at, r.completed_at, r.completeness_impact ? 1 : 0,
           r.affected_signal ?? null, "miss", null
         )
-        .run();
-    } catch { /* non-fatal per row — telemetry cannot affect scan completion */ }
-  }
+    );
+    const results = await env.cybermeters_db.batch(statements);
+    if (results?.some((result) => result?.success === false)) {
+      throw new Error("CT provider telemetry batch did not commit");
+    }
+  } catch { /* non-fatal atomic batch — telemetry cannot affect scan completion */ }
 }
 
 // The network/enrichment modules we expect a telemetry row for. Backfilled at

@@ -14,6 +14,10 @@ const defaultEngineUrl = pathToFileURL(path.join(
 const { runScanEngine } = await import(
   process.env.CT_R1_SCAN_ENGINE_MODULE_URL || defaultEngineUrl
 );
+const { analyzeCtProviderTelemetry } = await import(pathToFileURL(path.join(
+  root,
+  "scripts/analyze-ct-provider-telemetry.js"
+)).href);
 
 const NOW = "2026-07-27T13:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
@@ -64,9 +68,15 @@ function makeD1(db, sequence, options = {}) {
     run: async () => {
       sequence.push({ sql, args });
       const isCtWrite = /INSERT INTO ct_provider_telemetry/i.test(sql);
-      if (isCtWrite && options.failCtWrites) {
-        options.ctWriteFailureInjected = true;
-        throw new Error("fixture CT telemetry D1 failure");
+      if (isCtWrite) {
+        options.ctWriteAttempts = (options.ctWriteAttempts || 0) + 1;
+        if (
+          options.failCtWrites
+          || options.ctWriteAttempts === options.failCtWriteAtIndex
+        ) {
+          options.ctWriteFailureInjected = true;
+          throw new Error("fixture CT telemetry D1 failure");
+        }
       }
       if (
         /INSERT INTO findings/i.test(sql)
@@ -90,10 +100,24 @@ function makeD1(db, sequence, options = {}) {
   });
   return {
     prepare: (sql) => statement(sql),
-    batch: async (statements) =>
-      Promise.all(statements.map((entry) =>
-        /^\s*select/i.test(entry.__sql) ? entry.all() : entry.run()
-      )),
+    batch: async (statements) => {
+      const results = [];
+      db.exec("BEGIN");
+      try {
+        for (const entry of statements) {
+          results.push(
+            /^\s*select/i.test(entry.__sql)
+              ? await entry.all()
+              : await entry.run()
+          );
+        }
+        db.exec("COMMIT");
+        return results;
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    },
   };
 }
 
@@ -222,6 +246,31 @@ async function executeTrace(options = {}) {
   return { ...fixture, engineError };
 }
 
+function analyzeTrace(db) {
+  const rows = db.prepare(
+    `SELECT
+       s.id AS scan_id,
+       s.scan_quality,
+       s.created_at AS scan_created_at,
+       t.module,
+       t.provider,
+       t.outcome,
+       t.http_status,
+       t.latency_ms,
+       t.result_count,
+       t.started_at,
+       t.completed_at,
+       t.completeness_impact,
+       t.affected_signal,
+       t.cache_state,
+       t.cache_age_s
+     FROM scans AS s
+     LEFT JOIN ct_provider_telemetry AS t ON t.scan_id = s.id
+     WHERE s.id = 'scan-ct-r1'`
+  ).all();
+  return analyzeCtProviderTelemetry(rows, { nowMs: NOW_MS });
+}
+
 try {
   const completedTrace = await executeTrace();
   const { db, sequence, store, engineError } = completedTrace;
@@ -276,6 +325,11 @@ try {
   eq("R1 cache columns remain inert",
     rows.every((row) => row.cache_state === "miss" && row.cache_age_s === null),
     true);
+  const completedAnalysis = analyzeTrace(db);
+  eq("fully persisted scan reads measured",
+    completedAnalysis.telemetry_coverage.measurement_state, "measured");
+  eq("fully persisted scan reads 100 percent covered",
+    completedAnalysis.telemetry_coverage.telemetry_coverage_pct, 100);
 
   const terminalIndex = sequence.findIndex((entry) =>
     /UPDATE scans SET status = \?, score = \?, rating = \?, scan_quality = \?/i
@@ -365,6 +419,33 @@ try {
     telemetryFailureTrace.db.prepare(
       "SELECT status FROM scans WHERE id = 'scan-ct-r1'"
     ).get()?.status !== "running");
+
+  // D1 batch is mirrored as an explicit SQLite transaction in makeD1. Fail the
+  // second statement after the first insert ran: rollback must leave zero rows,
+  // and the analyzer must not describe this scan as measured/100%.
+  const atomicFailureOptions = { failCtWriteAtIndex: 2 };
+  const atomicFailureTrace = await executeTrace(atomicFailureOptions);
+  eq("controlled single-row batch failure is injected",
+    atomicFailureOptions.ctWriteFailureInjected, true);
+  eq("atomic telemetry batch failure does not throw",
+    atomicFailureTrace.engineError, null);
+  eq("atomic telemetry batch failure preserves completed terminal state",
+    atomicFailureTrace.db.prepare(
+      "SELECT status FROM scans WHERE id = 'scan-ct-r1'"
+    ).get()?.status,
+    "completed");
+  eq("atomic telemetry batch failure rolls back every CT row",
+    atomicFailureTrace.db.prepare(
+      "SELECT COUNT(*) AS n FROM ct_provider_telemetry WHERE scan_id = 'scan-ct-r1'"
+    ).get()?.n,
+    0);
+  const atomicFailureAnalysis = analyzeTrace(atomicFailureTrace.db);
+  eq("rolled-back CT snapshot reads not measured",
+    atomicFailureAnalysis.telemetry_coverage.measurement_state, "not_measured");
+  eq("rolled-back CT snapshot reads zero percent covered",
+    atomicFailureAnalysis.telemetry_coverage.telemetry_coverage_pct, 0);
+  eq("rolled-back completion loss remains unattributed",
+    atomicFailureAnalysis.telemetry_coverage.completion_loss_unattributed, 1);
 } finally {
   globalThis.fetch = originalFetch;
   Math.random = originalRandom;
