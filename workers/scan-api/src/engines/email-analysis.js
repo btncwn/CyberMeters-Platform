@@ -6,6 +6,7 @@
 // remediation registry (a leaf module) so guided email advice matches every other
 // surface. Heavily covered by the accuracy + pipeline regression harnesses.
 import { resolveRemediation } from "./remediation-registry.js";
+import { isPublishableModuleEvidence } from "./scan-budget.js";
 
 export const DKIM_SELECTORS = [
   "default", "mail", "google", "k1", "selector1", "selector2",
@@ -354,18 +355,56 @@ export function remediationAction(id, protocol, severity, title, issue, business
   };
 }
 
+// The canonical email detail contract a completed runEmailModule always
+// carries. A caller holding anything less (a deadline fallback, an errored or
+// skipped module, an R2 shape from before the contract) does not hold
+// remediation-grade evidence.
+export function hasCanonicalEmailDetailContract(details) {
+  return !!details && typeof details === "object"
+    && !!details.spf_detail && typeof details.spf_detail === "object"
+    && !!details.dmarc_detail && typeof details.dmarc_detail === "object"
+    && !!details.dkim_detail && typeof details.dkim_detail === "object"
+    && !!details.bimi_readiness && typeof details.bimi_readiness === "object";
+}
+
+// Remediation-grade email evidence = a module result that (a) carries none of
+// the canonical non-publishable states (executed:false, incomplete:true,
+// deadline outcome, skipped, error) and (b) carries the full detail contract.
+export function isPublishableEmailEvidence(details) {
+  return isPublishableModuleEvidence(details) && hasCanonicalEmailDetailContract(details);
+}
+
 export function buildEmailRemediationActions(domain, details, emailIntel = {}) {
+  // Non-publishable evidence NEVER creates remediation. A deferred/errored/
+  // skipped module — or one missing the canonical detail contract — must not
+  // have its absent fields converted into "SPF missing", "DMARC missing" or a
+  // "publish this record" instruction. Refusal is an empty action list; the
+  // module-level executed/incomplete/outcome fields already say why.
+  if (!isPublishableEmailEvidence(details)) return [];
   const { spf_detail: spf, dmarc_detail: dmarc, dkim_detail: dkim, bimi_readiness: bimi } = details;
+  // Per-signal observation gates (A1 vocabulary — the same one scoring and
+  // email-intel read). A probe that failed (unavailable) or never ran
+  // (not_yet_assessed) is unobserved: its parsed detail is empty because
+  // nothing was seen, never because a record is absent. The statuses are
+  // non-enumerable on live results; when a caller's details carry none
+  // (legacy shapes), the legacy observed treatment is preserved.
+  const spfUnobserved = isEmailProbeUnobserved(details.spf_evidence_status);
+  const dkimUnobserved = isEmailProbeUnobserved(details.dkim_evidence_status);
+  const dmarcUnobserved = isEmailProbeUnobserved(
+    details.dmarc_evidence_status ?? details.dmarc_state?.evidence_status,
+  );
   const actions = [];
   const reportAddress = `dmarc-reports@${domain}`;
 
   if (!dmarc.raw) {
-    const value = `v=DMARC1; p=none; rua=mailto:${reportAddress}; fo=1`;
-    actions.push(remediationAction("dmarc_missing", "DMARC", "high", "Publish a DMARC monitoring record",
-      "No DMARC record was found.",
-      "Receiving systems do not have a domain-owner policy for handling messages that fail DMARC alignment.",
-      "Publish a monitoring record, identify legitimate senders from aggregate reports, then move gradually towards enforcement.",
-      { suggested_dns_record: value, caution: "Do not move directly to enforcement until legitimate sending services are confirmed." }));
+    if (!dmarcUnobserved) {
+      const value = `v=DMARC1; p=none; rua=mailto:${reportAddress}; fo=1`;
+      actions.push(remediationAction("dmarc_missing", "DMARC", "high", "Publish a DMARC monitoring record",
+        "No DMARC record was found.",
+        "Receiving systems do not have a domain-owner policy for handling messages that fail DMARC alignment.",
+        "Publish a monitoring record, identify legitimate senders from aggregate reports, then move gradually towards enforcement.",
+        { suggested_dns_record: value, caution: "Do not move directly to enforcement until legitimate sending services are confirmed." }));
+    }
   } else if (dmarc.record_count > 1) {
     actions.push(remediationAction("dmarc_multiple_records", "DMARC", "high", "Consolidate multiple DMARC records",
       `${dmarc.record_count} DMARC records were detected.`,
@@ -400,12 +439,14 @@ export function buildEmailRemediationActions(domain, details, emailIntel = {}) {
   }
 
   if (!spf.raw) {
-    const value = "v=spf1 -all";
-    actions.push(remediationAction("spf_missing", "SPF", "high", "Publish an SPF policy",
-      "No SPF record was found.",
-      "Receiving systems cannot use SPF to identify authorised sending infrastructure for this domain.",
-      "Inventory every legitimate sender and publish one SPF record.",
-      { suggested_dns_record: value, caution: "The example value is suitable only for a domain that sends no mail. Add legitimate senders before using -all." }));
+    if (!spfUnobserved) {
+      const value = "v=spf1 -all";
+      actions.push(remediationAction("spf_missing", "SPF", "high", "Publish an SPF policy",
+        "No SPF record was found.",
+        "Receiving systems cannot use SPF to identify authorised sending infrastructure for this domain.",
+        "Inventory every legitimate sender and publish one SPF record.",
+        { suggested_dns_record: value, caution: "The example value is suitable only for a domain that sends no mail. Add legitimate senders before using -all." }));
+    }
   } else if (spf.record_count > 1) {
     actions.push(remediationAction("spf_multiple_records", "SPF", "high", "Consolidate multiple SPF records",
       `${spf.record_count} SPF records were detected.`,
@@ -442,7 +483,7 @@ export function buildEmailRemediationActions(domain, details, emailIntel = {}) {
       "Replace ptr with explicit include, ip4, ip6, a, or mx mechanisms where appropriate."));
   }
 
-  if (dkim.status !== "detected") {
+  if (dkim.status !== "detected" && !dkimUnobserved) {
     actions.push(remediationAction("dkim_verification_uncertain", "DKIM", "info", "Confirm the active DKIM selector",
       "DKIM could not be verified using common selectors.",
       "This does not confirm that DKIM signing is absent; a custom selector may be in use.",

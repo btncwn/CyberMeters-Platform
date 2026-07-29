@@ -6,6 +6,7 @@ import { dnsQuery } from "./dns.js";
 import { deriveDmarcState } from "./dmarc-state.js";
 import { DKIM_PROVIDER_SELECTORS, DKIM_SELECTORS, buildDkimDetail, buildDmarcPolicyJourney, buildEmailRemediationActions, findDkimInResults, inferEmailProvider, normalizeDnsTxtValue, parseBimiRecord, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
 import { makeDohSpfLookup, resolveSpfAuthorization, SPF_RESOLUTION_STATUS } from "./spf-resolver.js";
+import { markDeadlineDeferred } from "./scan-budget.js";
 
 export const DMARC_OBSERVATION_STATUS = Object.freeze({
   OBSERVED: "observed",
@@ -81,6 +82,44 @@ export function buildDmarcEvidenceFromDnsResult(settledResult, options = {}) {
     dmarc_detail: dmarcDetail,
     dmarc_state: dmarcState,
   };
+}
+
+// The deadline fallback for the primary email module, owned HERE by the module
+// that owns the completed contract. It conforms to the runEmailModule result
+// shape with NOTHING observed:
+//   • presence is the tri-state null — never false, because "not measured" must
+//     never read as "measured absent";
+//   • the canonical detail contract (spf/dmarc/dkim detail, bimi, journey) is
+//     explicitly null, which every remediation consumer treats as
+//     non-publishable evidence (isPublishableEmailEvidence fails closed);
+//   • the A1 evidence statuses are not_yet_assessed (non-enumerable, matching
+//     the completed result), so the existing honesty gates in scoring,
+//     email-intel and the remediation builder all read this module as
+//     unobserved rather than as authoritative absence;
+//   • markDeadlineDeferred stamps executed:false / incomplete:true /
+//     outcome:"deadline_exceeded", which classifies the scan "partial" and
+//     blocks lifecycle verification, exactly as for every other module.
+export function deadlineDeferredEmailModuleResult() {
+  const result = markDeadlineDeferred({
+    spf: {
+      present: null, record: null, record_count: null,
+      resolution_status: null, resolved_pass_authorisations: null,
+      unresolved_mechanisms: [], lookup_count: null, void_lookup_count: null,
+      resolved_at: null,
+    },
+    dmarc: { present: null, policy: null, record: null, record_count: null },
+    dkim: { present: null, selector: null, provider: null, selectors_probed: [] },
+    spf_detail: null,
+    dmarc_detail: null,
+    dkim_detail: null,
+    bimi_readiness: null,
+    policy_journey: null,
+    remediation_actions: [],
+    source: "email_security",
+  });
+  Object.defineProperty(result, "spf_evidence_status", { value: DMARC_OBSERVATION_STATUS.NOT_YET_ASSESSED, enumerable: false, configurable: true });
+  Object.defineProperty(result, "dkim_evidence_status", { value: DMARC_OBSERVATION_STATUS.NOT_YET_ASSESSED, enumerable: false, configurable: true });
+  return result;
 }
 
 export async function runEmailModule(domain, opts = {}) {
@@ -186,6 +225,13 @@ export async function runEmailModule(domain, opts = {}) {
     bimi_readiness: bimiReadiness,
     policy_journey: buildDmarcPolicyJourney(dmarcDetail),
   };
+  // Per-signal observation statuses travel with the details NON-ENUMERABLY (the
+  // `...details` spread below copies only enumerable keys, so the customer API
+  // shape is unchanged). The remediation builder reads them so a failed or
+  // unexecuted probe is never converted into a missing-record action.
+  Object.defineProperty(details, "spf_evidence_status", { value: spfObservationStatus, enumerable: false });
+  Object.defineProperty(details, "dkim_evidence_status", { value: dkimObservationStatus, enumerable: false });
+  Object.defineProperty(details, "dmarc_evidence_status", { value: dmarcEvidence.observation_status, enumerable: false });
   const result = {
     spf: {
       present: hasSPF,
@@ -303,13 +349,26 @@ export function applyDmarcbisEmailCompatibilityProjection(
   // honest instead of fabricating missing-SPF/DKIM remediation from absent
   // module output; DMARC's canonical technical evidence still remains present.
   if (!alreadyProjected && result.spf_detail && result.dkim_detail) {
-    result.remediation_actions = buildEmailRemediationActions(domain, {
+    const rebuildDetails = {
       spf_detail: result.spf_detail,
       dmarc_detail: exactDetail,
       dkim_detail: result.dkim_detail,
       bimi_readiness: result.bimi_readiness,
       policy_journey: result.policy_journey,
+    };
+    // Observation statuses travel with the rebuild (non-enumerable, as on the
+    // live result). DMARC's status comes from the canonical core observation:
+    // only a complete tree walk is "observed"; anything less is unavailable, so
+    // an unobserved policy can never rebuild into a "publish DMARC" action.
+    Object.defineProperty(rebuildDetails, "spf_evidence_status", { value: result.spf_evidence_status, enumerable: false });
+    Object.defineProperty(rebuildDetails, "dkim_evidence_status", { value: result.dkim_evidence_status, enumerable: false });
+    Object.defineProperty(rebuildDetails, "dmarc_evidence_status", {
+      value: policyEvidence?.core_completeness === "complete"
+        ? DMARC_OBSERVATION_STATUS.OBSERVED
+        : DMARC_OBSERVATION_STATUS.UNAVAILABLE,
+      enumerable: false,
     });
+    result.remediation_actions = buildEmailRemediationActions(domain, rebuildDetails);
   }
   return result;
 }
