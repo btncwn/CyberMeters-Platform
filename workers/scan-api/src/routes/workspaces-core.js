@@ -9,6 +9,7 @@ import { domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEnti
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, sendCustomerEmail, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { createId, isValidDomain, isValidEmail } from "../lib/util.js";
+import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
 
 export async function workspacesCoreRoutes(rctx) {
   const { request, env, ctx, url, json, serverError,
@@ -83,28 +84,38 @@ export async function workspacesCoreRoutes(rctx) {
               )
               .bind(workspaceId, workspaceId).first(),
 
-            // cyber_score_average — COMPLETE-only: a partial/degraded scan must
-            // never contribute to the averaged headline (partial-scan honesty).
+            // Latest complete candidate per domain. The average is calculated
+            // only after each row is projected through immutable Phase-5
+            // evidence below.
             env.cybermeters_db
               .prepare(
-                `SELECT ROUND(AVG(s.score), 1) AS avg
-                 FROM scans s
-                 JOIN domains d ON d.id = s.domain_id
-                 JOIN workspace_domains wd ON wd.domain_id = d.id
-                 WHERE (
-                   s.workspace_id = ?
-                   OR (s.workspace_id IS NULL AND wd.workspace_id = ?)
+                `SELECT id, score, rating, scan_quality, created_at, status
+                 FROM (
+                   SELECT s.id, s.score, s.rating, s.scan_quality, s.created_at,
+                          s.status,
+                          ROW_NUMBER() OVER (
+                            PARTITION BY s.domain_id
+                            ORDER BY s.created_at DESC, s.id DESC
+                          ) AS rn
+                   FROM scans s
+                   JOIN domains d ON d.id = s.domain_id
+                   JOIN workspace_domains wd ON wd.domain_id = d.id
+                   WHERE (
+                     s.workspace_id = ?
+                     OR (s.workspace_id IS NULL AND wd.workspace_id = ?)
+                   )
+                     AND s.status = 'completed'
+                     AND s.score IS NOT NULL
+                     AND s.scan_quality = 'complete'
                  )
-                   AND s.status = 'completed'
-                   AND s.score  IS NOT NULL
-                   AND s.scan_quality = 'complete'`
+                 WHERE rn = 1`
               )
-              .bind(workspaceId, workspaceId).first(),
+              .bind(workspaceId, workspaceId).all(),
 
             // latest_scan — direct attribution + fallback for NULL workspace_id
             env.cybermeters_db
               .prepare(
-                `SELECT s.id, s.domain, s.status, s.score, s.rating, s.created_at
+                `SELECT s.id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at
                  FROM scans s
                  JOIN domains d ON d.id = s.domain_id
                  JOIN workspace_domains wd ON wd.domain_id = d.id
@@ -124,6 +135,23 @@ export async function workspacesCoreRoutes(rctx) {
           // "Current posture not yet established" instead of a clean grade.
           let posture = null;
           try { posture = await getCurrentPosturePresentation(env, { workspaceId }); } catch { /* tolerate */ }
+          const averageRows = await projectPhase5ScanRowsForCustomer(
+            env,
+            avgRow?.results ?? [],
+          );
+          const averageScores = averageRows
+            .map((row) => row.score)
+            .filter(Number.isFinite);
+          const customerAverage = averageScores.length
+            ? Math.round(
+                (averageScores.reduce((sum, score) => sum + score, 0) /
+                  averageScores.length) * 10,
+              ) / 10
+            : null;
+          const [customerLatest] = await projectPhase5ScanRowsForCustomer(
+            env,
+            latestRow ? [latestRow] : [],
+          );
 
           return json({
             workspace: {
@@ -138,8 +166,8 @@ export async function workspacesCoreRoutes(rctx) {
             stats: {
               total_domains:       domainsRow?.n ?? 0,
               total_scans:         scansRow?.n  ?? 0,
-              cyber_score_average: avgRow?.avg   ?? null,
-              latest_scan:         latestRow     ?? null,
+              cyber_score_average: customerAverage,
+              latest_scan:         customerLatest ?? null,
               // Completeness-aware headline posture.
               posture_established: posture?.state === "established",
               posture_score:       posture?.authoritative?.display_score  ?? null,
@@ -267,6 +295,8 @@ export async function workspacesCoreRoutes(rctx) {
                  wd.verification_initiated_at,
                  s.id                        AS last_scan_id,
                  s.score                     AS latest_score,
+                 s.rating                    AS latest_rating,
+                 s.scan_quality              AS latest_scan_quality,
                  s.status                    AS latest_status,
                  s.created_at               AS last_scanned_at
                FROM workspace_domains wd
@@ -281,7 +311,26 @@ export async function workspacesCoreRoutes(rctx) {
             )
             .bind(workspaceId)
             .all();
-          return json({ workspace_id: workspaceId, domains: result.results });
+          const customerScans = await projectPhase5ScanRowsForCustomer(
+            env,
+            (result.results ?? []).map((row) => ({
+              id: row.last_scan_id,
+              status: row.latest_status,
+              score: row.latest_score,
+              rating: row.latest_rating,
+              scan_quality: row.latest_scan_quality,
+            })),
+          );
+          return json({
+            workspace_id: workspaceId,
+            domains: (result.results ?? []).map((row, index) => ({
+              ...row,
+              latest_score: customerScans[index]?.score ?? null,
+              latest_rating: customerScans[index]?.rating ?? null,
+              latest_scan_quality:
+                customerScans[index]?.scan_quality ?? row.latest_scan_quality ?? null,
+            })),
+          });
         } catch {
           return json({ error: "Database error" }, 500);
         }

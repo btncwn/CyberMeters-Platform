@@ -85,6 +85,11 @@ db.prepare(`
 reports.set("reports/scan-complete.json", JSON.stringify({
   scan_id: "scan-complete",
   scan_quality: { status: "complete" },
+  modules: {
+    cve_intelligence: {},
+    known_exploited_vulnerabilities: {},
+    email_security_intelligence: {},
+  },
   findings: [
     { id: "ssl_no_certificate", type: "ssl_no_certificate", finding_type: "finding", severity: "high" },
     { id: "email_missing_dmarc", type: "email_missing_dmarc", finding_type: "finding", severity: "high" },

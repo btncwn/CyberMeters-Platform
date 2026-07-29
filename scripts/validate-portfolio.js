@@ -121,7 +121,24 @@ db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, scan_qualit
 const TOKEN_E = "tok_msp_e";
 db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES ('s_e','u_e',?, datetime('now','+1 day'))").run(await hashToken(TOKEN_E));
 
-const env = { cybermeters_db: makeD1(db), cybermeters_reports: { get: async () => null, put: async () => ({}), head: async () => null, delete: async () => ({}), list: async () => ({ objects: [] }) }, ALLOWED_ORIGIN: "https://app.cybermeters.com", APP_VERSION: "test" };
+const env = {
+  cybermeters_db: makeD1(db),
+  cybermeters_reports: {
+    get: async (key) => String(key || "").startsWith("reports/")
+      ? { json: async () => ({ modules: {
+        cve_intelligence: { executed: true, incomplete: false, evidence_publishable: true },
+        known_exploited_vulnerabilities: { executed: true, incomplete: false, evidence_publishable: true },
+        email_security_intelligence: { executed: true, incomplete: false, evidence_publishable: true },
+      } }) }
+      : null,
+    put: async () => ({}),
+    head: async () => null,
+    delete: async () => ({}),
+    list: async () => ({ objects: [] }),
+  },
+  ALLOWED_ORIGIN: "https://app.cybermeters.com",
+  APP_VERSION: "test",
+};
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
 const get = async (p, token) => {
   const res = await worker.default.fetch(new Request(`https://app.cybermeters.com${p}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }), env, ctx);

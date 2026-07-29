@@ -11,6 +11,7 @@ import { LATEST_COMPLETED_SCAN_SCOPE } from "../engines/report-queries.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { parseBoundedInteger } from "../lib/util.js";
+import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
 
 export async function executiveDashboardRoutes(rctx) {
   const { request, env, url, json, serverError,
@@ -157,8 +158,8 @@ export async function executiveDashboardRoutes(rctx) {
           // 6. Score trend — last 30 historical_scores ordered oldest→newest for chart
           env.cybermeters_db
             .prepare(
-              `SELECT score, rating, domain, created_at
-               FROM (SELECT score, rating, domain, created_at
+              `SELECT scan_id, score, rating, scan_quality, domain, created_at
+               FROM (SELECT scan_id, score, rating, scan_quality, domain, created_at
                      FROM historical_scores WHERE workspace_id = ? AND scan_quality = 'complete'
                      ORDER BY created_at DESC LIMIT 30)
                ORDER BY created_at ASC`
@@ -202,7 +203,7 @@ export async function executiveDashboardRoutes(rctx) {
           // 9. Last 2 historical scores for score delta
           env.cybermeters_db
             .prepare(
-              `SELECT score, created_at, domain
+              `SELECT scan_id, score, rating, scan_quality, created_at, domain
                FROM historical_scores WHERE workspace_id = ? AND scan_quality = 'complete'
                ORDER BY created_at DESC, id DESC LIMIT 2`
             )
@@ -253,12 +254,28 @@ export async function executiveDashboardRoutes(rctx) {
         const criticalCount = criticalRow.results[0]?.n  ?? 0;
         const highCount     = highRow.results[0]?.n      ?? 0;
 
-        const trendPoints = (scoreTrendRows.results || []).map(r => ({
-          score:      r.score,
-          rating:     r.rating,
-          domain:     r.domain,
-          scanned_at: r.created_at,
-        }));
+        const rawTrendRows = scoreTrendRows.results || [];
+        const rawHistoryRows = scoreHistoryRows.results || [];
+        const customerHistory = await projectPhase5ScanRowsForCustomer(
+          env,
+          [...new Map([...rawTrendRows, ...rawHistoryRows].map((row) => [
+            row.scan_id,
+            { ...row, status: "completed" },
+          ])).values()],
+        );
+        const customerHistoryById = new Map(
+          customerHistory.map((row) => [row.scan_id, row]),
+        );
+        const trendPoints = rawTrendRows.map((stored) => {
+          const r = customerHistoryById.get(stored.scan_id) ?? stored;
+          return {
+            score:      r.score,
+            rating:     r.rating,
+            domain:     r.domain,
+            scanned_at: r.created_at,
+            assessment: r.assessment ?? null,
+          };
+        });
 
         const riskDist = { critical: 0, high: 0, medium: 0, low: 0, info: 0, total: 0 };
         for (const r of (riskDistRows.results || [])) {
@@ -274,7 +291,9 @@ export async function executiveDashboardRoutes(rctx) {
           detected_at: r.created_at,
         }));
 
-        const scoreHistory  = scoreHistoryRows.results || [];
+        const scoreHistory  = rawHistoryRows.map((stored) =>
+          customerHistoryById.get(stored.scan_id) ?? stored
+        );
         const scoreCurrent  = scoreHistory[0]?.score  ?? null;
         const scorePrevious = scoreHistory[1]?.score  ?? null;
         const scoreDelta    = (scoreCurrent != null && scorePrevious != null)

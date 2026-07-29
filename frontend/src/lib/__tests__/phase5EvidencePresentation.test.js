@@ -17,6 +17,14 @@ describe('Phase-5 evidence presentation', () => {
     expect(phase5KnownCount(deferred, deferred.critical_count)).toBeNull()
   })
 
+  it('fails closed for missing legacy evidence and missing counts', () => {
+    expect(isPhase5EvidenceAvailable(undefined)).toBe(false)
+    expect(isPhase5EvidenceAvailable(null)).toBe(false)
+    expect(isPhase5EvidenceAvailable({ critical_count: 0 })).toBe(false)
+    expect(phase5KnownCount(undefined, undefined)).toBeNull()
+    expect(phase5KnownCount({ evidence_publishable: true }, undefined)).toBeNull()
+  })
+
   it('retains a genuine completed measured zero', () => {
     const completed = { evidence_publishable: true, critical_count: 0 }
     expect(isPhase5EvidenceAvailable(completed)).toBe(true)

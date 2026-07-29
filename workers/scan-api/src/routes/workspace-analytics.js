@@ -14,6 +14,7 @@ import { buildScorecardData, buildScorecardSections } from "../engines/scorecard
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { readWorkspaceBrsAssessment } from "../engines/business-risk.js";
 import { createId } from "../lib/util.js";
+import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
 
 export async function workspaceAnalyticsRoutes(rctx) {
   const { request, env, ctx, url, json, serverError,
@@ -105,7 +106,17 @@ export async function workspaceAnalyticsRoutes(rctx) {
         return json({
           workspace: { id: ws.id, name: ws.name },
           snapshots: reads.map((r) => r.status === "ok"
-            ? { status: "ok", snapshot: r.snapshot, integrity: r.integrity }
+            ? {
+                status: "ok",
+                snapshot: r.customerSnapshot ?? r.snapshot,
+                // The checksum continues to attest the immutable snapshot, not
+                // this additive customer presentation projection.
+                integrity: {
+                  ...r.integrity,
+                  checksum_scope: "immutable_snapshot",
+                  customer_projection_applied: r.customerSnapshot !== r.snapshot,
+                },
+              }
             : { status: r.status, domain_id: r.domain_id ?? null, scan_id: r.scan_id ?? null }),
         });
       } catch (err) {
@@ -396,8 +407,14 @@ export async function workspaceAnalyticsRoutes(rctx) {
             .bind(wsId).all(),
         ]);
 
-        const trend = (historicalRows.results ?? []).reverse().map(r => ({
-          date: r.created_at, brs_score: r.brs_score, asm_score: r.score,
+        const customerTrendRows = await projectPhase5ScanRowsForCustomer(
+          env,
+          (historicalRows.results ?? []).map((row) => ({ ...row, status: "completed" })),
+        );
+        const trend = customerTrendRows.reverse().map(r => ({
+          date: r.created_at,
+          brs_score: r.phase5_evidence?.complete === true ? r.brs_score : null,
+          asm_score: r.score,
           basis_scan_id: r.scan_id, scan_quality: r.scan_quality,
         }));
         return json({ ...assessment, workspace_name: ws.name, trend });

@@ -135,11 +135,7 @@ if (childArg) {
     };
   } else if (mode === "frontend-deferred") {
     output = {
-      available: isPhase5EvidenceAvailable({
-        evidence_publishable: false,
-        mta_sts: { configured: false },
-        tls_rpt: { configured: false },
-      }),
+      available: isPhase5EvidenceAvailable(undefined),
     };
   } else {
     const modules = completeModules();
@@ -451,11 +447,11 @@ const MUTATIONS = [
     },
   },
   {
-    name: "M5 frontend accepts deferred MTA-STS/TLS-RPT absence",
+    name: "M5 frontend accepts missing legacy Phase-5 evidence",
     edits: [{
       target: FRONTEND_PRESENTATION,
-      from: "  return moduleResult?.evidence_publishable !== false\n",
-      to: "  return true\n",
+      from: "  return moduleResult?.evidence_publishable === true\n",
+      to: "  return moduleResult?.evidence_publishable !== false\n",
     }],
     check: () => {
       const result = runChild("frontend-deferred");

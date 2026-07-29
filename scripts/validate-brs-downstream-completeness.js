@@ -137,6 +137,11 @@ function completeReport(scanId) {
   reports.set(`reports/${scanId}.json`, JSON.stringify({
     scan_id: scanId,
     scan_quality: { status: "complete" },
+    modules: {
+      cve_intelligence: {},
+      known_exploited_vulnerabilities: {},
+      email_security_intelligence: {},
+    },
     findings: [
       { id: `${scanId}-ssl`, type: "ssl_no_certificate", finding_type: "finding", severity: "high" },
       { id: `${scanId}-dmarc`, type: "email_missing_dmarc", finding_type: "finding", severity: "high" },

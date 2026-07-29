@@ -15,6 +15,7 @@
 import { CANONICAL_TERMINAL_STATES } from "./managed-case-model.js";
 import { resolveAssessmentPresentation } from "./assessment-presentation.js";
 import { CYBER_MOT_STATES } from "./cyber-mot-domains.js";
+import { projectPhase5ScanRowsForCustomer } from "./phase5-evidence.js";
 import {
   buildDomainMatrix, CYBER_MOT_DOMAIN_KEYS, DOMAIN_TREND, EVIDENCE_FRESHNESS,
   evidenceFreshness, readPortfolioDomainStates,
@@ -187,8 +188,14 @@ export async function computePortfolioDomainRows(db, workspaceIds, opts = {}) {
   for (const c of (caseRes.results || [])) {
     caseMap.set(`${c.workspace_id}::${c.hostname ?? ""}::${c.domain_key ?? ""}`, Number(c.n) || 0);
   }
+  const customerScanRows = opts.env
+    ? await projectPhase5ScanRowsForCustomer(
+        opts.env,
+        (scanRes.results || []).map((row) => ({ ...row, id: row.scan_id, status: "completed" })),
+      )
+    : (scanRes.results || []);
   const scanMap = new Map();
-  for (const s of (scanRes.results || [])) scanMap.set(`${s.workspace_id}::${s.domain_id}`, s);
+  for (const s of customerScanRows) scanMap.set(`${s.workspace_id}::${s.domain_id}`, s);
 
   const rows = (domRes.results || []).map((d) => {
     const key = `${d.workspace_id}::${d.domain_id}`;

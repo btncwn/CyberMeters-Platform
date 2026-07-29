@@ -18,6 +18,7 @@
 //   workspace_vendors             — shared vendor dependency analysis
 //   workspaces                    — workspace names
 import { readWorkspaceBrsAssessments } from "./business-risk.js";
+import { projectPhase5ScanRowsForCustomer } from "./phase5-evidence.js";
 
 /**
  * riskBand(score) — maps BRS score (0-100, higher=safer) to a risk label.
@@ -273,13 +274,22 @@ export async function computePortfolioRisk(workspaceIds, env) {
     // workspace_brs_score_history table has no basis scan or quality column, so it
     // cannot honestly prove that an old point came from complete evidence.
     db.prepare(`
-      SELECT workspace_id, brs_score AS score, created_at AS calculated_at
-      FROM historical_scores
-      WHERE workspace_id IN (${wsIn})
-        AND scan_quality = 'complete'
-        AND brs_score IS NOT NULL
-        AND created_at >= datetime('now', '-30 days')
-      ORDER BY created_at ASC
+      SELECT workspace_id, scan_id, brs_score, score, rating,
+             scan_quality, created_at, created_at AS calculated_at
+      FROM (
+        SELECT workspace_id, scan_id, brs_score, score, rating,
+               scan_quality, created_at,
+               ROW_NUMBER() OVER (
+                 PARTITION BY workspace_id
+                 ORDER BY created_at ASC, id ASC
+               ) AS rn
+        FROM historical_scores
+        WHERE workspace_id IN (${wsIn})
+          AND scan_quality = 'complete'
+          AND brs_score IS NOT NULL
+          AND created_at >= datetime('now', '-30 days')
+      )
+      WHERE rn = 1
     `).bind(...workspaceIds).all(),
 
     // Supply chain scores per workspace
@@ -335,9 +345,21 @@ export async function computePortfolioRisk(workspaceIds, env) {
 
   // For trending: take the *first* (oldest) record per workspace in last 30 days
   const brsHistMap = {};
-  for (const r of (brsHistRes.status === 'fulfilled' ? (brsHistRes.value?.results ?? []) : [])) {
-    if (!brsHistMap[r.workspace_id]) {
-      brsHistMap[r.workspace_id] = { score: r.score, calculated_at: r.calculated_at };
+  const projectedHistory = brsHistRes.status === 'fulfilled'
+    ? await projectPhase5ScanRowsForCustomer(
+        env,
+        (brsHistRes.value?.results ?? []).map((row) => ({
+          ...row,
+          status: "completed",
+        })),
+      )
+    : [];
+  for (const r of projectedHistory) {
+    if (r.phase5_evidence?.complete === true) {
+      brsHistMap[r.workspace_id] = {
+        score: r.brs_score,
+        calculated_at: r.calculated_at,
+      };
     }
   }
 

@@ -83,8 +83,11 @@ const files = walk(S);
     const wc = read("routes/workspaces-core.js");
     ok("workspace-detail delegates to the canonical current-posture helper",
       /getCurrentPosturePresentation/.test(wc));
-    ok("workspace-detail cyber_score_average is complete-only",
-      /ROUND\(AVG\(s\.score\), 1\)/.test(wc) && /s\.scan_quality = 'complete'/.test(wc));
+    ok("workspace-detail cyber_score_average is complete-only and Phase-5 publishability-gated",
+      /ROW_NUMBER\(\) OVER/.test(wc)
+        && /s\.scan_quality = 'complete'/.test(wc)
+        && /projectPhase5ScanRowsForCustomer/.test(wc)
+        && /customerAverage/.test(wc));
     ok("workspace-detail response carries canonical posture fields",
       /posture_established:/.test(wc) && /posture_rating:/.test(wc));
     const wdp = fs.readFileSync(path.join(root, "frontend", "src", "pages", "WorkspaceDetailPage.jsx"), "utf8");

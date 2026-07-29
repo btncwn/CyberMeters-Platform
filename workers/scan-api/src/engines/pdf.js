@@ -745,14 +745,30 @@ function sectionAttackSurfaceAssurance(w, snap, { detail = "full" } = {}) {
 function sectionFindings(w, snap) {
   const findings = snap.observed_findings || [];
   const observations = snap.observations || [];
+  const assessmentComplete = snap.overall?.assessment?.authoritative === true;
+  const incompleteMessage =
+    snap.overall?.assessment?.message ??
+    "Scan coverage was not confirmed for this run; results may be incomplete.";
   w.heading(`Observed Findings (${findings.length})`);
-  if (!findings.length) w.text("No material findings were observed in this assessment.", { size: 10 });
+  if (!findings.length) {
+    w.text(
+      assessmentComplete
+        ? "No material findings were observed in this assessment."
+        : incompleteMessage,
+      { size: 10 },
+    );
+  }
   for (const f of findings) {
     w.text(`[${String(f.severity || "").toUpperCase()}] ${f.title}`, { size: 10, bold: true });
     if (f.explanation) w.prose(customerBodyText(f.explanation), { size: 9, indent: 10, color: "0.25 0.28 0.33" });
   }
   w.heading(`Observations (${observations.length})`);
-  if (!observations.length) w.text("No additional observations.", { size: 10 });
+  if (!observations.length) {
+    w.text(
+      assessmentComplete ? "No additional observations." : incompleteMessage,
+      { size: 10 },
+    );
+  }
   for (const f of observations) {
     w.text(`${f.title}`, { size: 10 });
     if (f.explanation) w.prose(customerBodyText(f.explanation), { size: 9, indent: 10, color: "0.25 0.28 0.33" });
@@ -762,7 +778,14 @@ function sectionFindings(w, snap) {
 function sectionRemediation(w, snap) {
   const actions = snap.remediation_actions || [];
   w.heading(`Recommended Actions (${actions.length})`);
-  if (!actions.length) w.text("No canonical remediation actions for this assessment.", { size: 10 });
+  if (!actions.length) {
+    w.text(
+      snap.overall?.assessment?.authoritative === true
+        ? "No canonical remediation actions for this assessment."
+        : (snap.overall?.assessment?.message ?? "Scan coverage was not confirmed for this run; results may be incomplete."),
+      { size: 10 },
+    );
+  }
   for (const a of actions) {
     // Keep each recommended action's heading with its first line — actions are the
     // report's call to action and must read as a prominent, unbroken block.
@@ -1198,7 +1221,7 @@ function brandingHeader(w, branding, title, subtitle, logoImage = null) {
  * Returns a Uint8Array. Deterministic for a given snapshot + branding.
  */
 export function buildScanReportPdf(scan, read, branding = null, logoImage = null, relatedChanges = null) {
-  const snap = read.snapshot;
+  const snap = read.customerSnapshot ?? read.snapshot;
   const s = snap.snapshot || {};
   const dmarcPresentation = buildDmarcPolicyPresentation(read.dmarcPolicy);
   const w = makeWriter({
@@ -1235,6 +1258,11 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
  * PDFs) — deterministic per artefact, never read from the clock here.
  */
 export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding = null, generatedAt = null, logoImage = null, relatedChanges = null }) {
+  reads = reads.map((read) =>
+    read?.status === "ok" && read.customerSnapshot
+      ? { ...read, snapshot: read.customerSnapshot }
+      : read
+  );
   const ok = reads.filter((r) => r.status === "ok");
   const unavailable = reads.filter((r) => r.status !== "ok");
   // Presentation rule (documented): the cover headlines the most recently

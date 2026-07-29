@@ -15,6 +15,7 @@ import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, norm
 import { collapseCustomerTimelineEvents, countCustomerTimelineEventsByDay } from "../engines/timeline-trust.js";
 import { SEVERITY_RANK, enrichEvent, eventTypesForCategory } from "../lib/exposure-events.js";
 import { pageMeta, paginationParams, parseBoundedInteger } from "../lib/util.js";
+import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
 
 function parseJson(value, fallback = null) {
   if (value && typeof value === "object") return value;
@@ -986,7 +987,7 @@ export async function attackSurfaceRoutes(rctx) {
             // Average scan score over the last 30 days (for risk trend)
             env.cybermeters_db
               .prepare(
-                `SELECT AVG(s.score) AS avg_score
+                `SELECT s.id, s.status, s.score, s.rating, s.scan_quality, s.created_at
                  FROM scans s
                  JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                  WHERE wd.workspace_id = ?
@@ -999,7 +1000,7 @@ export async function attackSurfaceRoutes(rctx) {
             // Average scan score over the preceding 30 days (days -60 to -30)
             env.cybermeters_db
               .prepare(
-                `SELECT AVG(s.score) AS avg_score
+                `SELECT s.id, s.status, s.score, s.rating, s.scan_quality, s.created_at
                  FROM scans s
                  JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                  WHERE wd.workspace_id = ?
@@ -1017,8 +1018,30 @@ export async function attackSurfaceRoutes(rctx) {
           const removedAssets30d = removedAssets30dRow.results[0]?.n ?? 0;
           const criticalNow    = criticalNow30dRow.results[0]?.n    ?? 0;
           const criticalPrev   = criticalPrev30dRow.results[0]?.n   ?? 0;
-          const avgScoreLast30d = avgScoreLast30dRow.results[0]?.avg_score ?? null;
-          const avgScorePrev30d = avgScorePrev30dRow.results[0]?.avg_score ?? null;
+          const customerScoreRows = await projectPhase5ScanRowsForCustomer(
+            env,
+            [
+              ...(avgScoreLast30dRow.results ?? []).map((row) => ({
+                ...row,
+                score_period: "current",
+              })),
+              ...(avgScorePrev30dRow.results ?? []).map((row) => ({
+                ...row,
+                score_period: "previous",
+              })),
+            ],
+          );
+          const scoreAverage = (period) => {
+            const scores = customerScoreRows
+              .filter((row) => row.score_period === period)
+              .map((row) => row.score)
+              .filter(Number.isFinite);
+            return scores.length
+              ? scores.reduce((sum, score) => sum + score, 0) / scores.length
+              : null;
+          };
+          const avgScoreLast30d = scoreAverage("current");
+          const avgScorePrev30d = scoreAverage("previous");
 
           const trend = scoreTrend(avgScoreLast30d, avgScorePrev30d);
 

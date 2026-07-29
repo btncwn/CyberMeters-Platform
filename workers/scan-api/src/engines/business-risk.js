@@ -6,6 +6,7 @@ import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema } fro
 import { resolveRemediation } from "./remediation-registry.js";
 import { computeWorkspaceVendorRisk } from "./vendor-risk.js";
 import { SCAN_QUALITY, normalizeQuality } from "./assessment-presentation.js";
+import { projectPhase5ScanRowsForCustomer } from "./phase5-evidence.js";
 import { createId } from "../lib/util.js";
 
 // ── Business Risk Score (BRS) v1 ─────────────────────────────────────────────
@@ -687,14 +688,22 @@ export async function readWorkspaceBrsAssessments(env, workspaceIds) {
     ).bind(...basisIds).all();
     basisById = new Map((basisResult?.results ?? []).map((row) => [row.scan_id, row]));
   }
+  const customerScanRows = await projectPhase5ScanRowsForCustomer(
+    env,
+    [...new Map([
+      ...(latestResult?.results ?? []),
+      ...basisById.values(),
+    ].map((row) => [row.scan_id, row])).values()],
+  );
+  const customerScanById = new Map(customerScanRows.map((row) => [row.scan_id, row]));
 
   for (const workspaceId of ids) {
     const storedRow = storedByWorkspace.get(workspaceId) ?? null;
     const basisId = parseWorkspaceBrsPayload(storedRow)?.basis_scan?.scan_id;
     result.set(workspaceId, resolveWorkspaceBrsProjection({
       storedRow,
-      latestScan: latestByWorkspace.get(workspaceId) ?? null,
-      basisScan: basisById.get(basisId) ?? null,
+      latestScan: customerScanById.get(latestByWorkspace.get(workspaceId)?.scan_id) ?? null,
+      basisScan: customerScanById.get(basisId) ?? null,
     }));
   }
   return result;

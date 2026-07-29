@@ -23,6 +23,7 @@ import { auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription } fro
 import { createAuditEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { createId, parseBoundedInteger } from "../lib/util.js";
+import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
 
 export function portfolioBrandAlertPresentation(row = {}) {
   let evidence = [];
@@ -163,17 +164,19 @@ export async function portfolioRoutes(rctx) {
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status = 'verified'`).bind(...workspaceIds).first(),
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status NOT IN ('verified')`).bind(...workspaceIds).first(),
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status = 'failed'`).bind(...workspaceIds).first(),
-          // Average score across latest scan per domain
+          // Candidate scores across the latest complete scan per domain. The
+          // stored rows are projected through immutable Phase-5 evidence below
+          // before any portfolio average is published.
           db.prepare(`
             WITH ${LATEST_SCAN_CTE}
-            SELECT AVG(s.score) AS avg_score
+            SELECT s.id AS scan_id, s.score, s.rating, s.scan_quality, s.created_at
             FROM scans s
             JOIN lpd ON lpd.scan_id = s.id
             JOIN workspace_domains wd ON wd.domain_id = s.domain_id
             WHERE s.score IS NOT NULL
               AND s.scan_quality = 'complete'
               AND wd.workspace_id IN (${wsIn})
-          `).bind(...workspaceIds).first(),
+          `).bind(...workspaceIds).all(),
           // Workspace with most critical findings from latest scans
           db.prepare(`
             WITH ${LATEST_SCAN_CTE},
@@ -215,7 +218,24 @@ export async function portfolioRoutes(rctx) {
           for (const r of (findingsRes.value?.results ?? [])) findingsBySev[r.severity] = r.cnt;
         } else { findingsFailed = true; settled.push('findings'); }
 
-        const avgRaw = avgScoreRes.status === 'fulfilled' ? avgScoreRes.value?.avg_score : (settled.push('average_score'), null);
+        let avgRaw = null;
+        if (avgScoreRes.status === 'fulfilled') {
+          const customerScoreRows = await projectPhase5ScanRowsForCustomer(
+            env,
+            (avgScoreRes.value?.results ?? []).map((row) => ({
+              ...row,
+              status: "completed",
+            })),
+          );
+          const scores = customerScoreRows
+            .map((row) => row.score)
+            .filter(Number.isFinite);
+          avgRaw = scores.length
+            ? scores.reduce((sum, score) => sum + score, 0) / scores.length
+            : null;
+        } else {
+          settled.push('average_score');
+        }
         const hrw    = highRiskRes.status === 'fulfilled'  ? highRiskRes.value : (settled.push('highest_risk_workspace'), null);
 
         return json({
@@ -251,7 +271,7 @@ export async function portfolioRoutes(rctx) {
       if (gate) return gate;
       try {
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
-        const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds);
+        const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds, { env });
         return json({
           workspaces: rows,
           partial_failure: (rows.degraded_queries?.length ?? 0) > 0 ? true : false,
@@ -273,7 +293,7 @@ export async function portfolioRoutes(rctx) {
       if (gate) return gate;
       try {
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
-        const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds);
+        const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds, { env });
         return json({
           ...buildExecutiveSummary(rows),
           partial_failure: (rows.degraded_queries?.length ?? 0) > 0 ? true : false,
@@ -422,13 +442,11 @@ export async function portfolioRoutes(rctx) {
         const wsIn = workspaceIds.map(() => "?").join(",");
 
         const [scanTrendRes, findingsTrendRes, assetTrendRes] = await Promise.allSettled([
-          // Score aggregates per day from all completed scans in last 30 days
+          // Score candidates per day. Aggregate only after the immutable
+          // Phase-5 evidence contract has projected each stored row.
           db.prepare(`
-            SELECT date(s.created_at)     AS day,
-                   COUNT(DISTINCT s.id)   AS scans,
-                   ROUND(AVG(s.score), 1) AS average_score,
-                   MIN(s.score)           AS lowest_score,
-                   MAX(s.score)           AS highest_score
+            SELECT s.id AS scan_id, date(s.created_at) AS day,
+                   s.score, s.rating, s.scan_quality, s.created_at
             FROM scans s
             JOIN workspace_domains wd ON wd.domain_id = s.domain_id
             WHERE s.status = 'completed'
@@ -436,8 +454,7 @@ export async function portfolioRoutes(rctx) {
               AND s.created_at >= datetime('now', '-30 days')
               AND s.score IS NOT NULL
               AND wd.workspace_id IN (${wsIn})
-            GROUP BY date(s.created_at)
-            ORDER BY day
+            ORDER BY s.created_at
           `).bind(...workspaceIds).all(),
           // Critical + high finding counts per day from scans in last 30 days
           db.prepare(`
@@ -467,16 +484,38 @@ export async function portfolioRoutes(rctx) {
         // Merge into a single map keyed by day
         const dayMap = {};
 
-        for (const r of (scanTrendRes.status === 'fulfilled' ? (scanTrendRes.value?.results ?? []) : [])) {
-          dayMap[r.day] = {
-            date:             r.day,
-            scans:            r.scans,
-            average_score:    r.average_score,
-            lowest_score:     r.lowest_score,
-            highest_score:    r.highest_score,
+        const rawScoreRows =
+          scanTrendRes.status === 'fulfilled'
+            ? (scanTrendRes.value?.results ?? [])
+            : [];
+        const customerScoreRows = scanTrendRes.status === 'fulfilled'
+          ? await projectPhase5ScanRowsForCustomer(
+              env,
+              rawScoreRows.map((row) => ({ ...row, status: "completed" })),
+            )
+          : [];
+        const scoreRowsByDay = new Map();
+        for (const row of customerScoreRows) {
+          const bucket = scoreRowsByDay.get(row.day) ?? { scans: 0, scores: [] };
+          bucket.scans += 1;
+          if (Number.isFinite(row.score)) bucket.scores.push(row.score);
+          scoreRowsByDay.set(row.day, bucket);
+        }
+        for (const [day, bucket] of scoreRowsByDay) {
+          dayMap[day] = {
+            date: day,
+            scans: bucket.scans,
+            average_score: bucket.scores.length
+              ? Math.round(
+                  (bucket.scores.reduce((sum, score) => sum + score, 0) /
+                    bucket.scores.length) * 10,
+                ) / 10
+              : null,
+            lowest_score: bucket.scores.length ? Math.min(...bucket.scores) : null,
+            highest_score: bucket.scores.length ? Math.max(...bucket.scores) : null,
             critical_findings: 0,
-            high_findings:    0,
-            new_assets:       0,
+            high_findings: 0,
+            new_assets: 0,
           };
         }
 
@@ -573,7 +612,7 @@ export async function portfolioRoutes(rctx) {
           });
         }
 
-        const all = await computePortfolioDomainRows(env.cybermeters_db, workspaceIds);
+        const all = await computePortfolioDomainRows(env.cybermeters_db, workspaceIds, { env });
         // The summary folds the SAME array the caller pages through, so totals can never
         // disagree with the rows, and a filtered view cannot leak the unfiltered count.
         const summary = buildPortfolioDomainSummary(all);

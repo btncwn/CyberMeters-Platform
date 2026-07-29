@@ -3,6 +3,7 @@
 // fallback) to produce trend/delta signals. Never throws — safe fallback shape. Extracted
 // verbatim from index.js (monolith decomposition, Phase 1c).
 import { customerSafeFailure } from "../lib/errors.js";
+import { resolvePhase5HistoricalCustomerProjection } from "./phase5-evidence.js";
 
 /**
  * Compare the current scan's results against the most recent previous completed
@@ -73,10 +74,16 @@ export async function runHistoricalModule(scanId, domain, currentScore, currentF
     return empty(true, prevScan.id, prevScan.score ?? null, customerSafeFailure("scan/history/r2", err, "Historical comparison unavailable"));
   }
 
-  // Resolve previous score — prefer D1 column (written on completion) then R2 field
-  const prevScore = prevScan.score != null
-    ? prevScan.score
-    : (prevReport.cyber_metrics_score ?? null);
+  // Resolve the historical baseline through the same customer evidence contract.
+  // A complete-quality legacy row is not comparable when its report does not
+  // explicitly prove every required Phase-5 module publishable.
+  const previousCustomerAssessment = resolvePhase5HistoricalCustomerProjection({
+    score: prevScan.score ?? prevReport.cyber_metrics_score ?? null,
+    riskLevel: prevReport.risk_level ?? null,
+    scanQuality: prevReport.scan_quality?.status ?? "complete",
+    modules: prevReport.modules ?? {},
+  });
+  const prevScore = previousCustomerAssessment.score;
 
   // Step 3: Diff subdomains
   const currSubSet = new Set(currentModules.subdomains?.items || []);

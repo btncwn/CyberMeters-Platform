@@ -231,7 +231,9 @@ function SummaryBar({ scan, risk, emailIntel, remPlan, kev, cve }) {
   const kevCount = phase5KnownCount(kev, kev?.matched)
   const cveCrit  = phase5KnownCount(cve, cve?.critical_count)
   const cveHigh  = phase5KnownCount(cve, cve?.high_count)
-  const cveTotal = cvePublishable ? cveCrit + cveHigh : null
+  const cveTotal = cvePublishable && cveCrit != null && cveHigh != null
+    ? cveCrit + cveHigh
+    : null
 
   const stats = [
     {
@@ -1091,7 +1093,17 @@ export default function IntelligencePage() {
   if (!activeWorkspaceId) return <NoWorkspaceState />
 
   const modules = report?.modules || {}
-  const scanObj = scans.find(s => s.id === selectedId)
+  const storedScanObj = scans.find(s => s.id === selectedId)
+  // Report projection is the customer assessment authority. The scan-list row
+  // remains navigation metadata and may contain an immutable historical D1
+  // score/rating that predates the Phase-5 evidence contract.
+  const scanObj = storedScanObj && report
+    ? {
+        ...storedScanObj,
+        score: report.cyber_metrics_score ?? null,
+        rating: report.risk_level ?? null,
+      }
+    : storedScanObj
 
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
