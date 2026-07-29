@@ -316,6 +316,7 @@ export async function evaluateWebsiteSecurityForScan(env, {
             record_id: id, entity: `${domain}:${key}`, hostname: domain,
             recurrence, record_severity: obs.severity, finding_type: key,
             case_id: opened?.case_id || null,
+            module_evidence: modules?.[spec.module] || null,
           }).catch(() => null);
           if (r?.emitted) alerts++;
         }
@@ -415,6 +416,7 @@ export async function evaluateWebsiteSecurityForScan(env, {
         record_id: rec.id, entity: `${domain}:${key}`, hostname: domain,
         recurrence, record_severity: obs.severity, finding_type: key,
         case_id: opened?.case_id || rec.linked_case_id || null,
+        module_evidence: modules?.[spec.module] || null,
       }).catch(() => null);
       if (r?.emitted) alerts++;
     }

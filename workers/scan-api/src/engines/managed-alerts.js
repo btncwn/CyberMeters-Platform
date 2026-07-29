@@ -369,6 +369,7 @@ export const ALERT_ENTITY_TYPE_LABELS = Object.freeze({
   vendor: "Affected Vendor",
   technology: "Affected Technology",
   certificate: "Affected Certificate",
+  control_area: "Affected Control Area",
   identity_surface: "Affected Identity Surface",
   sender: "Affected Sender",
 });

@@ -366,6 +366,9 @@ jobs:
       - name: Validate alert truth & field mapping (workspace name + entity typing + what-changed ≠ recommendation + evidence + CTA + mutations)
         run: node scripts/validate-alert-truth-mapping.js
 
+      - name: Validate customer alert evidence fidelity (HTTPS uncertainty + positive controls + CE labels + fresh-process mutations)
+        run: node scripts/validate-customer-alert-evidence-fidelity.js
+
       - name: Validate first-ever alert activation grace (2s lazy-activation clock-skew + backlog guard + mutations)
         run: node scripts/validate-alert-activation-grace.js
 

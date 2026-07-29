@@ -21,6 +21,7 @@ import { getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
 import { buildMonitoringTransitionDetail, findConditionOccurrence, MONITORING_CHANGED } from "./alert-occurrence.js";
 import { emitManagedAlert, buildAlertDedupeKey } from "./managed-alerts.js";
 import { resolveRemediation } from "./remediation-registry.js";
+import { resolveCustomerAlertPresentation } from "./customer-alert-presentation.js";
 
 // Declares that this recurrence takes the RECORD's own assigned severity rather
 // than a fixed grade. Not a loophole in the "never invent a severity" rule — the
@@ -373,6 +374,26 @@ const RECURRENCE_COPY = Object.freeze({
         "An external aggregate-report destination does not have valid authorisation.",
     }),
   }),
+  website_security: Object.freeze({
+    transport_not_available: Object.freeze({
+      what_changed: (entity) =>
+        `A completed HTTPS/TLS assessment positively identified a certificate or TLS configuration defect for ${entity}.`,
+    }),
+    insecure_redirect: Object.freeze({
+      what_changed: (entity) =>
+        `A completed origin HTTP observation found that requests to ${entity} were not redirected to HTTPS.`,
+    }),
+  }),
+  cyber_essentials_readiness: Object.freeze({
+    externally_observed_control_not_ready: Object.freeze({
+      what_changed: (entity) =>
+        `The externally observable evidence for the ${entity} control area no longer supports readiness.`,
+    }),
+    externally_observed_control_worsened: Object.freeze({
+      what_changed: (entity) =>
+        `The externally observable evidence for the ${entity} control area has worsened.`,
+    }),
+  }),
   shadow_it_unmanaged_technology: Object.freeze({
     owner_missing: Object.freeze({
       what_changed: () => "An approved service does not have an assigned owner.",
@@ -530,6 +551,7 @@ export async function emitLifecycleAlert(env, {
   workspace_id, domain_key, record_id, entity,
   recurrence, finding_type = null, case_id = null, link = null,
   hostname = null, cooldownActive = null, record_severity = null,
+  module_evidence = null,
   // Semantic entity typing (alert-truth episode). Optional and additive: a caller
   // that knows its entity is a service/vendor/certificate says so, with a
   // customer-facing display name; monitored_domain is the workspace domain the
@@ -597,19 +619,33 @@ export async function emitLifecycleAlert(env, {
     // They are built by separate functions so they can never collapse back into
     // the same registry string (the defect this episode fixes).
     const displayName = String(entity_display || "").trim() || entity || record_id;
-    const whatChanged = describeRecurrenceEvent(domain_key, recurrence, displayName);
-    const recommendation = recommendationForRecurrence(domain_key, recurrence, displayName, resolved?.recommended_action || null);
+    const canonicalWhatChanged = describeRecurrenceEvent(domain_key, recurrence, displayName);
+    const canonicalRecommendation = recommendationForRecurrence(
+      domain_key, recurrence, displayName, resolved?.recommended_action || null,
+    );
+    const presentation = resolveCustomerAlertPresentation({
+      domain_key,
+      recurrence,
+      finding_type,
+      module_evidence,
+      canonical: {
+        title: resolved?.customer_title || `${entity || record_id}: review required`,
+        what_changed: canonicalWhatChanged,
+        recommended_action: canonicalRecommendation,
+        remediation_id: resolved?.remediation_id || null,
+      },
+    });
 
     return await emitManagedAlert(env, {
       workspace_id, domain_key,
       kind: alertKindFor(domain_key, recurrence),
       severity,
-      title: resolved?.customer_title || `${entity || record_id}: review required`,
-      message: whatChanged,
+      title: presentation.title,
+      message: presentation.what_changed,
       dedupe_key,
       link: record_link,
       case_id,
-      remediation_id: resolved?.remediation_id || null,
+      remediation_id: presentation.remediation_id,
       observed_at: occurrence.observed_at,   // the event's OWN timestamp
       cooldown_entity: entity || record_id,
       cooldownActive,
@@ -618,7 +654,9 @@ export async function emitLifecycleAlert(env, {
         recurrence_type: recurrence,
         occurrence_id: occurrence.occurrence_id,
         required_case_action: occurrence.detail?.required_case_action || null,
-        recommended_action: recommendation,
+        recommended_action: presentation.recommended_action,
+        presentation_state: presentation.presentation_state,
+        evidence_state: presentation.evidence_state || null,
         // Typed entity + bounded evidence for the email field mapping
         // (managed-alerts.js buildAlertEmailFields). Absent for legacy callers.
         entity_type: entity_type || null,
