@@ -147,21 +147,45 @@ export async function runSslModule(domain, opts = {}) {
   const observedAt = typeof opts.now === "function"
     ? new Date(opts.now()).toISOString()
     : new Date().toISOString();
+  // Track B sub-operation timing — observational only, guarded at every call so a
+  // broken/absent collector can never alter probe behaviour or the module result.
+  const subOpBegin = (name) => { try { return opts.subOps?.begin?.("ssl", name) ?? null; } catch { return null; } };
+  const subOpFinish = (token, res) => {
+    try {
+      opts.subOps?.finish?.(token, {
+        outcome: res ? "ok" : (opts.signal?.aborted === true ? "aborted" : "unavailable"),
+        aborted: !res && opts.signal?.aborted === true,
+      });
+    } catch { /* observational only */ }
+  };
   // Launch the Certificate Transparency lookup CONCURRENTLY with the reachability
   // probes below. The two are independent, so awaiting the promise at the end makes
   // the module's wall-time max(reachability, CT) instead of their sum.
+  // The ct_lookup sub-op times the WHOLE composite (crt.sh + certspotter fallback)
+  // from this consumer's side; the per-provider network attempts remain the
+  // ct_provider_telemetry rows. The side branch below observes the shared promise
+  // without changing what the module awaits.
+  const ctSubOp = subOpBegin("ct_lookup");
   const certPromise = resolveCertificateTransparency(domain, {
     accounting,
     signal: opts.signal,
     ctCache: opts.ctCache,
   });
+  try {
+    certPromise.then(
+      () => { try { opts.subOps?.finish?.(ctSubOp, { outcome: "ok" }); } catch { /* observational only */ } },
+      () => { try { opts.subOps?.finish?.(ctSubOp, { outcome: "error" }); } catch { /* observational only */ } },
+    );
+  } catch { /* observational only */ }
 
   // Try HTTPS on the bare domain
+  const bareSubOp = subOpBegin("https_probe_bare");
   const httpsRes = await safeFetch(`https://${domain}`, {
     method: "HEAD",
     redirect: "manual",
     accounting,
   });
+  subOpFinish(bareSubOp, httpsRes);
   // ONE shared classifier decides what this fetch observed (lib/fetch-observation.js).
   // Any origin status — 2xx/3xx/4xx AND 5xx — proves HTTPS transport: to answer at
   // all over https:// the handshake completed and a certificate was accepted. A
@@ -177,11 +201,13 @@ export async function runSslModule(domain, opts = {}) {
   let wwwRes = null;
   let wwwObservation = null;
   if (!httpsOk && !domain.startsWith("www.")) {
+    const wwwSubOp = subOpBegin("https_probe_www");
     wwwRes = await safeFetch(`https://www.${domain}`, {
       method: "HEAD",
       redirect: "manual",
       accounting,
     });
+    subOpFinish(wwwSubOp, wwwRes);
     wwwObservation = classifyFetchObservation({ response: wwwRes });
     wwwHttpsOk = wwwObservation.transport_observed === true;
   }
@@ -235,7 +261,9 @@ export async function runSslModule(domain, opts = {}) {
   // Follow up to 2 hops to handle intermediate http→http→https chains
   // (e.g. http://google.com → 301 → http://www.google.com → 301 → https://www.google.com).
   const httpOrigUrl = `http://${domain}`;
+  const hop1SubOp = subOpBegin("http_redirect_hop_1");
   const httpRes = await safeFetch(httpOrigUrl, { method: "HEAD", redirect: "manual", accounting });
+  subOpFinish(hop1SubOp, httpRes);
   let httpRedirectsToHttps = false;
 
   // PR-A2 — the redirect chain is classified by the SAME shared observation
@@ -300,7 +328,9 @@ export async function runSslModule(domain, opts = {}) {
         // The second hop is classified too: a chain that ends in a Cloudflare edge
         // error has not been observed to reach HTTPS, and must not be read as one
         // that has.
+        const hop2SubOp = subOpBegin("http_redirect_hop_2");
         const hop2 = await safeFetch(loc1, { method: "HEAD", redirect: "manual", accounting });
+        subOpFinish(hop2SubOp, hop2);
         const hop2Observation = classifyFetchObservation({ response: hop2 });
         redirectHops.push({
           hop:           2,

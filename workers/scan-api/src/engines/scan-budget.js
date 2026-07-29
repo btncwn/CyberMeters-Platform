@@ -431,6 +431,98 @@ export function createModuleTelemetry(now = Date.now) {
   };
 }
 
+// ── Sub-operation timing telemetry (Track B: measurement only) ────────────────
+// Attributes a module-cap exhaustion to the specific sub-operation inside the
+// module (which HTTPS probe, which redirect hop, which CT wait), because the
+// per-module row alone cannot say WHY ssl/headers/subdomains hit their caps
+// while the global deadline still had headroom.
+//
+// Rows are persisted as scan_module_telemetry pseudo-rows with dotted module
+// names ("ssl.https_probe_bare") using the EXISTING columns — the same no-schema
+// pattern as the "scan_finalisation" pseudo-row. Dotted names never collide with
+// TELEMETRY_TRACKED_MODULES (exact-string matching), so the finalization backfill
+// and coverage logic are untouched, and the rows purge with the scan via
+// SCAN_CHILD_TABLES.
+//
+// Outcome vocabulary (bounded, honest):
+//   ok          — the sub-operation returned a usable value (a Response, a result)
+//   unavailable — it finished but returned nothing (safeFetch null: its own
+//                 per-fetch timeout, refusal, block or redirect loop — these are
+//                 indistinguishable at this layer and are NOT guessed apart;
+//                 duration_ms ≈ 10_000 is the per-fetch-timeout fingerprint)
+//   error       — it threw
+//   aborted     — it never finished before the snapshot (the module race cap
+//                 abandoned it, or the module signal was aborted mid-flight)
+//
+// The collector is OBSERVATIONAL AND FAIL-SAFE by contract: every method catches
+// its own errors, begin() returns null past the row bound, and a broken (or
+// absent) collector must never alter a module's behaviour or result — the module
+// call sites guard their side too.
+export const SUB_OPERATION_TELEMETRY_ROW_LIMIT = 24;
+export const SUB_OPERATION_TELEMETRY_OUTCOMES = Object.freeze([
+  "ok", "unavailable", "error", "aborted",
+]);
+
+export function createSubOperationTelemetry(now = Date.now) {
+  const entries = [];
+  const iso = (ms) => new Date(ms).toISOString();
+  const readClock = () => {
+    try {
+      const v = Number(now());
+      return Number.isFinite(v) && Math.abs(v) <= 8.64e15 ? v : Date.now();
+    } catch { return Date.now(); }
+  };
+  return {
+    // Start timing one sub-operation. Returns an opaque token (null past the
+    // bound or on any internal error — callers pass it straight to finish()).
+    begin(module, subOp) {
+      try {
+        if (entries.length >= SUB_OPERATION_TELEMETRY_ROW_LIMIT) return null;
+        const mod = String(module || "").slice(0, 40);
+        const op = String(subOp || "").slice(0, 60);
+        if (!mod || !op) return null;
+        const entry = { module: `${mod}.${op}`, startedMs: readClock(), finishedMs: null, outcome: null, aborted: false };
+        entries.push(entry);
+        return entry;
+      } catch { return null; }
+    },
+    // Complete a sub-operation. First completion wins; later calls are ignored.
+    finish(entry, { outcome = "ok", aborted = false } = {}) {
+      try {
+        if (!entry || entry.finishedMs != null) return;
+        entry.finishedMs = readClock();
+        entry.aborted = aborted === true;
+        entry.outcome = SUB_OPERATION_TELEMETRY_OUTCOMES.includes(outcome) ? outcome : "error";
+        if (entry.aborted) entry.outcome = "aborted";
+      } catch { /* observational only */ }
+    },
+    // Rows in scan_module_telemetry column shape. Entries still unfinished at
+    // snapshot time were in flight when their module was abandoned by the race
+    // cap (or the scan finalized) — recorded as `aborted` with the elapsed time
+    // at snapshot and completed_at null, which is the cap-exhaustion attribution
+    // this telemetry exists to provide.
+    snapshotRows() {
+      try {
+        const snapMs = readClock();
+        return entries.map((e) => {
+          const finished = e.finishedMs != null;
+          const doneMs = finished ? e.finishedMs : snapMs;
+          return {
+            module: e.module,
+            started_at: iso(e.startedMs),
+            completed_at: finished ? iso(e.finishedMs) : null,
+            duration_ms: Math.max(0, doneMs - e.startedMs),
+            outbound_calls: null,
+            outcome: finished ? e.outcome : "aborted",
+            timeout: false,
+            error_class: null,
+          };
+        });
+      } catch { return []; }
+    },
+  };
+}
+
 // ── Execution diagnostics (PR-A1: additive, R2-only) ──────────────────────────
 // A structured, versioned snapshot of the scan's execution timing embedded in the
 // R2 report next to timeline_trust. Purely observational: no runtime consumer
