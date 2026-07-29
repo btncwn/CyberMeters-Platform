@@ -1,10 +1,10 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.07.29-email-deadline-whole-scan.a0654d8ddc92",
-  "closure_sha256": "a0654d8ddc92acb71e91bd2bc8e5316f2496c686f33d5b4b674ba005fd77bf8c",
-  "closure_file_count": 82,
-  "scan_api_file_count": 80,
+  "app_version": "2026.07.29-email-deadline-whole-scan.ca432e17633f",
+  "closure_sha256": "ca432e17633f2dd197d0ff495cc18746b4c63cab7e596e7a1702662de143641c",
+  "closure_file_count": 83,
+  "scan_api_file_count": 81,
   "files": [
     "shared/cyber-essentials-questions.js",
     "workers/email-ingest/src/index.js",
@@ -53,6 +53,7 @@
     "workers/scan-api/src/engines/managed-case-model.js",
     "workers/scan-api/src/engines/pdf-image.js",
     "workers/scan-api/src/engines/pdf.js",
+    "workers/scan-api/src/engines/phase5-evidence.js",
     "workers/scan-api/src/engines/plan-usage.js",
     "workers/scan-api/src/engines/posture-scoring.js",
     "workers/scan-api/src/engines/pricing-registry.js",
