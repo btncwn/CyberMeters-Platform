@@ -273,6 +273,7 @@ export async function evaluateCyberEssentialsLifecycle(env, workspaceId, { scanI
             record_id: id, entity: g.control_key, recurrence,
             finding_type: CE_RECURRENCE_FINDING_TYPE[recurrence] || null,
             case_id: opened?.case_id || null,
+            entity_type: "control_area", entity_display: g.label,
           }).catch(() => null);
           if (r?.emitted) alerts++;
         }
@@ -373,6 +374,7 @@ export async function evaluateCyberEssentialsLifecycle(env, workspaceId, { scanI
         record_id: rec.id, entity: g.control_key, recurrence: rec2,
         finding_type: CE_RECURRENCE_FINDING_TYPE[rec2] || null,
         case_id: opened?.case_id || rec.linked_case_id || null,
+        entity_type: "control_area", entity_display: g.label,
       }).catch(() => null);
       if (r?.emitted) alerts++;
     }

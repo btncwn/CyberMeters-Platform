@@ -223,7 +223,7 @@ const notifs = (ws) => db.prepare("SELECT * FROM notification_events WHERE works
   ok("legacy path has no monitored-domain row", noType.monitoredDomain === null);
   ok("empty workspace name gets bounded fallback, never the id", buildAlertEmailFields({ workspaceName: "", domain_key: "x", message: "m" }).workspaceName === "Unknown Workspace");
   ok("bounded entity vocabulary includes only evidence-based types",
-     Object.keys(ALERT_ENTITY_TYPE_LABELS).every((k) => ["domain", "hostname", "service", "vendor", "technology", "certificate", "identity_surface", "sender"].includes(k)));
+     Object.keys(ALERT_ENTITY_TYPE_LABELS).every((k) => ["domain", "hostname", "service", "vendor", "technology", "certificate", "control_area", "identity_surface", "sender"].includes(k)));
   eq("missing evidence yields NO confident statement", boundedEvidenceSentence(null), null);
   eq("empty evidence object yields NO statement", boundedEvidenceSentence({}), null);
 }
@@ -373,7 +373,11 @@ async function mutantOf(file, from, to) {
 
 // M3 — What Changed collapses back into the recommendation.
 {
-  const m = await mutantOf("alert-consumers.js", "message: whatChanged,", "message: recommendation,");
+  const m = await mutantOf(
+    "alert-consumers.js",
+    "message: presentation.what_changed,",
+    "message: presentation.recommended_action,",
+  );
   let caught = false;
   if (m.anchor) {
     const before = notifs(WS_OTHER).length;

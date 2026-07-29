@@ -1,10 +1,10 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.07.29-email-deadline-whole-scan.9b2852ff371c",
-  "closure_sha256": "9b2852ff371c095ef6abaf851ec052142b182c4681aa6b2fbb35bf9c1f0015fe",
-  "closure_file_count": 83,
-  "scan_api_file_count": 81,
+  "app_version": "2026.07.29-alert-evidence-fidelity.933d5429f0b4",
+  "closure_sha256": "933d5429f0b4d0a4ebe7333e2ddcd2f469130e2c3104ac69cd00a396a5573c75",
+  "closure_file_count": 84,
+  "scan_api_file_count": 82,
   "files": [
     "shared/cyber-essentials-questions.js",
     "workers/email-ingest/src/index.js",
@@ -31,6 +31,7 @@
     "workers/scan-api/src/engines/cloud-storage-scan.js",
     "workers/scan-api/src/engines/confidence.js",
     "workers/scan-api/src/engines/current-posture.js",
+    "workers/scan-api/src/engines/customer-alert-presentation.js",
     "workers/scan-api/src/engines/cyber-mot-domains.js",
     "workers/scan-api/src/engines/dmarc-canonical-consumers.js",
     "workers/scan-api/src/engines/dmarc-state.js",
