@@ -163,8 +163,8 @@ try {
       (scanEngineSource.match(/const ctCache = createCertificateTransparencyCache\(/g) || []).length,
       1);
     ok("default scan passes that cache to SSL and subdomains",
-      /runSslModule\(domain, \{ accounting, signal, ctCache \}\)/.test(scanEngineSource) &&
-        /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache \}\)/.test(scanEngineSource));
+      /runSslModule\(domain, \{ accounting, signal, ctCache, subOps: subOpTelemetry \}\)/.test(scanEngineSource) &&
+        /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry \}\)/.test(scanEngineSource));
     ok("reserved scan reuses one cache for SSL and subdomains",
       /runReservedScan\(domain, \{\s*capacity,\s*ctCache,\s*dnsCache,/.test(scanEngineSource) &&
         /runSslModule\(domain, \{ ctCache: sharedCtCache \}\)/.test(reservedSource) &&
