@@ -18,7 +18,10 @@
 //   workspace_vendors             — shared vendor dependency analysis
 //   workspaces                    — workspace names
 import { readWorkspaceBrsAssessments } from "./business-risk.js";
-import { projectPhase5ScanRowsForCustomer } from "./phase5-evidence.js";
+import {
+  phase5EvidenceReadCoverage,
+  projectPhase5ScanRowsForCustomer,
+} from "./phase5-evidence.js";
 
 /**
  * riskBand(score) — maps BRS score (0-100, higher=safer) to a risk label.
@@ -546,6 +549,10 @@ export async function computePortfolioRisk(workspaceIds, env) {
     portfolio_alerts:     portfolioAlerts,
     shared_dependencies:  sharedVendors,
     executive_summary:    executiveSummary,
+    phase5_evidence_coverage: {
+      current: brsMap.phase5_evidence_coverage ?? null,
+      trend: phase5EvidenceReadCoverage(projectedHistory),
+    },
     calculated_at:        now,
   };
 }

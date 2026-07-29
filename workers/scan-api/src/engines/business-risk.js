@@ -6,7 +6,10 @@ import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema } fro
 import { resolveRemediation } from "./remediation-registry.js";
 import { computeWorkspaceVendorRisk } from "./vendor-risk.js";
 import { SCAN_QUALITY, normalizeQuality } from "./assessment-presentation.js";
-import { projectPhase5ScanRowsForCustomer } from "./phase5-evidence.js";
+import {
+  phase5EvidenceReadCoverage,
+  projectPhase5ScanRowsForCustomer,
+} from "./phase5-evidence.js";
 import { createId } from "../lib/util.js";
 
 // ── Business Risk Score (BRS) v1 ─────────────────────────────────────────────
@@ -696,6 +699,8 @@ export async function readWorkspaceBrsAssessments(env, workspaceIds) {
     ].map((row) => [row.scan_id, row])).values()],
   );
   const customerScanById = new Map(customerScanRows.map((row) => [row.scan_id, row]));
+  result.phase5_evidence_coverage =
+    phase5EvidenceReadCoverage(customerScanRows);
 
   for (const workspaceId of ids) {
     const storedRow = storedByWorkspace.get(workspaceId) ?? null;

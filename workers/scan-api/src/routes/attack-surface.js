@@ -15,7 +15,11 @@ import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, norm
 import { collapseCustomerTimelineEvents, countCustomerTimelineEventsByDay } from "../engines/timeline-trust.js";
 import { SEVERITY_RANK, enrichEvent, eventTypesForCategory } from "../lib/exposure-events.js";
 import { pageMeta, paginationParams, parseBoundedInteger } from "../lib/util.js";
-import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
+import {
+  phase5EvidenceReadCoverage,
+  projectPhase5ScanRowsForCustomer,
+  resolvePhase5CustomerAggregate,
+} from "../engines/phase5-evidence.js";
 
 function parseJson(value, fallback = null) {
   if (value && typeof value === "object") return value;
@@ -1031,17 +1035,14 @@ export async function attackSurfaceRoutes(rctx) {
               })),
             ],
           );
-          const scoreAverage = (period) => {
-            const scores = customerScoreRows
-              .filter((row) => row.score_period === period)
-              .map((row) => row.score)
-              .filter(Number.isFinite);
-            return scores.length
-              ? scores.reduce((sum, score) => sum + score, 0) / scores.length
-              : null;
-          };
-          const avgScoreLast30d = scoreAverage("current");
-          const avgScorePrev30d = scoreAverage("previous");
+          const currentAggregate = resolvePhase5CustomerAggregate(
+            customerScoreRows.filter((row) => row.score_period === "current"),
+          );
+          const previousAggregate = resolvePhase5CustomerAggregate(
+            customerScoreRows.filter((row) => row.score_period === "previous"),
+          );
+          const avgScoreLast30d = currentAggregate.score;
+          const avgScorePrev30d = previousAggregate.score;
 
           const trend = scoreTrend(avgScoreLast30d, avgScorePrev30d);
 
@@ -1059,6 +1060,11 @@ export async function attackSurfaceRoutes(rctx) {
             score_trend:                 trend,   // same signal; both exposed for consumer flexibility
             avg_score_last_30d:          avgScoreLast30d !== null ? Math.round(avgScoreLast30d) : null,
             avg_score_prev_30d:          avgScorePrev30d !== null ? Math.round(avgScorePrev30d) : null,
+            score_evidence_coverage: {
+              overall: phase5EvidenceReadCoverage(customerScoreRows),
+              current: currentAggregate.evidence_coverage,
+              previous: previousAggregate.evidence_coverage,
+            },
           });
         } catch {
           return json({ error: "Database error" }, 500);

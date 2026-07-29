@@ -14,7 +14,10 @@ import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "../engines/scoring-con
 import { computeScore, isEmailApplicable } from "../engines/scoring.js";
 import { runSslModule } from "../engines/ssl-scan.js";
 import { createAuditEvent } from "../lib/events.js";
-import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
+import {
+  projectPhase5ScanRowsForCustomer,
+  resolvePhase5CustomerAggregate,
+} from "../engines/phase5-evidence.js";
 
 export async function workspaceInsightRoutes(rctx) {
   const { request, env, url, json, serverError,
@@ -334,15 +337,11 @@ export async function workspaceInsightRoutes(rctx) {
           env,
           v(scoreResult)?.results ?? [],
         );
-        const customerScores = customerScoreRows
-          .map((row) => row.score)
-          .filter(Number.isFinite);
-        const latestScore = customerScores.length
-          ? Math.round(
-              customerScores.reduce((sum, score) => sum + score, 0) /
-              customerScores.length,
-            )
-          : null;
+        const customerAggregate =
+          resolvePhase5CustomerAggregate(customerScoreRows);
+        const latestScore = customerAggregate.score == null
+          ? null
+          : Math.round(customerAggregate.score);
 
         return json({
           workspace_id:      ws.id,
@@ -351,6 +350,7 @@ export async function workspaceInsightRoutes(rctx) {
           active_assets:     v(assetsResult)?.cnt           ?? 0,
           vendors:           v(vendorsResult)?.cnt          ?? 0,
           latest_score:      latestScore,
+          score_evidence_coverage: customerAggregate.evidence_coverage,
           critical_findings: v(findingsResult)?.critical_findings ?? 0,
           high_findings:     v(findingsResult)?.high_findings     ?? 0,
           last_scan_at:      v(lastScanResult)?.last_scan_at      ?? null,

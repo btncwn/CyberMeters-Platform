@@ -18,6 +18,13 @@ placeholders, and withhold only the customer conclusion when any required
 evidence is not publishable. Observed findings and trustworthy sibling evidence
 are retained.
 
+The shared D1-to-R2 adapter deduplicates scan IDs, permits at most 100 stored
+evidence reads per invocation, and runs at most eight reads concurrently. A
+read failure, missing object, missing scan ID, unavailable binding, or identity
+beyond the fixed bound is projected as incomplete with null score/rating.
+Responses expose `phase5_evidence_coverage`; aggregate resolvers additionally
+withhold the aggregate when all candidate rows cannot be assessed honestly.
+
 The M5.c snapshot reader now exposes two views:
 
 - `snapshot`: parsed immutable bytes, still checksum-gated and used by the
@@ -47,7 +54,8 @@ The M5.c snapshot reader now exposes two views:
 | Portfolio overview | D1 latest-per-domain rows | Yes | Project individual candidates before averaging | Shared adapter and portfolio validators |
 | Portfolio customers and executive summary | D1 latest-per-domain rows | Yes | Project individual rows before customer average/rating | Portfolio and read-purity validators |
 | Portfolio score trends | D1 completed scan rows | Yes | Project individual rows before daily aggregate/min/max | M5.e and portfolio validators |
-| Portfolio domain rows | D1 latest scan row | Yes | Project scan row before `overall_score` / `overall_rating` | Historical incomplete and completed-zero portfolio fixture |
+| `GET /api/portfolio/domains` | D1 latest scan row plus R2 evidence | Yes | Project scan row before `overall_score` / `overall_rating`; expose bounded-read coverage | Authenticated historical incomplete and completed-zero list fixture |
+| `GET /api/portfolio/domains/:workspaceId/:domainId` | D1 latest scan row plus R2 evidence | Yes; the detail call omitted `{ env }` while the list supplied it | Use the exact list projection call; retain workspace authorization and non-enumerating 404 behavior | Authenticated list/detail parity fixture and pinned mutant M8 |
 | Portfolio risk / BRS current and historical comparison | Persisted BRS plus basis/latest D1 scan rows and R2 reports | Yes; stored BRS could retain a healthy basis whose Phase-5 evidence is incomplete | Existing BRS projection now receives Phase-5-projected basis/latest rows; oldest comparison point is also gated | BRS honesty and portfolio-risk validators |
 | Business-risk trend read | Persisted BRS plus basis/latest D1 scan rows | Yes | Same shared scan-row projection before `resolveWorkspaceBrsProjection()` | BRS partial-scan fixture |
 | Historical scan comparison | Previous D1 score plus R2 report | Yes; false score could become a delta baseline | Historical projection must approve the prior score before comparison | Missing-legacy historical fixture |
@@ -65,9 +73,23 @@ The M5.c snapshot reader now exposes two views:
 
 ## Production attribution procedure
 
-`scripts/analyze-phase5-historical-attribution.js` accepts only a sanitised,
-evidence-only local extraction and emits aggregate counts. The recorded bounded
-cohort is checked by
+`scripts/extract-phase5-historical-attribution.js` is the exact committed
+extraction procedure. Its fixed read-only D1 query selects at most 57
+partial/degraded completed scans with frozen `excellent` or score `>= 90`;
+`LIMIT 58` makes cohort growth fail instead of truncating silently. It reads
+only the corresponding immutable R2 objects, sequentially, deletes raw
+temporary files, refuses to write inside the repository, and emits no scan,
+workspace, tenant, domain or report identifier. Its recorded invocation is:
+
+```sh
+node scripts/extract-phase5-historical-attribution.js \
+  --remote --expected=57 \
+  --output=/tmp/phase5-candidate-evidence.json
+```
+
+`scripts/analyze-phase5-historical-attribution.js` then accepts only that
+sanitised evidence-only local extraction and emits aggregate counts. The
+recorded bounded cohort is checked by
 `scripts/fixtures/phase5-historical-attribution-aggregate.json`:
 
 - Phase-5 deadline exceeded: 16 — **PROVEN** by stored module outcome;
@@ -77,5 +99,7 @@ cohort is checked by
 - unattributable from historical contract: 0 in this bounded cohort.
 
 It is **NOT PROVEN** that all 57 reports were caused by the Phase-5 deadline.
-Only 16 carry that stored outcome. The procedure performs no network request,
-production write, tenant reclassification, or report mutation.
+Only 16 carry that stored outcome. The analyser performs no network request.
+The extractor performs only the bounded D1/R2 reads described above and
+contains no production write command; neither step reclassifies tenants or
+mutates reports.

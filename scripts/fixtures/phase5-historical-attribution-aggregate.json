@@ -1,6 +1,6 @@
 {
   "audit_date": "2026-07-29",
-  "procedure": "bounded read-only D1 candidate selection plus immutable R2 Phase-5 evidence classification; aggregate-only output; zero production writes",
+  "procedure": "scripts/extract-phase5-historical-attribution.js bounded-read-only-d1-r2-phase5-attribution-v1, then scripts/analyze-phase5-historical-attribution.js; aggregate-only output; zero production writes",
   "honesty_boundary": "These counts classify only the 57 bounded candidate reports. They do not reclassify stored history or establish provider causality beyond the stored module contract.",
   "aggregate": {
     "population": 57,

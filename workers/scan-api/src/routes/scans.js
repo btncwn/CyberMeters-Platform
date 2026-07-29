@@ -35,6 +35,7 @@ import {
   buildAttackSurfaceCustomerPresentation,
 } from "../engines/attack-surface-customer-presentation.js";
 import {
+  phase5EvidenceReadCoverage,
   projectPhase5EvidenceForCustomer,
   projectPhase5RiskIntelligenceForCustomer,
   projectPhase5ScanRowsForCustomer,
@@ -424,7 +425,11 @@ export async function scanRoutes(rctx) {
       // ── End stuck-scan reconciliation ─────────────────────────────────
 
       const customerScans = await projectPhase5ScanRowsForCustomer(env, result.results);
-      return json({ scans: customerScans, ...(wsFilter ? { workspace_id: wsFilter } : {}) });
+      return json({
+        scans: customerScans,
+        phase5_evidence_coverage: phase5EvidenceReadCoverage(customerScans),
+        ...(wsFilter ? { workspace_id: wsFilter } : {}),
+      });
     }
 
     // ── GET /api/scans/:id/report/pdf ──────────────────────────────────
@@ -850,6 +855,8 @@ export async function scanRoutes(rctx) {
       return json({
         scan: customerScan,
         report_key: `reports/${scan.id}.json`,
+        phase5_evidence_coverage:
+          phase5EvidenceReadCoverage([customerScan]),
       });
     }
 
@@ -886,7 +893,12 @@ export async function scanRoutes(rctx) {
         .all();
 
       const customerHistory = await projectPhase5ScanRowsForCustomer(env, history.results);
-      return json({ domain, scans: customerHistory });
+      return json({
+        domain,
+        scans: customerHistory,
+        phase5_evidence_coverage:
+          phase5EvidenceReadCoverage(customerHistory),
+      });
     }
 
     // ── POST /api/schedules ─────────────────────────────────────────────

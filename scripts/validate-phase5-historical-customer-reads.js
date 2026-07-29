@@ -664,6 +664,18 @@ try {
     attribution.phase5_incomplete_without_deadline === 29 &&
     attribution.phase5_fully_completed === 12 &&
     attribution.unattributable_from_historical_contract === 0);
+  const extractorSource = fs.readFileSync(path.join(
+    root,
+    "scripts/extract-phase5-historical-attribution.js",
+  ), "utf8");
+  ok("D3 committed extractor pins the 57+1 overflow-detection bound",
+    /MAX_CANDIDATES = 57/.test(extractorSource) &&
+    /LIMIT \$\{MAX_CANDIDATES \+ 1\}/.test(extractorSource));
+  ok("D4 committed extractor contains reads only",
+    /"d1",\s*"execute"/.test(extractorSource) &&
+    /"r2",\s*"object",\s*"get"/.test(extractorSource) &&
+    !/"r2",\s*"object",\s*"(put|delete)"/.test(extractorSource) &&
+    !/\b(INSERT|UPDATE|DELETE|REPLACE)\b/.test(extractorSource));
 } finally {
   fs.rmSync(attributionDir, { recursive: true, force: true });
 }
@@ -672,6 +684,7 @@ console.log("── E. pinned anchor-guarded mutations (fresh processes) ──"
 const PHASE5 = path.join(root, "workers/scan-api/src/engines/phase5-evidence.js");
 const SCANS = path.join(root, "workers/scan-api/src/routes/scans.js");
 const EXECUTIVE = path.join(root, "workers/scan-api/src/engines/executive-report.js");
+const PORTFOLIO_ROUTE = path.join(root, "workers/scan-api/src/routes/portfolio.js");
 const INTELLIGENCE = path.join(root, "frontend/src/pages/IntelligencePage.jsx");
 const FRONTEND_PRESENTATION = path.join(root, "frontend/src/lib/phase5EvidencePresentation.js");
 
@@ -695,6 +708,18 @@ const runChild = (mode) => JSON.parse(String(execFileSync(
   [fileURLToPath(import.meta.url), `--child=${mode}`],
   { cwd: root, timeout: 180_000, maxBuffer: 32 * 1024 * 1024 },
 )));
+const validatorRejects = (script) => {
+  try {
+    execFileSync(process.execPath, [path.join(root, "scripts", script)], {
+      cwd: root,
+      timeout: 180_000,
+      stdio: "pipe",
+    });
+    return false;
+  } catch {
+    return true;
+  }
+};
 const mutations = [
   {
     name: "M1 IntelligencePage restores stale D1 score/rating",
@@ -768,8 +793,27 @@ const mutations = [
     }],
     survived: () => runChild("executive").cyber_metrics_score?.value === 100,
   },
+  {
+    name: "M8 portfolio detail drops canonical env projection",
+    edits: [{
+      target: PORTFOLIO_ROUTE,
+      from: `          const rows = await computePortfolioDomainRows(
+            env.cybermeters_db,
+            [wsId],
+            { env },
+          );
+`,
+      to: `          const rows = await computePortfolioDomainRows(
+            env.cybermeters_db,
+            [wsId],
+          );
+`,
+    }],
+    survived: () =>
+      validatorRejects("validate-msp-portfolio-domains.js"),
+  },
 ];
-const EXPECTED_MUTANTS = 7;
+const EXPECTED_MUTANTS = 8;
 let killed = 0;
 for (const mutation of mutations) {
   const result = await withMutant(mutation.edits, mutation.survived);
@@ -787,7 +831,7 @@ for (const mutation of mutations) {
 ok(`E1 all ${EXPECTED_MUTANTS} pinned mutants killed`,
   killed === EXPECTED_MUTANTS, `${killed}/${EXPECTED_MUTANTS}`);
 
-const EXPECTED_ASSERTIONS = 58;
+const EXPECTED_ASSERTIONS = 60;
 if (assertions !== EXPECTED_ASSERTIONS) {
   failed += 1;
   console.error(`FAIL assertion pin — expected ${EXPECTED_ASSERTIONS}, executed ${assertions}`);

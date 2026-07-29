@@ -147,7 +147,11 @@ const get = async (p, token) => {
 };
 
 // ── 1. Unit: helper computes change counts + ranking ─────────────────────────
-const rows = await computePortfolioCustomerRows(makeD1(db), ["ws_a1", "ws_a2"]);
+const rows = await computePortfolioCustomerRows(
+  makeD1(db),
+  ["ws_a1", "ws_a2"],
+  { env },
+);
 const acme = rows.find((r) => r.workspace_id === "ws_a1");
 const beta = rows.find((r) => r.workspace_id === "ws_a2");
 ok("this-week change count excludes >7d events", acme.changes_7d === 3);
@@ -200,15 +204,27 @@ for (const p of PORTFOLIO_ENDPOINTS) {
 }
 
 // ── 5. Latest-scan determinism (unit helper, explicit ids) ───────────────────
-const histRows = await computePortfolioCustomerRows(makeD1(db), ["ws_hist"]);
+const histRows = await computePortfolioCustomerRows(
+  makeD1(db),
+  ["ws_hist"],
+  { env },
+);
 ok("historical critical from an older scan is NOT counted as current", histRows[0].critical_findings === 0);
 ok("latest completed scan drives the score (90, not the old 40)", histRows[0].latest_score === 90);
-const dupRows = await computePortfolioCustomerRows(makeD1(db), ["ws_dup"]);
+const dupRows = await computePortfolioCustomerRows(
+  makeD1(db),
+  ["ws_dup"],
+  { env },
+);
 ok("identical created_at scans do NOT duplicate the domain (1 critical, not 2)", dupRows[0].critical_findings === 1);
 
 // ── 6. Honesty: a never-scanned customer is shown, not dropped or faked ───────
 db.prepare("INSERT INTO workspaces (id, name, owner_user_id) VALUES ('ws_ns','NeverScanned Co','u_c')").run();
-const nsRows = await computePortfolioCustomerRows(makeD1(db), ["ws_ns"]);
+const nsRows = await computePortfolioCustomerRows(
+  makeD1(db),
+  ["ws_ns"],
+  { env },
+);
 ok("never-scanned customer is present (not dropped)", nsRows.length === 1);
 ok("never-scanned → null score (honest, not a fake 0)", nsRows[0].latest_score === null && nsRows[0].risk_rating === null);
 ok("never-scanned → status inactive", nsRows[0].status === "inactive");

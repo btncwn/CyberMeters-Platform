@@ -16,11 +16,10 @@
 //     --input=/tmp/phase5-candidate-evidence.json \
 //     --verify=scripts/fixtures/phase5-historical-attribution-aggregate.json
 //
-// Candidate selection used for the recorded run:
-//   completed reports whose stored scan quality was partial/degraded and whose
-//   frozen customer fields contained rating=excellent or score>=90. The
-//   authorised extractor read each referenced immutable R2 report and emitted
-//   only the evidence fields above. It made zero D1/R2 writes.
+// The exact candidate selection, fixed 57-report bound, sequential immutable
+// R2 reads and sanitisation procedure are committed in:
+//   scripts/extract-phase5-historical-attribution.js
+// It makes zero D1/R2 writes.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";

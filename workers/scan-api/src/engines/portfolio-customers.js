@@ -9,7 +9,11 @@
 // re-deriving one. portfolio-risk.js imports nothing, so this is a one-way edge.
 import { riskLevelForScore } from "./scoring.js";
 import { PORTFOLIO_SCORE_STATES, resolvePortfolioScoreState } from "./portfolio-risk.js";
-import { projectPhase5ScanRowsForCustomer } from "./phase5-evidence.js";
+import {
+  phase5EvidenceReadCoverage,
+  projectPhase5ScanRowsForCustomer,
+  resolvePhase5CustomerAggregate,
+} from "./phase5-evidence.js";
 
 // Deterministic "latest completed scan per domain" CTE body. Selecting on
 // MAX(created_at) alone double-counts a domain when two completed scans share the
@@ -90,19 +94,17 @@ export async function computePortfolioCustomerRows(db, workspaceIds, { env = nul
   const vendorMap = byWs(vendorRes,  "vendors",       (x) => x.count);
   const brandMap  = byWs(brandRes,   "brand_assets",  (x) => x.count);
   const rawScanRows = rows0(scanRes, "scores");
-  const customerScanRows = env
-    ? await projectPhase5ScanRowsForCustomer(
-        env,
-        rawScanRows.map((row) => ({ ...row, status: "completed" })),
-      )
-    : rawScanRows;
+  const customerScanRows = await projectPhase5ScanRowsForCustomer(
+    env,
+    rawScanRows.map((row) => ({ ...row, status: "completed" })),
+  );
   const scanMap = {};
   for (const row of customerScanRows) {
     const value = (scanMap[row.workspace_id] ??= {
-      scores: [],
+      rows: [],
       last_scan_at: null,
     });
-    if (Number.isFinite(row.score)) value.scores.push(row.score);
+    value.rows.push(row);
     if (!value.last_scan_at || row.created_at > value.last_scan_at) {
       value.last_scan_at = row.created_at;
     }
@@ -119,9 +121,8 @@ export async function computePortfolioCustomerRows(db, workspaceIds, { env = nul
     const scan = scanMap[ws.id] ?? {};
     const findings = findingsMap[ws.id] ?? {};
     const changes = changeMap[ws.id] ?? { total: 0, high: 0 };
-    const avgScore = scan.scores?.length
-      ? Math.round(scan.scores.reduce((sum, score) => sum + score, 0) / scan.scores.length)
-      : null;
+    const aggregate = resolvePhase5CustomerAggregate(scan.rows ?? []);
+    const avgScore = aggregate.score == null ? null : Math.round(aggregate.score);
     // M5.e-C: the avg is a Cyber Metrics Score average, so its rating speaks
     // the CANONICAL band vocabulary (riskLevelForScore) — the local 80/60/40
     // Low/Medium/High ladder was drift on a score-labelled surface.
@@ -133,6 +134,7 @@ export async function computePortfolioCustomerRows(db, workspaceIds, { env = nul
       domains: domMap[ws.id] ?? 0, active_assets: assetMap[ws.id] ?? 0,
       vendors: vendorMap[ws.id] ?? 0, brand_candidates: brandMap[ws.id] ?? 0,
       latest_score: avgScore, security_posture_score: avgScore, risk_rating,
+      score_evidence_coverage: aggregate.evidence_coverage,
       critical_findings: findings.critical ?? 0, high_findings: findings.high ?? 0,
       changes_7d: changes.total, changes_7d_high: changes.high,
       last_scan_at: lastScanAt, last_report_at: rptMap[ws.id] ?? null, status,
@@ -152,6 +154,7 @@ export async function computePortfolioCustomerRows(db, workspaceIds, { env = nul
   // Non-breaking disclosure channel: an array property, so both existing
   // consumers keep their contract while the route can disclose degradation.
   rows.degraded_queries = degradedQueries;
+  rows.phase5_evidence_coverage = phase5EvidenceReadCoverage(customerScanRows);
   return rows;
 }
 

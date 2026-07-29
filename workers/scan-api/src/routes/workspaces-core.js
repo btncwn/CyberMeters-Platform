@@ -9,7 +9,11 @@ import { domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEnti
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, sendCustomerEmail, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { createId, isValidDomain, isValidEmail } from "../lib/util.js";
-import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
+import {
+  phase5EvidenceReadCoverage,
+  projectPhase5ScanRowsForCustomer,
+  resolvePhase5CustomerAggregate,
+} from "../engines/phase5-evidence.js";
 
 export async function workspacesCoreRoutes(rctx) {
   const { request, env, ctx, url, json, serverError,
@@ -139,15 +143,10 @@ export async function workspacesCoreRoutes(rctx) {
             env,
             avgRow?.results ?? [],
           );
-          const averageScores = averageRows
-            .map((row) => row.score)
-            .filter(Number.isFinite);
-          const customerAverage = averageScores.length
-            ? Math.round(
-                (averageScores.reduce((sum, score) => sum + score, 0) /
-                  averageScores.length) * 10,
-              ) / 10
-            : null;
+          const average = resolvePhase5CustomerAggregate(averageRows);
+          const customerAverage = average.score == null
+            ? null
+            : Math.round(average.score * 10) / 10;
           const [customerLatest] = await projectPhase5ScanRowsForCustomer(
             env,
             latestRow ? [latestRow] : [],
@@ -167,6 +166,7 @@ export async function workspacesCoreRoutes(rctx) {
               total_domains:       domainsRow?.n ?? 0,
               total_scans:         scansRow?.n  ?? 0,
               cyber_score_average: customerAverage,
+              cyber_score_evidence_coverage: average.evidence_coverage,
               latest_scan:         customerLatest ?? null,
               // Completeness-aware headline posture.
               posture_established: posture?.state === "established",
@@ -330,6 +330,8 @@ export async function workspacesCoreRoutes(rctx) {
               latest_scan_quality:
                 customerScans[index]?.scan_quality ?? row.latest_scan_quality ?? null,
             })),
+            phase5_evidence_coverage:
+              phase5EvidenceReadCoverage(customerScans),
           });
         } catch {
           return json({ error: "Database error" }, 500);

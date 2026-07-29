@@ -14,7 +14,10 @@ import { buildScorecardData, buildScorecardSections } from "../engines/scorecard
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { readWorkspaceBrsAssessment } from "../engines/business-risk.js";
 import { createId } from "../lib/util.js";
-import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
+import {
+  phase5EvidenceReadCoverage,
+  projectPhase5ScanRowsForCustomer,
+} from "../engines/phase5-evidence.js";
 
 export async function workspaceAnalyticsRoutes(rctx) {
   const { request, env, ctx, url, json, serverError,
@@ -417,7 +420,13 @@ export async function workspaceAnalyticsRoutes(rctx) {
           asm_score: r.score,
           basis_scan_id: r.scan_id, scan_quality: r.scan_quality,
         }));
-        return json({ ...assessment, workspace_name: ws.name, trend });
+        return json({
+          ...assessment,
+          workspace_name: ws.name,
+          trend,
+          phase5_evidence_coverage:
+            phase5EvidenceReadCoverage(customerTrendRows),
+        });
       } catch (err) {
         return serverError("business-risk", err);
       }

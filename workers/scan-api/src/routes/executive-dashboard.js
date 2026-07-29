@@ -11,7 +11,10 @@ import { LATEST_COMPLETED_SCAN_SCOPE } from "../engines/report-queries.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { parseBoundedInteger } from "../lib/util.js";
-import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
+import {
+  projectPhase5ScanRowsForCustomer,
+  resolvePhase5CustomerAggregate,
+} from "../engines/phase5-evidence.js";
 
 export async function executiveDashboardRoutes(rctx) {
   const { request, env, url, json, serverError,
@@ -314,10 +317,13 @@ export async function executiveDashboardRoutes(rctx) {
         // M5.e: complete-quality points only (query above is gated), a missing
         // score is EXCLUDED rather than averaged as 0, and the no-trend fallback
         // is the authoritative posture score, never a raw any-quality scan row.
-        const scoredPoints = trendPoints.filter((p) => Number.isFinite(p.score));
-        const avgScore = scoredPoints.length > 0
-          ? Math.round(scoredPoints.reduce((s, p) => s + p.score, 0) / scoredPoints.length)
-          : (posture?.authoritative?.display_score ?? null);
+        const historyAggregate =
+          resolvePhase5CustomerAggregate(customerHistory);
+        const avgScore = historyAggregate.score != null
+          ? Math.round(historyAggregate.score)
+          : historyAggregate.complete
+            ? (posture?.authoritative?.display_score ?? null)
+            : null;
 
         return json({
           workspace_id: wsId,
@@ -366,6 +372,7 @@ export async function executiveDashboardRoutes(rctx) {
             reports_generated: reportsRow.results[0]?.n ?? 0,
             assets_discovered: activeAssets,
           },
+          phase5_evidence_coverage: historyAggregate.evidence_coverage,
         });
       } catch (e) {
         return serverError("api", e);
