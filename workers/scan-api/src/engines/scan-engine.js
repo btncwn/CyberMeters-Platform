@@ -556,7 +556,20 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       });
       const [dnsSettled, sslSettled, headersSettled, emailSettled, dmarcSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
         await Promise.allSettled([
-          runCappedModule("dns",                  { fallback: () => markDeadlineDeferred({ source: "dns" }), run: ({ accounting, signal }) => runDnsModule(domain, { accounting, signal, cache: dnsCache }) }),
+          // The DNS deadline fallback states its non-observation EXPLICITLY rather
+          // than omitting the resolution contract. Omission was read downstream as
+          // authoritative absence and produced a CRITICAL "Domain Does Not Resolve"
+          // (-30) for a module that performed no lookup at all.
+          //
+          // The tri-state is load-bearing and `false` is NOT available here:
+          //   true  — resolvers queried, at least one authoritative NOERROR/NXDOMAIN
+          //   false — resolvers queried, no authoritative answer (a MEASURED outage,
+          //           produced by dns-scan.js when requests actually ran)
+          //   null  — the probe never executed; nothing was measured
+          // Using `false` on this path would collapse "not measured" into "measured
+          // unavailable" and recreate the same evidence-integrity defect under a
+          // different value. Mirrors the adjacent SSL deadline fallback.
+          runCappedModule("dns",                  { fallback: () => markDeadlineDeferred({ resolves: null, resolves_any: null, resolution_assessed: null, resolution_observation_state: "not_assessed", incomplete_reason: "dns_not_executed", has_ipv6: null, has_mx: null, nameservers: [], a_records: [], aaaa_records: [], mx_records: [], source: "dns" }), run: ({ accounting, signal }) => runDnsModule(domain, { accounting, signal, cache: dnsCache }) }),
           // https_available stays NULL on a deadline-deferred SSL module: the probe
           // never ran, so it observed nothing. It previously fell back to `false`,
           // which scoring.js reads as positive evidence of absence and turns into the

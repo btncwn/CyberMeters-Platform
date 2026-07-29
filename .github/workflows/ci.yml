@@ -604,6 +604,14 @@ jobs:
       - name: Validate HTTP redirect engine trace + lifecycle non-progression (pinned mutants)
         run: node scripts/validate-http-redirect-engine-lifecycle.js
 
+      # DNS Absence-as-Evidence P1. scoring.js gated the CRITICAL "Domain Does Not
+      # Resolve" (-30) on `resolution_assessed !== false`, so a deadline-deferred DNS
+      # module that performed no lookup scored -30. Scoring now consumes the canonical
+      # Attack Surface DNS vocabulary and fires only on authoritative absence; the
+      # deadline fallback states not-measured as null, never false.
+      - name: Validate DNS absence-as-evidence (missing/null/incomplete never authoritative)
+        run: node scripts/validate-dns-absence-as-evidence.js
+
       - name: Validate SSL concurrent CT lookup (reachability ∥ crt.sh/certspotter — max not sum, evidence preserved)
         run: node scripts/validate-ssl-concurrent-ct.js
 
