@@ -151,7 +151,12 @@ function resolveSubdomainDiscovery(modules) {
   return signal("not_observed", "complete_discovery_no_hostname", { sources });
 }
 
-function resolveDnsResolution(modules) {
+// Exported so customer SCORING consumes the identical DNS semantics rather than
+// re-deriving them. scoring.js previously had its own `resolution_assessed !== false`
+// rule, which read MISSING contract fields as authoritative absence and emitted a
+// critical "Domain Does Not Resolve" (-30) for a deadline-deferred module that never
+// performed a single lookup. There is now one DNS resolution vocabulary, not two.
+export function resolveDnsResolution(modules) {
   const dns = modules?.dns;
   if (moduleNotAssessed(dns)) {
     return signal("not_assessed", "dns_not_evaluated", { sources: ["dns"] });
@@ -170,7 +175,16 @@ function resolveDnsResolution(modules) {
     // authoritative NOERROR/NXDOMAIN answer for the requested record contract.
     return signal("absent", "authoritative_dns_absence", { sources: ["dns"] });
   }
-  if (dns.resolution_assessed === undefined) {
+  // `undefined` (contract never recorded) and `null` (probe not executed — nothing
+  // measured) are both NON-MEASUREMENTS. Without this they fell through to
+  // `unavailable`, which means "resolvers WERE queried and gave no authoritative
+  // answer" — a genuinely MEASURED outage.
+  //
+  // Scope note: this is NOT a second producer of the critical absence verdict —
+  // `unavailable` never fires dns_no_resolution either. It is a distinct
+  // evidence-state defect: a non-measurement was being classified as a measurement,
+  // which misreports WHY the signal is missing to every completeness consumer.
+  if (dns.resolution_assessed === undefined || dns.resolution_assessed === null) {
     return signal("incomplete", "dns_resolution_contract_not_recorded", {
       sources: ["dns"],
     });

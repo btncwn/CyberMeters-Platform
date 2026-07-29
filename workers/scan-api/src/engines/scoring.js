@@ -5,6 +5,7 @@
 // Phase 1c). NON_MAIL_PREFIXES is module-internal; SECURITY_HEADERS is the shared
 // leaf config in security-headers-config.js (see that file for the anti-cycle rationale).
 import { assetFingerprintSignals } from "./asset-intel.js";
+import { resolveDnsResolution } from "./attack-surface-signal-completeness.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
 import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, isEmailProbeUnobserved } from "./email-analysis.js";
 import { applyEvidenceQuality } from "./findings.js";
@@ -72,18 +73,31 @@ export function computeScore(modules, domain) {
   }
 
   // ── DNS ────────────────────────────────────────────────────────────────
-  // "Domain Does Not Resolve" is a CRITICAL finding, so it must reflect an
-  // AUTHORITATIVE absence, never a probe failure. Cloudflare-only `resolves:false`
-  // could be a single DoH timeout; only emit when the aggregated A/AAAA resolvers
-  // actually answered (resolution_assessed !== false) AND none of them found a record
-  // (resolves_any !== true). A total resolution outage or a single-resolver timeout
-  // that another resolver contradicts now defers instead of firing a false critical.
-  // Legacy reports without the new fields fall back to the prior `!resolves` behaviour.
-  const dnsResolutionModule = modules.dns || {};
+  // "Domain Does Not Resolve" is CRITICAL and costs -30, so it must reflect an
+  // AUTHORITATIVE absence — never a probe that did not run.
+  //
+  // This gate previously read `resolution_assessed !== false`, which treats a
+  // MISSING contract field as if the resolvers had answered. The DNS deadline
+  // fallback carries no resolution fields at all, so a scan where not one lookup was
+  // performed emitted the critical finding and took 30 points off the customer's
+  // score. Absence of evidence was scored as evidence of absence.
+  //
+  // The legacy missing-field fallback is REMOVED. Historical compatibility cannot
+  // outrank evidence honesty: an old report that never recorded the contract simply
+  // does not support a critical verdict, and the honest reading of it is "unknown".
+  //
+  // The decision now comes from the canonical DNS resolution vocabulary already
+  // implemented for Attack Surface (attack-surface-signal-completeness.js), so there
+  // is ONE definition rather than two that can drift:
+  //   observed      — records seen                     → no finding
+  //   absent        — resolution_assessed === true and no A/AAAA  → FIRE (the only case)
+  //   incomplete    — contract not recorded (missing fields)      → defer
+  //   unavailable   — resolvers did not answer / module error     → defer
+  //   not_assessed  — module skipped or executed === false        → defer
+  const dnsResolutionSignal = resolveDnsResolution(modules);
   const dnsAuthoritativelyUnresolved =
-    !dnsResolutionModule.resolves
-    && dnsResolutionModule.resolves_any !== true
-    && dnsResolutionModule.resolution_assessed !== false;
+    dnsResolutionSignal.state === "absent" &&
+    dnsResolutionSignal.reason === "authoritative_dns_absence";
   if (dnsAuthoritativelyUnresolved) {
     finding({
       id:           "dns_no_resolution",

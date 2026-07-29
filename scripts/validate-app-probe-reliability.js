@@ -275,8 +275,17 @@ ok("F3 single-resolver timeout but another found records → NO false critical",
   hasNoResolution({ resolves: false, resolves_any: true, resolution_assessed: true }) === false);
 ok("F4 genuinely resolving domain → no finding",
   hasNoResolution({ resolves: true, resolves_any: true, resolution_assessed: true }) === false);
-ok("F5 legacy report (no new fields) + !resolves → finding preserved (back-compat)",
-  hasNoResolution({ resolves: false }) === true);
+// F5 CHANGED DELIBERATELY (DNS absence-as-evidence P1). This previously asserted that
+// a legacy report carrying only `resolves:false` still produced the CRITICAL finding,
+// "preserving back-compat". That back-compat is exactly the defect: the same
+// missing-contract shape is what a deadline-deferred module produces, so honouring it
+// scored -30 for a scan that performed no lookup. Historical compatibility cannot
+// outrank evidence honesty — an old report that never recorded the resolution
+// contract does not support a critical verdict, and the honest reading is "unknown".
+ok("F5 legacy report (no contract fields) + !resolves → NO critical finding (fallback REMOVED)",
+  hasNoResolution({ resolves: false }) === false);
+ok("F5b an empty/absent dns module likewise produces NO critical finding",
+  hasNoResolution({}) === false);
 
 // ── Mutation harness — every guard must be load-bearing ──────────────────────
 async function mutant(srcPath, from, to) {
@@ -397,9 +406,11 @@ const mfetch = (fn, run) => { const prev = globalThis.fetch; globalThis.fetch = 
 }
 // M9: scoring gate drops the resolves_any check → single-resolver timeout false critical.
 {
+  // Re-pointed: the gate is now the canonical Attack Surface DNS signal. Ignoring
+  // resolves_any means restoring a hand-rolled predicate without it.
   const m = await mutant(SCORING_SRC,
-    "    && dnsResolutionModule.resolves_any !== true\n",
-    "");
+    "  const dnsAuthoritativelyUnresolved =\n    dnsResolutionSignal.state === \"absent\" &&\n    dnsResolutionSignal.reason === \"authoritative_dns_absence\";",
+    "  const dnsAuthoritativelyUnresolved =\n    !modules.dns?.resolves && modules.dns?.resolution_assessed !== false;");
   const fired = m.anchor
     ? m.mod.computeScore({ dns: { resolves: false, resolves_any: true, resolution_assessed: true } }, "example.com").findings.some((f) => f.id === "dns_no_resolution")
     : false;
@@ -408,9 +419,10 @@ const mfetch = (fn, run) => { const prev = globalThis.fetch; globalThis.fetch = 
 }
 // M10: scoring gate drops the resolution_assessed check → DNS outage false critical.
 {
+  // Re-pointed for the same reason: ignoring resolution_assessed.
   const m = await mutant(SCORING_SRC,
-    "    && dnsResolutionModule.resolution_assessed !== false;",
-    ";");
+    "  const dnsAuthoritativelyUnresolved =\n    dnsResolutionSignal.state === \"absent\" &&\n    dnsResolutionSignal.reason === \"authoritative_dns_absence\";",
+    "  const dnsAuthoritativelyUnresolved =\n    !modules.dns?.resolves && modules.dns?.resolves_any !== true;");
   const fired = m.anchor
     ? m.mod.computeScore({ dns: { resolves: false, resolves_any: false, resolution_assessed: false } }, "example.com").findings.some((f) => f.id === "dns_no_resolution")
     : false;
