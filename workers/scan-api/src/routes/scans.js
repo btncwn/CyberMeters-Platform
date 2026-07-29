@@ -34,6 +34,13 @@ import {
   attackSurfaceAssuranceApiProjection,
   buildAttackSurfaceCustomerPresentation,
 } from "../engines/attack-surface-customer-presentation.js";
+import {
+  phase5EvidenceReadCoverage,
+  projectPhase5EvidenceForCustomer,
+  projectPhase5RiskIntelligenceForCustomer,
+  projectPhase5ScanRowsForCustomer,
+  resolvePhase5EvidenceContract,
+} from "../engines/phase5-evidence.js";
 
 export async function scanRoutes(rctx) {
   const { request, env, ctx, url, json, serverError, corsHeaders,
@@ -319,7 +326,7 @@ export async function scanRoutes(rctx) {
         // Fallback via domain join for historical scans where workspace_id IS NULL.
         result = await env.cybermeters_db
           .prepare(
-            `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.created_at
+            `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at
              FROM scans s
              JOIN domains d ON d.id = s.domain_id
              JOIN workspace_domains wd ON wd.domain_id = d.id
@@ -417,7 +424,12 @@ export async function scanRoutes(rctx) {
       }
       // ── End stuck-scan reconciliation ─────────────────────────────────
 
-      return json({ scans: result.results, ...(wsFilter ? { workspace_id: wsFilter } : {}) });
+      const customerScans = await projectPhase5ScanRowsForCustomer(env, result.results);
+      return json({
+        scans: customerScans,
+        phase5_evidence_coverage: phase5EvidenceReadCoverage(customerScans),
+        ...(wsFilter ? { workspace_id: wsFilter } : {}),
+      });
     }
 
     // ── GET /api/scans/:id/report/pdf ──────────────────────────────────
@@ -619,11 +631,11 @@ export async function scanRoutes(rctx) {
     }
 
     // ── GET /api/scans/:id/report ───────────────────────────────────────
-    // Hybrid (M5.d): every ASSESSMENT fact (score, band, assessment, domains,
-    // business risk, taxonomy classification) comes from the canonical
-    // immutable snapshot; module evidence, recommendations and per-finding
-    // detail come from the immutable scan-time artefact the snapshot itself
-    // references (source_artifacts). The response contract is unchanged.
+    // Hybrid (M5.d): stored assessment facts come from the canonical immutable
+    // snapshot, then the shared customer projection withholds conclusions whose
+    // Phase-5 evidence is not publishable. Module evidence, recommendations and
+    // per-finding detail come from the immutable scan-time artefact the snapshot
+    // itself references (source_artifacts). Stored bytes remain unchanged.
     // Per-finding remediation is attached from the Canonical Remediation
     // Registry (the one remediation source of truth) — presentation join,
     // documented under the frozen-vs-live policy.
@@ -651,7 +663,7 @@ export async function scanRoutes(rctx) {
 
       // Normalise modules — ensure every module key is present even for reports
       // stored before a module was introduced (backward-compatible defaults).
-      const storedModules = raw.modules ?? {};
+      const storedModules = projectPhase5EvidenceForCustomer(raw.modules ?? {});
       const normalisedModules = {
         ...storedModules,
         asset_exposure: storedModules.asset_exposure ?? {
@@ -719,7 +731,7 @@ export async function scanRoutes(rctx) {
         if (read.status !== "ok") {
           return serverError("api", new Error(`snapshot ${read.status} (${read.reason}) for scan ${scanId}`));
         }
-        const snap = read.snapshot;
+        const snap = read.customerSnapshot ?? read.snapshot;
         const overall = snap.overall || {};
         const bri = overall.business_risk_indicator || {};
         const im = bri.internal_metrics || {};
@@ -744,6 +756,10 @@ export async function scanRoutes(rctx) {
           monitoring_states: snap.monitoring_states ?? raw.monitoring_states ?? null,
           modules: {
             ...normalisedModules,
+            risk_intelligence: projectPhase5RiskIntelligenceForCustomer(
+              normalisedModules.risk_intelligence,
+              resolvePhase5EvidenceContract(raw.modules ?? {}),
+            ),
             historical_changes: {
               ...historicalChanges,
               current_score: overall.cyber_metrics_score ?? null,
@@ -835,9 +851,12 @@ export async function scanRoutes(rctx) {
         }
       }
 
+      const [customerScan] = await projectPhase5ScanRowsForCustomer(env, [scan]);
       return json({
-        scan,
+        scan: customerScan,
         report_key: `reports/${scan.id}.json`,
+        phase5_evidence_coverage:
+          phase5EvidenceReadCoverage([customerScan]),
       });
     }
 
@@ -873,7 +892,13 @@ export async function scanRoutes(rctx) {
         .bind(domain, ...workspaceIds, limit)
         .all();
 
-      return json({ domain, scans: history.results });
+      const customerHistory = await projectPhase5ScanRowsForCustomer(env, history.results);
+      return json({
+        domain,
+        scans: customerHistory,
+        phase5_evidence_coverage:
+          phase5EvidenceReadCoverage(customerHistory),
+      });
     }
 
     // ── POST /api/schedules ─────────────────────────────────────────────

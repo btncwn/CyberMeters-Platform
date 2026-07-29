@@ -463,7 +463,10 @@ const ENGINE_MUTATIONS = [
     target: path.join(root, "workers/scan-api/src/engines/scan-budget.js"),
     from: "    executed:   false,\n    incomplete: true,",
     to:   "    executed:   false,",
-    check: (t) => t.report?.scan_quality?.status !== "partial" || t.quality !== "partial",
+    // Other downstream modules can independently keep the whole scan partial.
+    // Kill this mutant on the DNS-specific customer contract: without its
+    // incomplete marker, scan_quality stops attributing DNS as skipped.
+    check: (t) => !t.report?.scan_quality?.modules_skipped?.includes("dns"),
   },
 ];
 for (const m of ENGINE_MUTATIONS) {
@@ -497,7 +500,11 @@ for (const m of ENGINE_MUTATIONS) {
     const caught = (await m.check(mt)) === true;
     if (caught) killed += 1;
     ok(`${m.name} :: defect REAPPEARS in the REAL engine trace`, caught,
-      JSON.stringify({ ra: mt.dns?.resolution_assessed, q: mt.quality }));
+      JSON.stringify({
+        ra: mt.dns?.resolution_assessed,
+        q: mt.quality,
+        skipped: mt.report?.scan_quality?.modules_skipped,
+      }));
   } finally {
     for (const f of written) fs.rmSync(f, { force: true });
   }

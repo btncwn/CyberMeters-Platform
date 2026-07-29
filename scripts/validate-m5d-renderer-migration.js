@@ -108,6 +108,11 @@ function makeReport(scanId, domainId, domain, completedAt) {
       brand_monitoring: {}, identity_discovery: { high_risk_count: 0 },
       technology_detection: { count: 1 }, saas_exposure: { count: 0 },
       vendor_relationships: { high_confidence: 0 },
+      // Explicit completed Phase-5 evidence. Historical customer projection
+      // deliberately fails closed when these modules are absent.
+      cve_intelligence: {},
+      known_exploited_vulnerabilities: {},
+      email_security_intelligence: {},
     },
   };
 }
@@ -720,8 +725,8 @@ async function main() {
       {
         name: "renderer writes to the snapshot store on render",
         file: srcPath("routes", "scans.js"),
-        from: "        const snap = read.snapshot;\n        const overall = snap.overall || {};",
-        to:   "        await env.cybermeters_db.prepare(\"UPDATE scan_report_snapshots SET metadata_json='rendered' WHERE scan_id = ?\").bind(scanId).run();\n        const snap = read.snapshot;\n        const overall = snap.overall || {};",
+        from: "        const snap = read.customerSnapshot ?? read.snapshot;\n        const overall = snap.overall || {};",
+        to:   "        await env.cybermeters_db.prepare(\"UPDATE scan_report_snapshots SET metadata_json='rendered' WHERE scan_id = ?\").bind(scanId).run();\n        const snap = read.customerSnapshot ?? read.snapshot;\n        const overall = snap.overall || {};",
       },
       {
         name: "PDF reads the request clock instead of the snapshot's as_of",

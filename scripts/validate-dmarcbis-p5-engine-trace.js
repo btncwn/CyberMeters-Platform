@@ -111,6 +111,21 @@ globalThis.fetch = async (input) => {
   outbound += 1;
   const url = new URL(String(input));
   if (
+    url.hostname === "www.cisa.gov" &&
+    url.pathname.endsWith("known_exploited_vulnerabilities.json")
+  ) {
+    return new Response(JSON.stringify({
+      title: "CISA Known Exploited Vulnerabilities Catalog",
+      catalogVersion: "fixture",
+      dateReleased: "2026-07-29T00:00:00.000Z",
+      count: 0,
+      vulnerabilities: [],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (
     url.hostname === "cloudflare-dns.com" ||
     url.hostname === "dns.google"
   ) {

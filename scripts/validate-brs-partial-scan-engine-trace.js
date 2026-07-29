@@ -98,6 +98,21 @@ let providerMode = "complete";
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (input) => {
   const url = new URL(String(input));
+  // This fixture's first scan is the positive complete control. A successful,
+  // empty KEV catalogue is measured zero; an unmocked HTML response would make
+  // Phase-5 evidence unavailable and correctly turn that control partial.
+  if (
+    url.hostname === "www.cisa.gov" &&
+    url.pathname.endsWith("known_exploited_vulnerabilities.json")
+  ) {
+    return jsonResponse({
+      title: "CISA Known Exploited Vulnerabilities Catalog",
+      catalogVersion: "fixture",
+      dateReleased: "2026-07-28T00:00:00.000Z",
+      count: 0,
+      vulnerabilities: [],
+    });
+  }
   if (url.hostname === "crt.sh") {
     if (providerMode === "partial") return jsonResponse({}, 403);
     return jsonResponse([{

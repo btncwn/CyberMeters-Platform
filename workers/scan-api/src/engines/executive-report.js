@@ -14,7 +14,7 @@ import { certificateAssuranceFromSnapshot } from "./certificate-customer-present
 import { attackSurfaceAssuranceFromSnapshot } from "./attack-surface-customer-presentation.js";
 
 export function buildExecutiveReportV2({ scan, workspace = null, read }) {
-  const snap = read.snapshot;
+  const snap = read.customerSnapshot ?? read.snapshot;
   const s = snap.snapshot || {};
   const overall = snap.overall || {};
   const assessment = overall.assessment || {};

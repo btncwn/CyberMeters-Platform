@@ -106,9 +106,9 @@ db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id, verification
 db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id, verification_status) VALUES ('ws_b1','d_b_shared','verified')").run();
 db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws_dead','d_dead')").run();
 
-const mkScan = (id, dId, host, q, score, ws, age) => db.prepare(
-  "INSERT INTO scans (id, domain_id, domain, workspace_id, status, score, rating, scan_quality, created_at) VALUES (?,?,?,?, 'completed', ?, 'good', ?, ?)"
-).run(id, dId, host, ws, score, q, iso(age));
+const mkScan = (id, dId, host, q, score, ws, age, rating = "good") => db.prepare(
+  "INSERT INTO scans (id, domain_id, domain, workspace_id, status, score, rating, scan_quality, created_at) VALUES (?,?,?,?, 'completed', ?, ?, ?, ?)"
+).run(id, dId, host, ws, score, rating, q, iso(age));
 
 // Acme: healthy everywhere except Email Protection, which has a NEW critical.
 mkScan("sc_a1_old", "d_a1", "acme.co.uk", "complete", 80, "ws_a1", 10);
@@ -118,7 +118,7 @@ seedAllEight("ws_a1", "d_a1", "sc_a1_new", { assessed_at: iso(1) });
 db.prepare("UPDATE cyber_mot_domain_states SET state='issue_detected', highest_severity='critical', finding_count=1, finding_ids_json='[\"dmarc_missing\"]', summary='1 issue detected.' WHERE scan_id='sc_a1_new' AND domain_key='email_protection'").run();
 
 // MSP A's shared.co.uk: healthy, quiet.
-mkScan("sc_a_shared", "d_a_shared", "shared.co.uk", "complete", 95, "ws_a2", 2);
+mkScan("sc_a_shared", "d_a_shared", "shared.co.uk", "complete", 100, "ws_a2", 2, "excellent");
 seedAllEight("ws_a2", "d_a_shared", "sc_a_shared", { assessed_at: iso(2) });
 
 // MSP B's shared.co.uk — SAME hostname, different tenant: critical everywhere.
@@ -134,9 +134,39 @@ db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALU
 db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES ('s_b','u_b',?, datetime('now','+1 day'))").run(await hashToken(TOKEN_B));
 db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES ('s_f','u_free',?, datetime('now','+1 day'))").run(await hashToken(TOKEN_FREE));
 
+const completedPhase5 = () => ({
+  cve_intelligence: {},
+  known_exploited_vulnerabilities: {},
+  email_security_intelligence: {},
+});
+const storedReports = new Map([
+  ["sc_a1_new", {
+    modules: {
+      ...completedPhase5(),
+      cve_intelligence: {
+        executed: false,
+        incomplete: true,
+        outcome: "deadline_exceeded",
+      },
+    },
+  }],
+  ["sc_a_shared", { modules: completedPhase5() }],
+  ["sc_b_shared", { modules: completedPhase5() }],
+]);
 const env = {
   cybermeters_db: makeD1(db, writeLog),
-  cybermeters_reports: { get: async () => null, put: async () => ({}), head: async () => null, delete: async () => ({}), list: async () => ({ objects: [] }) },
+  cybermeters_reports: {
+    get: async (key) => {
+      const report = storedReports.get(
+        key.replace(/^reports\//, "").replace(/\.json$/, ""),
+      );
+      return report ? { json: async () => structuredClone(report) } : null;
+    },
+    put: async () => ({}),
+    head: async () => null,
+    delete: async () => ({}),
+    list: async () => ({ objects: [] }),
+  },
   ALLOWED_ORIGIN: "https://app.cybermeters.com", APP_VERSION: "test",
 };
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
@@ -384,6 +414,33 @@ ok("detail returns all eight domains", detail.data?.cyber_mot_domains?.length ==
 ok("detail returns a history series per domain_key", Object.keys(detail.data?.history || {}).length === 8);
 ok("history carries the comparability flag, so a reader sees WHY points differ",
    (detail.data?.history?.email_protection || []).every((h) => typeof h.comparable === "boolean"));
+
+// The list and detail routes must traverse the same Phase-5 customer projection.
+// Acme's frozen D1 score/rating are withheld because CVE evidence is deferred.
+const listIncomplete = aRows.find((r) => r.domain_id === "d_a1");
+ok("PHASE-5 LIST: incomplete historical evidence withholds frozen score/rating",
+   listIncomplete?.overall_score === null && listIncomplete?.overall_rating === null);
+ok("PHASE-5 DETAIL: incomplete historical evidence withholds frozen score/rating",
+   detail.data?.overall_score === null && detail.data?.overall_rating === null);
+ok("PHASE-5 LIST/DETAIL: incomplete assessment semantics are identical",
+   detail.data?.phase5_evidence_read?.state === listIncomplete?.phase5_evidence_read?.state
+     && detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality);
+
+// Beta's immutable row is a genuine completed-zero positive control.
+const listCompletedZero = aRows.find((r) => r.domain_id === "d_a_shared");
+const completedZeroDetail =
+  await get("/api/portfolio/domains/ws_a2/d_a_shared", TOKEN_A);
+ok("PHASE-5 LIST: completed-zero retains 100/excellent",
+   listCompletedZero?.overall_score === 100
+     && listCompletedZero?.overall_rating === "excellent");
+ok("PHASE-5 DETAIL: completed-zero retains 100/excellent",
+   completedZeroDetail.data?.overall_score === 100
+     && completedZeroDetail.data?.overall_rating === "excellent");
+ok("PHASE-5 LIST/DETAIL: completed-zero assessment semantics are identical",
+   completedZeroDetail.data?.phase5_evidence_read?.state
+       === listCompletedZero?.phase5_evidence_read?.state
+     && completedZeroDetail.data?.overall_score === listCompletedZero?.overall_score
+     && completedZeroDetail.data?.overall_rating === listCompletedZero?.overall_rating);
 
 // ═════════════════ 8. Read purity + no second alert engine ══════════════════
 ok("GET /api/portfolio/domains performs NO domain write", domainWrites().length === 0, domainWrites().join(" | "));

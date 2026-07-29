@@ -50,6 +50,10 @@ import {
 import {
   buildAttackSurfaceCustomerPresentation,
 } from "./attack-surface-customer-presentation.js";
+import {
+  projectPhase5EvidenceForCustomer,
+  projectPhase5SnapshotForCustomer,
+} from "./phase5-evidence.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
 export const SNAPSHOT_BUILDER_VERSION = "2026-07-27.1";
@@ -1340,9 +1344,34 @@ export async function readScanReportSnapshot(env, scanId, opts = {}) {
       : null;
   }
 
+  // The checksum-gated snapshot above remains the immutable/verbatim object.
+  // Customer renderers receive a separate read-time projection whose score,
+  // band and clean narrative are withheld unless the referenced scan report
+  // explicitly proves all required Phase-5 evidence publishable.
+  let sourceModules = {};
+  try {
+    // This key comes only from the checksum-verified, scan/workspace-scoped
+    // immutable snapshot above; no request-controlled key reaches R2.
+    const sourceReportKey = snapshot?.source_artifacts?.scan_report_r2_key;
+    const sourceObject = sourceReportKey
+      ? await env.cybermeters_reports.get(sourceReportKey)
+      : null;
+    const sourceReport = sourceObject ? await sourceObject.json() : null;
+    sourceModules =
+      sourceReport?.modules && typeof sourceReport.modules === "object"
+        ? sourceReport.modules
+        : {};
+  } catch {
+    sourceModules = {};
+  }
+  const customerModules = projectPhase5EvidenceForCustomer(sourceModules);
+  const customerSnapshot = projectPhase5SnapshotForCustomer(snapshot, sourceModules);
+
   return {
     status: "ok",
     snapshot,
+    customerSnapshot,
+    customerModules,
     raw,
     row,
     dmarcPolicy,

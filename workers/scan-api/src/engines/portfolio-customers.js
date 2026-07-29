@@ -9,6 +9,11 @@
 // re-deriving one. portfolio-risk.js imports nothing, so this is a one-way edge.
 import { riskLevelForScore } from "./scoring.js";
 import { PORTFOLIO_SCORE_STATES, resolvePortfolioScoreState } from "./portfolio-risk.js";
+import {
+  phase5EvidenceReadCoverage,
+  projectPhase5ScanRowsForCustomer,
+  resolvePhase5CustomerAggregate,
+} from "./phase5-evidence.js";
 
 // Deterministic "latest completed scan per domain" CTE body. Selecting on
 // MAX(created_at) alone double-counts a domain when two completed scans share the
@@ -28,7 +33,7 @@ export const LATEST_SCAN_CTE = `lpd AS (
 // Returns the sorted customer rows for a set of workspace ids (already scoped to
 // the caller's accessible workspaces by the route). Read-only; never throws
 // beyond a rejected DB promise (route wraps in serverError).
-export async function computePortfolioCustomerRows(db, workspaceIds) {
+export async function computePortfolioCustomerRows(db, workspaceIds, { env = null } = {}) {
   if (!workspaceIds || workspaceIds.length === 0) return [];
   const wsIn = workspaceIds.map(() => "?").join(",");
   const q = (sql) => db.prepare(sql).bind(...workspaceIds).all();
@@ -57,11 +62,12 @@ export async function computePortfolioCustomerRows(db, workspaceIds) {
            FROM scans WHERE status='completed' AND scan_quality='complete'
          ) WHERE rn = 1
        )
-       SELECT wd.workspace_id, AVG(s.score) AS avg_score, MAX(s.created_at) AS last_scan_at
+       SELECT wd.workspace_id, s.id AS scan_id, s.score, s.rating,
+              s.scan_quality, s.created_at
        FROM scans s JOIN lcd ON lcd.scan_id = s.id
        JOIN workspace_domains wd ON s.domain_id = wd.domain_id
        WHERE s.score IS NOT NULL AND wd.workspace_id IN (${wsIn})
-       GROUP BY wd.workspace_id`),
+       ORDER BY wd.workspace_id, s.created_at DESC`),
     q(`SELECT workspace_id, MAX(generated_at) AS last_report_at FROM workspace_reports
        WHERE status='completed' AND deleted_at IS NULL AND workspace_id IN (${wsIn}) GROUP BY workspace_id`),
     // NEW: this week's Exposure-Timeline change counts per customer.
@@ -87,7 +93,22 @@ export async function computePortfolioCustomerRows(db, workspaceIds) {
   const assetMap  = byWs(assetRes,   "assets",        (x) => x.count);
   const vendorMap = byWs(vendorRes,  "vendors",       (x) => x.count);
   const brandMap  = byWs(brandRes,   "brand_assets",  (x) => x.count);
-  const scanMap   = byWs(scanRes,    "scores",        (x) => x);
+  const rawScanRows = rows0(scanRes, "scores");
+  const customerScanRows = await projectPhase5ScanRowsForCustomer(
+    env,
+    rawScanRows.map((row) => ({ ...row, status: "completed" })),
+  );
+  const scanMap = {};
+  for (const row of customerScanRows) {
+    const value = (scanMap[row.workspace_id] ??= {
+      rows: [],
+      last_scan_at: null,
+    });
+    value.rows.push(row);
+    if (!value.last_scan_at || row.created_at > value.last_scan_at) {
+      value.last_scan_at = row.created_at;
+    }
+  }
   const rptMap    = byWs(rptRes,     "reports",       (x) => x.last_report_at);
   const changeMap = byWs(changesRes, "changes",       (x) => ({ total: Number(x.total) || 0, high: Number(x.high) || 0 }));
   const findingsMap = {};
@@ -100,7 +121,8 @@ export async function computePortfolioCustomerRows(db, workspaceIds) {
     const scan = scanMap[ws.id] ?? {};
     const findings = findingsMap[ws.id] ?? {};
     const changes = changeMap[ws.id] ?? { total: 0, high: 0 };
-    const avgScore = scan.avg_score != null ? Math.round(scan.avg_score) : null;
+    const aggregate = resolvePhase5CustomerAggregate(scan.rows ?? []);
+    const avgScore = aggregate.score == null ? null : Math.round(aggregate.score);
     // M5.e-C: the avg is a Cyber Metrics Score average, so its rating speaks
     // the CANONICAL band vocabulary (riskLevelForScore) — the local 80/60/40
     // Low/Medium/High ladder was drift on a score-labelled surface.
@@ -112,6 +134,7 @@ export async function computePortfolioCustomerRows(db, workspaceIds) {
       domains: domMap[ws.id] ?? 0, active_assets: assetMap[ws.id] ?? 0,
       vendors: vendorMap[ws.id] ?? 0, brand_candidates: brandMap[ws.id] ?? 0,
       latest_score: avgScore, security_posture_score: avgScore, risk_rating,
+      score_evidence_coverage: aggregate.evidence_coverage,
       critical_findings: findings.critical ?? 0, high_findings: findings.high ?? 0,
       changes_7d: changes.total, changes_7d_high: changes.high,
       last_scan_at: lastScanAt, last_report_at: rptMap[ws.id] ?? null, status,
@@ -131,6 +154,7 @@ export async function computePortfolioCustomerRows(db, workspaceIds) {
   // Non-breaking disclosure channel: an array property, so both existing
   // consumers keep their contract while the route can disclose degradation.
   rows.degraded_queries = degradedQueries;
+  rows.phase5_evidence_coverage = phase5EvidenceReadCoverage(customerScanRows);
   return rows;
 }
 

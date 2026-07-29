@@ -6,6 +6,7 @@ import { computeSecurityPosture } from "./posture-scoring.js";
 import { getCurrentPosturePresentation } from "./current-posture.js";
 import { resolveCyberMotDomainStates } from "./cyber-mot-domains.js";
 import { canSayHealthy, domainState, neutralSummary, scorecardBehaviour, sectionStatus } from "./scorecard-domain-state.js";
+import { resolvePhase5HistoricalCustomerProjection } from "./phase5-evidence.js";
 
 /**
  * buildScorecardData(wsId, env)
@@ -48,7 +49,7 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     b1 = await env.cybermeters_db.batch([
       // 0. Latest completed scan
       env.cybermeters_db.prepare(
-        `SELECT s.id, s.score, s.rating, s.domain, s.created_at
+        `SELECT s.id, s.score, s.rating, s.scan_quality, s.domain, s.created_at
          FROM workspace_domains wd
          JOIN domains d ON d.id = wd.domain_id
          JOIN scans   s ON s.domain_id = d.id
@@ -176,6 +177,12 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
   const certDaysLeft   = report?.modules?.certificate_intelligence?.days_until_expiry ?? null;
   const tpaTotal       = report?.modules?.third_party_assets?.total ?? 0;
   const cloudAssetList = report?.modules?.cloud_storage_discovery?.assets ?? [];
+  const phase5Assessment = resolvePhase5HistoricalCustomerProjection({
+    score: latestScan?.score,
+    riskLevel: latestScan?.rating,
+    scanQuality: latestScan?.scan_quality,
+    modules: report?.modules ?? {},
+  });
 
   // Computed helpers
   const assetTypeMap  = Object.fromEntries(assetTypeRows.map(r => [r.asset_type, r.n]));
@@ -226,7 +233,11 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     );
   }
   if (criticalFindings === 0 && highFindings === 0) {
-    good.push('No critical or high-severity findings in the latest scan.');
+    if (phase5Assessment.evidence.complete) {
+      good.push('No critical or high-severity findings in the latest scan.');
+    } else {
+      attentionRequired.push(phase5Assessment.assessment?.message);
+    }
   }
   if (brandHighRisk === 0 && activeBrands === 0) {
     if (canSayHealthy(brandStateB)) good.push('No active brand impersonation domains detected.');

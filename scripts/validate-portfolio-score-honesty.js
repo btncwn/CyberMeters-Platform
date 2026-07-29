@@ -69,7 +69,21 @@ function makeD1(db, writeLog) {
 }
 
 function makeEnv(db, writeLog) {
-  const noR2 = { get: async () => null, put: async () => ({}), head: async () => null, delete: async () => ({}), list: async () => ({ objects: [] }) };
+  const noR2 = {
+    get: async (key) => String(key).startsWith("reports/scan-")
+      ? {
+          json: async () => ({
+            modules: {
+              cve_intelligence: {},
+              known_exploited_vulnerabilities: {},
+              email_security_intelligence: {},
+            },
+          }),
+        }
+      : null,
+    put: async () => ({}), head: async () => null,
+    delete: async () => ({}), list: async () => ({ objects: [] }),
+  };
   return {
     cybermeters_db: makeD1(db, writeLog),
     cybermeters_reports: noR2,

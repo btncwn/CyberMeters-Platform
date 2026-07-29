@@ -14,6 +14,10 @@ import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "../engines/scoring-con
 import { computeScore, isEmailApplicable } from "../engines/scoring.js";
 import { runSslModule } from "../engines/ssl-scan.js";
 import { createAuditEvent } from "../lib/events.js";
+import {
+  projectPhase5ScanRowsForCustomer,
+  resolvePhase5CustomerAggregate,
+} from "../engines/phase5-evidence.js";
 
 export async function workspaceInsightRoutes(rctx) {
   const { request, env, url, json, serverError,
@@ -297,9 +301,10 @@ export async function workspaceInsightRoutes(rctx) {
           // domain and a partial scan never contributes. Same constant the
           // dashboard/report/PDF use.
           env.cybermeters_db
-            .prepare(`SELECT AVG(s.score) AS avg_score FROM scans s WHERE ${LATEST_COMPLETED_SCAN_SCOPE}`)
+            .prepare(`SELECT s.id, s.status, s.score, s.rating, s.scan_quality, s.created_at
+                      FROM scans s WHERE ${LATEST_COMPLETED_SCAN_SCOPE}`)
             .bind(workspaceId)
-            .first(),
+            .all(),
           // Current critical/high finding counts — same canonical scope, so the same
           // finding across several scans is counted once.
           env.cybermeters_db
@@ -328,6 +333,15 @@ export async function workspaceInsightRoutes(rctx) {
         ]);
 
         const v = (r) => (r.status === "fulfilled" ? r.value : null);
+        const customerScoreRows = await projectPhase5ScanRowsForCustomer(
+          env,
+          v(scoreResult)?.results ?? [],
+        );
+        const customerAggregate =
+          resolvePhase5CustomerAggregate(customerScoreRows);
+        const latestScore = customerAggregate.score == null
+          ? null
+          : Math.round(customerAggregate.score);
 
         return json({
           workspace_id:      ws.id,
@@ -335,7 +349,8 @@ export async function workspaceInsightRoutes(rctx) {
           domains:           v(domainsResult)?.cnt          ?? 0,
           active_assets:     v(assetsResult)?.cnt           ?? 0,
           vendors:           v(vendorsResult)?.cnt          ?? 0,
-          latest_score:      v(scoreResult)?.avg_score != null ? Math.round(v(scoreResult).avg_score) : null,
+          latest_score:      latestScore,
+          score_evidence_coverage: customerAggregate.evidence_coverage,
           critical_findings: v(findingsResult)?.critical_findings ?? 0,
           high_findings:     v(findingsResult)?.high_findings     ?? 0,
           last_scan_at:      v(lastScanResult)?.last_scan_at      ?? null,

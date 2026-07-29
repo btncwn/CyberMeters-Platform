@@ -72,6 +72,7 @@ import { correlateIdentityExposure } from "./identity-lifecycle.js";
 import { evaluateWebsiteSecurityForScan } from "./website-security-lifecycle.js";
 import { evaluateCyberEssentialsLifecycle } from "./ce-lifecycle.js";
 import { correlateRelatedChanges } from "./related-changes.js";
+import { resolvePhase5CustomerAssessment } from "./phase5-evidence.js";
 import { runTakeoverModule } from "./takeover-scan.js";
 import { runTechModule } from "./tech-scan.js";
 import { runVendorRelationshipModule } from "./vendor-relationship.js";
@@ -1017,6 +1018,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         modules.email_security_intelligence
       );
     }
+    const phase5CustomerAssessment = resolvePhase5CustomerAssessment({
+      score,
+      riskLevel: risk_level,
+      modules,
+    });
+    const customerScore = phase5CustomerAssessment.score;
+    const customerRiskLevel = phase5CustomerAssessment.risk_level;
 
     // Optional RFC 9990 external-RUA phase. Core evidence is already durable in
     // memory before this gate. Launch requires the whole 600 ms slot, complete
@@ -1428,6 +1436,9 @@ function buildCanonicalUrlProfile(modules) {
       const comparable = scanQuality.status === "complete";
       modules.historical_changes.comparable   = comparable;
       if (!comparable) modules.historical_changes.score_change = null;
+      if (!phase5CustomerAssessment.evidence.complete) {
+        modules.historical_changes.current_score = null;
+      }
     }
 
     // Phase 7e: Vendor Risk — pure computation, zero I/O.
@@ -1504,8 +1515,8 @@ function buildCanonicalUrlProfile(modules) {
       domain_id:           domainId,
       domain,
       status:              "completed",
-      cyber_metrics_score: score,
-      risk_level,
+      cyber_metrics_score: customerScore,
+      risk_level:          customerRiskLevel,
       started_at:          startedAt,
       completed_at:        completedAt,
       findings:            normalizedFindings,
@@ -1544,7 +1555,7 @@ function buildCanonicalUrlProfile(modules) {
     // throws and only reaches "finalized" when BOTH writes are durable.
     const finalizeStartedMs = now();
     const finalized = await finalizeScanResult(latch, {
-      scanId, report, score, rating: risk_level, status: "completed", env,
+      scanId, report, score: customerScore, rating: customerRiskLevel, status: "completed", env,
     });
     if (!finalized.finalized) {
       // A terminal write did not durably land. Do NOT silently continue with a
@@ -1612,7 +1623,7 @@ function buildCanonicalUrlProfile(modules) {
                (id, workspace_id, domain_id, scan_id, domain, score, rating, brs_score, scan_quality, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
-          .bind(createId("hscore"), workspaceId, domainId, scanId, domain, score, risk_level, brsScore, scanQuality?.status ?? null, completedAt)
+          .bind(createId("hscore"), workspaceId, domainId, scanId, domain, customerScore, customerRiskLevel, brsScore, scanQuality?.status ?? null, completedAt)
           .run();
       } catch { /* non-fatal — scan completion remains source of truth */ }
 
@@ -2027,8 +2038,8 @@ function buildCanonicalUrlProfile(modules) {
         domainId,
         domain,
         scanId,
-        score,
-        risk_level,
+        customerScore,
+        customerRiskLevel,
         findings,
         env,
         scanQuality?.status,
@@ -2045,7 +2056,7 @@ function buildCanonicalUrlProfile(modules) {
           domainId,
           domain,
           scanId,
-          score,
+          customerScore,
           findings,
           modules,
           startedAt,
@@ -2058,8 +2069,8 @@ function buildCanonicalUrlProfile(modules) {
     try {
       const completion = buildScanCompletionPresentation({
         domain,
-        score,
-        riskLevel: risk_level,
+        score: customerScore,
+        riskLevel: customerRiskLevel,
         scanQuality: scanQuality?.status,
         monitoringStates,
       });
@@ -2074,7 +2085,7 @@ function buildCanonicalUrlProfile(modules) {
           entity_type: "scan",
           entity_id:   scanId,
           description: completion.description,
-          metadata:    { scan_id: scanId, domain, domain_id: domainId, score, risk_level },
+          metadata:    { scan_id: scanId, domain, domain_id: domainId, score: customerScore, risk_level: customerRiskLevel },
         });
         // Lifecycle: first scan completed (once per workspace+domain via dedupe).
         await sendLifecycleEmail(env, {
@@ -2088,7 +2099,7 @@ function buildCanonicalUrlProfile(modules) {
           entity_type: "scan",
           entity_id:   scanId,
           description: completion.description,
-          metadata:    { scan_id: scanId, domain, domain_id: domainId, score, risk_level },
+          metadata:    { scan_id: scanId, domain, domain_id: domainId, score: customerScore, risk_level: customerRiskLevel },
         });
       }
     } catch { /* non-fatal */ }

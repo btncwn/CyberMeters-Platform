@@ -14,6 +14,7 @@
 //      (the authoritative query matches scan_quality='complete' only).
 
 import { normalizeQuality, resolveAssessmentPresentation, POSTURE_NOT_ESTABLISHED_MESSAGE } from "./assessment-presentation.js";
+import { resolvePhase5HistoricalCustomerProjection } from "./phase5-evidence.js";
 
 // scope: { workspaceId } (latest across the workspace's linked domains) or
 // { domainId } (a single domain). Returns:
@@ -80,6 +81,7 @@ export async function getCurrentPosturePresentation(env, scope) {
     if (presentations.has(row.scan_id)) return presentations.get(row.scan_id);
 
     let monitoringStates;
+    let phase5Modules = {};
     // A raw "complete" scan row is only a candidate for authority. The immutable
     // report carries provider/signal provenance; missing R2, malformed JSON, or
     // absent provenance fails toward provisional. Non-complete rows are already
@@ -89,18 +91,28 @@ export async function getCurrentPosturePresentation(env, scope) {
         const object = await env.cybermeters_reports.get(`reports/${row.scan_id}.json`);
         const report = object ? await object.json() : null;
         monitoringStates = report?.monitoring_states ?? null;
+        phase5Modules = report?.modules ?? {};
       } catch {
         monitoringStates = null;
+        phase5Modules = {};
       }
     }
-    const value = resolveAssessmentPresentation({
+    const phase5 = resolvePhase5HistoricalCustomerProjection({
       score: row.score,
+      riskLevel: row.rating,
       scanQuality: row.scan_quality,
-      status: "completed",
-      ...(normalizeQuality(row.scan_quality) === "complete"
-        ? { monitoringStates, requireMonitoring: true }
-        : {}),
+      modules: phase5Modules,
     });
+    const value = phase5.evidence.complete
+      ? resolveAssessmentPresentation({
+          score: phase5.score,
+          scanQuality: row.scan_quality,
+          status: "completed",
+          ...(normalizeQuality(row.scan_quality) === "complete"
+            ? { monitoringStates, requireMonitoring: true }
+            : {}),
+        })
+      : phase5.assessment;
     presentations.set(row.scan_id, value);
     return value;
   };

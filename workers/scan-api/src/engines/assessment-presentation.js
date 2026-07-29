@@ -108,27 +108,36 @@ export function buildScanCompletionPresentation({
   const signalDisclosure = signalMonitoringDisclosure(monitoringStates, {
     otherChecksCompleted: rawQuality.complete,
   });
+  const hasScore = Number.isFinite(score);
   if (quality.complete) {
     if (signalDisclosure) {
       return {
         ...quality,
         disclosure: signalDisclosure,
-        description: `Scan completed for ${domain} — score ${score}, risk ${riskLevel}. ${signalDisclosure}`,
-        message: `Score: ${score} · ${riskLevel} risk · ${signalDisclosure}`,
+        description: hasScore
+          ? `Scan completed for ${domain} — score ${score}, risk ${riskLevel}. ${signalDisclosure}`
+          : `Scan completed for ${domain}. ${signalDisclosure}`,
+        message: hasScore
+          ? `Score: ${score} · ${riskLevel} risk · ${signalDisclosure}`
+          : signalDisclosure,
       };
     }
     return {
       ...quality,
-      description: `Scan completed for ${domain} — score ${score}, risk ${riskLevel}`,
-      message: `Score: ${score} · ${riskLevel} risk`,
+      description: hasScore
+        ? `Scan completed for ${domain} — score ${score}, risk ${riskLevel}`
+        : `Scan completed for ${domain}`,
+      message: hasScore ? `Score: ${score} · ${riskLevel} risk` : "Scan completed.",
     };
   }
   const disclosure = signalDisclosure || quality.disclosure;
   return {
     ...quality,
     disclosure,
-    description: `Scan completed for ${domain} — score ${score} (provisional). ${disclosure}`,
-    message: `Score: ${score} (provisional) · ${disclosure}`,
+    description: hasScore
+      ? `Scan completed for ${domain} — score ${score} (provisional). ${disclosure}`
+      : `Scan completed for ${domain}. ${disclosure}`,
+    message: hasScore ? `Score: ${score} (provisional) · ${disclosure}` : disclosure,
   };
 }
 
@@ -184,6 +193,8 @@ export function resolveAssessmentPresentation({
           monitoring_signals: monitoringCoverage.signals,
         }
       : (coverage ?? null),
-    message:        ASSESSMENT_MESSAGES[quality],
+    message:        hasScore
+      ? ASSESSMENT_MESSAGES[quality]
+      : (complete ? null : SCAN_COMPLETION_DISCLOSURES[quality]),
   };
 }

@@ -106,7 +106,13 @@ function makeD1(db, writeLog, opts = {}) {
 }
 
 const noR2 = {
-  get: async () => null,
+  get: async (key) => String(key || "").startsWith("reports/")
+    ? { json: async () => ({ modules: {
+      cve_intelligence: { executed: true, incomplete: false, evidence_publishable: true },
+      known_exploited_vulnerabilities: { executed: true, incomplete: false, evidence_publishable: true },
+      email_security_intelligence: { executed: true, incomplete: false, evidence_publishable: true },
+    } }) }
+    : null,
   put: async () => ({}),
   head: async () => null,
   delete: async () => ({}),
@@ -457,7 +463,10 @@ async function checkMspParity() {
   const portfolioRoute = getSource("workers/scan-api/src/routes/portfolio.js");
   const trendsBlock = portfolioRoute.slice(portfolioRoute.indexOf('url.pathname === "/api/portfolio/trends"'));
   ok("F/C: portfolio trends score query is complete-quality only",
-    /ROUND\(AVG\(s\.score\)[\s\S]{0,320}s\.scan_quality = 'complete'/.test(trendsBlock));
+    /s\.id AS scan_id/.test(trendsBlock)
+      && /s\.scan_quality = 'complete'/.test(trendsBlock)
+      && /projectPhase5ScanRowsForCustomer/.test(trendsBlock)
+      && /resolvePhase5CustomerAggregate\(bucket\.rows\)/.test(trendsBlock));
   ok("F/C: portfolio trends findings query is complete-quality only",
     /FROM findings f[\s\S]{0,260}s\.scan_quality = 'complete'/.test(trendsBlock));
   ok("F: portfolio drill-down ids include workspace_id and domain_id", /drill_down:\s*\{[\s\S]{0,120}workspace_id:[\s\S]{0,120}domain_id:/.test(pdomSrc));
@@ -618,7 +627,10 @@ const MUTATIONS = [
   {
     name: "restore /business-risk write-on-read",
     file: "workers/scan-api/src/routes/workspace-analytics.js",
-    mutate: (s) => s.replace("return json({ ...assessment, workspace_name: ws.name, trend });", "await env.cybermeters_db.prepare('INSERT INTO workspace_brs_score_history (id, workspace_id, score) VALUES (?,?,?)').bind('x', wsId, assessment.score).run(); return json({ ...assessment, workspace_name: ws.name, trend });"),
+    mutate: (s) => s.replace(
+      "        return json({\n          ...assessment,\n          workspace_name: ws.name,\n          trend,\n",
+      "        await env.cybermeters_db.prepare('INSERT INTO workspace_brs_score_history (id, workspace_id, score) VALUES (?,?,?)').bind('x', wsId, assessment.score).run();\n        return json({\n          ...assessment,\n          workspace_name: ws.name,\n          trend,\n",
+    ),
     expect: () => /INSERT INTO workspace_brs_score_history/.test(getSource("workers/scan-api/src/routes/workspace-analytics.js")) ? "GET /business-risk writes on read" : null,
   },
   {

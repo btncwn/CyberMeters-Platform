@@ -15,6 +15,11 @@ import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, norm
 import { collapseCustomerTimelineEvents, countCustomerTimelineEventsByDay } from "../engines/timeline-trust.js";
 import { SEVERITY_RANK, enrichEvent, eventTypesForCategory } from "../lib/exposure-events.js";
 import { pageMeta, paginationParams, parseBoundedInteger } from "../lib/util.js";
+import {
+  phase5EvidenceReadCoverage,
+  projectPhase5ScanRowsForCustomer,
+  resolvePhase5CustomerAggregate,
+} from "../engines/phase5-evidence.js";
 
 function parseJson(value, fallback = null) {
   if (value && typeof value === "object") return value;
@@ -986,7 +991,7 @@ export async function attackSurfaceRoutes(rctx) {
             // Average scan score over the last 30 days (for risk trend)
             env.cybermeters_db
               .prepare(
-                `SELECT AVG(s.score) AS avg_score
+                `SELECT s.id, s.status, s.score, s.rating, s.scan_quality, s.created_at
                  FROM scans s
                  JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                  WHERE wd.workspace_id = ?
@@ -999,7 +1004,7 @@ export async function attackSurfaceRoutes(rctx) {
             // Average scan score over the preceding 30 days (days -60 to -30)
             env.cybermeters_db
               .prepare(
-                `SELECT AVG(s.score) AS avg_score
+                `SELECT s.id, s.status, s.score, s.rating, s.scan_quality, s.created_at
                  FROM scans s
                  JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                  WHERE wd.workspace_id = ?
@@ -1017,8 +1022,27 @@ export async function attackSurfaceRoutes(rctx) {
           const removedAssets30d = removedAssets30dRow.results[0]?.n ?? 0;
           const criticalNow    = criticalNow30dRow.results[0]?.n    ?? 0;
           const criticalPrev   = criticalPrev30dRow.results[0]?.n   ?? 0;
-          const avgScoreLast30d = avgScoreLast30dRow.results[0]?.avg_score ?? null;
-          const avgScorePrev30d = avgScorePrev30dRow.results[0]?.avg_score ?? null;
+          const customerScoreRows = await projectPhase5ScanRowsForCustomer(
+            env,
+            [
+              ...(avgScoreLast30dRow.results ?? []).map((row) => ({
+                ...row,
+                score_period: "current",
+              })),
+              ...(avgScorePrev30dRow.results ?? []).map((row) => ({
+                ...row,
+                score_period: "previous",
+              })),
+            ],
+          );
+          const currentAggregate = resolvePhase5CustomerAggregate(
+            customerScoreRows.filter((row) => row.score_period === "current"),
+          );
+          const previousAggregate = resolvePhase5CustomerAggregate(
+            customerScoreRows.filter((row) => row.score_period === "previous"),
+          );
+          const avgScoreLast30d = currentAggregate.score;
+          const avgScorePrev30d = previousAggregate.score;
 
           const trend = scoreTrend(avgScoreLast30d, avgScorePrev30d);
 
@@ -1036,6 +1060,11 @@ export async function attackSurfaceRoutes(rctx) {
             score_trend:                 trend,   // same signal; both exposed for consumer flexibility
             avg_score_last_30d:          avgScoreLast30d !== null ? Math.round(avgScoreLast30d) : null,
             avg_score_prev_30d:          avgScorePrev30d !== null ? Math.round(avgScorePrev30d) : null,
+            score_evidence_coverage: {
+              overall: phase5EvidenceReadCoverage(customerScoreRows),
+              current: currentAggregate.evidence_coverage,
+              previous: previousAggregate.evidence_coverage,
+            },
           });
         } catch {
           return json({ error: "Database error" }, 500);

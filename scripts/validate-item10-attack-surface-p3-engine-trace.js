@@ -196,6 +196,18 @@ const originalFetch = globalThis.fetch;
 const originalRandom = Math.random;
 globalThis.fetch = async (input) => {
   const url = new URL(String(input));
+  if (
+    url.hostname === "www.cisa.gov" &&
+    url.pathname.endsWith("known_exploited_vulnerabilities.json")
+  ) {
+    return json({
+      title: "CISA Known Exploited Vulnerabilities Catalog",
+      catalogVersion: "fixture",
+      dateReleased: "2026-07-29T00:00:00.000Z",
+      count: 0,
+      vulnerabilities: [],
+    });
+  }
   if (url.hostname === "crt.sh") {
     providerCalls.crt += 1;
     return json([

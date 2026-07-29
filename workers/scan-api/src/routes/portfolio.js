@@ -23,6 +23,11 @@ import { auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription } fro
 import { createAuditEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { createId, parseBoundedInteger } from "../lib/util.js";
+import {
+  phase5EvidenceReadCoverage,
+  projectPhase5ScanRowsForCustomer,
+  resolvePhase5CustomerAggregate,
+} from "../engines/phase5-evidence.js";
 
 export function portfolioBrandAlertPresentation(row = {}) {
   let evidence = [];
@@ -163,17 +168,19 @@ export async function portfolioRoutes(rctx) {
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status = 'verified'`).bind(...workspaceIds).first(),
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status NOT IN ('verified')`).bind(...workspaceIds).first(),
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status = 'failed'`).bind(...workspaceIds).first(),
-          // Average score across latest scan per domain
+          // Candidate scores across the latest complete scan per domain. The
+          // stored rows are projected through immutable Phase-5 evidence below
+          // before any portfolio average is published.
           db.prepare(`
             WITH ${LATEST_SCAN_CTE}
-            SELECT AVG(s.score) AS avg_score
+            SELECT s.id AS scan_id, s.score, s.rating, s.scan_quality, s.created_at
             FROM scans s
             JOIN lpd ON lpd.scan_id = s.id
             JOIN workspace_domains wd ON wd.domain_id = s.domain_id
             WHERE s.score IS NOT NULL
               AND s.scan_quality = 'complete'
               AND wd.workspace_id IN (${wsIn})
-          `).bind(...workspaceIds).first(),
+          `).bind(...workspaceIds).all(),
           // Workspace with most critical findings from latest scans
           db.prepare(`
             WITH ${LATEST_SCAN_CTE},
@@ -215,7 +222,22 @@ export async function portfolioRoutes(rctx) {
           for (const r of (findingsRes.value?.results ?? [])) findingsBySev[r.severity] = r.cnt;
         } else { findingsFailed = true; settled.push('findings'); }
 
-        const avgRaw = avgScoreRes.status === 'fulfilled' ? avgScoreRes.value?.avg_score : (settled.push('average_score'), null);
+        let avgRaw = null;
+        let averageEvidenceCoverage = null;
+        if (avgScoreRes.status === 'fulfilled') {
+          const customerScoreRows = await projectPhase5ScanRowsForCustomer(
+            env,
+            (avgScoreRes.value?.results ?? []).map((row) => ({
+              ...row,
+              status: "completed",
+            })),
+          );
+          const aggregate = resolvePhase5CustomerAggregate(customerScoreRows);
+          avgRaw = aggregate.score;
+          averageEvidenceCoverage = aggregate.evidence_coverage;
+        } else {
+          settled.push('average_score');
+        }
         const hrw    = highRiskRes.status === 'fulfilled'  ? highRiskRes.value : (settled.push('highest_risk_workspace'), null);
 
         return json({
@@ -231,11 +253,14 @@ export async function portfolioRoutes(rctx) {
           new_reports_30d:        count(newRptsRes, 'new_reports_30d'),
           average_score:          avgRaw != null ? Math.round(avgRaw) : null,
           average_score_basis:    'complete_scans',
+          score_evidence_coverage: averageEvidenceCoverage,
           highest_risk_workspace: hrw ? { id: hrw.id, name: hrw.name, critical_findings: hrw.total_crit } : null,
           verified_domains:       count(verifiedDomsRes, 'verified_domains'),
           unverified_domains:     count(unverifiedDomsRes, 'unverified_domains'),
           verification_failures:  count(failedVerifRes, 'verification_failures'),
-          partial_failure:        settled.length > 0 ? true : false,
+          partial_failure:
+            settled.length > 0 ||
+            averageEvidenceCoverage?.assessment_complete === false,
           unavailable_metrics:    settled,
           generated_at:           new Date().toISOString(),
         });
@@ -251,11 +276,14 @@ export async function portfolioRoutes(rctx) {
       if (gate) return gate;
       try {
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
-        const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds);
+        const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds, { env });
         return json({
           workspaces: rows,
-          partial_failure: (rows.degraded_queries?.length ?? 0) > 0 ? true : false,
+          partial_failure:
+            (rows.degraded_queries?.length ?? 0) > 0 ||
+            rows.phase5_evidence_coverage?.complete !== true,
           unavailable_metrics: rows.degraded_queries ?? [],
+          phase5_evidence_coverage: rows.phase5_evidence_coverage,
         });
       } catch (err) {
         return serverError("api", err);
@@ -273,11 +301,14 @@ export async function portfolioRoutes(rctx) {
       if (gate) return gate;
       try {
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
-        const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds);
+        const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds, { env });
         return json({
           ...buildExecutiveSummary(rows),
-          partial_failure: (rows.degraded_queries?.length ?? 0) > 0 ? true : false,
+          partial_failure:
+            (rows.degraded_queries?.length ?? 0) > 0 ||
+            rows.phase5_evidence_coverage?.complete !== true,
           unavailable_metrics: rows.degraded_queries ?? [],
+          phase5_evidence_coverage: rows.phase5_evidence_coverage,
           generated_at: new Date().toISOString(),
         });
       } catch (err) {
@@ -422,13 +453,11 @@ export async function portfolioRoutes(rctx) {
         const wsIn = workspaceIds.map(() => "?").join(",");
 
         const [scanTrendRes, findingsTrendRes, assetTrendRes] = await Promise.allSettled([
-          // Score aggregates per day from all completed scans in last 30 days
+          // Score candidates per day. Aggregate only after the immutable
+          // Phase-5 evidence contract has projected each stored row.
           db.prepare(`
-            SELECT date(s.created_at)     AS day,
-                   COUNT(DISTINCT s.id)   AS scans,
-                   ROUND(AVG(s.score), 1) AS average_score,
-                   MIN(s.score)           AS lowest_score,
-                   MAX(s.score)           AS highest_score
+            SELECT s.id AS scan_id, date(s.created_at) AS day,
+                   s.score, s.rating, s.scan_quality, s.created_at
             FROM scans s
             JOIN workspace_domains wd ON wd.domain_id = s.domain_id
             WHERE s.status = 'completed'
@@ -436,8 +465,7 @@ export async function portfolioRoutes(rctx) {
               AND s.created_at >= datetime('now', '-30 days')
               AND s.score IS NOT NULL
               AND wd.workspace_id IN (${wsIn})
-            GROUP BY date(s.created_at)
-            ORDER BY day
+            ORDER BY s.created_at
           `).bind(...workspaceIds).all(),
           // Critical + high finding counts per day from scans in last 30 days
           db.prepare(`
@@ -467,16 +495,41 @@ export async function portfolioRoutes(rctx) {
         // Merge into a single map keyed by day
         const dayMap = {};
 
-        for (const r of (scanTrendRes.status === 'fulfilled' ? (scanTrendRes.value?.results ?? []) : [])) {
-          dayMap[r.day] = {
-            date:             r.day,
-            scans:            r.scans,
-            average_score:    r.average_score,
-            lowest_score:     r.lowest_score,
-            highest_score:    r.highest_score,
+        const rawScoreRows =
+          scanTrendRes.status === 'fulfilled'
+            ? (scanTrendRes.value?.results ?? [])
+            : [];
+        const customerScoreRows = scanTrendRes.status === 'fulfilled'
+          ? await projectPhase5ScanRowsForCustomer(
+              env,
+              rawScoreRows.map((row) => ({ ...row, status: "completed" })),
+            )
+          : [];
+        const scoreRowsByDay = new Map();
+        for (const row of customerScoreRows) {
+          const bucket = scoreRowsByDay.get(row.day) ?? { scans: 0, rows: [] };
+          bucket.scans += 1;
+          bucket.rows.push(row);
+          scoreRowsByDay.set(row.day, bucket);
+        }
+        for (const [day, bucket] of scoreRowsByDay) {
+          const aggregate = resolvePhase5CustomerAggregate(bucket.rows);
+          dayMap[day] = {
+            date: day,
+            scans: bucket.scans,
+            average_score: aggregate.score == null
+              ? null
+              : Math.round(aggregate.score * 10) / 10,
+            lowest_score: aggregate.scores.length
+              ? Math.min(...aggregate.scores)
+              : null,
+            highest_score: aggregate.scores.length
+              ? Math.max(...aggregate.scores)
+              : null,
+            score_evidence_coverage: aggregate.evidence_coverage,
             critical_findings: 0,
-            high_findings:    0,
-            new_assets:       0,
+            high_findings: 0,
+            new_assets: 0,
           };
         }
 
@@ -502,8 +555,12 @@ export async function portfolioRoutes(rctx) {
         return json({
           trend,
           comparable_basis: 'complete_scans',
-          partial_failure: failedSeries.length > 0 ? true : false,
+          partial_failure:
+            failedSeries.length > 0 ||
+            phase5EvidenceReadCoverage(customerScoreRows).complete !== true,
           unavailable_series: failedSeries,
+          phase5_evidence_coverage:
+            phase5EvidenceReadCoverage(customerScoreRows),
         });
       } catch (err) {
         return serverError("api", err);
@@ -573,7 +630,7 @@ export async function portfolioRoutes(rctx) {
           });
         }
 
-        const all = await computePortfolioDomainRows(env.cybermeters_db, workspaceIds);
+        const all = await computePortfolioDomainRows(env.cybermeters_db, workspaceIds, { env });
         // The summary folds the SAME array the caller pages through, so totals can never
         // disagree with the rows, and a filtered view cannot leak the unfiltered count.
         const summary = buildPortfolioDomainSummary(all);
@@ -597,6 +654,7 @@ export async function portfolioRoutes(rctx) {
           pagination: { limit, offset, total: view.total },
           available_filters: PORTFOLIO_FILTERS, available_sorts: PORTFOLIO_SORTS,
           domain_keys: CYBER_MOT_DOMAIN_KEYS,
+          phase5_evidence_coverage: phase5EvidenceReadCoverage(all),
           generated_at: new Date().toISOString(),
         });
       } catch (err) {
@@ -646,14 +704,23 @@ export async function portfolioRoutes(rctx) {
           const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
           if (!access) return json({ error: "Not found" }, 404);
 
-          const rows = await computePortfolioDomainRows(env.cybermeters_db, [wsId]);
+          const rows = await computePortfolioDomainRows(
+            env.cybermeters_db,
+            [wsId],
+            { env },
+          );
           const row = rows.find((r) => r.domain_id === domainId);
           if (!row) return json({ error: "Not found" }, 404);
 
           const history = await readDomainStateHistory(env.cybermeters_db, wsId, domainId, {
             limit: parseBoundedInteger(url.searchParams.get("history_limit"), 20, 1, 100),
           });
-          return json({ ...row, history, generated_at: new Date().toISOString() });
+          return json({
+            ...row,
+            history,
+            phase5_evidence_coverage: phase5EvidenceReadCoverage(rows),
+            generated_at: new Date().toISOString(),
+          });
         } catch (err) {
           return serverError("api", err);
         }

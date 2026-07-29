@@ -16,6 +16,10 @@ import { CANONICAL_TERMINAL_STATES } from "./managed-case-model.js";
 import { resolveAssessmentPresentation } from "./assessment-presentation.js";
 import { CYBER_MOT_STATES } from "./cyber-mot-domains.js";
 import {
+  phase5EvidenceReadCoverage,
+  projectPhase5ScanRowsForCustomer,
+} from "./phase5-evidence.js";
+import {
   buildDomainMatrix, CYBER_MOT_DOMAIN_KEYS, DOMAIN_TREND, EVIDENCE_FRESHNESS,
   evidenceFreshness, readPortfolioDomainStates,
 } from "./cyber-mot-state-history.js";
@@ -187,8 +191,16 @@ export async function computePortfolioDomainRows(db, workspaceIds, opts = {}) {
   for (const c of (caseRes.results || [])) {
     caseMap.set(`${c.workspace_id}::${c.hostname ?? ""}::${c.domain_key ?? ""}`, Number(c.n) || 0);
   }
+  const customerScanRows = await projectPhase5ScanRowsForCustomer(
+    opts.env,
+    (scanRes.results || []).map((row) => ({
+      ...row,
+      id: row.scan_id,
+      status: "completed",
+    })),
+  );
   const scanMap = new Map();
-  for (const s of (scanRes.results || [])) scanMap.set(`${s.workspace_id}::${s.domain_id}`, s);
+  for (const s of customerScanRows) scanMap.set(`${s.workspace_id}::${s.domain_id}`, s);
 
   const rows = (domRes.results || []).map((d) => {
     const key = `${d.workspace_id}::${d.domain_id}`;
@@ -250,6 +262,8 @@ export async function computePortfolioDomainRows(db, workspaceIds, opts = {}) {
       evidence_completeness: matrix.filter((m) => m.state !== CYBER_MOT_STATES.NOT_YET_ASSESSED).length,
       latest_scan_id: scan?.scan_id ?? matrix.find((m) => m.source_scan_id)?.source_scan_id ?? null,
       latest_scan_quality: scan?.scan_quality ?? null,
+      phase5_evidence_read: scan?.phase5_evidence_read ?? null,
+      phase5_assessment: scan?.assessment ?? null,
 
       priority: summary.priority,
       attention_required: summary.attention_required,
@@ -271,6 +285,10 @@ export async function computePortfolioDomainRows(db, workspaceIds, opts = {}) {
     };
   });
 
+  Object.defineProperty(rows, "phase5_evidence_coverage", {
+    value: phase5EvidenceReadCoverage(customerScanRows),
+    enumerable: false,
+  });
   return rows;
 }
 

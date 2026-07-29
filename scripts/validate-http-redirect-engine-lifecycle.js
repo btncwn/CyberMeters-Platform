@@ -106,6 +106,18 @@ async function trace(httpMode, { seed = false, deadlineMs = "19000" } = {}) {
   const prevFetch = globalThis.fetch, prevErr = console.error;
   globalThis.fetch = async (input) => {
     const url = new URL(String(input)); const host = url.hostname;
+    if (
+      host === "www.cisa.gov" &&
+      url.pathname.endsWith("known_exploited_vulnerabilities.json")
+    ) {
+      return json({
+        title: "CISA Known Exploited Vulnerabilities Catalog",
+        catalogVersion: "fixture",
+        dateReleased: "2026-07-29T00:00:00.000Z",
+        count: 0,
+        vulnerabilities: [],
+      });
+    }
     if (host === "crt.sh") return json([]);
     if (host === "api.certspotter.com") return json([{
       id: "c1", not_before: "2026-06-27T00:00:00.000Z", not_after: "2026-09-25T00:00:00.000Z",
