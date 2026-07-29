@@ -765,7 +765,13 @@ export function computeScore(modules, domain) {
       }));
     }
 
-    if (!modules.email_security?.dkim?.present) {
+    // A1 mirror of the SPF gate above: a failed/unexecuted DKIM probe sweep is
+    // unavailable / not_yet_assessed — it must not publish an observation that
+    // claims selectors were probed. Absent status (pre-A1 reports / R2
+    // reconstruction) keeps the legacy present-based read.
+    const dkimEvidence = modules.email_security?.dkim_evidence_status ?? null;
+    const dkimUnobserved = dkimEvidence ? isEmailProbeUnobserved(dkimEvidence) : false;
+    if (!dkimUnobserved && !modules.email_security?.dkim?.present) {
       // Provider-aware DKIM observation.
       // Common-selector probing is best-effort — enterprise domains often use custom
       // selectors. This is an informational observation; never deducts score.

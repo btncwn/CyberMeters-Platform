@@ -35,9 +35,9 @@ import { runSaasExposureModule, runThirdPartyDiscoveryModule } from "./discovery
 import { buildDnsOperationalResilience } from "./dns-resilience.js";
 import { runDnsModule } from "./dns-scan.js";
 import { runDomainSecurityEnrichmentModule } from "./domain-enrichment.js";
-import { buildEmailRemediationActions, buildEmailTransportDetails } from "./email-analysis.js";
+import { buildEmailRemediationActions, buildEmailTransportDetails, isPublishableEmailEvidence } from "./email-analysis.js";
 import { runEmailIntelModule } from "./email-intel.js";
-import { applyDmarcbisEmailCompatibilityProjection, runEmailModule } from "./email-scan.js";
+import { applyDmarcbisEmailCompatibilityProjection, deadlineDeferredEmailModuleResult, runEmailModule } from "./email-scan.js";
 import { establishDmarcPolicyBaseline } from "./email-protection-lifecycle.js";
 import { recordDmarcPolicyLifecycle } from "./dmarcbis-lifecycle.js";
 import {
@@ -61,7 +61,7 @@ import { recordPostureEvents } from "./posture-events.js";
 import { recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_MODULE_BUDGETS, skippedModuleResult } from "./scan-budget.js";
+import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, isPublishableModuleEvidence, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_MODULE_BUDGETS, skippedModuleResult } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
@@ -577,7 +577,14 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           // same false claim the classifier fix closes. Not assessed is not a verdict.
           runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_observation_completeness: "not_assessed", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache }) }),
           runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal }) => runHeadersModule(domain, { accounting, signal }) }),
-          runCappedModule("email_security",       { fallback: () => markDeadlineDeferred({ spf: {}, dmarc: {}, dkim: {}, source: "email_security" }), run: ({ accounting, signal }) => runEmailModule(domain, { accounting, signal, cache: dnsCache, dmarcOwnedByCore: true }) }),
+          // The email deadline fallback is the CANONICAL unassessed email result
+          // owned by email-scan.js. The previous bare shape ({spf:{},dmarc:{},
+          // dkim:{}}) did not match the completed contract: scoring fabricated a
+          // Missing-SPF finding from the absent A1 evidence status, and the
+          // remediation builder crashed the WHOLE scan dereferencing the absent
+          // spf_detail (`reading 'raw'`) — every sibling module's completed
+          // evidence was then discarded by the failed terminal.
+          runCappedModule("email_security",       { fallback: deadlineDeferredEmailModuleResult, run: ({ accounting, signal }) => runEmailModule(domain, { accounting, signal, cache: dnsCache, dmarcOwnedByCore: true }) }),
           runCappedModule("dmarc_core",           {
             fallback: () => unavailableDmarcbisCore(domain, "core_launch_refused"),
             run: ({ accounting, signal }) => runDmarcbisCore(domain, {
@@ -987,9 +994,23 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       outbound_calls: emailIntelOutboundSnapshot.outbound_measurement_complete ? emailIntelOutboundSnapshot.outbound_attempts_observed : null,
     });
     }
-    if (!modules.email_security_intelligence.error && !modules.email_security_intelligence.skipped && emailApplicability.applicable) {
+    // One module never stands in as the completion guard for the other:
+    //   • the intelligence module proves its OWN completion — deferred, errored
+    //     or skipped intel evidence is non-publishable and must not fabricate
+    //     transport detail ("not confirmed during this scan") for checks that
+    //     never ran;
+    //   • remediation generation additionally requires the PRIMARY
+    //     email_security module's completed canonical evidence
+    //     (isPublishableEmailEvidence). A deadline-deferred primary module used
+    //     to reach the builder here — gated only on the OTHER module — and its
+    //     absent spf_detail crashed the entire scan.
+    const emailIntelUsable =
+      isPublishableModuleEvidence(modules.email_security_intelligence) && emailApplicability.applicable;
+    if (emailIntelUsable) {
       const transportDetails = buildEmailTransportDetails(modules.email_security_intelligence);
       Object.assign(modules.email_security, transportDetails);
+    }
+    if (emailIntelUsable && isPublishableEmailEvidence(modules.email_security)) {
       modules.email_security.remediation_actions = buildEmailRemediationActions(
         domain,
         modules.email_security,

@@ -612,6 +612,15 @@ jobs:
       - name: Validate DNS absence-as-evidence (missing/null/incomplete never authoritative)
         run: node scripts/validate-dns-absence-as-evidence.js
 
+      # Email Deadline → Whole-Scan Failure P1. The primary email module's bare
+      # deadline fallback did not match the completed runEmailModule contract:
+      # scoring fabricated Missing-SPF from the absent evidence status, the
+      # remediation gate checked only email_security_intelligence, and
+      # buildEmailRemediationActions crashed the WHOLE scan dereferencing the
+      # absent spf_detail — discarding every sibling module's evidence.
+      - name: Validate email deadline evidence honesty (conforming fallback + primary-module gate + refusal, pinned mutants)
+        run: node scripts/validate-email-deadline-evidence.js
+
       - name: Validate SSL concurrent CT lookup (reachability ∥ crt.sh/certspotter — max not sum, evidence preserved)
         run: node scripts/validate-ssl-concurrent-ct.js
 

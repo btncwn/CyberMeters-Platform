@@ -32,6 +32,7 @@ const DNS_PATH = path.join(ROOT, "workers/scan-api/src/engines/dns.js");
 const ANALYSIS_PATH = path.join(ROOT, "workers/scan-api/src/engines/email-analysis.js");
 const STATE_PATH = path.join(ROOT, "workers/scan-api/src/engines/dmarc-state.js");
 const SPF_RESOLVER_PATH = path.join(ROOT, "workers/scan-api/src/engines/spf-resolver.js");
+const SCAN_BUDGET_PATH = path.join(ROOT, "workers/scan-api/src/engines/scan-budget.js");
 const POSTURE_EVENTS_PATH = path.join(ROOT, "workers/scan-api/src/engines/posture-events.js");
 
 function settled(value) {
@@ -121,12 +122,30 @@ function fixtureReason(mod, fixture) {
 }
 
 function rewriteImports(source, overrides = {}) {
-  return source
+  const rewritten = source
     .replace('import { dnsQuery } from "./dns.js";', `import { dnsQuery } from ${JSON.stringify(overrides.dnsUrl || pathToFileURL(DNS_PATH).href)};`)
     .replace('import { deriveDmarcState } from "./dmarc-state.js";', `import { deriveDmarcState } from ${JSON.stringify(pathToFileURL(STATE_PATH).href)};`)
     .replace('import { makeDohSpfLookup, resolveSpfAuthorization, SPF_RESOLUTION_STATUS } from "./spf-resolver.js";', `import { makeDohSpfLookup, resolveSpfAuthorization, SPF_RESOLUTION_STATUS } from ${JSON.stringify(pathToFileURL(SPF_RESOLVER_PATH).href)};`)
     .replace('import { makeDohSpfLookup, resolveSpfAuthorization } from "./spf-resolver.js";', `import { makeDohSpfLookup, resolveSpfAuthorization } from ${JSON.stringify(pathToFileURL(SPF_RESOLVER_PATH).href)};`)
-    .replace('from "./email-analysis.js";', `from ${JSON.stringify(pathToFileURL(ANALYSIS_PATH).href)};`);
+    .replace('from "./email-analysis.js";', `from ${JSON.stringify(pathToFileURL(ANALYSIS_PATH).href)};`)
+    // Email Deadline P1: email-scan.js now depends directly on the REAL
+    // scan-budget.js for the canonical deadline fallback. The sandbox copy must
+    // resolve the exact reviewed implementation — never a shim or a partial —
+    // so deadline behaviour is what production runs.
+    .replace('import { markDeadlineDeferred } from "./scan-budget.js";', `import { markDeadlineDeferred } from ${JSON.stringify(pathToFileURL(SCAN_BUDGET_PATH).href)};`);
+  // Faithfulness guard: the sandboxed module must import the intended deadline
+  // helper, and every relative import must have been rewritten to its exact
+  // source module. A silently removed deadline import, or a NEW dependency this
+  // rewriter does not know about, fails RED here — never a sandbox
+  // ERR_MODULE_NOT_FOUND and never a quietly divergent copy.
+  if (!source.includes('import { markDeadlineDeferred } from "./scan-budget.js";')) {
+    throw new Error("email-scan.js no longer imports markDeadlineDeferred from ./scan-budget.js — the sandbox would diverge from the reviewed deadline behaviour");
+  }
+  const unresolved = [...rewritten.matchAll(/from\s+"\.\.?\/[^"]+"/g)].map((m) => m[0]);
+  if (unresolved.length > 0) {
+    throw new Error(`sandboxed email-scan.js has unrewritten relative imports: ${unresolved.join(", ")} — add exact-source rewrites for them`);
+  }
+  return rewritten;
 }
 
 async function importEmailScanFromSource(source, label) {

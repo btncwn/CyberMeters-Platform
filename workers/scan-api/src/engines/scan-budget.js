@@ -209,6 +209,22 @@ export function markDeadlineDeferred(base = {}) {
   };
 }
 
+// The canonical read of the deferral/skip vocabulary this module writes
+// (markDeadlineDeferred, skippedModuleResult) plus the module error contract.
+// A module result is publishable EVIDENCE only when none of those states is
+// present: executed:false, incomplete:true, a deadline outcome, skipped, or
+// error all mean "nothing was proven", and nothing downstream may score,
+// alert, remediate or verify from it. Completed module results carry none of
+// these fields, so they pass unchanged.
+export function isPublishableModuleEvidence(mod) {
+  return !!mod && typeof mod === "object"
+    && !mod.error
+    && mod.skipped !== true
+    && mod.executed !== false
+    && mod.incomplete !== true
+    && mod.outcome !== "deadline_exceeded";
+}
+
 // ── Outbound accounting (PR-C1A: telemetry only) ──────────────────────────────
 // Counts observed external HTTP/DoH attempts at instrumented leaf helpers. D1 may
 // receive a module's attempts only when the scan engine can prove the module
