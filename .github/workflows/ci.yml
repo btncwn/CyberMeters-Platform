@@ -621,6 +621,9 @@ jobs:
       - name: Validate email deadline evidence honesty (conforming fallback + primary-module gate + refusal, pinned mutants)
         run: node scripts/validate-email-deadline-evidence.js
 
+      - name: Validate Phase-5 incomplete-evidence false-healthy P1 (engine/customer + pinned mutants)
+        run: node scripts/validate-phase5-evidence-honesty.js
+
       - name: Validate SSL concurrent CT lookup (reachability ∥ crt.sh/certspotter — max not sum, evidence preserved)
         run: node scripts/validate-ssl-concurrent-ct.js
 

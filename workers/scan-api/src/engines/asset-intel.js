@@ -8,6 +8,11 @@ import { normalizeHostname } from "./hostnames.js";
 import { makeSsrfSafeProbeFetch } from "./reserved-probe.js";
 import { dnsQuery } from "./dns.js";
 import { classifyServerErrorStatus } from "../lib/fetch-observation.js";
+import {
+  PHASE5_INCOMPLETE_REASON,
+  resolvePhase5EvidenceContract,
+} from "./phase5-evidence.js";
+import { isPublishableModuleEvidence } from "./scan-budget.js";
 
 // ── Module 7: Asset Exposure Engine ──────────────────────────────────────────
 
@@ -867,6 +872,7 @@ const SEVERITY_DEFAULT_IMPACT = {
  * with enhanced business-impact language.
  */
 export function runRiskModule(findings, modules) {
+  const phase5Evidence = resolvePhase5EvidenceContract(modules);
   const categories = {
     "Data Security":  [],
     "Web Security":   [],
@@ -896,7 +902,9 @@ export function runRiskModule(findings, modules) {
   }
 
   // KEV matches warrant a board-level risk notice regardless of score
-  const kevMatches = modules.known_exploited_vulnerabilities?.matches || [];
+  const kevMatches = phase5Evidence.publishable.kev
+    ? (modules.known_exploited_vulnerabilities?.matches || [])
+    : [];
   if (kevMatches.length > 0) {
     const kevNote = {
       id:             "kev_active_exploitation",
@@ -913,7 +921,9 @@ export function runRiskModule(findings, modules) {
   }
 
   // CVE intelligence summary
-  const cveIntel = modules.cve_intelligence || {};
+  const cveIntel = phase5Evidence.publishable.cve
+    ? (modules.cve_intelligence || {})
+    : {};
   if ((cveIntel.critical_count || 0) > 0 || (cveIntel.high_count || 0) > 0) {
     const cveNote = {
       id:             "cve_high_severity_detected",
@@ -932,7 +942,13 @@ export function runRiskModule(findings, modules) {
 
   // Build overall risk narrative
   let overallRisk, narrative;
-  if (criticalCount > 0) {
+  if (!phase5Evidence.complete) {
+    // Preserve every trustworthy sibling/positive finding above, but withhold
+    // the overall conclusion: an incomplete CVE, KEV or email-intelligence
+    // assessment cannot prove Low (or any other complete risk band).
+    overallRisk = null;
+    narrative = null;
+  } else if (criticalCount > 0) {
     overallRisk = "Critical";
     narrative   = `${criticalCount} critical issue${criticalCount > 1 ? "s require" : " requires"} immediate executive attention. Business operations, customer data, or regulatory compliance are at direct risk.`;
   } else if (highCount > 0) {
@@ -958,6 +974,10 @@ export function runRiskModule(findings, modules) {
     risk_categories:    populatedCategories,
     finding_counts:     { critical: criticalCount, high: highCount, medium: mediumCount, low: lowCount },
     enriched_findings:  enrichedFindings,
+    ...(phase5Evidence.complete ? {} : {
+      incomplete: true,
+      incomplete_reason: PHASE5_INCOMPLETE_REASON,
+    }),
   };
 }
 
@@ -974,12 +994,13 @@ export function runRiskModule(findings, modules) {
  * Ported from remediation_prioritization.generate_remediation_plan().
  */
 export function runRemediationModule(findings, kevModule, takeoverModule) {
+  const kevEvidencePublishable = isPublishableModuleEvidence(kevModule);
   const p1 = [];  // Immediate — KEV + Critical + Takeover
   const p2 = [];  // High priority — High severity
   const p3 = [];  // Planned — Medium + Low
 
   // 1. KEV matches → always P1 (mirrors remediation_prioritization.py)
-  for (const match of (kevModule?.matches || [])) {
+  for (const match of (kevEvidencePublishable ? (kevModule?.matches || []) : [])) {
     p1.push({
       title:    `Remediate ${match.cve_id} — ${match.vulnerability_name || match.product || "Known Exploited Vulnerability"}`,
       reason:   "Listed in CISA Known Exploited Vulnerabilities catalog with confirmed active exploitation in the wild.",
@@ -1042,5 +1063,9 @@ export function runRemediationModule(findings, kevModule, takeoverModule) {
       p3_count: cleanP3.length,
       total:    cleanP1.length + cleanP2.length + cleanP3.length,
     },
+    ...(kevEvidencePublishable ? {} : {
+      incomplete: true,
+      incomplete_reason: PHASE5_INCOMPLETE_REASON,
+    }),
   };
 }

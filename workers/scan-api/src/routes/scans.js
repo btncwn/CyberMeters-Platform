@@ -34,6 +34,7 @@ import {
   attackSurfaceAssuranceApiProjection,
   buildAttackSurfaceCustomerPresentation,
 } from "../engines/attack-surface-customer-presentation.js";
+import { projectPhase5EvidenceForCustomer } from "../engines/phase5-evidence.js";
 
 export async function scanRoutes(rctx) {
   const { request, env, ctx, url, json, serverError, corsHeaders,
@@ -651,7 +652,7 @@ export async function scanRoutes(rctx) {
 
       // Normalise modules — ensure every module key is present even for reports
       // stored before a module was introduced (backward-compatible defaults).
-      const storedModules = raw.modules ?? {};
+      const storedModules = projectPhase5EvidenceForCustomer(raw.modules ?? {});
       const normalisedModules = {
         ...storedModules,
         asset_exposure: storedModules.asset_exposure ?? {

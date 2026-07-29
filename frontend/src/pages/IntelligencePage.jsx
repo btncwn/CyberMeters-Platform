@@ -11,6 +11,10 @@ import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
+import {
+  isPhase5EvidenceAvailable,
+  phase5KnownCount,
+} from '../lib/phase5EvidencePresentation'
 
 // ── Design-system helpers ─────────────────────────────────────────────────────
 
@@ -210,21 +214,24 @@ function SummaryBar({ scan, risk, emailIntel, remPlan, kev, cve }) {
     : cmsScore >= 60 ? '#F59E0B'
     : '#EF4444'
 
-  const emailScore  = emailIntel?.email_security_score ?? null
-  const emailStatus = emailIntel?.email_score_breakdown?.status
+  const emailPublishable = isPhase5EvidenceAvailable(emailIntel)
+  const cvePublishable   = isPhase5EvidenceAvailable(cve)
+  const emailScore  = emailPublishable ? (emailIntel?.email_security_score ?? null) : null
+  const emailStatus = emailPublishable ? emailIntel?.email_score_breakdown?.status : null
   const emailCfg    = EMAIL_SCORE_STYLE[emailStatus] || EMAIL_SCORE_STYLE.FAIR
 
-  const bizRisk  = emailIntel?.business_email_risk
+  const bizRisk  = emailPublishable ? emailIntel?.business_email_risk : null
   const bizStyle = BIZ_RISK_STYLE[bizRisk] || { text: 'text-gray-300' }
 
   const riskLvl = risk?.overall_risk_level || '—'
   const rlStyle = RISK_LEVEL_STYLE[riskLvl] || { pill: 'bg-gray-100 text-gray-500 border-gray-200' }
 
-  const p1Count  = remPlan?.summary?.p1_count ?? 0
-  const kevCount = kev?.matched ?? 0
-  const cveCrit  = cve?.critical_count ?? 0
-  const cveHigh  = cve?.high_count ?? 0
-  const cveTotal = cveCrit + cveHigh
+  const p1Known  = remPlan?.incomplete !== true || (remPlan?.summary?.p1_count ?? 0) > 0
+  const p1Count  = p1Known ? (remPlan?.summary?.p1_count ?? 0) : null
+  const kevCount = phase5KnownCount(kev, kev?.matched)
+  const cveCrit  = phase5KnownCount(cve, cve?.critical_count)
+  const cveHigh  = phase5KnownCount(cve, cve?.high_count)
+  const cveTotal = cvePublishable ? cveCrit + cveHigh : null
 
   const stats = [
     {
@@ -237,7 +244,7 @@ function SummaryBar({ scan, risk, emailIntel, remPlan, kev, cve }) {
     {
       label:   'Email Security',
       value:   emailScore != null ? String(emailScore) : '—',
-      sub:     emailCfg.label,
+      sub:     emailPublishable ? emailCfg.label : 'Assessment incomplete',
       color:   emailScore != null ? emailCfg.color : '#9CA3AF',
       mono:    false,
     },
@@ -261,15 +268,15 @@ function SummaryBar({ scan, risk, emailIntel, remPlan, kev, cve }) {
     },
     {
       label:   'P1 Actions',
-      value:   String(p1Count),
+      value:   p1Count == null ? '—' : String(p1Count),
       sub:     'Immediate',
-      color:   p1Count > 0 ? '#DC2626' : '#00876A',
+      color:   p1Count == null ? '#9CA3AF' : (p1Count > 0 ? '#DC2626' : '#00876A'),
     },
     {
       label:   'CVE / KEV',
-      value:   String(cveTotal),
-      sub:     kevCount > 0 ? `+${kevCount} in CISA KEV` : 'High+ severity',
-      color:   cveTotal > 0 ? (cveCrit > 0 ? '#DC2626' : '#EA580C') : '#00876A',
+      value:   cveTotal == null ? '—' : String(cveTotal),
+      sub:     kevCount == null ? 'Assessment incomplete' : (kevCount > 0 ? `+${kevCount} in CISA KEV` : 'High+ severity'),
+      color:   cveTotal == null ? '#9CA3AF' : (cveTotal > 0 ? (cveCrit > 0 ? '#DC2626' : '#EA580C') : '#00876A'),
       kevBadge: kevCount > 0,
       kevCount,
     },
@@ -315,7 +322,7 @@ function SummaryBar({ scan, risk, emailIntel, remPlan, kev, cve }) {
 
 // ── Section: Risk Intelligence ────────────────────────────────────────────────
 
-function RiskIntelligenceSection({ risk }) {
+function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
   if (!risk || risk.error) {
     return (
       <div className="card overflow-hidden">
@@ -345,12 +352,18 @@ function RiskIntelligenceSection({ risk }) {
         title="Risk Intelligence"
         iconBg="bg-red-50"
         iconColor="text-red-500"
-        aside={
+        aside={risk.overall_risk_level ? (
           <span className={`text-xs font-bold px-3 py-1 rounded-full border ${lvlStyle.pill}`}>
             {risk.overall_risk_level} Risk
           </span>
-        }
+        ) : null}
       />
+
+      {risk.incomplete && assessmentMessage && (
+        <div className="px-5 py-4 border-b border-amber-100 bg-amber-50/60">
+          <p className="text-sm text-amber-800 leading-relaxed">{assessmentMessage}</p>
+        </div>
+      )}
 
       {/* Narrative */}
       {risk.narrative && (
@@ -368,7 +381,9 @@ function RiskIntelligenceSection({ risk }) {
           { label: 'Low',      count: counts.low,      cls: 'text-blue-600'   },
         ].map(({ label, count, cls }) => (
           <div key={label} className="flex flex-col items-center py-4 gap-0.5">
-            <span className={`text-xl font-bold ${cls}`}>{count ?? 0}</span>
+            <span className={`text-xl font-bold ${cls}`}>
+              {risk.incomplete && !(count > 0) ? '—' : (count ?? 0)}
+            </span>
             <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{label}</span>
           </div>
         ))}
@@ -442,7 +457,7 @@ function RemediationItem({ item, index, tier }) {
   )
 }
 
-function RemediationSection({ plan }) {
+function RemediationSection({ plan, assessmentMessage = null }) {
   const [activeTab, setActiveTab] = useState('p1')
 
   if (!plan || plan.error) {
@@ -472,6 +487,12 @@ function RemediationSection({ plan }) {
         aside={<span className="text-xs text-gray-400">{summary.total ?? 0} total actions</span>}
       />
 
+      {plan.incomplete && assessmentMessage && (
+        <div className="px-5 py-4 border-b border-amber-100 bg-amber-50/60">
+          <p className="text-sm text-amber-800 leading-relaxed">{assessmentMessage}</p>
+        </div>
+      )}
+
       {/* Tier tabs */}
       <div className="flex border-b border-gray-100">
         {tiers.map(t => (
@@ -494,8 +515,17 @@ function RemediationSection({ plan }) {
       <div className="p-4 space-y-2.5 max-h-[480px] overflow-y-auto">
         {!active?.items?.length ? (
           <div className="flex items-center gap-2 py-6 justify-center text-sm text-gray-400">
-            <CheckCircle className="w-4 h-4 text-brand-500" />
-            No {activeTab.toUpperCase()} items
+            {plan.incomplete ? (
+              <>
+                <Info className="w-4 h-4 text-amber-500" />
+                {assessmentMessage || 'Assessment incomplete'}
+              </>
+            ) : (
+              <>
+                <CheckCircle className="w-4 h-4 text-brand-500" />
+                No {activeTab.toUpperCase()} items
+              </>
+            )}
           </div>
         ) : (
           active.items.map((item, i) => (
@@ -524,12 +554,16 @@ function EmailControl({ label, status, statusCls, detail, mono, warning }) {
   )
 }
 
-function EmailIntelSection({ intel, dmarcPresentation = null }) {
-  if (!intel || intel.error) {
+function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage = null }) {
+  if (!intel || intel.error || !isPhase5EvidenceAvailable(intel)) {
     return (
       <div className="card overflow-hidden">
         <SectionHeader icon={Mail} title="Email Security Intelligence" iconBg="bg-blue-50" iconColor="text-blue-600" />
-        <EmptyState icon={Mail} title="No email intelligence data" subtitle={intel?.error} />
+        <EmptyState
+          icon={Mail}
+          title="No email intelligence data"
+          subtitle={!isPhase5EvidenceAvailable(intel) ? assessmentMessage : intel?.error}
+        />
       </div>
     )
   }
@@ -815,12 +849,16 @@ function TechDetectionSection({ tech }) {
 
 // ── Section: CVE Intelligence ─────────────────────────────────────────────────
 
-function CveIntelSection({ cve }) {
-  if (!cve || cve.error) {
+function CveIntelSection({ cve, assessmentMessage = null }) {
+  if (!cve || cve.error || !isPhase5EvidenceAvailable(cve)) {
     return (
       <div className="card overflow-hidden">
         <SectionHeader icon={Bug} title="CVE Intelligence" iconBg="bg-red-50" iconColor="text-red-500" />
-        <EmptyState icon={Bug} title="No CVE data" subtitle={cve?.error} />
+        <EmptyState
+          icon={Bug}
+          title="No CVE data"
+          subtitle={!isPhase5EvidenceAvailable(cve) ? assessmentMessage : cve?.error}
+        />
       </div>
     )
   }
@@ -902,12 +940,16 @@ function CveIntelSection({ cve }) {
 
 // ── Section: Known Exploited Vulnerabilities (CISA KEV) ──────────────────────
 
-function KevSection({ kev }) {
-  if (!kev || kev.error) {
+function KevSection({ kev, assessmentMessage = null }) {
+  if (!kev || kev.error || !isPhase5EvidenceAvailable(kev)) {
     return (
       <div className="card overflow-hidden">
         <SectionHeader icon={Flame} title="CISA KEV Matches" iconBg="bg-red-50" iconColor="text-red-500" />
-        <EmptyState icon={Flame} title="No KEV data" subtitle={kev?.error} />
+        <EmptyState
+          icon={Flame}
+          title="No KEV data"
+          subtitle={!isPhase5EvidenceAvailable(kev) ? assessmentMessage : kev?.error}
+        />
       </div>
     )
   }
@@ -1157,17 +1199,30 @@ export default function IntelligencePage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
             <div className="lg:col-span-2 space-y-6">
-              <RiskIntelligenceSection risk={modules.risk_intelligence} />
-              <RemediationSection      plan={modules.remediation_plan} />
+              <RiskIntelligenceSection
+                risk={modules.risk_intelligence}
+                assessmentMessage={report.assessment?.message}
+              />
+              <RemediationSection
+                plan={modules.remediation_plan}
+                assessmentMessage={report.assessment?.message}
+              />
               <EmailIntelSection
                 intel={modules.email_security_intelligence}
                 dmarcPresentation={report.dmarc_policy_presentation}
+                assessmentMessage={report.assessment?.message}
               />
-              <CveIntelSection         cve={modules.cve_intelligence} />
+              <CveIntelSection
+                cve={modules.cve_intelligence}
+                assessmentMessage={report.assessment?.message}
+              />
             </div>
 
             <div className="space-y-6">
-              <KevSection           kev={modules.known_exploited_vulnerabilities} />
+              <KevSection
+                kev={modules.known_exploited_vulnerabilities}
+                assessmentMessage={report.assessment?.message}
+              />
               <TechDetectionSection tech={modules.technology_detection} />
             </div>
 
