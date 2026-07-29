@@ -1,8 +1,8 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.07.29-dns-absence-as-evidence.3adcaf15a591",
-  "closure_sha256": "3adcaf15a591ee2a6e73580b62063021f81581211927b23377b4f07dd03982c7",
+  "app_version": "2026.07.29-dns-absence-as-evidence.1a0c310caf7e",
+  "closure_sha256": "1a0c310caf7e0904cc9f50951531c3f1774596a220d5fb4af15e4626c2d271b4",
   "closure_file_count": 82,
   "scan_api_file_count": 80,
   "files": [

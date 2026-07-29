@@ -14,8 +14,11 @@
 //     { executed:false, incomplete:true, outcome:"deadline_exceeded" }
 //       → critical "Domain Does Not Resolve"  score_impact -30  (score 75 → 45)
 //
-// Absence of evidence scored as evidence of absence. Latent: 0 DNS deadlines in
-// production to date.
+// Absence of evidence scored as evidence of absence. Production has recorded 0 DNS
+// deadline fallbacks to date — a MEASURED historical fact, not a claim that the path
+// cannot be reached. It is reached whenever the DNS module exceeds its 750ms hard cap
+// under a normal budget (raceModuleDeadline → onDeadline → fallback), which section B
+// drives end to end.
 //
 // THE FIX. Scoring consumes the CANONICAL DNS resolution vocabulary already
 // implemented for Attack Surface (attack-surface-signal-completeness.js) — one
@@ -40,7 +43,7 @@ const { moduleCompletionGate } = await import(engUrl("asm-cases.js"));
 
 const NOW = "2026-07-29T09:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
-const EXPECTED_MUTANTS = 6;
+const EXPECTED_MUTANTS = 8;
 
 let passed = 0, failed = 0, killed = 0;
 const ok = (name, cond, detail = "") => {
@@ -209,12 +212,24 @@ function seedDnsCase(db) {
        'awaiting_verification','{}','[]', datetime('now','-5 days'), datetime('now','-1 day'))`).run();
 }
 
-async function trace({ deadlineMs = "0", seed = false } = {}) {
+// The REAL production path. `runCappedModule` reaches the DNS fallback from TWO
+// places: the launch gate, and the raceModuleDeadline HARD-CAP race. Under a normal
+// 19000ms budget the launch gate always passes for DNS (750ms estimate, first module),
+// but the hard cap fires whenever DNS does not settle within 750ms:
+//
+//     raceModuleDeadline(deadline, run, onDeadline, { hardMs: 750 })
+//       capMs = min(750, remaining) → real setTimeout(750)
+//       winner === DEADLINE → onDeadline() → controller.abort() → fallback()
+//
+// Hanging DoH makes the DNS module exceed that cap deterministically, so this drives
+// the genuine chain — not a helper call and not a source regex.
+async function trace({ seed = false, engine = null, slowResolution = true } = {}) {
   const db = buildDb(); const store = new Map();
   const env = {
     cybermeters_db: makeD1(db), cybermeters_reports: makeR2(store),
     SCAN_CAPACITY_MODE: "legacy", SCAN_SUBREQUEST_LIMIT: "200",
-    SCAN_DEADLINE_MS: deadlineMs, APP_VERSION: "dns-p1",
+    // NORMAL production budget — not 0, not clamped.
+    SCAN_DEADLINE_MS: "19000", APP_VERSION: "dns-p1",
   };
   db.prepare("INSERT INTO users (id, email) VALUES ('usr','o@example.com')").run();
   db.prepare("INSERT INTO workspaces (id, name, deleted_at) VALUES ('ws','DNS-P1',NULL)").run();
@@ -227,37 +242,32 @@ async function trace({ deadlineMs = "0", seed = false } = {}) {
   const prevFetch = globalThis.fetch, prevErr = console.error;
   globalThis.fetch = async (input) => {
     const url = new URL(String(input)); const host = url.hostname;
-    if (host === "crt.sh" || host === "api.certspotter.com") return json([]);
     if (host === "cloudflare-dns.com" || host === "dns.google") {
-      const name = String(url.searchParams.get("name") || "").toLowerCase();
       const type = String(url.searchParams.get("type") || "A").toUpperCase();
-      if (name === "example.com" && type === "A") return json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
-      return json({ Status: 0, Answer: [] });
+      const name = String(url.searchParams.get("name") || "").toLowerCase();
+      const answer = () => (name === "example.com" && type === "A" && !slowResolution)
+        ? json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] })
+        : json({ Status: 0, Answer: [] });
+      // Delay ONLY the DNS module's A/AAAA resolution contract, so IT exceeds its
+      // 750ms hard cap while every other module's lookups complete normally. Delaying
+      // all DoH would also defer email_security, whose own deadline fallback has a
+      // separate pre-existing crash (buildEmailRemediationActions reads `.raw` on an
+      // absent field) that would fail the scan and mask what is under test here.
+      if (slowResolution && (type === "A" || type === "AAAA")) {
+        return new Promise((res) => setTimeout(() => res(answer()), 1_200));
+      }
+      return answer();
     }
+    if (host === "crt.sh" || host === "api.certspotter.com") return json([]);
     return new Response("<html></html>", { status: 200, headers: { server: "nginx", "content-type": "text/html" } });
   };
   console.error = () => {};
-  // SCAN_DEADLINE_MS is clamped to a minimum, so 0 alone does not starve the FIRST
-  // module. An injected clock that jumps past the budget immediately after the
-  // deadline is created drives every module through its REAL fallback path.
-  // REACHABILITY, measured not assumed. SCAN_DEADLINE_MS is clamped to a 5000ms
-  // floor and the DNS module launches FIRST with a 750ms estimate, so canRun(750) is
-  // always true for it: the DNS *launch-gate* fallback is structurally UNREACHABLE
-  // through runScanEngine. (That is also why production has recorded 0 DNS deadline
-  // fallbacks — the P1 was latent for a structural reason, not by luck.) Starving the
-  // clock harder does not reach it either: the scan then fails before any module runs.
-  //
-  // The REACHABLE DNS deadline path is the in-flight abort — resolvers are queried and
-  // then cancelled — which yields resolution_assessed:false, a genuinely MEASURED
-  // outage. That is what this engine trace drives end to end. The unreachable
-  // launch-gate SHAPE is proven separately and directly in section A8 against the real
-  // exported helper, plus a source-literal guard below so a regression in
-  // scan-engine.js is caught even though runtime cannot reach it.
-  let clockCalls = 0;
-  const jumpingNow = () => (clockCalls++ < 5 ? NOW_MS : NOW_MS + 6_000);
+  // The clock is FROZEN so remainingMs stays at the full budget: the only thing that
+  // can end the DNS module is its own 750ms hard cap, on a real timer.
+  const runner = (engine || { runScanEngine }).runScanEngine;
   try {
-    await runScanEngine("scan-dns", "dom", "ws", "example.com", env,
-      { now: jumpingNow, executionContext: "queue", trigger: "manual" });
+    await runner("scan-dns", "dom", "ws", "example.com", env,
+      { now: () => NOW_MS, executionContext: "queue", trigger: "manual" });
   } catch { /* asserted from D1 */ }
   finally { globalThis.fetch = prevFetch; console.error = prevErr; }
 
@@ -267,45 +277,75 @@ async function trace({ deadlineMs = "0", seed = false } = {}) {
     db, report,
     dns: report?.modules?.dns || {},
     quality: db.prepare("SELECT scan_quality FROM scans WHERE id='scan-dns'").get()?.scan_quality ?? null,
+    dbStatus: db.prepare("SELECT status FROM scans WHERE id='scan-dns'").get()?.status ?? null,
+    reportError: report?.error ?? null,
+    email: report?.modules?.email_security || null,
     titles: db.prepare("SELECT title FROM findings WHERE scan_id='scan-dns'").all().map((r) => r.title),
+    findings: (report?.findings || []),
     domains: Object.fromEntries(db.prepare("SELECT domain_key, state, coverage, summary FROM cyber_mot_domain_states WHERE scan_id='scan-dns'").all().map((r) => [r.domain_key, r])),
   };
 }
 
-console.log("\n── B. real runScanEngine with SCAN_DEADLINE_MS=0 ──");
+console.log("\n── B. REAL runScanEngine, normal 19000ms budget, DNS exceeds its 750ms hard cap ──");
 const dl = await trace();
 ok("B: a report was produced", dl.report !== null);
-ok("B: the DNS module ran and its resolvers were aborted (in-flight deadline)",
-  dl.dns.incomplete === true && dl.dns.resolution_assessed === false,
-  JSON.stringify({ i: dl.dns.incomplete, ra: dl.dns.resolution_assessed }));
-ok("B: that is a MEASURED outage → canonical `unavailable`, never `absent`",
-  resolveDnsResolution({ dns: dl.dns }).state === "unavailable",
+// TERMINAL COMPLETION. Delaying ALL DoH also defers email_security, whose own
+// deadline fallback has a separate pre-existing crash that fails the scan and would
+// mask what is under test. Only the DNS resolution contract is slowed here, so the
+// scan must finish terminally with no exception.
+ok("B: the scan completed TERMINALLY with no exception",
+  dl.dbStatus === "completed" && dl.reportError == null,
+  JSON.stringify({ status: dl.dbStatus, error: dl.reportError }));
+ok("B: sibling modules completed normally — email_security is NOT deferred (isolation)",
+  dl.email != null && dl.email.executed !== false && dl.email.outcome !== "deadline_exceeded",
+  JSON.stringify({ e: dl.email?.executed, o: dl.email?.outcome }));
+ok("B: the DNS module took the DEADLINE fallback (hard-cap race)",
+  dl.dns.executed === false && dl.dns.incomplete === true && dl.dns.outcome === "deadline_exceeded",
+  JSON.stringify({ e: dl.dns.executed, i: dl.dns.incomplete, o: dl.dns.outcome }));
+ok("B: resolves is NULL", dl.dns.resolves === null, JSON.stringify(dl.dns.resolves));
+ok("B: resolves_any is NULL", dl.dns.resolves_any === null, JSON.stringify(dl.dns.resolves_any));
+ok("B: resolution_assessed is NULL — never false", dl.dns.resolution_assessed === null,
+  JSON.stringify(dl.dns.resolution_assessed));
+ok('B: resolution_observation_state is "not_assessed"',
+  dl.dns.resolution_observation_state === "not_assessed", String(dl.dns.resolution_observation_state));
+ok('B: incomplete_reason is "dns_not_executed"',
+  dl.dns.incomplete_reason === "dns_not_executed", String(dl.dns.incomplete_reason));
+ok("B: the PERSISTED R2 report preserves the explicit nulls",
+  Object.prototype.hasOwnProperty.call(dl.dns, "resolution_assessed") && dl.dns.resolution_assessed === null);
+ok("B: canonical signal is not_assessed — never `absent`",
+  resolveDnsResolution({ dns: dl.dns }).state === "not_assessed",
   JSON.stringify(resolveDnsResolution({ dns: dl.dns })));
-ok("B: the persisted report keeps the explicit contract field",
-  Object.prototype.hasOwnProperty.call(dl.dns, "resolution_assessed"));
-ok("B: scan_quality is partial", dl.quality === "partial", String(dl.quality));
+ok('B: NO "Domain Does Not Resolve" persisted to D1',
+  !dl.titles.includes("Domain Does Not Resolve"), dl.titles.join(" | "));
+{
+  const f = dl.findings.find((x) => x.id === "dns_no_resolution");
+  ok("B: no dns_no_resolution in the report", !f, JSON.stringify(f && f.severity));
+  ok("B: no -30 score penalty", !f || Number(f.score_impact || 0) === 0);
+}
+ok("B: scan_quality.status is partial (report + D1)",
+  dl.report?.scan_quality?.status === "partial" && dl.quality === "partial",
+  JSON.stringify({ rep: dl.report?.scan_quality?.status, d1: dl.quality }));
 {
   const as = dl.domains.attack_surface || {};
-  ok("B: attack_surface publishes NO healthy/complete verdict",
+  ok("B: attack_surface customer projection is NOT healthy and NOT complete",
     as.state !== "assessed_healthy" && as.coverage !== "complete", JSON.stringify(as));
+  ok('B: …and does not say "Assessed — no material issue observed"',
+    !/Assessed — no material issue observed/.test(String(as.summary || "")), String(as.summary));
 }
 
-// ── B2. SOURCE GUARD for the structurally unreachable launch-gate fallback ──
-// Runtime cannot reach it (see the reachability note above), so the shipped literal
-// is asserted directly. Without this, a regression restoring the bare
-// `markDeadlineDeferred({ source: "dns" })` shape would pass unnoticed.
-console.log("\n── B2. shipped DNS launch-gate fallback literal ──");
+// ── B2. SEPARATE positive semantic control: a MEASURED resolver outage ──────
+// resolution_assessed:false means resolvers WERE queried and gave no authoritative
+// answer. This is NOT the deadline-fallback proof and is not presented as one; it
+// exists so the two states stay demonstrably distinct.
+console.log("\n── B2. measured resolver outage (separate control, not the deadline proof) ──");
 {
-  const engineSrc = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/scan-engine.js"), "utf8");
-  const dnsFallback = (engineSrc.match(/runCappedModule\("dns",[\s\S]{0,600}?\}\)/) || [""])[0];
-  ok("B2: the shipped fallback sets resolution_assessed: null (never false)",
-    /resolution_assessed: null/.test(dnsFallback) && !/resolution_assessed: false/.test(dnsFallback),
-    dnsFallback.slice(0, 200));
-  ok("B2: it sets resolves / resolves_any null and an explicit not-assessed state",
-    /resolves: null/.test(dnsFallback) && /resolves_any: null/.test(dnsFallback) &&
-    /resolution_observation_state: "not_assessed"/.test(dnsFallback));
-  ok("B2: it carries the honest deadline incomplete_reason",
-    /incomplete_reason: "dns_not_executed"/.test(dnsFallback));
+  const measured = { resolves: false, resolves_any: false, resolution_assessed: false, incomplete: true, incomplete_reason: "dns_resolution_unavailable" };
+  ok("B2: executed resolver outage → canonical `unavailable` (a MEASURED result)",
+    resolveDnsResolution({ dns: measured }).state === "unavailable");
+  ok("B2: it is DISTINCT from the deadline fallback's not_assessed",
+    resolveDnsResolution({ dns: measured }).state !== resolveDnsResolution({ dns: dl.dns }).state);
+  ok("B2: neither produces the critical finding",
+    !firesCritical(measured) && !firesCritical(dl.dns));
 }
 
 // ── L. LIFECYCLE / CASE NON-PROGRESSION ─────────────────────────────────────
@@ -409,6 +449,60 @@ const MUTATIONS = [
     check: (mod) => scoreDns(mod, { resolves: false, resolves_any: false, resolution_assessed: true }) === null,
   },
 ];
+// ENGINE-BOUND mutants: the mutated engine is imported and the FULL trace re-run
+// through it, so the proof is the real pipeline's output — not a source regex.
+const ENGINE_MUTATIONS = [
+  {
+    name: "E1 the deadline fallback's nulls are flipped back to false (REAL trace)",
+    from: "resolves: null, resolves_any: null, resolution_assessed: null,",
+    to:   "resolves: false, resolves_any: false, resolution_assessed: false,",
+    check: (t) => t.dns.resolution_assessed === false,
+  },
+  {
+    name: "E2 the deadline fallback drops its `incomplete` marker (REAL trace)",
+    target: path.join(root, "workers/scan-api/src/engines/scan-budget.js"),
+    from: "    executed:   false,\n    incomplete: true,",
+    to:   "    executed:   false,",
+    check: (t) => t.report?.scan_quality?.status !== "partial" || t.quality !== "partial",
+  },
+];
+for (const m of ENGINE_MUTATIONS) {
+  const target = m.target || SCAN_ENGINE;
+  const original = fs.readFileSync(target, "utf8");
+  const mutated = original.replace(m.from, m.to);
+  const applied = mutated !== original;
+  ok(`${m.name} :: mutation APPLIED (anchor matches product source)`, applied,
+    "anchor not found — this mutation tests NOTHING");
+  if (!applied) continue;
+  const mutantName = `.${path.basename(target, ".js")}.mutant.eng.${process.pid}.js`;
+  const mutantFile = path.join(path.dirname(target), mutantName);
+  const engineName = `.scan-engine.mutant.eng.${process.pid}.js`;
+  const engineFile = path.join(path.dirname(SCAN_ENGINE), engineName);
+  const written = [mutantFile];
+  fs.writeFileSync(mutantFile, mutated);
+  try {
+    let engineMod;
+    if (target === SCAN_ENGINE) {
+      engineMod = await import(`${pathToFileURL(mutantFile).href}?t=${Date.now()}-${Math.random()}`);
+    } else {
+      // Dependency mutation: point a copy of scan-engine at the mutant so the real
+      // engine consumes it (a temp-dir copy would import the pristine original).
+      const engineSrc = fs.readFileSync(SCAN_ENGINE, "utf8")
+        .split(`./${path.basename(target)}`).join(`./${mutantName}`);
+      fs.writeFileSync(engineFile, engineSrc);
+      written.push(engineFile);
+      engineMod = await import(`${pathToFileURL(engineFile).href}?t=${Date.now()}-${Math.random()}`);
+    }
+    const mt = await trace({ engine: engineMod });
+    const caught = (await m.check(mt)) === true;
+    if (caught) killed += 1;
+    ok(`${m.name} :: defect REAPPEARS in the REAL engine trace`, caught,
+      JSON.stringify({ ra: mt.dns?.resolution_assessed, q: mt.quality }));
+  } finally {
+    for (const f of written) fs.rmSync(f, { force: true });
+  }
+}
+
 for (const m of MUTATIONS) {
   const r = await withMutant(m, (mod) => m.check(mod));
   ok(`${m.name} :: mutation APPLIED (anchor matches product source)`, r.applied,
@@ -419,7 +513,7 @@ for (const m of MUTATIONS) {
 }
 ok(`mutants killed: ${killed}/${EXPECTED_MUTANTS} (pinned)`, killed === EXPECTED_MUTANTS,
   `expected exactly ${EXPECTED_MUTANTS}, killed ${killed}`);
-ok(`mutation table pinned at ${EXPECTED_MUTANTS}`, MUTATIONS.length === EXPECTED_MUTANTS);
+ok(`mutation table pinned at ${EXPECTED_MUTANTS}`, MUTATIONS.length + ENGINE_MUTATIONS.length === EXPECTED_MUTANTS);
 const strays = fs.readdirSync(path.join(root, "workers/scan-api/src/engines")).filter((f) => f.includes(".mutant."));
 ok("no mutant file left behind", strays.length === 0, strays.join(", "));
 

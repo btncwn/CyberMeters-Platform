@@ -176,10 +176,14 @@ export function resolveDnsResolution(modules) {
     return signal("absent", "authoritative_dns_absence", { sources: ["dns"] });
   }
   // `undefined` (contract never recorded) and `null` (probe not executed — nothing
-  // measured) are both NON-MEASUREMENTS and must not fall through to `unavailable`,
-  // which means "resolvers were queried but gave no authoritative answer" — a
-  // genuinely MEASURED outage. Collapsing the two would reintroduce the same
-  // absence-as-evidence defect under a different field value.
+  // measured) are both NON-MEASUREMENTS. Without this they fell through to
+  // `unavailable`, which means "resolvers WERE queried and gave no authoritative
+  // answer" — a genuinely MEASURED outage.
+  //
+  // Scope note: this is NOT a second producer of the critical absence verdict —
+  // `unavailable` never fires dns_no_resolution either. It is a distinct
+  // evidence-state defect: a non-measurement was being classified as a measurement,
+  // which misreports WHY the signal is missing to every completeness consumer.
   if (dns.resolution_assessed === undefined || dns.resolution_assessed === null) {
     return signal("incomplete", "dns_resolution_contract_not_recorded", {
       sources: ["dns"],
