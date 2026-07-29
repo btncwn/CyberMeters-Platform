@@ -141,13 +141,21 @@ export function evaluateSpfAuthorizationCorroboration({ domain, sources = [], re
   return { findings, comparison_performed: complete };
 }
 
-// ── Wiring: run at scan-finalize, emit through the canonical alert path ────────
+// ── Wiring: run at scan-finalize, emit through canonical delivery ─────────────
 // Reads the FRESH resolved-authorisation snapshot from the report being finalised
 // (modules.email_security.spf) + the domain's recent RUA fail-sources, evaluates,
 // and routes each finding through emitManagedAlert (which owns dedupe / activation
 // watermark / entitlement / delivery). Non-fatal by contract — a corroboration
 // failure never affects scan completion. Bounded: recent RUA rows only, grouped
 // per source IP, one alert per (domain, source_ip) via the dedupe_key.
+//
+// DELIBERATE NON-LIFECYCLE EXEMPTION: this producer has no append-only managed
+// condition occurrence, recurrence-severity map or lifecycle record. Routing it
+// through emitLifecycleAlert would fabricate those semantics and change alert
+// eligibility. It therefore owns its evidence-tier title/body, resolves its action
+// through the canonical remediation registry, and enters at emitManagedAlert.
+// validate-customer-alert-evidence-fidelity.js pins the complete direct-caller set,
+// so another direct runtime emitter cannot be added silently.
 export async function recordSpfRuaCorroboration(scanId, domainId, domain, modules, env, opts = {}) {
   const spf = modules?.email_security?.spf;
   const spfPolicy = modules?.email_security?.spf_detail?.policy_strength || "unknown";

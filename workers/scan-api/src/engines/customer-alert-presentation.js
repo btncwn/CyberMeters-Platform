@@ -19,7 +19,6 @@ const HTTPS_UNCERTAIN = Object.freeze({
   recommended_action: HTTPS_REVIEW_ACTION,
   remediation_id: null,
   presentation_state: "observation_unavailable",
-  publish: true,
 });
 
 const REDIRECT_UNCERTAIN = Object.freeze({
@@ -28,7 +27,22 @@ const REDIRECT_UNCERTAIN = Object.freeze({
   recommended_action: HTTPS_REVIEW_ACTION,
   remediation_id: null,
   presentation_state: "observation_unavailable",
-  publish: true,
+});
+
+const HTTPS_CONFLICT = Object.freeze({
+  title: "HTTPS evidence requires review",
+  what_changed: "CyberMeters observed conflicting HTTPS/TLS evidence during this assessment and could not confirm the reported transport condition.",
+  recommended_action: "Review the alert evidence and run another assessment. If the conflict persists, verify the site configuration with your hosting provider.",
+  remediation_id: null,
+  presentation_state: "evidence_conflict",
+});
+
+const REDIRECT_CONFLICT = Object.freeze({
+  title: "HTTP-to-HTTPS redirect evidence requires review",
+  what_changed: "CyberMeters observed conflicting HTTP-to-HTTPS redirect evidence during this assessment and could not confirm the reported redirect condition.",
+  recommended_action: "Review the alert evidence and run another assessment. If the conflict persists, verify the redirect configuration with your hosting provider.",
+  remediation_id: null,
+  presentation_state: "evidence_conflict",
 });
 
 function observationState(moduleEvidence, findingType) {
@@ -49,7 +63,6 @@ function canonicalResult(canonical, state) {
     recommended_action: canonical?.recommended_action || "Review this alert in CyberMeters.",
     remediation_id: canonical?.remediation_id || null,
     presentation_state: state,
-    publish: true,
   };
 }
 
@@ -90,13 +103,13 @@ export function resolveCustomerAlertPresentation({
     if (publishable && module_evidence?.https_available === false) {
       return canonicalResult(canonical, "positively_observed_certificate_defect");
     }
-    // A completed healthy observation can never be converted into an uncertainty
-    // warning. This is a contradiction guard only; the canonical finding/lifecycle
-    // gates prevent this combination on the normal path.
+    // A completed healthy observation contradicting an eligible lifecycle
+    // occurrence is surfaced as an explicit evidence conflict. Presentation must
+    // never suppress the occurrence: conflict is visible, bounded and reviewable.
     if (publishable && module_evidence?.https_available === true) {
       return {
-        ...canonicalResult(canonical, "positively_observed_healthy"),
-        publish: false,
+        ...HTTPS_CONFLICT,
+        evidence_state: observationState(module_evidence, type),
       };
     }
     return {
@@ -119,8 +132,8 @@ export function resolveCustomerAlertPresentation({
   }
   if (publishable && module_evidence?.http_redirects_to_https === true) {
     return {
-      ...canonicalResult(canonical, "positively_observed_healthy"),
-      publish: false,
+      ...REDIRECT_CONFLICT,
+      evidence_state: observationState(module_evidence, type),
     };
   }
   return {

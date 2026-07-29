@@ -2,13 +2,14 @@
 //
 // PR-B — customer alert evidence-fidelity, DB-backed and mutation-proved.
 //
-// Every non-healthy fixture traverses the production managed-alert chain:
+// Every uncertainty, conflict and positive-defect fixture traverses the
+// production managed-alert chain:
 // emitLifecycleAlert → resolveCustomerAlertPresentation → emitManagedAlert →
 // buildAlertEmailFields → formatAlertEmail → sendTenantAlertEmail. The suite
 // inspects both the persisted in-app notification and the exact Resend payload.
 //
 // Mutants run the same suite in fresh Node processes against a copied engine
-// tree, so module caching cannot hide a restored overclaim.
+// tree, so module caching cannot hide a restored overclaim or silent suppression.
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -23,11 +24,10 @@ const eng = (file) => pathToFileURL(path.join(engineSrc, "engines", file)).href;
 const mutantChild = process.argv.includes("--mutant-child");
 
 const { emitLifecycleAlert } = await import(eng("alert-consumers.js"));
-const { resolveCustomerAlertPresentation } = await import(eng("customer-alert-presentation.js"));
 const { evaluateWebsiteSecurityForScan } = await import(eng("website-security-lifecycle.js"));
 
-const EXPECTED_ASSERTIONS = 125;
-const EXPECTED_MUTANTS = 7;
+const EXPECTED_ASSERTIONS = 156;
+const EXPECTED_MUTANTS = 8;
 let passed = 0;
 let failed = 0;
 const ok = (name, condition, detail = "") => {
@@ -40,6 +40,37 @@ const ok = (name, condition, detail = "") => {
 const eq = (name, got, want) =>
   ok(name, JSON.stringify(got) === JSON.stringify(want),
     `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
+
+function directManagedAlertCallMap() {
+  const calls = new Map();
+  const visit = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const absolute = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolute);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith(".js")) continue;
+      const source = fs.readFileSync(absolute, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:])\/\/.*$/gm, "$1")
+        .replace(/export\s+async\s+function\s+emitManagedAlert\s*\(/g, "");
+      const count = source.match(/\bemitManagedAlert\s*\(/g)?.length || 0;
+      if (count > 0) calls.set(path.relative(engineSrc, absolute), count);
+    }
+  };
+  visit(engineSrc);
+  return calls;
+}
+
+const directManagedAlertCalls = directManagedAlertCallMap();
+eq("direct emitManagedAlert runtime caller set is pinned",
+  [...directManagedAlertCalls.keys()].sort(),
+  ["engines/alert-consumers.js", "engines/spf-corroboration.js"]);
+eq("lifecycle presentation bottleneck owns exactly one direct emitter call",
+  directManagedAlertCalls.get("engines/alert-consumers.js"), 1);
+eq("SPF corroboration deliberate non-lifecycle exemption owns exactly one direct emitter call",
+  directManagedAlertCalls.get("engines/spf-corroboration.js"), 1);
 
 function buildDb() {
   const db = new DatabaseSync(":memory:");
@@ -252,6 +283,29 @@ function assertUncertain(label, trace, headline) {
     ));
 }
 
+function assertConflict(label, trace, headline) {
+  const body = mailText(trace);
+  assertParity(label, trace);
+  eq(`${label}: bounded conflict headline`, trace.notification?.title, headline);
+  eq(`${label}: conflict state is explicit`,
+    trace.notification?.metadata?.presentation_state, "evidence_conflict");
+  ok(`${label}: body names conflicting evidence without asserting a defect`,
+    /conflicting .* evidence/i.test(trace.notification?.message || "")
+    && /could not confirm/i.test(trace.notification?.message || ""));
+  ok(`${label}: action requests review and another assessment`,
+    /Review the alert evidence and run another assessment/i
+      .test(trace.notification?.metadata?.recommended_action || ""));
+  ok(`${label}: subject never claims a missing certificate`,
+    !/missing certificate|install.*certificate|no certificate/i.test(trace.mail?.subject || ""));
+  ok(`${label}: body never claims traffic is unencrypted`,
+    !/all traffic.*unencrypted|serves only unencrypted|traffic is unencrypted/i.test(body));
+  ok(`${label}: action never says install/renew/replace a certificate`,
+    !/\b(install|renew|replace)\b[^.]{0,50}\bcertificate\b/i
+      .test(trace.notification?.metadata?.recommended_action || ""));
+  eq(`${label}: certificate remediation identity is withheld`,
+    trace.notification?.metadata?.remediation_id, null);
+}
+
 console.log("── PR-B real customer-renderer traces ──");
 
 // 1. Cloudflare edge / origin unreachable.
@@ -356,7 +410,7 @@ assertUncertain(
   "HTTP-to-HTTPS redirect could not be verified",
 );
 
-// 6. Completed healthy evidence creates no alert in the real lifecycle.
+// 6. Completed healthy evidence creates no occurrence in the real evaluator.
 {
   const fx = seedWorkspace("healthy");
   activate(fx, "website_security");
@@ -385,23 +439,42 @@ assertUncertain(
   eq("healthy control: evaluator emitted zero alerts", result.alerts, 0);
   eq("healthy control: no notification persisted", latestNotification(fx), null);
   eq("healthy control: no email rendered", sent.length, beforeMail);
-  const direct = resolveCustomerAlertPresentation({
-    domain_key: "website_security",
-    recurrence: "transport_not_available",
-    finding_type: "ssl_not_available",
-    module_evidence: { https_available: true },
-    canonical: {
-      title: "Enable HTTPS with a valid certificate",
-      what_changed: "defect",
-      recommended_action: "Install a certificate",
-    },
-  });
-  eq("healthy control: contradiction guard refuses publication", direct.publish, false);
-  ok("healthy control: never converted into an uncertainty warning",
-    direct.presentation_state === "positively_observed_healthy");
 }
 
-// 7 + 8. Cyber Essentials control-area labels through the same renderer.
+// 7. If an eligible certificate occurrence contradicts completed healthy
+// evidence, presentation surfaces the conflict; it never suppresses delivery.
+const certificateConflict = await emitWebsite("certificateconflict", {
+  https_available: true,
+  https_probe_executed: true,
+  https_observation_state: "origin_response",
+  https_observation_completeness: "observed",
+});
+assertConflict("certificate evidence conflict", certificateConflict, "HTTPS evidence requires review");
+eq("certificate conflict preserves completed observation state",
+  certificateConflict.notification?.metadata?.evidence_state, "origin_response");
+
+// 8. The redirect contradiction follows the same no-suppression contract.
+const redirectConflict = await emitWebsite("redirectconflict", {
+  https_available: true,
+  http_redirects_to_https: true,
+  http_redirect_chain: {
+    observation_state: "origin_response",
+    observation_completeness: "observed",
+    http_redirect_validated: true,
+  },
+}, {
+  recurrence: "insecure_redirect",
+  findingType: "ssl_no_http_redirect",
+});
+assertConflict(
+  "redirect evidence conflict",
+  redirectConflict,
+  "HTTP-to-HTTPS redirect evidence requires review",
+);
+eq("redirect conflict preserves completed observation state",
+  redirectConflict.notification?.metadata?.evidence_state, "origin_response");
+
+// 9 + 10. Cyber Essentials control-area labels through the same renderer.
 for (const [key, controlKey, label] of [
   ["ceboundary", "boundary_protection", "Boundary Protection"],
   ["cesecure", "secure_configuration", "Secure Configuration"],
@@ -422,7 +495,7 @@ for (const [key, controlKey, label] of [
     && /Cyber Essentials page/i.test(trace.notification?.metadata?.recommended_action || ""));
 }
 
-// 9. Trustworthy sibling evidence survives an uncertain HTTPS observation.
+// 11. Trustworthy sibling evidence survives an uncertain HTTPS observation.
 const mixed = await emitWebsite("mixed", {
   https_available: null,
   https_probe_executed: true,
@@ -491,6 +564,21 @@ async function runMutants() {
       from: "      ...HTTPS_UNCERTAIN,\n      evidence_state: observationState(module_evidence, type),",
       to: "      ...HTTPS_UNCERTAIN,\n      recommended_action: canonical?.recommended_action || HTTPS_REVIEW_ACTION,\n      evidence_state: observationState(module_evidence, type),",
     },
+    {
+      name: "M8 restore presentation-driven silent suppression",
+      edits: [
+        {
+          file: "engines/customer-alert-presentation.js",
+          from: "        ...HTTPS_CONFLICT,\n        evidence_state: observationState(module_evidence, type),",
+          to: "        ...HTTPS_CONFLICT,\n        publish: false,\n        evidence_state: observationState(module_evidence, type),",
+        },
+        {
+          file: "engines/alert-consumers.js",
+          from: "    });\n\n    return await emitManagedAlert(env, {",
+          to: "    });\n    if (presentation.publish !== true) return { skipped: \"evidence_does_not_support_alert\" };\n\n    return await emitManagedAlert(env, {",
+        },
+      ],
+    },
   ];
 
   eq("mutant definitions are pinned", mutations.length, EXPECTED_MUTANTS);
@@ -500,12 +588,27 @@ async function runMutants() {
     const copiedSrc = path.join(temp, "src");
     try {
       fs.cpSync(path.join(root, "workers", "scan-api", "src"), copiedSrc, { recursive: true });
-      const target = path.join(copiedSrc, mutation.file);
-      const source = fs.readFileSync(target, "utf8");
-      const matches = source.split(mutation.from).length - 1;
-      ok(`${mutation.name}: anchor matches exactly once`, matches === 1, `matches=${matches}`);
-      if (matches !== 1) continue;
-      fs.writeFileSync(target, source.replace(mutation.from, mutation.to));
+      const edits = mutation.edits || [{
+        file: mutation.file,
+        from: mutation.from,
+        to: mutation.to,
+      }];
+      const prepared = [];
+      const anchorDetails = [];
+      let anchorsValid = true;
+      for (const edit of edits) {
+        const target = path.join(copiedSrc, edit.file);
+        const source = fs.readFileSync(target, "utf8");
+        const matches = source.split(edit.from).length - 1;
+        anchorDetails.push(`${edit.file}=${matches}`);
+        if (matches !== 1) anchorsValid = false;
+        prepared.push({ ...edit, target, source });
+      }
+      ok(`${mutation.name}: anchors match exactly once`, anchorsValid, anchorDetails.join(", "));
+      if (!anchorsValid) continue;
+      for (const edit of prepared) {
+        fs.writeFileSync(edit.target, edit.source.replace(edit.from, edit.to));
+      }
       const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "--mutant-child"], {
         cwd: root,
         env: { ...process.env, PR_B_ENGINE_SRC: copiedSrc },

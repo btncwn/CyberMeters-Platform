@@ -635,7 +635,6 @@ export async function emitLifecycleAlert(env, {
         remediation_id: resolved?.remediation_id || null,
       },
     });
-    if (presentation.publish !== true) return { skipped: "evidence_does_not_support_alert" };
 
     return await emitManagedAlert(env, {
       workspace_id, domain_key,

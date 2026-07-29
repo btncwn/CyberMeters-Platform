@@ -72,6 +72,7 @@ the compatibility fallback rendered `Affected Domain: boundary_protection`.
 | Scorecard/current posture/business risk | Latest scan report/D1 counts plus canonical remediations | New incomplete evidence is handled by existing partial/publishability contracts | No change. PR-B does not alter scoring, risk, BRS or Phase-5 behaviour. |
 | Historical scan diff and legacy `new_finding` notification | Stored report finding IDs/titles; legacy outbound delivery for `new_finding` is already suppressed | Historical false rows can remain visible as immutable history; no new uncertain material finding is produced | Intentionally unchanged. Historical notification/finding rows are not rewritten. The managed lifecycle path is the authoritative new alert path. |
 | Canonical remediation registry | Static specific actions for `ssl_not_available` and `ssl_no_http_redirect` | Safe only when the finding is backed by completed positive evidence | Registry meaning is preserved. The presentation resolver withholds that specific action only when the supplied canonical evidence is non-publishable. |
+| SPF-RUA corroboration | A scan-finalization evidence producer enters the canonical delivery pipeline directly through `emitManagedAlert()` | No HTTPS/certificate/redirect presentation reachability; it has no managed condition occurrence or lifecycle recurrence | Deliberate non-lifecycle exemption. Routing it through `emitLifecycleAlert()` would fabricate occurrence and severity semantics. Its tier owns title/body, the canonical registry owns action, its real-emitter suite remains CI-blocking, and this PR pins the complete direct `emitManagedAlert()` caller set so no new bypass can appear silently. |
 
 No other customer-facing consumer was found that applies the certificate-install
 action, the unencrypted-traffic claim or the CE domain label to an uncertainty
@@ -96,12 +97,15 @@ distinction.
    validation field when no observation state exists).
 5. Missing, unavailable, deferred or incomplete evidence selects one bounded
    uncertainty presentation and clears the certificate/redirect remediation id.
-6. Completed healthy evidence is a contradiction guard that refuses publication;
-   the normal finding and lifecycle gates already prevent that combination.
+6. Completed healthy evidence normally creates no lifecycle occurrence. If an
+   already-eligible occurrence nevertheless contradicts that evidence, the
+   resolver returns a bounded `evidence_conflict` review presentation and clears
+   the certificate/redirect remediation id. It never suppresses delivery.
 
 `emitLifecycleAlert()` consumes the decision as one object. Subject, body,
 recommended action and remediation identity cannot select different evidence
-states.
+states. The resolver returns presentation only; it has no publish/suppress
+authority.
 
 The CE correction reuses the existing typed entity contract:
 
@@ -121,7 +125,8 @@ It does not create a CE-specific email engine or template.
 | Deadline-deferred/not assessed | Could inherit specific certificate remediation if an occurrence reached the consumer | Same bounded uncertainty presentation and explicit `not_assessed` metadata |
 | Completed positive certificate defect | Specific certificate copy | Preserved: specific certificate subject, positive completed-evidence explanation and install action |
 | Completed positive no-redirect defect | Specific redirect copy | Preserved: redirect subject, completed origin-observation explanation and 301 redirect action |
-| Completed healthy evidence | No alert | No alert; it is never converted into an uncertainty warning |
+| Completed healthy evidence with no occurrence | No alert | No alert; the evaluator does not create an occurrence |
+| Eligible certificate/redirect occurrence contradicts completed healthy evidence | Could inherit the specific defect subject/action, or be silently suppressed by an over-broad presentation guard | Alert remains eligible and delivered as a bounded `evidence_conflict` review state; no certificate-install, unencrypted-traffic or specific redirect-remediation claim |
 | CE `boundary_protection` | `Affected Domain: boundary_protection` | `Affected Control Area: Boundary Protection` |
 | CE `secure_configuration` | `Affected Domain: secure_configuration` | `Affected Control Area: Secure Configuration` |
 
@@ -148,14 +153,19 @@ It covers:
 3. not assessed/deadline incomplete;
 4. positively proven certificate defect;
 5. positively proven no-redirect defect;
-6. completed healthy evidence;
-7. CE Boundary Protection;
-8. CE Secure Configuration; and
-9. mixed uncertainty with independent Certificate Transparency sibling evidence.
+6. completed healthy evidence with no lifecycle occurrence;
+7. an eligible certificate occurrence contradicted by completed healthy evidence;
+8. an eligible redirect occurrence contradicted by completed healthy evidence;
+9. CE Boundary Protection;
+10. CE Secure Configuration; and
+11. mixed uncertainty with independent Certificate Transparency sibling evidence.
 
-The suite pins 125 assertions and seven mutants. Every mutant runs in a fresh
+The suite pins 156 assertions and eight mutants. Every mutant runs in a fresh
 Node process against a copied real engine tree. The anchors must each match
-exactly once, and the validator fails if fewer than seven mutants are killed.
+exactly once, and the validator fails if fewer than eight mutants are killed.
+It also pins the only two direct runtime `emitManagedAlert()` call sites:
+`alert-consumers.js` after the shared presentation decision, and the documented
+non-lifecycle SPF-RUA corroboration exemption.
 
 The mutants restore:
 
@@ -165,7 +175,9 @@ The mutants restore:
 - a finding-derived subject instead of the evidence-state subject;
 - generic uncertainty for a genuine certificate defect;
 - generic uncertainty for a genuine redirect defect; and
-- body/action selection from different evidence states.
+- body/action selection from different evidence states; and
+- presentation-driven `publish:false` plus the pre-delivery skip that silently
+  discards a contradictory eligible occurrence.
 
 ## Compatibility, closure and limitations
 
