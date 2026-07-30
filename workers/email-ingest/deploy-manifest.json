@@ -1,8 +1,8 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.07.30-subop-timing-telemetry.0d325b4ee346",
-  "closure_sha256": "0d325b4ee346781adcf06fce11cce758121b5a3b0b6f5da1bb76b4347b4ecfcc",
+  "app_version": "2026.07.30-subop-timing-telemetry.62ea25471fc5",
+  "closure_sha256": "62ea25471fc54120500f8622ad3c7b18478e9dc30db2aced614d3631dfe4a5fc",
   "closure_file_count": 84,
   "scan_api_file_count": 82,
   "files": [
