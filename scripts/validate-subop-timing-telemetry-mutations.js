@@ -5,9 +5,11 @@
 // Each production-source mutant is written as a temporary adjacent module and
 // the complete sub-operation telemetry validator is launched in a fresh Node
 // process against that module. A mutant counts as killed only when the child
-// exits non-zero AND the assertion tied to that mutation is the reported cause.
-// Anchor counts and the total mutant count are pinned so deletion or source drift
-// cannot silently turn this suite into a no-op.
+// completes through the validator's normal exit path with the exact expected
+// failure set: no syntax/import/runtime stderr, no signal, no extra assertion
+// failure, and a matching validator summary. Anchor counts and the total mutant
+// count are pinned so deletion or source drift cannot silently turn this suite
+// into a no-op.
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -17,6 +19,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers", "scan-api", "src", "engines");
 const validator = path.join(root, "scripts", "validate-subop-timing-telemetry.js");
 const EXPECTED_MUTANTS = 5;
+const EXPECTED_VALIDATOR_ASSERTIONS = 76;
 
 let mutantsKilled = 0;
 let failures = 0;
@@ -35,7 +38,14 @@ function replaceExactlyOnce(source, from, to, label) {
   return source.replace(from, to);
 }
 
-function runMutant({ name, sourceName, moduleEnv, expectedFailure, mutate }) {
+function failureNames(stdout) {
+  return String(stdout || "")
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("FAIL "))
+    .map((line) => line.slice(5).split(" — ")[0]);
+}
+
+function runMutant({ name, sourceName, moduleEnv, expectedFailures, mutate }) {
   sequence += 1;
   const sourcePath = path.join(engines, sourceName);
   const source = fs.readFileSync(sourcePath, "utf8");
@@ -62,15 +72,30 @@ function runMutant({ name, sourceName, moduleEnv, expectedFailure, mutate }) {
         [moduleEnv]: pathToFileURL(mutantPath).href,
       },
     });
-    const output = `${child.stdout || ""}\n${child.stderr || ""}`;
-    const killedForExpectedReason = child.status !== 0 && expectedFailure.test(output);
+    const actualFailures = failureNames(child.stdout);
+    const summary = String(child.stdout || "").match(
+      /subop-timing-telemetry: (\d+) passed, (\d+) failed/,
+    );
+    const exactFailureSet = JSON.stringify(actualFailures) === JSON.stringify(expectedFailures);
+    const normalValidatorExit = child.error == null
+      && child.signal == null
+      && child.status === 1
+      && String(child.stderr || "").trim() === ""
+      && summary != null
+      && Number(summary[2]) === expectedFailures.length
+      && Number(summary[1]) + Number(summary[2]) === EXPECTED_VALIDATOR_ASSERTIONS;
+    const killedForExpectedReason = normalValidatorExit && exactFailureSet;
     if (killedForExpectedReason) {
       mutantsKilled += 1;
       console.log(`PASS ${name}`);
     } else {
       fail(
         `${name}: mutant ${child.status === 0 ? "survived" : "failed for the wrong reason"}`
-        + `\n${output.trim()}`,
+        + `\nexpected failures: ${JSON.stringify(expectedFailures)}`
+        + `\nactual failures: ${JSON.stringify(actualFailures)}`
+        + `\nstatus=${child.status} signal=${child.signal} childError=${child.error?.message || "none"}`
+        + `\nstdout:\n${String(child.stdout || "").trim()}`
+        + `\nstderr:\n${String(child.stderr || "").trim()}`,
       );
     }
   } finally {
@@ -82,7 +107,7 @@ runMutant({
   name: "unguarded telemetry finish changes module behaviour",
   sourceName: "ssl-scan.js",
   moduleEnv: "SUBOP_TIMING_SSL_MODULE_URL",
-  expectedFailure: /hostile finish/,
+  expectedFailures: ["ssl result identical with THROWING collector"],
   mutate: (source) => replaceExactlyOnce(
     source,
     `  const subOpFinish = (token, res) => {
@@ -107,7 +132,13 @@ runMutant({
   name: "aborted collector completion reclassified as ok",
   sourceName: "scan-budget.js",
   moduleEnv: "SUBOP_TIMING_SCAN_BUDGET_MODULE_URL",
-  expectedFailure: /FAIL aborted flag wins over outcome/,
+  expectedFailures: [
+    "aborted flag wins over outcome",
+    "in-flight bare probe attributed as aborted",
+    "in-flight headers GET attributed as aborted",
+    "CT lookup in flight at cap attributed as aborted",
+    "bare probe in flight with CT attributed as aborted",
+  ],
   mutate: (source) => replaceExactlyOnce(
     source,
     `        if (entry.aborted) entry.outcome = "aborted";`,
@@ -120,7 +151,12 @@ runMutant({
   name: "post-cap ssl operations open telemetry rows",
   sourceName: "ssl-scan.js",
   moduleEnv: "SUBOP_TIMING_SSL_MODULE_URL",
-  expectedFailure: /FAIL NO row for (?:the )?post-cap www probe|FAIL NO row for CT-abort post-cap www probe/,
+  expectedFailures: [
+    "NO row for the post-cap www probe",
+    "NO row for the post-cap redirect hop 1",
+    "NO row for CT-abort post-cap www probe",
+    "NO row for CT-abort post-cap redirect hop 1",
+  ],
   mutate: (source) => replaceExactlyOnce(
     source,
     `      if (opts.signal?.aborted === true) return null;
@@ -134,7 +170,7 @@ runMutant({
   name: "ct_lookup structured resolve classified unconditionally ok",
   sourceName: "ssl-scan.js",
   moduleEnv: "SUBOP_TIMING_SSL_MODULE_URL",
-  expectedFailure: /FAIL ct_lookup honest when every provider failed/,
+  expectedFailures: ["ct_lookup honest when every provider failed"],
   mutate: (source) => replaceExactlyOnce(
     source,
     `          opts.subOps?.finish?.(ctSubOp, { outcome: anyOk ? "ok" : "unavailable" });`,
@@ -147,7 +183,10 @@ runMutant({
   name: "bounded batch regresses to awaited per-row writes",
   sourceName: "scan-engine.js",
   moduleEnv: "SUBOP_TIMING_SCAN_ENGINE_MODULE_URL",
-  expectedFailure: /FAIL exactly ONE batch call for all rows|FAIL sub-op persistence issues ONE batch\(\)/,
+  expectedFailures: [
+    "exactly ONE batch call for all rows",
+    "still exactly one batch call",
+  ],
   mutate: (source) => replaceExactlyOnce(
     source,
     `    await env.cybermeters_db.batch(statements);`,

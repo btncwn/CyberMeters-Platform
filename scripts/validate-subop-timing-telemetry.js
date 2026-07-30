@@ -50,7 +50,7 @@ const { runHeadersModule } = await eng("headers-scan.js");
 const { runSubdomainsModule } = await eng("subdomains-scan.js");
 const { createCertificateTransparencyCache } = await eng("ct-provider-cache.js");
 
-const EXPECTED_ASSERTIONS = 72;
+const EXPECTED_ASSERTIONS = 76;
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
 const eq = (n, g, w) => ok(n, g === w, `got ${JSON.stringify(g)} want ${JSON.stringify(w)}`);
@@ -65,6 +65,14 @@ async function withMockFetch(fn, impl) {
   globalThis.fetch = impl;
   try { return await fn(); }
   finally { globalThis.fetch = prior; }
+}
+
+async function withCapturedConsoleError(fn) {
+  const prior = console.error;
+  const errors = [];
+  console.error = (...args) => { errors.push(args.map((arg) => String(arg)).join(" ")); };
+  try { return { value: await fn(), errors }; }
+  finally { console.error = prior; }
 }
 
 const jsonResponse = (body, init = {}) =>
@@ -192,10 +200,18 @@ const sslOpts = (extra = {}) => ({
   const bare = await withMockFetch(() => runSslModule(FIXTURE_DOMAIN, sslOpts()), healthyFetch);
   const withCollector = await withMockFetch(
     () => runSslModule(FIXTURE_DOMAIN, sslOpts({ subOps: createSubOperationTelemetry() })), healthyFetch);
-  const withHostile = await withMockFetch(
-    () => runSslModule(FIXTURE_DOMAIN, sslOpts({ subOps: hostileCollector() })), healthyFetch);
+  const hostileAttempt = await withMockFetch(
+    () => runSslModule(FIXTURE_DOMAIN, sslOpts({ subOps: hostileCollector() }))
+      .then((value) => ({ value, error: null }), (error) => ({ value: null, error })),
+    healthyFetch,
+  );
   deepEq("ssl result identical with collector", withCollector, bare);
-  deepEq("ssl result identical with THROWING collector", withHostile, bare);
+  ok(
+    "ssl result identical with THROWING collector",
+    hostileAttempt.error == null
+      && JSON.stringify(normalize(hostileAttempt.value)) === JSON.stringify(normalize(bare)),
+    hostileAttempt.error?.message || "module result changed under telemetry mutation",
+  );
 }
 
 // ── 4. headers module records the expected sub-operations + fail-safe ───────
@@ -342,25 +358,44 @@ const sslOpts = (extra = {}) => ({
   ok("NO row for the post-cap http protocol retry", !("headers.probe_get_http" in headersBy));
   ok("NO row for the post-cap www variant", !("headers.probe_head_www" in headersBy));
 
-  // The original corrective scenario: CT providers and the bare HTTPS probe are
-  // all genuinely in flight when the module cap fires. Every fetch receives the
-  // same accounting.signal used by live safeFetch and rejects with AbortError.
-  // A fixture that lets CT complete before the cap cannot pin ct_lookup=aborted.
-  const ctInFlightFetch = (_url, init) => new Promise((resolve, reject) => {
+  // The original corrective scenario follows the real sequential CT flow:
+  // crt.sh and the concurrent bare HTTPS probe are genuinely in flight when the
+  // module cap fires; CertSpotter is a fallback and must never start after that
+  // external abort. Every started fetch receives the same accounting.signal used
+  // by live safeFetch and rejects with AbortError. A fixture that lets crt.sh
+  // complete before the cap cannot pin ct_lookup=aborted.
+  const startedAbortUrls = [];
+  const sequentialCtAbortFetch = (url, init) => new Promise((resolve, reject) => {
+    startedAbortUrls.push(String(url));
     const signal = init?.signal;
     const abort = () => reject(new DOMException("The operation was aborted", "AbortError"));
     if (signal?.aborted) return abort();
     signal?.addEventListener("abort", abort, { once: true });
   });
   const ctAbortSub = createSubOperationTelemetry();
-  const ctAbortRaced = await raceAborted((controller) => runSslModule(FIXTURE_DOMAIN, {
-    ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch }),
-    signal: controller.signal,
-    accounting: { signal: controller.signal },
-    subOps: ctAbortSub,
-  }), ctInFlightFetch);
+  const {
+    value: ctAbortRaced,
+    errors: ctAbortErrors,
+  } = await withCapturedConsoleError(() =>
+    raceAborted((controller) => runSslModule(FIXTURE_DOMAIN, {
+      ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch }),
+      signal: controller.signal,
+      accounting: { signal: controller.signal },
+      subOps: ctAbortSub,
+    }), sequentialCtAbortFetch));
   eq("CT-abort race returned the deadline fallback", ctAbortRaced?.outcome, "deadline_exceeded");
   const ctAbortBy = rowsByModule(ctAbortSub.snapshotRows());
+  eq("crt.sh was the one CT provider started before cap",
+    startedAbortUrls.filter((url) => url.includes("crt.sh")).length, 1);
+  eq("bare HTTPS probe started concurrently with crt.sh",
+    startedAbortUrls.filter((url) => url === `https://${FIXTURE_DOMAIN}`).length, 1);
+  eq("CertSpotter fallback never started after external abort",
+    startedAbortUrls.filter((url) => url.includes("certspotter")).length, 0);
+  ok("only expected crt.sh AbortError was logged",
+    ctAbortErrors.length === 1
+      && ctAbortErrors[0].includes("[scan/ct/crt-sh]")
+      && ctAbortErrors[0].includes("AbortError"),
+    JSON.stringify(ctAbortErrors));
   eq("CT lookup in flight at cap attributed as aborted", ctAbortBy["ssl.ct_lookup"]?.outcome, "aborted");
   eq("bare probe in flight with CT attributed as aborted", ctAbortBy["ssl.https_probe_bare"]?.outcome, "aborted");
   ok("NO row for CT-abort post-cap www probe", !("ssl.https_probe_www" in ctAbortBy));
