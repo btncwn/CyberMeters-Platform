@@ -16,8 +16,8 @@
 //     leave every module result deep-equal — telemetry can never alter behaviour
 //   • a module abandoned by raceModuleDeadline leaves its in-flight sub-operation
 //     attributable as `aborted` with elapsed time
-//   • CT providers still in flight at the cap surface ssl.ct_lookup as `aborted`
-//     while probes that never start after the cap produce no telemetry row
+//   • crt.sh still in flight at the cap surfaces ssl.ct_lookup as `aborted`
+//     while fallback CertSpotter never starts and post-cap probes produce no telemetry row
 //   • persistModuleTelemetry binds sub-op rows through the EXISTING insert path,
 //     non-fatally, using only existing columns
 //   • the engine wiring (subOps passed to the three offenders + snapshot persist)
