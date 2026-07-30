@@ -816,6 +816,9 @@ jobs:
       - name: Validate sub-operation timing telemetry (Track B — measurement only, fail-safe)
         run: node scripts/validate-subop-timing-telemetry.js
 
+      - name: Validate sub-operation timing telemetry load-bearing mutations
+        run: node scripts/validate-subop-timing-telemetry-mutations.js
+
       - name: Validate CT-R1 provider telemetry (fixtures + schema + analyzer + governance)
         run: node scripts/validate-ct-r1-provider-telemetry.js
 
