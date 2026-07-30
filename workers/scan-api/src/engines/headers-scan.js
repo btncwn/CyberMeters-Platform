@@ -174,8 +174,17 @@ export async function runHeadersModule(domain, opts = {}) {
   // broken/absent collector can never alter probe behaviour or the module result.
   // Each row times ONE safeFetch call end to end, including the redirect hops
   // safeFetch follows internally for redirect:"follow" — that whole call is what
-  // consumes this module's ~9s cap.
-  const subOpBegin = (name) => { try { return opts.subOps?.begin?.("headers", name) ?? null; } catch { return null; } };
+  // consumes this module's 1.2s cap (SCAN_MODULE_BUDGETS.headers; ssl is 9s,
+  // subdomains 12s with an inner 15s hard cap).
+  // NEVER open a row once the module signal is aborted: after the cap fires the
+  // loop can still fall through to the http protocol retry, but that probe never
+  // truly begins — no row is the honest record for a non-event.
+  const subOpBegin = (name) => {
+    try {
+      if (opts.signal?.aborted === true) return null;
+      return opts.subOps?.begin?.("headers", name) ?? null;
+    } catch { return null; }
+  };
   const subOpFinish = (token, res) => {
     try {
       opts.subOps?.finish?.(token, {

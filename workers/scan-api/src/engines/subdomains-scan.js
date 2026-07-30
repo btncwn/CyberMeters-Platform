@@ -144,7 +144,11 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   // network attempts remain the ct_provider_telemetry rows.
   const timedSubOp = (name, promise) => {
     let token = null;
-    try { token = opts.subOps?.begin?.("subdomains", name) ?? null; } catch { token = null; }
+    // Never open a row once the module signal is aborted — a post-cap operation
+    // never truly began, and no row is the honest record for a non-event.
+    try {
+      token = opts.signal?.aborted === true ? null : (opts.subOps?.begin?.("subdomains", name) ?? null);
+    } catch { token = null; }
     if (token == null) return promise;
     const settle = (outcome) => {
       try {

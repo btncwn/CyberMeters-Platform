@@ -61,7 +61,7 @@ import { recordPostureEvents } from "./posture-events.js";
 import { recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, isPublishableModuleEvidence, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_MODULE_BUDGETS, skippedModuleResult } from "./scan-budget.js";
+import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, isPublishableModuleEvidence, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
@@ -313,6 +313,34 @@ export async function persistModuleTelemetry(scanId, telemetry, env) {
         .run();
     } catch { /* non-fatal per row */ }
   }
+}
+
+// Track B: sub-operation rows land in scan_module_telemetry through ONE bounded
+// D1 batch(), never a per-row await loop. This runs in the post-terminal chain
+// ahead of snapshot Phase 8o, where the existing per-row module-telemetry inserts
+// already cost ~2-3s live and the completed → report-ready gap is what the
+// customer meets as "Report not ready" — up to 24 additional sequential writes
+// there is a customer-facing regression, not an implementation detail. Batch
+// failure is non-fatal and produces zero rows for this scan.
+export async function persistSubOperationTelemetry(scanId, rows, env) {
+  const boundedRows = (rows || []).slice(0, SUB_OPERATION_TELEMETRY_ROW_LIMIT);
+  if (boundedRows.length === 0) return;
+  try {
+    const statements = boundedRows.map((r) =>
+      env.cybermeters_db
+        .prepare(
+          `INSERT INTO scan_module_telemetry
+             (id, scan_id, module, started_at, completed_at, duration_ms, outbound_calls, outcome, timeout, error_class)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          createId("smt"), scanId, r.module,
+          r.started_at ?? null, r.completed_at ?? null, r.duration_ms ?? null,
+          null, r.outcome ?? null, 0, null
+        )
+    );
+    await env.cybermeters_db.batch(statements);
+  } catch { /* non-fatal — telemetry cannot affect scan completion or report readiness */ }
 }
 
 // CT-R1: provider-attempt telemetry is collected in memory during module execution
@@ -1580,11 +1608,12 @@ function buildCanonicalUrlProfile(modules) {
     // Persist per-module telemetry (non-fatal; after the terminal status is written
     // so a telemetry failure can never leave the scan 'running').
     await persistModuleTelemetry(scanId, telemetry, env);
-    // Track B sub-operation rows ride the SAME channel and insert path as
-    // scan_module_telemetry pseudo-rows (dotted module names, existing columns —
-    // no schema change). Snapshot AFTER terminal finalization so a sub-operation
-    // still in flight from a race-abandoned module reads honestly as `aborted`.
-    await persistModuleTelemetry(scanId, { rows: subOpTelemetry.snapshotRows() }, env);
+    // Track B sub-operation rows ride the SAME channel as scan_module_telemetry
+    // pseudo-rows (dotted module names, existing columns — no schema change), but
+    // through ONE bounded batch, never the per-row insert loop. Snapshot AFTER
+    // terminal finalization so a sub-operation still in flight from a
+    // race-abandoned module reads honestly as `aborted`.
+    await persistSubOperationTelemetry(scanId, subOpTelemetry.snapshotRows(), env);
     await persistCtTelemetryAfterTerminal();
 
     // Shared by the 091 state persistence below AND the M5.c snapshot build

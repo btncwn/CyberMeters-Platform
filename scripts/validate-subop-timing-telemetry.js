@@ -34,7 +34,7 @@ const {
   SUB_OPERATION_TELEMETRY_OUTCOMES,
   raceModuleDeadline,
 } = await eng("scan-budget.js");
-const { persistModuleTelemetry } = await eng("scan-engine.js");
+const { persistSubOperationTelemetry } = await eng("scan-engine.js");
 const { runSslModule } = await eng("ssl-scan.js");
 const { runHeadersModule } = await eng("headers-scan.js");
 const { runSubdomainsModule } = await eng("subdomains-scan.js");
@@ -249,61 +249,131 @@ const sslOpts = (extra = {}) => ({
   deepEq("subdomains result identical with THROWING collector", stripHost(withHostile), stripHost(bare));
 }
 
-// ── 6. Race-cap abandonment attributes the in-flight sub-operation ──────────
+// ── 5b. ssl ct_lookup is classified from ct_sources, never from bare resolve ─
 {
-  const sub = createSubOperationTelemetry();
-  const hangingFetch = async (url) => {
+  // Both providers down: resolveCertificateTransparency still RESOLVES with a
+  // structured object — the composite lookup must read `unavailable`, not `ok`.
+  const downCtFetch = async (url) => {
     const u = String(url);
-    if (u.includes("crt.sh") || u.includes("certspotter")) return jsonResponse([]);
-    return new Promise(() => {}); // bare HTTPS probe hangs past the cap
+    if (u.includes("crt.sh") || u.includes("certspotter")) return new Response("err", { status: 503 });
+    if (u.startsWith("http://")) return new Response(null, { status: 301, headers: { location: u.replace("http://", "https://") } });
+    return new Response(null, { status: 200 });
   };
-  const fakeDeadline = { remainingMs: () => 60_000 };
-  const value = await withMockFetch(
-    () => raceModuleDeadline(
-      fakeDeadline,
-      () => runSslModule(FIXTURE_DOMAIN, sslOpts({ subOps: sub })),
-      () => ({ outcome: "deadline_exceeded" }),
-      { hardMs: 40 },
-    ),
-    hangingFetch,
+  const sub = createSubOperationTelemetry();
+  await withMockFetch(
+    () => runSslModule(FIXTURE_DOMAIN, {
+      ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch, policies: { crt_sh: { maxAttempts: 1 }, certspotter: { maxAttempts: 1 } } }),
+      subOps: sub,
+    }),
+    downCtFetch,
   );
-  eq("race returned the deadline fallback", value?.outcome, "deadline_exceeded");
-  const by = rowsByModule(sub.snapshotRows());
-  eq("in-flight probe attributed as aborted", by["ssl.https_probe_bare"]?.outcome, "aborted");
-  eq("aborted row has no completed_at", by["ssl.https_probe_bare"]?.completed_at, null);
-  ok("aborted row carries elapsed time", by["ssl.https_probe_bare"]?.duration_ms >= 0);
-  ok("finished CT lookup still reads ok", by["ssl.ct_lookup"]?.outcome === "ok");
+  eq("ct_lookup honest when every provider failed", rowsByModule(sub.snapshotRows())["ssl.ct_lookup"]?.outcome, "unavailable");
 }
 
-// ── 7. Persistence through the existing scan_module_telemetry insert path ───
+// ── 6. Race-cap abort: correct attribution, and NO row for post-cap probes ───
+// The fixture genuinely responds to AbortSignal — a never-resolving promise
+// models a hang, not an abort, and hid exactly this defect class. Abort reaches
+// the in-flight fetch the same way it does live: through accounting.signal.
 {
+  const abortAwareFetch = (url, init) => {
+    const u = String(url);
+    if (u.includes("crt.sh") || u.includes("certspotter")) return Promise.resolve(jsonResponse([]));
+    return new Promise((resolve, reject) => {
+      const signal = init?.signal;
+      const abort = () => reject(new DOMException("The operation was aborted", "AbortError"));
+      if (signal?.aborted) return abort();
+      signal?.addEventListener("abort", abort, { once: true });
+    });
+  };
+  const fakeDeadline = { remainingMs: () => 60_000 };
+  const raceAborted = async (runModule, sub) => {
+    const controller = new AbortController();
+    return withMockFetch(async () => {
+      let modulePromise = null;
+      const raced = await raceModuleDeadline(
+        fakeDeadline,
+        () => { modulePromise = runModule(controller); return modulePromise; },
+        () => { controller.abort("module_budget_exhausted"); return { outcome: "deadline_exceeded" }; },
+        { hardMs: 40 },
+      );
+      // Settle the abandoned module BEFORE the mock fetch is restored, exactly
+      // as the live engine leaves it running detached after the race returns.
+      await modulePromise?.catch(() => {});
+      return raced;
+    }, abortAwareFetch);
+  };
+
+  const sslSub = createSubOperationTelemetry();
+  const sslRaced = await raceAborted((controller) => runSslModule(FIXTURE_DOMAIN, {
+    ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch }),
+    signal: controller.signal,
+    accounting: { signal: controller.signal },
+    subOps: sslSub,
+  }), sslSub);
+  eq("ssl race returned the deadline fallback", sslRaced?.outcome, "deadline_exceeded");
+  const sslBy = rowsByModule(sslSub.snapshotRows());
+  eq("ct_lookup that finished pre-cap reads ok", sslBy["ssl.ct_lookup"]?.outcome, "ok");
+  eq("in-flight bare probe attributed as aborted", sslBy["ssl.https_probe_bare"]?.outcome, "aborted");
+  ok("aborted probe carries elapsed time", sslBy["ssl.https_probe_bare"]?.duration_ms >= 0);
+  ok("NO row for the post-cap www probe", !("ssl.https_probe_www" in sslBy), JSON.stringify(sslBy["ssl.https_probe_www"]));
+  ok("NO row for the post-cap redirect hop 1", !("ssl.http_redirect_hop_1" in sslBy));
+  ok("NO row for the post-cap redirect hop 2", !("ssl.http_redirect_hop_2" in sslBy));
+
+  const headersSub = createSubOperationTelemetry();
+  const headersRaced = await raceAborted((controller) => runHeadersModule(FIXTURE_DOMAIN, {
+    signal: controller.signal,
+    accounting: { signal: controller.signal },
+    subOps: headersSub,
+  }), headersSub);
+  eq("headers race returned the deadline fallback", headersRaced?.outcome, "deadline_exceeded");
+  const headersBy = rowsByModule(headersSub.snapshotRows());
+  eq("in-flight headers GET attributed as aborted", headersBy["headers.probe_get_https"]?.outcome, "aborted");
+  ok("NO row for the post-cap http protocol retry", !("headers.probe_get_http" in headersBy));
+  ok("NO row for the post-cap www variant", !("headers.probe_head_www" in headersBy));
+}
+
+// ── 7. Persistence: ONE bounded D1 batch, never a per-row await loop ────────
+// The rows land in the post-terminal chain ahead of snapshot Phase 8o, where the
+// completed → report-ready gap is customer-facing. Sequential per-row writes
+// there are a regression, so the single batch is a pinned contract.
+{
+  let batchCalls = 0;
   const binds = [];
   const db = {
-    prepare: (sql) => ({
-      bind: (...params) => ({
-        run: async () => {
-          if (!/INSERT INTO scan_module_telemetry/i.test(sql)) throw new Error("unexpected SQL");
-          binds.push(params);
-          return { success: true };
-        },
-      }),
-    }),
+    prepare: (sql) => {
+      if (!/INSERT INTO scan_module_telemetry/i.test(sql)) throw new Error("unexpected SQL");
+      return { bind: (...params) => { binds.push(params); return { params }; } };
+    },
+    batch: async (statements) => { batchCalls += 1; return statements.map(() => ({ success: true })); },
   };
   const sub = createSubOperationTelemetry(steppingClock());
   sub.finish(sub.begin("ssl", "https_probe_bare"), { outcome: "ok" });
   sub.begin("headers", "probe_get_https"); // left in flight → aborted
-  await persistModuleTelemetry("scan_fixture_1", { rows: sub.snapshotRows() }, { cybermeters_db: db });
-  eq("one insert per sub-op row", binds.length, 2);
+  await persistSubOperationTelemetry("scan_fixture_1", sub.snapshotRows(), { cybermeters_db: db });
+  eq("exactly ONE batch call for all rows", batchCalls, 1);
+  eq("both rows bound into the batch", binds.length, 2);
   eq("dotted module bound", binds[0][2], "ssl.https_probe_bare");
   eq("aborted outcome bound", binds[1][7], "aborted");
   ok("only existing columns bound (10 params)", binds.every((p) => p.length === 10));
 
-  const failingDb = { prepare: () => ({ bind: () => ({ run: async () => { throw new Error("D1 down"); } }) }) };
+  // Bounded even against an oversized snapshot handed in directly.
+  batchCalls = 0; binds.length = 0;
+  const oversized = Array.from({ length: SUB_OPERATION_TELEMETRY_ROW_LIMIT + 10 }, (_, i) => ({
+    module: `ssl.op_${i}`, started_at: null, completed_at: null, duration_ms: 1, outbound_calls: null, outcome: "ok", timeout: false, error_class: null,
+  }));
+  await persistSubOperationTelemetry("scan_fixture_1", oversized, { cybermeters_db: db });
+  eq("oversized row set stays bounded in one batch", binds.length, SUB_OPERATION_TELEMETRY_ROW_LIMIT);
+  eq("still exactly one batch call", batchCalls, 1);
+
+  const failingDb = {
+    prepare: () => ({ bind: () => ({}) }),
+    batch: async () => { throw new Error("D1 down"); },
+  };
   let threw = false;
   try {
-    await persistModuleTelemetry("scan_fixture_1", { rows: sub.snapshotRows() }, { cybermeters_db: failingDb });
+    await persistSubOperationTelemetry("scan_fixture_1", sub.snapshotRows(), { cybermeters_db: failingDb });
   } catch { threw = true; }
-  eq("persistence stays non-fatal on DB failure", threw, false);
+  eq("batch persistence stays non-fatal on DB failure", threw, false);
 }
 
 // ── 8. Engine wiring cannot be silently unwired ──────────────────────────────
@@ -313,8 +383,19 @@ const sslOpts = (extra = {}) => ({
   for (const mod of ["runSslModule", "runHeadersModule", "runSubdomainsModule"]) {
     ok(`engine passes subOps to ${mod}`, new RegExp(`${mod}\\(domain, \\{[^}]*subOps: subOpTelemetry`).test(engineSrc));
   }
-  ok("engine persists sub-op snapshot rows",
-    /persistModuleTelemetry\(scanId, \{ rows: subOpTelemetry\.snapshotRows\(\) \}, env\)/.test(engineSrc));
+  ok("engine persists sub-op rows through the batch helper",
+    /await persistSubOperationTelemetry\(scanId, subOpTelemetry\.snapshotRows\(\), env\)/.test(engineSrc));
+  // PIN: the single batch — not an insert per row. Without this pin someone
+  // restores the per-row loop later and nobody notices until the customer-facing
+  // report-ready gap widens again.
+  const persistFn = engineSrc.slice(
+    engineSrc.indexOf("export async function persistSubOperationTelemetry"),
+    engineSrc.indexOf("// CT-R1: provider-attempt telemetry"),
+  );
+  ok("persistSubOperationTelemetry exists as its own helper", persistFn.length > 0);
+  ok("sub-op persistence issues ONE batch()", /await env\.cybermeters_db\.batch\(statements\)/.test(persistFn));
+  ok("sub-op persistence has NO per-row awaited run() loop", !/await[^\n]*\.run\(\)/.test(persistFn));
+  ok("sub-op persistence is bounded by the row limit", /SUB_OPERATION_TELEMETRY_ROW_LIMIT/.test(persistFn));
 }
 
 console.log(`\nsubop-timing-telemetry: ${pass} passed, ${fail} failed`);

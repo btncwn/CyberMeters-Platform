@@ -149,7 +149,18 @@ export async function runSslModule(domain, opts = {}) {
     : new Date().toISOString();
   // Track B sub-operation timing — observational only, guarded at every call so a
   // broken/absent collector can never alter probe behaviour or the module result.
-  const subOpBegin = (name) => { try { return opts.subOps?.begin?.("ssl", name) ?? null; } catch { return null; } };
+  // NEVER open a row once the module signal is aborted: after the cap fires,
+  // safeFetch swallows the abort as null and the module proceeds to its next
+  // probe, but that probe never truly begins — no row is the honest record. An
+  // `aborted` row for an operation that never started would be a non-event
+  // recorded as a measurement, the exact defect class this telemetry exists to
+  // close.
+  const subOpBegin = (name) => {
+    try {
+      if (opts.signal?.aborted === true) return null;
+      return opts.subOps?.begin?.("ssl", name) ?? null;
+    } catch { return null; }
+  };
   const subOpFinish = (token, res) => {
     try {
       opts.subOps?.finish?.(token, {
@@ -173,7 +184,23 @@ export async function runSslModule(domain, opts = {}) {
   });
   try {
     certPromise.then(
-      () => { try { opts.subOps?.finish?.(ctSubOp, { outcome: "ok" }); } catch { /* observational only */ } },
+      // resolveCertificateTransparency ALWAYS resolves with a structured object —
+      // a provider abort or double-unavailable still resolves — so a structured
+      // resolve is not proof of success. Classify from the signal and ct_sources:
+      //   aborted     — the module signal fired while the lookup was in flight
+      //   ok          — at least one attempted provider answered (error == null)
+      //   unavailable — every attempted provider failed
+      (r) => {
+        try {
+          if (opts.signal?.aborted === true) {
+            opts.subOps?.finish?.(ctSubOp, { outcome: "aborted", aborted: true });
+            return;
+          }
+          const tried = [r?.ct_sources?.crt_sh, r?.ct_sources?.certspotter].filter((s) => s != null);
+          const anyOk = tried.some((s) => s.error == null);
+          opts.subOps?.finish?.(ctSubOp, { outcome: anyOk ? "ok" : "unavailable" });
+        } catch { /* observational only */ }
+      },
       () => { try { opts.subOps?.finish?.(ctSubOp, { outcome: "error" }); } catch { /* observational only */ } },
     );
   } catch { /* observational only */ }
