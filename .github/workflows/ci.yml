@@ -299,9 +299,6 @@ jobs:
       - name: Validate A1 report preparation availability (routes / tenancy / finite polling)
         run: node scripts/validate-report-preparing.js
 
-      - name: Validate A1 report preparation load-bearing mutations
-        run: node scripts/validate-report-preparing-mutations.js
-
       # M5.e-A — band-ladder contract. The Cyber Metrics Score has ONE canonical band
       # partition (CYBER_METRICS_SCORE_BANDS); the frontend carries a value-identical
       # mirror (no cross-build import — this validator IS the coupling), absent scores
@@ -1088,6 +1085,11 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+
+      # A1 mutation proof includes a fresh-process real ScanDetail/Vitest carrier,
+      # so it runs only after the pinned frontend dependency tree is installed.
+      - name: Validate A1 report preparation load-bearing mutations
+        run: node scripts/validate-report-preparing-mutations.js
 
       - name: Validate BRS downstream completeness load-bearing mutations
         run: node scripts/validate-brs-downstream-mutations.js
