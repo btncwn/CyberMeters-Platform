@@ -19,6 +19,12 @@ import ExecutiveReportV2 from '../components/ExecutiveReportV2'
 import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
 import CyberMotDomains from '../components/CyberMotDomains'
 import { assessmentBandLabel, bandMeta } from '../lib/score-presentation'
+import {
+  isReportPreparing,
+  isReportReady,
+  nextReportPreparationDelay,
+  reportPreparationPresentation,
+} from '../lib/reportAvailability'
 
 const ACTIVE  = new Set(['queued', 'running', 'processing'])
 const POLL_MS = 4000
@@ -1247,11 +1253,17 @@ export default function ScanDetail() {
   const [reportLoading, setReportLoading] = useState(false)
   const [reportError,   setReportError]   = useState(null)
   const [reportV2,      setReportV2]      = useState(null)
+  const [reportAvailability, setReportAvailability] = useState(null)
+  const [preparationExhausted, setPreparationExhausted] = useState(false)
   const [reportTab,     setReportTab]     = useState('executive') // 'executive' | 'technical'
   const [waivers,       setWaivers]       = useState({}) // finding_id → waiver row
   const [downloadingPdf, setDownloadingPdf] = useState(false)
   const [pdfError,      setPdfError]      = useState(null)
   const pollRef = useRef(null)
+  const reportPollRef = useRef(null)
+  const scanRequestInFlightRef = useRef(false)
+  const reportRequestInFlightRef = useRef(false)
+  const reportPollAttemptRef = useRef(0)
 
   const handleDownloadPdf = useCallback(async () => {
     setPdfError(null)
@@ -1302,6 +1314,8 @@ export default function ScanDetail() {
   const waiveEnabled = Boolean(activeWsId && reportDomain)
 
   const loadReport = useCallback(async () => {
+    if (reportRequestInFlightRef.current) return
+    reportRequestInFlightRef.current = true
     setReportLoading(true)
     setReportError(null)
     try {
@@ -1314,52 +1328,144 @@ export default function ScanDetail() {
       ])
       if (v1.status === 'fulfilled') setReport(v1.value)
       if (v2.status === 'fulfilled') setReportV2(v2.value)
+      if (v1.status === 'fulfilled' || v2.status === 'fulfilled') {
+        // Rolling-deploy compatibility: an older API has no additive
+        // report_availability field. A successful real renderer response is
+        // authoritative readiness evidence; completed lifecycle alone is not.
+        setReportAvailability((current) => current ?? {
+          status: 'report_ready',
+          retryable: false,
+          source: 'renderer_response',
+        })
+      }
       if (v1.status === 'rejected' && v2.status === 'rejected') {
-        setReportError(v2.reason?.message || v1.reason?.message || 'Report unavailable')
+        const preparing =
+          v2.reason?.report_availability ?? v1.reason?.report_availability ?? null
+        if (isReportPreparing(preparing)) {
+          setReportAvailability(preparing)
+        } else {
+          setReportError(v2.reason?.message || v1.reason?.message || 'Report unavailable')
+        }
       }
     } catch (e) {
       setReportError(e.message)
     } finally {
       setReportLoading(false)
+      reportRequestInFlightRef.current = false
     }
   }, [id])
 
-  const load = useCallback(async (silent = false) => {
+  const load = useCallback(async (silent = false, retryReport = false) => {
+    if (scanRequestInFlightRef.current) return
+    scanRequestInFlightRef.current = true
     if (!silent) setLoading(true)
     else setRefreshing(true)
     setError(null)
     try {
-      const data = await api.getScan(id)
+      const data = await api.getScan(id, { retryReport })
       const s    = data.scan || data
       setScan(s)
-      if (s.status === 'completed' && !report) {
-        loadReport()
-      }
+      setReportAvailability(data.report_availability ?? null)
     } catch (e) {
       setError({ message: e.message, status: e.status })
     } finally {
+      scanRequestInFlightRef.current = false
       setLoading(false)
       setRefreshing(false)
     }
-  }, [id, report, loadReport])
+  }, [id])
 
   useEffect(() => { load() }, [load])
 
-  // Auto-poll while active; fetch report when transitioning to completed
+  useEffect(() => {
+    clearTimeout(reportPollRef.current)
+    reportPollAttemptRef.current = 0
+    setPreparationExhausted(false)
+    setReport(null)
+    setReportV2(null)
+    setReportError(null)
+    setReportAvailability(null)
+    return () => {
+      clearTimeout(reportPollRef.current)
+      reportRequestInFlightRef.current = false
+      scanRequestInFlightRef.current = false
+    }
+  }, [id])
+
+  // Scan lifecycle polling remains unchanged: only active scans use this loop.
   useEffect(() => {
     if (!scan) return
     if (ACTIVE.has(scan.status)) {
       pollRef.current = setInterval(() => load(true), POLL_MS)
     } else {
       clearInterval(pollRef.current)
-      if (scan.status === 'completed' && !report && !reportLoading) {
-        loadReport()
-      }
     }
     return () => clearInterval(pollRef.current)
   }, [scan?.status]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Report availability is a separate, bounded read-state loop. A completed
+  // scan never becomes non-terminal while its canonical report is prepared.
+  useEffect(() => {
+    clearTimeout(reportPollRef.current)
+    if (scan?.status !== 'completed') return
+
+    if (reportAvailability == null) {
+      // Backward-compatible rollout path for an older Worker: probe the real
+      // renderer once, never infer readiness from scans.status.
+      if (!report && !reportV2 && !reportLoading && !reportError) loadReport()
+      return
+    }
+
+    if (isReportReady(reportAvailability)) {
+      reportPollAttemptRef.current = 0
+      setPreparationExhausted(false)
+      if (!report && !reportV2 && !reportLoading && !reportError) loadReport()
+      return
+    }
+
+    if (!isReportPreparing(reportAvailability)) return
+    const delay = nextReportPreparationDelay(
+      reportPollAttemptRef.current,
+      reportAvailability?.retry_after_ms,
+    )
+    if (delay == null) {
+      setPreparationExhausted(true)
+      return
+    }
+
+    reportPollAttemptRef.current += 1
+    reportPollRef.current = setTimeout(() => {
+      if (scanRequestInFlightRef.current) {
+        reportPollAttemptRef.current -= 1
+        setReportAvailability((current) => current ? { ...current } : current)
+        return
+      }
+      load(true)
+    }, delay)
+    return () => clearTimeout(reportPollRef.current)
+  }, [
+    scan?.status,
+    reportAvailability,
+    report,
+    reportV2,
+    reportLoading,
+    reportError,
+    load,
+    loadReport,
+  ])
+
+  const retryReportPreparation = useCallback(() => {
+    reportPollAttemptRef.current = 0
+    setPreparationExhausted(false)
+    setReportError(null)
+    load(true, true)
+  }, [load])
+
   const isActive = scan && ACTIVE.has(scan.status)
+  const preparationPresentation = reportPreparationPresentation(
+    reportAvailability,
+    preparationExhausted,
+  )
 
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
@@ -1394,7 +1500,7 @@ export default function ScanDetail() {
                 <Globe className="w-4 h-4" />
                 Domain History
               </button>
-              {scan.status === 'completed' && (
+              {scan.status === 'completed' && isReportReady(reportAvailability) && (
                 <button onClick={handleDownloadPdf} disabled={downloadingPdf} className="btn-secondary">
                   <Download className={`w-4 h-4 ${downloadingPdf ? 'animate-pulse' : ''}`} />
                   {downloadingPdf ? 'Preparing…' : 'Download PDF'}
@@ -1423,7 +1529,43 @@ export default function ScanDetail() {
             {/* Report panel — 2/3 width */}
             <div className="lg:col-span-2">
               {scan.status === 'completed' ? (
-                reportLoading ? (
+                preparationPresentation ? (
+                  preparationExhausted ? (
+                    <ErrorAlert
+                      title={preparationPresentation.title}
+                      message={preparationPresentation.message}
+                      onRetry={retryReportPreparation}
+                      retryLabel="Check again"
+                    />
+                  ) : (
+                    <div
+                      className="card flex flex-col items-center gap-4 py-20 text-center"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <Spinner size="lg" />
+                      <div>
+                        <p className="text-sm font-bold text-gray-900">
+                          {preparationPresentation.title}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1 max-w-md">
+                          {preparationPresentation.message}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                ) : reportAvailability?.status === 'report_unavailable' ? (
+                  <ErrorAlert
+                    title="Report unavailable"
+                    message={reportAvailability.message}
+                    onRetry={
+                      reportAvailability.manual_retry_available
+                        ? retryReportPreparation
+                        : undefined
+                    }
+                    retryLabel="Try again"
+                  />
+                ) : reportLoading ? (
                   <div className="card flex items-center justify-center py-24">
                     <Spinner size="lg" />
                   </div>

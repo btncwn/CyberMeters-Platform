@@ -226,6 +226,7 @@ async function request(path, options = {}) {
     // string-matching on messages.
     if (err.code) httpError.code = err.code
     if (err.readiness) httpError.readiness = err.readiness
+    if (err.report_availability) httpError.report_availability = err.report_availability
     // Domain-ownership gate: carry the EXACT record the server gated on, so the
     // caller can start verification for that record rather than guessing between
     // duplicate workspace/domain links. Machine-readable context only — the
@@ -306,7 +307,10 @@ async function requestBlob(path, options = {}) {
       gateError.upgrade_url   = err.upgrade_url
       throw gateError
     }
-    throw friendlyHttpError(res, err)
+    const httpError = friendlyHttpError(res, err)
+    if (err.code) httpError.code = err.code
+    if (err.report_availability) httpError.report_availability = err.report_availability
+    throw httpError
   }
   return res.blob()
 }
@@ -417,8 +421,9 @@ export const api = {
   getScans: () => request('/scans'),
 
   /** GET /api/scans/:id */
-  /** @param {string} id */
-  getScan: (id) => request(`/scans/${id}`),
+  /** @param {string} id @param {{ retryReport?: boolean }} [options] */
+  getScan: (id, options = {}) =>
+    request(`/scans/${id}${options.retryReport ? '?retry_report=1' : ''}`),
 
   /** GET /api/scans/:id/report */
   getScanReport: (id) => request(`/scans/${id}/report`),

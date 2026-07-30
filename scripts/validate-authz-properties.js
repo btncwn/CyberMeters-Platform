@@ -22,6 +22,7 @@
 // deterministic reproduction. Runs PROP_CASES (default 500) cases.
 // ─────────────────────────────────────────────────────────────────────────────
 import { loadWorker, buildDb, makeEnv, makeCaller, makeSeeder, leaks } from "./security/lib/worker-harness.js";
+import { createHash } from "node:crypto";
 
 function mulberry32(a) {
   return function () {
@@ -97,6 +98,23 @@ async function main() {
   seed.raw("INSERT INTO notification_events (id, workspace_id, user_id, type, severity, title, message, status) VALUES ('nMain','wsMain',NULL,'scan','info','notif-SECRET','m','unread')");
   // Scan id contains "served" so the harness R2 stub serves reports/servedScan.json.
   seed.raw("INSERT INTO scans (id, workspace_id, domain_id, domain, score, rating, status, created_at) VALUES ('servedScan','wsMain','dMain','shared.example',80,'good','completed',datetime('now'))");
+  // A completed lifecycle row is not report readiness. Seed the canonical
+  // checksum-gated snapshot so the owner positive control remains non-vacuous
+  // under the A1 availability contract.
+  const snapshotBody = JSON.stringify({
+    snapshot: { snapshot_schema_version: "1" },
+    marker: "R2-MARKER",
+  });
+  const snapshotChecksum = createHash("sha256").update(snapshotBody).digest("hex");
+  seed.raw(
+    `INSERT INTO scan_report_snapshots
+       (id,workspace_id,domain_id,scan_id,status,r2_key,checksum_sha256,
+        snapshot_schema_version,resolver_version,assessed_at,completed_at)
+     VALUES ('servedSnapshot','wsMain','dMain','servedScan','completed',
+             'reports/snapshots/wsMain/servedScan/served.json',?,'1','test',
+             datetime('now'),datetime('now'))`,
+    snapshotChecksum,
+  );
 
   // ── Positive controls (anti-tautology) ─────────────────────────────────────
   // Every marker route must LEAK its marker for the owner (else "no leak" is

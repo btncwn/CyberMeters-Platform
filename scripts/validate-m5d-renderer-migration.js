@@ -700,9 +700,9 @@ async function main() {
       },
       {
         name: "pre-snapshot historical boundary mapped back to a red report error",
-        file: srcPath("routes", "scans.js"),
-        from: "          const availability = historicalReportSnapshotAvailability(scan);",
-        to:   "          const availability = null;",
+        file: srcPath("engines", "report-availability.js"),
+        from: "    const historical = historicalReportSnapshotAvailability(scan);",
+        to:   "    const historical = null;",
       },
       {
         name: "schema-version gate dropped from the shared helper",

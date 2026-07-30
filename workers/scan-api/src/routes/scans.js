@@ -6,7 +6,8 @@
 // index.js; returns a Response when a route matches, or null so the main
 // router continues.
 // M5.d: report render paths import NO calculation brains — assessment facts
-// come from the canonical snapshot via readScanReportSnapshot. The remediation
+// come from the canonical snapshot via resolveScanReportAvailability (which
+// delegates authoritative reads to readScanReportSnapshot). The remediation
 // registry attach on /report is the one sanctioned presentation join (the
 // registry is the canonical remediation source of truth).
 import { getEffectivePlan } from "../engines/entitlements.js";
@@ -19,7 +20,10 @@ import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { checkScanLimit, checkScheduledScanLimit, domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
 import { findingRemediation } from "../engines/remediation-registry.js";
-import { historicalReportSnapshotAvailability, readScanReportSnapshot } from "../engines/report-snapshot.js";
+import {
+  reportAvailabilityError,
+  resolveScanReportAvailability,
+} from "../engines/report-availability.js";
 import { createAuditEvent } from "../lib/events.js";
 import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
@@ -457,12 +461,14 @@ export async function scanRoutes(rctx) {
       }
 
       try {
-        const read = await readScanReportSnapshot(env, scanId, { allowReconstruction: true });
-        if (read.status === "building") return json({ error: "Report not ready" }, 409);
-        if (read.status === "not_found") return json({ error: "Report not found" }, 404);
-        if (read.status !== "ok") {
-          return serverError("api", new Error(`snapshot ${read.status} (${read.reason}) for scan ${scanId}`));
+        const resolved = await resolveScanReportAvailability(env, scan, {
+          retryFailed: true,
+        });
+        if (resolved.availability.status !== "report_ready") {
+          const mapped = reportAvailabilityError(resolved.availability);
+          return json(mapped.body, mapped.status);
         }
+        const read = resolved.read;
 
         // Deterministic branding (branding v2). The branding used the FIRST time
         // this report is generated is frozen into the snapshot's branding_json, so
@@ -549,11 +555,11 @@ export async function scanRoutes(rctx) {
       }
 
       try {
-        const read = await readScanReportSnapshot(env, scanId, { allowReconstruction: true });
-        if (read.status === "building") return json({ error: "Report not ready" }, 409);
-        if (read.status === "not_found") {
-          const availability = historicalReportSnapshotAvailability(scan);
-          if (availability) {
+        const resolved = await resolveScanReportAvailability(env, scan, {
+          retryFailed: true,
+        });
+        if (resolved.availability.status !== "report_ready") {
+          if (resolved.availability.status === "historical_scan_no_canonical_snapshot") {
             return json({
               version: "3.0",
               report_type: "executive_scan_report",
@@ -564,14 +570,13 @@ export async function scanRoutes(rctx) {
                 scanned_at: scan.created_at ?? null,
                 completed_at: null,
               },
-              report_availability: availability,
+              report_availability: resolved.availability,
             });
           }
-          return json({ error: "Report not found" }, 404);
+          const mapped = reportAvailabilityError(resolved.availability);
+          return json(mapped.body, mapped.status);
         }
-        if (read.status !== "ok") {
-          return serverError("api", new Error(`snapshot ${read.status} (${read.reason}) for scan ${scanId}`));
-        }
+        const read = resolved.read;
 
         let workspace = null;
         if (scan.workspace_id) {
@@ -592,8 +597,9 @@ export async function scanRoutes(rctx) {
     // ── GET /api/scans/:id/snapshot ─────────────────────────────────────
     // Canonical M5.c reporting snapshot, served VERBATIM. Retrieval, integrity,
     // schema gating, repair-on-read and reconstruction all live in the ONE
-    // shared helper (readScanReportSnapshot) — this route only maps its
-    // deterministic states onto HTTP. Must be checked BEFORE the generic
+    // shared snapshot helper; the report-availability resolver maps those
+    // deterministic states onto the customer read contract. Must be checked
+    // BEFORE the generic
     // /api/scans/:id route below.
     if (
       request.method === "GET" &&
@@ -611,12 +617,18 @@ export async function scanRoutes(rctx) {
       if (!access) return json({ error: "Forbidden" }, 403);
 
       try {
-        const read = await readScanReportSnapshot(env, scanId, { allowReconstruction: true });
-        if (read.status === "not_found") return json({ error: "Snapshot not found" }, 404);
-        if (read.status === "building") return json({ error: "Snapshot not ready" }, 409);
-        if (read.status !== "ok") {
-          return serverError("api", new Error(`snapshot ${read.status} (${read.reason}) for ${scanId}`));
+        const scan = await env.cybermeters_db
+          .prepare(`SELECT id, status, created_at FROM scans WHERE id = ?`)
+          .bind(scanId).first();
+        if (!scan) return json({ error: "Forbidden" }, 403);
+        const resolved = await resolveScanReportAvailability(env, scan, {
+          retryFailed: true,
+        });
+        if (resolved.availability.status !== "report_ready") {
+          const mapped = reportAvailabilityError(resolved.availability);
+          return json(mapped.body, mapped.status);
         }
+        const read = resolved.read;
         return json({
           snapshot: read.snapshot,
           superseded_by: read.supersededBy,
@@ -657,8 +669,29 @@ export async function scanRoutes(rctx) {
       if (!access) return json({ error: "Forbidden" }, 403);
       if (!scan) return json({ error: "Forbidden" }, 403);
 
+      let resolvedAvailability = null;
+      if (scan.status === "completed") {
+        resolvedAvailability = await resolveScanReportAvailability(env, scan, {
+          retryFailed: true,
+        });
+        if (resolvedAvailability.availability.status !== "report_ready") {
+          const mapped = reportAvailabilityError(resolvedAvailability.availability);
+          return json(mapped.body, mapped.status);
+        }
+      }
+
       const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
-      if (!obj) return json({ error: "Report not found" }, 404);
+      if (!obj) {
+        const unavailable = {
+          status: "report_unavailable",
+          code: "report_source_missing",
+          message: "The completed assessment report is unavailable.",
+          retryable: false,
+          reason: "source_report_missing",
+        };
+        const mapped = reportAvailabilityError(unavailable);
+        return json(mapped.body, mapped.status);
+      }
       const raw = await obj.json();
 
       // Normalise modules — ensure every module key is present even for reports
@@ -725,12 +758,7 @@ export async function scanRoutes(rctx) {
       }
 
       try {
-        const read = await readScanReportSnapshot(env, scanId, { allowReconstruction: true });
-        if (read.status === "building") return json({ error: "Report not ready" }, 409);
-        if (read.status === "not_found") return json({ error: "Report not found" }, 404);
-        if (read.status !== "ok") {
-          return serverError("api", new Error(`snapshot ${read.status} (${read.reason}) for scan ${scanId}`));
-        }
+        const read = resolvedAvailability.read;
         const snap = read.customerSnapshot ?? read.snapshot;
         const overall = snap.overall || {};
         const bri = overall.business_risk_indicator || {};
@@ -852,9 +880,16 @@ export async function scanRoutes(rctx) {
       }
 
       const [customerScan] = await projectPhase5ScanRowsForCustomer(env, [scan]);
+      const resolved = await resolveScanReportAvailability(env, scan, {
+        // A failed canonical build is surfaced on ordinary reads. Only an
+        // explicit customer retry may spend the one remaining bounded repair
+        // attempt; authorization and soft-delete gates have already passed.
+        retryFailed: url.searchParams.get("retry_report") === "1",
+      });
       return json({
         scan: customerScan,
         report_key: `reports/${scan.id}.json`,
+        report_availability: resolved.availability,
         phase5_evidence_coverage:
           phase5EvidenceReadCoverage([customerScan]),
       });
