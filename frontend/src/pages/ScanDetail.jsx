@@ -1262,8 +1262,12 @@ export default function ScanDetail() {
   const pollRef = useRef(null)
   const reportPollRef = useRef(null)
   const scanRequestInFlightRef = useRef(false)
+  const scanRequestControllerRef = useRef(null)
+  const scanRequestGenerationRef = useRef(0)
+  const activeScanIdRef = useRef(id)
   const reportRequestInFlightRef = useRef(false)
   const reportPollAttemptRef = useRef(0)
+  activeScanIdRef.current = id
 
   const handleDownloadPdf = useCallback(async () => {
     setPdfError(null)
@@ -1315,6 +1319,11 @@ export default function ScanDetail() {
 
   const loadReport = useCallback(async () => {
     if (reportRequestInFlightRef.current) return
+    const requestedScanId = id
+    const requestGeneration = scanRequestGenerationRef.current
+    const requestIsCurrent = () =>
+      activeScanIdRef.current === requestedScanId &&
+      scanRequestGenerationRef.current === requestGeneration
     reportRequestInFlightRef.current = true
     setReportLoading(true)
     setReportError(null)
@@ -1326,6 +1335,7 @@ export default function ScanDetail() {
         api.getScanReport(id),
         api.getExecutiveReportV2(id),
       ])
+      if (!requestIsCurrent()) return
       if (v1.status === 'fulfilled') setReport(v1.value)
       if (v2.status === 'fulfilled') setReportV2(v2.value)
       if (v1.status === 'fulfilled' || v2.status === 'fulfilled') {
@@ -1348,49 +1358,84 @@ export default function ScanDetail() {
         }
       }
     } catch (e) {
-      setReportError(e.message)
+      if (requestIsCurrent() && e?.name !== 'AbortError') {
+        setReportError(e.message)
+      }
     } finally {
-      setReportLoading(false)
-      reportRequestInFlightRef.current = false
+      if (requestIsCurrent()) {
+        setReportLoading(false)
+        reportRequestInFlightRef.current = false
+      }
     }
   }, [id])
 
   const load = useCallback(async (silent = false, retryReport = false) => {
     if (scanRequestInFlightRef.current) return
+    const requestedScanId = id
+    const requestGeneration = scanRequestGenerationRef.current
+    const controller = new AbortController()
+    const requestIsCurrent = () =>
+      activeScanIdRef.current === requestedScanId &&
+      scanRequestGenerationRef.current === requestGeneration &&
+      scanRequestControllerRef.current === controller
+    scanRequestControllerRef.current = controller
     scanRequestInFlightRef.current = true
     if (!silent) setLoading(true)
     else setRefreshing(true)
     setError(null)
     try {
-      const data = await api.getScan(id, { retryReport })
+      const data = await api.getScan(requestedScanId, {
+        retryReport,
+        signal: controller.signal,
+      })
+      if (!requestIsCurrent()) return
       const s    = data.scan || data
       setScan(s)
       setReportAvailability(data.report_availability ?? null)
     } catch (e) {
-      setError({ message: e.message, status: e.status })
+      if (requestIsCurrent() && e?.name !== 'AbortError') {
+        setError({ message: e.message, status: e.status })
+      }
     } finally {
-      scanRequestInFlightRef.current = false
-      setLoading(false)
-      setRefreshing(false)
+      if (requestIsCurrent()) {
+        scanRequestInFlightRef.current = false
+        scanRequestControllerRef.current = null
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
   }, [id])
 
-  useEffect(() => { load() }, [load])
-
   useEffect(() => {
+    const requestGeneration = scanRequestGenerationRef.current + 1
+    scanRequestGenerationRef.current = requestGeneration
+    activeScanIdRef.current = id
+    scanRequestControllerRef.current?.abort()
+    scanRequestControllerRef.current = null
+    scanRequestInFlightRef.current = false
     clearTimeout(reportPollRef.current)
     reportPollAttemptRef.current = 0
+    setScan(null)
+    setLoading(true)
+    setError(null)
+    setRefreshing(false)
     setPreparationExhausted(false)
     setReport(null)
     setReportV2(null)
     setReportError(null)
     setReportAvailability(null)
+    load()
     return () => {
+      if (scanRequestGenerationRef.current === requestGeneration) {
+        scanRequestGenerationRef.current += 1
+      }
+      scanRequestControllerRef.current?.abort()
+      scanRequestControllerRef.current = null
       clearTimeout(reportPollRef.current)
       reportRequestInFlightRef.current = false
       scanRequestInFlightRef.current = false
     }
-  }, [id])
+  }, [id, load])
 
   // Scan lifecycle polling remains unchanged: only active scans use this loop.
   useEffect(() => {

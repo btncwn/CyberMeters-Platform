@@ -54,6 +54,7 @@ describe('API report availability error context', () => {
   })
 
   it('requests failed-build repair only for an explicit customer retry', async () => {
+    const controller = new AbortController()
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       scan: { id: 'scan-a1', status: 'completed' },
       report_availability: { status: 'report_ready' },
@@ -63,10 +64,27 @@ describe('API report availability error context', () => {
     }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await api.getScan('scan-a1', { retryReport: true })
+    await api.getScan('scan-a1', {
+      retryReport: true,
+      signal: controller.signal,
+    })
 
     expect(fetchMock.mock.calls[0][0]).toBe(
       'http://localhost/api/scans/scan-a1?retry_report=1',
     )
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal)
+  })
+
+  it('preserves AbortError instead of manufacturing a network error', async () => {
+    const abortError = new DOMException('The operation was aborted', 'AbortError')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(abortError))
+
+    const error = await api.getScan('scan-a1', {
+      signal: new AbortController().signal,
+    }).catch((caught) => caught)
+
+    expect(error).toBe(abortError)
+    expect(error.name).toBe('AbortError')
+    expect(error.code).not.toBe('network_error')
   })
 })

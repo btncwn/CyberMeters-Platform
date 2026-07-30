@@ -705,18 +705,33 @@ async function main() {
     store.set(scanMRow.r2_key, goodBytes);
 
     // ── Repair-on-read: the recovery half of the claim pattern is ALIVE ─────
-    // A transient failure leaves only 'failed' rows; a killed Worker leaves
-    // 'building' forever. Both are attempts against a completed scan with a
-    // durable report — the read route must repair them, not answer 404/409
-    // forever. (A scan with NO attempt stays honestly 404 — no backfill.)
+    // A transient failure leaves only 'failed' rows; its one remaining bounded
+    // retry is customer-authorised through scan detail, never spent by a passive
+    // snapshot reader. A killed Worker leaves 'building' forever and the
+    // canonical stale-claim recovery still repairs it. A scan with NO attempt
+    // stays honestly 404 — no backfill.
     seedScan("scan_r", "ws1", "dom1");
     const reportR = makeReport("scan_r", "dom1", "shared.example", { completedAt: "2026-07-16T14:00:00.000Z" });
     store.set("reports/scan_r.json", JSON.stringify(reportR));
     db.prepare(`INSERT INTO scan_report_snapshots (id, workspace_id, domain_id, scan_id, status, r2_key, snapshot_schema_version, resolver_version, assessed_at, metadata_json)
                 VALUES ('snap-fail-r','ws1','dom1','scan_r','failed','reports/snapshots/ws1/scan_r/snap-fail-r.json','1',?, '2026-07-16T14:00:00.000Z','{"failure_reason":"injected"}')`).run(CYBER_MOT_RESOLVER_VERSION);
+    const failedRowsBeforePassiveRead = db.prepare(
+      "SELECT COUNT(*) c FROM scan_report_snapshots WHERE scan_id='scan_r'"
+    ).get().c;
+    const passiveFailedRead = await call("GET", "/api/scans/scan_r/snapshot");
+    ok("a passive snapshot read preserves failed state and the customer retry right",
+       passiveFailedRead.status === 500 &&
+       passiveFailedRead.data?.code === "report_generation_failed" &&
+       passiveFailedRead.data?.report_availability?.status === "report_unavailable" &&
+       db.prepare("SELECT COUNT(*) c FROM scan_report_snapshots WHERE scan_id='scan_r'").get().c ===
+         failedRowsBeforePassiveRead);
+    const explicitRepair = await call("GET", "/api/scans/scan_r?retry_report=1");
     const repaired = await call("GET", "/api/scans/scan_r/snapshot");
-    ok("a failed-only attempt is repaired on read and served completed",
-       repaired.status === 200 && repaired.data?.snapshot?.snapshot?.scan_id === "scan_r");
+    ok("explicit scan-detail customer retry repairs once, then passive snapshot serves it",
+       explicitRepair.status === 200 &&
+       explicitRepair.data?.report_availability?.status === "report_ready" &&
+       repaired.status === 200 &&
+       repaired.data?.snapshot?.snapshot?.scan_id === "scan_r");
 
     seedScan("scan_t", "ws1", "dom1");
     const reportT = makeReport("scan_t", "dom1", "shared.example", { completedAt: "2026-07-16T14:10:00.000Z" });

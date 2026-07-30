@@ -129,7 +129,11 @@ export function logoutWithToken(rawToken) {
 async function safeFetch(url, init) {
   try {
     return await fetch(url, init)
-  } catch {
+  } catch (error) {
+    // Component lifecycle cancellation is intentional, not a customer network
+    // failure. Preserve AbortError so the caller can ignore an obsolete request
+    // without rendering the global connectivity message.
+    if (/** @type {any} */ (error)?.name === 'AbortError') throw error
     const netErr = /** @type {ApiError} */ (new Error("We couldn't reach CyberMeters. Please check your internet connection and try again."))
     netErr.code = 'network_error'
     throw netErr
@@ -421,9 +425,12 @@ export const api = {
   getScans: () => request('/scans'),
 
   /** GET /api/scans/:id */
-  /** @param {string} id @param {{ retryReport?: boolean }} [options] */
+  /** @param {string} id @param {{ retryReport?: boolean, signal?: AbortSignal }} [options] */
   getScan: (id, options = {}) =>
-    request(`/scans/${id}${options.retryReport ? '?retry_report=1' : ''}`),
+    request(
+      `/scans/${id}${options.retryReport ? '?retry_report=1' : ''}`,
+      { signal: options.signal },
+    ),
 
   /** GET /api/scans/:id/report */
   getScanReport: (id) => request(`/scans/${id}/report`),

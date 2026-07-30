@@ -16,6 +16,9 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const srcPath = (...parts) => path.join(root, "workers", "scan-api", "src", ...parts);
 const moduleUrl = (envName, fallback) =>
   process.env[envName] || pathToFileURL(fallback).href;
+const scanRoutesSourcePath =
+  process.env.REPORT_PREPARING_SCAN_ROUTES_SOURCE_PATH ||
+  srcPath("routes", "scans.js");
 
 globalThis.fetch = async () => { throw new Error("network disabled"); };
 AbortSignal.timeout = () => undefined;
@@ -147,6 +150,59 @@ function makeReport(scanId, domainId, completedAt, status = "completed") {
 }
 
 async function main() {
+  // Production retry-authority inventory. The resolver definition is excluded
+  // deliberately: this counts every caller under Worker production source, not
+  // the option declaration itself. A new caller must update this proof and may
+  // never silently acquire failed-build retry authority.
+  const productionFiles = [];
+  const collectProductionFiles = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) collectProductionFiles(absolute);
+      else if (
+        entry.isFile() &&
+        entry.name.endsWith(".js") &&
+        !entry.name.includes(".a1-mutant.")
+      ) {
+        productionFiles.push(absolute);
+      }
+    }
+  };
+  collectProductionFiles(srcPath());
+  const resolverDefinitionPath = srcPath("engines", "report-availability.js");
+  const availabilityCallers = productionFiles
+    .filter((filename) => filename !== resolverDefinitionPath)
+    .flatMap((filename) => {
+      const source = filename === srcPath("routes", "scans.js")
+        ? fs.readFileSync(scanRoutesSourcePath, "utf8")
+        : fs.readFileSync(filename, "utf8");
+      return Array.from(source.matchAll(/\bawait\s+resolveScanReportAvailability\s*\(/g), (match) => ({
+        filename: path.relative(srcPath(), filename),
+        offset: match.index,
+      }));
+    });
+  const productionSource = productionFiles
+    .map((filename) => filename === srcPath("routes", "scans.js")
+      ? fs.readFileSync(scanRoutesSourcePath, "utf8")
+      : fs.readFileSync(filename, "utf8"))
+    .join("\n");
+  const scanRoutesSource = fs.readFileSync(scanRoutesSourcePath, "utf8");
+  ok("production report-availability caller inventory is complete and route-owned",
+    availabilityCallers.length === 5 &&
+    availabilityCallers.every((caller) => caller.filename === "routes/scans.js"));
+  ok("production report readers contain zero literal retryFailed true grants",
+    !/\bretryFailed\s*:\s*true\b/.test(productionSource));
+  ok("only named scan-detail customer action carries failed-repair authority",
+    (productionSource.match(/\bretryFailed\s*:/g) || []).length === 1 &&
+    /const customerRequestedReportRetry\s*=\s*[\s\S]{0,120}url\.searchParams\.get\("retry_report"\)\s*===\s*"1"/
+      .test(scanRoutesSource) &&
+    /retryFailed:\s*customerRequestedReportRetry/.test(scanRoutesSource));
+  ok("all four passive renderer callers use resolver default retry policy",
+    (scanRoutesSource.match(/resolveScanReportAvailability\(env, scan\);/g) || []).length === 4);
+  ok("resolver default remains retryFailed false outside caller inventory",
+    /\{\s*allowRepair\s*=\s*true,\s*retryFailed\s*=\s*false\s*\}/
+      .test(fs.readFileSync(resolverDefinitionPath, "utf8")));
+
   const workerModule = await import(moduleUrl(
     "REPORT_PREPARING_WORKER_MODULE_URL",
     srcPath("index.js"),
@@ -422,9 +478,20 @@ async function main() {
     failedBounded.availability.reason === "repair_attempt_limit");
   ok("failed repair limit starts no further repair",
     writeLog.length === writesBeforeBoundedFailure);
+  const failedBoundedRoute = await call(
+    "/api/scans/scan-failed-build?retry_report=1",
+  );
+  ok("explicit retry cannot exceed the second failed-attempt boundary",
+    failedBoundedRoute.status === 200 &&
+    failedBoundedRoute.data?.report_availability?.status === "report_unavailable" &&
+    failedBoundedRoute.data?.report_availability?.reason === "repair_attempt_limit" &&
+    failedBoundedRoute.data?.report_availability?.manual_retry_available === false);
+  ok("bounded-out explicit retry creates no snapshot work",
+    writeLog.length === writesBeforeBoundedFailure);
 
-  // A real first build failure is visible on ordinary polling. One explicit
-  // customer retry may spend the remaining bounded repair attempt.
+  // A real first build failure remains visible through every passive renderer.
+  // Only one explicit scan-detail customer action may spend the remaining
+  // bounded repair attempt.
   seedScan("scan-repairable", "ws1", "completed", "2026-07-30 07:00:00");
   putReport("scan-repairable", "ws1", "2026-07-30T07:01:00.000Z");
   db.prepare(
@@ -436,14 +503,29 @@ async function main() {
              '1','test','2026-07-30T07:01:00.000Z',
              '{"failure_reason":"injected"}',datetime('now'))`
   ).run();
-  const writesBeforeOrdinaryFailedRead = writeLog.length;
-  const ordinaryFailedRead = await call("/api/scans/scan-repairable");
-  ok("ordinary polling surfaces a real build failure, never preparing",
-    ordinaryFailedRead.data?.report_availability?.status === "report_unavailable" &&
-    ordinaryFailedRead.data?.report_availability?.code === "report_generation_failed" &&
-    ordinaryFailedRead.data?.report_availability?.manual_retry_available === true);
-  ok("ordinary polling does not silently retry a failed build",
-    writeLog.length === writesBeforeOrdinaryFailedRead);
+  const writesBeforePassiveFailedReads = writeLog.length;
+  const failedCountBeforePassiveReads = db.prepare(
+    "SELECT COUNT(*) count FROM scan_report_snapshots WHERE scan_id='scan-repairable' AND status='failed'"
+  ).get().count;
+  for (const pathSuffix of ["/report", "/executive-report-v2", "/snapshot", "/report/pdf"]) {
+    const response = await call(`/api/scans/scan-repairable${pathSuffix}`);
+    ok(`passive renderer ${pathSuffix} preserves failed report_unavailable`,
+      response.status === 500 &&
+      response.data?.code === "report_generation_failed" &&
+      response.data?.report_availability?.status === "report_unavailable" &&
+      response.data?.report_availability?.manual_retry_available === true);
+    ok(`passive renderer ${pathSuffix} starts no repair work`,
+      writeLog.length === writesBeforePassiveFailedReads &&
+      db.prepare(
+        "SELECT COUNT(*) count FROM scan_report_snapshots WHERE scan_id='scan-repairable' AND status='completed'"
+      ).get().count === 0);
+  }
+  ok("passive renderers preserve failed-attempt count",
+    db.prepare(
+      "SELECT COUNT(*) count FROM scan_report_snapshots WHERE scan_id='scan-repairable' AND status='failed'"
+    ).get().count === failedCountBeforePassiveReads);
+  ok("passive renderers preserve the explicit customer retry right",
+    writeLog.length === writesBeforePassiveFailedReads);
   const explicitRepair = await call(
     "/api/scans/scan-repairable?retry_report=1",
   );

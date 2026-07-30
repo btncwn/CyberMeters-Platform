@@ -1,6 +1,6 @@
 import React from 'react'
-import { act, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ScanDetail from '../ScanDetail'
 import { api } from '../../api'
@@ -50,8 +50,18 @@ const ready = {
 }
 
 function renderPage(id = 'scan-a1') {
+  function RouteControls() {
+    const navigate = useNavigate()
+    return (
+      <button type="button" onClick={() => navigate('/scans/scan-b')}>
+        Open scan B
+      </button>
+    )
+  }
+
   return render(
     <MemoryRouter initialEntries={[`/scans/${id}`]}>
+      <RouteControls />
       <Routes>
         <Route path="/scans/:id" element={<ScanDetail />} />
       </Routes>
@@ -229,5 +239,81 @@ describe('ScanDetail canonical report availability', () => {
     view.unmount()
     await advance(REPORT_PREPARING_DELAYS_MS.reduce((sum, delay) => sum + delay, 0))
     expect(api.getScan).toHaveBeenCalledTimes(1)
+  })
+
+  it('aborts the pending request on unmount without rendering a network error or polling again', async () => {
+    vi.useFakeTimers()
+    let requestSignal
+    api.getScan.mockImplementation((_id, options) => {
+      requestSignal = options.signal
+      return new Promise(() => {})
+    })
+
+    const view = renderPage()
+    await act(async () => {})
+    expect(requestSignal).toBeInstanceOf(AbortSignal)
+    expect(requestSignal.aborted).toBe(false)
+
+    view.unmount()
+    expect(requestSignal.aborted).toBe(true)
+    await advance(REPORT_PREPARING_DELAYS_MS.reduce((sum, delay) => sum + delay, 0))
+    expect(api.getScan).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/couldn't reach CyberMeters/i)).toBeNull()
+  })
+
+  it('keeps Scan B state when an aborted Scan A request resolves last', async () => {
+    let resolveA
+    let resolveB
+    let signalA
+    api.getScan.mockImplementation((scanId, options) => new Promise((resolve) => {
+      if (scanId === 'scan-a1') {
+        resolveA = resolve
+        signalA = options.signal
+      } else if (scanId === 'scan-b') {
+        resolveB = resolve
+      }
+    }))
+
+    renderPage()
+    await waitFor(() => expect(resolveA).toBeTypeOf('function'))
+    fireEvent.click(screen.getByRole('button', { name: 'Open scan B' }))
+    await waitFor(() => expect(resolveB).toBeTypeOf('function'))
+    expect(signalA.aborted).toBe(true)
+
+    await act(async () => {
+      resolveB({
+        scan: {
+          ...completedScan,
+          id: 'scan-b',
+          domain: 'b.example',
+        },
+        report_availability: {
+          ...preparing,
+          message: 'Preparing Scan B report.',
+        },
+      })
+    })
+    expect(await screen.findByRole('heading', { name: 'b.example', level: 1 }))
+      .toBeInTheDocument()
+    expect(screen.getByText('Preparing Scan B report.')).toBeInTheDocument()
+
+    // The mock deliberately ignores AbortSignal and resolves anyway. The
+    // id/generation guard must still reject this obsolete response.
+    await act(async () => {
+      resolveA({
+        scan: {
+          ...completedScan,
+          id: 'scan-a1',
+          domain: 'a1.example',
+        },
+        report_availability: ready,
+      })
+    })
+    expect(screen.getByRole('heading', { name: 'b.example', level: 1 }))
+      .toBeInTheDocument()
+    expect(screen.getByText('Preparing Scan B report.')).toBeInTheDocument()
+    expect(screen.queryByText('a1.example')).toBeNull()
+    expect(api.getScanReport).not.toHaveBeenCalled()
+    expect(api.getExecutiveReportV2).not.toHaveBeenCalled()
   })
 })

@@ -461,9 +461,7 @@ export async function scanRoutes(rctx) {
       }
 
       try {
-        const resolved = await resolveScanReportAvailability(env, scan, {
-          retryFailed: true,
-        });
+        const resolved = await resolveScanReportAvailability(env, scan);
         if (resolved.availability.status !== "report_ready") {
           const mapped = reportAvailabilityError(resolved.availability);
           return json(mapped.body, mapped.status);
@@ -555,9 +553,7 @@ export async function scanRoutes(rctx) {
       }
 
       try {
-        const resolved = await resolveScanReportAvailability(env, scan, {
-          retryFailed: true,
-        });
+        const resolved = await resolveScanReportAvailability(env, scan);
         if (resolved.availability.status !== "report_ready") {
           if (resolved.availability.status === "historical_scan_no_canonical_snapshot") {
             return json({
@@ -621,9 +617,7 @@ export async function scanRoutes(rctx) {
           .prepare(`SELECT id, status, created_at FROM scans WHERE id = ?`)
           .bind(scanId).first();
         if (!scan) return json({ error: "Forbidden" }, 403);
-        const resolved = await resolveScanReportAvailability(env, scan, {
-          retryFailed: true,
-        });
+        const resolved = await resolveScanReportAvailability(env, scan);
         if (resolved.availability.status !== "report_ready") {
           const mapped = reportAvailabilityError(resolved.availability);
           return json(mapped.body, mapped.status);
@@ -671,9 +665,7 @@ export async function scanRoutes(rctx) {
 
       let resolvedAvailability = null;
       if (scan.status === "completed") {
-        resolvedAvailability = await resolveScanReportAvailability(env, scan, {
-          retryFailed: true,
-        });
+        resolvedAvailability = await resolveScanReportAvailability(env, scan);
         if (resolvedAvailability.availability.status !== "report_ready") {
           const mapped = reportAvailabilityError(resolvedAvailability.availability);
           return json(mapped.body, mapped.status);
@@ -880,11 +872,13 @@ export async function scanRoutes(rctx) {
       }
 
       const [customerScan] = await projectPhase5ScanRowsForCustomer(env, [scan]);
+      const customerRequestedReportRetry =
+        url.searchParams.get("retry_report") === "1";
       const resolved = await resolveScanReportAvailability(env, scan, {
         // A failed canonical build is surfaced on ordinary reads. Only an
         // explicit customer retry may spend the one remaining bounded repair
         // attempt; authorization and soft-delete gates have already passed.
-        retryFailed: url.searchParams.get("retry_report") === "1",
+        retryFailed: customerRequestedReportRetry,
       });
       return json({
         scan: customerScan,
