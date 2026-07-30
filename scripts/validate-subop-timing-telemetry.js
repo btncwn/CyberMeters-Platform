@@ -16,6 +16,8 @@
 //     leave every module result deep-equal — telemetry can never alter behaviour
 //   • a module abandoned by raceModuleDeadline leaves its in-flight sub-operation
 //     attributable as `aborted` with elapsed time
+//   • crt.sh still in flight at the cap surfaces ssl.ct_lookup as `aborted`
+//     while fallback CertSpotter never starts and post-cap probes produce no telemetry row
 //   • persistModuleTelemetry binds sub-op rows through the EXISTING insert path,
 //     non-fatally, using only existing columns
 //   • the engine wiring (subOps passed to the three offenders + snapshot persist)
@@ -27,7 +29,15 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const eng = (f) => import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href);
+const moduleOverrides = {
+  "scan-budget.js": process.env.SUBOP_TIMING_SCAN_BUDGET_MODULE_URL,
+  "scan-engine.js": process.env.SUBOP_TIMING_SCAN_ENGINE_MODULE_URL,
+  "ssl-scan.js": process.env.SUBOP_TIMING_SSL_MODULE_URL,
+};
+const eng = (f) => import(
+  moduleOverrides[f]
+  || pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href
+);
 const {
   createSubOperationTelemetry,
   SUB_OPERATION_TELEMETRY_ROW_LIMIT,
@@ -40,6 +50,7 @@ const { runHeadersModule } = await eng("headers-scan.js");
 const { runSubdomainsModule } = await eng("subdomains-scan.js");
 const { createCertificateTransparencyCache } = await eng("ct-provider-cache.js");
 
+const EXPECTED_ASSERTIONS = 76;
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
 const eq = (n, g, w) => ok(n, g === w, `got ${JSON.stringify(g)} want ${JSON.stringify(w)}`);
@@ -54,6 +65,14 @@ async function withMockFetch(fn, impl) {
   globalThis.fetch = impl;
   try { return await fn(); }
   finally { globalThis.fetch = prior; }
+}
+
+async function withCapturedConsoleError(fn) {
+  const prior = console.error;
+  const errors = [];
+  console.error = (...args) => { errors.push(args.map((arg) => String(arg)).join(" ")); };
+  try { return { value: await fn(), errors }; }
+  finally { console.error = prior; }
 }
 
 const jsonResponse = (body, init = {}) =>
@@ -181,10 +200,18 @@ const sslOpts = (extra = {}) => ({
   const bare = await withMockFetch(() => runSslModule(FIXTURE_DOMAIN, sslOpts()), healthyFetch);
   const withCollector = await withMockFetch(
     () => runSslModule(FIXTURE_DOMAIN, sslOpts({ subOps: createSubOperationTelemetry() })), healthyFetch);
-  const withHostile = await withMockFetch(
-    () => runSslModule(FIXTURE_DOMAIN, sslOpts({ subOps: hostileCollector() })), healthyFetch);
+  const hostileAttempt = await withMockFetch(
+    () => runSslModule(FIXTURE_DOMAIN, sslOpts({ subOps: hostileCollector() }))
+      .then((value) => ({ value, error: null }), (error) => ({ value: null, error })),
+    healthyFetch,
+  );
   deepEq("ssl result identical with collector", withCollector, bare);
-  deepEq("ssl result identical with THROWING collector", withHostile, bare);
+  ok(
+    "ssl result identical with THROWING collector",
+    hostileAttempt.error == null
+      && JSON.stringify(normalize(hostileAttempt.value)) === JSON.stringify(normalize(bare)),
+    hostileAttempt.error?.message || "module result changed under telemetry mutation",
+  );
 }
 
 // ── 4. headers module records the expected sub-operations + fail-safe ───────
@@ -286,7 +313,7 @@ const sslOpts = (extra = {}) => ({
     });
   };
   const fakeDeadline = { remainingMs: () => 60_000 };
-  const raceAborted = async (runModule, sub) => {
+  const raceAborted = async (runModule, fetchImpl = abortAwareFetch) => {
     const controller = new AbortController();
     return withMockFetch(async () => {
       let modulePromise = null;
@@ -300,7 +327,7 @@ const sslOpts = (extra = {}) => ({
       // as the live engine leaves it running detached after the race returns.
       await modulePromise?.catch(() => {});
       return raced;
-    }, abortAwareFetch);
+    }, fetchImpl);
   };
 
   const sslSub = createSubOperationTelemetry();
@@ -309,7 +336,7 @@ const sslOpts = (extra = {}) => ({
     signal: controller.signal,
     accounting: { signal: controller.signal },
     subOps: sslSub,
-  }), sslSub);
+  }));
   eq("ssl race returned the deadline fallback", sslRaced?.outcome, "deadline_exceeded");
   const sslBy = rowsByModule(sslSub.snapshotRows());
   eq("ct_lookup that finished pre-cap reads ok", sslBy["ssl.ct_lookup"]?.outcome, "ok");
@@ -324,12 +351,56 @@ const sslOpts = (extra = {}) => ({
     signal: controller.signal,
     accounting: { signal: controller.signal },
     subOps: headersSub,
-  }), headersSub);
+  }));
   eq("headers race returned the deadline fallback", headersRaced?.outcome, "deadline_exceeded");
   const headersBy = rowsByModule(headersSub.snapshotRows());
   eq("in-flight headers GET attributed as aborted", headersBy["headers.probe_get_https"]?.outcome, "aborted");
   ok("NO row for the post-cap http protocol retry", !("headers.probe_get_http" in headersBy));
   ok("NO row for the post-cap www variant", !("headers.probe_head_www" in headersBy));
+
+  // The original corrective scenario follows the real sequential CT flow:
+  // crt.sh and the concurrent bare HTTPS probe are genuinely in flight when the
+  // module cap fires; CertSpotter is a fallback and must never start after that
+  // external abort. Every started fetch receives the same accounting.signal used
+  // by live safeFetch and rejects with AbortError. A fixture that lets crt.sh
+  // complete before the cap cannot pin ct_lookup=aborted.
+  const startedAbortUrls = [];
+  const sequentialCtAbortFetch = (url, init) => new Promise((resolve, reject) => {
+    startedAbortUrls.push(String(url));
+    const signal = init?.signal;
+    const abort = () => reject(new DOMException("The operation was aborted", "AbortError"));
+    if (signal?.aborted) return abort();
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+  const ctAbortSub = createSubOperationTelemetry();
+  const {
+    value: ctAbortRaced,
+    errors: ctAbortErrors,
+  } = await withCapturedConsoleError(() =>
+    raceAborted((controller) => runSslModule(FIXTURE_DOMAIN, {
+      ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch }),
+      signal: controller.signal,
+      accounting: { signal: controller.signal },
+      subOps: ctAbortSub,
+    }), sequentialCtAbortFetch));
+  eq("CT-abort race returned the deadline fallback", ctAbortRaced?.outcome, "deadline_exceeded");
+  const ctAbortBy = rowsByModule(ctAbortSub.snapshotRows());
+  eq("crt.sh was the one CT provider started before cap",
+    startedAbortUrls.filter((url) => url.includes("crt.sh")).length, 1);
+  eq("bare HTTPS probe started concurrently with crt.sh",
+    startedAbortUrls.filter((url) => url === `https://${FIXTURE_DOMAIN}`).length, 1);
+  eq("CertSpotter fallback never started after external abort",
+    startedAbortUrls.filter((url) => url.includes("certspotter")).length, 0);
+  ok("only expected crt.sh AbortError was logged",
+    ctAbortErrors.length === 1
+      && ctAbortErrors[0].includes("[scan/ct/crt-sh]")
+      && ctAbortErrors[0].includes("AbortError"),
+    JSON.stringify(ctAbortErrors));
+  eq("CT lookup in flight at cap attributed as aborted", ctAbortBy["ssl.ct_lookup"]?.outcome, "aborted");
+  eq("bare probe in flight with CT attributed as aborted", ctAbortBy["ssl.https_probe_bare"]?.outcome, "aborted");
+  ok("NO row for CT-abort post-cap www probe", !("ssl.https_probe_www" in ctAbortBy));
+  ok("NO row for CT-abort post-cap redirect hop 1", !("ssl.http_redirect_hop_1" in ctAbortBy));
+  ok("NO row for CT-abort post-cap redirect hop 2", !("ssl.http_redirect_hop_2" in ctAbortBy));
 }
 
 // ── 7. Persistence: ONE bounded D1 batch, never a per-row await loop ────────
@@ -398,5 +469,9 @@ const sslOpts = (extra = {}) => ({
   ok("sub-op persistence is bounded by the row limit", /SUB_OPERATION_TELEMETRY_ROW_LIMIT/.test(persistFn));
 }
 
+if (pass + fail !== EXPECTED_ASSERTIONS) {
+  console.log(`FAIL pinned assertion count — got ${pass + fail} want ${EXPECTED_ASSERTIONS}`);
+  fail += 1;
+}
 console.log(`\nsubop-timing-telemetry: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
