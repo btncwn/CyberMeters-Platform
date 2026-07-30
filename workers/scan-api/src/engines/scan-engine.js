@@ -61,7 +61,7 @@ import { recordPostureEvents } from "./posture-events.js";
 import { recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, isPublishableModuleEvidence, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_MODULE_BUDGETS, skippedModuleResult } from "./scan-budget.js";
+import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, isPublishableModuleEvidence, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
@@ -315,6 +315,34 @@ export async function persistModuleTelemetry(scanId, telemetry, env) {
   }
 }
 
+// Track B: sub-operation rows land in scan_module_telemetry through ONE bounded
+// D1 batch(), never a per-row await loop. This runs in the post-terminal chain
+// ahead of snapshot Phase 8o, where the existing per-row module-telemetry inserts
+// already cost ~2-3s live and the completed → report-ready gap is what the
+// customer meets as "Report not ready" — up to 24 additional sequential writes
+// there is a customer-facing regression, not an implementation detail. Batch
+// failure is non-fatal and produces zero rows for this scan.
+export async function persistSubOperationTelemetry(scanId, rows, env) {
+  const boundedRows = (rows || []).slice(0, SUB_OPERATION_TELEMETRY_ROW_LIMIT);
+  if (boundedRows.length === 0) return;
+  try {
+    const statements = boundedRows.map((r) =>
+      env.cybermeters_db
+        .prepare(
+          `INSERT INTO scan_module_telemetry
+             (id, scan_id, module, started_at, completed_at, duration_ms, outbound_calls, outcome, timeout, error_class)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          createId("smt"), scanId, r.module,
+          r.started_at ?? null, r.completed_at ?? null, r.duration_ms ?? null,
+          null, r.outcome ?? null, 0, null
+        )
+    );
+    await env.cybermeters_db.batch(statements);
+  } catch { /* non-fatal — telemetry cannot affect scan completion or report readiness */ }
+}
+
 // CT-R1: provider-attempt telemetry is collected in memory during module execution
 // and written only after terminal scan finalization. D1 batch() is transactional:
 // any statement failure rolls back the whole bounded snapshot, so coverage can
@@ -370,6 +398,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   const latch = createFinalizeLatch();
   // Per-module telemetry collector (persisted at finalization; non-fatal).
   const telemetry = createModuleTelemetry(now);
+  // Track B: per-sub-operation timing inside ssl/headers/subdomains (measurement
+  // only). Engine-scoped so rows recorded before a module-race abandonment
+  // survive, and in-flight sub-operations read honestly as `aborted` at snapshot.
+  const subOpTelemetry = createSubOperationTelemetry(now);
   const outboundAccounting = createOutboundAccounting();
   const dnsCache = makeDnsCache();
   const ctCache = createCertificateTransparencyCache({
@@ -576,8 +608,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           // which scoring.js reads as positive evidence of absence and turns into the
           // CRITICAL "HTTPS Not Available" finding — a second, independent path to the
           // same false claim the classifier fix closes. Not assessed is not a verdict.
-          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_observation_completeness: "not_assessed", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache }) }),
-          runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal }) => runHeadersModule(domain, { accounting, signal }) }),
+          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_observation_completeness: "not_assessed", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache, subOps: subOpTelemetry }) }),
+          runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal }) => runHeadersModule(domain, { accounting, signal, subOps: subOpTelemetry }) }),
           // The email deadline fallback is the CANONICAL unassessed email result
           // owned by email-scan.js. The previous bare shape ({spf:{},dmarc:{},
           // dkim:{}}) did not match the completed contract: scoring fabricated a
@@ -595,7 +627,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
               now,
             }),
           }),
-          runCappedModule("subdomains",           { fallback: subdomainsFallback, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache }) }),
+          runCappedModule("subdomains",           { fallback: subdomainsFallback, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry }) }),
           runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal }) => runTechModule(domain, { accounting, signal }) }),
           runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ source: "rdap" }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
           runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal, cache: dnsCache }) }),
@@ -1576,6 +1608,12 @@ function buildCanonicalUrlProfile(modules) {
     // Persist per-module telemetry (non-fatal; after the terminal status is written
     // so a telemetry failure can never leave the scan 'running').
     await persistModuleTelemetry(scanId, telemetry, env);
+    // Track B sub-operation rows ride the SAME channel as scan_module_telemetry
+    // pseudo-rows (dotted module names, existing columns — no schema change), but
+    // through ONE bounded batch, never the per-row insert loop. Snapshot AFTER
+    // terminal finalization so a sub-operation still in flight from a
+    // race-abandoned module reads honestly as `aborted`.
+    await persistSubOperationTelemetry(scanId, subOpTelemetry.snapshotRows(), env);
     await persistCtTelemetryAfterTerminal();
 
     // Shared by the 091 state persistence below AND the M5.c snapshot build

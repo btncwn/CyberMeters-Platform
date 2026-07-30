@@ -109,7 +109,7 @@ export async function runSubdomainsModule(domain, opts = {}) {
     // If the hard cap fires first the scan continues with an empty result;
     // the inner work is abandoned (Cloudflare GC's the hanging fetch).
     return await Promise.race([
-      _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, { accounting, cache, ctCache }),
+      _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, { accounting, cache, ctCache, signal: opts.signal, subOps: opts.subOps }),
       new Promise((resolve) =>
         setTimeout(() =>
           resolve(emptyResult("Subdomain discovery timed out (15s hard cap)")),
@@ -137,13 +137,41 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   const wildcardLabel = `cybermeters-wildcard-check-${Math.random().toString(36).slice(2, 10)}`;
   const wildcardHost  = `${wildcardLabel}.${domain}`;
 
+  // Track B sub-operation timing — observational only, guarded at every call so a
+  // broken/absent collector can never alter the parallel network calls or their
+  // Promise.allSettled semantics. The ct_wait_* rows time THIS consumer's wait on
+  // the shared provider promise (module wall-time attribution); the per-provider
+  // network attempts remain the ct_provider_telemetry rows.
+  const timedSubOp = (name, promise) => {
+    let token = null;
+    // Never open a row once the module signal is aborted — a post-cap operation
+    // never truly began, and no row is the honest record for a non-event.
+    try {
+      token = opts.signal?.aborted === true ? null : (opts.subOps?.begin?.("subdomains", name) ?? null);
+    } catch { token = null; }
+    if (token == null) return promise;
+    const settle = (outcome) => {
+      try {
+        const aborted = outcome !== "ok" && opts.signal?.aborted === true;
+        opts.subOps?.finish?.(token, { outcome: aborted ? "aborted" : outcome, aborted });
+      } catch { /* observational only */ }
+    };
+    return promise.then(
+      // A shared CT provider promise RESOLVES with status:"unavailable" on failure
+      // (never rejects); record that honestly instead of "ok". dnsQuery results
+      // carry no lowercase `status` field and stay "ok".
+      (v) => { settle(v?.status === "unavailable" ? "unavailable" : "ok"); return v; },
+      (e) => { settle("error"); throw e; },
+    );
+  };
+
   // ── Fire all 4 network calls in parallel ────────────────────────────────
   const [wASettled, wAAAASettled, crtShSettled, certSpotterSettled] =
     await Promise.allSettled([
-      dnsQuery(wildcardHost, "A", { accounting, cache }),
-      dnsQuery(wildcardHost, "AAAA", { accounting, cache }),
-      ctCache.get(domain, "crt_sh", { accounting, module: "subdomains" }),
-      ctCache.get(domain, "certspotter", { accounting, module: "subdomains" }),
+      timedSubOp("wildcard_dns_a", dnsQuery(wildcardHost, "A", { accounting, cache })),
+      timedSubOp("wildcard_dns_aaaa", dnsQuery(wildcardHost, "AAAA", { accounting, cache })),
+      timedSubOp("ct_wait_crt_sh", ctCache.get(domain, "crt_sh", { accounting, module: "subdomains" })),
+      timedSubOp("ct_wait_certspotter", ctCache.get(domain, "certspotter", { accounting, module: "subdomains" })),
     ]);
 
   // ── Wildcard DNS result ─────────────────────────────────────────────────

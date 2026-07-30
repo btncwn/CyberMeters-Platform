@@ -170,6 +170,29 @@ export function captureSetCookieRaw(headers) {
 
 export async function runHeadersModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
+  // Track B sub-operation timing — observational only, guarded at every call so a
+  // broken/absent collector can never alter probe behaviour or the module result.
+  // Each row times ONE safeFetch call end to end, including the redirect hops
+  // safeFetch follows internally for redirect:"follow" — that whole call is what
+  // consumes this module's 1.2s cap (SCAN_MODULE_BUDGETS.headers; ssl is 9s,
+  // subdomains 12s with an inner 15s hard cap).
+  // NEVER open a row once the module signal is aborted: after the cap fires the
+  // loop can still fall through to the http protocol retry, but that probe never
+  // truly begins — no row is the honest record for a non-event.
+  const subOpBegin = (name) => {
+    try {
+      if (opts.signal?.aborted === true) return null;
+      return opts.subOps?.begin?.("headers", name) ?? null;
+    } catch { return null; }
+  };
+  const subOpFinish = (token, res) => {
+    try {
+      opts.subOps?.finish?.(token, {
+        outcome: res ? "ok" : (opts.signal?.aborted === true ? "aborted" : "unavailable"),
+        aborted: !res && opts.signal?.aborted === true,
+      });
+    } catch { /* observational only */ }
+  };
   let headerValues         = {};
   let accessible           = false;
   let statusCode           = null;
@@ -223,12 +246,14 @@ export async function runHeadersModule(domain, opts = {}) {
     const probeUrl = `${proto}://${domain}`;
 
     // ── Step 1: GET (primary) ─────────────────────────────────────────────
+    const getSubOp = subOpBegin(`probe_get_${proto}`);
     const getRes = await safeFetch(probeUrl, {
       method:   "GET",
       redirect: "follow",
       accounting,
       ...HEADER_PROBE_INIT,
     });
+    subOpFinish(getSubOp, getRes);
     if (!getRes) continue;
 
     accessible    = true;
@@ -265,12 +290,14 @@ export async function runHeadersModule(domain, opts = {}) {
     if (botProtectionSignals.length > 0) {
       // GET was intercepted by an edge challenge.  Try HEAD — some WAFs skip
       // challenge injection on HEAD requests, potentially returning real headers.
+      const headSubOp = subOpBegin("probe_head_bot_retry");
       const headRes = await safeFetch(probeUrl, {
         method:   "HEAD",
         redirect: "follow",
         accounting,
         ...HEADER_PROBE_INIT,
       });
+      subOpFinish(headSubOp, headRes);
       if (headRes) {
         const headSnapshot = snapshotHeaders(headRes.headers);
         const headBotSignals = detectBotProtection(headRes.status, headRes.url, headSnapshot);
@@ -294,12 +321,14 @@ export async function runHeadersModule(domain, opts = {}) {
 
     if (!domain.startsWith("www.")) {
       const wwwUrl = `${proto}://www.${domain}`;
+      const wwwSubOp = subOpBegin("probe_head_www");
       const wwwRes = await safeFetch(wwwUrl, {
         method:   "HEAD",
         redirect: "follow",
         accounting,
         ...HEADER_PROBE_INIT,
       });
+      subOpFinish(wwwSubOp, wwwRes);
       recordHeaderCheck("www_variant", wwwUrl, wwwRes, "HEAD");
     }
 
