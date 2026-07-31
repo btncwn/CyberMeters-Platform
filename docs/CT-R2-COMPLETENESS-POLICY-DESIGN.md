@@ -53,15 +53,21 @@ The original raw grep totals were discovery aids, not canonical caller counts: t
 SQL projections/writers, comments, fixtures and `complete`/`partial`/`degraded` homonyms.
 The PR-1 AST-backed inventory pins separate units on exact `origin/main` `dd1700d`:
 
-- **19 runtime SQL predicate occurrences** across **18 unique SQL literal/template sites**
-  in **14 source files** (one `report-queries.js` SQL fragment contains two predicates);
+- **35 runtime SQL predicate occurrences** across **26 unique statically-resolved SQL
+  literal/template sites** in **15 source files**;
 - **49 runtime JS/TS semantic comparisons** across **22 source files**;
-- **31 runtime source files** in the union of SQL-predicate and semantic-comparison files;
-- **54 validation/governance semantic comparisons** across **18 source files**.
+- **32 runtime source files** in the union of SQL-predicate and semantic-comparison files;
+- **59 validation/governance semantic comparisons** across **20 source files**.
 
-Those numbers are intentionally not interchangeable. In particular, 19 is a predicate-
-occurrence count, 18 is a query-site count, and 22 is the JS/TS semantic source-file count.
-Comments and ordinary strings are never callers; real SQL text is classified separately.
+Those numbers are intentionally not interchangeable. In particular, 35 is a predicate-
+occurrence count, 26 is a statically-resolved SQL-site count, and 22 is the JS/TS semantic
+source-file count. Comments and ordinary strings are never callers; SQL text is classified
+separately. Governance is published as statically-resolvable comparisons: four exact
+quality comparisons remain unresolved by static data flow and are pinned as an explicit
+review contract (`validate-msp-portfolio-domains.js:427`,
+`validate-partial-scan-honesty.js:232`, `validate-phase5-evidence-honesty.js:219`,
+`validate-signal-monitoring-state.js:257`). A new unresolved shape changes the pinned set
+and fails CI; it cannot silently become an allowlist.
 
 ### 2.1 CT provider cache and all consumers [OBS]
 
@@ -182,7 +188,8 @@ them:
 
 Net effect [OBS]: one CertSpotter 429 — or, as in the live cohort, a persistent crt.sh
 outage — makes the whole scan `partial` and drops it out of **every**
-`scan_quality = 'complete'` filter (19 SQL predicate occurrences across 18 sites, §2.7).
+`scan_quality = 'complete'` filter (35 statically-resolved SQL predicate occurrences across
+26 sites, §2.7).
 The canonical report's
 scan `7bd83d64` **proves the one-provider-loss policy mechanism and a fast crt.sh failure
 trace** (HTTP 404 in 564 ms; its two `completeness_impact=1` rows bind the completeness
@@ -203,14 +210,14 @@ contract — that gap is what §4 fixes.
 
 ### 2.7 Complete/partial consumer inventory — ALL consumers, with the change table
 
-Runtime SQL readers contain **19 predicate occurrences across 18 unique SQL sites in 14
-files**: `business-risk.js:743`, `current-posture.js:41`,
+Runtime SQL-bearing strings contain **35 predicate occurrences across 26 unique
+statically-resolved SQL sites in 15 files**: `business-risk.js:743`, `current-posture.js:41`,
 `cyber-mot-state-history.js:329`, `historical-scan.js:49`,
 `portfolio-customers.js:58`, `portfolio-domains.js:174`, `portfolio-risk.js:279`,
-`related-changes.js:60,220`, `report-queries.js:24` (**two predicates in one site**),
-`weekly-digest.js:80`, `routes/executive-dashboard.js:164,209`,
-`routes/portfolio.js:174,458,471`, `routes/workspace-analytics.js:404`, and
-`routes/workspaces-core.js:96`. JS/TS comparisons such as
+`related-changes.js:60,220`, `report-queries.js:24,38,53`,
+`weekly-digest.js:80`, `routes/executive-dashboard.js:140,152,164,175,189,209`,
+`routes/portfolio.js:174,458,471`, `routes/workspace-analytics.js:404`,
+`routes/workspace-insights.js:304,311`, and `routes/workspaces-core.js:96`. JS/TS comparisons such as
 `cyber-mot-state-history.js:392`, `portfolio-domains.js:237` and
 `cyber-mot-domains.js:197` belong to the separate 49-occurrence semantic inventory; they
 are not SQL query sites.
@@ -284,7 +291,7 @@ debt independent of which option is chosen, and become MORE important if Option 
 
 **Proposal: `provider_degraded` must NOT become a fourth produced status.** [INF→POL]
 
-Rationale: 19 runtime SQL predicates across 18 sites, the produced three-value vocabulary
+Rationale: 35 statically-resolved runtime SQL predicates across 26 sites, the produced three-value vocabulary
 and the NULL-means-unearned convention key on this contract. A new produced status would fork
 every filter into an extra decision and reintroduce the "two vocabularies through one
 slot" defect class recorded in the alerting repair (customer word vs evidence word).
@@ -609,8 +616,8 @@ coverage read by consumers that care.
 - **Evidence honesty:** cleanest conceptual split (execution vocabulary vs evidence
   vocabulary — the exact two-vocabularies lesson), and closest to the existing per-signal
   machinery (`signal-monitoring-state`, per-domain `required` lists, SPF-diff exception).
-- **But** [OBS]: 19 backend `scan_quality='complete'` predicate occurrences across 18
-  unique SQL sites and the entire
+- **But** [OBS]: 35 statically-resolved backend `scan_quality='complete'` predicate
+  occurrences across 26 unique SQL sites and the entire
   comparability lattice key on the scalar today. Option C re-points every one of them at
   per-module coverage — the largest consumer-migration surface of the three, with the
   highest risk of a missed consumer silently treating "executed" as "evidenced" (the
@@ -647,7 +654,7 @@ meaning — never "near-zero risk".
 
 **Mandatory implementation gate for D** (all five before any re-grade ships):
 
-1. **AST-backed exhaustive literal-status consumer inventory** — every comparison against
+1. **AST-backed exhaustive statically-resolvable literal-status consumer inventory** — every comparison against
    the literal strings `'partial'`/`'degraded'`/`'complete'` across workers/, frontend/
    and scripts/, found by AST matching (the Track A TS-AST guard is the precedent), not by
    grep sampling.
@@ -699,7 +706,7 @@ inventory), unlike B's consumer-wide semantic change. B — the completeness re-
 would recover timeline/BRS/digest behaviour during single-provider outages — stays gated
 on the canonical report's data-collection gate and the D5/D6 rulings; deciding it now
 would outrun the evidence. C is not recommended: it maximises the missed-consumer
-false-healthy risk across the 18 current SQL query sites for benefit B already captures; its
+false-healthy risk across the 26 current statically-resolved SQL sites for benefit B already captures; its
 execution/evidence separation is better adopted as vocabulary inside the contract. This
 is a recommendation only; no part of it is decided.
 

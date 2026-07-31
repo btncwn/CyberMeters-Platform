@@ -7,6 +7,7 @@
 // are restored before exit.
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -16,9 +17,9 @@ const validator = path.join(root, "scripts", "validate-scan-quality-vocabulary-i
 const runtimeTargetRel = "workers/scan-api/src/engines/asm-cases.js";
 const commentTargetRel = "frontend/src/pages/Dashboard.jsx";
 const sqlTargetRel = "workers/scan-api/src/engines/business-risk.js";
-const EXPECTED_MUTANTS = 8;
+const EXPECTED_MUTANTS = 13;
 const VALIDATOR_ASSERTIONS = 7;
-const EXPECTED_ASSERTIONS = 29;
+const EXPECTED_ASSERTIONS = 49;
 const SUMMARY_PREFIX = "Scan-quality vocabulary inventory:";
 const RUNTIME_FAILURE = "runtime: semantic scan-quality comparison inventory is exact";
 const SQL_FAILURE = "SQL: runtime scan-quality predicate inventory is exact";
@@ -49,6 +50,24 @@ const replaceExactlyOnce = (source, anchor, replacement, name) => {
 };
 const appendMutation = (source, addition) => `${source.trimEnd()}\n\n${addition}\n`;
 const runValidator = () => spawnSync(process.execPath, [validator], {
+  cwd: root,
+  encoding: "utf8",
+  timeout: 180_000,
+});
+const oldValidatorDir = fs.mkdtempSync(path.join(os.tmpdir(), "ct-r2-old-validator-"));
+const oldValidator = path.join(oldValidatorDir, "validate-scan-quality-vocabulary-inventory.js");
+const oldValidatorSource = spawnSync("git", ["show", "HEAD:scripts/validate-scan-quality-vocabulary-inventory.js"], {
+  cwd: root,
+  encoding: "utf8",
+});
+if (oldValidatorSource.status !== 0) throw new Error("unable to read held-head validator");
+const oldSourceWithHeldRoot = oldValidatorSource.stdout.replace(
+  'const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");',
+  `const root = ${JSON.stringify(root)};`,
+);
+if (oldSourceWithHeldRoot === oldValidatorSource.stdout) throw new Error("held validator root anchor missing");
+fs.writeFileSync(oldValidator, oldSourceWithHeldRoot);
+const runOldValidator = () => spawnSync(process.execPath, [oldValidator], {
   cwd: root,
   encoding: "utf8",
   timeout: 180_000,
@@ -131,6 +150,47 @@ export const ctR2UnknownStatusGate = ctR2UnknownCarrier.scan_quality === "provid
       `export const CT_R2_MUTANT_SQL = "SELECT id FROM scans s WHERE ( 'complete' = s.scan_quality )";`),
     expectedFailure: SQL_FAILURE,
   },
+  {
+    name: "B1 renamed SQL fragment adds an unreviewed query site",
+    file: sqlTargetRel,
+    mutate: (source) => appendMutation(source, `export const ctR2RenamedFragmentGate = (db) => {
+  const COMPLETE_FILTER = "SELECT id FROM scans WHERE scan_quality = 'complete'";
+  return db.prepare(COMPLETE_FILTER).first();
+};`),
+    expectedFailure: SQL_FAILURE,
+  },
+  {
+    name: "B2 arbitrary object property carries scan_quality taint",
+    file: runtimeTargetRel,
+    mutate: (source) => appendMutation(source, `const ctR2ArbitraryCarrierRow = { scan_quality: "partial" };
+const ctR2ArbitraryCarrier = { q: ctR2ArbitraryCarrierRow.scan_quality };
+export const ctR2ArbitraryPropertyGate = ctR2ArbitraryCarrier.q === "partial";`),
+    expectedFailure: RUNTIME_FAILURE,
+  },
+  {
+    name: "B3 wrapped SQL predicate is inventory-visible",
+    file: sqlTargetRel,
+    mutate: (source) => appendMutation(source, `export const ctR2WrappedSqlGate = (db) =>
+  db.prepare("SELECT id FROM scans WHERE LOWER(scan_quality) = 'complete' OR TRIM(scan_quality) = 'partial' OR COALESCE(scan_quality, 'partial') = 'complete'").first();`),
+    expectedFailure: SQL_FAILURE,
+  },
+  {
+    name: "B4 array laundering carries scan_quality taint",
+    file: runtimeTargetRel,
+    mutate: (source) => appendMutation(source, `const ctR2ArrayCarrierRow = { scan_quality: "partial" };
+const ctR2ArrayCarrier = [ctR2ArrayCarrierRow.scan_quality];
+export const ctR2ArrayLaunderingGate = ctR2ArrayCarrier[0] === "partial";`),
+    expectedFailure: RUNTIME_FAILURE,
+  },
+  {
+    name: "B5 Map laundering carries scan_quality taint",
+    file: runtimeTargetRel,
+    mutate: (source) => appendMutation(source, `const ctR2MapCarrierRow = { scan_quality: "complete" };
+const ctR2MapCarrier = new Map();
+ctR2MapCarrier.set("quality", ctR2MapCarrierRow.scan_quality);
+export const ctR2MapLaunderingGate = [...ctR2MapCarrier.values()].filter((v) => v === "complete");`),
+    expectedFailure: RUNTIME_FAILURE,
+  },
 ];
 
 let assertionsPassed = 0;
@@ -173,6 +233,19 @@ try {
       mutated = mutation.mutate(originalText);
       assertion(`${mutation.name}: mutation applied`, mutated !== originalText);
       fs.writeFileSync(target, mutated);
+
+      if (mutations.indexOf(mutation) >= 8) {
+        const oldChild = runOldValidator();
+        const oldOutput = `${oldChild.stdout || ""}\n${oldChild.stderr || ""}`;
+        const oldTotals = summaryTotals(oldOutput);
+        assertion(
+          `${mutation.name}: held validator survives`,
+          !oldChild.error && oldChild.signal === null && oldChild.status === 0 &&
+            oldTotals?.pass === VALIDATOR_ASSERTIONS && oldTotals.fail === 0 &&
+            oldTotals.total === VALIDATOR_ASSERTIONS && failNames(oldOutput).length === 0,
+          oldOutput.trim(),
+        );
+      }
 
       const child = runValidator();
       const output = `${child.stdout || ""}\n${child.stderr || ""}`;
@@ -226,4 +299,5 @@ if (assertionTotal !== EXPECTED_ASSERTIONS) {
   process.exit(1);
 }
 if (assertionsFailed > 0 || killed !== EXPECTED_MUTANTS) process.exit(1);
+fs.rmSync(oldValidatorDir, { recursive: true, force: true });
 console.log("Scan-quality vocabulary mutation proof passed");

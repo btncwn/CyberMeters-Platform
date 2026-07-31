@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-// CT-R2 PR-1 — exhaustive scan-quality vocabulary inventory.
+// CT-R2 PR-1 — exhaustive statically-resolvable scan-quality vocabulary inventory.
 //
 // The JavaScript/TypeScript side is AST-backed. It follows the canonical
 // scan_quality slot through dot/computed access, destructuring, aliases, local
-// propagation, helper returns and calls. Comments and string contents are not
-// semantic callers. SQL is a separate taxonomy: only strings used as D1 query
-// text or named SQL fragments are tokenised, and SET assignments are not
-// misreported as predicates.
+// propagation, arbitrary object properties, arrays, Map/Set collections, helper
+// returns and calls. Comments and string contents are not semantic JS callers.
+// SQL is a separate taxonomy: static predicate fragments are name-independent,
+// query-sink interpolation is resolved by data flow, and SET assignments are not
+// misreported as predicates. Governance covers statically resolvable comparisons
+// plus exact reviewed dynamic sites; it does not claim dynamic-program exhaustiveness.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -22,21 +24,21 @@ const EXPECTED = Object.freeze({
   runtime: {
     comparison_occurrences: 49,
     source_file_count: 22,
-    fingerprint: "2ab8e5c9616fff432cd552aad8ac385d79f25243f51f22b3be50464466012c0b",
+    fingerprint: "e6f875a71221d1de32525035618aaa2186da22ecf9512df68c70e537e34bc05a",
     partial_only_fingerprint: "e50e6cfb97a4c582c5562096f6160a58b57034d2c1a4a476b561bc2dcd62aec1",
   },
   sql: {
-    predicate_occurrences: 19,
-    unique_query_sites: 18,
-    source_file_count: 14,
-    fingerprint: "26c3424dcdf4575021fa8d7bd8a9c6748eef788c1721169f7cc4ad91c3a478a6",
+    predicate_occurrences: 35,
+    unique_query_sites: 26,
+    source_file_count: 15,
+    fingerprint: "1c20c862142ecc67546c982f8744633207ae6e6ec981d8b50e022617dcf4c420",
   },
   governance: {
-    comparison_occurrences: 54,
-    source_file_count: 18,
-    fingerprint: "a55e73b45a218be26fe0644d467ad65c1f08862ac20340c14e0a1e74d03d6e6b",
+    comparison_occurrences: 59,
+    source_file_count: 20,
+    fingerprint: "2375b9b5be5ebe5f71fe48e739f0477b7a1e22ec86719920de4488334ec60bec",
   },
-  runtime_source_file_count: 31,
+  runtime_source_file_count: 32,
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
@@ -62,7 +64,6 @@ const SKIPPED_SOURCE_DIRECTORIES = new Set([
   ".git", ".wrangler", "coverage", "dist", "node_modules", "test-results",
 ]);
 const SOURCE_EXTENSION = /\.(?:[cm]?js|jsx|[cm]?ts|tsx)$/i;
-const SQL_NAME = /(?:SQL|QUERY|SCOPE|CTE|CLAUSE|PREDICATE)$/;
 const COMPARISON_OPERATORS = new Set([
   ts.SyntaxKind.EqualsEqualsToken,
   ts.SyntaxKind.EqualsEqualsEqualsToken,
@@ -71,14 +72,29 @@ const COMPARISON_OPERATORS = new Set([
 ]);
 const QUALITY_RETURN_FUNCTION_NAMES = new Set([
   "normalizeQuality", "scanCompletionQualityDisclosure",
-  "scanQualityStatus", "incompleteCustomerQuality", "String",
+  "scanQualityStatus", "incompleteCustomerQuality",
 ]);
+const QUALITY_PASSTHROUGH_FUNCTION_NAMES = new Set(["String"]);
 const KNOWN_QUALITY_OBJECT_PRODUCERS = new Map([
   ["buildScanQuality", new Set(["status"])],
 ]);
 const QUALITY_NORMALIZER_METHODS = new Set(["trim", "toLowerCase", "toString"]);
-const QUALITY_VALUE_MEMBER_NAMES = new Set([
-  "status", "quality", "reportQuality", "persistedQuality", "r2Quality", "d1Quality",
+// These two comparisons consume JSON emitted by a fresh child process. Its
+// runtime provenance cannot be statically joined to this process's AST, so the
+// exact file/line/expression contract is reviewed and fingerprinted. This is not
+// a property-name or regex allowlist: any move, rename or new site changes the
+// governance inventory and requires review.
+const REVIEWED_DYNAMIC_QUALITY_EXPRESSIONS = new Map([
+  ["scripts/validate-phase5-evidence-honesty.js:192:engine.quality",
+    "child-process runScanEngine quality projection"],
+  ["scripts/validate-phase5-evidence-honesty.js:192:engine.reportQuality",
+    "child-process runScanEngine report-quality projection"],
+]);
+const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
+  "scripts/validate-msp-portfolio-domains.js:427:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
+  "scripts/validate-partial-scan-honesty.js:232:stale.quality === \"unknown\"",
+  "scripts/validate-phase5-evidence-honesty.js:219:presentation.quality === \"partial\"",
+  "scripts/validate-signal-monitoring-state.js:257:degraded.quality === \"degraded\"",
 ]);
 
 let passed = 0;
@@ -221,7 +237,10 @@ function analyseSemanticComparisons(sourceFiles, checker) {
   const taintedFunctions = new Set();
   const objectSymbolProperties = new Map();
   const functionReturnProperties = new Map();
+  const collectionSymbols = new Set();
+  const collectionReasons = new Map();
   const taintReasons = new Map();
+  const reviewedDynamicSeen = new Set();
   const functionLikes = [];
 
   const addReason = (symbol, reason) => {
@@ -232,6 +251,14 @@ function analyseSemanticComparisons(sourceFiles, checker) {
     taintReasons.get(symbol).add(reason);
     return !existed;
   };
+  const addCollection = (symbol, reason) => {
+    if (!symbol) return false;
+    const existed = collectionSymbols.has(symbol);
+    collectionSymbols.add(symbol);
+    if (!collectionReasons.has(symbol)) collectionReasons.set(symbol, new Set());
+    collectionReasons.get(symbol).add(reason);
+    return !existed;
+  };
   const mergeProperties = (map, symbol, properties) => {
     if (!symbol || !properties || properties.size === 0) return false;
     if (!map.has(symbol)) map.set(symbol, new Set());
@@ -239,6 +266,15 @@ function analyseSemanticComparisons(sourceFiles, checker) {
     const before = target.size;
     for (const property of properties) target.add(property);
     return target.size !== before;
+  };
+  const reviewedDynamicExpression = (node) => {
+    const value = unwrap(node);
+    if (!value || (!ts.isPropertyAccessExpression(value) && !ts.isElementAccessExpression(value))) {
+      return null;
+    }
+    const sourceFile = value.getSourceFile();
+    const key = `${rel(sourceFile.fileName)}:${sourceLine(sourceFile, value)}:${normalizedSnippet(sourceFile, value)}`;
+    return REVIEWED_DYNAMIC_QUALITY_EXPRESSIONS.has(key) ? key : null;
   };
 
   for (const sourceFile of sourceFiles) {
@@ -295,19 +331,29 @@ function analyseSemanticComparisons(sourceFiles, checker) {
     });
   }
 
+  let collectionTainted;
   const expressionTainted = (node, seen = new Set()) => {
     const value = unwrap(node);
     if (!value || seen.has(value)) return false;
     seen.add(value);
     if (ts.isIdentifier(value)) return taintedSymbols.has(symbolAt(checker, value));
     if (ts.isPropertyAccessExpression(value) || ts.isElementAccessExpression(value)) {
+      const reviewedKey = reviewedDynamicExpression(value);
+      if (reviewedKey) {
+        reviewedDynamicSeen.add(reviewedKey);
+        return true;
+      }
       const name = staticMemberName(value, checker, staticStrings);
       if (QUALITY_SLOT_NAMES.has(name)) return true;
       const object = unwrap(value.expression);
       if (ts.isIdentifier(object) &&
           objectSymbolProperties.get(symbolAt(checker, object))?.has(name)) return true;
-      return QUALITY_VALUE_MEMBER_NAMES.has(name) &&
-        expressionTainted(value.expression, seen);
+      if (ts.isElementAccessExpression(value) && collectionTainted(value.expression, new Set(seen))) {
+        return true;
+      }
+      // A tainted object remains tainted through any property name. The
+      // property spelling is data, not a semantic allowlist.
+      return expressionTainted(value.expression, new Set(seen));
     }
     if (ts.isCallExpression(value) || ts.isNewExpression(value)) {
       const calleeSymbol = symbolAt(checker, value.expression);
@@ -315,13 +361,20 @@ function analyseSemanticComparisons(sourceFiles, checker) {
       const calleeName = ts.isIdentifier(value.expression)
         ? value.expression.text
         : staticMemberName(value.expression, checker, staticStrings);
-      if (QUALITY_RETURN_FUNCTION_NAMES.has(calleeName) &&
+      if (QUALITY_RETURN_FUNCTION_NAMES.has(calleeName)) {
+        return true;
+      }
+      if (QUALITY_PASSTHROUGH_FUNCTION_NAMES.has(calleeName) &&
           (value.arguments || []).some((argument) => expressionTainted(argument, new Set(seen)))) {
         return true;
       }
       if ((ts.isPropertyAccessExpression(value.expression) || ts.isElementAccessExpression(value.expression)) &&
           QUALITY_NORMALIZER_METHODS.has(calleeName) &&
           expressionTainted(value.expression.expression, new Set(seen))) {
+        return true;
+      }
+      if ((ts.isPropertyAccessExpression(value.expression) || ts.isElementAccessExpression(value.expression)) &&
+          calleeName === "get" && collectionTainted(value.expression.expression, new Set(seen))) {
         return true;
       }
       return false;
@@ -336,6 +389,43 @@ function analyseSemanticComparisons(sourceFiles, checker) {
         expressionTainted(value.right, new Set(seen));
     }
     if (ts.isPrefixUnaryExpression(value)) return expressionTainted(value.operand, seen);
+    return false;
+  };
+
+  collectionTainted = (node, seen = new Set()) => {
+    const value = unwrap(node);
+    if (!value || seen.has(value)) return false;
+    seen.add(value);
+    if (ts.isIdentifier(value)) return collectionSymbols.has(symbolAt(checker, value));
+    if (ts.isArrayLiteralExpression(value)) {
+      return value.elements.some((element) => {
+        const item = unwrap(element);
+        return ts.isSpreadElement(item)
+          ? collectionTainted(item.expression, new Set(seen))
+          : expressionTainted(item, new Set(seen)) || collectionTainted(item, new Set(seen));
+      });
+    }
+    if (ts.isNewExpression(value)) {
+      const name = ts.isIdentifier(value.expression) ? value.expression.text : null;
+      if (!["Array", "Map", "Set"].includes(name)) return false;
+      return (value.arguments || []).some((argument) =>
+        expressionTainted(argument, new Set(seen)) || collectionTainted(argument, new Set(seen)));
+    }
+    if (ts.isCallExpression(value)) {
+      const member = staticMemberName(value.expression, checker, staticStrings);
+      if (ts.isPropertyAccessExpression(value.expression) || ts.isElementAccessExpression(value.expression)) {
+        const receiver = value.expression.expression;
+        if (["values", "entries", "filter", "map", "flatMap", "slice", "concat"].includes(member) &&
+            collectionTainted(receiver, new Set(seen))) return true;
+        const receiverValue = unwrap(receiver);
+        if (ts.isIdentifier(receiverValue) && receiverValue.text === "Array" && member === "from" &&
+            value.arguments.some((argument) => collectionTainted(argument, new Set(seen)))) return true;
+      }
+    }
+    if (ts.isConditionalExpression(value)) {
+      return collectionTainted(value.whenTrue, new Set(seen)) ||
+        collectionTainted(value.whenFalse, new Set(seen));
+    }
     return false;
   };
 
@@ -364,8 +454,10 @@ function analyseSemanticComparisons(sourceFiles, checker) {
         const initializer = ts.isShorthandPropertyAssignment(property)
           ? property.name
           : property.initializer;
-        if (QUALITY_SLOT_NAMES.has(name) ||
-            (QUALITY_VALUE_MEMBER_NAMES.has(name) && expressionTainted(initializer))) {
+        // Property names are not semantic authority. Any property whose
+        // initializer carries scan-quality taint remains tainted through dot,
+        // computed or renamed/destructured reads.
+        if (QUALITY_SLOT_NAMES.has(name) || expressionTainted(initializer)) {
           properties.add(name);
         }
       }
@@ -402,15 +494,63 @@ function analyseSemanticComparisons(sourceFiles, checker) {
                 ? "destructured" : "local-propagation") || changed;
           }
         }
+        if (ts.isVariableDeclaration(node) && node.initializer && collectionTainted(node.initializer)) {
+          for (const identifier of bindingIdentifiers(node.name)) {
+            changed = addCollection(symbolAt(checker, identifier), "collection-initializer") || changed;
+          }
+        }
         if (ts.isBinaryExpression(node) &&
             node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
             expressionTainted(node.right)) {
           const left = unwrap(node.left);
           if (ts.isIdentifier(left)) {
             changed = addReason(symbolAt(checker, left), "assignment-alias") || changed;
+          } else if (ts.isElementAccessExpression(left)) {
+            const receiver = unwrap(left.expression);
+            if (ts.isIdentifier(receiver)) {
+              changed = addCollection(symbolAt(checker, receiver), "collection-assignment") || changed;
+            }
+          }
+        }
+        if (ts.isForOfStatement(node) && collectionTainted(node.expression)) {
+          const initializer = node.initializer;
+          const binding = ts.isVariableDeclarationList(initializer)
+            ? initializer.declarations[0]?.name
+            : initializer;
+          if (binding) {
+            for (const identifier of bindingIdentifiers(binding)) {
+              changed = addReason(symbolAt(checker, identifier), "collection-iteration") || changed;
+            }
           }
         }
         if (ts.isCallExpression(node)) {
+          const member = staticMemberName(node.expression, checker, staticStrings);
+          if (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression)) {
+            const receiver = unwrap(node.expression.expression);
+            const mutationArguments = member === "set" ? node.arguments.slice(1, 2)
+              : ["add", "push", "unshift"].includes(member) ? [...node.arguments]
+                : [];
+            if (ts.isIdentifier(receiver) && mutationArguments.some((argument) =>
+              expressionTainted(argument) || collectionTainted(argument))) {
+              changed = addCollection(
+                symbolAt(checker, receiver), `collection-${member}`,
+              ) || changed;
+            }
+            if (["filter", "map", "flatMap", "find", "findLast", "some", "every", "forEach"].includes(member) &&
+                collectionTainted(receiver)) {
+              const callback = unwrap(node.arguments[0]);
+              if (callback && (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) {
+                const firstParameter = callback.parameters[0];
+                if (firstParameter) {
+                  for (const identifier of bindingIdentifiers(firstParameter.name)) {
+                    changed = addReason(
+                      symbolAt(checker, identifier), "collection-callback",
+                    ) || changed;
+                  }
+                }
+              }
+            }
+          }
           const callee = symbolAt(checker, node.expression);
           const declaration = callee?.valueDeclaration ?? callee?.declarations?.find(ts.isFunctionLike);
           if (declaration && ts.isFunctionLike(declaration)) {
@@ -489,10 +629,21 @@ function analyseSemanticComparisons(sourceFiles, checker) {
         if (QUALITY_SLOT_NAMES.has(name)) {
           kinds.add(ts.isElementAccessExpression(candidate) ? "computed" : "member");
         }
+        const object = unwrap(candidate.expression);
+        if (ts.isIdentifier(object) &&
+            objectSymbolProperties.get(symbolAt(checker, object))?.has(name)) {
+          kinds.add(ts.isElementAccessExpression(candidate)
+            ? "computed-object-property" : "object-property");
+        }
+        if (ts.isElementAccessExpression(candidate) && collectionTainted(candidate.expression)) {
+          kinds.add("collection-index");
+        }
+        if (reviewedDynamicExpression(candidate)) kinds.add("reviewed-dynamic");
       }
       if (ts.isIdentifier(candidate)) {
         const symbol = symbolAt(checker, candidate);
         for (const reason of taintReasons.get(symbol) || []) kinds.add(reason);
+        for (const reason of collectionReasons.get(symbol) || []) kinds.add(reason);
       }
     });
     return sorted(kinds);
@@ -500,9 +651,33 @@ function analyseSemanticComparisons(sourceFiles, checker) {
 
   const comparisons = [];
   const unclassified = [];
+  const qualityComparisonCandidates = [];
+  const isQualitySemantic = (base) => {
+    if (base.snippet.includes("modules_skipped")) return false;
+    if (base.access.some((kind) => [
+      "object-property", "computed-object-property", "collection-index",
+      "collection-initializer", "collection-assignment", "collection-iteration",
+      "collection-callback", "collection-set", "collection-add", "collection-push",
+      "reviewed-dynamic",
+    ].includes(kind))) return true;
+    return /\bscan[_]quality\b|\bscanQuality\b/.test(base.snippet);
+  };
   for (const sourceFile of sourceFiles) {
     walk(sourceFile, (node) => {
       if (ts.isBinaryExpression(node) && COMPARISON_OPERATORS.has(node.operatorToken.kind)) {
+        const qualityMember = [node.left, node.right].find((side) => {
+          const value = unwrap(side);
+          return ts.isPropertyAccessExpression(value) || ts.isElementAccessExpression(value)
+            ? ["quality", "reportQuality"].includes(staticMemberName(value, checker, staticStrings))
+            : false;
+        });
+        if (qualityMember) {
+          qualityComparisonCandidates.push({
+            file: rel(sourceFile.fileName),
+            line: sourceLine(sourceFile, node),
+            snippet: normalizedSnippet(sourceFile, node),
+          });
+        }
         const leftTainted = expressionTainted(node.left);
         const rightTainted = expressionTainted(node.right);
         if (!leftTainted && !rightTainted) return;
@@ -528,10 +703,12 @@ function analyseSemanticComparisons(sourceFiles, checker) {
           return;
         }
         if (!status || !status.recognized) {
-          unclassified.push({
-            ...base,
-            reason: status ? `unknown-status:${status.status}` : "comparison-without-static-status",
-          });
+          if (isQualitySemantic(base)) {
+            unclassified.push({
+              ...base,
+              reason: status ? `unknown-status:${status.status}` : "comparison-without-static-status",
+            });
+          }
           return;
         }
         let cluster = node;
@@ -575,6 +752,7 @@ function analyseSemanticComparisons(sourceFiles, checker) {
           access: accessKinds(taintedArgument ?? receiver),
         };
         if (statuses.length === 0 || statuses.some((status) => !status.recognized)) {
+          if (!isQualitySemantic(base)) return;
           unclassified.push({ ...base, reason: "membership-without-recognized-static-statuses" });
           return;
         }
@@ -619,20 +797,75 @@ function analyseSemanticComparisons(sourceFiles, checker) {
   ].join(":" );
   const runtime = comparisons.filter((site) => isRuntimeFile(path.join(root, site.file)));
   const governance = comparisons.filter((site) => !isRuntimeFile(path.join(root, site.file)));
+  const resolvedQualityKeys = new Set(comparisons.map((site) =>
+    `${site.file}:${site.line}:${site.snippet}`));
+  const unresolvedGovernance = qualityComparisonCandidates.filter((site) =>
+    !isRuntimeFile(path.join(root, site.file)) &&
+    !resolvedQualityKeys.has(`${site.file}:${site.line}:${site.snippet}`));
   return {
     runtime,
     governance,
     unclassified,
+    reviewedDynamicOccurrences: reviewedDynamicSeen.size,
+    unresolvedGovernance,
     runtimeFingerprint: fingerprint(runtime.map(comparisonSignature)),
     governanceFingerprint: fingerprint(governance.map(comparisonSignature)),
   };
 }
 
-function staticText(node) {
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
-  if (!ts.isTemplateExpression(node)) return null;
-  return node.head.text + node.templateSpans.map((span) =>
-    ` __EXPR__ ${span.literal.text}`).join("");
+function staticText(node, checker, seenSymbols = new Set()) {
+  const value = unwrap(node);
+  if (!value) return null;
+  if (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) {
+    return { text: value.text, fullyResolved: true };
+  }
+  if (ts.isTemplateExpression(value)) {
+    let text = value.head.text;
+    let fullyResolved = true;
+    for (const span of value.templateSpans) {
+      const part = staticText(span.expression, checker, new Set(seenSymbols));
+      if (part) {
+        text += ` ${part.text} `;
+        fullyResolved = fullyResolved && part.fullyResolved;
+      } else {
+        text += " __UNRESOLVED_EXPR__ ";
+        fullyResolved = false;
+      }
+      text += span.literal.text;
+    }
+    return { text, fullyResolved };
+  }
+  if (ts.isIdentifier(value)) {
+    const symbol = symbolAt(checker, value);
+    if (!symbol || seenSymbols.has(symbol)) return null;
+    seenSymbols.add(symbol);
+    const declaration = symbol.valueDeclaration ?? symbol.declarations?.find((candidate) =>
+      ts.isVariableDeclaration(candidate) || ts.isParameter(candidate));
+    if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer) {
+      return staticText(declaration.initializer, checker, seenSymbols);
+    }
+    return null;
+  }
+  if (ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = staticText(value.left, checker, new Set(seenSymbols));
+    const right = staticText(value.right, checker, new Set(seenSymbols));
+    if (!left && !right) return null;
+    return {
+      text: `${left?.text ?? "__UNRESOLVED_EXPR__"}${right?.text ?? "__UNRESOLVED_EXPR__"}`,
+      fullyResolved: Boolean(left?.fullyResolved && right?.fullyResolved),
+    };
+  }
+  if (ts.isConditionalExpression(value)) {
+    const whenTrue = staticText(value.whenTrue, checker, new Set(seenSymbols));
+    const whenFalse = staticText(value.whenFalse, checker, new Set(seenSymbols));
+    if (whenTrue && whenFalse && whenTrue.text === whenFalse.text) {
+      return {
+        text: whenTrue.text,
+        fullyResolved: whenTrue.fullyResolved && whenFalse.fullyResolved,
+      };
+    }
+  }
+  return null;
 }
 
 function callMemberName(expression) {
@@ -645,40 +878,49 @@ function callMemberName(expression) {
 }
 
 function sqlSinkFunctions(sourceFiles, checker) {
-  const sinks = new Set();
+  const sinks = new Map();
   for (const sourceFile of sourceFiles) {
     walk(sourceFile, (node) => {
       if (!ts.isFunctionLike(node) || !node.body) return;
-      const parameterSymbols = new Set(node.parameters.flatMap((parameter) =>
-        bindingIdentifiers(parameter.name).map((identifier) => symbolAt(checker, identifier))));
-      let consumesParameter = false;
+      const parameterIndexes = new Map();
+      node.parameters.forEach((parameter, index) => {
+        for (const identifier of bindingIdentifiers(parameter.name)) {
+          parameterIndexes.set(symbolAt(checker, identifier), index);
+        }
+      });
+      const consumedIndexes = new Set();
       walk(node.body, (candidate) => {
         if (!ts.isCallExpression(candidate) ||
             !["prepare", "exec"].includes(callMemberName(candidate.expression))) return;
-        if (candidate.arguments.some((argument) => {
+        for (const argument of candidate.arguments) {
           const value = unwrap(argument);
-          return ts.isIdentifier(value) && parameterSymbols.has(symbolAt(checker, value));
-        })) consumesParameter = true;
+          if (ts.isIdentifier(value) && parameterIndexes.has(symbolAt(checker, value))) {
+            consumedIndexes.add(parameterIndexes.get(symbolAt(checker, value)));
+          }
+        }
       });
-      if (consumesParameter) {
+      if (consumedIndexes.size > 0) {
         const symbol = functionSymbol(checker, node);
-        if (symbol) sinks.add(symbol);
+        if (symbol) sinks.set(symbol, consumedIndexes);
       }
     });
   }
   return sinks;
 }
 
-function isSqlContext(node, checker, sinks) {
-  const parent = node.parent;
-  if (ts.isCallExpression(parent) && parent.arguments.includes(node)) {
-    return ["prepare", "exec"].includes(callMemberName(parent.expression)) ||
-      sinks.has(symbolAt(checker, parent.expression));
+function sqlSourceBinding(node, sourceFile) {
+  let current = node;
+  while (current.parent && current.parent !== sourceFile) {
+    const parent = current.parent;
+    if (ts.isVariableDeclaration(parent)) return normalizedSnippet(sourceFile, parent.name);
+    if (ts.isPropertyAssignment(parent)) return normalizedSnippet(sourceFile, parent.name);
+    if (ts.isCallExpression(parent) && parent.arguments.includes(current)) {
+      return `call:${callMemberName(parent.expression) ?? "function"}`;
+    }
+    if (ts.isStatement(parent)) break;
+    current = parent;
   }
-  if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
-    return SQL_NAME.test(parent.name.text);
-  }
-  return false;
+  return "inline";
 }
 
 function sqlTokens(text) {
@@ -706,8 +948,15 @@ function sqlPredicates(text) {
   const predicates = [];
   const majorClauses = new Set([
     "select", "set", "where", "having", "when", "on", "values",
-    "order", "group", "limit", "returning",
+    "order", "group", "limit", "returning", "from", "join", "union",
   ]);
+  const depthBefore = [];
+  let depth = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    depthBefore[i] = depth;
+    if (tokens[i].raw === "(") depth += 1;
+    else if (tokens[i].raw === ")") depth = Math.max(0, depth - 1);
+  }
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i].lower !== "scan_quality") continue;
     let clause = null;
@@ -749,9 +998,24 @@ function sqlPredicates(text) {
       operator = next.lower === "not" ? "not-in" : "in";
       status = sqlStatus(tokens[i + offset]);
     }
-    // A selected/projected scan_quality column is not a predicate. Once a
-    // comparison operator exists, however, an unknown RHS is an unclassified
-    // gate and must fail closed below.
+    if (!operator && depthBefore[i] > 0) {
+      // LOWER/TRIM/COALESCE and nested wrappers: walk out of the containing
+      // expression and accept only the first top-level comparison before a new
+      // major SQL clause. An unresolved RHS is retained with status=null so the
+      // classification assertion fails closed.
+      for (let j = i + 1; j < tokens.length; j++) {
+        if (depthBefore[j] === 0 && majorClauses.has(tokens[j].lower)) break;
+        if (depthBefore[j] === 0 && tokens[j].raw === ",") break;
+        if (depthBefore[j] < depthBefore[i] && ["=", "==", "!=", "<>"].includes(tokens[j].raw)) {
+          operator = `wrapped-${tokens[j].raw}`;
+          status = sqlStatus(tokens[j + 1]);
+          break;
+        }
+      }
+    }
+    // A selected/projected scan_quality column is not a predicate. Direct or
+    // wrapped comparison operators are never discarded merely because their
+    // status expression cannot be resolved statically.
     if (!operator) continue;
     predicates.push({ operator, status, index: tokens[i].index });
   }
@@ -759,41 +1023,72 @@ function sqlPredicates(text) {
 }
 
 function analyseSql(sourceFiles, checker) {
-  const sites = [];
+  const staticSites = [];
+  const querySites = [];
   const unclassified = [];
   const sinks = sqlSinkFunctions(sourceFiles, checker);
+  const seenStatic = new Set();
+  const seenQueries = new Set();
+  const record = (collection, seen, sourceFile, node, resolved, kind) => {
+    if (!resolved || !/\bscan_quality\b/i.test(resolved.text) || /===|!==/.test(resolved.text)) {
+      return;
+    }
+    const predicates = sqlPredicates(resolved.text);
+    if (predicates.length === 0) return;
+    const key = `${rel(sourceFile.fileName)}:${node.getStart(sourceFile)}:${kind}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const site = {
+      file: rel(sourceFile.fileName),
+      line: sourceLine(sourceFile, node),
+      kind,
+      binding: sqlSourceBinding(node, sourceFile),
+      fully_resolved: resolved.fullyResolved,
+      predicates,
+      source_snippet: normalizedSnippet(sourceFile, node),
+      snippet: resolved.text.replace(/\s+/g, " ").trim(),
+    };
+    collection.push(site);
+    for (const predicate of predicates) {
+      if (!ALLOWED_QUALITY_STATUSES.has(predicate.status)) {
+        unclassified.push({
+          ...site,
+          predicate,
+          reason: predicate.status == null
+            ? "sql-predicate-without-static-status"
+            : `unknown-sql-status:${predicate.status}`,
+        });
+      }
+    }
+  };
   for (const sourceFile of sourceFiles.filter((file) => isRuntimeFile(file.fileName))) {
     walk(sourceFile, (node) => {
-      const text = staticText(node);
-      if (text == null || !/\bscan_quality\b/i.test(text) ||
-          !isSqlContext(node, checker, sinks)) return;
-      const predicates = sqlPredicates(text);
-      if (predicates.length === 0) return;
-      const site = {
-        file: rel(sourceFile.fileName),
-        line: sourceLine(sourceFile, node),
-        predicates,
-        snippet: text.replace(/\s+/g, " ").trim(),
-      };
-      sites.push(site);
-      for (const predicate of predicates) {
-        if (predicate.operator === "unclassified" ||
-            !ALLOWED_QUALITY_STATUSES.has(predicate.status)) {
-          unclassified.push({ ...site, predicate });
-        }
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ||
+          ts.isTemplateExpression(node)) {
+        record(staticSites, seenStatic, sourceFile, node, staticText(node, checker), "static-text");
+      }
+      if (!ts.isCallExpression(node)) return;
+      const directSink = ["prepare", "exec"].includes(callMemberName(node.expression));
+      const helperIndexes = sinks.get(symbolAt(checker, node.expression));
+      for (let index = 0; index < node.arguments.length; index++) {
+        if (!directSink && !helperIndexes?.has(index)) continue;
+        const argument = node.arguments[index];
+        record(querySites, seenQueries, sourceFile, argument,
+          staticText(argument, checker), directSink ? "query-sink" : "helper-query-sink");
       }
     });
   }
   const signature = (site) => [
-    site.file, site.line,
+    site.file, site.line, site.kind, site.binding, site.fully_resolved,
     site.predicates.map((predicate) => `${predicate.operator}:${predicate.status}`).join("+"),
-    site.snippet,
+    site.source_snippet, site.snippet,
   ].join(":" );
   return {
-    sites,
+    staticSites,
+    querySites,
     unclassified,
-    predicateOccurrences: sites.reduce((sum, site) => sum + site.predicates.length, 0),
-    fingerprint: fingerprint(sites.map(signature)),
+    predicateOccurrences: staticSites.reduce((sum, site) => sum + site.predicates.length, 0),
+    fingerprint: fingerprint(staticSites.map(signature)),
   };
 }
 
@@ -827,7 +1122,12 @@ const semantic = analyseSemanticComparisons(sourceFiles, checker);
 const sql = analyseSql(sourceFiles, checker);
 const runtimeSemanticFiles = new Set(semantic.runtime.map((site) => site.file));
 const governanceFiles = new Set(semantic.governance.map((site) => site.file));
-const sqlFiles = new Set(sql.sites.map((site) => site.file));
+// Every statically-resolved SQL-bearing string is a site. Query-sink analysis
+// remains separately retained in analyseSql so interpolation/data-flow is
+// exercised, but inventory authority is not gated on a fragment identifier or
+// on whether a helper call was recognised.
+const sqlSites = sql.staticSites;
+const sqlFiles = new Set(sqlSites.map((site) => site.file));
 const runtimeFiles = new Set([...runtimeSemanticFiles, ...sqlFiles]);
 // A partial comparison is partial-only when its nearest boolean OR/AND cluster
 // has no sibling degraded/complete comparison. This keeps ScanDetail's explicit
@@ -860,7 +1160,7 @@ const current = {
   },
   sql: {
     predicate_occurrences: sql.predicateOccurrences,
-    unique_query_sites: sql.sites.length,
+    unique_query_sites: sqlSites.length,
     source_file_count: sqlFiles.size,
     fingerprint: sql.fingerprint,
   },
@@ -871,16 +1171,22 @@ const current = {
   },
   runtime_source_file_count: runtimeFiles.size,
 };
+const unresolvedGovernanceKeys = semantic.unresolvedGovernance.map((site) =>
+  `${site.file}:${site.line}:${site.snippet}`,
+).sort();
 
 function dumpInventory() {
   console.log(JSON.stringify({
     counts: current,
     runtime_comparisons: semantic.runtime,
-    sql_sites: sql.sites,
+    sql_sites: sqlSites,
     governance_comparisons: semantic.governance,
+    unresolved_governance: semantic.unresolvedGovernance,
     unclassified: [...semantic.unclassified, ...sql.unclassified],
     parse_failures: parseFailures,
     known_partial_only_gate: knownAsmPartial,
+    unresolved_governance: semantic.unresolvedGovernance,
+    unresolved_governance: semantic.unresolvedGovernance,
   }, null, 2));
 }
 
@@ -893,9 +1199,10 @@ if (process.argv.includes("--dump-counts")) {
     counts: current,
     unclassified: [...semantic.unclassified, ...sql.unclassified],
     known_partial_only_gate: knownAsmPartial,
+    unresolved_governance: semantic.unresolvedGovernance,
     runtime_site_keys: semantic.runtime.map((site) =>
       `${site.file}:${site.line}:${site.snippet}`),
-    sql_site_keys: sql.sites.map((site) => `${site.file}:${site.line}:${site.predicates.length}`),
+    sql_site_keys: sqlSites.map((site) => `${site.file}:${site.line}:${site.predicates.length}`),
   }, null, 2));
   process.exit(0);
 }
@@ -931,7 +1238,8 @@ ok(
 const governanceMatches = JSON.stringify(current.governance) === JSON.stringify(EXPECTED.governance);
 ok(
   "governance: validation scan-quality comparison inventory is exact",
-  cleanParse ? governanceMatches : true,
+  cleanParse ? governanceMatches &&
+    JSON.stringify(unresolvedGovernanceKeys) === JSON.stringify([...EXPECTED_UNRESOLVED_GOVERNANCE].sort()) : true,
   `got ${JSON.stringify(current.governance)}`,
 );
 
