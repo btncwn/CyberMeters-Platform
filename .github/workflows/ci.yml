@@ -1092,6 +1092,16 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      # CT-R2 PR-1 — AST-backed, exhaustive scan_quality vocabulary inventory.
+      # Counts use separate units (SQL predicate occurrences, SQL query sites,
+      # source files, runtime semantic comparisons and governance comparisons).
+      # The strict fresh-process suite rejects wrong-reason mutant kills.
+      - name: Validate scan-quality vocabulary inventory (AST + SQL taxonomy)
+        run: node scripts/validate-scan-quality-vocabulary-inventory.js
+
+      - name: Validate scan-quality vocabulary inventory strict mutations
+        run: node scripts/validate-scan-quality-vocabulary-mutations.js
+
       # Track A A2+A3 — ScanDetail must render frozen assessment rating/score only,
       # preserve canonical comparison-message priority, and require explicit
       # comparable=true for historical claims. The focused validator combines

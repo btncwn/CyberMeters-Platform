@@ -47,15 +47,21 @@ The canonical attribution report proves (its §A, "Proven facts"):
 
 ---
 
-## 2. Exact pre-change map (code-counted, `origin/main` `f865d60`)
+## 2. Exact pre-change map (original design basis `f865d60`; PR-1 recount basis `dd1700d`)
 
-Counting rule: every claim of "all callers" below was produced by exhaustive grep plus
-follow-up of every hit, not by sampling. Raw totals: `scan_quality` appears **601 times**
-(workers/ 190 across 46 files; scripts/ 411; shared/ 0; workers/email-ingest 0 — the email
-worker carries only a deploy-manifest closure stamp, no scan source). Frontend:
-`scan_quality|scanQuality|partial` appears **81 times across 26 files**, of which 27 are
-true completeness semantics (the rest are homonyms: DMARC `partial_enforcement`, CE answer
-values, "partial owner", platform-status copy).
+The original raw grep totals were discovery aids, not canonical caller counts: they mixed
+SQL projections/writers, comments, fixtures and `complete`/`partial`/`degraded` homonyms.
+The PR-1 AST-backed inventory pins separate units on exact `origin/main` `dd1700d`:
+
+- **19 runtime SQL predicate occurrences** across **18 unique SQL literal/template sites**
+  in **14 source files** (one `report-queries.js` SQL fragment contains two predicates);
+- **49 runtime JS/TS semantic comparisons** across **22 source files**;
+- **31 runtime source files** in the union of SQL-predicate and semantic-comparison files;
+- **54 validation/governance semantic comparisons** across **18 source files**.
+
+Those numbers are intentionally not interchangeable. In particular, 19 is a predicate-
+occurrence count, 18 is a query-site count, and 22 is the JS/TS semantic source-file count.
+Comments and ordinary strings are never callers; real SQL text is classified separately.
 
 ### 2.1 CT provider cache and all consumers [OBS]
 
@@ -176,7 +182,8 @@ them:
 
 Net effect [OBS]: one CertSpotter 429 — or, as in the live cohort, a persistent crt.sh
 outage — makes the whole scan `partial` and drops it out of **every**
-`scan_quality = 'complete'` filter (16 backend query sites, §2.7). The canonical report's
+`scan_quality = 'complete'` filter (19 SQL predicate occurrences across 18 sites, §2.7).
+The canonical report's
 scan `7bd83d64` **proves the one-provider-loss policy mechanism and a fast crt.sh failure
 trace** (HTTP 404 in 564 ms; its two `completeness_impact=1` rows bind the completeness
 loss to `subdomain_discovery`). It does **not** prove that CT was the sole cause of that
@@ -196,12 +203,17 @@ contract — that gap is what §4 fixes.
 
 ### 2.7 Complete/partial consumer inventory — ALL consumers, with the change table
 
-Backend readers filtering on `scan_quality = 'complete'` (16 query sites, counted):
-`business-risk.js:747`, `cyber-mot-state-history.js:335,392`, `historical-scan.js:51`,
-`portfolio-domains.js:185,237`, `portfolio-risk.js:291`, `related-changes.js:62,222`,
-`report-queries.js:26,30`, `weekly-digest.js:81`, `routes/executive-dashboard.js:166,210`,
-`routes/portfolio.js:181,464,477`, `routes/workspace-analytics.js:407`,
-`routes/workspaces-core.js:113`, `cyber-mot-domains.js:197`.
+Runtime SQL readers contain **19 predicate occurrences across 18 unique SQL sites in 14
+files**: `business-risk.js:743`, `current-posture.js:41`,
+`cyber-mot-state-history.js:329`, `historical-scan.js:49`,
+`portfolio-customers.js:58`, `portfolio-domains.js:174`, `portfolio-risk.js:279`,
+`related-changes.js:60,220`, `report-queries.js:24` (**two predicates in one site**),
+`weekly-digest.js:80`, `routes/executive-dashboard.js:164,209`,
+`routes/portfolio.js:174,458,471`, `routes/workspace-analytics.js:404`, and
+`routes/workspaces-core.js:96`. JS/TS comparisons such as
+`cyber-mot-state-history.js:392`, `portfolio-domains.js:237` and
+`cyber-mot-domains.js:197` belong to the separate 49-occurrence semantic inventory; they
+are not SQL query sites.
 
 The table below is the required per-consumer statement: what the consumer does **today when
 a single-provider CT failure grades the scan `partial`**, and what would change **under the
@@ -272,8 +284,8 @@ debt independent of which option is chosen, and become MORE important if Option 
 
 **Proposal: `provider_degraded` must NOT become a fourth produced status.** [INF→POL]
 
-Rationale: 16 backend `= 'complete'` filters, the produced three-value vocabulary and the
-NULL-means-unearned convention key on this contract. A new produced status would fork
+Rationale: 19 runtime SQL predicates across 18 sites, the produced three-value vocabulary
+and the NULL-means-unearned convention key on this contract. A new produced status would fork
 every filter into an extra decision and reintroduce the "two vocabularies through one
 slot" defect class recorded in the alerting repair (customer word vs evidence word).
 Provider degradation is **evidence metadata**, not a new quality grade — and the existing
@@ -597,7 +609,8 @@ coverage read by consumers that care.
 - **Evidence honesty:** cleanest conceptual split (execution vocabulary vs evidence
   vocabulary — the exact two-vocabularies lesson), and closest to the existing per-signal
   machinery (`signal-monitoring-state`, per-domain `required` lists, SPF-diff exception).
-- **But** [OBS]: 16 backend `scan_quality='complete'` query sites and the entire
+- **But** [OBS]: 19 backend `scan_quality='complete'` predicate occurrences across 18
+  unique SQL sites and the entire
   comparability lattice key on the scalar today. Option C re-points every one of them at
   per-module coverage — the largest consumer-migration surface of the three, with the
   highest risk of a missed consumer silently treating "executed" as "evidenced" (the
@@ -686,7 +699,7 @@ inventory), unlike B's consumer-wide semantic change. B — the completeness re-
 would recover timeline/BRS/digest behaviour during single-provider outages — stays gated
 on the canonical report's data-collection gate and the D5/D6 rulings; deciding it now
 would outrun the evidence. C is not recommended: it maximises the missed-consumer
-false-healthy risk across 16+ query sites for benefit B already captures; its
+false-healthy risk across the 18 current SQL query sites for benefit B already captures; its
 execution/evidence separation is better adopted as vocabulary inside the contract. This
 is a recommendation only; no part of it is decided.
 
