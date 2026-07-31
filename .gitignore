@@ -39,3 +39,9 @@ workers/scan-api/.wrangler/
 # Confidential local-only deliverables — NEVER commit or push (anti-imitability policy)
 *.local.html
 local/
+
+# Local scratch — rendered report pages, generator scripts, working images.
+# `*.pdf` above already covers the documents themselves; this covers everything
+# alongside them (page renders, .py generators, screenshots) that must not reach
+# repository history.
+tmp/
