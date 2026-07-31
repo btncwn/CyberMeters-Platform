@@ -176,7 +176,7 @@ them:
 
 Net effect [OBS]: one CertSpotter 429 — or, as in the live cohort, a persistent crt.sh
 outage — makes the whole scan `partial` and drops it out of **every**
-`scan_quality = 'complete'` filter (16 backend query sites, §2.7). The canonical report's
+`scan_quality = 'complete'` filter (18 backend query sites, §2.7 erratum). The canonical report's
 scan `7bd83d64` **proves the one-provider-loss policy mechanism and a fast crt.sh failure
 trace** (HTTP 404 in 564 ms; its two `completeness_impact=1` rows bind the completeness
 loss to `subdomain_discovery`). It does **not** prove that CT was the sole cause of that
@@ -196,12 +196,30 @@ contract — that gap is what §4 fixes.
 
 ### 2.7 Complete/partial consumer inventory — ALL consumers, with the change table
 
-Backend readers filtering on `scan_quality = 'complete'` (16 query sites, counted):
-`business-risk.js:747`, `cyber-mot-state-history.js:335,392`, `historical-scan.js:51`,
-`portfolio-domains.js:185,237`, `portfolio-risk.js:291`, `related-changes.js:62,222`,
-`report-queries.js:26,30`, `weekly-digest.js:81`, `routes/executive-dashboard.js:166,210`,
+Backend readers filtering on `scan_quality = 'complete'` (18 WHERE-position SQL sites
+after the 2026-07-31 erratum below — the original "16 counted" missed two
+spaceless-format sites):
+`business-risk.js:747`, `current-posture.js:41` *(erratum)*,
+`cyber-mot-state-history.js:335,392`, `historical-scan.js:51`,
+`portfolio-customers.js:62` *(erratum)*, `portfolio-domains.js:185,237`,
+`portfolio-risk.js:291`, `related-changes.js:62,222`, `report-queries.js:26,30`,
+`weekly-digest.js:81`, `routes/executive-dashboard.js:166,210`,
 `routes/portfolio.js:181,464,477`, `routes/workspace-analytics.js:407`,
 `routes/workspaces-core.js:113`, `cyber-mot-domains.js:197`.
+
+**ERRATUM (2026-07-31, independent review):** the enumeration above was produced with a
+spaced grep pattern and originally claimed 16 counted sites; two real SQL WHERE filters
+written without spaces (`scan_quality='complete'`) were missed — `current-posture.js:41`
+and `portfolio-customers.js:62`, both present at this document's own basis commit
+`f865d60`. Both files already appear in the consumer table below (rows 20/21), so **no
+per-consumer analysis and no founder decision changes**; the defect was confined to this
+counted list, the §2 exhaustiveness claim as applied to it, and the three derived "16"
+figures (now corrected to 18). Two caveats recorded by the same review: (a) occurrence ≠
+query site ≠ runtime site — `report-queries.js:26,30` are two occurrences inside ONE
+exported constant (`LATEST_COMPLETED_SCAN_SCOPE`) interpolated at 9 call sites; (b) this
+prose list is **no longer the authoritative count** — the CT-R2 PR-1 validator derives its
+inventory from the tree at a pinned SHA, and every number it publishes carries its own
+definition (occurrence / source site / runtime interpolation).
 
 The table below is the required per-consumer statement: what the consumer does **today when
 a single-provider CT failure grades the scan `partial`**, and what would change **under the
@@ -272,7 +290,7 @@ debt independent of which option is chosen, and become MORE important if Option 
 
 **Proposal: `provider_degraded` must NOT become a fourth produced status.** [INF→POL]
 
-Rationale: 16 backend `= 'complete'` filters, the produced three-value vocabulary and the
+Rationale: 18 backend `= 'complete'` filters (§2.7 erratum), the produced three-value vocabulary and the
 NULL-means-unearned convention key on this contract. A new produced status would fork
 every filter into an extra decision and reintroduce the "two vocabularies through one
 slot" defect class recorded in the alerting repair (customer word vs evidence word).
@@ -597,7 +615,7 @@ coverage read by consumers that care.
 - **Evidence honesty:** cleanest conceptual split (execution vocabulary vs evidence
   vocabulary — the exact two-vocabularies lesson), and closest to the existing per-signal
   machinery (`signal-monitoring-state`, per-domain `required` lists, SPF-diff exception).
-- **But** [OBS]: 16 backend `scan_quality='complete'` query sites and the entire
+- **But** [OBS]: 18 backend `scan_quality='complete'` query sites (§2.7 erratum) and the entire
   comparability lattice key on the scalar today. Option C re-points every one of them at
   per-module coverage — the largest consumer-migration surface of the three, with the
   highest risk of a missed consumer silently treating "executed" as "evidenced" (the
