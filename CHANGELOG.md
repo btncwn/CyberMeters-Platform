@@ -5,6 +5,191 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.31-1 — sub-operation timing telemetry + A1 report-preparing cutover — deployed 2026-07-31
+
+**Status:** DEPLOYED — pending founder production acceptance
+
+This code-only release records the linked production unit delivered by PRs **#353**,
+**#354** and **#355**. It adds bounded sub-operation timing telemetry and closes the
+customer-visible completed-scan/report-not-ready gap with an honest, bounded
+`report_preparing` read state. It does not change scan lifecycle semantics:
+`scans.status='completed'` remains terminal and says nothing by itself about canonical
+report availability.
+
+- **Release identity:** deployed code/main SHA
+  `0b2a0737d6b9eaf146dfd732f9e6a41b1eba5d6e` (merge of PR #355; reviewed head
+  `437aedda48f2db200b0cb911a70db589f723fb4b`; parents `b0b47ba9` +
+  `437aedda`). Release tag `v2026.07.31-1` targets that deployed code SHA. The
+  docs-only release-record commit is a later repository record and is not the
+  Worker deployment identity.
+- **Release unit and rollback:** scan-api live Version ID
+  `9789f36d-e908-41b5-a649-7edd1ac859f6` (rollback
+  `f36dba81-5f83-4460-be2c-9ad9ab3ea684`); email-ingest live Version ID
+  `8747f610-5b37-4d1c-a38c-e93419a2d755` (rollback
+  `ff67278d-f81a-4797-a72c-521c1d3f9587`). The two Workers were deployed as one
+  linked release unit. No rollback was required.
+- **Email Worker closure:** live and exact-main stamp
+  `2026.07.30-subop-timing-telemetry.62ea25471fc5` (closure SHA-256
+  `62ea25471fc54120500f8622ad3c7b18478e9dc30db2aced614d3631dfe4a5fc`).
+- **Migration/data:** no migration; no historical rewrite or production-data
+  mutation. Pages converged through the normal main workflow; no manual Pages
+  deployment was performed.
+
+### A1 production proof — report availability, not scan lifecycle
+
+The founder exercised the normal authenticated UI path for
+`scan_4f100e6d-13df-4307-8f97-c98eb0493135` (`cybermeters.com`) and observed:
+
+```text
+STATUS: Completed
+→ “Your report is being prepared”
+→ “Your assessment is complete. CyberMeters is preparing the report.”
+→ report_ready / rendered report
+```
+
+The old generic “Something went wrong” state was not shown. This founder UI
+observation is separate from the durable backend proof:
+
+- D1 scan created `2026-07-31 02:42:12`;
+- source report started `2026-07-31T02:42:17.191Z`;
+- authoritative completion `2026-07-31T02:42:27.971Z`;
+- snapshot claim `2026-07-31 02:43:33`;
+- snapshot payload `built_at` `2026-07-31T02:43:35.102Z`;
+- snapshot completed/report-ready `2026-07-31T02:43:35.623Z`;
+- completion→claim approximately **65.0 s**;
+- completion→snapshot-completed/report-ready approximately **67.7 s**.
+
+The 67.7-second value is one production observation, not a general distribution.
+Three recorded completion→snapshot-completed/report-ready measurements span
+**67.7–153.0 s**: `scan_4f100e6d` 67.7 s, `scan_c500ed44` 126.0 s and
+`scan_8b69c5e7` 153.0 s. The latter two scans pre-date A1. A1's approximately
+7-attempt/~82-second polling bound covered the current fast case; if a similar
+126–153-second backend gap recurs, the present bound may expire honestly. Measuring
+that distribution and considering re-tuning belongs to `TRACK-A2A3`; this release
+does not change the bound. A1 makes the wait truthful—it does not accelerate
+snapshot generation. A1 production behaviour is **PASS**.
+
+### Immutable snapshot integrity
+
+Canonical snapshot `snap_f236cb8c-4e77-4e8b-95ce-62992e21dca5` is byte-bound
+correctly:
+
+| Source | SHA-256 | Size |
+| --- | --- | ---: |
+| D1 snapshot index | `44e19b37485fbc037ec96a6d6e42a5acce47477413ac5412a0494c69a8d6b0b1` | 237,676 bytes |
+| Actual R2 object | `44e19b37485fbc037ec96a6d6e42a5acce47477413ac5412a0494c69a8d6b0b1` | 237,676 bytes |
+
+The checksum and byte size match exactly.
+
+### #353/#354 production telemetry proof
+
+The founder scan persisted **9 dotted rows / 9 distinct sub-operations**, plus
+**17 normal module telemetry rows**. `scan_finalisation` completed `ok` in 827 ms;
+telemetry persistence did not prevent terminal scan completion or the later
+checksum-valid snapshot.
+
+The initial production cohort contains four distinct scans, each with nine dotted
+rows: **36 rows total**, **0 orphan dotted rows** and **0 orphan scan IDs**. A real
+cap event independently corroborates the post-cap phantom-row contract:
+
+- `ssl.ct_lookup` began before the cap and completed at the 9000 ms cap with
+  `outcome=aborted`;
+- zero dotted operations have `started_at` at or after that cap;
+- operations that never began after abort emitted no phantom `aborted` row.
+
+The distinction is important: the #354 strict fixture/mutation suite supplies the
+line-level carrier proof; this live cap event supplies production behavioural
+corroboration of the same observable contract.
+
+Production sub-operation telemetry is live. Four production scans reproduced a
+pattern in which crt.sh did not complete within the 9000 ms cap while CertSpotter
+returned available evidence. This is sufficient to begin CT-R2 design, but no
+final provider threshold or completeness-policy change has yet been approved.
+
+The 9000 ms value is a right-censored cap observation, not a successful latency;
+crt.sh's actual completion latency is unknown. CertSpotter returned available
+evidence in 419 ms on the founder scan only—419 ms is not generalized across all
+four scans. The four repeated observations are not presented as four statistically
+independent samples without domain/time/colo diversity evidence, and they do not
+establish crt.sh as the sole cause of the platform-wide partial-scan baseline.
+
+On the founder scan, both `ssl.ct_lookup` and
+`subdomains.ct_wait_crt_sh` covered exactly
+`02:42:17.484Z → 02:42:26.484Z`: two consumer-side rows observing the same
+per-scan crt.sh provider Promise. Exact-main source confirms one per-scan CT cache,
+keyed by domain+provider; concurrent consumers receive the same in-flight provider
+Promise; Subdomains starts crt.sh and CertSpotter in parallel but awaits
+`Promise.allSettled`; SSL awaits crt.sh before consuming the CertSpotter fallback.
+
+Physical request sharing/deduplication is desirable. The design risk is coupling a
+shared physical request's completion to every consumer's wait and evidence-readiness
+lifecycle. Threshold adjustment alone may be insufficient: CT-R2 must evaluate
+consumer-isolated readiness while preserving request deduplication and honest
+degraded-provider semantics. No threshold, timeout or completeness policy changes
+are included here.
+
+### Score/presentation evidence and A3 boundary
+
+The same founder scan provides three-surface evidence:
+
+- **Stored D1:** score 85, rating `good`, `scan_quality=partial`.
+- **Canonical snapshot:** raw score 85, display score 85, display rating `null`,
+  score band `null`, BRI band `null`, `provisional=true`, `authoritative=false`,
+  `comparable=false`.
+- **Executive PDF:** “Provisional Score: 85 / 100”; no assessment band; Business
+  Risk Indicator “NOT AUTHORITATIVE”.
+- **ScanDetail:** still presents the raw “Good” assessment band.
+
+The canonical presentation and PDF correctly withhold the band; only ScanDetail's
+raw `scan.rating` bypass remains. This is live evidence for
+`TRACK-A3-RATING-GUARD`, not a change in this release. A partial scan alone is not a
+rollback trigger for A1/#353/#354/#355, and general partial-score suppression is
+outside this release unit.
+
+### Notification/delivery proof boundary
+
+Natural `scan_completed` and `supply_chain_risk_increase` notification events were
+created. The supply-chain occurrence's delivery was skipped with
+`reason=evidence_not_attributable`. Linked `alert_deliveries=0` and
+`asset_alert_records=0`.
+
+Therefore the natural notification occurrence/event path was exercised; real
+channel delivery was **not exercised**. No artificial event was generated, and no
+channel-delivery PASS or regression claim is made.
+
+### Residual backlog — recorded, not implemented
+
+- **PDF-DMARC-OBJECT-RENDERING** — customer-facing Executive PDF defect,
+  upper-bound P2; must close before the first controlled customer invitation.
+  `workers/scan-api/src/engines/pdf.js:939` selects parsed object `record.raw`
+  ahead of canonical string `record.value`, so `String(object)` renders
+  `[object Object]`. Focused corrective contract: canonical value first; only
+  string raw fallback; no generic `JSON.stringify`; no printable scalar means no
+  row; no printable rows means no section heading; real PDF renderer assertion;
+  zero `[object Object]` matches; pinned mutant restoring raw-first behaviour.
+- **SUBOP-TELEMETRY-PERSISTENCE-OUTCOME** — governance/observability debt, not a
+  proven production bug or release blocker. Current persistence succeeded, but a
+  future batch failure could be swallowed by the existing non-fatal catch.
+  Required per-scan outcomes are `not_attempted_empty`, `persisted(count)` and
+  `persistence_failed(error_class)`, with scan ID attribution and at minimum a
+  structured Worker log. Finalization must remain non-fatal, immutable R2 reports
+  must not be rewritten, storage design requires its own pre-change map, and CI
+  must prevent restoration of a completely silent catch.
+- Still open and not started: `TRACK-A2A3`, `TRACK-A3-RATING-GUARD`, a fresh
+  evidence-complete production positive control, CT-R2 cohort/provider-policy
+  analysis, and `PR352-GOV-EMITTER-AST`.
+
+### Validation and acceptance boundary
+
+Exact deployed main completed Validate, SAST, Playwright and Cloudflare Pages with
+terminal success. Both scan-api hosts returned `/health` and `/ready` HTTP 200 and
+converged on Version ID `9789f36d…`; email-ingest returned `/health` and `/ready`
+HTTP 200 on Version ID `8747f610…` with the expected closure stamp. No Worker was
+redeployed while writing this release record.
+
+This entry records deployment and bounded production evidence only. It does not
+claim founder production acceptance.
+
 ## v2026.07.28-1 — CT-R1 provider telemetry + migration 103 + LABELS/subject cutover — deployed 2026-07-28; **DEPLOYED · TELEMETRY-ONLY · NOT LIVE-ACCEPTED**
 
 First stage of the "Scan Completion Rate — CT Provider Resilience" interlock (R1 telemetry →
