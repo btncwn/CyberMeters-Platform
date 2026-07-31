@@ -225,7 +225,7 @@ every other mandatory evidence contract passing*.
 | 6 | Free-scan surface (PR #332, `routes/billing.js:238-268`) | `score=null`, `risk_level=null`, `preview_state=evidence_incomplete` — false-healthy P1 history; **cannot be skipped** | Score/risk shown per band rule; `preview_state` must carry degradation; absence claims stay closed (§4.3) |
 | 7 | Timeline trust (`timeline-trust.js:70,84,94`) | comparison `unavailable`/`not_comparable`; ALL 15 customer change-event types suppressed (incl. 3 certificate events) | Comparable iff both sides complete under the SAME contract version; complete-with-degradations ↔ complete-with-degradations comparability is a [POL] row (§9) |
 | 8 | SPF diff exception (`posture-events.js:213-223`) | SPF diffs still emitted (per-signal completeness) | Unchanged — this is the existing per-signal precedent Option B generalises |
-| 9 | Historical comparison (`historical-scan.js:51`, `scan-engine.js:1074`, `cyber-mot-state-history.js:144,335,392`) | partial scan invisible as baseline; `score_change=null`; trend `not_comparable` | Degraded-complete scans enter baseline pools only under matching contract version [POL]; never across the version boundary |
+| 9 | Historical comparison (`historical-scan.js:51`, `scan-engine.js:1074`, `cyber-mot-state-history.js:144,335,392`) | partial scan invisible as baseline; `score_change=null`; trend `not_comparable` | Complete-with-degradations scans enter baseline pools only under matching contract version [POL]; never across the version boundary |
 | 10 | Related Changes (`related-changes.js:62,222,229`) | no correlation window; `correlation_possible=false` | Window opens; correlation output must surface degradation on affected clusters |
 | 11 | Executive PDF (`pdf.js:323,473,501-503`) + `executive-report.js:44,85` | "Provisional Score", no band line, evidence-bounded BRI text | Band per band rule; NEW: degradations rendered in the evidence-completeness section — never silently absent |
 | 12 | Scheduled workspace report (`scheduled-reports.js`) | inherits via pdf.js/report-queries | Same inheritance; no independent decision point (verified: zero own quality logic) |
@@ -236,7 +236,7 @@ every other mandatory evidence contract passing*.
 | 17 | Notifications/lifecycle email (`assessment-presentation.js:46-60`, `lifecycle-email.js:209,346-353`) | "provisional" disclosure paragraph, preserved through retry sweep | Disclosure paragraph switches to specific degradation wording (same retry-sweep preservation required) |
 | 18 | Monitoring/recurrence (`alert-occurrence.js`) | no quality logic (verified) | Unchanged; recurrence honesty continues to ride on lifecycle grading |
 | 19 | Report preparation (`report-availability.js:60,141,193`) | `report_preparing` state; quality-agnostic | Unchanged |
-| 20 | Posture/current state (`current-posture.js:41-111`) | partial excluded from authoritative posture; "not yet established" | Degraded-complete counts as established per band rule [POL] |
+| 20 | Posture/current state (`current-posture.js:41-111`) | partial excluded from authoritative posture; "not yet established" | Complete-with-degradations counts as established per band rule [POL] |
 | 21 | Portfolio/MSP (`portfolio-domains.js:185-341`, `portfolio-risk.js:272-291`, `portfolio.js:181,464,477`, `portfolio-customers.js:62`, `workspaces-core.js:113`, `executive-dashboard.js:166,210`, `workspace-analytics.js:407`) | excluded from averages/trends/rankings; `overall_state='provisional'`; coverage_note shown | Included, with degradation surfaced via existing `coverage_note`/state channels; comparability rules as row 9 |
 | 22 | Domain maturity ledger (`domain-maturity.js:226`) | `skipped: "not_complete"` — no ledger row | Writes a row iff contract version matches ledger contract expectations [POL] |
 | 23 | DMARCbis lifecycle (`dmarcbis-managed-lifecycle.js:197`) | `scan_incomplete` — no advance | Advances (CT degradation is unrelated to DMARC evidence) — per-module gate, row 15 |
@@ -245,7 +245,7 @@ every other mandatory evidence contract passing*.
 | 26 | Frontend Dashboard (`Dashboard.jsx:50-56,795-815,907-920`) | best-in-app: provisional eyebrow, band suppressed, honest empty state | Authoritative selection keys on backend fields; wording switches from "provisional" to specific degradation note |
 | 27 | Frontend IntelligencePage (`IntelligencePage.jsx:1013,1121-1126`) | zero quality awareness (Codex corrective in flight — untouched by this design) | Consumes backend fields only; no independent decision |
 | 28 | Frontend free-scan (`freeScanPresentation.js:66-103`, `FreeScanPage.jsx:615-625`) | fail-closed since PR #332: `noIssuesObserved` requires `evidence_coverage.complete === true` AND `preview_state === 'no_issues_observed'`; an unrecognised `preview_state` resolves to `evidenceIncomplete`; the green presentation branch is reachable only after the `evidenceIncomplete`/`issuesObserved` gates | If CT-R2 emits new degradations, backend `evidence_coverage`/`preview_state` must carry the limitation; the frontend continues to derive no second verdict |
-| 29 | Frontend Portfolio/Website Security/Related Changes (`PortfolioDomainsPage.jsx`, `WebsiteSecurityPage.jsx:43-86`, `RelatedChangesList.jsx:116-156`) | already render backend completeness states/pills | Same channels carry degradation entries; two known frontend-side derivations (`websiteSecurityDisplay.js:65 isSettled`, `CyberMotDomains.jsx:33`) must migrate to backend fields — pre-existing debt this design records, does not fix |
+| 29 | Frontend Portfolio/Website Security/Related Changes (`PortfolioDomainsPage.jsx`, `WebsiteSecurityPage.jsx:43-86`, `RelatedChangesList.jsx:116-156`) | already render backend completeness states/pills | Same channels carry degradation entries; one known frontend-side derivation (`websiteSecurityDisplay.js:65 isSettled`) must migrate to backend fields — pre-existing debt this design records, does not fix |
 
 Also recorded for completeness [OBS]: the scan list (`ScansPage.jsx:145`), Domain History
 (`DomainHistory.jsx:56,101`), posture timeline points (`WorkspaceDashboard.jsx:579,585`)
@@ -723,8 +723,8 @@ policy-independent but still ship only inside founder-approved episodes.
 4. The "score-contributing vs strengthening" classification for subdomain-derived score
    inputs (§4.4) needs a per-input audit of `scoring.js` consumption before D5 can be
    implemented honestly; that audit is implementation-phase work.
-5. Two pre-existing frontend-side verdict derivations (`websiteSecurityDisplay.js:65`,
-   `CyberMotDomains.jsx:33`) and the quality-blind surfaces (scan list, Domain History,
+5. One pre-existing frontend-side verdict derivation (`websiteSecurityDisplay.js:65`)
+   and the quality-blind surfaces (scan list, Domain History,
    posture timeline points, Exposure Timeline, `ScanDetail` comparison panel) are recorded
    debt that any option inherits; Option B raises their priority.
 6. The `cache_state` hard-bind at `scan-engine.js:369` will silently swallow real cache
