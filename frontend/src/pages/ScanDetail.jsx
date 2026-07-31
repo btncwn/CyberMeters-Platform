@@ -917,39 +917,17 @@ function ChangeList({ title, items, total, renderItem, tone }) {
   )
 }
 
-function moduleEvidenceLabel(moduleName) {
-  const normalized = String(moduleName || '').trim().toLowerCase()
-  if (normalized === 'ssl') return 'SSL'
-  if (normalized === 'dns') return 'DNS'
-  if (normalized === 'http') return 'HTTP'
-  return normalized.replaceAll('_', ' ').replace(/^./, c => c.toUpperCase())
-}
-
-function joinEvidenceLabels(labels) {
-  if (labels.length <= 1) return labels[0] || null
-  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`
-  return `${labels.slice(0, -1).join(', ')}, and ${labels.at(-1)}`
-}
-
 function nonComparableReason(assessment, scanQuality) {
-  const skipped = Array.isArray(scanQuality?.modules_skipped)
-    ? [...new Set(scanQuality.modules_skipped.map(moduleEvidenceLabel).filter(Boolean))]
-    : []
-  const skippedLabel = joinEvidenceLabels(skipped)
-  if (skippedLabel) {
-    return `${skippedLabel} evidence did not complete this scan, so changes cannot be compared reliably.`
+  if (typeof assessment?.message === 'string' && assessment.message.trim()) {
+    return assessment.message
   }
 
   const warning = Array.isArray(scanQuality?.warnings)
     ? scanQuality.warnings.find(item => typeof item === 'string' && item.trim())
     : null
-  if (warning) return `${warning.trim()} Changes cannot be compared reliably.`
+  if (warning) return warning
 
-  if (typeof assessment?.message === 'string' && assessment.message.trim()) {
-    return `${assessment.message.trim()} Changes cannot be compared reliably.`
-  }
-
-  return 'This scan was not explicitly marked comparable, so changes cannot be compared reliably.'
+  return 'This scan is not marked comparable. Historical changes are unavailable.'
 }
 
 function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
@@ -1566,6 +1544,9 @@ export default function ScanDetail() {
   )
   const assessment = report?.assessment ?? null
   const assessmentRating = assessment?.display_rating ?? null
+  const assessmentScore = Number.isFinite(assessment?.display_score)
+    ? assessment.display_score
+    : null
   const assessmentBand = bandMeta(assessmentRating)
 
   return (
@@ -1754,8 +1735,8 @@ export default function ScanDetail() {
                   <KV label="Domain"    value={scan.domain} />
                   <KV label="Status"    value={<StatusBadge status={scan.status} />} />
                   <KV label={assessment?.provisional === true ? 'Provisional Score' : 'Score'} value={
-                    scan.score != null
-                      ? <span className="font-bold text-brand-600">{scan.score} / 100</span>
+                    assessmentScore !== null
+                      ? <span className="font-bold text-brand-600">{assessmentScore} / 100</span>
                       : '—'
                   } />
                   <KV label={assessmentBandLabel({

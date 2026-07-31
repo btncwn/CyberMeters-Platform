@@ -16,21 +16,27 @@ const targetRel = "frontend/src/pages/ScanDetail.jsx";
 const targetFile = path.join(root, targetRel);
 const validator = path.join(root, "scripts", "validate-scan-detail-presentation.js");
 
-const EXPECTED_MUTANTS = 6;
-const VALIDATOR_ASSERTIONS = 16;
+const EXPECTED_MUTANTS = 8;
+const VALIDATOR_ASSERTIONS = 22;
 const SUMMARY_PREFIX = "ScanDetail presentation:";
 
 const AST_RAW = "AST: raw scan.rating cannot feed ScanDetail presentation";
+const AST_RAW_SCORE = "AST: raw scan.score cannot feed ScanDetail presentation";
 const AST_CANONICAL = "AST: canonical assessment.display_rating feeds band presentation";
+const AST_CANONICAL_SCORE = "AST: canonical assessment.display_score feeds score presentation";
+const AST_REASON = "AST: non-comparable reason uses canonical verbatim priority without module inference";
 const AST_GATE = "AST: comparison claims require changes.comparable === true";
 const AST_POSITIVE = "AST: comparable=true score and change path remains reachable";
-const UI_A = "UI: A: partial canonical null rating hides the raw good band";
-const UI_B = "UI: B: partial non-comparable history hides every relative claim and explains why";
+const UI_A = "UI: A: partial canonical score and null rating override divergent raw scan presentation";
+const UI_REASON_A = "UI: reason A: canonical assessment message outranks skipped modules and warnings";
+const UI_REASON_B = "UI: reason B: backend scan-quality warning is rendered verbatim without frontend causality";
+const UI_REASON_C = "UI: reason C: missing canonical reason uses the bounded consequence-only fallback";
 const UI_C_MISSING = "UI: C: missing comparable fails closed";
 const UI_C_NULL = "UI: C: null comparable fails closed";
 const UI_C_UNKNOWN = "UI: C: unknown comparable fails closed";
 const UI_D = "UI: D: complete canonical good rating and comparable history retain positive behavior";
-const UI_F = "UI: F: missing canonical assessment never falls back to the raw rating";
+const UI_F = "UI: F: missing canonical assessment never falls back to raw score or rating";
+const UI_F_NULL_SCORE = "UI: F: null canonical display score never falls back to the raw score";
 const UI_G = "UI: G: observed partial finding stays visible without becoming a new-change claim";
 
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
@@ -79,6 +85,21 @@ const summaryTotals = (output) => {
 };
 
 const ratingAnchor = "  const assessmentRating = assessment?.display_rating ?? null";
+const scoreAnchor = `  const assessmentScore = Number.isFinite(assessment?.display_score)
+    ? assessment.display_score
+    : null`;
+const reasonAnchor = `function nonComparableReason(assessment, scanQuality) {
+  if (typeof assessment?.message === 'string' && assessment.message.trim()) {
+    return assessment.message
+  }
+
+  const warning = Array.isArray(scanQuality?.warnings)
+    ? scanQuality.warnings.find(item => typeof item === 'string' && item.trim())
+    : null
+  if (warning) return warning
+
+  return 'This scan is not marked comparable. Historical changes are unavailable.'
+}`;
 const comparableAnchor = "  if (changes.comparable !== true) {";
 const deltaAnchor = "  const delta = changes.score_change";
 const mutants = [
@@ -92,7 +113,16 @@ const mutants = [
     name: "ChangesPanel comparable gate is removed",
     anchor: comparableAnchor,
     replacement: "  if (false) {",
-    expectedFailures: [AST_GATE, UI_B, UI_C_MISSING, UI_C_NULL, UI_C_UNKNOWN, UI_G],
+    expectedFailures: [
+      AST_GATE,
+      UI_REASON_A,
+      UI_REASON_B,
+      UI_REASON_C,
+      UI_C_MISSING,
+      UI_C_NULL,
+      UI_C_UNKNOWN,
+      UI_G,
+    ],
   },
   {
     name: "missing and unknown comparable are accepted",
@@ -117,6 +147,40 @@ const mutants = [
     anchor: ratingAnchor,
     replacement: "  const assessmentRating = scan?.[\"rating\"] ?? assessment?.display_rating ?? null",
     expectedFailures: [AST_RAW, UI_A, UI_F],
+  },
+  {
+    name: "skipped-module inference overrides canonical comparison messages",
+    anchor: reasonAnchor,
+    replacement: `function nonComparableReason(assessment, scanQuality) {
+  const skipped = Array.isArray(scanQuality?.modules_skipped)
+    ? scanQuality.modules_skipped.map(item => String(item || '').trim()).filter(Boolean)
+    : []
+  const skippedLabel = skipped.length ? skipped[0].replace(/^./, c => c.toUpperCase()) : null
+  if (skippedLabel) {
+    return skippedLabel + ' evidence did not complete this scan, so changes cannot be compared reliably.'
+  }
+
+  const warning = Array.isArray(scanQuality?.warnings)
+    ? scanQuality.warnings.find(item => typeof item === 'string' && item.trim())
+    : null
+  if (warning) return warning.trim() + ' Changes cannot be compared reliably.'
+
+  if (typeof assessment?.message === 'string' && assessment.message.trim()) {
+    return assessment.message.trim() + ' Changes cannot be compared reliably.'
+  }
+
+  return 'This scan was not explicitly marked comparable, so changes cannot be compared reliably.'
+}`,
+    expectedFailures: [AST_REASON, UI_REASON_A, UI_REASON_B, UI_REASON_C],
+  },
+  {
+    name: "destructured raw scan.score replaces the canonical display score",
+    anchor: scoreAnchor,
+    replacement: `  const { score: storedScore } = scan ?? {}
+  const assessmentScore = Number.isFinite(storedScore)
+    ? storedScore
+    : null`,
+    expectedFailures: [AST_RAW_SCORE, AST_CANONICAL_SCORE, UI_A, UI_F, UI_F_NULL_SCORE],
   },
 ];
 

@@ -135,18 +135,20 @@ beforeEach(() => {
 })
 
 describe('ScanDetail evidence honesty', () => {
-  it('A: partial canonical null rating hides the raw good band', async () => {
-    await renderFixture()
+  it('A: partial canonical score and null rating override divergent raw scan presentation', async () => {
+    await renderFixture({ scan: scanFixture({ score: 99 }) })
 
     const scanInfo = cardForHeading('Scan Information')
     expect(within(scanInfo).getByText('Provisional Score')).toBeInTheDocument()
     expect(within(scanInfo).getByText('85 / 100')).toBeInTheDocument()
+    expect(within(scanInfo).queryByText('99 / 100')).not.toBeInTheDocument()
+    expect(within(scanInfo).queryByText('99')).not.toBeInTheDocument()
     expect(within(scanInfo).getByText('Not assessed')).toBeInTheDocument()
     expect(within(scanInfo).queryByText('Good')).not.toBeInTheDocument()
     expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
   })
 
-  it('B: partial non-comparable history hides every relative claim and explains why', async () => {
+  it('reason A: canonical assessment message outranks skipped modules and warnings', async () => {
     const report = reportFixture({
       scan_quality: {
         status: 'partial',
@@ -158,13 +160,52 @@ describe('ScanDetail evidence honesty', () => {
 
     const changes = cardForHeading('Changes Since Last Scan')
     expect(within(changes).getByText('Not comparable')).toBeInTheDocument()
-    expect(within(changes).getByText(/Headers evidence did not complete this scan/i)).toBeInTheDocument()
+    expect(within(changes).getByText(PARTIAL_ASSESSMENT.message)).toBeInTheDocument()
+    expect(within(changes).queryByText(/Headers evidence did not complete this scan/i)).not.toBeInTheDocument()
+    expect(within(changes).queryByText('Module incomplete: headers')).not.toBeInTheDocument()
     expect(within(changes).queryByText('Score Comparison')).not.toBeInTheDocument()
     expect(within(changes).queryByText('82')).not.toBeInTheDocument()
     expect(within(changes).queryByText('+3')).not.toBeInTheDocument()
     expect(within(changes).queryByText('New Findings')).not.toBeInTheDocument()
     expect(within(changes).queryByText('Resolved Findings')).not.toBeInTheDocument()
     expect(within(changes).queryByText(/No changes detected/i)).not.toBeInTheDocument()
+  })
+
+  it('reason B: backend scan-quality warning is rendered verbatim without frontend causality', async () => {
+    const warning = 'Coverage warning supplied by the Worker.'
+    const report = reportFixture({
+      assessment: { ...PARTIAL_ASSESSMENT, message: null },
+      scan_quality: {
+        status: 'partial',
+        modules_skipped: ['headers'],
+        warnings: [warning],
+      },
+    })
+    await renderFixture({ report })
+
+    const changes = cardForHeading('Changes Since Last Scan')
+    expect(within(changes).getByText(warning)).toBeInTheDocument()
+    expect(within(changes).queryByText(/Headers evidence did not complete this scan/i)).not.toBeInTheDocument()
+    expect(within(changes).queryByText(/Changes cannot be compared reliably/i)).not.toBeInTheDocument()
+  })
+
+  it('reason C: missing canonical reason uses the bounded consequence-only fallback', async () => {
+    const report = reportFixture({
+      assessment: { ...PARTIAL_ASSESSMENT, message: null },
+      scan_quality: {
+        status: 'partial',
+        modules_skipped: ['headers'],
+        warnings: [],
+      },
+    })
+    await renderFixture({ report })
+
+    const changes = cardForHeading('Changes Since Last Scan')
+    expect(within(changes).getByText(
+      'This scan is not marked comparable. Historical changes are unavailable.',
+    )).toBeInTheDocument()
+    expect(within(changes).queryByText(/Headers evidence did not complete this scan/i)).not.toBeInTheDocument()
+    expect(within(changes).queryByText(/because|therefore/i)).not.toBeInTheDocument()
   })
 
   it('C: missing comparable fails closed', async () => {
@@ -230,6 +271,7 @@ describe('ScanDetail evidence honesty', () => {
     const scanInfo = cardForHeading('Scan Information')
     const changes = cardForHeading('Changes Since Last Scan')
     expect(within(scanInfo).getByText('Good')).toBeInTheDocument()
+    expect(within(scanInfo).getByText('82 / 100')).toBeInTheDocument()
     expect(within(changes).getByText('Score Comparison')).toBeInTheDocument()
     expect(within(changes).getByText('75')).toBeInTheDocument()
     expect(within(changes).getByText('82')).toBeInTheDocument()
@@ -254,14 +296,30 @@ describe('ScanDetail evidence honesty', () => {
     expect(within(changes).queryByText('Not comparable')).not.toBeInTheDocument()
   })
 
-  it('F: missing canonical assessment never falls back to the raw rating', async () => {
+  it('F: missing canonical assessment never falls back to raw score or rating', async () => {
     const report = reportFixture({ assessment: undefined })
-    await renderFixture({ report })
+    await renderFixture({ scan: scanFixture({ score: 99 }), report })
 
     const scanInfo = cardForHeading('Scan Information')
+    expect(within(scanInfo).getByText('—')).toBeInTheDocument()
+    expect(within(scanInfo).queryByText('99 / 100')).not.toBeInTheDocument()
+    expect(within(scanInfo).queryByText('99')).not.toBeInTheDocument()
     expect(within(scanInfo).getByText('Not assessed')).toBeInTheDocument()
     expect(within(scanInfo).queryByText('Good')).not.toBeInTheDocument()
     expect(within(scanInfo).queryByText('Excellent')).not.toBeInTheDocument()
+  })
+
+  it('F: null canonical display score never falls back to the raw score', async () => {
+    const report = reportFixture({
+      assessment: { ...PARTIAL_ASSESSMENT, display_score: null },
+    })
+    await renderFixture({ scan: scanFixture({ score: 99 }), report })
+
+    const scanInfo = cardForHeading('Scan Information')
+    expect(within(scanInfo).getByText('Provisional Score')).toBeInTheDocument()
+    expect(within(scanInfo).getByText('—')).toBeInTheDocument()
+    expect(within(scanInfo).queryByText('99 / 100')).not.toBeInTheDocument()
+    expect(within(scanInfo).queryByText('99')).not.toBeInTheDocument()
   })
 
   it('G: observed partial finding stays visible without becoming a new-change claim', async () => {
