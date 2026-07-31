@@ -5,6 +5,76 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.31-3 — Track A A2+A3: ScanDetail canonical band, score and comparison honesty — deployed 2026-07-31; **LIVE-ACCEPTED**
+
+**Status:** LIVE-ACCEPTED — founder production acceptance PASS, 2026-07-31
+
+Frontend-only release (5 files; no Worker deploy, no migration, no schema change —
+Cloudflare Pages auto-deployed on merge). Closes two customer-read claims the
+evidence did not support, plus two canonical bypasses found in review:
+
+- **A3 — band:** the assessment band renders only from frozen
+  `assessment.display_rating` via `bandMeta()`; `null` renders a neutral
+  "Not assessed". The raw `scans.rating` read that showed a final "Good" on
+  evidence-partial scans is removed, with no fallback (fail closed while the
+  canonical assessment loads).
+- **A2 — historical comparison:** "Changes Since Last Scan" renders relative
+  claims (score comparison, delta, new/resolved/removed, "no changes") only
+  behind an explicit `changes.comparable === true`. Anything else renders a
+  bounded "Not comparable" state. A missing `has_previous` no longer produces a
+  first-scan claim (fail closed).
+- **Review corrective P1-1:** the non-comparable *reason* is never composed by
+  the frontend — priority is verbatim `assessment.message`, then a verbatim
+  backend scan-quality warning, then a consequence-only fallback that claims no
+  cause. The frontend-inferred "X evidence did not complete this scan" causal
+  sentence was removed: causal attribution is an inference the backend never
+  asserted.
+- **Review corrective P1-2:** the visible score number reads only a finite
+  `assessment.display_score` (else "—"); the raw `scans.score` read is removed.
+  This does not change score-publishability policy — that remains a separate
+  founder decision; it routes presentation through the canonical decision point.
+
+**Proof:** TypeScript-AST source guard (alias-following; dot, computed,
+optional-chain and destructured reads of both `rating` and `score` forbidden;
+canonical-source and positive-path assertions) + 12 real-UI fixtures, 22 pinned
+assertions, 8 strict fresh-process mutants (exact FAIL-set equality, exit 1,
+wrong-reason kills rejected, source SHA-256 + working-tree fingerprint restore),
+including guard-attack mutants (`scan?.["rating"]`, destructured raw score) and
+two over-correction controls (complete "Good" band and comparable=true
+comparison must survive). Full frontend suite 510 tests; coverage unchanged
+gates green.
+
+- **Release identity:** merge `7570ac6f622119f7e9c1d27c888d68b9faf6e47c`
+  (PR **#361**; parent 2 = reviewed head `bb3e8d2e` — an empty CI-retrigger
+  commit over implementation `f3c71aaf`, tree-hash identical). Reviewed twice at
+  exact heads by both reviewers: first round BLOCK with the two P1 correctives
+  above, second round PASS + PASS. Exact-main CI green (validate + SAST);
+  Playwright green at the identical PR head tree.
+- **Deployment:** Pages production `425a5684-3d7f-4adb-8d05-8f4d3b301836` built
+  from exact merge SHA `7570ac6`. Rollback base recorded pre-merge:
+  `4cc20e2b-86cf-4fce-a3f0-56d05f81b824` @ `6e4cbab`. The Worker was not
+  deployed and did not need to be — the deployed Worker already served the
+  frozen assessment fields this release consumes. Annotated tag
+  `v2026.07.31-3` targets the deployed merge SHA exactly.
+- **Founder production acceptance (PASS, 2026-07-31):** partial-scan negative
+  control — canonical provisional score rendered, final Good/Excellent band
+  absent, "Not assessed" rendered, non-comparable history exposed no relative
+  claims, backend message rendered without frontend causal inference.
+  Historical evidence-complete positive control — canonical score and "Good"
+  band remained visible. No Pages rollback trigger. The `comparable=true`
+  historical positive path remains CI-proven; no suitable live founder scan was
+  available (every founder scan since 28 July is `partial` under the ongoing
+  crt.sh degradation).
+- **Residuals (recorded, not blockers):** `TRACK-A3-INTELLIGENCE-PAGE`
+  (IntelligencePage renders raw `scan.rating` at two sites — same class,
+  separate focused PR; found in review, deliberately out of this PR's scope) ·
+  A1 report-preparation polling bound vs the observed 49–153 s
+  completion→snapshot distribution · numeric score publishability policy
+  (founder decision; presentation now routes through `display_score`, ready
+  either way) · governance lesson: a prompt's illustrative example sentence was
+  implemented verbatim and became P1-1 — examples in briefs must be marked
+  non-normative, and causal connectives in customer copy are claims.
+
 ## v2026.07.31-2 — PDF DMARC canonical-record rendering corrective — deployed 2026-07-31; **LIVE-ACCEPTED**
 
 **Status:** LIVE-ACCEPTED — founder production acceptance PASS, 2026-07-31
