@@ -177,8 +177,14 @@ them:
 Net effect [OBS]: one CertSpotter 429 — or, as in the live cohort, a persistent crt.sh
 outage — makes the whole scan `partial` and drops it out of **every**
 `scan_quality = 'complete'` filter (16 backend query sites, §2.7). The canonical report's
-scan `7bd83d64` is the clean proof: every module ran or was explicitly gate-skipped, and
-the scan graded partial **by policy, not by execution failure**.
+scan `7bd83d64` **proves the one-provider-loss policy mechanism and a fast crt.sh failure
+trace** (HTTP 404 in 564 ms; its two `completeness_impact=1` rows bind the completeness
+loss to `subdomain_discovery`). It does **not** prove that CT was the sole cause of that
+scan's overall partial grade: the same scan carries a `dmarc_external_rua` skip whose
+reason is not persisted to D1 — the canonical report's own declared confound (§2.5 there).
+For the budget-coupling mechanism, the report's confound-free example is scan `3a97a5f8`
+(`dmarc_external_rua` ok; partial via ssl deadline + subdomains incomplete). The two proof
+classes are kept separate throughout this document.
 
 Note the asymmetry is itself a designable fact [INF]: for `certificate_intelligence`, CT is
 the module's ONLY evidence source, so AND-blackout is the honest floor; for `subdomains`,
@@ -201,7 +207,13 @@ The table below is the required per-consumer statement: what the consumer does *
 a single-provider CT failure grades the scan `partial`**, and what would change **under the
 candidate `complete + structured degradation` semantics (Option B, §8)**. "No change"
 always means: behaviour identical to a genuinely complete scan, with the degradation
-visible in the new `degradations[]` channel (§3) instead of via the quality grade.
+visible in the new `degradations[]` channel (§3) instead of via the quality grade. Under
+**Option D** (§8 — re-grade to the existing `degraded` status + `degradations[]`) the
+"today" column applies mechanically unchanged for every consumer keying on
+`!== 'complete'`; only consumers keying on the literal `'partial'` (e.g. rows 15/§10b)
+need the compatibility sweep described in §8 Option D. Per the pinned two-layer rule
+(§7), every "complete" in the Option B column means *eligible for complete — subject to
+every other mandatory evidence contract passing*.
 
 | # | Consumer (file:line) | Today when partial (CT single-provider) | Under complete + degradation (Option B) |
 |---|---|---|---|
@@ -211,7 +223,7 @@ visible in the new `degradations[]` channel (§3) instead of via the quality gra
 | 4 | BRS per-scan BRI (`report-snapshot.js` mask) | band `null`, "not authoritative" explanation | Authoritative iff no score-contributing degradation [POL]; explanation cites CT degradation when present |
 | 5 | Workspace BRS (PR #344, `business-risk.js:723-771,875`) | **not persisted at all**; projection `latest_incomplete`, all nulls | Persisted (basis contract `complete_scan/v1` would need a versioned successor naming degradations) [POL] |
 | 6 | Free-scan surface (PR #332, `routes/billing.js:238-268`) | `score=null`, `risk_level=null`, `preview_state=evidence_incomplete` — false-healthy P1 history; **cannot be skipped** | Score/risk shown per band rule; `preview_state` must carry degradation; absence claims stay closed (§4.3) |
-| 7 | Timeline trust (`timeline-trust.js:70,84,94`) | comparison `unavailable`/`not_comparable`; ALL 15 customer change-event types suppressed (incl. 3 certificate events) | Comparable iff both sides complete under the SAME contract version; degraded-complete vs degraded-complete comparability is a [POL] row (§9) |
+| 7 | Timeline trust (`timeline-trust.js:70,84,94`) | comparison `unavailable`/`not_comparable`; ALL 15 customer change-event types suppressed (incl. 3 certificate events) | Comparable iff both sides complete under the SAME contract version; complete-with-degradations ↔ complete-with-degradations comparability is a [POL] row (§9) |
 | 8 | SPF diff exception (`posture-events.js:213-223`) | SPF diffs still emitted (per-signal completeness) | Unchanged — this is the existing per-signal precedent Option B generalises |
 | 9 | Historical comparison (`historical-scan.js:51`, `scan-engine.js:1074`, `cyber-mot-state-history.js:144,335,392`) | partial scan invisible as baseline; `score_change=null`; trend `not_comparable` | Degraded-complete scans enter baseline pools only under matching contract version [POL]; never across the version boundary |
 | 10 | Related Changes (`related-changes.js:62,222,229`) | no correlation window; `correlation_possible=false` | Window opens; correlation output must surface degradation on affected clusters |
@@ -232,7 +244,7 @@ visible in the new `degradations[]` channel (§3) instead of via the quality gra
 | 25 | Frontend ScanDetail (`ScanDetail.jsx:1092-1155`) | amber coverage strip below an unqualified score hero; comparison panel has NO completeness qualifier (gap) | Renders backend `degradations[]`; comparison qualifier comes from backend comparability (row 7). No frontend derivation |
 | 26 | Frontend Dashboard (`Dashboard.jsx:50-56,795-815,907-920`) | best-in-app: provisional eyebrow, band suppressed, honest empty state | Authoritative selection keys on backend fields; wording switches from "provisional" to specific degradation note |
 | 27 | Frontend IntelligencePage (`IntelligencePage.jsx:1013,1121-1126`) | zero quality awareness (Codex corrective in flight — untouched by this design) | Consumes backend fields only; no independent decision |
-| 28 | Frontend free-scan (`FreeScanPage.jsx:562,616-624`) | renders backend nulls after PR #332; `total_findings===0 → "healthy"` branch remains a wording risk | Must render degradation state; "healthy" wording allowed only when backend asserts no absence-blocking degradation |
+| 28 | Frontend free-scan (`freeScanPresentation.js:66-103`, `FreeScanPage.jsx:615-625`) | fail-closed since PR #332: `noIssuesObserved` requires `evidence_coverage.complete === true` AND `preview_state === 'no_issues_observed'`; an unrecognised `preview_state` resolves to `evidenceIncomplete`; the green presentation branch is reachable only after the `evidenceIncomplete`/`issuesObserved` gates | If CT-R2 emits new degradations, backend `evidence_coverage`/`preview_state` must carry the limitation; the frontend continues to derive no second verdict |
 | 29 | Frontend Portfolio/Website Security/Related Changes (`PortfolioDomainsPage.jsx`, `WebsiteSecurityPage.jsx:43-86`, `RelatedChangesList.jsx:116-156`) | already render backend completeness states/pills | Same channels carry degradation entries; two known frontend-side derivations (`websiteSecurityDisplay.js:65 isSettled`, `CyberMotDomains.jsx:33`) must migrate to backend fields — pre-existing debt this design records, does not fix |
 
 Also recorded for completeness [OBS]: the scan list (`ScansPage.jsx:145`), Domain History
@@ -245,21 +257,35 @@ debt independent of which option is chosen, and become MORE important if Option 
 
 ## 3. Vocabulary / data model
 
-**Proposal: `provider_degraded` must NOT become a second scan status.** [INF→POL]
+**The current contract, stated exactly [OBS]:**
 
-Rationale: `scan_quality.status` currently has exactly three values produced by one
-function, with 16 backend `= 'complete'` filters and a NULL-means-unearned convention.
-A fourth status would fork every one of those filters (each becomes a three-way decision),
-break the `complete|partial|failed` CHECK-style expectations embedded in validators, and
-reintroduce the "two vocabularies through one slot" defect class recorded in the alerting
-repair (customer word vs evidence word). Degradation is **evidence metadata**, not a scan
-execution grade.
+- `scans.status` is the **lifecycle/terminal** vocabulary. `failed` lives HERE — it is a
+  scan lifecycle status, never a `scan_quality` value.
+- `scans.scan_quality` is minted by exactly ONE function, `buildScanQuality`, with exactly
+  three produced values: **`complete | partial | degraded`** (`scan-engine.js:187-189`).
+  A failed or interrupted scan's `scan_quality` is `NULL` — quality was never earned, and
+  it is never fabricated (`scan-recovery.js:182-187`, `scan-dispatch.js:153`).
+- Readers normalise NULL/unrecognised values to **`unknown`, fail closed — never
+  `complete`** (`assessment-presentation.js:21-32`: `SCAN_QUALITY = { COMPLETE, PARTIAL,
+  DEGRADED, UNKNOWN }`; its contract comment: "Quality describes EXECUTION + EVIDENCE
+  COVERAGE, not security posture … degraded evidence sources are 'degraded'").
+
+**Proposal: `provider_degraded` must NOT become a fourth produced status.** [INF→POL]
+
+Rationale: 16 backend `= 'complete'` filters, the produced three-value vocabulary and the
+NULL-means-unearned convention key on this contract. A new produced status would fork
+every filter into an extra decision and reintroduce the "two vocabularies through one
+slot" defect class recorded in the alerting repair (customer word vs evidence word).
+Provider degradation is **evidence metadata**, not a new quality grade — and the existing
+`degraded` value already names the closest concept (see Option D, §8).
 
 Retained model:
 
 ```
-scan_quality.status:        complete | partial | failed   (unchanged; failed stays a scans.status
-                                                           with scan_quality NULL, as today)
+scans.status:                lifecycle/terminal vocabulary (unchanged; `failed` lives here)
+scans.scan_quality:          complete | partial | degraded   (produced set unchanged;
+                                                              NULL = never earned)
+reader normalisation:        unknown (fail closed; unchanged)
 scan_quality.degradations[]: structured provider/module limitations (NEW, append-only)
 ```
 
@@ -300,6 +326,26 @@ Relationship to existing structures [OBS]: the snapshot already carries
 contract-versioned generalisation; it must compose with — not duplicate — those fields, and
 `SIGNAL_MONITORING_DEFINITIONS.certificate_transparency.providers` (`:24-27`) is the
 natural source of the `dependency` namespace.
+
+### 3.1 Terminology consistency table
+
+Pinned meanings for every completeness term used in this document. Any sentence elsewhere
+in this document that conflicts with a row here is a defect in that sentence.
+
+| Term | Meaning in this document | Source of truth |
+|---|---|---|
+| `scans.status` | Scan **lifecycle/terminal** state; `failed` lives HERE and only here | `scans` table; `scan-engine.js:268` |
+| `scan_quality` (produced) | `complete` \| `partial` \| `degraded` — minted only by `buildScanQuality` | `scan-engine.js:187-189` |
+| `scan_quality = NULL` | Quality never earned (failed / interrupted / queued); not a fourth value; never fabricated | `scan-recovery.js:182-187`, `scan-dispatch.js:153` |
+| `unknown` | **Reader-side** normalisation of NULL/unrecognised; fail closed; never produced or persisted | `assessment-presentation.js:29-32` |
+| `failed` | A `scans.status` value ONLY; **never** a `scan_quality` value | §3 |
+| `degraded` (status) | Existing produced grade: warnings/skips today; Option D would add provider evidence degradation | `scan-engine.js:189`; §8 Option D |
+| `degradations[]` | Proposed structured evidence metadata on `scan_quality`; **never a status value** | §3 |
+| complete-with-degradations | Shorthand for Option B's proposed outcome: `scan_quality='complete'` with non-empty `degradations[]` — distinct from the `degraded` status | §8 Option B |
+| `partial` | Conservative-but-coarse produced grade: core module error, any module `incomplete`, or core budget-skip | `scan-engine.js:187-188` |
+| `incomplete` (module flag) | Module self-report: this module's evidence is ineligible to support absence claims | `subdomains-scan.js:276-303` |
+| `ct_source_degraded` / `ct_sources_unavailable` | One-source-lost / both-sources-lost CT incomplete reasons | `subdomains-scan.js:301`, `cert-intel.js:319` |
+| provisional | Presentation state: quality ≠ `complete` (reader-derived, backend-owned) | `assessment-presentation.js:172-186`, `cyber-mot-domains.js:203` |
 
 ## 4. Mandatory evidence contract
 
@@ -437,23 +483,27 @@ Binding rules, all [POL]-ratifiable but architecture-forced:
    refuses producer-version mismatches (`timeline-trust.js:94-107`) and the MSP portfolio
    refuses resolver-version crossings (reads as `insufficient_history`, never
    deterioration). The CT contract version joins that gate: complete-under-v0 vs
-   complete-under-v1 is `not_comparable` by default. Whether degraded-complete compares
+   complete-under-v1 is `not_comparable` by default. Whether complete-with-degradations compares
    with clean-complete WITHIN a version is a founder row (§9).
 
 ## 7. Acceptance matrix
 
-Every case states the required outcome under the CURRENT policy (A) and under the
-candidate degradation policy (B); where they differ, the difference is the founder
-decision. "Blocked" always means fail-closed with explicit wording, never silence.
+**Pinned two-layer rule (applies to EVERY row below and to every policy-option table in
+§8):** each case is stated as **(i) the CT evidence-contract contribution** and **(ii) the
+resulting overall `scan_quality`, which follows only if every OTHER mandatory evidence
+contract is also satisfied**. A CT outcome alone never determines the overall grade —
+other modules may independently be incomplete/skipped/errored — and the lifecycle
+`scans.status` (`completed`/`failed`) is independent of both layers. "Blocked" always
+means fail-closed with explicit wording, never silence.
 
-| # | Case | Required outcome |
+| # | Case | (i) CT contract contribution → (ii) overall outcome |
 |---|---|---|
-| 1 | crt.sh ok + CertSpotter ok | `complete`, no degradation entries; band per normal rules; absence claims allowed (two-source) |
-| 2 | crt.sh unavailable + CertSpotter usable positive evidence | A: `partial` (today's behaviour, `ct_source_degraded`). B: `complete` + degradation `{dependency: ct:crt_sh, claim_effect: absence_claims_blocked, fallback_publishable: true}`; positive findings publish; absence/healthy/removed blocked; band per §4.4 |
+| 1 | crt.sh ok + CertSpotter ok | (i) CT contributes no degradation; two-source absence eligibility earned. (ii) Overall `complete` **only if every other mandatory contract also passes**; band per normal rules |
+| 2 | crt.sh unavailable + CertSpotter usable positive evidence | (i) A/today: `ct_source_degraded` incomplete flag — forces overall `partial` regardless of every other module. B: degradation entry `{dependency: ct:crt_sh, claim_effect: absence_claims_blocked, fallback_publishable: true}`; positive findings publish; absence/healthy/removed blocked; band per §4.4. D: same degradation entry, CT contribution re-classified as `degraded`-grade. (ii) B: overall `complete` only if all other mandatory contracts pass. D: overall `degraded` (never better), `partial` if any other contract independently fails |
 | 3 | CertSpotter unavailable + crt.sh usable positive evidence | Symmetric to 2 — the contract is provider-agnostic |
-| 4 | Both providers unavailable | `partial` under BOTH options; `cert-intel` blackout guard fires (`ct_sources_unavailable`); Certificates & Trust cannot read healthy (v2026.07.16-6 guard preserved, mutation-tested) |
-| 5 | Provider returns unknown/unrecognised result | Outcome coerces to `network_error` (frozen CT-R1 rule); unrecognised degradation fields invalidate the entry and force the legacy `partial` path — fail closed, never the permissive branch |
-| 6 | Provider fails fast (e.g. 404 in 564 ms) | No retry (non-transient); scan budget not consumed beyond the measured latency; remaining modules unaffected (cohort scan `7bd83d64` is the reference trace) |
+| 4 | Both providers unavailable | (i) CT contract blocks authoritative completeness AND all absence claims; `cert-intel` blackout guard fires (`ct_sources_unavailable`); Certificates & Trust cannot read healthy (v2026.07.16-6 guard preserved, mutation-tested). (ii) Overall can never be `complete` under ANY option; lifecycle `scans.status` remains independently `completed` or `failed` |
+| 5 | Provider returns unknown/unrecognised result | (i) Outcome coerces to `network_error` (frozen CT-R1 rule); unrecognised degradation fields invalidate the entry. (ii) Legacy path applies — the scan grades as today (`partial` via the incomplete flag); fail closed, never the permissive branch |
+| 6 | Provider fails fast (e.g. 404 in 564 ms) | (i) No retry (non-transient); the CT wait consumes only the measured latency of the scan budget (fast-failure trace: cohort scan `7bd83d64`). (ii) No claim is made here about other modules' outcomes or the overall grade — that scan's overall `partial` carries a declared confound (§2.6) |
 | 7 | Shared wait, two consumers, same interval | ONE physical attempt, two consumer records (fan-out preserved for attribution); sub-op stamps identical; never counted as two provider events |
 | 8 | One consumer caps out while the other completes | ssl deadline fires, promise abandoned NOT aborted; subdomains (12 s cap) still consumes the memoized result; late value never mutates the capped module's published result |
 | 9 | Positive finding visible, absence claim closed | A discovered subdomain/takeover/exposure from the surviving provider publishes; "no other subdomains", `no_longer_observed`, `resolved`, quiet-digest wording all blocked while `absence_claims_blocked` is present |
@@ -474,23 +524,32 @@ mutation suites (`validate-probe-evidence-honesty.js` §5, `validate-ct-blackout
 
 ### Option A — Status quo: any CT provider loss ⇒ `partial`
 
-- **Evidence honesty:** maximally conservative; no claim rides on degraded coverage. But
-  it is also dishonest in the opposite direction [OBS]: it reports an *execution* failure
-  vocabulary for what is an *evidence* limitation (scan `7bd83d64` executed fully), and it
-  currently contradicts the code's own stated invariant (§2.6).
+- **Evidence honesty:** maximally conservative; no claim rides on degraded coverage.
+  `scan_quality` legitimately describes **execution AND evidence coverage together**
+  (`assessment-presentation.js:25-28` [OBS]), so grading provider evidence degradation
+  `partial` is not a vocabulary violation. It is, however, **conservative but coarse**
+  [INF]: the produced grade cannot distinguish "checks did not run" from the narrower
+  "one corroborating provider was unavailable while execution completed", and it currently
+  contradicts the code's own stated CT invariant (§2.6 — a consistency defect regardless
+  of which policy is chosen).
 - **Score/band:** suppressed (rating null) whenever one external dependency blips.
 - **BRS:** not persisted; workspace shows `latest_incomplete` through any provider outage.
 - **Comparisons:** all customer change events (including certificate events) suppressed
   for the outage's duration — a multi-week crt.sh outage silences the posture timeline
   entirely [OBS: 15/15 cohort, zero complete scans since 28 Jul].
 - **Alerts/digest:** digest can never say "stable"; alert wording says partial.
-- **Customer comprehension:** "partial scan" reads as "the product failed to run", which
-  is untrue and erodes trust during provider outages the customer cannot influence.
+- **Customer comprehension:** customer copy derived from `partial` **may imply** that
+  checks did not run when the narrower true condition was provider evidence degradation
+  [INF] — imprecise wording during provider outages the customer cannot influence.
 - **Operational cost:** zero (no change). Ongoing cost: chronic partial rate whenever any
   provider degrades; free-scan conversions see null scores.
 - **Migration/API compatibility:** none needed. **Rollback:** n/a.
 
-### Option B — Mandatory/strengthening distinction: usable fallback ⇒ `complete` + structured degradation
+### Option B — Mandatory/strengthening distinction: usable fallback ⇒ eligible for `complete` + structured degradation
+
+(Per the pinned two-layer rule (§7): CT ceasing to block completeness makes the scan
+*eligible* for `complete`; the overall grade still requires every other mandatory
+evidence contract to pass.)
 
 - **Evidence honesty:** honest in both directions — positive evidence publishes, absence
   claims stay closed (§4.3), the limitation is structured, versioned, and visible in every
@@ -540,30 +599,70 @@ coverage read by consumers that care.
 - **Rollback:** hard — once consumers read per-module coverage, reverting to the scalar
   is a second migration.
 
+### Option D — Existing `degraded` status + structured degradations[] (lowest-risk change)
+
+Re-route the CT single-provider loss from `partial` to the **already-existing** `degraded`
+status, and attach the same structured `degradations[]` entries as Option B. No new
+vocabulary is produced: `normalizeQuality`'s contract comment already reserves the value
+for exactly this class ("degraded evidence sources are 'degraded'",
+`assessment-presentation.js:25-28`), `buildScanQuality` already emits it for
+warning/skip-only scans, and ScanDetail already has a `status === 'degraded'` banner
+branch (`ScanDetail.jsx:1103`).
+
+- **Evidence honesty:** the overall assessment stays **provisional**; the final band and
+  every comparison stay **closed** exactly as today (`display_rating` nulls on any
+  non-complete quality; `assessTimelineComparison` gates on `complete`); but the wording
+  stops implying that checks did not run and states the true provider-degradation
+  condition.
+- **Score/band/BRS/comparisons/digest:** mechanically UNCHANGED from Option A — every
+  `= 'complete'` filter still excludes the scan; workspace BRS still does not persist;
+  the digest still refuses quiet wording; the posture timeline is NOT recovered. Only the
+  grade label and the structured degradation record change.
+- **Customer comprehension:** materially more precise than A at near-zero semantic risk;
+  does not deliver B's timeline/BRS/digest recovery during provider outages.
+- **Operational cost:** smallest of the change options — one producer classification
+  (`ct_source_degraded` ⇒ `degraded` instead of `partial` in `buildScanQuality`),
+  degradations[] emission, and wording. No consumer re-pointing.
+- **Migration/API compatibility:** `degraded` is already a legal produced value with
+  existing reader handling. **One mandatory compatibility sweep:** every consumer that
+  tests `quality === 'partial'` rather than `!== 'complete'` must be inventoried so the
+  re-grade cannot LOOSEN a fail-closed gate — e.g. `asm-cases.js:471`
+  (`scanPartial = status === "partial"` drives `canVerify()=false`) and the
+  website-security `unknown_reason = 'scan_partial'` selection would stop matching; each
+  such site must treat `degraded` at least as conservatively as `partial` before the
+  re-grade ships. [OBS: the §2.7 inventory found gates keying on both patterns.]
+- **Historical:** old partials stay partial; no re-grade of history; comparisons
+  unaffected (both grades are non-complete).
+- **Rollback:** trivial — revert the producer classification; the degradation contract
+  still ships versioned so the boundary is recorded.
+- **Relation to B:** D is a strict subset of B's machinery and a natural staging step:
+  ship the vocabulary honesty and the degradations[] channel first, collect the canonical
+  report's data gate, then decide B's completeness re-grade on real numbers.
+
 ### Recommendation (explicitly marked, non-binding) [INF]
 
-**Option B, gated on the §4 contract artefact and the canonical report's data-collection
-gate, with Option C's execution/evidence separation adopted as vocabulary inside the
-contract rather than as a consumer migration.** Reasoning: A is currently mislabelling an
-evidence limitation as an execution failure and silencing the product's centrepiece
-(posture timeline) for the duration of any single-provider outage; C is the theoretically
-cleanest model but maximises the missed-consumer false-healthy risk across 16+ query sites
-for benefit B already captures; B is additive, contract-versioned, rollback-clean, and
-generalises three precedents that already exist in production (SPF per-signal diff,
-Phase-5 publishability masking, BRS basis contract). This is a recommendation only; no
-part of it is decided.
+**Option D now; Option B as the evaluated destination.** D fixes the one defect provable
+from current evidence — imprecise degradation wording riding on a coarse grade — with
+near-zero semantic risk, no consumer re-pointing, and it lands the §4 contract artefact
+and `degradations[]` as shared machinery. B — the completeness re-grade that would
+recover timeline/BRS/digest behaviour during single-provider outages — stays gated on the
+canonical report's data-collection gate and the D5/D6 rulings; deciding it now would
+outrun the evidence. C is not recommended: it maximises the missed-consumer false-healthy
+risk across 16+ query sites for benefit B already captures; its execution/evidence
+separation is better adopted as vocabulary inside the contract. This is a recommendation
+only; no part of it is decided.
 
 ## 9. Founder decision table
 
 | # | Decision | Options | This design's marked lean |
 |---|---|---|---|
-| D1 | Completeness policy | A (status quo) / B (complete + degradation) / C (module-scoped) | B |
+| D1 | Completeness policy | A (status quo) / B (complete + degradation) / C (module-scoped) / D (existing `degraded` + degradations[]) | D now; B as evaluated destination (§8) |
 | D2 | Two CT sources for subdomain discovery: mandatory or strengthening? | mandatory / strengthening-for-positive + jointly-mandatory-for-absence | the latter (§4.1) |
 | D3 | Single-provider positive findings publishable? | yes / no | yes (already live; ratify) (§4.2) |
 | D4 | Single-provider absence/healthy/removed/resolved claims? | allowed / blocked | blocked (§4.3) |
 | D5 | Band rule (§4.4) | adopt / adapt / reject | adopt, with per-module score-input classification inside the versioned contract |
-| D6 | Does degraded-complete compare with clean-complete WITHIN one contract version? | comparable-with-caveat / not_comparable | undecided — needs the data gate; default fail-closed (`not_comparable`) until ruled |
-| D7 | Does workspace BRS persist off a degraded-complete basis? | yes (new basis contract version) / no | follows D1+D5; if B, yes with explicit basis degradations |
+| D6 | Does complete-with-degradations compare with clean-complete WITHIN one contract version? | comparable-with-caveat / not_comparable | undecided — needs the data gate; default fail-closed (`not_comparable`) until ruled |
+| D7 | Does workspace BRS persist off a complete-with-degradations basis? | yes (new basis contract version) / no | follows D1+D5; if B, yes with explicit basis degradations |
 | D8 | Weekly-digest quiet wording key | `scan_quality='complete'` (today) / absence-eligibility | absence-eligibility (strictly stronger; never quieter than today) |
 | D9 | Managed-case verification gate granularity | whole-scan (today) / per-module with CT-absence closed | per-module (§2.7 row 15); CT-dependent absence verification stays closed |
 | D10 | D1 projection of degradations (queryable table) | snapshot-JSON only / additive migration | snapshot-only first; migration is a separate founder-gated step |
