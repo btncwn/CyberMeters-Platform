@@ -101,6 +101,18 @@ No raw DNS object or RUA token was logged or added to this record. On this exact
 shape the superseded raw-first expression would select the object; the deployed
 value-first projection selects the printable canonical string.
 
+An offline real-renderer counterfactual then used the **same checksum-verified
+snapshot bytes** against the exact parent and deployed PDF engines. Text extraction
+accounted for normal PDF line wrapping and reported only the safe measurements:
+
+| Renderer | `[object Object]` count | Canonical DMARC string | Fingerprint |
+| --- | ---: | --- | --- |
+| Parent `8d9491a2` | 1 | absent | present; exact match |
+| Live `574a6252` | 0 | present | present; exact match |
+
+The counterfactual matched the expected defect signature exactly. Neither the raw
+object nor the RUA token was emitted by the proof tooling.
+
 Independent extraction and full 13-page render of
 `cybermeters-blackbullbarbers.co.uk-scan (4).pdf` proved:
 
