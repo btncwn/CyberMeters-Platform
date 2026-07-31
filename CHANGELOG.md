@@ -5,9 +5,16 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
-## v2026.07.31-2 — PDF DMARC canonical-record rendering corrective — deployed 2026-07-31
+## v2026.07.31-2 — PDF DMARC canonical-record rendering corrective — deployed 2026-07-31; **LIVE-ACCEPTED**
 
-**Status:** DEPLOYED — pending founder production acceptance
+**Status:** LIVE-ACCEPTED — founder production acceptance PASS, 2026-07-31
+
+Founder-controlled production acceptance was recorded on 2026-07-31 against the
+fresh founder-authenticated PDF described under *Production proof* below: the
+canonical DMARC record rendered, zero `[object Object]` markers were present, the
+technical appendix was preserved, and no linked-deployment rollback trigger fired.
+Acceptance covers **this corrective only** — it is not Item 14, and it does not
+accept any other release still recorded as pending.
 
 This code-only corrective closes the customer-facing PDF defect recorded by the
 previous release: the per-scan PDF now renders the canonical printable DMARC record
