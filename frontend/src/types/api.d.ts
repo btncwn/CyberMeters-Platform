@@ -53,6 +53,8 @@ export interface ApiError extends Error {
   usage?: number;
   /** Hosted-DMARC policy readiness interlock details. */
   readiness?: unknown;
+  /** Canonical report read/presentation state returned by scan report routes. */
+  report_availability?: ReportAvailability;
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -169,6 +171,22 @@ export interface AuditEventList {
 }
 
 // ── Scans ─────────────────────────────────────────────────────────────────────
+
+export interface ReportAvailability {
+  status:
+    | 'scan_in_progress'
+    | 'report_ready'
+    | 'report_preparing'
+    | 'report_unavailable'
+    | 'historical_scan_no_canonical_snapshot';
+  code?: string;
+  message?: string;
+  retryable?: boolean;
+  retry_after_ms?: number;
+  manual_retry_available?: boolean;
+  snapshot_id?: string | null;
+  reason?: string | null;
+}
 
 export interface Scan {
   id: string;

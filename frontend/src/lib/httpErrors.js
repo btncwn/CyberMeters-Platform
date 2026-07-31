@@ -4,7 +4,7 @@
  * class to a calm, actionable message (never a bare "HTTP 500").
  * @param {Response | { status: number }} res
  * @param {any} err  Parsed error body (may be a fallback object).
- * @returns {Error & { status?: number, code?: string, readiness?: unknown, domain_id?: string, workspace_id?: string }}
+ * @returns {Error & { status?: number, code?: string, readiness?: unknown, report_availability?: unknown, domain_id?: string, workspace_id?: string }}
  *   domain_id/workspace_id name the EXACT workspace-domain record a scan was
  *   gated on, so the caller can start verification for that record rather than
  *   guessing between duplicate links (see routes/scans.js).
@@ -22,7 +22,7 @@ export function friendlyHttpError(res, err) {
   // domain_id/workspace_id carry the EXACT workspace-domain record a scan was
   // gated on, so the caller can start verification for that record instead of
   // guessing between duplicate links (see routes/scans.js).
-  /** @param {Error & { status?: number, code?: string, readiness?: unknown, domain_id?: string, workspace_id?: string }} e */
+  /** @param {Error & { status?: number, code?: string, readiness?: unknown, report_availability?: unknown, domain_id?: string, workspace_id?: string }} e */
   const withStatus = (e) => { e.status = res.status; return e }
   // A bare HTTP status word ("Forbidden", "Unauthorized", …) is a machine token,
   // not a customer message — it leaks raw protocol detail and reads as a bug.

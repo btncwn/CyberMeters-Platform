@@ -26,8 +26,12 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
   // scan) instead of a 404 that leaks non-existence.
   ok("scan report/detail handlers return 403 (not 404) for a missing scan",
     (sc.match(/if \(!scan\) return json\(\{ error: "Forbidden" \}, 403\);/g) || []).length >= 2);
-  ok("scan report/detail authorize before the R2 read (requireScanReadAccess precedes get)",
-    /requireScanReadAccess[\s\S]{0,400}cybermeters_reports\.get/.test(sc));
+  const reportAvailability = read("engines/report-availability.js");
+  const reportSnapshot = read("engines/report-snapshot.js");
+  ok("all report readers authorize before the canonical availability resolver, which owns the R2 read",
+    (sc.match(/requireScanReadAccess[\s\S]{0,2500}resolveScanReportAvailability/g) || []).length === 5 &&
+    /readScanReportSnapshot/.test(reportAvailability) &&
+    /cybermeters_reports\.get/.test(reportSnapshot));
   // schedule DELETE: nonexistent + foreign collapse to one 403.
   ok("schedule handler collapses nonexistent+foreign to identical 403",
     /if \(!schedule \|\| !scheduleAccess\) return json\(\{ error: "Forbidden" \}, 403\);/.test(sc));
