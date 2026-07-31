@@ -1103,6 +1103,16 @@ jobs:
       - name: Validate ScanDetail presentation strict mutations
         run: node scripts/validate-scan-detail-presentation-mutations.js
 
+      # TRACK-A3 — IntelligencePage consumes the same frozen assessment and
+      # explicit comparability contract. The class guard inventories the full
+      # local renderer/helper closure and mutation-proves raw scan aliases,
+      # provisional-score preservation, backend reason priority and history.
+      - name: Validate IntelligencePage canonical assessment and comparison honesty
+        run: node scripts/validate-intelligence-page-presentation.js
+
+      - name: Validate IntelligencePage presentation strict mutations
+        run: node scripts/validate-intelligence-page-presentation-mutations.js
+
       # A1 mutation proof includes a fresh-process real ScanDetail/Vitest carrier,
       # so it runs only after the pinned frontend dependency tree is installed.
       - name: Validate A1 report preparation load-bearing mutations

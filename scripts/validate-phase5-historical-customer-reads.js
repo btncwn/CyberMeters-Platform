@@ -725,8 +725,13 @@ const mutations = [
     name: "M1 IntelligencePage restores stale D1 score/rating",
     edits: [{
       target: INTELLIGENCE,
-      from: "  const scanObj = storedScanObj && report\n",
-      to: "  const scanObj = false && report\n",
+      from: "  const assessmentPresentation = canonicalAssessmentPresentation(assessment)\n",
+      to: `  const assessmentPresentation = canonicalAssessmentPresentation({
+    ...assessment,
+    display_score: assessment?.display_score ?? storedScanObj?.score ?? null,
+    display_rating: assessment?.display_rating ?? storedScanObj?.rating ?? null,
+  })
+`,
     }],
     survived: () => runChild("frontend").passed === false,
   },

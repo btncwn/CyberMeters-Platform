@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   Brain, Briefcase, CheckCircle, XCircle, AlertCircle, AlertTriangle,
   Shield, ShieldAlert, Mail, Cpu, Bug, Flame, RefreshCw,
-  ChevronRight, TrendingUp, TrendingDown, Info, Globe, Lock,
+  ChevronRight, TrendingUp, TrendingDown, Info, Globe, Lock, History,
   ExternalLink,
 } from 'lucide-react'
 import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
@@ -15,6 +15,7 @@ import {
   isPhase5EvidenceAvailable,
   phase5KnownCount,
 } from '../lib/phase5EvidencePresentation'
+import { bandMeta } from '../lib/score-presentation'
 
 // ── Design-system helpers ─────────────────────────────────────────────────────
 
@@ -204,15 +205,20 @@ function NoWorkspaceState() {
 
 // ── Summary cards (6 key metrics) ────────────────────────────────────────────
 
-function SummaryBar({ scan, risk, emailIntel, remPlan, kev, cve }) {
-  const cmsScore  = scan?.score ?? null
-  const cmsRating = scan?.rating ?? null
-  const domain    = scan?.domain ?? null
+function canonicalAssessmentPresentation(assessment) {
+  const score = Number.isFinite(assessment?.display_score)
+    ? assessment.display_score
+    : null
+  const band = bandMeta(assessment?.display_rating)
+  return {
+    score,
+    band,
+    provisional: assessment?.provisional === true,
+  }
+}
 
-  const scoreColor = cmsScore == null ? '#9CA3AF'
-    : cmsScore >= 80 ? '#00876A'
-    : cmsScore >= 60 ? '#F59E0B'
-    : '#EF4444'
+function SummaryBar({ assessment, domain, emailIntel, remPlan, kev, cve }) {
+  const cms = canonicalAssessmentPresentation(assessment)
 
   const emailPublishable = isPhase5EvidenceAvailable(emailIntel)
   const cvePublishable   = isPhase5EvidenceAvailable(cve)
@@ -222,9 +228,6 @@ function SummaryBar({ scan, risk, emailIntel, remPlan, kev, cve }) {
 
   const bizRisk  = emailPublishable ? emailIntel?.business_email_risk : null
   const bizStyle = BIZ_RISK_STYLE[bizRisk] || { text: 'text-gray-300' }
-
-  const riskLvl = risk?.overall_risk_level || '—'
-  const rlStyle = RISK_LEVEL_STYLE[riskLvl] || { pill: 'bg-gray-100 text-gray-500 border-gray-200' }
 
   const p1Known  = remPlan?.incomplete !== true || (remPlan?.summary?.p1_count ?? 0) > 0
   const p1Count  = p1Known ? (remPlan?.summary?.p1_count ?? 0) : null
@@ -237,10 +240,10 @@ function SummaryBar({ scan, risk, emailIntel, remPlan, kev, cve }) {
 
   const stats = [
     {
-      label:   'Cyber Metrics Score',
-      value:   cmsScore != null ? String(cmsScore) : '—',
-      sub:     cmsRating ? `${cmsRating} · ${domain || '/100'}` : (domain || '/100'),
-      color:   scoreColor,
+      label:   cms.provisional ? 'Provisional Score' : 'Cyber Metrics Score',
+      value:   cms.score != null ? String(cms.score) : '—',
+      sub:     cms.provisional ? `Provisional · ${domain || '/100'}` : (domain || '/100'),
+      color:   cms.score == null ? '#9CA3AF' : cms.band.color,
       mono:    false,
     },
     {
@@ -264,9 +267,9 @@ function SummaryBar({ scan, risk, emailIntel, remPlan, kev, cve }) {
     {
       label:   'CyberMeters assessment band',
       isPill:  true,
-      pillCls: rlStyle.pill,
-      pillTxt: riskLvl,
-      sub:     'Posture Rating',
+      pillCls: cms.band.pill,
+      pillTxt: cms.band.label,
+      sub:     cms.provisional ? 'Final rating withheld' : 'Posture Rating',
     },
     {
       label:   'P1 Actions',
@@ -322,6 +325,120 @@ function SummaryBar({ scan, risk, emailIntel, remPlan, kev, cve }) {
   )
 }
 
+// ── Historical comparison ────────────────────────────────────────────────────
+
+function nonComparableReason(assessment, scanQuality) {
+  if (typeof assessment?.message === 'string' && assessment.message.trim()) {
+    return assessment.message
+  }
+
+  const warning = Array.isArray(scanQuality?.warnings)
+    ? scanQuality.warnings.find(item => typeof item === 'string' && item.trim())
+    : null
+  if (warning) return warning
+
+  return 'Historical changes are unavailable because this assessment is not explicitly comparable.'
+}
+
+function comparisonItemLabel(item) {
+  if (typeof item === 'string' && item.trim()) return item
+  if (!item || typeof item !== 'object') return null
+  for (const value of [item.title, item.host, item.hostname, item.id]) {
+    if (typeof value === 'string' && value.trim()) return value
+  }
+  return null
+}
+
+function HistoricalComparisonSection({ changes, assessment, scanQuality }) {
+  if (!changes) return null
+
+  if (changes.comparable !== true) {
+    return (
+      <div className="card overflow-hidden">
+        <SectionHeader icon={History} title="Changes Since Last Scan" iconBg="bg-amber-50" iconColor="text-amber-600" />
+        <div className="px-5 py-5 flex items-start gap-2.5 text-sm text-gray-500">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 text-amber-500 mt-0.5" />
+          <div>
+            <p className="font-semibold text-gray-700">Not comparable</p>
+            <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+              {nonComparableReason(assessment, scanQuality)}
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const previousScore = Number.isFinite(changes.previous_score) ? changes.previous_score : null
+  const currentScore = Number.isFinite(changes.current_score) ? changes.current_score : null
+  const scoreDelta = Number.isFinite(changes.score_change) ? changes.score_change : null
+  const changeGroups = [
+    { label: 'New Findings', items: changes.new_findings, tone: 'text-red-700 bg-red-50' },
+    { label: 'Resolved Findings', items: changes.resolved_findings, tone: 'text-brand-700 bg-brand-50' },
+    { label: 'New Subdomains', items: changes.new_subdomains, tone: 'text-amber-700 bg-amber-50' },
+    { label: 'Removed Subdomains', items: changes.removed_subdomains, tone: 'text-brand-700 bg-brand-50' },
+    { label: 'New Takeover Risks', items: changes.new_takeover_risks, tone: 'text-red-700 bg-red-50' },
+    { label: 'New Exposed Assets', items: changes.new_exposed_assets, tone: 'text-amber-700 bg-amber-50' },
+  ]
+  const inventoryComplete = changeGroups.every(group => Array.isArray(group.items))
+  const visibleGroups = changeGroups
+    .map(group => ({
+      ...group,
+      labels: Array.isArray(group.items)
+        ? group.items.map(comparisonItemLabel).filter(Boolean)
+        : [],
+    }))
+    .filter(group => group.labels.length > 0)
+  const totalChangeItems = inventoryComplete
+    ? changeGroups.reduce((total, group) => total + group.items.length, 0)
+    : null
+  const noChanges = inventoryComplete && totalChangeItems === 0
+
+  return (
+    <div className="card overflow-hidden">
+      <SectionHeader icon={History} title="Changes Since Last Scan" iconBg="bg-blue-50" iconColor="text-blue-600" />
+      {previousScore != null && currentScore != null && (
+        <div className="px-5 py-4 flex items-center justify-between gap-4 border-b border-gray-100">
+          <p className="text-sm font-semibold text-gray-900">Score Comparison</p>
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-gray-400">{previousScore}</span>
+            <span className="text-gray-300">→</span>
+            <span className="font-bold text-gray-900">{currentScore}</span>
+            {scoreDelta != null && (
+              <span className={`font-bold ${scoreDelta > 0 ? 'text-brand-600' : scoreDelta < 0 ? 'text-red-500' : 'text-gray-400'}`}>
+                ({scoreDelta > 0 ? `+${scoreDelta}` : scoreDelta})
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+      {noChanges && (
+        <div className="px-5 py-4 flex items-center gap-2 text-sm text-gray-500">
+          <CheckCircle className="w-4 h-4 text-brand-500 flex-shrink-0" />
+          No changes detected since the previous comparable assessment.
+        </div>
+      )}
+      {visibleGroups.length > 0 && (
+        <div className="divide-y divide-gray-50">
+          {visibleGroups.map(group => (
+            <div key={group.label} className="px-5 py-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{group.label}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {group.labels.slice(0, 5).map((label, index) => (
+                  <span key={`${label}-${index}`} className={`text-xs px-2 py-0.5 rounded ${group.tone}`}>{label}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {!noChanges && visibleGroups.length === 0 && previousScore == null && currentScore == null && (
+        <p className="px-5 py-4 text-sm text-gray-500">No publishable comparison details are available.</p>
+      )}
+    </div>
+  )
+}
+
 // ── Section: Risk Intelligence ────────────────────────────────────────────────
 
 function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
@@ -334,7 +451,13 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
     )
   }
 
-  const lvlStyle = RISK_LEVEL_STYLE[risk.overall_risk_level] || RISK_LEVEL_STYLE.Moderate
+  const publishedRiskLevel = risk.overall_risk_level
+  const riskLevel = typeof publishedRiskLevel === 'string' && Object.hasOwn(RISK_LEVEL_STYLE, publishedRiskLevel)
+    ? publishedRiskLevel
+    : null
+  const lvlStyle = riskLevel
+    ? RISK_LEVEL_STYLE[riskLevel]
+    : { pill: 'bg-gray-100 text-gray-500 border-gray-200' }
   const counts   = risk.finding_counts || {}
   const cats     = risk.risk_categories || {}
 
@@ -354,9 +477,9 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
         title="Risk Intelligence"
         iconBg="bg-red-50"
         iconColor="text-red-500"
-        aside={risk.overall_risk_level ? (
+        aside={riskLevel ? (
           <span className={`text-xs font-bold px-3 py-1 rounded-full border ${lvlStyle.pill}`}>
-            {risk.overall_risk_level} Risk
+            {riskLevel} Risk
           </span>
         ) : null}
       />
@@ -1094,16 +1217,11 @@ export default function IntelligencePage() {
 
   const modules = report?.modules || {}
   const storedScanObj = scans.find(s => s.id === selectedId)
-  // Report projection is the customer assessment authority. The scan-list row
-  // remains navigation metadata and may contain an immutable historical D1
-  // score/rating that predates the Phase-5 evidence contract.
-  const scanObj = storedScanObj && report
-    ? {
-        ...storedScanObj,
-        score: report.cyber_metrics_score ?? null,
-        rating: report.risk_level ?? null,
-      }
-    : storedScanObj
+  // The scan-list row is navigation metadata only. All customer assessment
+  // presentation comes from the report's canonical frozen assessment contract.
+  const assessment = report?.assessment ?? null
+  const assessmentPresentation = canonicalAssessmentPresentation(assessment)
+  const contextDomain = report?.domain || storedScanObj?.domain || null
 
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
@@ -1176,22 +1294,23 @@ export default function IntelligencePage() {
       {!loading && !error && report && (
         <>
           {/* Scan context strip */}
-          {scanObj && (
+          {storedScanObj && (
             <div className="flex items-center gap-3 text-sm bg-white border border-gray-100 rounded-xl px-4 py-2.5 shadow-sm">
               <Globe className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <span className="font-semibold text-gray-800">{scanObj.domain}</span>
-              {scanObj.rating && (
-                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 border border-brand-100">
-                  {scanObj.rating}
-                </span>
-              )}
+              <span className="font-semibold text-gray-800">{contextDomain}</span>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${assessmentPresentation.band.pill}`}>
+                {assessmentPresentation.band.label}
+              </span>
               <span className="text-gray-300">·</span>
-              <span className="text-gray-500">Score {scanObj.score ?? '—'}/100</span>
+              <span className="text-gray-500">
+                {assessmentPresentation.provisional && assessmentPresentation.score != null ? 'Provisional score ' : 'Score '}
+                {assessmentPresentation.score ?? '—'}/100
+              </span>
               <span className="text-gray-300">·</span>
               <span className="text-gray-400 text-xs">
-                {parseServerDate(scanObj.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                {parseServerDate(storedScanObj.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
               </span>
-              <Link to={`/scans/${scanObj.id}`} className="btn-ghost ml-auto text-xs gap-1">
+              <Link to={`/scans/${storedScanObj.id}`} className="btn-ghost ml-auto text-xs gap-1">
                 Full Report <ExternalLink className="w-3 h-3" />
               </Link>
             </div>
@@ -1199,8 +1318,8 @@ export default function IntelligencePage() {
 
           {/* Summary cards: 6 key metrics */}
           <SummaryBar
-            scan={scanObj}
-            risk={modules.risk_intelligence}
+            assessment={assessment}
+            domain={contextDomain}
             emailIntel={modules.email_security_intelligence}
             remPlan={modules.remediation_plan}
             kev={modules.known_exploited_vulnerabilities}
@@ -1214,6 +1333,11 @@ export default function IntelligencePage() {
               <RiskIntelligenceSection
                 risk={modules.risk_intelligence}
                 assessmentMessage={report.assessment?.message}
+              />
+              <HistoricalComparisonSection
+                changes={modules.historical_changes}
+                assessment={assessment}
+                scanQuality={report.scan_quality}
               />
               <RemediationSection
                 plan={modules.remediation_plan}
