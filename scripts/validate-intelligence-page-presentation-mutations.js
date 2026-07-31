@@ -16,9 +16,9 @@ const targetRel = "frontend/src/pages/IntelligencePage.jsx";
 const targetFile = path.join(root, targetRel);
 const validator = path.join(root, "scripts", "validate-intelligence-page-presentation.js");
 
-const EXPECTED_MUTANTS = 7;
-const EXPECTED_LEGACY_SURVIVORS = 1;
-const VALIDATOR_ASSERTIONS = 26;
+const EXPECTED_MUTANTS = 9;
+const EXPECTED_LEGACY_SURVIVORS = 2;
+const VALIDATOR_ASSERTIONS = 27;
 const SUMMARY_PREFIX = "IntelligencePage presentation:";
 
 const AST_INVENTORY = "AST: assessment-critical field inventory is pinned across the local closure";
@@ -91,6 +91,10 @@ const scoreAnchor = `  const score = Number.isFinite(assessment?.display_score)
     : null`;
 const comparableAnchor = "  if (changes.comparable !== true) {";
 const positiveAnchor = "  const previousScore = Number.isFinite(changes.previous_score) ? changes.previous_score : null";
+const contextScoreAnchor = `              <span className="text-gray-500">
+                {assessmentPresentation.provisional && assessmentPresentation.score != null ? 'Provisional score ' : 'Score '}
+                {assessmentPresentation.score ?? '—'}/100
+              </span>`;
 const reasonAnchor = `function nonComparableReason(assessment, scanQuality) {
   if (typeof assessment?.message === 'string' && assessment.message.trim()) {
     return assessment.message
@@ -169,11 +173,40 @@ const mutants = [
     legacyGuardSurvivor: true,
     expectedFailures: [AST_INVENTORY, AST_RAW_RATING, AST_RATING, UI_A, UI_B, UI_I],
   },
+  {
+    name: "arrow JSX helper launders a computed raw score",
+    edits: [
+      {
+        anchor: presentationAnchor,
+        replacement: `  const RawScore = ({ row }) => <span>{row["score"]}/100</span>
+${presentationAnchor}`,
+      },
+      {
+        anchor: contextScoreAnchor,
+        replacement: `${contextScoreAnchor}
+              <RawScore row={storedScanObj} />`,
+      },
+    ],
+    legacyGuardSurvivor: true,
+    expectedFailures: [AST_INVENTORY, AST_RAW_SCORE, UI_A, UI_B, UI_C, UI_I, UI_J],
+  },
+  {
+    name: "function-expression helper launders a direct raw score argument",
+    anchor: presentationAnchor,
+    replacement: `  const rawStoredScore = function (row) { return row?.["score"] }
+  const assessmentPresentation = {
+    ...canonicalAssessmentPresentation(assessment),
+    score: rawStoredScore(storedScanObj),
+  }`,
+    expectedFailures: [AST_INVENTORY, AST_RAW_SCORE, UI_A, UI_B, UI_C, UI_I, UI_J],
+  },
 ];
 
 // This models the old loose guard class: it only noticed the literal dot token.
 // The computed-property mutant must pass it, then die specifically in the AST guard.
-const legacyLooseGuard = source => !source.includes("storedScanObj?.rating") && !source.includes("scan?.rating");
+const legacyLooseGuard = source =>
+  !source.includes("storedScanObj?.rating") && !source.includes("scan?.rating") &&
+  !source.includes("storedScanObj?.score") && !source.includes("scan?.score");
 
 const original = fs.readFileSync(targetFile);
 const originalText = original.toString("utf8");
@@ -199,7 +232,11 @@ try {
   console.log(`PASS baseline validator green (${VALIDATOR_ASSERTIONS}/${VALIDATOR_ASSERTIONS})`);
 
   for (const mutant of mutants) {
-    const mutated = replaceExactlyOnce(originalText, mutant.anchor, mutant.replacement, mutant.name);
+    const edits = mutant.edits ?? [{ anchor: mutant.anchor, replacement: mutant.replacement }];
+    let mutated = originalText;
+    edits.forEach((edit, index) => {
+      mutated = replaceExactlyOnce(mutated, edit.anchor, edit.replacement, `${mutant.name} edit ${index + 1}`);
+    });
     if (mutant.legacyGuardSurvivor) {
       if (legacyLooseGuard(mutated)) {
         legacySurvivors += 1;

@@ -129,6 +129,11 @@ function summaryMetric(label) {
   return metric
 }
 
+function expectRawStoredAssessmentHidden() {
+  expect(screen.queryByText(/^99\s*\/\s*100$/i)).not.toBeInTheDocument()
+  expect(screen.queryByText(/^excellent$/i)).not.toBeInTheDocument()
+}
+
 async function renderFixture({ scan = scanFixture(), report = reportFixture() } = {}) {
   api.getWorkspaceScans.mockResolvedValue({ scans: [scan] })
   api.getScanReport.mockResolvedValue(report)
@@ -150,8 +155,7 @@ describe('IntelligencePage canonical assessment and history presentation', () =>
     expect(screen.getAllByText('Not assessed').length).toBeGreaterThan(0)
     expect(screen.getByText('Score —/100')).toBeInTheDocument()
     expect(within(summaryMetric('Provisional Score')).getByText('—')).toBeInTheDocument()
-    expect(screen.queryByText('excellent')).not.toBeInTheDocument()
-    expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
+    expectRawStoredAssessmentHidden()
     expect(screen.queryByText('99')).not.toBeInTheDocument()
   })
 
@@ -164,8 +168,7 @@ describe('IntelligencePage canonical assessment and history presentation', () =>
     expect(screen.getByText('Provisional score 85/100')).toBeInTheDocument()
     expect(within(summaryMetric('Provisional Score')).getByText('85')).toBeInTheDocument()
     expect(screen.getAllByText('Not assessed').length).toBeGreaterThan(0)
-    expect(screen.queryByText('excellent')).not.toBeInTheDocument()
-    expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
+    expectRawStoredAssessmentHidden()
   })
 
   it('C: complete authoritative canonical good assessment remains visible', async () => {
@@ -182,6 +185,7 @@ describe('IntelligencePage canonical assessment and history presentation', () =>
     expect(within(summaryMetric('Cyber Metrics Score')).getByText('82')).toBeInTheDocument()
     expect(screen.getAllByText('Good').length).toBeGreaterThan(0)
     expect(screen.queryByText('Provisional Score')).not.toBeInTheDocument()
+    expectRawStoredAssessmentHidden()
   })
 
   it('D: comparable true exposes canonical score and finding history', async () => {
@@ -299,8 +303,7 @@ describe('IntelligencePage canonical assessment and history presentation', () =>
     expect(screen.getAllByText('Not assessed').length).toBeGreaterThan(0)
     expect(screen.getByText('Score —/100')).toBeInTheDocument()
     expect(screen.queryByText('99')).not.toBeInTheDocument()
-    expect(screen.queryByText('excellent')).not.toBeInTheDocument()
-    expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
+    expectRawStoredAssessmentHidden()
   })
 
   it('J: unknown rating and non-finite canonical score fail closed', async () => {
@@ -326,5 +329,6 @@ describe('IntelligencePage canonical assessment and history presentation', () =>
     expect(screen.getByText('Score —/100')).toBeInTheDocument()
     expect(screen.queryByText('surprising-new-band')).not.toBeInTheDocument()
     expect(screen.queryByText('Surprising Risk')).not.toBeInTheDocument()
+    expectRawStoredAssessmentHidden()
   })
 })

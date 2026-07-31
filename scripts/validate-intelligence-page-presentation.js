@@ -18,7 +18,7 @@ const targetFile = path.join(frontend, "src", "pages", "IntelligencePage.jsx");
 const frontendRequire = createRequire(path.join(frontend, "package.json"));
 const ts = frontendRequire("typescript");
 
-const EXPECTED_ASSERTIONS = 26;
+const EXPECTED_ASSERTIONS = 27;
 const UI_TEST_TITLES = Object.freeze([
   "A: partial raw excellent/99 with null canonical rating and score fails closed",
   "B: partial canonical provisional score remains visible with an explicit label",
@@ -158,9 +158,79 @@ const isRawObjectExpression = node => {
   }
   return false;
 };
-const localFunctions = new Map(allNodes
-  .filter(node => ts.isFunctionDeclaration(node) && node.name)
-  .map(node => [node.name.text, node]));
+const isLexicalScope = node => ts.isSourceFile(node) || ts.isBlock(node) ||
+  ts.isModuleBlock(node) || ts.isCaseBlock(node);
+const nearestLexicalScope = node => {
+  let current = node;
+  while (current && !isLexicalScope(current)) current = current.parent;
+  return current ?? null;
+};
+const isLexicalFunctionVariable = node => {
+  if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || !node.initializer ||
+      !ts.isVariableDeclarationList(node.parent) ||
+      (node.parent.flags & ts.NodeFlags.BlockScoped) === 0) return false;
+  const initializer = unwrap(node.initializer);
+  return ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer);
+};
+const collectLocalFunctionBindings = nodes => nodes.flatMap(node => {
+  if (ts.isFunctionDeclaration(node) && node.name) {
+    return [{
+      name: node.name.text,
+      fn: node,
+      declaration: node,
+      scope: nearestLexicalScope(node.parent),
+      kind: "declaration",
+    }];
+  }
+  if (isLexicalFunctionVariable(node)) {
+    const fn = unwrap(node.initializer);
+    return [{
+      name: node.name.text,
+      fn,
+      declaration: node,
+      scope: nearestLexicalScope(node.parent),
+      kind: ts.isArrowFunction(fn) ? "arrow" : "function-expression",
+    }];
+  }
+  return [];
+});
+const localFunctionBindings = collectLocalFunctionBindings(allNodes);
+const resolveLocalFunction = (useNode, name) => {
+  let scope = nearestLexicalScope(useNode);
+  while (scope) {
+    const candidates = localFunctionBindings.filter(binding =>
+      binding.name === name && binding.scope === scope &&
+      (binding.kind === "declaration" || binding.declaration.getStart(sourceFile) < useNode.getStart(sourceFile))
+    );
+    if (candidates.length > 0) return candidates.at(-1).fn;
+    scope = nearestLexicalScope(scope.parent);
+  }
+  return null;
+};
+
+const helperBindingFixture = ts.createSourceFile(
+  "helper-bindings.jsx",
+  `function Declared(row) { return row.score }
+const Arrow = ({ row }) => <span>{row["score"]}</span>
+let Expression = function (row) { return row.rating }`,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.JSX,
+);
+const helperBindingFixtureNodes = [];
+walk(helperBindingFixture, node => helperBindingFixtureNodes.push(node));
+const helperBindingKinds = collectLocalFunctionBindings(helperBindingFixtureNodes)
+  .map(binding => `${binding.name}:${binding.kind}`)
+  .sort();
+ok(
+  "AST: lexical function declarations, arrows, and function expressions are bound by syntax",
+  JSON.stringify(helperBindingKinds) === JSON.stringify([
+    "Arrow:arrow",
+    "Declared:declaration",
+    "Expression:function-expression",
+  ]),
+  `got=${helperBindingKinds.join(",")}`,
+);
 const addRawFunctionBinding = (fn, propName, positionalIndex = null) => {
   if (!fn) return false;
   const param = positionalIndex == null ? fn.parameters[0] : fn.parameters[positionalIndex];
@@ -219,7 +289,7 @@ while (provenanceChanged) {
       }
     }
     if ((ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) && ts.isIdentifier(node.tagName)) {
-      const fn = localFunctions.get(node.tagName.text);
+      const fn = resolveLocalFunction(node, node.tagName.text);
       for (const attribute of node.attributes.properties) {
         if (!ts.isJsxAttribute(attribute) || !attribute.initializer ||
             !ts.isJsxExpression(attribute.initializer) || !attribute.initializer.expression) continue;
@@ -228,7 +298,7 @@ while (provenanceChanged) {
       }
     }
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-      const fn = localFunctions.get(node.expression.text);
+      const fn = resolveLocalFunction(node, node.expression.text);
       node.arguments.forEach((argument, index) => {
         if (isRawObjectExpression(argument) && addRawFunctionBinding(fn, null, index)) provenanceChanged = true;
       });

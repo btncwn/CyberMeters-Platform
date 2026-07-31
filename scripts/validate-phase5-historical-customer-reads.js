@@ -784,7 +784,10 @@ const mutations = [
       from: "          snapshot: read.snapshot,\n",
       to: "          snapshot: read.customerSnapshot,\n",
     }],
-    survived: () => validatorRejects("validate-m5c-reporting-snapshot.js"),
+    survived: () => {
+      const value = runChild("snapshot");
+      return value.snapshot?.overall?.cyber_metrics_score == null;
+    },
   },
   {
     name: "M7 executive non-Intelligence consumer loses masking",
