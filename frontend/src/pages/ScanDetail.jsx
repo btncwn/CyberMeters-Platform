@@ -917,14 +917,41 @@ function ChangeList({ title, items, total, renderItem, tone }) {
   )
 }
 
-function ChangesPanel({ changes }) {
+function nonComparableReason(assessment, scanQuality) {
+  if (typeof assessment?.message === 'string' && assessment.message.trim()) {
+    return assessment.message
+  }
+
+  const warning = Array.isArray(scanQuality?.warnings)
+    ? scanQuality.warnings.find(item => typeof item === 'string' && item.trim())
+    : null
+  if (warning) return warning
+
+  return 'This scan is not marked comparable. Historical changes are unavailable.'
+}
+
+function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
   if (!changes) return null
 
-  if (!changes.has_previous) {
+  if (changes.has_previous === false) {
     return (
       <div className="px-6 py-5 flex items-center gap-2.5 text-sm text-gray-400">
         <History className="w-4 h-4 flex-shrink-0 text-gray-300" />
         First scan for this domain — no historical data to compare against.
+      </div>
+    )
+  }
+
+  if (changes.comparable !== true) {
+    return (
+      <div className="px-6 py-5 flex items-start gap-2.5 text-sm text-gray-500">
+        <AlertCircle className="w-4 h-4 flex-shrink-0 text-amber-500 mt-0.5" />
+        <div>
+          <p className="font-semibold text-gray-700">Not comparable</p>
+          <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+            {nonComparableReason(assessment, scanQuality)}
+          </p>
+        </div>
       </div>
     )
   }
@@ -1107,7 +1134,7 @@ function BusinessRiskCard({ businessRisk }) {
 // ── Report View ──────────────────────────────────────────────────────────────
 
 function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) {
-  const { cyber_metrics_score: score, risk_level, findings, recommendations, modules, scan_quality, cyber_mot_domains } = report
+  const { cyber_metrics_score: score, risk_level, assessment, findings, recommendations, modules, scan_quality, cyber_mot_domains } = report
 
   // Sprint 10A: split findings into actionable vs informational.
   // Backward compat: if finding_type absent, fall back to score_impact sign.
@@ -1205,7 +1232,11 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
       {modules?.historical_changes && (
         <div className="card overflow-hidden">
           <SectionHeader icon={History} title="Changes Since Last Scan" />
-          <ChangesPanel changes={modules.historical_changes} />
+          <ChangesPanel
+            changes={modules.historical_changes}
+            assessment={assessment}
+            scanQuality={scan_quality}
+          />
         </div>
       )}
 
@@ -1511,6 +1542,12 @@ export default function ScanDetail() {
     reportAvailability,
     preparationExhausted,
   )
+  const assessment = report?.assessment ?? null
+  const assessmentRating = assessment?.display_rating ?? null
+  const assessmentScore = Number.isFinite(assessment?.display_score)
+    ? assessment.display_score
+    : null
+  const assessmentBand = bandMeta(assessmentRating)
 
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
@@ -1697,20 +1734,18 @@ export default function ScanDetail() {
                   <KV label="Scan ID"   value={<span className="mono text-xs text-brand-600">{scan.id}</span>} />
                   <KV label="Domain"    value={scan.domain} />
                   <KV label="Status"    value={<StatusBadge status={scan.status} />} />
-                  <KV label="Score"     value={
-                    scan.score != null
-                      ? <span className="font-bold text-brand-600">{scan.score} / 100</span>
+                  <KV label={assessment?.provisional === true ? 'Provisional Score' : 'Score'} value={
+                    assessmentScore !== null
+                      ? <span className="font-bold text-brand-600">{assessmentScore} / 100</span>
                       : '—'
                   } />
                   <KV label={assessmentBandLabel({
                     assessment: report?.assessment,
                     scanQuality: scan.scan_quality,
                   })} value={
-                    scan.rating
-                      ? <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${(RISK_CFG[scan.rating] || RISK_CFG.unknown).pill}`}>
-                          {(RISK_CFG[scan.rating] || RISK_CFG.unknown).label}
-                        </span>
-                      : '—'
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${assessmentBand.pill}`}>
+                      {assessmentBand.label}
+                    </span>
                   } />
                   <KV label="Created"   value={formatDate(scan.created_at)} />
                   {report?.started_at   && <KV label="Started"   value={formatDate(report.started_at)} />}

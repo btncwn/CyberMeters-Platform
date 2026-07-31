@@ -1092,6 +1092,17 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      # Track A A2+A3 — ScanDetail must render frozen assessment rating/score only,
+      # preserve canonical comparison-message priority, and require explicit
+      # comparable=true for historical claims. The focused validator combines
+      # TypeScript-AST guards with the real React fixture matrix; the mutation
+      # runner serially edits/restores ScanDetail and pins exact kills.
+      - name: Validate ScanDetail canonical band and historical comparison honesty
+        run: node scripts/validate-scan-detail-presentation.js
+
+      - name: Validate ScanDetail presentation strict mutations
+        run: node scripts/validate-scan-detail-presentation-mutations.js
+
       # A1 mutation proof includes a fresh-process real ScanDetail/Vitest carrier,
       # so it runs only after the pinned frontend dependency tree is installed.
       - name: Validate A1 report preparation load-bearing mutations
