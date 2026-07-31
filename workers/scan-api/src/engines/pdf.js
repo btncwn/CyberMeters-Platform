@@ -911,6 +911,17 @@ function sectionDmarcPolicy(w, presentation) {
   );
 }
 
+// Canonical printable projection for one observed DMARC record. `value` is the
+// customer-readable record string the parser concatenated; `raw` is the original
+// DNS answer and is printable only when it is itself a string (legacy scalar
+// shape). An object-only record has no customer-printable scalar and produces
+// no row — internal parser structure is never serialised into a customer report.
+function printableDmarcRecord(record) {
+  if (typeof record?.value === "string" && record.value.trim()) return record.value;
+  if (typeof record?.raw === "string" && record.raw.trim()) return record.raw;
+  return null;
+}
+
 function sectionDmarcTechnicalAppendix(w, presentation) {
   if (presentation?.status !== "current" ||
       !presentation.technical_appendix) return;
@@ -933,11 +944,13 @@ function sectionDmarcTechnicalAppendix(w, presentation) {
       );
     }
   }
-  if (appendix.raw_records?.length) {
+  const printableRecords = (appendix.raw_records || [])
+    .map(printableDmarcRecord)
+    .filter((value) => value !== null);
+  if (printableRecords.length) {
     w.text("Observed DMARC record data", { size: 8, bold: true });
-    for (const record of appendix.raw_records) {
-      const raw = record?.raw ?? record?.value ?? record;
-      w.proseKeep(String(raw), {
+    for (const value of printableRecords) {
+      w.proseKeep(value, {
         size: 7,
         indent: 10,
         color: "0.35 0.38 0.44",

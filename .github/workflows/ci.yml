@@ -1064,6 +1064,12 @@ jobs:
       - name: Validate DMARCbis P6 load-bearing mutations
         run: node scripts/validate-dmarcbis-p6-mutations.js
 
+      - name: Validate PDF DMARC record rendering (canonical value, never internal objects)
+        run: node scripts/validate-pdf-dmarc-record-rendering.js
+
+      - name: Validate PDF DMARC record rendering strict mutations
+        run: node scripts/validate-pdf-dmarc-record-rendering-mutations.js
+
       - name: DMARCbis P1 tr46 Worker bundle gate (no Node compatibility flags)
         working-directory: workers/scan-api
         run: npx wrangler deploy --dry-run --config ../../scripts/fixtures/wrangler-dmarcbis-p1.toml
