@@ -81,6 +81,26 @@ scan/snapshot bracketed that observation (`candidate_count=1`):
 - immutable snapshot `snap_d1f90436-2473-44ba-aab1-715a729eb229`, completed
   `2026-07-31T04:34:03.090Z`.
 
+The D1 snapshot index bound that row to a 196,453-byte R2 object with SHA-256
+`6134b081ecb4ffc2755f41685a275ef406c2e8e735e79e9698560377558d736d`.
+A read-only R2 fetch reproduced both the indexed size and checksum. The immutable
+snapshot's DMARC `evidence_fingerprint`
+`a7c5fa3c642f6fb569b3e4e24024c3d1f0cf94b3bfbb8378241e64cfb24164a2`
+matched the PDF Technical Appendix evidence fingerprint byte-for-byte. This binds
+the downloaded PDF to the attributed snapshot's DMARC evidence, rather than merely
+to a same-domain scan in the same time window.
+
+The exact technical-appendix render input contained one matching DMARC record at
+`protocol_evidence.dmarc.raw_records[0]`. Only its shape was inspected and recorded:
+
+- `typeof record.raw === "object"`;
+- `typeof record.value === "string"`;
+- `record.value` was printable and canonical.
+
+No raw DNS object or RUA token was logged or added to this record. On this exact
+shape the superseded raw-first expression would select the object; the deployed
+value-first projection selects the printable canonical string.
+
 Independent extraction and full 13-page render of
 `cybermeters-blackbullbarbers.co.uk-scan (4).pdf` proved:
 
