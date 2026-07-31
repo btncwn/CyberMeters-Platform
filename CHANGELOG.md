@@ -5,6 +5,146 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.31-2 — PDF DMARC canonical-record rendering corrective — deployed 2026-07-31
+
+**Status:** DEPLOYED — pending founder production acceptance
+
+This code-only corrective closes the customer-facing PDF defect recorded by the
+previous release: the per-scan PDF now renders the canonical printable DMARC record
+string and never stringifies the internal DNS answer object. The
+`Observed DMARC record data` heading is emitted only when at least one printable
+record exists. No report calculation, DMARC methodology, policy resolution,
+completeness, provenance, scan lifecycle or immutable-snapshot semantics changed.
+
+- **Release identity:** deployed code/main SHA
+  `574a62521720438e9ff4d8e2bc308bfabf50910e` (merge of PR **#357**; reviewed
+  head `6be533379f6ecc68f67f1b19066d3206271742b5`; parents
+  `8d9491a25b1e6aca61b2c44c40a6f6e3731a1ec7` +
+  `6be533379f6ecc68f67f1b19066d3206271742b5`). Annotated release tag
+  `v2026.07.31-2` targets this deployed SHA exactly.
+- **Post-deploy main drift:** the later current-main SHA
+  `aeba676328902743a095b890cd61695660b61c22` contains only PR **#358**'s six
+  additive `.gitignore` lines. Worker runtime, deploy manifest, closure, migration
+  and deployment source are unchanged. The Worker was not redeployed while this
+  release record was written, and the tag does not target `aeba6763`.
+- **Linked release unit and rollback:** scan-api moved from Cloudflare-live Version
+  ID `9789f36d-e908-41b5-a649-7edd1ac859f6` to
+  `6725e749-95ec-4a4d-8c18-2b5f1d058c19`; email-ingest moved from
+  `8747f610-5b37-4d1c-a38c-e93419a2d755` to
+  `34ffc5e2-6b60-4cc0-bda0-7f278e98a908`. Each rollback identity was read
+  independently from Cloudflare immediately before deployment. The two Workers
+  remain one rollback unit; no rollback was required.
+- **Email Worker closure:** live stamp
+  `2026.07.31-pdf-dmarc-object-rendering.83bcaf1372c5`, exact match for the
+  deployed manifest (closure SHA-256
+  `83bcaf1372c520941f861a558b708804a958446cd171c216405209d38aa3baa3`).
+- **Migration/data:** no migration, historical-data rewrite, direct D1/Queue
+  admission or authentication bypass. No scheduled workspace report occurrence
+  was produced and no external-recipient email was sent.
+
+### Production deployment proof
+
+- Exact-main CI run `30602817521` completed `validate` and `sast` successfully
+  against `574a62521720438e9ff4d8e2bc308bfabf50910e`. The focused PDF contract
+  passed 20/20; both pinned mutants were killed; email-worker deployment
+  traceability passed 14/14; both Worker dry-runs packaged successfully.
+- Cloudflare Pages production deployment
+  `ff67df47-3dff-4cb9-bdff-8575b74740ed` is on main source `574a625`; its
+  deployment URL and `app.cybermeters.com` returned HTTP 200. No manual Pages
+  deployment was performed.
+- scan-api `/health` and `/ready` returned HTTP 200 on both
+  `cybermeters-platform.ttrnn47.workers.dev` and `api.cybermeters.com`; both
+  `/health` responses converged on Version ID
+  `6725e749-95ec-4a4d-8c18-2b5f1d058c19`, with D1 and R2 ready.
+- email-ingest `/health` and `/ready` returned HTTP 200 on Version ID
+  `34ffc5e2-6b60-4cc0-bda0-7f278e98a908`, with the exact closure stamp and D1
+  ready. Anonymous workspace and per-scan PDF requests remained fail-closed with
+  HTTP 401 on both scan-api hosts.
+
+### Founder-authenticated fresh production PDF proof
+
+The requested proof originally named historical immutable scan
+`scan_4f100e6d-13df-4307-8f97-c98eb0493135`. The founder instead authorised and
+started a **fresh** normal-UI production scan of `blackbullbarbers.co.uk`, then
+downloaded its per-scan PDF through the normal authenticated product path. This is
+an explicit proof-plan deviation: the new scan is not claimed to be the historical
+scan.
+
+The PDF itself does not print a scan ID. Attribution therefore used only the
+customer-visible domain and PDF `observed_at=2026-07-31T04:33:02.893Z`, followed by
+a read-only production D1 interval query. Exactly one completed same-domain
+scan/snapshot bracketed that observation (`candidate_count=1`):
+
+- scan `scan_7ba66331-93a4-4e6f-882a-8eadee8d728a`, created
+  `2026-07-31 04:33:00`, completed/assessed
+  `2026-07-31T04:33:10.180Z`;
+- immutable snapshot `snap_d1f90436-2473-44ba-aab1-715a729eb229`, completed
+  `2026-07-31T04:34:03.090Z`.
+
+The D1 snapshot index bound that row to a 196,453-byte R2 object with SHA-256
+`6134b081ecb4ffc2755f41685a275ef406c2e8e735e79e9698560377558d736d`.
+A read-only R2 fetch reproduced both the indexed size and checksum. The immutable
+snapshot's DMARC `evidence_fingerprint`
+`a7c5fa3c642f6fb569b3e4e24024c3d1f0cf94b3bfbb8378241e64cfb24164a2`
+matched the PDF Technical Appendix evidence fingerprint byte-for-byte. This binds
+the downloaded PDF to the attributed snapshot's DMARC evidence, rather than merely
+to a same-domain scan in the same time window.
+
+The exact technical-appendix render input contained one matching DMARC record at
+`protocol_evidence.dmarc.raw_records[0]`. Only its shape was inspected and recorded:
+
+- `typeof record.raw === "object"`;
+- `typeof record.value === "string"`;
+- `record.value` was printable and canonical.
+
+No raw DNS object or RUA token was logged or added to this record. On this exact
+shape the superseded raw-first expression would select the object; the deployed
+value-first projection selects the printable canonical string.
+
+An offline real-renderer counterfactual then used the **same checksum-verified
+snapshot bytes** against the exact parent and deployed PDF engines. Text extraction
+accounted for normal PDF line wrapping and reported only the safe measurements:
+
+| Renderer | `[object Object]` count | Canonical DMARC string | Fingerprint |
+| --- | ---: | --- | --- |
+| Parent `8d9491a2` | 1 | absent | present; exact match |
+| Live `574a6252` | 0 | present | present; exact match |
+
+The counterfactual matched the expected defect signature exactly. Neither the raw
+object nor the RUA token was emitted by the proof tooling.
+
+Independent extraction and full 13-page render of
+`cybermeters-blackbullbarbers.co.uk-scan (4).pdf` proved:
+
+- SHA-256
+  `a6615c0e849c403b6468591ea5c676b0f04df1d6ff179be65f6d2352c950d5f8`;
+- canonical `v=DMARC1; p=none; rua=mailto:...; fo=1` record present;
+- zero `[object Object]` matches and zero internal DNS-object structure matches;
+- `Observed DMARC record data` present exactly once;
+- DMARC methodology, parser/resolver profile, policy source/effective policy,
+  core/policy/RUA completeness, provenance, ordered DNS lookup evidence and
+  parsed tags preserved;
+- PDF opened and rendered across all 13 pages with no clipping, overflow or
+  renderer failure.
+
+This fresh authenticated production proof is **PASS**. The release remains pending
+founder production acceptance; deploy proof is not acceptance.
+
+### Rollback and residual risk
+
+Rollback remains application-only and linked: any health/ready failure, Worker
+version divergence, closure mismatch, missing canonical DMARC record, returned
+`[object Object]`, PDF generation/open failure, authentication/tenant/report-access
+regression or other customer-facing report regression requires restoring **both**
+Workers to their pre-deploy Version IDs above. No trigger fired.
+
+`SCAN-API-HEALTH-VERSION-TRUTH` is recorded as a separate **P3 backlog**: scan-api
+`/health.version` still reports stale human value `2026.07.13` even though
+`deployment_id` correctly reports the live Cloudflare Version ID. This release does
+not change health-version semantics.
+
+No A2/A3, CT-R2, migration or unrelated development was started.
+
 ## v2026.07.31-1 — sub-operation timing telemetry + A1 report-preparing cutover — deployed 2026-07-31
 
 **Status:** DEPLOYED — pending founder production acceptance
