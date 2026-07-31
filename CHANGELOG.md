@@ -59,7 +59,11 @@ gates green.
 - **Founder production acceptance (PASS, 2026-07-31):** partial-scan negative
   control — canonical provisional score rendered, final Good/Excellent band
   absent, "Not assessed" rendered, non-comparable history exposed no relative
-  claims, backend message rendered without frontend causal inference.
+  claims, backend message rendered without frontend causal inference. The
+  negative control was discriminating, not vacuous: the partial scan's stored
+  raw `scans.rating` was `excellent` (read-only D1, `rows_written=0`), so the
+  pre-fix code would have rendered a final "Excellent" band on this exact scan
+  — the new presentation suppressed it.
   Historical evidence-complete positive control — canonical score and "Good"
   band remained visible. No Pages rollback trigger. The `comparable=true`
   historical positive path remains CI-proven; no suitable live founder scan was
