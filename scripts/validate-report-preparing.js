@@ -9,10 +9,15 @@
 // variables; normal CI imports the repository sources.
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const workerRequire = createRequire(
+  path.join(root, "workers", "scan-api", "package.json"),
+);
+const { parse } = workerRequire("acorn");
 const srcPath = (...parts) => path.join(root, "workers", "scan-api", "src", ...parts);
 const moduleUrl = (envName, fallback) =>
   process.env[envName] || pathToFileURL(fallback).href;
@@ -32,6 +37,78 @@ function ok(name, condition, hint = "") {
     fail += 1;
     console.log(`FAIL ${name}${hint ? ` — ${hint}` : ""}`);
   }
+}
+
+function walkAst(node, visitor, parent = null, parentKey = null) {
+  if (!node || typeof node !== "object") return;
+  visitor(node, parent, parentKey);
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "start" || key === "end" || key === "loc") continue;
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        if (child && typeof child.type === "string") {
+          walkAst(child, visitor, node, key);
+        }
+      }
+    } else if (value && typeof value.type === "string") {
+      walkAst(value, visitor, node, key);
+    }
+  }
+}
+
+function isIdentifier(node, name) {
+  return node?.type === "Identifier" && node.name === name;
+}
+
+function isResolverCallee(node) {
+  if (isIdentifier(node, "resolveScanReportAvailability")) return true;
+  if (node?.type !== "MemberExpression") return false;
+  return node.computed
+    ? node.property?.type === "Literal" &&
+        node.property.value === "resolveScanReportAvailability"
+    : isIdentifier(node.property, "resolveScanReportAvailability");
+}
+
+function isCanonicalRetryDecision(node) {
+  const init = node?.init;
+  const getCall = init?.left;
+  const getMember = getCall?.callee;
+  const searchParamsMember = getMember?.object;
+  return (
+    node?.type === "VariableDeclarator" &&
+    isIdentifier(node.id, "customerRequestedReportRetry") &&
+    init?.type === "BinaryExpression" &&
+    init.operator === "===" &&
+    getCall?.type === "CallExpression" &&
+    getMember?.type === "MemberExpression" &&
+    getMember.computed === false &&
+    isIdentifier(getMember.property, "get") &&
+    searchParamsMember?.type === "MemberExpression" &&
+    searchParamsMember.computed === false &&
+    isIdentifier(searchParamsMember.object, "url") &&
+    isIdentifier(searchParamsMember.property, "searchParams") &&
+    getCall.arguments?.length === 1 &&
+    getCall.arguments[0]?.type === "Literal" &&
+    getCall.arguments[0].value === "retry_report" &&
+    init.right?.type === "Literal" &&
+    init.right.value === "1"
+  );
+}
+
+function isCanonicalRetryOption(call) {
+  const options = call?.arguments?.[2];
+  const property = options?.properties?.[0];
+  return (
+    call?.arguments?.length === 3 &&
+    options?.type === "ObjectExpression" &&
+    options.properties.length === 1 &&
+    property?.type === "Property" &&
+    property.kind === "init" &&
+    property.computed === false &&
+    property.shorthand === false &&
+    isIdentifier(property.key, "retryFailed") &&
+    isIdentifier(property.value, "customerRequestedReportRetry")
+  );
 }
 
 function buildDb() {
@@ -170,35 +247,145 @@ async function main() {
   };
   collectProductionFiles(srcPath());
   const resolverDefinitionPath = srcPath("engines", "report-availability.js");
-  const availabilityCallers = productionFiles
-    .filter((filename) => filename !== resolverDefinitionPath)
-    .flatMap((filename) => {
-      const source = filename === srcPath("routes", "scans.js")
-        ? fs.readFileSync(scanRoutesSourcePath, "utf8")
-        : fs.readFileSync(filename, "utf8");
-      return Array.from(source.matchAll(/\bawait\s+resolveScanReportAvailability\s*\(/g), (match) => ({
-        filename: path.relative(srcPath(), filename),
-        offset: match.index,
-      }));
-    });
-  const productionSource = productionFiles
-    .map((filename) => filename === srcPath("routes", "scans.js")
+  const productionUnits = productionFiles.map((filename) => {
+    const source = filename === srcPath("routes", "scans.js")
       ? fs.readFileSync(scanRoutesSourcePath, "utf8")
-      : fs.readFileSync(filename, "utf8"))
-    .join("\n");
-  const scanRoutesSource = fs.readFileSync(scanRoutesSourcePath, "utf8");
+      : fs.readFileSync(filename, "utf8");
+    return {
+      filename,
+      relativeFilename: path.relative(srcPath(), filename),
+      source,
+      ast: parse(source, {
+        ecmaVersion: "latest",
+        sourceType: "module",
+        locations: true,
+      }),
+    };
+  });
+  const availabilityCallers = [];
+  const resolverModuleImports = [];
+  const resolverImports = [];
+  const resolverDefinitions = [];
+  const unexpectedResolverReferences = [];
+  const retryGrantIdentifiers = [];
+  const canonicalRetryDecisions = [];
+
+  for (const unit of productionUnits) {
+    walkAst(unit.ast, (node, parent, parentKey) => {
+      if (
+        node.type === "CallExpression" &&
+        isResolverCallee(node.callee)
+      ) {
+        availabilityCallers.push({
+          ...unit,
+          node,
+          line: node.loc.start.line,
+        });
+      }
+      if (
+        node.type === "ImportDeclaration" &&
+        node.source?.value?.endsWith("/report-availability.js")
+      ) {
+        resolverModuleImports.push({ ...unit, node });
+      }
+      if (node.type === "ImportSpecifier") {
+        if (
+          isIdentifier(node.imported, "resolveScanReportAvailability") ||
+          isIdentifier(node.local, "resolveScanReportAvailability")
+        ) {
+          resolverImports.push({ ...unit, node });
+        }
+      }
+      if (
+        node.type === "FunctionDeclaration" &&
+        isIdentifier(node.id, "resolveScanReportAvailability")
+      ) {
+        resolverDefinitions.push({ ...unit, node });
+      }
+      if (isIdentifier(node, "resolveScanReportAvailability")) {
+        const isDirectCall =
+          parent?.type === "CallExpression" &&
+          parentKey === "callee";
+        const isImport = parent?.type === "ImportSpecifier";
+        const isDefinition =
+          parent?.type === "FunctionDeclaration" &&
+          parentKey === "id";
+        if (!isDirectCall && !isImport && !isDefinition) {
+          unexpectedResolverReferences.push({ ...unit, node });
+        }
+      }
+      if (
+        unit.filename !== resolverDefinitionPath &&
+        isIdentifier(node, "retryFailed")
+      ) {
+        retryGrantIdentifiers.push({ ...unit, node, parent, parentKey });
+      }
+      if (isCanonicalRetryDecision(node)) {
+        canonicalRetryDecisions.push({ ...unit, node });
+      }
+    });
+  }
+
+  const optionsCallers = availabilityCallers.filter(
+    ({ node }) => node.arguments.length !== 2,
+  );
+  const passiveCallers = availabilityCallers.filter(
+    ({ node }) => node.arguments.length === 2,
+  );
+  const canonicalOptionsCaller = optionsCallers.length === 1
+    ? optionsCallers[0]
+    : null;
+  const canonicalRetryProperty = canonicalOptionsCaller?.node.arguments?.[2]
+    ?.properties?.[0];
+
+  console.log(
+    "report-availability AST inventory:"
+    + ` callers=${availabilityCallers.length}`
+    + ` routes=${[...new Set(availabilityCallers.map(({ relativeFilename }) => relativeFilename))].join(",") || "none"}`
+    + ` passive_default=${passiveCallers.length}`
+    + ` options=${optionsCallers.length}`
+    + ` retry_identifiers=${retryGrantIdentifiers.length}`,
+  );
   ok("production report-availability caller inventory is complete and route-owned",
     availabilityCallers.length === 5 &&
-    availabilityCallers.every((caller) => caller.filename === "routes/scans.js"));
-  ok("production report readers contain zero literal retryFailed true grants",
-    !/\bretryFailed\s*:\s*true\b/.test(productionSource));
-  ok("only named scan-detail customer action carries failed-repair authority",
-    (productionSource.match(/\bretryFailed\s*:/g) || []).length === 1 &&
-    /const customerRequestedReportRetry\s*=\s*[\s\S]{0,120}url\.searchParams\.get\("retry_report"\)\s*===\s*"1"/
-      .test(scanRoutesSource) &&
-    /retryFailed:\s*customerRequestedReportRetry/.test(scanRoutesSource));
+    availabilityCallers.every(
+      (caller) => caller.relativeFilename === "routes/scans.js",
+    ));
+  ok("resolver identifier has one canonical definition/import and no alias or wrapper reference",
+    resolverDefinitions.length === 1 &&
+    resolverDefinitions[0].filename === resolverDefinitionPath &&
+    resolverModuleImports.length === 1 &&
+    resolverModuleImports[0].relativeFilename === "routes/scans.js" &&
+    resolverModuleImports[0].node.specifiers.length === 2 &&
+    resolverModuleImports[0].node.specifiers.every(
+      (specifier) =>
+        specifier.type === "ImportSpecifier" &&
+        ["reportAvailabilityError", "resolveScanReportAvailability"]
+          .includes(specifier.imported?.name) &&
+        specifier.local?.name === specifier.imported?.name,
+    ) &&
+    resolverImports.length === 1 &&
+    resolverImports[0].relativeFilename === "routes/scans.js" &&
+    isIdentifier(resolverImports[0].node.local, "resolveScanReportAvailability") &&
+    unexpectedResolverReferences.length === 0);
+  ok("only scan-detail customer action may pass report-availability options",
+    optionsCallers.length === 1 &&
+    canonicalOptionsCaller?.relativeFilename === "routes/scans.js" &&
+    isCanonicalRetryOption(canonicalOptionsCaller?.node) &&
+    canonicalRetryDecisions.length === 1 &&
+    canonicalRetryDecisions[0].relativeFilename === "routes/scans.js");
+  ok("retry authority has one canonical production grant",
+    retryGrantIdentifiers.length === 1 &&
+    retryGrantIdentifiers[0].node === canonicalRetryProperty?.key &&
+    isCanonicalRetryOption(canonicalOptionsCaller?.node));
   ok("all four passive renderer callers use resolver default retry policy",
-    (scanRoutesSource.match(/resolveScanReportAvailability\(env, scan\);/g) || []).length === 4);
+    passiveCallers.length === 4 &&
+    passiveCallers.every(
+      ({ relativeFilename, node }) =>
+        relativeFilename === "routes/scans.js" &&
+        isIdentifier(node.arguments[0], "env") &&
+        isIdentifier(node.arguments[1], "scan"),
+    ));
   ok("resolver default remains retryFailed false outside caller inventory",
     /\{\s*allowRepair\s*=\s*true,\s*retryFailed\s*=\s*false\s*\}/
       .test(fs.readFileSync(resolverDefinitionPath, "utf8")));

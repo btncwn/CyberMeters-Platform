@@ -14,8 +14,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const validator = path.join(root, "scripts", "validate-report-preparing.js");
-const EXPECTED_MUTANTS = 6;
-const EXPECTED_VALIDATOR_ASSERTIONS = 53;
+const EXPECTED_MUTANTS = 7;
+const EXPECTED_VALIDATOR_ASSERTIONS = 54;
 
 let defined = 0;
 let killed = 0;
@@ -215,8 +215,8 @@ runMutant({
     `.${indexParsed.name}.a1-mutant.${process.pid}.${defined}${indexParsed.ext}`,
   );
   const expectedFailures = [
-    "production report readers contain zero literal retryFailed true grants",
-    "only named scan-detail customer action carries failed-repair authority",
+    "only scan-detail customer action may pass report-availability options",
+    "retry authority has one canonical production grant",
     "all four passive renderer callers use resolver default retry policy",
     "passive renderer /report preserves failed report_unavailable",
     "passive renderer /report starts no repair work",
@@ -238,6 +238,107 @@ runMutant({
           retryFailed: true,
         });`,
       "passive technical-report retry authority",
+    );
+    const mutantRouteSpecifier = `./routes/${path.basename(mutantRoutePath)}`;
+    const mutantIndexSource = replaceExactlyOnce(
+      fs.readFileSync(indexPath, "utf8"),
+      'from "./routes/scans.js";',
+      `from "${mutantRouteSpecifier}";`,
+      "Worker scan-route import",
+    );
+    fs.writeFileSync(mutantRoutePath, mutantRouteSource);
+    fs.writeFileSync(mutantIndexPath, mutantIndexSource);
+
+    const child = spawnSync(process.execPath, [validator], {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        REPORT_PREPARING_WORKER_MODULE_URL: pathToFileURL(mutantIndexPath).href,
+        REPORT_PREPARING_SCAN_ROUTES_SOURCE_PATH: mutantRoutePath,
+      },
+    });
+    const actualFailures = assertionFailures(child.stdout);
+    const summary = String(child.stdout || "").match(
+      /report-preparing: (\d+) passed, (\d+) failed/,
+    );
+    const exactFailureList =
+      JSON.stringify(actualFailures) === JSON.stringify(expectedFailures);
+    const normalValidatorFailure =
+      child.error == null &&
+      child.signal == null &&
+      child.status === 1 &&
+      String(child.stderr || "").trim() === "" &&
+      summary != null &&
+      Number(summary[2]) === expectedFailures.length &&
+      Number(summary[1]) + Number(summary[2]) === EXPECTED_VALIDATOR_ASSERTIONS;
+
+    if (normalValidatorFailure && exactFailureList) {
+      killed += 1;
+      console.log(`PASS ${name}`);
+    } else {
+      fail(
+        `${name}: mutant ${child.status === 0 ? "survived" : "failed for the wrong reason"}`
+        + `\nexpected failures: ${JSON.stringify(expectedFailures)}`
+        + `\nactual failures: ${JSON.stringify(actualFailures)}`
+        + `\nstatus=${child.status} signal=${child.signal} childError=${child.error?.message || "none"}`
+        + `\nstdout:\n${String(child.stdout || "").trim()}`
+        + `\nstderr:\n${String(child.stderr || "").trim()}`,
+      );
+    }
+  } catch (error) {
+    fail(`${name}: ${error?.message || error}`);
+  } finally {
+    fs.rmSync(mutantIndexPath, { force: true });
+    fs.rmSync(mutantRoutePath, { force: true });
+  }
+}
+
+{
+  const name = "await-less shorthand retry grant adds an uncounted passive caller";
+  defined += 1;
+  const routePath = path.join(
+    root,
+    "workers",
+    "scan-api",
+    "src",
+    "routes",
+    "scans.js",
+  );
+  const indexPath = path.join(root, "workers", "scan-api", "src", "index.js");
+  const routeParsed = path.parse(routePath);
+  const indexParsed = path.parse(indexPath);
+  const mutantRoutePath = path.join(
+    routeParsed.dir,
+    `.${routeParsed.name}.a1-mutant.${process.pid}.${defined}${routeParsed.ext}`,
+  );
+  const mutantIndexPath = path.join(
+    indexParsed.dir,
+    `.${indexParsed.name}.a1-mutant.${process.pid}.${defined}${indexParsed.ext}`,
+  );
+  const expectedFailures = [
+    "production report-availability caller inventory is complete and route-owned",
+    "only scan-detail customer action may pass report-availability options",
+    "retry authority has one canonical production grant",
+  ];
+
+  try {
+    const routeSource = fs.readFileSync(routePath, "utf8");
+    const mutantRouteSource = replaceExactlyOnce(
+      routeSource,
+      "        resolvedAvailability = await resolveScanReportAvailability(env, scan);",
+      `        const enableIndirectRetry =
+          request.headers.get("X-A1-Mutant-Passive-Retry") === "1";
+        let indirectAvailability = null;
+        if (enableIndirectRetry) {
+          const retryFailed = true;
+          indirectAvailability =
+            resolveScanReportAvailability(env, scan, { retryFailed });
+        }
+        resolvedAvailability = indirectAvailability
+          ? await indirectAvailability
+          : await resolveScanReportAvailability(env, scan);`,
+      "await-less shorthand passive retry grant",
     );
     const mutantRouteSpecifier = `./routes/${path.basename(mutantRoutePath)}`;
     const mutantIndexSource = replaceExactlyOnce(
