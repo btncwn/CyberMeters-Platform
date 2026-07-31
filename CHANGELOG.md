@@ -5,6 +5,74 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.31-4 — TRACK-A3: IntelligencePage canonical assessment and comparison honesty — deployed 2026-07-31; **LIVE-ACCEPTED**
+
+**Status:** LIVE-ACCEPTED — founder production acceptance PASS, 2026-07-31
+
+Frontend-only release (1 page + 1 test + 3 validators + CI wiring; no Worker
+deploy, no migration, no schema change — Cloudflare Pages auto-deployed on
+merge). Extends the Track A ScanDetail contract (`v2026.07.31-3`) to
+IntelligencePage, which previously had zero scan-quality awareness:
+
+- **Canonical assessment only:** every score/band presentation reads the
+  report's frozen `assessment` contract (`display_score` via a finite check,
+  `display_rating` via `bandMeta()`); `provisional === true` switches the
+  summary card to "Provisional Score", labels the context-strip score
+  "Provisional score", and replaces the posture-rating sub-line with "Final
+  rating withheld". The raw `scans.score`/`scans.rating` reads and the
+  hard-coded green rating pill (which painted any rating value — including a
+  hypothetical `critical` — in brand green) are removed; the scan-list row is
+  navigation metadata only (domain/date/id).
+- **Fail-closed risk pill:** `RISK_LEVEL_STYLE`'s fail-open `|| Moderate`
+  default is removed — an unrecognised `overall_risk_level` renders a neutral
+  pill and no "X Risk" aside.
+- **Historical comparison honesty:** the new "Changes Since Last Scan" section
+  renders relative claims only behind an explicit
+  `changes.comparable === true`; anything else renders a bounded "Not
+  comparable" state whose reason is backend-verbatim (`assessment.message`,
+  then a verbatim scan-quality warning, then a consequence-only fallback with
+  no invented cause). "No changes detected" requires the full change inventory
+  to be present; positive observed findings remain visible without any
+  new/resolved claim.
+
+**Proof:** TypeScript-AST closure guard with raw-provenance taint tracking that
+now binds lexical `const`/`let` arrow functions and function expressions in
+addition to function declarations (scope-chain resolution with
+declaration-order/TDZ awareness, proven by an in-validator three-kind binding
+fixture); 27 pinned assertions; 12 real-UI fixtures (A–J incl. three
+comparable fail-closed variants) with regex-hardened hidden-value checks
+(`99/100` composite and case-insensitive `excellent`); 9 strict fresh-process
+mutants with exact FAIL-set equality, exit-1 requirement, parse/import/load
+kills rejected as non-behavioral, source SHA-256 + working-tree fingerprint
+restore, and 2 pinned legacy-loose-guard survivors (computed-access laundering
+through an arrow JSX helper and a function-expression call). The Phase-5
+historical customer-reads suite (60/60, 8/8 mutants) now proves the M6
+verbatim-endpoint mutation behaviourally (child run asserting the masked
+snapshot) instead of via a generic validator-rejects proxy.
+
+- **Release identity:** merge `1baf84ae8c46e6a661aa09e8b05cef03f5b0cfa0`
+  (PR **#364**; parent 2 = reviewed head `87aef25f` = substantive head
+  `146d76d0` + clean docs-reconcile merge `8865b2d` carrying only the CT-R2
+  design doc byte-identical from main + the proof-bypass corrective commit).
+  Reviewed at exact heads: first round BLOCK (P1 — AST guard bound only
+  FunctionDeclarations, arrow/function-expression laundering invisible; P2 —
+  M6 generic `validatorRejects` could count anchor/import/runtime failure as a
+  kill), corrective applied by Codex, second round PASS + PASS with the
+  production page unchanged in the corrective delta. Exact-main CI green
+  (validate + SAST); Playwright green.
+- **Deployment:** Pages production `8d2b9ded-8b4a-42d6-b18a-05642a6334d0`
+  built from exact merge SHA `1baf84a`. Rollback base recorded:
+  `afd44ca5-8226-4615-abb4-2bbf6aae58cf` @ `9ca431c` (docs-only delta from the
+  previous frontend release, so its frontend content equals `v2026.07.31-3`).
+  The Worker was not deployed and did not need to be — the deployed Worker
+  already served the frozen assessment and historical-changes fields this
+  release consumes. Annotated tag `v2026.07.31-4` targets the deployed merge
+  SHA exactly.
+- **Founder production acceptance (PASS, 2026-07-31):** IntelligencePage
+  showed no raw Excellent/99 fallback, used the canonical assessment
+  presentation, suppressed non-comparable historical claims, and preserved
+  observed findings. No rollback trigger was observed.
+
 ## v2026.07.31-3 — Track A A2+A3: ScanDetail canonical band, score and comparison honesty — deployed 2026-07-31; **LIVE-ACCEPTED**
 
 **Status:** LIVE-ACCEPTED — founder production acceptance PASS, 2026-07-31
