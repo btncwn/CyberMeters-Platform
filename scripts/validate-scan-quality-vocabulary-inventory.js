@@ -24,7 +24,7 @@ const EXPECTED = Object.freeze({
   runtime: {
     comparison_occurrences: 49,
     source_file_count: 22,
-    fingerprint: "e6f875a71221d1de32525035618aaa2186da22ecf9512df68c70e537e34bc05a",
+    fingerprint: "08591024984b3fe1e6847d6b33c087a2ec12ffa9936bac8b4fb57a57720e06ce",
     partial_only_fingerprint: "e50e6cfb97a4c582c5562096f6160a58b57034d2c1a4a476b561bc2dcd62aec1",
   },
   sql: {
@@ -42,8 +42,8 @@ const EXPECTED = Object.freeze({
   },
   runtime_source_file_count: 32,
   direct: {
-    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "b23f3c86e46fc704b7bbda778abdfd1dd4b984119aeaafa844aa9f5df8685a4b" },
-    governance: { occurrence_count: 87, source_file_count: 33, fingerprint: "2f72bc2b1c65796c5d9b5146bef63c2af81ed927e83090ce6a55bcb9f66fc798" },
+    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "96bca21fd6b810d1acf6acb625bbef7d177307b55a8f9d61d87fdad5494805e2" },
+    governance: { occurrence_count: 89, source_file_count: 34, fingerprint: "178603d7be020e8f418bdeb7f286a2a243161e43d856faef2e5d540fcd4aa4d4" },
   },
   sql_reads: { projection_occurrences: 23, fingerprint: "f7c676453f72325bacd1242e445690c6cf757379f51675767a042c3cf04ff979" },
 });
