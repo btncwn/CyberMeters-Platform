@@ -58,15 +58,22 @@ The PR-1 AST-backed inventory pins separate units on exact `origin/main` `dd1700
 - **49 runtime JS/TS semantic comparisons** across **22 source files**;
 - **32 runtime source files** in the union of SQL-predicate and semantic-comparison files;
 - **59 validation/governance semantic comparisons** across **20 source files**.
+- **90 runtime canonical direct reads** across **34 source files** and **95 governance/test
+  canonical direct reads** across **36 source files**; these are the primary authority.
+- **21 SQL SELECT/projection direct-read sites** (predicate reads remain separately pinned at 35).
 
-Those numbers are intentionally not interchangeable. In particular, 35 is a predicate-
+Those numbers are intentionally not interchangeable. The primary contract is exhaustive
+only for statically-resolvable canonical-slot direct reads. The semantic-comparison counts
+are a known statically-resolved comparison inventory, retained as a secondary fingerprint;
+they do not claim arbitrary downstream data-flow exhaustiveness. Downstream aliases remain
+covered by the manually reviewed consumer map and this secondary inventory. In particular, 35 is a predicate-
 occurrence count, 26 is a statically-resolved SQL-site count, and 22 is the JS/TS semantic
 source-file count. Comments and ordinary strings are never callers; SQL text is classified
 separately. Governance is published as statically-resolvable comparisons: four exact
 quality comparisons remain unresolved by static data flow and are pinned as an explicit
 review contract (`validate-msp-portfolio-domains.js:427`,
 `validate-partial-scan-honesty.js:232`, `validate-phase5-evidence-honesty.js:219`,
-`validate-signal-monitoring-state.js:257`). A new unresolved shape changes the pinned set
+  `validate-signal-monitoring-state.js:257`). A new unresolved shape changes the pinned set
 and fails CI; it cannot silently become an allowlist.
 
 ### 2.1 CT provider cache and all consumers [OBS]
@@ -221,6 +228,18 @@ statically-resolved SQL sites in 15 files**: `business-risk.js:743`, `current-po
 `cyber-mot-state-history.js:392`, `portfolio-domains.js:237` and
 `cyber-mot-domains.js:197` belong to the separate 49-occurrence semantic inventory; they
 are not SQL query sites.
+
+**Counting-unit note:** a site is a statically-resolved SQL-bearing string. A shared fragment
+and each of its interpolation/sink sites are counted separately because each is an
+independent place the filter must be guarded. Consequently one physical predicate may
+contribute several occurrences; the published occurrence total is a guard-site count, not
+a count of distinct filters in the database. This unit is deliberately wider than the
+earlier revision, which counted the fragment once.
+
+**Erratum (2026-07-31): the previous enumeration in this section claimed 16 exhaustively
+counted sites but had missed two spaceless-format WHERE filters (current-posture.js,
+portfolio-customers.js) — found by independent review before PR-1; this AST-derived
+inventory supersedes it.**
 
 The table below is the required per-consumer statement: what the consumer does **today when
 a single-provider CT failure grades the scan `partial`**, and what would change **under the
@@ -654,7 +673,8 @@ meaning — never "near-zero risk".
 
 **Mandatory implementation gate for D** (all five before any re-grade ships):
 
-1. **AST-backed exhaustive statically-resolvable literal-status consumer inventory** — every comparison against
+1. **AST-backed exhaustive statically-resolvable canonical-slot direct-read inventory**, with a
+   secondary known statically-resolved literal-status comparison inventory — every direct read and comparison against
    the literal strings `'partial'`/`'degraded'`/`'complete'` across workers/, frontend/
    and scripts/, found by AST matching (the Track A TS-AST guard is the precedent), not by
    grep sampling.

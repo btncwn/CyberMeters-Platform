@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// CT-R2 PR-1 — exhaustive statically-resolvable scan-quality vocabulary inventory.
+// CT-R2 PR-1 — exhaustive statically-resolvable canonical-slot direct-read inventory.
 //
 // The JavaScript/TypeScript side is AST-backed. It follows the canonical
 // scan_quality slot through dot/computed access, destructuring, aliases, local
@@ -19,7 +19,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const frontendRequire = createRequire(path.join(root, "frontend", "package.json"));
 const ts = frontendRequire("typescript");
 
-const EXPECTED_ASSERTIONS = 7;
+const EXPECTED_ASSERTIONS = 10;
 const EXPECTED = Object.freeze({
   runtime: {
     comparison_occurrences: 49,
@@ -39,6 +39,11 @@ const EXPECTED = Object.freeze({
     fingerprint: "2375b9b5be5ebe5f71fe48e739f0477b7a1e22ec86719920de4488334ec60bec",
   },
   runtime_source_file_count: 32,
+  direct: {
+    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "b23f3c86e46fc704b7bbda778abdfd1dd4b984119aeaafa844aa9f5df8685a4b" },
+    governance: { occurrence_count: 95, source_file_count: 36, fingerprint: "10c3d8b5a3fc2134264adc00cb353f294518ffc5f7dcef3c5d9c80237d292f7b" },
+  },
+  sql_reads: { projection_occurrences: 21, predicate_occurrences: 35, fingerprint: "393297a6bdf8fd67ffb85b3d5590f06d8b02540f6ccb6ed7ea2c27630a467515" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
@@ -813,6 +818,40 @@ function analyseSemanticComparisons(sourceFiles, checker) {
   };
 }
 
+// Primary authority: direct canonical-slot reads only. This deliberately does
+// not attempt to prove arbitrary downstream value flow.
+function analyseDirectReads(sourceFiles, checker) {
+  const sites = [];
+  const staticStrings = new Map();
+  for (const sf of sourceFiles) walk(sf, (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const value = unwrap(node.initializer);
+      if (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) {
+        staticStrings.set(node.name.text, value.text);
+      }
+    }
+  });
+  const add = (sf, node, kind, slot = "scan_quality") => {
+    sites.push({ file: rel(sf.fileName), line: sourceLine(sf, node), kind, slot,
+      snippet: normalizedSnippet(sf, node) });
+  };
+  for (const sf of sourceFiles) walk(sf, (node) => {
+    if (ts.isPropertyAccessExpression(node) && QUALITY_SLOT_NAMES.has(node.name.text)) {
+      add(sf, node, "member-access");
+    } else if (ts.isElementAccessExpression(node)) {
+      const arg = unwrap(node.argumentExpression);
+      const key = ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)
+        ? arg.text : ts.isIdentifier(arg) ? staticStrings.get(arg.text) : null;
+      if (QUALITY_SLOT_NAMES.has(key)) add(sf, node, "computed-access", key);
+    } else if (ts.isBindingElement(node)) {
+      const key = propertyNameText(node.propertyName || node.name, checker, new Map());
+      if (QUALITY_SLOT_NAMES.has(key)) add(sf, node, "destructuring", key);
+    }
+  });
+  const signature = (site) => `${site.file}:${site.line}:${site.kind}:${site.slot}:${site.snippet}`;
+  return { sites, fingerprint: fingerprint(sites.map(signature)) };
+}
+
 function staticText(node, checker, seenSymbols = new Set()) {
   const value = unwrap(node);
   if (!value) return null;
@@ -854,6 +893,13 @@ function staticText(node, checker, seenSymbols = new Set()) {
       text: `${left?.text ?? "__UNRESOLVED_EXPR__"}${right?.text ?? "__UNRESOLVED_EXPR__"}`,
       fullyResolved: Boolean(left?.fullyResolved && right?.fullyResolved),
     };
+  }
+  if (ts.isCallExpression(value) && callMemberName(value.expression) === "join" &&
+      ts.isArrayLiteralExpression(unwrap(value.expression.expression))) {
+    const array = unwrap(value.expression.expression);
+    const separator = value.arguments[0] ? staticText(value.arguments[0], checker, new Set(seenSymbols))?.text ?? "" : ",";
+    const parts = array.elements.map((element) => staticText(element, checker, new Set(seenSymbols)));
+    return { text: parts.map((part) => part?.text ?? "__UNRESOLVED_EXPR__").join(separator), fullyResolved: parts.every(Boolean) };
   }
   if (ts.isConditionalExpression(value)) {
     const whenTrue = staticText(value.whenTrue, checker, new Set(seenSymbols));
@@ -1120,6 +1166,23 @@ for (const filename of files) {
 
 const semantic = analyseSemanticComparisons(sourceFiles, checker);
 const sql = analyseSql(sourceFiles, checker);
+const direct = analyseDirectReads(sourceFiles, checker);
+const directRuntime = direct.sites.filter((site) => isRuntimeFile(path.join(root, site.file)));
+const directGovernance = direct.sites.filter((site) => !isRuntimeFile(path.join(root, site.file)));
+const sqlProjectionCandidates = [];
+for (const sf of sourceFiles.filter((file) => isRuntimeFile(file.fileName))) walk(sf, (node) => {
+  if (!(ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateExpression(node) || ts.isIdentifier(node) || ts.isCallExpression(node))) return;
+  const resolved = staticText(node, checker);
+  if (!resolved || !resolved.fullyResolved || !/\bscan_quality\b/i.test(resolved.text)) return;
+  sqlProjectionCandidates.push({ file: rel(sf.fileName), line: sourceLine(sf, node), kind: "static-read", snippet: resolved.text });
+});
+const sqlProjectionSites = sqlProjectionCandidates.filter((site) => {
+  const text = site.snippet.toLowerCase();
+  return /\bselect\b[\s\S]*\bscan_quality\b/.test(text) &&
+    !/\bwhere\b[\s\S]*\bscan_quality\b/.test(text);
+});
+const sqlReadFingerprint = fingerprint(sqlProjectionSites.map((site) =>
+  `${site.file}:${site.line}:${site.kind}:${site.snippet}`));
 const runtimeSemanticFiles = new Set(semantic.runtime.map((site) => site.file));
 const governanceFiles = new Set(semantic.governance.map((site) => site.file));
 // Every statically-resolved SQL-bearing string is a site. Query-sink analysis
@@ -1170,6 +1233,11 @@ const current = {
     fingerprint: semantic.governanceFingerprint,
   },
   runtime_source_file_count: runtimeFiles.size,
+  direct: {
+    runtime: { occurrence_count: directRuntime.length, source_file_count: new Set(directRuntime.map((s) => s.file)).size, fingerprint: fingerprint(directRuntime.map((s) => `${s.file}:${s.line}:${s.kind}:${s.slot}:${s.snippet}`)) },
+    governance: { occurrence_count: directGovernance.length, source_file_count: new Set(directGovernance.map((s) => s.file)).size, fingerprint: fingerprint(directGovernance.map((s) => `${s.file}:${s.line}:${s.kind}:${s.slot}:${s.snippet}`)) },
+  },
+  sql_reads: { projection_occurrences: sqlProjectionSites.length, predicate_occurrences: sql.predicateOccurrences, fingerprint: sqlReadFingerprint },
 };
 const unresolvedGovernanceKeys = semantic.unresolvedGovernance.map((site) =>
   `${site.file}:${site.line}:${site.snippet}`,
@@ -1179,6 +1247,7 @@ function dumpInventory() {
   console.log(JSON.stringify({
     counts: current,
     runtime_comparisons: semantic.runtime,
+    direct_reads: direct.sites,
     sql_sites: sqlSites,
     governance_comparisons: semantic.governance,
     unresolved_governance: semantic.unresolvedGovernance,
@@ -1202,6 +1271,7 @@ if (process.argv.includes("--dump-counts")) {
     unresolved_governance: semantic.unresolvedGovernance,
     runtime_site_keys: semantic.runtime.map((site) =>
       `${site.file}:${site.line}:${site.snippet}`),
+    direct_read_keys: direct.sites.map((site) => `${site.file}:${site.line}:${site.kind}:${site.slot}`),
     sql_site_keys: sqlSites.map((site) => `${site.file}:${site.line}:${site.predicates.length}`),
   }, null, 2));
   process.exit(0);
@@ -1216,6 +1286,9 @@ console.log(`  validation/governance semantic comparisons: ${current.governance.
 console.log(`  runtime semantic source files: ${current.runtime.source_file_count}`);
 console.log(`  runtime SQL source files: ${current.sql.source_file_count}`);
 console.log(`  governance source files: ${current.governance.source_file_count}`);
+console.log(`  runtime direct canonical reads: ${current.direct.runtime.occurrence_count}`);
+console.log(`  governance direct canonical reads: ${current.direct.governance.occurrence_count}`);
+console.log(`  SQL SELECT/projection direct reads: ${current.sql_reads.projection_occurrences}`);
 
 const cleanParse = parseFailures.length === 0;
 ok("AST: all governed JS/TS sources parse", cleanParse, parseFailures.join(" | "));
@@ -1263,6 +1336,10 @@ ok(
   cleanParse ? knownAsmPartial.length === 1 : true,
   `found ${knownAsmPartial.length}; PR-1 inventories this defect and must not fix it`,
 );
+
+ok("primary: runtime canonical direct-read inventory is exact", cleanParse && JSON.stringify(current.direct.runtime) === JSON.stringify(EXPECTED.direct.runtime));
+ok("primary: governance canonical direct-read inventory is exact", cleanParse && JSON.stringify(current.direct.governance) === JSON.stringify(EXPECTED.direct.governance));
+ok("SQL: direct read/projection inventory is exact", cleanParse && JSON.stringify(current.sql_reads) === JSON.stringify(EXPECTED.sql_reads));
 
 const assertionTotal = passed + failed;
 if (assertionTotal !== EXPECTED_ASSERTIONS) {

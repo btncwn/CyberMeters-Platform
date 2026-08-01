@@ -16,12 +16,14 @@ const validator = path.join(root, "scripts", "validate-scan-quality-vocabulary-i
 const runtimeTargetRel = "workers/scan-api/src/engines/asm-cases.js";
 const commentTargetRel = "frontend/src/pages/Dashboard.jsx";
 const sqlTargetRel = "workers/scan-api/src/engines/business-risk.js";
-const EXPECTED_MUTANTS = 13;
-const VALIDATOR_ASSERTIONS = 7;
-const EXPECTED_ASSERTIONS = 44;
+const EXPECTED_MUTANTS = 18;
+const VALIDATOR_ASSERTIONS = 10;
+const EXPECTED_ASSERTIONS = 59;
 const SUMMARY_PREFIX = "Scan-quality vocabulary inventory:";
 const RUNTIME_FAILURE = "runtime: semantic scan-quality comparison inventory is exact";
 const SQL_FAILURE = "SQL: runtime scan-quality predicate inventory is exact";
+const DIRECT_RUNTIME_FAILURE = "primary: runtime canonical direct-read inventory is exact";
+const SQL_READ_FAILURE = "SQL: direct read/projection inventory is exact";
 const CLASSIFICATION_FAILURE = "classification: no scan-quality gate is unclassified or uses an unknown status";
 
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
@@ -72,7 +74,7 @@ const mutations = [
     mutate: (source) => appendMutation(source, `// CT-R2 mutation: deliberately no await.
 const ctR2AwaitlessRow = Promise.resolve({ scan_quality: "complete" });
 export const ctR2AwaitlessGate = ctR2AwaitlessRow.scan_quality === "complete";`),
-    expectedFailure: RUNTIME_FAILURE,
+    expectedFailures: [RUNTIME_FAILURE, DIRECT_RUNTIME_FAILURE],
   },
   {
     name: "local alias propagation adds an unreviewed gate",
@@ -80,14 +82,14 @@ export const ctR2AwaitlessGate = ctR2AwaitlessRow.scan_quality === "complete";`)
     mutate: (source) => appendMutation(source, `const ctR2AliasCarrier = { scan_quality: "complete" };
 const ctR2AliasedQuality = ctR2AliasCarrier.scan_quality;
 export const ctR2AliasGate = ctR2AliasedQuality === "complete";`),
-    expectedFailure: RUNTIME_FAILURE,
+    expectedFailures: [RUNTIME_FAILURE, DIRECT_RUNTIME_FAILURE],
   },
   {
     name: "computed scan_quality access adds an unreviewed gate",
     file: runtimeTargetRel,
     mutate: (source) => appendMutation(source, `const ctR2ComputedCarrier = { scan_quality: "complete" };
 export const ctR2ComputedGate = ctR2ComputedCarrier["scan_quality"] === "complete";`),
-    expectedFailure: RUNTIME_FAILURE,
+    expectedFailures: [RUNTIME_FAILURE, DIRECT_RUNTIME_FAILURE],
   },
   {
     name: "destructured scan_quality alias adds an unreviewed gate",
@@ -95,21 +97,21 @@ export const ctR2ComputedGate = ctR2ComputedCarrier["scan_quality"] === "complet
     mutate: (source) => appendMutation(source, `const ctR2DestructuredCarrier = { scan_quality: "complete" };
 const { scan_quality: ctR2DestructuredQuality } = ctR2DestructuredCarrier;
 export const ctR2DestructuredGate = ctR2DestructuredQuality === "complete";`),
-    expectedFailure: RUNTIME_FAILURE,
+    expectedFailures: [RUNTIME_FAILURE, DIRECT_RUNTIME_FAILURE],
   },
   {
     name: "new partial-only gate is rejected",
     file: runtimeTargetRel,
     mutate: (source) => appendMutation(source, `const ctR2PartialCarrier = { scan_quality: "partial" };
 export const ctR2PartialOnlyGate = ctR2PartialCarrier.scan_quality === "partial";`),
-    expectedFailure: RUNTIME_FAILURE,
+    expectedFailures: [RUNTIME_FAILURE, DIRECT_RUNTIME_FAILURE],
   },
   {
     name: "unknown scan-quality status gate fails closed",
     file: runtimeTargetRel,
     mutate: (source) => appendMutation(source, `const ctR2UnknownCarrier = { scan_quality: "provider_degraded" };
 export const ctR2UnknownStatusGate = ctR2UnknownCarrier.scan_quality === "provider_degraded";`),
-    expectedFailure: CLASSIFICATION_FAILURE,
+    expectedFailures: [CLASSIFICATION_FAILURE, DIRECT_RUNTIME_FAILURE],
   },
   {
     name: "comment and string cannot impersonate a removed caller",
@@ -122,7 +124,7 @@ export const ctR2UnknownStatusGate = ctR2UnknownCarrier.scan_quality === "provid
   const authoritative = null`,
       "comment and string cannot impersonate a removed caller",
     ),
-    expectedFailure: RUNTIME_FAILURE,
+    expectedFailures: [RUNTIME_FAILURE, DIRECT_RUNTIME_FAILURE],
   },
   {
     name: "reversed SQL predicate variation adds an unreviewed query site",
@@ -146,7 +148,7 @@ export const ctR2UnknownStatusGate = ctR2UnknownCarrier.scan_quality === "provid
     mutate: (source) => appendMutation(source, `const ctR2ArbitraryCarrierRow = { scan_quality: "partial" };
 const ctR2ArbitraryCarrier = { q: ctR2ArbitraryCarrierRow.scan_quality };
 export const ctR2ArbitraryPropertyGate = ctR2ArbitraryCarrier.q === "partial";`),
-    expectedFailure: RUNTIME_FAILURE,
+    expectedFailures: [RUNTIME_FAILURE, DIRECT_RUNTIME_FAILURE],
   },
   {
     name: "B3 wrapped SQL predicate is inventory-visible",
@@ -161,7 +163,7 @@ export const ctR2ArbitraryPropertyGate = ctR2ArbitraryCarrier.q === "partial";`)
     mutate: (source) => appendMutation(source, `const ctR2ArrayCarrierRow = { scan_quality: "partial" };
 const ctR2ArrayCarrier = [ctR2ArrayCarrierRow.scan_quality];
 export const ctR2ArrayLaunderingGate = ctR2ArrayCarrier[0] === "partial";`),
-    expectedFailure: RUNTIME_FAILURE,
+    expectedFailures: [RUNTIME_FAILURE, DIRECT_RUNTIME_FAILURE],
   },
   {
     name: "B5 Map laundering carries scan_quality taint",
@@ -171,6 +173,43 @@ const ctR2MapCarrier = new Map();
 ctR2MapCarrier.set("quality", ctR2MapCarrierRow.scan_quality);
 export const ctR2MapLaunderingGate = [...ctR2MapCarrier.values()].filter((v) => v === "complete");`),
     expectedFailure: RUNTIME_FAILURE,
+  },
+  {
+    name: "A comparison-free dot read is pinned by the primary direct-read inventory",
+    file: runtimeTargetRel,
+    mutate: (source) => appendMutation(source, `const ctR2DirectDotProject = (row) => ({ quality: row.scan_quality });`),
+    expectedFailure: DIRECT_RUNTIME_FAILURE,
+  },
+  {
+    name: "B static computed read is pinned by the primary direct-read inventory",
+    file: runtimeTargetRel,
+    mutate: (source) => appendMutation(source, `const ctR2DirectKey = "scan_quality";
+const ctR2DirectComputedProject = (row) => row[ctR2DirectKey];`),
+    expectedFailure: DIRECT_RUNTIME_FAILURE,
+  },
+  {
+    name: "C destructuring read is pinned by the primary direct-read inventory",
+    file: runtimeTargetRel,
+    mutate: (source) => appendMutation(source, `const ctR2DirectDestructure = (row) => {
+  const { scan_quality: quality } = row;
+  return quality;
+};`),
+    expectedFailure: DIRECT_RUNTIME_FAILURE,
+  },
+  {
+    name: "D SQL projection read is pinned without changing predicate count",
+    file: sqlTargetRel,
+    mutate: (source) => appendMutation(source, `export const ctR2ProjectionSql = "SELECT scan_quality FROM scans LIMIT 1";`),
+    expectedFailure: SQL_READ_FAILURE,
+  },
+  {
+    name: "E split static array.join SQL is pinned by read and predicate inventories",
+    file: sqlTargetRel,
+    mutate: (source) => appendMutation(source, `export const ctR2JoinedSql = (db) => {
+  const parts = ["SELECT id FROM scans WHERE ", "scan_", "quality", " = ", "'complete'"];
+  return db.prepare(parts.join("")).first();
+};`),
+    expectedFailures: [SQL_READ_FAILURE, SQL_FAILURE],
   },
 ];
 
@@ -219,7 +258,7 @@ try {
       const output = `${child.stdout || ""}\n${child.stderr || ""}`;
       const totals = summaryTotals(output);
       const gotFailures = failNames(output);
-      const expectedFailures = [mutation.expectedFailure].sort();
+      const expectedFailures = [...(mutation.expectedFailures || [mutation.expectedFailure])].sort();
       const problems = [];
       if (child.error) problems.push(`spawn error ${child.error.message}`);
       if (child.signal !== null) problems.push(`signal ${child.signal}`);
@@ -230,8 +269,8 @@ try {
       if (!totals) problems.push("validator summary missing");
       else {
         if (totals.total !== VALIDATOR_ASSERTIONS) problems.push(`assertions ${totals.total}, want ${VALIDATOR_ASSERTIONS}`);
-        if (totals.fail !== 1 || totals.pass !== VALIDATOR_ASSERTIONS - 1) {
-          problems.push(`summary ${totals.pass}/${totals.fail}, want ${VALIDATOR_ASSERTIONS - 1}/1`);
+        if (totals.fail !== expectedFailures.length || totals.pass !== VALIDATOR_ASSERTIONS - expectedFailures.length) {
+          problems.push(`summary ${totals.pass}/${totals.fail}, want ${VALIDATOR_ASSERTIONS - expectedFailures.length}/${expectedFailures.length}`);
         }
       }
       if (JSON.stringify(gotFailures) !== JSON.stringify(expectedFailures)) {
