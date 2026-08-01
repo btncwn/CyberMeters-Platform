@@ -1,6 +1,6 @@
 # CI Validate Duration Optimisation V1
 
-Status: implemented for review; not merged or deployed
+Status: production-accepted on 1 August 2026 through the PR #370 paired proof
 
 Measurement date: 1 August 2026
 Exact baseline: `20ed322c197528f6c11485016bca7393596c3bd3`
@@ -31,7 +31,7 @@ contract. `scripts/validate-ci-governance.js` proved trigger shape and textual
 validator wiring, but a present step could be made unreachable with `if: false`
 without that validator noticing.
 
-## Phase 0 measurement report
+## Phase 0 MEASUREMENT — pre-production baseline
 
 The measurement set is the most recent 100 completed CI workflow runs returned
 by the private GitHub Actions API, from 28 July through 1 August 2026. It contains
@@ -99,7 +99,8 @@ Pages check already existed. That proxy is not presented as a build duration.
 Faturalanan/billable minutes are **unknown**. The Actions timing API returned
 `billable.UBUNTU.total_ms = 0` for all 100 runs, while the billing endpoint was
 not available (404). This report makes no billed-minute, dollar or cost-saving
-claim. All savings below are wall-clock estimates.
+claim. Forecast savings in the MODEL section are wall-clock estimates; the
+later paired section reports observed wall time only.
 
 ### Docs-only does not mean validator-free
 
@@ -183,6 +184,8 @@ Source of truth: `.github/ci-safe-docs-only-v1.json`.
 | IntelligencePage strict mutations | 1 | 27 / 27 / 27s | `30699425358` | frontend AST/Vitest graph; positive and docs-absent 9/9 exact kills |
 | Frontend Vitest coverage | 1 | 80 / 80 / 80s | `30699425358` | frontend graph; positive and docs-absent 63/63 files, 521/521 tests |
 
+### Original pre-production MODEL forecast
+
 The exact baseline run happened to total 662s across these steps, but that
 single-run sum is not the expected saving. The reproducible median-based model
 is:
@@ -197,9 +200,11 @@ Applied to the observed narrow PR p50 values, that gives a modelled Validate
 duration of about 160s for CHANGELOG-only (`605 - 445`) and 175s for ordinary
 docs (`620 - 445`). The exact 1,138s outlier would model at 491s using its 662s
 step sum, but that is explicitly an outlier scenario, not a 647s general claim.
-The honest current estimate is therefore about **7m25s median-based reduction**,
-within the independent 7–15 minute range. It is not a production result until a
-later real CHANGELOG-only PR proves the live path.
+The original pre-production MODEL forecast was therefore about **7m25s
+median-based reduction**, within the independent 7–15 minute range. The 160s
+and 175s figures are retained as historical model outputs, not measurements.
+The first production measurement below supersedes the 175s ordinary-docs
+forecast for acceptance evidence.
 
 SAST remains parallel and approximately 130–140s. A hypothetical broader
 42–50s Validate-only fast path would still not make total CI sub-minute; V1 does
@@ -207,6 +212,46 @@ not implement or claim that broader path. The independent relay's roughly
 20–25% weighted all-CI estimate is retained only as an external model: the
 effective production eligibility rate has not yet been measured, so V1 does not
 present that percentage as an observed result or billing reduction.
+
+## First production PAIRED OPERATIONAL MEASUREMENT
+
+PR #370 supplied the first genuine production pair. It is a near-time
+operational comparison over one content-identical tree, not a controlled
+laboratory experiment. PR head `9f840a6130ee82c3467039f1fcba49e07458c0d8`
+and merge commit `9612e499cbb5be3ca06c548416a06b5bdfacaf90`
+both resolve to tree `be0a58acf2b44a5884a2db86eb0f6921f2be9c06`.
+
+| Leg | Exact CI run | Classifier | Validate wall time | SAST wall time | Validate success / skipped | SAST success / skipped | Total successful steps | Total CI wall time |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| PR head | `30719720095` | `SAFE_DOCS_ONLY` / `DOCS_ONLY` | 489s | 140s | 291 / 7 | 8 / 0 | 299 | 493s |
+| merge `push:main` | `30720067642` | `RUN_ALL` | 987s | 130s | 298 / 0 | 8 / 0 | 306 | 991s |
+
+Step counts use GitHub's job-step records, including setup, post-job and
+completion steps. SAST and Pages remained full, independent checks in both legs;
+neither was fast-pathed.
+
+The PR skipped exactly the seven pinned heavy steps and no other step. The main
+run executed all seven successfully. Validate and SAST were successful in both
+legs. Cloudflare Pages also succeeded in both legs: PR check `91421379421`
+(deployment `dda8c858-856b-49a5-ab29-515821d72a24`) and merge check
+`91422298173` (production source/deployment
+`63f2f231-02f5-4a88-b599-c7f26d49dc4a`). Pages remained non-gating and its
+check timestamps do not provide a usable build duration.
+
+The paired Validate saving is `987 - 489 = 498s` (8m18s), or
+`498 / 987 = 50.5%` relative to the full main run. The total workflow wall-time
+difference is also 498s for this pair (`991 - 493`). These are MEASUREMENTS, not
+new p50 or p90 claims, and billing/dollar savings remain unknown.
+
+The original 175s ordinary-docs MODEL forecast was 314s below the measured 489s
+fast-path duration (`489 - 175`), so the measured duration was 179.4% above that
+forecast. The model forecast a 445s net reduction; the paired reduction was
+498s, 53s higher (11.9% relative to the forecast). The known model error is that
+it combined medians from different runs and underestimated residual workload.
+Runner/cache variance may also contribute, but that remains an inference and is
+not asserted as a measured cause.
+
+**CI-SAFE-DOCS-ONLY-V1 — PRODUCTION ACCEPTANCE: PASS**
 
 ## Always-run set
 
@@ -262,8 +307,9 @@ rerun the target-byte/fingerprint preflight before any commit or push.
 
 1. **PR-green is not merged-main-green.** `push: main` remains full CI. Any main
    failure is a release blocker even if a preceding narrow PR was green.
-2. The first real narrow path remains pending a later genuine CHANGELOG-only PR;
-   this mechanism-changing PR must and will run all.
+2. One genuine ordinary-docs narrow path is production-accepted through PR
+   #370. It is one operational pair and must not be generalised into p50/p90 or
+   an effective eligibility rate.
 3. Source/call-graph review plus docs-absent execution cannot prove every future
    dynamically constructed conditional read. Evidence-source byte drift does
    not block a substantive full run; it disables the fast path until explicitly
@@ -287,8 +333,8 @@ rerun the target-byte/fingerprint preflight before any commit or push.
    must still be current, and the content class must be eligible. A behind-main
    docs branch runs all. If a substantive main merge changes any evidence scope,
    subsequent docs PRs run all until the governed re-proof/re-pin completes.
-   Savings are not a production result until this eligibility rate and the first
-   genuine `SAFE_DOCS_ONLY` run are observed.
+   Production acceptance proves the mechanism for one ordinary-docs pair; the
+   broader eligibility rate remains unmeasured.
 8. `SIGKILL` cannot execute restore handlers; interruption audit remains
    mandatory after any killed mutation process.
 
