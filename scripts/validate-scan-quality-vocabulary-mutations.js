@@ -7,7 +7,6 @@
 // are restored before exit.
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -20,6 +19,7 @@ const sqlTargetRel = "workers/scan-api/src/engines/business-risk.js";
 const EXPECTED_MUTANTS = 13;
 const VALIDATOR_ASSERTIONS = 7;
 const EXPECTED_ASSERTIONS = 49;
+const HELD_HEAD = "73ac5fc0807caaf5303af1cb82011c9a54f81b97";
 const SUMMARY_PREFIX = "Scan-quality vocabulary inventory:";
 const RUNTIME_FAILURE = "runtime: semantic scan-quality comparison inventory is exact";
 const SQL_FAILURE = "SQL: runtime scan-quality predicate inventory is exact";
@@ -54,19 +54,7 @@ const runValidator = () => spawnSync(process.execPath, [validator], {
   encoding: "utf8",
   timeout: 180_000,
 });
-const oldValidatorDir = fs.mkdtempSync(path.join(os.tmpdir(), "ct-r2-old-validator-"));
-const oldValidator = path.join(oldValidatorDir, "validate-scan-quality-vocabulary-inventory.js");
-const oldValidatorSource = spawnSync("git", ["show", "HEAD:scripts/validate-scan-quality-vocabulary-inventory.js"], {
-  cwd: root,
-  encoding: "utf8",
-});
-if (oldValidatorSource.status !== 0) throw new Error("unable to read held-head validator");
-const oldSourceWithHeldRoot = oldValidatorSource.stdout.replace(
-  'const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");',
-  `const root = ${JSON.stringify(root)};`,
-);
-if (oldSourceWithHeldRoot === oldValidatorSource.stdout) throw new Error("held validator root anchor missing");
-fs.writeFileSync(oldValidator, oldSourceWithHeldRoot);
+const oldValidator = validator;
 const runOldValidator = () => spawnSync(process.execPath, [oldValidator], {
   cwd: root,
   encoding: "utf8",
@@ -235,16 +223,32 @@ try {
       fs.writeFileSync(target, mutated);
 
       if (mutations.indexOf(mutation) >= 8) {
-        const oldChild = runOldValidator();
-        const oldOutput = `${oldChild.stdout || ""}\n${oldChild.stderr || ""}`;
-        const oldTotals = summaryTotals(oldOutput);
-        assertion(
-          `${mutation.name}: held validator survives`,
-          !oldChild.error && oldChild.signal === null && oldChild.status === 0 &&
-            oldTotals?.pass === VALIDATOR_ASSERTIONS && oldTotals.fail === 0 &&
-            oldTotals.total === VALIDATOR_ASSERTIONS && failNames(oldOutput).length === 0,
-          oldOutput.trim(),
-        );
+        const oldInventoryBytes = fs.readFileSync(validator);
+        const oldMutationRunner = fs.readFileSync(path.join(root, "scripts", "validate-scan-quality-vocabulary-mutations.js"));
+        const oldTarget = path.join(root, mutation.file);
+        const currentMutatedTarget = fs.readFileSync(oldTarget);
+        const heldInventory = runGit(["show", `${HELD_HEAD}:scripts/validate-scan-quality-vocabulary-inventory.js`], "buffer");
+        const heldMutation = runGit(["show", `${HELD_HEAD}:scripts/validate-scan-quality-vocabulary-mutations.js`], "buffer");
+        const heldTarget = runGit(["show", `${HELD_HEAD}:${mutation.file}`], "buffer");
+        try {
+          fs.writeFileSync(validator, heldInventory);
+          fs.writeFileSync(path.join(root, "scripts", "validate-scan-quality-vocabulary-mutations.js"), heldMutation);
+          fs.writeFileSync(oldTarget, mutation.mutate(heldTarget.toString("utf8")));
+          const oldChild = runOldValidator();
+          const oldOutput = `${oldChild.stdout || ""}\n${oldChild.stderr || ""}`;
+          const oldTotals = summaryTotals(oldOutput);
+          assertion(
+            `${mutation.name}: held validator survives`,
+            !oldChild.error && oldChild.signal === null && oldChild.status === 0 &&
+              oldTotals?.pass === VALIDATOR_ASSERTIONS && oldTotals.fail === 0 &&
+              oldTotals.total === VALIDATOR_ASSERTIONS && failNames(oldOutput).length === 0,
+            oldOutput.trim(),
+          );
+        } finally {
+          fs.writeFileSync(validator, oldInventoryBytes);
+          fs.writeFileSync(path.join(root, "scripts", "validate-scan-quality-vocabulary-mutations.js"), oldMutationRunner);
+          fs.writeFileSync(oldTarget, currentMutatedTarget);
+        }
       }
 
       const child = runValidator();
@@ -299,5 +303,4 @@ if (assertionTotal !== EXPECTED_ASSERTIONS) {
   process.exit(1);
 }
 if (assertionsFailed > 0 || killed !== EXPECTED_MUTANTS) process.exit(1);
-fs.rmSync(oldValidatorDir, { recursive: true, force: true });
 console.log("Scan-quality vocabulary mutation proof passed");
