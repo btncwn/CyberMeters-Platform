@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -9,6 +11,9 @@ const workerRequire = createRequire(path.join(root, "workers", "scan-api", "pack
 const { parseDocument, isMap, isSeq } = workerRequire("yaml");
 
 export const CANONICAL_SKIP_CONDITION = "${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}";
+export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d55297df4fd3f90a2f57548697efcf062";
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 275;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "373ceb8acf5f4ca408e37925bfbafe2b8b941f2b19d9fc80085551f5bc0c82a2";
 
 export const EXPECTED_SKIP_IDS = Object.freeze([
   "frontend-test-coverage",
@@ -24,6 +29,8 @@ export const REQUIRED_ALWAYS_RUN = Object.freeze([
   "Classify CI change scope (fail closed)",
   "Secret scan (tracked files)",
   "Validate safe docs-only CI classifier and conditional-step governance",
+  "Full-repo assurance — entry-point inventory (drift + auth-coverage gate)",
+  "Full-repo assurance — tenant-isolation invariant matrix (table classification + harness cross-ref)",
   "Validate M5.a Website Security managed cases + verification vocabulary",
   "Validate M5 closure (full M5 gate wired + append-only idempotency locked)",
   "Validate CI governance (trigger / reachability / anti-orphan)",
@@ -41,6 +48,62 @@ const sameSet = (left, right) => {
 
 const assertion = (name, passed, detail = "") => ({ name, passed: Boolean(passed), detail });
 const hasOwn = (value, key) => value != null && Object.prototype.hasOwnProperty.call(value, key);
+const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
+
+const TIMEZONE_VALIDATOR_STEP = "Validate alert watermark is timezone-independent (non-UTC runners)";
+const TIMEZONE_VALIDATOR_RUN = `for tz in Europe/London America/Los_Angeles Asia/Kolkata; do
+  echo "── TZ=$tz ──"
+  TZ=$tz node scripts/validate-alert-b1-canonical-cases.js
+done
+`;
+const EXPECTED_CLASSIFIER_OUTPUT_WRITES = Object.freeze([
+  ["decision", "UNKNOWN_FAIL_CLOSED"],
+  ["effective_mode", "RUN_ALL"],
+  ["safe_docs_only", "false"],
+  ["expected_net_savings_seconds", "0"],
+  ["decision", "UNKNOWN_FAIL_CLOSED"],
+  ["effective_mode", "RUN_ALL"],
+  ["safe_docs_only", "false"],
+  ["expected_net_savings_seconds", "0"],
+]);
+
+function classifierOutputContract(run) {
+  if (typeof run !== "string") return false;
+  const writes = [...run.matchAll(/^\s*echo "([a-z_]+)=([^"\n]*)"\s*$/gm)]
+    .map((match) => [match[1], match[2]]);
+  const firstDefault = run.indexOf('echo "decision=UNKNOWN_FAIL_CLOSED"');
+  const invocation = run.indexOf("if ! node scripts/classify-ci-change.js");
+  const secondDefault = run.indexOf('echo "decision=UNKNOWN_FAIL_CLOSED"', firstDefault + 1);
+  return JSON.stringify(writes) === JSON.stringify(EXPECTED_CLASSIFIER_OUTPUT_WRITES) &&
+    (run.match(/} >> "\$GITHUB_OUTPUT"/g) || []).length === 2 &&
+    (run.match(/node scripts\/classify-ci-change\.js/g) || []).length === 1 &&
+    !run.includes("decision=SAFE_DOCS_ONLY") &&
+    firstDefault >= 0 && invocation > firstDefault && secondDefault > invocation;
+}
+
+export function executableValidatorWiring(workflow) {
+  const steps = Array.isArray(workflow?.jobs?.validate?.steps)
+    ? workflow.jobs.validate.steps
+    : [];
+  const validators = [];
+  const plainValidators = [];
+  const problems = [];
+  for (const step of steps) {
+    if (typeof step?.run !== "string" || !step.run.includes("scripts/validate-")) continue;
+    const plain = step.run.match(/^(?:node|\/usr\/bin\/env node) (scripts\/validate-[a-z0-9-]+\.js)$/);
+    if (plain) {
+      validators.push(plain[1]);
+      plainValidators.push(plain[1]);
+      continue;
+    }
+    if (step.name === TIMEZONE_VALIDATOR_STEP && step.run === TIMEZONE_VALIDATOR_RUN) {
+      validators.push("scripts/validate-alert-b1-canonical-cases.js");
+      continue;
+    }
+    problems.push(`${step.name || "unnamed step"}: unsupported validator command carrier`);
+  }
+  return { validators, plainValidators, problems };
+}
 
 export function parseWorkflowAst(source) {
   const document = parseDocument(source, {
@@ -60,7 +123,7 @@ export function parseWorkflowAst(source) {
   return { document, workflow: document.toJS({ maxAliasCount: 0 }), parseErrors };
 }
 
-export function evaluateWorkflowPolicy({ workflowSource, manifest }) {
+export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = root }) {
   const results = [];
   const skipIds = (manifest.skipped_heavy_steps || []).map((step) => step.id);
   const alwaysNames = manifest.always_run || [];
@@ -145,15 +208,46 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest }) {
 
   const classifier = (byName.get("Classify CI change scope (fail closed)") || [])[0];
   results.push(assertion(
-    "classifier wiring: id/output defaults/process invocation are fail-closed",
+    "classifier wiring: complete step is exact and fail-closed",
     classifier?.id === "ci_scope" &&
       typeof classifier?.run === "string" &&
+      sha256(classifier.run) === EXPECTED_CLASSIFIER_RUN_SHA256 &&
+      classifierOutputContract(classifier.run) &&
       classifier.run.includes("decision=UNKNOWN_FAIL_CLOSED") &&
       classifier.run.includes("effective_mode=RUN_ALL") &&
       (classifier.run.match(/decision=UNKNOWN_FAIL_CLOSED/g) || []).length === 2 &&
       (classifier.run.match(/effective_mode=RUN_ALL/g) || []).length === 2 &&
       classifier.run.includes("node scripts/classify-ci-change.js") &&
       classifier.run.includes("if ! node"),
+  ));
+
+  const executable = executableValidatorWiring(parsed.workflow);
+  const allValidators = fs.readdirSync(path.join(repoRoot, "scripts"))
+    .filter((filename) => /^validate-[a-z0-9-]+\.js$/.test(filename));
+  const missing = executable.validators
+    .filter((filename) => !fs.existsSync(path.join(repoRoot, filename)));
+  const orphans = allValidators
+    .filter((filename) => !executable.validators.includes(`scripts/${filename}`));
+  const duplicates = [...new Set(executable.plainValidators
+    .filter((filename, index) => executable.plainValidators.indexOf(filename) !== index))];
+  const uniqueValidators = [...new Set(executable.validators)].sort();
+  const validatorFingerprint = sha256(uniqueValidators.join("\n"));
+  results.push(assertion(
+    "anti-orphan: every validator is an exact executable AST run mapping",
+    executable.problems.length === 0 && missing.length === 0 && orphans.length === 0 &&
+      duplicates.length === 0 &&
+      uniqueValidators.length === EXPECTED_EXECUTABLE_VALIDATOR_COUNT &&
+      validatorFingerprint === EXPECTED_EXECUTABLE_VALIDATOR_SHA256,
+    [
+      ...executable.problems,
+      missing.length ? `missing: ${missing.join(", ")}` : "",
+      orphans.length ? `orphans: ${orphans.join(", ")}` : "",
+      duplicates.length ? `duplicates: ${duplicates.join(", ")}` : "",
+      uniqueValidators.length !== EXPECTED_EXECUTABLE_VALIDATOR_COUNT
+        ? `count ${uniqueValidators.length}, want ${EXPECTED_EXECUTABLE_VALIDATOR_COUNT}` : "",
+      validatorFingerprint !== EXPECTED_EXECUTABLE_VALIDATOR_SHA256
+        ? `fingerprint ${validatorFingerprint}` : "",
+    ].filter(Boolean).join(" | "),
   ));
 
   results.push(assertion(

@@ -21,15 +21,17 @@ const self = fileURLToPath(import.meta.url);
 const workflowPath = path.join(root, ".github", "workflows", "ci.yml");
 const manifestPath = path.join(root, ".github", "ci-safe-docs-only-v1.json");
 const libraryPath = path.join(root, "scripts", "ci-safe-docs-only-lib.js");
-const EXPECTED_FIXTURES = 28;
-const EXPECTED_MUTANTS = 15;
-const EXPECTED_POLICY_ASSERTIONS = 12;
-const EXPECTED_ASSERTIONS = 63;
-const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "1765b841e2c14e9e86612108c6bff5443aa01ab1619c6b08b509f54194afd24b";
+const MUTATION_TARGET_FILES = Object.freeze([workflowPath, manifestPath, libraryPath]);
+const EXPECTED_FIXTURES = 31;
+const EXPECTED_MUTANTS = 26;
+const EXPECTED_POLICY_ASSERTIONS = 13;
+const EXPECTED_ASSERTIONS = 85;
+const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "64efda5c256f5d18bd087327d172ec9dea2c52c044478741db7d527f2d317003";
 
 const fixtureChild = process.argv.includes("--fixture-child");
 const policyChild = process.argv.includes("--policy-child");
 const manifestChild = process.argv.includes("--manifest-child");
+const interruptRestoreArg = process.argv.find((arg) => arg.startsWith("--interrupt-restore-child="));
 const selectedFixturesArg = process.argv.find((arg) => arg.startsWith("--fixtures="));
 
 const FIXTURES = Object.freeze([
@@ -48,6 +50,9 @@ const FIXTURES = Object.freeze([
   { name: "binary", safe: false },
   { name: "root_governance", safe: false },
   { name: "security_inventory", safe: false },
+  { name: "security_case_variant", safe: false },
+  { name: "governance_name_variant", safe: false },
+  { name: "allow_deny_conflict", safe: false },
   { name: "workflow_only", safe: false },
   { name: "scripts_only", safe: false },
   { name: "classifier_change", safe: false },
@@ -152,6 +157,13 @@ function buildFixture(name) {
     case "binary": write(repo, "docs/binary.md", Buffer.from([0, 1, 2, 3, 0, 255])); break;
     case "root_governance": append("AGENTS.md"); break;
     case "security_inventory": append("docs/security/ENTRY-POINT-INVENTORY.md"); break;
+    case "security_case_variant":
+      write(repo, "docs/Security/entry-point-inventory.md", "# Security inventory variant\n");
+      break;
+    case "governance_name_variant":
+      write(repo, "docs/governance-notes/ci.md", "# Governance notes\n");
+      break;
+    case "allow_deny_conflict": append("docs/security/ENTRY-POINT-INVENTORY.md"); break;
     case "workflow_only": append(".github/workflows/ci.yml"); break;
     case "scripts_only": write(repo, "scripts/validate-new.js", "export {};\n"); break;
     case "classifier_change": append("scripts/classify-ci-change.js"); break;
@@ -230,6 +242,9 @@ function runFixture(definition) {
   const state = buildFixture(definition.name);
   try {
     const manifest = fixtureManifest(state.repo);
+    if (definition.name === "allow_deny_conflict") {
+      manifest.safe_docs.allowed_exact_files.push("docs/security/ENTRY-POINT-INVENTORY.md");
+    }
     if (definition.name === "stale_evidence") {
       manifest.skipped_heavy_steps[0].evidence.scope_sha256 = "0".repeat(64);
     }
@@ -315,10 +330,6 @@ if (manifestChild) {
       name: "manifest classifier/mapping/evidence semantic fingerprint is exact and pinned",
       passed: manifestSemanticFingerprint(manifest) === EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT,
     },
-    {
-      name: "manifest evidence-scope fingerprints are current",
-      passed: verifyEvidenceScopes(root, manifest).length === 0,
-    },
   ];
   for (const check of checks) console.log(`${check.passed ? "PASS" : "FAIL"} ${check.name}`);
   process.exit(checks.some((check) => !check.passed) ? 1 : 0);
@@ -337,6 +348,81 @@ const worktreeFingerprint = () => {
     .map((relative) => `${relative}\0${sha256(fs.readFileSync(path.join(root, relative)))}`).join("\n");
   return sha256(`${status}\0${diff}\0${untracked}`);
 };
+
+function headBytes(filename) {
+  const relative = path.relative(root, filename).split(path.sep).join("/");
+  const child = spawnSync("git", ["show", `HEAD:${relative}`], {
+    cwd: root, encoding: null, timeout: 30_000, maxBuffer: 16 * 1024 * 1024,
+  });
+  if (child.error || child.signal !== null || child.status !== 0) {
+    throw new Error(`cannot read HEAD bytes for ${relative}`);
+  }
+  return child.stdout;
+}
+
+function mutationTargetHeadProblems() {
+  const problems = [];
+  for (const filename of MUTATION_TARGET_FILES) {
+    const relative = path.relative(root, filename).split(path.sep).join("/");
+    try {
+      if (!fs.readFileSync(filename).equals(headBytes(filename))) problems.push(`${relative}: differs from HEAD`);
+    } catch (error) {
+      problems.push(`${relative}: ${error.message}`);
+    }
+  }
+  return problems;
+}
+
+function restoreTargets(targetOriginals) {
+  for (const [filename, bytes] of targetOriginals) fs.writeFileSync(filename, bytes);
+}
+
+function targetsEqual(targetOriginals) {
+  return [...targetOriginals].every(([filename, bytes]) => fs.readFileSync(filename).equals(bytes));
+}
+
+function installSynchronousRestoreHandlers(targetOriginals, beforeTree) {
+  const handlers = new Map();
+  for (const [signal, exitCode] of [["SIGINT", 130], ["SIGTERM", 143]]) {
+    const handler = () => {
+      let restored = false;
+      try {
+        restoreTargets(targetOriginals);
+        restored = targetsEqual(targetOriginals) && worktreeFingerprint() === beforeTree;
+      } catch (error) {
+        process.stderr.write(`FAIL interrupted restore ${signal}: ${error.message}\n`);
+      }
+      process.stdout.write(`${restored ? "PASS" : "FAIL"} interrupted restore ${signal}\n`);
+      process.exit(restored ? exitCode : 2);
+    };
+    handlers.set(signal, handler);
+    process.on(signal, handler);
+  }
+  return () => {
+    for (const [signal, handler] of handlers) process.off(signal, handler);
+  };
+}
+
+if (interruptRestoreArg) {
+  const signal = interruptRestoreArg.slice("--interrupt-restore-child=".length);
+  if (!new Set(["SIGINT", "SIGTERM"]).has(signal)) process.exit(2);
+  const preflight = mutationTargetHeadProblems();
+  if (preflight.length) {
+    console.error(`FAIL interrupt child preflight — ${preflight.join(" | ")}`);
+    process.exit(2);
+  }
+  const originals = new Map(MUTATION_TARGET_FILES.map((filename) => [filename, fs.readFileSync(filename)]));
+  const before = worktreeFingerprint();
+  installSynchronousRestoreHandlers(originals, before);
+  fs.appendFileSync(libraryPath, `\n// CONTROLLED_${signal}_MUTANT\n`);
+  process.kill(process.pid, signal);
+  setTimeout(() => {
+    restoreTargets(originals);
+    console.error(`FAIL ${signal} handler was not delivered`);
+    process.exit(3);
+  }, 1_000);
+  await new Promise(() => {});
+}
 
 const MUTANTS = [
   {
@@ -444,7 +530,7 @@ const MUTANTS = [
       to: `            echo "::warning::CI scope classifier failed unexpectedly; MUTANT leaves late outputs active"`,
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["classifier wiring: id/output defaults/process invocation are fail-closed"],
+    expectedFailures: ["classifier wiring: complete step is exact and fail-closed"],
   },
   {
     name: ">300 files are truncated",
@@ -518,6 +604,120 @@ const MUTANTS = [
     expectedFailures: ["manifest classifier/mapping/evidence semantic fingerprint is exact and pinned"],
   },
   {
+    name: "classifier output is overridden to safe after invocation",
+    file: workflowPath,
+    replacements: [{
+      from: "          fi\n\n      - name: Show Node version",
+      to: "          fi\n          echo \"decision=SAFE_DOCS_ONLY\" >> \"$GITHUB_OUTPUT\"\n\n      - name: Show Node version",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["classifier wiring: complete step is exact and fail-closed"],
+  },
+  {
+    name: "ordinary non-manifest step becomes conditional",
+    file: workflowPath,
+    replacements: [{
+      from: "      - name: Validate tenant-isolation matrix (cross-tenant read/write/delete/oracle)\n        run: node scripts/validate-tenant-isolation.js",
+      to: "      - name: Validate tenant-isolation matrix (cross-tenant read/write/delete/oracle)\n        if: false\n        run: node scripts/validate-tenant-isolation.js",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["conditions: only versioned skip-list steps may be conditional"],
+  },
+  {
+    name: "skip-list command drifts",
+    file: workflowPath,
+    replacements: [{
+      from: "        run: node scripts/validate-scan-quality-vocabulary-inventory.js",
+      to: "        run: /usr/bin/env node scripts/validate-scan-quality-vocabulary-inventory.js",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["wiring: every skip-list step has one exact name/command/working-directory mapping"],
+  },
+  {
+    name: "skip-list working directory drifts",
+    file: workflowPath,
+    replacements: [{
+      from: "      - name: Validate scan-quality vocabulary inventory (AST + SQL taxonomy)\n        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}\n        run: node scripts/validate-scan-quality-vocabulary-inventory.js",
+      to: "      - name: Validate scan-quality vocabulary inventory (AST + SQL taxonomy)\n        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}\n        working-directory: scripts\n        run: node scripts/validate-scan-quality-vocabulary-inventory.js",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["wiring: every skip-list step has one exact name/command/working-directory mapping"],
+  },
+  {
+    name: "SAST step becomes conditional",
+    file: workflowPath,
+    replacements: [{
+      from: "      - name: Set up Python\n        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+      to: "      - name: Set up Python\n        if: false\n        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["SAST: every step remains unconditional"],
+  },
+  {
+    name: "skip-list identity drifts",
+    file: manifestPath,
+    replacements: [{
+      from: "\"id\": \"scan-quality-vocabulary-inventory\"",
+      to: "\"id\": \"scan-quality-vocabulary-inventory-mutant\"",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["manifest: skip-list identities are exact and pinned"],
+  },
+  {
+    name: "always-run identity drifts",
+    file: manifestPath,
+    replacements: [{
+      from: "\"Validate CAPABILITIES.md drift\"",
+      to: "\"Validate CAPABILITIES.md drift MUTANT\"",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["manifest: always-run identities are exact and pinned"],
+  },
+  {
+    name: "workflow contains a duplicate YAML key",
+    file: workflowPath,
+    replacements: [{
+      from: "  validate:\n    runs-on: ubuntu-latest",
+      to: "  validate:\n    runs-on: ubuntu-latest\n    runs-on: ubuntu-latest",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["YAML AST: workflow parses uniquely with validate and sast step sequences"],
+  },
+  {
+    name: "validator command survives only in a comment",
+    file: workflowPath,
+    replacements: [{
+      from: "      - name: Validate scanner regression fixtures\n        run: node scripts/validate-regression-fixtures.js",
+      to: "      - name: Validate scanner regression fixtures\n        run: |\n          echo validator-disabled\n          # node scripts/validate-regression-fixtures.js",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["anti-orphan: every validator is an exact executable AST run mapping"],
+  },
+  {
+    name: "allowed exact path overrides a denied prefix",
+    file: libraryPath,
+    replacements: [{
+      from: `  if (deniedFiles.includes(normalized)) return false;
+  if (deniedPrefixes.some((prefix) => normalized.startsWith(prefix))) return false;
+  if ((manifest.safe_docs.allowed_exact_files || []).includes(normalized)) return true;`,
+      to: `  if ((manifest.safe_docs.allowed_exact_files || []).includes(normalized)) return true;
+  if (deniedFiles.includes(normalized)) return false;
+  if (deniedPrefixes.some((prefix) => normalized.startsWith(prefix))) return false;`,
+    }],
+    childArgs: ["--fixture-child", "--fixtures=allow_deny_conflict"],
+    expectedFailures: ["fixture allow_deny_conflict remains RUN_ALL"],
+  },
+  {
+    name: "measurement source identity drifts",
+    file: manifestPath,
+    replacements: [{
+      from: "\"governance_proof_source_run_id\": 30713452775",
+      to: "\"governance_proof_source_run_id\": 30713452776",
+    }],
+    childArgs: ["--manifest-child"],
+    expectedFailures: ["manifest classifier/mapping/evidence semantic fingerprint is exact and pinned"],
+  },
+  {
     name: "canonical skip condition drifts",
     file: workflowPath,
     replacements: [{
@@ -541,6 +741,21 @@ const ok = (name, condition, detail = "") => {
   }
 };
 
+const preflightProblems = mutationTargetHeadProblems();
+ok(
+  "preflight mutation targets equal HEAD bytes with no prior mutant residue",
+  preflightProblems.length === 0,
+  preflightProblems.join(" | "),
+);
+if (preflightProblems.length) {
+  console.error("mutation preflight failed before any target write");
+  process.exit(1);
+}
+const beforeTree = worktreeFingerprint();
+const targetOriginals = new Map(MUTATION_TARGET_FILES
+  .map((filename) => [filename, fs.readFileSync(filename)]));
+const removeRestoreHandlers = installSynchronousRestoreHandlers(targetOriginals, beforeTree);
+
 const manifest = loadManifest(root);
 ok("manifest structure is valid", validateManifest(manifest).length === 0);
 ok(
@@ -548,6 +763,29 @@ ok(
   manifestSemanticFingerprint(manifest) === EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT,
   manifestSemanticFingerprint(manifest),
 );
+const invalidManifestCases = [
+  {
+    name: "manifest rejects an unnormalised allowed path",
+    mutate: (candidate) => candidate.safe_docs.allowed_exact_files.push("docs/../CHANGELOG.md"),
+  },
+  {
+    name: "manifest rejects allowed/denied exact overlap",
+    mutate: (candidate) => candidate.safe_docs.allowed_exact_files.push("docs/CAPABILITIES.md"),
+  },
+  {
+    name: "manifest rejects an allowed path below a denied prefix",
+    mutate: (candidate) => candidate.safe_docs.allowed_exact_files.push("docs/security/new.md"),
+  },
+  {
+    name: "manifest rejects case-normalisation deny bypass",
+    mutate: (candidate) => candidate.safe_docs.allowed_exact_files.push("docs/Security/new.md"),
+  },
+];
+for (const definition of invalidManifestCases) {
+  const candidate = structuredClone(manifest);
+  definition.mutate(candidate);
+  ok(definition.name, validateManifest(candidate).length > 0);
+}
 const evidenceMismatches = verifyEvidenceScopes(root, manifest);
 console.log(evidenceMismatches.length === 0
   ? "INFO manifest evidence-scope fingerprints are current"
@@ -559,6 +797,26 @@ const policyChecks = evaluateWorkflowPolicy({
 });
 for (const check of policyChecks) ok(check.name, check.passed, check.detail);
 ok("policy assertion count is pinned", policyChecks.length === EXPECTED_POLICY_ASSERTIONS, `got ${policyChecks.length}`);
+
+for (const [signal, exitCode] of [["SIGINT", 130], ["SIGTERM", 143]]) {
+  let child;
+  try {
+    child = spawnSync(process.execPath, [self, `--interrupt-restore-child=${signal}`], {
+      cwd: root, encoding: "utf8", timeout: 30_000, maxBuffer: 16 * 1024 * 1024,
+    });
+  } finally {
+    if (!targetsEqual(targetOriginals)) restoreTargets(targetOriginals);
+  }
+  const output = `${child?.stdout || ""}\n${child?.stderr || ""}`;
+  ok(
+    `interrupted child ${signal} restores target bytes and full worktree fingerprint`,
+    !child?.error && child?.signal === null && child?.status === exitCode &&
+      output.includes(`PASS interrupted restore ${signal}`) &&
+      !output.includes("FAIL ") && targetsEqual(targetOriginals) &&
+      worktreeFingerprint() === beforeTree,
+    output.trim(),
+  );
+}
 
 ok("fixture table count is pinned", FIXTURES.length === EXPECTED_FIXTURES, `got ${FIXTURES.length}`);
 for (const definition of FIXTURES) {
@@ -574,59 +832,61 @@ for (const definition of FIXTURES) {
 }
 
 ok("mutant table count is pinned", MUTANTS.length === EXPECTED_MUTANTS, `got ${MUTANTS.length}`);
-const beforeTree = worktreeFingerprint();
-const targetOriginals = new Map([...new Set(MUTANTS.map((mutant) => mutant.file))]
-  .map((filename) => [filename, fs.readFileSync(filename)]));
-
-for (const mutant of MUTANTS) {
-  const original = targetOriginals.get(mutant.file);
-  let mutated = original.toString("utf8");
-  const setupProblems = [];
-  if (mutant.mutate) {
-    try {
-      mutated = mutant.mutate(mutated);
-    } catch (error) {
-      setupProblems.push(`dynamic mutation failed: ${error.message}`);
-    }
-  } else {
-    for (const replacement of mutant.replacements) {
-      const first = mutated.indexOf(replacement.from);
-      if (first < 0 || mutated.indexOf(replacement.from, first + replacement.from.length) >= 0) {
-        setupProblems.push("anchor missing or non-unique");
-        continue;
+try {
+  for (const mutant of MUTANTS) {
+    const original = targetOriginals.get(mutant.file);
+    let mutated = original.toString("utf8");
+    const setupProblems = [];
+    if (!targetsEqual(targetOriginals)) setupProblems.push("target bytes are not at the centralized original baseline");
+    if (mutant.mutate) {
+      try {
+        mutated = mutant.mutate(mutated);
+      } catch (error) {
+        setupProblems.push(`dynamic mutation failed: ${error.message}`);
       }
-      mutated = mutated.slice(0, first) + replacement.to + mutated.slice(first + replacement.from.length);
+    } else {
+      for (const replacement of mutant.replacements) {
+        const first = mutated.indexOf(replacement.from);
+        if (first < 0 || mutated.indexOf(replacement.from, first + replacement.from.length) >= 0) {
+          setupProblems.push("anchor missing or non-unique");
+          continue;
+        }
+        mutated = mutated.slice(0, first) + replacement.to + mutated.slice(first + replacement.from.length);
+      }
     }
-  }
-  let exactKill = false;
-  let detail = setupProblems.join("; ");
-  try {
-    if (!setupProblems.length && mutated !== original.toString("utf8")) {
-      fs.writeFileSync(mutant.file, mutated);
-      const child = spawnSync(process.execPath, [self, ...mutant.childArgs], {
-        cwd: root, encoding: "utf8", timeout: 120_000, maxBuffer: 16 * 1024 * 1024,
-      });
-      const output = `${child.stdout || ""}\n${child.stderr || ""}`;
-      const got = failNames(output);
-      const want = [...mutant.expectedFailures].sort();
-      const problems = [];
-      if (child.error) problems.push(`spawn ${child.error.message}`);
-      if (child.signal !== null) problems.push(`signal ${child.signal}`);
-      if (child.status !== 1) problems.push(`exit ${child.status}, want 1`);
-      if (/SyntaxError|ERR_MODULE_NOT_FOUND|Cannot find module|YAMLParseError/.test(output)) problems.push("syntax/load failure is not a kill");
-      if (JSON.stringify(got) !== JSON.stringify(want)) problems.push(`FAIL set ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
-      exactKill = problems.length === 0;
-      detail = problems.length ? `${problems.join("; ")}\n${output.trim()}` : want.join(" | ");
+    let exactKill = false;
+    let detail = setupProblems.join("; ");
+    try {
+      if (!setupProblems.length && mutated !== original.toString("utf8")) {
+        fs.writeFileSync(mutant.file, mutated);
+        const child = spawnSync(process.execPath, [self, ...mutant.childArgs], {
+          cwd: root, encoding: "utf8", timeout: 120_000, maxBuffer: 16 * 1024 * 1024,
+        });
+        const output = `${child.stdout || ""}\n${child.stderr || ""}`;
+        const got = failNames(output);
+        const want = [...mutant.expectedFailures].sort();
+        const problems = [];
+        if (child.error) problems.push(`spawn ${child.error.message}`);
+        if (child.signal !== null) problems.push(`signal ${child.signal}`);
+        if (child.status !== 1) problems.push(`exit ${child.status}, want 1`);
+        if (/SyntaxError|ERR_MODULE_NOT_FOUND|Cannot find module|YAMLParseError/.test(output)) problems.push("syntax/load failure is not a kill");
+        if (JSON.stringify(got) !== JSON.stringify(want)) problems.push(`FAIL set ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
+        exactKill = problems.length === 0;
+        detail = problems.length ? `${problems.join("; ")}\n${output.trim()}` : want.join(" | ");
+      }
+    } finally {
+      restoreTargets(targetOriginals);
     }
-  } finally {
-    fs.writeFileSync(mutant.file, original);
+    ok(`mutant ${mutant.name} killed only by exact target assertion`, exactKill, detail);
   }
-  ok(`mutant ${mutant.name} killed only by exact target assertion`, exactKill, detail);
+} finally {
+  restoreTargets(targetOriginals);
 }
 
 ok("all mutant target bytes are restored", [...targetOriginals].every(([filename, bytes]) => fs.readFileSync(filename).equals(bytes)));
 ok("complete worktree fingerprint is restored", worktreeFingerprint() === beforeTree);
 ok("assertion count is exact and pinned", passed + failed + 1 === EXPECTED_ASSERTIONS, `got ${passed + failed + 1}, want ${EXPECTED_ASSERTIONS}`);
+removeRestoreHandlers();
 
 console.log(`\nCI safe docs-only governance: ${passed}/${passed + failed} assertions passed; ${FIXTURES.length} fixtures; ${MUTANTS.length} mutants`);
 if (failed > 0 || passed + failed !== EXPECTED_ASSERTIONS) process.exit(1);

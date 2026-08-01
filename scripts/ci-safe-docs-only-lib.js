@@ -16,6 +16,7 @@ const SAFE_DOC_RE = /^docs\/[A-Za-z0-9][A-Za-z0-9._/-]*\.md$/;
 const ALLOWED_STATUSES = new Set(["A", "M"]);
 const ALLOWED_MODE = "100644";
 const ALLOWED_TYPE = "blob";
+const RESERVED_DOC_SEGMENT_RE = /^(security|governance)(?:[._-]|$)/i;
 
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 const canonicalJsonValue = (value) => {
@@ -135,11 +136,25 @@ function normalizedRepoPath(relativePath) {
   return normalized;
 }
 
+function normalizedRepoPrefix(prefix) {
+  if (typeof prefix !== "string" || !prefix.endsWith("/")) return null;
+  const normalized = normalizedRepoPath(prefix.slice(0, -1));
+  return normalized ? `${normalized}/` : null;
+}
+
 function eligibleDocsPath(relativePath, manifest) {
-  if ((manifest.safe_docs.allowed_exact_files || []).includes(relativePath)) return true;
-  if (!normalizedRepoPath(relativePath) || !SAFE_DOC_RE.test(relativePath)) return false;
-  if ((manifest.safe_docs.denied_files || []).includes(relativePath)) return false;
-  if ((manifest.safe_docs.denied_prefixes || []).some((prefix) => relativePath.startsWith(prefix))) return false;
+  const normalized = normalizedRepoPath(relativePath);
+  if (!normalized) return false;
+  const deniedFiles = manifest.safe_docs.denied_files || [];
+  const deniedPrefixes = (manifest.safe_docs.denied_prefixes || [])
+    .map(normalizedRepoPrefix)
+    .filter(Boolean);
+  if (deniedFiles.includes(normalized)) return false;
+  if (deniedPrefixes.some((prefix) => normalized.startsWith(prefix))) return false;
+  if ((manifest.safe_docs.allowed_exact_files || []).includes(normalized)) return true;
+  if (!SAFE_DOC_RE.test(normalized)) return false;
+  const docSegments = normalized.slice("docs/".length).split("/");
+  if (docSegments.some((segment) => RESERVED_DOC_SEGMENT_RE.test(segment))) return false;
   return true;
 }
 
@@ -195,16 +210,60 @@ export function validateManifest(manifest) {
       !Array.isArray(manifest.safe_docs?.denied_files) ||
       !Array.isArray(manifest.safe_docs?.denied_prefixes)) {
     errors.push("safe_docs allow/deny lists must be arrays");
+  } else {
+    const allowed = manifest.safe_docs.allowed_exact_files;
+    const denied = manifest.safe_docs.denied_files;
+    const prefixes = manifest.safe_docs.denied_prefixes;
+    for (const entry of [...allowed, ...denied]) {
+      if (normalizedRepoPath(entry) !== entry) errors.push(`safe_docs path is not normalized: ${entry}`);
+    }
+    for (const prefix of prefixes) {
+      if (normalizedRepoPrefix(prefix) !== prefix) errors.push(`safe_docs prefix is not normalized: ${prefix}`);
+    }
+    const deniedFolded = new Set(denied.map((entry) => entry.toLowerCase()));
+    const prefixFolded = prefixes.map((prefix) => prefix.toLowerCase());
+    for (const entry of allowed) {
+      const folded = String(entry).toLowerCase();
+      if (denied.includes(entry) || deniedFolded.has(folded)) {
+        errors.push(`safe_docs allowed path conflicts with denied exact path: ${entry}`);
+      }
+      if (prefixes.some((prefix) => entry.startsWith(prefix)) ||
+          prefixFolded.some((prefix) => folded.startsWith(prefix))) {
+        errors.push(`safe_docs allowed path conflicts with denied prefix: ${entry}`);
+      }
+    }
   }
   if (!manifest.measurement || typeof manifest.measurement !== "object") {
     errors.push("measurement must be an object");
   } else {
-    if (!Number.isInteger(manifest.measurement.expected_classifier_overhead_seconds) ||
-        manifest.measurement.expected_classifier_overhead_seconds < 0) {
-      errors.push("measurement.expected_classifier_overhead_seconds must be a non-negative integer");
-    }
     if (manifest.measurement.billing_minutes !== "unknown") {
       errors.push("measurement.billing_minutes must remain unknown in V1");
+    }
+    const nonNegativeMeasurementFields = [
+      "full_history_checkout_added_seconds",
+      "classifier_seconds",
+      "governance_proof_seconds",
+      "overhead_safety_allowance_seconds",
+      "expected_fast_path_overhead_seconds",
+      "baseline_gross_skip_seconds",
+      "median_gross_skip_seconds",
+      "median_net_savings_seconds",
+    ];
+    for (const field of nonNegativeMeasurementFields) {
+      if (!Number.isInteger(manifest.measurement[field]) || manifest.measurement[field] < 0) {
+        errors.push(`measurement.${field} must be a non-negative integer`);
+      }
+    }
+    if (!Number.isInteger(manifest.measurement.governance_proof_source_run_id) ||
+        manifest.measurement.governance_proof_source_run_id < 1) {
+      errors.push("measurement.governance_proof_source_run_id must be a positive integer");
+    }
+    const componentOverhead = manifest.measurement.full_history_checkout_added_seconds +
+      manifest.measurement.classifier_seconds +
+      manifest.measurement.governance_proof_seconds +
+      manifest.measurement.overhead_safety_allowance_seconds;
+    if (componentOverhead !== manifest.measurement.expected_fast_path_overhead_seconds) {
+      errors.push("measurement fast-path overhead components do not sum to expected_fast_path_overhead_seconds");
     }
   }
   if (!Array.isArray(manifest.skipped_heavy_steps) || manifest.skipped_heavy_steps.length === 0) {
@@ -219,6 +278,16 @@ export function validateManifest(manifest) {
     if (typeof step.command !== "string" || !step.command) errors.push(`step ${step.id} has no command`);
     if (typeof step.working_directory !== "string") errors.push(`step ${step.id} has no working_directory`);
     if (!Number.isInteger(step.measured_seconds) || step.measured_seconds < 1) errors.push(`step ${step.id} has invalid measured_seconds`);
+    const timing = step.timing;
+    if (!timing || !Number.isInteger(timing.n) || timing.n < 1 ||
+        !Number.isInteger(timing.min_seconds) || timing.min_seconds < 0 ||
+        !Number.isInteger(timing.median_seconds) || timing.median_seconds < timing.min_seconds ||
+        !Number.isInteger(timing.max_seconds) || timing.max_seconds < timing.median_seconds ||
+        !Array.isArray(timing.source_run_ids) || timing.source_run_ids.length !== timing.n ||
+        timing.source_run_ids.some((id) => !Number.isInteger(id) || id < 1) ||
+        new Set(timing.source_run_ids).size !== timing.source_run_ids.length) {
+      errors.push(`step ${step.id} has invalid timing sample evidence`);
+    }
     if (!Array.isArray(step.evidence?.scope_paths) || step.evidence.scope_paths.length === 0) errors.push(`step ${step.id} has no evidence scope`);
     if (!/^[0-9a-f]{64}$/.test(step.evidence?.scope_sha256 || "")) errors.push(`step ${step.id} has invalid evidence fingerprint`);
     if (!Number.isInteger(step.evidence?.scope_file_count) || step.evidence.scope_file_count < 1) errors.push(`step ${step.id} has invalid evidence file count`);
@@ -227,6 +296,20 @@ export function validateManifest(manifest) {
     }
     ids.add(step.id);
     names.add(step.name);
+  }
+  const baselineGross = manifest.skipped_heavy_steps
+    .reduce((total, step) => total + step.measured_seconds, 0);
+  const medianGross = manifest.skipped_heavy_steps
+    .reduce((total, step) => total + (step.timing?.median_seconds || 0), 0);
+  if (baselineGross !== manifest.measurement.baseline_gross_skip_seconds) {
+    errors.push("measurement.baseline_gross_skip_seconds does not match the step baseline samples");
+  }
+  if (medianGross !== manifest.measurement.median_gross_skip_seconds) {
+    errors.push("measurement.median_gross_skip_seconds does not match the step medians");
+  }
+  if (Math.max(0, medianGross - manifest.measurement.expected_fast_path_overhead_seconds) !==
+      manifest.measurement.median_net_savings_seconds) {
+    errors.push("measurement.median_net_savings_seconds does not match gross minus overhead");
   }
   return errors;
 }
@@ -366,21 +449,22 @@ export function decisionDetails(classification, manifest) {
     id: step.id,
     name: step.name,
     command: step.command,
-    measured_seconds: step.measured_seconds,
+    baseline_seconds: step.measured_seconds,
+    timing: step.timing,
     action: classification.safe_docs_only ? "SKIP" : "RUN",
   }));
   const grossSeconds = classification.safe_docs_only
-    ? steps.reduce((total, step) => total + step.measured_seconds, 0)
+    ? steps.reduce((total, step) => total + step.timing.median_seconds, 0)
     : 0;
   return {
     ...classification,
     heavy_steps: steps,
     expected_gross_savings_seconds: grossSeconds,
-    expected_classifier_overhead_seconds: classification.safe_docs_only
-      ? manifest.measurement.expected_classifier_overhead_seconds
+    expected_fast_path_overhead_seconds: classification.safe_docs_only
+      ? manifest.measurement.expected_fast_path_overhead_seconds
       : 0,
     expected_net_savings_seconds: classification.safe_docs_only
-      ? Math.max(0, grossSeconds - manifest.measurement.expected_classifier_overhead_seconds)
+      ? Math.max(0, grossSeconds - manifest.measurement.expected_fast_path_overhead_seconds)
       : 0,
   };
 }
@@ -390,7 +474,7 @@ export function markdownSummary(details) {
     ? details.changed_paths.map((item) => `- \`${item}\``).join("\n")
     : "- _(none resolved)_";
   const steps = details.heavy_steps
-    .map((step) => `| ${step.action} | ${step.name} | ${step.measured_seconds}s |`)
+    .map((step) => `| ${step.action} | ${step.name} | ${step.timing.median_seconds}s (n=${step.timing.n}; ${step.timing.min_seconds}–${step.timing.max_seconds}s) |`)
     .join("\n");
   return `## CI scope classification\n\n` +
     `- Decision: **${details.decision}**\n` +
@@ -399,12 +483,12 @@ export function markdownSummary(details) {
     `- Reason: ${details.reason}\n` +
     `- Base / head / merge-base: \`${details.base_sha || "unresolved"}\` / ` +
       `\`${details.head_sha || "unresolved"}\` / \`${details.merge_base || "unresolved"}\`\n` +
-    `- Expected gross saving: **${details.expected_gross_savings_seconds}s**\n` +
-    `- Expected classifier overhead: **${details.expected_classifier_overhead_seconds}s**\n` +
+    `- Expected median-based gross saving: **${details.expected_gross_savings_seconds}s**\n` +
+    `- Expected checkout/classifier/governance overhead: **${details.expected_fast_path_overhead_seconds}s**\n` +
     `- Expected net saving: **${details.expected_net_savings_seconds}s**\n\n` +
     `### Changed paths\n\n${paths}\n\n` +
     `### Versioned heavy-step policy\n\n` +
-    `| Action | Heavy step | Measured wall time |\n| --- | --- | ---: |\n${steps}\n\n` +
+    `| Action | Heavy step | Observed timing |\n| --- | --- | ---: |\n${steps}\n\n` +
     `All non-manifest Validate steps remain RUN, including secret scan, CI governance, ` +
     `docs/security inventory readers, dependency audits, bundle checks and build gates. ` +
     `SAST remains an independent full job.\n`;
@@ -431,12 +515,14 @@ export function manifestSemanticFingerprint(manifest) {
     schema_version: manifest.schema_version,
     policy_id: manifest.policy_id,
     safe_docs: manifest.safe_docs,
+    measurement: manifest.measurement,
     skipped_heavy_steps: manifest.skipped_heavy_steps.map((step) => ({
       id: step.id,
       name: step.name,
       command: step.command,
       working_directory: step.working_directory,
       measured_seconds: step.measured_seconds,
+      timing: step.timing,
       reason: step.reason,
       evidence: step.evidence,
     })),

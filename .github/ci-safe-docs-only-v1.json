@@ -19,7 +19,15 @@
     "validate_wall_seconds": 1138,
     "sast_wall_seconds": 136,
     "billing_minutes": "unknown",
-    "expected_classifier_overhead_seconds": 5
+    "full_history_checkout_added_seconds": 2,
+    "classifier_seconds": 1,
+    "governance_proof_seconds": 8,
+    "governance_proof_source_run_id": 30713452775,
+    "overhead_safety_allowance_seconds": 4,
+    "expected_fast_path_overhead_seconds": 15,
+    "baseline_gross_skip_seconds": 662,
+    "median_gross_skip_seconds": 460,
+    "median_net_savings_seconds": 445
   },
   "skipped_heavy_steps": [
     {
@@ -28,6 +36,13 @@
       "command": "node scripts/validate-scan-quality-vocabulary-inventory.js",
       "working_directory": ".",
       "measured_seconds": 20,
+      "timing": {
+        "n": 1,
+        "min_seconds": 20,
+        "median_seconds": 20,
+        "max_seconds": 20,
+        "source_run_ids": [30699425358]
+      },
       "reason": "The AST/SQL inventory scans workers, frontend/src, shared and scripts; its source roots explicitly exclude docs and CHANGELOG.md.",
       "evidence": {
         "scope_paths": [
@@ -48,6 +63,13 @@
       "command": "node scripts/validate-scan-quality-vocabulary-mutations.js",
       "working_directory": ".",
       "measured_seconds": 446,
+      "timing": {
+        "n": 3,
+        "min_seconds": 146,
+        "median_seconds": 244,
+        "max_seconds": 467,
+        "source_run_ids": [30670627324, 30675733571, 30698741738]
+      },
       "reason": "The fresh-process mutation runner calls only the vocabulary inventory and mutates three runtime/governance source targets; docs are not an input.",
       "evidence": {
         "scope_paths": [
@@ -72,6 +94,13 @@
       "command": "node scripts/validate-m5b-remaining-reconciliation.js",
       "working_directory": ".",
       "measured_seconds": 35,
+      "timing": {
+        "n": 1,
+        "min_seconds": 35,
+        "median_seconds": 35,
+        "max_seconds": 35,
+        "source_run_ids": [30699425358]
+      },
       "reason": "The harness reads D1 schema/migrations and imports Worker/shared/frontend runtime contracts; no docs or CHANGELOG input exists in its call graph.",
       "evidence": {
         "scope_paths": [
@@ -95,6 +124,13 @@
       "command": "node scripts/validate-m5a-ce-cases.js",
       "working_directory": ".",
       "measured_seconds": 28,
+      "timing": {
+        "n": 1,
+        "min_seconds": 28,
+        "median_seconds": 28,
+        "max_seconds": 28,
+        "source_run_ids": [30699425358]
+      },
       "reason": "The harness reads D1 schema/migrations and Worker/frontend runtime contracts; no docs or CHANGELOG input exists in its call graph.",
       "evidence": {
         "scope_paths": [
@@ -117,6 +153,13 @@
       "command": "node scripts/validate-scan-detail-presentation-mutations.js",
       "working_directory": ".",
       "measured_seconds": 26,
+      "timing": {
+        "n": 1,
+        "min_seconds": 26,
+        "median_seconds": 26,
+        "max_seconds": 26,
+        "source_run_ids": [30699425358]
+      },
       "reason": "The runner mutates ScanDetail and calls the AST/Vitest presentation validator; its graph is frontend source/config only.",
       "evidence": {
         "scope_paths": [
@@ -140,6 +183,13 @@
       "command": "node scripts/validate-intelligence-page-presentation-mutations.js",
       "working_directory": ".",
       "measured_seconds": 27,
+      "timing": {
+        "n": 1,
+        "min_seconds": 27,
+        "median_seconds": 27,
+        "max_seconds": 27,
+        "source_run_ids": [30699425358]
+      },
       "reason": "The runner mutates IntelligencePage and calls the AST/Vitest presentation validator; its graph is frontend source/config only.",
       "evidence": {
         "scope_paths": [
@@ -163,6 +213,13 @@
       "command": "npm run test:coverage",
       "working_directory": "frontend",
       "measured_seconds": 80,
+      "timing": {
+        "n": 1,
+        "min_seconds": 80,
+        "median_seconds": 80,
+        "max_seconds": 80,
+        "source_run_ids": [30699425358]
+      },
       "reason": "The package script runs Vitest coverage over the frontend source/test graph; repository docs and CHANGELOG are not test inputs.",
       "evidence": {
         "scope_paths": [
@@ -180,6 +237,8 @@
     "Secret scan (tracked files)",
     "Classify CI change scope (fail closed)",
     "Validate safe docs-only CI classifier and conditional-step governance",
+    "Full-repo assurance — entry-point inventory (drift + auth-coverage gate)",
+    "Full-repo assurance — tenant-isolation invariant matrix (table classification + harness cross-ref)",
     "Validate M5.a Website Security managed cases + verification vocabulary",
     "Validate M5 closure (full M5 gate wired + append-only idempotency locked)",
     "Validate CI governance (trigger / reachability / anti-orphan)",

@@ -39,6 +39,19 @@ by the private GitHub Actions API, from 28 July through 1 August 2026. It contai
 used to classify the associated 28 PRs; implementation classification does not
 use the GitHub PR Files API.
 
+The sample is reproducible rather than a moving "latest 100" assertion. Ordered
+newest-first run IDs are:
+
+`30699425358, 30698741738, 30697189005, 30696208119, 30695691408, 30694992556, 30694702432, 30694178626, 30675733571, 30675285493, 30674636479, 30674176054, 30670627324, 30668744379, 30661647878, 30660897616, 30659842490, 30658449471, 30648589886, 30647587524, 30641518000, 30638483912, 30636919508, 30636892240, 30635859903, 30635095376, 30634160899, 30633538085, 30633077456, 30632086438, 30631193822, 30630385565, 30627359276, 30624613805, 30624008610, 30605638560, 30605154468, 30605002270, 30604846939, 30604443382, 30603965563, 30602817521, 30601894393, 30601523176, 30601141708, 30597470432, 30594157208, 30591991586, 30591748030, 30589903158, 30589449350, 30587229158, 30582935425, 30567074846, 30562696766, 30535473311, 30533597737, 30533030155, 30500995397, 30500498980, 30500124321, 30493989227, 30491403374, 30482803417, 30474313711, 30472042418, 30468463675, 30458487985, 30457619216, 30456732521, 30456285859, 30451773076, 30448647561, 30446868814, 30445700266, 30444838839, 30415465588, 30414616056, 30412346901, 30408607092, 30406502419, 30404035414, 30400633581, 30399737357, 30399608417, 30397401267, 30391383396, 30384901842, 30381517617, 30378744078, 30377755912, 30359706507, 30358983531, 30357983576, 30355109291, 30353515898, 30350127410, 30348825641, 30318325048, 30317568320`.
+
+The newline-joined ID list has SHA-256
+`c1d15aa3731c33cde6ce0409bf0bc3a1e14e7f9afe48ac7ca8e50ba1d75d4032`.
+For each ID, the source is `GET /repos/btncwn/CyberMeters-Platform/actions/runs/{id}/jobs?per_page=100`.
+Durations are `completed_at - started_at`; only successful jobs enter the
+wall-time percentiles. The reported percentile is the sorted sample at
+`min(n - 1, floor(p * n))`, matching the table below. The manifest separately
+pins every skip-step timing sample and source run ID used by the savings formula.
+
 | Event | Change class | Runs | Distinct PRs | Successful Validate samples |
 | --- | --- | ---: | ---: | ---: |
 | pull_request | CHANGELOG-only | 9 | 6 | 6 |
@@ -71,7 +84,9 @@ strict-mutation step at 446s. Across the available #368 samples that step had a
 
 The required full-history checkout measured 4s on exact-head run `30705759295`,
 versus 2s on baseline run `30699425358`. This observed 2s overhead plus the 1s
-classifier execution remains inside the conservative 5s allowance used below.
+classifier allowance is not the whole overhead: the new governance/proof step
+measured 8s on exact-head RUN-ALL run `30713452775`. A further 4s safety
+allowance produces the 15s fast-path overhead used below.
 
 Cloudflare Pages reported 99 checks for the 100 commits, but its GitHub check
 records set `started_at` equal to `completed_at`; therefore a real Pages wall
@@ -158,27 +173,40 @@ the workflow as YAML rather than treating step-name text presence as reachabilit
 
 Source of truth: `.github/ci-safe-docs-only-v1.json`.
 
-| Skipped only for a safe class | Baseline wall time | Independence evidence |
-| --- | ---: | --- |
-| Scan-quality vocabulary inventory | 20s | source roots exclude docs/CHANGELOG; positive 10/10; docs-absent positive 10/10 |
-| Scan-quality vocabulary strict mutations | 446s | child/targets exclude docs; positive 20/20 mutants + 1/1 control; same result docs-absent |
-| M5.b remaining reconciliation | 35s | DB/Worker/shared/frontend graph; positive and docs-absent 171/171 |
-| M5.a Cyber Essentials cases | 28s | DB/Worker/frontend graph; positive and docs-absent 233/233 |
-| ScanDetail strict mutations | 26s | frontend AST/Vitest graph; positive and docs-absent 8/8 exact kills |
-| IntelligencePage strict mutations | 27s | frontend AST/Vitest graph; positive and docs-absent 9/9 exact kills |
-| Frontend Vitest coverage | 80s | frontend graph; positive and docs-absent 63/63 files, 521/521 tests |
+| Skipped only for a safe class | n | Min / median / max | Source run IDs | Independence evidence |
+| --- | ---: | ---: | --- | --- |
+| Scan-quality vocabulary inventory | 1 | 20 / 20 / 20s | `30699425358` | source roots exclude docs/CHANGELOG; positive 10/10; docs-absent positive 10/10 |
+| Scan-quality vocabulary strict mutations | 3 | 146 / 244 / 467s | `30670627324`, `30675733571`, `30698741738` | successful PR samples; child/targets exclude docs; positive 20/20 mutants + 1/1 control; same result docs-absent |
+| M5.b remaining reconciliation | 1 | 35 / 35 / 35s | `30699425358` | DB/Worker/shared/frontend graph; positive and docs-absent 171/171 |
+| M5.a Cyber Essentials cases | 1 | 28 / 28 / 28s | `30699425358` | DB/Worker/frontend graph; positive and docs-absent 233/233 |
+| ScanDetail strict mutations | 1 | 26 / 26 / 26s | `30699425358` | frontend AST/Vitest graph; positive and docs-absent 8/8 exact kills |
+| IntelligencePage strict mutations | 1 | 27 / 27 / 27s | `30699425358` | frontend AST/Vitest graph; positive and docs-absent 9/9 exact kills |
+| Frontend Vitest coverage | 1 | 80 / 80 / 80s | `30699425358` | frontend graph; positive and docs-absent 63/63 files, 521/521 tests |
 
-Gross measured skip-list time is 662s. With a conservative 5s classifier
-allowance, the current 1,138s Validate run is projected at approximately 481s
-for a qualifying PR: about **657s (10m57s) of Validate wall-clock reduction**.
-This sits within the independently estimated 7–15 minute range. It is not a
-promise until a later real CHANGELOG-only PR proves the live path.
+The exact baseline run happened to total 662s across these steps, but that
+single-run sum is not the expected saving. The reproducible median-based model
+is:
+
+```text
+gross = 20 + 244 + 35 + 28 + 26 + 27 + 80 = 460s
+overhead = 2s full-history delta + 1s classifier + 8s proof suite + 4s allowance = 15s
+net = 460 - 15 = 445s (7m25s)
+```
+
+Applied to the observed narrow PR p50 values, that gives a modelled Validate
+duration of about 160s for CHANGELOG-only (`605 - 445`) and 175s for ordinary
+docs (`620 - 445`). The exact 1,138s outlier would model at 491s using its 662s
+step sum, but that is explicitly an outlier scenario, not a 647s general claim.
+The honest current estimate is therefore about **7m25s median-based reduction**,
+within the independent 7–15 minute range. It is not a production result until a
+later real CHANGELOG-only PR proves the live path.
 
 SAST remains parallel and approximately 130–140s. A hypothetical broader
 42–50s Validate-only fast path would still not make total CI sub-minute; V1 does
-not implement or claim that broader path. Using the independent 15/27 narrow-run
-mix, the modelled weighted all-CI effect is roughly 20–25%, not a measured billing
-reduction.
+not implement or claim that broader path. The independent relay's roughly
+20–25% weighted all-CI estimate is retained only as an external model: the
+effective production eligibility rate has not yet been measured, so V1 does not
+present that percentage as an observed result or billing reduction.
 
 ## Always-run set
 
@@ -187,6 +215,8 @@ any step-level `if`:
 
 - secret scan;
 - classifier validation and conditional-step governance;
+- entry-point inventory generation/drift validation;
+- tenant-isolation matrix generation/drift validation;
 - M5.a Website Security cases;
 - M5 closure;
 - CI governance;
@@ -203,9 +233,9 @@ not proven.
 
 `scripts/validate-ci-safe-docs-only.js` pins:
 
-- 28 fresh-process, real-git fixtures;
-- 15 fresh-process load-bearing mutants;
-- 63 exact assertions;
+- 31 fresh-process, real-git fixtures;
+- 26 fresh-process load-bearing mutants;
+- 85 exact assertions;
 - exact mutant FAIL-name sets;
 - rejection of syntax/load/spawn/signal failures as kills;
 - byte restoration of every mutated target;
@@ -216,8 +246,17 @@ docs+workflow, docs+CHANGELOG, rename, copy, deletion, symlink, submodule, binar
 governance, security inventory, workflow, scripts, classifier, manifest, 301
 files, malformed/missing base, stale evidence, shallow checkout,
 unresolved/wrong merge-base, a real allow-empty commit, unexpected event and
-push:main. Only CHANGELOG-only and ordinary
+push:main, case-varied security/governance names and deny-over-allow precedence.
+Only CHANGELOG-only and ordinary
 allowlisted docs are safe.
+
+Before any mutation write, every target must equal its exact `HEAD` bytes. The
+suite centrally retains originals, restores in per-mutant and outer `finally`
+blocks, and installs synchronous `SIGINT`/`SIGTERM` restore handlers. Controlled
+children prove both signal paths restore target bytes and the full worktree
+fingerprint. `SIGKILL` cannot be handled by a process and remains an explicit
+residual: after any hard kill, the operator must assume the tree is dirty and
+rerun the target-byte/fingerprint preflight before any commit or push.
 
 ## Residual risks and backlog
 
@@ -229,6 +268,10 @@ allowlisted docs are safe.
    dynamically constructed conditional read. Evidence-source byte drift does
    not block a substantive full run; it disables the fast path until explicitly
    re-proven. Evidence-definition narrowing remains a pinned governance failure.
+   Re-pin owner is the implementation owner changing the affected skipped-step
+   source graph, with an independent reviewer. Re-pins occur only in a normal PR
+   after renewed source/import/call-graph review and docs-absent proof; there is
+   no periodic, automatic or silent re-pin.
 4. Cloudflare Pages-before-main-CI ordering is unchanged.
 5. Billing/spending settings, sharding, matrix parallelism and product runtime
    are unchanged.
@@ -239,6 +282,15 @@ allowlisted docs are safe.
    separate governed PR that preserves fresh-process execution, exact FAIL sets,
    mutation strength and restore/fingerprint discipline. This PR does not alter
    that runner, parallelise it or shard it.
+7. **Practical fast-path eligibility is deliberately narrow.** The branch must
+   contain the exact current event base/main tip, every evidence fingerprint
+   must still be current, and the content class must be eligible. A behind-main
+   docs branch runs all. If a substantive main merge changes any evidence scope,
+   subsequent docs PRs run all until the governed re-proof/re-pin completes.
+   Savings are not a production result until this eligibility rate and the first
+   genuine `SAFE_DOCS_ONLY` run are observed.
+8. `SIGKILL` cannot execute restore handlers; interruption audit remains
+   mandatory after any killed mutation process.
 
 ## Scope boundaries and rollback
 

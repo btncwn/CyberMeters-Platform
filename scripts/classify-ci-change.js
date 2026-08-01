@@ -43,7 +43,7 @@ if (!manifest) {
     ...classification,
     heavy_steps: [],
     expected_gross_savings_seconds: 0,
-    expected_classifier_overhead_seconds: 0,
+    expected_fast_path_overhead_seconds: 0,
     expected_net_savings_seconds: 0,
   };
   if (outputPath) fs.appendFileSync(outputPath, `${outputLines(fallback).join("\n")}\n`);
