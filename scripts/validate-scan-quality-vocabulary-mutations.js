@@ -20,6 +20,7 @@ const EXPECTED_MUTANTS = 13;
 const VALIDATOR_ASSERTIONS = 7;
 const EXPECTED_ASSERTIONS = 49;
 const HELD_HEAD = "73ac5fc0807caaf5303af1cb82011c9a54f81b97";
+const HELD_REF = "HEAD~2";
 const SUMMARY_PREFIX = "Scan-quality vocabulary inventory:";
 const RUNTIME_FAILURE = "runtime: semantic scan-quality comparison inventory is exact";
 const SQL_FAILURE = "SQL: runtime scan-quality predicate inventory is exact";
@@ -33,6 +34,9 @@ const runGit = (args, encoding = "utf8") => {
   }
   return result.stdout;
 };
+if (runGit(["rev-parse", HELD_REF]).trim() !== HELD_HEAD) {
+  throw new Error(`held-head ancestry drift: ${runGit(["rev-parse", HELD_REF]).trim()}`);
+}
 const worktreeFingerprint = () => {
   const status = runGit(["status", "--porcelain=v1", "--untracked-files=all"]);
   const diff = runGit(["diff", "--binary", "--no-ext-diff", "HEAD", "--", "."]);
@@ -227,9 +231,9 @@ try {
         const oldMutationRunner = fs.readFileSync(path.join(root, "scripts", "validate-scan-quality-vocabulary-mutations.js"));
         const oldTarget = path.join(root, mutation.file);
         const currentMutatedTarget = fs.readFileSync(oldTarget);
-        const heldInventory = runGit(["show", `${HELD_HEAD}:scripts/validate-scan-quality-vocabulary-inventory.js`], "buffer");
-        const heldMutation = runGit(["show", `${HELD_HEAD}:scripts/validate-scan-quality-vocabulary-mutations.js`], "buffer");
-        const heldTarget = runGit(["show", `${HELD_HEAD}:${mutation.file}`], "buffer");
+        const heldInventory = runGit(["show", `${HELD_REF}:scripts/validate-scan-quality-vocabulary-inventory.js`], "buffer");
+        const heldMutation = runGit(["show", `${HELD_REF}:scripts/validate-scan-quality-vocabulary-mutations.js`], "buffer");
+        const heldTarget = runGit(["show", `${HELD_REF}:${mutation.file}`], "buffer");
         try {
           fs.writeFileSync(validator, heldInventory);
           fs.writeFileSync(path.join(root, "scripts", "validate-scan-quality-vocabulary-mutations.js"), heldMutation);
