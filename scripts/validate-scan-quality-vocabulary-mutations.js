@@ -209,7 +209,7 @@ const ctR2DirectComputedProject = (row) => row[ctR2DirectKey];`),
   const parts = ["SELECT id FROM scans WHERE ", "scan_", "quality", " = ", "'complete'"];
   return db.prepare(parts.join("")).first();
 };`),
-    expectedFailures: [SQL_READ_FAILURE, SQL_FAILURE],
+    expectedFailure: SQL_FAILURE,
   },
   {
     name: "P1-1 symbol-scoped computed key is pinned",

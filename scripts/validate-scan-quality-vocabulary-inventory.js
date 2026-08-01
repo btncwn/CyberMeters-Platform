@@ -32,6 +32,8 @@ const EXPECTED = Object.freeze({
     unique_query_sites: 26,
     source_file_count: 15,
     fingerprint: "1c20c862142ecc67546c982f8744633207ae6e6ec981d8b50e022617dcf4c420",
+    resolved_query_sink_count: 23,
+    resolved_query_sink_fingerprint: "8267a55d906200e76de66094be7b980c1c71ae7fcc3bd6f9dae7f19088b50e6d",
   },
   governance: {
     comparison_occurrences: 59,
@@ -1165,6 +1167,7 @@ function analyseSql(sourceFiles, checker) {
     unclassified,
     predicateOccurrences: staticSites.reduce((sum, site) => sum + site.predicates.length, 0),
     fingerprint: fingerprint(staticSites.map(signature)),
+    querySinkFingerprint: fingerprint(querySites.map(signature)),
   };
 }
 
@@ -1265,6 +1268,8 @@ const current = {
     unique_query_sites: sqlSites.length,
     source_file_count: sqlFiles.size,
     fingerprint: sql.fingerprint,
+    resolved_query_sink_count: sql.querySites.length,
+    resolved_query_sink_fingerprint: sql.querySinkFingerprint,
   },
   governance: {
     comparison_occurrences: semantic.governance.length,
@@ -1288,6 +1293,8 @@ function dumpInventory() {
     runtime_comparisons: semantic.runtime,
     direct_reads: direct.sites,
     sql_sites: sqlSites,
+    sql_static_sites: sql.staticSites,
+    sql_query_sink_sites: sql.querySites,
     sql_projection_sites: sqlProjectionSites,
     governance_comparisons: semantic.governance,
     unresolved_governance: semantic.unresolvedGovernance,
@@ -1325,6 +1332,7 @@ console.log(`  JS/TS runtime semantic comparisons: ${current.runtime.comparison_
 console.log(`  validation/governance semantic comparisons: ${current.governance.comparison_occurrences}`);
 console.log(`  runtime semantic source files: ${current.runtime.source_file_count}`);
 console.log(`  runtime SQL source files: ${current.sql.source_file_count}`);
+console.log(`  resolved SQL query-sink sites: ${current.sql.resolved_query_sink_count}`);
 console.log(`  governance source files: ${current.governance.source_file_count}`);
 console.log(`  runtime direct canonical reads: ${current.direct.runtime.occurrence_count}`);
 console.log(`  governance direct canonical reads: ${current.direct.governance.occurrence_count}`);
