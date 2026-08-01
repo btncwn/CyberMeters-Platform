@@ -913,10 +913,21 @@ function staticText(node, checker, seenSymbols = new Set()) {
       return { text: parts.map((part) => part?.text ?? "__UNRESOLVED_EXPR__").join(separator), fullyResolved: parts.every(Boolean) };
     }
     if (ts.isIdentifier(receiver)) {
-      const resolved = staticText(receiver, checker, new Set(seenSymbols));
-      if (resolved?.fullyResolved) {
-        const separator = value.arguments[0] ? staticText(value.arguments[0], checker, new Set(seenSymbols))?.text ?? "" : ",";
-        return { text: resolved.text.split(",").join(separator), fullyResolved: true };
+      const symbol = symbolAt(checker, receiver);
+      if (symbol && !seenSymbols.has(symbol)) {
+        const declaration = symbol.valueDeclaration ?? symbol.declarations?.find((candidate) => ts.isVariableDeclaration(candidate));
+        const initializer = declaration?.initializer;
+        if (initializer && ts.isArrayLiteralExpression(unwrap(initializer))) {
+          seenSymbols.add(symbol);
+          const arrayNode = unwrap(initializer);
+          const separatorResult = value.arguments[0]
+            ? staticText(value.arguments[0], checker, new Set(seenSymbols))
+            : { text: ",", fullyResolved: true };
+          const parts = arrayNode.elements.map((element) => staticText(element, checker, new Set(seenSymbols)));
+          const fullyResolved = Boolean(separatorResult?.fullyResolved && parts.every((part) => part?.fullyResolved));
+          if (!fullyResolved) return { text: "__UNRESOLVED_EXPR__", fullyResolved: false };
+          return { text: parts.map((part) => part.text).join(separatorResult.text), fullyResolved: true };
+        }
       }
     }
   }
