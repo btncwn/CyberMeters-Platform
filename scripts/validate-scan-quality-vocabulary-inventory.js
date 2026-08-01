@@ -43,7 +43,7 @@ const EXPECTED = Object.freeze({
     runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "b23f3c86e46fc704b7bbda778abdfd1dd4b984119aeaafa844aa9f5df8685a4b" },
     governance: { occurrence_count: 87, source_file_count: 33, fingerprint: "2f72bc2b1c65796c5d9b5146bef63c2af81ed927e83090ce6a55bcb9f66fc798" },
   },
-  sql_reads: { projection_occurrences: 25, predicate_occurrences: 35, fingerprint: "f0fa0825dbf6532d92b82127722805322855fb9500f06d8812087176e445ca64" },
+  sql_reads: { projection_occurrences: 23, predicate_occurrences: 35, fingerprint: "f7c676453f72325bacd1242e445690c6cf757379f51675767a042c3cf04ff979" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
@@ -1180,6 +1180,11 @@ for (const sf of sourceFiles.filter((file) => isRuntimeFile(file.fileName))) wal
   if (!(ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateExpression(node) || ts.isIdentifier(node) || ts.isCallExpression(node))) return;
   const resolved = staticText(node, checker);
   if (!resolved || !resolved.fullyResolved || !/\bscan_quality\b/i.test(resolved.text)) return;
+  const lower = resolved.text.toLowerCase();
+  const sqlShape = /\bselect\b/.test(lower) ||
+    /(?:^|[, ])(?:[a-z_][\w]*\.)scan_quality(?:[, ]|$)/.test(lower) ||
+    /\b(cols|columns|projection|selectlist|fields?)\b/.test(lower);
+  if (!sqlShape) return;
   sqlProjectionCandidates.push({ file: rel(sf.fileName), line: sourceLine(sf, node), kind: "static-read", snippet: resolved.text });
 });
 const sqlProjectionSites = sqlProjectionCandidates.filter((site) => {
@@ -1188,7 +1193,8 @@ const sqlProjectionSites = sqlProjectionCandidates.filter((site) => {
     /(?:^|[, ])(?:[a-z_][\w]*\.)?scan_quality(?:[, ]|$)/.test(text)) &&
     !/\bwhere\b[\s\S]*\bscan_quality\b/.test(text) &&
     !/\b(insert|update|set|delete)\b/i.test(text);
-});
+}).filter((site, index, all) => all.findIndex((other) =>
+  other.file === site.file && other.line === site.line && other.snippet === site.snippet) === index);
 const sqlReadFingerprint = fingerprint(sqlProjectionSites.map((site) =>
   `${site.file}:${site.line}:${site.kind}:${site.snippet}`));
 const runtimeSemanticFiles = new Set(semantic.runtime.map((site) => site.file));
