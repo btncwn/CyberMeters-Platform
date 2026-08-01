@@ -1,5 +1,27 @@
 # AGENTS.md
 
+## Mandatory AI operating authority — 1 August 2026
+
+Before acting, read `docs/AI-EXECUTIVE-OPERATING-MODEL.md` completely. It is the
+canonical authority for founder-reserved decisions, delegated executive
+decisions, agent roles, review closure, automatic merge gates and session
+handoffs.
+
+Role selection:
+
+- the primary coordinating ChatGPT/Codex session is the Founder-Delegated
+  Executive and Technical Decision Owner;
+- Codex CLI is an assigned implementation/audit owner and must not independently
+  change roadmap or scope;
+- founder confirmation is required only for the reserved decisions listed in
+  the canonical operating model;
+- non-reserved decisions are made by the primary agent and must not be returned
+  to the founder as routine approval questions.
+
+This section overrides older workflow wording that requests founder approval for
+a non-reserved decision. It does not override platform safety rules or the
+founder-reserved boundaries.
+
 # CyberMeters Platform — AI Engineering Context
 
 Version: July 2026
