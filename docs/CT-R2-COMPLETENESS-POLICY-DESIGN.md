@@ -58,9 +58,9 @@ The PR-1 AST-backed inventory pins separate units on exact `origin/main` `dd1700
 - **49 runtime JS/TS semantic comparisons** across **22 source files**;
 - **32 runtime source files** in the union of SQL-predicate and semantic-comparison files;
 - **59 validation/governance semantic comparisons** across **20 source files**.
-- **90 runtime canonical direct reads** across **34 source files** and **95 governance/test
-  canonical direct reads** across **36 source files**; these are the primary authority.
-- **21 SQL SELECT/projection direct-read sites** (predicate reads remain separately pinned at 35).
+- **90 runtime canonical direct reads** across **34 source files** and **87 governance/test
+  canonical direct reads** across **33 source files**; these are the primary authority.
+- **25 SQL SELECT/projection direct-read sites** (predicate reads remain separately pinned at 35).
 
 Those numbers are intentionally not interchangeable. The primary contract is exhaustive
 only for statically-resolvable canonical-slot direct reads. The semantic-comparison counts

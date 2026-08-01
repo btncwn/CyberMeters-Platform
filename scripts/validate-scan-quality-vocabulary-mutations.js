@@ -16,9 +16,9 @@ const validator = path.join(root, "scripts", "validate-scan-quality-vocabulary-i
 const runtimeTargetRel = "workers/scan-api/src/engines/asm-cases.js";
 const commentTargetRel = "frontend/src/pages/Dashboard.jsx";
 const sqlTargetRel = "workers/scan-api/src/engines/business-risk.js";
-const EXPECTED_MUTANTS = 18;
+const EXPECTED_MUTANTS = 21;
 const VALIDATOR_ASSERTIONS = 10;
-const EXPECTED_ASSERTIONS = 59;
+const EXPECTED_ASSERTIONS = 68;
 const SUMMARY_PREFIX = "Scan-quality vocabulary inventory:";
 const RUNTIME_FAILURE = "runtime: semantic scan-quality comparison inventory is exact";
 const SQL_FAILURE = "SQL: runtime scan-quality predicate inventory is exact";
@@ -211,6 +211,26 @@ const ctR2DirectComputedProject = (row) => row[ctR2DirectKey];`),
 };`),
     expectedFailures: [SQL_READ_FAILURE, SQL_FAILURE],
   },
+  {
+    name: "P1-1 symbol-scoped computed key is pinned",
+    file: runtimeTargetRel,
+    mutate: (source) => appendMutation(source, `const ctR2Key = "scan_quality";
+export const ctR2SymbolRead = (row) => row[ctR2Key];
+{ const ctR2Key = "not_quality"; void ctR2Key; }`),
+    expectedFailure: DIRECT_RUNTIME_FAILURE,
+  },
+  {
+    name: "P1-2 bare SQL projection fragment is pinned",
+    file: sqlTargetRel,
+    mutate: (source) => appendMutation(source, `export const CT_R2_BARE_PROJECTION = "s.id, s.scan_quality, s.created_at";`),
+    expectedFailure: SQL_READ_FAILURE,
+  },
+  {
+    name: "P2 write-only direct access remains a negative control",
+    file: runtimeTargetRel,
+    mutate: (source) => appendMutation(source, `export const ctR2WriteOnly = (row) => { row.scan_quality = "partial"; };`),
+    expectedFailures: [],
+  },
 ];
 
 let assertionsPassed = 0;
@@ -262,7 +282,8 @@ try {
       const problems = [];
       if (child.error) problems.push(`spawn error ${child.error.message}`);
       if (child.signal !== null) problems.push(`signal ${child.signal}`);
-      if (child.status !== 1) problems.push(`exit ${child.status}, want exactly 1`);
+      const expectedExit = expectedFailures.length === 0 ? 0 : 1;
+      if (child.status !== expectedExit) problems.push(`exit ${child.status}, want exactly ${expectedExit}`);
       if (/SyntaxError|ERR_MODULE_NOT_FOUND|Cannot find module|Transform failed/.test(output)) {
         problems.push("parse/import/load failure is not an inventory kill");
       }

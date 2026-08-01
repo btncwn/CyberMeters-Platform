@@ -41,9 +41,9 @@ const EXPECTED = Object.freeze({
   runtime_source_file_count: 32,
   direct: {
     runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "b23f3c86e46fc704b7bbda778abdfd1dd4b984119aeaafa844aa9f5df8685a4b" },
-    governance: { occurrence_count: 95, source_file_count: 36, fingerprint: "10c3d8b5a3fc2134264adc00cb353f294518ffc5f7dcef3c5d9c80237d292f7b" },
+    governance: { occurrence_count: 87, source_file_count: 33, fingerprint: "2f72bc2b1c65796c5d9b5146bef63c2af81ed927e83090ce6a55bcb9f66fc798" },
   },
-  sql_reads: { projection_occurrences: 21, predicate_occurrences: 35, fingerprint: "393297a6bdf8fd67ffb85b3d5590f06d8b02540f6ccb6ed7ea2c27630a467515" },
+  sql_reads: { projection_occurrences: 25, predicate_occurrences: 35, fingerprint: "f0fa0825dbf6532d92b82127722805322855fb9500f06d8812087176e445ca64" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
@@ -827,7 +827,7 @@ function analyseDirectReads(sourceFiles, checker) {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       const value = unwrap(node.initializer);
       if (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) {
-        staticStrings.set(node.name.text, value.text);
+        staticStrings.set(symbolAt(checker, node.name), value.text);
       }
     }
   });
@@ -837,12 +837,18 @@ function analyseDirectReads(sourceFiles, checker) {
   };
   for (const sf of sourceFiles) walk(sf, (node) => {
     if (ts.isPropertyAccessExpression(node) && QUALITY_SLOT_NAMES.has(node.name.text)) {
-      add(sf, node, "member-access");
+      const parent = node.parent;
+      const writeOnly = ts.isBinaryExpression(parent) && parent.left === node &&
+        parent.operatorToken.kind === ts.SyntaxKind.EqualsToken;
+      if (!writeOnly) add(sf, node, "member-access");
     } else if (ts.isElementAccessExpression(node)) {
       const arg = unwrap(node.argumentExpression);
       const key = ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)
-        ? arg.text : ts.isIdentifier(arg) ? staticStrings.get(arg.text) : null;
-      if (QUALITY_SLOT_NAMES.has(key)) add(sf, node, "computed-access", key);
+        ? arg.text : ts.isIdentifier(arg) ? staticStrings.get(symbolAt(checker, arg)) : null;
+      const parent = node.parent;
+      const writeOnly = ts.isBinaryExpression(parent) && parent.left === node &&
+        parent.operatorToken.kind === ts.SyntaxKind.EqualsToken;
+      if (!writeOnly && QUALITY_SLOT_NAMES.has(key)) add(sf, node, "computed-access", key);
     } else if (ts.isBindingElement(node)) {
       const key = propertyNameText(node.propertyName || node.name, checker, new Map());
       if (QUALITY_SLOT_NAMES.has(key)) add(sf, node, "destructuring", key);
@@ -1178,8 +1184,10 @@ for (const sf of sourceFiles.filter((file) => isRuntimeFile(file.fileName))) wal
 });
 const sqlProjectionSites = sqlProjectionCandidates.filter((site) => {
   const text = site.snippet.toLowerCase();
-  return /\bselect\b[\s\S]*\bscan_quality\b/.test(text) &&
-    !/\bwhere\b[\s\S]*\bscan_quality\b/.test(text);
+  return (/\bselect\b[\s\S]*\bscan_quality\b/.test(text) ||
+    /(?:^|[, ])(?:[a-z_][\w]*\.)?scan_quality(?:[, ]|$)/.test(text)) &&
+    !/\bwhere\b[\s\S]*\bscan_quality\b/.test(text) &&
+    !/\b(insert|update|set|delete)\b/i.test(text);
 });
 const sqlReadFingerprint = fingerprint(sqlProjectionSites.map((site) =>
   `${site.file}:${site.line}:${site.kind}:${site.snippet}`));
