@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "policy_id": "CI-VALIDATE-DURATION-OPTIMIZATION-v1",
+  "safe_docs": {
+    "max_files": 300,
+    "allowed_exact_files": [
+      "CHANGELOG.md"
+    ],
+    "denied_files": [
+      "docs/CAPABILITIES.md"
+    ],
+    "denied_prefixes": [
+      "docs/security/"
+    ]
+  },
+  "measurement": {
+    "source_run_id": 30699425358,
+    "source_sha": "20ed322c197528f6c11485016bca7393596c3bd3",
+    "validate_wall_seconds": 1138,
+    "sast_wall_seconds": 136,
+    "billing_minutes": "unknown",
+    "expected_classifier_overhead_seconds": 5
+  },
+  "skipped_heavy_steps": [
+    {
+      "id": "scan-quality-vocabulary-inventory",
+      "name": "Validate scan-quality vocabulary inventory (AST + SQL taxonomy)",
+      "command": "node scripts/validate-scan-quality-vocabulary-inventory.js",
+      "working_directory": ".",
+      "measured_seconds": 20,
+      "reason": "The AST/SQL inventory scans workers, frontend/src, shared and scripts; its source roots explicitly exclude docs and CHANGELOG.md.",
+      "evidence": {
+        "scope_paths": [
+          "scripts/validate-scan-quality-vocabulary-inventory.js",
+          "frontend/package.json",
+          "frontend/package-lock.json"
+        ],
+        "scope_sha256": "81b509fc3db9b7296b02621f89718152f68637785930ca7f1902181a62aac54d",
+        "scope_file_count": 3,
+        "source_graph_review": "Entry point has only Node built-ins plus TypeScript resolved from frontend; SOURCE_ROOTS is workers, frontend/src, shared and scripts, with no docs or CHANGELOG input.",
+        "negative_without_docs": "PASS: exact command exit 0 in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent; fixture worktree clean",
+        "positive_workflow_baseline": "run 30699425358: 20s, success"
+      }
+    },
+    {
+      "id": "scan-quality-vocabulary-mutations",
+      "name": "Validate scan-quality vocabulary inventory strict mutations",
+      "command": "node scripts/validate-scan-quality-vocabulary-mutations.js",
+      "working_directory": ".",
+      "measured_seconds": 446,
+      "reason": "The fresh-process mutation runner calls only the vocabulary inventory and mutates three runtime/governance source targets; docs are not an input.",
+      "evidence": {
+        "scope_paths": [
+          "scripts/validate-scan-quality-vocabulary-mutations.js",
+          "scripts/validate-scan-quality-vocabulary-inventory.js",
+          "workers/scan-api/src/engines/asm-cases.js",
+          "workers/scan-api/src/engines/business-risk.js",
+          "frontend/src/pages/Dashboard.jsx",
+          "frontend/package.json",
+          "frontend/package-lock.json"
+        ],
+        "scope_sha256": "74837798e65d578822426c0781bbb3ef27413a6c0710f545649f79e87e9b6fec",
+        "scope_file_count": 7,
+        "source_graph_review": "Runner uses Node built-ins, git fingerprinting, the inventory child and three pinned non-doc mutation targets; the child source-root contract excludes docs and CHANGELOG.",
+        "negative_without_docs": "PASS: exact command exit 0 with 20/20 mutants, 1/1 negative control and full fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
+        "positive_workflow_baseline": "run 30699425358: 446s, success"
+      }
+    },
+    {
+      "id": "m5b-remaining-reconciliation",
+      "name": "Validate M5.b remaining reconciliation (CE patch readiness, external, blankets)",
+      "command": "node scripts/validate-m5b-remaining-reconciliation.js",
+      "working_directory": ".",
+      "measured_seconds": 35,
+      "reason": "The harness reads D1 schema/migrations and imports Worker/shared/frontend runtime contracts; no docs or CHANGELOG input exists in its call graph.",
+      "evidence": {
+        "scope_paths": [
+          "scripts/validate-m5b-remaining-reconciliation.js",
+          "database/schema.sql",
+          "database/migrations",
+          "workers/scan-api/src",
+          "shared",
+          "frontend/src/lib/caseDisplay.js"
+        ],
+        "scope_sha256": "b39b4f5e23e1fce1e960fc5df1eba02b534f42cbeb5fb66016493320d01b3ce2",
+        "scope_file_count": 302,
+        "source_graph_review": "Reviewed dynamic imports, source reads, schema/migration loader, fresh-process mutants and case-display import; every repository input is in database, workers, shared or frontend/src.",
+        "negative_without_docs": "PASS: exact command exit 0 (171/171) in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
+        "positive_workflow_baseline": "run 30699425358: 35s, success"
+      }
+    },
+    {
+      "id": "m5a-ce-cases",
+      "name": "Validate M5.a Cyber Essentials managed cases (final M5.a vertical)",
+      "command": "node scripts/validate-m5a-ce-cases.js",
+      "working_directory": ".",
+      "measured_seconds": 28,
+      "reason": "The harness reads D1 schema/migrations and Worker/frontend runtime contracts; no docs or CHANGELOG input exists in its call graph.",
+      "evidence": {
+        "scope_paths": [
+          "scripts/validate-m5a-ce-cases.js",
+          "database/schema.sql",
+          "database/migrations",
+          "workers/scan-api/src",
+          "frontend/src"
+        ],
+        "scope_sha256": "aa17d7cb8072c062b94282c198ae70a44c8454816ac7eaff934246d49c604007",
+        "scope_file_count": 510,
+        "source_graph_review": "Reviewed dynamic imports, source reads, schema/migration loader, Worker index import, frontend case display/queue reads and fresh-process mutants; no docs path is reachable.",
+        "negative_without_docs": "PASS: exact command exit 0 (233/233) in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
+        "positive_workflow_baseline": "run 30699425358: 28s, success"
+      }
+    },
+    {
+      "id": "scan-detail-presentation-mutations",
+      "name": "Validate ScanDetail presentation strict mutations",
+      "command": "node scripts/validate-scan-detail-presentation-mutations.js",
+      "working_directory": ".",
+      "measured_seconds": 26,
+      "reason": "The runner mutates ScanDetail and calls the AST/Vitest presentation validator; its graph is frontend source/config only.",
+      "evidence": {
+        "scope_paths": [
+          "scripts/validate-scan-detail-presentation-mutations.js",
+          "scripts/validate-scan-detail-presentation.js",
+          "frontend/src",
+          "frontend/package.json",
+          "frontend/package-lock.json",
+          "frontend/vite.config.js"
+        ],
+        "scope_sha256": "e2bf3fba37e1397587f87fddd63f113d75eab79e0e6153d04c040066301b1f4e",
+        "scope_file_count": 215,
+        "source_graph_review": "Reviewed mutation target, validator child, git fingerprint, AST closure and Vitest carrier; inputs are the two scripts plus frontend source/config/dependencies.",
+        "negative_without_docs": "PASS: exact command exit 0 with 8/8 exact mutant kills and fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
+        "positive_workflow_baseline": "run 30699425358: 26s, success"
+      }
+    },
+    {
+      "id": "intelligence-presentation-mutations",
+      "name": "Validate IntelligencePage presentation strict mutations",
+      "command": "node scripts/validate-intelligence-page-presentation-mutations.js",
+      "working_directory": ".",
+      "measured_seconds": 27,
+      "reason": "The runner mutates IntelligencePage and calls the AST/Vitest presentation validator; its graph is frontend source/config only.",
+      "evidence": {
+        "scope_paths": [
+          "scripts/validate-intelligence-page-presentation-mutations.js",
+          "scripts/validate-intelligence-page-presentation.js",
+          "frontend/src",
+          "frontend/package.json",
+          "frontend/package-lock.json",
+          "frontend/vite.config.js"
+        ],
+        "scope_sha256": "679bef0cc8a702e0e323a55a30082b4033fac2b3c9200a81d6da1d0508730142",
+        "scope_file_count": 215,
+        "source_graph_review": "Reviewed mutation target, validator child, git fingerprint, AST closure and Vitest carrier; inputs are the two scripts plus frontend source/config/dependencies.",
+        "negative_without_docs": "PASS: exact command exit 0 with 9/9 exact mutant kills and fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
+        "positive_workflow_baseline": "run 30699425358: 27s, success"
+      }
+    },
+    {
+      "id": "frontend-test-coverage",
+      "name": "Frontend component tests with coverage (Vitest)",
+      "command": "npm run test:coverage",
+      "working_directory": "frontend",
+      "measured_seconds": 80,
+      "reason": "The package script runs Vitest coverage over the frontend source/test graph; repository docs and CHANGELOG are not test inputs.",
+      "evidence": {
+        "scope_paths": [
+          "frontend"
+        ],
+        "scope_sha256": "1659841f45a0289082dfcd29aac995a5f56a5cb1d9a7e04b1a3ef52e97a5857e",
+        "scope_file_count": 228,
+        "source_graph_review": "Reviewed package script, Vite/Vitest config and frontend source/test discovery; generated coverage, dist and node_modules are excluded from the proof fingerprint.",
+        "negative_without_docs": "PASS: exact command exit 0 with 63/63 files and 521/521 tests in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
+        "positive_workflow_baseline": "run 30699425358: 80s, success"
+      }
+    }
+  ],
+  "always_run": [
+    "Secret scan (tracked files)",
+    "Classify CI change scope (fail closed)",
+    "Validate safe docs-only CI classifier and conditional-step governance",
+    "Validate M5.a Website Security managed cases + verification vocabulary",
+    "Validate M5 closure (full M5 gate wired + append-only idempotency locked)",
+    "Validate CI governance (trigger / reachability / anti-orphan)",
+    "Validate date-rot governance (future-dated fixtures require a frozen clock or an explicit allowlist reason)",
+    "Validate commercial canonicalisation (one direction / no stale price ladder / CE + MSP honesty)",
+    "Validate frontend env contract (.env.example ⟷ import.meta.env / /api shape / no secret)",
+    "Validate CAPABILITIES.md drift"
+  ]
+}

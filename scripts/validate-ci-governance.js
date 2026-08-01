@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 //
-// CI governance — every branch gets the same safety coverage. CI-blocking.
+// CI governance — every branch starts the gate; only the versioned, fail-closed
+// safe-docs policy may skip individually proven heavy steps. CI-blocking.
 //
 // Written after PR #89 sat with NO validate/sast run at all. The cause was not the
 // trigger config (it is a bare `pull_request:`, which matches every branch) — the PR
@@ -16,13 +17,17 @@
 //   2. Cloudflare Pages is NOT a release gate. It proves a frontend build, not the
 //      validators, and it reports on conflicting PRs where CI cannot run.
 //
-// This asserts the workflow's TRIGGER SHAPE, not its assertions. It must never be
-// used to weaken a check — only to keep coverage uniform.
+// Trigger assertions keep the workflow present on every PR. The YAML-AST policy
+// assertions at the end additionally prove step reachability: all mandatory steps
+// are unconditional, and only the exact versioned heavy-step skip-list may carry
+// the one canonical fail-closed condition.
 //
 // Node 24+.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadManifest } from "./ci-safe-docs-only-lib.js";
+import { evaluateWorkflowPolicy } from "./ci-workflow-policy.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ciPath = path.join(root, ".github", "workflows", "ci.yml");
@@ -120,6 +125,16 @@ ok("no validator is wired as a plain run step more than once",
 ok("the M5 final-closure guard is wired as an uncommented run step",
    /^\s*run:\s*node scripts\/validate-m5-closure\.js\s*$/m.test(src),
    "validate-m5-closure.js must run in ci.yml");
+
+// ── 6. Step reachability and conditional-skip governance (V1) ────────────────
+// Text presence alone is not wiring: `if: false` can leave a validator visible
+// in YAML and permanently unreachable. Parse the YAML AST and permit a condition
+// only on the exact versioned heavy-step allowlist, with one canonical fail-closed
+// expression. Mandatory/always-run steps must have no `if` key at all.
+const manifest = loadManifest(root);
+for (const check of evaluateWorkflowPolicy({ workflowSource: src, manifest })) {
+  ok(`conditional governance: ${check.name}`, check.passed, check.detail);
+}
 
 console.log(`\nci-governance: ${pass} passed, ${fail} failed`);
 if (fail > 0) { console.error("ci-governance validation FAILED"); process.exit(1); }
