@@ -69,6 +69,10 @@ for Validate and **136s** for SAST. It includes the newly merged scan-quality
 strict-mutation step at 446s. Across the available #368 samples that step had a
 244s median and 467s maximum.
 
+The required full-history checkout measured 4s on exact-head run `30705759295`,
+versus 2s on baseline run `30699425358`. This observed 2s overhead plus the 1s
+classifier execution remains inside the conservative 5s allowance used below.
+
 Cloudflare Pages reported 99 checks for the 100 commits, but its GitHub check
 records set `started_at` equal to `completed_at`; therefore a real Pages wall
 duration is **unknown**. The commit/run-created-to-terminal proxy was roughly
@@ -142,8 +146,8 @@ RUN-ALL (directly or through `UNKNOWN_FAIL_CLOSED`).
 | workflow/classifier/manifest self-bypass | all are non-allowlisted paths, so this PR and every such PR run all |
 | mixed runtime disguised as docs | every path/status/object is classified; one unsafe entry runs all |
 | binary/symlink/rename/copy/deletion | object/status/numstat checks run all |
-| stale or narrowed step-independence proof | versioned evidence-scope fingerprints plus a semantic pin over every evidence definition make the classifier fail closed |
-| visible but unreachable validator step | YAML AST reachability policy; only seven exact steps may carry one canonical condition |
+| stale or narrowed step-independence proof | source-byte drift makes the classifier RUN-ALL; a semantic pin prevents evidence definitions from being silently narrowed |
+| visible, unreachable or non-blocking validator step | YAML AST reachability policy; only seven exact steps may carry one canonical condition, and `continue-on-error` is forbidden |
 | classifier process crash | workflow writes RUN-ALL outputs first and retains them on failure |
 | broken main hidden by a green docs PR | every push to main runs full CI; a main failure is a release blocker |
 
@@ -199,9 +203,9 @@ not proven.
 
 `scripts/validate-ci-safe-docs-only.js` pins:
 
-- 27 fresh-process, real-git fixtures;
-- 12 fresh-process load-bearing mutants;
-- 59 exact assertions;
+- 28 fresh-process, real-git fixtures;
+- 15 fresh-process load-bearing mutants;
+- 63 exact assertions;
 - exact mutant FAIL-name sets;
 - rejection of syntax/load/spawn/signal failures as kills;
 - byte restoration of every mutated target;
@@ -210,8 +214,9 @@ not proven.
 The matrix covers CHANGELOG-only, ordinary docs modification and addition, docs+runtime, docs+scripts,
 docs+workflow, docs+CHANGELOG, rename, copy, deletion, symlink, submodule, binary, root
 governance, security inventory, workflow, scripts, classifier, manifest, 301
-files, malformed/missing base, shallow checkout, unresolved/wrong merge-base,
-empty diff, unexpected event and push:main. Only CHANGELOG-only and ordinary
+files, malformed/missing base, stale evidence, shallow checkout,
+unresolved/wrong merge-base, a real allow-empty commit, unexpected event and
+push:main. Only CHANGELOG-only and ordinary
 allowlisted docs are safe.
 
 ## Residual risks and backlog
@@ -221,8 +226,9 @@ allowlisted docs are safe.
 2. The first real narrow path remains pending a later genuine CHANGELOG-only PR;
    this mechanism-changing PR must and will run all.
 3. Source/call-graph review plus docs-absent execution cannot prove every future
-   dynamically constructed conditional read. Evidence-scope drift disables the
-   fast path until explicitly re-proven.
+   dynamically constructed conditional read. Evidence-source byte drift does
+   not block a substantive full run; it disables the fast path until explicitly
+   re-proven. Evidence-definition narrowing remains a pinned governance failure.
 4. Cloudflare Pages-before-main-CI ordering is unchanged.
 5. Billing/spending settings, sharding, matrix parallelism and product runtime
    are unchanged.

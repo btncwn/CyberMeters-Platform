@@ -21,10 +21,10 @@ const self = fileURLToPath(import.meta.url);
 const workflowPath = path.join(root, ".github", "workflows", "ci.yml");
 const manifestPath = path.join(root, ".github", "ci-safe-docs-only-v1.json");
 const libraryPath = path.join(root, "scripts", "ci-safe-docs-only-lib.js");
-const EXPECTED_FIXTURES = 27;
-const EXPECTED_MUTANTS = 12;
-const EXPECTED_POLICY_ASSERTIONS = 11;
-const EXPECTED_ASSERTIONS = 59;
+const EXPECTED_FIXTURES = 28;
+const EXPECTED_MUTANTS = 15;
+const EXPECTED_POLICY_ASSERTIONS = 12;
+const EXPECTED_ASSERTIONS = 63;
 const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "1765b841e2c14e9e86612108c6bff5443aa01ab1619c6b08b509f54194afd24b";
 
 const fixtureChild = process.argv.includes("--fixture-child");
@@ -55,6 +55,7 @@ const FIXTURES = Object.freeze([
   { name: "over_300_files", safe: false },
   { name: "malformed_base", safe: false },
   { name: "missing_base_object", safe: false },
+  { name: "stale_evidence", safe: false, decision: "UNKNOWN_FAIL_CLOSED" },
   { name: "shallow_checkout", safe: false },
   { name: "unresolved_merge_base", safe: false },
   { name: "wrong_base", safe: false },
@@ -162,6 +163,7 @@ function buildFixture(name) {
       break;
     case "malformed_base": append("docs/ordinary.md"); break;
     case "missing_base_object": append("docs/ordinary.md"); break;
+    case "stale_evidence": append("docs/ordinary.md"); break;
     case "shallow_checkout":
       append("proof.txt", "intermediate\n");
       state.actualBase = commit(repo, "intermediate base");
@@ -175,7 +177,8 @@ function buildFixture(name) {
   }
 
   if (name === "empty_diff") {
-    head = base;
+    git(repo, ["commit", "--allow-empty", "-m", `fixture ${name}`]);
+    head = git(repo, ["rev-parse", "HEAD"]);
   } else if (name === "submodule") {
     git(repo, ["commit", "-m", `fixture ${name}`]);
     head = git(repo, ["rev-parse", "HEAD"]);
@@ -227,6 +230,9 @@ function runFixture(definition) {
   const state = buildFixture(definition.name);
   try {
     const manifest = fixtureManifest(state.repo);
+    if (definition.name === "stale_evidence") {
+      manifest.skipped_heavy_steps[0].evidence.scope_sha256 = "0".repeat(64);
+    }
     const classification = classifyChange({
       repoRoot: state.repo,
       eventName: state.eventName,
@@ -243,6 +249,9 @@ function runFixture(definition) {
       }
     } else if (classification.safe_docs_only || classification.effective_mode !== "RUN_ALL") {
       problems.push(`unsafe fixture narrowed to ${classification.decision}/${classification.effective_mode}`);
+    }
+    if (definition.decision && classification.decision !== definition.decision) {
+      problems.push(`decision ${classification.decision}, want ${definition.decision}`);
     }
 
     if (definition.name === "unexpected_event_and_push_main") {
@@ -379,6 +388,26 @@ const MUTANTS = [
     expectedFailures: ["always-run: mandatory steps are present exactly once and unconditional"],
   },
   {
+    name: "mandatory step becomes non-blocking",
+    file: workflowPath,
+    replacements: [{
+      from: "      - name: Validate CI governance (trigger / reachability / anti-orphan)\n        run: node scripts/validate-ci-governance.js",
+      to: "      - name: Validate CI governance (trigger / reachability / anti-orphan)\n        continue-on-error: true\n        run: node scripts/validate-ci-governance.js",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["reachability: validate/sast jobs and every step remain blocking"],
+  },
+  {
+    name: "a conditional third job is introduced",
+    file: workflowPath,
+    replacements: [{
+      from: "\n  sast:\n    runs-on: ubuntu-latest",
+      to: "\n  orphaned-validators:\n    if: false\n    runs-on: ubuntu-latest\n    steps:\n      - name: Mutant orphan carrier\n        run: node scripts/validate-regression-fixtures.js\n\n  sast:\n    runs-on: ubuntu-latest",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["jobs: validate and sast jobs are unconditional"],
+  },
+  {
     name: "always-run step enters skip-list",
     file: manifestPath,
     replacements: [{
@@ -441,6 +470,16 @@ const MUTANTS = [
     ],
   },
   {
+    name: "stale evidence is accepted as current",
+    file: libraryPath,
+    replacements: [{
+      from: "if (evidenceMismatches.length > 0) {",
+      to: "if (false && evidenceMismatches.length > 0) {",
+    }],
+    childArgs: ["--fixture-child", "--fixtures=stale_evidence"],
+    expectedFailures: ["fixture stale_evidence remains RUN_ALL"],
+  },
+  {
     name: "classifier and manifest paths are accepted",
     file: libraryPath,
     replacements: [
@@ -466,18 +505,15 @@ const MUTANTS = [
   {
     name: "evidence scope is narrowed while its live digest is refreshed",
     file: manifestPath,
-    replacements: [{
-      from: `        "scope_paths": [
-          "frontend"
-        ],
-        "scope_sha256": "1659841f45a0289082dfcd29aac995a5f56a5cb1d9a7e04b1a3ef52e97a5857e",
-        "scope_file_count": 228,`,
-      to: `        "scope_paths": [
-          "frontend/package.json"
-        ],
-        "scope_sha256": "ff494662369ed2a6d22b0b493b0ba53ba0137478b200c807c5b71f27bafe6044",
-        "scope_file_count": 1,`,
-    }],
+    mutate: (source) => {
+      const mutatedManifest = JSON.parse(source);
+      const proof = evidenceScopeFingerprint(root, ["frontend/package.json"]);
+      const target = mutatedManifest.skipped_heavy_steps.find((step) => step.id === "frontend-test-coverage");
+      target.evidence.scope_paths = ["frontend/package.json"];
+      target.evidence.scope_sha256 = proof.sha256;
+      target.evidence.scope_file_count = proof.file_count;
+      return `${JSON.stringify(mutatedManifest, null, 2)}\n`;
+    },
     childArgs: ["--manifest-child"],
     expectedFailures: ["manifest classifier/mapping/evidence semantic fingerprint is exact and pinned"],
   },
@@ -513,7 +549,9 @@ ok(
   manifestSemanticFingerprint(manifest),
 );
 const evidenceMismatches = verifyEvidenceScopes(root, manifest);
-ok("manifest evidence-scope fingerprints are current", evidenceMismatches.length === 0, JSON.stringify(evidenceMismatches));
+console.log(evidenceMismatches.length === 0
+  ? "INFO manifest evidence-scope fingerprints are current"
+  : `WARN manifest evidence drift disables SAFE_DOCS_ONLY until re-proven: ${JSON.stringify(evidenceMismatches)}`);
 
 const policyChecks = evaluateWorkflowPolicy({
   workflowSource: fs.readFileSync(workflowPath, "utf8"),
@@ -544,13 +582,21 @@ for (const mutant of MUTANTS) {
   const original = targetOriginals.get(mutant.file);
   let mutated = original.toString("utf8");
   const setupProblems = [];
-  for (const replacement of mutant.replacements) {
-    const first = mutated.indexOf(replacement.from);
-    if (first < 0 || mutated.indexOf(replacement.from, first + replacement.from.length) >= 0) {
-      setupProblems.push("anchor missing or non-unique");
-      continue;
+  if (mutant.mutate) {
+    try {
+      mutated = mutant.mutate(mutated);
+    } catch (error) {
+      setupProblems.push(`dynamic mutation failed: ${error.message}`);
     }
-    mutated = mutated.slice(0, first) + replacement.to + mutated.slice(first + replacement.from.length);
+  } else {
+    for (const replacement of mutant.replacements) {
+      const first = mutated.indexOf(replacement.from);
+      if (first < 0 || mutated.indexOf(replacement.from, first + replacement.from.length) >= 0) {
+        setupProblems.push("anchor missing or non-unique");
+        continue;
+      }
+      mutated = mutated.slice(0, first) + replacement.to + mutated.slice(first + replacement.from.length);
+    }
   }
   let exactKill = false;
   let detail = setupProblems.join("; ");

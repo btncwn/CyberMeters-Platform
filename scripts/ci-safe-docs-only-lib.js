@@ -196,6 +196,17 @@ export function validateManifest(manifest) {
       !Array.isArray(manifest.safe_docs?.denied_prefixes)) {
     errors.push("safe_docs allow/deny lists must be arrays");
   }
+  if (!manifest.measurement || typeof manifest.measurement !== "object") {
+    errors.push("measurement must be an object");
+  } else {
+    if (!Number.isInteger(manifest.measurement.expected_classifier_overhead_seconds) ||
+        manifest.measurement.expected_classifier_overhead_seconds < 0) {
+      errors.push("measurement.expected_classifier_overhead_seconds must be a non-negative integer");
+    }
+    if (manifest.measurement.billing_minutes !== "unknown") {
+      errors.push("measurement.billing_minutes must remain unknown in V1");
+    }
+  }
   if (!Array.isArray(manifest.skipped_heavy_steps) || manifest.skipped_heavy_steps.length === 0) {
     errors.push("skipped_heavy_steps must be a non-empty array");
     return errors;

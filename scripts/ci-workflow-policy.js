@@ -158,11 +158,19 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest }) {
 
   results.push(assertion(
     "jobs: validate and sast jobs are unconditional",
-    !hasOwn(validateJob, "if") && !hasOwn(sastJob, "if"),
+    sameSet(Object.keys(parsed.workflow.jobs || {}), ["validate", "sast"]) &&
+      !hasOwn(validateJob, "if") && !hasOwn(sastJob, "if"),
   ));
   results.push(assertion(
     "SAST: every step remains unconditional",
     sastSteps.length > 0 && sastSteps.every((step) => !hasOwn(step, "if")),
+  ));
+  const nonBlocking = [validateJob, sastJob, ...steps, ...sastSteps]
+    .filter((item) => hasOwn(item, "continue-on-error"));
+  results.push(assertion(
+    "reachability: validate/sast jobs and every step remain blocking",
+    nonBlocking.length === 0,
+    nonBlocking.map((item) => item?.name || "job").join(", "),
   ));
 
   return results;
