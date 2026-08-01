@@ -125,6 +125,7 @@ async function gateModule(budget, name, run, skipExtra = {}) {
 export async function runReservedScan(domain, {
   capacity,
   ctCache = null,
+  ctOverlap = null,
   dnsCache: suppliedDnsCache = null,
   knownAssetHosts = [],
   signal = null,
@@ -190,7 +191,7 @@ export async function runReservedScan(domain, {
     cache: dnsCache,
     dmarcOwnedByCore: true,
   }));
-  const subdomains           = await gateModule(budget, "subdomains", () => runSubdomainsModule(domain, { cache: dnsCache, ctCache: sharedCtCache }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] });
+  const subdomains           = await gateModule(budget, "subdomains", () => runSubdomainsModule(domain, { cache: dnsCache, ctCache: sharedCtCache, ctOverlap }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] });
   const technology_detection = await gateModule(budget, "technology_detection", () => runTechModule(domain));
   const whois_intelligence   = await gateModule(budget, "whois_intelligence", () => runWhoisModule(domain));
 

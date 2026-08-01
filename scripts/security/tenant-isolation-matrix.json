@@ -140,6 +140,7 @@
         "scans",
         "scan_module_telemetry",
         "ct_provider_telemetry",
+        "ct_provider_overlap_telemetry",
         "scheduled_scans"
       ],
       "ownership": {
@@ -152,6 +153,10 @@
           "column": "scan_id"
         },
         "ct_provider_telemetry": {
+          "model": "via_scan",
+          "column": "scan_id"
+        },
+        "ct_provider_overlap_telemetry": {
           "model": "via_scan",
           "column": "scan_id"
         },
@@ -972,6 +977,7 @@
     "certificate_lifecycle": "certificates",
     "certificate_lifecycle_events": "certificates",
     "certificate_observations": "certificates",
+    "ct_provider_overlap_telemetry": "scans",
     "ct_provider_telemetry": "scans",
     "customer_profiles": "subscriptions",
     "cyber_essentials_answers": "cyber_essentials",
@@ -1050,9 +1056,9 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 91,
-    "classified": 91,
-    "tenant_owned_tables": 87,
+    "schema_tables": 92,
+    "classified": 92,
+    "tenant_owned_tables": 88,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
     "resource_classes": 32,

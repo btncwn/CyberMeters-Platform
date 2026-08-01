@@ -1051,7 +1051,7 @@ function isDeletionPurgeDue(requestRow, nowMs = Date.now()) {
 // `purge_covers_all_scan_fk_tables`.
 const SCAN_CHILD_TABLES = [
   "findings", "hidden_assets", "kev_matches", "remediation_items", "reports",
-  "scan_module_telemetry", "ct_provider_telemetry",
+  "scan_module_telemetry", "ct_provider_telemetry", "ct_provider_overlap_telemetry",
 ];
 
 // Tables hard-deleted by workspace_id, children before parents.

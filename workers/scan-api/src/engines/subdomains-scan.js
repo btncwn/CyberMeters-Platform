@@ -109,7 +109,7 @@ export async function runSubdomainsModule(domain, opts = {}) {
     // If the hard cap fires first the scan continues with an empty result;
     // the inner work is abandoned (Cloudflare GC's the hanging fetch).
     return await Promise.race([
-      _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, { accounting, cache, ctCache, signal: opts.signal, subOps: opts.subOps }),
+      _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, { accounting, cache, ctCache, signal: opts.signal, subOps: opts.subOps, ctOverlap: opts.ctOverlap }),
       new Promise((resolve) =>
         setTimeout(() =>
           resolve(emptyResult("Subdomain discovery timed out (15s hard cap)")),
@@ -165,14 +165,26 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     );
   };
 
+  // CT-R2 PR-2A shadow observation. These guards are deliberately one-way:
+  // production passes terminal provider values into the collector, while the
+  // collector returns nothing to `seen`, `sources`, or the customer result.
+  // A broken collector cannot change provider launch order or Promise semantics.
+  const observedCtGet = (provider) => {
+    try { opts.ctOverlap?.begin?.(provider); } catch { /* observational only */ }
+    return ctCache.get(domain, provider, { accounting, module: "subdomains" });
+  };
+
   // ── Fire all 4 network calls in parallel ────────────────────────────────
   const [wASettled, wAAAASettled, crtShSettled, certSpotterSettled] =
     await Promise.allSettled([
       timedSubOp("wildcard_dns_a", dnsQuery(wildcardHost, "A", { accounting, cache })),
       timedSubOp("wildcard_dns_aaaa", dnsQuery(wildcardHost, "AAAA", { accounting, cache })),
-      timedSubOp("ct_wait_crt_sh", ctCache.get(domain, "crt_sh", { accounting, module: "subdomains" })),
-      timedSubOp("ct_wait_certspotter", ctCache.get(domain, "certspotter", { accounting, module: "subdomains" })),
+      timedSubOp("ct_wait_crt_sh", observedCtGet("crt_sh")),
+      timedSubOp("ct_wait_certspotter", observedCtGet("certspotter")),
     ]);
+
+  try { opts.ctOverlap?.observe?.("crt_sh", crtShSettled, domain); } catch { /* observational only */ }
+  try { opts.ctOverlap?.observe?.("certspotter", certSpotterSettled, domain); } catch { /* observational only */ }
 
   // ── Wildcard DNS result ─────────────────────────────────────────────────
   const aAnswers    = wASettled.status    === "fulfilled" ? (wASettled.value.Answer    || []) : [];
