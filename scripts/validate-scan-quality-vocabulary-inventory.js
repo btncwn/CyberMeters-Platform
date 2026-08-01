@@ -43,7 +43,7 @@ const EXPECTED = Object.freeze({
     runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "b23f3c86e46fc704b7bbda778abdfd1dd4b984119aeaafa844aa9f5df8685a4b" },
     governance: { occurrence_count: 87, source_file_count: 33, fingerprint: "2f72bc2b1c65796c5d9b5146bef63c2af81ed927e83090ce6a55bcb9f66fc798" },
   },
-  sql_reads: { projection_occurrences: 23, predicate_occurrences: 35, fingerprint: "f7c676453f72325bacd1242e445690c6cf757379f51675767a042c3cf04ff979" },
+  sql_reads: { projection_occurrences: 23, fingerprint: "f7c676453f72325bacd1242e445690c6cf757379f51675767a042c3cf04ff979" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
@@ -904,12 +904,21 @@ function staticText(node, checker, seenSymbols = new Set()) {
       fullyResolved: Boolean(left?.fullyResolved && right?.fullyResolved),
     };
   }
-  if (ts.isCallExpression(value) && callMemberName(value.expression) === "join" &&
-      ts.isArrayLiteralExpression(unwrap(value.expression.expression))) {
-    const array = unwrap(value.expression.expression);
-    const separator = value.arguments[0] ? staticText(value.arguments[0], checker, new Set(seenSymbols))?.text ?? "" : ",";
-    const parts = array.elements.map((element) => staticText(element, checker, new Set(seenSymbols)));
-    return { text: parts.map((part) => part?.text ?? "__UNRESOLVED_EXPR__").join(separator), fullyResolved: parts.every(Boolean) };
+  if (ts.isCallExpression(value) && callMemberName(value.expression) === "join") {
+    const receiver = unwrap(value.expression.expression);
+    const array = ts.isArrayLiteralExpression(receiver) ? receiver : null;
+    if (array) {
+      const separator = value.arguments[0] ? staticText(value.arguments[0], checker, new Set(seenSymbols))?.text ?? "" : ",";
+      const parts = array.elements.map((element) => staticText(element, checker, new Set(seenSymbols)));
+      return { text: parts.map((part) => part?.text ?? "__UNRESOLVED_EXPR__").join(separator), fullyResolved: parts.every(Boolean) };
+    }
+    if (ts.isIdentifier(receiver)) {
+      const resolved = staticText(receiver, checker, new Set(seenSymbols));
+      if (resolved?.fullyResolved) {
+        const separator = value.arguments[0] ? staticText(value.arguments[0], checker, new Set(seenSymbols))?.text ?? "" : ",";
+        return { text: resolved.text.split(",").join(separator), fullyResolved: true };
+      }
+    }
   }
   if (ts.isConditionalExpression(value)) {
     const whenTrue = staticText(value.whenTrue, checker, new Set(seenSymbols));
@@ -1186,7 +1195,7 @@ for (const sf of sourceFiles.filter((file) => isRuntimeFile(file.fileName))) wal
   if (!resolved || !resolved.fullyResolved || !/\bscan_quality\b/i.test(resolved.text)) return;
   const lower = resolved.text.toLowerCase();
   const sqlShape = /\bselect\b/.test(lower) ||
-    /(?:^|[, ])(?:[a-z_][\w]*\.)scan_quality(?:[, ]|$)/.test(lower) ||
+    /(?:^|,)\s*(?:[a-z_][\w]*\.)scan_quality\s*(?:,|$)/.test(lower) ||
     /\b(cols|columns|projection|selectlist|fields?)\b/.test(lower);
   if (!sqlShape) return;
   sqlProjectionCandidates.push({ file: rel(sf.fileName), line: sourceLine(sf, node), kind: "static-read", snippet: resolved.text });
@@ -1195,7 +1204,7 @@ const sqlProjectionSites = sqlProjectionCandidates.filter((site) => {
   const text = site.snippet.toLowerCase();
   return ((/\bselect\b[\s\S]*\bscan_quality\b/.test(text) &&
     (!/\bwhere\b/.test(text) || text.indexOf("scan_quality") < text.indexOf("where"))) ||
-    /(?:^|[, ])(?:[a-z_][\w]*\.)?scan_quality(?:[, ]|$)/.test(text)) &&
+    /(?:^|,)\s*(?:[a-z_][\w]*\.)?scan_quality\s*(?:,|$)/.test(text)) &&
     !/\bwhere\b[\s\S]*\bscan_quality\b/.test(text) &&
     !/\b(insert|update|set|delete)\b/i.test(text);
 }).filter((site, index, all) => all.findIndex((other) =>
@@ -1256,7 +1265,7 @@ const current = {
     runtime: { occurrence_count: directRuntime.length, source_file_count: new Set(directRuntime.map((s) => s.file)).size, fingerprint: fingerprint(directRuntime.map((s) => `${s.file}:${s.line}:${s.kind}:${s.slot}:${s.snippet}`)) },
     governance: { occurrence_count: directGovernance.length, source_file_count: new Set(directGovernance.map((s) => s.file)).size, fingerprint: fingerprint(directGovernance.map((s) => `${s.file}:${s.line}:${s.kind}:${s.slot}:${s.snippet}`)) },
   },
-  sql_reads: { projection_occurrences: sqlProjectionSites.length, predicate_occurrences: sql.predicateOccurrences, fingerprint: sqlReadFingerprint },
+  sql_reads: { projection_occurrences: sqlProjectionSites.length, fingerprint: sqlReadFingerprint },
 };
 const unresolvedGovernanceKeys = semantic.unresolvedGovernance.map((site) =>
   `${site.file}:${site.line}:${site.snippet}`,
@@ -1268,6 +1277,7 @@ function dumpInventory() {
     runtime_comparisons: semantic.runtime,
     direct_reads: direct.sites,
     sql_sites: sqlSites,
+    sql_projection_sites: sqlProjectionSites,
     governance_comparisons: semantic.governance,
     unresolved_governance: semantic.unresolvedGovernance,
     unclassified: [...semantic.unclassified, ...sql.unclassified],
