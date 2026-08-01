@@ -1,5 +1,26 @@
 # CyberMeters Platform — CLAUDE.md
 
+## Mandatory AI operating authority — 1 August 2026
+
+Before acting, read `docs/AI-EXECUTIVE-OPERATING-MODEL.md` completely.
+
+- Claude CLI is an assigned executor, investigator or readiness owner under the
+  primary executive agent's brief.
+- Claude Desktop is the independent adversarial reviewer and must also read
+  `docs/CLAUDE-DESKTOP-ADVERSARIAL-REVIEW-CONTRACT.md`.
+- Claude does not independently set roadmap direction, expand implementation
+  scope, merge or deploy unless explicitly reassigned by the primary agent.
+- Founder confirmation is required only for the reserved decisions in the
+  canonical operating model. For every other decision, Claude challenges with
+  evidence and the primary executive agent adjudicates.
+- Do not label a delegated decision as founder-authored.
+- Do not ask the founder for routine merge, implementation or non-reserved
+  product-quality approval.
+
+This section overrides older workflow wording that conflicts with the canonical
+operating model. It does not override platform safety rules or founder-reserved
+boundaries.
+
 Version: July 2026
 
 Last updated: 20 July 2026 (latest git release tag `v2026.07.20-7`; live Worker `b6b52726` (rollback `01f0a2f4`); latest applied migration `098-related-changes.sql`. Since 18 July: Brand Protection PR-A/B/C, Shadow IT Alert Trust PR-1/PR-2, Weekly Digest Truth, UC3 case surface/transitions, M6 Phase B1 Related Changes, H1 validator recovery + anti-orphan CI governance, anti-date-rot governance, and the trust & UX closure are all engineering-complete and deployed — **each remains PENDING FOUNDER PRODUCTION ACCEPTANCE; none may be described as accepted**. Per-release facts: `CHANGELOG.md`.)
