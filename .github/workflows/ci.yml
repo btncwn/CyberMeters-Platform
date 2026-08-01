@@ -19,6 +19,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # The fail-closed PR classifier requires the exact event base/head and
+          # merge-base. A shallow checkout is never treated as a safe diff.
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -31,6 +35,43 @@ jobs:
           cache-dependency-path: |
             workers/scan-api/package-lock.json
             frontend/package-lock.json
+
+      - name: Classify CI change scope (fail closed)
+        id: ci_scope
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          # Defaults are written first. GitHub uses the final value for duplicate
+          # output keys, so a successful classifier may narrow the run; a syntax,
+          # load, git or payload failure leaves RUN-ALL in force.
+          {
+            echo "decision=UNKNOWN_FAIL_CLOSED"
+            echo "effective_mode=RUN_ALL"
+            echo "safe_docs_only=false"
+            echo "expected_net_savings_seconds=0"
+          } >> "$GITHUB_OUTPUT"
+          if ! node scripts/classify-ci-change.js \
+            --event-name "$CI_EVENT_NAME" \
+            --event-file "$CI_EVENT_PATH"; then
+            echo "::warning::CI scope classifier failed unexpectedly; RUN-ALL defaults remain active"
+            # Reassert after any late process failure. The classifier writes its
+            # safe outputs last, but this second default also closes stdout,
+            # summary or future post-output failure paths.
+            {
+              echo "decision=UNKNOWN_FAIL_CLOSED"
+              echo "effective_mode=RUN_ALL"
+              echo "safe_docs_only=false"
+              echo "expected_net_savings_seconds=0"
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo "## CI scope classification"
+              echo
+              echo "- Decision: **UNKNOWN_FAIL_CLOSED**"
+              echo "- Effective mode: **RUN_ALL**"
+              echo "- Reason: classifier process failed; fail-closed defaults retained"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Show Node version
         run: node --version && npm --version
@@ -49,6 +90,9 @@ jobs:
             exit 1
           fi
           echo "No obvious secrets in tracked files."
+
+      - name: Validate safe docs-only CI classifier and conditional-step governance
+        run: node scripts/validate-ci-safe-docs-only.js
 
       - name: Worker syntax checks (API + standalone email ingress)
         run: |
@@ -227,6 +271,7 @@ jobs:
       # presented as externally verified, and what it CAN see is only ever a partial slice.
       # Mutation-tested, including the approved-guard P1 and the #106 purge defect.
       - name: Validate M5.a Cyber Essentials managed cases (final M5.a vertical)
+        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
         run: node scripts/validate-m5a-ce-cases.js
 
       # CE readiness honesty. access_control and malware_protection declare
@@ -267,6 +312,7 @@ jobs:
       # denominator change cannot read as a posture change. D2: `external` is not `automated`
       # (a third party certifies, not our scan). D3: ASM/Brand blanket drift is CI-blocked.
       - name: Validate M5.b remaining reconciliation (CE patch readiness, external, blankets)
+        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
         run: node scripts/validate-m5b-remaining-reconciliation.js
 
       # M5.c — canonical reporting snapshot (mig 093). Five render paths with three
@@ -466,7 +512,7 @@ jobs:
       - name: Validate evaluator/resolver parity (each engine emits a resolvable occurrence)
         run: node scripts/validate-alert-evaluator-parity.js
 
-      - name: Validate CI governance (every branch gets the same gate)
+      - name: Validate CI governance (trigger / reachability / anti-orphan)
         run: node scripts/validate-ci-governance.js
 
       - name: Validate date-rot governance (future-dated fixtures require a frozen clock or an explicit allowlist reason)
@@ -1097,9 +1143,11 @@ jobs:
       # source files, runtime semantic comparisons and governance comparisons).
       # The strict fresh-process suite rejects wrong-reason mutant kills.
       - name: Validate scan-quality vocabulary inventory (AST + SQL taxonomy)
+        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
         run: node scripts/validate-scan-quality-vocabulary-inventory.js
 
       - name: Validate scan-quality vocabulary inventory strict mutations
+        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
         run: node scripts/validate-scan-quality-vocabulary-mutations.js
 
       # Track A A2+A3 — ScanDetail must render frozen assessment rating/score only,
@@ -1111,6 +1159,7 @@ jobs:
         run: node scripts/validate-scan-detail-presentation.js
 
       - name: Validate ScanDetail presentation strict mutations
+        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
         run: node scripts/validate-scan-detail-presentation-mutations.js
 
       # TRACK-A3 — IntelligencePage consumes the same frozen assessment and
@@ -1121,6 +1170,7 @@ jobs:
         run: node scripts/validate-intelligence-page-presentation.js
 
       - name: Validate IntelligencePage presentation strict mutations
+        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
         run: node scripts/validate-intelligence-page-presentation-mutations.js
 
       # A1 mutation proof includes a fresh-process real ScanDetail/Vitest carrier,
@@ -1140,6 +1190,7 @@ jobs:
         run: npm run typecheck
 
       - name: Frontend component tests with coverage (Vitest)
+        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
         working-directory: frontend
         run: npm run test:coverage
 

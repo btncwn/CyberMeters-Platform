@@ -8,7 +8,8 @@
   },
   "devDependencies": {
     "acorn": "8.15.0",
-    "wrangler": "4.110.0"
+    "wrangler": "4.110.0",
+    "yaml": "2.9.0"
   },
   "type": "module",
   "overrides": {
