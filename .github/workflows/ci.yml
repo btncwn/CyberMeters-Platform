@@ -55,6 +55,15 @@ jobs:
             --event-name "$CI_EVENT_NAME" \
             --event-file "$CI_EVENT_PATH"; then
             echo "::warning::CI scope classifier failed unexpectedly; RUN-ALL defaults remain active"
+            # Reassert after any late process failure. The classifier writes its
+            # safe outputs last, but this second default also closes stdout,
+            # summary or future post-output failure paths.
+            {
+              echo "decision=UNKNOWN_FAIL_CLOSED"
+              echo "effective_mode=RUN_ALL"
+              echo "safe_docs_only=false"
+              echo "expected_net_savings_seconds=0"
+            } >> "$GITHUB_OUTPUT"
             {
               echo "## CI scope classification"
               echo

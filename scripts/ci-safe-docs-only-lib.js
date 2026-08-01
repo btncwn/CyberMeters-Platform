@@ -272,7 +272,7 @@ export function classifyChange({ repoRoot, eventName, event, manifest }) {
     const gitDetails = { base_sha: baseSha, head_sha: headSha, merge_base: mergeBase };
 
     const diff = runGit(repoRoot, [
-      "diff", "--name-status", "-z", "--find-renames=1%", "--find-copies=1%",
+      "diff", "--name-status", "-z", "--find-renames=50%", "--find-copies=50%",
       "--find-copies-harder",
       `${baseSha}...${headSha}`, "--",
     ]);
@@ -426,6 +426,8 @@ export function manifestSemanticFingerprint(manifest) {
       command: step.command,
       working_directory: step.working_directory,
       measured_seconds: step.measured_seconds,
+      reason: step.reason,
+      evidence: step.evidence,
     })),
   }));
 }

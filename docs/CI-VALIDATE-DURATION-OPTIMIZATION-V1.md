@@ -142,7 +142,7 @@ RUN-ALL (directly or through `UNKNOWN_FAIL_CLOSED`).
 | workflow/classifier/manifest self-bypass | all are non-allowlisted paths, so this PR and every such PR run all |
 | mixed runtime disguised as docs | every path/status/object is classified; one unsafe entry runs all |
 | binary/symlink/rename/copy/deletion | object/status/numstat checks run all |
-| stale step-independence proof | versioned evidence-scope fingerprints make the classifier fail closed |
+| stale or narrowed step-independence proof | versioned evidence-scope fingerprints plus a semantic pin over every evidence definition make the classifier fail closed |
 | visible but unreachable validator step | YAML AST reachability policy; only seven exact steps may carry one canonical condition |
 | classifier process crash | workflow writes RUN-ALL outputs first and retains them on failure |
 | broken main hidden by a green docs PR | every push to main runs full CI; a main failure is a release blocker |
@@ -199,15 +199,15 @@ not proven.
 
 `scripts/validate-ci-safe-docs-only.js` pins:
 
-- 26 fresh-process, real-git fixtures;
-- 9 fresh-process load-bearing mutants;
-- 55 exact assertions;
+- 27 fresh-process, real-git fixtures;
+- 12 fresh-process load-bearing mutants;
+- 59 exact assertions;
 - exact mutant FAIL-name sets;
 - rejection of syntax/load/spawn/signal failures as kills;
 - byte restoration of every mutated target;
 - complete pre/post worktree fingerprint equality.
 
-The matrix covers CHANGELOG-only, ordinary docs, docs+runtime, docs+scripts,
+The matrix covers CHANGELOG-only, ordinary docs modification and addition, docs+runtime, docs+scripts,
 docs+workflow, docs+CHANGELOG, rename, copy, deletion, symlink, submodule, binary, root
 governance, security inventory, workflow, scripts, classifier, manifest, 301
 files, malformed/missing base, shallow checkout, unresolved/wrong merge-base,

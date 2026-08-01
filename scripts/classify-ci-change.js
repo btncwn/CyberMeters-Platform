@@ -60,6 +60,9 @@ if (!manifest) {
 }
 
 const details = decisionDetails(classification, manifest);
-if (outputPath) fs.appendFileSync(outputPath, `${outputLines(details).join("\n")}\n`);
 if (summaryPath) fs.appendFileSync(summaryPath, markdownSummary(details));
 console.log(JSON.stringify(details));
+// Write narrowing outputs last. If summary/logging fails first, the workflow's
+// prewritten RUN-ALL defaults remain authoritative; if a later process failure
+// ever occurs, the shell reasserts those defaults again.
+if (outputPath) fs.appendFileSync(outputPath, `${outputLines(details).join("\n")}\n`);

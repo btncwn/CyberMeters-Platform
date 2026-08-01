@@ -21,19 +21,21 @@ const self = fileURLToPath(import.meta.url);
 const workflowPath = path.join(root, ".github", "workflows", "ci.yml");
 const manifestPath = path.join(root, ".github", "ci-safe-docs-only-v1.json");
 const libraryPath = path.join(root, "scripts", "ci-safe-docs-only-lib.js");
-const EXPECTED_FIXTURES = 26;
-const EXPECTED_MUTANTS = 9;
+const EXPECTED_FIXTURES = 27;
+const EXPECTED_MUTANTS = 12;
 const EXPECTED_POLICY_ASSERTIONS = 11;
-const EXPECTED_ASSERTIONS = 55;
-const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "0172e34879d6b6c7b392c5400acd14a0c4e507b36183ca8d49d4941a58c79b45";
+const EXPECTED_ASSERTIONS = 59;
+const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "1765b841e2c14e9e86612108c6bff5443aa01ab1619c6b08b509f54194afd24b";
 
 const fixtureChild = process.argv.includes("--fixture-child");
 const policyChild = process.argv.includes("--policy-child");
+const manifestChild = process.argv.includes("--manifest-child");
 const selectedFixturesArg = process.argv.find((arg) => arg.startsWith("--fixtures="));
 
 const FIXTURES = Object.freeze([
   { name: "changelog_only", safe: true, contentClass: "CHANGELOG_ONLY" },
   { name: "ordinary_docs", safe: true, contentClass: "DOCS_ONLY" },
+  { name: "ordinary_docs_addition", safe: true, contentClass: "DOCS_ONLY" },
   { name: "docs_runtime", safe: false },
   { name: "docs_scripts", safe: false },
   { name: "docs_workflow", safe: false },
@@ -132,6 +134,9 @@ function buildFixture(name) {
   switch (name) {
     case "changelog_only": append("CHANGELOG.md"); break;
     case "ordinary_docs": append("docs/ordinary.md"); break;
+    case "ordinary_docs_addition":
+      write(repo, "docs/new-ordinary-note.md", "# New ordinary note\n\nA distinct documentation-only addition.\n");
+      break;
     case "docs_runtime": append("docs/ordinary.md"); append("workers/scan-api/src/index.js"); break;
     case "docs_scripts": append("docs/ordinary.md"); append("scripts/classify-ci-change.js"); break;
     case "docs_workflow": append("docs/ordinary.md"); append(".github/workflows/ci.yml"); break;
@@ -294,6 +299,22 @@ if (policyChild) {
   process.exit(failures.length ? 1 : 0);
 }
 
+if (manifestChild) {
+  const manifest = loadManifest(root);
+  const checks = [
+    {
+      name: "manifest classifier/mapping/evidence semantic fingerprint is exact and pinned",
+      passed: manifestSemanticFingerprint(manifest) === EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT,
+    },
+    {
+      name: "manifest evidence-scope fingerprints are current",
+      passed: verifyEvidenceScopes(root, manifest).length === 0,
+    },
+  ];
+  for (const check of checks) console.log(`${check.passed ? "PASS" : "FAIL"} ${check.name}`);
+  process.exit(checks.some((check) => !check.passed) ? 1 : 0);
+}
+
 const worktreeFingerprint = () => {
   const status = git(root, ["status", "--porcelain=v1", "--untracked-files=all"]);
   const diff = git(root, ["diff", "--binary", "--no-ext-diff", "HEAD", "--", "."]);
@@ -348,6 +369,16 @@ const MUTANTS = [
     expectedFailures: ["always-run: mandatory steps are present exactly once and unconditional"],
   },
   {
+    name: "mandatory step receives an empty if key",
+    file: workflowPath,
+    replacements: [{
+      from: "      - name: Validate CI governance (trigger / reachability / anti-orphan)\n        run: node scripts/validate-ci-governance.js",
+      to: "      - name: Validate CI governance (trigger / reachability / anti-orphan)\n        if:\n        run: node scripts/validate-ci-governance.js",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["always-run: mandatory steps are present exactly once and unconditional"],
+  },
+  {
     name: "always-run step enters skip-list",
     file: manifestPath,
     replacements: [{
@@ -366,6 +397,25 @@ const MUTANTS = [
     }],
     childArgs: ["--fixture-child", "--fixtures=missing_base_object"],
     expectedFailures: ["fixture missing_base_object remains RUN_ALL"],
+  },
+  {
+    name: "late classifier failure does not reassert RUN-ALL outputs",
+    file: workflowPath,
+    replacements: [{
+      from: `            echo "::warning::CI scope classifier failed unexpectedly; RUN-ALL defaults remain active"
+            # Reassert after any late process failure. The classifier writes its
+            # safe outputs last, but this second default also closes stdout,
+            # summary or future post-output failure paths.
+            {
+              echo "decision=UNKNOWN_FAIL_CLOSED"
+              echo "effective_mode=RUN_ALL"
+              echo "safe_docs_only=false"
+              echo "expected_net_savings_seconds=0"
+            } >> "$GITHUB_OUTPUT"`,
+      to: `            echo "::warning::CI scope classifier failed unexpectedly; MUTANT leaves late outputs active"`,
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["classifier wiring: id/output defaults/process invocation are fail-closed"],
   },
   {
     name: ">300 files are truncated",
@@ -414,6 +464,24 @@ const MUTANTS = [
     ],
   },
   {
+    name: "evidence scope is narrowed while its live digest is refreshed",
+    file: manifestPath,
+    replacements: [{
+      from: `        "scope_paths": [
+          "frontend"
+        ],
+        "scope_sha256": "1659841f45a0289082dfcd29aac995a5f56a5cb1d9a7e04b1a3ef52e97a5857e",
+        "scope_file_count": 228,`,
+      to: `        "scope_paths": [
+          "frontend/package.json"
+        ],
+        "scope_sha256": "ff494662369ed2a6d22b0b493b0ba53ba0137478b200c807c5b71f27bafe6044",
+        "scope_file_count": 1,`,
+    }],
+    childArgs: ["--manifest-child"],
+    expectedFailures: ["manifest classifier/mapping/evidence semantic fingerprint is exact and pinned"],
+  },
+  {
     name: "canonical skip condition drifts",
     file: workflowPath,
     replacements: [{
@@ -440,7 +508,7 @@ const ok = (name, condition, detail = "") => {
 const manifest = loadManifest(root);
 ok("manifest structure is valid", validateManifest(manifest).length === 0);
 ok(
-  "manifest classifier/mapping semantic fingerprint is exact and pinned",
+  "manifest classifier/mapping/evidence semantic fingerprint is exact and pinned",
   manifestSemanticFingerprint(manifest) === EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT,
   manifestSemanticFingerprint(manifest),
 );

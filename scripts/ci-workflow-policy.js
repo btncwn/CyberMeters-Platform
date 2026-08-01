@@ -40,6 +40,7 @@ const sameSet = (left, right) => {
 };
 
 const assertion = (name, passed, detail = "") => ({ name, passed: Boolean(passed), detail });
+const hasOwn = (value, key) => value != null && Object.prototype.hasOwnProperty.call(value, key);
 
 export function parseWorkflowAst(source) {
   const document = parseDocument(source, {
@@ -97,7 +98,7 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest }) {
   }
 
   const nonManifestConditionals = steps.filter((step) =>
-    step?.if != null && !skipNames.has(step.name) && !requiredAlways.has(step.name));
+    hasOwn(step, "if") && !skipNames.has(step.name) && !requiredAlways.has(step.name));
   results.push(assertion(
     "conditions: only versioned skip-list steps may be conditional",
     nonManifestConditionals.length === 0,
@@ -134,7 +135,7 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest }) {
   for (const name of REQUIRED_ALWAYS_RUN) {
     const found = byName.get(name) || [];
     if (found.length !== 1) alwaysProblems.push(`${name}: count ${found.length}`);
-    else if (found[0].if != null) alwaysProblems.push(`${name}: conditional ${JSON.stringify(found[0].if)}`);
+    else if (hasOwn(found[0], "if")) alwaysProblems.push(`${name}: conditional ${JSON.stringify(found[0].if)}`);
   }
   results.push(assertion(
     "always-run: mandatory steps are present exactly once and unconditional",
@@ -149,17 +150,19 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest }) {
       typeof classifier?.run === "string" &&
       classifier.run.includes("decision=UNKNOWN_FAIL_CLOSED") &&
       classifier.run.includes("effective_mode=RUN_ALL") &&
+      (classifier.run.match(/decision=UNKNOWN_FAIL_CLOSED/g) || []).length === 2 &&
+      (classifier.run.match(/effective_mode=RUN_ALL/g) || []).length === 2 &&
       classifier.run.includes("node scripts/classify-ci-change.js") &&
       classifier.run.includes("if ! node"),
   ));
 
   results.push(assertion(
     "jobs: validate and sast jobs are unconditional",
-    validateJob?.if == null && sastJob?.if == null,
+    !hasOwn(validateJob, "if") && !hasOwn(sastJob, "if"),
   ));
   results.push(assertion(
     "SAST: every step remains unconditional",
-    sastSteps.length > 0 && sastSteps.every((step) => step?.if == null),
+    sastSteps.length > 0 && sastSteps.every((step) => !hasOwn(step, "if")),
   ));
 
   return results;
