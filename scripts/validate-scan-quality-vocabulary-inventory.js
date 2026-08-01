@@ -891,6 +891,10 @@ function staticText(node, checker, seenSymbols = new Set()) {
     }
     return null;
   }
+  if (ts.isArrayLiteralExpression(value)) {
+    const parts = value.elements.map((element) => staticText(element, checker, new Set(seenSymbols)));
+    return { text: parts.map((part) => part?.text ?? "__UNRESOLVED_EXPR__").join(","), fullyResolved: parts.every(Boolean) };
+  }
   if (ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.PlusToken) {
     const left = staticText(value.left, checker, new Set(seenSymbols));
     const right = staticText(value.right, checker, new Set(seenSymbols));
@@ -1189,7 +1193,8 @@ for (const sf of sourceFiles.filter((file) => isRuntimeFile(file.fileName))) wal
 });
 const sqlProjectionSites = sqlProjectionCandidates.filter((site) => {
   const text = site.snippet.toLowerCase();
-  return (/\bselect\b[\s\S]*\bscan_quality\b/.test(text) ||
+  return ((/\bselect\b[\s\S]*\bscan_quality\b/.test(text) &&
+    (!/\bwhere\b/.test(text) || text.indexOf("scan_quality") < text.indexOf("where"))) ||
     /(?:^|[, ])(?:[a-z_][\w]*\.)?scan_quality(?:[, ]|$)/.test(text)) &&
     !/\bwhere\b[\s\S]*\bscan_quality\b/.test(text) &&
     !/\b(insert|update|set|delete)\b/i.test(text);

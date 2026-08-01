@@ -172,7 +172,7 @@ export const ctR2ArrayLaunderingGate = ctR2ArrayCarrier[0] === "partial";`),
 const ctR2MapCarrier = new Map();
 ctR2MapCarrier.set("quality", ctR2MapCarrierRow.scan_quality);
 export const ctR2MapLaunderingGate = [...ctR2MapCarrier.values()].filter((v) => v === "complete");`),
-    expectedFailure: RUNTIME_FAILURE,
+    expectedFailures: [RUNTIME_FAILURE, DIRECT_RUNTIME_FAILURE],
   },
   {
     name: "A comparison-free dot read is pinned by the primary direct-read inventory",
