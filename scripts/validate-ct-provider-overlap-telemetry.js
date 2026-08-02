@@ -57,6 +57,218 @@ const eq = (name, got, want) =>
   ok(name, got === want, `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 
+function skipSqlQuoted(text, start) {
+  const opener = text[start];
+  const closer = opener === "[" ? "]" : opener;
+  for (let index = start + 1; index < text.length; index += 1) {
+    if (text[index] !== closer) continue;
+    if (text[index + 1] === closer) {
+      index += 1;
+      continue;
+    }
+    return index + 1;
+  }
+  throw new Error(`unterminated SQL quoted token at offset ${start}`);
+}
+
+function stripSqlComments(sql) {
+  let executable = "";
+  for (let index = 0; index < sql.length;) {
+    const char = sql[index];
+    if (["'", '"', "`", "["].includes(char)) {
+      const end = skipSqlQuoted(sql, index);
+      executable += sql.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (char === "-" && sql[index + 1] === "-") {
+      executable += "  ";
+      index += 2;
+      while (index < sql.length && sql[index] !== "\n") {
+        executable += " ";
+        index += 1;
+      }
+      continue;
+    }
+    if (char === "/" && sql[index + 1] === "*") {
+      executable += "  ";
+      index += 2;
+      let closed = false;
+      while (index < sql.length) {
+        if (sql[index] === "*" && sql[index + 1] === "/") {
+          executable += "  ";
+          index += 2;
+          closed = true;
+          break;
+        }
+        executable += sql[index] === "\n" ? "\n" : " ";
+        index += 1;
+      }
+      if (!closed) throw new Error("unterminated SQL block comment");
+      continue;
+    }
+    executable += char;
+    index += 1;
+  }
+  return executable;
+}
+
+function findMatchingSqlParen(text, openIndex) {
+  if (text[openIndex] !== "(") throw new Error(`expected SQL ( at offset ${openIndex}`);
+  let depth = 0;
+  for (let index = openIndex; index < text.length; index += 1) {
+    if (["'", '"', "`", "["].includes(text[index])) {
+      index = skipSqlQuoted(text, index) - 1;
+      continue;
+    }
+    if (text[index] === "(") depth += 1;
+    if (text[index] === ")") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  throw new Error(`unterminated SQL parenthesis at offset ${openIndex}`);
+}
+
+function splitTopLevelSql(text) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    if (["'", '"', "`", "["].includes(text[index])) {
+      index = skipSqlQuoted(text, index) - 1;
+      continue;
+    }
+    if (text[index] === "(") depth += 1;
+    else if (text[index] === ")") depth -= 1;
+    else if (text[index] === "," && depth === 0) {
+      parts.push(text.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(text.slice(start).trim());
+  return parts;
+}
+
+function readSqlIdentifier(text, start = 0) {
+  let index = start;
+  while (/\s/.test(text[index] || "")) index += 1;
+  const opener = text[index];
+  if (["\"", "`", "["].includes(opener)) {
+    const end = skipSqlQuoted(text, index);
+    return {
+      value: text.slice(index + 1, end - 1).replaceAll(opener === "[" ? "]]" : opener + opener, opener === "[" ? "]" : opener),
+      end,
+    };
+  }
+  const match = text.slice(index).match(/^[A-Za-z_][A-Za-z0-9_$]*/);
+  return match ? { value: match[0], end: index + match[0].length } : null;
+}
+
+function findSqlKeyword(text, keyword, start = 0) {
+  const upperKeyword = keyword.toUpperCase();
+  for (let index = start; index <= text.length - keyword.length; index += 1) {
+    if (["'", '"', "`", "["].includes(text[index])) {
+      index = skipSqlQuoted(text, index) - 1;
+      continue;
+    }
+    const candidate = text.slice(index, index + keyword.length);
+    const before = text[index - 1] || "";
+    const after = text[index + keyword.length] || "";
+    if (candidate.toUpperCase() === upperKeyword
+      && !/[A-Za-z0-9_$]/.test(before)
+      && !/[A-Za-z0-9_$]/.test(after)) return index;
+  }
+  return -1;
+}
+
+function decodeSqlStringLiteral(token) {
+  const value = token.trim();
+  if (value[0] !== "'") return null;
+  let decoded = "";
+  for (let index = 1; index < value.length; index += 1) {
+    if (value[index] !== "'") {
+      decoded += value[index];
+      continue;
+    }
+    if (value[index + 1] === "'") {
+      decoded += "'";
+      index += 1;
+      continue;
+    }
+    return value.slice(index + 1).trim() === "" ? decoded : null;
+  }
+  return null;
+}
+
+function extractColumnCheckInVocabulary(executableSql, tableName, columnName) {
+  try {
+    const tablePattern = new RegExp(
+      `\\bCREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?${tableName}\\b`,
+      "i",
+    );
+    const tableMatch = tablePattern.exec(executableSql);
+    if (!tableMatch) return { values: null, error: `table ${tableName} not found` };
+    const tableOpen = executableSql.indexOf("(", tableMatch.index + tableMatch[0].length);
+    if (tableOpen < 0) return { values: null, error: `table ${tableName} has no body` };
+    const tableClose = findMatchingSqlParen(executableSql, tableOpen);
+    const definitions = splitTopLevelSql(executableSql.slice(tableOpen + 1, tableClose));
+    const columns = definitions.filter((definition) =>
+      readSqlIdentifier(definition)?.value.toLowerCase() === columnName.toLowerCase());
+    if (columns.length !== 1) {
+      return { values: null, error: `column ${columnName} definitions=${columns.length}` };
+    }
+
+    const definition = columns[0];
+    const checkIndex = findSqlKeyword(definition, "CHECK");
+    if (checkIndex < 0) return { values: null, error: `column ${columnName} has no CHECK` };
+    if (findSqlKeyword(definition, "CHECK", checkIndex + 5) >= 0) {
+      return { values: null, error: `column ${columnName} has multiple CHECK clauses` };
+    }
+    let checkOpen = checkIndex + 5;
+    while (/\s/.test(definition[checkOpen] || "")) checkOpen += 1;
+    if (definition[checkOpen] !== "(") {
+      return { values: null, error: `column ${columnName} CHECK has no expression` };
+    }
+    const checkClose = findMatchingSqlParen(definition, checkOpen);
+    if (definition.slice(checkClose + 1).trim() !== "") {
+      return { values: null, error: `column ${columnName} has trailing CHECK syntax` };
+    }
+    const expression = definition.slice(checkOpen + 1, checkClose);
+    const identifier = readSqlIdentifier(expression);
+    if (!identifier || identifier.value.toLowerCase() !== columnName.toLowerCase()) {
+      return { values: null, error: `column ${columnName} CHECK targets another expression` };
+    }
+    const inIndex = findSqlKeyword(expression, "IN", identifier.end);
+    if (inIndex < 0 || expression.slice(identifier.end, inIndex).trim() !== "") {
+      return { values: null, error: `column ${columnName} CHECK is not a direct IN` };
+    }
+    let listOpen = inIndex + 2;
+    while (/\s/.test(expression[listOpen] || "")) listOpen += 1;
+    if (expression[listOpen] !== "(") {
+      return { values: null, error: `column ${columnName} IN has no literal list` };
+    }
+    const listClose = findMatchingSqlParen(expression, listOpen);
+    if (expression.slice(listClose + 1).trim() !== "") {
+      return { values: null, error: `column ${columnName} CHECK weakens direct IN` };
+    }
+    const tokens = splitTopLevelSql(expression.slice(listOpen + 1, listClose));
+    const values = tokens.map(decodeSqlStringLiteral);
+    if (tokens.length === 0 || values.some((value) => value === null)) {
+      return { values: null, error: `column ${columnName} IN contains a non-literal` };
+    }
+    return { values, error: null };
+  } catch (error) {
+    return { values: null, error: error?.message || String(error) };
+  }
+}
+
+function vocabulariesMatchExactly(actual, expected) {
+  if (!Array.isArray(actual) || actual.length !== expected.length) return false;
+  if (new Set(actual).size !== actual.length || new Set(expected).size !== expected.length) return false;
+  return JSON.stringify([...actual].sort()) === JSON.stringify([...expected].sort());
+}
+
 const available = (provider, data) => ({
   provider,
   domain: "example.com",
@@ -470,6 +682,67 @@ function buildDb() {
   return db;
 }
 
+const vocabularyControlInsert = `INSERT INTO ct_provider_overlap_telemetry (
+  id, scan_id, module, source_set_version, observed_at,
+  normalization_candidate_limit, retained_hostname_limit,
+  crt_sh_attempt_state, certspotter_attempt_state, comparison_status
+) VALUES (?, ?, 'subdomains', ?, ?, ?, ?, ?, ?, ?)`;
+
+function insertVocabularyControl(db, {
+  id,
+  scanId,
+  crtShAttemptState,
+  certspotterAttemptState,
+  comparisonStatus,
+}) {
+  return db.prepare(vocabularyControlInsert).run(
+    id,
+    scanId,
+    `ct-overlap-vocabulary-control/${id}`,
+    NOW,
+    CT_PROVIDER_OVERLAP_NORMALIZATION_LIMIT,
+    CT_PROVIDER_OVERLAP_RETAINED_LIMIT,
+    crtShAttemptState,
+    certspotterAttemptState,
+    comparisonStatus,
+  );
+}
+
+function runVocabularyNegativeControl({ label, valid, invalid }) {
+  const db = buildDb();
+  let validResult = null;
+  let validError = null;
+  try {
+    validResult = insertVocabularyControl(db, {
+      id: `${label}-valid`,
+      scanId: "scan-a",
+      ...valid,
+    });
+  } catch (error) {
+    validError = error;
+  }
+  ok(`sqlite ${label}: valid control row succeeds`,
+    validError === null && validResult?.changes === 1,
+    validError?.message || `changes=${validResult?.changes}`);
+
+  let invalidError = null;
+  try {
+    insertVocabularyControl(db, {
+      id: `${label}-invalid`,
+      scanId: "scan-b",
+      ...invalid,
+    });
+  } catch (error) {
+    invalidError = error;
+  }
+  ok(`sqlite ${label}: bogus row rejected by CHECK constraint`,
+    invalidError?.code === "ERR_SQLITE_ERROR"
+      && invalidError?.errcode === 275
+      && invalidError?.errstr === "constraint failed"
+      && /^CHECK constraint failed:/i.test(invalidError?.message || ""),
+    invalidError?.message || "row unexpectedly succeeded");
+}
+
 function makeD1(db, { fail = false } = {}) {
   const calls = [];
   const statement = (sql, args = []) => ({
@@ -591,24 +864,85 @@ const persistenceMeasurement = persistenceMeasurementCollector.snapshot();
   ).get().n, 0);
 }
 
+runVocabularyNegativeControl({
+  label: "crt_sh attempt state",
+  valid: {
+    crtShAttemptState: "terminal_failure",
+    certspotterAttemptState: "terminal_failure",
+    comparisonStatus: "censored_provider_failure",
+  },
+  invalid: {
+    crtShAttemptState: "invalid_crt_sh_attempt_state",
+    certspotterAttemptState: "terminal_failure",
+    comparisonStatus: "censored_provider_failure",
+  },
+});
+
+runVocabularyNegativeControl({
+  label: "certspotter attempt state",
+  valid: {
+    crtShAttemptState: "terminal_failure",
+    certspotterAttemptState: "terminal_failure",
+    comparisonStatus: "censored_provider_failure",
+  },
+  invalid: {
+    crtShAttemptState: "terminal_failure",
+    certspotterAttemptState: "invalid_certspotter_attempt_state",
+    comparisonStatus: "censored_provider_failure",
+  },
+});
+
+runVocabularyNegativeControl({
+  label: "comparison status",
+  valid: {
+    crtShAttemptState: "terminal_failure",
+    certspotterAttemptState: "terminal_failure",
+    comparisonStatus: "censored_provider_failure",
+  },
+  invalid: {
+    crtShAttemptState: "terminal_failure",
+    certspotterAttemptState: "terminal_failure",
+    comparisonStatus: "invalid_comparison_status",
+  },
+});
+
 // Schema and governance are load-bearing, not documentation-only assertions.
 {
   const migration = fs.readFileSync(migrationPath, "utf8");
-  const executable = migration
-    .replace(/--[^\n]*/g, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "");
+  const executable = stripSqlComments(migration);
   ok("migration 104 is additive", /CREATE TABLE IF NOT EXISTS ct_provider_overlap_telemetry/i.test(migration)
     && !/\b(DROP\s+TABLE|DROP\s+COLUMN|DELETE\s+FROM|TRUNCATE)\b/i.test(executable));
   ok("migration 104 has scan FK", /FOREIGN KEY \(scan_id\) REFERENCES scans\(id\)/i.test(migration));
   ok("migration 104 has source-version idempotency gate",
     /UNIQUE \(scan_id, module, source_set_version\)/i.test(migration));
   ok("migration 104 constrains module to subdomains", /CHECK \(module = 'subdomains'\)/i.test(migration));
-  for (const state of CT_PROVIDER_OVERLAP_ATTEMPT_STATES) {
-    ok(`migration 104 freezes attempt state ${state}`, migration.includes(`'${state}'`));
-  }
-  for (const status of CT_PROVIDER_OVERLAP_COMPARISON_STATUSES) {
-    ok(`migration 104 freezes comparison status ${status}`, migration.includes(`'${status}'`));
-  }
+  const crtShSqlVocabulary = extractColumnCheckInVocabulary(
+    executable,
+    "ct_provider_overlap_telemetry",
+    "crt_sh_attempt_state",
+  );
+  const certspotterSqlVocabulary = extractColumnCheckInVocabulary(
+    executable,
+    "ct_provider_overlap_telemetry",
+    "certspotter_attempt_state",
+  );
+  const comparisonSqlVocabulary = extractColumnCheckInVocabulary(
+    executable,
+    "ct_provider_overlap_telemetry",
+    "comparison_status",
+  );
+  ok("migration 104 crt_sh attempt-state CHECK exactly matches engine vocabulary",
+    vocabulariesMatchExactly(crtShSqlVocabulary.values, CT_PROVIDER_OVERLAP_ATTEMPT_STATES),
+    crtShSqlVocabulary.error
+      || `sql=${JSON.stringify(crtShSqlVocabulary.values)} engine=${JSON.stringify(CT_PROVIDER_OVERLAP_ATTEMPT_STATES)}`);
+  ok("migration 104 certspotter attempt-state CHECK exactly matches engine vocabulary",
+    vocabulariesMatchExactly(certspotterSqlVocabulary.values, CT_PROVIDER_OVERLAP_ATTEMPT_STATES),
+    certspotterSqlVocabulary.error
+      || `sql=${JSON.stringify(certspotterSqlVocabulary.values)} engine=${JSON.stringify(CT_PROVIDER_OVERLAP_ATTEMPT_STATES)}`);
+  ok("migration 104 comparison-status CHECK exactly matches engine vocabulary",
+    vocabulariesMatchExactly(comparisonSqlVocabulary.values, CT_PROVIDER_OVERLAP_COMPARISON_STATUSES),
+    comparisonSqlVocabulary.error
+      || `sql=${JSON.stringify(comparisonSqlVocabulary.values)} engine=${JSON.stringify(CT_PROVIDER_OVERLAP_COMPARISON_STATUSES)}`);
   ok("migration 104 has no raw-hostname column",
     !/\b(hostname|raw_hostname|hostname_sample|provider_payload)\b/i.test(executable));
 

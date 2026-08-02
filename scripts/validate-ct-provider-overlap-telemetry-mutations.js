@@ -16,7 +16,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers/scan-api/src/engines");
 const fixtureValidator = path.join(root, "scripts/validate-ct-provider-overlap-telemetry.js");
 const engineValidator = path.join(root, "scripts/validate-ct-provider-overlap-engine-trace.js");
-const EXPECTED_MUTANTS = 15;
+const EXPECTED_MUTANTS = 21;
 const EXPECTED_FIXTURE_ASSERTIONS = 118;
 const EXPECTED_ENGINE_ASSERTIONS = 23;
 
@@ -406,6 +406,142 @@ runMutant({
     "    UNIQUE (scan_id, module, source_set_version),\n",
     "",
     "durable UNIQUE gate",
+  ),
+});
+
+runMutant({
+  name: "crt_sh attempt-state CHECK is removed",
+  sourcePath: migrationPath,
+  envName: "CT_OVERLAP_MIGRATION_PATH",
+  asUrl: false,
+  expectedFailures: [
+    "sqlite crt_sh attempt state: bogus row rejected by CHECK constraint",
+    "migration 104 crt_sh attempt-state CHECK exactly matches engine vocabulary",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `    crt_sh_attempt_state                    TEXT NOT NULL CHECK (crt_sh_attempt_state IN (
+                                              'terminal_success', 'terminal_failure',
+                                              'not_started', 'in_flight_at_consumer_release'
+                                            )),`,
+    `    crt_sh_attempt_state                    TEXT NOT NULL,`,
+    "crt_sh attempt-state CHECK",
+  ),
+});
+
+runMutant({
+  name: "certspotter attempt-state CHECK admits a migration-only extra state",
+  sourcePath: migrationPath,
+  envName: "CT_OVERLAP_MIGRATION_PATH",
+  asUrl: false,
+  expectedFailures: [
+    "migration 104 certspotter attempt-state CHECK exactly matches engine vocabulary",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `    certspotter_attempt_state               TEXT NOT NULL CHECK (certspotter_attempt_state IN (
+                                              'terminal_success', 'terminal_failure',
+                                              'not_started', 'in_flight_at_consumer_release'
+                                            )),`,
+    `    certspotter_attempt_state               TEXT NOT NULL CHECK (certspotter_attempt_state IN (
+                                              'terminal_success', 'terminal_failure',
+                                              'not_started', 'in_flight_at_consumer_release',
+                                              'migration_only_attempt_state'
+                                            )),`,
+    "certspotter attempt-state extra value",
+  ),
+});
+
+runMutant({
+  name: "crt_sh attempt-state CHECK duplicates an engine state",
+  sourcePath: migrationPath,
+  envName: "CT_OVERLAP_MIGRATION_PATH",
+  asUrl: false,
+  expectedFailures: [
+    "migration 104 crt_sh attempt-state CHECK exactly matches engine vocabulary",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `    crt_sh_attempt_state                    TEXT NOT NULL CHECK (crt_sh_attempt_state IN (
+                                              'terminal_success', 'terminal_failure',
+                                              'not_started', 'in_flight_at_consumer_release'
+                                            )),`,
+    `    crt_sh_attempt_state                    TEXT NOT NULL CHECK (crt_sh_attempt_state IN (
+                                              'terminal_success', 'terminal_success',
+                                              'terminal_failure', 'not_started',
+                                              'in_flight_at_consumer_release'
+                                            )),`,
+    "crt_sh attempt-state duplicate value",
+  ),
+});
+
+runMutant({
+  name: "comparison-status CHECK is removed",
+  sourcePath: migrationPath,
+  envName: "CT_OVERLAP_MIGRATION_PATH",
+  asUrl: false,
+  expectedFailures: [
+    "sqlite comparison status: bogus row rejected by CHECK constraint",
+    "migration 104 comparison-status CHECK exactly matches engine vocabulary",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `    comparison_status                       TEXT NOT NULL CHECK (comparison_status IN (
+                                              'compared', 'compared_truncated',
+                                              'censored_provider_failure',
+                                              'censored_in_flight', 'not_started'
+                                            )),`,
+    `    comparison_status                       TEXT NOT NULL,`,
+    "comparison-status CHECK",
+  ),
+});
+
+runMutant({
+  name: "comparison-status CHECK admits a migration-only extra state",
+  sourcePath: migrationPath,
+  envName: "CT_OVERLAP_MIGRATION_PATH",
+  asUrl: false,
+  expectedFailures: [
+    "migration 104 comparison-status CHECK exactly matches engine vocabulary",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `    comparison_status                       TEXT NOT NULL CHECK (comparison_status IN (
+                                              'compared', 'compared_truncated',
+                                              'censored_provider_failure',
+                                              'censored_in_flight', 'not_started'
+                                            )),`,
+    `    comparison_status                       TEXT NOT NULL CHECK (comparison_status IN (
+                                              'compared', 'compared_truncated',
+                                              'censored_provider_failure',
+                                              'censored_in_flight', 'not_started',
+                                              'migration_only_comparison_status'
+                                            )),`,
+    "comparison-status extra value",
+  ),
+});
+
+runMutant({
+  name: "comparison-status CHECK duplicates an engine state",
+  sourcePath: migrationPath,
+  envName: "CT_OVERLAP_MIGRATION_PATH",
+  asUrl: false,
+  expectedFailures: [
+    "migration 104 comparison-status CHECK exactly matches engine vocabulary",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `    comparison_status                       TEXT NOT NULL CHECK (comparison_status IN (
+                                              'compared', 'compared_truncated',
+                                              'censored_provider_failure',
+                                              'censored_in_flight', 'not_started'
+                                            )),`,
+    `    comparison_status                       TEXT NOT NULL CHECK (comparison_status IN (
+                                              'compared', 'compared', 'compared_truncated',
+                                              'censored_provider_failure',
+                                              'censored_in_flight', 'not_started'
+                                            )),`,
+    "comparison-status duplicate value",
   ),
 });
 
