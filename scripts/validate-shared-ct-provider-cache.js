@@ -164,11 +164,11 @@ try {
       1);
     ok("default scan passes that cache to SSL and subdomains",
       /runSslModule\(domain, \{ accounting, signal, ctCache, subOps: subOpTelemetry \}\)/.test(scanEngineSource) &&
-        /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry \}\)/.test(scanEngineSource));
+        /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap \}\)/.test(scanEngineSource));
     ok("reserved scan reuses one cache for SSL and subdomains",
-      /runReservedScan\(domain, \{\s*capacity,\s*ctCache,\s*dnsCache,/.test(scanEngineSource) &&
+      /runReservedScan\(domain, \{\s*capacity,\s*ctCache,\s*ctOverlap: ctProviderOverlap,\s*dnsCache,/.test(scanEngineSource) &&
         /runSslModule\(domain, \{ ctCache: sharedCtCache \}\)/.test(reservedSource) &&
-        /runSubdomainsModule\(domain, \{ cache: dnsCache, ctCache: sharedCtCache \}\)/.test(reservedSource));
+        /runSubdomainsModule\(domain, \{ cache: dnsCache, ctCache: sharedCtCache, ctOverlap \}\)/.test(reservedSource));
   }
 
   // ── Successful provider results: one lookup and byte-stable consumers ─────

@@ -92,7 +92,7 @@ export const RESOURCE_CLASSES = [
   { class: "workspace_memberships", domain: "core",     tables: ["workspace_members"], harness: true, property: true },
   { class: "invitations",           domain: "core",     tables: ["workspace_invitations"], harness: true, property: true },
   { class: "domains",               domain: "core",     tables: ["domains", "workspace_domains"], harness: true, property: true },
-  { class: "scans",                 domain: "core",     tables: ["scans", "scan_module_telemetry", "ct_provider_telemetry", "scheduled_scans"], harness: true, property: true },
+  { class: "scans",                 domain: "core",     tables: ["scans", "scan_module_telemetry", "ct_provider_telemetry", "ct_provider_overlap_telemetry", "scheduled_scans"], harness: true, property: true },
   { class: "assets",                domain: "attack_surface", tables: ["workspace_assets", "hidden_assets", "attack_surface_signal_observations", "asset_lifecycle_observations"], harness: true, property: true },
   { class: "asset_events",          domain: "attack_surface", tables: ["asset_events", "asset_alert_records"], harness: false, property: false, coverage_note: "written by scan/cron; read via /assets + posture; workspace_id-scoped; isolation proven at the assets read surface + static audit" },
   { class: "findings",              domain: "reporting", tables: ["findings", "remediation_items", "kev_matches"], harness: true, property: false, coverage_note: "scan_id-scoped; reachable only through /scans/:id ownership-gated report surfaces" },

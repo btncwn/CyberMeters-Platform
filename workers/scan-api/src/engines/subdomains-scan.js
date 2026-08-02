@@ -104,20 +104,38 @@ export async function runSubdomainsModule(domain, opts = {}) {
     error,
   });
 
+  // Consumer release is a one-way observational boundary. It neither aborts
+  // provider work nor changes the production result; late provider settlement
+  // is simply unable to rewrite the already-released telemetry snapshot.
+  const freezeCtOverlap = () => {
+    try { opts.ctOverlap?.freeze?.(); } catch { /* observational only */ }
+  };
+
   try {
     // Race the inner async work against a hard-cap timer.
     // If the hard cap fires first the scan continues with an empty result;
     // the inner work is abandoned (Cloudflare GC's the hanging fetch).
+    const work = _subdomainsCoreWork(
+      domain,
+      SOURCE,
+      PER_CAP,
+      MERGE_CAP,
+      { accounting, cache, ctCache, signal: opts.signal, subOps: opts.subOps, ctOverlap: opts.ctOverlap },
+    ).then((result) => {
+      freezeCtOverlap();
+      return result;
+    });
     return await Promise.race([
-      _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, { accounting, cache, ctCache, signal: opts.signal, subOps: opts.subOps }),
+      work,
       new Promise((resolve) =>
-        setTimeout(() =>
-          resolve(emptyResult("Subdomain discovery timed out (15s hard cap)")),
-          HARD_CAP_MS
-        )
+        setTimeout(() => {
+          freezeCtOverlap();
+          resolve(emptyResult("Subdomain discovery timed out (15s hard cap)"));
+        }, HARD_CAP_MS)
       ),
     ]);
   } catch (err) {
+    freezeCtOverlap();
     return emptyResult(err?.message ?? "Subdomain module threw unexpectedly");
   }
 }
@@ -165,13 +183,36 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     );
   };
 
+  // CT-R2 PR-2A shadow observation. These guards are deliberately one-way:
+  // production passes terminal provider values into the collector, while the
+  // collector returns nothing to `seen`, `sources`, or the customer result.
+  // A broken collector cannot change provider launch order or Promise semantics.
+  const observedCtGet = (provider) => {
+    try { opts.ctOverlap?.begin?.(provider); } catch { /* observational only */ }
+    const providerPromise = ctCache.get(domain, provider, { accounting, module: "subdomains" });
+    return providerPromise.then(
+      (value) => {
+        try {
+          opts.ctOverlap?.observe?.(provider, { status: "fulfilled", value }, domain);
+        } catch { /* observational only */ }
+        return value;
+      },
+      (reason) => {
+        try {
+          opts.ctOverlap?.observe?.(provider, { status: "rejected", reason }, domain);
+        } catch { /* observational only */ }
+        throw reason;
+      },
+    );
+  };
+
   // ── Fire all 4 network calls in parallel ────────────────────────────────
   const [wASettled, wAAAASettled, crtShSettled, certSpotterSettled] =
     await Promise.allSettled([
       timedSubOp("wildcard_dns_a", dnsQuery(wildcardHost, "A", { accounting, cache })),
       timedSubOp("wildcard_dns_aaaa", dnsQuery(wildcardHost, "AAAA", { accounting, cache })),
-      timedSubOp("ct_wait_crt_sh", ctCache.get(domain, "crt_sh", { accounting, module: "subdomains" })),
-      timedSubOp("ct_wait_certspotter", ctCache.get(domain, "certspotter", { accounting, module: "subdomains" })),
+      timedSubOp("ct_wait_crt_sh", observedCtGet("crt_sh")),
+      timedSubOp("ct_wait_certspotter", observedCtGet("certspotter")),
     ]);
 
   // ── Wildcard DNS result ─────────────────────────────────────────────────

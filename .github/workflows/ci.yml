@@ -881,6 +881,15 @@ jobs:
       - name: Validate CT-R1 provider telemetry load-bearing mutations
         run: node scripts/validate-ct-r1-provider-telemetry-mutations.js
 
+      - name: Validate CT-R2 PR-2A shadow provider-overlap telemetry
+        run: node scripts/validate-ct-provider-overlap-telemetry.js
+
+      - name: Validate CT-R2 PR-2A faithful runScanEngine finalization trace
+        run: node scripts/validate-ct-provider-overlap-engine-trace.js
+
+      - name: Validate CT-R2 PR-2A shadow provider-overlap load-bearing mutations
+        run: node scripts/validate-ct-provider-overlap-telemetry-mutations.js
+
       - name: Validate managed brand takedown lifecycle (evidence + approval + verification)
         run: node scripts/validate-brand-takedown-lifecycle.js
 

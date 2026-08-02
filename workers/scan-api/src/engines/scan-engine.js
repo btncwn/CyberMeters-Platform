@@ -30,6 +30,7 @@ import { insertCertificateEvents, upsertCertificateObservation } from "./cert-ev
 import { runCertificateIntelligenceModule } from "./cert-intel.js";
 import { runCloudStorageModule } from "./cloud-storage-scan.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
+import { createCtProviderOverlapCollector, persistCtProviderOverlapTelemetry } from "./ct-provider-overlap.js";
 import { deriveSignalMonitoringStates } from "./signal-monitoring-state.js";
 import { runSaasExposureModule, runThirdPartyDiscoveryModule } from "./discovery-scan.js";
 import { buildDnsOperationalResilience } from "./dns-resilience.js";
@@ -409,6 +410,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     remainingMs: () => deadline.remainingMs(),
     now,
   });
+  const ctProviderOverlap = createCtProviderOverlapCollector({ now });
   // CT-R1: terminal-only, once-only provider telemetry persistence. Set the
   // guard before snapshotting/writing so a partial non-fatal D1 failure cannot
   // be retried into duplicate attribution. The helper refuses to run until the
@@ -444,6 +446,32 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       return false;
     }
   };
+  // CT-R2 PR-2A: a separate, once-only post-terminal write. A missing snapshot
+  // means the subdomains provider consumer never started; the persistence helper
+  // reports that explicitly and never manufactures a comparison row.
+  let ctOverlapPersistenceStarted = false;
+  const persistCtOverlapAfterTerminal = async () => {
+    if (
+      ctOverlapPersistenceStarted
+      || latch.d1Written !== true
+      || (latch.status !== "completed" && latch.status !== "failed")
+    ) return { status: "not_attempted_empty" };
+
+    ctOverlapPersistenceStarted = true;
+    try {
+      return await persistCtProviderOverlapTelemetry(
+        scanId,
+        ctProviderOverlap.snapshot(),
+        env,
+      );
+    } catch {
+      return {
+        status: "persistence_failed",
+        error_class: "unknown",
+        durability: "unknown",
+      };
+    }
+  };
   const createChildSignal = () => {
     const controller = new AbortController();
     if (deadline.signal?.aborted) controller.abort(deadline.signal.reason);
@@ -463,7 +491,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     return ctx;
   };
   const moduleCapFor = (module) => SCAN_MODULE_BUDGETS[module] ?? deadline.remainingMs();
-  const runCappedModule = async (module, { fallback, estimateMs = moduleCapFor(module), hardMs = moduleCapFor(module), run }) => {
+  const runCappedModule = async (module, {
+    fallback,
+    estimateMs = moduleCapFor(module),
+    hardMs = moduleCapFor(module),
+    onConsumerRelease = null,
+    run,
+  }) => {
     let allocatedMs = 0;
     let startedMs = null;
     let ctx = null;
@@ -479,6 +513,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         deadline,
         () => run({ accounting: ctx, signal: controller.signal }),
         () => {
+          try { onConsumerRelease?.(); } catch { /* observational only */ }
           controller.abort("module_budget_exhausted");
           return fallback();
         },
@@ -566,6 +601,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       const reserved = await runReservedScan(domain, {
         capacity,
         ctCache,
+        ctOverlap: ctProviderOverlap,
         dnsCache,
         knownAssetHosts,
         signal: deadline.signal,
@@ -627,7 +663,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
               now,
             }),
           }),
-          runCappedModule("subdomains",           { fallback: subdomainsFallback, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry }) }),
+          runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: () => ctProviderOverlap.freeze(), run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap }) }),
           runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal }) => runTechModule(domain, { accounting, signal }) }),
           runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ source: "rdap" }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
           runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal, cache: dnsCache }) }),
@@ -1615,6 +1651,7 @@ function buildCanonicalUrlProfile(modules) {
     // race-abandoned module reads honestly as `aborted`.
     await persistSubOperationTelemetry(scanId, subOpTelemetry.snapshotRows(), env);
     await persistCtTelemetryAfterTerminal();
+    await persistCtOverlapAfterTerminal();
 
     // Shared by the 091 state persistence below AND the M5.c snapshot build
     // (Phase 8o): both must resolve the eight domains from the SAME Cyber
@@ -2148,6 +2185,7 @@ function buildCanonicalUrlProfile(modules) {
     // downgrade it. Refuse to touch it.
     if (latch.state === "finalized") {
       await persistCtTelemetryAfterTerminal();
+      await persistCtOverlapAfterTerminal();
       return;
     }
 
@@ -2185,6 +2223,7 @@ function buildCanonicalUrlProfile(modules) {
       scanId, report: failedReport, score: 0, rating: "unknown", status: "failed", env,
     });
     await persistCtTelemetryAfterTerminal();
+    await persistCtOverlapAfterTerminal();
 
     // Clean outcome: durably finalized as completed (original or recovered) → no
     // failure audit needed. Otherwise emit an auditable event for the terminal state:
