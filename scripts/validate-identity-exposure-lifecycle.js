@@ -250,6 +250,34 @@ eq("surface_removed full-window absence is never verified",
   buildIdentityVerification({ customer_action_status: "surface_removed", monitoring_status: "no_longer_observed", evidence_age_days: 14 }, { now: NOW }).verification_result, "inconclusive");
 eq("surface_removed full-window outcome stays explicit",
   buildIdentityVerification({ customer_action_status: "surface_removed", monitoring_status: "no_longer_observed", evidence_age_days: 14 }, { now: NOW }).actual_outcome, "absent_across_window");
+const absentBeforeAction = buildIdentityVerification({
+  customer_action_status: "surface_removed",
+  monitoring_status: "no_longer_observed",
+  exposure_status: "no_longer_observed",
+  evidence_age_days: 30,
+  last_seen_at: "2026-06-01T00:00:00Z",
+}, { now: NOW, customer_action_at: "2026-07-19T00:00:00Z" });
+eq("absence predating the customer removal action stays inconclusive",
+  absentBeforeAction.verification_result, "inconclusive");
+eq("pre-action absence remains an observed full-window outcome, not proof",
+  absentBeforeAction.actual_outcome, "absent_across_window");
+const staleButObserved = buildIdentityVerification({
+  customer_action_status: "surface_removed",
+  monitoring_status: "observed",
+  exposure_status: "observed",
+  evidence_age_days: 30,
+  last_seen_at: "2026-06-01T00:00:00Z",
+}, { now: NOW, customer_action_at: "2026-07-19T00:00:00Z" });
+eq("stale last_seen with observed state is still-observed failure",
+  staleButObserved.verification_result, "failed");
+eq("observed state wins over stale age",
+  staleButObserved.actual_outcome, "still_observed");
+eq("unknown customer-action time cannot verify disappearance",
+  buildIdentityVerification({
+    customer_action_status: "surface_removed",
+    monitoring_status: "no_longer_observed",
+    evidence_age_days: 30,
+  }, { now: NOW, customer_action_at: null }).verification_result, "inconclusive");
 
 // ── 11b. A configuration change must POST-DATE the customer's assertion ──────
 // The defect this exists to prevent (live until 2026-07-16): the contract read

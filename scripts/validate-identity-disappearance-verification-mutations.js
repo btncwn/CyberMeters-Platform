@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = path.join(root, "workers/scan-api/src/engines/identity-lifecycle.js");
 const validator = path.join(root, "scripts/validate-identity-exposure-lifecycle.js");
-const EXPECTED_ASSERTIONS = 109;
+const EXPECTED_ASSERTIONS = 114;
 const EXPECTED_MUTANTS = 6;
 const EXPECTED_CONTROLS = 2;
 
@@ -148,6 +148,8 @@ runCase({
   expectedFailures: [
     ...absencePersistenceFailures,
     "surface_removed full-window absence is never verified",
+    "absence predating the customer removal action stays inconclusive",
+    "unknown customer-action time cannot verify disappearance",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -218,7 +220,10 @@ runCase({
 
 runCase({
   name: "still-observed removal failure collapses to inconclusive",
-  expectedFailures: ["verify while still observed → failed"],
+  expectedFailures: [
+    "verify while still observed → failed",
+    "stale last_seen with observed state is still-observed failure",
+  ],
   mutate: (source) => replaceExactlyOnce(
     source,
     `if (observedNow) { verification_result = "failed"; actual_outcome = "still_observed"; }`,
