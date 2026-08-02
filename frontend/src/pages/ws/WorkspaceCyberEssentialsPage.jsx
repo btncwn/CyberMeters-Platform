@@ -430,7 +430,8 @@ function ExternallyObservedControls({ data, error }) {
 
       <div className="mt-4 space-y-3">
         {items.map((c) => {
-          const state = c.containment_active
+          const containedUnknown = c.containment_active && c.readiness_state === 'unknown'
+          const state = containedUnknown
             ? {
                 label: 'Not assessed',
                 tone: 'slate',
@@ -463,7 +464,7 @@ function ExternallyObservedControls({ data, error }) {
 
               {/* What we could NOT see is shown, not omitted: an unobserved signal that
                   silently vanished would make partial coverage look complete. */}
-              {c.containment_active ? (
+              {containedUnknown ? (
                 <p className="mt-2 text-xs leading-relaxed text-gray-500">
                   Current evidence is unavailable for a workspace-level readiness assessment. Historical observations have not been changed.
                 </p>

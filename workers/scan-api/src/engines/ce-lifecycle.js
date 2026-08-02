@@ -22,11 +22,11 @@
 //   2. A SCORE MOVING IS NOT AN EVENT. State is derived from the SET of failing
 //      canonical remediation ids, not from the percentage. 72→68 says nothing about
 //      which evidence changed; "ce.backlog.remediate stopped failing" does.
-//   3. ONLY EXTERNALLY SUPPORTABLE CONTROLS ALERT. access_control and
-//      malware_protection declare external_coverage "none" in the repo's own
-//      metadata — they are scored from email-auth proxies that measure anti-spoofing,
-//      not user access control or endpoint AV. They stay visible and are persisted as
-//      `not_externally_assessable`; they can never alert.
+//   3. ONLY EXTERNALLY SUPPORTABLE CONTROLS ALERT. access_control,
+//      malware_protection and patch_management_readiness declare external_coverage
+//      "none" in the repo's own metadata. Email-auth proxies do not measure user access
+//      control or endpoint AV, and certificate/ASM proxies do not measure patching.
+//      All three stay visible as `not_externally_assessable`; they can never alert.
 import { CE_QUESTIONS } from "../lib/cyber-essentials.js";
 // One direction only: this module calls into the case layer, which imports nothing back.
 import { openOrReopenCeCase, verifyCeCaseFromRecovery } from "./cyber-essentials-cases.js";
@@ -443,11 +443,12 @@ function ceTransitionDetail({ g, from, recurrence, band, scanId, reason }) {
 // ready|not_ready|unknown|not_externally_assessable, and even `ready` means "the
 // externally observable part of this control looks aligned", never that CyberMeters
 // certified anything. `external_coverage` ships alongside it precisely so `ready` can
-// never be read as a full pass — two of the five controls are permanently
+// never be read as a full pass — three of the five controls are permanently
 // `not_externally_assessable` because nothing external can see them.
 export function ceControlRecordToApi(row = {}, { containment_reason = null } = {}) {
   const parse = (raw, fb) => { try { return raw ? JSON.parse(raw) : fb; } catch { return fb; } };
   const recordedEvidence = parse(row.evidence_json, []);
+  const externallyAssessable = assessableNow(row.control_key);
   const projected = {
     id: row.id,
     control_key: row.control_key,
@@ -460,13 +461,19 @@ export function ceControlRecordToApi(row = {}, { containment_reason = null } = {
     // rewrites it. Serving that would tell a customer we can partially observe a control we
     // have just declared unobservable. The declaration wins immediately; the stored value is
     // preserved below as history rather than overwritten.
-    readiness_state: assessableNow(row.control_key) ? (row.readiness_state ?? null) : "not_externally_assessable",
-    readiness_reason: assessableNow(row.control_key) ? (row.readiness_reason ?? null) : "control_not_externally_observable",
+    readiness_state: externallyAssessable ? (row.readiness_state ?? null) : "not_externally_assessable",
+    readiness_reason: externallyAssessable ? (row.readiness_reason ?? null) : "control_not_externally_observable",
     external_coverage: COVERAGE[row.control_key] ?? row.external_coverage ?? null,   // partial | none
     // What the row itself recorded at write time. Kept so a stale row is visible AS stale
     // rather than silently rewritten — historical integrity, and the two disagreeing is a
     // fact worth being able to see.
     recorded_external_coverage: row.external_coverage ?? null,
+    // Raw stored readiness values, independent of why the authoritative current
+    // projection differs (methodology declaration or workspace containment). These are
+    // historical recorded values only; never a previous/effective/fallback verdict.
+    recorded_readiness_state: row.readiness_state ?? null,
+    recorded_readiness_reason: row.readiness_reason ?? null,
+    recorded_evidence: recordedEvidence,
     // WHICH evidence moved, and what we could not see. Both customer-facing: a gap the
     // product cannot observe must be visible as unobserved, not absent.
     evidence: recordedEvidence,
@@ -481,14 +488,16 @@ export function ceControlRecordToApi(row = {}, { containment_reason = null } = {
   if (!containment_reason) return projected;
   return {
     ...projected,
-    readiness_state: "unknown",
-    readiness_reason: containment_reason,
+    // Methodology authority precedes workspace containment. A control that cannot be
+    // observed externally remains not_externally_assessable; containment makes only the
+    // two externally assessable controls unknown.
+    readiness_state: externallyAssessable ? "unknown" : "not_externally_assessable",
+    readiness_reason: externallyAssessable ? containment_reason : "control_not_externally_observable",
     evidence: [],
-    unknown_signals: [{ signal: "workspace_domain_scope", reason: containment_reason }],
+    unknown_signals: externallyAssessable
+      ? [{ signal: "workspace_domain_scope", reason: containment_reason }]
+      : ["control_not_externally_observable"],
     containment_active: true,
-    recorded_readiness_state: row.readiness_state ?? null,
-    recorded_readiness_reason: row.readiness_reason ?? null,
-    recorded_evidence: recordedEvidence,
   };
 }
 
@@ -510,14 +519,30 @@ export function ceEventToApi(row = {}) {
 export async function listCeControlRecords(env, workspaceId, { readiness_state = null, limit = 50, offset = 0 } = {}) {
   const domainCount = await resolveCeWorkspaceDomainCount(env, workspaceId);
   const containmentReason = ceWorkspaceContainmentReason(domainCount);
+  if (containmentReason) {
+    // Five controls is a bounded model, so project the complete workspace set BEFORE
+    // filtering or pagination. Stored ready/not_ready values are historical and cannot
+    // select the current contained result set.
+    const rows = await env.cybermeters_db
+      .prepare(`SELECT * FROM cyber_essentials_control_records
+                WHERE workspace_id = ?
+                ORDER BY control_key ASC`)
+      .bind(workspaceId).all().catch(() => ({ results: [] }));
+    const projected = (rows.results || []).map((row) => ceControlRecordToApi(row, {
+      containment_reason: containmentReason,
+    }));
+    const filtered = readiness_state
+      ? projected.filter((row) => row.readiness_state === String(readiness_state))
+      : projected;
+    const start = Math.max(0, Number(offset) || 0);
+    const size = Math.max(0, Number(limit) || 0);
+    return filtered.slice(start, start + size);
+  }
   const where = ["workspace_id = ?"];
   const binds = [workspaceId];
-  // Under containment every current projection is unknown. Filtering raw stored state
-  // would make list and count disagree and could expose a historical ready verdict.
-  if (readiness_state && !containmentReason) {
+  if (readiness_state) {
     where.push("readiness_state = ?"); binds.push(String(readiness_state));
   }
-  if (containmentReason && readiness_state && String(readiness_state) !== "unknown") return [];
   const rows = await env.cybermeters_db
     .prepare(`SELECT * FROM cyber_essentials_control_records
               WHERE ${where.join(" AND ")}
@@ -535,10 +560,22 @@ export async function listCeControlRecords(env, workspaceId, { readiness_state =
 export async function countCeControlRecords(env, workspaceId, { readiness_state = null } = {}) {
   const domainCount = await resolveCeWorkspaceDomainCount(env, workspaceId);
   const containmentReason = ceWorkspaceContainmentReason(domainCount);
+  if (containmentReason) {
+    const rows = await env.cybermeters_db
+      .prepare(`SELECT * FROM cyber_essentials_control_records
+                WHERE workspace_id = ?
+                ORDER BY control_key ASC`)
+      .bind(workspaceId).all().catch(() => ({ results: [] }));
+    const projected = (rows.results || []).map((row) => ceControlRecordToApi(row, {
+      containment_reason: containmentReason,
+    }));
+    return readiness_state
+      ? projected.filter((record) => record.readiness_state === String(readiness_state)).length
+      : projected.length;
+  }
   const where = ["workspace_id = ?"];
   const binds = [workspaceId];
-  if (containmentReason && readiness_state && String(readiness_state) !== "unknown") return 0;
-  if (readiness_state && !containmentReason) {
+  if (readiness_state) {
     where.push("readiness_state = ?"); binds.push(String(readiness_state));
   }
   const row = await env.cybermeters_db

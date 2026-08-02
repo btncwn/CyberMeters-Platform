@@ -273,7 +273,9 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       if (cyberEssentials && cyberEssentials.status === "not_assessed") {
         base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
         base.coverage = quality;
-        base.summary = "Readiness could not be assessed — no completed external scan evidence is available yet.";
+        base.summary = cyberEssentials.containment_reason && typeof cyberEssentials.summary === "string"
+          ? cyberEssentials.summary
+          : "Readiness could not be assessed — no completed external scan evidence is available yet.";
         return base;
       }
       if (cyberEssentials && cyberEssentials.has_answers === true && cyberEssentials.complete === true) {

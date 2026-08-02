@@ -509,12 +509,6 @@ jobs:
       - name: Validate Cyber Essentials lifecycle (external evidence only / no questionnaire / no score alerts, mutation-tested)
         run: node scripts/validate-ce-lifecycle.js
 
-      - name: Validate CE multidomain containment
-        run: node scripts/validate-ce-multidomain-containment.js
-
-      - name: Validate CE multidomain containment strict mutations
-        run: node scripts/validate-ce-multidomain-containment-mutations.js
-
       - name: Validate evaluator/resolver parity (each engine emits a resolvable occurrence)
         run: node scripts/validate-alert-evaluator-parity.js
 
@@ -1152,6 +1146,12 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Validate CE multidomain containment
+        run: node scripts/validate-ce-multidomain-containment.js
+
+      - name: Validate CE multidomain containment strict mutations
+        run: node scripts/validate-ce-multidomain-containment-mutations.js
 
       # CT-R2 PR-1 — AST-backed, exhaustive scan_quality vocabulary inventory.
       # Counts use separate units (SQL predicate occurrences, SQL query sites,

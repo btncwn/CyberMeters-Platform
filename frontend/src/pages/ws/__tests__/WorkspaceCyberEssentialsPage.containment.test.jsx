@@ -91,13 +91,29 @@ describe('WorkspaceCyberEssentialsPage — Stage-1 containment', () => {
       recorded_readiness_state: 'ready',
       recorded_readiness_reason: 'external_evidence_supports_readiness',
       recorded_evidence: [{ remediation_id: 'historical-only' }],
+    }, {
+      id: 'cec-stale-non-external',
+      control_key: 'access_control',
+      control_label: 'Access control',
+      readiness_state: 'not_externally_assessable',
+      readiness_reason: 'control_not_externally_observable',
+      external_coverage: 'none',
+      evidence: [],
+      unknown_signals: ['control_not_externally_observable'],
+      containment_active: true,
+      recorded_readiness_state: 'ready',
+      recorded_readiness_reason: 'historical-stale-ready',
+      recorded_evidence: [{ remediation_id: 'historical-non-external' }],
     }]))
     mount()
 
     await waitFor(() => expect(screen.getAllByText(/Not assessed/i).length).toBeGreaterThanOrEqual(2))
     expect(screen.queryByText(/Externally aligned/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Checked by Cyber MOT/i)).not.toBeInTheDocument()
+    expect(screen.getAllByText(/Not visible externally/i).length).toBeGreaterThanOrEqual(1)
     expect(screen.queryByText(/historical-only/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/historical-non-external/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/historical-stale-ready/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/workspace_multi_domain_not_aggregatable/i)).not.toBeInTheDocument()
   })
 

@@ -699,10 +699,21 @@ export async function getCyberEssentialsSnapshot(wsId, env) {
   if (complete) {
     try { readiness = await buildCyberEssentialsReadiness(wsId, env); } catch { readiness = null; }
   }
-  return {
+  const snapshot = {
     has_answers: true,
     complete,
     status: readiness?.status ?? null,
     top_gaps: Array.isArray(readiness?.top_gaps) ? readiness.top_gaps : [],
   };
+  // Add containment provenance only when containment is active. This keeps the
+  // single-domain snapshot byte-shape unchanged while giving durable snapshot/state
+  // writers enough canonical context to avoid relabelling "cannot aggregate" as
+  // "no scan ran".
+  if (readiness?.containment_reason) {
+    snapshot.assessable = false;
+    snapshot.containment_reason = readiness.containment_reason;
+    snapshot.summary = readiness.summary;
+    snapshot.limitations = readiness.limitations;
+  }
+  return snapshot;
 }

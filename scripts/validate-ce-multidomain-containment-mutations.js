@@ -13,10 +13,11 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const validator = path.join(root, "scripts", "validate-ce-multidomain-containment.js");
 const readiness = path.join(root, "workers", "scan-api", "src", "engines", "ce-readiness.js");
 const lifecycle = path.join(root, "workers", "scan-api", "src", "engines", "ce-lifecycle.js");
+const cyberMot = path.join(root, "workers", "scan-api", "src", "engines", "cyber-mot-domains.js");
 const frontend = path.join(root, "frontend", "src", "pages", "ws", "WorkspaceCyberEssentialsPage.jsx");
-const targets = [readiness, lifecycle, frontend];
-const EXPECTED_MUTANTS = 12;
-const EXPECTED_ASSERTIONS = 22;
+const targets = [readiness, lifecycle, cyberMot, frontend];
+const EXPECTED_MUTANTS = 20;
+const EXPECTED_ASSERTIONS = 26;
 
 const original = new Map(targets.map((file) => [file, fs.readFileSync(file)]));
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
@@ -80,9 +81,10 @@ function failNames(output) {
 
 const readinessGate = "  if (containmentReason) return cyberEssentialsContainedResponse(wsId, containmentReason);";
 const lifecycleGate = "    if (readiness.assessable === false) {";
-const listProjection = `  return (rows.results || []).map((row) => ceControlRecordToApi(row, {
-    containment_reason: containmentReason,
-  }));`;
+const containedListProjection = `    const projected = (rows.results || []).map((row) => ceControlRecordToApi(row, {
+      containment_reason: containmentReason,
+    }));
+    const filtered = readiness_state`;
 const getPreamble = `export async function getCeControlRecord(env, workspaceId, recordId) {
   const domainCount = await resolveCeWorkspaceDomainCount(env, workspaceId);
   const containmentReason = ceWorkspaceContainmentReason(domainCount);`;
@@ -91,6 +93,20 @@ const getQuery = `    .prepare(\`SELECT * FROM cyber_essentials_control_records 
 const recordedFields = `    recorded_readiness_state: row.readiness_state ?? null,
     recorded_readiness_reason: row.readiness_reason ?? null,
     recorded_evidence: recordedEvidence,`;
+const containedListRead = `    const rows = await env.cybermeters_db
+      .prepare(\`SELECT * FROM cyber_essentials_control_records
+                WHERE workspace_id = ?
+                ORDER BY control_key ASC\`)
+      .bind(workspaceId).all().catch(() => ({ results: [] }));
+    const projected = (rows.results || []).map((row) => ceControlRecordToApi(row, {
+      containment_reason: containmentReason,
+    }));
+    const filtered = readiness_state`;
+const historicalEventRead = `    .prepare(\`SELECT * FROM cyber_essentials_events
+              WHERE workspace_id = ? AND record_id = ?
+              ORDER BY created_at DESC, rowid DESC
+              LIMIT ?\`)`;
+const positiveZeroGaps = "  const gaps = controlGaps.length > 0 ? controlGaps : topGaps.map(gap => ({ source: 'Readiness gap', text: gap }))";
 
 const mutants = [
   {
@@ -121,7 +137,8 @@ const mutants = [
   {
     id: "M6", name: "bypass durable-record list read-side gate", file: lifecycle,
     target: "contained list projection cannot bypass the durable read-side gate",
-    edits: [[listProjection, "  return (rows.results || []).map((row) => ceControlRecordToApi(row));"]],
+    edits: [[containedListProjection, `    const projected = (rows.results || []).map((row) => ceControlRecordToApi(row));
+    const filtered = readiness_state`]],
   },
   {
     id: "M7", name: "fall back to stored ready when count lookup fails", file: lifecycle,
@@ -156,6 +173,64 @@ const mutants = [
     target: "foreign durable record remains non-enumerating",
     edits: [[getQuery, `    .prepare(\`SELECT * FROM cyber_essentials_control_records WHERE id = ?\`)
     .bind(recordId).first().catch(() => null);`]],
+  },
+  {
+    id: "M13", name: "restore raw SQL filtering before containment projection", file: lifecycle,
+    target: "contained list count filter limit and offset remain projection-consistent",
+    edits: [[containedListRead, `    const rows = await env.cybermeters_db
+      .prepare(\`SELECT * FROM cyber_essentials_control_records
+                WHERE workspace_id = ? AND readiness_state = 'unknown'
+                ORDER BY control_key ASC\`)
+      .bind(workspaceId).all().catch(() => ({ results: [] }));
+    const projected = (rows.results || []).map((row) => ceControlRecordToApi(row, {
+      containment_reason: containmentReason,
+    }));
+    const filtered = readiness_state`]],
+  },
+  {
+    id: "M14", name: "let containment override authoritative non-assessable projection", file: lifecycle,
+    target: "contained list count filter limit and offset remain projection-consistent",
+    edits: [[`    readiness_state: externallyAssessable ? "unknown" : "not_externally_assessable",`,
+      `    readiness_state: "unknown",`]],
+  },
+  {
+    id: "M15", name: "remove assessed zero-gap green positive path", file: frontend,
+    target: "frontend single-domain assessed zero-gaps keeps green positive control",
+    edits: [[positiveZeroGaps, `  const gaps = controlGaps.length > 0
+    ? controlGaps
+    : topGaps.length > 0
+      ? topGaps.map(gap => ({ source: 'Readiness gap', text: gap }))
+      : [{ source: 'Readiness gap', text: 'mutant over-correction' }]`]],
+  },
+  {
+    id: "M16", name: "hide historical events under containment", file: lifecycle,
+    target: "contained evaluation preserves history linked case and email silence",
+    edits: [[historicalEventRead, `    .prepare(\`SELECT * FROM cyber_essentials_events
+              WHERE workspace_id = ? AND record_id = ? AND 1 = 0
+              ORDER BY created_at DESC, rowid DESC
+              LIMIT ?\`)`]],
+  },
+  {
+    id: "M17", name: "drop soft-deleted workspace lifecycle gate", file: lifecycle,
+    target: "soft-deleted workspace remains inactive before containment evaluation",
+    edits: [[`      .prepare(\`SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL\`)`,
+      `      .prepare(\`SELECT id FROM workspaces WHERE id = ?\`)`]],
+  },
+  {
+    id: "M18", name: "contain exact-one linked-domain workspaces", file: readiness,
+    target: "single-domain readiness preserves the existing positive path",
+    edits: [["  if (domainCount.count === 1) return null;", "  if (false) return null;"]],
+  },
+  {
+    id: "M19", name: "restore misleading no-scan Cyber MOT copy", file: cyberMot,
+    target: "complete-questionnaire containment degrades canonical state and maturity writers honestly",
+    edits: [[`        base.summary = cyberEssentials.containment_reason && typeof cyberEssentials.summary === "string"`,
+      `        base.summary = false && cyberEssentials.containment_reason && typeof cyberEssentials.summary === "string"`]],
+  },
+  {
+    id: "M20", name: "omit containment provenance from CE snapshots", file: readiness,
+    target: "complete-questionnaire containment degrades canonical state and maturity writers honestly",
+    edits: [["  if (readiness?.containment_reason) {", "  if (false) {"]],
   },
 ];
 
