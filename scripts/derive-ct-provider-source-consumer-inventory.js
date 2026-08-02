@@ -11,7 +11,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const frontendRequire = createRequire(path.join(root, "frontend/package.json"));
@@ -354,42 +354,122 @@ function analyzeFile(parsed) {
   return { sites, unresolved };
 }
 
-const parsed = runtimeFiles().map(parseFile);
-const analyses = parsed.map(analyzeFile);
-const sites = analyses.flatMap((row) => row.sites).sort((a, b) =>
-  a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column
-    || a.field.localeCompare(b.field));
-const unresolved = analyses.flatMap((row) => row.unresolved).sort((a, b) =>
-  a.file.localeCompare(b.file) || a.line - b.line || a.ast_access_kind.localeCompare(b.ast_access_kind));
-const canonicalLines = sites.map((site) => JSON.stringify(site));
-const fingerprint = crypto.createHash("sha256").update(canonicalLines.join("\n")).digest("hex");
-const decisionConsumers = sites.filter((site) => site.classification === "decision");
-const unsafeDecisionConsumers = decisionConsumers.filter((site) =>
-  site.field === "count" && site.non_null_error_dominates_count !== true);
-const pinPathIndex = process.argv.indexOf("--pin");
-const pinPath = pinPathIndex >= 0 ? process.argv[pinPathIndex + 1] : null;
-let pinMatches = null;
-if (pinPath) {
-  const pin = JSON.parse(fs.readFileSync(path.resolve(pinPath), "utf8"));
-  pinMatches = pin.rule_version === CT_PROVIDER_SOURCE_INVENTORY_RULE_VERSION
-    && pin.fingerprint === fingerprint
-    && JSON.stringify(pin.sites) === JSON.stringify(sites);
+function analyzeParsedFiles(parsed, pinPath = null) {
+  const analyses = parsed.map(analyzeFile);
+  const sites = analyses.flatMap((row) => row.sites).sort((a, b) =>
+    a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column
+      || a.field.localeCompare(b.field));
+  const unresolved = analyses.flatMap((row) => row.unresolved).sort((a, b) =>
+    a.file.localeCompare(b.file) || a.line - b.line
+      || a.ast_access_kind.localeCompare(b.ast_access_kind));
+  const canonicalLines = sites.map((site) => JSON.stringify(site));
+  const fingerprint = crypto.createHash("sha256")
+    .update(canonicalLines.join("\n"))
+    .digest("hex");
+  const decisionConsumers = sites.filter((site) => site.classification === "decision");
+  const unsafeDecisionConsumers = decisionConsumers.filter((site) =>
+    site.field === "count" && site.non_null_error_dominates_count !== true);
+  let pinMatches = null;
+  if (pinPath) {
+    const pin = JSON.parse(fs.readFileSync(path.resolve(pinPath), "utf8"));
+    pinMatches = pin.rule_version === CT_PROVIDER_SOURCE_INVENTORY_RULE_VERSION
+      && pin.fingerprint === fingerprint
+      && JSON.stringify(pin.sites) === JSON.stringify(sites);
+  }
+  return {
+    rule_version: CT_PROVIDER_SOURCE_INVENTORY_RULE_VERSION,
+    runtime_roots: RUNTIME_ROOTS.map((directory) => path.relative(root, directory)),
+    runtime_file_count: parsed.length,
+    runtime_consumer_count: sites.length,
+    runtime_consumer_fingerprint: fingerprint,
+    sites,
+    unresolved,
+    sentinel_contract_id: CT_PROVIDER_SOURCE_SENTINEL_CONTRACT_ID,
+    sentinel_decision_consumers: decisionConsumers,
+    unsafe_decision_consumers: unsafeDecisionConsumers,
+    pin_matches: pinMatches,
+  };
 }
-const output = {
-  rule_version: CT_PROVIDER_SOURCE_INVENTORY_RULE_VERSION,
-  runtime_roots: RUNTIME_ROOTS.map((directory) => path.relative(root, directory)),
-  runtime_file_count: parsed.length,
-  runtime_consumer_count: sites.length,
-  runtime_consumer_fingerprint: fingerprint,
-  sites,
-  unresolved,
-  sentinel_contract_id: CT_PROVIDER_SOURCE_SENTINEL_CONTRACT_ID,
-  sentinel_decision_consumers: decisionConsumers,
-  unsafe_decision_consumers: unsafeDecisionConsumers,
-  pin_matches: pinMatches,
-};
-process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
-if (unresolved.length > 0 || unsafeDecisionConsumers.length > 0 || pinMatches === false) {
-  process.exit(1);
+
+export function deriveCtProviderSourceConsumerInventory({ pinPath = null } = {}) {
+  return analyzeParsedFiles(runtimeFiles().map(parseFile), pinPath);
 }
-process.exit(0);
+
+function parseCalibrationSource(source, relative) {
+  const ast = parse(source, {
+    sourceType: "module",
+    errorRecovery: false,
+    plugins: ["optionalChaining", "objectRestSpread"],
+  });
+  return { file: path.join(root, relative), relative, source, ast };
+}
+
+export function calibrateCtProviderSourceInventoryDetector() {
+  const safeSource = `
+const direct = payload.ct_sources.crt_sh;
+const optional = payload?.sources?.certspotter;
+const computed = payload["ct_sources"]["crt_sh"];
+const holder = { value: direct };
+const array = [holder.value];
+const alias = array[0];
+function decide(source) {
+  return source.error == null && source.count > 0;
+}
+const { count, error } = computed;
+const optionalError = optional?.error;
+const computedCount = computed["count"];
+const projected = { ...optional, count, error };
+JSON.stringify(projected);
+decide(alias);
+void optionalError;
+void computedCount;
+`;
+  const unsafeSource = `
+const source = payload.ct_sources.crt_sh;
+const healthy = source.count > 0;
+const unresolved = source[dynamicField];
+void healthy;
+void unresolved;
+`;
+  const safe = analyzeParsedFiles([
+    parseCalibrationSource(safeSource, "oracle-fixtures/provider-source-safe.js"),
+  ]);
+  const unsafe = analyzeParsedFiles([
+    parseCalibrationSource(unsafeSource, "oracle-fixtures/provider-source-unsafe.js"),
+  ]);
+  const kinds = new Set(safe.sites.map((site) => site.ast_access_kind));
+  return Object.freeze({
+    covers_direct_member: kinds.has("member"),
+    covers_optional_member: kinds.has("optional_member"),
+    covers_computed_literal: kinds.has("computed_literal"),
+    covers_destructuring: kinds.has("destructuring"),
+    covers_spread_transport: kinds.has("spread"),
+    covers_alias_array_object_helper_flow:
+      safe.sites.some((site) => site.source_provenance === "alias/helper/container"),
+    safe_error_dominates_count: safe.unsafe_decision_consumers.length === 0,
+    unsafe_count_decision_detected: unsafe.unsafe_decision_consumers.length > 0,
+    unresolved_dynamic_fails_closed:
+      unsafe.unresolved.some((site) => site.ast_access_kind === "computed_dynamic"),
+  });
+}
+
+export const CT_PROVIDER_SOURCE_INVENTORY_FREEZE = Object.freeze({
+  final_runtime_count: null,
+  final_runtime_sites: null,
+  final_runtime_fingerprint: null,
+  freeze_exemption: "post-implementation mechanical inventory pin only",
+});
+
+const isMain = process.argv[1]
+  && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+if (isMain) {
+  const pinPathIndex = process.argv.indexOf("--pin");
+  const pinPath = pinPathIndex >= 0 ? process.argv[pinPathIndex + 1] : null;
+  const output = deriveCtProviderSourceConsumerInventory({ pinPath });
+  process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+  if (output.unresolved.length > 0
+    || output.unsafe_decision_consumers.length > 0
+    || output.pin_matches === false) {
+    process.exitCode = 1;
+  }
+}
