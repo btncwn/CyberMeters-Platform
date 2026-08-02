@@ -509,6 +509,12 @@ jobs:
       - name: Validate Cyber Essentials lifecycle (external evidence only / no questionnaire / no score alerts, mutation-tested)
         run: node scripts/validate-ce-lifecycle.js
 
+      - name: Validate Cyber Essentials multi-domain containment (readiness / durable projection / zero-write lifecycle / UI)
+        run: node scripts/validate-ce-multidomain-containment.js
+
+      - name: Validate Cyber Essentials multi-domain containment strict mutants (fresh fixture process per mutant)
+        run: node scripts/validate-ce-multidomain-containment-mutations.js
+
       - name: Validate evaluator/resolver parity (each engine emits a resolvable occurrence)
         run: node scripts/validate-alert-evaluator-parity.js
 
