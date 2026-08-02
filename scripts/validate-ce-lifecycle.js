@@ -12,10 +12,10 @@
 //   2. NO EVIDENCE => UNKNOWN. Never a grade, in either direction.
 //   3. A SCORE MOVING IS NOT AN EVENT. State comes from the SET of failing canonical
 //      remediation ids, not the percentage.
-//   4. UNSUPPORTED CONTROLS STAY SILENT. access_control and malware_protection
-//      declare external_coverage "none" in the repo's own metadata; they are scored
-//      from email-auth proxies that measure anti-spoofing, not user access control or
-//      endpoint AV. They can never alert.
+//   4. UNSUPPORTED CONTROLS STAY SILENT. access_control, malware_protection and
+//      patch_management_readiness declare external_coverage "none" in the repo's
+//      authoritative metadata. Email-auth proxies do not measure user access control
+//      or endpoint AV, and certificate/ASM proxies do not measure patching. None can alert.
 //
 // Every assertion drives the REAL evaluator against the REAL schema and the REAL
 // readiness engine.
@@ -285,8 +285,8 @@ const run = (ws, scanId = "scan_1") => evaluateCyberEssentialsLifecycle(env, ws,
   ok("...and only externally assessable themes alerted",
      notifs("ws2").every((x) => /secure_configuration|boundary_protection/.test(x.metadata_json || "")),
      JSON.stringify(notifs("ws2").map((x) => x.type)));
-  ok("...access_control and malware_protection alerted NOBODY",
-     !notifs("ws2").some((x) => /access_control|malware_protection/.test(x.metadata_json || "")));
+  ok("...all three non-externally-assessable controls alerted NOBODY",
+     !notifs("ws2").some((x) => /access_control|malware_protection|patch_management_readiness/.test(x.metadata_json || "")));
 
   const n = notifs("ws2").filter((x) => /secure_configuration/.test(x.metadata_json || "")).at(-1);
   eq("the alert is attributed to CE", n.domain_key, CE_DOMAIN_KEY);
@@ -418,8 +418,8 @@ const run = (ws, scanId = "scan_1") => evaluateCyberEssentialsLifecycle(env, ws,
 
   // (b) Route through the questionnaire display gate.
   const viaSnapshot = original.replace(
-    "import { buildCyberEssentialsReadiness } from \"./ce-readiness.js\";",
-    "import { buildCyberEssentialsReadiness, getCyberEssentialsSnapshot } from \"./ce-readiness.js\";",
+    "    const readiness = await buildCyberEssentialsReadiness(workspaceId, env).catch(() => null);",
+    "    const readiness = await getCyberEssentialsSnapshot(workspaceId, env).catch(() => null);",
   );
   ok("MUTATION (b) applied — the direct call is where this suite thinks it is", viaSnapshot !== original);
 

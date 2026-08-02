@@ -216,7 +216,7 @@ function seedControl(db, { id = "cec-1", ws = "ws1", key = "boundary_protection"
   const db = buildDb(); seed(db); const env = { cybermeters_db: makeD1(db) };
   // A questionnaire-only control can never carry a case-opening recurrence, so even the
   // case layer refuses: its recurrence is not in the map.
-  for (const key of ["access_control", "malware_protection"]) {
+  for (const key of ["access_control", "malware_protection", "patch_management_readiness"]) {
     const g = lifecycle.gradeCeControl({ key, label: key, remediations: [{ remediation_id: "x", customer_title: "x" }], unknown: [] });
     ok(`${key}: has no recurrence to open a case with`, !cases.CE_CASE_RECURRENCES.has(g.state));
     eq(`${key}: is not actionable`, g.state === "not_ready", false);
@@ -479,9 +479,9 @@ async function driveToAwaiting(db, env, id) {
   ok("the deterioration made at least one externally assessable control not-ready", notReady.length > 0, JSON.stringify(notReady));
   eq("exactly ONE case per not-ready control — no more, no fewer", opened.length, notReady.length);
   eq("every case names an externally assessable control",
-    opened.every((c) => ["boundary_protection", "secure_configuration", "patch_management_readiness"].includes(c.asset_ref)), true);
-  ok("no case for any questionnaire-only control",
-    !opened.some((c) => ["access_control", "malware_protection"].includes(c.asset_ref)));
+    opened.every((c) => ["boundary_protection", "secure_configuration"].includes(c.asset_ref)), true);
+  ok("no case for any control declared not externally assessable",
+    !opened.some((c) => ["access_control", "malware_protection", "patch_management_readiness"].includes(c.asset_ref)));
   // Every not-ready control's record points at its own case, and vice versa.
   for (const key of notReady) {
     const rec = db.prepare("SELECT * FROM cyber_essentials_control_records WHERE workspace_id='ws1' AND control_key=?").get(key);
