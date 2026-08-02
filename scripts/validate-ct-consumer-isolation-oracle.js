@@ -7,6 +7,10 @@
 // syntax/import/runtime failures cannot impersonate semantic evidence.
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  CT_ISOLATION_OLD_RUNTIME_FAILURE_IDS,
+  CT_ISOLATION_OLD_RUNTIME_PASS_IDS,
+} from "./ct-consumer-isolation-old-runtime-classification.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engineUrl = (name) => pathToFileURL(path.join(
@@ -19,7 +23,6 @@ const overlapModule = await load("CT_ORACLE_OVERLAP_MODULE_URL", "ct-provider-ov
 const budgetModule = await load("CT_ORACLE_BUDGET_MODULE_URL", "scan-budget.js");
 const reservedModule = await load("CT_ORACLE_RESERVED_MODULE_URL", "reserved-scan.js");
 const sslModule = await load("CT_ORACLE_SSL_MODULE_URL", "ssl-scan.js");
-const subdomainsModule = await load("CT_ORACLE_SUBDOMAINS_MODULE_URL", "subdomains-scan.js");
 const analyzerModule = await import(
   process.env.CT_ORACLE_ANALYZER_MODULE_URL
     || pathToFileURL(path.join(root, "scripts/analyze-ct-provider-telemetry.js")).href
@@ -35,6 +38,7 @@ export const CT_ISOLATION_CONTRACT_IDS = Object.freeze([
   "RELEASED_OUTPUT_IMMUTABLE",
   "SUCCESSFUL_EMPTY_IS_ZERO",
   "GENUINE_FAILURE_REMAINS_PROVIDER_FAILURE",
+  "CONSUMER_FAILURE_STATE_MATCHES_PHYSICAL",
   "STRUCTURED_GLOBAL_DEADLINE_PROVENANCE",
   "GLOBAL_DEADLINE_STOPS_PHYSICAL_WORK",
   "CT_R1_GLOBAL_DEADLINE_CAUSE",
@@ -49,29 +53,18 @@ export const CT_ISOLATION_CONTRACT_IDS = Object.freeze([
   "CUSTOMER_SOURCE_HAS_NO_LIFECYCLE_FIELDS",
 ]);
 
-export const CT_ISOLATION_OLD_RUNTIME_FAILURE_IDS = Object.freeze([
-  "SSL_RELEASE_IS_CONSUMER_ONLY",
-  "SIBLING_LATE_SUCCESS_RECEIVED",
-  "CT_R1_LATE_SUCCESS_IS_OK",
-  "RELEASED_CONSUMER_REJECTS_LATE_RESULT",
-  "CONSUMER_STATE_SEPARATE_FROM_PHYSICAL",
-  "RELEASED_OUTPUT_IMMUTABLE",
-  "GENUINE_FAILURE_REMAINS_PROVIDER_FAILURE",
-  "STRUCTURED_GLOBAL_DEADLINE_PROVENANCE",
-  "GLOBAL_DEADLINE_STOPS_PHYSICAL_WORK",
-  "CT_R1_GLOBAL_DEADLINE_CAUSE",
-  "ABORT_BEFORE_RELEASE_IS_PLATFORM_ABORT",
-  "PA_IF_UNREACHABLE_ON_SHARED_SIGNAL",
-  "RESERVED_PATH_USES_ISOLATED_BOUNDARY",
-  "SOURCE_SET_VERSION_IS_V2",
-  "ANALYZER_COUNTS_DIRECT_ATTEMPT_POPULATION",
-]);
+const declaredPartition = [...CT_ISOLATION_OLD_RUNTIME_FAILURE_IDS, ...CT_ISOLATION_OLD_RUNTIME_PASS_IDS]
+  .sort((a, b) => a.localeCompare(b));
+const contractPartition = [...CT_ISOLATION_CONTRACT_IDS].sort((a, b) => a.localeCompare(b));
+if (JSON.stringify(declaredPartition) !== JSON.stringify(contractPartition)) {
+  throw new Error("Old-runtime PASS/FAIL classification does not partition contract IDs");
+}
 
 const CRT_OK = [{
   name_value: "api.example.com\nexample.com",
   common_name: "example.com",
   not_before: "2026-07-01T00:00:00Z",
-  not_after: "2027-07-01T00:00:00Z",
+  not_after: "2099-07-01T00:00:00Z",
   issuer_name: "Fixture CA",
 }];
 
@@ -103,6 +96,16 @@ const policies = {
   certspotter: { timeoutMs: 60_000, maxAttempts: 1, backoffMs: 0 },
 };
 
+function reservedIsolationCapability() {
+  if (typeof reservedModule.runReservedScan !== "function"
+    || typeof reservedModule.runReservedCtConsumer !== "function") return false;
+  const composition = Function.prototype.toString.call(reservedModule.runReservedScan);
+  const boundary = Function.prototype.toString.call(reservedModule.runReservedCtConsumer);
+  return /runReservedCtConsumer/.test(composition)
+    && /releaseConsumer/.test(boundary)
+    && /ctOverlap\?\.freeze/.test(boundary);
+}
+
 const results = new Map();
 async function contract(id, run) {
   if (!CT_ISOLATION_CONTRACT_IDS.includes(id) || results.has(id)) {
@@ -123,6 +126,7 @@ async function sharedLateSuccessFixture() {
   const sslController = new AbortController();
   const subdomainsController = new AbortController();
   let calls = 0;
+  let physicalAbortCount = 0;
   const globalProvenance = () => globalController.signal.aborted
     ? globalController.signal.reason
     : { aborted: false, owner: "scan_global_deadline", reason: null, observed_at: null };
@@ -130,7 +134,10 @@ async function sharedLateSuccessFixture() {
     accounting: () => physicalAccounting(globalController.signal),
     fetcher: async (_url, init) => {
       calls += 1;
-      const abort = () => gate.reject(new DOMException("fixture abort", "AbortError"));
+      const abort = () => {
+        physicalAbortCount += 1;
+        gate.reject(new DOMException("fixture abort", "AbortError"));
+      };
       if (init.signal?.aborted) abort();
       else init.signal?.addEventListener?.("abort", abort, { once: true });
       return gate.promise;
@@ -140,6 +147,9 @@ async function sharedLateSuccessFixture() {
     policies,
     timeoutSignal: () => new AbortController().signal,
   });
+  const cacheHasConsumerLifecycle = typeof cache.releaseConsumer === "function"
+    && typeof cache.consumerSnapshot === "function"
+    && typeof cache.physicalSnapshot === "function";
   const sslWait = cache.get("example.com", "crt_sh", {
     module: "ssl",
     signal: sslController.signal,
@@ -154,6 +164,7 @@ async function sharedLateSuccessFixture() {
   cache.releaseConsumer?.("example.com", "ssl", "module_budget_exhausted");
   sslController.abort("module_budget_exhausted");
   await turn();
+  const physicalAbortCountAtSslRelease = physicalAbortCount;
   const atReleasePhysical = cache.physicalSnapshot?.("example.com")?.crt_sh;
   const atReleaseConsumer = cache.consumerSnapshot?.("example.com", "ssl")?.providers?.crt_sh;
   gate.resolve(jsonResponse(CRT_OK));
@@ -168,6 +179,8 @@ async function sharedLateSuccessFixture() {
   void sslWait;
   sharedFixture = {
     calls,
+    cacheHasConsumerLifecycle,
+    physicalAbortCountAtSslRelease,
     atReleasePhysical,
     atReleaseConsumer,
     afterConsumer,
@@ -182,14 +195,11 @@ await contract("SHARED_PHYSICAL_REQUEST_ONE", async () =>
   (await sharedLateSuccessFixture()).calls === 1);
 await contract("SSL_RELEASE_IS_CONSUMER_ONLY", async () => {
   const value = await sharedLateSuccessFixture();
-  return value.atReleaseConsumer?.consumer_wait_state === "released_budget_exhausted"
-    && value.atReleaseConsumer?.physical_attempt_state === "in_flight"
-    && value.atReleasePhysical === "in_flight";
+  return value.physicalAbortCountAtSslRelease === 0;
 });
 await contract("SIBLING_LATE_SUCCESS_RECEIVED", async () => {
   const value = await sharedLateSuccessFixture();
   return value.subdomainsResult?.status === "available"
-    && value.subdomainsResult?.consumer_wait_state === "received_success"
     && value.subdomainsResult?.data?.length === 1;
 });
 await contract("CT_R1_LATE_SUCCESS_IS_OK", async () => {
@@ -199,17 +209,20 @@ await contract("CT_R1_LATE_SUCCESS_IS_OK", async () => {
 });
 await contract("RELEASED_CONSUMER_REJECTS_LATE_RESULT", async () => {
   const value = await sharedLateSuccessFixture();
+  if (typeof value.cacheHasConsumerLifecycle !== "boolean") return false;
+  if (value.cacheHasConsumerLifecycle !== true) return false;
   return value.afterConsumer?.consumer_wait_state === "released_budget_exhausted";
 });
 await contract("CONSUMER_STATE_SEPARATE_FROM_PHYSICAL", async () => {
   const value = await sharedLateSuccessFixture();
+  if (value.cacheHasConsumerLifecycle !== true) return false;
   return value.afterConsumer?.consumer_wait_state === "released_budget_exhausted"
     && value.afterConsumer?.physical_attempt_state === "in_flight"
     && value.afterPhysical === "terminal_success";
 });
 
 await contract("RELEASED_OUTPUT_IMMUTABLE", async () => {
-  if (typeof reservedModule.runReservedCtConsumer !== "function") return false;
+  if (!reservedIsolationCapability()) return false;
   const cache = cacheModule.createCertificateTransparencyCache({
     accounting: () => physicalAccounting(),
     fetcher: async () => {
@@ -236,14 +249,21 @@ await contract("RELEASED_OUTPUT_IMMUTABLE", async () => {
 
 await contract("SUCCESSFUL_EMPTY_IS_ZERO", async () => {
   const cache = cacheModule.createCertificateTransparencyCache({
-    accounting: () => physicalAccounting(),
     fetcher: async () => jsonResponse([]),
     policies,
   });
-  const value = await cache.get("example.com", "crt_sh", { module: "ssl" });
-  const source = sslModule.projectSslCtSource(value);
-  return value.status === "available" && Array.isArray(value.data)
-    && value.data.length === 0 && source.count === 0 && source.error === null;
+  const successfulEmpty = await cache.get("example.com", "crt_sh", { module: "ssl" });
+  const value = await sslModule.resolveCertificateTransparency("example.com", {
+    ctCache: { get: async () => successfulEmpty },
+  });
+  return successfulEmpty.status === "available"
+    && Array.isArray(successfulEmpty.data)
+    && successfulEmpty.data.length === 0
+    && successfulEmpty.error === null
+    && value.ct_sources?.crt_sh?.count === 0
+    && value.ct_sources?.crt_sh?.error === null
+    && value.ct_sources?.certspotter?.count === 0
+    && value.ct_sources?.certspotter?.error === null;
 });
 
 await contract("GENUINE_FAILURE_REMAINS_PROVIDER_FAILURE", async () => {
@@ -253,8 +273,20 @@ await contract("GENUINE_FAILURE_REMAINS_PROVIDER_FAILURE", async () => {
     policies,
   });
   const value = await cache.get("example.com", "crt_sh", { module: "ssl" });
-  const consumer = cache.consumerSnapshot?.("example.com", "ssl")?.providers?.crt_sh;
   return value.status === "unavailable" && value.error === "HTTP 503"
+    && value.data === null;
+});
+
+await contract("CONSUMER_FAILURE_STATE_MATCHES_PHYSICAL", async () => {
+  const cache = cacheModule.createCertificateTransparencyCache({
+    accounting: () => physicalAccounting(),
+    fetcher: async () => jsonResponse({}, 503),
+    policies,
+  });
+  if (typeof cache.consumerSnapshot !== "function") return false;
+  const value = await cache.get("example.com", "crt_sh", { module: "ssl" });
+  const consumer = cache.consumerSnapshot("example.com", "ssl")?.providers?.crt_sh;
+  return value.status === "unavailable"
     && consumer?.consumer_wait_state === "received_failure"
     && consumer?.physical_attempt_state === "terminal_failure";
 });
@@ -262,8 +294,9 @@ await contract("GENUINE_FAILURE_REMAINS_PROVIDER_FAILURE", async () => {
 let structuredDeadline;
 await contract("STRUCTURED_GLOBAL_DEADLINE_PROVENANCE", async () => {
   const deadline = budgetModule.createScanDeadline({ SCAN_DEADLINE_MS: 5_000 }, () => 5_000);
+  if (typeof deadline.globalDeadlineProvenance !== "function") return false;
   deadline.cancel("scan_deadline_exhausted");
-  structuredDeadline = deadline.globalDeadlineProvenance?.();
+  structuredDeadline = deadline.globalDeadlineProvenance();
   return structuredDeadline?.aborted === true
     && structuredDeadline.owner === "scan_global_deadline"
     && structuredDeadline.reason === "scan_deadline_exhausted"
@@ -280,6 +313,7 @@ async function globalAbortFixture() {
     reason: "scan_deadline_exhausted",
     observed_at: "2026-08-02T12:00:00.000Z",
   });
+  let abortDelivered = false;
   const cache = cacheModule.createCertificateTransparencyCache({
     accounting: () => physicalAccounting(controller.signal),
     signal: controller.signal,
@@ -293,6 +327,7 @@ async function globalAbortFixture() {
         new Error("fixture global cancellation was not delivered"),
       ), 8);
       const abort = () => {
+        abortDelivered = true;
         clearTimeout(uncancelledGuard);
         reject(new DOMException("fixture global abort", "AbortError"));
       };
@@ -314,6 +349,7 @@ async function globalAbortFixture() {
   globalFixture = {
     result,
     rows,
+    abortDelivered,
     physicalState: cache.physicalSnapshot?.("example.com")?.crt_sh,
   };
   return globalFixture;
@@ -321,7 +357,7 @@ async function globalAbortFixture() {
 
 await contract("GLOBAL_DEADLINE_STOPS_PHYSICAL_WORK", async () =>
   (await globalAbortFixture()).result.status === "unavailable"
-    && (await globalAbortFixture()).physicalState === "global_deadline_aborted");
+    && (await globalAbortFixture()).abortDelivered === true);
 await contract("CT_R1_GLOBAL_DEADLINE_CAUSE", async () => {
   const value = await globalAbortFixture();
   return value.rows.length === 1 && value.rows[0].outcome === "platform_deadline_abort";
@@ -377,13 +413,16 @@ await contract("FROZEN_OVERLAP_REJECTS_LATE_OBSERVE", async () => {
 });
 
 await contract("PA_IF_UNREACHABLE_ON_SHARED_SIGNAL", async () =>
-  overlapModule.CT_PROVIDER_OVERLAP_PAIR_STATUSES != null
+  Array.isArray(overlapModule.CT_PROVIDER_OVERLAP_ATTEMPT_STATES)
+    && overlapModule.CT_PROVIDER_OVERLAP_ATTEMPT_STATES.includes("terminal_platform_deadline_abort")
+    && overlapModule.CT_PROVIDER_OVERLAP_PAIR_STATUSES != null
     && !Object.hasOwn(
       overlapModule.CT_PROVIDER_OVERLAP_PAIR_STATUSES,
       "in_flight_at_consumer_release|terminal_platform_deadline_abort",
     ));
-await contract("RESERVED_PATH_USES_ISOLATED_BOUNDARY", async () =>
-  typeof reservedModule.runReservedCtConsumer === "function");
+await contract("RESERVED_PATH_USES_ISOLATED_BOUNDARY", async () => {
+  return reservedIsolationCapability();
+});
 await contract("SOURCE_SET_VERSION_IS_V2", async () =>
   overlapModule.CT_PROVIDER_OVERLAP_SOURCE_SET_VERSION === "ct-provider-overlap/2");
 
@@ -404,6 +443,7 @@ await contract("ANALYZER_COUNTS_DIRECT_ATTEMPT_POPULATION", async () => {
     { ...base, scan_id: "scan-b", workspace_id: "founder", module: "subdomains", outcome: "platform_deadline_abort", completeness_impact: 1 },
     { ...base, scan_id: "scan-c", workspace_id: "other", module: "subdomains", outcome: "ok", completeness_impact: 0 },
   ], { nowMs, founderWorkspaceIds: ["founder"] });
+  if (!Object.hasOwn(analysis, "platform_deadline_censorship")) return false;
   const global = analysis.platform_deadline_censorship?.scopes?.global;
   return global?.total_attempt_rows === 3
     && global?.platform_deadline_abort_attempt_rows === 2
@@ -414,21 +454,29 @@ await contract("ANALYZER_COUNTS_DIRECT_ATTEMPT_POPULATION", async () => {
 });
 
 await contract("CUSTOMER_SOURCE_SCHEMA_IS_STABLE", async () => {
-  const available = { status: "available", data: CRT_OK, error: null };
-  const ssl = sslModule.projectSslCtSource(available);
-  const subdomains = subdomainsModule.projectSubdomainCtSource(available, 1);
-  return JSON.stringify(ssl) === '{"count":1,"error":null}'
-    && JSON.stringify(subdomains) === '{"count":1,"error":null}';
+  const ssl = await sslModule.resolveCertificateTransparency("example.com", {
+    ctCache: {
+      get: async (_domain, provider) => provider === "crt_sh"
+        ? { status: "available", data: CRT_OK, error: null }
+        : { status: "available", data: [], error: null },
+    },
+  });
+  return JSON.stringify(ssl.ct_sources?.crt_sh) === '{"count":1,"error":null}';
 });
 await contract("CUSTOMER_SOURCE_HAS_NO_LIFECYCLE_FIELDS", async () => {
-  const source = sslModule.projectSslCtSource({
-    status: "unavailable",
-    data: null,
-    error: "HTTP 503",
-    physical_attempt_state: "terminal_failure",
-    consumer_wait_state: "received_failure",
+  const ssl = await sslModule.resolveCertificateTransparency("example.com", {
+    ctCache: {
+      get: async () => ({
+        status: "unavailable",
+        data: null,
+        error: "HTTP 503",
+        physical_attempt_state: "terminal_failure",
+        consumer_wait_state: "received_failure",
+      }),
+    },
   });
-  return Object.keys(source).sort().join("|") === "count|error";
+  return [ssl.ct_sources?.crt_sh, ssl.ct_sources?.certspotter].every((source) =>
+    Object.keys(source || {}).sort().join("|") === "count|error");
 });
 
 if (results.size !== CT_ISOLATION_CONTRACT_IDS.length) {

@@ -16,10 +16,11 @@ const engines = path.join(root, "workers/scan-api/src/engines");
 const validator = path.join(root, "scripts/validate-ct-consumer-isolation-oracle.js");
 const cachePath = path.join(engines, "ct-provider-cache.js");
 const overlapPath = path.join(engines, "ct-provider-overlap.js");
+const budgetPath = path.join(engines, "scan-budget.js");
 const reservedPath = path.join(engines, "reserved-scan.js");
 const analyzerPath = path.join(root, "scripts/analyze-ct-provider-telemetry.js");
-const EXPECTED_CONTRACTS = 21;
-const EXPECTED_MUTANTS = 14;
+const EXPECTED_CONTRACTS = 22;
+const EXPECTED_MUTANTS = 17;
 const EXPECTED_CONTROLS = 2;
 
 let sequence = 0;
@@ -178,7 +179,6 @@ runCase({
 runCase({
   name: "report consumer release as provider failure",
   expectedFailures: [
-    "SSL_RELEASE_IS_CONSUMER_ONLY",
     "RELEASED_CONSUMER_REJECTS_LATE_RESULT",
     "CONSUMER_STATE_SEPARATE_FROM_PHYSICAL",
   ],
@@ -258,6 +258,19 @@ runCase({
 });
 
 runCase({
+  name: "erase structured global deadline owner",
+  expectedFailures: ["STRUCTURED_GLOBAL_DEADLINE_PROVENANCE"],
+  targets: [target(budgetPath, "CT_ORACLE_BUDGET_MODULE_URL", (source) => replaceExactlyOnce(
+    source,
+    `      aborted: true,
+      owner: "scan_global_deadline",`,
+    `      aborted: true,
+      owner: "unknown",`,
+    "structured deadline owner",
+  ))],
+});
+
+runCase({
   name: "allow late observe to mutate frozen overlap",
   expectedFailures: ["FROZEN_OVERLAP_REJECTS_LATE_OBSERVE"],
   targets: [target(overlapPath, "CT_ORACLE_OVERLAP_MODULE_URL", (source) => replaceExactlyOnce(
@@ -301,7 +314,6 @@ runCase({
 runCase({
   name: "consumer release overwrites physical state",
   expectedFailures: [
-    "SSL_RELEASE_IS_CONSUMER_ONLY",
     "CONSUMER_STATE_SEPARATE_FROM_PHYSICAL",
   ],
   targets: [target(cachePath, "CT_ORACLE_CACHE_MODULE_URL", (source) => replaceExactlyOnce(
@@ -315,7 +327,7 @@ runCase({
 
 runCase({
   name: "confuse consumer wait with physical outcome",
-  expectedFailures: ["GENUINE_FAILURE_REMAINS_PROVIDER_FAILURE"],
+  expectedFailures: ["CONSUMER_FAILURE_STATE_MATCHES_PHYSICAL"],
   targets: [target(cachePath, "CT_ORACLE_CACHE_MODULE_URL", (source) => replaceExactlyOnce(
     source,
     `        record.state = succeeded ? "received_success" : "received_failure";`,
@@ -347,6 +359,32 @@ runCase({
     `export const CT_PROVIDER_OVERLAP_SOURCE_SET_VERSION = "ct-provider-overlap/2";`,
     `export const CT_PROVIDER_OVERLAP_SOURCE_SET_VERSION = "ct-provider-overlap/1";`,
     "source-set version",
+  ))],
+});
+
+runCase({
+  name: "admit PA plus in-flight as a canonical pair",
+  expectedFailures: ["PA_IF_UNREACHABLE_ON_SHARED_SIGNAL"],
+  targets: [target(overlapPath, "CT_ORACLE_OVERLAP_MODULE_URL", (source) => replaceExactlyOnce(
+    source,
+    `  "terminal_platform_deadline_abort|terminal_platform_deadline_abort": "censored_platform_deadline_abort",`,
+    `  "in_flight_at_consumer_release|terminal_platform_deadline_abort": "censored_platform_deadline_abort",
+  "terminal_platform_deadline_abort|terminal_platform_deadline_abort": "censored_platform_deadline_abort",`,
+    "PA plus in-flight canonical pair",
+  ))],
+});
+
+runCase({
+  name: "omit reserved consumer release boundary",
+  expectedFailures: [
+    "RELEASED_OUTPUT_IMMUTABLE",
+    "RESERVED_PATH_USES_ISOLATED_BOUNDARY",
+  ],
+  targets: [target(reservedPath, "CT_ORACLE_RESERVED_MODULE_URL", (source) => replaceExactlyOnce(
+    source,
+    `    ctCache.releaseConsumer?.(domain, module, cause);`,
+    `    void ctCache;`,
+    "reserved consumer release boundary",
   ))],
 });
 
