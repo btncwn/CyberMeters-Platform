@@ -605,6 +605,9 @@ jobs:
       - name: Validate Identity Exposure Managed Workflow (identity key + provider aliases + correlation + classification + ownership + verification + monitoring + case reopen)
         run: node scripts/validate-identity-exposure-lifecycle.js
 
+      - name: Validate identity disappearance verification honesty mutations
+        run: node scripts/validate-identity-disappearance-verification-mutations.js
+
       - name: Validate ASM remediation loop (managed cases + verification)
         run: node scripts/validate-asm-remediation-loop.js
 

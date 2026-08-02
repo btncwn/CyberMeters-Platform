@@ -285,7 +285,7 @@ export function buildIdentityVerification(rec, { now = new Date().toISOString(),
   } else if (action === "surface_removed") {
     expected_outcome = "surface_no_longer_observed";
     if (observedNow) { verification_result = "failed"; actual_outcome = "still_observed"; }
-    else if (age != null && age >= IDENTITY_DISAPPEARANCE_WINDOW_DAYS) { verification_result = "verified"; actual_outcome = "absent_across_window"; }
+    else if (age != null && age >= IDENTITY_DISAPPEARANCE_WINDOW_DAYS) { verification_result = "inconclusive"; actual_outcome = "absent_across_window"; }
     else { verification_result = "inconclusive"; actual_outcome = "absent_but_within_window"; }
   } else if (action === "configuration_changed") {
     // The change must be observed AFTER the customer said they made it. This previously
