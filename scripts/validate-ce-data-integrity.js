@@ -142,9 +142,15 @@ function makeD1(db) {
 {
   const src = fs.readFileSync(srcPath("engines", "ce-readiness.js"), "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-  ok("CE evidence selection has no workspace_domains fallback", !/workspace_domains/.test(src));
-  ok("CE evidence selection scopes to the workspace's own scans", /s\.workspace_id = \?/.test(src));
-  ok("CE evidence selection has no OR arm", !/OR wd\.workspace_id/.test(src));
+  const selector = src.slice(
+    src.indexOf("async function getLatestWorkspaceScanReport"),
+    src.indexOf("export async function buildCyberEssentialsReadiness"),
+  );
+  ok("CE evidence selection has no workspace_domains fallback", !/workspace_domains/.test(selector));
+  ok("CE evidence selection scopes to the workspace's own scans", /s\.workspace_id = \?/.test(selector));
+  ok("CE evidence selection has no OR arm", !/OR wd\.workspace_id/.test(selector));
+  ok("the separate Stage-1 count helper uses workspace_domains without joining it to scans",
+     /SELECT COUNT\(\*\) AS n[\s\S]*FROM workspace_domains[\s\S]*WHERE workspace_id = \?/.test(src));
 }
 
 // ── P1-1. Purge — the table is listed, and the guard is REAL ────────────────

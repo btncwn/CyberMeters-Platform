@@ -120,6 +120,10 @@ function readinessBadgeClass(readiness) {
   return READINESS_STYLES[readiness] || 'bg-gray-50 text-gray-700 border-gray-200'
 }
 
+function readinessIsNotAssessed(readiness) {
+  return readiness?.assessable === false || readiness?.status === 'not_assessed'
+}
+
 function overallTone(readiness) {
   const score = readiness?.score
   // No indicator is NOT a bad indicator. `?? 0` painted "not assessed" red, which reads as
@@ -206,9 +210,10 @@ function EvidenceBadge({ control }) {
   )
 }
 
-function ControlResultCard({ control }) {
-  const measuredGaps = control.measured_gaps || []
+function ControlResultCard({ control, readinessNotAssessed = false }) {
+  const measuredGaps = readinessNotAssessed ? [] : (control.measured_gaps || [])
   const selfGaps = control.self_attestation?.gaps || []
+  const displayedReadiness = readinessNotAssessed ? 'not_assessed' : control.readiness
 
   return (
     <div className="card p-5">
@@ -221,16 +226,23 @@ function ControlResultCard({ control }) {
               : 'This area can be supported by external Cyber MOT evidence and your saved answers.'}
           </p>
         </div>
-        <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold capitalize ${readinessBadgeClass(control.readiness)}`}>
-          {titleCaseStatus(control.readiness)}
+        <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold capitalize ${readinessBadgeClass(displayedReadiness)}`}>
+          {titleCaseStatus(displayedReadiness)}
         </span>
       </div>
 
       <div className="mt-4">
-        <EvidenceBadge control={control} />
+        {readinessNotAssessed ? (
+          <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700">
+            <p className="text-xs font-bold">External readiness not assessed</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed opacity-80">
+              Your saved answers are retained, but they are not being combined with a current external readiness verdict.
+            </p>
+          </div>
+        ) : <EvidenceBadge control={control} />}
       </div>
 
-      {control.contradiction && (
+      {!readinessNotAssessed && control.contradiction && (
         <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 p-3">
           <div className="flex gap-2">
             <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
@@ -242,7 +254,7 @@ function ControlResultCard({ control }) {
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
           <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Readiness score</p>
-          <p className="mt-1 text-lg font-bold text-gray-900">{control.measured_score ?? '—'}<span className="text-xs text-gray-400">/100</span></p>
+          <p className="mt-1 text-lg font-bold text-gray-900">{readinessNotAssessed ? '—' : (control.measured_score ?? '—')}<span className="text-xs text-gray-400">/100</span></p>
         </div>
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
           <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Self-declared answers</p>
@@ -280,6 +292,22 @@ function ControlResultCard({ control }) {
 }
 
 function PriorityGaps({ readiness }) {
+  if (readinessIsNotAssessed(readiness)) {
+    return (
+      <div className="card p-6">
+        <h2 className="font-semibold text-gray-900">Priority gaps to review</h2>
+        <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+          <div className="flex gap-3">
+            <HelpCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-500" />
+            <p className="text-sm leading-relaxed text-gray-700">
+              Readiness cannot currently be assessed for this workspace. Priority gaps will appear when current external evidence is available for assessment.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const topGaps = readiness?.top_gaps || []
   const selfControls = readiness?.self_assessment?.controls || []
   const controlGaps = selfControls.flatMap(control => [
@@ -331,6 +359,17 @@ function PriorityGaps({ readiness }) {
 }
 
 function Recommendations({ readiness }) {
+  if (readinessIsNotAssessed(readiness)) {
+    return (
+      <div className="card p-6">
+        <h2 className="font-semibold text-gray-900">Recommended actions</h2>
+        <p className="mt-3 text-sm leading-relaxed text-gray-500">
+          Recommended actions will be shown when readiness can be assessed. You can keep your self-declared answers current in the meantime.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="card p-6">
       <h2 className="font-semibold text-gray-900">Recommended actions</h2>
@@ -391,7 +430,13 @@ function ExternallyObservedControls({ data, error }) {
 
       <div className="mt-4 space-y-3">
         {items.map((c) => {
-          const state = ceReadinessMeta(c.readiness_state)
+          const state = c.containment_active
+            ? {
+                label: 'Not assessed',
+                tone: 'slate',
+                hint: 'Current external readiness cannot be assessed for this workspace.',
+              }
+            : ceReadinessMeta(c.readiness_state)
           const cov = ceCoverageMeta(c.external_coverage)
           return (
             // `id` is the alert deep-link anchor (/ws/cyber-essentials?control=<id>).
@@ -418,7 +463,11 @@ function ExternallyObservedControls({ data, error }) {
 
               {/* What we could NOT see is shown, not omitted: an unobserved signal that
                   silently vanished would make partial coverage look complete. */}
-              {c.unknown_signals?.length > 0 && (
+              {c.containment_active ? (
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">
+                  Current evidence is unavailable for a workspace-level readiness assessment. Historical observations have not been changed.
+                </p>
+              ) : c.unknown_signals?.length > 0 && (
                 <div className="mt-2">
                   <p className="text-xs font-medium text-gray-600">Not observable from outside</p>
                   <ul className="mt-1 space-y-0.5">
@@ -571,6 +620,7 @@ export default function WorkspaceCyberEssentialsPage() {
 
   const planError = error?.error === 'plan_feature_required' ? null : error?.message
   const selfControls = readiness?.self_assessment?.controls || []
+  const readinessNotAssessed = readinessIsNotAssessed(readiness)
 
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={planError} onRetry={load}>
@@ -659,7 +709,11 @@ export default function WorkspaceCyberEssentialsPage() {
             {selfControls.length > 0 ? (
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 {selfControls.map(control => (
-                  <ControlResultCard key={control.control_key} control={control} />
+                  <ControlResultCard
+                    key={control.control_key}
+                    control={control}
+                    readinessNotAssessed={readinessNotAssessed}
+                  />
                 ))}
               </div>
             ) : (

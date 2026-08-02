@@ -78,6 +78,87 @@ export const CE_NOT_ASSESSABLE_LABEL = "Not externally assessable — self-attes
 export const CE_READINESS_METHODOLOGY_VERSION = "2026-07-16";
 export const CE_READINESS_METHODOLOGY_REVISION = 2;
 
+// ── Stage-1 workspace/domain-grain containment ─────────────────────────────
+// CE's durable verdict is workspace-grained, while the evidence path below selects one
+// latest workspace-owned scan (and therefore one linked domain). Until an explicit
+// multi-domain aggregation contract exists, exactly one linked domain is the only scope in
+// which that scan can support the existing workspace verdict. Do not add verification or
+// deletion predicates here: workspace_domains has neither status nor deleted_at, and unlink
+// is a hard DELETE. This is the ONE canonical count query used by readiness and lifecycle
+// read projections.
+export const CE_WORKSPACE_MULTI_DOMAIN_REASON = "workspace_multi_domain_not_aggregatable";
+export const CE_WORKSPACE_NO_DOMAIN_REASON = "workspace_has_no_linked_domain";
+export const CE_WORKSPACE_DOMAIN_COUNT_UNAVAILABLE_REASON = "workspace_domain_count_unavailable";
+
+export async function resolveCeWorkspaceDomainCount(env, workspaceId) {
+  try {
+    const row = await env.cybermeters_db
+      .prepare(`SELECT COUNT(*) AS n
+                FROM workspace_domains
+                WHERE workspace_id = ?`)
+      .bind(workspaceId)
+      .first();
+    const raw = row?.n;
+    const count = typeof raw === "number"
+      ? raw
+      : (typeof raw === "string" && /^(0|[1-9]\d*)$/.test(raw) ? Number(raw) : null);
+    if (!Number.isSafeInteger(count) || count < 0) return { known: false, count: null };
+    return { known: true, count };
+  } catch {
+    return { known: false, count: null };
+  }
+}
+
+export function ceWorkspaceContainmentReason(domainCount) {
+  if (domainCount?.known !== true) return CE_WORKSPACE_DOMAIN_COUNT_UNAVAILABLE_REASON;
+  if (domainCount.count === 1) return null;
+  if (domainCount.count === 0) return CE_WORKSPACE_NO_DOMAIN_REASON;
+  return CE_WORKSPACE_MULTI_DOMAIN_REASON;
+}
+
+function ceContainmentCopy(reason) {
+  if (reason === CE_WORKSPACE_MULTI_DOMAIN_REASON) {
+    return {
+      summary: "Cyber Essentials readiness cannot currently be assessed for this workspace because it has more than one linked domain.",
+      limitation: "No workspace-wide readiness estimate is made until linked-domain evidence can be aggregated explicitly.",
+    };
+  }
+  if (reason === CE_WORKSPACE_NO_DOMAIN_REASON) {
+    return {
+      summary: "Cyber Essentials readiness cannot currently be assessed because this workspace has no linked domain.",
+      limitation: "Link one domain and complete a Cyber MOT before using the external readiness estimate.",
+    };
+  }
+  return {
+    summary: "Cyber Essentials readiness is temporarily unavailable because the workspace domain scope could not be confirmed.",
+    limitation: "No readiness estimate is made while the linked-domain scope is unavailable.",
+  };
+}
+
+function cyberEssentialsContainedResponse(wsId, reason) {
+  const copy = ceContainmentCopy(reason);
+  return {
+    workspace_id: wsId,
+    workspace_name: null,
+    assessable: false,
+    score: null,
+    grade: null,
+    status: "not_assessed",
+    categories: [],
+    top_gaps: [],
+    recommendations: [],
+    canonical_remediations: [],
+    summary: copy.summary,
+    generated_at: new Date().toISOString(),
+    latest_scan: null,
+    containment_reason: reason,
+    limitations: [
+      "CyberMeters does not certify Cyber Essentials.",
+      copy.limitation,
+    ],
+  };
+}
+
 /**
  * May these two readiness outputs be compared as a genuine trend?
  * Only when BOTH the methodology version AND revision match. Missing metadata means the
@@ -258,6 +339,14 @@ async function getLatestWorkspaceScanReport(wsId, env) {
 }
 
 export async function buildCyberEssentialsReadiness(wsId, env) {
+  // Stage 1: establish the workspace evidence grain before any scorecard, scan or R2
+  // work. Exact count === 1 preserves the existing path byte-for-byte. Every other
+  // result, including a failed/unparseable count, is not assessed and cannot select an
+  // arbitrary domain's scan as a workspace verdict.
+  const domainCount = await resolveCeWorkspaceDomainCount(env, wsId);
+  const containmentReason = ceWorkspaceContainmentReason(domainCount);
+  if (containmentReason) return cyberEssentialsContainedResponse(wsId, containmentReason);
+
   const [scorecard, report] = await Promise.all([
     // scanScope "workspace": CE's counts (critical_findings, admin_surfaces,
     // certificate_risks, saas_exposures) are EVIDENCE for a readiness verdict, and

@@ -418,8 +418,8 @@ const run = (ws, scanId = "scan_1") => evaluateCyberEssentialsLifecycle(env, ws,
 
   // (b) Route through the questionnaire display gate.
   const viaSnapshot = original.replace(
-    "import { buildCyberEssentialsReadiness } from \"./ce-readiness.js\";",
-    "import { buildCyberEssentialsReadiness, getCyberEssentialsSnapshot } from \"./ce-readiness.js\";",
+    "    const readiness = await buildCyberEssentialsReadiness(workspaceId, env).catch(() => null);",
+    "    const readiness = await getCyberEssentialsSnapshot(workspaceId, env).catch(() => null);",
   );
   ok("MUTATION (b) applied — the direct call is where this suite thinks it is", viaSnapshot !== original);
 

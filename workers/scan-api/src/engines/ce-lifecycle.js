@@ -30,7 +30,10 @@
 import { CE_QUESTIONS } from "../lib/cyber-essentials.js";
 // One direction only: this module calls into the case layer, which imports nothing back.
 import { openOrReopenCeCase, verifyCeCaseFromRecovery } from "./cyber-essentials-cases.js";
-import { buildCyberEssentialsReadiness } from "./ce-readiness.js";
+import {
+  buildCyberEssentialsReadiness, ceWorkspaceContainmentReason,
+  resolveCeWorkspaceDomainCount,
+} from "./ce-readiness.js";
 import {
   MONITORING_CHANGED, buildMonitoringTransitionDetail, isMonitoringTransition,
 } from "./alert-occurrence.js";
@@ -203,10 +206,15 @@ export async function evaluateCyberEssentialsLifecycle(env, workspaceId, { scanI
     const readiness = await buildCyberEssentialsReadiness(workspaceId, env).catch(() => null);
     if (!readiness) return { skipped: "readiness_unavailable" };
 
-    // No external evidence at all => nothing to say. Not ready, not unready, not a
-    // grade. ce-readiness returns `assessable:false` for no scan / missing R2 object
-    // / a failed read alike.
-    if (readiness.assessable === false) return { skipped: "no_external_evidence" };
+    // NOT ASSESSED => ZERO lifecycle activity. This guard remains before the first
+    // cyber_essentials_control_records read and therefore before every INSERT/UPDATE,
+    // appendEvent, case open/verify/reopen and emitLifecycleAlert call. It covers no
+    // evidence and Stage-1 workspace/domain-grain containment alike.
+    if (readiness.assessable === false) {
+      return readiness.containment_reason
+        ? { skipped: "workspace_domain_containment", containment_reason: readiness.containment_reason }
+        : { skipped: "no_external_evidence" };
+    }
 
     const existing = (await env.cybermeters_db
       .prepare(`SELECT * FROM cyber_essentials_control_records WHERE workspace_id = ?`)
@@ -437,9 +445,10 @@ function ceTransitionDetail({ g, from, recurrence, band, scanId, reason }) {
 // certified anything. `external_coverage` ships alongside it precisely so `ready` can
 // never be read as a full pass — two of the five controls are permanently
 // `not_externally_assessable` because nothing external can see them.
-export function ceControlRecordToApi(row = {}) {
+export function ceControlRecordToApi(row = {}, { containment_reason = null } = {}) {
   const parse = (raw, fb) => { try { return raw ? JSON.parse(raw) : fb; } catch { return fb; } };
-  return {
+  const recordedEvidence = parse(row.evidence_json, []);
+  const projected = {
     id: row.id,
     control_key: row.control_key,
     control_label: row.control_label ?? null,
@@ -460,7 +469,7 @@ export function ceControlRecordToApi(row = {}) {
     recorded_external_coverage: row.external_coverage ?? null,
     // WHICH evidence moved, and what we could not see. Both customer-facing: a gap the
     // product cannot observe must be visible as unobserved, not absent.
-    evidence: parse(row.evidence_json, []),
+    evidence: recordedEvidence,
     unknown_signals: parse(row.unknown_json, []),
     last_scan_id: row.last_scan_id ?? null,
     last_assessed_at: row.last_assessed_at ?? null,
@@ -468,6 +477,18 @@ export function ceControlRecordToApi(row = {}) {
     last_seen_at: row.last_seen_at ?? null,
     last_changed_at: row.last_changed_at ?? null,
     linked_case_id: row.linked_case_id ?? null,
+  };
+  if (!containment_reason) return projected;
+  return {
+    ...projected,
+    readiness_state: "unknown",
+    readiness_reason: containment_reason,
+    evidence: [],
+    unknown_signals: [{ signal: "workspace_domain_scope", reason: containment_reason }],
+    containment_active: true,
+    recorded_readiness_state: row.readiness_state ?? null,
+    recorded_readiness_reason: row.readiness_reason ?? null,
+    recorded_evidence: recordedEvidence,
   };
 }
 
@@ -487,25 +508,39 @@ export function ceEventToApi(row = {}) {
 // deterministic and needs no tie-break. Bounded anyway: the bound is the contract, not
 // an assumption about how many controls exist today.
 export async function listCeControlRecords(env, workspaceId, { readiness_state = null, limit = 50, offset = 0 } = {}) {
+  const domainCount = await resolveCeWorkspaceDomainCount(env, workspaceId);
+  const containmentReason = ceWorkspaceContainmentReason(domainCount);
   const where = ["workspace_id = ?"];
   const binds = [workspaceId];
-  if (readiness_state) { where.push("readiness_state = ?"); binds.push(String(readiness_state)); }
+  // Under containment every current projection is unknown. Filtering raw stored state
+  // would make list and count disagree and could expose a historical ready verdict.
+  if (readiness_state && !containmentReason) {
+    where.push("readiness_state = ?"); binds.push(String(readiness_state));
+  }
+  if (containmentReason && readiness_state && String(readiness_state) !== "unknown") return [];
   const rows = await env.cybermeters_db
     .prepare(`SELECT * FROM cyber_essentials_control_records
               WHERE ${where.join(" AND ")}
               ORDER BY control_key ASC
               LIMIT ? OFFSET ?`)
     .bind(...binds, Number(limit), Number(offset)).all().catch(() => ({ results: [] }));
-  return (rows.results || []).map(ceControlRecordToApi);
+  return (rows.results || []).map((row) => ceControlRecordToApi(row, {
+    containment_reason: containmentReason,
+  }));
 }
 
 // Bounded by the CE model itself — five controls, one row each per workspace — but the
 // count is still queried rather than assumed: a bound that comes from a constant in
 // another file is a comment, not a contract.
 export async function countCeControlRecords(env, workspaceId, { readiness_state = null } = {}) {
+  const domainCount = await resolveCeWorkspaceDomainCount(env, workspaceId);
+  const containmentReason = ceWorkspaceContainmentReason(domainCount);
   const where = ["workspace_id = ?"];
   const binds = [workspaceId];
-  if (readiness_state) { where.push("readiness_state = ?"); binds.push(String(readiness_state)); }
+  if (containmentReason && readiness_state && String(readiness_state) !== "unknown") return 0;
+  if (readiness_state && !containmentReason) {
+    where.push("readiness_state = ?"); binds.push(String(readiness_state));
+  }
   const row = await env.cybermeters_db
     .prepare(`SELECT COUNT(*) AS n FROM cyber_essentials_control_records WHERE ${where.join(" AND ")}`)
     .bind(...binds).first().catch(() => null);
@@ -513,10 +548,12 @@ export async function countCeControlRecords(env, workspaceId, { readiness_state 
 }
 
 export async function getCeControlRecord(env, workspaceId, recordId) {
+  const domainCount = await resolveCeWorkspaceDomainCount(env, workspaceId);
+  const containmentReason = ceWorkspaceContainmentReason(domainCount);
   const row = await env.cybermeters_db
     .prepare(`SELECT * FROM cyber_essentials_control_records WHERE workspace_id = ? AND id = ?`)
     .bind(workspaceId, recordId).first().catch(() => null);
-  return row ? ceControlRecordToApi(row) : null;
+  return row ? ceControlRecordToApi(row, { containment_reason: containmentReason }) : null;
 }
 
 export async function listCeControlEvents(env, workspaceId, recordId, { limit = 200 } = {}) {
