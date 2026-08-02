@@ -104,20 +104,38 @@ export async function runSubdomainsModule(domain, opts = {}) {
     error,
   });
 
+  // Consumer release is a one-way observational boundary. It neither aborts
+  // provider work nor changes the production result; late provider settlement
+  // is simply unable to rewrite the already-released telemetry snapshot.
+  const freezeCtOverlap = () => {
+    try { opts.ctOverlap?.freeze?.(); } catch { /* observational only */ }
+  };
+
   try {
     // Race the inner async work against a hard-cap timer.
     // If the hard cap fires first the scan continues with an empty result;
     // the inner work is abandoned (Cloudflare GC's the hanging fetch).
+    const work = _subdomainsCoreWork(
+      domain,
+      SOURCE,
+      PER_CAP,
+      MERGE_CAP,
+      { accounting, cache, ctCache, signal: opts.signal, subOps: opts.subOps, ctOverlap: opts.ctOverlap },
+    ).then((result) => {
+      freezeCtOverlap();
+      return result;
+    });
     return await Promise.race([
-      _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, { accounting, cache, ctCache, signal: opts.signal, subOps: opts.subOps, ctOverlap: opts.ctOverlap }),
+      work,
       new Promise((resolve) =>
-        setTimeout(() =>
-          resolve(emptyResult("Subdomain discovery timed out (15s hard cap)")),
-          HARD_CAP_MS
-        )
+        setTimeout(() => {
+          freezeCtOverlap();
+          resolve(emptyResult("Subdomain discovery timed out (15s hard cap)"));
+        }, HARD_CAP_MS)
       ),
     ]);
   } catch (err) {
+    freezeCtOverlap();
     return emptyResult(err?.message ?? "Subdomain module threw unexpectedly");
   }
 }
@@ -171,7 +189,21 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   // A broken collector cannot change provider launch order or Promise semantics.
   const observedCtGet = (provider) => {
     try { opts.ctOverlap?.begin?.(provider); } catch { /* observational only */ }
-    return ctCache.get(domain, provider, { accounting, module: "subdomains" });
+    const providerPromise = ctCache.get(domain, provider, { accounting, module: "subdomains" });
+    return providerPromise.then(
+      (value) => {
+        try {
+          opts.ctOverlap?.observe?.(provider, { status: "fulfilled", value }, domain);
+        } catch { /* observational only */ }
+        return value;
+      },
+      (reason) => {
+        try {
+          opts.ctOverlap?.observe?.(provider, { status: "rejected", reason }, domain);
+        } catch { /* observational only */ }
+        throw reason;
+      },
+    );
   };
 
   // ── Fire all 4 network calls in parallel ────────────────────────────────
@@ -182,9 +214,6 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
       timedSubOp("ct_wait_crt_sh", observedCtGet("crt_sh")),
       timedSubOp("ct_wait_certspotter", observedCtGet("certspotter")),
     ]);
-
-  try { opts.ctOverlap?.observe?.("crt_sh", crtShSettled, domain); } catch { /* observational only */ }
-  try { opts.ctOverlap?.observe?.("certspotter", certSpotterSettled, domain); } catch { /* observational only */ }
 
   // ── Wildcard DNS result ─────────────────────────────────────────────────
   const aAnswers    = wASettled.status    === "fulfilled" ? (wASettled.value.Answer    || []) : [];

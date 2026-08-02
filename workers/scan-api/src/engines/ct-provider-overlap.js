@@ -11,8 +11,9 @@ export const CT_PROVIDER_OVERLAP_SOURCE_SET_VERSION = "ct-provider-overlap/1";
 
 // Measurement bounds, not production discovery bounds. PER_CAP/MERGE_CAP in
 // subdomains-scan.js retain their original, independent customer-result meaning.
-// The normalization cap bounds CPU and the unique set; the smaller retention cap
-// bounds the two sets used by the comparison itself.
+// The normalization cap bounds new normalization work and the unique set; raw
+// provider candidate enumeration still walks the provider data. The smaller
+// retention cap bounds the two sets used by the comparison itself.
 export const CT_PROVIDER_OVERLAP_NORMALIZATION_LIMIT = 4_096;
 export const CT_PROVIDER_OVERLAP_RETAINED_LIMIT = 256;
 
@@ -184,23 +185,45 @@ export function createCtProviderOverlapCollector({
     Math.floor(Number(retainedLimit) || CT_PROVIDER_OVERLAP_RETAINED_LIMIT),
   ));
   const providerMeasurements = new Map();
+  const startedProviders = new Set();
   let moduleStarted = false;
+  let consumerReleased = false;
+  let releasedAt = null;
+
+  const buildFrozenSnapshot = () => {
+    if (!moduleStarted || releasedAt === null) return null;
+    const crtSh = providerMeasurements.get("crt_sh")
+      || unmeasuredProvider("not_started");
+    const certspotter = providerMeasurements.get("certspotter")
+      || unmeasuredProvider("not_started");
+    const comparison = compareProviders(crtSh, certspotter);
+    return {
+      module: "subdomains",
+      source_set_version: CT_PROVIDER_OVERLAP_SOURCE_SET_VERSION,
+      observed_at: releasedAt,
+      normalization_candidate_limit: normalizedLimit,
+      retained_hostname_limit: boundedRetainedLimit,
+      ...publicProviderFields("crt_sh", crtSh),
+      ...publicProviderFields("certspotter", certspotter),
+      comparison_status: comparison.comparison_status,
+      intersection_count: comparison.intersection_count ?? null,
+      crt_sh_only_count: comparison.crt_sh_only_count ?? null,
+      certspotter_only_count: comparison.certspotter_only_count ?? null,
+      union_count: comparison.union_count ?? null,
+    };
+  };
 
   return {
     begin(provider) {
-      if (!PROVIDERS.includes(provider)) return;
+      if (consumerReleased || !PROVIDERS.includes(provider)) return;
       moduleStarted = true;
-      if (!providerMeasurements.has(provider)) {
-        providerMeasurements.set(
-          provider,
-          unmeasuredProvider("in_flight_at_consumer_release"),
-        );
-      }
+      startedProviders.add(provider);
     },
 
     observe(provider, settled, domain) {
-      if (!PROVIDERS.includes(provider)) return;
+      if (consumerReleased || !PROVIDERS.includes(provider)) return;
       moduleStarted = true;
+      startedProviders.add(provider);
       const value = settled?.status === "fulfilled" ? settled.value : null;
       if (settled?.status !== "fulfilled"
         || value?.status !== "available"
@@ -216,27 +239,24 @@ export function createCtProviderOverlapCollector({
       ));
     },
 
+    freeze() {
+      if (consumerReleased) return buildFrozenSnapshot();
+      for (const provider of PROVIDERS) {
+        if (providerMeasurements.has(provider)) continue;
+        providerMeasurements.set(
+          provider,
+          unmeasuredProvider(startedProviders.has(provider)
+            ? "in_flight_at_consumer_release"
+            : "not_started"),
+        );
+      }
+      releasedAt = isoNow(now);
+      consumerReleased = true;
+      return buildFrozenSnapshot();
+    },
+
     snapshot() {
-      if (!moduleStarted) return null;
-      const crtSh = providerMeasurements.get("crt_sh")
-        || unmeasuredProvider("not_started");
-      const certspotter = providerMeasurements.get("certspotter")
-        || unmeasuredProvider("not_started");
-      const comparison = compareProviders(crtSh, certspotter);
-      return {
-        module: "subdomains",
-        source_set_version: CT_PROVIDER_OVERLAP_SOURCE_SET_VERSION,
-        observed_at: isoNow(now),
-        normalization_candidate_limit: normalizedLimit,
-        retained_hostname_limit: boundedRetainedLimit,
-        ...publicProviderFields("crt_sh", crtSh),
-        ...publicProviderFields("certspotter", certspotter),
-        comparison_status: comparison.comparison_status,
-        intersection_count: comparison.intersection_count ?? null,
-        crt_sh_only_count: comparison.crt_sh_only_count ?? null,
-        certspotter_only_count: comparison.certspotter_only_count ?? null,
-        union_count: comparison.union_count ?? null,
-      };
+      return releasedAt === null ? null : buildFrozenSnapshot();
     },
   };
 }

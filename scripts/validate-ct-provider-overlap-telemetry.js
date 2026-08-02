@@ -324,6 +324,7 @@ try {
   const throwingCollector = {
     begin() { throw new Error("fixture collector begin failure"); },
     observe() { throw new Error("fixture collector observe failure"); },
+    freeze() { throw new Error("fixture collector freeze failure"); },
   };
   const withThrowingCollector = await runSubdomainsModule("example.com", {
     ctCache: makeCtCache(exceptionFixture),
@@ -336,17 +337,112 @@ try {
   const neverStarted = createCtProviderOverlapCollector({ now: () => NOW_MS });
   eq("module never ran: collector snapshot is empty", neverStarted.snapshot(), null);
 
-  // Future-state reachability is schema-ready but not fabricated by normal PR-2A.
+  // Consumer release is the measurement boundary. A: both providers terminal
+  // before release stay terminal and compare normally.
+  const terminalBeforeRelease = createCtProviderOverlapCollector({ now: () => NOW_MS });
+  terminalBeforeRelease.begin("crt_sh");
+  terminalBeforeRelease.begin("certspotter");
+  terminalBeforeRelease.observe("crt_sh", {
+    status: "fulfilled", value: available("crt_sh", CRT_PARTIAL),
+  }, "example.com");
+  terminalBeforeRelease.observe("certspotter", {
+    status: "fulfilled", value: available("certspotter", CERT_PARTIAL),
+  }, "example.com");
+  terminalBeforeRelease.freeze();
+  eq("release A: both terminal providers compare",
+    terminalBeforeRelease.snapshot().comparison_status, "compared");
+
+  // B/G plus the real inner 15s release path: crt.sh settles before release,
+  // CertSpotter settles after it. Late settlement cannot rewrite the snapshot,
+  // and instrumentation remains customer-byte inert on the timeout result.
+  const originalSetTimeout = globalThis.setTimeout;
+  const runInnerRelease = async (collector = null) => {
+    let resolveLate;
+    const lateCertspotter = new Promise((resolve) => { resolveLate = resolve; });
+    const ctCache = {
+      get: (_domain, provider) => provider === "crt_sh"
+        ? Promise.resolve(available("crt_sh", CRT_PARTIAL))
+        : lateCertspotter,
+    };
+    const result = await runSubdomainsModule("example.com", {
+      ctCache,
+      ...(collector ? { ctOverlap: collector } : {}),
+    });
+    return { result, resolveLate };
+  };
+  try {
+    globalThis.setTimeout = (callback, delay, ...args) => {
+      if (delay === 15_000) {
+        queueMicrotask(() => callback(...args));
+        return 0;
+      }
+      return originalSetTimeout(callback, delay, ...args);
+    };
+    const innerDisabled = await runInnerRelease();
+    const innerCollector = createCtProviderOverlapCollector({ now: () => NOW_MS });
+    const innerEnabled = await runInnerRelease(innerCollector);
+    const released = innerCollector.snapshot();
+    eq("inner 15s release: instrumentation production JSON byte-identical",
+      JSON.stringify(innerEnabled.result), JSON.stringify(innerDisabled.result));
+    eq("release B: provider resolving after release is censored in-flight",
+      `${released?.crt_sh_attempt_state}|${released?.certspotter_attempt_state}|${released?.comparison_status}`,
+      "terminal_success|in_flight_at_consumer_release|censored_in_flight");
+    eq("release B: censored in-flight overlap fields are NULL",
+      [released?.intersection_count, released?.crt_sh_only_count,
+        released?.certspotter_only_count, released?.union_count]
+        .every((value) => value === null), true);
+    innerEnabled.resolveLate(available("certspotter", CERT_PARTIAL));
+    innerDisabled.resolveLate(available("certspotter", CERT_PARTIAL));
+    await Promise.resolve();
+    await Promise.resolve();
+    eq("release G: late success cannot overwrite frozen provider state",
+      `${innerCollector.snapshot()?.certspotter_attempt_state}|${innerCollector.snapshot()?.comparison_status}`,
+      "in_flight_at_consumer_release|censored_in_flight");
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+
+  // C: a late failure is equally unable to relabel release-time in-flight as a
+  // provider failure.
+  const lateFailure = createCtProviderOverlapCollector({ now: () => NOW_MS });
+  lateFailure.begin("crt_sh");
+  lateFailure.begin("certspotter");
+  lateFailure.observe("crt_sh", {
+    status: "fulfilled", value: available("crt_sh", CRT_PARTIAL),
+  }, "example.com");
+  lateFailure.freeze();
+  lateFailure.observe("certspotter", {
+    status: "fulfilled", value: unavailable("certspotter"),
+  }, "example.com");
+  eq("release C: late failure remains censored in-flight",
+    `${lateFailure.snapshot().certspotter_attempt_state}|${lateFailure.snapshot().comparison_status}`,
+    "in_flight_at_consumer_release|censored_in_flight");
+
+  // D is exercised by the three provider-failure fixtures above. E keeps a
+  // provider that was genuinely never started distinct from in-flight.
   const inFlight = createCtProviderOverlapCollector({ now: () => NOW_MS });
   inFlight.begin("crt_sh");
   inFlight.begin("certspotter");
+  inFlight.freeze();
   eq("in-flight consumer release is represented honestly",
     inFlight.snapshot().comparison_status, "censored_in_flight");
   const notStarted = createCtProviderOverlapCollector({ now: () => NOW_MS });
   notStarted.begin("crt_sh");
   notStarted.observe("crt_sh", { status: "fulfilled", value: available("crt_sh", []) }, "example.com");
-  eq("one provider never started remains distinct",
-    notStarted.snapshot().comparison_status, "not_started");
+  notStarted.freeze();
+  eq("release E: one provider never started remains distinct",
+    `${notStarted.snapshot().certspotter_attempt_state}|${notStarted.snapshot().comparison_status}`,
+    "not_started|not_started");
+
+  // F: repeated release does not move the timestamp or reclassify the row.
+  let releaseClock = NOW_MS;
+  const repeatedRelease = createCtProviderOverlapCollector({ now: () => releaseClock });
+  repeatedRelease.begin("crt_sh");
+  const firstRelease = repeatedRelease.freeze();
+  releaseClock += 60_000;
+  const secondRelease = repeatedRelease.freeze();
+  eq("release F: repeated release is idempotent",
+    JSON.stringify(secondRelease), JSON.stringify(firstRelease));
 
   eq("attempt-state vocabulary is future-ready",
     CT_PROVIDER_OVERLAP_ATTEMPT_STATES.join("|"),
@@ -427,6 +523,7 @@ persistenceMeasurementCollector.observe("crt_sh", {
 persistenceMeasurementCollector.observe("certspotter", {
   status: "fulfilled", value: available("certspotter", CERT_PARTIAL),
 }, "example.com");
+persistenceMeasurementCollector.freeze();
 const persistenceMeasurement = persistenceMeasurementCollector.snapshot();
 
 {

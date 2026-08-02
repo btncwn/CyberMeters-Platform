@@ -8,8 +8,9 @@ Implementation basis: `7673bc28760e47aee1b2f1ef68c3f60798b2352d`
 
 ## Scope and invariants
 
-This change observes the two terminal provider values already consumed by the
-`subdomains` module. It does not alter the provider calls, retry/timeout policy,
+This change observes each provider's terminal value on the existing `subdomains`
+consumer promise and freezes that observation at consumer release. It does not
+alter the provider calls, retry/timeout policy,
 provider order, production `PER_CAP`/`MERGE_CAP`, shared `seen`, customer-facing
 `items`, `sources.*.count`, `incomplete`, `incomplete_reason`, scan quality,
 scores, snapshots, reports, PDFs or frontend output.
@@ -26,9 +27,18 @@ Provider attempt states are:
   including a successful empty array;
 - `terminal_failure`: the shared CT cache returned unavailable, rejected or produced
   no valid parsed array;
-- `in_flight_at_consumer_release`: the provider call started, but the outer
-  subdomains hard-cap released its consumer before the terminal value was observed;
-- `not_started`: the collector snapshot did not observe that provider being started.
+- `in_flight_at_consumer_release`: the provider call started, but either the
+  scan-engine 12-second consumer cap or the subdomains 15-second inner cap released
+  its consumer before that provider's terminal value was observed;
+- `not_started`: consumer release occurred before that provider was started.
+
+Consumer release is an explicit one-way latch. Providers already observed terminal
+remain terminal; started non-terminal providers become
+`in_flight_at_consumer_release`; never-started providers become `not_started`. The
+normal all-terminal return freezes after both terminal observations and before
+returning. Repeated release is idempotent, and late terminal values cannot mutate
+the frozen snapshot later read by post-finalization persistence. Freeze is
+observational only: it does not cancel provider work or feed the customer result.
 
 The normal, fully settled subdomains path produces only `terminal_success` and
 `terminal_failure`. `in_flight_at_consumer_release` is reachable only on the existing
@@ -104,7 +114,9 @@ The structured persistence outcomes are:
 - `persisted` with `count: 1` when exactly one row is durable;
 - `persistence_failed` with an `error_class` and `durability: unknown` otherwise.
 
-When D1 is unavailable, a second D1 failure marker cannot be made durable. The honest
+Persistence reads only the frozen consumer-release snapshot; it never derives state
+from mutable provider settlement at scan-finalization time. When D1 is unavailable,
+a second D1 failure marker cannot be made durable. The honest
 durability is therefore **UNKNOWN**, not a claimed persisted failure. The write occurs
 only after terminal scan finalization and cannot affect terminal status or report
 readiness.

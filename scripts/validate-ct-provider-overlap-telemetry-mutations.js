@@ -16,9 +16,9 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers/scan-api/src/engines");
 const fixtureValidator = path.join(root, "scripts/validate-ct-provider-overlap-telemetry.js");
 const engineValidator = path.join(root, "scripts/validate-ct-provider-overlap-engine-trace.js");
-const EXPECTED_MUTANTS = 11;
-const EXPECTED_FIXTURE_ASSERTIONS = 111;
-const EXPECTED_ENGINE_ASSERTIONS = 19;
+const EXPECTED_MUTANTS = 15;
+const EXPECTED_FIXTURE_ASSERTIONS = 118;
+const EXPECTED_ENGINE_ASSERTIONS = 23;
 
 let sequence = 0;
 let killed = 0;
@@ -283,6 +283,81 @@ runMutant({
         ));
         return;`,
     "successful-empty/failure boundary",
+  ),
+});
+
+runMutant({
+  name: "consumer-release freeze latch is removed",
+  sourcePath: overlapPath,
+  envName: "CT_OVERLAP_MODULE_URL",
+  expectedFailures: [
+    "release G: late success cannot overwrite frozen provider state",
+    "release C: late failure remains censored in-flight",
+    "release F: repeated release is idempotent",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    "      consumerReleased = true;\n      return buildFrozenSnapshot();",
+    "      consumerReleased = false; // mutant: release is not latched\n      return buildFrozenSnapshot();",
+    "one-way consumer release latch",
+  ),
+});
+
+runMutant({
+  name: "late observe is allowed to overwrite frozen state",
+  sourcePath: overlapPath,
+  envName: "CT_OVERLAP_MODULE_URL",
+  expectedFailures: [
+    "release G: late success cannot overwrite frozen provider state",
+    "release C: late failure remains censored in-flight",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `    observe(provider, settled, domain) {
+      if (consumerReleased || !PROVIDERS.includes(provider)) return;`,
+    `    observe(provider, settled, domain) {
+      if (!PROVIDERS.includes(provider)) return;`,
+    "late-observe freeze guard",
+  ),
+});
+
+runMutant({
+  name: "outer 12s subdomains release hook is omitted",
+  sourcePath: scanEnginePath,
+  validator: engineValidator,
+  validatorAssertions: EXPECTED_ENGINE_ASSERTIONS,
+  summaryPattern: /CT provider overlap engine trace: (\d+)\/(\d+) assertions passed/,
+  envName: "CT_OVERLAP_SCAN_ENGINE_MODULE_URL",
+  expectedFailures: [
+    "outer 12s release: frozen provider states are durable",
+    "outer 12s release: overlap fields remain NULL",
+    "outer 12s release: late provider settlement cannot rewrite durable state",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: () => ctProviderOverlap.freeze(), run:`,
+    `runCappedModule("subdomains",           { fallback: subdomainsFallback, run:`,
+    "outer subdomains consumer-release hook",
+  ),
+});
+
+runMutant({
+  name: "inner 15s subdomains release hook is omitted",
+  sourcePath: subdomainsPath,
+  envName: "CT_OVERLAP_SUBDOMAINS_MODULE_URL",
+  expectedFailures: [
+    "release B: provider resolving after release is censored in-flight",
+    "release B: censored in-flight overlap fields are NULL",
+    "release G: late success cannot overwrite frozen provider state",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `        setTimeout(() => {
+          freezeCtOverlap();
+          resolve(emptyResult("Subdomain discovery timed out (15s hard cap)"));`,
+    `        setTimeout(() => {
+          resolve(emptyResult("Subdomain discovery timed out (15s hard cap)"));`,
+    "inner subdomains consumer-release hook",
   ),
 });
 

@@ -137,10 +137,35 @@ const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), 
 
 const originalFetch = globalThis.fetch;
 const originalRandom = Math.random;
+const originalSetTimeout = globalThis.setTimeout;
+let outerReleaseMode = false;
+let resolveOuterLateFetch = null;
 globalThis.fetch = async (input) => {
   const url = new URL(String(input));
-  if (url.hostname === "crt.sh") return jsonResponse({}, 403);
+  if (url.hostname === "crt.sh") {
+    if (outerReleaseMode) {
+      return jsonResponse([{
+        name_value: "example.com\ntrace.example.com",
+        common_name: "example.com",
+        not_before: "2026-07-01T00:00:00.000Z",
+        not_after: "2030-11-01T00:00:00.000Z",
+        issuer_name: "CT Outer Release Fixture CA",
+      }]);
+    }
+    return jsonResponse({}, 403);
+  }
   if (url.hostname === "api.certspotter.com") {
+    if (outerReleaseMode) {
+      return await new Promise((resolve) => {
+        resolveOuterLateFetch = () => resolve(jsonResponse([{
+          id: "ct-overlap-late-certspotter",
+          not_before: "2026-07-01T00:00:00.000Z",
+          not_after: "2030-11-01T00:00:00.000Z",
+          issuer: { name: "CT Outer Release Fixture CA" },
+          dns_names: ["example.com", "late.example.com"],
+        }]));
+      });
+    }
     return jsonResponse([{
       id: "ct-overlap-certspotter",
       not_before: "2026-07-01T00:00:00.000Z",
@@ -187,9 +212,18 @@ function createFixture(options = {}) {
   return { db, sequence, store, env, options };
 }
 
-async function execute(options = {}) {
+async function execute(options = {}, { outerRelease = false } = {}) {
   const fixture = createFixture(options);
   let engineError = null;
+  outerReleaseMode = outerRelease;
+  resolveOuterLateFetch = null;
+  if (outerRelease) {
+    // Preserve the real race ordering: launch the subdomains work first, then
+    // make only its 12s outer cap release on the next task turn.
+    globalThis.setTimeout = (callback, delay, ...args) => delay === 12_000
+      ? originalSetTimeout(callback, 0, ...args)
+      : originalSetTimeout(callback, delay, ...args);
+  }
   try {
     await runScanEngine(
       "scan-overlap",
@@ -201,8 +235,11 @@ async function execute(options = {}) {
     );
   } catch (error) {
     engineError = error;
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    outerReleaseMode = false;
   }
-  return { ...fixture, engineError };
+  return { ...fixture, engineError, resolveOuterLateFetch };
 }
 
 try {
@@ -282,9 +319,35 @@ try {
     ).get()?.n, 1);
   eq("repeated finalization: overlap insert attempted once",
     repeatedOptions.overlapWriteAttempts, 1);
+
+  // The scan-engine's 12s consumer cap is shorter than the subdomains module's
+  // 15s cap. One provider is terminal and the other is still running when the
+  // outer consumer releases; persistence must use that exact frozen state.
+  const outerRelease = await execute({}, { outerRelease: true });
+  eq("outer 12s release: runScanEngine completes", outerRelease.engineError, null);
+  const outerRow = outerRelease.db.prepare(
+    "SELECT * FROM ct_provider_overlap_telemetry WHERE scan_id='scan-overlap'",
+  ).get();
+  eq("outer 12s release: frozen provider states are durable",
+    `${outerRow?.crt_sh_attempt_state}|${outerRow?.certspotter_attempt_state}|${outerRow?.comparison_status}`,
+    "terminal_success|in_flight_at_consumer_release|censored_in_flight");
+  eq("outer 12s release: overlap fields remain NULL",
+    [outerRow?.intersection_count, outerRow?.crt_sh_only_count,
+      outerRow?.certspotter_only_count, outerRow?.union_count]
+      .every((value) => value === null), true);
+  outerRelease.resolveOuterLateFetch?.();
+  await Promise.resolve();
+  await Promise.resolve();
+  const durableAfterLate = outerRelease.db.prepare(
+    "SELECT * FROM ct_provider_overlap_telemetry WHERE scan_id='scan-overlap'",
+  ).get();
+  eq("outer 12s release: late provider settlement cannot rewrite durable state",
+    `${durableAfterLate?.certspotter_attempt_state}|${durableAfterLate?.comparison_status}`,
+    "in_flight_at_consumer_release|censored_in_flight");
 } finally {
   globalThis.fetch = originalFetch;
   Math.random = originalRandom;
+  globalThis.setTimeout = originalSetTimeout;
 }
 
 console.log(`CT provider overlap engine trace: ${passed}/${passed + failed} assertions passed`);

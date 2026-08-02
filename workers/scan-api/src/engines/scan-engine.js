@@ -491,7 +491,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     return ctx;
   };
   const moduleCapFor = (module) => SCAN_MODULE_BUDGETS[module] ?? deadline.remainingMs();
-  const runCappedModule = async (module, { fallback, estimateMs = moduleCapFor(module), hardMs = moduleCapFor(module), run }) => {
+  const runCappedModule = async (module, {
+    fallback,
+    estimateMs = moduleCapFor(module),
+    hardMs = moduleCapFor(module),
+    onConsumerRelease = null,
+    run,
+  }) => {
     let allocatedMs = 0;
     let startedMs = null;
     let ctx = null;
@@ -507,6 +513,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         deadline,
         () => run({ accounting: ctx, signal: controller.signal }),
         () => {
+          try { onConsumerRelease?.(); } catch { /* observational only */ }
           controller.abort("module_budget_exhausted");
           return fallback();
         },
@@ -656,7 +663,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
               now,
             }),
           }),
-          runCappedModule("subdomains",           { fallback: subdomainsFallback, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap }) }),
+          runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: () => ctProviderOverlap.freeze(), run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap }) }),
           runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal }) => runTechModule(domain, { accounting, signal }) }),
           runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ source: "rdap" }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
           runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal, cache: dnsCache }) }),

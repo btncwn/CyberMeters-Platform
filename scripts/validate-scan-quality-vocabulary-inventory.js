@@ -24,7 +24,7 @@ const EXPECTED = Object.freeze({
   runtime: {
     comparison_occurrences: 49,
     source_file_count: 22,
-    fingerprint: "08591024984b3fe1e6847d6b33c087a2ec12ffa9936bac8b4fb57a57720e06ce",
+    fingerprint: "595e61120acc717031d9a1f2b240dd7a54eceedf4efd50f776641b6a92c1e1ea",
     partial_only_fingerprint: "e50e6cfb97a4c582c5562096f6160a58b57034d2c1a4a476b561bc2dcd62aec1",
   },
   sql: {
@@ -43,7 +43,7 @@ const EXPECTED = Object.freeze({
   runtime_source_file_count: 32,
   direct: {
     runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "96bca21fd6b810d1acf6acb625bbef7d177307b55a8f9d61d87fdad5494805e2" },
-    governance: { occurrence_count: 89, source_file_count: 34, fingerprint: "178603d7be020e8f418bdeb7f286a2a243161e43d856faef2e5d540fcd4aa4d4" },
+    governance: { occurrence_count: 89, source_file_count: 34, fingerprint: "73cf807493f393b756d9851d4f0f50730845e4939866dfaf25b01f2f3972a1f5" },
   },
   sql_reads: { projection_occurrences: 23, fingerprint: "f7c676453f72325bacd1242e445690c6cf757379f51675767a042c3cf04ff979" },
 });
@@ -1386,7 +1386,7 @@ ok(
 );
 
 ok("primary: runtime canonical direct-read inventory is exact", cleanParse && JSON.stringify(current.direct.runtime) === JSON.stringify(EXPECTED.direct.runtime));
-ok("primary: governance canonical direct-read inventory is exact", cleanParse && JSON.stringify(current.direct.governance) === JSON.stringify(EXPECTED.direct.governance));
+ok("primary: governance canonical direct-read inventory is exact", cleanParse && JSON.stringify(current.direct.governance) === JSON.stringify(EXPECTED.direct.governance), `got ${JSON.stringify(current.direct.governance)}`);
 ok("SQL: direct read/projection inventory is exact", cleanParse && JSON.stringify(current.sql_reads) === JSON.stringify(EXPECTED.sql_reads));
 
 const assertionTotal = passed + failed;
