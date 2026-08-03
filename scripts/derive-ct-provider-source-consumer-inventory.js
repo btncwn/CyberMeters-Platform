@@ -340,7 +340,9 @@ function analyzeFile(parsed) {
       const knownSerialization = node.callee?.type === "MemberExpression"
         && node.callee.object?.name === "JSON"
         && literalProperty(node.callee) === "stringify";
-      if (!localResolved && !knownSerialization) {
+      const knownBooleanCoercion = node.callee?.type === "Identifier"
+        && node.callee.name === "Boolean";
+      if (!localResolved && !knownSerialization && !knownBooleanCoercion) {
         unresolved.push({
           file: parsed.relative,
           line: node.loc?.start?.line || 0,

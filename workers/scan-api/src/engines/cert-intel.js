@@ -145,10 +145,16 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
     const allSensitive = [...new Set([...issued_for_sensitive_hosts, ...subSensitive])].sort();
 
     // ── CT source health ──────────────────────────────────────────────────
-    const crtShCount    = subMod.sources?.crt_sh?.count     ?? 0;
-    const certSpotCount = subMod.sources?.certspotter?.count ?? 0;
-    const crtShError    = subMod.sources?.crt_sh?.error     ?? null;
-    const certSpotError = subMod.sources?.certspotter?.error ?? null;
+    const crtShSource = subMod.sources?.crt_sh;
+    const certSpotSource = subMod.sources?.certspotter;
+    const crtShError = crtShSource?.error ?? null;
+    const certSpotError = certSpotSource?.error ?? null;
+    // A non-null error makes count a compatibility sentinel, not a measured
+    // provider result. Preserve the historical numeric customer projection,
+    // while preventing an incoherent { count: positive, error: non-null }
+    // source from entering discrepancy decisions as measured evidence.
+    const crtShCount = crtShSource?.error == null ? (crtShSource?.count ?? 0) : 0;
+    const certSpotCount = certSpotSource?.error == null ? (certSpotSource?.count ?? 0) : 0;
 
     // Certificate Transparency is this module's ONLY evidence source. When BOTH logs
     // are unavailable the module observed nothing at all — it did not observe "no
