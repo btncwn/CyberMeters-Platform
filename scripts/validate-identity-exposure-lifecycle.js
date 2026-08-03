@@ -11,8 +11,9 @@
 // is separate from observation; three-role ownership derives known/partial/
 // missing; the workflow validates fields, exceptions require reason+expiry, and a
 // customer-recorded change/removal is NOT verified; external verification is
-// method-specific (disappearance across a window → verified; still observed →
-// failed; unchanged/within-window → inconclusive; nothing recorded → pending);
+// method-specific (disappearance remains inconclusive even across the full
+// window; still observed → failed; a later material change may verify;
+// unchanged/within-window → inconclusive; nothing recorded → pending);
 // the monitoring evaluator surfaces public-admin / owner-missing / unexpected /
 // removal-contradiction / provider-change / exception-expiry / retired-reappear
 // deterministically with the right case follow-up (open, assign_owner, reopen via
@@ -25,7 +26,11 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const eng = (f) => import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href);
+const eng = (f) => import(
+  f === "identity-lifecycle.js" && process.env.IDENTITY_LIFECYCLE_MODULE_URL
+    ? process.env.IDENTITY_LIFECYCLE_MODULE_URL
+    : pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href
+);
 const il = await eng("identity-lifecycle.js");
 const ip = await eng("identity-policy.js");
 const {
@@ -202,6 +207,7 @@ eq("record_surface_removed sets a customer assertion", removed.item.customer_act
 // still observed → verification failed + removal contradiction
 const vFail = await identityExposureAction(env, "ws1", d4id, "request_verification", { actor_id: "admin" });
 eq("verify while still observed → failed", vFail.item.verification_status, "failed");
+eq("still-observed failure names the direct outcome", vFail.item.verification_detail.actual_outcome, "still_observed");
 await evaluateIdentityExposureMonitoring(env, "ws1", { now: NOW });
 const d4contra = await getIdentityExposureRecord(env, "ws1", d4id);
 eq("recorded-removed but still observed → removal_contradicted", d4contra.recurrence_type, "removal_contradicted");
@@ -212,11 +218,25 @@ db.prepare("UPDATE identity_assets SET status='inactive' WHERE workspace_id='ws1
 await correlateIdentityExposure(env, "ws1", { now: NOW });
 const d4gone = await getIdentityExposureRecord(env, "ws1", d4id);
 eq("disappeared surface is no_longer_observed (never auto-verified)", d4gone.monitoring_status, "no_longer_observed");
-const vOk = await identityExposureAction(env, "ws1", d4id, "request_verification", { actor_id: "admin" });
-eq("surface_removed absent across window → verified", vOk.item.verification_status, "verified");
-eq("verified method is external_observation", vOk.item.verification_method, "external_observation");
+const disappearanceEvents = await listIdentityExposureEvents(env, "ws1", d4id);
+ok("disappearance correlation remains explicitly not-verified removal",
+  disappearanceEvents.some((event) => event.event_type === "monitoring_changed"
+    && JSON.parse(event.detail_json || "{}").to === "no_longer_observed"
+    && JSON.parse(event.detail_json || "{}").note === "not_verified_removed"));
+const vAbsent = await identityExposureAction(env, "ws1", d4id, "request_verification", { actor_id: "admin" });
+eq("surface_removed absent across window → inconclusive", vAbsent.item.verification_status, "inconclusive");
+eq("absence verification method remains external_observation", vAbsent.item.verification_method, "external_observation");
+eq("absence does not advance remediation_status to verified", vAbsent.item.remediation_status, "customer_actioned");
+eq("absence does not write verified_at", vAbsent.item.verified_at, null);
+eq("full-window disappearance remains valuable append-only detail",
+  vAbsent.item.verification_detail.actual_outcome, "absent_across_window");
+const absenceEvents = await listIdentityExposureEvents(env, "ws1", d4id);
+eq("inconclusive absence appends verification_requested",
+  absenceEvents.at(-1).event_type, "verification_requested");
+ok("inconclusive absence emits no verified event",
+  !absenceEvents.some((event) => event.event_type === "verified"));
 ok("verification evidence keeps identity signals unknown",
-  vOk.item.verification_detail && IDENTITY_UNKNOWN_SIGNALS.every((s) => vOk.item.verification_detail.unknown_signals.includes(s)));
+  vAbsent.item.verification_detail && IDENTITY_UNKNOWN_SIGNALS.every((s) => vAbsent.item.verification_detail.unknown_signals.includes(s)));
 
 // verification unit — pending / inconclusive branches
 eq("no customer action → pending", buildIdentityVerification({ customer_action_status: null, monitoring_status: "observed" }, { now: NOW }).verification_result, "pending");
@@ -224,6 +244,40 @@ eq("config change with no observed change → inconclusive",
   buildIdentityVerification({ customer_action_status: "configuration_changed", monitoring_status: "observed", material_change: 0, last_changed_at: null }, { now: NOW }).verification_result, "inconclusive");
 eq("surface_removed absent but within window → inconclusive",
   buildIdentityVerification({ customer_action_status: "surface_removed", monitoring_status: "no_longer_observed", evidence_age_days: 3 }, { now: NOW }).verification_result, "inconclusive");
+eq("surface_removed within-window outcome stays explicit",
+  buildIdentityVerification({ customer_action_status: "surface_removed", monitoring_status: "no_longer_observed", evidence_age_days: 3 }, { now: NOW }).actual_outcome, "absent_but_within_window");
+eq("surface_removed full-window absence is never verified",
+  buildIdentityVerification({ customer_action_status: "surface_removed", monitoring_status: "no_longer_observed", evidence_age_days: 14 }, { now: NOW }).verification_result, "inconclusive");
+eq("surface_removed full-window outcome stays explicit",
+  buildIdentityVerification({ customer_action_status: "surface_removed", monitoring_status: "no_longer_observed", evidence_age_days: 14 }, { now: NOW }).actual_outcome, "absent_across_window");
+const absentBeforeAction = buildIdentityVerification({
+  customer_action_status: "surface_removed",
+  monitoring_status: "no_longer_observed",
+  exposure_status: "no_longer_observed",
+  evidence_age_days: 30,
+  last_seen_at: "2026-06-01T00:00:00Z",
+}, { now: NOW, customer_action_at: "2026-07-19T00:00:00Z" });
+eq("absence predating the customer removal action stays inconclusive",
+  absentBeforeAction.verification_result, "inconclusive");
+eq("pre-action absence remains an observed full-window outcome, not proof",
+  absentBeforeAction.actual_outcome, "absent_across_window");
+const staleButObserved = buildIdentityVerification({
+  customer_action_status: "surface_removed",
+  monitoring_status: "observed",
+  exposure_status: "observed",
+  evidence_age_days: 30,
+  last_seen_at: "2026-06-01T00:00:00Z",
+}, { now: NOW, customer_action_at: "2026-07-19T00:00:00Z" });
+eq("stale last_seen with observed state is still-observed failure",
+  staleButObserved.verification_result, "failed");
+eq("observed state wins over stale age",
+  staleButObserved.actual_outcome, "still_observed");
+eq("unknown customer-action time cannot verify disappearance",
+  buildIdentityVerification({
+    customer_action_status: "surface_removed",
+    monitoring_status: "no_longer_observed",
+    evidence_age_days: 30,
+  }, { now: NOW, customer_action_at: null }).verification_result, "inconclusive");
 
 // ── 11b. A configuration change must POST-DATE the customer's assertion ──────
 // The defect this exists to prevent (live until 2026-07-16): the contract read
@@ -303,6 +357,24 @@ eq("surface_removed absent but within window → inconclusive",
   eq("a SQLite-format action time still refuses an earlier change",
     cfg("2024-01-01T00:00:00.000Z", SQLITE_ACTED).verification_result, "inconclusive");
 }
+
+// ── 11c. Genuine supported verification remains reachable in persistence ────
+seedIdentity("ws1", "d6", { hostname: "login.corp6.com", identity_type: "login_portal", provider: "Okta" });
+await correlateIdentityExposure(env, "ws1", { now: NOW });
+const d6id = byHost(await listIdentityExposure(env, "ws1"), "login.corp6.com").identity_exposure_id;
+await identityExposureAction(env, "ws1", d6id, "record_configuration_changed", { actor_id: "admin" });
+const d6ActionAt = db.prepare(`SELECT created_at FROM identity_exposure_events
+  WHERE record_id = ? AND event_type = 'customer_action_recorded'
+  ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(d6id).created_at;
+db.prepare("UPDATE identity_exposure SET last_changed_at = datetime(?, '+1 second') WHERE id = ?").run(d6ActionAt, d6id);
+const vChanged = await identityExposureAction(env, "ws1", d6id, "request_verification", { actor_id: "admin" });
+eq("supported material change remains verified", vChanged.item.verification_status, "verified");
+eq("supported material change advances remediation_status", vChanged.item.remediation_status, "verified");
+ok("supported material change writes verified_at", Boolean(vChanged.item.verified_at));
+eq("supported material change keeps its exact outcome",
+  vChanged.item.verification_detail.actual_outcome, "material_change_observed_after_action");
+eq("supported material change emits verified event",
+  (await listIdentityExposureEvents(env, "ws1", d6id)).at(-1).event_type, "verified");
 
 // ── 12. Exception requires reason + expiry; expiry lapses to exception_expired
 seedIdentity("ws1", "d7", { hostname: "ext.corp7.com", identity_type: "login_portal" });
