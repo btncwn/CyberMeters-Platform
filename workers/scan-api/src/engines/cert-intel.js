@@ -52,9 +52,38 @@ export function buildCertificateOwnershipAssessment(ssl, domain) {
   const root = normalizeHostname(domain);
   const subject = String(ssl?.cert_subject || "").toLowerCase().replace(/^\*\./, "").replace(/\.$/, "");
   const customerSans = Array.isArray(ssl?.cert_san_names) ? ssl.cert_san_names : [];
-  const sharedSanCount = Number(ssl?.cert_shared_san_count || 0);
+  const crtShSource = ssl?.ct_sources?.crt_sh;
+  const rawSharedSanCount = ssl?.cert_shared_san_count;
+  // Sentinel precedence (same house rule as CT provider-source counts): a
+  // provider error or missing measurement dominates any compatibility number.
+  // This also fails closed if a producer ever regresses to an eager zero: crt.sh
+  // must have returned a SAN-bearing result before ownership may consume it.
+  const sharedSanMeasured = Boolean(
+    crtShSource &&
+    crtShSource.error == null &&
+    Number.isInteger(crtShSource.count) &&
+    crtShSource.count > 0 &&
+    Number.isInteger(rawSharedSanCount) &&
+    rawSharedSanCount >= 0
+  );
+  const sharedSanCount = sharedSanMeasured ? rawSharedSanCount : null;
   const wildcardSanCount = Number(ssl?.cert_wildcard_san_count || 0);
   const subjectMatches = Boolean(root && (subject === root || subject.endsWith(`.${root}`)));
+
+  if (!sharedSanMeasured) {
+    return {
+      status: "unknown",
+      assessment_state: "not_assessed",
+      assessment_reason: "shared_san_not_measured",
+      confidence: null,
+      customer_owned: null,
+      shared_san_count: null,
+      wildcard_san_count: wildcardSanCount,
+      evidence_signals: [],
+      customer_message:
+        "Certificate ownership was not assessed because shared certificate hostnames were not measured.",
+    };
+  }
 
   if (sharedSanCount > 0) {
     return {
@@ -71,7 +100,7 @@ export function buildCertificateOwnershipAssessment(ssl, domain) {
       status: wildcardSanCount > 0 ? "customer_domain_wildcard" : "customer_domain_certificate",
       confidence: wildcardSanCount > 0 ? 70 : 90,
       customer_owned: true,
-      shared_san_count: 0,
+      shared_san_count: sharedSanCount,
       wildcard_san_count: wildcardSanCount,
       evidence_signals: [subjectMatches ? "subject_match" : "customer_san"],
     };
@@ -295,7 +324,7 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
 	      san_count:             ssl.cert_san_count ?? 0,
 	      raw_san_count:         ssl.cert_raw_san_count ?? ssl.cert_san_count ?? 0,
 	      wildcard_san_count:    ssl.cert_wildcard_san_count ?? 0,
-	      shared_san_count:      ssl.cert_shared_san_count ?? 0,
+	      shared_san_count:      certificate_ownership.shared_san_count,
 	      san_hostnames:         ssl.cert_san_names ?? [],
 	      ownership:             certificate_ownership,
 	      reuse_status:          "not_assessed",
@@ -336,7 +365,7 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
 	      san_count:                  0,
 	      raw_san_count:              0,
 	      wildcard_san_count:         0,
-	      shared_san_count:           0,
+	      shared_san_count:           null,
 	      san_hostnames:              [],
 	      ownership:                  buildCertificateOwnershipAssessment({}, domain),
 	      reuse_status:               "not_assessed",
