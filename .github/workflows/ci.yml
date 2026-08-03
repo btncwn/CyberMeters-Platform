@@ -1108,6 +1108,22 @@ jobs:
       - name: Validate certificate standing-condition dedupe (occurrence identity — unchanged state never re-emits + mutations)
         run: node scripts/validate-cert-standing-condition-dedupe.js
 
+      # Dependency-override governance. An `overrides` entry replaces a version a
+      # dependency declared for itself — the canonical way to TAKE a security fix
+      # upstream has not adopted, and a silent permanent fork if left unwatched.
+      # Two frontend overrides (esbuild, test-exclude) were live with no record,
+      # owner, review date or removal criterion at all. These guards bind every
+      # live override to scripts/security/dependency-override-register.json and
+      # fail closed on an unregistered override, a stale record, spec/version
+      # drift, a dev-only claim the locked production graph contradicts, or an
+      # elapsed review deadline. They run BEFORE the audits so a governance
+      # failure is attributed to governance rather than to a raw advisory.
+      - name: Validate dependency-override governance (register ⟷ manifest ⟷ lockfile, expiring + fail-closed)
+        run: node scripts/validate-dependency-overrides.js
+
+      - name: Validate dependency-override load-bearing mutations
+        run: node scripts/validate-dependency-overrides-mutations.js
+
       - name: Audit worker dependencies
         working-directory: workers/scan-api
         run: npm audit --audit-level=high

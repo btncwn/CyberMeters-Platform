@@ -13,7 +13,8 @@
   },
   "type": "module",
   "overrides": {
-    "sharp": "0.35.3"
+    "sharp": "0.35.3",
+    "undici": "7.29.0"
   },
   "dependencies": {
     "tr46": "6.0.0"
