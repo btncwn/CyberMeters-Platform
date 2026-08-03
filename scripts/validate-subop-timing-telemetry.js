@@ -16,8 +16,9 @@
 //     leave every module result deep-equal — telemetry can never alter behaviour
 //   • a module abandoned by raceModuleDeadline leaves its in-flight sub-operation
 //     attributable as `aborted` with elapsed time
-//   • crt.sh still in flight at the cap surfaces ssl.ct_lookup as `aborted`
-//     while fallback CertSpotter never starts and post-cap probes produce no telemetry row
+//   • crt.sh still in flight at the consumer cap surfaces ssl.ct_lookup as
+//     `aborted`, while the physical CT layer remains independent and may start
+//     its CertSpotter fallback without creating post-cap consumer telemetry rows
 //   • persistModuleTelemetry binds sub-op rows through the EXISTING insert path,
 //     non-fatally, using only existing columns
 //   • the engine wiring (subOps passed to the three offenders + snapshot persist)
@@ -360,10 +361,11 @@ const sslOpts = (extra = {}) => ({
 
   // The original corrective scenario follows the real sequential CT flow:
   // crt.sh and the concurrent bare HTTPS probe are genuinely in flight when the
-  // module cap fires; CertSpotter is a fallback and must never start after that
-  // external abort. Every started fetch receives the same accounting.signal used
-  // by live safeFetch and rejects with AbortError. A fixture that lets crt.sh
-  // complete before the cap cannot pin ct_lookup=aborted.
+  // module cap fires. The cap releases only SSL's consumer wait; it must never
+  // terminate the shared physical CT work. The physical layer is therefore free
+  // to start CertSpotter as its fallback, while the released SSL consumer still
+  // records ct_lookup=aborted and opens no post-cap probe rows. A fixture that
+  // lets crt.sh settle before the cap cannot pin this ownership boundary.
   const startedAbortUrls = [];
   const sequentialCtAbortFetch = (url, init) => new Promise((resolve, reject) => {
     startedAbortUrls.push(String(url));
@@ -389,12 +391,10 @@ const sslOpts = (extra = {}) => ({
     startedAbortUrls.filter((url) => url.includes("crt.sh")).length, 1);
   eq("bare HTTPS probe started concurrently with crt.sh",
     startedAbortUrls.filter((url) => url === `https://${FIXTURE_DOMAIN}`).length, 1);
-  eq("CertSpotter fallback never started after external abort",
-    startedAbortUrls.filter((url) => url.includes("certspotter")).length, 0);
-  ok("only expected crt.sh AbortError was logged",
-    ctAbortErrors.length === 1
-      && ctAbortErrors[0].includes("[scan/ct/crt-sh]")
-      && ctAbortErrors[0].includes("AbortError"),
+  eq("CertSpotter fallback remains a physical-layer decision after consumer release",
+    startedAbortUrls.filter((url) => url.includes("certspotter")).length, 1);
+  ok("consumer release does not log a physical CT AbortError",
+    ctAbortErrors.length === 0,
     JSON.stringify(ctAbortErrors));
   eq("CT lookup in flight at cap attributed as aborted", ctAbortBy["ssl.ct_lookup"]?.outcome, "aborted");
   eq("bare probe in flight with CT attributed as aborted", ctAbortBy["ssl.https_probe_bare"]?.outcome, "aborted");
