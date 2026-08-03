@@ -742,6 +742,12 @@ jobs:
       - name: Validate Item 10 P2 lifecycle persistence (threshold + isolation + purge + idempotency + no-N+1)
         run: node scripts/validate-item10-attack-surface-p2-integration.js
 
+      - name: Validate PR-2B-1 CT asset lifecycle scope (degraded defer + healthy unchanged + provider control)
+        run: node scripts/validate-ct-asset-lifecycle-scope.js
+
+      - name: Validate PR-2B-1 CT asset lifecycle scope mutations
+        run: node scripts/validate-ct-asset-lifecycle-scope-mutations.js
+
       - name: Validate Item 10 P2 production-source mutations
         run: node scripts/validate-item10-attack-surface-p2-mutations.js
 

@@ -77,9 +77,12 @@ function cloudProviderMeta(token) {
 //     first_seen_at, last_seen_at, confidence, name, category, hostnames[] }
 // Reuses the raw stores (workspace_vendors / workspace_assets / identity_assets /
 // email_sender_sources) — no duplicate authoritative observation store.
-async function gatherShadowItObservations(env, workspaceId, saasExposure) {
+async function gatherShadowItObservations(env, workspaceId, saasExposure, {
+  deferCtAssetEvidence = false,
+} = {}) {
   const q = (sql, ...b) => env.cybermeters_db.prepare(sql).bind(...b).all().catch(() => ({ results: [] }));
   const obs = [];
+  const deferredKeys = new Set();
 
   // 1. workspace_vendors — SaaS/vendor/provider signals.
   for (const r of (await q(`SELECT id, vendor_name, category, evidence, confidence, first_seen, last_seen FROM workspace_vendors WHERE workspace_id = ? AND status = 'active'`, workspaceId)).results || []) {
@@ -89,8 +92,12 @@ async function gatherShadowItObservations(env, workspaceId, saasExposure) {
   }
   // 2. workspace_assets.cloud_provider — cloud/CDN/hosting infrastructure. Kept
   //    honest (category cloud_storage/cdn/hosting), never auto-treated as SaaS.
-  for (const r of (await q(`SELECT id, hostname, cloud_provider, first_seen, last_seen FROM workspace_assets WHERE workspace_id = ? AND status = 'active' AND cloud_provider IS NOT NULL AND cloud_provider != ''`, workspaceId)).results || []) {
+  for (const r of (await q(`SELECT id, hostname, source, cloud_provider, first_seen, last_seen FROM workspace_assets WHERE workspace_id = ? AND status = 'active' AND cloud_provider IS NOT NULL AND cloud_provider != ''`, workspaceId)).results || []) {
     const meta = cloudProviderMeta(r.cloud_provider);
+    if (deferCtAssetEvidence && r.source === "certificate_transparency") {
+      deferredKeys.add(canonicalTechnologyKey(meta.display));
+      continue;
+    }
     obs.push({ source_table: "workspace_assets", source_record_id: r.id, source_type: "cloud_asset", observed_identifier: r.cloud_provider, name: meta.display, category: meta.category, first_seen_at: r.first_seen, last_seen_at: r.last_seen, confidence: "medium", hostnames: r.hostname ? [r.hostname] : [] });
   }
   // 3. identity_assets — externally observed identity providers.
@@ -108,7 +115,7 @@ async function gatherShadowItObservations(env, workspaceId, saasExposure) {
     if (!name) continue;
     obs.push({ source_table: "saas_exposure", source_record_id: null, source_type: "saas_portal", observed_identifier: name, name, category: "saas", first_seen_at: null, last_seen_at: null, confidence: "low", hostnames: [ex.tenant_url, ex.portal_url, ex.admin_url].filter(Boolean) });
   }
-  return obs;
+  return { observations: obs, deferredKeys };
 }
 
 // Non-destructive evidence UNION: every prior reference is preserved; new ones are
@@ -184,7 +191,11 @@ async function appendEvent(env, item, { actor_type = "system", actor_id = null, 
 // key, and upsert one inventory item per product. Observation fields refresh;
 // classification/ownership persist. Detects material change + disappearance/
 // reappearance. Soft-deleted workspaces are skipped (no new observations).
-export async function correlateShadowItInventory(env, workspaceId, { saasExposure = null, now = new Date().toISOString() } = {}) {
+export async function correlateShadowItInventory(env, workspaceId, {
+  saasExposure = null,
+  subdomainDiscovery = null,
+  now = new Date().toISOString(),
+} = {}) {
   // Soft-delete gate — a deleted workspace never receives new observations.
   const ws = await env.cybermeters_db
     .prepare(`SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
@@ -193,7 +204,14 @@ export async function correlateShadowItInventory(env, workspaceId, { saasExposur
 
   // Gather observations from EVERY persisted, safely-joinable source. Each
   // contribution retains a structured evidence reference.
-  const observations = await gatherShadowItObservations(env, workspaceId, saasExposure);
+  const deferCtAssetEvidence = subdomainDiscovery?.executed === false ||
+    subdomainDiscovery?.incomplete === true;
+  const { observations, deferredKeys } = await gatherShadowItObservations(
+    env,
+    workspaceId,
+    saasExposure,
+    { deferCtAssetEvidence },
+  );
 
   // Group observations by canonical technology key (alias-resolved). Unrelated
   // products of one provider stay in separate groups.
@@ -292,7 +310,11 @@ export async function correlateShadowItInventory(env, workspaceId, { saasExposur
 
   // Run the deterministic monitoring evaluator (disappearance, recurrence,
   // ownership, staleness, removal contradiction, + case follow-up).
-  const monitoring = await evaluateShadowItMonitoring(env, workspaceId, { seenKeys, now });
+  const monitoring = await evaluateShadowItMonitoring(env, workspaceId, {
+    seenKeys,
+    deferredKeys,
+    now,
+  });
   return { correlated: groups.size, created, changed, monitoring };
 }
 
@@ -390,7 +412,11 @@ async function workspaceMonitoredDomain(env, workspaceId) {
   }
 }
 
-export async function evaluateShadowItMonitoring(env, workspaceId, { seenKeys = null, now = new Date().toISOString() } = {}) {
+export async function evaluateShadowItMonitoring(env, workspaceId, {
+  seenKeys = null,
+  deferredKeys = null,
+  now = new Date().toISOString(),
+} = {}) {
   const ws = await env.cybermeters_db
     .prepare(`SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL`).bind(workspaceId).first().catch(() => null);
   if (!ws) return { evaluated: 0, skipped: "workspace_inactive" };
@@ -402,6 +428,11 @@ export async function evaluateShadowItMonitoring(env, workspaceId, { seenKeys = 
   const monitoredDomain = await workspaceMonitoredDomain(env, workspaceId);
 
   for (const it of items) {
+    // A CT-backed cloud observation whose discovery channel is incomplete is
+    // neither present nor absent. Preserve the entire item/case clock unless
+    // another independent source observed the same canonical technology.
+    if (deferredKeys?.has(it.canonical_technology_key) &&
+        !seenKeys?.has(it.canonical_technology_key)) continue;
     let monitoring_status = it.monitoring_status;
     // Disappearance — key no longer observed this correlation. Never verified removal.
     if (seenKeys && !seenKeys.has(it.canonical_technology_key) && monitoring_status !== "no_longer_observed") {

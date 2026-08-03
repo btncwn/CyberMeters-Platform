@@ -95,6 +95,30 @@ function normalizeRemovalObservation(row) {
   };
 }
 
+function ctDiscoveryScopeSignals(asset, subdomainDiscovery) {
+  if (asset?.source !== "certificate_transparency") return null;
+
+  // Follow the subdomain module's explicit scope carrier. Do not independently
+  // reinterpret one provider error as blindness: the producer owns that policy.
+  // When it declares CT scope incomplete, active probes cannot advance OR reset
+  // the lifecycle of an identity that entered the inventory through CT.
+  const state = !subdomainDiscovery || subdomainDiscovery.executed === false
+    ? "not_assessed"
+    : subdomainDiscovery.incomplete === true
+      ? "incomplete"
+      : null;
+  if (!state) return null;
+
+  const reason = subdomainDiscovery?.incomplete_reason ||
+    (state === "not_assessed"
+      ? "discovery_not_evaluated"
+      : "discovery_sources_incomplete");
+  return {
+    dns_resolution: { state, reason },
+    http_https_service: { state, reason },
+  };
+}
+
 function projectionStatus(lifecycleResult, legacyStatus) {
   if (lifecycleResult.transition === "confirmed_removed") return "inactive";
   if (lifecycleResult.last_observation_state === "observed") return "active";
@@ -122,6 +146,7 @@ export async function persistAttackSurfaceLifecycle({
   domain,
   signalCompleteness,
   assetExposure,
+  subdomainDiscovery,
   observedAt,
 }) {
   if (!env?.cybermeters_db || !scanId || !domainId || !signalCompleteness) return;
@@ -148,7 +173,7 @@ export async function persistAttackSurfaceLifecycle({
     const [assetResult, historyResult] = await env.cybermeters_db.batch([
       env.cybermeters_db
         .prepare(
-          `SELECT id, hostname, status, lifecycle_state, last_observation_state,
+          `SELECT id, hostname, source, status, lifecycle_state, last_observation_state,
                   lifecycle_policy_version, confirmed_removed_at
            FROM workspace_assets
            WHERE workspace_id = ?
@@ -210,10 +235,13 @@ export async function persistAttackSurfaceLifecycle({
 
     for (const asset of assetResult.results || []) {
       if (seenScan.has(`${asset.id}:${scanId}`)) continue;
+      const scopeSignals = ctDiscoveryScopeSignals(asset, subdomainDiscovery);
       const evidence = normalizeRemovalObservation(
-        normalizeHostname(asset.hostname) === root
-          ? null
-          : observationByHost.get(normalizeHostname(asset.hostname)),
+        scopeSignals
+          ? { signal_states: scopeSignals }
+          : normalizeHostname(asset.hostname) === root
+            ? null
+            : observationByHost.get(normalizeHostname(asset.hostname)),
       );
       const previousRows = byAsset.get(asset.id) || [];
       const result = applyAssetRemovalConfirmation(

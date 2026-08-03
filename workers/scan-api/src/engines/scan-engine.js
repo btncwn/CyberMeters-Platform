@@ -1827,7 +1827,7 @@ function buildCanonicalUrlProfile(modules) {
         domainId,
         domain,
         signalCompleteness: modules.attack_surface_signal_completeness,
-        assetExposure: modules.asset_exposure,
+        assetExposure: modules.asset_exposure, subdomainDiscovery: modules.subdomains,
         observedAt: completedAt,
       });
     } catch { /* non-fatal — inventory update will catch up on next scan */ }
@@ -1937,7 +1937,7 @@ function buildCanonicalUrlProfile(modules) {
         .bind(domainId)
         .all();
       for (const { workspace_id } of (siWsRows.results || [])) {
-        await correlateShadowItInventory(env, workspace_id, { saasExposure: modules.saas_exposure });
+        await correlateShadowItInventory(env, workspace_id, { saasExposure: modules.saas_exposure, subdomainDiscovery: modules.subdomains || { executed: false } });
       }
     } catch { /* non-fatal — inventory catches up on the next scan */ }
 
