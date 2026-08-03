@@ -16,7 +16,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import fs from "node:fs";
 import path from "node:path";
-import { extractTables, deriveOwnership, tableClassIndex, RESOURCE_CLASSES, INVARIANTS, REPO_ROOT } from "./security/lib/tenant-resources.js";
+import { extractSchemaResourcesFromSources, extractTables, deriveOwnership, tableClassIndex, RESOURCE_CLASSES, INVARIANTS, REPO_ROOT } from "./security/lib/tenant-resources.js";
 import { buildMatrix } from "./security/build-tenant-isolation-matrix.js";
 
 let failed = 0;
@@ -43,6 +43,36 @@ const harnessSrc = HARNESS_FILES.map((f) => fs.readFileSync(f, "utf8")).join("\n
 let idx;
 try { idx = tableClassIndex(); } catch (e) { fail(e.message); idx = new Map(); }
 const tables = extractTables();
+
+// A migration-internal object is not a tenant resource only when the same SQL
+// file proves its complete lifecycle. Renames retain the canonical target;
+// drops remove the temporary guard. A created-but-unterminated staging table
+// remains visible and therefore reaches the ordinary unclassified-table gate.
+{
+  const control = extractSchemaResourcesFromSources([{
+    file: "database/migrations/transient-control.sql",
+    migration: true,
+    sql: `
+      CREATE TABLE renamed_stage (id TEXT, workspace_id TEXT);
+      ALTER TABLE renamed_stage RENAME TO renamed_canonical;
+      CREATE TABLE dropped_guard (id TEXT);
+      DROP TABLE dropped_guard;
+      CREATE TABLE unterminated_stage (id TEXT);
+    `,
+  }]);
+  if (control.tables.renamed_stage) fail("same-file RENAME leaves transient source classified");
+  if (!control.tables.renamed_canonical) fail("same-file RENAME loses canonical target");
+  if (control.tables.dropped_guard) fail("same-file DROP leaves transient guard classified");
+  if (!control.tables.unterminated_stage) fail("unterminated migration table is incorrectly excluded");
+  const controlUnclassified = Object.keys(control.tables).filter((table) => !idx.has(table));
+  if (!controlUnclassified.includes("unterminated_stage")) {
+    fail("unterminated migration table does not reach the fail-closed unclassified gate");
+  }
+  const transientNames = control.transientMigrationObjects.map((entry) => entry.table).sort();
+  if (JSON.stringify(transientNames) !== JSON.stringify(["dropped_guard", "renamed_stage"])) {
+    fail(`transient lifecycle evidence mismatch: ${JSON.stringify(transientNames)}`);
+  }
+}
 for (const t of Object.keys(tables).sort()) {
   if (!idx.has(t)) fail(`table ${t} is NOT assigned to any resource class — triage its tenancy and add it to RESOURCE_CLASSES`);
 }
