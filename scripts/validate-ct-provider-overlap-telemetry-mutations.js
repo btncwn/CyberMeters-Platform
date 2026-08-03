@@ -16,7 +16,11 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers/scan-api/src/engines");
 const fixtureValidator = path.join(root, "scripts/validate-ct-provider-overlap-telemetry.js");
 const engineValidator = path.join(root, "scripts/validate-ct-provider-overlap-engine-trace.js");
-const EXPECTED_MUTANTS = 21;
+// The former outer-hook-only mutant is intentionally absent: PR-2A.1 gives the
+// consumer signal listener and the module's idempotent freeze the same release
+// semantics, so deleting only the observational hook no longer changes the
+// contract. The binding oracle mutation suite owns the composed release faults.
+const EXPECTED_MUTANTS = 20;
 const EXPECTED_FIXTURE_ASSERTIONS = 118;
 const EXPECTED_ENGINE_ASSERTIONS = 23;
 
@@ -167,10 +171,8 @@ runMutant({
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
-    `  if (states.includes("terminal_failure")) {
-    return { comparison_status: "censored_provider_failure" };
-  }`,
-    `  if (states.includes("terminal_failure")) {
+    `  if (pairStatus) return { comparison_status: pairStatus };`,
+    `  if (pairStatus === "censored_provider_failure") {
     return {
       comparison_status: "censored_provider_failure",
       intersection_count: 0,
@@ -178,7 +180,8 @@ runMutant({
       certspotter_only_count: 0,
       union_count: 0,
     };
-  }`,
+  }
+  if (pairStatus) return { comparison_status: pairStatus };`,
     "failure comparison NULL gate",
   ),
 });
@@ -190,8 +193,8 @@ runMutant({
   expectedFailures: ["exact-base production-result fixture fingerprint"],
   mutate: (source) => replaceExactlyOnce(
     source,
-    "      sources.certspotter = { count: seen.size - before, error: null };",
-    "      sources.certspotter = { count: seen.size, error: null };",
+    "      sources.certspotter = projectSubdomainCtSource(result, seen.size - before);",
+    "      sources.certspotter = projectSubdomainCtSource(result, seen.size);",
     "CertSpotter merge-order count",
   ),
 });
@@ -273,9 +276,14 @@ runMutant({
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
-    `        providerMeasurements.set(provider, unmeasuredProvider("terminal_failure"));
+    `      providerMeasurements.set(
+        provider,
+        unmeasuredProvider(value?.physical_attempt_state === "global_deadline_aborted"
+          ? "terminal_platform_deadline_abort"
+          : "terminal_failure"),
+      );
         return;`,
-    `        providerMeasurements.set(provider, measureSuccessfulProvider(
+    `      providerMeasurements.set(provider, measureSuccessfulProvider(
           provider,
           [],
           domain,
@@ -318,26 +326,6 @@ runMutant({
     `    observe(provider, settled, domain) {
       if (!PROVIDERS.includes(provider)) return;`,
     "late-observe freeze guard",
-  ),
-});
-
-runMutant({
-  name: "outer 12s subdomains release hook is omitted",
-  sourcePath: scanEnginePath,
-  validator: engineValidator,
-  validatorAssertions: EXPECTED_ENGINE_ASSERTIONS,
-  summaryPattern: /CT provider overlap engine trace: (\d+)\/(\d+) assertions passed/,
-  envName: "CT_OVERLAP_SCAN_ENGINE_MODULE_URL",
-  expectedFailures: [
-    "outer 12s release: frozen provider states are durable",
-    "outer 12s release: overlap fields remain NULL",
-    "outer 12s release: late provider settlement cannot rewrite durable state",
-  ],
-  mutate: (source) => replaceExactlyOnce(
-    source,
-    `runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: () => ctProviderOverlap.freeze(), run:`,
-    `runCappedModule("subdomains",           { fallback: subdomainsFallback, run:`,
-    "outer subdomains consumer-release hook",
   ),
 });
 
@@ -416,7 +404,7 @@ runMutant({
   asUrl: false,
   expectedFailures: [
     "sqlite crt_sh attempt state: bogus row rejected by CHECK constraint",
-    "migration 104 crt_sh attempt-state CHECK exactly matches engine vocabulary",
+    "migration 104 crt_sh attempt-state CHECK preserves historical v1 vocabulary",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -435,7 +423,7 @@ runMutant({
   envName: "CT_OVERLAP_MIGRATION_PATH",
   asUrl: false,
   expectedFailures: [
-    "migration 104 certspotter attempt-state CHECK exactly matches engine vocabulary",
+    "migration 104 certspotter attempt-state CHECK preserves historical v1 vocabulary",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -458,7 +446,7 @@ runMutant({
   envName: "CT_OVERLAP_MIGRATION_PATH",
   asUrl: false,
   expectedFailures: [
-    "migration 104 crt_sh attempt-state CHECK exactly matches engine vocabulary",
+    "migration 104 crt_sh attempt-state CHECK preserves historical v1 vocabulary",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -482,7 +470,7 @@ runMutant({
   asUrl: false,
   expectedFailures: [
     "sqlite comparison status: bogus row rejected by CHECK constraint",
-    "migration 104 comparison-status CHECK exactly matches engine vocabulary",
+    "migration 104 comparison-status CHECK preserves historical v1 vocabulary",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -502,7 +490,7 @@ runMutant({
   envName: "CT_OVERLAP_MIGRATION_PATH",
   asUrl: false,
   expectedFailures: [
-    "migration 104 comparison-status CHECK exactly matches engine vocabulary",
+    "migration 104 comparison-status CHECK preserves historical v1 vocabulary",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -527,7 +515,7 @@ runMutant({
   envName: "CT_OVERLAP_MIGRATION_PATH",
   asUrl: false,
   expectedFailures: [
-    "migration 104 comparison-status CHECK exactly matches engine vocabulary",
+    "migration 104 comparison-status CHECK preserves historical v1 vocabulary",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,

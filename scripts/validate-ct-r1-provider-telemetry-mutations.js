@@ -163,8 +163,12 @@ runMutant({
   moduleEnv: "CT_R1_CACHE_MODULE_URL",
   mutate: (source) => replaceRequired(
     source,
-    `        outcome: timeoutFailure(err) ? "timeout" : "network_error",`,
-    `        outcome: "network_error",`,
+    `        outcome: provenance
+          ? "platform_deadline_abort"
+          : (timeoutFailure(err) ? "timeout" : "network_error"),`,
+    `        outcome: provenance
+          ? "platform_deadline_abort"
+          : "network_error",`,
     "timeout outcome classification"
   ),
 });
