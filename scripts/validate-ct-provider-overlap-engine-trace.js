@@ -140,6 +140,7 @@ const originalRandom = Math.random;
 const originalSetTimeout = globalThis.setTimeout;
 let outerReleaseMode = false;
 let resolveOuterLateFetch = null;
+let outerHungWildcardFetches = 0;
 globalThis.fetch = async (input) => {
   const url = new URL(String(input));
   if (url.hostname === "crt.sh") {
@@ -177,6 +178,14 @@ globalThis.fetch = async (input) => {
   if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
     const name = String(url.searchParams.get("name") || "").toLowerCase();
     const type = String(url.searchParams.get("type") || "A").toUpperCase();
+    if (outerReleaseMode && name.startsWith("cybermeters-wildcard-check-")) {
+      // A provider wait can release through the cache's signal listener. This
+      // separate wildcard operation deliberately ignores that signal and never
+      // settles, proving the scan-engine cap boundary itself freezes overlap
+      // state even when the module cannot reach its own finally/catch path.
+      outerHungWildcardFetches += 1;
+      return await new Promise(() => {});
+    }
     if (name === "example.com" && type === "A") {
       return jsonResponse({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
     }
@@ -217,6 +226,7 @@ async function execute(options = {}, { outerRelease = false } = {}) {
   let engineError = null;
   outerReleaseMode = outerRelease;
   resolveOuterLateFetch = null;
+  outerHungWildcardFetches = 0;
   if (outerRelease) {
     // Preserve the real race ordering: launch the subdomains work first, then
     // make only its 12s outer cap release on the next task turn.
@@ -239,7 +249,7 @@ async function execute(options = {}, { outerRelease = false } = {}) {
     globalThis.setTimeout = originalSetTimeout;
     outerReleaseMode = false;
   }
-  return { ...fixture, engineError, resolveOuterLateFetch };
+  return { ...fixture, engineError, resolveOuterLateFetch, outerHungWildcardFetches };
 }
 
 try {
@@ -325,6 +335,8 @@ try {
   // outer consumer releases; persistence must use that exact frozen state.
   const outerRelease = await execute({}, { outerRelease: true });
   eq("outer 12s release: runScanEngine completes", outerRelease.engineError, null);
+  eq("outer 12s release: module-unresponsive wildcard branch is exercised",
+    outerRelease.outerHungWildcardFetches, 2);
   const outerRow = outerRelease.db.prepare(
     "SELECT * FROM ct_provider_overlap_telemetry WHERE scan_id='scan-overlap'",
   ).get();

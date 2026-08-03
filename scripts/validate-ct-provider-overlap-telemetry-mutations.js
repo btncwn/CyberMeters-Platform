@@ -16,13 +16,9 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers/scan-api/src/engines");
 const fixtureValidator = path.join(root, "scripts/validate-ct-provider-overlap-telemetry.js");
 const engineValidator = path.join(root, "scripts/validate-ct-provider-overlap-engine-trace.js");
-// The former outer-hook-only mutant is intentionally absent: PR-2A.1 gives the
-// consumer signal listener and the module's idempotent freeze the same release
-// semantics, so deleting only the observational hook no longer changes the
-// contract. The binding oracle mutation suite owns the composed release faults.
-const EXPECTED_MUTANTS = 20;
+const EXPECTED_MUTANTS = 21;
 const EXPECTED_FIXTURE_ASSERTIONS = 118;
-const EXPECTED_ENGINE_ASSERTIONS = 23;
+const EXPECTED_ENGINE_ASSERTIONS = 24;
 
 let sequence = 0;
 let killed = 0;
@@ -326,6 +322,26 @@ runMutant({
     `    observe(provider, settled, domain) {
       if (!PROVIDERS.includes(provider)) return;`,
     "late-observe freeze guard",
+  ),
+});
+
+runMutant({
+  name: "outer 12s subdomains release hook is omitted",
+  sourcePath: scanEnginePath,
+  validator: engineValidator,
+  validatorAssertions: EXPECTED_ENGINE_ASSERTIONS,
+  summaryPattern: /CT provider overlap engine trace: (\d+)\/(\d+) assertions passed/,
+  envName: "CT_OVERLAP_SCAN_ENGINE_MODULE_URL",
+  expectedFailures: [
+    "outer 12s release: frozen provider states are durable",
+    "outer 12s release: overlap fields remain NULL",
+    "outer 12s release: late provider settlement cannot rewrite durable state",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: (cause) => { ctCache.releaseConsumer?.(domain, "subdomains", cause); ctProviderOverlap.freeze({ global_deadline: deadline.globalDeadlineProvenance() }); }, run:`,
+    `runCappedModule("subdomains",           { fallback: subdomainsFallback, run:`,
+    "outer subdomains consumer-release hook",
   ),
 });
 
