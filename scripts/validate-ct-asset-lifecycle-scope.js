@@ -18,7 +18,7 @@ const lifecycleUrl = process.env.PR2B1_LIFECYCLE_MODULE_URL ||
 const shadowUrl = process.env.PR2B1_SHADOW_MODULE_URL ||
   engineUrl("shadow-it-inventory.js");
 const { persistAttackSurfaceLifecycle } = await import(lifecycleUrl);
-const { correlateShadowItInventory } = await import(shadowUrl);
+const { canonicalTechnologyKey, correlateShadowItInventory } = await import(shadowUrl);
 const {
   ATTACK_SURFACE_SIGNAL_COMPLETENESS_VERSION,
   ATTACK_SURFACE_SIGNAL_KEYS,
@@ -492,7 +492,11 @@ check("RUNTIME_PASSES_SCOPE_TO_SHADOW_BOUNDARY",
     WHERE workspace_id='ws-shadow' AND canonical_technology_key='shopify'
   `).get();
   db.prepare(`
-    UPDATE shadow_it_inventory SET monitoring_status='no_longer_observed' WHERE id=?
+    UPDATE shadow_it_inventory
+    SET classification='rejected', monitoring_status='observed',
+        recurrence_type=NULL, monitoring_reason=NULL,
+        required_case_action='none', linked_case_id=NULL
+    WHERE id=?
   `).run(row.id);
   db.prepare(`
     INSERT INTO workspace_vendors
@@ -503,13 +507,97 @@ check("RUNTIME_PASSES_SCOPE_TO_SHADOW_BOUNDARY",
        'low', '2026-07-01T00:00:00.000Z', '2026-07-02T00:00:00.000Z',
        'active', datetime('now'), datetime('now'))
   `).run();
-  await correlateShadowItInventory(env, "ws-shadow", {
+
+  const ctInput = db.prepare(`
+    SELECT source, cloud_provider FROM workspace_assets
+    WHERE id='asset-shadow-ct' AND workspace_id='ws-shadow'
+  `).get();
+  const vendorInput = db.prepare(`
+    SELECT id, vendor_name, status FROM workspace_vendors
+    WHERE id='vendor-shopify' AND workspace_id='ws-shadow'
+  `).get();
+  const ctKey = canonicalTechnologyKey(ctInput.cloud_provider);
+  const independentKey = canonicalTechnologyKey(vendorInput.vendor_name);
+  check("SHADOW_INDEPENDENT_CT_KEY_IS_DEFERRED_INPUT",
+    degradedScope.incomplete === true &&
+    ctInput.source === "certificate_transparency" &&
+    ctKey === row.canonical_technology_key,
+    `incomplete=${degradedScope.incomplete}, source=${ctInput.source}, key=${ctKey}`);
+  check("SHADOW_INDEPENDENT_VENDOR_SOURCE_IS_PRESENT",
+    vendorInput.status === "active" && independentKey === row.canonical_technology_key,
+    `status=${vendorInput.status}, key=${independentKey}`);
+
+  const pre = db.prepare("SELECT * FROM shadow_it_inventory WHERE id=?").get(row.id);
+  const preCases = db.prepare(`
+    SELECT COUNT(*) AS n FROM managed_cases WHERE workspace_id='ws-shadow'
+  `).get().n;
+  const preTransitions = db.prepare(`
+    SELECT detail_json FROM shadow_it_inventory_events
+    WHERE item_id=? AND event_type='monitoring_changed'
+  `).all(row.id).filter((event) => {
+    try { return JSON.parse(event.detail_json)?.to_recurrence_type === "rejected_reappeared"; }
+    catch { return false; }
+  }).length;
+  check("SHADOW_INDEPENDENT_PHASE2_STATE_ABSENT_BEFORE",
+    pre.classification === "rejected" &&
+    pre.monitoring_status === "observed" &&
+    pre.recurrence_type == null &&
+    pre.required_case_action === "none" &&
+    pre.linked_case_id == null &&
+    preCases === 0 && preTransitions === 0,
+    `classification=${pre.classification}, monitoring=${pre.monitoring_status}, ` +
+      `recurrence=${pre.recurrence_type}, action=${pre.required_case_action}, ` +
+      `linked_case=${pre.linked_case_id}, cases=${preCases}, transitions=${preTransitions}`);
+
+  const result = await correlateShadowItInventory(env, "ws-shadow", {
     subdomainDiscovery: degradedScope,
     now: "2026-07-02T00:00:00.000Z",
   });
-  equal("SHADOW_INDEPENDENT_SOURCE_REMAINS_ASSESSABLE",
-    db.prepare("SELECT monitoring_status FROM shadow_it_inventory WHERE id=?").get(row.id).monitoring_status,
-    "reappeared");
+  const after = db.prepare("SELECT * FROM shadow_it_inventory WHERE id=?").get(row.id);
+  const evidence = JSON.parse(after.source_evidence_json || "[]");
+  const independentEvidence = evidence.find((entry) =>
+    entry.source_table === "workspace_vendors" &&
+    entry.source_record_id === vendorInput.id &&
+    entry.observed_identifier === vendorInput.vendor_name);
+  check("SHADOW_INDEPENDENT_SOURCE_WAS_COLLECTED",
+    result.correlated === 1 && Boolean(independentEvidence),
+    `correlated=${result.correlated}, evidence=${JSON.stringify(evidence)}`);
+  check("SHADOW_INDEPENDENT_SOURCE_RESOLVES_CANONICAL_KEY",
+    after.canonical_technology_key === independentKey && independentKey === ctKey,
+    `inventory=${after.canonical_technology_key}, independent=${independentKey}, ct=${ctKey}`);
+  check("SHADOW_INDEPENDENT_KEY_IS_DEFERRED_AND_SEEN",
+    degradedScope.incomplete === true &&
+    ctInput.source === "certificate_transparency" &&
+    ctKey === after.canonical_technology_key &&
+    result.correlated === 1 && Boolean(independentEvidence),
+    `deferred=${ctKey}, seen=${independentKey}, correlated=${result.correlated}`);
+  check("SHADOW_INDEPENDENT_SOURCE_REMAINS_ASSESSABLE",
+    after.monitoring_status === "observed" &&
+    after.recurrence_type === "rejected_reappeared" &&
+    after.required_case_action === "open_or_reopen",
+    `monitoring=${after.monitoring_status}, recurrence=${after.recurrence_type}, ` +
+      `action=${after.required_case_action}`);
+
+  const transitions = db.prepare(`
+    SELECT detail_json FROM shadow_it_inventory_events
+    WHERE item_id=? AND event_type='monitoring_changed'
+  `).all(row.id).map((event) => {
+    try { return JSON.parse(event.detail_json); } catch { return null; }
+  }).filter(Boolean);
+  const recurrenceTransition = transitions.find((detail) =>
+    detail.to_recurrence_type === "rejected_reappeared");
+  check("SHADOW_INDEPENDENT_PHASE2_TRANSITION_RECORDED",
+    recurrenceTransition?.required_case_action === "open_or_reopen" &&
+    recurrenceTransition?.entity === row.canonical_technology_key,
+    `transitions=${JSON.stringify(transitions)}`);
+
+  const linkedCaseCount = after.linked_case_id == null ? 0 : db.prepare(`
+    SELECT COUNT(*) AS n FROM managed_cases
+    WHERE id=? AND workspace_id='ws-shadow'
+  `).get(after.linked_case_id).n;
+  check("SHADOW_INDEPENDENT_PHASE2_CASE_CREATED",
+    result.monitoring?.cases === 1 && after.linked_case_id != null && linkedCaseCount === 1,
+    `cases=${result.monitoring?.cases}, linked_case=${after.linked_case_id}, rows=${linkedCaseCount}`);
 }
 
 console.log(`\nPR-2B-1 CT asset lifecycle scope: ${passed}/${passed + failed} contracts passed`);

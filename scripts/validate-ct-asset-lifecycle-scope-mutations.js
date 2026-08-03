@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // PR-2B-1 pinned fresh-process mutation proof.
 //
-// A semantic kill counts only when the fixture reaches its normal 33-contract
+// A semantic kill counts only when the fixture reaches its normal 41-contract
 // summary, exits 1, and returns the exact ordered predeclared FAIL set. Syntax,
 // import and wrong-reason failures are rejected controls. Target bytes and the
 // complete worktree fingerprint must remain unchanged.
@@ -19,7 +19,7 @@ const shadowSourcePath = path.join(
   root, "workers/scan-api/src/engines/shadow-it-inventory.js",
 );
 const validator = path.join(root, "scripts/validate-ct-asset-lifecycle-scope.js");
-const ASSERTION_TOTAL = 33;
+const ASSERTION_TOTAL = 41;
 const returnBlock = `  return {
     dns_resolution: { state, reason },
     http_https_service: { state, reason },
@@ -99,6 +99,19 @@ const semanticMutants = Object.freeze([
     expectedFailures: [
       "SHADOW_DEGRADED_NO_DISAPPEARANCE",
       "SHADOW_DEGRADED_NO_DISAPPEARANCE_EVENT",
+    ],
+  },
+  {
+    id: "OVER_DEFER_SHADOW_INDEPENDENT_SOURCE",
+    sourcePath: shadowSourcePath,
+    envKey: "PR2B1_SHADOW_MODULE_URL",
+    from: `    if (deferredKeys?.has(it.canonical_technology_key) &&
+        !seenKeys?.has(it.canonical_technology_key)) continue;`,
+    to: "    if (deferredKeys?.has(it.canonical_technology_key)) continue;",
+    expectedFailures: [
+      "SHADOW_INDEPENDENT_SOURCE_REMAINS_ASSESSABLE",
+      "SHADOW_INDEPENDENT_PHASE2_TRANSITION_RECORDED",
+      "SHADOW_INDEPENDENT_PHASE2_CASE_CREATED",
     ],
   },
 ]);
