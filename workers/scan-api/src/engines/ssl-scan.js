@@ -10,6 +10,15 @@ import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertifi
 
 // ── Module 2: SSL Detection ───────────────────────────────────────────────────
 
+export function projectSslCtSource(result) {
+  return {
+    count: result?.status === "available" && Array.isArray(result.data)
+      ? result.data.length
+      : 0,
+    error: result?.status === "unavailable" ? result.error : null,
+  };
+}
+
 // Certificate Transparency lookup (crt.sh + certspotter fallback). The certificate
 // field logic remains the extracted behavior; provider I/O now comes from the shared
 // per-scan cache. It runs CONCURRENTLY with HTTPS probes because certificate data
@@ -39,11 +48,12 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
   let cert_san_names   = [];
   const ct_sources = { crt_sh: null, certspotter: null };
   try {
-    const crtResult = await ctCache.get(domain, "crt_sh", { accounting, module: "ssl" });
-    ct_sources.crt_sh = {
-      count: crtResult.status === "available" ? crtResult.data.length : 0,
-      error: crtResult.status === "unavailable" ? crtResult.error : null,
-    };
+    const crtResult = await ctCache.get(domain, "crt_sh", {
+      accounting,
+      module: "ssl",
+      signal: opts.signal,
+    });
+    ct_sources.crt_sh = projectSslCtSource(crtResult);
     if (crtResult.status === "available") {
       const certs = crtResult.data.filter((certificate) =>
         coversRootDomain(certificate.name_value || certificate.common_name || domain)
@@ -94,11 +104,12 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
   // for a host that plainly serves a valid certificate.
   if (cert_not_after == null) {
     try {
-      const certSpotterResult = await ctCache.get(domain, "certspotter", { accounting, module: "ssl" });
-      ct_sources.certspotter = {
-        count: certSpotterResult.status === "available" ? certSpotterResult.data.length : 0,
-        error: certSpotterResult.status === "unavailable" ? certSpotterResult.error : null,
-      };
+      const certSpotterResult = await ctCache.get(domain, "certspotter", {
+        accounting,
+        module: "ssl",
+        signal: opts.signal,
+      });
+      ct_sources.certspotter = projectSslCtSource(certSpotterResult);
       if (certSpotterResult.status === "available") {
         const issuances = certSpotterResult.data.filter((issuance) =>
           coversRootDomain(

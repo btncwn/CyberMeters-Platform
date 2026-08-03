@@ -16,7 +16,26 @@ export const CT_PROVIDER_TELEMETRY_OUTCOMES = Object.freeze([
   "parse_error",
   "rate_limited",
   "network_error",
+  "platform_deadline_abort",
 ]);
+export const CT_PROVIDER_PHYSICAL_ATTEMPT_STATES = Object.freeze([
+  "in_flight",
+  "terminal_success",
+  "terminal_failure",
+  "global_deadline_aborted",
+]);
+export const CT_PROVIDER_CONSUMER_WAIT_STATES = Object.freeze([
+  "waiting",
+  "received_success",
+  "received_failure",
+  "released_budget_exhausted",
+]);
+export const CT_PROVIDER_PLATFORM_ABORT_CUSTOMER_WORDING =
+  "CyberMeters did not observe the provider result within the scan's global execution window.";
+// A consumer release is neither a provider failure nor a platform abort: this
+// module stopped waiting, and says so without attributing a cause to anyone.
+export const CT_PROVIDER_CONSUMER_RELEASE_CUSTOMER_WORDING =
+  "CyberMeters did not receive the provider result before this module's observation budget ended.";
 const CT_PROVIDER_TELEMETRY_MODULES = Object.freeze(["ssl", "subdomains"]);
 const CT_PROVIDER_PHYSICAL_ATTEMPT_LIMIT = 4;
 export const CT_PROVIDER_POLICIES = Object.freeze({
@@ -73,6 +92,15 @@ function unavailable(provider, domain, error) {
     status: "unavailable",
     data: null,
     error,
+    physical_attempt_state: "terminal_failure",
+  };
+}
+
+function withPhysicalAttemptState(result, physicalAttemptState, provenance = null) {
+  return {
+    ...result,
+    physical_attempt_state: physicalAttemptState,
+    ...(provenance ? { platform_abort_provenance: { ...provenance } } : {}),
   };
 }
 
@@ -113,6 +141,45 @@ function externallyAborted(signal, accounting) {
   return signal?.aborted === true || accounting?.signal?.aborted === true;
 }
 
+// The two platform-abort verdicts have DIFFERENT carriers, and conflating them
+// is what lets a genuine transport failure be relabelled as a platform abort.
+//
+//  - The customer projection asks "did OUR cancellation stop this request?".
+//    Only the global deadline aborts a physical entry's controller, so the
+//    aborted physical signal itself is the evidence. We never blame a provider
+//    for work CyberMeters stopped.
+//  - The CT-R1 evidence row asks "may we RECORD the platform cause?". That
+//    requires the canonical structured deadline event to be carried on the
+//    abort reason. Without it we record the transport outcome and make no
+//    platform claim, rather than inventing one from an ambient read.
+function physicalAbortStoppedRequest(signal) {
+  if (signal?.aborted !== true) return false;
+  const reason = signal.reason;
+  // Only the scan-global deadline ever aborts a physical entry, so an
+  // unstructured reason still leaves that cause standing. A structured carrier
+  // that names a DIFFERENT owner is positive evidence against it, and we do not
+  // claim a cause the evidence contradicts.
+  if (reason && typeof reason === "object" && "owner" in reason) {
+    return reason.owner === "scan_global_deadline";
+  }
+  return true;
+}
+
+// A release cause may arrive as a bare string or as the structured provenance
+// object carried on an abort reason.
+function isGlobalDeadlineCause(cause) {
+  if (cause && typeof cause === "object") return cause.owner === "scan_global_deadline";
+  return String(cause || "") === "scan_global_deadline";
+}
+
+function structuredAbortProvenance(signal) {
+  if (signal?.aborted !== true) return null;
+  const reason = signal.reason;
+  return reason?.aborted === true && reason.owner === "scan_global_deadline"
+    ? reason
+    : null;
+}
+
 function transientHttpStatus(status) {
   return status === 408 || status === 429 || (status >= 500 && status <= 599);
 }
@@ -146,6 +213,7 @@ async function fetchAttempt(config, provider, domain, {
   accounting,
   fetcher,
   recordAttempt,
+  readGlobalDeadlineProvenance,
   signal,
   telemetryNow,
   timeoutMs,
@@ -166,10 +234,14 @@ async function fetchAttempt(config, provider, domain, {
   } catch (err) {
     if (attempted) accounting?.recordError?.(err);
     const completedMs = readTelemetryClock(telemetryNow);
+    const stoppedByPlatform = physicalAbortStoppedRequest(signal);
+    const provenance = structuredAbortProvenance(signal);
     if (attempted) {
       safeAttemptObservation(recordAttempt, {
         provider,
-        outcome: timeoutFailure(err) ? "timeout" : "network_error",
+        outcome: provenance
+          ? "platform_deadline_abort"
+          : (timeoutFailure(err) ? "timeout" : "network_error"),
         http_status: null,
         latency_ms: Math.max(0, completedMs - startedMs),
         result_count: null,
@@ -180,12 +252,21 @@ async function fetchAttempt(config, provider, domain, {
       });
     }
     return {
-      result: unavailable(
-        provider,
-        domain,
-        customerSafeFailure(config.fetchContext, err, "fetch failed")
-      ),
-      transient: attempted && !externallyAborted(signal, accounting),
+      result: stoppedByPlatform
+        ? withPhysicalAttemptState(
+          unavailable(provider, domain, CT_PROVIDER_PLATFORM_ABORT_CUSTOMER_WORDING),
+          "global_deadline_aborted",
+          provenance,
+        )
+        : withPhysicalAttemptState(
+          unavailable(
+            provider,
+            domain,
+            customerSafeFailure(config.fetchContext, err, "fetch failed")
+          ),
+          "terminal_failure",
+        ),
+      transient: attempted && !stoppedByPlatform && !externallyAborted(signal, accounting),
     };
   }
 
@@ -226,7 +307,10 @@ async function fetchAttempt(config, provider, domain, {
       cache_age_s: null,
     });
     return {
-      result: unavailable(provider, domain, "non-JSON response"),
+      result: withPhysicalAttemptState(
+        unavailable(provider, domain, "non-JSON response"),
+        "terminal_failure",
+      ),
       transient: false,
     };
   }
@@ -247,7 +331,10 @@ async function fetchAttempt(config, provider, domain, {
         cache_age_s: null,
       });
       return {
-        result: unavailable(provider, domain, "unexpected response shape"),
+        result: withPhysicalAttemptState(
+          unavailable(provider, domain, "unexpected response shape"),
+          "terminal_failure",
+        ),
         transient: false,
       };
     }
@@ -270,6 +357,7 @@ async function fetchAttempt(config, provider, domain, {
         status: "available",
         data,
         error: null,
+        physical_attempt_state: "terminal_success",
       },
       transient: false,
     };
@@ -287,10 +375,13 @@ async function fetchAttempt(config, provider, domain, {
       cache_age_s: null,
     });
     return {
-      result: unavailable(
-        provider,
-        domain,
-        customerSafeFailure(config.parseContext, err, "parse error")
+      result: withPhysicalAttemptState(
+        unavailable(
+          provider,
+          domain,
+          customerSafeFailure(config.parseContext, err, "parse error")
+        ),
+        "terminal_failure",
       ),
       transient: false,
     };
@@ -303,6 +394,7 @@ async function fetchProvider(config, provider, domain, {
   signal,
   policy,
   recordAttempt,
+  readGlobalDeadlineProvenance,
   remainingMs,
   now,
   sleep,
@@ -312,7 +404,10 @@ async function fetchProvider(config, provider, domain, {
 }) {
   const startedMs = now();
   let attempts = 0;
-  let finalResult = unavailable(provider, domain, "scan budget exhausted");
+  let finalResult = withPhysicalAttemptState(
+    unavailable(provider, domain, "scan budget exhausted"),
+    "terminal_failure",
+  );
 
   while (attempts < policy.maxAttempts) {
     const remaining = remainingBudgetMs(remainingMs, accounting);
@@ -324,6 +419,7 @@ async function fetchProvider(config, provider, domain, {
       accounting,
       fetcher,
       recordAttempt,
+      readGlobalDeadlineProvenance,
       signal,
       telemetryNow,
       timeoutMs: attemptTimeoutMs,
@@ -357,8 +453,10 @@ async function fetchProvider(config, provider, domain, {
 }
 
 export function createCertificateTransparencyCache({
+  accounting: physicalAccounting = null,
   fetcher = globalThis.fetch,
   signal = null,
+  globalDeadlineProvenance = null,
   policies = CT_PROVIDER_POLICIES,
   remainingMs = null,
   now = Date.now,
@@ -372,14 +470,19 @@ export function createCertificateTransparencyCache({
   }
 
   const entries = new Map();
+  const consumers = new Map();
   const providerHealth = new Map();
   const providerConsumers = new Map();
   const providerAttempts = [];
+  // The classifier above is the sole producer of these rows and always emits a
+  // declared outcome. Coercing an unrecognised value to "network_error" here
+  // would silently rewrite a truthful platform-abort record into a false
+  // provider-failure verdict, which is the exact substitution CT2A1-PROV-01
+  // forbids; a guard that fails open into a wrong provider verdict is worse
+  // than no guard. CT_PROVIDER_TELEMETRY_OUTCOMES stays the declared schema.
   const recordAttempt = (row) => {
     if (!captureTelemetry || providerAttempts.length >= CT_PROVIDER_PHYSICAL_ATTEMPT_LIMIT) return;
-    const outcome = CT_PROVIDER_TELEMETRY_OUTCOMES.includes(row?.outcome)
-      ? row.outcome
-      : "network_error";
+    const outcome = row?.outcome;
     providerAttempts.push({ ...row, outcome });
   };
   const recordHealth = (provider, row) => {
@@ -391,8 +494,137 @@ export function createCertificateTransparencyCache({
     });
   };
 
+  const readGlobalDeadlineProvenance = () => {
+    try {
+      const value = globalDeadlineProvenance?.();
+      if (value && typeof value === "object") return { ...value };
+    } catch { /* fail closed to the signal below */ }
+    const reason = signal?.reason;
+    if (signal?.aborted === true) {
+      if (reason && typeof reason === "object" && reason.owner === "scan_global_deadline") {
+        return { ...reason, aborted: true };
+      }
+      return {
+        aborted: true,
+        owner: "scan_global_deadline",
+        reason: String(reason || "scan_deadline_exhausted"),
+        observed_at: null,
+      };
+    }
+    return {
+      aborted: false,
+      owner: "scan_global_deadline",
+      reason: null,
+      observed_at: null,
+    };
+  };
+  const physicalStateOf = (entry) => entry?.state || "in_flight";
+  let pendingConsumerAccounting = null;
+  const physicalAccountingFor = (domain, provider) => {
+    let source = null;
+    try {
+      source = typeof physicalAccounting === "function"
+        ? physicalAccounting({ domain, provider })
+        : physicalAccounting;
+    } catch { source = null; }
+    source ||= pendingConsumerAccounting;
+    if (!source) return null;
+    // Preserve outbound-count observations and the platform's issue gate, but
+    // never inherit a consumer's release signal or remaining budget. Whether a
+    // NEW request may be ISSUED is a scan-level budget question; whether work
+    // already in flight is CANCELLED is the consumer question that CT2A1-CACHE-01
+    // forbids. Dropping assertCanIssue with the signal would let CT requests
+    // escape the outbound ceiling entirely.
+    return {
+      assertCanIssue: source.assertCanIssue?.bind(source),
+      recordAttempt: source.recordAttempt?.bind(source),
+      recordCompleted: source.recordCompleted?.bind(source),
+      recordError: source.recordError?.bind(source),
+      markUnsettled: source.markUnsettled?.bind(source),
+      markSettled: source.markSettled?.bind(source),
+    };
+  };
+  const physicalEntry = (normalizedDomain, provider, config) => {
+    const key = `${normalizedDomain}\u0000${provider}`;
+    if (entries.has(key)) return entries.get(key);
+    const controller = new AbortController();
+    const abortFromGlobalDeadline = () => {
+      const provenance = readGlobalDeadlineProvenance();
+      controller.abort(provenance || signal?.reason || "scan_deadline_exhausted");
+    };
+    if (signal?.aborted) abortFromGlobalDeadline();
+    else signal?.addEventListener?.("abort", abortFromGlobalDeadline, { once: true });
+    const entry = {
+      controller,
+      state: "in_flight",
+      promise: null,
+    };
+    const accounting = physicalAccountingFor(normalizedDomain, provider);
+    entry.promise = fetchProvider(config, provider, normalizedDomain, {
+      accounting,
+      fetcher,
+      signal: controller.signal,
+      policy: resolvePolicy(provider, policies),
+      recordAttempt: captureTelemetry ? recordAttempt : null,
+      readGlobalDeadlineProvenance,
+      remainingMs,
+      now,
+      sleep,
+      telemetryNow,
+      timeoutSignal,
+      recordHealth,
+    }).then((result) => {
+      entry.state = result?.physical_attempt_state || (result?.status === "available"
+        ? "terminal_success"
+        : "terminal_failure");
+      return result;
+    });
+    entries.set(key, entry);
+    return entry;
+  };
+  const consumerKey = (domain, module, provider) => `${domain}\u0000${module}\u0000${provider}`;
+
+  // Releasing a consumer records ONLY that consumer's wait state. The physical
+  // attempt state is read, never written, so shared work is never terminated
+  // and never reclassified as a provider failure.
+  const releaseConsumerRecord = (record, cause) => {
+    if (!record || record.state !== "waiting") return;
+    record.state = "released_budget_exhausted";
+    record.physicalAttemptState = physicalStateOf(record.entry);
+    const globalDeadline = isGlobalDeadlineCause(cause);
+    record.releaseCause = globalDeadline
+      ? "scan_global_deadline"
+      : String(cause || "module_budget_exhausted");
+    // The consumer's WAIT ends here; the shared physical work does not. Leaving
+    // the wait pending would tie this consumer's lifetime to physical
+    // settlement, which is precisely the separation CT2A1-PROV-02 requires.
+    //
+    // A release the scan-global deadline caused keeps the platform-abort
+    // meaning, so SSL, subdomains and reserved all say the same thing about the
+    // same cause rather than degrading it into a generic budget notice.
+    record.settleWait(withPhysicalAttemptState(
+      unavailable(
+        record.provider,
+        record.domain,
+        globalDeadline
+          ? CT_PROVIDER_PLATFORM_ABORT_CUSTOMER_WORDING
+          : CT_PROVIDER_CONSUMER_RELEASE_CUSTOMER_WORDING,
+      ),
+      record.physicalAttemptState,
+    ));
+  };
+  const releaseConsumer = (domain, module, cause = "module_budget_exhausted") => {
+    const normalizedDomain = normalizeDomain(domain);
+    for (const provider of Object.keys(PROVIDERS)) {
+      releaseConsumerRecord(
+        consumers.get(consumerKey(normalizedDomain, module, provider)),
+        cause,
+      );
+    }
+  };
+
   return {
-    get(domain, provider, { accounting = null, module = null } = {}) {
+    get(domain, provider, { accounting = null, module = null, signal: consumerSignal = null } = {}) {
       const normalizedDomain = normalizeDomain(domain);
       const config = PROVIDERS[provider];
       if (captureTelemetry && CT_PROVIDER_TELEMETRY_MODULES.includes(module)) {
@@ -409,26 +641,68 @@ export function createCertificateTransparencyCache({
         return Promise.resolve(unavailable(provider, normalizedDomain, "unsupported provider"));
       }
 
-      const key = `${normalizedDomain}\u0000${provider}`;
-      if (!entries.has(key)) {
-        entries.set(
-          key,
-          fetchProvider(config, provider, normalizedDomain, {
-            accounting,
-            fetcher,
-            signal,
-            policy: resolvePolicy(provider, policies),
-            recordAttempt: captureTelemetry ? recordAttempt : null,
-            remainingMs,
-            now,
-            sleep,
-            telemetryNow,
-            timeoutSignal,
-            recordHealth,
-          })
-        );
+      // Every get() reassigns this before physicalEntry() reads it, so the
+      // physical attempt never inherits a later consumer's accounting.
+      pendingConsumerAccounting = accounting;
+      const entry = physicalEntry(normalizedDomain, provider, config);
+      if (!module) return entry.promise;
+
+      const key = consumerKey(normalizedDomain, module, provider);
+      if (consumers.has(key)) return consumers.get(key).wait;
+      let settleWait = null;
+      const wait = new Promise((resolve) => { settleWait = resolve; });
+      const record = {
+        entry,
+        domain: normalizedDomain,
+        provider,
+        state: "waiting",
+        physicalAttemptState: physicalStateOf(entry),
+        releaseCause: null,
+        wait,
+        settleWait,
+      };
+      consumers.set(key, record);
+      entry.promise.then((result) => {
+        if (record.state !== "waiting") return;
+        const succeeded = result?.status === "available";
+        record.state = succeeded ? "received_success" : "received_failure";
+        record.physicalAttemptState = result?.physical_attempt_state
+          || (succeeded ? "terminal_success" : "terminal_failure");
+        record.settleWait(result);
+      });
+      // The scan-global deadline is NOT a consumer budget boundary. It stops the
+      // shared physical work, and every waiting consumer is entitled to that
+      // outcome; treating it as a consumer release would replace the honest
+      // platform-abort result with a release notice and lose the cause.
+      const releaseSignal = consumerSignal || accounting?.signal || null;
+      if (releaseSignal && releaseSignal !== signal) {
+        const release = () => releaseConsumer(normalizedDomain, module, releaseSignal.reason);
+        if (releaseSignal.aborted) release();
+        else releaseSignal.addEventListener?.("abort", release, { once: true });
       }
-      return entries.get(key);
+      return wait;
+    },
+    releaseConsumer,
+    consumerSnapshot(domain, module) {
+      const normalizedDomain = normalizeDomain(domain);
+      const providers = {};
+      for (const provider of Object.keys(PROVIDERS)) {
+        const record = consumers.get(consumerKey(normalizedDomain, module, provider));
+        if (!record) continue;
+        providers[provider] = {
+          consumer_wait_state: record.state,
+          physical_attempt_state: record.physicalAttemptState,
+          release_cause: record.releaseCause,
+        };
+      }
+      return { module, providers };
+    },
+    physicalSnapshot(domain) {
+      const normalizedDomain = normalizeDomain(domain);
+      return Object.fromEntries(Object.keys(PROVIDERS).flatMap((provider) => {
+        const entry = entries.get(`${normalizedDomain}\u0000${provider}`);
+        return entry ? [[provider, physicalStateOf(entry)]] : [];
+      }));
     },
     healthSnapshot() {
       return Object.fromEntries(

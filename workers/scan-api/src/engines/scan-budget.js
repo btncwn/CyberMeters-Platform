@@ -148,6 +148,17 @@ export function createScanDeadline(env = {}, now = Date.now) {
     SCAN_DEADLINE_DEFAULTS.minBudgetMs, SCAN_DEADLINE_DEFAULTS.maxBudgetMs);
   const startedAtMs = now();
   const controller = new AbortController();
+  let abortProvenance = null;
+  // The canonical global-deadline event is recorded once, in one place, so that
+  // CT-R1 telemetry and overlap freeze read the same owner, reason and time.
+  const recordAbortProvenance = (reason) => {
+    abortProvenance = {
+      aborted: true,
+      owner: "scan_global_deadline",
+      reason: String(reason || "scan_deadline_exhausted"),
+      observed_at: new Date(now()).toISOString(),
+    };
+  };
   return {
     budgetMs,
     totalCeilingMs: SCAN_DEADLINE_DEFAULTS.totalCeilingMs,
@@ -159,7 +170,22 @@ export function createScanDeadline(env = {}, now = Date.now) {
     exceeded()    { return now() - startedAtMs >= budgetMs; },
     // A phase launches only if elapsed + its estimate still fits the budget.
     canRun(estimateMs = 0) { return (now() - startedAtMs) + estimateMs < budgetMs; },
-    cancel(reason = "scan_deadline_exhausted") { if (!controller.signal.aborted) controller.abort(reason); },
+    globalDeadlineProvenance() {
+      if (!abortProvenance) {
+        return {
+          aborted: false,
+          owner: "scan_global_deadline",
+          reason: null,
+          observed_at: null,
+        };
+      }
+      return { ...abortProvenance };
+    },
+    cancel(reason = "scan_deadline_exhausted") {
+      if (controller.signal.aborted) return;
+      recordAbortProvenance(reason);
+      controller.abort(abortProvenance);
+    },
   };
 }
 

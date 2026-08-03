@@ -407,6 +407,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   const dnsCache = makeDnsCache();
   const ctCache = createCertificateTransparencyCache({
     signal: deadline.signal,
+    globalDeadlineProvenance: () => deadline.globalDeadlineProvenance(),
     remainingMs: () => deadline.remainingMs(),
     now,
   });
@@ -508,12 +509,21 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     ctx = outboundContext(module, controller.signal);
     startedMs = now();
     let value = null, thrown = null;
+    // This boundary owns the consumer release for every outcome — budget
+    // exhaustion, normal completion and throw alike. Modules must not release
+    // themselves, or two release paths would race to define the ordering.
+    let released = false;
+    const releaseConsumer = (cause) => {
+      if (released) return;
+      released = true;
+      try { onConsumerRelease?.(cause); } catch { /* observational only */ }
+    };
     try {
       value = await raceModuleDeadline(
         deadline,
         () => run({ accounting: ctx, signal: controller.signal }),
         () => {
-          try { onConsumerRelease?.(); } catch { /* observational only */ }
+          releaseConsumer("module_budget_exhausted");
           controller.abort("module_budget_exhausted");
           return fallback();
         },
@@ -522,6 +532,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     } catch (err) {
       thrown = err;
     }
+    releaseConsumer(thrown ? "consumer_error" : "consumer_completed");
     const timedOut = value?.outcome === "deadline_exceeded";
     if (timedOut && !controller.signal.aborted) controller.abort("module_budget_exhausted");
     return { value, thrown, ctx, allocatedMs, startedMs, timedOut, timeoutSource: timedOut ? "module_race" : null };
@@ -605,6 +616,11 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         dnsCache,
         knownAssetHosts,
         signal: deadline.signal,
+        globalDeadlineProvenance: () => deadline.globalDeadlineProvenance(),
+        ctConsumerBudgets: {
+          ssl: SCAN_MODULE_BUDGETS.ssl,
+          subdomains: SCAN_MODULE_BUDGETS.subdomains,
+        },
         now,
       });
       const m = reserved.modules;
@@ -644,7 +660,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           // which scoring.js reads as positive evidence of absence and turns into the
           // CRITICAL "HTTPS Not Available" finding — a second, independent path to the
           // same false claim the classifier fix closes. Not assessed is not a verdict.
-          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_observation_completeness: "not_assessed", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache, subOps: subOpTelemetry }) }),
+          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), onConsumerRelease: (cause) => ctCache.releaseConsumer?.(domain, "ssl", cause), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache, subOps: subOpTelemetry }) }),
           runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal }) => runHeadersModule(domain, { accounting, signal, subOps: subOpTelemetry }) }),
           // The email deadline fallback is the CANONICAL unassessed email result
           // owned by email-scan.js. The previous bare shape ({spf:{},dmarc:{},
@@ -663,7 +679,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
               now,
             }),
           }),
-          runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: () => ctProviderOverlap.freeze(), run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap }) }),
+          runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: (cause) => { ctCache.releaseConsumer?.(domain, "subdomains", cause); ctProviderOverlap.freeze({ global_deadline: deadline.globalDeadlineProvenance() }); }, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: () => deadline.globalDeadlineProvenance() }) }),
           runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal }) => runTechModule(domain, { accounting, signal }) }),
           runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ source: "rdap" }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
           runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal, cache: dnsCache }) }),
