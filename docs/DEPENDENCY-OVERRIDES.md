@@ -5,6 +5,39 @@ Temporary, tracked `overrides` in workspace `package.json` files. Every override
 review date, upstream tracking, and an explicit removal criterion. An override without a
 removal criterion is a permanent fork and is not permitted.
 
+An override **installs a fixed package**. It is the opposite of suppressing `npm audit`,
+and nothing in this repository may weaken, filter or `--omit=dev` the audit to make a
+finding disappear.
+
+## This document is not the enforcement
+
+Prose cannot stop drift: until August 2026 the frontend carried two overrides (`esbuild`,
+`test-exclude`) that appeared in **no record at all** — no owner, no review date, no removal
+criterion, and, as it turned out, no remaining advisory basis. They had become permanent
+forks by default.
+
+The authority is now the machine-readable register:
+
+| Artefact | Role |
+| --- | --- |
+| `scripts/security/dependency-override-register.json` | Canonical record — one entry per live override |
+| `scripts/validate-dependency-overrides.js` | CI-blocking binding of register ⟷ manifest ⟷ lockfile |
+| `scripts/validate-dependency-overrides-mutations.js` | Proves every guard above is load-bearing |
+
+The validator fails closed on an unregistered override, a record whose override is gone,
+spec or resolved-version drift, a `dev_only` claim the locked production graph contradicts,
+a missing/malformed/**elapsed** review deadline, a missing or off-vocabulary owner,
+duplicate records, or unknown fields. Production reachability is decided by walking the
+lockfile from the manifest's production `dependencies` only; npm's own `dev` flag must then
+agree, and disagreement fails closed rather than picking a winner.
+
+`advisory_basis` separates an override that clears a **current** advisory from one that has
+become **historical** (redundant upstream). A historical override is a fork earning nothing
+and must carry a near-term review date and a removal check.
+
+The records below are the human-readable half; the register is authoritative for exact
+versions, paths, owners and dates.
+
 ---
 
 ## OV-1 — `sharp` forced to `0.35.3` (dev-transitive, CI security)
@@ -160,3 +193,142 @@ all four advisories. Verify removal by:
 4. passing frontend typecheck, coverage tests, production build, and E2E CI.
 
 If all four hold, mark this record closed and note the closing DOM/router versions.
+
+---
+
+## OV-3 — `esbuild` forced to `^0.25.0` (frontend dev-transitive) — REDUNDANT
+
+| Field | Value |
+| --- | --- |
+| **Status** | REDUNDANT — retained pending removal |
+| **Introduced** | 2026-07-05 (commit `2bdf413`, alongside the Vite 6 upgrade) |
+| **Owner** | CyberMeters engineering (founder-owned) |
+| **Review date** | 2026-08-31 |
+| **Scope** | `frontend/package.json` `overrides` + lockfile only |
+
+### What it does
+```json
+"overrides": { "esbuild": "^0.25.0" }
+```
+
+### Why it existed
+`esbuild <= 0.24.2` lets any website send arbitrary requests to the local development
+server and read the response (**GHSA-67mh-4wv8-2f99**, moderate). The override raised the
+floor past the fix.
+
+This override was **undocumented until August 2026**; this record is its first governance
+entry, created by the register that now makes such an omission impossible.
+
+### Why it is redundant
+The pinned `vite@6.4.3` **itself declares `esbuild: ^0.25.0`**, so the override forces
+exactly what Vite already requires. The resolved `esbuild@0.25.12` carries no advisory.
+
+It is retained only so the PR that introduced the register did not also move unrelated
+dependencies. Removing it is a separate, reviewable change.
+
+### Removal criterion
+Remove at or before the review date. Verify by deleting the entry, confirming `npm ls
+esbuild` still resolves `>= 0.25.0` with no `overridden` marker, `npm audit
+--audit-level=high` stays at **0**, and the production build passes. Then delete this
+record and its register entry.
+
+---
+
+## OV-4 — `test-exclude` forced to `8.0.0` (frontend dev-transitive) — REDUNDANT
+
+| Field | Value |
+| --- | --- |
+| **Status** | REDUNDANT — retained pending removal |
+| **Introduced** | 2026-07-24 (commit `9b81819`) |
+| **Owner** | CyberMeters engineering (founder-owned) |
+| **Review date** | 2026-08-31 |
+| **Scope** | `frontend/package.json` `overrides` + lockfile only |
+
+### What it does
+```json
+"overrides": { "test-exclude": "8.0.0" }
+```
+
+### Why it existed
+`@vitest/coverage-v8` declares `test-exclude: ^7.0.1`, whose `glob`/`minimatch` chain then
+pulled a `brace-expansion` release carrying a denial-of-service advisory. Forcing
+`test-exclude@8.0.0` moved coverage onto the `glob` 13 / `minimatch` 10 chain.
+
+This override was **undocumented until August 2026**; this record is its first governance
+entry.
+
+### Why it is redundant
+On current registry facts a fresh `test-exclude@7.0.1` graph resolves `brace-expansion`
+`2.1.4` and audits **clean**, and `test-exclude@8.0.0` itself carries no advisory. The
+override no longer clears anything.
+
+Retained only to keep the register's introducing PR free of unrelated dependency movement.
+
+### Removal criterion
+Remove at or before the review date. Verify by deleting the entry, confirming `npm audit
+--audit-level=high` stays at **0** with the restored `test-exclude` 7 chain, and that
+coverage tests still pass. Then delete this record and its register entry.
+
+---
+
+## OV-5 — `undici` forced to `7.29.0` (dev-transitive, CI security)
+
+| Field | Value |
+| --- | --- |
+| **Status** | ACTIVE — temporary compatibility override |
+| **Introduced** | 2026-08-03 |
+| **Owner** | CyberMeters engineering (founder-owned) |
+| **Review date** | 2026-08-17 (short — upstream is expected to move) |
+| **Scope** | `workers/scan-api/package.json` `overrides` + `package-lock.json` only. No `src/` change, no `wrangler` version change, no deploy. |
+
+### What it does
+```json
+"overrides": { "undici": "7.29.0" }
+```
+Exact pin, so the resolved dev-tool graph cannot drift silently.
+
+### Why it exists
+`miniflare` declares `undici 7.28.0` **exact**, and every `undici` 7.x below `7.29.0`
+carries five advisories:
+
+| Advisory | Severity | CVSS |
+| --- | --- | --- |
+| **GHSA-4cwx-7wf7-3272** — cross-user information disclosure and parse-time crash via degenerate private cache directives | **high** | 7.4 |
+| GHSA-jr45-8vmc-qm54 — cross-user disclosure via whitespace around equals in `Cache-Control` | moderate | 5.9 |
+| GHSA-8xcm-r25x-g524 — downstream response desynchronization via retry interceptor | moderate | 4.8 |
+| GHSA-v3r7-h72x-cjcm — cookie attribute injection via unsanitised domain | moderate | 4.8 |
+| GHSA-m8rv-5g2x-5cg5 — CRLF injection via blob-like body `type` | moderate | 4.2 |
+
+The high advisory fails the `npm audit --audit-level=high` CI gate.
+
+**`undici@7.29.0` is published and is the patched release for all five.** No `miniflare`
+release consumes it: the latest (`4.20260730.0`, 30 July 2026) still pins `7.28.0` exactly.
+npm's own `fixAvailable` proposes `wrangler@4.35.0`, which is a **downgrade** from the
+pinned `4.110.0`, and `wrangler@4.118.0` depends on a `miniflare` 5.x **alpha**. So the fix
+is installable only by override.
+
+The override therefore **takes the published fix** rather than admitting a vulnerable
+package through an audit exception.
+
+### Runtime exposure
+`undici` is a dev-toolchain package only:
+
+- `workers/scan-api` declares exactly **one** runtime dependency, `tr46`; the complete
+  production closure is `tr46 → punycode`.
+- `npm ls --omit=dev undici` returns empty.
+- No `undici` import exists anywhere in `workers/scan-api/src/` or `shared/`.
+- The Worker runs on Cloudflare **workerd**, which provides its own `fetch`; it does not
+  ship `undici`.
+
+### Compatibility evidence vs Miniflare's declared contract
+1. `npm ci` resolves `undici@7.29.0` with **no** other package moved — `miniflare`,
+   `workerd` and `sharp` are unchanged.
+2. `npm audit --audit-level=high` reports **0 vulnerabilities**.
+3. `npx wrangler deploy --dry-run` still builds the Worker bundle.
+4. `7.28.0 → 7.29.0` is a semver-**patch** release inside the range Miniflare pins.
+
+### Removal criterion
+Remove when a supported `wrangler` (and its bundled `miniflare`) declares `undici >=
+7.29.0`. Verify by deleting the entry, confirming `npm ls undici` resolves `>= 7.29.0` with
+no `overridden` marker, `npm audit --audit-level=high` stays at **0**, and `npx wrangler
+deploy --dry-run` still builds.
