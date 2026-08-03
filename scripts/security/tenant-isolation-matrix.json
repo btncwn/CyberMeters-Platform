@@ -51,6 +51,26 @@
       "text": "background producers preserve workspace identity"
     }
   ],
+  "transient_migration_objects": [
+    {
+      "file": "database/migrations/105-ct-platform-deadline-provenance.sql",
+      "table": "ct_platform_deadline_migration_105_guard",
+      "termination": "drop",
+      "target": null
+    },
+    {
+      "file": "database/migrations/105-ct-platform-deadline-provenance.sql",
+      "table": "ct_provider_overlap_telemetry__105",
+      "termination": "rename",
+      "target": "ct_provider_overlap_telemetry"
+    },
+    {
+      "file": "database/migrations/105-ct-platform-deadline-provenance.sql",
+      "table": "ct_provider_telemetry__105",
+      "termination": "rename",
+      "target": "ct_provider_telemetry"
+    }
+  ],
   "resource_classes": [
     {
       "class": "workspaces",

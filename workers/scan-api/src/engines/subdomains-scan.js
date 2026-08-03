@@ -53,6 +53,15 @@ const SENSITIVE_LABELS = new Set([
   "jira", "confluence", "wiki",
 ]);
 
+export function projectSubdomainCtSource(result, measuredCount = null) {
+  return {
+    count: result?.status === "available" && Number.isFinite(Number(measuredCount))
+      ? Math.max(0, Number(measuredCount))
+      : 0,
+    error: result?.status === "unavailable" ? result.error : null,
+  };
+}
+
 function isSensitiveSubdomain(hostname, domain) {
   // Strip the root domain to get the subdomain part(s)
   const sub = hostname.endsWith("." + domain)
@@ -81,7 +90,11 @@ function isSensitiveSubdomain(hostname, domain) {
 export async function runSubdomainsModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
   const cache = opts.cache || null;
-  const ctCache = opts.ctCache || createCertificateTransparencyCache({ signal: opts.signal });
+  const ctCache = opts.ctCache || createCertificateTransparencyCache({
+    accounting: () => accounting,
+    signal: opts.globalSignal || opts.signal,
+    globalDeadlineProvenance: opts.globalDeadlineProvenance,
+  });
   const SOURCE    = "certificate_transparency_multi_source";
   const PER_CAP   = 200;   // max unique names from each CT source
   const MERGE_CAP = 300;   // cap on the merged deduplicated set
@@ -104,11 +117,22 @@ export async function runSubdomainsModule(domain, opts = {}) {
     error,
   });
 
-  // Consumer release is a one-way observational boundary. It neither aborts
-  // provider work nor changes the production result; late provider settlement
-  // is simply unable to rewrite the already-released telemetry snapshot.
+  // CONSUMER RELEASE belongs to whoever owns this module's budget — the reserved
+  // CT consumer boundary or scan-engine's capped-module boundary. Releasing here
+  // too would make the module a second release path, so whether "released"
+  // precedes "globally aborted" would depend on which path happened to run
+  // first. One boundary, one release.
+  //
+  // The overlap FREEZE is different: it is idempotent and first-wins, and it
+  // closes the observation window this module owns. Keeping it here means a
+  // collector handed to the module is always frozen, so a caller without its own
+  // boundary records an honest snapshot instead of silently losing the row.
   const freezeCtOverlap = () => {
-    try { opts.ctOverlap?.freeze?.(); } catch { /* observational only */ }
+    try {
+      opts.ctOverlap?.freeze?.({
+        global_deadline: opts.globalDeadlineProvenance?.() || null,
+      });
+    } catch { /* observational only */ }
   };
 
   try {
@@ -120,7 +144,14 @@ export async function runSubdomainsModule(domain, opts = {}) {
       SOURCE,
       PER_CAP,
       MERGE_CAP,
-      { accounting, cache, ctCache, signal: opts.signal, subOps: opts.subOps, ctOverlap: opts.ctOverlap },
+      {
+        accounting,
+        cache,
+        ctCache,
+        signal: opts.signal,
+        subOps: opts.subOps,
+        ctOverlap: opts.ctOverlap,
+      },
     ).then((result) => {
       freezeCtOverlap();
       return result;
@@ -189,17 +220,25 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   // A broken collector cannot change provider launch order or Promise semantics.
   const observedCtGet = (provider) => {
     try { opts.ctOverlap?.begin?.(provider); } catch { /* observational only */ }
-    const providerPromise = ctCache.get(domain, provider, { accounting, module: "subdomains" });
+    const providerPromise = ctCache.get(domain, provider, {
+      accounting,
+      module: "subdomains",
+      signal: opts.signal,
+    });
+    // An observation that arrives after THIS consumer was released is not this
+    // consumer's observation, so it must not reach the collector. Mirrors the
+    // sub-op rule above: a post-release settlement never truly belonged to us.
+    const observable = () => opts.signal?.aborted !== true;
     return providerPromise.then(
       (value) => {
         try {
-          opts.ctOverlap?.observe?.(provider, { status: "fulfilled", value }, domain);
+          if (observable()) opts.ctOverlap?.observe?.(provider, { status: "fulfilled", value }, domain);
         } catch { /* observational only */ }
         return value;
       },
       (reason) => {
         try {
-          opts.ctOverlap?.observe?.(provider, { status: "rejected", reason }, domain);
+          if (observable()) opts.ctOverlap?.observe?.(provider, { status: "rejected", reason }, domain);
         } catch { /* observational only */ }
         throw reason;
       },
@@ -244,7 +283,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     if (!result) {
       sources.crt_sh = { count: 0, error: customerSafeFailure("scan/ct/crt-sh", crtShSettled.reason, "fetch failed") };
     } else if (result.status === "unavailable") {
-      sources.crt_sh = { count: 0, error: result.error };
+      sources.crt_sh = projectSubdomainCtSource(result);
     } else {
       const rootDomain = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
       const rawData = result.data.filter((entry) => [
@@ -267,7 +306,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
           if (seen.size - before >= PER_CAP) break outer;
         }
       }
-      sources.crt_sh = { count: seen.size - before, error: null };
+      sources.crt_sh = projectSubdomainCtSource(result, seen.size - before);
     }
   } catch (err) {
     sources.crt_sh = { count: 0, error: customerSafeFailure("scan/ct/crt-sh-parse", err, "parse error") };
@@ -280,7 +319,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     if (!result) {
       sources.certspotter = { count: 0, error: customerSafeFailure("scan/ct/certspotter", certSpotterSettled.reason, "fetch failed") };
     } else if (result.status === "unavailable") {
-      sources.certspotter = { count: 0, error: result.error };
+      sources.certspotter = projectSubdomainCtSource(result);
     } else {
       const before = seen.size;
       outer: for (const entry of result.data) {
@@ -291,7 +330,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
           if (seen.size - before >= PER_CAP) break outer;
         }
       }
-      sources.certspotter = { count: seen.size - before, error: null };
+      sources.certspotter = projectSubdomainCtSource(result, seen.size - before);
     }
   } catch (err) {
     sources.certspotter = { count: 0, error: customerSafeFailure("scan/ct/certspotter-parse", err, "parse error") };

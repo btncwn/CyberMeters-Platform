@@ -7,7 +7,7 @@
 import { normalizeDiscoveredHostname } from "./hostnames.js";
 import { createId } from "../lib/util.js";
 
-export const CT_PROVIDER_OVERLAP_SOURCE_SET_VERSION = "ct-provider-overlap/1";
+export const CT_PROVIDER_OVERLAP_SOURCE_SET_VERSION = "ct-provider-overlap/2";
 
 // Measurement bounds, not production discovery bounds. PER_CAP/MERGE_CAP in
 // subdomains-scan.js retain their original, independent customer-result meaning.
@@ -20,6 +20,7 @@ export const CT_PROVIDER_OVERLAP_RETAINED_LIMIT = 256;
 export const CT_PROVIDER_OVERLAP_ATTEMPT_STATES = Object.freeze([
   "terminal_success",
   "terminal_failure",
+  "terminal_platform_deadline_abort",
   "not_started",
   "in_flight_at_consumer_release",
 ]);
@@ -28,9 +29,45 @@ export const CT_PROVIDER_OVERLAP_COMPARISON_STATUSES = Object.freeze([
   "compared",
   "compared_truncated",
   "censored_provider_failure",
+  "censored_platform_deadline_abort",
   "censored_in_flight",
   "not_started",
 ]);
+export const CT_PROVIDER_PERSISTENCE_OUTCOMES = Object.freeze([
+  "not_attempted_empty",
+  "persisted",
+  "persistence_failed",
+]);
+
+export const CT_PROVIDER_OVERLAP_PAIR_STATUSES = Object.freeze({
+  "terminal_failure|terminal_failure": "censored_provider_failure",
+  "terminal_failure|terminal_success": "censored_provider_failure",
+  "terminal_success|terminal_failure": "censored_provider_failure",
+  "terminal_platform_deadline_abort|terminal_platform_deadline_abort": "censored_platform_deadline_abort",
+  "terminal_platform_deadline_abort|terminal_failure": "censored_platform_deadline_abort",
+  "terminal_failure|terminal_platform_deadline_abort": "censored_platform_deadline_abort",
+  "terminal_platform_deadline_abort|terminal_success": "censored_platform_deadline_abort",
+  "terminal_success|terminal_platform_deadline_abort": "censored_platform_deadline_abort",
+  "in_flight_at_consumer_release|in_flight_at_consumer_release": "censored_in_flight",
+  "in_flight_at_consumer_release|terminal_failure": "censored_in_flight",
+  "terminal_failure|in_flight_at_consumer_release": "censored_in_flight",
+  "in_flight_at_consumer_release|terminal_success": "censored_in_flight",
+  "terminal_success|in_flight_at_consumer_release": "censored_in_flight",
+  // An active censorship cause is never hidden behind a passive one: if one
+  // provider was cut off by the platform deadline or was still in flight at
+  // release, that is why there is no comparison, even when its sibling never
+  // started. Recording "not_started" here would erase a real CyberMeters cause
+  // from the censorship analysis.
+  "terminal_platform_deadline_abort|not_started": "censored_platform_deadline_abort",
+  "not_started|terminal_platform_deadline_abort": "censored_platform_deadline_abort",
+  "in_flight_at_consumer_release|not_started": "censored_in_flight",
+  "not_started|in_flight_at_consumer_release": "censored_in_flight",
+  "not_started|not_started": "not_started",
+  "not_started|terminal_success": "not_started",
+  "terminal_success|not_started": "not_started",
+  "not_started|terminal_failure": "not_started",
+  "terminal_failure|not_started": "not_started",
+});
 
 const PROVIDERS = Object.freeze(["crt_sh", "certspotter"]);
 
@@ -141,14 +178,10 @@ function publicProviderFields(provider, measurement) {
 
 function compareProviders(crtSh, certspotter) {
   const states = [crtSh.attempt_state, certspotter.attempt_state];
-  if (states.includes("not_started")) {
-    return { comparison_status: "not_started" };
-  }
-  if (states.includes("in_flight_at_consumer_release")) {
-    return { comparison_status: "censored_in_flight" };
-  }
-  if (states.includes("terminal_failure")) {
-    return { comparison_status: "censored_provider_failure" };
+  const pairStatus = CT_PROVIDER_OVERLAP_PAIR_STATUSES[states.join("|")];
+  if (pairStatus) return { comparison_status: pairStatus };
+  if (states.some((state) => state !== "terminal_success")) {
+    throw new Error(`Incoherent CT overlap state pair: ${states.join("|")}`);
   }
 
   let intersectionCount = 0;
@@ -228,7 +261,12 @@ export function createCtProviderOverlapCollector({
       if (settled?.status !== "fulfilled"
         || value?.status !== "available"
         || !Array.isArray(value?.data)) {
-        providerMeasurements.set(provider, unmeasuredProvider("terminal_failure"));
+      providerMeasurements.set(
+        provider,
+        unmeasuredProvider(value?.physical_attempt_state === "global_deadline_aborted"
+          ? "terminal_platform_deadline_abort"
+          : "terminal_failure"),
+      );
         return;
       }
       providerMeasurements.set(provider, measureSuccessfulProvider(
@@ -239,16 +277,21 @@ export function createCtProviderOverlapCollector({
       ));
     },
 
-    freeze() {
+    freeze({ global_deadline = null } = {}) {
       if (consumerReleased) return buildFrozenSnapshot();
+      const globalDeadlineBeforeRelease = global_deadline?.aborted === true
+        && global_deadline.owner === "scan_global_deadline";
       for (const provider of PROVIDERS) {
         if (providerMeasurements.has(provider)) continue;
-        providerMeasurements.set(
-          provider,
-          unmeasuredProvider(startedProviders.has(provider)
-            ? "in_flight_at_consumer_release"
-            : "not_started"),
+        const started = startedProviders.has(provider);
+        const measurement = unmeasuredProvider(
+          started && globalDeadlineBeforeRelease
+            ? "terminal_platform_deadline_abort"
+            : started
+              ? "in_flight_at_consumer_release"
+              : "not_started",
         );
+        providerMeasurements.set(provider, measurement);
       }
       releasedAt = isoNow(now);
       consumerReleased = true;
@@ -285,7 +328,10 @@ const PROVIDER_COUNT_COLUMNS = Object.freeze([
 ]);
 
 export async function persistCtProviderOverlapTelemetry(scanId, measurement, env) {
-  if (!measurement) return { status: "not_attempted_empty" };
+  if (!measurement) return {
+    status: "not_attempted_empty",
+    persistence_outcome: "not_attempted_empty",
+  };
 
   try {
     if (!scanId || typeof env?.cybermeters_db?.prepare !== "function"
@@ -336,10 +382,11 @@ export async function persistCtProviderOverlapTelemetry(scanId, measurement, env
     }
     const count = Number(results?.[1]?.results?.[0]?.durable_count);
     if (count !== 1) throw new Error("D1 telemetry durable count unknown");
-    return { status: "persisted", count };
+    return { status: "persisted", persistence_outcome: "persisted", count };
   } catch (error) {
     return {
       status: "persistence_failed",
+      persistence_outcome: "persistence_failed",
       error_class: persistenceErrorClass(error),
       // If D1 itself is unavailable, no second D1 marker can honestly prove the
       // failure. The caller receives UNKNOWN durability and scan finalization is

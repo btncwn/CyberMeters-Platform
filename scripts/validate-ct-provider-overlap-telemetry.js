@@ -44,6 +44,13 @@ const { runSubdomainsModule } = subdomainsModule;
 
 const NOW = "2026-08-02T10:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
+const CT_PROVIDER_OVERLAP_V1_ATTEMPT_STATES = Object.freeze([
+  "terminal_success", "terminal_failure", "not_started", "in_flight_at_consumer_release",
+]);
+const CT_PROVIDER_OVERLAP_V1_COMPARISON_STATUSES = Object.freeze([
+  "compared", "compared_truncated", "censored_provider_failure",
+  "censored_in_flight", "not_started",
+]);
 let passed = 0;
 let failed = 0;
 const ok = (name, condition, detail = "") => {
@@ -658,12 +665,12 @@ try {
 
   eq("attempt-state vocabulary is future-ready",
     CT_PROVIDER_OVERLAP_ATTEMPT_STATES.join("|"),
-    "terminal_success|terminal_failure|not_started|in_flight_at_consumer_release");
+    "terminal_success|terminal_failure|terminal_platform_deadline_abort|not_started|in_flight_at_consumer_release");
   eq("comparison-status vocabulary is frozen",
     CT_PROVIDER_OVERLAP_COMPARISON_STATUSES.join("|"),
-    "compared|compared_truncated|censored_provider_failure|censored_in_flight|not_started");
+    "compared|compared_truncated|censored_provider_failure|censored_platform_deadline_abort|censored_in_flight|not_started");
   eq("source-set version is explicit",
-    CT_PROVIDER_OVERLAP_SOURCE_SET_VERSION, "ct-provider-overlap/1");
+    CT_PROVIDER_OVERLAP_SOURCE_SET_VERSION, "ct-provider-overlap/2");
   eq("normalization bound is separate from production caps",
     CT_PROVIDER_OVERLAP_NORMALIZATION_LIMIT, 4_096);
   eq("comparison retention bound is separate from production caps",
@@ -931,18 +938,18 @@ runVocabularyNegativeControl({
     "ct_provider_overlap_telemetry",
     "comparison_status",
   );
-  ok("migration 104 crt_sh attempt-state CHECK exactly matches engine vocabulary",
-    vocabulariesMatchExactly(crtShSqlVocabulary.values, CT_PROVIDER_OVERLAP_ATTEMPT_STATES),
+  ok("migration 104 crt_sh attempt-state CHECK preserves historical v1 vocabulary",
+    vocabulariesMatchExactly(crtShSqlVocabulary.values, CT_PROVIDER_OVERLAP_V1_ATTEMPT_STATES),
     crtShSqlVocabulary.error
-      || `sql=${JSON.stringify(crtShSqlVocabulary.values)} engine=${JSON.stringify(CT_PROVIDER_OVERLAP_ATTEMPT_STATES)}`);
-  ok("migration 104 certspotter attempt-state CHECK exactly matches engine vocabulary",
-    vocabulariesMatchExactly(certspotterSqlVocabulary.values, CT_PROVIDER_OVERLAP_ATTEMPT_STATES),
+      || `sql=${JSON.stringify(crtShSqlVocabulary.values)} v1=${JSON.stringify(CT_PROVIDER_OVERLAP_V1_ATTEMPT_STATES)}`);
+  ok("migration 104 certspotter attempt-state CHECK preserves historical v1 vocabulary",
+    vocabulariesMatchExactly(certspotterSqlVocabulary.values, CT_PROVIDER_OVERLAP_V1_ATTEMPT_STATES),
     certspotterSqlVocabulary.error
-      || `sql=${JSON.stringify(certspotterSqlVocabulary.values)} engine=${JSON.stringify(CT_PROVIDER_OVERLAP_ATTEMPT_STATES)}`);
-  ok("migration 104 comparison-status CHECK exactly matches engine vocabulary",
-    vocabulariesMatchExactly(comparisonSqlVocabulary.values, CT_PROVIDER_OVERLAP_COMPARISON_STATUSES),
+      || `sql=${JSON.stringify(certspotterSqlVocabulary.values)} v1=${JSON.stringify(CT_PROVIDER_OVERLAP_V1_ATTEMPT_STATES)}`);
+  ok("migration 104 comparison-status CHECK preserves historical v1 vocabulary",
+    vocabulariesMatchExactly(comparisonSqlVocabulary.values, CT_PROVIDER_OVERLAP_V1_COMPARISON_STATUSES),
     comparisonSqlVocabulary.error
-      || `sql=${JSON.stringify(comparisonSqlVocabulary.values)} engine=${JSON.stringify(CT_PROVIDER_OVERLAP_COMPARISON_STATUSES)}`);
+      || `sql=${JSON.stringify(comparisonSqlVocabulary.values)} v1=${JSON.stringify(CT_PROVIDER_OVERLAP_V1_COMPARISON_STATUSES)}`);
   ok("migration 104 has no raw-hostname column",
     !/\b(hostname|raw_hostname|hostname_sample|provider_payload)\b/i.test(executable));
 

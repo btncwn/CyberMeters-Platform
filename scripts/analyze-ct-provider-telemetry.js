@@ -18,6 +18,7 @@ const CT_PROVIDERS = Object.freeze(["crt_sh", "certspotter"]);
 export const READ_QUERY = `
 SELECT
   s.id AS scan_id,
+  s.workspace_id,
   s.scan_quality,
   s.created_at AS scan_created_at,
   t.module,
@@ -31,9 +32,12 @@ SELECT
   t.completeness_impact,
   t.affected_signal,
   t.cache_state,
-  t.cache_age_s
+  t.cache_age_s,
+  o.source_set_version
 FROM scans AS s
 LEFT JOIN ct_provider_telemetry AS t ON t.scan_id = s.id
+LEFT JOIN ct_provider_overlap_telemetry AS o
+  ON o.scan_id = s.id AND o.module = 'subdomains'
 WHERE s.created_at >= datetime('now', '-7 days')
 ORDER BY s.created_at, s.id, t.started_at, t.provider, t.module
 `.trim();
@@ -61,6 +65,7 @@ function physicalAttemptKey(row) {
 export function analyzeCtProviderTelemetry(rows, {
   nowMs = Date.now(),
   windowDays = 7,
+  founderWorkspaceIds = [],
 } = {}) {
   const windowStartMs = nowMs - windowDays * 86_400_000;
   const inWindow = rows.filter((row) => {
@@ -77,10 +82,30 @@ export function analyzeCtProviderTelemetry(rows, {
   const completed = [...scans.values()].filter((quality) => quality === "complete").length;
   const completionLoss = scans.size - completed;
 
+  // Count the attempt population before any completeness-impact filter. A
+  // platform deadline is a CyberMeters cause whether or not it changed the
+  // final scan-quality band.
+  const attemptRows = rows.filter((row) => row.provider && row.outcome);
+  // Date an attempt by its scan, falling back to the attempt's own start. A row
+  // that silently dropped out of the cohort could not quarantine it, so an
+  // undatable v1 row would leave a cohort reading "eligible" while unquarantined
+  // v1 evidence sat inside it. Undated rows are counted and fail closed instead.
+  const attemptRowTimeMs = (row) => {
+    const createdMs = Date.parse(row.scan_created_at);
+    if (Number.isFinite(createdMs)) return createdMs;
+    const startedMs = Date.parse(row.started_at);
+    return Number.isFinite(startedMs) ? startedMs : null;
+  };
+  const datedAttemptRows = attemptRows.filter((row) => attemptRowTimeMs(row) !== null);
+  const undatedAttemptRows = attemptRows.length - datedAttemptRows.length;
+  const inWindowAttemptRows = datedAttemptRows.filter((row) => {
+    const createdMs = attemptRowTimeMs(row);
+    return createdMs >= windowStartMs && createdMs <= nowMs;
+  });
+
   // Rows are duplicated only when one physical attempt fed both module consumers.
   const physicalAttempts = new Map();
-  for (const row of inWindow) {
-    if (!row.provider || !row.outcome) continue;
+  for (const row of inWindowAttemptRows) {
     const key = physicalAttemptKey(row);
     if (!physicalAttempts.has(key)) physicalAttempts.set(key, row);
   }
@@ -190,6 +215,49 @@ export function analyzeCtProviderTelemetry(rows, {
     ? "not_measured"
     : telemetryMeasurementState;
 
+  const sourceSetVersions = [...new Set(inWindowAttemptRows
+    .map((row) => row.source_set_version)
+    .filter(Boolean))].sort();
+  const allRowsAreV2 = inWindowAttemptRows.length > 0
+    && undatedAttemptRows === 0
+    && inWindowAttemptRows.every((row) => row.source_set_version === "ct-provider-overlap/2");
+  const decisionRows = allRowsAreV2 ? inWindowAttemptRows : [];
+  const scopeSummary = (scopeRows) => {
+    const groups = new Map();
+    for (const row of scopeRows) {
+      const key = `${row.module || "unknown"}\u0000${row.provider || "unknown"}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          module: row.module || null,
+          provider: row.provider || null,
+          total_attempt_rows: 0,
+          platform_deadline_abort_attempt_rows: 0,
+          completeness_impacting_platform_deadline_abort_attempt_rows: 0,
+        });
+      }
+      const group = groups.get(key);
+      group.total_attempt_rows += 1;
+      if (row.outcome === "platform_deadline_abort") {
+        group.platform_deadline_abort_attempt_rows += 1;
+        if (Number(row.completeness_impact) === 1) {
+          group.completeness_impacting_platform_deadline_abort_attempt_rows += 1;
+        }
+      }
+    }
+    const platformRows = scopeRows.filter((row) => row.outcome === "platform_deadline_abort");
+    return {
+      total_attempt_rows: scopeRows.length,
+      platform_deadline_abort_attempt_rows: platformRows.length,
+      completeness_impacting_platform_deadline_abort_attempt_rows:
+        platformRows.filter((row) => Number(row.completeness_impact) === 1).length,
+      by_module_provider: [...groups.values()].sort((a, b) =>
+        String(a.module).localeCompare(String(b.module))
+        || String(a.provider).localeCompare(String(b.provider))),
+    };
+  };
+  const founderSet = new Set(founderWorkspaceIds.map(String));
+  const founderRows = inWindowAttemptRows.filter((row) => founderSet.has(String(row.workspace_id)));
+
   return {
     window_days: windowDays,
     window_start: new Date(windowStartMs).toISOString(),
@@ -243,6 +311,30 @@ export function analyzeCtProviderTelemetry(rows, {
       co_failure_rate_pct: bothAttempted === 0
         ? null
         : Number(((bothFailed / bothAttempted) * 100).toFixed(2)),
+    },
+    decision_grade: {
+      required_source_set_version: "ct-provider-overlap/2",
+      status: inWindowAttemptRows.length === 0
+        ? "not_measured"
+        : allRowsAreV2
+          ? "eligible"
+          : sourceSetVersions.includes("ct-provider-overlap/2")
+            ? "mixed_cohort_rejected"
+            : "historical_cohort_quarantined",
+      source_set_versions: sourceSetVersions,
+      included_rows: decisionRows.length,
+      excluded_rows: inWindowAttemptRows.length - decisionRows.length,
+      undated_attempt_rows: undatedAttemptRows,
+    },
+    platform_deadline_censorship: {
+      measurement_state: decisionRows.length > 0 ? "measured" : "not_measured",
+      required_source_set_version: "ct-provider-overlap/2",
+      scopes: {
+        global: scopeSummary(decisionRows),
+        founder: scopeSummary(decisionRows.filter((row) =>
+          founderSet.has(String(row.workspace_id)))),
+        founder_observed_unfiltered: scopeSummary(founderRows),
+      },
     },
   };
 }

@@ -40,6 +40,9 @@ const {
 } = analyzerModule;
 const NOW = "2026-07-27T12:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
+const CT_PROVIDER_TELEMETRY_V1_OUTCOMES = Object.freeze([
+  "ok", "timeout", "http_error", "parse_error", "rate_limited", "network_error",
+]);
 
 let passed = 0;
 let failed = 0;
@@ -248,7 +251,7 @@ try {
 
 eq("frozen outcome vocabulary",
   CT_PROVIDER_TELEMETRY_OUTCOMES.join("|"),
-  "ok|timeout|http_error|parse_error|rate_limited|network_error");
+  "ok|timeout|http_error|parse_error|rate_limited|network_error|platform_deadline_abort");
 eq("runtime hard row bound", CT_PROVIDER_TELEMETRY_ROW_LIMIT, 8);
 
 // Persistence is explicitly invoked after collection: module execution made no D1 call.
@@ -301,9 +304,11 @@ eq("runtime hard row bound", CT_PROVIDER_TELEMETRY_ROW_LIMIT, 8);
   ok("migration 103 is additive",
     /CREATE TABLE IF NOT EXISTS ct_provider_telemetry/i.test(migration) &&
     !/\b(DROP|DELETE FROM|TRUNCATE)\b/i.test(migration.replace(/--[^\n]*/g, "")));
-  for (const outcome of CT_PROVIDER_TELEMETRY_OUTCOMES) {
+  for (const outcome of CT_PROVIDER_TELEMETRY_V1_OUTCOMES) {
     ok(`migration freezes ${outcome}`, migration.includes(`'${outcome}'`));
   }
+  ok("migration 103 excludes the later platform-abort vocabulary",
+    !migration.includes("'platform_deadline_abort'"));
   ok("migration constrains cache vocabulary",
     ["miss", "fresh_hit", "stale_available"].every((value) =>
       migration.includes(`'${value}'`)

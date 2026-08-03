@@ -7,6 +7,7 @@
 // destructive one needs explicit human approval, not a silent merge.
 // CI-blocking. Requires Node 24+ (node:sqlite).
 //
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -24,15 +25,40 @@ const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAI
 // executable destructive DDL/DML. DROP INDEX and DROP … IF EXISTS on a temp are
 // not data-destroying and are allowed.
 const DESTRUCTIVE = /\b(DROP\s+TABLE|DROP\s+COLUMN|DELETE\s+FROM|TRUNCATE)\b/i;
+const APPROVED_DESTRUCTIVE_MIGRATIONS = new Map([
+  ["105-ct-platform-deadline-provenance.sql", {
+    sha256: "f3a95b2ec0af4246b09a88c7d4e4e1326cbd0892d01614a45c2df26569632d0d",
+    reason: "founder-gated, copy-guarded SQLite table rebuild; remote carrier rollback proven at six injected boundaries",
+  }],
+]);
+const approvedDestructiveMigration = (filename, raw) => {
+  const approval = APPROVED_DESTRUCTIVE_MIGRATIONS.get(filename);
+  if (!approval) return false;
+  return crypto.createHash("sha256").update(raw).digest("hex") === approval.sha256;
+};
 for (const f of files) {
   const raw = fs.readFileSync(path.join(migDir, f), "utf8");
   const noComments = raw
     .replace(/--[^\n]*/g, "")
     .replace(/\/\*[\s\S]*?\*\//g, "");
   const hit = noComments.match(DESTRUCTIVE);
-  ok(`${f}: no executable destructive statement`, !hit);
-  if (hit) console.log(`  → found: ${hit[0]}`);
+  const approved = Boolean(hit) && approvedDestructiveMigration(f, raw);
+  ok(`${f}: no unapproved executable destructive statement`, !hit || approved);
+  if (hit && !approved) console.log(`  → found: ${hit[0]}`);
 }
+
+// Mutation-style fail-closed controls for the one governed rebuild. Approval is
+// bound to both identity and exact bytes: appending another DROP, altering any
+// rebuild statement, or copying the same SQL under another migration number
+// must not inherit the exception.
+const governedFilename = "105-ct-platform-deadline-provenance.sql";
+const governedRaw = fs.readFileSync(path.join(migDir, governedFilename), "utf8");
+ok("governed rebuild approval matches the frozen migration bytes",
+  approvedDestructiveMigration(governedFilename, governedRaw));
+ok("governed rebuild approval rejects an appended destructive statement",
+  !approvedDestructiveMigration(governedFilename, `${governedRaw}\nDROP TABLE unrelated_customer_history;\n`));
+ok("governed rebuild approval does not transfer to another migration identity",
+  !approvedDestructiveMigration("106-unrelated.sql", governedRaw));
 
 // ── 2. Fresh-apply convergence ──
 // schema.sql + every migration in order must apply so the resulting database has

@@ -210,7 +210,7 @@ const MUTATIONS = [
   {
     name: "M-D1 the former hard-coded `https_available: false` deadline fallback is restored",
     target: SCAN_ENGINE,
-    from: 'https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_observation_completeness: "not_assessed", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe"',
+    from: 'https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe"',
     to: 'https_available: false, source: "tls_probe"',
     // A deferred module would again assert positive evidence of absence.
     check: (mod) => {

@@ -13,10 +13,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { extractTables, deriveOwnership, RESOURCE_CLASSES, INVARIANTS, tableClassIndex, REPO_ROOT } from "./lib/tenant-resources.js";
+import { extractSchemaResources, extractTables, deriveOwnership, RESOURCE_CLASSES, INVARIANTS, tableClassIndex, REPO_ROOT } from "./lib/tenant-resources.js";
 
 export function buildMatrix() {
-  const tables = extractTables();
+  const { tables, transientMigrationObjects } = extractSchemaResources();
   const idx = tableClassIndex();
   const classes = RESOURCE_CLASSES.map((rc) => {
     const ownership = {};
@@ -37,6 +37,7 @@ export function buildMatrix() {
     schema: "cybermeters.tenant-isolation-matrix/v1",
     generated_by: "scripts/security/build-tenant-isolation-matrix.js",
     invariants: INVARIANTS,
+    transient_migration_objects: transientMigrationObjects,
     resource_classes: classes,
     table_index: Object.fromEntries(schemaTables.map((t) => [t, idx.get(t) ?? null])),
     counts: {

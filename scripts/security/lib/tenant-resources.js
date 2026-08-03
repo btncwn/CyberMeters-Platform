@@ -22,24 +22,98 @@ import { fileURLToPath } from "node:url";
 export const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const DB = path.join(REPO_ROOT, "database");
 
-export function extractTables() {
+function tableOperations(sql) {
+  const operations = [];
+  let match;
+  const create = /CREATE TABLE (?:IF NOT EXISTS )?[`"]?(\w+)[`"]?\s*\(([\s\S]*?)\);/gi;
+  while ((match = create.exec(sql))) {
+    operations.push({
+      type: "create",
+      index: match.index,
+      table: match[1],
+      columns: [...match[2].matchAll(/^\s*[`"]?(\w+)[`"]?\s+/gm)].map((entry) => entry[1]),
+    });
+  }
+  const addColumn = /ALTER TABLE [`"]?(\w+)[`"]?\s+ADD COLUMN [`"]?(\w+)[`"]?/gi;
+  while ((match = addColumn.exec(sql))) {
+    operations.push({ type: "add_column", index: match.index, table: match[1], column: match[2] });
+  }
+  const rename = /ALTER TABLE [`"]?(\w+)[`"]?\s+RENAME TO [`"]?(\w+)[`"]?/gi;
+  while ((match = rename.exec(sql))) {
+    operations.push({ type: "rename", index: match.index, table: match[1], target: match[2] });
+  }
+  const drop = /DROP TABLE (?:IF EXISTS )?[`"]?(\w+)[`"]?/gi;
+  while ((match = drop.exec(sql))) {
+    operations.push({ type: "drop", index: match.index, table: match[1] });
+  }
+  return operations.sort((left, right) => left.index - right.index);
+}
+
+export function extractSchemaResourcesFromSources(sources) {
+  const tables = {};
+  const transientMigrationObjects = [];
+  for (const source of sources) {
+    const createdInSource = new Set();
+    for (const operation of tableOperations(source.sql)) {
+      if (operation.type === "create") {
+        tables[operation.table] = new Set(operation.columns);
+        createdInSource.add(operation.table);
+        continue;
+      }
+      if (operation.type === "add_column") {
+        if (tables[operation.table]) tables[operation.table].add(operation.column);
+        continue;
+      }
+      if (operation.type === "rename") {
+        if (source.migration === true && createdInSource.has(operation.table)) {
+          const columns = tables[operation.table];
+          transientMigrationObjects.push({
+            file: source.file,
+            table: operation.table,
+            termination: "rename",
+            target: operation.target,
+          });
+          createdInSource.delete(operation.table);
+          delete tables[operation.table];
+          if (columns) tables[operation.target] = columns;
+        }
+        continue;
+      }
+      if (operation.type === "drop") {
+        if (source.migration === true && createdInSource.has(operation.table)) {
+          transientMigrationObjects.push({
+            file: source.file,
+            table: operation.table,
+            termination: "drop",
+            target: null,
+          });
+          createdInSource.delete(operation.table);
+          delete tables[operation.table];
+        }
+      }
+    }
+  }
+  return {
+    tables,
+    transientMigrationObjects: transientMigrationObjects.sort((left, right) =>
+      left.file.localeCompare(right.file) || left.table.localeCompare(right.table)),
+  };
+}
+
+export function extractSchemaResources() {
   const files = [
     path.join(DB, "schema.sql"),
     ...fs.readdirSync(path.join(DB, "migrations")).filter((f) => f.endsWith(".sql")).sort().map((f) => path.join(DB, "migrations", f)),
   ];
-  const tables = {};
-  for (const f of files) {
-    const sql = fs.readFileSync(f, "utf8");
-    let m;
-    const re = /CREATE TABLE (?:IF NOT EXISTS )?[`"]?(\w+)[`"]?\s*\(([\s\S]*?)\);/gi;
-    while ((m = re.exec(sql))) {
-      const cols = [...m[2].matchAll(/^\s*[`"]?(\w+)[`"]?\s+/gm)].map((x) => x[1]);
-      tables[m[1]] = new Set(cols);
-    }
-    const alt = /ALTER TABLE [`"]?(\w+)[`"]?\s+ADD COLUMN [`"]?(\w+)[`"]?/gi;
-    while ((m = alt.exec(sql))) if (tables[m[1]]) tables[m[1]].add(m[2]);
-  }
-  return tables;
+  return extractSchemaResourcesFromSources(files.map((file) => ({
+    file: path.relative(REPO_ROOT, file).split(path.sep).join("/"),
+    migration: file !== path.join(DB, "schema.sql"),
+    sql: fs.readFileSync(file, "utf8"),
+  })));
+}
+
+export function extractTables() {
+  return extractSchemaResources().tables;
 }
 
 // Ownership model derived from the columns actually present on the table.

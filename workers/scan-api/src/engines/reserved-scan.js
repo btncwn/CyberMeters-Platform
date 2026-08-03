@@ -33,6 +33,83 @@ import { runWhoisModule } from "./whois-scan.js";
 
 function hasAnswer(ans) { return !!ans && Array.isArray(ans.Answer) && ans.Answer.length > 0; }
 
+const RESERVED_PLATFORM_ABORT_WORDING =
+  "CyberMeters did not observe the provider result within the scan's global execution window.";
+
+function combineConsumerSignals(...signals) {
+  const active = signals.filter(Boolean);
+  if (active.length === 0) return undefined;
+  if (active.length === 1) return active[0];
+  if (typeof AbortSignal.any === "function") return AbortSignal.any(active);
+  const controller = new AbortController();
+  const abort = () => {
+    const source = active.find((candidate) => candidate.aborted);
+    if (!controller.signal.aborted) controller.abort(source?.reason);
+  };
+  for (const signal of active) {
+    if (signal.aborted) { abort(); break; }
+    signal.addEventListener("abort", abort, { once: true });
+  }
+  return controller.signal;
+}
+
+export async function runReservedCtConsumer(domain, module, {
+  ctCache,
+  ctOverlap = null,
+  signal = null,
+  globalDeadlineProvenance = null,
+  budgetMs,
+  run,
+  fallback,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+} = {}) {
+  if (!ctCache || typeof run !== "function" || typeof fallback !== "function") {
+    throw new TypeError("Reserved CT consumer requires cache, run and fallback");
+  }
+  const controller = new AbortController();
+  const consumerSignal = combineConsumerSignals(signal, controller.signal);
+  let released = false;
+  const release = (cause) => {
+    if (released) return;
+    released = true;
+    ctCache.releaseConsumer?.(domain, module, cause);
+    if (module === "subdomains") {
+      ctOverlap?.freeze?.({
+        global_deadline: globalDeadlineProvenance?.() || null,
+      });
+    }
+  };
+  const boundaryValue = (cause) => {
+    release(cause);
+    if (!controller.signal.aborted) controller.abort(cause);
+    return { boundary: true, value: fallback(cause) };
+  };
+  const work = Promise.resolve()
+    .then(() => run(consumerSignal))
+    .then((value) => ({ boundary: false, value }), (error) => ({ boundary: false, error }));
+  let timer = null;
+  let removeGlobalAbort = null;
+  const boundary = new Promise((resolve) => {
+    timer = setTimer(
+      () => resolve(boundaryValue("module_budget_exhausted")),
+      Math.max(1, Number(budgetMs) || 1),
+    );
+    const globalAbort = () => resolve(boundaryValue("scan_global_deadline"));
+    if (signal?.aborted) globalAbort();
+    else if (signal?.addEventListener) {
+      signal.addEventListener("abort", globalAbort, { once: true });
+      removeGlobalAbort = () => signal.removeEventListener?.("abort", globalAbort);
+    }
+  });
+  const winner = await Promise.race([work, boundary]);
+  if (timer != null) clearTimer(timer);
+  removeGlobalAbort?.();
+  if (!winner.boundary) release(winner.error ? "consumer_error" : "consumer_completed");
+  if (winner.error) throw winner.error;
+  return winner.value;
+}
+
 // ── Discovery + priority helpers (also unit-tested directly) ──────────────────
 export async function runCriticalPrefixDiscovery(domain, cache, prefixes = CRITICAL_PREFIXES_MANDATORY) {
   const items = [];
@@ -129,11 +206,20 @@ export async function runReservedScan(domain, {
   dnsCache: suppliedDnsCache = null,
   knownAssetHosts = [],
   signal = null,
+  globalDeadlineProvenance = null,
+  ctConsumerBudgets = null,
   now = Date.now,
 } = {}) {
   const budget = new SubrequestBudget({ limit: capacity.limit, safetyMargin: capacity.safetyMargin });
   const dnsCache = suppliedDnsCache || makeDnsCache();
-  const sharedCtCache = ctCache || createCertificateTransparencyCache();
+  const sharedCtCache = ctCache || createCertificateTransparencyCache({
+    signal,
+    globalDeadlineProvenance,
+  });
+  const reservedCtBudgets = {
+    ssl: Math.max(1, Number(ctConsumerBudgets?.ssl) || 9_000),
+    subdomains: Math.max(1, Number(ctConsumerBudgets?.subdomains) || 12_000),
+  };
 
   // Stage 1: minimal root/www discovery (A only) — enough to know the domain resolves
   // and to seed the exposure list + the shared cache. ~2 calls.
@@ -185,13 +271,57 @@ export async function runReservedScan(domain, {
 
   // Stage 6: remaining modules, budget-gated (customer-critical exposure already done).
   const dns                  = await gateModule(budget, "dns", () => runDnsModule(domain, { cache: dnsCache }), { resolves });
-  const ssl                  = await gateModule(budget, "ssl", () => runSslModule(domain, { ctCache: sharedCtCache }));
+  const ssl                  = await gateModule(budget, "ssl", () => runReservedCtConsumer(domain, "ssl", {
+    ctCache: sharedCtCache,
+    signal,
+    globalDeadlineProvenance,
+    budgetMs: reservedCtBudgets.ssl,
+    run: (consumerSignal) => runSslModule(domain, { ctCache: sharedCtCache, signal: consumerSignal }),
+    fallback: (cause) => ({
+      incomplete: true,
+      incomplete_reason: cause,
+      outcome: "deadline_exceeded",
+      ct_sources: {
+        crt_sh: { count: 0, error: cause === "scan_global_deadline" ? RESERVED_PLATFORM_ABORT_WORDING : "module deadline exceeded" },
+        certspotter: { count: 0, error: cause === "scan_global_deadline" ? RESERVED_PLATFORM_ABORT_WORDING : "module deadline exceeded" },
+      },
+      source: "tls_probe",
+    }),
+  }));
   const headers              = await gateModule(budget, "headers", () => runHeadersModule(domain));
   const email_security       = await gateModule(budget, "email_security", () => runEmailModule(domain, {
     cache: dnsCache,
     dmarcOwnedByCore: true,
   }));
-  const subdomains           = await gateModule(budget, "subdomains", () => runSubdomainsModule(domain, { cache: dnsCache, ctCache: sharedCtCache, ctOverlap }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] });
+  const subdomains           = await gateModule(budget, "subdomains", () => runReservedCtConsumer(domain, "subdomains", {
+    ctCache: sharedCtCache,
+    ctOverlap,
+    signal,
+    globalDeadlineProvenance,
+    budgetMs: reservedCtBudgets.subdomains,
+    run: (consumerSignal) => runSubdomainsModule(domain, {
+      cache: dnsCache,
+      ctCache: sharedCtCache,
+      ctOverlap,
+      signal: consumerSignal,
+      globalSignal: signal,
+      globalDeadlineProvenance,
+    }),
+    fallback: (cause) => ({
+      count: 0,
+      items: [],
+      sensitive: [],
+      sources: {
+        crt_sh: { count: 0, error: cause === "scan_global_deadline" ? RESERVED_PLATFORM_ABORT_WORDING : "module deadline exceeded" },
+        certspotter: { count: 0, error: cause === "scan_global_deadline" ? RESERVED_PLATFORM_ABORT_WORDING : "module deadline exceeded" },
+      },
+      wildcard_dns: false,
+      wildcard_dns_addresses: [],
+      incomplete: true,
+      incomplete_reason: cause,
+      error: null,
+    }),
+  }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] });
   const technology_detection = await gateModule(budget, "technology_detection", () => runTechModule(domain));
   const whois_intelligence   = await gateModule(budget, "whois_intelligence", () => runWhoisModule(domain));
 

@@ -83,6 +83,14 @@ jobs:
         working-directory: workers/scan-api
         run: npm ci || npm install
 
+      # The CT consumer-inventory oracle parses frontend source through its own
+      # exact-pinned @babel/parser dependency. Install the committed frontend
+      # graph before any validator can load that oracle; the later build/test
+      # steps reuse this one deterministic install.
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
       - name: Secret scan (tracked files)
         run: |
           if git grep -nIE '(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk_live_[0-9a-zA-Z]{24})' -- ':!.github/**' ':!*.md'; then
@@ -893,6 +901,24 @@ jobs:
       - name: Validate CT-R2 PR-2A shadow provider-overlap load-bearing mutations
         run: node scripts/validate-ct-provider-overlap-telemetry-mutations.js
 
+      - name: Validate CT-R2 PR-2A.1 consumer-isolation binding oracle
+        run: node scripts/validate-ct-consumer-isolation-oracle.js
+
+      - name: Validate CT-R2 PR-2A.1 consumer-isolation semantic mutations
+        run: node scripts/validate-ct-consumer-isolation-oracle-mutations.js
+
+      - name: Validate CT-R2 PR-2A.1 platform-abort migration semantics
+        run: node scripts/validate-ct-platform-abort-migration.js
+
+      - name: Validate CT-R2 PR-2A.1 platform-abort migration mutations
+        run: node scripts/validate-ct-platform-abort-migration-mutations.js
+
+      - name: Validate CT-R2 PR-2A.1 governed migration command
+        run: node scripts/validate-ct-platform-abort-migration-command.js
+
+      - name: Validate CT-R2 PR-2A.1 provider-source consumer inventory pin
+        run: node scripts/derive-ct-provider-source-consumer-inventory.js --pin docs/CT-R2-PR-2A1-PROVIDER-SOURCE-INVENTORY.json
+
       - name: Validate managed brand takedown lifecycle (evidence + approval + verification)
         run: node scripts/validate-brand-takedown-lifecycle.js
 
@@ -1145,10 +1171,6 @@ jobs:
 
       - name: Validate CAPABILITIES.md drift
         run: node scripts/validate-capabilities-doc.js
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
 
       - name: Validate CE multidomain containment
         run: node scripts/validate-ce-multidomain-containment.js

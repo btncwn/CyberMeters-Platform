@@ -18,7 +18,7 @@ const fixtureValidator = path.join(root, "scripts/validate-ct-provider-overlap-t
 const engineValidator = path.join(root, "scripts/validate-ct-provider-overlap-engine-trace.js");
 const EXPECTED_MUTANTS = 21;
 const EXPECTED_FIXTURE_ASSERTIONS = 118;
-const EXPECTED_ENGINE_ASSERTIONS = 23;
+const EXPECTED_ENGINE_ASSERTIONS = 24;
 
 let sequence = 0;
 let killed = 0;
@@ -167,10 +167,8 @@ runMutant({
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
-    `  if (states.includes("terminal_failure")) {
-    return { comparison_status: "censored_provider_failure" };
-  }`,
-    `  if (states.includes("terminal_failure")) {
+    `  if (pairStatus) return { comparison_status: pairStatus };`,
+    `  if (pairStatus === "censored_provider_failure") {
     return {
       comparison_status: "censored_provider_failure",
       intersection_count: 0,
@@ -178,7 +176,8 @@ runMutant({
       certspotter_only_count: 0,
       union_count: 0,
     };
-  }`,
+  }
+  if (pairStatus) return { comparison_status: pairStatus };`,
     "failure comparison NULL gate",
   ),
 });
@@ -190,8 +189,8 @@ runMutant({
   expectedFailures: ["exact-base production-result fixture fingerprint"],
   mutate: (source) => replaceExactlyOnce(
     source,
-    "      sources.certspotter = { count: seen.size - before, error: null };",
-    "      sources.certspotter = { count: seen.size, error: null };",
+    "      sources.certspotter = projectSubdomainCtSource(result, seen.size - before);",
+    "      sources.certspotter = projectSubdomainCtSource(result, seen.size);",
     "CertSpotter merge-order count",
   ),
 });
@@ -273,9 +272,14 @@ runMutant({
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
-    `        providerMeasurements.set(provider, unmeasuredProvider("terminal_failure"));
+    `      providerMeasurements.set(
+        provider,
+        unmeasuredProvider(value?.physical_attempt_state === "global_deadline_aborted"
+          ? "terminal_platform_deadline_abort"
+          : "terminal_failure"),
+      );
         return;`,
-    `        providerMeasurements.set(provider, measureSuccessfulProvider(
+    `      providerMeasurements.set(provider, measureSuccessfulProvider(
           provider,
           [],
           domain,
@@ -335,7 +339,7 @@ runMutant({
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
-    `runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: () => ctProviderOverlap.freeze(), run:`,
+    `runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: (cause) => { ctCache.releaseConsumer?.(domain, "subdomains", cause); ctProviderOverlap.freeze({ global_deadline: deadline.globalDeadlineProvenance() }); }, run:`,
     `runCappedModule("subdomains",           { fallback: subdomainsFallback, run:`,
     "outer subdomains consumer-release hook",
   ),
@@ -416,7 +420,7 @@ runMutant({
   asUrl: false,
   expectedFailures: [
     "sqlite crt_sh attempt state: bogus row rejected by CHECK constraint",
-    "migration 104 crt_sh attempt-state CHECK exactly matches engine vocabulary",
+    "migration 104 crt_sh attempt-state CHECK preserves historical v1 vocabulary",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -435,7 +439,7 @@ runMutant({
   envName: "CT_OVERLAP_MIGRATION_PATH",
   asUrl: false,
   expectedFailures: [
-    "migration 104 certspotter attempt-state CHECK exactly matches engine vocabulary",
+    "migration 104 certspotter attempt-state CHECK preserves historical v1 vocabulary",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -458,7 +462,7 @@ runMutant({
   envName: "CT_OVERLAP_MIGRATION_PATH",
   asUrl: false,
   expectedFailures: [
-    "migration 104 crt_sh attempt-state CHECK exactly matches engine vocabulary",
+    "migration 104 crt_sh attempt-state CHECK preserves historical v1 vocabulary",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -482,7 +486,7 @@ runMutant({
   asUrl: false,
   expectedFailures: [
     "sqlite comparison status: bogus row rejected by CHECK constraint",
-    "migration 104 comparison-status CHECK exactly matches engine vocabulary",
+    "migration 104 comparison-status CHECK preserves historical v1 vocabulary",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -502,7 +506,7 @@ runMutant({
   envName: "CT_OVERLAP_MIGRATION_PATH",
   asUrl: false,
   expectedFailures: [
-    "migration 104 comparison-status CHECK exactly matches engine vocabulary",
+    "migration 104 comparison-status CHECK preserves historical v1 vocabulary",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -527,7 +531,7 @@ runMutant({
   envName: "CT_OVERLAP_MIGRATION_PATH",
   asUrl: false,
   expectedFailures: [
-    "migration 104 comparison-status CHECK exactly matches engine vocabulary",
+    "migration 104 comparison-status CHECK preserves historical v1 vocabulary",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,

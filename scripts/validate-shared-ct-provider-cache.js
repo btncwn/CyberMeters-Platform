@@ -164,11 +164,11 @@ try {
       1);
     ok("default scan passes that cache to SSL and subdomains",
       /runSslModule\(domain, \{ accounting, signal, ctCache, subOps: subOpTelemetry \}\)/.test(scanEngineSource) &&
-        /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap \}\)/.test(scanEngineSource));
+        /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(scanEngineSource));
     ok("reserved scan reuses one cache for SSL and subdomains",
-      /runReservedScan\(domain, \{\s*capacity,\s*ctCache,\s*ctOverlap: ctProviderOverlap,\s*dnsCache,/.test(scanEngineSource) &&
-        /runSslModule\(domain, \{ ctCache: sharedCtCache \}\)/.test(reservedSource) &&
-        /runSubdomainsModule\(domain, \{ cache: dnsCache, ctCache: sharedCtCache, ctOverlap \}\)/.test(reservedSource));
+      /runReservedScan\(domain, \{\s*capacity,\s*ctCache,\s*ctOverlap: ctProviderOverlap,\s*dnsCache,\s*knownAssetHosts,\s*signal: deadline\.signal,\s*globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\),/.test(scanEngineSource) &&
+        /runSslModule\(domain, \{ ctCache: sharedCtCache, signal: consumerSignal \}\)/.test(reservedSource) &&
+        /run: \(consumerSignal\) => runSubdomainsModule\(domain, \{\s*cache: dnsCache,\s*ctCache: sharedCtCache,\s*ctOverlap,\s*signal: consumerSignal,\s*globalSignal: signal,\s*globalDeadlineProvenance,\s*\}\)/.test(reservedSource));
   }
 
   // ── Successful provider results: one lookup and byte-stable consumers ─────

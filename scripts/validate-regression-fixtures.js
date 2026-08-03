@@ -3006,6 +3006,20 @@ function fkTablesReferencing(target) {
       const m = stmt.match(/(?:CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|ALTER\s+TABLE)\s+([a-z_][a-z0-9_]*)/i);
       if (m) found.add(m[1].toLowerCase());
     }
+    // Rebuild migrations create an FK-bearing shadow table and then rename it
+    // to the authoritative table in the same governed file. The shadow name
+    // never exists after a successful migration and must not be registered as
+    // a permanent purge target. Do not use a suffix allowlist: require the
+    // explicit rename that proves the transient table's final identity.
+    for (const match of sql.matchAll(
+      /ALTER\s+TABLE\s+([a-z_][a-z0-9_]*)\s+RENAME\s+TO\s+([a-z_][a-z0-9_]*)/gi
+    )) {
+      const [, transient, authoritative] = match.map((value) => value.toLowerCase());
+      if (found.has(transient)) {
+        found.delete(transient);
+        found.add(authoritative);
+      }
+    }
   }
   found.delete(target); // a self-reference is not a child table
   return found;
