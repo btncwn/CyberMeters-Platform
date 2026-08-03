@@ -703,6 +703,12 @@ jobs:
       - name: Validate shared per-scan CT provider cache (dedup + unavailable isolation + mutations)
         run: node scripts/validate-shared-ct-provider-cache.js
 
+      - name: Validate shared-SAN measurement and ownership honesty (CertSpotter-only + crt.sh measured + blackout)
+        run: node scripts/validate-cert-shared-san-honesty.js
+
+      - name: Validate shared-SAN honesty mutations (initial zero + unmeasured ownership + invalid-kill controls)
+        run: node scripts/validate-cert-shared-san-honesty-mutations.js
+
       - name: Validate CT provider resilience (timeouts + bounded retry + health telemetry + mutations)
         run: node scripts/validate-ct-provider-resilience.js
 

@@ -499,6 +499,10 @@ results.push(
         cert_wildcard_san_count: 1,
         cert_shared_san_count: 2,
         cert_age_days: 30,
+        ct_sources: {
+          crt_sh: { count: 1, error: null },
+          certspotter: null,
+        },
       },
       subdomains: { items: [], sensitive: [], sources: {} },
     }, "example.com");

@@ -27,7 +27,8 @@ export function projectSslCtSource(result) {
 // of CT lookups on top of reachability, which on a slow-crt.sh day pushed the whole
 // scan past its ~21s deadline and starved the later deadline-gated modules
 // (docs/CHRONIC-PARTIAL-SCAN-ROOT-CAUSE.md). Returns the 11 cert_* fields; on any
-// failure they stay null/0 exactly as before (best-effort — the scan still completes).
+// failure they stay at their explicit unknown/null or measured numeric sentinel
+// (best-effort — the scan still completes).
 export async function resolveCertificateTransparency(domain, opts = {}) {
   const accounting = opts.accounting || null;
   const ctCache = opts.ctCache || createCertificateTransparencyCache({ signal: opts.signal });
@@ -44,7 +45,12 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
   let cert_san_count   = 0;
   let cert_raw_san_count = 0;
   let cert_wildcard_san_count = 0;
-  let cert_shared_san_count = 0;
+  // Shared-SAN count is source-specific: only crt.sh supplies the selected
+  // certificate's complete name_value list used by the ownership assessment.
+  // CertSpotter-only evidence can populate the other certificate fields, but it
+  // does not measure this value. Keep the sentinel nullable until the crt.sh
+  // branch below actually selects and measures a SAN-bearing certificate.
+  let cert_shared_san_count = null;
   let cert_san_names   = [];
   const ct_sources = { crt_sh: null, certspotter: null };
   try {
