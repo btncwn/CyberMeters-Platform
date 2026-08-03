@@ -5,6 +5,61 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.08.03-1 — CT-R2 PR-2A.1 shared CT consumer isolation and platform-deadline provenance — deployed 2026-08-03; **PENDING FOUNDER PRODUCTION ACCEPTANCE**
+
+**Status:** DEPLOYED — operational cutover proof passed; founder behavioural
+production acceptance remains outstanding. Deployment is not acceptance.
+
+PR **#377** isolates shared Certificate Transparency request lifetime from
+individual SSL/subdomains consumer release, preserves the outer module-release
+freeze boundary, and records platform-global deadline termination separately
+from provider failure. Customer-facing CT source objects keep their historical
+two-field shape while replacing the false `fetch failed` claim with the exact
+execution-window wording required by the binding contract. The linked
+`scan-api` and `email-ingest` Workers were deployed as one release unit because
+both bundle the changed shared scan-budget code.
+
+- **Release identity:** merge
+  `c9dc8aabbe5d3f31f347f504b0107906d07a7597` (PR **#377**; reviewed exact
+  head `f44dbb3da05c5d142f8db52e6053acc36326f1f2`). Annotated tag
+  `v2026.08.03-1` targets the deployed merge SHA exactly. Exact-head GitHub
+  checks passed: `validate` (20m58s), Playwright, SAST and Cloudflare Pages.
+- **Migration 105:** canonical file
+  `105-ct-platform-deadline-provenance.sql`, SHA-256
+  `f3a95b2ec0af4246b09a88c7d4e4e1326cbd0892d01614a45c2df26569632d0d`,
+  applied once to production D1 by the governed atomic
+  `wrangler d1 execute --remote --file` carrier before either Worker deploy.
+  Wrangler processed 21 queries successfully. Historical row counts remained
+  exact across the rebuild: `ct_provider_telemetry=142` and
+  `ct_provider_overlap_telemetry=3`; grouped outcomes/states were unchanged,
+  all eight dependent indexes/constraints/trigger were present, foreign-key
+  check returned no rows, and no `__105` or guard object remained.
+- **scan-api (`cybermeters-platform`):** live Worker Version ID
+  `2b8b6aa6-2eed-44ea-bfae-9da7e545df6f`; immediate rollback Version ID
+  `a68509c8-95ad-45f9-b107-ae37334de64b`. Cloudflare recorded the new version
+  at 100%. After the propagation window, six consecutive cache-busted probes
+  on both `api.cybermeters.com` and the workers.dev hostname returned the live
+  Version ID; both `/ready` routes returned HTTP 200 with D1/R2 ready and
+  anonymous workspace probes remained HTTP 401.
+- **email-ingest (`cybermeters-email`):** live Worker Version ID
+  `982303d1-32bc-45a3-9ce3-5020e11f7a6c`; immediate rollback Version ID
+  `bbc2ea2f-58c7-4173-aa13-b4177a0a7c43`. `/health` returned the exact shared
+  closure stamp `2026.08.03-ct-r2-pr2a1.8ecaec29f70e`, matching the deploy
+  manifest; `/ready` returned HTTP 200 with D1 ready. Cloudflare recorded the
+  new version at 100%. No rollback trigger was observed.
+- **Acceptance boundary:** the checks above prove merge identity, atomic schema
+  cutover, linked deployment identity, health/readiness and auth gating. They
+  do not prove the new consumer-isolation behaviour under a real post-deploy
+  scan. The first post-deploy scheduled/founder-controlled scan and its CT-R1 +
+  overlap rows are the acceptance opportunity; this release remains
+  **PENDING FOUNDER PRODUCTION ACCEPTANCE** until that evidence is reviewed.
+- **Residuals:** `SCAN-API-HEALTH-VERSION-TRUTH` remains a non-blocking P4 —
+  scan-api `/health.version` still reports the stale human string
+  `2026.07.13`; deployment identity is authoritative in `deployment_id`.
+  PR-3 performance policy remains blocked on its predeclared post-PR-2A.1
+  paired observation gate, and PR-2A.2 retains the separate fabricated
+  shared-SAN-zero P1 scope.
+
 ## v2026.07.31-4 — TRACK-A3: IntelligencePage canonical assessment and comparison honesty — deployed 2026-07-31; **LIVE-ACCEPTED**
 
 **Status:** LIVE-ACCEPTED — founder production acceptance PASS, 2026-07-31
