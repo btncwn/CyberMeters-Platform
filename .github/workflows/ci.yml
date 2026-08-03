@@ -893,6 +893,24 @@ jobs:
       - name: Validate CT-R2 PR-2A shadow provider-overlap load-bearing mutations
         run: node scripts/validate-ct-provider-overlap-telemetry-mutations.js
 
+      - name: Validate CT-R2 PR-2A.1 consumer-isolation binding oracle
+        run: node scripts/validate-ct-consumer-isolation-oracle.js
+
+      - name: Validate CT-R2 PR-2A.1 consumer-isolation semantic mutations
+        run: node scripts/validate-ct-consumer-isolation-oracle-mutations.js
+
+      - name: Validate CT-R2 PR-2A.1 platform-abort migration semantics
+        run: node scripts/validate-ct-platform-abort-migration.js
+
+      - name: Validate CT-R2 PR-2A.1 platform-abort migration mutations
+        run: node scripts/validate-ct-platform-abort-migration-mutations.js
+
+      - name: Validate CT-R2 PR-2A.1 governed migration command
+        run: node scripts/validate-ct-platform-abort-migration-command.js
+
+      - name: Validate CT-R2 PR-2A.1 provider-source consumer inventory pin
+        run: node scripts/derive-ct-provider-source-consumer-inventory.js --pin docs/CT-R2-PR-2A1-PROVIDER-SOURCE-INVENTORY.json
+
       - name: Validate managed brand takedown lifecycle (evidence + approval + verification)
         run: node scripts/validate-brand-takedown-lifecycle.js
 

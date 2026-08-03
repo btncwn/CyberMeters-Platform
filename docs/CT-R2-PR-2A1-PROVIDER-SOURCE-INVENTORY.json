@@ -1,0 +1,117 @@
+{
+  "rule_version": "ct-provider-source-consumers/1",
+  "runtime_consumer_count": 10,
+  "fingerprint": "4647802b56824db7fa56a685a342d2ce981ac6fe6bed464e8c760147dea3df60",
+  "sites": [
+    {
+      "file": "workers/scan-api/src/engines/attack-surface-signal-completeness.js",
+      "line": 136,
+      "column": 5,
+      "ast_access_kind": "member",
+      "field": "error",
+      "source_provenance": "sources.crt_sh",
+      "classification": "decision",
+      "non_null_error_dominates_count": "not_applicable",
+      "classification_reason": "terminal provider-source field read derived by AST taint closure"
+    },
+    {
+      "file": "workers/scan-api/src/engines/attack-surface-signal-completeness.js",
+      "line": 137,
+      "column": 5,
+      "ast_access_kind": "member",
+      "field": "error",
+      "source_provenance": "sources.certspotter",
+      "classification": "decision",
+      "non_null_error_dominates_count": "not_applicable",
+      "classification_reason": "terminal provider-source field read derived by AST taint closure"
+    },
+    {
+      "file": "workers/scan-api/src/engines/cert-intel.js",
+      "line": 150,
+      "column": 23,
+      "ast_access_kind": "optional_member",
+      "field": "error",
+      "source_provenance": "alias/helper/container",
+      "classification": "decision",
+      "non_null_error_dominates_count": "not_applicable",
+      "classification_reason": "terminal provider-source field read derived by AST taint closure"
+    },
+    {
+      "file": "workers/scan-api/src/engines/cert-intel.js",
+      "line": 151,
+      "column": 26,
+      "ast_access_kind": "optional_member",
+      "field": "error",
+      "source_provenance": "alias/helper/container",
+      "classification": "decision",
+      "non_null_error_dominates_count": "not_applicable",
+      "classification_reason": "terminal provider-source field read derived by AST taint closure"
+    },
+    {
+      "file": "workers/scan-api/src/engines/cert-intel.js",
+      "line": 156,
+      "column": 23,
+      "ast_access_kind": "optional_member",
+      "field": "error",
+      "source_provenance": "alias/helper/container",
+      "classification": "decision",
+      "non_null_error_dominates_count": "not_applicable",
+      "classification_reason": "terminal provider-source field read derived by AST taint closure"
+    },
+    {
+      "file": "workers/scan-api/src/engines/cert-intel.js",
+      "line": 156,
+      "column": 53,
+      "ast_access_kind": "optional_member",
+      "field": "count",
+      "source_provenance": "alias/helper/container",
+      "classification": "decision",
+      "non_null_error_dominates_count": true,
+      "classification_reason": "terminal provider-source field read derived by AST taint closure"
+    },
+    {
+      "file": "workers/scan-api/src/engines/cert-intel.js",
+      "line": 157,
+      "column": 26,
+      "ast_access_kind": "optional_member",
+      "field": "error",
+      "source_provenance": "alias/helper/container",
+      "classification": "decision",
+      "non_null_error_dominates_count": "not_applicable",
+      "classification_reason": "terminal provider-source field read derived by AST taint closure"
+    },
+    {
+      "file": "workers/scan-api/src/engines/cert-intel.js",
+      "line": 157,
+      "column": 59,
+      "ast_access_kind": "optional_member",
+      "field": "count",
+      "source_provenance": "alias/helper/container",
+      "classification": "decision",
+      "non_null_error_dominates_count": true,
+      "classification_reason": "terminal provider-source field read derived by AST taint closure"
+    },
+    {
+      "file": "workers/scan-api/src/engines/certificate-signal-completeness.js",
+      "line": 1405,
+      "column": 23,
+      "ast_access_kind": "optional_member",
+      "field": "error",
+      "source_provenance": "sources.crt_sh",
+      "classification": "decision",
+      "non_null_error_dominates_count": "not_applicable",
+      "classification_reason": "terminal provider-source field read derived by AST taint closure"
+    },
+    {
+      "file": "workers/scan-api/src/engines/certificate-signal-completeness.js",
+      "line": 1407,
+      "column": 23,
+      "ast_access_kind": "optional_member",
+      "field": "error",
+      "source_provenance": "sources.certspotter",
+      "classification": "decision",
+      "non_null_error_dominates_count": "not_applicable",
+      "classification_reason": "terminal provider-source field read derived by AST taint closure"
+    }
+  ]
+}
