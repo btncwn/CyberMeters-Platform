@@ -292,7 +292,10 @@ semantic("PLATFORM_ABORT_AS_PROVIDER_UNAVAILABLE", [target("cache", (source) => 
 semantic("LEAK_LIFECYCLE_INTO_SOURCE_OBJECT", [target("ssl", (source) => once(
   source,
   "    error: result?.status === \"unavailable\" ? result.error : null,",
-  "    error: result?.status === \"unavailable\" ? result.error : null,\n    physical_attempt_state: result?.physical_attempt_state || null,",
+  `    error: result?.status === "unavailable" ? result.error : null,
+    ...(result?.status === "unavailable" || result?.data?.length > 0
+      ? { physical_attempt_state: result?.physical_attempt_state || null }
+      : {}),`,
   "customer source shape",
 ))]);
 semantic("DRIFT_SSL_PLATFORM_WORDING", [target("ssl", (source) => once(
