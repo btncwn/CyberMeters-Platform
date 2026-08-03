@@ -1108,9 +1108,11 @@ jobs:
       - name: Validate certificate standing-condition dedupe (occurrence identity — unchanged state never re-emits + mutations)
         run: node scripts/validate-cert-standing-condition-dedupe.js
 
-      - name: Audit worker dependencies
-        working-directory: workers/scan-api
-        run: npm audit --audit-level=high
+      - name: Validate exact dependency-audit exception governance
+        run: node scripts/validate-dependency-audit-governance.js
+
+      - name: Audit worker dependencies (complete JSON + exact expiring dev-toolchain exception)
+        run: node scripts/dependency-audit-governance.js
 
       - name: Validate DMARCbis P1 protocol fixtures (pure injected DNS core)
         run: node scripts/validate-dmarcbis-p1.js

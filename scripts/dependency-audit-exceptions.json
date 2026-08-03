@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "exceptions": [
+    {
+      "id": "worker-undici-wrangler-miniflare-2026-08",
+      "package": "undici",
+      "installed_version": "7.28.0",
+      "package_audit_range": "7.0.0 - 7.28.0",
+      "advisory_range": ">=7.0.0 <7.29.0",
+      "advisory_ids": [
+        "GHSA-8xcm-r25x-g524",
+        "GHSA-4cwx-7wf7-3272"
+      ],
+      "dependency_path": [
+        {
+          "lock_key": "node_modules/wrangler",
+          "name": "wrangler",
+          "version": "4.110.0"
+        },
+        {
+          "lock_key": "node_modules/miniflare",
+          "name": "miniflare",
+          "version": "4.20260708.1"
+        },
+        {
+          "lock_key": "node_modules/undici",
+          "name": "undici",
+          "version": "7.28.0"
+        }
+      ],
+      "expires_at": "2026-08-17T00:00:00.000Z",
+      "recheck_owner": "Turhan Acar (Founder)",
+      "reason": "No compatible patched undici release is currently available through Miniflare; undici is absent from the deployed Worker runtime dependency closure."
+    }
+  ]
+}
