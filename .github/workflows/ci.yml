@@ -83,6 +83,14 @@ jobs:
         working-directory: workers/scan-api
         run: npm ci || npm install
 
+      # The CT consumer-inventory oracle parses frontend source through its own
+      # exact-pinned @babel/parser dependency. Install the committed frontend
+      # graph before any validator can load that oracle; the later build/test
+      # steps reuse this one deterministic install.
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
       - name: Secret scan (tracked files)
         run: |
           if git grep -nIE '(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk_live_[0-9a-zA-Z]{24})' -- ':!.github/**' ':!*.md'; then
@@ -1163,10 +1171,6 @@ jobs:
 
       - name: Validate CAPABILITIES.md drift
         run: node scripts/validate-capabilities-doc.js
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
 
       - name: Validate CE multidomain containment
         run: node scripts/validate-ce-multidomain-containment.js
