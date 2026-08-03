@@ -5,6 +5,60 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.08.03-2 — CT-R2 PR-2A.2 shared-SAN measurement and ownership honesty — deployed 2026-08-03; **PENDING FOUNDER PRODUCTION ACCEPTANCE**
+
+**Status:** DEPLOYED — merge identity and operational cutover proof passed;
+founder-controlled two-leg behavioural acceptance remains outstanding.
+Deployment is not acceptance.
+
+PR **#380** removes the fabricated shared-SAN zero that was emitted whenever
+Certificate Transparency evidence came only from CertSpotter. Unmeasured
+`cert_shared_san_count` now remains `null`; certificate ownership fails closed
+to `unknown` / `not_assessed`, with `customer_owned` and `confidence` both
+`null`. A real crt.sh measurement — including a measured zero — retains the
+existing legitimate ownership and confidence derivation. The customer message
+is British English: “Certificate ownership was not assessed because shared
+certificate hostnames were not measured.”
+
+- **Release identity:** merge
+  `5f72fe40602d1faf45d229dcec4151dd9d890e6e` (PR **#380**; reviewed exact
+  head `65680244d36c4ac064fffb8c54a29b35788cfce3`). Annotated tag
+  `v2026.08.03-2` targets the deployed merge SHA exactly. GitHub checks passed:
+  `validate` (15m51s), SAST and Cloudflare Pages. The exact implementation
+  head also passed 39/39 deterministic contracts, 2/2 semantic mutants plus
+  3/3 invalid-kill controls, the full 289-command CI-equivalent local gate,
+  and the mechanically re-derived provider-source inventory pin (10 → 13
+  sites; fingerprint
+  `089c50714df30c59df8b56de18f81cefab1e2cf299d6894a72ebd207a9ea9b83`).
+- **Schema and data:** no migration and no backfill. Historical immutable
+  reports retain their historical values. Rollback is the Worker rollback or
+  a revert of the single implementation commit; no database rollback exists
+  or is required.
+- **Deployment scope:** scan-api only. The changed `ssl-scan.js` and
+  `cert-intel.js` modules are absent from the email-ingest closure, so no
+  linked email-ingest deploy was performed.
+- **scan-api (`cybermeters-platform`):** live Worker Version ID
+  `feb359f0-2308-48e5-9ead-ecc5819f7274`; immediate rollback Version ID
+  `2b8b6aa6-2eed-44ea-bfae-9da7e545df6f`. Cloudflare recorded the new version
+  at 100%. Cache-busted `/health` probes on `api.cybermeters.com` and the
+  workers.dev hostname returned the new Version ID after propagation;
+  `/ready` returned HTTP 200 and an anonymous workspace request remained HTTP
+  401. The first workers.dev propagation probe returned the rollback version;
+  the following cache-busted probe returned the new version. No rollback
+  trigger was observed.
+- **Acceptance boundary:** production acceptance requires two founder-run
+  scans. On a CertSpotter-only run, shared-SAN and ownership must surface as
+  unknown/not assessed, with no fabricated zero and no 70/90 confidence. On a
+  crt.sh-successful run, the measured numeric count and legitimate measured
+  ownership/confidence semantics must remain intact. This release remains
+  **PENDING FOUNDER PRODUCTION ACCEPTANCE** until both legs are reviewed.
+- **Residuals:** output shape is intentionally asymmetric: the unknown branch
+  carries `assessment_state` and `customer_message`, while measured branches
+  preserve their historical shape. `wildcard_san_count` still uses numeric
+  coercion; it is currently measurable through both CT sources, but a future
+  crt.sh-only path would need a separate unknown-state review. Neither item
+  blocks this release.
+
 ## v2026.08.03-1 — CT-R2 PR-2A.1 shared CT consumer isolation and platform-deadline provenance — deployed 2026-08-03; **LIVE-ACCEPTED**
 
 **Status:** LIVE-ACCEPTED — founder production acceptance PASS, 2026-08-03.
