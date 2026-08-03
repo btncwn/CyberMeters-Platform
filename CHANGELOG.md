@@ -5,10 +5,10 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
-## v2026.08.03-1 — CT-R2 PR-2A.1 shared CT consumer isolation and platform-deadline provenance — deployed 2026-08-03; **PENDING FOUNDER PRODUCTION ACCEPTANCE**
+## v2026.08.03-1 — CT-R2 PR-2A.1 shared CT consumer isolation and platform-deadline provenance — deployed 2026-08-03; **LIVE-ACCEPTED**
 
-**Status:** DEPLOYED — operational cutover proof passed; founder behavioural
-production acceptance remains outstanding. Deployment is not acceptance.
+**Status:** LIVE-ACCEPTED — founder production acceptance PASS, 2026-08-03.
+Operational cutover proof and post-deploy behavioural evidence both passed.
 
 PR **#377** isolates shared Certificate Transparency request lifetime from
 individual SSL/subdomains consumer release, preserves the outer module-release
@@ -47,15 +47,35 @@ both bundle the changed shared scan-budget code.
   closure stamp `2026.08.03-ct-r2-pr2a1.8ecaec29f70e`, matching the deploy
   manifest; `/ready` returned HTTP 200 with D1 ready. Cloudflare recorded the
   new version at 100%. No rollback trigger was observed.
-- **Acceptance boundary:** the checks above prove merge identity, atomic schema
-  cutover, linked deployment identity, health/readiness and auth gating. They
-  do not prove the new consumer-isolation behaviour under a real post-deploy
-  scan. The first post-deploy scheduled/founder-controlled scan and its CT-R1 +
-  overlap rows are the acceptance opportunity; this release remains
-  **PENDING FOUNDER PRODUCTION ACCEPTANCE** until that evidence is reviewed.
+- **Founder production acceptance (PASS, 2026-08-03):** three bounded,
+  founder-workspace scans ran 52 minutes after the scan-api deployment:
+  `scan_12d8855f-2e8f-4dc1-906d-999327b17c19`
+  (`blackbullbarbers.co.uk`),
+  `scan_9dbc1041-2cc8-421f-a81d-8f289f014d3e`
+  (`cybermeters.com`) and
+  `scan_242be27b-a47e-4e1c-b2cf-c05591ed9ecb`
+  (`sheshire.co.uk`). All three completed honestly as `partial`. The durable
+  evidence contained 18 CT-R1 rows with measured `ok`, `timeout` or
+  `http_error` outcomes, three coherent `ct-provider-overlap/2` rows, zero v1
+  overlap rows, zero platform-abort misclassifications and no missing overlap
+  persistence. cybermeters.com and sheshire.co.uk recorded two genuine crt.sh
+  HTTP 502 responses each while CertSpotter succeeded. On blackbullbarbers,
+  the second crt.sh request started at `13:24:50.640Z`, the consumer released
+  it at `13:24:56.490Z`, and the provider timeout settled 151 ms later at
+  `13:24:56.641Z`; the persisted
+  `in_flight_at_consumer_release` / `censored_in_flight` pair therefore matches
+  the physical ordering exactly. Founder review also confirmed provisional,
+  evidence-insufficient customer output with no false-healthy presentation.
+  Classification: genuine provider/transport failure, 3 of 3; no
+  consumer-isolation regression. **PR-2A.1 is LIVE-ACCEPTED.**
 - **Residuals:** `SCAN-API-HEALTH-VERSION-TRUTH` remains a non-blocking P4 —
   scan-api `/health.version` still reports the stale human string
   `2026.07.13`; deployment identity is authoritative in `deployment_id`.
+  Three additional non-blocking observability notes are recorded: CT-R1 has no
+  `source_set_version` column (v2 identity is held by the overlap row), overlap
+  has no durable `persistence_outcome` column (row existence is the persistence
+  proof), and D1 module telemetry does not retain `incomplete_reason` or
+  `timeout_source` (the richer diagnostics remain in R2 report JSON).
   PR-3 performance policy remains blocked on its predeclared post-PR-2A.1
   paired observation gate, and PR-2A.2 retains the separate fabricated
   shared-SAN-zero P1 scope.
