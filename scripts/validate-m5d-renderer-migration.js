@@ -110,7 +110,16 @@ function makeReport(scanId, domainId, domain, completedAt) {
       vendor_relationships: { high_confidence: 0 },
       // Explicit completed Phase-5 evidence. Historical customer projection
       // deliberately fails closed when these modules are absent.
-      cve_intelligence: {},
+      cve_intelligence: {
+        technologies_checked: ["nginx"],
+        lookup_statuses: { nginx: { status: "complete" } },
+        results: { nginx: [] },
+        total_cves: 0,
+        critical_count: 0,
+        high_count: 0,
+        source: "nvd_api",
+        cve_coverage: "complete",
+      },
       known_exploited_vulnerabilities: {},
       email_security_intelligence: {},
     },

@@ -364,9 +364,15 @@ function resolveTakeoverCandidate(modules) {
 function resolveCve(modules, technologySignal) {
   const cve = modules?.cve_intelligence;
   if (finiteCount(cve?.total_cves) > 0) {
+    const unavailableTechnologies = Object.entries(cve?.lookup_statuses ?? {})
+      .filter(([, row]) => !["complete", "available", "completed"].includes(row?.status))
+      .map(([technology]) => technology);
     return signal("observed", "cve_observed", {
       evidence_count: finiteCount(cve.total_cves),
       sources: ["nvd_api"],
+      limitations: cve?.cve_coverage === "partial"
+        ? unavailableTechnologies.map((technology) => `${technology}_cve_lookup_unavailable`)
+        : [],
     });
   }
   if (moduleNotAssessed(cve)) {
@@ -375,6 +381,36 @@ function resolveCve(modules, technologySignal) {
   if (cve.error) {
     return signal("unavailable", "cve_provider_unavailable", {
       sources: ["nvd_api"],
+    });
+  }
+  if (cve.cve_coverage === "dependency_unavailable") {
+    return signal("incomplete", "technology_dependency_incomplete", {
+      sources: ["nvd_api", "technology_detection"],
+      limitations: [cve.incomplete_reason],
+    });
+  }
+  if (cve.cve_coverage === "unavailable") {
+    return signal("unavailable", "all_cve_lookups_unavailable", {
+      sources: ["nvd_api"],
+      limitations: [cve.incomplete_reason],
+    });
+  }
+  if (cve.cve_coverage === "partial") {
+    return signal("incomplete", "some_cve_lookups_unavailable", {
+      sources: ["nvd_api"],
+      limitations: Object.entries(cve.lookup_statuses ?? {})
+        .filter(([, row]) => !["complete", "available", "completed"].includes(row?.status))
+        .map(([technology]) => `${technology}_cve_lookup_unavailable`),
+    });
+  }
+  if (cve.cve_coverage === "complete") {
+    return signal("not_observed", "complete_cve_lookup_no_match", {
+      sources: ["nvd_api"],
+    });
+  }
+  if (cve.cve_coverage === "not_applicable") {
+    return signal("not_observed", "no_supported_technology_for_cve_lookup", {
+      sources: ["nvd_api", "technology_detection"],
     });
   }
   if (cve.incomplete === true) {

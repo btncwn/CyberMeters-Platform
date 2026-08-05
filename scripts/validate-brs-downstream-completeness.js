@@ -138,7 +138,16 @@ function completeReport(scanId) {
     scan_id: scanId,
     scan_quality: { status: "complete" },
     modules: {
-      cve_intelligence: {},
+      cve_intelligence: {
+        technologies_checked: ["nginx"],
+        lookup_statuses: { nginx: { status: "complete" } },
+        results: { nginx: [] },
+        total_cves: 0,
+        critical_count: 0,
+        high_count: 0,
+        source: "nvd_api",
+        cve_coverage: "complete",
+      },
       known_exploited_vulnerabilities: {},
       email_security_intelligence: {},
     },

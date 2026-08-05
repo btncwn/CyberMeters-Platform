@@ -24,28 +24,28 @@ const EXPECTED = Object.freeze({
   runtime: {
     comparison_occurrences: 49,
     source_file_count: 22,
-    fingerprint: "daaccf3ad024f6c97c8349982d817d08bdd0fa690a59e2ab631ff948edc77ac4",
+    fingerprint: "f59053b5a9fd70cf28864e4a00283243b9f960cd0b47078931f88ed56b243353",
     partial_only_fingerprint: "e50e6cfb97a4c582c5562096f6160a58b57034d2c1a4a476b561bc2dcd62aec1",
   },
   sql: {
     predicate_occurrences: 35,
     unique_query_sites: 26,
     source_file_count: 15,
-    fingerprint: "1c20c862142ecc67546c982f8744633207ae6e6ec981d8b50e022617dcf4c420",
+    fingerprint: "17872d24f7b5688fe07088a22f2accfb0494aeedb648b010789155ad3b86f28a",
     resolved_query_sink_count: 23,
-    resolved_query_sink_fingerprint: "8267a55d906200e76de66094be7b980c1c71ae7fcc3bd6f9dae7f19088b50e6d",
+    resolved_query_sink_fingerprint: "bb5ddea81cfd9500e0a2dd01e56c09a62b3136dd5584e828aa66b6b05cc78cc0",
   },
   governance: {
     comparison_occurrences: 59,
     source_file_count: 20,
-    fingerprint: "ac02908a88e868ddf9d516557cb0a5d4fbff372d03c7113b9999d88e0631c040",
+    fingerprint: "63c80c4627bd7047d03e7f78898607fd2711a6532a83c07495a39f804fbb9210",
   },
   runtime_source_file_count: 32,
   direct: {
-    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "87245f8b0a1129021062ca3b0b2f0c05a260fca993a781ca4b22b645a28c20c9" },
-    governance: { occurrence_count: 89, source_file_count: 34, fingerprint: "6f0a153edb9cc2095df9d9f5a0949dabef87dbe6aae69145381e89263b572034" },
+    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "d2b6fa6fb50d42d3845f0a461528d73ada88eee1359f81fd25dcaba5708ddd68" },
+    governance: { occurrence_count: 89, source_file_count: 34, fingerprint: "d38d8a320cfc1e5162fe022ee9fdd0015ca7c88f1750556f366a2b5893c4f0f6" },
   },
-  sql_reads: { projection_occurrences: 23, fingerprint: "f7c676453f72325bacd1242e445690c6cf757379f51675767a042c3cf04ff979" },
+  sql_reads: { projection_occurrences: 23, fingerprint: "c5993bd0d5b8b70efa53b2fa01108761d5f6b0ca81af99413938609c81681850" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
@@ -92,15 +92,15 @@ const QUALITY_NORMALIZER_METHODS = new Set(["trim", "toLowerCase", "toString"]);
 // a property-name or regex allowlist: any move, rename or new site changes the
 // governance inventory and requires review.
 const REVIEWED_DYNAMIC_QUALITY_EXPRESSIONS = new Map([
-  ["scripts/validate-phase5-evidence-honesty.js:192:engine.quality",
+  ["scripts/validate-phase5-evidence-honesty.js:193:engine.quality",
     "child-process runScanEngine quality projection"],
-  ["scripts/validate-phase5-evidence-honesty.js:192:engine.reportQuality",
+  ["scripts/validate-phase5-evidence-honesty.js:193:engine.reportQuality",
     "child-process runScanEngine report-quality projection"],
 ]);
 const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
-  "scripts/validate-msp-portfolio-domains.js:427:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
+  "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:232:stale.quality === \"unknown\"",
-  "scripts/validate-phase5-evidence-honesty.js:219:presentation.quality === \"partial\"",
+  "scripts/validate-phase5-evidence-honesty.js:220:presentation.quality === \"partial\"",
   "scripts/validate-signal-monitoring-state.js:257:degraded.quality === \"degraded\"",
 ]);
 

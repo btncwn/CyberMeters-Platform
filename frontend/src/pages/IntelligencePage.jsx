@@ -982,7 +982,9 @@ function CveIntelSection({ cve, assessmentMessage = null }) {
         <EmptyState
           icon={Bug}
           title="No CVE data"
-          subtitle={!isPhase5EvidenceAvailable(cve) ? assessmentMessage : cve?.error}
+          subtitle={!isPhase5EvidenceAvailable(cve)
+            ? (cve?.customer_message || assessmentMessage)
+            : cve?.error}
         />
       </div>
     )
@@ -1006,10 +1008,18 @@ function CveIntelSection({ cve, assessmentMessage = null }) {
             {(cve.high_count ?? 0) > 0 && (
               <span><span className="font-bold text-orange-600">{cve.high_count}</span> <span className="text-gray-400">high</span></span>
             )}
-            <span className="text-gray-300">{cve.total_cves ?? 0} total</span>
+            {cve.total_count_publishable === true && (
+              <span className="text-gray-300">{cve.total_cves ?? 0} total</span>
+            )}
           </div>
         }
       />
+
+      {cve.customer_message && (
+        <div className="px-5 py-3 text-xs text-amber-800 bg-amber-50 border-b border-amber-100">
+          {cve.customer_message}
+        </div>
+      )}
 
       {checked.length === 0 ? (
         <EmptyState
@@ -1021,13 +1031,18 @@ function CveIntelSection({ cve, assessmentMessage = null }) {
         <div className="divide-y divide-gray-100">
           {checked.map(tech => {
             const cves = results[tech] || []
+            const presentation = cve.lookup_presentations?.[tech]
             return (
               <div key={tech}>
                 <div className="px-5 py-2.5 bg-gray-50 flex items-center justify-between">
                   <span className="text-xs font-bold text-gray-700 capitalize">{tech}</span>
                   <span className="text-[10px] text-gray-400">{cves.length} CVE{cves.length !== 1 ? 's' : ''} (High+)</span>
                 </div>
-                {cves.length === 0 ? (
+                {presentation?.evidence_publishable === false ? (
+                  <div className="px-5 py-3 text-xs text-amber-800">
+                    {presentation.customer_message}
+                  </div>
+                ) : cves.length === 0 ? (
                   <div className="px-5 py-3 flex items-center gap-2 text-xs text-brand-600">
                     <CheckCircle className="w-3.5 h-3.5" />
                     No HIGH+ CVEs found for this technology

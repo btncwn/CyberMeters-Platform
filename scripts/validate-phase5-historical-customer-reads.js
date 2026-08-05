@@ -58,12 +58,13 @@ const healthyMonitoringStates = {
 
 const completedCve = (overrides = {}) => ({
   technologies_checked: ["nginx"],
-  lookup_statuses: { nginx: "completed" },
+  lookup_statuses: { nginx: { status: "complete" } },
   results: { nginx: [] },
   total_cves: 0,
   critical_count: 0,
   high_count: 0,
   source: "nvd_api",
+  cve_coverage: "complete",
   ...overrides,
 });
 const completedKev = (overrides = {}) => ({

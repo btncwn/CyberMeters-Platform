@@ -18,6 +18,74 @@ export const PHASE5_EVIDENCE_READ_LIMIT = 100;
 export const PHASE5_EVIDENCE_READ_CONTRACT =
   "phase5-historical-evidence-read-v1";
 
+export const CVE_COVERAGE_STATES = Object.freeze([
+  "complete",
+  "partial",
+  "unavailable",
+  "dependency_unavailable",
+  "not_applicable",
+]);
+
+export const CVE_CUSTOMER_MESSAGES = Object.freeze({
+  provider_unavailable:
+    "CyberMeters could not complete the vulnerability assessment because the required CVE evidence was unavailable.",
+  partial_positive:
+    "The vulnerability assessment is incomplete. Confirmed findings are shown, but some CVE checks could not be completed.",
+  dependency_unavailable:
+    "CyberMeters could not complete the vulnerability assessment because technology detection did not complete.",
+  historical_unknown:
+    "This historical vulnerability assessment is unavailable because its evidence coverage was not recorded.",
+});
+
+const CVE_COMPLETE_NEGATIVE_STATES = new Set(["complete", "not_applicable"]);
+
+export function resolveCveCoverage(moduleResult) {
+  const value = moduleResult?.cve_coverage;
+  return CVE_COVERAGE_STATES.includes(value) ? value : "unknown";
+}
+
+function cveLookupCompleted(row) {
+  return ["complete", "available", "completed"].includes(row?.status);
+}
+
+function hasMeasuredCvePositive(moduleResult) {
+  if (!moduleResult || typeof moduleResult !== "object") return false;
+  return Object.entries(moduleResult.results ?? {}).some(([technology, rows]) =>
+    cveLookupCompleted(moduleResult.lookup_statuses?.[technology]) &&
+    Array.isArray(rows) && rows.length > 0
+  );
+}
+
+function resolveCveEvidence(moduleResult) {
+  const coverage = resolveCveCoverage(moduleResult);
+  const carrierUsable = !!moduleResult && typeof moduleResult === "object" &&
+    !moduleResult.error && moduleResult.skipped !== true &&
+    moduleResult.executed !== false && moduleResult.outcome !== "deadline_exceeded";
+  const negative_complete = carrierUsable &&
+    CVE_COMPLETE_NEGATIVE_STATES.has(coverage) &&
+    moduleResult.incomplete !== true;
+  const positive_publishable = carrierUsable && (
+    negative_complete ||
+    (coverage === "partial" && hasMeasuredCvePositive(moduleResult))
+  );
+  return { coverage, negative_complete, positive_publishable };
+}
+
+function cveCustomerMessage(moduleResult) {
+  switch (resolveCveCoverage(moduleResult)) {
+    case "unavailable":
+      return CVE_CUSTOMER_MESSAGES.provider_unavailable;
+    case "partial":
+      return CVE_CUSTOMER_MESSAGES.partial_positive;
+    case "dependency_unavailable":
+      return CVE_CUSTOMER_MESSAGES.dependency_unavailable;
+    case "unknown":
+      return CVE_CUSTOMER_MESSAGES.historical_unknown;
+    default:
+      return null;
+  }
+}
+
 function missingPhase5Evidence(moduleKey) {
   return {
     executed: false,
@@ -37,18 +105,27 @@ function missingPhase5Evidence(moduleKey) {
  * rather than interpreting fallback zeroes as measured evidence.
  */
 export function resolvePhase5EvidenceContract(modules = {}) {
-  const publishable = Object.fromEntries(
-    Object.entries(PHASE5_EVIDENCE_MODULES).map(([name, moduleKey]) => [
-      name,
-      isPublishableModuleEvidence(modules?.[moduleKey]),
-    ]),
+  const cveEvidence = resolveCveEvidence(
+    modules?.[PHASE5_EVIDENCE_MODULES.cve],
   );
+  const publishable = {
+    cve: cveEvidence.positive_publishable,
+    kev: isPublishableModuleEvidence(modules?.[PHASE5_EVIDENCE_MODULES.kev]),
+    email: isPublishableModuleEvidence(modules?.[PHASE5_EVIDENCE_MODULES.email]),
+  };
+  const completeByModule = {
+    cve: cveEvidence.negative_complete,
+    kev: publishable.kev,
+    email: publishable.email,
+  };
   const incompleteModules = Object.entries(PHASE5_EVIDENCE_MODULES)
-    .filter(([name]) => !publishable[name])
+    .filter(([name]) => !completeByModule[name])
     .map(([, moduleKey]) => moduleKey);
   return {
     complete: incompleteModules.length === 0,
     publishable,
+    coverage_complete: completeByModule,
+    cve_coverage: cveEvidence.coverage,
     incomplete_modules: incompleteModules,
   };
 }
@@ -82,9 +159,31 @@ export function projectPhase5EvidenceForCustomer(modules = {}) {
   for (const [name, moduleKey] of Object.entries(PHASE5_EVIDENCE_MODULES)) {
     const value = modules?.[moduleKey];
     if (value && typeof value === "object") {
+      const cveProjection = name === "cve"
+        ? {
+            cve_coverage: evidence.cve_coverage,
+            evidence_complete: evidence.coverage_complete.cve,
+            total_count_publishable: evidence.coverage_complete.cve,
+            customer_message: cveCustomerMessage(value),
+            lookup_presentations: Object.fromEntries(
+              (value.technologies_checked ?? []).map((technology) => {
+                const measured = cveLookupCompleted(
+                  value.lookup_statuses?.[technology],
+                );
+                return [technology, {
+                  evidence_publishable: measured,
+                  customer_message: measured
+                    ? null
+                    : "CyberMeters could not retrieve CVE evidence for this technology.",
+                }];
+              }),
+            ),
+          }
+        : {};
       projected[moduleKey] = {
         ...value,
         evidence_publishable: evidence.publishable[name],
+        ...cveProjection,
       };
     } else {
       // Historical reports may pre-date one or more Phase-5 modules. Absence is
@@ -126,10 +225,12 @@ export function resolvePhase5HistoricalCustomerProjection({
   }
 
   const quality = incompleteCustomerQuality(scanQuality);
+  const message = cveCustomerMessage(modules?.cve_intelligence);
   return {
     ...customer,
     scan_quality: quality,
-    assessment: resolveAssessmentPresentation({
+    assessment: {
+      ...resolveAssessmentPresentation({
       score: null,
       scanQuality: quality,
       status: "completed",
@@ -137,7 +238,9 @@ export function resolvePhase5HistoricalCustomerProjection({
         reason: PHASE5_INCOMPLETE_REASON,
         incomplete_modules: customer.evidence.incomplete_modules,
       },
-    }),
+      }),
+      ...(message ? { message } : {}),
+    },
   };
 }
 
@@ -339,9 +442,9 @@ export function phase5EvidenceReadCoverage(rows) {
 }
 
 /**
- * Aggregate eligibility is all-or-nothing for the supplied candidate set.
- * Publishing an average over only the rows whose R2 reads happened to fit the
- * cap would silently turn partial coverage into a portfolio/workspace verdict.
+ * An aggregate excludes incomplete assessments and states its denominator.
+ * A null score is never converted to zero, and the evidence coverage always
+ * makes the assessed/eligible population explicit.
  */
 export function resolvePhase5CustomerAggregate(rows = []) {
   const coverage = phase5EvidenceReadCoverage(rows);
@@ -351,11 +454,16 @@ export function resolvePhase5CustomerAggregate(rows = []) {
     row?.phase5_evidence?.complete !== true ||
     !Number.isFinite(row?.score)
   );
+  const assessedRows = candidates.filter((row) =>
+    row?.phase5_evidence_read?.state === "verified" &&
+    row?.phase5_evidence?.complete === true &&
+    Number.isFinite(row?.score)
+  );
   const complete = coverage.complete === true && incompleteRows.length === 0;
-  const scores = complete ? candidates.map((row) => row.score) : [];
+  const scores = assessedRows.map((row) => row.score);
   return {
     complete,
-    score: complete && scores.length
+    score: scores.length
       ? scores.reduce((sum, score) => sum + score, 0) / scores.length
       : null,
     rating: null,
@@ -363,7 +471,7 @@ export function resolvePhase5CustomerAggregate(rows = []) {
     evidence_coverage: {
       ...coverage,
       assessment_complete: complete,
-      assessed_row_count: complete ? candidates.length : 0,
+      assessed_row_count: assessedRows.length,
       incomplete_row_count: incompleteRows.length,
       reason: complete
         ? null

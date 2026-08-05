@@ -126,7 +126,16 @@ const env = {
   cybermeters_reports: {
     get: async (key) => String(key || "").startsWith("reports/")
       ? { json: async () => ({ modules: {
-        cve_intelligence: { executed: true, incomplete: false, evidence_publishable: true },
+        cve_intelligence: {
+          technologies_checked: ["nginx"],
+          lookup_statuses: { nginx: { status: "complete" } },
+          results: { nginx: [] },
+          total_cves: 0,
+          critical_count: 0,
+          high_count: 0,
+          source: "nvd_api",
+          cve_coverage: "complete",
+        },
         known_exploited_vulnerabilities: { executed: true, incomplete: false, evidence_publishable: true },
         email_security_intelligence: { executed: true, incomplete: false, evidence_publishable: true },
       } }) }

@@ -35,11 +35,19 @@ export async function getAuthoritativeCurrentPosture(env, { workspaceId = null, 
   const cols = "s.id AS scan_id, s.score, s.rating, s.scan_quality, s.created_at";
   const order = "ORDER BY s.created_at DESC, s.id DESC LIMIT 1";
 
-  let authoritative = null, latest = null;
+  let authoritative = null, latest = null, authoritativeCandidates = [];
   try {
-    authoritative = await env.cybermeters_db
-      .prepare(`SELECT ${cols} ${from} AND s.status='completed' AND s.scan_quality='complete' ${order}`)
-      .bind(bind).first();
+    const candidateStatement = env.cybermeters_db
+      .prepare(`SELECT ${cols} ${from} AND s.status='completed' AND s.scan_quality='complete' ORDER BY s.created_at DESC, s.id DESC LIMIT 100`)
+      .bind(bind);
+    if (typeof candidateStatement.all === "function") {
+      const rows = await candidateStatement.all();
+      authoritativeCandidates = rows?.results ?? [];
+      authoritative = authoritativeCandidates[0] ?? null;
+    } else {
+      authoritative = await candidateStatement.first();
+      authoritativeCandidates = authoritative ? [authoritative] : [];
+    }
     latest = await env.cybermeters_db
       .prepare(`SELECT ${cols} ${from} AND s.status='completed' ${order}`)
       .bind(bind).first();
@@ -58,6 +66,8 @@ export async function getAuthoritativeCurrentPosture(env, { workspaceId = null, 
     state: authoritative ? "established" : "not_established",
     authoritative,
     latest_provisional,
+    authoritative_candidates: authoritativeCandidates,
+    latest_completed: latest,
   };
 }
 
@@ -117,21 +127,38 @@ export async function getCurrentPosturePresentation(env, scope) {
     return value;
   };
 
-  const candidateAuthoritative = await present(posture.authoritative);
-  const latestRaw = posture.latest_provisional ?? posture.authoritative;
+  let authoritative = null;
+  let authoritativeRaw = null;
+  const candidates = posture.authoritative_candidates?.length
+    ? posture.authoritative_candidates
+    : (posture.authoritative ? [posture.authoritative] : []);
+  for (const candidate of candidates) {
+    const presentation = await present(candidate);
+    if (presentation?.authoritative) {
+      authoritativeRaw = candidate;
+      authoritative = presentation;
+      break;
+    }
+  }
+  const latestRaw = posture.latest_completed ?? posture.latest_provisional ?? posture.authoritative;
   const latestPresentation = await present(latestRaw);
-  const authoritative = candidateAuthoritative?.authoritative
-    ? candidateAuthoritative
-    : null;
   const latestProvisional =
-    latestPresentation && !latestPresentation.authoritative
+    latestPresentation && !latestPresentation.authoritative &&
+      latestRaw?.scan_id !== authoritativeRaw?.scan_id
       ? latestPresentation
       : null;
   const established = authoritative != null;
+  const labelledAuthoritative = established
+    ? {
+        ...authoritative,
+        label: latestProvisional ? "Last authoritative posture" : null,
+        assessed_at: authoritativeRaw?.created_at ?? null,
+      }
+    : null;
   return {
     state: established ? "established" : "not_established",
-    authoritative,
-    authoritative_scan_id: established ? (posture.authoritative?.scan_id ?? null) : null,
+    authoritative: labelledAuthoritative,
+    authoritative_scan_id: established ? (authoritativeRaw?.scan_id ?? null) : null,
     latest_provisional: latestProvisional,
     latest_provisional_scan_id: latestProvisional ? (latestRaw?.scan_id ?? null) : null,
     posture_message: established ? null : POSTURE_NOT_ESTABLISHED_MESSAGE,

@@ -42,6 +42,42 @@ const CVE_KEYWORD_MAP = {
   "lighttpd":  "lighttpd",
 };
 
+export const CVE_COVERAGE = Object.freeze({
+  COMPLETE: "complete",
+  PARTIAL: "partial",
+  UNAVAILABLE: "unavailable",
+  DEPENDENCY_UNAVAILABLE: "dependency_unavailable",
+  NOT_APPLICABLE: "not_applicable",
+});
+
+function cveDependencyFailure(techModule) {
+  if (!techModule || techModule.error) {
+    return {
+      outcome: "dependency_unavailable",
+      reason: "technology_dependency_unavailable",
+    };
+  }
+  if (techModule.skipped === true) {
+    return {
+      outcome: "dependency_budget_skipped",
+      reason: techModule.skip_reason || "technology_dependency_skipped",
+    };
+  }
+  if (techModule.executed === false || techModule.outcome === "deadline_exceeded") {
+    return {
+      outcome: "dependency_deadline_deferred",
+      reason: techModule.reason || "technology_dependency_deferred",
+    };
+  }
+  if (techModule.incomplete === true) {
+    return {
+      outcome: "dependency_unavailable",
+      reason: techModule.incomplete_reason || techModule.reason || "technology_dependency_incomplete",
+    };
+  }
+  return null;
+}
+
 /**
  * Normalise a raw header/technology string to a known canonical name.
  * Mirrors cve_lookup.py normalize_technology().
@@ -154,10 +190,15 @@ async function lookupCvesForTechnology(techName, maxResults = 5, opts = {}) {
  */
 export async function runCveModule(techModule, opts = {}) {
   const accounting = opts.accounting || null;
-  if (!techModule || techModule.error) {
+  const dependencyFailure = cveDependencyFailure(techModule);
+  if (dependencyFailure) {
     return {
       technologies_checked: [], results: {}, total_cves: 0,
       critical_count: 0, high_count: 0, source: "nvd_api",
+      cve_coverage: CVE_COVERAGE.DEPENDENCY_UNAVAILABLE,
+      incomplete: true,
+      outcome: dependencyFailure.outcome,
+      incomplete_reason: dependencyFailure.reason,
     };
   }
 
@@ -177,6 +218,19 @@ export async function runCveModule(techModule, opts = {}) {
   const results = {};
   const lookupStatuses = {};
   let totalCves = 0, criticalCount = 0, highCount = 0;
+
+  if (toCheck.length === 0) {
+    return {
+      technologies_checked: [],
+      lookup_statuses: {},
+      results: {},
+      total_cves: 0,
+      critical_count: 0,
+      high_count: 0,
+      source: "nvd_api",
+      cve_coverage: CVE_COVERAGE.NOT_APPLICABLE,
+    };
+  }
 
   for (const tech of toCheck) {
     const lookup = await lookupCvesForTechnology(tech, 5, {
@@ -199,6 +253,20 @@ export async function runCveModule(techModule, opts = {}) {
     }
   }
 
+  const lookupRows = Object.values(lookupStatuses);
+  const completedLookups = lookupRows.filter((row) => row.status === "complete").length;
+  const cveCoverage = completedLookups === lookupRows.length
+    ? CVE_COVERAGE.COMPLETE
+    : completedLookups === 0
+      ? CVE_COVERAGE.UNAVAILABLE
+      : CVE_COVERAGE.PARTIAL;
+  const incomplete = cveCoverage !== CVE_COVERAGE.COMPLETE;
+  const outcome = cveCoverage === CVE_COVERAGE.UNAVAILABLE
+    ? "provider_unavailable"
+    : cveCoverage === CVE_COVERAGE.PARTIAL
+      ? "provider_partial"
+      : null;
+
   return {
     technologies_checked: toCheck,
     lookup_statuses: lookupStatuses,
@@ -207,6 +275,14 @@ export async function runCveModule(techModule, opts = {}) {
     critical_count: criticalCount,
     high_count:     highCount,
     source:         "nvd_api",
+    cve_coverage:   cveCoverage,
+    ...(incomplete ? {
+      incomplete: true,
+      outcome,
+      incomplete_reason: cveCoverage === CVE_COVERAGE.UNAVAILABLE
+        ? "all_cve_lookups_unavailable"
+        : "some_cve_lookups_unavailable",
+    } : {}),
   };
 }
 

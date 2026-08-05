@@ -118,6 +118,9 @@ async function trace(httpMode, { seed = false, deadlineMs = "19000" } = {}) {
         vulnerabilities: [],
       });
     }
+    if (host === "services.nvd.nist.gov") {
+      return json({ resultsPerPage: 0, totalResults: 0, vulnerabilities: [] });
+    }
     if (host === "crt.sh") return json([]);
     if (host === "api.certspotter.com") return json([{
       id: "c1", not_before: "2026-06-27T00:00:00.000Z", not_after: "2026-09-25T00:00:00.000Z",
