@@ -8,6 +8,7 @@
 // counts only for the exact expected assertion list and the normal validator
 // summary/exit contract.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -41,6 +42,162 @@ function assertionFailures(stdout) {
     .map((line) => line.slice(5).split(" — ")[0]);
 }
 
+function spawnBackendValidator(validatorPath, env = {}) {
+  return spawnSync(
+    process.execPath,
+    ["--disable-warning=ExperimentalWarning", validatorPath],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+    },
+  );
+}
+
+function adjudicateBackendValidator({
+  child,
+  expectedFailures,
+  summaryPattern,
+  expectedAssertions,
+}) {
+  const actualFailures = assertionFailures(child.stdout);
+  const summary = String(child.stdout || "").match(summaryPattern);
+  const exactFailureList =
+    JSON.stringify(actualFailures) === JSON.stringify(expectedFailures);
+  const normalValidatorFailure =
+    child.error == null &&
+    child.signal == null &&
+    child.status === 1 &&
+    String(child.stderr || "").trim() === "" &&
+    summary != null &&
+    Number(summary[2]) === expectedFailures.length &&
+    Number(summary[1]) + Number(summary[2]) === expectedAssertions;
+  return {
+    accepted: normalValidatorFailure && exactFailureList,
+    actualFailures,
+    exactFailureList,
+  };
+}
+
+function runBackendSpawnControls() {
+  const expectedFailures = ["expected control kill"];
+  const summaryPattern = /mutation-harness-control: (\d+) passed, (\d+) failed/;
+  const controlPath = path.join(
+    os.tmpdir(),
+    `.report-preparing-child-control.${process.pid}.mjs`,
+  );
+  const syntaxPath = path.join(
+    os.tmpdir(),
+    `.report-preparing-child-control-syntax.${process.pid}.mjs`,
+  );
+  let passed = 0;
+  const check = (name, condition, detail = "") => {
+    if (condition) {
+      passed += 1;
+      console.log(`PASS ${name}`);
+    } else {
+      fail(`${name}${detail ? ` — ${detail}` : ""}`);
+    }
+  };
+  const adjudicate = (child) => adjudicateBackendValidator({
+    child,
+    expectedFailures,
+    summaryPattern,
+    expectedAssertions: 2,
+  });
+
+  fs.writeFileSync(controlPath, `
+const mode = process.env.MUTATION_HARNESS_CHILD_CONTROL;
+if (mode === "experimental-warning") {
+  process.emitWarning("suppressed harness control", { type: "ExperimentalWarning" });
+} else if (mode === "arbitrary-stderr") {
+  console.error("arbitrary child stderr");
+} else if (mode === "import-failure") {
+  await import("./mutation-harness-control-does-not-exist.mjs");
+} else if (mode === "runtime-failure") {
+  throw new Error("control runtime failure");
+} else if (mode === "signal-failure") {
+  process.kill(process.pid, "SIGTERM");
+} else if (mode === "wrong-fail-set") {
+  console.log("FAIL unexpected control kill");
+  console.log("mutation-harness-control: 1 passed, 1 failed");
+  process.exit(1);
+}
+console.log("FAIL expected control kill");
+console.log("mutation-harness-control: 1 passed, 1 failed");
+process.exit(1);
+`);
+  fs.writeFileSync(syntaxPath, "export const = ;\n");
+
+  try {
+    const n1 = spawnBackendValidator(controlPath, {
+      MUTATION_HARNESS_CHILD_CONTROL: "experimental-warning",
+    });
+    check(
+      "N1 ExperimentalWarning is suppressed and exact semantic kill is accepted",
+      adjudicate(n1).accepted && String(n1.stderr || "").trim() === "",
+    );
+
+    const n2 = spawnBackendValidator(controlPath, {
+      MUTATION_HARNESS_CHILD_CONTROL: "arbitrary-stderr",
+    });
+    const n2Verdict = adjudicate(n2);
+    check(
+      "N2 arbitrary stderr rejects an otherwise exact semantic kill",
+      !n2Verdict.accepted && n2Verdict.exactFailureList &&
+        String(n2.stderr || "").includes("arbitrary child stderr"),
+    );
+
+    const syntax = spawnBackendValidator(syntaxPath);
+    check(
+      "syntax failure remains fatal",
+      !adjudicate(syntax).accepted && /SyntaxError/.test(String(syntax.stderr || "")),
+    );
+
+    const importFailure = spawnBackendValidator(controlPath, {
+      MUTATION_HARNESS_CHILD_CONTROL: "import-failure",
+    });
+    check(
+      "import failure remains fatal",
+      !adjudicate(importFailure).accepted &&
+        /ERR_MODULE_NOT_FOUND/.test(String(importFailure.stderr || "")),
+    );
+
+    const runtimeFailure = spawnBackendValidator(controlPath, {
+      MUTATION_HARNESS_CHILD_CONTROL: "runtime-failure",
+    });
+    check(
+      "runtime failure remains fatal",
+      !adjudicate(runtimeFailure).accepted &&
+        /control runtime failure/.test(String(runtimeFailure.stderr || "")),
+    );
+
+    const signalFailure = spawnBackendValidator(controlPath, {
+      MUTATION_HARNESS_CHILD_CONTROL: "signal-failure",
+    });
+    check(
+      "signal failure remains fatal",
+      !adjudicate(signalFailure).accepted && signalFailure.signal === "SIGTERM",
+    );
+
+    const wrongSet = spawnBackendValidator(controlPath, {
+      MUTATION_HARNESS_CHILD_CONTROL: "wrong-fail-set",
+    });
+    check(
+      "exact ordered FAIL set remains mandatory",
+      !adjudicate(wrongSet).accepted && !adjudicate(wrongSet).exactFailureList,
+    );
+  } finally {
+    fs.rmSync(syntaxPath, { force: true });
+    fs.rmSync(controlPath, { force: true });
+  }
+
+  if (passed !== 7) fail(`backend child-spawn controls — passed ${passed}/7`);
+  console.log(`report-preparing backend child-spawn controls: ${passed}/7 passed`);
+}
+
+runBackendSpawnControls();
+
 function runMutant({
   name,
   relativeSource,
@@ -67,30 +224,17 @@ function runMutant({
 
   fs.writeFileSync(mutantPath, mutated);
   try {
-    const child = spawnSync(process.execPath, [validator], {
-      cwd: root,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        [moduleEnv]: pathToFileURL(mutantPath).href,
-      },
+    const child = spawnBackendValidator(validator, {
+      [moduleEnv]: pathToFileURL(mutantPath).href,
     });
-    const actualFailures = assertionFailures(child.stdout);
-    const summary = String(child.stdout || "").match(
-      /report-preparing: (\d+) passed, (\d+) failed/,
-    );
-    const exactFailureList =
-      JSON.stringify(actualFailures) === JSON.stringify(expectedFailures);
-    const normalValidatorFailure =
-      child.error == null &&
-      child.signal == null &&
-      child.status === 1 &&
-      String(child.stderr || "").trim() === "" &&
-      summary != null &&
-      Number(summary[2]) === expectedFailures.length &&
-      Number(summary[1]) + Number(summary[2]) === EXPECTED_VALIDATOR_ASSERTIONS;
+    const { accepted, actualFailures } = adjudicateBackendValidator({
+      child,
+      expectedFailures,
+      summaryPattern: /report-preparing: (\d+) passed, (\d+) failed/,
+      expectedAssertions: EXPECTED_VALIDATOR_ASSERTIONS,
+    });
 
-    if (normalValidatorFailure && exactFailureList) {
+    if (accepted) {
       killed += 1;
       console.log(`PASS ${name}`);
     } else {
@@ -249,31 +393,18 @@ runMutant({
     fs.writeFileSync(mutantRoutePath, mutantRouteSource);
     fs.writeFileSync(mutantIndexPath, mutantIndexSource);
 
-    const child = spawnSync(process.execPath, [validator], {
-      cwd: root,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        REPORT_PREPARING_WORKER_MODULE_URL: pathToFileURL(mutantIndexPath).href,
-        REPORT_PREPARING_SCAN_ROUTES_SOURCE_PATH: mutantRoutePath,
-      },
+    const child = spawnBackendValidator(validator, {
+      REPORT_PREPARING_WORKER_MODULE_URL: pathToFileURL(mutantIndexPath).href,
+      REPORT_PREPARING_SCAN_ROUTES_SOURCE_PATH: mutantRoutePath,
     });
-    const actualFailures = assertionFailures(child.stdout);
-    const summary = String(child.stdout || "").match(
-      /report-preparing: (\d+) passed, (\d+) failed/,
-    );
-    const exactFailureList =
-      JSON.stringify(actualFailures) === JSON.stringify(expectedFailures);
-    const normalValidatorFailure =
-      child.error == null &&
-      child.signal == null &&
-      child.status === 1 &&
-      String(child.stderr || "").trim() === "" &&
-      summary != null &&
-      Number(summary[2]) === expectedFailures.length &&
-      Number(summary[1]) + Number(summary[2]) === EXPECTED_VALIDATOR_ASSERTIONS;
+    const { accepted, actualFailures } = adjudicateBackendValidator({
+      child,
+      expectedFailures,
+      summaryPattern: /report-preparing: (\d+) passed, (\d+) failed/,
+      expectedAssertions: EXPECTED_VALIDATOR_ASSERTIONS,
+    });
 
-    if (normalValidatorFailure && exactFailureList) {
+    if (accepted) {
       killed += 1;
       console.log(`PASS ${name}`);
     } else {
@@ -350,31 +481,18 @@ runMutant({
     fs.writeFileSync(mutantRoutePath, mutantRouteSource);
     fs.writeFileSync(mutantIndexPath, mutantIndexSource);
 
-    const child = spawnSync(process.execPath, [validator], {
-      cwd: root,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        REPORT_PREPARING_WORKER_MODULE_URL: pathToFileURL(mutantIndexPath).href,
-        REPORT_PREPARING_SCAN_ROUTES_SOURCE_PATH: mutantRoutePath,
-      },
+    const child = spawnBackendValidator(validator, {
+      REPORT_PREPARING_WORKER_MODULE_URL: pathToFileURL(mutantIndexPath).href,
+      REPORT_PREPARING_SCAN_ROUTES_SOURCE_PATH: mutantRoutePath,
     });
-    const actualFailures = assertionFailures(child.stdout);
-    const summary = String(child.stdout || "").match(
-      /report-preparing: (\d+) passed, (\d+) failed/,
-    );
-    const exactFailureList =
-      JSON.stringify(actualFailures) === JSON.stringify(expectedFailures);
-    const normalValidatorFailure =
-      child.error == null &&
-      child.signal == null &&
-      child.status === 1 &&
-      String(child.stderr || "").trim() === "" &&
-      summary != null &&
-      Number(summary[2]) === expectedFailures.length &&
-      Number(summary[1]) + Number(summary[2]) === EXPECTED_VALIDATOR_ASSERTIONS;
+    const { accepted, actualFailures } = adjudicateBackendValidator({
+      child,
+      expectedFailures,
+      summaryPattern: /report-preparing: (\d+) passed, (\d+) failed/,
+      expectedAssertions: EXPECTED_VALIDATOR_ASSERTIONS,
+    });
 
-    if (normalValidatorFailure && exactFailureList) {
+    if (accepted) {
       killed += 1;
       console.log(`PASS ${name}`);
     } else {

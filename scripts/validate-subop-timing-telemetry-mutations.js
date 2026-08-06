@@ -11,6 +11,7 @@
 // count are pinned so deletion or source drift cannot silently turn this suite
 // into a no-op.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -45,6 +46,155 @@ function failureNames(stdout) {
     .map((line) => line.slice(5).split(" — ")[0]);
 }
 
+function spawnValidatorChild(validatorPath, env = {}) {
+  return spawnSync(
+    process.execPath,
+    ["--disable-warning=ExperimentalWarning", validatorPath],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+    },
+  );
+}
+
+function adjudicateValidatorChild({
+  child,
+  expectedFailures,
+  summaryPattern,
+  expectedAssertions,
+}) {
+  const actualFailures = failureNames(child.stdout);
+  const summary = String(child.stdout || "").match(summaryPattern);
+  const exactFailureSet = JSON.stringify(actualFailures) === JSON.stringify(expectedFailures);
+  const normalValidatorExit = child.error == null
+    && child.signal == null
+    && child.status === 1
+    && String(child.stderr || "").trim() === ""
+    && summary != null
+    && Number(summary[2]) === expectedFailures.length
+    && Number(summary[1]) + Number(summary[2]) === expectedAssertions;
+  return {
+    accepted: normalValidatorExit && exactFailureSet,
+    actualFailures,
+    exactFailureSet,
+  };
+}
+
+function runChildSpawnControls() {
+  const expectedFailures = ["expected control kill"];
+  const summaryPattern = /mutation-harness-control: (\d+) passed, (\d+) failed/;
+  const controlPath = path.join(os.tmpdir(), `.subop-child-control.${process.pid}.mjs`);
+  const syntaxPath = path.join(os.tmpdir(), `.subop-child-control-syntax.${process.pid}.mjs`);
+  let passed = 0;
+  const check = (name, condition, detail = "") => {
+    if (condition) {
+      passed += 1;
+      console.log(`PASS ${name}`);
+    } else {
+      fail(`${name}${detail ? ` — ${detail}` : ""}`);
+    }
+  };
+  const adjudicate = (child) => adjudicateValidatorChild({
+    child,
+    expectedFailures,
+    summaryPattern,
+    expectedAssertions: 2,
+  });
+
+  fs.writeFileSync(controlPath, `
+const mode = process.env.MUTATION_HARNESS_CHILD_CONTROL;
+if (mode === "experimental-warning") {
+  process.emitWarning("suppressed harness control", { type: "ExperimentalWarning" });
+} else if (mode === "arbitrary-stderr") {
+  console.error("arbitrary child stderr");
+} else if (mode === "import-failure") {
+  await import("./mutation-harness-control-does-not-exist.mjs");
+} else if (mode === "runtime-failure") {
+  throw new Error("control runtime failure");
+} else if (mode === "signal-failure") {
+  process.kill(process.pid, "SIGTERM");
+} else if (mode === "wrong-fail-set") {
+  console.log("FAIL unexpected control kill");
+  console.log("mutation-harness-control: 1 passed, 1 failed");
+  process.exit(1);
+}
+console.log("FAIL expected control kill");
+console.log("mutation-harness-control: 1 passed, 1 failed");
+process.exit(1);
+`);
+  fs.writeFileSync(syntaxPath, "export const = ;\n");
+
+  try {
+    const n1 = spawnValidatorChild(controlPath, {
+      MUTATION_HARNESS_CHILD_CONTROL: "experimental-warning",
+    });
+    check(
+      "N1 ExperimentalWarning is suppressed and exact semantic kill is accepted",
+      adjudicate(n1).accepted && String(n1.stderr || "").trim() === "",
+    );
+
+    const n2 = spawnValidatorChild(controlPath, {
+      MUTATION_HARNESS_CHILD_CONTROL: "arbitrary-stderr",
+    });
+    const n2Verdict = adjudicate(n2);
+    check(
+      "N2 arbitrary stderr rejects an otherwise exact semantic kill",
+      !n2Verdict.accepted && n2Verdict.exactFailureSet &&
+        String(n2.stderr || "").includes("arbitrary child stderr"),
+    );
+
+    const syntax = spawnValidatorChild(syntaxPath);
+    check(
+      "syntax failure remains fatal",
+      !adjudicate(syntax).accepted && /SyntaxError/.test(String(syntax.stderr || "")),
+    );
+
+    const importFailure = spawnValidatorChild(controlPath, {
+      MUTATION_HARNESS_CHILD_CONTROL: "import-failure",
+    });
+    check(
+      "import failure remains fatal",
+      !adjudicate(importFailure).accepted &&
+        /ERR_MODULE_NOT_FOUND/.test(String(importFailure.stderr || "")),
+    );
+
+    const runtimeFailure = spawnValidatorChild(controlPath, {
+      MUTATION_HARNESS_CHILD_CONTROL: "runtime-failure",
+    });
+    check(
+      "runtime failure remains fatal",
+      !adjudicate(runtimeFailure).accepted &&
+        /control runtime failure/.test(String(runtimeFailure.stderr || "")),
+    );
+
+    const signalFailure = spawnValidatorChild(controlPath, {
+      MUTATION_HARNESS_CHILD_CONTROL: "signal-failure",
+    });
+    check(
+      "signal failure remains fatal",
+      !adjudicate(signalFailure).accepted && signalFailure.signal === "SIGTERM",
+    );
+
+    const wrongSet = spawnValidatorChild(controlPath, {
+      MUTATION_HARNESS_CHILD_CONTROL: "wrong-fail-set",
+    });
+    const wrongSetVerdict = adjudicate(wrongSet);
+    check(
+      "exact ordered FAIL set remains mandatory",
+      !wrongSetVerdict.accepted && !wrongSetVerdict.exactFailureSet,
+    );
+  } finally {
+    fs.rmSync(syntaxPath, { force: true });
+    fs.rmSync(controlPath, { force: true });
+  }
+
+  if (passed !== 7) fail(`child-spawn controls — passed ${passed}/7`);
+  console.log(`subop-timing child-spawn controls: ${passed}/7 passed`);
+}
+
+runChildSpawnControls();
+
 function runMutant({ name, sourceName, moduleEnv, expectedFailures, mutate }) {
   sequence += 1;
   const sourcePath = path.join(engines, sourceName);
@@ -64,28 +214,16 @@ function runMutant({ name, sourceName, moduleEnv, expectedFailures, mutate }) {
 
   fs.writeFileSync(mutantPath, mutated);
   try {
-    const child = spawnSync(process.execPath, [validator], {
-      cwd: root,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        [moduleEnv]: pathToFileURL(mutantPath).href,
-      },
+    const child = spawnValidatorChild(validator, {
+      [moduleEnv]: pathToFileURL(mutantPath).href,
     });
-    const actualFailures = failureNames(child.stdout);
-    const summary = String(child.stdout || "").match(
-      /subop-timing-telemetry: (\d+) passed, (\d+) failed/,
-    );
-    const exactFailureSet = JSON.stringify(actualFailures) === JSON.stringify(expectedFailures);
-    const normalValidatorExit = child.error == null
-      && child.signal == null
-      && child.status === 1
-      && String(child.stderr || "").trim() === ""
-      && summary != null
-      && Number(summary[2]) === expectedFailures.length
-      && Number(summary[1]) + Number(summary[2]) === EXPECTED_VALIDATOR_ASSERTIONS;
-    const killedForExpectedReason = normalValidatorExit && exactFailureSet;
-    if (killedForExpectedReason) {
+    const { accepted, actualFailures } = adjudicateValidatorChild({
+      child,
+      expectedFailures,
+      summaryPattern: /subop-timing-telemetry: (\d+) passed, (\d+) failed/,
+      expectedAssertions: EXPECTED_VALIDATOR_ASSERTIONS,
+    });
+    if (accepted) {
       mutantsKilled += 1;
       console.log(`PASS ${name}`);
     } else {
