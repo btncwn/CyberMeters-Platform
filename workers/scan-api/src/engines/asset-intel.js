@@ -925,14 +925,27 @@ export function runRiskModule(findings, modules) {
     ? (modules.cve_intelligence || {})
     : {};
   if ((cveIntel.critical_count || 0) > 0 || (cveIntel.high_count || 0) > 0) {
+    const unavailableTechnologies = Object.entries(cveIntel.lookup_statuses ?? {})
+      .filter(([, row]) => !["complete", "available", "completed"].includes(row?.status))
+      .map(([technology]) => technology);
+    const partialCoverage = cveIntel.cve_coverage === "partial";
+    const limitationText = partialCoverage && unavailableTechnologies.length
+      ? ` Coverage is incomplete because CVE evidence for ${unavailableTechnologies.join(", ")} could not be retrieved.`
+      : "";
     const cveNote = {
       id:             "cve_high_severity_detected",
       severity:       cveIntel.critical_count > 0 ? "critical" : "high",
-      title:          `${cveIntel.total_cves} known CVE${cveIntel.total_cves !== 1 ? "s" : ""} matched to detected technology stack`,
-      description:    `NVD lookup matched ${cveIntel.total_cves} CVE(s) across ${(cveIntel.technologies_checked || []).join(", ")}. ${cveIntel.critical_count || 0} critical, ${cveIntel.high_count || 0} high severity.`,
+      title:          `${cveIntel.total_cves} known CVE${cveIntel.total_cves !== 1 ? "s" : ""} matched in completed technology checks`,
+      description:    `Completed NVD lookups matched ${cveIntel.total_cves} CVE(s). ${cveIntel.critical_count || 0} critical, ${cveIntel.high_count || 0} high severity.${limitationText}`,
       business_impact:"Known vulnerabilities in deployed technologies increase the likelihood of exploitation by automated scanners and targeted attacks. Immediate patching or compensating controls required.",
       risk_category:  "Data Security",
       score_impact:   0,
+      ...(partialCoverage ? {
+        coverage_limitation: {
+          state: "partial",
+          unmeasured_technologies: unavailableTechnologies,
+        },
+      } : {}),
     };
     enrichedFindings.push(cveNote);
     categories["Data Security"].push(cveNote);

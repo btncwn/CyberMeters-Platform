@@ -49,12 +49,13 @@ const PHASE5_KEYS = [
 
 const completedCve = (overrides = {}) => ({
   technologies_checked: ["nginx"],
-  lookup_statuses: { nginx: "completed" },
+  lookup_statuses: { nginx: { status: "complete" } },
   results: { nginx: [] },
   total_cves: 0,
   critical_count: 0,
   high_count: 0,
   source: "nvd_api",
+  cve_coverage: "complete",
   ...overrides,
 });
 const completedKev = (overrides = {}) => ({
@@ -409,15 +410,16 @@ const MUTATIONS = [
     check: () => runChild("engine").overall != null,
   },
   {
-    name: "M2 isPublishableModuleEvidence bypassed",
+    name: "M2 incomplete CVE alone is omitted from the Phase-5 completeness gate",
     edits: [{
       target: PHASE5,
-      from: "      isPublishableModuleEvidence(modules?.[moduleKey]),",
-      to: "      true,",
+      from: "    .filter(([name]) => !completeByModule[name])\n",
+      to: "    .filter(([name]) => name !== \"cve\" && !completeByModule[name])\n",
     }],
     check: () => {
-      const result = runChild("engine");
-      return result.score != null && result.riskLevel != null;
+      const result = runChild("cve-deferred");
+      return result.customer.score != null &&
+        result.customer.risk_level != null;
     },
   },
   {
@@ -471,8 +473,8 @@ const MUTATIONS = [
     name: "M7 completed measured-zero control is suppressed",
     edits: [{
       target: PHASE5,
-      from: "      isPublishableModuleEvidence(modules?.[moduleKey]),",
-      to: "      false,",
+      from: "    cve: cveEvidence.negative_complete,\n",
+      to: "    cve: false,\n",
     }],
     check: () => {
       const result = runChild("complete");

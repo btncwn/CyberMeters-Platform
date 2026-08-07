@@ -135,7 +135,16 @@ db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALU
 db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES ('s_f','u_free',?, datetime('now','+1 day'))").run(await hashToken(TOKEN_FREE));
 
 const completedPhase5 = () => ({
-  cve_intelligence: {},
+  cve_intelligence: {
+    technologies_checked: ["nginx"],
+    lookup_statuses: { nginx: { status: "complete" } },
+    results: { nginx: [] },
+    total_cves: 0,
+    critical_count: 0,
+    high_count: 0,
+    source: "nvd_api",
+    cve_coverage: "complete",
+  },
   known_exploited_vulnerabilities: {},
   email_security_intelligence: {},
 });

@@ -39,10 +39,14 @@ const ok = (name, condition, detail = "") => {
 
 const completedModules = {
   cve_intelligence: {
-    technologies_checked: [],
-    lookup_statuses: {},
-    results: {},
+    technologies_checked: ["nginx"],
+    lookup_statuses: { nginx: { status: "complete" } },
+    results: { nginx: [] },
     total_cves: 0,
+    critical_count: 0,
+    high_count: 0,
+    source: "nvd_api",
+    cve_coverage: "complete",
   },
   known_exploited_vulnerabilities: {
     matches: [],
@@ -138,8 +142,11 @@ ok("B4 bounded-out row carries an honest incomplete assessment",
   boundedRow.assessment?.authoritative === false);
 
 const aggregate = resolvePhase5CustomerAggregate(projected);
-ok("C1 incomplete high-cardinality aggregate publishes no average",
-  aggregate.score === null && aggregate.scores.length === 0);
+ok("C1 incomplete high-cardinality aggregate excludes unassessed rows and states its denominator",
+  aggregate.score === 100 &&
+  aggregate.scores.length === 792 &&
+  aggregate.evidence_coverage.assessed_row_count === 792 &&
+  aggregate.evidence_coverage.incomplete_row_count === 408);
 ok("C2 aggregate discloses partial/truncated evidence",
   aggregate.complete === false &&
   aggregate.evidence_coverage.truncated === true &&
@@ -148,9 +155,12 @@ const trendAggregate = resolvePhase5CustomerAggregate([
   verifiedRow,
   boundedRow,
 ]);
-ok("C3 bounded-out trend point prevents an unqualified trend average",
-  trendAggregate.score === null &&
-  trendAggregate.evidence_coverage.complete === false);
+ok("C3 bounded-out trend point is excluded from a denominator-qualified average",
+  trendAggregate.score === 100 &&
+  trendAggregate.scores.length === 1 &&
+  trendAggregate.evidence_coverage.complete === false &&
+  trendAggregate.evidence_coverage.assessed_row_count === 1 &&
+  trendAggregate.evidence_coverage.incomplete_row_count === 1);
 ok("C4 bounded-out evidence cannot retain a healthy rating",
   boundedRow.rating === null);
 
