@@ -15,6 +15,8 @@ const presentationUrl = process.env.ITEM10_P5_PRESENTATION_MODULE_URL ||
   engine("attack-surface-customer-presentation.js");
 const executiveUrl = process.env.ITEM10_P5_EXECUTIVE_MODULE_URL ||
   engine("executive-report.js");
+const assetAlertsUrl = process.env.ITEM10_P5_ASSET_ALERTS_MODULE_URL ||
+  engine("asset-alerts.js");
 const {
   ATTACK_SURFACE_CUSTOMER_LIFECYCLE_STATES,
   ATTACK_SURFACE_CUSTOMER_OBSERVATION_STATES,
@@ -24,6 +26,10 @@ const {
   attackSurfaceAssuranceFromSnapshot,
   buildAttackSurfaceCustomerPresentation,
 } = await import(presentationUrl);
+const {
+  ASSET_ALERT_ELIGIBILITY_REASON_CODES,
+  ASSET_ALERT_EVENTS,
+} = await import(assetAlertsUrl);
 const { buildExecutiveReportV2 } = await import(executiveUrl);
 const { composeSnapshot } = await import(engine("report-snapshot.js"));
 const {
@@ -85,6 +91,23 @@ eq("lifecycle vocabulary is exact",
 eq("last-observation vocabulary is exact",
   JSON.stringify(ATTACK_SURFACE_CUSTOMER_OBSERVATION_STATES),
   JSON.stringify(fixture.last_observation_states));
+eq("internal lifecycle enum remains confirmed_removed",
+  ATTACK_SURFACE_CUSTOMER_LIFECYCLE_STATES.find(
+    (state) => state === "confirmed_removed",
+  ),
+  "confirmed_removed");
+ok("wire event key remains exactly asset_no_longer_seen",
+  ASSET_ALERT_EVENTS.has("asset_no_longer_seen") &&
+  !ASSET_ALERT_EVENTS.has("asset_no_longer_observed"));
+eq("confirmed-removal alert reason codes remain unchanged",
+  JSON.stringify(ASSET_ALERT_ELIGIBILITY_REASON_CODES.filter(
+    (code) => code === "eligible_confirmed_removal" ||
+      code === "eligible_reappearance_after_confirmed_removal",
+  )),
+  JSON.stringify([
+    "eligible_confirmed_removal",
+    "eligible_reappearance_after_confirmed_removal",
+  ]));
 
 // All nine signals in every one of the six non-overlapping signal states.
 for (const state of fixture.signal_states) {
@@ -135,6 +158,91 @@ eq("confirmed removal timestamp retained",
     (item) => item.lifecycle_state === "confirmed_removed",
   )?.confirmed_removed_at,
   "2026-07-27T11:59:00.000Z");
+const externallyAbsentRecord = current.lifecycle.records.find(
+  (item) => item.lifecycle_state === "confirmed_removed",
+);
+const activeSourceWindowNarrative =
+  "CyberMeters therefore did not observe the asset through those active sources during that window.";
+eq("confirmed_removed customer label is honest external absence",
+  externallyAbsentRecord?.lifecycle_state_label,
+  "No longer externally observed");
+ok("confirmed_removed message names the measured evidence",
+  /three qualifying observations over at least 48 hours/i.test(
+    externallyAbsentRecord?.lifecycle_message || "",
+  ) &&
+  /no authoritative DNS record and no HTTP or HTTPS service/i.test(
+    externallyAbsentRecord?.lifecycle_message || "",
+  ));
+ok("confirmed_removed message denies removal/remediation proof",
+  /not evidence that the asset was removed, decommissioned or remediated/i.test(
+    externallyAbsentRecord?.lifecycle_message || "",
+  ));
+ok("confirmed_removed narrative is bounded to the active sources and window",
+  (externallyAbsentRecord?.lifecycle_message || "").includes(
+    activeSourceWindowNarrative,
+  ));
+ok("confirmed_removed narrative does not claim platform-wide invisibility",
+  !/not externally visible to CyberMeters/i.test(
+    externallyAbsentRecord?.lifecycle_message || "",
+  ));
+ok("confirmed_removed narrative does not use unqualified external absence",
+  !/no longer externally observed/i.test(
+    externallyAbsentRecord?.lifecycle_message || "",
+  ));
+
+const lifecycleAlertPresentation = buildAttackSurfaceCustomerPresentation({
+  signalCompleteness: mixedSignals,
+  lifecycleRecords: fixture.lifecycle_records,
+  alertEligibility: {
+    policy_version: "asset-alert-eligibility-v1",
+    eligible: [
+      {
+        event_type: "asset_no_longer_seen",
+        reason_code: "eligible_confirmed_removal",
+        count: 1,
+      },
+      {
+        event_type: "asset_reappeared",
+        reason_code: "eligible_reappearance_after_confirmed_removal",
+        count: 1,
+      },
+    ],
+    withheld: [],
+  },
+  asOf: fixture.observed_at,
+});
+const confirmedRemovalDecision =
+  lifecycleAlertPresentation.alert_eligibility.decisions.find(
+    (item) => item.reason_code === "eligible_confirmed_removal",
+  );
+ok("eligible_confirmed_removal narrative is bounded to the active sources and window",
+  (confirmedRemovalDecision?.reason_message || "").includes(
+    activeSourceWindowNarrative,
+  ));
+ok("eligible_confirmed_removal narrative does not claim platform-wide invisibility",
+  !/not externally visible to CyberMeters/i.test(
+    confirmedRemovalDecision?.reason_message || "",
+  ));
+ok("eligible_confirmed_removal narrative does not use unqualified external absence",
+  !/no longer externally observed/i.test(
+    confirmedRemovalDecision?.reason_message || "",
+  ));
+ok("eligible_confirmed_removal narrative denies removal/remediation proof",
+  /not evidence of removal, decommissioning or remediation/i.test(
+    confirmedRemovalDecision?.reason_message || "",
+  ));
+const reappearanceDecision =
+  lifecycleAlertPresentation.alert_eligibility.decisions.find(
+    (item) => item.reason_code ===
+      "eligible_reappearance_after_confirmed_removal",
+  );
+ok("eligible_reappearance_after_confirmed_removal: customer reason uses honest visibility vocabulary",
+  /externally observed|external visibility/i.test(
+    reappearanceDecision?.reason_message || "",
+  ) &&
+  /not proof of removal, decommissioning or remediation/i.test(
+    reappearanceDecision?.reason_message || "",
+  ));
 eq("eligible alert reason retained",
   current.alert_eligibility.decisions.find((item) => item.eligible)?.reason_code,
   "eligible_signal_observed");
@@ -346,7 +454,7 @@ for (const phrase of [
   "Subdomain discovery: Evidence unavailable",
   "DNS resolution: Observed",
   "Asset lifecycle",
-  "Confirmed removed",
+  "No longer externally observed",
   "ASM alert eligibility",
   "alert eligibility: not recorded",
 ]) {
@@ -367,9 +475,12 @@ ok("Executive PDF uses the same ASM projection",
 const assetsRouteSource = fs.readFileSync(path.join(
   root, "workers/scan-api/src/routes/attack-surface.js",
 ), "utf8");
-const assetsPageSource = fs.readFileSync(path.join(
-  root, "frontend/src/pages/AssetsPage.jsx",
-), "utf8");
+const assetsPageSource = fs.readFileSync(
+  process.env.ITEM10_P5_ASSETS_PAGE_SOURCE || path.join(
+    root, "frontend/src/pages/AssetsPage.jsx",
+  ),
+  "utf8",
+);
 const timelinePageSource = fs.readFileSync(path.join(
   root, "frontend/src/pages/ExposureTimelinePage.jsx",
 ), "utf8");
@@ -396,6 +507,12 @@ ok("frontend owns no second ASM state vocabulary",
   !/const\\s+(?:SIGNAL|LIFECYCLE)_STATE_(?:LABELS|VOCABULARY)/.test(
     `${assetsPageSource}\n${timelineSource}\n${frontendProjectionSource}`,
   ));
+ok("AssetsPage preserves the asset_no_longer_seen wire key",
+  /key:\s*['"]asset_no_longer_seen['"]/.test(assetsPageSource));
+ok("AssetsPage labels the event as no longer observed",
+  /key:\s*['"]asset_no_longer_seen['"]\s*,\s*label:\s*['"]No longer observed['"]/.test(
+    assetsPageSource,
+  ));
 
 // Pre-P5 historical snapshot: no in-place rewrite and no inference from raw
 // module-looking data that was never frozen into the P5 block.
@@ -421,6 +538,99 @@ ok("pre-P5 snapshot has an explicit notice",
 ok("pre-P5 snapshot cannot read healthy or silently empty",
   legacy.signal_order.length === 9 &&
   !/\b(?:healthy|no issues|clean)\b/i.test(JSON.stringify(legacy)));
+
+// Stored P5 snapshots retain the old bytes in R2, but every live reader must
+// project the historical overclaim onto honest external-observability wording.
+const storedOverclaimPresentation = JSON.parse(JSON.stringify(
+  lifecycleAlertPresentation,
+));
+const storedRemovedRecord = storedOverclaimPresentation.lifecycle.records.find(
+  (item) => item.lifecycle_state === "confirmed_removed",
+);
+storedRemovedRecord.lifecycle_state_label = "Confirmed removed";
+storedRemovedRecord.lifecycle_message =
+  "The asset met the deterministic confirmed-removal policy using qualifying active-source observations.";
+for (const decision of storedOverclaimPresentation.alert_eligibility.decisions) {
+  if (decision.reason_code === "eligible_confirmed_removal") {
+    decision.reason_message =
+      "The removal claim satisfied the canonical confirmation policy.";
+  }
+  if (decision.reason_code ===
+      "eligible_reappearance_after_confirmed_removal") {
+    decision.reason_message =
+      "The asset was observed again after a canonically confirmed removal.";
+  }
+}
+const storedOverclaimSnapshot = {
+  snapshot: {
+    snapshot_id: "snap-p5-stored-overclaim",
+    snapshot_schema_version: "1",
+  },
+  attack_surface_assurance: storedOverclaimPresentation,
+};
+const storedOverclaimBefore = JSON.stringify(storedOverclaimSnapshot);
+const historicalProjection = attackSurfaceAssuranceFromSnapshot(
+  storedOverclaimSnapshot,
+);
+eq("stored P5 snapshot object is not rewritten",
+  JSON.stringify(storedOverclaimSnapshot), storedOverclaimBefore);
+eq("stored P5 confirmed_removed label is projected honestly",
+  historicalProjection.lifecycle.records.find(
+    (item) => item.lifecycle_state === "confirmed_removed",
+  )?.lifecycle_state_label,
+  "No longer externally observed");
+ok("stored P5 lifecycle overclaim is projected with an explicit limit",
+  /not evidence that the asset was removed, decommissioned or remediated/i.test(
+    historicalProjection.lifecycle.records.find(
+      (item) => item.lifecycle_state === "confirmed_removed",
+    )?.lifecycle_message || "",
+  ));
+
+const historicalApi = attackSurfaceAssuranceApiProjection(
+  storedOverclaimSnapshot,
+);
+const historicalRead = {
+  status: "ok",
+  snapshot: storedOverclaimSnapshot,
+  row: { id: "snap-p5-stored-overclaim" },
+  integrity: { verified: true },
+  dmarcPolicy: null,
+};
+const historicalExecutive = buildExecutiveReportV2({
+  scan: {
+    id: fixture.scan_id,
+    domain_id: fixture.domain_id,
+    domain: fixture.domain,
+  },
+  workspace: { id: fixture.workspace_id, name: "Fixture Workspace" },
+  read: historicalRead,
+});
+const historicalPdfText = new TextDecoder().decode(
+  buildScanReportPdf(
+    { id: fixture.scan_id, domain: fixture.domain },
+    historicalRead,
+  ),
+);
+const historicalExecutivePdfText = new TextDecoder().decode(
+  buildWorkspaceExecutivePdf({
+    workspaceName: "Fixture Workspace",
+    reads: [historicalRead],
+    generatedAt: fixture.built_at,
+  }),
+);
+const forbiddenCustomerOverclaim =
+  /Confirmed removed|Removal event|deterministic confirmed-removal/i;
+for (const [surface, rendered] of Object.entries({
+  presentation: JSON.stringify(historicalProjection),
+  api_projection: JSON.stringify(historicalApi),
+  executive_report: JSON.stringify(historicalExecutive),
+  scan_pdf: historicalPdfText,
+  executive_pdf: historicalExecutivePdfText,
+  assets_page: assetsPageSource,
+})) {
+  ok(`${surface}: no positive confirmed-removal customer overclaim`,
+    !forbiddenCustomerOverclaim.test(rendered));
+}
 
 console.log(
   `Item 10 P5 customer parity: ${passed}/${passed + failed} assertions passed`,

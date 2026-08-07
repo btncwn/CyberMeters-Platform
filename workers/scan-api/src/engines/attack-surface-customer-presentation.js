@@ -75,7 +75,7 @@ const LIFECYCLE_STATE_LABELS = Object.freeze({
   not_assessed: "Not assessed",
   observed: "Observed",
   not_observed: "Not observed in this scan",
-  confirmed_removed: "Confirmed removed",
+  confirmed_removed: "No longer externally observed",
 });
 
 const OBSERVATION_STATE_LABELS = Object.freeze({
@@ -94,9 +94,9 @@ const ALERT_REASON_MESSAGES = Object.freeze({
   eligible_event_evidence_fallback:
     "The lifecycle schema was not recorded, but the independent event evidence remained eligible.",
   eligible_confirmed_removal:
-    "The removal claim satisfied the canonical confirmation policy.",
+    "Three qualifying observations over at least 48 hours found no authoritative DNS record and no HTTP or HTTPS service. CyberMeters therefore did not observe the asset through those active sources during that window. This is not evidence of removal, decommissioning or remediation.",
   eligible_reappearance_after_confirmed_removal:
-    "The asset was observed again after a canonically confirmed removal.",
+    "The asset was externally observed after an earlier policy-qualified period with no authoritative DNS record and no HTTP or HTTPS service. This is an external-visibility change, not proof of removal, decommissioning or remediation.",
   withheld_signal_not_supported:
     "The recorded signal evidence did not support this alert claim.",
   withheld_lifecycle_schema_absent:
@@ -184,7 +184,7 @@ function lifecycleMessage(state) {
     case "not_observed":
       return "The asset was not observed in this scan. This is not confirmed removal.";
     case "confirmed_removed":
-      return "The asset met the deterministic confirmed-removal policy using qualifying active-source observations.";
+      return "Three qualifying observations over at least 48 hours found no authoritative DNS record and no HTTP or HTTPS service. CyberMeters therefore did not observe the asset through those active sources during that window. It is not evidence that the asset was removed, decommissioned or remediated; a firewalled, geo-restricted or temporarily unavailable asset can produce the same evidence.";
     default:
       return "The asset lifecycle was not assessed. No absence, removal or healthy conclusion is inferred.";
   }
@@ -390,7 +390,7 @@ export function attackSurfaceAssuranceFromSnapshot(snapshot) {
     recorded?.lifecycle &&
     recorded?.alert_eligibility
   ) {
-    return recorded;
+    return projectRecordedAttackSurfaceAssurance(recorded);
   }
   const reason = recorded
     ? "This snapshot contains an unsupported Attack Surface presentation schema. It is unavailable to this reader and is not interpreted."
@@ -400,6 +400,52 @@ export function attackSurfaceAssuranceFromSnapshot(snapshot) {
     lifecycleAbsenceReason: reason,
     alertAbsenceReason: reason,
   });
+}
+
+// Historical P5 snapshots are immutable evidence, but their frozen customer
+// wording overstated externally observed absence as confirmed human/provider
+// removal. Re-project only those presentation strings from the preserved
+// internal state/reason identities. The stored object and bytes stay untouched.
+function projectRecordedAttackSurfaceAssurance(recorded) {
+  const lifecycleRecords = Array.isArray(recorded.lifecycle?.records)
+    ? recorded.lifecycle.records.map((record) =>
+        record?.lifecycle_state === "confirmed_removed"
+          ? {
+              ...record,
+              lifecycle_state_label:
+                LIFECYCLE_STATE_LABELS.confirmed_removed,
+              lifecycle_message: lifecycleMessage("confirmed_removed"),
+            }
+          : record)
+    : null;
+  const alertDecisions = Array.isArray(
+    recorded.alert_eligibility?.decisions,
+  )
+    ? recorded.alert_eligibility.decisions.map((decision) =>
+        Object.prototype.hasOwnProperty.call(
+          ALERT_REASON_MESSAGES,
+          decision?.reason_code,
+        ) && (
+          decision.reason_code === "eligible_confirmed_removal" ||
+          decision.reason_code ===
+            "eligible_reappearance_after_confirmed_removal"
+        )
+          ? {
+              ...decision,
+              reason_message: ALERT_REASON_MESSAGES[decision.reason_code],
+            }
+          : decision)
+    : null;
+
+  return {
+    ...recorded,
+    lifecycle: lifecycleRecords
+      ? { ...recorded.lifecycle, records: lifecycleRecords }
+      : recorded.lifecycle,
+    alert_eligibility: alertDecisions
+      ? { ...recorded.alert_eligibility, decisions: alertDecisions }
+      : recorded.alert_eligibility,
+  };
 }
 
 export function attackSurfaceAssuranceApiProjection(snapshot) {

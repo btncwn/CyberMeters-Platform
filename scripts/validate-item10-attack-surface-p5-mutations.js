@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers/scan-api/src/engines");
+const frontendPages = path.join(root, "frontend/src/pages");
 const validator = path.join(
   root,
   "scripts/validate-item10-attack-surface-p5-customer-parity.js",
@@ -17,12 +18,14 @@ const paths = {
     "attack-surface-customer-presentation.js",
   ),
   executive: path.join(engines, "executive-report.js"),
+  assetAlerts: path.join(engines, "asset-alerts.js"),
+  assetsPage: path.join(frontendPages, "AssetsPage.jsx"),
 };
 const sources = Object.fromEntries(Object.entries(paths).map(([key, file]) => [
   key,
   fs.readFileSync(file, "utf8"),
 ]));
-const EXPECTED_MUTANTS = 6;
+const EXPECTED_MUTANTS = 18;
 const EXPECTED_ASSERTIONS = EXPECTED_MUTANTS * 2;
 let mutantsKilled = 0;
 let mutantFailures = 0;
@@ -47,18 +50,30 @@ function mutateRequired(source, from, to, label) {
 function runMutant(name, {
   mutatePresentation = (source) => source,
   mutateExecutive = (source) => source,
+  mutateAssetAlerts = (source) => source,
+  mutateAssetsPage = (source) => source,
 }) {
   sequence += 1;
   const presentationName =
     `.attack-surface-customer-presentation.item10-p5-mutant.${process.pid}.${sequence}.js`;
   const executiveName =
     `.executive-report.item10-p5-mutant.${process.pid}.${sequence}.js`;
+  const assetAlertsName =
+    `.asset-alerts.item10-p5-mutant.${process.pid}.${sequence}.js`;
+  const assetsPageName =
+    `.AssetsPage.item10-p5-mutant.${process.pid}.${sequence}.jsx`;
   const presentationFile = path.join(engines, presentationName);
   const executiveFile = path.join(engines, executiveName);
+  const assetAlertsFile = path.join(engines, assetAlertsName);
+  const assetsPageFile = path.join(frontendPages, assetsPageName);
   const presentation = mutatePresentation(sources.presentation);
   const executive = mutateExecutive(sources.executive);
+  const assetAlerts = mutateAssetAlerts(sources.assetAlerts);
+  const assetsPage = mutateAssetsPage(sources.assetsPage);
   fs.writeFileSync(presentationFile, presentation);
   fs.writeFileSync(executiveFile, executive);
+  fs.writeFileSync(assetAlertsFile, assetAlerts);
+  fs.writeFileSync(assetsPageFile, assetsPage);
   try {
     const child = spawnSync(process.execPath, [validator], {
       cwd: root,
@@ -69,6 +84,9 @@ function runMutant(name, {
           pathToFileURL(presentationFile).href,
         ITEM10_P5_EXECUTIVE_MODULE_URL:
           pathToFileURL(executiveFile).href,
+        ITEM10_P5_ASSET_ALERTS_MODULE_URL:
+          pathToFileURL(assetAlertsFile).href,
+        ITEM10_P5_ASSETS_PAGE_SOURCE: assetsPageFile,
       },
     });
     const killed = child.status !== 0;
@@ -82,6 +100,8 @@ function runMutant(name, {
   } finally {
     fs.rmSync(presentationFile, { force: true });
     fs.rmSync(executiveFile, { force: true });
+    fs.rmSync(assetAlertsFile, { force: true });
+    fs.rmSync(assetsPageFile, { force: true });
   }
 }
 
@@ -150,6 +170,124 @@ runMutant("signal model-version stamp is dropped", {
         : null,`,
     `      signal_completeness: null,`,
     "signal model-version stamp",
+  ),
+});
+
+runMutant("confirmed_removed internal enum is renamed", {
+  mutatePresentation: (source) => mutateRequired(
+    source,
+    `export const ATTACK_SURFACE_CUSTOMER_LIFECYCLE_STATES = Object.freeze([
+  "not_assessed",
+  "observed",
+  "not_observed",
+  "confirmed_removed",
+]);`,
+    `export const ATTACK_SURFACE_CUSTOMER_LIFECYCLE_STATES = Object.freeze([
+  "not_assessed",
+  "observed",
+  "not_observed",
+  "externally_absent",
+]);`,
+    "internal lifecycle enum",
+  ),
+});
+
+runMutant("asset_no_longer_seen wire event key is renamed", {
+  mutateAssetAlerts: (source) => mutateRequired(
+    source,
+    `  "asset_no_longer_seen",`,
+    `  "asset_no_longer_observed",`,
+    "wire event key",
+  ),
+});
+
+runMutant("eligible_confirmed_removal reason code is renamed", {
+  mutateAssetAlerts: (source) => mutateRequired(
+    source,
+    `  "eligible_confirmed_removal",`,
+    `  "eligible_external_absence",`,
+    "confirmed-removal reason code",
+  ),
+});
+
+runMutant("eligible_reappearance_after_confirmed_removal reason code is renamed", {
+  mutateAssetAlerts: (source) => mutateRequired(
+    source,
+    `  "eligible_reappearance_after_confirmed_removal",`,
+    `  "eligible_reappearance_after_external_absence",`,
+    "reappearance reason code",
+  ),
+});
+
+runMutant("external-absence label reverts to confirmed removal", {
+  mutatePresentation: (source) => mutateRequired(
+    source,
+    `  confirmed_removed: "No longer externally observed",`,
+    `  confirmed_removed: "Confirmed removed",`,
+    "external-absence customer label",
+  ),
+});
+
+runMutant("lifecycleMessage active-source and window qualifier is removed", {
+  mutatePresentation: (source) => mutateRequired(
+    source,
+    `      return "Three qualifying observations over at least 48 hours found no authoritative DNS record and no HTTP or HTTPS service. CyberMeters therefore did not observe the asset through those active sources during that window. It is not evidence that the asset was removed, decommissioned or remediated; a firewalled, geo-restricted or temporarily unavailable asset can produce the same evidence.";`,
+    `      return "Three qualifying observations over at least 48 hours found no authoritative DNS record and no HTTP or HTTPS service. This shows the asset is not externally visible to CyberMeters. It is not evidence that the asset was removed, decommissioned or remediated; a firewalled, geo-restricted or temporarily unavailable asset can produce the same evidence.";`,
+    "lifecycleMessage scope qualifier",
+  ),
+});
+
+runMutant("eligible_confirmed_removal active-source and window qualifier is removed", {
+  mutatePresentation: (source) => mutateRequired(
+    source,
+    `    "Three qualifying observations over at least 48 hours found no authoritative DNS record and no HTTP or HTTPS service. CyberMeters therefore did not observe the asset through those active sources during that window. This is not evidence of removal, decommissioning or remediation.",`,
+    `    "Three qualifying observations over at least 48 hours found no authoritative DNS record and no HTTP or HTTPS service, so the asset was no longer externally observed. This is not evidence of removal, decommissioning or remediation.",`,
+    "eligible_confirmed_removal scope qualifier",
+  ),
+});
+
+runMutant("external-absence lifecycle limit is removed", {
+  mutatePresentation: (source) => mutateRequired(
+    source,
+    `      return "Three qualifying observations over at least 48 hours found no authoritative DNS record and no HTTP or HTTPS service. CyberMeters therefore did not observe the asset through those active sources during that window. It is not evidence that the asset was removed, decommissioned or remediated; a firewalled, geo-restricted or temporarily unavailable asset can produce the same evidence.";`,
+    `      return "The asset met the deterministic confirmed-removal policy using qualifying active-source observations.";`,
+    "external-absence lifecycle message",
+  ),
+});
+
+runMutant("confirmed-removal alert explanation reverts to removal claim", {
+  mutatePresentation: (source) => mutateRequired(
+    source,
+    `    "Three qualifying observations over at least 48 hours found no authoritative DNS record and no HTTP or HTTPS service. CyberMeters therefore did not observe the asset through those active sources during that window. This is not evidence of removal, decommissioning or remediation.",`,
+    `    "The removal claim satisfied the canonical confirmation policy.",`,
+    "confirmed-removal alert explanation",
+  ),
+});
+
+runMutant("reappearance alert explanation reverts to removal claim", {
+  mutatePresentation: (source) => mutateRequired(
+    source,
+    `    "The asset was externally observed after an earlier policy-qualified period with no authoritative DNS record and no HTTP or HTTPS service. This is an external-visibility change, not proof of removal, decommissioning or remediation.",`,
+    `    "The asset was observed again after a canonically confirmed removal.",`,
+    "reappearance alert explanation",
+  ),
+});
+
+runMutant("stored P5 snapshot bypasses honest read-time projection", {
+  mutatePresentation: (source) => mutateRequired(
+    source,
+    `    return projectRecordedAttackSurfaceAssurance(recorded);`,
+    `    return recorded;`,
+    "stored P5 read-time projection",
+  ),
+});
+
+runMutant("AssetsPage event label reverts to removal", {
+  mutateAssetsPage: (source) => mutateRequired(
+    source,
+    `{ key: 'asset_no_longer_seen',   label: 'No longer observed' },`,
+    `{ key: 'asset_no_longer_seen',   label: 'Removal event' },`,
+    "AssetsPage external-absence label",
   ),
 });
 
