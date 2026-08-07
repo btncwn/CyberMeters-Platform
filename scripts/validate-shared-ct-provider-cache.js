@@ -18,7 +18,10 @@ const engine = (file) => pathToFileURL(
 const breakSharing = process.argv.includes("--mutate-break-sharing");
 const falseEmpty = process.argv.includes("--mutate-failure-to-empty");
 
-const { createCertificateTransparencyCache } = await import(engine("ct-provider-cache.js"));
+const {
+  createCertificateTransparencyCache,
+  CT_PROVIDER_FIRST_SUCCESS_RELEASE_CUSTOMER_WORDING,
+} = await import(engine("ct-provider-cache.js"));
 const { runSslModule } = await import(engine("ssl-scan.js"));
 const { runSubdomainsModule } = await import(engine("subdomains-scan.js"));
 const { subdomainDiscoveryComplete } = await import(engine("asset-inventory.js"));
@@ -209,8 +212,8 @@ try {
     shared.subdomains, separate.subdomains);
   eq("separate pre-cache consumption demonstrates duplicate crt.sh calls",
     separateCalls.crt_sh, 2);
-  eq("successful crt.sh still avoids SSL's CertSpotter fallback",
-    separateCalls.certspotter, 1);
+  eq("first-success orchestration launches CertSpotter for both separate consumers",
+    separateCalls.certspotter, 2);
 
   // ── Cache key and in-flight promise contract ──────────────────────────────
   {
@@ -263,12 +266,14 @@ try {
     crt: new Error("crt.sh down"),
   }));
 
-  eq("crt.sh-down scan performs one shared lookup with one bounded retry", fallbackCalls.crt_sh, 2);
+  eq("fast CertSpotter success releases before crt.sh retry", fallbackCalls.crt_sh, 1);
   eq("crt.sh-down scan performs one shared CertSpotter fallback", fallbackCalls.certspotter, 1);
-  eq("SSL observes crt.sh as unavailable", fallback.ssl.ct_sources.crt_sh?.error, "fetch failed");
+  eq("SSL records the in-flight crt.sh evidence exclusion explicitly",
+    fallback.ssl.ct_sources.crt_sh?.error, CT_PROVIDER_FIRST_SUCCESS_RELEASE_CUSTOMER_WORDING);
   eq("SSL observes CertSpotter fallback as available", fallback.ssl.ct_sources.certspotter?.error, null);
   eq("SSL fallback preserves certificate evidence", fallback.ssl.cert_issuer, "Spot CA");
-  eq("subdomains observe crt.sh as unavailable", fallback.subdomains.sources.crt_sh.error, "fetch failed");
+  eq("subdomains record the in-flight crt.sh evidence exclusion explicitly",
+    fallback.subdomains.sources.crt_sh.error, CT_PROVIDER_FIRST_SUCCESS_RELEASE_CUSTOMER_WORDING);
   eq("subdomains observe CertSpotter as available", fallback.subdomains.sources.certspotter.error, null);
   ok("subdomains retain fallback findings", fallback.subdomains.items.includes("app.example.com"));
   ok("one unavailable provider cannot certify discovery complete",
@@ -276,6 +281,9 @@ try {
       subdomains: fallback.subdomains,
       dns_bruteforce: { items: [], error: null },
     }) === false);
+  await new Promise((resolve) => setTimeout(resolve, 175));
+  eq("released crt.sh physical request continues its unchanged bounded retry",
+    fallbackCalls.crt_sh, 2);
 
   // ── Total blackout: unavailable is not successful empty or healthy ────────
   const blackoutCalls = { crt_sh: 0, certspotter: 0 };
@@ -336,7 +344,7 @@ try {
     });
     ok("mutation: converting unavailable to empty-as-healthy makes the validator RED",
       failureMutation.status !== 0 &&
-        failureMutation.stdout.includes("FAIL SSL observes crt.sh as unavailable"));
+        failureMutation.stdout.includes("FAIL provider timeout is explicit unavailable"));
   }
 } finally {
   globalThis.fetch = realFetch;
