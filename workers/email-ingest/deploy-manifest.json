@@ -1,8 +1,8 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.08.05-cve-p1.5d56f12b4fea",
-  "closure_sha256": "5d56f12b4fea35d3ab9bcae4194b8167c0746c664f3880211a2f4aee129f0ce5",
+  "app_version": "2026.08.07-item10-p5-arm1a.896596e01483",
+  "closure_sha256": "896596e014838d2d8c89caccdbe86e34989fe9ff4ce9c8c8021a27e37c91d6e0",
   "closure_file_count": 84,
   "scan_api_file_count": 82,
   "files": [

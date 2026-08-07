@@ -399,7 +399,7 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
 const TIMELINE_COLS = [
   { key: 'new_asset_discovered',   label: 'New'       },
   { key: 'asset_reappeared',       label: 'Reappeared'},
-  { key: 'asset_no_longer_seen',   label: 'Removal event' },
+  { key: 'asset_no_longer_seen',   label: 'No longer observed' },
   { key: 'takeover_risk_detected', label: 'Takeover'  },
   { key: 'wildcard_dns_detected',  label: 'Wildcard'  },
   { key: 'cloud_storage_detected', label: 'Cloud'     },
