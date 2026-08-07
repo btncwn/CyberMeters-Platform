@@ -626,7 +626,7 @@ async function reservedPathFixture({ globalAbort = false } = {}) {
   const releaseConsumer = cache.releaseConsumer?.bind(cache);
   if (releaseConsumer) {
     cache.releaseConsumer = (...args) => {
-      releaseCalls.push(args[1]);
+      releaseCalls.push({ module: args[1], cause: args[2] });
       return releaseConsumer(...args);
     };
   }
@@ -892,8 +892,12 @@ const runs = {
     return value != null
       && value.providerCalls.crt_sh === 1
       && value.providerCalls.certspotter === 1
-      && value.releaseCalls.includes("ssl")
-      && value.releaseCalls.includes("subdomains")
+      // The first-success orchestrator also releases each cache consumer. This
+      // predicate specifically proves that the outer reserved boundary still
+      // performs its independent terminal release instead of accepting the
+      // helper's earlier `first_success` call as equivalent evidence.
+      && value.releaseCalls.some((call) => call.module === "ssl" && call.cause !== "first_success")
+      && value.releaseCalls.some((call) => call.module === "subdomains" && call.cause !== "first_success")
       && value.snapshot?.module === "subdomains";
   },
   CT_R1_OVERLAP_CAUSAL_COHERENCE: async () => {

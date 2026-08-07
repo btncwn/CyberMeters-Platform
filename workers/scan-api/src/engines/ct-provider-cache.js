@@ -36,6 +36,8 @@ export const CT_PROVIDER_PLATFORM_ABORT_CUSTOMER_WORDING =
 // module stopped waiting, and says so without attributing a cause to anyone.
 export const CT_PROVIDER_CONSUMER_RELEASE_CUSTOMER_WORDING =
   "CyberMeters did not receive the provider result before this module's observation budget ended.";
+export const CT_PROVIDER_FIRST_SUCCESS_RELEASE_CUSTOMER_WORDING =
+  "CyberMeters released this module after another Certificate Transparency provider succeeded; this provider result was still in flight and was excluded from the immutable module output.";
 const CT_PROVIDER_TELEMETRY_MODULES = Object.freeze(["ssl", "subdomains"]);
 const CT_PROVIDER_PHYSICAL_ATTEMPT_LIMIT = 4;
 export const CT_PROVIDER_POLICIES = Object.freeze({
@@ -592,9 +594,10 @@ export function createCertificateTransparencyCache({
     record.state = "released_budget_exhausted";
     record.physicalAttemptState = physicalStateOf(record.entry);
     const globalDeadline = isGlobalDeadlineCause(cause);
+    const firstSuccess = String(cause || "") === "first_success";
     record.releaseCause = globalDeadline
       ? "scan_global_deadline"
-      : String(cause || "module_budget_exhausted");
+      : (firstSuccess ? "first_success" : String(cause || "module_budget_exhausted"));
     // The consumer's WAIT ends here; the shared physical work does not. Leaving
     // the wait pending would tie this consumer's lifetime to physical
     // settlement, which is precisely the separation CT2A1-PROV-02 requires.
@@ -602,16 +605,22 @@ export function createCertificateTransparencyCache({
     // A release the scan-global deadline caused keeps the platform-abort
     // meaning, so SSL, subdomains and reserved all say the same thing about the
     // same cause rather than degrading it into a generic budget notice.
-    record.settleWait(withPhysicalAttemptState(
+    record.customerEvidenceDisposition = firstSuccess
+      ? "in_flight_excluded_after_first_success"
+      : "in_flight_excluded_after_consumer_release";
+    record.releasedResult = withPhysicalAttemptState(
       unavailable(
         record.provider,
         record.domain,
         globalDeadline
           ? CT_PROVIDER_PLATFORM_ABORT_CUSTOMER_WORDING
-          : CT_PROVIDER_CONSUMER_RELEASE_CUSTOMER_WORDING,
+          : (firstSuccess
+            ? CT_PROVIDER_FIRST_SUCCESS_RELEASE_CUSTOMER_WORDING
+            : CT_PROVIDER_CONSUMER_RELEASE_CUSTOMER_WORDING),
       ),
       record.physicalAttemptState,
-    ));
+    );
+    record.settleWait(record.releasedResult);
   };
   const releaseConsumer = (domain, module, cause = "module_budget_exhausted") => {
     const normalizedDomain = normalizeDomain(domain);
@@ -654,20 +663,39 @@ export function createCertificateTransparencyCache({
       const record = {
         entry,
         domain: normalizedDomain,
+        module,
         provider,
         state: "waiting",
         physicalAttemptState: physicalStateOf(entry),
+        terminalPhysicalAttemptState: null,
         releaseCause: null,
+        customerEvidenceDisposition: null,
+        releasedResult: null,
         wait,
         settleWait,
       };
       consumers.set(key, record);
       entry.promise.then((result) => {
+        if (record.state !== "waiting") {
+          const succeeded = result?.status === "available";
+          record.terminalPhysicalAttemptState = result?.physical_attempt_state
+            || (succeeded ? "terminal_success" : "terminal_failure");
+          const firstSuccessRelease = record.releaseCause === "first_success";
+          record.customerEvidenceDisposition = succeeded
+            ? (firstSuccessRelease
+              ? "late_success_excluded_after_first_success"
+              : "late_success_excluded_after_consumer_release")
+            : (firstSuccessRelease
+              ? "late_failure_after_first_success"
+              : "late_failure_after_consumer_release");
+        }
         if (record.state !== "waiting") return;
         const succeeded = result?.status === "available";
         record.state = succeeded ? "received_success" : "received_failure";
         record.physicalAttemptState = result?.physical_attempt_state
           || (succeeded ? "terminal_success" : "terminal_failure");
+        record.terminalPhysicalAttemptState = record.physicalAttemptState;
+        record.customerEvidenceDisposition = "included_before_release";
         record.settleWait(result);
       });
       // The scan-global deadline is NOT a consumer budget boundary. It stops the
@@ -692,7 +720,9 @@ export function createCertificateTransparencyCache({
         providers[provider] = {
           consumer_wait_state: record.state,
           physical_attempt_state: record.physicalAttemptState,
+          terminal_physical_attempt_state: record.terminalPhysicalAttemptState,
           release_cause: record.releaseCause,
+          customer_evidence_disposition: record.customerEvidenceDisposition,
         };
       }
       return { module, providers };
@@ -720,6 +750,8 @@ export function createCertificateTransparencyCache({
       for (const attempt of providerAttempts) {
         for (const module of providerConsumers.get(attempt.provider) || []) {
           if (rows.length >= CT_PROVIDER_TELEMETRY_ROW_LIMIT) return rows;
+          const consumerRecord = [...consumers.values()].find((record) =>
+            record.module === module && record.provider === attempt.provider);
           const completenessImpact = module === "subdomains" &&
             attempt.outcome !== "ok" &&
             ctDegradedScan &&
@@ -727,6 +759,8 @@ export function createCertificateTransparencyCache({
           rows.push({
             module,
             ...attempt,
+            customer_evidence_disposition:
+              consumerRecord?.customerEvidenceDisposition ?? null,
             completeness_impact: completenessImpact,
             affected_signal: completenessImpact ? "subdomain_discovery" : null,
           });

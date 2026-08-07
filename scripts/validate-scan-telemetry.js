@@ -513,7 +513,7 @@ function d1Stub({ fail = false } = {}) {
     return new Response("", { status: 200 });
   });
   ctx.markSettled();
-  eq("C1B SSL CT + HTTPS + HTTP attempts counted", acct.snapshot("ssl").outbound_attempts_observed, 3);
+  eq("C1B SSL both CT providers + HTTPS + HTTP attempts counted", acct.snapshot("ssl").outbound_attempts_observed, 4);
 }
 
 {
@@ -759,9 +759,8 @@ function d1Stub({ fail = false } = {}) {
   sourceGuard("C1B subdomain CT and wildcard DNS carry accounting", subdomainsSrc,
     (s) => /dnsQuery\(wildcardHost, "A", \{ accounting, cache \}\)/.test(s) &&
       /dnsQuery\(wildcardHost, "AAAA", \{ accounting, cache \}\)/.test(s) &&
-      /ctCache\.get\(domain, provider, \{[\s\S]{0,120}accounting,[\s\S]{0,120}module: "subdomains",[\s\S]{0,120}signal: opts\.signal,[\s\S]{0,40}\}\)/.test(s) &&
-      /observedCtGet\("crt_sh"\)/.test(s) &&
-      /observedCtGet\("certspotter"\)/.test(s),
+      /raceCertificateTransparencyFirstSuccess\(\{[\s\S]{0,160}ctCache,[\s\S]{0,80}domain,[\s\S]{0,80}module: "subdomains",[\s\S]{0,80}accounting,[\s\S]{0,80}signal: opts\.signal/.test(s) &&
+      /wrapProviderWait: \(provider, promise\) => timedSubOp\(`ct_wait_\$\{provider\}`/.test(s),
     (s) => s.replace('dnsQuery(wildcardHost, "A", { accounting, cache })', 'dnsQuery(wildcardHost, "A", { cache })'));
   sourceGuard("C1B brute-force DNS leaves carry accounting", subdomainsSrc,
     (s) => /dnsQuery\(host, "A", \{ accounting, cache \}\)/.test(s) && /dnsQuery\(host, "MX", \{ accounting, cache \}\)/.test(s),

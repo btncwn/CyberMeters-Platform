@@ -7,6 +7,7 @@ import { dnsQuery } from "./dns.js";
 import { normalizeDiscoveredHostname } from "./hostnames.js";
 import { customerSafeFailure } from "../lib/errors.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
+import { raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
 
 /**
  * Subdomain names whose presence suggests a development, staging, or
@@ -214,45 +215,43 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     );
   };
 
-  // CT-R2 PR-2A shadow observation. These guards are deliberately one-way:
-  // production passes terminal provider values into the collector, while the
-  // collector returns nothing to `seen`, `sources`, or the customer result.
-  // A broken collector cannot change provider launch order or Promise semantics.
-  const observedCtGet = (provider) => {
+  // CT-R2 PR-3 launches both shared provider waits and releases on the first
+  // SUCCESS, never the first settlement. PR-2A overlap remains a one-way
+  // observer: it sees only providers terminal at this consumer's immutable
+  // release boundary. A later terminal attempt remains CT-R1 telemetry and the
+  // frozen overlap row records its intentional customer-evidence exclusion as
+  // `in_flight_at_consumer_release`.
+  for (const provider of ["crt_sh", "certspotter"]) {
     try { opts.ctOverlap?.begin?.(provider); } catch { /* observational only */ }
-    const providerPromise = ctCache.get(domain, provider, {
-      accounting,
-      module: "subdomains",
-      signal: opts.signal,
-    });
-    // An observation that arrives after THIS consumer was released is not this
-    // consumer's observation, so it must not reach the collector. Mirrors the
-    // sub-op rule above: a post-release settlement never truly belonged to us.
-    const observable = () => opts.signal?.aborted !== true;
-    return providerPromise.then(
-      (value) => {
-        try {
-          if (observable()) opts.ctOverlap?.observe?.(provider, { status: "fulfilled", value }, domain);
-        } catch { /* observational only */ }
-        return value;
-      },
-      (reason) => {
-        try {
-          if (observable()) opts.ctOverlap?.observe?.(provider, { status: "rejected", reason }, domain);
-        } catch { /* observational only */ }
-        throw reason;
-      },
-    );
-  };
+  }
+  const ctReleasePromise = raceCertificateTransparencyFirstSuccess({
+    ctCache,
+    domain,
+    module: "subdomains",
+    accounting,
+    signal: opts.signal,
+    observeTerminal: (provider, value) => {
+      try {
+        opts.ctOverlap?.observe?.(provider, { status: "fulfilled", value }, domain);
+      } catch { /* observational only */ }
+    },
+    wrapProviderWait: (provider, promise) => timedSubOp(`ct_wait_${provider}`, promise),
+  });
 
   // ── Fire all 4 network calls in parallel ────────────────────────────────
-  const [wASettled, wAAAASettled, crtShSettled, certSpotterSettled] =
+  const [wASettled, wAAAASettled, ctReleaseSettled] =
     await Promise.allSettled([
       timedSubOp("wildcard_dns_a", dnsQuery(wildcardHost, "A", { accounting, cache })),
       timedSubOp("wildcard_dns_aaaa", dnsQuery(wildcardHost, "AAAA", { accounting, cache })),
-      timedSubOp("ct_wait_crt_sh", observedCtGet("crt_sh")),
-      timedSubOp("ct_wait_certspotter", observedCtGet("certspotter")),
+      ctReleasePromise,
     ]);
+  const ctRelease = ctReleaseSettled.status === "fulfilled" ? ctReleaseSettled.value : null;
+  const crtShSettled = ctRelease
+    ? { status: "fulfilled", value: ctRelease.providers.crt_sh }
+    : { status: "rejected", reason: ctReleaseSettled.reason };
+  const certSpotterSettled = ctRelease
+    ? { status: "fulfilled", value: ctRelease.providers.certspotter }
+    : { status: "rejected", reason: ctReleaseSettled.reason };
 
   // ── Wildcard DNS result ─────────────────────────────────────────────────
   const aAnswers    = wASettled.status    === "fulfilled" ? (wASettled.value.Answer    || []) : [];

@@ -42,7 +42,7 @@ const jsonResponse = (body) => ({ ok: true, headers: { get: (h) => (h.toLowerCas
   globalThis.fetch = async (url) => {
     const u = String(url);
     if (u.includes("crt.sh")) { ctStart = performance.now(); events.push(["ct_start", ctStart]); await sleep(120); return jsonResponse(crtBody); }
-    if (u.includes("certspotter")) { return jsonResponse([]); }
+    if (u.includes("certspotter")) { await sleep(160); return jsonResponse([]); }
     // reachability probes (https/http HEAD via safeFetch) — a few sequential hops.
     await sleep(40);
     reachEnd = performance.now();
@@ -78,7 +78,7 @@ const jsonResponse = (body) => ({ ok: true, headers: { get: (h) => (h.toLowerCas
   ok("CT resolver returns a normalised SAN array with a consistent count", Array.isArray(cert.cert_san_names) && cert.cert_san_count === cert.cert_san_names.length);
 }
 
-// ── 3. certspotter fallback still fires only when crt.sh yields nothing ───────
+// ── 3. parallel CertSpotter evidence supplies fields when crt.sh is empty ─────
 {
   const csBody = [{ not_after: future, not_before: past, issuer: { name: "SpotCA" }, dns_names: ["acme.example"] }];
   let crtCalls = 0, csCalls = 0;
@@ -90,8 +90,8 @@ const jsonResponse = (body) => ({ ok: true, headers: { get: (h) => (h.toLowerCas
   };
   const cert = await resolveCertificateTransparency("acme.example");
   globalThis.fetch = realFetch;
-  ok("crt.sh queried first", crtCalls === 1);
-  ok("certspotter fallback used when crt.sh empty", csCalls === 1 && cert.cert_issuer === "SpotCA");
+  ok("both CT providers are launched once", crtCalls === 1 && csCalls === 1);
+  ok("CertSpotter evidence is used when crt.sh is empty", cert.cert_issuer === "SpotCA");
 }
 
 // ── 4. CT failure is best-effort (nulls), never throws into the scan ──────────

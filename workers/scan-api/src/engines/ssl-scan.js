@@ -6,6 +6,7 @@ import { safeFetch } from "../lib/http.js";
 import { customerSafeFailure } from "../lib/errors.js";
 import { aggregateFetchObservations, classifyFetchObservation } from "../lib/fetch-observation.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
+import { raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
 import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertificateSanNames } from "./hostnames.js";
 
 // ── Module 2: SSL Detection ───────────────────────────────────────────────────
@@ -53,12 +54,24 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
   let cert_shared_san_count = null;
   let cert_san_names   = [];
   const ct_sources = { crt_sh: null, certspotter: null };
+  let providerResults;
   try {
-    const crtResult = await ctCache.get(domain, "crt_sh", {
-      accounting,
+    providerResults = (await raceCertificateTransparencyFirstSuccess({
+      ctCache,
+      domain,
       module: "ssl",
+      accounting,
       signal: opts.signal,
-    });
+    })).providers;
+  } catch (err) {
+    const error = customerSafeFailure("scan/ct/first-success", err, "CT orchestration failed");
+    providerResults = {
+      crt_sh: { status: "unavailable", data: null, error },
+      certspotter: { status: "unavailable", data: null, error },
+    };
+  }
+  try {
+    const crtResult = providerResults.crt_sh;
     ct_sources.crt_sh = projectSslCtSource(crtResult);
     if (crtResult.status === "available") {
       const certs = crtResult.data.filter((certificate) =>
@@ -104,18 +117,14 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
     };
   }
 
-  // Fallback: crt.sh is frequently slow/flaky, so if it yielded no usable
-  // certificate, try certspotter (a second CT source). This prevents a single
-  // source's timeout from leaving the inventory showing "Unknown" issuer/expiry
-  // for a host that plainly serves a valid certificate.
+  // Both providers were launched together. Preserve CertSpotter's source result
+  // whenever it was terminal before release, but use its certificate fields only
+  // when crt.sh did not already supply the selected certificate. A later physical
+  // result remains telemetry and cannot mutate this released object.
+  const certSpotterResult = providerResults.certspotter;
+  ct_sources.certspotter = projectSslCtSource(certSpotterResult);
   if (cert_not_after == null) {
     try {
-      const certSpotterResult = await ctCache.get(domain, "certspotter", {
-        accounting,
-        module: "ssl",
-        signal: opts.signal,
-      });
-      ct_sources.certspotter = projectSslCtSource(certSpotterResult);
       if (certSpotterResult.status === "available") {
         const issuances = certSpotterResult.data.filter((issuance) =>
           coversRootDomain(
