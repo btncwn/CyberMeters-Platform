@@ -506,6 +506,19 @@ jobs:
       - name: Validate Website Security lifecycle (flood guard / unknown≠recovery / band escalation / reappearance, mutation-tested)
         run: node scripts/validate-website-security-lifecycle.js
 
+      # RWS.5 Option A + H-A — the three cookie-attribute findings have one owner
+      # across projection, remediation, cases, alerts and verification. The focused
+      # D1 suite pins the zero-cookie epistemic boundary, exact legacy ASM-case
+      # compatibility, tenant/soft-delete isolation and resolver-version history.
+      # Nine semantic mutants prove broad dse_* removal, dual ownership, false
+      # zero-cookie resolution, duplicate cases, wrong alert domains and historical
+      # rewriting cannot pass through setup/import errors or partial assertions.
+      - name: Validate RWS.5 cookie ownership (Option A + H-A)
+        run: node scripts/validate-rws5-cookie-ownership.js
+
+      - name: Validate RWS.5 cookie ownership semantic mutations
+        run: node scripts/validate-rws5-cookie-ownership-mutations.js
+
       # Cyber Essentials is the 8th and last canonical alerting domain, and the one
       # with the most ways to be dishonest. It detects nothing of its own, so it owns
       # only control-theme READINESS transitions — never a second "we found X" for a

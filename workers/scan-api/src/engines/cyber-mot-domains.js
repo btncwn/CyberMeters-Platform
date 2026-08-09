@@ -1,5 +1,6 @@
 import { DMARC_MOT_CONTRIBUTION } from "./dmarc-canonical-consumers.js";
 import { resolveSignalMonitoringCoverage } from "./signal-monitoring-state.js";
+import { isCookieFindingType } from "./cookie-observation.js";
 // ── Canonical eight-domain Cyber MOT coverage-state resolver ──────────────────
 // ONE source of truth for "what state is each of the eight customer-facing Cyber MOT
 // domains in?" — consumed by the Main Dashboard, Scan Detail, Executive Report UI and
@@ -54,7 +55,10 @@ import { resolveSignalMonitoringCoverage } from "./signal-monitoring-state.js";
 // `.4` (24 July 2026): Evidence-Grade Law pilot. A favourable 2-of-5 external
 // Cyber Essentials indicator can no longer promote the full five-control
 // domain to assessed_healthy; three controls remain customer-attestation-only.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-07-24.4";
+// `2026-08-09.1`: RWS.5 atomically transfers the three cookie-attribute finding
+// identities from Attack Surface to Website Security. Persisted earlier rows keep
+// their original bytes; the existing version gate makes the boundary not_comparable.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-08-09.1";
 
 // Fixed canonical enum — the resolver contract layer. UI maps these to friendly
 // labels; the source state stays stable.
@@ -106,7 +110,8 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     required: ["subdomains", "dns"],
     monitoring_signals: ["certificate_transparency"],
     monitoring_degradation_message: "Attack-surface and subdomain discovery coverage was incomplete this run.",
-    match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|dse_|cve_|kev_|cloud_|dns_)/.test(f.id || ""),
+    match: (f) => !isCookieFindingType(f?.id)
+      && /^(asset_|subdomain_|admin_|takeover_|exposure_|dse_|cve_|kev_|cloud_|dns_)/.test(f?.id || ""),
     maturity: "M3", managed_status: "managed_case",
     limitations: ["External observation only; no internal-network discovery. Subdomain coverage depends on public Certificate Transparency logs."],
   },
@@ -138,7 +143,8 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     description: "Passive external website health — HTTPS, redirects, security headers and DNS availability.",
     modules: ["headers", "ssl", "dns"],
     required: ["headers", "ssl"],
-    match: (f) => /^(header_|https_|redirect_|canonical_|ssl_|tech_)/.test(f.id || ""),
+    match: (f) => isCookieFindingType(f?.id)
+      || /^(header_|https_|redirect_|canonical_|ssl_|tech_)/.test(f?.id || ""),
     maturity: "M2", managed_status: "recommendations",
     limitations: ["Passive external check only; no active, authenticated or intrusive testing."],
   },

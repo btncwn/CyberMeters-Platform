@@ -13,6 +13,11 @@
 // see runDomainSecurityEnrichmentModule) and answers one question: does this exact
 // finding's condition hold right now?
 
+import {
+  cookieEvidenceUsable,
+  cookieFindingPresent,
+} from "./cookie-observation.js";
+
 export const HSTS_MIN_MAX_AGE = 31_536_000; // 365 days — the preload-list minimum.
 
 // ── Presence predicates ──────────────────────────────────────────────────────
@@ -26,9 +31,6 @@ function caaUsable(enrich) {
 }
 function hstsUsable(enrich) {
   return Boolean(enrich?.hsts && !enrich.hsts.error);
-}
-function cookiesUsable(enrich) {
-  return Boolean(enrich?.cookies && !enrich.cookies.error);
 }
 
 // Which sub-signal each finding depends on. Used to decide whether a verification
@@ -47,7 +49,7 @@ export function dsePresenceEvidenceUsable(findingId, enrich) {
   switch (DSE_EVIDENCE_SOURCE[findingId]) {
     case "caa":     return caaUsable(enrich);
     case "hsts":    return hstsUsable(enrich);
-    case "cookies": return cookiesUsable(enrich);
+    case "cookies": return cookieEvidenceUsable(enrich);
     default:        return false;
   }
 }
@@ -77,14 +79,11 @@ export const DSE_PRESENCE = Object.freeze({
     hstsUsable(enrich) && enrich.hsts.present
     && !enrich.hsts.preload_eligible && hstsPreloadGaps(enrich.hsts).length > 0,
 
-  dse_cookie_no_secure: (enrich) =>
-    cookiesUsable(enrich) && enrich.cookies.found > 0 && enrich.cookies.insecure_count > 0,
+  dse_cookie_no_secure: (enrich) => cookieFindingPresent("dse_cookie_no_secure", enrich),
 
-  dse_cookie_no_httponly: (enrich) =>
-    cookiesUsable(enrich) && enrich.cookies.found > 0 && enrich.cookies.no_httponly > 0,
+  dse_cookie_no_httponly: (enrich) => cookieFindingPresent("dse_cookie_no_httponly", enrich),
 
-  dse_cookie_no_samesite: (enrich) =>
-    cookiesUsable(enrich) && enrich.cookies.found > 0 && enrich.cookies.no_samesite > 0,
+  dse_cookie_no_samesite: (enrich) => cookieFindingPresent("dse_cookie_no_samesite", enrich),
 });
 
 export function isDseFindingType(findingId) {

@@ -1,10 +1,10 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.08.09-item10-p5-arm1b-arm2.7d6dfc11a3d8",
-  "closure_sha256": "7d6dfc11a3d89707c66a08f71e5cfd2e0a646577cf1e42d817d97d3ad1f7f0e7",
-  "closure_file_count": 85,
-  "scan_api_file_count": 83,
+  "app_version": "2026.08.09-rws5-cookie-option-a-ha.19560f2296c0",
+  "closure_sha256": "19560f2296c0b412597ee7e4585c7e3c7a280d9a4c1ced60a3b59fe1809eff87",
+  "closure_file_count": 86,
+  "scan_api_file_count": 84,
   "files": [
     "shared/cyber-essentials-questions.js",
     "workers/email-ingest/src/index.js",
@@ -31,6 +31,7 @@
     "workers/scan-api/src/engines/certificate-signal-completeness.js",
     "workers/scan-api/src/engines/cloud-storage-scan.js",
     "workers/scan-api/src/engines/confidence.js",
+    "workers/scan-api/src/engines/cookie-observation.js",
     "workers/scan-api/src/engines/current-posture.js",
     "workers/scan-api/src/engines/customer-alert-presentation.js",
     "workers/scan-api/src/engines/cyber-mot-domains.js",

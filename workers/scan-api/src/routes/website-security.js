@@ -110,9 +110,9 @@ export async function websiteSecurityRoutes(rctx) {
   // ── GET /website-security/conditions/:id — record + append-only history ────
   if (request.method === "GET" && (!sub || sub === "history")) {
     const events = await listWebsiteSecurityEvents(env, wsId, recId);
-    // linked_case_id is serialised for shape stability but nothing writes it for this
-    // domain yet, so it is always null. The lookup is here so the field means the same
-    // thing the day case creation lands; it must never imply a case exists today.
+    // linked_case_id resolves both canonical Website cases and the bounded H-A
+    // presentation link to an immutable historical ASM cookie case. The row itself
+    // remains authoritative for its original case_type/domain; this read never relabels it.
     let linked_case = null;
     if (rec.linked_case_id) {
       linked_case = await env.cybermeters_db

@@ -82,6 +82,7 @@ const lifecycle = await import(eng("website-security-lifecycle.js"));
 const cases = await import(eng("website-security-cases.js"));
 const model = await import(eng("managed-case-model.js"));
 const registry = await import(eng("remediation-registry.js"));
+const { COOKIE_FINDING_TYPES } = await import(eng("cookie-observation.js"));
 const { SECURITY_HEADERS } = await import(pathToFileURL(srcPath("engines", "security-headers-config.js")).href);
 
 // Baseline the domain, then observe the condition: only a post-baseline appearance is a
@@ -103,9 +104,9 @@ async function baselineThen(env, findings, opts = COMPLETE) {
 // to something a customer could self-certify, fails HERE.
 {
   const slug = (n) => String(n).toLowerCase().replace(/-/g, "_");
-  const keys = ["ssl_not_available", "ssl_no_http_redirect"];
+  const keys = ["ssl_not_available", "ssl_no_http_redirect", ...COOKIE_FINDING_TYPES];
   for (const h of SECURITY_HEADERS) keys.push(`header_missing_${slug(h.name)}`, `header_malformed_${slug(h.name)}`);
-  eq("all 14 condition keys enumerated (2 ssl + 6 headers × 2)", keys.length, 14);
+  eq("all 17 condition keys enumerated (2 ssl + 6 headers × 2 + 3 cookies)", keys.length, 17);
 
   for (const k of keys) {
     const spec = lifecycle.websiteConditionSpec(k);

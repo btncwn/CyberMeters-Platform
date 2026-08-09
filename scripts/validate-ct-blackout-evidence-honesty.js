@@ -33,6 +33,10 @@ async function loadDomainResolver() {
     .replace(
       'from "./signal-monitoring-state.js";',
       `from "${eng("signal-monitoring-state.js")}";`
+    )
+    .replace(
+      'from "./cookie-observation.js";',
+      `from "${eng("cookie-observation.js")}";`
     );
   let target;
   let replacement;
