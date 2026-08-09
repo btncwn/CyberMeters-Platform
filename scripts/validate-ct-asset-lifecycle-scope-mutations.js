@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // PR-2B-1 pinned fresh-process mutation proof.
 //
-// A semantic kill counts only when the fixture reaches its normal 41-contract
+// A semantic kill counts only when the fixture reaches its normal 54-contract
 // summary, exits 1, and returns the exact ordered predeclared FAIL set. Syntax,
 // import and wrong-reason failures are rejected controls. Target bytes and the
 // complete worktree fingerprint must remain unchanged.
@@ -19,7 +19,7 @@ const shadowSourcePath = path.join(
   root, "workers/scan-api/src/engines/shadow-it-inventory.js",
 );
 const validator = path.join(root, "scripts/validate-ct-asset-lifecycle-scope.js");
-const ASSERTION_TOTAL = 41;
+const ASSERTION_TOTAL = 54;
 const returnBlock = `  return {
     dns_resolution: { state, reason },
     http_https_service: { state, reason },
@@ -37,6 +37,12 @@ const semanticMutants = Object.freeze([
       "DEGRADED_NO_REOPEN_EVENT",
       "DEADLINE_EXPLICIT_NOT_ASSESSED",
       "DEADLINE_NO_ABSENCE_STATE",
+      "BOUNDED_EXPLICIT_NOT_ASSESSED",
+      "BOUNDED_QUALIFYING_CLOCK_PRESERVED",
+      "BOUNDED_ROWS_NEVER_QUALIFY",
+      "BOUNDED_REASON_IS_EXPLICIT",
+      "BOUNDED_NO_RESET_OF_REMOVED_STATE",
+      "BOUNDED_NO_REOPEN_EVENT",
       "SEQUENCE_THIRD_ASSESSABLE_CONFIRMS",
     ],
   },
@@ -53,6 +59,10 @@ const semanticMutants = Object.freeze([
       "DEGRADED_ROWS_NEVER_QUALIFY",
       "DEADLINE_EXPLICIT_NOT_ASSESSED",
       "DEADLINE_NO_ABSENCE_STATE",
+      "BOUNDED_EXPLICIT_NOT_ASSESSED",
+      "BOUNDED_QUALIFYING_CLOCK_PRESERVED",
+      "BOUNDED_ROWS_NEVER_QUALIFY",
+      "BOUNDED_REASON_IS_EXPLICIT",
       "SEQUENCE_DEGRADED_DOES_NOT_RESET_CLOCK",
       "SEQUENCE_NEXT_HEALTHY_RESUMES_AT_TWO",
       "SEQUENCE_NOT_PREMATURELY_REMOVED",
@@ -73,6 +83,11 @@ const semanticMutants = Object.freeze([
       "DEGRADED_NO_REOPEN_EVENT",
       "DEADLINE_EXPLICIT_NOT_ASSESSED",
       "DEADLINE_NO_ABSENCE_STATE",
+      "BOUNDED_EXPLICIT_NOT_ASSESSED",
+      "BOUNDED_NO_ABSENCE_PROGRESS",
+      "BOUNDED_REASON_IS_EXPLICIT",
+      "BOUNDED_NO_RESET_OF_REMOVED_STATE",
+      "BOUNDED_NO_REOPEN_EVENT",
       "SEQUENCE_THIRD_ASSESSABLE_CONFIRMS",
     ],
   },

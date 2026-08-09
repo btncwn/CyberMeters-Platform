@@ -18,6 +18,7 @@ import {
   lifecycleTimestampValiditySql,
   normalizeLifecycleTimestamp,
 } from "./asset-lifecycle-event-support.js";
+import { normalizeBoundedCoverageState } from "./bounded-coverage.js";
 
 const MAX_RECHECK_HOSTS = 50;
 
@@ -105,7 +106,7 @@ function groupHistoricalObservations(rows) {
   return { byAsset, seenScan, invalidAssetIds };
 }
 
-function notAssessedSignals() {
+export function notAssessedSignals() {
   return {
     dns_resolution: { state: "not_assessed", reason: "asset_not_in_active_recheck_envelope" },
     http_https_service: { state: "not_assessed", reason: "asset_not_in_active_recheck_envelope" },
@@ -123,7 +124,7 @@ function normalizeRemovalObservation(row) {
   };
 }
 
-function ctDiscoveryScopeSignals(asset, subdomainDiscovery) {
+export function ctDiscoveryScopeSignals(asset, subdomainDiscovery) {
   if (asset?.source !== "certificate_transparency") return null;
 
   // Follow the subdomain module's explicit scope carrier. Do not independently
@@ -134,10 +135,21 @@ function ctDiscoveryScopeSignals(asset, subdomainDiscovery) {
     ? "not_assessed"
     : subdomainDiscovery.incomplete === true
       ? "incomplete"
-      : null;
+      : normalizeBoundedCoverageState(
+          subdomainDiscovery.discovery_coverage?.coverage_state,
+        ) === "bounded"
+        ? "not_assessed"
+        : null;
   if (!state) return null;
 
+  const bounded = Boolean(subdomainDiscovery) &&
+    subdomainDiscovery.executed !== false &&
+    subdomainDiscovery.incomplete !== true &&
+    normalizeBoundedCoverageState(
+      subdomainDiscovery.discovery_coverage?.coverage_state,
+    ) === "bounded";
   const reason = subdomainDiscovery?.incomplete_reason ||
+    (bounded ? "bounded_ct_discovery_scope" : null) ||
     (state === "not_assessed"
       ? "discovery_not_evaluated"
       : "discovery_sources_incomplete");

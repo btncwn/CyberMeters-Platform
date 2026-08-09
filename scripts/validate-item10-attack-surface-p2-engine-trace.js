@@ -219,7 +219,7 @@ async function run(scanId, when, mode) {
   const report = JSON.parse(reports.get(`reports/${scanId}.json`) || "{}");
   eq(`${scanId} report attaches nine-signal model`,
     report.modules?.attack_surface_signal_completeness?.model_version,
-    "attack-surface-signal-completeness-v1");
+    "attack-surface-signal-completeness-v2");
   eq(`${scanId} report retains all nine independent signals`,
     Object.keys(report.modules?.attack_surface_signal_completeness?.signals || {}).length,
     9);

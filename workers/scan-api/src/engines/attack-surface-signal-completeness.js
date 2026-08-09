@@ -1,11 +1,12 @@
 // ── Item 10 Attack Surface per-signal evidence contract ─────────────────────
 //
-// P1 is deliberately pure: no D1/R2/network I/O and no production caller.
+// P1 is a pure resolver with production importers: no D1/R2/network I/O.
 // Each signal resolves independently so a failed sibling cannot erase reliable
 // evidence. The state vocabulary is closed and non-overlapping.
+import { normalizeBoundedCoverageState } from "./bounded-coverage.js";
 
 export const ATTACK_SURFACE_SIGNAL_COMPLETENESS_VERSION =
-  "attack-surface-signal-completeness-v1";
+  "attack-surface-signal-completeness-v2";
 
 export const ATTACK_SURFACE_SIGNAL_STATES = Object.freeze([
   "observed",
@@ -64,6 +65,8 @@ function signal(state, reason, {
   evidence_count = 0,
   sources = [],
   limitations = [],
+  coverage_state = null,
+  coverage = null,
 } = {}) {
   if (!STATE_SET.has(state)) {
     throw new TypeError(`Unsupported Attack Surface signal state: ${state}`);
@@ -74,6 +77,10 @@ function signal(state, reason, {
     evidence_count,
     sources: [...new Set(sources.filter(Boolean))],
     limitations: [...new Set(limitations.filter(Boolean))],
+    ...(coverage_state == null ? {} : {
+      coverage_state: normalizeBoundedCoverageState(coverage_state),
+      coverage: coverage && typeof coverage === "object" ? coverage : null,
+    }),
   };
 }
 
@@ -86,6 +93,13 @@ function sourceErrors(module) {
 function resolveSubdomainDiscovery(modules) {
   const ct = modules?.subdomains;
   const brute = modules?.dns_bruteforce;
+  const coverage = ct?.discovery_coverage || null;
+  const coverageState = normalizeBoundedCoverageState(coverage?.coverage_state);
+  const discoverySignal = (state, reason, detail = {}) => signal(state, reason, {
+    ...detail,
+    coverage_state: coverageState,
+    coverage,
+  });
   const ctItems = ct?.items || [];
   const bruteItems = brute?.items || [];
   const observedCount = new Set([
@@ -105,14 +119,14 @@ function resolveSubdomainDiscovery(modules) {
   ];
 
   if (observedCount > 0) {
-    return signal("observed", "hostname_observed", {
+    return discoverySignal("observed", "hostname_observed", {
       evidence_count: observedCount,
       sources,
       limitations,
     });
   }
   if (moduleNotAssessed(ct) && moduleNotAssessed(brute)) {
-    return signal("not_assessed", "discovery_not_evaluated", { sources });
+    return discoverySignal("not_assessed", "discovery_not_evaluated", { sources });
   }
 
   const ctUnavailable = Boolean(ct?.error || ct?.ct_error) &&
@@ -120,7 +134,7 @@ function resolveSubdomainDiscovery(modules) {
   const bruteUnavailable = Boolean(brute?.error);
   if ((moduleNotAssessed(ct) || ctUnavailable) &&
       (moduleNotAssessed(brute) || bruteUnavailable)) {
-    return signal("unavailable", "all_discovery_sources_unavailable", {
+    return discoverySignal("unavailable", "all_discovery_sources_unavailable", {
       sources,
       limitations,
     });
@@ -143,12 +157,18 @@ function resolveSubdomainDiscovery(modules) {
     Number.isFinite(Number(brute.checked))
   );
   if (!ctComplete || !bruteComplete) {
-    return signal("incomplete", "discovery_sources_incomplete", {
+    return discoverySignal("incomplete", "discovery_sources_incomplete", {
       sources,
       limitations,
     });
   }
-  return signal("not_observed", "complete_discovery_no_hostname", { sources });
+  if (coverageState === "bounded") {
+    return discoverySignal("not_observed", "bounded_discovery_no_hostname", { sources });
+  }
+  if (coverageState === "not_recorded") {
+    return discoverySignal("not_observed", "discovery_coverage_not_recorded_no_hostname", { sources });
+  }
+  return discoverySignal("not_observed", "complete_discovery_no_hostname", { sources });
 }
 
 // Exported so customer SCORING consumes the identical DNS semantics rather than
@@ -279,12 +299,19 @@ function resolveTechnology(modules) {
 function resolveExposureAdminSurface(modules) {
   const exposure = modules?.asset_exposure;
   const admin = modules?.admin_surface_detection;
+  const coverage = exposure?.probe_coverage || null;
+  const coverageState = normalizeBoundedCoverageState(coverage?.coverage_state);
+  const exposureSignal = (state, reason, detail = {}) => signal(state, reason, {
+    ...detail,
+    coverage_state: coverageState,
+    coverage,
+  });
   const reachable = (exposure?.assets || [])
     .filter((asset) => asset?.reachable === true);
   const services = (admin?.services || [])
     .filter((service) => service?.finding_type !== "observation");
   if (reachable.length > 0 || services.length > 0) {
-    return signal("observed", "exposure_or_admin_surface_observed", {
+    return exposureSignal("observed", "exposure_or_admin_surface_observed", {
       evidence_count: reachable.length + services.length,
       sources: ["http_probe", "asset_exposure_fingerprint"],
       limitations: exposure?.incomplete === true
@@ -293,27 +320,37 @@ function resolveExposureAdminSurface(modules) {
     });
   }
   if (moduleNotAssessed(exposure) && moduleNotAssessed(admin)) {
-    return signal("not_assessed", "exposure_admin_not_evaluated", {
+    return exposureSignal("not_assessed", "exposure_admin_not_evaluated", {
       sources: ["http_probe", "asset_exposure_fingerprint"],
     });
   }
   if (exposure?.error && !(exposure?.assets || []).length) {
-    return signal("unavailable", "exposure_admin_evidence_unavailable", {
+    return exposureSignal("unavailable", "exposure_admin_evidence_unavailable", {
       sources: ["http_probe", "asset_exposure_fingerprint"],
     });
   }
   if (exposure?.incomplete === true || admin?.evidence_status === "unavailable") {
-    return signal("incomplete", "exposure_admin_evidence_incomplete", {
+    return exposureSignal("incomplete", "exposure_admin_evidence_incomplete", {
       sources: ["http_probe", "asset_exposure_fingerprint"],
       limitations: [exposure?.incomplete_reason],
     });
   }
   if (finiteCount(exposure?.checked) === 0) {
-    return signal("not_assessed", "no_exposure_admin_targets", {
+    return exposureSignal("not_assessed", "no_exposure_admin_targets", {
       sources: ["http_probe", "asset_exposure_fingerprint"],
     });
   }
-  return signal("not_observed", "complete_exposure_admin_probe_no_signal", {
+  if (coverageState === "bounded") {
+    return exposureSignal("not_observed", "bounded_exposure_admin_probe_no_signal", {
+      sources: ["http_probe", "asset_exposure_fingerprint"],
+    });
+  }
+  if (coverageState === "not_recorded") {
+    return exposureSignal("not_observed", "exposure_admin_coverage_not_recorded_no_signal", {
+      sources: ["http_probe", "asset_exposure_fingerprint"],
+    });
+  }
+  return exposureSignal("not_observed", "complete_exposure_admin_probe_no_signal", {
     sources: ["http_probe", "asset_exposure_fingerprint"],
   });
 }

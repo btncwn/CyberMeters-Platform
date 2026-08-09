@@ -1,5 +1,6 @@
 // ── Subdomain discovery + brute-force scan module ──
-// CT-log + RDAP-based subdomain discovery, sensitive-label classification, and a bounded
+// Multi-source Certificate Transparency (crt.sh + CertSpotter) subdomain discovery,
+// sensitive-label classification, and a bounded
 // DNS brute-force pass with wildcard filtering. Extracted verbatim from index.js (monolith
 // decomposition, Phase 1c). Only the three run*/filter* entry points are public; the label
 // sets, isSensitiveSubdomain and _subdomainsCoreWork are module-internal.
@@ -8,6 +9,7 @@ import { normalizeDiscoveredHostname } from "./hostnames.js";
 import { customerSafeFailure } from "../lib/errors.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
 import { raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
+import { coverageStateFromTruncation } from "./bounded-coverage.js";
 
 /**
  * Subdomain names whose presence suggests a development, staging, or
@@ -275,6 +277,18 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
 
   const seen    = new Set();
   const sources = { crt_sh: null, certspotter: null };
+  let crtRowsReceived = null;
+  let crtRowsExamined = null;
+  let crtRowDroppedCount = null;
+  let crtRowCapReached = null;
+  let crtUniqueTotal = null;
+  let crtUniqueKept = null;
+  let crtUniqueDroppedCount = null;
+  let crtProviderCapReached = null;
+  let certSpotterUniqueTotal = null;
+  let certSpotterUniqueKept = null;
+  let certSpotterUniqueDroppedCount = null;
+  let certSpotterProviderCapReached = null;
 
   // ── Source 1: crt.sh ───────────────────────────────────────────────────
   try {
@@ -292,6 +306,21 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
         const name = String(raw || "").trim().toLowerCase().replace(/\.$/, "");
         return name !== rootDomain && name.endsWith(`.${rootDomain}`);
       }));
+      crtRowsReceived = rawData.length;
+      crtRowsExamined = Math.min(rawData.length, 2_000);
+      crtRowDroppedCount = Math.max(0, rawData.length - crtRowsExamined);
+      crtRowCapReached = rawData.length > 2_000;
+      const crtCandidates = new Set();
+      for (const entry of rawData.slice(0, 2_000)) {
+        for (const raw of [
+          ...(entry.name_value || "").split(/\n/),
+          entry.common_name || "",
+        ]) {
+          const name = normalizeDiscoveredHostname(raw, domain);
+          if (name) crtCandidates.add(name);
+        }
+      }
+      crtUniqueTotal = crtCandidates.size;
       const before = seen.size;
       outer: for (const entry of rawData.slice(0, 2_000)) {
         const names = [
@@ -305,7 +334,10 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
           if (seen.size - before >= PER_CAP) break outer;
         }
       }
-      sources.crt_sh = projectSubdomainCtSource(result, seen.size - before);
+      crtUniqueKept = seen.size - before;
+      crtUniqueDroppedCount = Math.max(0, crtUniqueTotal - crtUniqueKept);
+      crtProviderCapReached = crtUniqueTotal > crtUniqueKept;
+      sources.crt_sh = projectSubdomainCtSource(result, crtUniqueKept);
     }
   } catch (err) {
     sources.crt_sh = { count: 0, error: customerSafeFailure("scan/ct/crt-sh-parse", err, "parse error") };
@@ -320,6 +352,17 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     } else if (result.status === "unavailable") {
       sources.certspotter = projectSubdomainCtSource(result);
     } else {
+      const seenBeforeCertSpotter = new Set(seen);
+      const certSpotterCandidates = new Set();
+      for (const entry of result.data) {
+        for (const name of entry.dns_names || []) {
+          const normalized = normalizeDiscoveredHostname(name, domain);
+          if (normalized && !seenBeforeCertSpotter.has(normalized)) {
+            certSpotterCandidates.add(normalized);
+          }
+        }
+      }
+      certSpotterUniqueTotal = certSpotterCandidates.size;
       const before = seen.size;
       outer: for (const entry of result.data) {
         for (const name of entry.dns_names || []) {
@@ -329,7 +372,10 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
           if (seen.size - before >= PER_CAP) break outer;
         }
       }
-      sources.certspotter = projectSubdomainCtSource(result, seen.size - before);
+      certSpotterUniqueKept = seen.size - before;
+      certSpotterUniqueDroppedCount = Math.max(0, certSpotterUniqueTotal - certSpotterUniqueKept);
+      certSpotterProviderCapReached = certSpotterUniqueTotal > certSpotterUniqueKept;
+      sources.certspotter = projectSubdomainCtSource(result, certSpotterUniqueKept);
     }
   } catch (err) {
     sources.certspotter = { count: 0, error: customerSafeFailure("scan/ct/certspotter-parse", err, "parse error") };
@@ -366,6 +412,40 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   const items     = [...seen].slice(0, MERGE_CAP).sort();
   const sensitive = items.filter((h) => isSensitiveSubdomain(h, domain));
   const ctCoverageDegraded = !!(sources.crt_sh?.error || sources.certspotter?.error);
+  const mergedCandidateTotal = seen.size;
+  const mergedDroppedCount = Math.max(0, mergedCandidateTotal - items.length);
+  const mergedCapReached = mergedCandidateTotal > items.length;
+  const capReached = crtRowCapReached === true ||
+    crtProviderCapReached === true ||
+    certSpotterProviderCapReached === true ||
+    mergedCapReached;
+  const discoveryCoverage = {
+    crt_sh: {
+      rows_received: crtRowsReceived,
+      rows_examined: crtRowsExamined,
+      rows_available: null,
+      dropped_count: crtRowDroppedCount,
+      row_cap_reached: crtRowCapReached,
+    },
+    per_provider: {
+      crt_sh_unique_total: crtUniqueTotal,
+      crt_sh_unique_kept: crtUniqueKept,
+      crt_sh_dropped_count: crtUniqueDroppedCount,
+      crt_sh_cap_reached: crtProviderCapReached,
+      certspotter_unique_total: certSpotterUniqueTotal,
+      certspotter_unique_kept: certSpotterUniqueKept,
+      certspotter_dropped_count: certSpotterUniqueDroppedCount,
+      certspotter_cap_reached: certSpotterProviderCapReached,
+    },
+    merged: {
+      candidate_total: mergedCandidateTotal,
+      kept: items.length,
+      dropped_count: mergedDroppedCount,
+      cap_reached: mergedCapReached,
+      selection_order: "provider_response",
+    },
+    coverage_state: coverageStateFromTruncation(capReached),
+  };
 
   return {
     count:              items.length,
@@ -373,6 +453,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     sensitive,
     source:             SOURCE,
     sources,
+    discovery_coverage: discoveryCoverage,
     wildcard_dns:       wildcardDns,
     wildcard_dns_addresses: wildcardDnsAddresses,
     wildcard_test_host: wildcardHost,

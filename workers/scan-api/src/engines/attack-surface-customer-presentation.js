@@ -20,6 +20,10 @@ import {
   ASSET_ALERT_ELIGIBILITY_REASON_CODES,
   ASSET_ALERT_ELIGIBILITY_VERSION,
 } from "./asset-alerts.js";
+import {
+  BOUNDED_COVERAGE_STATES,
+  normalizeBoundedCoverageState,
+} from "./bounded-coverage.js";
 
 export const ATTACK_SURFACE_CUSTOMER_PRESENTATION_SCHEMA =
   "attack-surface-customer-presentation-v1";
@@ -134,6 +138,18 @@ function signalMessage(key, state, presentInModel, reason) {
   if (!presentInModel) {
     return "This signal was not recorded. No security or availability conclusion is inferred.";
   }
+  if (
+    key === "exposure_admin_surface" &&
+    reason === "bounded_exposure_admin_probe_no_signal"
+  ) {
+    return "Exposure / admin surface was not observed in the retained probe set.";
+  }
+  if (
+    key === "subdomain_discovery" &&
+    reason === "bounded_discovery_no_hostname"
+  ) {
+    return "No hostname was observed in the retained discovery set.";
+  }
   switch (state) {
     case "observed":
       return `${label} evidence was observed in the recorded scope. Detection alone does not establish maliciousness or compromise.`;
@@ -150,30 +166,54 @@ function signalMessage(key, state, presentInModel, reason) {
   }
 }
 
+function coverageMessage(key, coverageState, coverage) {
+  if (coverageState === "not_recorded") {
+    return "Coverage was not recorded for this scan. No completeness conclusion is inferred.";
+  }
+  if (coverageState !== "bounded") return "";
+  if (key === "exposure_admin_surface") {
+    const candidateTotal = Number(coverage?.candidate_total);
+    const checked = Number(coverage?.checked);
+    if (Number.isFinite(candidateTotal) && Number.isFinite(checked)) {
+      return `Checked ${checked} of ${candidateTotal} discovered hosts. Hosts beyond this limit were not assessed; no conclusion is drawn about them.`;
+    }
+  }
+  if (key === "subdomain_discovery") {
+    return "Certificate Transparency discovery reached one or more declared limits. Hostnames beyond those limits were not assessed; no completeness conclusion is drawn from the retained set.";
+  }
+  return "A declared coverage limit was reached. Evidence beyond that limit was not assessed and no completeness conclusion is inferred.";
+}
+
 function presentSignal(key, rawSignal, presentInModel) {
   const raw = asObject(rawSignal);
   const validState = SIGNAL_STATE_SET.has(raw?.state);
   const state = presentInModel
     ? (validState ? raw.state : "incomplete")
     : "not_assessed";
+  const coverageState = normalizeBoundedCoverageState(raw?.coverage_state);
+  const coverage = asObject(raw?.coverage);
+  const baseMessage = signalMessage(
+    key,
+    state,
+    presentInModel,
+    raw?.reason,
+  );
+  const boundedMessage = coverageMessage(key, coverageState, coverage);
   return {
     signal_key: key,
     label: SIGNAL_META[key] || key,
     status: presentInModel ? "recorded" : "not_recorded",
     state,
     state_label: SIGNAL_STATE_LABELS[state],
-    customer_message: signalMessage(
-      key,
-      state,
-      presentInModel,
-      raw?.reason,
-    ),
+    customer_message: [baseMessage, boundedMessage].filter(Boolean).join(" "),
     reason: raw?.reason || null,
     evidence_count: Number.isFinite(Number(raw?.evidence_count))
       ? Number(raw.evidence_count)
       : 0,
     sources: stringArray(raw?.sources ?? raw?.sources_json),
     limitations: stringArray(raw?.limitations ?? raw?.limitations_json),
+    coverage_state: coverageState,
+    coverage,
   };
 }
 
@@ -349,6 +389,7 @@ export function buildAttackSurfaceCustomerPresentation({
     },
     state_vocabulary: {
       signals: [...ATTACK_SURFACE_CUSTOMER_SIGNAL_STATES],
+      coverage: [...BOUNDED_COVERAGE_STATES],
       lifecycle: [...ATTACK_SURFACE_CUSTOMER_LIFECYCLE_STATES],
       last_observation: [...ATTACK_SURFACE_CUSTOMER_OBSERVATION_STATES],
     },
@@ -407,6 +448,26 @@ export function attackSurfaceAssuranceFromSnapshot(snapshot) {
 // removal. Re-project only those presentation strings from the preserved
 // internal state/reason identities. The stored object and bytes stay untouched.
 function projectRecordedAttackSurfaceAssurance(recorded) {
+  const recordedSignals = asObject(recorded.signals);
+  const projectedSignals = recordedSignals
+    ? Object.fromEntries(Object.entries(recordedSignals).map(([key, value]) => {
+        const raw = asObject(value) || {};
+        const recordedCoverage = BOUNDED_COVERAGE_STATES.includes(raw.coverage_state);
+        const coverageState = normalizeBoundedCoverageState(raw.coverage_state);
+        const message = recordedCoverage
+          ? String(raw.customer_message || "")
+          : [
+              String(raw.customer_message || ""),
+              coverageMessage(key, coverageState, asObject(raw.coverage)),
+            ].filter(Boolean).join(" ");
+        return [key, {
+          ...raw,
+          customer_message: message,
+          coverage_state: coverageState,
+          coverage: asObject(raw.coverage),
+        }];
+      }))
+    : recorded.signals;
   const lifecycleRecords = Array.isArray(recorded.lifecycle?.records)
     ? recorded.lifecycle.records.map((record) =>
         record?.lifecycle_state === "confirmed_removed"
@@ -439,6 +500,11 @@ function projectRecordedAttackSurfaceAssurance(recorded) {
 
   return {
     ...recorded,
+    state_vocabulary: {
+      ...(recorded.state_vocabulary || {}),
+      coverage: [...BOUNDED_COVERAGE_STATES],
+    },
+    signals: projectedSignals,
     lifecycle: lifecycleRecords
       ? { ...recorded.lifecycle, records: lifecycleRecords }
       : recorded.lifecycle,

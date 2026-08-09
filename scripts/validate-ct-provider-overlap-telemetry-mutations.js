@@ -330,7 +330,7 @@ runMutant({
   expectedFailures: ["exact-base production-result fixture fingerprint"],
   mutate: (source) => replaceExactlyOnce(
     source,
-    "      sources.certspotter = projectSubdomainCtSource(result, seen.size - before);",
+    "      sources.certspotter = projectSubdomainCtSource(result, certSpotterUniqueKept);",
     "      sources.certspotter = projectSubdomainCtSource(result, seen.size);",
     "CertSpotter merge-order count",
   ),
