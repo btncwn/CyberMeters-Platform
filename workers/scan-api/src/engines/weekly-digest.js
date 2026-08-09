@@ -11,6 +11,12 @@ import { enrichEvent, SEVERITY_RANK } from "../lib/exposure-events.js";
 import { collapseCustomerTimelineEvents } from "./timeline-trust.js";
 import { deliverEmail, escapeEmailHtml } from "../lib/lifecycle-email.js";
 import { createId } from "../lib/util.js";
+import {
+  createAssetLifecycleUnavailableProjection,
+  loadAssetLifecycleEventSupport,
+  projectLifecycleCollectionForCustomer,
+  summariseLifecycleClaimProjection,
+} from "./asset-lifecycle-event-support.js";
 
 const DIGEST_TYPE = "lifecycle_weekly_digest";
 const MAX_WORKSPACES_PER_RUN = 200;
@@ -105,30 +111,112 @@ export async function assessmentEvidenceForWindow(env, workspaceId) {
 // Read-only: the week's change events for a workspace, summarised as DISTINCT
 // semantic changes plus the window's assessment evidence.
 export async function computeWeeklyChanges(env, workspaceId) {
-  const rows = await env.cybermeters_db
-    .prepare(
-      `SELECT id, event_type, hostname, severity, description, created_at
+  const lifecycleEventColumns = `id, workspace_id, domain_id, asset_id, scan_id, event_type,
+                                 hostname, severity, description, created_at`;
+  const [legacyRead, lifecycleRead] = await Promise.allSettled([
+    // Compatibility contract: this read is deliberately unbounded. The legacy
+    // total/bySeverity/byCategory/top fields retain their pre-projection meaning.
+    env.cybermeters_db
+      .prepare(
+        `SELECT id, event_type, hostname, severity, description, created_at
        FROM asset_events
        WHERE workspace_id = ? AND created_at > datetime('now', '-7 days')
        ORDER BY created_at DESC`
-    )
-    .bind(workspaceId)
-    .all()
-    .catch(() => ({ results: [] }));
+      )
+      .bind(workspaceId)
+      .all(),
+    // Evidence evaluation has its own lifecycle-only bounded collection. A
+    // large non-lifecycle week therefore cannot truncate lifecycle coverage.
+    env.cybermeters_db
+      .prepare(
+        `SELECT ${lifecycleEventColumns}
+         FROM asset_events
+         WHERE workspace_id = ? AND created_at > datetime('now', '-7 days')
+           AND event_type IN ('asset_no_longer_seen', 'asset_reappeared')
+         ORDER BY created_at DESC, id DESC
+         LIMIT 2001`
+      )
+      .bind(workspaceId)
+      .all(),
+  ]);
 
-  const events = groupSemanticChanges(
-    collapseCustomerTimelineEvents(rows.results || []).map(enrichEvent)
+  // A failed legacy read keeps the historical degradation behaviour (an empty
+  // legacy collection), while the additive honest contract remains unavailable.
+  const rawEvents = legacyRead.status === "fulfilled"
+    ? (legacyRead.value?.results || [])
+    : [];
+  const lifecycleEvents = lifecycleRead.status === "fulfilled"
+    ? (lifecycleRead.value?.results || [])
+    : [];
+  const lifecycleById = new Map(lifecycleEvents.map((event) => [event.id, event]));
+  const projectionEvents = rawEvents.map((event) => lifecycleById.get(event.id) || event);
+  const projection = legacyRead.status === "fulfilled" && lifecycleRead.status === "fulfilled"
+    ? await loadAssetLifecycleEventSupport(env, {
+        workspaceId,
+        events: lifecycleEvents,
+        collectionLimit: 2000,
+        scope: "weekly_digest_7d",
+      })
+    : createAssetLifecycleUnavailableProjection({
+        events: lifecycleEvents,
+        scope: "weekly_digest_7d",
+        coverageReason: "event_collection_read_failed",
+      });
+  const projectionSummary = summariseLifecycleClaimProjection(projectionEvents, projection);
+
+  const legacyChanges = groupSemanticChanges(
+    collapseCustomerTimelineEvents(rawEvents).map(enrichEvent)
   );
-  const bySeverity = {}, byCategory = {};
-  for (const e of events) {
-    bySeverity[e.severity] = (bySeverity[e.severity] || 0) + 1;
-    byCategory[e.category] = (byCategory[e.category] || 0) + 1;
-  }
-  const top = [...events]
-    .sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0))
-    .slice(0, TOP_EVENTS);
+  const projectedChanges = groupSemanticChanges(
+    collapseCustomerTimelineEvents(
+      projectLifecycleCollectionForCustomer(projectionEvents, projection),
+    ).map(enrichEvent)
+  );
+  const customerChanges = projectedChanges.filter((event) =>
+    !["asset_no_longer_seen", "asset_reappeared"].includes(event.event_type) ||
+    event.lifecycle_claim_support?.state === "supported"
+  );
+  const lifecycleReview = projectedChanges.filter((event) =>
+    ["asset_no_longer_seen", "asset_reappeared"].includes(event.event_type) &&
+    event.lifecycle_claim_support?.state !== "supported"
+  );
+  const summariseChanges = (changes) => {
+    const bySeverity = {}, byCategory = {};
+    for (const event of changes) {
+      bySeverity[event.severity] = (bySeverity[event.severity] || 0) + 1;
+      byCategory[event.category] = (byCategory[event.category] || 0) + 1;
+    }
+    const top = [...changes]
+      .sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0))
+      .slice(0, TOP_EVENTS);
+    return { bySeverity, byCategory, top };
+  };
+  const legacySummary = summariseChanges(legacyChanges);
+  const customerSummary = summariseChanges(customerChanges);
   const assessment = await assessmentEvidenceForWindow(env, workspaceId);
-  return { total: events.length, bySeverity, byCategory, top, assessment };
+  const exactCustomerCounts = projectionSummary.coverage === "complete";
+  return {
+    total: legacyChanges.length,
+    bySeverity: legacySummary.bySeverity,
+    byCategory: legacySummary.byCategory,
+    top: legacySummary.top,
+    customer_total: exactCustomerCounts ? customerChanges.length : null,
+    customer_bySeverity: exactCustomerCounts ? customerSummary.bySeverity : null,
+    customer_byCategory: exactCustomerCounts ? customerSummary.byCategory : null,
+    customer_top: exactCustomerCounts ? customerSummary.top : [],
+    lifecycle_review: {
+      total: exactCustomerCounts ? lifecycleReview.length : null,
+      unsupported: exactCustomerCounts ? lifecycleReview.filter((event) =>
+        event.lifecycle_claim_support?.state === "unsupported"
+      ).length : null,
+      uncertain: exactCustomerCounts ? lifecycleReview.filter((event) =>
+        event.lifecycle_claim_support?.state === "uncertain"
+      ).length : null,
+      top: lifecycleReview.slice(0, TOP_EVENTS),
+    },
+    assessment,
+    lifecycle_claim_projection: projectionSummary,
+  };
 }
 
 // Pure: build the digest email. total === 0 splits on assessment evidence:
@@ -144,8 +232,31 @@ export function buildDigestEmail(wsName, changes, origin, workspaceId = null) {
   // Canonical HTML escaper (also escapes quotes) — future-proofs against a value
   // ever being interpolated into an HTML attribute in this builder.
   const esc = escapeEmailHtml;
+  const hasCustomerContract = Object.prototype.hasOwnProperty.call(changes || {}, "customer_total");
+  const total = hasCustomerContract ? changes.customer_total : changes.total;
+  const bySeverity = hasCustomerContract ? changes.customer_bySeverity : changes.bySeverity;
+  const top = hasCustomerContract ? changes.customer_top : changes.top;
 
-  if (changes.total === 0) {
+  if (total === null) {
+    const subject = `Your CyberMeters week — lifecycle support not evaluated for ${name}`;
+    const body = "Support for one or more historical lifecycle records could not be evaluated completely. CyberMeters has not converted that missing evidence into a zero-change or all-clear result.";
+    return {
+      subject,
+      text: `${body}\n\nView your timeline: ${link}`,
+      html: `<h2>Lifecycle support not evaluated</h2><p>${esc(body)}</p><p><a href="${link}">View your timeline →</a></p>`,
+    };
+  }
+
+  if (total === 0) {
+    if (Number(changes.lifecycle_review?.total || 0) > 0) {
+      const subject = `Your CyberMeters week — lifecycle records need review for ${name}`;
+      const body = `${changes.lifecycle_review.total} historical lifecycle record${changes.lifecycle_review.total === 1 ? "" : "s"} could not be counted as evidence-supported changes. CyberMeters has kept those records visible without presenting them as confirmed changes.`;
+      return {
+        subject,
+        text: `${body}\n\nView your timeline: ${link}`,
+        html: `<h2>Lifecycle records need review</h2><p>${esc(body)}</p><p><a href="${link}">View your timeline →</a></p>`,
+      };
+    }
     // Fail closed: an absent assessment object never earns reassurance.
     if (changes.assessment?.coverage !== "complete_assessment") {
       const subject = `Your CyberMeters week — no completed assessment for ${name}`;
@@ -160,23 +271,28 @@ export function buildDigestEmail(wsName, changes, origin, workspaceId = null) {
     return { subject, text, html };
   }
 
-  const sev = changes.bySeverity;
+  const sev = bySeverity || {};
   const sevLine = ["critical", "high", "medium", "low", "info"]
     .filter((s) => sev[s]).map((s) => `${sev[s]} ${s}`).join(" · ");
-  const subject = `Your CyberMeters week — ${changes.total} change${changes.total === 1 ? "" : "s"} on ${name}`;
+  const subject = `Your CyberMeters week — ${total} change${total === 1 ? "" : "s"} on ${name}`;
+  const lifecycleReviewNote = Number(changes.lifecycle_review?.total || 0) > 0
+    ? `\n\n${changes.lifecycle_review.total} additional historical lifecycle record${changes.lifecycle_review.total === 1 ? " was" : "s were"} kept visible but not counted because support was not established.`
+    : "";
   // Honest repetition note: a change re-observed by several scans is ONE change,
   // stated once, with its observation count where it adds information.
   const seen = (e) => (Number(e.occurrences) > 1 ? ` (observed ${e.occurrences} times this week)` : "");
-  const topText = changes.top.map((e) => `• ${e.title}: ${e.description || ""}${seen(e)}`).join("\n");
+  const topText = (top || []).map((e) => `• ${e.title}: ${e.description || ""}${seen(e)}`).join("\n");
   const text =
-    `${changes.total} change${changes.total === 1 ? "" : "s"} to ${name}'s internet-facing exposure this week` +
-    (sevLine ? ` (${sevLine})` : "") + `.\n\n${topText}\n\nView the full timeline: ${link}`;
-  const topHtml = changes.top
+    `${total} change${total === 1 ? "" : "s"} to ${name}'s internet-facing exposure this week` +
+    (sevLine ? ` (${sevLine})` : "") + `.\n\n${topText}${lifecycleReviewNote}\n\nView the full timeline: ${link}`;
+  const topHtml = (top || [])
     .map((e) => `<li><strong>${esc(e.title)}</strong>${e.description ? ` — ${esc(e.description)}` : ""}${esc(seen(e))}</li>`).join("");
   const html =
     `<h2>Your CyberMeters week</h2>` +
-    `<p>${changes.total} change${changes.total === 1 ? "" : "s"} to ${esc(name)}'s internet-facing exposure this week${sevLine ? ` (${esc(sevLine)})` : ""}.</p>` +
-    `<ul>${topHtml}</ul><p><a href="${link}">View the full timeline →</a></p>`;
+    `<p>${total} change${total === 1 ? "" : "s"} to ${esc(name)}'s internet-facing exposure this week${sevLine ? ` (${esc(sevLine)})` : ""}.</p>` +
+    `<ul>${topHtml}</ul>` +
+    (lifecycleReviewNote ? `<p>${esc(lifecycleReviewNote.trim())}</p>` : "") +
+    `<p><a href="${link}">View the full timeline →</a></p>`;
   return { subject, text, html };
 }
 

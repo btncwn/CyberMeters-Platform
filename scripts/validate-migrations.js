@@ -86,6 +86,75 @@ const CORE = ["users", "user_sessions", "workspaces", "workspace_members", "work
 const present = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name));
 for (const t of CORE) ok(`core table exists after migrations: ${t}`, present.has(t));
 
+const scheduledColumns = db.prepare("PRAGMA table_info(scheduled_scans)").all();
+const scheduledProjectionColumn = scheduledColumns.find(
+  (column) => column.name === "asset_change_projection_json",
+);
+ok(
+  "schema plus migrations converges on the nullable scheduled projection column",
+  scheduledProjectionColumn?.type === "TEXT" &&
+    scheduledProjectionColumn?.notnull === 0,
+);
+
+// Migration 106 must upgrade an existing scheduled_scans table without rewriting
+// legacy counts. This is a real SQLite execution proof, not a source-text check.
+const pre106 = new DatabaseSync(":memory:");
+pre106.exec(`
+  CREATE TABLE scheduled_scans (
+    id TEXT PRIMARY KEY,
+    domain TEXT NOT NULL,
+    asset_change_count INTEGER DEFAULT 0
+  );
+  INSERT INTO scheduled_scans (id, domain, asset_change_count)
+  VALUES ('sched-sentinel', 'example.com', 7);
+`);
+pre106.exec(fs.readFileSync(
+  path.join(migDir, "106-scheduled-asset-change-projection.sql"),
+  "utf8",
+));
+const upgradedColumns = pre106.prepare("PRAGMA table_info(scheduled_scans)").all();
+const upgradedSentinel = pre106.prepare(
+  "SELECT asset_change_count, asset_change_projection_json FROM scheduled_scans WHERE id = 'sched-sentinel'",
+).get();
+ok(
+  "migration 106 adds one nullable TEXT column without backfilling legacy rows",
+  upgradedColumns.filter(
+    (column) => column.name === "asset_change_projection_json",
+  ).length === 1 &&
+    upgradedColumns.find(
+      (column) => column.name === "asset_change_projection_json",
+    )?.type === "TEXT" &&
+    upgradedSentinel?.asset_change_count === 7 &&
+    upgradedSentinel?.asset_change_projection_json === null,
+);
+pre106.close();
+
+// The route-local empty-environment bootstrap is a separate physical schema
+// site. Execute the SQL extracted from the source so it cannot silently omit the
+// projection column while schema.sql and migration 106 remain green.
+const scansRouteSource = fs.readFileSync(
+  path.join(root, "workers", "scan-api", "src", "routes", "scans.js"),
+  "utf8",
+);
+const bootstrapMatch = scansRouteSource.match(
+  /`(CREATE TABLE IF NOT EXISTS scheduled_scans \([\s\S]*?\n\s*\))`/,
+);
+const bootstrapDb = new DatabaseSync(":memory:");
+if (bootstrapMatch) bootstrapDb.exec(bootstrapMatch[1]);
+const bootstrapColumns = bootstrapMatch
+  ? bootstrapDb.prepare("PRAGMA table_info(scheduled_scans)").all()
+  : [];
+ok(
+  "scheduled route bootstrap executes with legacy and projection columns",
+  bootstrapColumns.some((column) => column.name === "workspace_id") &&
+    bootstrapColumns.some((column) => column.name === "asset_change_count") &&
+    bootstrapColumns.some(
+      (column) => column.name === "asset_change_projection_json" &&
+        column.type === "TEXT" && column.notnull === 0,
+    ),
+);
+bootstrapDb.close();
+
 console.log(`\nMigrations (${files.length} files): ${pass}/${pass + fail} passed`);
 if (fail) { console.error("migration validation FAILED"); process.exit(1); }
 console.log("migration validation passed");

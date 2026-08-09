@@ -54,10 +54,14 @@ function buildDb() {
   db.exec("PRAGMA foreign_keys = OFF");
   return db;
 }
-function makeD1(db) {
+function makeD1(db, { onAll = () => {}, rejectAll = () => false } = {}) {
   const wrap = (sql, args) => ({
     first: async () => db.prepare(sql).get(...args) ?? null,
-    all: async () => ({ results: db.prepare(sql).all(...args) }),
+    all: async () => {
+      onAll(sql, args);
+      if (rejectAll(sql, args)) throw new Error("fixture D1 read rejected");
+      return { results: db.prepare(sql).all(...args) };
+    },
     run: async () => { const r = db.prepare(sql).run(...args); return { meta: { changes: r.changes } }; },
   });
   return { prepare(sql) { const b = wrap(sql, []); b.bind = (...a) => wrap(sql, a); return b; } };
@@ -98,6 +102,7 @@ const rawRowCount = db.prepare("SELECT COUNT(*) c FROM asset_events").get().c;
 {
   const changes = await computeWeeklyChanges(env, "ws1");
   eq("7 raw ws1 rows collapse to 5 distinct semantic changes", changes.total, 5);
+  eq("honest weekly total is additive and evidence-supported", changes.customer_total, 5);
   const smtp = changes.top.find((e) => e.event_type === "exposed_service_detected");
   eq("the unchanged condition appears ONCE with an honest occurrence count", smtp?.occurrences, 3);
   const growth = changes.top.filter((e) => e.event_type === "certificate_growth_detected");
@@ -106,6 +111,9 @@ const rawRowCount = db.prepare("SELECT COUNT(*) c FROM asset_events").get().c;
   eq("separate certificates are NOT collapsed on similar SAN sets", sans.length, 2);
   const sevSum = Object.values(changes.bySeverity).reduce((a, b) => a + b, 0);
   eq("severity totals sum to the distinct-change total", sevSum, changes.total);
+  eq("honest severity totals sum to the honest distinct-change total",
+    Object.values(changes.customer_bySeverity || {}).reduce((a, b) => a + b, 0),
+    changes.customer_total);
   eq("top list has no duplicate semantic keys",
      new Set(changes.top.map(semanticChangeKey)).size, changes.top.length);
 
@@ -115,6 +123,84 @@ const rawRowCount = db.prepare("SELECT COUNT(*) c FROM asset_events").get().c;
   ok("repeated observation is stated once with its count",
      (mail.text.match(/Port 25 \(SMTP\) exposed/g) || []).length === 1
      && mail.text.includes("(observed 3 times this week)"));
+
+  const honestWins = buildDigestEmail("Acme", {
+    total: 7,
+    bySeverity: { high: 7 },
+    byCategory: { attack_surface: 7 },
+    top: changes.top,
+    customer_total: 1,
+    customer_bySeverity: { high: 1 },
+    customer_byCategory: { attack_surface: 1 },
+    customer_top: changes.top.slice(0, 1),
+    assessment: { coverage: "complete_assessment" },
+    lifecycle_claim_projection: { coverage: "complete" },
+  }, env.FRONTEND_URL, "ws1");
+  ok("weekly email consumes honest fields rather than legacy raw fields",
+    /1 change on Acme/.test(honestWins.subject) && !/7 changes/.test(honestWins.subject));
+}
+
+// ── 1a. R7: legacy rows remain unbounded; only lifecycle support is bounded ───
+{
+  const volumeDb = buildDb();
+  volumeDb.prepare("INSERT INTO workspaces (id, name) VALUES ('ws-volume','Volume')").run();
+  const insertVolume = volumeDb.prepare(`
+    INSERT INTO asset_events
+      (id, workspace_id, domain_id, event_type, hostname, severity, description, created_at)
+    VALUES (?, 'ws-volume', 'd-volume', 'exposed_service_detected', ?, 'info', ?, datetime('now','-1 day'))
+  `);
+  volumeDb.exec("BEGIN");
+  for (let index = 0; index < 2001; index += 1) {
+    insertVolume.run(`volume-${index}`, `host-${index}.example.com`, `Distinct event ${index}`);
+  }
+  volumeDb.exec("COMMIT");
+  const volumeSql = [];
+  const volumeChanges = await computeWeeklyChanges({
+    ...env,
+    cybermeters_db: makeD1(volumeDb, { onAll: (sql) => volumeSql.push(sql) }),
+  }, "ws-volume");
+  eq("legacy weekly collection remains unbounded above 2000 non-lifecycle rows",
+    volumeChanges.total, 2001);
+  eq("non-lifecycle volume does not truncate lifecycle support coverage",
+    volumeChanges.customer_total, 2001);
+  ok("weekly digest keeps a separate unbounded legacy event read",
+    volumeSql.some((sql) => /FROM\s+asset_events/i.test(sql) &&
+      !/event_type\s+IN\s*\(\s*'asset_no_longer_seen'/i.test(sql) &&
+      !/LIMIT\s+2001/i.test(sql)));
+  const legacySql = volumeSql.find((sql) => /FROM\s+asset_events/i.test(sql) &&
+    !/event_type\s+IN\s*\(\s*'asset_no_longer_seen'/i.test(sql));
+  ok("legacy weekly read retains its exact pre-projection columns and tie semantics",
+    /SELECT\s+id,\s*event_type,\s*hostname,\s*severity,\s*description,\s*created_at\s+FROM\s+asset_events\s+WHERE\s+workspace_id\s*=\s*\?\s+AND\s+created_at\s*>\s*datetime\('now',\s*'-7 days'\)\s+ORDER BY\s+created_at\s+DESC\s*$/i.test(
+      legacySql || "",
+    ));
+  ok("legacy weekly top rows do not expose projection-only identity columns",
+    volumeChanges.top.every((event) =>
+      !Object.prototype.hasOwnProperty.call(event, "workspace_id") &&
+      !Object.prototype.hasOwnProperty.call(event, "domain_id") &&
+      !Object.prototype.hasOwnProperty.call(event, "asset_id") &&
+      !Object.prototype.hasOwnProperty.call(event, "scan_id")));
+  ok("weekly digest uses a lifecycle-only LIMIT 2001 projection read",
+    volumeSql.some((sql) => /event_type\s+IN\s*\(\s*'asset_no_longer_seen'\s*,\s*'asset_reappeared'\s*\)/i.test(sql) &&
+      /LIMIT\s+2001/i.test(sql)));
+  volumeDb.close();
+}
+
+{
+  const rejectedProjectionEnv = {
+    ...env,
+    cybermeters_db: makeD1(db, {
+      rejectAll: (sql) => /event_type\s+IN\s*\(\s*'asset_no_longer_seen'\s*,\s*'asset_reappeared'\s*\)/i.test(sql),
+    }),
+  };
+  const changes = await computeWeeklyChanges(rejectedProjectionEnv, "ws1");
+  eq("projection failure preserves legacy weekly total", changes.total, 5);
+  eq("projection failure nulls the honest weekly total", changes.customer_total, null);
+  ok("projection failure has explicit unavailable collection coverage",
+    changes.lifecycle_claim_projection?.coverage === "unavailable" &&
+    changes.lifecycle_claim_projection?.coverage_reason === "event_collection_read_failed");
+  const mail = buildDigestEmail("Acme", changes, env.FRONTEND_URL, "ws1");
+  ok("projection failure email never turns legacy rows into an exact claim",
+    /support not evaluated/i.test(mail.subject) && !/5 changes/i.test(mail.subject));
 }
 
 // ── 2. Workspace scoping preserved ───────────────────────────────────────────
@@ -212,7 +298,7 @@ async function mutantOf(from, to) {
 
 // M1 — semantic grouping removed: raw rows would inflate the total again.
 {
-  const m = await mutantOf("const events = groupSemanticChanges(", "const events = ((x) => x)(");
+  const m = await mutantOf("const legacyChanges = groupSemanticChanges(", "const legacyChanges = ((x) => x)(");
   const c = m.anchor ? await m.mod.computeWeeklyChanges(env, "ws1") : null;
   ok("mutation M1 (grouping removed → raw-row total restored) is CAUGHT", m.anchor && c.total === 7);
 }
@@ -255,7 +341,9 @@ async function mutantOf(from, to) {
   const m = await mutantOf("WHERE workspace_id = ? AND created_at > datetime('now', '-7 days')",
                            "WHERE (workspace_id = ? OR 1=1) AND created_at > datetime('now', '-7 days')");
   const c = m.anchor ? await m.mod.computeWeeklyChanges(env, "ws1") : null;
-  ok("mutation M6 (workspace scoping removed → foreign events counted) is CAUGHT", m.anchor && c.total > 5);
+  ok("mutation M6 (workspace scoping removed adds foreign events) is CAUGHT",
+     m.anchor && c.total > 5,
+     `anchor=${m.anchor} total=${c?.total}`);
 }
 
 console.log(`\nweekly-digest-truth: ${pass}/${pass + fail} passed`);

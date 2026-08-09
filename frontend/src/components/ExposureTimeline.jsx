@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 import AttackSurfaceAssurance from './AttackSurfaceAssurance'
+import { assetLifecycleClaimDisplay } from '../lib/assetLifecycleClaimDisplay'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Exposure Timeline feed — the chronological "what changed" stream that turns a
@@ -108,6 +109,7 @@ function groupByDay(events) {
 }
 
 function EventRow({ event }) {
+  const claimDisplay = assetLifecycleClaimDisplay(event)
   const { icon: Icon, color, bg } = categoryConfig(event.category)
   const sev = SEVERITY_STYLE[event.severity] ?? SEVERITY_STYLE.info
   return (
@@ -117,13 +119,16 @@ function EventRow({ event }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-semibold text-gray-900 leading-snug">{event.title}</p>
+          <p className="text-sm font-semibold text-gray-900 leading-snug">{claimDisplay.title}</p>
           <span className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${sev}`}>
             {event.severity}
           </span>
         </div>
-        {event.description && (
-          <p className="text-sm text-gray-600 leading-snug mt-0.5">{event.description}</p>
+        {claimDisplay.description && (
+          <p className="text-sm text-gray-600 leading-snug mt-0.5">{claimDisplay.description}</p>
+        )}
+        {claimDisplay.supportLabel && (
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mt-1">{claimDisplay.supportLabel}</p>
         )}
         {event.hostname && (
           <p className="text-xs text-gray-400 font-mono mt-1 truncate">{event.hostname}</p>

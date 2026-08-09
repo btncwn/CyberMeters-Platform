@@ -11,7 +11,12 @@ import { resolveReportBrandingV2, loadBrandingLogoDataUri } from "../engines/rep
 import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { getEntitlementUsage, getPlanLimits, planLimitExceeded } from "../engines/plan-usage.js";
 import { computePortfolioRisk } from "../engines/portfolio-risk.js";
-import { computePortfolioCustomerRows, buildExecutiveSummary, LATEST_SCAN_CTE } from "../engines/portfolio-customers.js";
+import {
+  buildExecutiveSummary,
+  computePortfolioCustomerRows,
+  LATEST_SCAN_CTE,
+  readPortfolioWorkspaceSources,
+} from "../engines/portfolio-customers.js";
 import {
   applyPortfolioView, buildPortfolioDomainSummary, computePortfolioDomainRows,
   PORTFOLIO_FILTERS, PORTFOLIO_SORTS,
@@ -28,6 +33,12 @@ import {
   projectPhase5ScanRowsForCustomer,
   resolvePhase5CustomerAggregate,
 } from "../engines/phase5-evidence.js";
+import {
+  createAssetLifecycleUnavailableProjection,
+  loadAssetLifecycleEventSupportForWorkspaces,
+  projectLifecycleCollectionForCustomer,
+  summariseLifecycleClaimProjection,
+} from "../engines/asset-lifecycle-event-support.js";
 
 export function portfolioBrandAlertPresentation(row = {}) {
   let evidence = [];
@@ -137,21 +148,15 @@ export async function portfolioRoutes(rctx) {
             highest_risk_workspace: null, generated_at: new Date().toISOString(),
           });
         }
-        const wsIn = workspaceIds.map(() => "?").join(",");
-        const [
-          wsRes, domRes, assetRes, vendorRes, brandRes, rptRes,
-          findingsRes, newAssetsRes, newRptsRes,
-          verifiedDomsRes, unverifiedDomsRes, failedVerifRes,
-          avgScoreRes, highRiskRes,
-        ] = await Promise.allSettled([
-          db.prepare(`SELECT COUNT(*) AS count FROM workspaces WHERE id IN (${wsIn})`).bind(...workspaceIds).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains WHERE workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_assets WHERE status='active' AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_vendors WHERE status='active' AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_brand_assets WHERE status='active' AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed' AND deleted_at IS NULL AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
+        const sources = await readPortfolioWorkspaceSources(db, workspaceIds, [
+          { key: "total_workspaces", sql: (wsIn) => `SELECT COUNT(*) AS count FROM workspaces WHERE id IN (${wsIn})` },
+          { key: "total_domains", sql: (wsIn) => `SELECT COUNT(*) AS count FROM workspace_domains WHERE workspace_id IN (${wsIn})` },
+          { key: "total_assets", sql: (wsIn) => `SELECT COUNT(*) AS count FROM workspace_assets WHERE status='active' AND workspace_id IN (${wsIn})` },
+          { key: "total_vendors", sql: (wsIn) => `SELECT COUNT(*) AS count FROM workspace_vendors WHERE status='active' AND workspace_id IN (${wsIn})` },
+          { key: "total_brand_candidates", sql: (wsIn) => `SELECT COUNT(*) AS count FROM workspace_brand_assets WHERE status='active' AND workspace_id IN (${wsIn})` },
+          { key: "total_reports", sql: (wsIn) => `SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed' AND deleted_at IS NULL AND workspace_id IN (${wsIn})` },
           // Critical + high findings from the latest completed scan per domain
-          db.prepare(`
+          { key: "findings", sql: (wsIn) => `
             WITH ${LATEST_SCAN_CTE}
             SELECT f.severity, COUNT(*) AS cnt
             FROM findings f
@@ -161,17 +166,17 @@ export async function portfolioRoutes(rctx) {
             WHERE f.severity IN ('critical','high')
               AND wd.workspace_id IN (${wsIn})
             GROUP BY f.severity
-          `).bind(...workspaceIds).all(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_assets WHERE first_seen >= datetime('now','-7 days') AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed' AND deleted_at IS NULL AND generated_at >= datetime('now','-30 days') AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
+          ` },
+          { key: "new_assets_7d", sql: (wsIn) => `SELECT COUNT(*) AS count FROM workspace_assets WHERE first_seen >= datetime('now','-7 days') AND workspace_id IN (${wsIn})` },
+          { key: "new_reports_30d", sql: (wsIn) => `SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed' AND deleted_at IS NULL AND generated_at >= datetime('now','-30 days') AND workspace_id IN (${wsIn})` },
           // Domain verification counts
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status = 'verified'`).bind(...workspaceIds).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status NOT IN ('verified')`).bind(...workspaceIds).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status = 'failed'`).bind(...workspaceIds).first(),
+          { key: "verified_domains", sql: (wsIn) => `SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status = 'verified'` },
+          { key: "unverified_domains", sql: (wsIn) => `SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status NOT IN ('verified')` },
+          { key: "verification_failures", sql: (wsIn) => `SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status = 'failed'` },
           // Candidate scores across the latest complete scan per domain. The
           // stored rows are projected through immutable Phase-5 evidence below
           // before any portfolio average is published.
-          db.prepare(`
+          { key: "average_score", sql: (wsIn) => `
             WITH ${LATEST_SCAN_CTE}
             SELECT s.id AS scan_id, s.score, s.rating, s.scan_quality, s.created_at
             FROM scans s
@@ -180,9 +185,9 @@ export async function portfolioRoutes(rctx) {
             WHERE s.score IS NOT NULL
               AND s.scan_quality = 'complete'
               AND wd.workspace_id IN (${wsIn})
-          `).bind(...workspaceIds).all(),
+          ` },
           // Workspace with most critical findings from latest scans
-          db.prepare(`
+          { key: "highest_risk_workspace", sql: (wsIn) => `
             WITH ${LATEST_SCAN_CTE},
             crit AS (
               SELECT s.domain_id, COUNT(*) AS cnt
@@ -204,30 +209,36 @@ export async function portfolioRoutes(rctx) {
             JOIN workspaces w ON w.id = wc.workspace_id
             ORDER BY wc.total_crit DESC
             LIMIT 1
-          `).bind(...workspaceIds).first(),
+          ` },
         ]);
 
         // M5.e honesty: a REJECTED query is not a clean zero. Each metric from
         // a failed query is null, and partial_failure discloses the degradation
         // — a D1 error must never render as "0 critical findings".
         const settled = [];
-        const count = (res, name) => {
-          if (res.status === 'fulfilled') return res.value?.count ?? 0;
-          settled.push(name);
-          return null;
+        const rowsFor = (name) => {
+          const source = sources[name];
+          if (source.failed_workspace_ids.size && !settled.includes(name)) settled.push(name);
+          return source.results;
+        };
+        const count = (name) => {
+          const rows = rowsFor(name);
+          return sources[name].failed_workspace_ids.size
+            ? null
+            : rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
         };
         const findingsBySev = {};
-        let findingsFailed = false;
-        if (findingsRes.status === 'fulfilled') {
-          for (const r of (findingsRes.value?.results ?? [])) findingsBySev[r.severity] = r.cnt;
-        } else { findingsFailed = true; settled.push('findings'); }
+        const findingsFailed = sources.findings.failed_workspace_ids.size > 0;
+        for (const r of rowsFor("findings")) {
+          findingsBySev[r.severity] = (findingsBySev[r.severity] || 0) + Number(r.cnt || 0);
+        }
 
         let avgRaw = null;
         let averageEvidenceCoverage = null;
-        if (avgScoreRes.status === 'fulfilled') {
+        if (!sources.average_score.failed_workspace_ids.size) {
           const customerScoreRows = await projectPhase5ScanRowsForCustomer(
             env,
-            (avgScoreRes.value?.results ?? []).map((row) => ({
+            rowsFor("average_score").map((row) => ({
               ...row,
               status: "completed",
             })),
@@ -236,28 +247,31 @@ export async function portfolioRoutes(rctx) {
           avgRaw = aggregate.score;
           averageEvidenceCoverage = aggregate.evidence_coverage;
         } else {
-          settled.push('average_score');
+          rowsFor("average_score");
         }
-        const hrw    = highRiskRes.status === 'fulfilled'  ? highRiskRes.value : (settled.push('highest_risk_workspace'), null);
+        const highRiskRows = rowsFor("highest_risk_workspace");
+        const hrw = sources.highest_risk_workspace.failed_workspace_ids.size
+          ? null
+          : highRiskRows.sort((a, b) => Number(b.total_crit || 0) - Number(a.total_crit || 0))[0] || null;
 
         return json({
-          total_workspaces:       count(wsRes, 'total_workspaces'),
-          total_domains:          count(domRes, 'total_domains'),
-          total_assets:           count(assetRes, 'total_assets'),
-          total_vendors:          count(vendorRes, 'total_vendors'),
-          total_brand_candidates: count(brandRes, 'total_brand_candidates'),
-          total_reports:          count(rptRes, 'total_reports'),
+          total_workspaces:       count('total_workspaces'),
+          total_domains:          count('total_domains'),
+          total_assets:           count('total_assets'),
+          total_vendors:          count('total_vendors'),
+          total_brand_candidates: count('total_brand_candidates'),
+          total_reports:          count('total_reports'),
           critical_findings:      findingsFailed ? null : (findingsBySev['critical'] ?? 0),
           high_findings:          findingsFailed ? null : (findingsBySev['high'] ?? 0),
-          new_assets_7d:          count(newAssetsRes, 'new_assets_7d'),
-          new_reports_30d:        count(newRptsRes, 'new_reports_30d'),
+          new_assets_7d:          count('new_assets_7d'),
+          new_reports_30d:        count('new_reports_30d'),
           average_score:          avgRaw != null ? Math.round(avgRaw) : null,
           average_score_basis:    'complete_scans',
           score_evidence_coverage: averageEvidenceCoverage,
           highest_risk_workspace: hrw ? { id: hrw.id, name: hrw.name, critical_findings: hrw.total_crit } : null,
-          verified_domains:       count(verifiedDomsRes, 'verified_domains'),
-          unverified_domains:     count(unverifiedDomsRes, 'unverified_domains'),
-          verification_failures:  count(failedVerifRes, 'verification_failures'),
+          verified_domains:       count('verified_domains'),
+          unverified_domains:     count('unverified_domains'),
+          verification_failures:  count('verification_failures'),
           partial_failure:
             settled.length > 0 ||
             averageEvidenceCoverage?.assessment_complete === false,
@@ -326,14 +340,12 @@ export async function portfolioRoutes(rctx) {
         const limit = parseBoundedInteger(url.searchParams.get("limit"), 50, 1, 200);
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
         if (workspaceIds.length === 0) return json({ alerts: [] });
-        const wsIn = workspaceIds.map(() => "?").join(",");
-
-        const [eventsRes, brandRes, failedRptsRes] = await Promise.allSettled([
+        const sources = await readPortfolioWorkspaceSources(db, workspaceIds, [
           // Asset events — presentation-collapsed before the existing per-day
           // dedupe so short-lived remove/reappear churn never becomes an MSP alert.
-          db.prepare(`
+          { key: "events", extraBindings: [limit * 3], sql: (wsIn) => `
             SELECT ae.id, ae.workspace_id, w.name AS workspace_name,
-                   ae.domain_id, ae.scan_id, ae.event_type,
+                   ae.domain_id, ae.asset_id, ae.scan_id, ae.event_type,
                    ae.severity,
                    ae.hostname,
                    ae.description,
@@ -343,9 +355,9 @@ export async function portfolioRoutes(rctx) {
             WHERE ae.workspace_id IN (${wsIn})
             ORDER BY ae.created_at DESC, ae.id DESC
             LIMIT ?
-          `).bind(...workspaceIds, limit * 3).all(),
+          ` },
           // Active brand risks that resolve via DNS
-          db.prepare(`
+          { key: "brand", extraBindings: [Math.ceil(limit / 3)], sql: (wsIn) => `
             SELECT ba.workspace_id, w.name AS workspace_name,
                    ba.candidate_domain, ba.risk_level, ba.variant_type,
                    ba.evidence_json, ba.updated_at
@@ -355,9 +367,9 @@ export async function portfolioRoutes(rctx) {
               AND ba.workspace_id IN (${wsIn})
             ORDER BY ba.updated_at DESC
             LIMIT ?
-          `).bind(...workspaceIds, Math.ceil(limit / 3)).all(),
+          ` },
           // Failed report generations
-          db.prepare(`
+          { key: "failed_reports", extraBindings: [Math.ceil(limit / 5)], sql: (wsIn) => `
             SELECT wr.workspace_id, w.name AS workspace_name,
                    wr.report_type, wr.metadata_json, wr.created_at
             FROM workspace_reports wr
@@ -367,12 +379,53 @@ export async function portfolioRoutes(rctx) {
               AND wr.workspace_id IN (${wsIn})
             ORDER BY wr.created_at DESC
             LIMIT ?
-          `).bind(...workspaceIds, Math.ceil(limit / 5)).all(),
+          ` },
         ]);
 
         const alerts = [];
 
-        const collapsedEvents = collapseCustomerTimelineEvents(eventsRes.status === 'fulfilled' ? (eventsRes.value?.results ?? []) : []);
+        const rawPortfolioEvents = sources.events.results;
+        const eventReadFailures = sources.events.failed_workspace_ids;
+        const loadableWorkspaceIds = workspaceIds.filter((id) => !eventReadFailures.has(id));
+        let projectionsByWorkspace;
+        try {
+          projectionsByWorkspace = await loadAssetLifecycleEventSupportForWorkspaces(env, {
+            workspaceIds: loadableWorkspaceIds,
+            events: rawPortfolioEvents,
+            collectionLimit: 2000,
+            scope: "portfolio_alerts_page",
+          });
+        } catch {
+          projectionsByWorkspace = new Map();
+        }
+        const portfolioProjectionByWorkspace = {};
+        const collapsedEvents = [];
+        for (const workspaceId of workspaceIds) {
+          const workspaceEvents = rawPortfolioEvents.filter(
+            (event) => event.workspace_id === workspaceId,
+          );
+          const projection = eventReadFailures.has(workspaceId)
+            ? createAssetLifecycleUnavailableProjection({
+                events: workspaceEvents,
+                scope: "portfolio_alerts_page",
+                coverageReason: "event_collection_read_failed",
+              })
+            : projectionsByWorkspace.get(workspaceId) ||
+              createAssetLifecycleUnavailableProjection({
+                events: workspaceEvents,
+                scope: "portfolio_alerts_page",
+                coverageReason: "event_collection_read_failed",
+              });
+          portfolioProjectionByWorkspace[workspaceId] =
+            summariseLifecycleClaimProjection(workspaceEvents, projection);
+          collapsedEvents.push(...collapseCustomerTimelineEvents(
+            projectLifecycleCollectionForCustomer(workspaceEvents, projection),
+          ));
+        }
+        collapsedEvents.sort((a, b) =>
+          String(b.created_at || "").localeCompare(String(a.created_at || "")) ||
+          String(b.id || "").localeCompare(String(a.id || ""))
+        );
         const dedupedEvents = [];
         const eventKeys = new Set();
         for (const ev of collapsedEvents) {
@@ -385,7 +438,7 @@ export async function portfolioRoutes(rctx) {
         }
 
         for (const r of dedupedEvents) {
-          let title = (r.event_type ?? '').replace(/_/g, ' ');
+          let title = r.title || (r.event_type ?? '').replace(/_/g, ' ');
           const et = r.event_type;
           if      (et === 'new_asset_discovered')      title = `New asset: ${r.hostname ?? ''}`;
           else if (et === 'takeover_risk_detected')    title = `Takeover risk: ${r.hostname ?? ''}`;
@@ -400,11 +453,13 @@ export async function portfolioRoutes(rctx) {
             severity:       r.severity ?? 'info',
             title,
             description:    r.description ?? null,
+            recorded_description: r.recorded_description ?? null,
+            lifecycle_claim_support: r.lifecycle_claim_support ?? null,
             created_at:     r.created_at,
           });
         }
 
-        for (const r of (brandRes.status === 'fulfilled' ? (brandRes.value?.results ?? []) : [])) {
+        for (const r of sources.brand.results) {
           const sev = (r.risk_level === 'critical' || r.risk_level === 'high') ? r.risk_level : 'medium';
           const presentation = portfolioBrandAlertPresentation(r);
           alerts.push({
@@ -418,7 +473,7 @@ export async function portfolioRoutes(rctx) {
           });
         }
 
-        for (const r of (failedRptsRes.status === 'fulfilled' ? (failedRptsRes.value?.results ?? []) : [])) {
+        for (const r of sources.failed_reports.results) {
           let errMsg = null;
           try { errMsg = JSON.parse(r.metadata_json)?.error ?? null; } catch {}
           alerts.push({
@@ -435,7 +490,19 @@ export async function portfolioRoutes(rctx) {
         // Unified sort by created_at desc, then trim to limit
         alerts.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
-        return json({ alerts: alerts.slice(0, limit) });
+        const unavailableMetrics = [];
+        if (sources.events.failed_workspace_ids.size) unavailableMetrics.push("asset_events");
+        if (sources.brand.failed_workspace_ids.size) unavailableMetrics.push("brand_alerts");
+        if (sources.failed_reports.failed_workspace_ids.size) unavailableMetrics.push("failed_reports");
+        if (Object.values(portfolioProjectionByWorkspace).some(
+          (projection) => projection.coverage !== "complete",
+        )) unavailableMetrics.push("lifecycle_claim_support");
+        return json({
+          alerts: alerts.slice(0, limit),
+          lifecycle_claim_projection_by_workspace: portfolioProjectionByWorkspace,
+          partial_failure: unavailableMetrics.length > 0,
+          unavailable_metrics: [...new Set(unavailableMetrics)],
+        });
       } catch (err) {
         return serverError("api", err);
       }
@@ -450,12 +517,10 @@ export async function portfolioRoutes(rctx) {
         const db = env.cybermeters_db;
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
         if (workspaceIds.length === 0) return json({ trend: [] });
-        const wsIn = workspaceIds.map(() => "?").join(",");
-
-        const [scanTrendRes, findingsTrendRes, assetTrendRes] = await Promise.allSettled([
+        const sources = await readPortfolioWorkspaceSources(db, workspaceIds, [
           // Score candidates per day. Aggregate only after the immutable
           // Phase-5 evidence contract has projected each stored row.
-          db.prepare(`
+          { key: "scores", sql: (wsIn) => `
             SELECT s.id AS scan_id, date(s.created_at) AS day,
                    s.score, s.rating, s.scan_quality, s.created_at
             FROM scans s
@@ -466,9 +531,9 @@ export async function portfolioRoutes(rctx) {
               AND s.score IS NOT NULL
               AND wd.workspace_id IN (${wsIn})
             ORDER BY s.created_at
-          `).bind(...workspaceIds).all(),
+          ` },
           // Critical + high finding counts per day from scans in last 30 days
-          db.prepare(`
+          { key: "findings", sql: (wsIn) => `
             SELECT date(s.created_at) AS day, f.severity, COUNT(*) AS cnt
             FROM findings f
             JOIN scans s ON f.scan_id = s.id
@@ -480,26 +545,23 @@ export async function portfolioRoutes(rctx) {
               AND wd.workspace_id IN (${wsIn})
             GROUP BY date(s.created_at), f.severity
             ORDER BY day
-          `).bind(...workspaceIds).all(),
+          ` },
           // New assets discovered per day in last 30 days
-          db.prepare(`
+          { key: "assets", sql: (wsIn) => `
             SELECT date(first_seen) AS day, COUNT(*) AS new_assets
             FROM workspace_assets
             WHERE first_seen >= datetime('now', '-30 days')
               AND workspace_id IN (${wsIn})
             GROUP BY date(first_seen)
             ORDER BY day
-          `).bind(...workspaceIds).all(),
+          ` },
         ]);
 
         // Merge into a single map keyed by day
         const dayMap = {};
 
-        const rawScoreRows =
-          scanTrendRes.status === 'fulfilled'
-            ? (scanTrendRes.value?.results ?? [])
-            : [];
-        const customerScoreRows = scanTrendRes.status === 'fulfilled'
+        const rawScoreRows = sources.scores.results;
+        const customerScoreRows = sources.scores.failed_workspace_ids.size === 0
           ? await projectPhase5ScanRowsForCustomer(
               env,
               rawScoreRows.map((row) => ({ ...row, status: "completed" })),
@@ -533,24 +595,30 @@ export async function portfolioRoutes(rctx) {
           };
         }
 
-        for (const r of (findingsTrendRes.status === 'fulfilled' ? (findingsTrendRes.value?.results ?? []) : [])) {
+        const findingTrendRows = sources.findings.failed_workspace_ids.size
+          ? []
+          : sources.findings.results;
+        for (const r of findingTrendRows) {
           if (!dayMap[r.day]) dayMap[r.day] = { date: r.day, scans: 0, average_score: null, lowest_score: null, highest_score: null, critical_findings: 0, high_findings: 0, new_assets: 0 };
-          if (r.severity === 'critical') dayMap[r.day].critical_findings = r.cnt;
-          else if (r.severity === 'high') dayMap[r.day].high_findings   = r.cnt;
+          if (r.severity === 'critical') dayMap[r.day].critical_findings += Number(r.cnt || 0);
+          else if (r.severity === 'high') dayMap[r.day].high_findings += Number(r.cnt || 0);
         }
 
-        for (const r of (assetTrendRes.status === 'fulfilled' ? (assetTrendRes.value?.results ?? []) : [])) {
+        const assetTrendRows = sources.assets.failed_workspace_ids.size
+          ? []
+          : sources.assets.results;
+        for (const r of assetTrendRows) {
           if (!dayMap[r.day]) dayMap[r.day] = { date: r.day, scans: 0, average_score: null, lowest_score: null, highest_score: null, critical_findings: 0, high_findings: 0, new_assets: 0 };
-          dayMap[r.day].new_assets = r.new_assets;
+          dayMap[r.day].new_assets += Number(r.new_assets || 0);
         }
 
         const trend = Object.values(dayMap).sort((a, b) => a.date.localeCompare(b.date));
         // M5.e honesty: a rejected series is disclosed, never an empty-looking
         // clean trend; the score series is complete-quality only.
         const failedSeries = [
-          scanTrendRes.status !== 'fulfilled' ? 'scores' : null,
-          findingsTrendRes.status !== 'fulfilled' ? 'findings' : null,
-          assetTrendRes.status !== 'fulfilled' ? 'assets' : null,
+          sources.scores.failed_workspace_ids.size ? 'scores' : null,
+          sources.findings.failed_workspace_ids.size ? 'findings' : null,
+          sources.assets.failed_workspace_ids.size ? 'assets' : null,
         ].filter(Boolean);
         return json({
           trend,

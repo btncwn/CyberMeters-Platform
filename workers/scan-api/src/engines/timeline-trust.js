@@ -172,6 +172,11 @@ function suppressPairedFlipFlops(events, windowMs) {
   const byHost = new Map();
   for (const indexed of events) {
     if (!FLIP_FLOP_EVENT_TYPES.has(indexed.row?.event_type)) continue;
+    if (
+      ["unsupported", "uncertain"].includes(
+        indexed.row?.lifecycle_claim_support?.state,
+      )
+    ) continue;
     const host = String(indexed.row?.hostname || "").toLowerCase();
     if (!host) continue;
     if (!byHost.has(host)) byHost.set(host, []);

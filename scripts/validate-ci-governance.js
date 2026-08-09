@@ -28,6 +28,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadManifest } from "./ci-safe-docs-only-lib.js";
 import {
+  ARM2_TIMEZONE_VALIDATOR_RUN,
+  ARM2_TIMEZONE_VALIDATOR_STEP,
   evaluateWorkflowPolicy,
   executableValidatorWiring,
   parseWorkflowAst,
@@ -79,6 +81,46 @@ ok("the CI workflow runs the validator suite", validators.length > 0);
 ok("CI wires a substantial validator suite", validators.length >= 80, `found ${validators.length}`);
 ok("validator wiring uses only exact executable AST run mappings",
    executable.problems.length === 0, executable.problems.join(" | "));
+
+const validateSteps = parsedWorkflow.workflow?.jobs?.validate?.steps || [];
+const arm2TimezoneSteps = validateSteps.filter(
+  (step) => step?.name === ARM2_TIMEZONE_VALIDATOR_STEP,
+);
+ok(
+  "Arm2/writer timezone carrier is exact, unique, blocking, and spans UTC/London/+14",
+  arm2TimezoneSteps.length === 1 &&
+    arm2TimezoneSteps[0].run === ARM2_TIMEZONE_VALIDATOR_RUN &&
+    !Object.prototype.hasOwnProperty.call(arm2TimezoneSteps[0], "if") &&
+    !Object.prototype.hasOwnProperty.call(arm2TimezoneSteps[0], "continue-on-error"),
+);
+
+function arm2CarrierMutationIsRejected(from, to) {
+  const mutatedSource = src.replace(from, to);
+  if (mutatedSource === src) return false;
+  const mutatedWorkflow = parseWorkflowAst(mutatedSource);
+  if (!mutatedWorkflow.workflow) return false;
+  return executableValidatorWiring(mutatedWorkflow.workflow).problems.some(
+    (problem) => problem.startsWith(`${ARM2_TIMEZONE_VALIDATOR_STEP}:`),
+  );
+}
+ok(
+  "Arm2 timezone carrier negative control rejects loss of the +14 zone",
+  arm2CarrierMutationIsRejected(" UTC Europe/London Etc/GMT-14;", " UTC Europe/London;"),
+);
+ok(
+  "Arm2 timezone carrier negative control rejects a substituted validator",
+  arm2CarrierMutationIsRejected(
+    "TZ=$tz node scripts/validate-item10-attack-surface-p5-arm2.js",
+    "TZ=$tz node scripts/validate-item10-attack-surface-p5-customer-parity.js",
+  ),
+);
+ok(
+  "Arm2 timezone carrier negative control rejects loss of writer replay coverage",
+  arm2CarrierMutationIsRejected(
+    "    TZ=$tz node scripts/validate-item10-attack-surface-p2-integration.js\n",
+    "",
+  ),
+);
 
 // Every validator wired in CI must actually exist, or the step is a silent no-op.
 const missing = validators.filter((v) => !fs.existsSync(path.join(root, v)));

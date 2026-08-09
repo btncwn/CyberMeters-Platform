@@ -1,10 +1,10 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.08.07-item10-p5-arm1a.896596e01483",
-  "closure_sha256": "896596e014838d2d8c89caccdbe86e34989fe9ff4ce9c8c8021a27e37c91d6e0",
-  "closure_file_count": 84,
-  "scan_api_file_count": 82,
+  "app_version": "2026.08.09-item10-p5-arm1b-arm2.7d6dfc11a3d8",
+  "closure_sha256": "7d6dfc11a3d89707c66a08f71e5cfd2e0a646577cf1e42d817d97d3ad1f7f0e7",
+  "closure_file_count": 85,
+  "scan_api_file_count": 83,
   "files": [
     "shared/cyber-essentials-questions.js",
     "workers/email-ingest/src/index.js",
@@ -18,6 +18,7 @@
     "workers/scan-api/src/engines/assessment-presentation.js",
     "workers/scan-api/src/engines/asset-alerts.js",
     "workers/scan-api/src/engines/asset-intel.js",
+    "workers/scan-api/src/engines/asset-lifecycle-event-support.js",
     "workers/scan-api/src/engines/attack-surface-customer-presentation.js",
     "workers/scan-api/src/engines/attack-surface-signal-completeness.js",
     "workers/scan-api/src/engines/brand-case-machine.js",

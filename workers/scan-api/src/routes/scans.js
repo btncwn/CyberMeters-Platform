@@ -46,6 +46,18 @@ import {
   resolvePhase5EvidenceContract,
 } from "../engines/phase5-evidence.js";
 
+function readScheduledAssetChangeProjection(value) {
+  if (typeof value !== "string" || value.length === 0) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function scanRoutes(rctx) {
   const { request, env, ctx, url, json, serverError, corsHeaders,
           requireAuth, requireWorkspaceRole, consumeApiRateLimit,
@@ -985,6 +997,7 @@ export async function scanRoutes(rctx) {
              workspace_id TEXT,
              last_asset_count INTEGER DEFAULT 0,
              asset_change_count INTEGER DEFAULT 0,
+             asset_change_projection_json TEXT,
              created_at TEXT DEFAULT (datetime('now'))
            )`
         )
@@ -1021,6 +1034,7 @@ export async function scanRoutes(rctx) {
           workspace_id:       workspaceId,
           last_asset_count:   0,
           asset_change_count: 0,
+          asset_change_projection: null,
           last_run_at:        null,
           next_run_at:        nextRunAt,
           created_at:         createdAt,
@@ -1042,7 +1056,7 @@ export async function scanRoutes(rctx) {
         const result = await env.cybermeters_db
           .prepare(
             `SELECT id, domain, frequency, enabled, workspace_id,
-                    last_asset_count, asset_change_count,
+                    last_asset_count, asset_change_count, asset_change_projection_json,
                     last_run_at, next_run_at, created_at
              FROM scheduled_scans
              WHERE workspace_id IN (${placeholders})
@@ -1051,7 +1065,15 @@ export async function scanRoutes(rctx) {
           )
           .bind(...workspaceIds, limit)
           .all();
-        return json({ schedules: result.results });
+        return json({
+          schedules: (result.results || []).map((schedule) => ({
+            ...schedule,
+            asset_change_projection: readScheduledAssetChangeProjection(
+              schedule.asset_change_projection_json,
+            ),
+            asset_change_projection_json: undefined,
+          })),
+        });
       } catch {
         return json({ schedules: [] });
       }

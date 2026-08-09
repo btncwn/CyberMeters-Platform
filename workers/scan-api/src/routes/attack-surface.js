@@ -20,10 +20,45 @@ import {
   projectPhase5ScanRowsForCustomer,
   resolvePhase5CustomerAggregate,
 } from "../engines/phase5-evidence.js";
+import {
+  loadAssetLifecycleEventSupport,
+  projectLifecycleCollectionForCustomer,
+  summariseLifecycleClaimProjection,
+} from "../engines/asset-lifecycle-event-support.js";
+
+// Projection is assembled before customer-facing collapse. Legacy counters are
+// copied unchanged; unsupported/uncertain projected lifecycle rows contribute
+// only a carrier day so historical evidence is never hidden.
+function buildProjectionAwareTimelineDays(legacyDays, projectedEvents = [], zeroDay = {}) {
+  const byDay = new Map((legacyDays || []).map((day) => [String(day.day), day]));
+  for (const event of projectedEvents || []) {
+    const state = event?.lifecycle_claim_support?.state;
+    if (!(["unsupported", "uncertain"].includes(state))) continue;
+    const day = String(event?.created_at || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || byDay.has(day)) continue;
+    byDay.set(day, { day, ...zeroDay });
+  }
+  return [...byDay.values()].sort((a, b) => String(a.day).localeCompare(String(b.day)));
+}
 
 function parseJson(value, fallback = null) {
   if (value && typeof value === "object") return value;
   try { return value ? JSON.parse(value) : fallback; } catch { return fallback; }
+}
+
+async function projectLifecycleEvents(env, workspaceId, events, scope) {
+  const rows = Array.isArray(events) ? events : [];
+  const projection = await loadAssetLifecycleEventSupport(env, {
+    workspaceId,
+    events: rows,
+    collectionLimit: 2000,
+    scope,
+  });
+  return {
+    projection,
+    events: projectLifecycleCollectionForCustomer(rows, projection),
+    summary: summariseLifecycleClaimProjection(rows, projection),
+  };
 }
 
 const ASSET_PRESENTATION_COLUMNS = `
@@ -590,7 +625,13 @@ export async function attackSurfaceRoutes(rctx) {
             .bind(...binds),
         ]);
 
-        const events = collapseCustomerTimelineEvents(pageResult.results || []).map(enrichEvent);
+        const projected = await projectLifecycleEvents(
+          env,
+          wsId,
+          pageResult.results || [],
+          "exposure_feed_page",
+        );
+        const events = collapseCustomerTimelineEvents(projected.events).map(enrichEvent);
         const total = totalResult.results?.[0]?.n ?? 0;
         const assurance = await loadWorkspaceAttackSurfacePresentations(
           env,
@@ -599,6 +640,7 @@ export async function attackSurfaceRoutes(rctx) {
         return json({
           workspace_id: wsId,
           events,
+          lifecycle_claim_projection: projected.summary,
           attack_surface_assurance: assurance.domains,
           attack_surface_assurance_coverage: assurance.coverage,
           pagination: pageMeta({ items: events, limit, offset, total }),
@@ -671,8 +713,19 @@ export async function attackSurfaceRoutes(rctx) {
             )
             .bind(wsId, limit)
             .all();
-          const events = collapseCustomerTimelineEvents(result.results || []);
-          return json({ workspace_id: wsId, count: events.length, events });
+          const projected = await projectLifecycleEvents(
+            env,
+            wsId,
+            result.results || [],
+            "asset_events_page",
+          );
+          const events = collapseCustomerTimelineEvents(projected.events);
+          return json({
+            workspace_id: wsId,
+            count: events.length,
+            events,
+            lifecycle_claim_projection: projected.summary,
+          });
         } catch {
           return json({ error: "Database error" }, 500);
         }
@@ -715,7 +768,8 @@ export async function attackSurfaceRoutes(rctx) {
         try {
           const result = await env.cybermeters_db
             .prepare(
-              `SELECT id, scan_id, event_type, hostname, created_at
+              `SELECT id, workspace_id, domain_id, asset_id, scan_id,
+                      event_type, hostname, severity, description, created_at
                FROM asset_events
                WHERE workspace_id = ?
                ORDER BY created_at ASC, id ASC`
@@ -728,7 +782,45 @@ export async function attackSurfaceRoutes(rctx) {
             "new_asset_discovered", "asset_reappeared", "asset_no_longer_seen",
             "takeover_risk_detected", "wildcard_dns_detected", "cloud_storage_detected",
           ];
-          return json({ workspace_id: wsId, timeline: countCustomerTimelineEventsByDay(result.results || [], EVENT_TYPES) });
+          const projected = await projectLifecycleEvents(
+            env,
+            wsId,
+            result.results || [],
+            "asset_timeline_all",
+          );
+          const legacyTimeline = countCustomerTimelineEventsByDay(
+            result.results || [],
+            EVENT_TYPES,
+          );
+          const supportedNoLongerByDay = new Map();
+          if (projected.summary.coverage === "complete") {
+            for (const event of projected.events) {
+              if (
+                event.event_type === "asset_no_longer_seen" &&
+                event.lifecycle_claim_support?.state === "supported"
+              ) {
+                const day = String(event.created_at || "").slice(0, 10);
+                supportedNoLongerByDay.set(day, (supportedNoLongerByDay.get(day) || 0) + 1);
+              }
+            }
+          }
+          const timelineDays = buildProjectionAwareTimelineDays(
+            legacyTimeline,
+            projected.events,
+            { new_asset_discovered: 0, asset_reappeared: 0, asset_no_longer_seen: 0,
+              takeover_risk_detected: 0, wildcard_dns_detected: 0, cloud_storage_detected: 0 },
+          );
+          return json({
+            workspace_id: wsId,
+            timeline: timelineDays.map((day) => ({
+              ...day,
+              no_longer_observed_assets:
+                projected.summary.coverage === "complete"
+                  ? supportedNoLongerByDay.get(day.day) || 0
+                  : null,
+            })),
+            lifecycle_claim_projection: projected.summary,
+          });
         } catch {
           return json({ error: "Database error" }, 500);
         }
@@ -747,7 +839,8 @@ export async function attackSurfaceRoutes(rctx) {
 
           const eventsResult = await env.cybermeters_db
             .prepare(
-              `SELECT id, scan_id, event_type, hostname, severity, description, created_at
+              `SELECT id, workspace_id, domain_id, asset_id, scan_id,
+                      event_type, hostname, severity, description, created_at
                FROM asset_events
                WHERE asset_id = ? AND workspace_id = ?
                ORDER BY created_at DESC LIMIT 50`
@@ -761,12 +854,19 @@ export async function attackSurfaceRoutes(rctx) {
             assetResult,
             asset,
           );
+          const projected = await projectLifecycleEvents(
+            env,
+            wsId,
+            eventsResult.results || [],
+            "asset_detail_history",
+          );
           return json({
             asset: {
               ...asset,
               attack_surface_assurance: attackSurfaceAssurance,
             },
-            events: eventsResult.results,
+            events: projected.events,
+            lifecycle_claim_projection: projected.summary,
             attack_surface_assurance: attackSurfaceAssurance,
           });
         } catch {
@@ -935,6 +1035,7 @@ export async function attackSurfaceRoutes(rctx) {
             activeRow,
             newAssets30dRow,
             removedAssets30dRow,
+            removedAssetEvents30dRow,
             criticalNow30dRow,
             criticalPrev30dRow,
             avgScoreLast30dRow,
@@ -959,6 +1060,21 @@ export async function attackSurfaceRoutes(rctx) {
             // Assets removed (no-longer-seen events) in the last 30 days
             env.cybermeters_db
               .prepare(`SELECT COUNT(*) AS n FROM asset_events WHERE workspace_id = ? AND event_type = 'asset_no_longer_seen' AND created_at >= datetime('now', '-30 days')`)
+              .bind(wsId),
+
+            // Exact rows for the bounded P4 read-time projection. LIMIT 2001
+            // detects collection overflow without changing the legacy count.
+            env.cybermeters_db
+              .prepare(
+                `SELECT id, workspace_id, domain_id, asset_id, scan_id,
+                        event_type, hostname, severity, description, created_at
+                 FROM asset_events
+                 WHERE workspace_id = ?
+                   AND event_type = 'asset_no_longer_seen'
+                   AND created_at >= datetime('now', '-30 days')
+                 ORDER BY created_at ASC, id ASC
+                 LIMIT 2001`
+              )
               .bind(wsId),
 
             // Critical findings from scans in the last 30 days (via workspace_domains join)
@@ -1020,6 +1136,16 @@ export async function attackSurfaceRoutes(rctx) {
           const activeAssets   = activeRow.results[0]?.n         ?? 0;
           const newAssets30d   = newAssets30dRow.results[0]?.n   ?? 0;
           const removedAssets30d = removedAssets30dRow.results[0]?.n ?? 0;
+          const lifecycleProjection = await projectLifecycleEvents(
+            env,
+            wsId,
+            removedAssetEvents30dRow.results || [],
+            "posture_summary_no_longer_observed_30d",
+          );
+          const noLongerObservedAssets30d =
+            lifecycleProjection.summary.coverage === "complete"
+              ? lifecycleProjection.summary.by_event_type?.asset_no_longer_seen?.supported ?? 0
+              : null;
           const criticalNow    = criticalNow30dRow.results[0]?.n    ?? 0;
           const criticalPrev   = criticalPrev30dRow.results[0]?.n   ?? 0;
           const customerScoreRows = await projectPhase5ScanRowsForCustomer(
@@ -1052,7 +1178,10 @@ export async function attackSurfaceRoutes(rctx) {
             total_assets:                totalAssets,
             active_assets:               activeAssets,
             new_assets_30d:              newAssets30d,
+            // `removed_assets_30d` is a legacy compatibility alias for the
+            // same no-longer-observed event count. It does not prove removal.
             removed_assets_30d:          removedAssets30d,
+            no_longer_observed_assets_30d: noLongerObservedAssets30d,
             asset_growth_30d:            newAssets30d - removedAssets30d,
             critical_findings:           criticalNow,
             critical_findings_change_30d: criticalNow - criticalPrev,
@@ -1065,6 +1194,7 @@ export async function attackSurfaceRoutes(rctx) {
               current: currentAggregate.evidence_coverage,
               previous: previousAggregate.evidence_coverage,
             },
+            lifecycle_claim_projection: lifecycleProjection.summary,
           });
         } catch {
           return json({ error: "Database error" }, 500);
@@ -1087,7 +1217,8 @@ export async function attackSurfaceRoutes(rctx) {
             // then aggregate, so short-lived churn does not drive trend counts.
             env.cybermeters_db
               .prepare(
-                `SELECT id, scan_id, event_type, hostname, created_at
+                `SELECT id, workspace_id, domain_id, asset_id, scan_id,
+                        event_type, hostname, severity, description, created_at
                  FROM asset_events
                  WHERE workspace_id = ?
                    AND created_at >= datetime('now', '-90 days')
@@ -1115,9 +1246,28 @@ export async function attackSurfaceRoutes(rctx) {
           // Build day-keyed maps from query results
           const eventMap    = new Map();
           const findingMap  = new Map();
+          const projected = await projectLifecycleEvents(
+            env,
+            wsId,
+            eventRows.results || [],
+            "posture_timeline_90d",
+          );
+          const supportedNoLongerByDay = new Map();
+          if (projected.summary.coverage === "complete") {
+            for (const event of projected.events) {
+              if (
+                event.event_type === "asset_no_longer_seen" &&
+                event.lifecycle_claim_support?.state === "supported"
+              ) {
+                const day = String(event.created_at || "").slice(0, 10);
+                supportedNoLongerByDay.set(day, (supportedNoLongerByDay.get(day) || 0) + 1);
+              }
+            }
+          }
 
           for (const row of countCustomerTimelineEventsByDay(eventRows.results || [], ["new_asset_discovered", "asset_no_longer_seen"])) {
             eventMap.set(row.day, {
+              day: row.day,
               new_assets: row.new_asset_discovered ?? 0,
               removed_assets: row.asset_no_longer_seen ?? 0,
             });
@@ -1126,9 +1276,17 @@ export async function attackSurfaceRoutes(rctx) {
             findingMap.set(row.day, row.critical_findings ?? 0);
           }
 
-          // Collect every day that appears in either dataset
-          const daySet = new Set([...eventMap.keys(), ...findingMap.keys()]);
-          const days   = [...daySet].sort();
+          // Projection-aware carrier days are unioned before customer collapse;
+          // projected-only days retain zero legacy counters.
+          const timelineDays = buildProjectionAwareTimelineDays(
+            [...eventMap.values()],
+            projected.events,
+            { new_assets: 0, removed_assets: 0 },
+          );
+          const days = [...new Set([
+            ...timelineDays.map((row) => row.day),
+            ...findingMap.keys(),
+          ])].sort();
 
           // Derive asset_count by walking forward from the earliest day.
           // anchor = total active assets today; walk backward from end → start to seed the
@@ -1153,12 +1311,23 @@ export async function attackSurfaceRoutes(rctx) {
               day,
               asset_count:       Math.max(0, runningCount),
               new_assets:        ev.new_assets,
+              // `removed_assets` is a legacy compatibility alias for the
+              // same no-longer-observed event count. It does not prove removal.
               removed_assets:    ev.removed_assets,
+              no_longer_observed_assets:
+                projected.summary.coverage === "complete"
+                  ? supportedNoLongerByDay.get(day) || 0
+                  : null,
               critical_findings: findingMap.get(day) ?? 0,
             });
           }
 
-          return json({ workspace_id: wsId, days: timeline.length, timeline });
+          return json({
+            workspace_id: wsId,
+            days: timeline.length,
+            timeline,
+            lifecycle_claim_projection: projected.summary,
+          });
         } catch {
           return json({ error: "Database error" }, 500);
         }

@@ -15,6 +15,10 @@ import { deliverWorkspaceAlert, sendTenantAlertEmail } from "./alerts.js";
 import { filterCustomerTimelineEventsForScan } from "./timeline-trust.js";
 import { createId } from "../lib/util.js";
 import { getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
+import {
+  loadAssetLifecycleEventSupport,
+  projectLifecycleCollectionForCustomer,
+} from "./asset-lifecycle-event-support.js";
 
 // Delivery outcome → the row's terminal state. Retry is for TRANSIENT failures:
 // the sweep only picks up 'failed'. A workspace with no verified recipient (or one
@@ -55,6 +59,8 @@ export async function loadAssetAlertEligibilityEvidence(
   env,
   workspaceId,
   scanId,
+  events = [],
+  preloadedLifecycleProjection = null,
 ) {
   const signalRead = env.cybermeters_db
     .prepare(
@@ -65,35 +71,15 @@ export async function loadAssetAlertEligibilityEvidence(
     )
     .bind(workspaceId, scanId)
     .all();
-  const lifecycleRead = env.cybermeters_db
-    .prepare(
-      `WITH event_assets AS (
-         SELECT DISTINCT asset_id
-         FROM asset_events
-         WHERE workspace_id = ? AND scan_id = ?
-           AND event_type IN ('asset_no_longer_seen', 'asset_reappeared')
-           AND asset_id IS NOT NULL
-       ),
-       ranked AS (
-         SELECT alo.asset_id, alo.scan_id, alo.observation_state,
-                alo.dns_state, alo.http_state, alo.qualifies_removal,
-                alo.policy_version, alo.source_detail_json, alo.observed_at,
-                ROW_NUMBER() OVER (
-                  PARTITION BY alo.asset_id
-                  ORDER BY alo.observed_at DESC, alo.created_at DESC
-                ) AS recency_rank
-         FROM asset_lifecycle_observations alo
-         JOIN event_assets ea ON ea.asset_id = alo.asset_id
-         WHERE alo.workspace_id = ?
-       )
-       SELECT asset_id, scan_id, observation_state, dns_state, http_state,
-              qualifies_removal, policy_version, source_detail_json, observed_at
-       FROM ranked
-       WHERE recency_rank <= 4
-       ORDER BY asset_id, observed_at`
-    )
-    .bind(workspaceId, scanId, workspaceId)
-    .all();
+  const lifecycleRead = preloadedLifecycleProjection
+    ? Promise.resolve(preloadedLifecycleProjection)
+    : loadAssetLifecycleEventSupport(env, {
+        workspaceId,
+        events: events.filter((event) =>
+          event?.event_type === "asset_no_longer_seen" ||
+          event?.event_type === "asset_reappeared"),
+        scope: `asset-alert-delivery:${scanId}`,
+      });
   const [signals, lifecycle] = await Promise.allSettled([
     signalRead,
     lifecycleRead,
@@ -106,14 +92,22 @@ export async function loadAssetAlertEligibilityEvidence(
       ? "available"
       : evidenceReadStatus(signals.reason),
     lifecycle_status: lifecycle.status === "fulfilled"
-      ? "available"
+      ? lifecycle.value?.coverage_reason === "lifecycle_schema_absent"
+        ? "schema_absent"
+        : lifecycle.value?.coverage_reason === "lifecycle_evidence_read_failed"
+          ? "unavailable"
+          : "available"
       : evidenceReadStatus(lifecycle.reason),
     signal_states: Object.fromEntries(
       signalRows.map((row) => [row.signal_key, row]),
     ),
-    lifecycle_observations: lifecycle.status === "fulfilled"
-      ? lifecycle.value.results || []
-      : [],
+    lifecycle_projection: lifecycle.status === "fulfilled"
+      ? lifecycle.value
+      : {
+          coverage: "unavailable",
+          coverage_reason: "lifecycle_evidence_read_failed",
+          claims_by_event_id: new Map(),
+        },
   };
 }
 
@@ -214,7 +208,23 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQu
 
     for (const workspace_id of alertTargets) {
       try {
-        const events = filterCustomerTimelineEventsForScan(byWorkspace.get(workspace_id) || [], scanId, { missingScanIdMatches: true });
+        const rawWorkspaceEvents = byWorkspace.get(workspace_id) || [];
+        const lifecycleProjection = await loadAssetLifecycleEventSupport(env, {
+          workspaceId: workspace_id,
+          events: rawWorkspaceEvents.filter((event) =>
+            event?.event_type === "asset_no_longer_seen" ||
+            event?.event_type === "asset_reappeared"),
+          scope: `asset-alert-delivery:${scanId}`,
+        });
+        const projectedWorkspaceEvents = projectLifecycleCollectionForCustomer(
+          rawWorkspaceEvents,
+          lifecycleProjection,
+        );
+        const events = filterCustomerTimelineEventsForScan(
+          projectedWorkspaceEvents,
+          scanId,
+          { missingScanIdMatches: true },
+        );
         if (events.length === 0) continue;
 
         const alertEvents = events.filter((event) =>
@@ -224,6 +234,8 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQu
           env,
           workspace_id,
           scanId,
+          alertEvents,
+          lifecycleProjection,
         );
         const eligibility = evaluateAssetAlertEligibility(alertEvents, evidence);
         const counts = assetAlertCounts(
