@@ -212,6 +212,24 @@ const degradedScope = {
   incomplete_reason: "ct_source_degraded",
   error: null,
 };
+const boundedScope = {
+  items: ["asset.example.com"],
+  sources: {
+    crt_sh: { count: 200, error: null },
+    certspotter: { count: 172, error: null },
+  },
+  discovery_coverage: {
+    coverage_state: "bounded",
+    merged: {
+      candidate_total: 372,
+      kept: 300,
+      dropped_count: 72,
+      cap_reached: true,
+      selection_order: "provider_response",
+    },
+  },
+  error: null,
+};
 
 function addQualifying(db, assetId, scanId, observedAt) {
   db.prepare(`
@@ -302,6 +320,107 @@ async function persist(db, { scanId, observedAt, rows, scope }) {
   const row = db.prepare("SELECT * FROM workspace_assets WHERE id='asset-deadline'").get();
   equal("DEADLINE_EXPLICIT_NOT_ASSESSED", row.last_observation_state, "not_assessed");
   equal("DEADLINE_NO_ABSENCE_STATE", row.lifecycle_state, "not_assessed");
+}
+
+// Bounded CT coverage is successful-but-limited, not incomplete. It freezes
+// both absence progression and reappearance/reset without changing scan quality.
+{
+  const db = buildDb([
+    {
+      id: "asset-bounded-progress",
+      hostname: "asset.example.com",
+      lifecycle_state: "not_observed",
+      last_observation_state: "not_observed",
+    },
+    {
+      id: "asset-bounded-removed",
+      hostname: "removed.example.com",
+      status: "inactive",
+      lifecycle_state: "confirmed_removed",
+      last_observation_state: "not_observed",
+      confirmed_removed_at: "2026-07-01T00:00:00.000Z",
+    },
+  ]);
+  addQualifying(db, "asset-bounded-progress", "bounded-before", "2026-07-01T00:00:00.000Z");
+  await persist(db, {
+    scanId: "bounded",
+    observedAt: "2026-07-02T00:00:00.000Z",
+    rows: [negative("asset.example.com"), observed("removed.example.com")],
+    scope: boundedScope,
+  });
+  const progress = db.prepare("SELECT * FROM workspace_assets WHERE id='asset-bounded-progress'").get();
+  const removed = db.prepare("SELECT * FROM workspace_assets WHERE id='asset-bounded-removed'").get();
+  const boundedRows = db.prepare(`
+    SELECT asset_id, observation_state, qualifies_removal, dns_state, http_state
+    FROM asset_lifecycle_observations WHERE scan_id='bounded' ORDER BY asset_id
+  `).all();
+  equal("BOUNDED_EXPLICIT_NOT_ASSESSED", progress.last_observation_state, "not_assessed");
+  equal("BOUNDED_NO_ABSENCE_PROGRESS", progress.lifecycle_state, "not_observed");
+  equal("BOUNDED_QUALIFYING_CLOCK_PRESERVED",
+    db.prepare("SELECT COUNT(*) AS n FROM asset_lifecycle_observations WHERE asset_id='asset-bounded-progress' AND qualifies_removal=1").get().n, 1);
+  check("BOUNDED_ROWS_NEVER_QUALIFY", boundedRows.every((row) => row.qualifies_removal === 0));
+  check("BOUNDED_REASON_IS_EXPLICIT", boundedRows.every((row) =>
+    row.observation_state === "not_assessed" &&
+    row.dns_state === "not_assessed" &&
+    row.http_state === "not_assessed"));
+  equal("BOUNDED_NO_RESET_OF_REMOVED_STATE", removed.lifecycle_state, "confirmed_removed");
+  equal("BOUNDED_NO_REOPEN_EVENT",
+    db.prepare("SELECT COUNT(*) AS n FROM asset_events WHERE event_type='asset_reappeared'").get().n, 0);
+  equal("BOUNDED_NO_REMOVAL_EVENT",
+    db.prepare("SELECT COUNT(*) AS n FROM asset_events WHERE event_type='asset_no_longer_seen'").get().n, 0);
+}
+
+// The bounded carrier does not weaken tenant or soft-delete boundaries.
+{
+  const db = buildDb([{
+    id: "asset-deleted-workspace",
+    hostname: "asset.example.com",
+    lifecycle_state: "not_observed",
+    last_observation_state: "not_observed",
+  }]);
+  db.prepare("UPDATE workspaces SET deleted_at='2026-07-01T00:00:00.000Z' WHERE id='ws'").run();
+  await persist(db, {
+    scanId: "bounded-deleted",
+    observedAt: "2026-07-02T00:00:00.000Z",
+    rows: [negative("asset.example.com")],
+    scope: boundedScope,
+  });
+  equal("BOUNDED_SOFT_DELETED_WORKSPACE_GETS_NO_OBSERVATION",
+    db.prepare("SELECT COUNT(*) AS n FROM asset_lifecycle_observations WHERE scan_id='bounded-deleted'").get().n, 0);
+  equal("BOUNDED_SOFT_DELETED_WORKSPACE_GETS_NO_EVENT",
+    db.prepare("SELECT COUNT(*) AS n FROM asset_events WHERE scan_id='bounded-deleted'").get().n, 0);
+}
+
+{
+  const db = buildDb([{
+    id: "asset-owner",
+    hostname: "asset.example.com",
+    lifecycle_state: "not_observed",
+    last_observation_state: "not_observed",
+  }]);
+  db.exec(`
+    INSERT INTO workspaces (id, deleted_at) VALUES ('ws-foreign', NULL);
+    INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws-foreign', 'dom-foreign');
+    INSERT INTO workspace_assets
+      (id, workspace_id, domain_id, hostname, source, status, updated_at,
+       lifecycle_state, last_observation_state, lifecycle_policy_version)
+    VALUES
+      ('asset-foreign', 'ws-foreign', 'dom-foreign', 'asset.example.com',
+       'certificate_transparency', 'active', '2026-07-01T00:00:00.000Z',
+       'observed', 'observed', '${ASSET_REMOVAL_CONFIRMATION_POLICY.version}');
+  `);
+  await persist(db, {
+    scanId: "bounded-owner-only",
+    observedAt: "2026-07-02T00:00:00.000Z",
+    rows: [negative("asset.example.com")],
+    scope: boundedScope,
+  });
+  const foreign = db.prepare("SELECT * FROM workspace_assets WHERE id='asset-foreign'").get();
+  equal("BOUNDED_FOREIGN_WORKSPACE_STATE_UNCHANGED", foreign.lifecycle_state, "observed");
+  equal("BOUNDED_FOREIGN_WORKSPACE_GETS_NO_OBSERVATION",
+    db.prepare("SELECT COUNT(*) AS n FROM asset_lifecycle_observations WHERE workspace_id='ws-foreign'").get().n, 0);
+  equal("BOUNDED_FOREIGN_WORKSPACE_GETS_NO_EVENT",
+    db.prepare("SELECT COUNT(*) AS n FROM asset_events WHERE workspace_id='ws-foreign'").get().n, 0);
 }
 
 // 2. Healthy CT scope retains the existing confirmed-removal and reappearance path.

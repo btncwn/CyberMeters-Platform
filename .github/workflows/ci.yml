@@ -743,6 +743,20 @@ jobs:
       - name: Validate Item 9 certificate per-signal completeness mutations
         run: node scripts/validate-item9-certificate-signal-completeness-mutations.js
 
+      # AS-C1/C2/C3 U1+U2+U3 — successful-but-bounded collection is a closed,
+      # separate coverage dimension. The focused fixture binds all four caps to
+      # their provenance and consumed meaning; the fresh-process registry kills
+      # exactly the nine approved semantic mutants; the narrow declaration guard
+      # protects only the two corrected source comments and importer inventory.
+      - name: Validate AS-C1/C2/C3 bounded coverage and saturation provenance
+        run: node scripts/validate-as-c1-c2-c3-bounded-coverage.js
+
+      - name: Validate AS-C1/C2/C3 bounded coverage semantic mutations
+        run: node scripts/validate-as-c1-c2-c3-bounded-coverage-mutations.js
+
+      - name: Validate AS-C3 source declarations and importer inventory
+        run: node scripts/validate-as-c3-source-declarations.js
+
       - name: Validate Item 10 Attack Surface per-signal completeness and removal policy (pure fixtures; no production caller)
         run: node scripts/validate-item10-attack-surface-p1.js
 

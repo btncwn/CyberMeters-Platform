@@ -24,7 +24,7 @@ const EXPECTED = Object.freeze({
   runtime: {
     comparison_occurrences: 49,
     source_file_count: 22,
-    fingerprint: "947f631eee4af3448833ea2d80f8c91ff72a56fd3e59fc08afafb6b753b76839",
+    fingerprint: "f48c4fc931afc8d6d0707ff94cfeebd15baa2bbe614d147368a4ff49e8f06059",
     partial_only_fingerprint: "7b223d2f4c9d061edd9a02350fe66468d74c6709b26debb4c77b17353c9cecf9",
   },
   sql: {
@@ -36,9 +36,9 @@ const EXPECTED = Object.freeze({
     resolved_query_sink_fingerprint: "2d2ab8e967a911a620956b8335699e0426eea6e31dfa26e01e6b97de03162333",
   },
   governance: {
-    comparison_occurrences: 59,
-    source_file_count: 20,
-    fingerprint: "203e2657f061efbd3b217b6ff79feeb69181c11f798db47ee24f9e0419f9468a",
+    comparison_occurrences: 61,
+    source_file_count: 21,
+    fingerprint: "83ad843aabd12ebb4b3a856154ca60ec210121f184ebe253f3f9fa4e39093976",
   },
   runtime_source_file_count: 32,
   direct: {

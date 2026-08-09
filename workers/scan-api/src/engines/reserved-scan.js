@@ -154,6 +154,7 @@ export async function runReservedExposureModule(domain, orderedHosts, {
     cache,
     signal,
     dnsAccounting,
+    recheckHosts: toProbe.filter((row) => row.src === "known_asset").map((row) => row.host),
   });
   const deferred = overflow.map((h) => deferredCapacityAsset(h.host, "projected_subrequest_budget"));
   const deferredObservations = overflow.map((row) => ({

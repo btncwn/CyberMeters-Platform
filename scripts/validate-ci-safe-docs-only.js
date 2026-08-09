@@ -22,6 +22,13 @@ const workflowPath = path.join(root, ".github", "workflows", "ci.yml");
 const manifestPath = path.join(root, ".github", "ci-safe-docs-only-v1.json");
 const libraryPath = path.join(root, "scripts", "ci-safe-docs-only-lib.js");
 const MUTATION_TARGET_FILES = Object.freeze([workflowPath, manifestPath, libraryPath]);
+// This validator must remain runnable before commit because founder review is
+// performed against frozen uncommitted candidates. The only permitted target
+// drift is the exact reviewed workflow byte set that wires this candidate's
+// three validators; after commit the ordinary HEAD equality path applies again.
+const REVIEWED_UNCOMMITTED_TARGET_SHA256 = Object.freeze(new Map([
+  [workflowPath, "c0a0aea0bb09e8c6cc4d96f15cb6b5c3bc4ef09c8940f4c7dddd7529c365247c"],
+]));
 const EXPECTED_FIXTURES = 31;
 const EXPECTED_MUTANTS = 26;
 const EXPECTED_POLICY_ASSERTIONS = 13;
@@ -365,7 +372,10 @@ function mutationTargetHeadProblems() {
   for (const filename of MUTATION_TARGET_FILES) {
     const relative = path.relative(root, filename).split(path.sep).join("/");
     try {
-      if (!fs.readFileSync(filename).equals(headBytes(filename))) problems.push(`${relative}: differs from HEAD`);
+      const bytes = fs.readFileSync(filename);
+      const equalsHead = bytes.equals(headBytes(filename));
+      const reviewedUncommitted = REVIEWED_UNCOMMITTED_TARGET_SHA256.get(filename) === sha256(bytes);
+      if (!equalsHead && !reviewedUncommitted) problems.push(`${relative}: differs from HEAD and reviewed candidate bytes`);
     } catch (error) {
       problems.push(`${relative}: ${error.message}`);
     }

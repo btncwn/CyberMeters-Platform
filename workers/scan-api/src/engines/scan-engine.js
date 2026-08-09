@@ -813,7 +813,12 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
             removal_observations: unavailableRemovalObservations(knownAssetHosts, "asset_exposure_deadline"),
             source: "http_probe",
           }),
-          run: ({ accounting, signal }) => runExposureModule(domain, exposureTargets, { accounting, signal, cache: dnsCache }),
+          run: ({ accounting, signal }) => runExposureModule(domain, exposureTargets, {
+            accounting,
+            signal,
+            cache: dnsCache,
+            recheckHosts: knownAssetHosts,
+          }),
         });
         exposureThrown = exposureRun.thrown;
         assetExposureResult = exposureThrown

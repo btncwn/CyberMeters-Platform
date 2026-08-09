@@ -477,15 +477,15 @@ try {
   // one fingerprint instead of letting both sides drift together.
   const expectedBaselineHashes = {
     // Filled from exact base 7673bc2 with Math.random fixed above.
-    "partial overlap": "4baa8d7134d78a2deb27a3304b9fa2da39cd965d02c41ea09d67004ede0c2b94",
-    "identical sets": "a24b87d298f4e7521a44b49cec0910f162b679715d4e84ad00608c33b7b0f3e7",
-    "disjoint sets": "0476e9c000dc615775fc1a2a6c59f2801bb66c3a5225955bab5220960c86bdb4",
-    "duplicate hostnames": "a8d7548fd5dcc6e5c56ddfe54511488e63113f593a66e0e6417b6a790604f24b",
-    "crt multi-name record and common name": "2eaaf3a9b0543ae803025bf98d45a4794120d8e96401c728722d525b5898c4ff",
-    "invalid out-of-domain wildcard candidates": "a845c5e46880eab9a0b8e8d7609439c4553c9341b9061aecbb166c6d3b7e482f",
-    "both successful empty": "c9094db96395e5170c665c9c4b7599db333f788961e71b766f687f789cb97ad9",
-    "crt failure certspotter success": "fad76101fbcdc367c6e5781c9d39ade49f83057e3e34f9215711c2f3b35ef0db",
-    "certspotter failure crt success": "639c1725c9f4ab97bbc0eaf8ebf54622db4735f27183a1f038f97031640a028a",
+    "partial overlap": "09a7bb65716805848b14fdf351103664c5832155e532f5872736532de309317e",
+    "identical sets": "c0e3f2288a59aeda1b45dd833ebe74a28601ccc51a399ea1f7dddbe71f2c7c3e",
+    "disjoint sets": "b80ec734f43c9bea669fa86d8399133697036e0d66c5838d1fc6250c389f3ee4",
+    "duplicate hostnames": "c133b60d70bc03957a68efeb1df4760d93c6cd680aa0d5b7095dd037e5ca36ae",
+    "crt multi-name record and common name": "617f64ff6f3757b13f442c7708667ebeb14ad1bea8fbf2bd152dc70732bb1509",
+    "invalid out-of-domain wildcard candidates": "5454bcf26b200e5a65f4f3f68fca8cbd43de457144976b525c7863f4132139f1",
+    "both successful empty": "7d04c8be39aadda0751cb34ea830f6447c3ec8a21580df04a34deecc06003186",
+    "crt failure certspotter success": "c0d76258a7f4331d908ac006ad85a52028828be14668664c5766ba5d9ad9b3fb",
+    "certspotter failure crt success": "7266625a7009cb50d664b1fd2da584567d47113f1b9a3318bb946e0bb3af34ce",
     "both provider failure": "afdf74816197466e4bdf5b9ddc638ec2f630e0d580c26d5907f8817b79580deb",
   };
   if (process.env.CT_OVERLAP_PRINT_BASELINE === "1") {

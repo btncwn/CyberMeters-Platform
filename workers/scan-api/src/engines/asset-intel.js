@@ -13,6 +13,7 @@ import {
   resolvePhase5EvidenceContract,
 } from "./phase5-evidence.js";
 import { isPublishableModuleEvidence } from "./scan-budget.js";
+import { coverageStateFromTruncation } from "./bounded-coverage.js";
 
 // ── Module 7: Asset Exposure Engine ──────────────────────────────────────────
 
@@ -518,12 +519,35 @@ export function unavailableRemovalObservations(hosts, reason = "asset_exposure_u
  */
 export async function runExposureModule(domain, subdomains, opts = {}) {
   const source = "http_probe";
+  const candidates = Array.isArray(subdomains) ? subdomains : [];
+  const candidateTotal = candidates.length;
+  const targets = candidates.slice(0, 50);
+  const droppedCount = Math.max(0, candidateTotal - targets.length);
+  const capReached = candidateTotal > targets.length;
+  const recheckRecorded = Array.isArray(opts.recheckHosts);
+  const recheckSet = new Set(
+    (opts.recheckHosts || []).map(normalizeHostname).filter(Boolean),
+  );
+  const recheckSlotsUsed = recheckRecorded
+    ? targets.filter((host) => recheckSet.has(normalizeHostname(host))).length
+    : null;
+  const newCandidateSlotsAvailable = recheckRecorded
+    ? Math.max(0, 50 - recheckSlotsUsed)
+    : null;
+  const probeCoverage = {
+    candidate_total: candidateTotal,
+    checked: targets.length,
+    dropped_count: droppedCount,
+    cap_reached: capReached,
+    recheck_slots_used: recheckSlotsUsed,
+    new_candidate_slots_available: newCandidateSlotsAvailable,
+    saturated: recheckRecorded ? newCandidateSlotsAvailable === 0 : null,
+    coverage_state: coverageStateFromTruncation(capReached),
+  };
 
-  if (!subdomains || subdomains.length === 0) {
-    return { checked: 0, reachable: 0, assets: [], source, error: null };
+  if (candidateTotal === 0) {
+    return { checked: 0, reachable: 0, assets: [], source, probe_coverage: probeCoverage, error: null };
   }
-
-  const targets = subdomains.slice(0, 50);
   const probeOpts = typeof opts.fetcher === "function" || !opts.cache
     ? opts
     : { ...opts, fetcher: makeDefaultProbeFetch(opts.cache) };
@@ -597,6 +621,7 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
     assets,
     removal_observations: removalObservations,
     source,
+    probe_coverage: probeCoverage,
     error: null,
     ...(incomplete ? {
       incomplete:          true,
