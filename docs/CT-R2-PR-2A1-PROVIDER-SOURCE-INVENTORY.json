@@ -1,11 +1,11 @@
 {
   "rule_version": "ct-provider-source-consumers/1",
   "runtime_consumer_count": 13,
-  "fingerprint": "089c50714df30c59df8b56de18f81cefab1e2cf299d6894a72ebd207a9ea9b83",
+  "fingerprint": "b7d834421a23efb6c0f19528c67b1d57e205c015e459d1bb762f0ce363942d61",
   "sites": [
     {
       "file": "workers/scan-api/src/engines/attack-surface-signal-completeness.js",
-      "line": 136,
+      "line": 150,
       "column": 5,
       "ast_access_kind": "member",
       "field": "error",
@@ -16,7 +16,7 @@
     },
     {
       "file": "workers/scan-api/src/engines/attack-surface-signal-completeness.js",
-      "line": 137,
+      "line": 151,
       "column": 5,
       "ast_access_kind": "member",
       "field": "error",
