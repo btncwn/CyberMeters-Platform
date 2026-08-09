@@ -13,7 +13,14 @@ import {
 import { createAuditEvent } from "../lib/events.js";
 import { hashToken } from "../lib/auth-crypto.js";
 import { normalizeDiscoveredHostname } from "./hostnames.js";
-import { MANAGED_VERIFICATION_PROFILE, findingTypeOf, isSupportedVerification, runManagedVerificationProbe } from "./managed-verification.js";
+import {
+  MANAGED_VERIFICATION_PROFILE,
+  findingTypeOf,
+  isSupportedVerification,
+  managedVerificationDomainKey,
+  runManagedVerificationProbe,
+} from "./managed-verification.js";
+import { evaluateCookieObservation, isCookieFindingType } from "./cookie-observation.js";
 import { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES } from "./asm-case-machine.js";
 import { canTransitionCase, assignCaseOwner, createManagedCase } from "./managed-case-model.js";
 
@@ -153,10 +160,11 @@ async function enrichCaseAffectedHosts(env, existing, finding, scanId) {
   existing.asset_ref = nextAssetRef;
 }
 
-function isAsmManagedFinding(finding = {}) {
+export function isAsmManagedFinding(finding = {}) {
   if (!finding?.id) return false;
-  if (ASM_MODULES.has(finding.module)) return true;
   const id = String(finding.id);
+  if (isCookieFindingType(id)) return false;
+  if (ASM_MODULES.has(finding.module)) return true;
   return id.startsWith("admin_surface_") ||
     id.includes("takeover") ||
     id.includes("cloud_storage") ||
@@ -498,6 +506,9 @@ export function moduleCompletionGate(modules, scanQuality) {
 }
 
 function relevantModuleForCase(caseRow) {
+  if (isCookieFindingType(caseRow?.source_finding_type || caseRow?.finding_id)) {
+    return "domain_security_enrichment";
+  }
   return parseJson(caseRow.evidence_json)?.finding?.module || null;
 }
 
@@ -760,7 +771,27 @@ export async function verifyManagedAsmCasesForScan(
         if (!verifying.ok) continue;
         current = verifying.case;
       }
-      const stillPresent = present.has(current.finding_id);
+      let stillPresent;
+      if (isCookieFindingType(current.source_finding_type || current.finding_id)) {
+        const cookie = evaluateCookieObservation(
+          current.source_finding_type || current.finding_id,
+          modules?.domain_security_enrichment,
+          { moduleComplete: gate.canVerify("domain_security_enrichment") },
+        );
+        if (cookie.state === "deferred") {
+          await deferManagedAsmCase(env, current, {
+            scanId,
+            module: "domain_security_enrichment",
+            reason: cookie.reason,
+          });
+          deferred++;
+          continue;
+        }
+        stillPresent = cookie.state === "present";
+      } else {
+        stillPresent = present.has(current.finding_id);
+      }
+      const verificationDomainKey = managedVerificationDomainKey(current.source_finding_type || current.finding_id);
       if (stillPresent) {
         const failure = await updateCaseStatus(env, current, "verification_failed", {
           actor_type: "system",
@@ -771,7 +802,7 @@ export async function verifyManagedAsmCasesForScan(
         if (failure.ok) {
           failed++;
           await emitCaseLifecycleAlert(env, failure.case, {
-            domain_key: "attack_surface",
+            domain_key: verificationDomainKey,
             recurrence: "case_verification_failed",
             detail: { observed: "still_present", source: "cyber_mot" },
           });
@@ -809,7 +840,7 @@ export async function verifyManagedAsmCasesForScan(
         if (ok.ok) {
           resolved++;
           await emitCaseLifecycleAlert(env, ok.case, {
-            domain_key: "attack_surface",
+            domain_key: verificationDomainKey,
             recurrence: "case_resolved",
             detail: { observed: "absent", source: "cyber_mot" },
           });
@@ -921,6 +952,7 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
   const probe = await runManagedVerificationProbe(finding, hosts, { onOutbound: () => { outbound++; } });
   const audit = { profile: MANAGED_VERIFICATION_PROFILE, case_id: caseId, finding_id: caseRow.finding_id, finding_type: findingTypeOf(finding), host: hosts[0], hosts, correlation_key: correlationKey, started_at: startedAt, completed_at: new Date().toISOString(), outbound_calls: outbound, completeness: probe.completeness, decision: probe.decision, evidence: probe.evidence || null };
   const working = { ...caseRow, status: workingStatus };
+  const verificationDomainKey = managedVerificationDomainKey(findingTypeOf(finding));
 
   // 9. Decision → lifecycle (system actor only).
   if (probe.decision === "deferred") {
@@ -939,7 +971,7 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
   if (probe.decision === "still_present") {
     if (working.status === "verifying") {
       const r = await updateCaseStatus(env, working, "verification_failed", { actor_type: "system", action: "verification_failed", reason: "CyberMeters still observed this exposure.", detail: audit });
-      if (r.ok) await emitCaseLifecycleAlert(env, r.case, { domain_key: "attack_surface", recurrence: "case_verification_failed", detail: audit });
+      if (r.ok) await emitCaseLifecycleAlert(env, r.case, { domain_key: verificationDomainKey, recurrence: "case_verification_failed", detail: audit });
     } else if (working.status === "resolved") {
       // Reappearance: claim resolved → reopened exactly once (CAS), then remediation.
       const won = await casCaseStatus(env, caseRow, "resolved", "reopened", ", reopened_count = COALESCE(reopened_count, 0) + 1");
@@ -948,7 +980,7 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
         const fresh = await getManagedCase(env, workspaceId, caseId);
         if (fresh) {
           await updateCaseStatus(env, fresh, "remediation_in_progress", { actor_type: "system", action: "transition", detail: audit });
-          await emitCaseLifecycleAlert(env, fresh, { domain_key: "attack_surface", recurrence: "case_reopened", from_recurrence_type: "case_resolved", finding_type: caseRow.finding_id, detail: audit });
+          await emitCaseLifecycleAlert(env, fresh, { domain_key: verificationDomainKey, recurrence: "case_reopened", from_recurrence_type: "case_resolved", finding_type: caseRow.finding_id, detail: audit });
         }
       }
     }
@@ -965,7 +997,7 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
           observed_at: audit.completed_at,
           observation: audit.evidence || { host: audit.host, decision: audit.decision, completeness: audit.completeness },
         } });
-      if (r.ok) await emitCaseLifecycleAlert(env, r.case, { domain_key: "attack_surface", recurrence: "case_resolved", detail: audit });
+      if (r.ok) await emitCaseLifecycleAlert(env, r.case, { domain_key: verificationDomainKey, recurrence: "case_resolved", detail: audit });
     }
     // A 'resolved' case that is still fixed → no-op (idempotent).
     return { ok: true, code: "fixed", decision: "fixed", outbound_calls: outbound };

@@ -21,10 +21,11 @@
 // readily than the scan did — it can never manufacture a false "fixed". That asymmetry is
 // the point: an over-cautious verifier leaves a case open, an over-eager one lies.
 import { assetFingerprintSignals, runAdminSurfaceModule } from "./asset-intel.js";
+import { evaluateCookieObservation, isCookieFindingType } from "./cookie-observation.js";
 import { dnsQuery } from "./dns.js";
 import { buildCaaFromAnswers } from "./dns-scan.js";
 import { runDomainSecurityEnrichmentModule } from "./domain-enrichment.js";
-import { DSE_EVIDENCE_SOURCE, DSE_PRESENCE, dsePresenceEvidenceUsable } from "./dse-findings.js";
+import { DSE_PRESENCE, dsePresenceEvidenceUsable } from "./dse-findings.js";
 import { captureSetCookieRaw, securityHeaderValuesFrom } from "./headers-scan.js";
 import { makeReservedProbeFetch } from "./reserved-probe.js";
 import { hostHasConfirmedTakeoverRisk, runTakeoverModule, takeoverObservationFor } from "./takeover-scan.js";
@@ -89,9 +90,9 @@ const VERIFICATION_DISPATCH = Object.freeze({
   // Re-observe response headers and re-evaluate the canonical dse_* predicate.
   dse_hsts_short_maxage:          { technique: "http_headers" },
   dse_hsts_not_preload_eligible:  { technique: "http_headers" },
-  dse_cookie_no_secure:           { technique: "http_headers" },
-  dse_cookie_no_httponly:         { technique: "http_headers" },
-  dse_cookie_no_samesite:         { technique: "http_headers" },
+  dse_cookie_no_secure:           { technique: "http_headers", domain_key: "website_security" },
+  dse_cookie_no_httponly:         { technique: "http_headers", domain_key: "website_security" },
+  dse_cookie_no_samesite:         { technique: "http_headers", domain_key: "website_security" },
 });
 
 // ── Support matrix (the honest, code-backed statement of what we can verify) ──
@@ -145,6 +146,13 @@ export function isSupportedVerification(finding = {}) {
 // support honestly rather than re-deriving the list.
 export function supportedVerificationTypes() {
   return Object.keys(VERIFICATION_DISPATCH).sort();
+}
+
+// The verification technique is shared, but ownership is singular. Historical
+// ASM cookie cases stay ASM rows; any NEW verification lifecycle alert uses the
+// canonical Website Security domain without rewriting that historical case.
+export function managedVerificationDomainKey(findingId) {
+  return VERIFICATION_DISPATCH[String(findingId || "")]?.domain_key || "attack_surface";
 }
 
 // Why a finding type is not verifiable — an explicit, customer-safe statement rather
@@ -287,16 +295,26 @@ async function observeDseHeaders(findingId, host, fetcher) {
     set_cookie_raw: captureSetCookieRaw(probe.res.headers),
   };
   const enrich = runDomainSecurityEnrichmentModule(host, { headers });
+  if (isCookieFindingType(findingId)) {
+    const cookie = evaluateCookieObservation(findingId, enrich, { moduleComplete: true });
+    if (cookie.state === "deferred") {
+      return { completeness: "indeterminate", reason: cookie.reason };
+    }
+    return {
+      completeness: "complete",
+      present: cookie.state === "present",
+      evidence: {
+        status: probe.res.status,
+        cookies_found: enrich.cookies?.found ?? 0,
+        cookies_insecure: enrich.cookies?.insecure_count ?? 0,
+        cookies_no_httponly: enrich.cookies?.no_httponly ?? 0,
+        cookies_no_samesite: enrich.cookies?.no_samesite ?? 0,
+        limitations: "External observation of one response only — it cannot enumerate every cookie the application may set on other paths or states.",
+      },
+    };
+  }
   if (!dsePresenceEvidenceUsable(findingId, enrich)) {
     return { completeness: "indeterminate", reason: "header_evidence_unusable" };
-  }
-
-  // Cookie findings need cookies to reason about. A response that sets none does NOT
-  // distinguish "the cookie flags were fixed" from "this particular request simply set
-  // no cookies", so it is inconclusive rather than a fix. (HSTS is a plain response
-  // header, so a complete response IS conclusive for it either way.)
-  if (DSE_EVIDENCE_SOURCE[findingId] === "cookies" && (enrich.cookies?.found || 0) === 0) {
-    return { completeness: "indeterminate", reason: "no_cookies_observed" };
   }
 
   return {

@@ -230,6 +230,7 @@ const mapSrc = fs.readFileSync(p("dmarc-canonical-consumers.js"), "utf8");
 const motSrc = fs.readFileSync(p("cyber-mot-domains.js"), "utf8");
 const stateUrl = pathToFileURL(p("dmarc-state.js")).href;
 const monitoringUrl = pathToFileURL(p("signal-monitoring-state.js")).href;
+const cookieObservationUrl = pathToFileURL(p("cookie-observation.js")).href;
 
 async function motFromMutantMap(mutateMap, scn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dmarc-cs-"));
@@ -239,7 +240,8 @@ async function motFromMutantMap(mutateMap, scn) {
     fs.writeFileSync(mapFile, mMap);
     const mMot = motSrc
       .replace('from "./dmarc-canonical-consumers.js"', `from ${JSON.stringify(pathToFileURL(mapFile).href)}`)
-      .replace('from "./signal-monitoring-state.js"', `from ${JSON.stringify(monitoringUrl)}`);
+      .replace('from "./signal-monitoring-state.js"', `from ${JSON.stringify(monitoringUrl)}`)
+      .replace('from "./cookie-observation.js"', `from ${JSON.stringify(cookieObservationUrl)}`);
     const motFile = path.join(dir, "cyber-mot.mjs");
     fs.writeFileSync(motFile, mMot);
     const mod = await import(`${pathToFileURL(motFile).href}?t=${OBS}`);

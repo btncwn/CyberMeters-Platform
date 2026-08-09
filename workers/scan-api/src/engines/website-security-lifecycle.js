@@ -21,6 +21,11 @@ import {
 } from "./alert-occurrence.js";
 import { emitLifecycleAlert } from "./alert-consumers.js";
 import { moduleCompletionGate } from "./asm-cases.js";
+import {
+  COOKIE_FINDING_TYPES,
+  evaluateCookieObservation,
+  isCookieFindingType,
+} from "./cookie-observation.js";
 // One direction only: this module calls into the case layer, which imports nothing back.
 import { openOrReopenWebsiteCase, verifyWebsiteCaseFromResolution } from "./website-security-cases.js";
 
@@ -58,6 +63,10 @@ export const WS_NON_ALERTABLE_EVENT_TYPES = Object.freeze([
 const WS_CONDITIONS = Object.freeze({
   ssl_not_available:   { recurrence: "transport_not_available",       module: "ssl" },
   ssl_no_http_redirect:{ recurrence: "insecure_redirect",             module: "ssl" },
+  ...Object.fromEntries(COOKIE_FINDING_TYPES.map((conditionKey) => [conditionKey, {
+    recurrence: "browser_protection_missing",
+    module: "domain_security_enrichment",
+  }])),
   // header_missing_* and header_malformed_* are derived per header from the frozen
   // SECURITY_HEADERS list, so they are matched by prefix rather than enumerated —
   // enumerating them would drift the moment a header is added to that list.
@@ -136,13 +145,22 @@ async function domainIsBaselined(env, workspaceId, domainId) {
 //                got weaker. Treating that as recovery would tell a customer they
 //                fixed something because Cloudflare showed us a challenge page.
 //   absent     — not emitted at any grade
-function gradeFindings(findings) {
+function gradeFindings(findings, modules, gate) {
   const graded = new Map();
   for (const f of (findings || [])) {
     if (!f?.id || !WS_DOMAIN?.match(f)) continue;
     const spec = websiteConditionSpec(f.id);
     if (!spec) continue;   // a Website Security finding with no actionable mapping
-    const material = isMaterial(f.severity);
+    if (isCookieFindingType(f.id)) {
+      const cookie = evaluateCookieObservation(f.id, modules?.domain_security_enrichment, {
+        moduleComplete: gate.canVerify("domain_security_enrichment"),
+      });
+      if (cookie.state !== "present") continue;
+    }
+    // The cookie set is explicitly lifecycle-managed at its canonical finding
+    // severities, including the existing low-severity SameSite finding. Other low/info
+    // Website signals retain the established evidence-uncertain behaviour.
+    const material = isCookieFindingType(f.id) || isMaterial(f.severity);
     const prev = graded.get(f.id);
     // Highest grade wins if a key somehow appears twice in one scan.
     if (prev && SEV_RANK[prev.severity] >= (SEV_RANK[String(f.severity || "").toLowerCase()] ?? 0)) continue;
@@ -216,7 +234,7 @@ export async function evaluateWebsiteSecurityForScan(env, {
 
     const gate = moduleCompletionGate(modules, scanQuality);
     const quality = scanQuality?.status ?? null;
-    const graded = gradeFindings(findings);
+    const graded = gradeFindings(findings, modules, gate);
 
     const existing = (await env.cybermeters_db
       .prepare(`SELECT * FROM website_security_conditions WHERE workspace_id = ? AND domain_id = ?`)
@@ -239,10 +257,24 @@ export async function evaluateWebsiteSecurityForScan(env, {
       // ── What is the condition's state, honestly? ────────────────────────────
       let status, reason = null, unknown_reason = null;
       let recurrence = null, band = null;
-      if (obs && obs.material) {
+      const cookieObservation = isCookieFindingType(key)
+        ? evaluateCookieObservation(key, modules?.domain_security_enrichment, {
+          moduleComplete: gate.canVerify("domain_security_enrichment"),
+        })
+        : null;
+      if (obs && obs.material && (!cookieObservation || cookieObservation.state === "present")) {
         status = "observed";
         recurrence = obs.recurrence;
         band = obs.severity;            // the band IS the grade: worsening escalates
+      } else if (cookieObservation?.state === "clear") {
+        // Cookie absence is conclusive only when cookies were actually observed and
+        // the canonical predicate evaluated false. A zero-cookie response never enters.
+        status = "no_longer_observed";
+        reason = "cookie_observed_and_canonical_predicate_clear";
+      } else if (cookieObservation?.state === "deferred") {
+        status = "unknown";
+        unknown_reason = gate.scanPartial ? "scan_partial" : cookieObservation.reason;
+        reason = "cookie_observation_inconclusive";
       } else if (obs && !obs.material) {
         // Present but our evidence is too weak to act on. Not gone.
         status = "unknown";

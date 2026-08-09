@@ -27,8 +27,9 @@
 // never honestly verified.
 //
 // ── VERIFICATION IS AN OBSERVATION, NEVER AN ASSERTION ──
-// All 14 Website Security condition keys (2 ssl_* + 6 headers × missing/malformed) resolve
-// to `https_recheck` in the registry, so verificationSupportForCase returns "automated" for
+// All 17 Website Security condition keys (2 ssl_* + 6 headers × missing/malformed +
+// 3 canonical cookie-attribute findings) resolve to `https_recheck` in the registry, so
+// verificationSupportForCase returns "automated" for
 // every website_case and a customer attestation can never conclude one. That is not enforced
 // by a special case here — it falls out of the registry, and the CI guard asserts the
 // registry keeps saying it.
@@ -37,6 +38,7 @@ import {
 } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
 import { getRemediationById } from "./remediation-registry.js";
+import { isCookieFindingType } from "./cookie-observation.js";
 
 // Imports NOTHING from website-security-lifecycle.js, deliberately — the lifecycle calls
 // into here, so importing back would make a cycle. The caller knows its own condition key
@@ -49,7 +51,7 @@ export const WEBSITE_SECURITY_DOMAIN_KEY = "website_security";
 export const WEBSITE_CASE_RECURRENCES = Object.freeze(new Set([
   "transport_not_available",       // ssl_not_available          → https_recheck → automated
   "insecure_redirect",             // ssl_no_http_redirect       → https_recheck → automated
-  "browser_protection_missing",    // header_missing_*           → https_recheck → automated
+  "browser_protection_missing",    // header_missing_* / cookies → https_recheck → automated
   "browser_protection_malformed",  // header_malformed_*         → https_recheck → automated
 ]));
 
@@ -62,6 +64,21 @@ const caseTitle = (conditionKey, entity) =>
   `Website Security: ${String(conditionKey).replace(/_/g, " ")} (${entity})`;
 
 const TERMINAL = "('rejected','false_positive','closed_no_action','superseded')";
+const LEGACY_ASM_TERMINAL = "('rejected','false_positive','closed_no_action','superseded','closed')";
+
+async function findHistoricalAsmCookieCase(env, { workspace_id, domain, condition_key }) {
+  if (!isCookieFindingType(condition_key) || !workspace_id || !domain) return null;
+  return env.cybermeters_db
+    .prepare(`SELECT * FROM managed_cases
+              WHERE workspace_id = ? AND domain = ? AND case_type = 'asm_exposure'
+                AND (source_finding_type = ? OR finding_id = ?)
+                AND status NOT IN ${LEGACY_ASM_TERMINAL}
+              ORDER BY created_at ASC, rowid ASC
+              LIMIT 1`)
+    .bind(workspace_id, domain, condition_key, condition_key)
+    .first()
+    .catch(() => null);
+}
 
 /**
  * Open — or reopen — the canonical case for one Website Security condition, and write the
@@ -88,6 +105,18 @@ export async function openOrReopenWebsiteCase(env, {
     .bind(workspace_id, WEBSITE_CASE_TYPE, record_id).first().catch(() => null);
 
   if (!existing) {
+    // H-A compatibility boundary: an exact historical non-terminal ASM cookie case
+    // remains an immutable ASM row. Link the new Website condition to it for bounded
+    // presentation and suppress a duplicate Website case, but never update that case
+    // or append an event to its historical case stream.
+    const historicalAsm = await findHistoricalAsmCookieCase(env, {
+      workspace_id, domain, condition_key,
+    });
+    if (historicalAsm) {
+      await linkConditionToCase(env, workspace_id, record_id, historicalAsm.id);
+      return { ok: true, created: false, compatible_historical: true, case: historicalAsm };
+    }
+
     const result = await createManagedCase(env, {
       workspace_id,
       domain_key: WEBSITE_SECURITY_DOMAIN_KEY,

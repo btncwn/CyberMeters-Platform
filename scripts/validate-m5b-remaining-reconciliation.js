@@ -244,8 +244,8 @@ const shape = (r) => { const c = cat(r, PM); return JSON.stringify({ score: c.sc
 // The portfolio trend compares per-domain states and gates on resolver_version, so that
 // version MUST have moved or every customer's CE would "improve"/"deteriorate" on deploy day.
 {
-  eq("the Cyber MOT resolver version was bumped for the new denominator",
-    motDomains.CYBER_MOT_RESOLVER_VERSION, "2026-07-24.4");
+  eq("the Cyber MOT resolver version includes the latest methodology boundary",
+    motDomains.CYBER_MOT_RESOLVER_VERSION, "2026-08-09.1");
   const hist = await import(eng("cyber-mot-state-history.js"));
   const mk = (v, state) => ({ resolver_version: v, scan_quality: "complete", state, assessed_at: "2026-07-16T00:00:00Z" });
   const cross = hist.resolveDomainTrend(mk("2026-07-16.2", "assessed_healthy"), mk("2026-07-16.1", "issue_detected"));
@@ -462,9 +462,9 @@ if (!process.argv.includes("--no-mutate")) {
       from: "  return A.ver === B.ver && A.rev === B.rev;", to: "  return A.ver === B.ver;" },
     { file: CE, name: "missing methodology metadata is treated as comparable",
       from: "  if (A.ver == null || B.ver == null || A.rev == null || B.rev == null) return false;", to: "" },
-    { file: MOT, name: "the resolver version is not bumped for the new denominator",
-      from: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-07-24.4";',
-      to: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-07-16.1";' },
+    { file: MOT, name: "the latest resolver boundary is removed",
+      from: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-09.1";',
+      to: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-07-24.4";' },
     { file: MODEL, name: "`external` maps to automated again",
       from: '  if (method === "external") return "external";', to: "" },
     { file: MODEL, name: "external verification is accepted from a customer attestation",
