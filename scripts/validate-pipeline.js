@@ -65,6 +65,34 @@ function makeEnv(db) {
   };
 }
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+const RATE_LIMIT_EPOCH_MS = 1_800_000_001_234;
+const EXPECTED_ASSERTION_COUNT = 45;
+const PIPELINE_HARNESS_MUTANT = process.env.F4_PR1_PIPELINE_MUTANT || "";
+const withRateLimitClock = async (operation) => {
+  const originalDateNow = Date.now;
+  Date.now = () => RATE_LIMIT_EPOCH_MS;
+  try {
+    return await operation();
+  } finally {
+    Date.now = originalDateNow;
+  }
+};
+const rateLimitWindowStart = (windowSeconds) => new Date(
+  Math.floor(RATE_LIMIT_EPOCH_MS / (windowSeconds * 1000)) * windowSeconds * 1000,
+).toISOString();
+const rateLimitScopeIdForTest = async (prefix, value) => {
+  const digest = await webcrypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(String(value || "unknown")),
+  );
+  return `${prefix}_${Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 16)}`;
+};
+const scopedActionCounter = (db, { scope, scopeId, action, windowStart }) => db.prepare(
+  `SELECT scope, scope_id, action, window_start, window_seconds, request_count
+   FROM api_rate_limits
+   WHERE scope = ? AND scope_id = ? AND action = ? AND window_start = ?
+   LIMIT 1`,
+).get(scope, scopeId, action, windowStart);
 
 // Independent HMAC-SHA256 hex — forges the Stripe-Signature the way Stripe does,
 // so the webhook signature gate is tested against a real (not stubbed) signature.
@@ -84,6 +112,18 @@ function ok(name, cond) {
   if (cond) { passed++; s.passed++; results.push(`PASS [${currentSection}] ${name}`); }
   else      { failed++; s.failed++; results.push(`FAIL [${currentSection}] ${name}`); }
   sectionCounts.set(currentSection, s);
+}
+function enforceExpectedAssertionCount() {
+  const observed = passed + failed;
+  if (observed === EXPECTED_ASSERTION_COUNT) return;
+  const harnessSection = "Harness integrity";
+  failed += 1;
+  results.push(
+    `FAIL [${harnessSection}] assertion-count interlock expected ${EXPECTED_ASSERTION_COUNT}, observed ${observed}`,
+  );
+  const s = sectionCounts.get(harnessSection) ?? { passed: 0, failed: 0 };
+  s.failed += 1;
+  sectionCounts.set(harnessSection, s);
 }
 
 async function main() {
@@ -108,12 +148,17 @@ async function main() {
   db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES (?, ?, ?, ?)").run("m1", "ws1", "userA", "admin");
   db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES (?, ?, ?, ?)").run("m2", "ws2", "userC", "owner");
 
-  const call = async (method, pathname, { token, body } = {}) => {
-    const headers = {};
+  const call = async (method, pathname, {
+    token,
+    body,
+    headers: additionalHeaders = {},
+    requestEnv = env,
+  } = {}) => {
+    const headers = { ...additionalHeaders };
     if (token) headers["Authorization"] = `Bearer ${token}`;
     if (body) headers["Content-Type"] = "application/json";
     const req = new Request("https://api.cybermeters.com" + pathname, { method, headers, body: body ? JSON.stringify(body) : undefined });
-    const res = await worker.fetch(req, env, ctx);
+    const res = await worker.fetch(req, requestEnv, ctx);
     const text = await res.text();
     let data = null; try { data = JSON.parse(text); } catch { /* non-JSON */ }
     if (process.env.PIPE_DEBUG) console.error(`  [${method} ${pathname}] → ${res.status}  ${text.slice(0, 160)}`);
@@ -366,33 +411,122 @@ async function main() {
 
   // ── Login rate limiting (10/15min per hashed IP) — LAST: it poisons login for this run ──
   section("Rate limiting");
-  const statuses = [];
-  for (let i = 0; i < 12; i++) {
-    const r = await call("POST", "/api/auth/login", { body: { email: "nobody@example.com", password: "x" } });
-    statuses.push(r.status);
-  }
-  ok("hammering login trips the limiter → 429 within 12 attempts", statuses.includes(429));
-  ok("once tripped it STAYS tripped in the window (last attempt is 429)", statuses[statuses.length - 1] === 429);
-  ok("the limiter fails closed, never crashes (only 401/429, no 5xx)", statuses.every((s) => s === 401 || s === 429));
+  const sameIpDateNow = Date.now;
+  let loginResponses = [];
+  await withRateLimitClock(async () => {
+    for (let i = 0; i < 12; i++) {
+      loginResponses.push(await call("POST", "/api/auth/login", { body: { email: "nobody@example.com", password: "x" } }));
+    }
+  });
+  const statuses = loginResponses.map((response) => response.status);
+  const sameIpScopeId = await rateLimitScopeIdForTest("login", "unknown");
+  const loginCounter = scopedActionCounter(db, {
+    scope: "ip",
+    scopeId: sameIpScopeId,
+    action: "login",
+    windowStart: rateLimitWindowStart(900),
+  });
+  ok("same-IP login cap request is rejected by login action (not global_write)", loginResponses[10]?.status === 429 && loginResponses[10]?.data?.action !== "global_write" && (loginCounter?.request_count ?? 0) >= 10);
+  ok("once login cap is tripped it STAYS tripped in the window", loginResponses[11]?.status === 429 && loginResponses[11]?.data?.action !== "global_write");
+  ok("the login limiter fails closed, never crashes (only 401/429, no 5xx)", statuses.every((s) => s === 401 || s === 429));
+  ok("Date.now is restored after the same-IP login fixture", Date.now === sameIpDateNow);
 
   // ── Per-account brute-force ceiling (distributed: many IPs, one account) ──
   // Each attempt from a UNIQUE source IP, so the per-IP limit (10) never trips —
   // only the per-account limit (20/15min) can stop it. Proves a distributed
   // attack against one account is capped regardless of source-IP spread.
-  const acctStatuses = [];
-  for (let i = 0; i < 22; i++) {
-    const req = new Request("https://api.cybermeters.com/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "CF-Connecting-IP": `203.0.113.${i + 1}` },
-      body: JSON.stringify({ email: "distributed-bf@example.com", password: "x" }),
-    });
-    acctStatuses.push((await worker.fetch(req, env, ctx)).status);
-  }
-  ok("distributed brute-force (unique IPs) still trips the per-ACCOUNT limit → 429", acctStatuses.includes(429));
-  ok("per-account limit lets the first 20 through (401), no single IP over its own limit", acctStatuses.slice(0, 20).every((s) => s === 401));
-  ok("per-account limit blocks the 21st+ attempt (429)", acctStatuses[20] === 429 && acctStatuses[21] === 429);
-  ok("per-account limiter fails closed too (only 401/429, no 5xx)", acctStatuses.every((s) => s === 401 || s === 429));
+  const accountEmail = "distributed-bf@example.com";
+  const accountScopeId = await rateLimitScopeIdForTest("login_acct", accountEmail);
+  const accountWindowStart = rateLimitWindowStart(900);
+  const accountCheckResults = ({ responses, counter }) => {
+    const responseStatuses = responses.map((response) => response.status);
+    const correctlyScopedCounter = Boolean(
+      counter &&
+      counter.scope === "user" &&
+      counter.scope_id === accountScopeId &&
+      counter.action === "login_account" &&
+      counter.window_start === accountWindowStart &&
+      counter.window_seconds === 900 &&
+      counter.request_count >= 20
+    );
+    return [
+      {
+        name: "distributed brute-force 21st response is parsed 429 from login_account, not global_write",
+        pass: responses[20]?.status === 429 &&
+          responses[20]?.data?.action !== "global_write" &&
+          correctlyScopedCounter,
+      },
+      {
+        name: "per-account limit lets the first 20 through (401), no single IP over its own limit",
+        pass: responseStatuses.slice(0, 20).every((status) => status === 401),
+      },
+      {
+        name: "per-account limit keeps the parsed 22nd response at 429, not global_write",
+        pass: responses[21]?.status === 429 && responses[21]?.data?.action !== "global_write",
+      },
+      {
+        name: "per-account limiter fails closed too (only 401/429, no 5xx)",
+        pass: responseStatuses.every((status) => status === 401 || status === 429),
+      },
+    ];
+  };
+  const runAccountFixture = async (fixtureDb, fixtureEnv, { globalWriteIndexes = [] } = {}) => {
+    const accountIps = Array.from({ length: 22 }, (_, index) => `203.0.113.${index + 1}`);
+    const globalWindowStart = rateLimitWindowStart(300);
+    for (const index of globalWriteIndexes) {
+      const ip = accountIps[index];
+      const globalScopeId = await rateLimitScopeIdForTest("global_write", ip);
+      fixtureDb.prepare(
+        `INSERT INTO api_rate_limits
+           (id, scope, scope_id, action, window_start, window_seconds, request_count)
+         VALUES (?, 'ip', ?, 'global_write', ?, 300, 60)`,
+      ).run(`mutant_global_write_${index}`, globalScopeId, globalWindowStart);
+    }
+    const responses = [];
+    for (let index = 0; index < accountIps.length; index++) {
+      responses.push(await call("POST", "/api/auth/login", {
+        body: { email: accountEmail, password: "x" },
+        headers: { "CF-Connecting-IP": accountIps[index] },
+        requestEnv: fixtureEnv,
+      }));
+    }
+    return {
+      responses,
+      counter: scopedActionCounter(fixtureDb, {
+        scope: "user",
+        scopeId: accountScopeId,
+        action: "login_account",
+        windowStart: accountWindowStart,
+      }),
+    };
+  };
 
+  const accountDateNow = Date.now;
+  const accountFixture = await withRateLimitClock(() => runAccountFixture(db, env));
+  for (const check of accountCheckResults(accountFixture)) ok(check.name, check.pass);
+  ok("Date.now is restored after the distinct-IP account fixture", Date.now === accountDateNow);
+
+  // Controlled right-reason proof: pre-cap only requests 21 and 22 at the
+  // unrelated global_write layer. The same account predicates must turn red
+  // because call() parsed the response body; raw Response objects would make
+  // `data?.action` undefined and let this mutant escape.
+  const globalMutantDb = buildDb();
+  const globalMutantEnv = makeEnv(globalMutantDb);
+  const globalMutantFixture = await withRateLimitClock(
+    () => runAccountFixture(globalMutantDb, globalMutantEnv, { globalWriteIndexes: [20, 21] }),
+  );
+  const globalMutantFailures = accountCheckResults(globalMutantFixture)
+    .filter((check) => !check.pass)
+    .map((check) => check.name);
+  if (PIPELINE_HARNESS_MUTANT !== "omit_global_write_control_assertion") {
+    ok("controlled global_write bite makes exactly the 21st/22nd per-account assertions red", JSON.stringify(globalMutantFailures) === JSON.stringify([
+      "distributed brute-force 21st response is parsed 429 from login_account, not global_write",
+      "per-account limit keeps the parsed 22nd response at 429, not global_write",
+    ]) && globalMutantFixture.responses[20]?.data?.action === "global_write" &&
+      globalMutantFixture.responses[21]?.data?.action === "global_write");
+  }
+
+  enforceExpectedAssertionCount();
   for (const line of results) if (line.startsWith("FAIL")) console.error(line);
   console.log("");
   for (const [name, s] of sectionCounts) console.log(`  ${s.failed === 0 ? "✓" : "✗"} ${name}: ${s.passed}/${s.passed + s.failed}`);

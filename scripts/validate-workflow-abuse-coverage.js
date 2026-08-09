@@ -28,6 +28,7 @@
 // Every negative has a positive control (non-vacuous). A RED assertion here is a
 // real workflow finding — STOP and report, do not patch. Requires Node 24+.
 // ─────────────────────────────────────────────────────────────────────────────
+import { webcrypto } from "node:crypto";
 import { loadWorker, buildDb, makeEnv, makeCaller, makeSeeder, ctx } from "./security/lib/worker-harness.js";
 import { canTransitionCase, validateVerificationEvidence, verificationSupportForMethod } from "../workers/scan-api/src/engines/managed-case-model.js";
 import { verificationCeiling } from "../workers/scan-api/src/engines/report-snapshot.js";
@@ -40,6 +41,88 @@ const results = [];
 const sec = (s) => { section = s; };
 const ok = (name, cond) => { cond ? (passed++, results.push(`PASS [${section}] ${name}`)) : (failed++, results.push(`FAIL [${section}] ${name}`)); };
 const nowIso = () => new Date().toISOString();
+const RATE_LIMIT_WINDOW_MS = 900_000;
+const RATE_LIMIT_EPOCH_MS = 1_800_000_001_234;
+const EXPECTED_ASSERTION_COUNT = 58;
+const HARNESS_MUTANT = process.env.F4_PR1_HARNESS_MUTANT || "";
+const withRateLimitClock = async (epochProvider, operation) => {
+  const originalDateNow = Date.now;
+  Date.now = () => (typeof epochProvider === "function" ? epochProvider() : epochProvider);
+  try {
+    return await operation();
+  } finally {
+    if (HARNESS_MUTANT !== "bypass_clock_restoration") Date.now = originalDateNow;
+  }
+};
+const rateLimitWindowStart = (epochMs, windowSeconds) => new Date(
+  Math.floor(epochMs / (windowSeconds * 1000)) * windowSeconds * 1000,
+).toISOString();
+const rateLimitScopeIdForTest = async (prefix, value) => {
+  const digest = await webcrypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(String(value || "unknown")),
+  );
+  return `${prefix}_${Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 16)}`;
+};
+const scopedActionCounter = (db, { scope, scopeId, action, windowStart }) => db.prepare(
+  `SELECT scope, scope_id, action, window_start, window_seconds, request_count
+   FROM api_rate_limits
+   WHERE scope = ? AND scope_id = ? AND action = ? AND window_start = ?
+   LIMIT 1`,
+).get(scope, scopeId, action, windowStart);
+const renameRateLimitActionInMemory = (env, fromAction, toAction) => {
+  const canonicalDb = env.cybermeters_db;
+  return {
+    ...env,
+    cybermeters_db: {
+      prepare(sql) {
+        const statement = canonicalDb.prepare(sql);
+        if (!/\bapi_rate_limits\b/i.test(sql) || typeof statement.bind !== "function") return statement;
+        const canonicalBind = statement.bind.bind(statement);
+        statement.bind = (...args) => canonicalBind(
+          ...args.map((value) => value === fromAction ? toAction : value),
+        );
+        return statement;
+      },
+      batch: (...args) => canonicalDb.batch(...args),
+      exec: (...args) => canonicalDb.exec(...args),
+    },
+  };
+};
+const fixedIpCheckResults = ({ responses, loginRow, accountRow, loginScopeId, accountScopeId, windowStart }) => [
+  {
+    name: "first 10 login attempts are NOT rate-limited (positive control)",
+    pass: responses.slice(0, 10).every((response) => response.status !== 429),
+  },
+  {
+    name: "the (cap+1)th login attempt is rejected 429 by login action",
+    pass: responses[10]?.status === 429 &&
+      responses[10]?.data?.action !== "global_write" &&
+      loginRow?.scope === "ip" &&
+      loginRow?.scope_id === loginScopeId &&
+      loginRow?.action === "login" &&
+      loginRow?.window_start === windowStart &&
+      loginRow?.window_seconds === 900 &&
+      loginRow?.request_count === 10,
+  },
+  {
+    name: "first ten fixed-IP attempts reached login_account before request 11 was stopped by login",
+    pass: accountRow?.scope === "user" &&
+      accountRow?.scope_id === accountScopeId &&
+      accountRow?.action === "login_account" &&
+      accountRow?.window_start === windowStart &&
+      accountRow?.window_seconds === 900 &&
+      accountRow?.request_count === 10,
+  },
+];
+const enforceExpectedAssertionCount = () => {
+  const observed = passed + failed;
+  if (observed === EXPECTED_ASSERTION_COUNT) return;
+  failed += 1;
+  results.push(
+    `FAIL [Harness integrity] assertion-count interlock expected ${EXPECTED_ASSERTION_COUNT}, observed ${observed}`,
+  );
+};
 
 // A base-domain case at awaiting_verification (its legal pre-verified state).
 const baseCase = (over = {}) => ({
@@ -153,27 +236,153 @@ async function main() {
 
   // ── F4: rate limiting holds (real login route, failClosed) ─────────────────
   sec("F4 rate limiting holds");
+  const dateNowBeforeF4 = Date.now;
+  let observedExpectedThrow = false;
+  try {
+    await withRateLimitClock(RATE_LIMIT_EPOCH_MS, async () => {
+      if (HARNESS_MUTANT !== "remove_intentional_throw") {
+        throw new Error("intentional clock-restore assertion");
+      }
+    });
+  } catch (error) {
+    observedExpectedThrow = error?.message === "intentional clock-restore assertion";
+  }
+  if (HARNESS_MUTANT !== "omit_expected_throw_assertion") {
+    ok("intentional thrown assertion is observed", observedExpectedThrow);
+  }
+  ok("Date.now is restored after an intentional thrown assertion", Date.now === dateNowBeforeF4);
   {
     const rlDb = buildDb();
     const rlEnv = makeEnv(rlDb);
     const rlSeed = await makeSeeder(rlDb, mod);
     rlSeed.user("uLogin", "login@a.co"); // real user; we send WRONG passwords
     // Fixed IP so the per-IP login limiter (10 / 15 min) actually accumulates.
-    const capCall = makeCaller(worker, rlEnv, { fixedIp: "203.0.113.7" });
+    const fixedIp = "203.0.113.7";
+    const capCall = makeCaller(worker, rlEnv, { fixedIp });
     const attempt = () => capCall("POST", "/api/auth/login", null, { email: "login@a.co", password: "wrong-pw" });
-    let sawAllowed = 0, saw429 = 0;
-    for (let i = 0; i < 10; i++) { const r = await attempt(); if (r.status !== 429) sawAllowed++; }
-    ok("first 10 login attempts are NOT rate-limited (positive control)", sawAllowed === 10);
-    const over = await attempt(); // the 11th
-    ok("the (cap+1)th login attempt is rejected 429", over.status === 429);
+    const fixedIpResponses = [];
+    await withRateLimitClock(RATE_LIMIT_EPOCH_MS, async () => {
+      for (let index = 0; index < 11; index++) fixedIpResponses.push(await attempt());
+      const windowStart = rateLimitWindowStart(RATE_LIMIT_EPOCH_MS, 900);
+      const loginScopeId = await rateLimitScopeIdForTest("login", fixedIp);
+      const accountScopeId = await rateLimitScopeIdForTest("login_acct", "login@a.co");
+      const checks = fixedIpCheckResults({
+        responses: fixedIpResponses,
+        loginRow: scopedActionCounter(rlDb, {
+          scope: "ip", scopeId: loginScopeId, action: "login", windowStart,
+        }),
+        accountRow: scopedActionCounter(rlDb, {
+          scope: "user", scopeId: accountScopeId, action: "login_account", windowStart,
+        }),
+        loginScopeId,
+        accountScopeId,
+        windowStart,
+      });
+      for (const check of checks) ok(check.name, check.pass);
+    });
+    ok("Date.now is restored after the sequential F4 fixture", Date.now === dateNowBeforeF4);
     // Fail-CLOSED on store error: drop the rate-limit table; a fresh IP (never
     // capped) must be DENIED, not allowed through — the failClosed caller denies.
-    const failCall = makeCaller(worker, rlEnv, { fixedIp: "203.0.113.99" });
-    const beforeDrop = await failCall("POST", "/api/auth/login", null, { email: "login@a.co", password: "wrong-pw" });
-    ok("fresh IP is NOT independently rate-limited before the store fails (isolates the cause)", beforeDrop.status !== 429);
-    rlDb.exec("DROP TABLE api_rate_limits");
-    const afterDrop = await failCall("POST", "/api/auth/login", null, { email: "login@a.co", password: "wrong-pw" });
-    ok("rate-store error → login DENIED (fails CLOSED, not open)", afterDrop.status === 429);
+    await withRateLimitClock(RATE_LIMIT_EPOCH_MS, async () => {
+      const failCall = makeCaller(worker, rlEnv, { fixedIp: "203.0.113.99" });
+      const beforeDrop = await failCall("POST", "/api/auth/login", null, { email: "login@a.co", password: "wrong-pw" });
+      ok("fresh IP is NOT independently rate-limited before the store fails (isolates the cause)", beforeDrop.status !== 429);
+      rlDb.exec("DROP TABLE api_rate_limits");
+      const afterDrop = await failCall("POST", "/api/auth/login", null, { email: "login@a.co", password: "wrong-pw" });
+      ok("rate-store error → login DENIED (fails CLOSED, not open)", afterDrop.status === 429);
+    });
+    ok("Date.now is restored after the store-failure fixture", Date.now === dateNowBeforeF4);
+  }
+
+  // Right-reason mutant: rewrite only the login_account action argument as it
+  // crosses the in-memory D1 adapter. Production auth.js remains byte-identical;
+  // the real route still reaches the login IP 429 on request 11, but the exact
+  // login_account provenance row is gone and only that fixed-IP check may fail.
+  {
+    const mutantDb = buildDb();
+    const canonicalMutantEnv = makeEnv(mutantDb);
+    const mutantEnv = renameRateLimitActionInMemory(
+      canonicalMutantEnv,
+      "login_account",
+      "login_account_mutant",
+    );
+    const mutantSeed = await makeSeeder(mutantDb, mod);
+    mutantSeed.user("uLoginMutant", "login-mutant@a.co");
+    const fixedIp = "203.0.113.8";
+    const accountEmail = "login-mutant@a.co";
+    const mutantCall = makeCaller(worker, mutantEnv, { fixedIp });
+    const responses = [];
+    let checks = [];
+    let renamedRow = null;
+    await withRateLimitClock(RATE_LIMIT_EPOCH_MS, async () => {
+      for (let index = 0; index < 11; index++) {
+        responses.push(await mutantCall("POST", "/api/auth/login", null, {
+          email: accountEmail,
+          password: "wrong-pw",
+        }));
+      }
+      const windowStart = rateLimitWindowStart(RATE_LIMIT_EPOCH_MS, 900);
+      const loginScopeId = await rateLimitScopeIdForTest("login", fixedIp);
+      const accountScopeId = await rateLimitScopeIdForTest("login_acct", accountEmail);
+      checks = fixedIpCheckResults({
+        responses,
+        loginRow: scopedActionCounter(mutantDb, {
+          scope: "ip", scopeId: loginScopeId, action: "login", windowStart,
+        }),
+        accountRow: scopedActionCounter(mutantDb, {
+          scope: "user", scopeId: accountScopeId, action: "login_account", windowStart,
+        }),
+        loginScopeId,
+        accountScopeId,
+        windowStart,
+      });
+      renamedRow = scopedActionCounter(mutantDb, {
+        scope: "user", scopeId: accountScopeId, action: "login_account_mutant", windowStart,
+      });
+    });
+    const mutantFailures = checks.filter((check) => !check.pass).map((check) => check.name);
+    ok("right-reason action mutant removes only positive login_account provenance while IP 429 survives", responses[10]?.status === 429 &&
+      renamedRow?.request_count === 10 &&
+      JSON.stringify(mutantFailures) === JSON.stringify([
+        "first ten fixed-IP attempts reached login_account before request 11 was stopped by login",
+      ]));
+  }
+
+  // A fixed-window boundary is intentional product behaviour. A natural run
+  // can cross it after any of attempts 1..10; this fixture deliberately uses
+  // a 5/5 split to prove the semantics. The overall 11th request below is
+  // only the sixth request in the second bucket, while the final request is
+  // the cap+1 inside that bucket.
+  {
+    const rolloverDb = buildDb();
+    const rolloverEnv = makeEnv(rolloverDb);
+    const rolloverSeed = await makeSeeder(rolloverDb, mod);
+    rolloverSeed.user("uRollover", "rollover@a.co");
+    const rolloverCall = makeCaller(worker, rolloverEnv, { fixedIp: "203.0.113.71" });
+    let rolloverEpoch = RATE_LIMIT_EPOCH_MS;
+    await withRateLimitClock(() => rolloverEpoch, async () => {
+      for (let i = 0; i < 5; i++) {
+        ok(`rollover first-window attempt ${i + 1} allowed`, (await rolloverCall("POST", "/api/auth/login", null, { email: "rollover@a.co", password: "wrong-pw" })).status !== 429);
+      }
+      rolloverEpoch += RATE_LIMIT_WINDOW_MS;
+      for (let i = 0; i < 6; i++) {
+        const response = await rolloverCall("POST", "/api/auth/login", null, { email: "rollover@a.co", password: "wrong-pw" });
+        ok(`rollover second-window attempt ${i + 1} receives a separate budget`, response.status !== 429);
+      }
+      for (let i = 6; i < 10; i++) {
+        ok(`rollover second-window attempt ${i + 1} remains allowed`, (await rolloverCall("POST", "/api/auth/login", null, { email: "rollover@a.co", password: "wrong-pw" })).status !== 429);
+      }
+      const rolloverCap = await rolloverCall("POST", "/api/auth/login", null, { email: "rollover@a.co", password: "wrong-pw" });
+      const rolloverLoginScopeId = await rateLimitScopeIdForTest("login", "203.0.113.71");
+      const rolloverLoginRow = scopedActionCounter(rolloverDb, {
+        scope: "ip",
+        scopeId: rolloverLoginScopeId,
+        action: "login",
+        windowStart: rateLimitWindowStart(rolloverEpoch, 900),
+      });
+      ok("rollover cap+1 is denied only inside its own bucket by login action", rolloverCap.status === 429 && rolloverCap.data?.action !== "global_write" && rolloverLoginRow?.request_count === 10);
+    });
+    ok("Date.now is restored after the rollover fixture", Date.now === dateNowBeforeF4);
   }
 
   // ── Coverage delta ─────────────────────────────────────────────────────────
@@ -184,6 +393,7 @@ async function main() {
     F4: "rate limiting holds (login cap+1 → 429; fail-closed on store error)",
   };
   ok("all three assessable F-section controls asserted", Object.keys(controls).length === 3);
+  enforceExpectedAssertionCount();
 
   // ── Report ─────────────────────────────────────────────────────────────────
   const bySec = {};
