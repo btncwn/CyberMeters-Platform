@@ -14,6 +14,7 @@ import { api } from '../api'
 import StatCard from '../components/StatCard'
 import RiskBadge from '../components/RiskBadge'
 import { bandMeta, metaForScore } from '../lib/score-presentation'
+import { assetLifecycleClaimDisplay } from '../lib/assetLifecycleClaimDisplay'
 
 // RatingBadge renders the CANONICAL Cyber Metrics Score band vocabulary via the
 // mirror module (M5.e) — one label/tone source, unknown stays neutral.
@@ -304,9 +305,9 @@ function AlertsSection({ alerts, loading, error, onRetry }) {
                       <span className="text-xs text-gray-300">·</span>
                       <span className="text-xs text-gray-400 font-mono">{(alert.type || '').replace(/_/g, ' ')}</span>
                     </div>
-                    <p className="text-sm font-medium text-gray-800 mt-0.5 truncate">{alert.title}</p>
-                    {alert.description && (
-                      <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{alert.description}</p>
+                    <p className="text-sm font-medium text-gray-800 mt-0.5 truncate">{assetLifecycleClaimDisplay({ ...alert, event_type: alert.type }).title}</p>
+                    {assetLifecycleClaimDisplay({ ...alert, event_type: alert.type }).description && (
+                      <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{assetLifecycleClaimDisplay({ ...alert, event_type: alert.type }).description}</p>
                     )}
                   </div>
                   <div className="flex-shrink-0 flex items-center gap-1 text-xs text-gray-300">

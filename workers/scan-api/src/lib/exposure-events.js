@@ -49,7 +49,7 @@ export function enrichEvent(row) {
       ...row,
       description: formatSpfAuthorizationDescriptionForDisplay(row?.description),
       category: meta.category,
-      title: meta.title,
+      title: row?.title || meta.title,
     };
   } catch {
     return { ...(row || {}), category: "asset", title: "Unknown event" };

@@ -11,6 +11,7 @@ import { api } from '../api'
 import Spinner from '../components/Spinner'
 import StatCard from '../components/StatCard'
 import AttackSurfaceAssurance from '../components/AttackSurfaceAssurance'
+import { assetLifecycleClaimDisplay, projectedCountDisplay } from '../lib/assetLifecycleClaimDisplay'
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 
@@ -366,20 +367,23 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
                 <div>
                   <div className="label mb-3">Recent Events ({data.events.length})</div>
                   <div className="space-y-2">
-                    {data.events.map(ev => (
+                    {data.events.map(ev => {
+                      const claimDisplay = assetLifecycleClaimDisplay(ev)
+                      return (
                       <div key={ev.id} className="flex items-start gap-3 px-3 py-2.5 bg-gray-50 rounded-xl">
                         <div className="w-1.5 h-1.5 rounded-full bg-brand-400 mt-1.5 flex-shrink-0" />
                         <div className="min-w-0 flex-1">
                           <div className="text-xs font-medium text-gray-700 capitalize">
-                            {ev.event_type.replace(/_/g, ' ')}
+                            {claimDisplay.title || ev.event_type.replace(/_/g, ' ')}
                           </div>
-                          {ev.description && (
-                            <div className="text-xs text-gray-400 mt-0.5">{ev.description}</div>
+                          {claimDisplay.description && (
+                            <div className="text-xs text-gray-400 mt-0.5">{claimDisplay.description}</div>
                           )}
+                          {claimDisplay.supportLabel && <div className="text-[10px] text-gray-400 mt-1">{claimDisplay.supportLabel}</div>}
                           <div className="text-[10px] text-gray-400 mt-1">{fmtDateTime(ev.created_at)}</div>
                         </div>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
               )}
@@ -399,13 +403,13 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
 const TIMELINE_COLS = [
   { key: 'new_asset_discovered',   label: 'New'       },
   { key: 'asset_reappeared',       label: 'Reappeared'},
-  { key: 'asset_no_longer_seen',   label: 'No longer observed' },
+  { key: 'no_longer_observed_assets', label: 'No longer observed', projected: true },
   { key: 'takeover_risk_detected', label: 'Takeover'  },
   { key: 'wildcard_dns_detected',  label: 'Wildcard'  },
   { key: 'cloud_storage_detected', label: 'Cloud'     },
 ]
 
-function Timeline({ rows }) {
+function Timeline({ rows, projection }) {
   if (!rows || rows.length === 0) {
     return (
       <p className="text-sm text-gray-400 py-8 text-center">
@@ -429,18 +433,25 @@ function Timeline({ rows }) {
           {sorted.map(row => (
             <tr key={row.day}>
               <td className="mono text-xs">{row.day}</td>
-              {TIMELINE_COLS.map(c => (
-                <td key={c.key} className="text-center">
-                  {row[c.key] > 0
-                    ? (
-                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-50 text-brand-700 text-xs font-semibold">
-                        {row[c.key]}
-                      </span>
-                    )
-                    : <span className="text-gray-200 text-xs">—</span>
-                  }
-                </td>
-              ))}
+              {TIMELINE_COLS.map(c => {
+                const count = c.projected
+                  ? projectedCountDisplay(row[c.key], projection)
+                  : { value: row[c.key] ?? 0, label: '' }
+                return (
+                  <td key={c.key} className="text-center">
+                    {count.value == null
+                      ? <span className="text-gray-400 text-[10px]">{count.label}</span>
+                      : count.value > 0
+                      ? (
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-50 text-brand-700 text-xs font-semibold">
+                          {count.value}
+                        </span>
+                      )
+                      : <span className="text-gray-200 text-xs">—</span>
+                    }
+                  </td>
+                )
+              })}
             </tr>
           ))}
         </tbody>
@@ -476,6 +487,7 @@ export default function AssetsPage() {
   const [assurance,    setAssurance]    = useState([])
   const [assuranceCoverage, setAssuranceCoverage] = useState(null)
   const [timeline,     setTimeline]     = useState([])
+  const [timelineProjection, setTimelineProjection] = useState(null)
   const [loading,      setLoading]      = useState(true)
   const [refreshing,   setRefreshing]   = useState(false)
   const [error,        setError]        = useState(null)
@@ -498,6 +510,7 @@ export default function AssetsPage() {
       setAssurance(assetsData.attack_surface_assurance || [])
       setAssuranceCoverage(assetsData.attack_surface_assurance_coverage || null)
       setTimeline(timelineData.timeline || [])
+      setTimelineProjection(timelineData.lifecycle_claim_projection || null)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -696,7 +709,7 @@ export default function AssetsPage() {
                 <span className="text-xs text-gray-400">daily event counts · last 30 days</span>
               </div>
             </div>
-            <Timeline rows={timeline} />
+            <Timeline rows={timeline} projection={timelineProjection} />
           </div>
         </>
       )}

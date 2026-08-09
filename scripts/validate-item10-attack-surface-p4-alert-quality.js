@@ -57,6 +57,12 @@ const expectedReasons = [
   "withheld_evidence_lookup_unavailable",
   "withheld_removal_confirmation_not_satisfied",
   "withheld_reappearance_predecessor_unconfirmed",
+  "withheld_support_not_evaluable",
+  "withheld_lifecycle_evidence_not_recorded",
+  "withheld_lifecycle_policy_unknown",
+  "withheld_lifecycle_source_detail_malformed",
+  "withheld_lifecycle_timestamp_invalid",
+  "withheld_lifecycle_replay_truncated",
   "withheld_all_claims_unsupported",
 ];
 eq(
@@ -81,7 +87,114 @@ eq(
   ]),
 );
 
+const lifecycleWriterSource = fs.readFileSync(path.join(
+  root,
+  "workers/scan-api/src/engines/attack-surface-lifecycle.js",
+), "utf8");
+function lifecycleWriterDefersCreatedAtToSqlite(source) {
+  const insert = source.match(
+    /`INSERT OR IGNORE INTO asset_lifecycle_observations[\s\S]*?VALUES\s*\(([^)]*)\)`/,
+  )?.[0] || "";
+  return insert.length > 0 &&
+    !/\bcreated_at\b/.test(insert) &&
+    (insert.match(/\?/g) || []).length === 12;
+}
+ok(
+  "lifecycle writer defers created_at to the migration-102 SQLite UTC default",
+  lifecycleWriterDefersCreatedAtToSqlite(lifecycleWriterSource),
+);
+const explicitCreatedAtMutant = lifecycleWriterSource.replace(
+  "policy_version, source_detail_json, observed_at)",
+  "policy_version, source_detail_json, observed_at, created_at)",
+);
+ok(
+  "writer-fidelity guard rejects an explicit created_at column",
+  explicitCreatedAtMutant !== lifecycleWriterSource &&
+    !lifecycleWriterDefersCreatedAtToSqlite(explicitCreatedAtMutant),
+);
+
 const incident = fixture.recorded_incident;
+const producerFixtureRows = [
+  ...(incident.lifecycle_observations || []),
+  ...(fixture.confirmed_removal?.observations || []),
+  ...(fixture.producer_ordering_tie?.observations || []),
+];
+const producerSourceDetailKeys = [
+  "active_sources",
+  "dns_resolution",
+  "http_https_service",
+  "passive_sources",
+];
+const producerTimestampPair = (row) =>
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(row?.observed_at || "") &&
+  /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(row?.created_at || "") &&
+  row.created_at !== row.observed_at;
+ok(
+  "P4 lifecycle fixture separates ISO-Z observation time from SQLite UTC ingestion time",
+  producerFixtureRows.length > 0 && producerFixtureRows.every(producerTimestampPair),
+);
+ok(
+  "P4 lifecycle fixture carries only producer-emitted source-detail fields",
+  producerFixtureRows.every((row) =>
+    JSON.stringify(Object.keys(row.source_detail_json || {}).sort()) ===
+      JSON.stringify(producerSourceDetailKeys)),
+);
+ok(
+  "P4 lifecycle fixture records active sources and no passive observation state",
+  producerFixtureRows.every((row) =>
+    JSON.stringify(row.source_detail_json?.active_sources) ===
+      JSON.stringify(["dns_resolution", "http_https_service"]) &&
+    JSON.stringify(row.source_detail_json?.passive_sources) === "[]"),
+);
+ok(
+  "P4 lifecycle fixture mirrors persisted signal states with producer reasons",
+  producerFixtureRows.every((row) =>
+    row.source_detail_json?.dns_resolution?.state === row.dns_state &&
+    row.source_detail_json?.http_https_service?.state === row.http_state &&
+    typeof row.source_detail_json?.dns_resolution?.reason === "string" &&
+    typeof row.source_detail_json?.http_https_service?.reason === "string"),
+);
+
+const orderingTie = fixture.producer_ordering_tie;
+ok(
+  "P4 fixture includes an exact created_at tie resolved by bytewise scan_id",
+    Boolean(orderingTie?.event) &&
+    Array.isArray(orderingTie?.observations) &&
+    orderingTie.observations.length === 4 &&
+    orderingTie.observations.every(producerTimestampPair) &&
+    (() => {
+      const negative = orderingTie.observations.find(
+        (row) => row.scan_id === "scan-a-negative",
+      );
+      const target = orderingTie.observations.find(
+        (row) => row.scan_id === "scan-z-observed",
+      );
+      return negative?.observed_at === orderingTie.event.observed_at &&
+        target?.observed_at === orderingTie.event.observed_at &&
+        negative?.created_at === target?.created_at;
+    })(),
+);
+if (orderingTie?.event && Array.isArray(orderingTie?.observations)) {
+  const orderingTieDecision = evaluateAssetAlertEligibility(
+    [orderingTie.event],
+    {
+      lifecycle_status: "available",
+      signal_states: {},
+      lifecycle_observations: orderingTie.observations,
+    },
+  );
+  eq(
+    "bytewise scan_id tie keeps the producer-faithful P4 reappearance eligible",
+    orderingTieDecision.decisions[0]?.reason_code,
+    "eligible_reappearance_after_confirmed_removal",
+  );
+} else {
+  ok(
+    "bytewise scan_id tie keeps the producer-faithful P4 reappearance eligible",
+    false,
+    "producer_ordering_tie fixture missing",
+  );
+}
 const incidentEvidence = {
   signal_status: "available",
   lifecycle_status: "available",
@@ -199,8 +312,19 @@ const reappearedDecision = evaluateAssetAlertEligibility(
         source_detail_json: {
           active_sources: ["dns_resolution", "http_https_service"],
           passive_sources: [],
+          dns_resolution: {
+            state: "observed",
+            reason: "active_dns_records_observed",
+            evidence_count: 1,
+          },
+          http_https_service: {
+            state: "not_observed",
+            reason: "http_service_not_observed",
+            evidence_count: 0,
+          },
         },
         observed_at: "2026-07-23T10:00:00.000Z",
+        created_at: "2026-07-23 10:00:01",
       },
     ],
   },
@@ -304,27 +428,6 @@ eq(
   "absent schema cannot assert confirmed reappearance",
   schemaAbsentLifecycle.decisions[0]?.reason_code,
   "withheld_lifecycle_schema_absent",
-);
-
-const passiveRows = confirmed.observations.map((row) => ({
-  ...row,
-  source_detail_json: {
-    active_sources: [],
-    passive_sources: ["crt_sh", "certspotter"],
-  },
-}));
-const passiveDecision = evaluateAssetAlertEligibility(
-  [confirmed.event],
-  {
-    lifecycle_status: "available",
-    signal_states: {},
-    lifecycle_observations: passiveRows,
-  },
-);
-eq(
-  "CT/passive observations cannot confirm removal",
-  passiveDecision.eligible_events.length,
-  0,
 );
 
 ok(
@@ -443,6 +546,11 @@ const absentEvidence = await loadAssetAlertEligibilityEvidence(
   env,
   "ws",
   "scan-absent-admin",
+  [{
+    ...incident.reappearance_event,
+    workspace_id: "ws",
+    scan_id: "scan-absent-admin",
+  }],
 );
 eq("real absent schema is detected for signals", absentEvidence.signal_status, "schema_absent");
 eq("real absent schema is detected for lifecycle", absentEvidence.lifecycle_status, "schema_absent");

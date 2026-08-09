@@ -98,5 +98,6 @@ CREATE TABLE IF NOT EXISTS scheduled_scans (
     enabled INTEGER NOT NULL DEFAULT 1,
     last_run_at TEXT,
     next_run_at TEXT,
+    asset_change_projection_json TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );

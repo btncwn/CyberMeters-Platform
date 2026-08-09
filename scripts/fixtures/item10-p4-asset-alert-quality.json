@@ -28,14 +28,21 @@
         "qualifies_removal": 0,
         "policy_version": "asset-removal-confirmation-v1",
         "source_detail_json": {
-          "active_sources": [],
-          "passive_sources": ["crt_sh", "certspotter"],
-          "provider_outcomes": {
-            "crt_sh": "fetch_failed",
-            "certspotter": "parse_error"
-          }
+          "dns_resolution": {
+            "state": "unavailable",
+            "reason": "active_dns_evidence_unavailable",
+            "evidence_count": 0
+          },
+          "http_https_service": {
+            "state": "unavailable",
+            "reason": "http_probe_unavailable",
+            "evidence_count": 0
+          },
+          "active_sources": ["dns_resolution", "http_https_service"],
+          "passive_sources": []
         },
-        "observed_at": "2026-07-14T10:00:00.000Z"
+        "observed_at": "2026-07-14T10:00:00.000Z",
+        "created_at": "2026-07-14 10:00:01"
       },
       {
         "asset_id": "asset-recorded",
@@ -46,13 +53,21 @@
         "qualifies_removal": 0,
         "policy_version": "asset-removal-confirmation-v1",
         "source_detail_json": {
+          "dns_resolution": {
+            "state": "observed",
+            "reason": "active_dns_records_observed",
+            "evidence_count": 1
+          },
+          "http_https_service": {
+            "state": "not_observed",
+            "reason": "http_service_not_observed",
+            "evidence_count": 0
+          },
           "active_sources": ["dns_resolution", "http_https_service"],
-          "passive_sources": ["crt_sh"],
-          "http_outcome": "cloudflare_530",
-          "takeover_candidate": false,
-          "admin_surface": false
+          "passive_sources": []
         },
-        "observed_at": "2026-07-15T10:05:00.000Z"
+        "observed_at": "2026-07-15T10:05:00.000Z",
+        "created_at": "2026-07-15 10:05:01"
       }
     ]
   },
@@ -75,10 +90,21 @@
         "qualifies_removal": 1,
         "policy_version": "asset-removal-confirmation-v1",
         "source_detail_json": {
+          "dns_resolution": {
+            "state": "absent",
+            "reason": "authoritative_a_aaaa_absence",
+            "evidence_count": 0
+          },
+          "http_https_service": {
+            "state": "not_observed",
+            "reason": "http_service_not_observed",
+            "evidence_count": 0
+          },
           "active_sources": ["dns_resolution", "http_https_service"],
           "passive_sources": []
         },
-        "observed_at": "2026-07-20T10:00:00.000Z"
+        "observed_at": "2026-07-20T10:00:00.000Z",
+        "created_at": "2026-07-20 10:00:01"
       },
       {
         "asset_id": "asset-confirmed",
@@ -89,10 +115,21 @@
         "qualifies_removal": 1,
         "policy_version": "asset-removal-confirmation-v1",
         "source_detail_json": {
+          "dns_resolution": {
+            "state": "absent",
+            "reason": "authoritative_a_aaaa_absence",
+            "evidence_count": 0
+          },
+          "http_https_service": {
+            "state": "not_observed",
+            "reason": "http_service_not_observed",
+            "evidence_count": 0
+          },
           "active_sources": ["dns_resolution", "http_https_service"],
           "passive_sources": []
         },
-        "observed_at": "2026-07-21T10:00:00.000Z"
+        "observed_at": "2026-07-21T10:00:00.000Z",
+        "created_at": "2026-07-21 10:00:01"
       },
       {
         "asset_id": "asset-confirmed",
@@ -103,10 +140,133 @@
         "qualifies_removal": 1,
         "policy_version": "asset-removal-confirmation-v1",
         "source_detail_json": {
+          "dns_resolution": {
+            "state": "absent",
+            "reason": "authoritative_a_aaaa_absence",
+            "evidence_count": 0
+          },
+          "http_https_service": {
+            "state": "not_observed",
+            "reason": "http_service_not_observed",
+            "evidence_count": 0
+          },
           "active_sources": ["dns_resolution", "http_https_service"],
           "passive_sources": []
         },
-        "observed_at": "2026-07-22T10:00:00.000Z"
+        "observed_at": "2026-07-22T10:00:00.000Z",
+        "created_at": "2026-07-22 10:00:01"
+      }
+    ]
+  },
+  "producer_ordering_tie": {
+    "event": {
+      "id": "evt-ordering-tie-reappeared",
+      "asset_id": "asset-ordering-tie",
+      "scan_id": "scan-z-observed",
+      "event_type": "asset_reappeared",
+      "hostname": "tie.example.com",
+      "observed_at": "2026-07-22T10:00:00.000Z"
+    },
+    "observations": [
+      {
+        "asset_id": "asset-ordering-tie",
+        "scan_id": "scan-negative-1",
+        "observation_state": "not_observed",
+        "dns_state": "absent",
+        "http_state": "not_observed",
+        "qualifies_removal": 1,
+        "policy_version": "asset-removal-confirmation-v1",
+        "source_detail_json": {
+          "dns_resolution": {
+            "state": "absent",
+            "reason": "authoritative_a_aaaa_absence",
+            "evidence_count": 0
+          },
+          "http_https_service": {
+            "state": "not_observed",
+            "reason": "http_service_not_observed",
+            "evidence_count": 0
+          },
+          "active_sources": ["dns_resolution", "http_https_service"],
+          "passive_sources": []
+        },
+        "observed_at": "2026-07-20T10:00:00.000Z",
+        "created_at": "2026-07-20 10:00:01"
+      },
+      {
+        "asset_id": "asset-ordering-tie",
+        "scan_id": "scan-negative-2",
+        "observation_state": "not_observed",
+        "dns_state": "absent",
+        "http_state": "not_observed",
+        "qualifies_removal": 1,
+        "policy_version": "asset-removal-confirmation-v1",
+        "source_detail_json": {
+          "dns_resolution": {
+            "state": "absent",
+            "reason": "authoritative_a_aaaa_absence",
+            "evidence_count": 0
+          },
+          "http_https_service": {
+            "state": "not_observed",
+            "reason": "http_service_not_observed",
+            "evidence_count": 0
+          },
+          "active_sources": ["dns_resolution", "http_https_service"],
+          "passive_sources": []
+        },
+        "observed_at": "2026-07-21T10:00:00.000Z",
+        "created_at": "2026-07-21 10:00:01"
+      },
+      {
+        "asset_id": "asset-ordering-tie",
+        "scan_id": "scan-a-negative",
+        "observation_state": "not_observed",
+        "dns_state": "absent",
+        "http_state": "not_observed",
+        "qualifies_removal": 1,
+        "policy_version": "asset-removal-confirmation-v1",
+        "source_detail_json": {
+          "dns_resolution": {
+            "state": "absent",
+            "reason": "authoritative_a_aaaa_absence",
+            "evidence_count": 0
+          },
+          "http_https_service": {
+            "state": "not_observed",
+            "reason": "http_service_not_observed",
+            "evidence_count": 0
+          },
+          "active_sources": ["dns_resolution", "http_https_service"],
+          "passive_sources": []
+        },
+        "observed_at": "2026-07-22T10:00:00.000Z",
+        "created_at": "2026-07-22 10:00:01"
+      },
+      {
+        "asset_id": "asset-ordering-tie",
+        "scan_id": "scan-z-observed",
+        "observation_state": "observed",
+        "dns_state": "observed",
+        "http_state": "not_observed",
+        "qualifies_removal": 0,
+        "policy_version": "asset-removal-confirmation-v1",
+        "source_detail_json": {
+          "dns_resolution": {
+            "state": "observed",
+            "reason": "active_dns_records_observed",
+            "evidence_count": 1
+          },
+          "http_https_service": {
+            "state": "not_observed",
+            "reason": "http_service_not_observed",
+            "evidence_count": 0
+          },
+          "active_sources": ["dns_resolution", "http_https_service"],
+          "passive_sources": []
+        },
+        "observed_at": "2026-07-22T10:00:00.000Z",
+        "created_at": "2026-07-22 10:00:01"
       }
     ]
   }

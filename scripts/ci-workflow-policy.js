@@ -12,8 +12,8 @@ const { parseDocument, isMap, isSeq } = workerRequire("yaml");
 
 export const CANONICAL_SKIP_CONDITION = "${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}";
 export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d55297df4fd3f90a2f57548697efcf062";
-export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 294;
-export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "1db0988fcdfaff34affd2d673e68cd8980815a9ab6721acbde5fcdf516615f3d";
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 296;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "b13c560a7862098fd74c547d84029a6c859e6d5b58f0112b5875fcb77ec29023";
 
 export const EXPECTED_SKIP_IDS = Object.freeze([
   "frontend-test-coverage",
@@ -54,6 +54,14 @@ const TIMEZONE_VALIDATOR_STEP = "Validate alert watermark is timezone-independen
 const TIMEZONE_VALIDATOR_RUN = `for tz in Europe/London America/Los_Angeles Asia/Kolkata; do
   echo "── TZ=$tz ──"
   TZ=$tz node scripts/validate-alert-b1-canonical-cases.js
+done
+`;
+export const ARM2_TIMEZONE_VALIDATOR_STEP =
+  "Validate Item 10 P5 Arm 2 and writer lifecycle timestamps across UTC and non-UTC runners";
+export const ARM2_TIMEZONE_VALIDATOR_RUN = `for tz in UTC Europe/London Etc/GMT-14; do
+  echo "── TZ=$tz ──"
+  TZ=$tz node scripts/validate-item10-attack-surface-p5-arm2.js
+  TZ=$tz node scripts/validate-item10-attack-surface-p2-integration.js
 done
 `;
 const EXPECTED_CLASSIFIER_OUTPUT_WRITES = Object.freeze([
@@ -98,6 +106,14 @@ export function executableValidatorWiring(workflow) {
     }
     if (step.name === TIMEZONE_VALIDATOR_STEP && step.run === TIMEZONE_VALIDATOR_RUN) {
       validators.push("scripts/validate-alert-b1-canonical-cases.js");
+      continue;
+    }
+    if (
+      step.name === ARM2_TIMEZONE_VALIDATOR_STEP &&
+      step.run === ARM2_TIMEZONE_VALIDATOR_RUN
+    ) {
+      validators.push("scripts/validate-item10-attack-surface-p5-arm2.js");
+      validators.push("scripts/validate-item10-attack-surface-p2-integration.js");
       continue;
     }
     problems.push(`${step.name || "unnamed step"}: unsupported validator command carrier`);

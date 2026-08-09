@@ -14,6 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "portfolio-customers.js")).href);
+const lifecycleSupport = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "asset-lifecycle-event-support.js")).href);
 const { hashToken } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "auth-crypto.js")).href);
 const { computePortfolioCustomerRows, buildExecutiveSummary } = eng;
 
@@ -29,8 +30,16 @@ const apply = (p) => { try { db.exec(fs.readFileSync(p, "utf8")); } catch { /* o
 apply(path.join(root, "database", "schema.sql"));
 for (const f of fs.readdirSync(path.join(root, "database", "migrations")).filter((f) => f.endsWith(".sql")).sort()) apply(path.join(root, "database", "migrations", f));
 db.exec("PRAGMA foreign_keys = OFF");
-const makeD1 = (db) => {
-  const wrap = (sql, args) => ({ first: async () => db.prepare(sql).get(...args) ?? null, all: async () => ({ results: db.prepare(sql).all(...args) }), run: async () => { const r = db.prepare(sql).run(...args); return { meta: { changes: r.changes } }; } });
+const makeD1 = (db, { onAll = () => {}, rejectAll = () => false } = {}) => {
+  const wrap = (sql, args) => ({
+    first: async () => db.prepare(sql).get(...args) ?? null,
+    all: async () => {
+      onAll(sql, args);
+      if (rejectAll(sql, args)) throw new Error("fixture D1 read rejected");
+      return { results: db.prepare(sql).all(...args) };
+    },
+    run: async () => { const r = db.prepare(sql).run(...args); return { meta: { changes: r.changes } }; },
+  });
   return { prepare(sql) { const b = wrap(sql, []); b.bind = (...a) => wrap(sql, a); return b; } };
 };
 
@@ -154,6 +163,238 @@ const get = async (p, token) => {
   let body = {}; try { body = await res.json(); } catch { /* */ }
   return { status: res.status, body };
 };
+const getWithEnv = async (p, token, requestEnv) => {
+  const res = await worker.default.fetch(new Request(`https://app.cybermeters.com${p}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }), requestEnv, ctx);
+  let body = {}; try { body = await res.json(); } catch { /* */ }
+  return { status: res.status, body };
+};
+
+// Item 10 P5 Arm 2 corrective: emulate D1's 100-binding ceiling and prove the
+// shared helper owns stable global identities, exact truncation vocabulary and
+// true mixed-workspace query packing. node:sqlite alone accepts the broken 151
+// bindings, so merely executing the query is not a discriminating control.
+{
+  const supportDb = new DatabaseSync(":memory:");
+  supportDb.exec(`
+    CREATE TABLE asset_lifecycle_observations (
+      id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, domain_id TEXT NOT NULL,
+      asset_id TEXT NOT NULL, scan_id TEXT NOT NULL,
+      observation_state TEXT NOT NULL, dns_state TEXT NOT NULL,
+      http_state TEXT NOT NULL, qualifies_removal INTEGER NOT NULL,
+      policy_version TEXT NOT NULL, source_detail_json TEXT NOT NULL,
+      observed_at TEXT NOT NULL, created_at TEXT NOT NULL
+    );
+  `);
+  const insert = supportDb.prepare(`
+    INSERT INTO asset_lifecycle_observations
+      (id, workspace_id, domain_id, asset_id, scan_id, observation_state,
+       dns_state, http_state, qualifies_removal, policy_version,
+       source_detail_json, observed_at, created_at)
+    VALUES (?, ?, 'domain-support', ?, ?, 'observed', 'observed', 'observed', 0,
+            'asset-removal-confirmation-v1', ?, '2026-08-01T00:00:00.000Z',
+            '2026-08-01 00:00:00')
+  `);
+  const detail = JSON.stringify({
+    active_sources: ["dns_resolution", "http_https_service"],
+    passive_sources: [],
+    dns_resolution: { state: "observed" },
+    http_https_service: { state: "observed" },
+  });
+  const singleWorkspaceEvents = [];
+  for (let index = 0; index < 34; index += 1) {
+    insert.run(`obs-bind-${index}`, "ws-bind", `asset-bind-${index}`, `scan-bind-${index}`, detail);
+    singleWorkspaceEvents.push({
+      workspace_id: "ws-bind", asset_id: `asset-bind-${index}`,
+      scan_id: `scan-bind-${index}`, event_type: "asset_reappeared",
+      hostname: `asset-${index}.example.com`,
+    });
+  }
+  const bindCounts33 = [];
+  const projection33 = await lifecycleSupport.loadAssetLifecycleEventSupport(
+    { cybermeters_db: makeD1(supportDb, {
+      onAll: (_sql, args) => bindCounts33.push(args.length),
+    }) },
+    { workspaceId: "ws-bind", events: singleWorkspaceEvents.slice(0, 33), scope: "d1-budget-33" },
+  );
+  ok("33 anchors fit in exactly one 100-bind lifecycle statement",
+    projection33.coverage === "complete" &&
+    bindCounts33.length === 1 && bindCounts33[0] === 100);
+
+  const bindCounts34 = [];
+  const supportD1 = makeD1(supportDb, {
+    onAll: (_sql, args) => bindCounts34.push(args.length),
+  });
+  const projection34 = await lifecycleSupport.loadAssetLifecycleEventSupport(
+    { cybermeters_db: supportD1 },
+    { workspaceId: "ws-bind", events: singleWorkspaceEvents, scope: "d1-budget-34" },
+  );
+  ok("lifecycle anchor capacity is derived from the exported binding arithmetic",
+    lifecycleSupport.ASSET_LIFECYCLE_MAX_SINGLE_WORKSPACE_ANCHORS === Math.floor(
+      (lifecycleSupport.ASSET_LIFECYCLE_D1_BINDING_LIMIT -
+       lifecycleSupport.ASSET_LIFECYCLE_MIN_WORKSPACES_PER_PACK) /
+      lifecycleSupport.ASSET_LIFECYCLE_BINDINGS_PER_ANCHOR,
+    ));
+  ok("Cloudflare D1's lifecycle binding ceiling is literally pinned to 100",
+    lifecycleSupport.ASSET_LIFECYCLE_D1_BINDING_LIMIT === 100);
+  const portfolioCustomerSource = fs.readFileSync(path.join(
+    root, "workers/scan-api/src/engines/portfolio-customers.js",
+  ), "utf8");
+  ok("portfolio source batching reuses the canonical lifecycle D1 budget",
+    /ASSET_LIFECYCLE_D1_BINDING_LIMIT/.test(portfolioCustomerSource) &&
+    !/PORTFOLIO_D1_BINDING_LIMIT\s*=\s*100/.test(portfolioCustomerSource));
+  ok("34 anchors split as 100 + 4 and remain complete",
+    projection34.coverage === "complete" &&
+    bindCounts34.length === 2 && bindCounts34[0] === 100 && bindCounts34[1] === 4);
+  ok("every lifecycle statement stays within D1's 100-binding ceiling",
+    [...bindCounts33, ...bindCounts34].every((count) => count <= 100));
+
+  const globalProjection = await lifecycleSupport.loadAssetLifecycleEventSupport(
+    { cybermeters_db: supportD1 },
+    { workspaceId: "ws-bind", events: singleWorkspaceEvents, scope: "global-fallback-id" },
+  );
+  ok("id-less event fallback identity remains global across query chunks",
+    globalProjection.claims_by_event_id.get("__index_33")?.state === "unsupported");
+
+  const truncated = await lifecycleSupport.loadAssetLifecycleEventSupport(
+    { cybermeters_db: supportD1 },
+    { workspaceId: "ws-bind", events: singleWorkspaceEvents.slice(0, 2), collectionLimit: 1, scope: "truncated-row-reason" },
+  );
+  const truncatedRows = lifecycleSupport.projectLifecycleCollectionForCustomer(
+    singleWorkspaceEvents.slice(0, 2), truncated,
+  );
+  ok("collection truncation has its exact limitation, never a read-failure limitation",
+    truncatedRows.every((event) =>
+      event.lifecycle_claim_support?.state === "uncertain" &&
+      event.lifecycle_claim_support?.limitation_codes?.includes("collection_limit_exceeded") &&
+      !event.lifecycle_claim_support?.limitation_codes?.includes("lifecycle_evidence_read_failed")));
+
+  const mixedWorkspaceIds = [];
+  const mixedEvents = [];
+  for (let index = 0; index < 40; index += 1) {
+    const workspaceId = `ws-mixed-${index}`;
+    mixedWorkspaceIds.push(workspaceId);
+    insert.run(`obs-mixed-${index}`, workspaceId, `asset-mixed-${index}`, `scan-mixed-${index}`, detail);
+    mixedEvents.push({
+      id: `event-mixed-${index}`, workspace_id: workspaceId,
+      asset_id: `asset-mixed-${index}`, scan_id: `scan-mixed-${index}`,
+      event_type: "asset_reappeared", hostname: `mixed-${index}.example.com`,
+    });
+  }
+  const mixedBindCounts = [];
+  const mixedD1 = makeD1(supportDb, { onAll: (_sql, args) => mixedBindCounts.push(args.length) });
+  const mixedLoader = lifecycleSupport.loadAssetLifecycleEventSupportForWorkspaces;
+  ok("shared lifecycle helper exports the mixed-workspace batch loader", typeof mixedLoader === "function");
+  if (typeof mixedLoader === "function") {
+    const mixed = await mixedLoader(
+      { cybermeters_db: mixedD1 },
+      { workspaceIds: mixedWorkspaceIds, events: mixedEvents, scope: "portfolio-mixed-batch" },
+    );
+    ok("mixed-workspace support is packed into bounded reads rather than workspace N+1",
+      mixedBindCounts.length === 2 &&
+      mixedBindCounts[0] === 100 && mixedBindCounts[1] === 60);
+    ok("mixed-workspace projection retains every tenant's own result",
+      mixedWorkspaceIds.every((workspaceId) => mixed.get(workspaceId)?.coverage === "complete"));
+  }
+
+  // Same event/asset/scan identities in two tenants must remain two independent
+  // anchors. Only the first tenant has the three qualifying negatives required
+  // to support its reappearance.
+  const collisionInsert = supportDb.prepare(`
+    INSERT INTO asset_lifecycle_observations
+      (id, workspace_id, domain_id, asset_id, scan_id, observation_state,
+       dns_state, http_state, qualifies_removal, policy_version,
+       source_detail_json, observed_at, created_at)
+    VALUES (?, ?, 'domain-collision', 'asset-collision', ?, ?, ?, ?, ?,
+            'asset-removal-confirmation-v1', ?, ?, ?)
+  `);
+  const negativeDetail = JSON.stringify({
+    active_sources: ["dns_resolution", "http_https_service"],
+    passive_sources: [],
+    dns_resolution: { state: "absent" },
+    http_https_service: { state: "not_observed" },
+  });
+  for (let index = 1; index <= 3; index += 1) {
+    const stamp = `2026-08-0${index}T00:00:00.000Z`;
+    collisionInsert.run(
+      `collision-supported-negative-${index}`, "ws-collision-supported", `negative-${index}`,
+      "not_observed", "absent", "not_observed", 1, negativeDetail, stamp, stamp,
+    );
+  }
+  for (const workspaceId of ["ws-collision-supported", "ws-collision-unsupported"]) {
+    collisionInsert.run(
+      `collision-target-${workspaceId}`, workspaceId, "scan-collision",
+      "observed", "observed", "observed", 0, detail,
+      "2026-08-04T00:00:00.000Z", "2026-08-04T00:00:00.000Z",
+    );
+  }
+  const collision = await lifecycleSupport.loadAssetLifecycleEventSupportForWorkspaces(
+    { cybermeters_db: makeD1(supportDb) },
+    {
+      workspaceIds: ["ws-collision-supported", "ws-collision-unsupported"],
+      events: [
+        { id: "collision-event", workspace_id: "ws-collision-supported", asset_id: "asset-collision", scan_id: "scan-collision", event_type: "asset_reappeared" },
+        { id: "collision-event", workspace_id: "ws-collision-unsupported", asset_id: "asset-collision", scan_id: "scan-collision", event_type: "asset_reappeared" },
+      ],
+      scope: "colliding-tenant-identities",
+    },
+  );
+  ok("colliding event/asset/scan identities never borrow lifecycle evidence across workspaces",
+    collision.get("ws-collision-supported")?.claims_by_event_id.get("collision-event")?.state === "supported" &&
+    collision.get("ws-collision-unsupported")?.claims_by_event_id.get("collision-event")?.state === "unsupported");
+
+  const runtimeConsumerFiles = [
+    "workers/scan-api/src/engines/asset-lifecycle-event-support.js",
+    "workers/scan-api/src/engines/portfolio-customers.js",
+    "workers/scan-api/src/engines/scorecard.js",
+    "workers/scan-api/src/engines/weekly-digest.js",
+    "workers/scan-api/src/routes/attack-surface.js",
+    "workers/scan-api/src/routes/portfolio.js",
+    "workers/scan-api/src/index.js",
+  ];
+  ok("no runtime lifecycle consumer passes a caller-selected chunkSize",
+    runtimeConsumerFiles.every((file) =>
+      !/\bchunkSize\s*:/.test(fs.readFileSync(path.join(root, file), "utf8"))));
+  supportDb.close();
+}
+
+// Every portfolio source read uses the same bounded authorised-id batcher. A
+// LIMIT bind leaves room for 99 workspace ids; an unadorned read admits 100.
+{
+  const calls = [];
+  let activeCalls = 0;
+  let maxActiveCalls = 0;
+  const boundedDb = {
+    prepare(sql) {
+      return {
+        bind(...args) {
+          return { all: async () => {
+            activeCalls += 1;
+            maxActiveCalls = Math.max(maxActiveCalls, activeCalls);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            calls.push({ sql, args });
+            activeCalls -= 1;
+            return { results: [] };
+          } };
+        },
+      };
+    },
+  };
+  const ids = Array.from({ length: 205 }, (_, index) => `ws-batch-${index}`);
+  await eng.readPortfolioWorkspaceSources(boundedDb, ids, [
+    { key: "plain", sql: (wsIn) => `SELECT 'plain-source' FROM workspaces WHERE id IN (${wsIn})` },
+    { key: "limited", extraBindings: [50], sql: (wsIn) => `SELECT 'limited-source' FROM workspaces WHERE id IN (${wsIn}) LIMIT ?` },
+  ]);
+  const plainBinds = calls.filter((call) => call.sql.includes("plain-source")).map((call) => call.args.length);
+  const limitedBinds = calls.filter((call) => call.sql.includes("limited-source")).map((call) => call.args.length);
+  ok("205 authorised ids use three bounded source reads, not one oversized statement",
+    plainBinds.length === 3 && plainBinds.join(",") === "100,100,5");
+  ok("portfolio reads with LIMIT binds pack 99 workspace ids per statement",
+    limitedBinds.length === 3 && limitedBinds.join(",") === "100,100,8");
+  ok("no portfolio authorised-id source statement exceeds 100 bindings",
+    calls.every((call) => call.args.length <= 100));
+  ok("portfolio authorised-id source reads use bounded shared concurrency",
+    maxActiveCalls === eng.PORTFOLIO_MAX_QUERY_CONCURRENCY);
+}
 
 // ── 1. Unit: helper computes change counts + ranking ─────────────────────────
 const rows = await computePortfolioCustomerRows(
@@ -171,6 +412,53 @@ ok("risk rating derives from the canonical band (Acme 30 → high)", acme.risk_r
 ok("risk rating (Beta 92 → excellent)", beta.risk_rating === "excellent");
 ok("attention ranking puts the at-risk customer first", rows[0].workspace_id === "ws_a1");
 ok("critical finding surfaced in the row", acme.critical_findings === 1);
+
+// A fully scored, otherwise quiet customer still cannot earn a portfolio
+// all-clear when lifecycle support for its change collection is unavailable.
+{
+  const healthyButUnavailable = [{
+    workspace_id: "ws-healthy-unavailable", workspace_name: "Healthy-looking Co",
+    latest_score: 92, risk_rating: "excellent",
+    critical_findings: 0, high_findings: 0,
+    changes_7d: 0, changes_7d_high: 0,
+    customer_changes_7d: null, customer_changes_7d_high: null,
+    lifecycle_claim_projection_7d: {
+      coverage: "unavailable", coverage_reason: "event_collection_read_failed",
+    },
+  }];
+  healthyButUnavailable.degraded_queries = ["changes_projection"];
+  const summary = buildExecutiveSummary(healthyButUnavailable);
+  ok("complete scores plus unavailable lifecycle coverage never produce an all-clear",
+    summary.portfolio.customer_total_changes_7d === null &&
+    !/no customers currently need urgent attention/i.test(summary.executive_summary));
+}
+
+// A rejected projection-row read is unavailable, not an evaluated empty set.
+// Legacy aggregate counts remain load-bearing and retain their exact pre-Arm-2
+// values independently of the projection read.
+{
+  const rejectingDb = makeD1(db, {
+    rejectAll: (sql) => /FROM\s+asset_events\b/i.test(sql) &&
+      (/workspace_rank/i.test(sql) || /LIMIT\s+2001/i.test(sql)),
+  });
+  const rejectedRows = await computePortfolioCustomerRows(
+    rejectingDb,
+    ["ws_a1", "ws_a2"],
+    { env: { ...env, cybermeters_db: rejectingDb } },
+  );
+  const rejectedAcme = rejectedRows.find((row) => row.workspace_id === "ws_a1");
+  ok("rejected portfolio projection read preserves the exact legacy change count",
+    rejectedAcme?.changes_7d === 3);
+  ok("rejected portfolio projection read makes honest totals null",
+    rejectedAcme?.customer_changes_7d === null);
+  ok("rejected portfolio projection read discloses unavailable coverage",
+    rejectedAcme?.lifecycle_claim_projection_7d?.coverage === "unavailable" &&
+    rejectedAcme?.lifecycle_claim_projection_7d?.coverage_reason === "event_collection_read_failed");
+  const rejectedExecutive = buildExecutiveSummary(rejectedRows);
+  ok("unavailable lifecycle changes cannot produce a portfolio all-clear",
+    rejectedExecutive.portfolio.customer_total_changes_7d === null &&
+    !/no customers currently need urgent attention/i.test(rejectedExecutive.executive_summary));
+}
 
 // ── 2. Unit: executive summary aggregates ────────────────────────────────────
 const exec = buildExecutiveSummary(rows);
@@ -192,6 +480,24 @@ const execResp = await get("/api/portfolio/executive-summary", TOKEN);
 ok("exec-summary endpoint authorised (200)", execResp.status === 200);
 ok("exec-summary scoped to MSP A (2 customers, not 3)", execResp.body.portfolio?.customers === 2);
 ok("exec-summary excludes B's high change (2 high, not 3)", execResp.body.portfolio?.high_changes_7d === 2);
+
+{
+  const rejectingRouteDb = makeD1(db, {
+    rejectAll: (sql) => /FROM\s+asset_events\s+ae/i.test(sql) && /JOIN\s+workspaces\s+w/i.test(sql),
+  });
+  const rejectedAlerts = await getWithEnv(
+    "/api/portfolio/alerts",
+    TOKEN,
+    { ...env, cybermeters_db: rejectingRouteDb },
+  );
+  const wsProjection = rejectedAlerts.body.lifecycle_claim_projection_by_workspace?.ws_a1;
+  ok("rejected portfolio alert collection is unavailable, never complete zero",
+    wsProjection?.coverage === "unavailable" &&
+    wsProjection?.coverage_reason === "event_collection_read_failed" &&
+    wsProjection?.total === null);
+  ok("rejected portfolio alert collection is disclosed as a partial failure",
+    rejectedAlerts.body.partial_failure === true);
+}
 
 const ovResp = await get("/api/portfolio/overview", TOKEN);
 ok("overview scoped to MSP A (2 workspaces)", ovResp.body.total_workspaces === 2);

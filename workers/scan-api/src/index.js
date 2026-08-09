@@ -71,6 +71,10 @@ import { DMARC_RAMP_LADDER, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY,
 import { retryFailedAlertDeliveries } from "./engines/managed-alerts.js";
 import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, buildDmarcSenderIntelligenceEvidence, cybermetersRuaPresentInDmarcRecord, loadBecExposureEvidence } from "./engines/sender-provenance.js";
 import { retryFailedAssetAlerts, sendAssetChangeAlert } from "./engines/asset-alert-delivery.js";
+import {
+  loadAssetLifecycleEventSupport,
+  summariseLifecycleClaimProjection,
+} from "./engines/asset-lifecycle-event-support.js";
 import { sendWeeklyDigests } from "./engines/weekly-digest.js";
 import { runBrandTakedownFollowupSweep } from "./engines/brand-cases.js";
 import { runBrandDnsEnrichmentSweep } from "./engines/brand-dns-enrichment.js";
@@ -551,6 +555,71 @@ async function executeDueReportSchedules(env, now = new Date().toISOString()) {
   return summary;
 }
 
+export async function persistScheduledAssetChangeProjection(env, {
+  scheduleId,
+  workspaceId,
+  scanId,
+} = {}) {
+  if (!scheduleId || !workspaceId || !scanId) return null;
+  const [eventsResult, totalResult, changeCountResult] = await Promise.all([
+    env.cybermeters_db
+      .prepare(
+        `SELECT id, workspace_id, domain_id, asset_id, scan_id, event_type,
+                hostname, severity, description, created_at
+         FROM asset_events
+         WHERE scan_id = ? AND workspace_id = ?
+           AND event_type IN ('new_asset_discovered', 'asset_reappeared')
+         ORDER BY created_at ASC, id ASC LIMIT 2001`
+      )
+      .bind(scanId, workspaceId)
+      .all(),
+    env.cybermeters_db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM workspace_assets
+         WHERE workspace_id = ? AND status = 'active'`
+      )
+      .bind(workspaceId)
+      .first(),
+    env.cybermeters_db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM asset_events
+         WHERE scan_id = ? AND workspace_id = ?
+           AND event_type IN ('new_asset_discovered', 'asset_reappeared')`
+      )
+      .bind(scanId, workspaceId)
+      .first(),
+  ]);
+  const events = eventsResult.results || [];
+  const changeCount = changeCountResult?.n ?? 0;
+  const projection = await loadAssetLifecycleEventSupport(env, {
+    workspaceId,
+    events,
+    collectionLimit: 2000,
+    scope: "scheduled_scan_asset_changes",
+  });
+  const projectionJson = JSON.stringify({
+    ...summariseLifecycleClaimProjection(events, projection),
+    scan_id: scanId,
+  });
+  await env.cybermeters_db
+    .prepare(
+      `UPDATE scheduled_scans
+       SET last_asset_count = ?, asset_change_count = ?,
+           asset_change_projection_json = ?
+       WHERE id = ? AND workspace_id = ?`
+    )
+    .bind(totalResult?.n ?? 0, changeCount, projectionJson, scheduleId, workspaceId)
+    .run();
+  return {
+    schedule_id: scheduleId,
+    workspace_id: workspaceId,
+    scan_id: scanId,
+    last_asset_count: totalResult?.n ?? 0,
+    asset_change_count: changeCount,
+    asset_change_projection: JSON.parse(projectionJson),
+  };
+}
+
 /**
  * Create and run a scan for one scheduled_scans row.
  * This function is always called inside ctx.waitUntil() so it is safe to await
@@ -856,40 +925,12 @@ async function triggerScheduledScan(schedule, env) {
     // ── Update asset counts after scan completes ───────────────────────────────
     if (schedule.workspace_id) {
       try {
-        const [eventsResult, totalResult] = await Promise.all([
-          env.cybermeters_db
-            .prepare(
-              `SELECT event_type FROM asset_events
-               WHERE scan_id = ? AND workspace_id = ?`
-            )
-            .bind(scanId, schedule.workspace_id)
-            .all(),
-          env.cybermeters_db
-            .prepare(
-              `SELECT COUNT(*) AS n FROM workspace_assets
-               WHERE workspace_id = ? AND status = 'active'`
-            )
-            .bind(schedule.workspace_id)
-            .first(),
-        ]);
-        const changeCount = (eventsResult.results || []).filter(
-          (e) => e.event_type === "new_asset_discovered" || e.event_type === "asset_reappeared"
-        ).length;
-        await env.cybermeters_db
-          .prepare(
-            `UPDATE scheduled_scans
-             SET last_asset_count = ?, asset_change_count = ?
-             WHERE id = ?`
-          )
-          .bind(totalResult?.n ?? 0, changeCount, schedule.id)
-          .run();
-        console.log("[scheduled-monitoring]", JSON.stringify({
-          schedule_id:        schedule.id,
-          workspace_id:       schedule.workspace_id,
-          scan_id:            scanId,
-          last_asset_count:   totalResult?.n ?? 0,
-          asset_change_count: changeCount,
-        }));
+        const persisted = await persistScheduledAssetChangeProjection(env, {
+          scheduleId: schedule.id,
+          workspaceId: schedule.workspace_id,
+          scanId,
+        });
+        console.log("[scheduled-monitoring]", JSON.stringify(persisted));
       } catch (e) {
         console.error("[scheduled-monitoring] asset count update failed:", e?.message);
       }
@@ -937,40 +978,12 @@ async function settleScheduledQueueScan(env, { scanId, row, scheduledScanId, eng
     // ── Asset counts (verbatim semantics of the legacy post-engine block) ──
     stage = "asset_counts";
     try {
-      const [eventsResult, totalResult] = await Promise.all([
-        env.cybermeters_db
-          .prepare(
-            `SELECT event_type FROM asset_events
-             WHERE scan_id = ? AND workspace_id = ?`
-          )
-          .bind(scanId, row.workspace_id)
-          .all(),
-        env.cybermeters_db
-          .prepare(
-            `SELECT COUNT(*) AS n FROM workspace_assets
-             WHERE workspace_id = ? AND status = 'active'`
-          )
-          .bind(row.workspace_id)
-          .first(),
-      ]);
-      const changeCount = (eventsResult.results || []).filter(
-        (e) => e.event_type === "new_asset_discovered" || e.event_type === "asset_reappeared"
-      ).length;
-      await env.cybermeters_db
-        .prepare(
-          `UPDATE scheduled_scans
-           SET last_asset_count = ?, asset_change_count = ?
-           WHERE id = ?`
-        )
-        .bind(totalResult?.n ?? 0, changeCount, schedRow.id)
-        .run();
-      console.log("[scheduled-monitoring]", JSON.stringify({
-        schedule_id:        schedRow.id,
-        workspace_id:       row.workspace_id,
-        scan_id:            scanId,
-        last_asset_count:   totalResult?.n ?? 0,
-        asset_change_count: changeCount,
-      }));
+      const persisted = await persistScheduledAssetChangeProjection(env, {
+        scheduleId: schedRow.id,
+        workspaceId: row.workspace_id,
+        scanId,
+      });
+      console.log("[scheduled-monitoring]", JSON.stringify(persisted));
     } catch (e) {
       console.error("[scheduled-monitoring] asset count update failed:", e?.message);
     }

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Clock, ArrowRight, Globe, Network, Mail, Lock, AlertTriangle, Activity } from 'lucide-react'
 import { api } from '../api'
+import { assetLifecycleClaimDisplay } from '../lib/assetLifecycleClaimDisplay'
 
 // Compact "what changed recently" widget for the dashboard — the habit-forming
 // hook that pulls people back into the product. Shows the latest few Exposure
@@ -56,11 +57,12 @@ export default function RecentChangesCard({ workspaceId }) {
       <ul className="space-y-2">
         {events.map(e => {
           const Icon = CATEGORY_ICON[e.category] ?? Activity
+          const claimDisplay = assetLifecycleClaimDisplay(e)
           return (
             <li key={e.id} className="flex items-center gap-3">
               <Icon className="w-4 h-4 text-gray-400 flex-shrink-0" />
               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${SEVERITY_DOT[e.severity] ?? SEVERITY_DOT.info}`} />
-              <span className="text-sm text-gray-700 truncate flex-1 min-w-0">{e.title}</span>
+              <span className="text-sm text-gray-700 truncate flex-1 min-w-0">{claimDisplay.title}</span>
               <time className="text-xs text-gray-400 flex-shrink-0">{relTime(e.created_at)}</time>
             </li>
           )

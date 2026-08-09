@@ -20,6 +20,7 @@ import StatCard from '../../components/StatCard'
 import WorkspaceMembersPanel from '../../components/WorkspaceMembersPanel'
 import VerificationStatusBadge from '../../components/VerificationStatusBadge'
 import ActivityTimeline from '../../components/ActivityTimeline'
+import { projectedCountDisplay } from '../../lib/assetLifecycleClaimDisplay'
 
 function fmt(str) {
   if (!str) return '—'
@@ -745,7 +746,12 @@ export default function WorkspaceDashboard() {
                 <StatCard icon={Tag}           label="Brand Risks"      value={sc?.brand_risks?.active ?? '—'} danger={(sc?.brand_risks?.high ?? 0) > 0} sub={sc?.brand_risks?.high > 0 ? `${sc.brand_risks.high} high-risk` : undefined} />
                 <StatCard icon={Terminal}      label="Admin Surfaces"   value={sc?.admin_surfaces ?? '—'} danger={(sc?.admin_surfaces ?? 0) > 0} />
                 <StatCard icon={Shield}        label="Cert Risk"        value={sc?.certificate_risks?.risk_level ?? '—'} warning={['high','critical'].includes(sc?.certificate_risks?.risk_level)} />
-                <StatCard icon={BarChart2}     label="Events (30d)"     value={sc?.asset_events_30d ?? '—'} sub="surface changes" />
+                <StatCard
+                  icon={BarChart2}
+                  label="Supported/other changes (30d)"
+                  value={projectedCountDisplay(sc?.customer_asset_events_30d, sc?.lifecycle_claim_projection_30d).label}
+                  sub="lifecycle support aware"
+                />
               </div>
 
               {/* Charts */}

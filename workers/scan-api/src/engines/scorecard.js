@@ -7,6 +7,10 @@ import { getCurrentPosturePresentation } from "./current-posture.js";
 import { resolveCyberMotDomainStates } from "./cyber-mot-domains.js";
 import { canSayHealthy, domainState, neutralSummary, scorecardBehaviour, sectionStatus } from "./scorecard-domain-state.js";
 import { resolvePhase5HistoricalCustomerProjection } from "./phase5-evidence.js";
+import {
+  loadAssetLifecycleEventSupport,
+  summariseLifecycleClaimProjection,
+} from "./asset-lifecycle-event-support.js";
 
 /**
  * buildScorecardData(wsId, env)
@@ -111,6 +115,15 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
       env.cybermeters_db.prepare(
         `SELECT COUNT(*) AS n FROM workspace_domains WHERE workspace_id = ?`
       ).bind(wsId),
+
+      // 11. Bounded event universe for the additive P4 read projection.
+      env.cybermeters_db.prepare(
+        `SELECT id, workspace_id, domain_id, asset_id, scan_id, event_type,
+                hostname, severity, description, created_at
+         FROM asset_events
+         WHERE workspace_id = ? AND created_at >= ?
+         ORDER BY created_at DESC, id DESC LIMIT 2001`
+      ).bind(wsId, now30dAgo),
     ]);
   } catch {
     return null;
@@ -130,6 +143,20 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
   const events30d      = b1[8].results?.[0]?.n ?? 0;
   const newAssets30d   = b1[9].results?.[0]?.n ?? 0;
   const totalDomains   = b1[10].results?.[0]?.n ?? 0;
+  const eventProjectionRows = b1[11].results ?? [];
+  const eventProjection = await loadAssetLifecycleEventSupport(env, {
+    workspaceId: wsId,
+    events: eventProjectionRows,
+    collectionLimit: 2000,
+    scope: "scorecard_asset_events_30d",
+  });
+  const eventProjectionSummary = summariseLifecycleClaimProjection(
+    eventProjectionRows,
+    eventProjection,
+  );
+  const customerEvents30d = eventProjectionSummary.coverage === "complete"
+    ? eventProjectionSummary.customer_change_count
+    : null;
 
   // ── D1 Batch 2: scan-specific data ────────────────────────────────────────
   const scanId = latestScan?.id ?? null;
@@ -254,10 +281,12 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
   }
 
   // ── Attention Required ────────────────────────────────────────────────────
-  if (events30d > 0) {
+  if (customerEvents30d > 0) {
     attentionRequired.push(
-      `Attack surface changed in the last 30 days — ${events30d} asset event${events30d !== 1 ? 's' : ''} recorded.`
+      `Attack surface changed in the last 30 days — ${customerEvents30d} supported lifecycle or other asset event${customerEvents30d !== 1 ? 's' : ''} recorded.`
     );
+  } else if (customerEvents30d === null) {
+    attentionRequired.push('Support for historical attack-surface lifecycle records was not evaluated completely.');
   }
   if (newAssets30d > 0) {
     attentionRequired.push(
@@ -383,6 +412,8 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     medium_findings:   mediumFindings,
     low_findings:      lowFindings,
     asset_events_30d:  events30d,
+    customer_asset_events_30d: customerEvents30d,
+    lifecycle_claim_projection_30d: eventProjectionSummary,
     executive_summary: {
       good,
       attention_required: attentionRequired,

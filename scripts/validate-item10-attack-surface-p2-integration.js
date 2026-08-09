@@ -78,17 +78,20 @@ function buildDb() {
 }
 
 function makeD1(db, counters) {
+  const isReadSql = (sql) => /^\s*(?:select|with)\b/i.test(sql);
   const statement = (sql, args = []) => ({
     __sql: sql,
     bind: (...bound) => statement(sql, bound),
     first: async (column) => {
-      if (/^\s*select/i.test(sql)) counters.reads += 1;
+      if (isReadSql(sql)) counters.reads += 1;
       const row = db.prepare(sql).get(...args) ?? null;
       return column && row ? row[column] : row;
     },
     all: async () => {
-      if (/^\s*select/i.test(sql)) counters.reads += 1;
-      return { results: db.prepare(sql).all(...args), success: true, meta: {} };
+      if (isReadSql(sql)) counters.reads += 1;
+      const results = db.prepare(sql).all(...args);
+      if (/invalid_relevant/i.test(sql)) counters.lifecycle_history_rows = results.length;
+      return { results, success: true, meta: {} };
     },
     run: async () => {
       const result = db.prepare(sql).run(...args);
@@ -100,7 +103,7 @@ function makeD1(db, counters) {
     batch: async (statements) => {
       counters.batches += 1;
       return Promise.all(statements.map((entry) =>
-        /^\s*select/i.test(entry.__sql) ? entry.all() : entry.run()));
+        isReadSql(entry.__sql) ? entry.all() : entry.run()));
     },
   };
 }
@@ -263,6 +266,308 @@ eq("foreign tenant row remains untouched",
 eq("root identity never enters removal confirmation",
   db.prepare("SELECT lifecycle_state FROM workspace_assets WHERE id='asset-root'").get().lifecycle_state,
   "not_assessed");
+
+// The production writer consumes the same semantic timestamp, independent
+// ingestion timestamp and bytewise scan-id order as the read projection. These
+// two assets confirm only when created_at and then scan_id resolve their reset
+// rows before the first qualifying negative.
+const orderingDb = buildDb();
+orderingDb.exec(`
+  INSERT INTO workspaces (id, deleted_at) VALUES ('ws-ordering', NULL);
+  INSERT INTO workspace_domains (workspace_id, domain_id)
+    VALUES ('ws-ordering', 'dom-ordering');
+  INSERT INTO workspace_assets
+    (id, workspace_id, domain_id, hostname, status, updated_at)
+  VALUES
+    ('asset-created-order', 'ws-ordering', 'dom-ordering',
+     'created-order.example.com', 'active', '2026-07-01T00:00:00.000Z'),
+    ('asset-scan-order', 'ws-ordering', 'dom-ordering',
+     'scan-order.example.com', 'active', '2026-07-01T00:00:00.000Z');
+  INSERT INTO asset_lifecycle_observations
+    (id, workspace_id, domain_id, asset_id, scan_id, observation_state,
+     dns_state, http_state, qualifies_removal, policy_version,
+     source_detail_json, observed_at, created_at)
+  VALUES
+    ('alo-created-negative', 'ws-ordering', 'dom-ordering',
+     'asset-created-order', 'scan-a-negative', 'not_observed', 'absent',
+     'not_observed', 1, 'asset-removal-confirmation-v1', '{}',
+     '2026-07-01T00:00:00.000Z', '2026-07-01 00:00:01'),
+    ('alo-created-reset', 'ws-ordering', 'dom-ordering',
+     'asset-created-order', 'scan-z-observed', 'observed', 'observed',
+     'observed', 0, 'asset-removal-confirmation-v1', '{}',
+     '2026-07-01T00:00:00.000Z', '2026-07-01 00:00:00'),
+    ('alo-created-day-2', 'ws-ordering', 'dom-ordering',
+     'asset-created-order', 'scan-day-2', 'not_observed', 'absent',
+     'not_observed', 1, 'asset-removal-confirmation-v1', '{}',
+     '2026-07-02T00:00:00.000Z', '2026-07-02 00:00:00'),
+    ('alo-scan-negative', 'ws-ordering', 'dom-ordering',
+     'asset-scan-order', 'scan-z-negative', 'not_observed', 'absent',
+     'not_observed', 1, 'asset-removal-confirmation-v1', '{}',
+     '2026-07-01T00:00:00.000Z', '2026-07-01 00:00:00'),
+    ('alo-scan-reset', 'ws-ordering', 'dom-ordering',
+     'asset-scan-order', 'scan-a-observed', 'observed', 'observed',
+     'observed', 0, 'asset-removal-confirmation-v1', '{}',
+     '2026-07-01T00:00:00.000Z', '2026-07-01 00:00:00'),
+    ('alo-scan-day-2', 'ws-ordering', 'dom-ordering',
+     'asset-scan-order', 'scan-day-2', 'not_observed', 'absent',
+     'not_observed', 1, 'asset-removal-confirmation-v1', '{}',
+     '2026-07-02T00:00:00.000Z', '2026-07-02 00:00:00');
+`);
+const orderingCounters = { reads: 0, batches: 0 };
+await persistAttackSurfaceLifecycle({
+  env: { cybermeters_db: makeD1(orderingDb, orderingCounters) },
+  scanId: "scan-day-3",
+  domainId: "dom-ordering",
+  domain: "example.com",
+  signalCompleteness: signalCompleteness(),
+  assetExposure: {
+    removal_observations: [
+      negative("created-order.example.com"),
+      negative("scan-order.example.com"),
+    ],
+  },
+  observedAt: "2026-07-03T00:00:00.000Z",
+});
+eq("writer replay uses created_at before scan_id on an observed_at tie",
+  orderingDb.prepare(`
+    SELECT lifecycle_state FROM workspace_assets WHERE id='asset-created-order'
+  `).get().lifecycle_state, "confirmed_removed");
+eq("writer replay uses bytewise scan_id on an observed_at and created_at tie",
+  orderingDb.prepare(`
+    SELECT lifecycle_state FROM workspace_assets WHERE id='asset-scan-order'
+  `).get().lifecycle_state, "confirmed_removed");
+orderingDb.close();
+
+// Accepted SQLite space-format lifecycle timestamps are UTC instants, never
+// Worker-local wall time. The third observation is only 23.5 hours after the
+// second, so it must not qualify in any runtime timezone.
+const mixedTimestampDb = buildDb();
+mixedTimestampDb.exec(`
+  INSERT INTO workspaces (id, deleted_at) VALUES ('ws-mixed-time', NULL);
+  INSERT INTO workspace_domains (workspace_id, domain_id)
+    VALUES ('ws-mixed-time', 'dom-mixed-time');
+  INSERT INTO workspace_assets
+    (id, workspace_id, domain_id, hostname, status, lifecycle_state,
+     last_observation_state, lifecycle_policy_version, updated_at)
+  VALUES
+    ('asset-mixed-time', 'ws-mixed-time', 'dom-mixed-time',
+     'mixed-time.example.com', 'active', 'not_observed', 'not_observed',
+     'asset-removal-confirmation-v1', '2026-08-02 10:00:00');
+  INSERT INTO asset_lifecycle_observations
+    (id, workspace_id, domain_id, asset_id, scan_id, observation_state,
+     dns_state, http_state, qualifies_removal, policy_version,
+     source_detail_json, observed_at, created_at)
+  VALUES
+    ('alo-mixed-time-1', 'ws-mixed-time', 'dom-mixed-time',
+     'asset-mixed-time', 'scan-mixed-time-1', 'not_observed', 'absent',
+     'not_observed', 1, 'asset-removal-confirmation-v1', '{}',
+     '2026-08-01 10:00:00', '2026-08-01 10:00:01'),
+    ('alo-mixed-time-2', 'ws-mixed-time', 'dom-mixed-time',
+     'asset-mixed-time', 'scan-mixed-time-2', 'not_observed', 'absent',
+     'not_observed', 1, 'asset-removal-confirmation-v1', '{}',
+     '2026-08-02 10:00:00', '2026-08-02 10:00:01');
+`);
+const mixedTimestampCounters = { reads: 0, batches: 0 };
+await persistAttackSurfaceLifecycle({
+  env: { cybermeters_db: makeD1(mixedTimestampDb, mixedTimestampCounters) },
+  scanId: "scan-mixed-time-3",
+  domainId: "dom-mixed-time",
+  domain: "example.com",
+  signalCompleteness: signalCompleteness(),
+  assetExposure: {
+    removal_observations: [negative("mixed-time.example.com")],
+  },
+  observedAt: "2026-08-03T09:30:00.000Z",
+});
+eq("writer interprets SQLite-space predecessor timestamps as UTC",
+  mixedTimestampDb.prepare(`
+    SELECT lifecycle_state FROM workspace_assets WHERE id='asset-mixed-time'
+  `).get().lifecycle_state, "not_observed");
+eq("sub-24-hour mixed-format predecessor never advances the writer counter",
+  mixedTimestampDb.prepare(`
+    SELECT COUNT(*) AS n FROM asset_lifecycle_observations
+    WHERE asset_id='asset-mixed-time' AND qualifies_removal=1
+  `).get().n, 2);
+eq("mixed-format timestamp parsing never manufactures a removal event",
+  mixedTimestampDb.prepare(`
+    SELECT COUNT(*) AS n FROM asset_events WHERE asset_id='asset-mixed-time'
+  `).get().n, 0);
+mixedTimestampDb.close();
+
+// A corrupt relevant timestamp belongs to one asset, not to the whole workspace
+// persistence pass. The writer must expose uncertainty for that asset, keep its
+// lifecycle/status unchanged, and still persist global signals plus a clean
+// sibling's evidence-backed transition.
+const corruptDb = buildDb();
+corruptDb.exec(`
+  INSERT INTO workspaces (id, deleted_at) VALUES
+    ('ws-corrupt-history', NULL),
+    ('ws-foreign-corrupt', NULL);
+  INSERT INTO workspace_domains (workspace_id, domain_id) VALUES
+    ('ws-corrupt-history', 'dom-corrupt-history'),
+    ('ws-foreign-corrupt', 'dom-foreign-corrupt');
+  INSERT INTO workspace_assets
+    (id, workspace_id, domain_id, hostname, status, updated_at)
+  VALUES
+    ('asset-corrupt-history', 'ws-corrupt-history', 'dom-corrupt-history',
+     'bad.example.com', 'active', '2026-07-01T00:00:00.000Z'),
+    ('asset-corrupt-created', 'ws-corrupt-history', 'dom-corrupt-history',
+     'bad-created.example.com', 'active', '2026-07-01T00:00:00.000Z'),
+    ('asset-clean-sibling', 'ws-corrupt-history', 'dom-corrupt-history',
+     'clean.example.com', 'active', '2026-07-01T00:00:00.000Z'),
+    ('asset-foreign-corrupt', 'ws-foreign-corrupt', 'dom-foreign-corrupt',
+     'bad-created.example.com', 'active', '2026-07-01T00:00:00.000Z');
+  INSERT INTO asset_lifecycle_observations
+    (id, workspace_id, domain_id, asset_id, scan_id, observation_state,
+     dns_state, http_state, qualifies_removal, policy_version,
+     source_detail_json, observed_at, created_at)
+  VALUES
+    ('alo-bad-invalid', 'ws-corrupt-history', 'dom-corrupt-history',
+     'asset-corrupt-history', 'scan-bad-invalid', 'observed', 'observed',
+     'observed', 0, 'asset-removal-confirmation-v1', '{}',
+     'not-a-timestamp', '2026-07-01T00:00:00.000Z'),
+    ('alo-bad-created', 'ws-corrupt-history', 'dom-corrupt-history',
+     'asset-corrupt-created', 'scan-bad-created', 'observed', 'observed',
+     'observed', 0, 'asset-removal-confirmation-v1', '{}',
+     '2026-07-01T00:00:00.000Z', 'not-a-created-timestamp'),
+    ('alo-foreign-invalid', 'ws-foreign-corrupt', 'dom-foreign-corrupt',
+     'asset-foreign-corrupt', 'scan-foreign-invalid', 'observed', 'observed',
+     'observed', 0, 'asset-removal-confirmation-v1', '{}',
+     'not-a-timestamp', 'not-a-created-timestamp'),
+    ('alo-clean-1', 'ws-corrupt-history', 'dom-corrupt-history',
+     'asset-clean-sibling', 'scan-clean-1', 'not_observed', 'absent',
+     'not_observed', 1, 'asset-removal-confirmation-v1', '{}',
+     '2026-07-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z'),
+    ('alo-clean-2', 'ws-corrupt-history', 'dom-corrupt-history',
+     'asset-clean-sibling', 'scan-clean-2', 'not_observed', 'absent',
+     'not_observed', 1, 'asset-removal-confirmation-v1', '{}',
+     '2026-07-02T00:00:00.000Z', '2026-07-02T00:00:00.000Z');
+`);
+const corruptCounters = { reads: 0, batches: 0 };
+const corruptEnv = { cybermeters_db: makeD1(corruptDb, corruptCounters) };
+const insertCorruptHistory = corruptDb.prepare(`
+  INSERT INTO asset_lifecycle_observations
+    (id, workspace_id, domain_id, asset_id, scan_id, observation_state,
+     dns_state, http_state, qualifies_removal, policy_version,
+     source_detail_json, observed_at, created_at)
+  VALUES (?, 'ws-corrupt-history', 'dom-corrupt-history',
+          'asset-corrupt-history', ?, 'observed', 'observed', 'observed', 0,
+          'asset-removal-confirmation-v1', '{}', ?,
+          '2026-07-01T00:00:00.000Z')
+`);
+for (let index = 0; index < 12; index += 1) {
+  insertCorruptHistory.run(
+    `alo-bad-many-${index}`,
+    `scan-bad-many-${index}`,
+    `invalid-observed-at-${index}`,
+  );
+}
+let corruptHistoryResult = null;
+let corruptHistoryError = null;
+try {
+  corruptHistoryResult = await persistAttackSurfaceLifecycle({
+    env: corruptEnv,
+    scanId: "scan-clean-3",
+    domainId: "dom-corrupt-history",
+    domain: "example.com",
+    signalCompleteness: signalCompleteness(),
+    assetExposure: {
+      removal_observations: [
+        negative("bad.example.com"),
+        negative("bad-created.example.com"),
+        negative("clean.example.com"),
+      ],
+    },
+    observedAt: "2026-07-03T00:00:00.000Z",
+  });
+} catch (error) {
+  corruptHistoryError = error;
+}
+ok("invalid predecessor does not abort the workspace lifecycle pass",
+  corruptHistoryError === null, String(corruptHistoryError?.message || ""));
+eq("clean sibling still reaches its supported transition",
+  corruptDb.prepare(
+    "SELECT lifecycle_state FROM workspace_assets WHERE id='asset-clean-sibling'",
+  ).get().lifecycle_state, "confirmed_removed");
+eq("corrupt asset emits no lifecycle event",
+  corruptDb.prepare(`
+    SELECT COUNT(*) AS n
+    FROM asset_events
+    WHERE asset_id='asset-corrupt-history'
+  `).get().n, 0);
+eq("corrupt asset keeps its current lifecycle projection unchanged",
+  corruptDb.prepare(`
+    SELECT lifecycle_state || ':' || status AS state
+    FROM workspace_assets
+    WHERE id='asset-corrupt-history'
+  `).get().state, "not_assessed:active");
+eq("corrupt predecessor prevents a new per-asset lifecycle observation",
+  corruptDb.prepare(`
+    SELECT COUNT(*) AS n
+    FROM asset_lifecycle_observations
+    WHERE asset_id='asset-corrupt-history' AND scan_id='scan-clean-3'
+  `).get().n, 0);
+eq("invalid created_at predecessor leaves its asset projection unchanged",
+  corruptDb.prepare(`
+    SELECT lifecycle_state || ':' || status AS state
+    FROM workspace_assets
+    WHERE id='asset-corrupt-created'
+  `).get().state, "not_assessed:active");
+eq("invalid created_at predecessor prevents a new lifecycle observation",
+  corruptDb.prepare(`
+    SELECT COUNT(*) AS n
+    FROM asset_lifecycle_observations
+    WHERE asset_id='asset-corrupt-created' AND scan_id='scan-clean-3'
+  `).get().n, 0);
+eq("global signal history survives one corrupt asset predecessor",
+  corruptDb.prepare(`
+    SELECT COUNT(*) AS n
+    FROM attack_surface_signal_observations
+    WHERE workspace_id='ws-corrupt-history' AND scan_id='scan-clean-3'
+  `).get().n, 9);
+ok("writer returns explicit per-asset uncertainty",
+    corruptHistoryResult?.status === "uncertain" &&
+    corruptHistoryResult?.limitation_codes?.includes("invalid_relevant_timestamp") &&
+    corruptHistoryResult?.uncertain_asset_ids?.includes("asset-corrupt-history") &&
+    corruptHistoryResult?.uncertain_asset_ids?.includes("asset-corrupt-created"));
+ok("foreign-workspace corruption cannot enter local uncertainty",
+  !corruptHistoryResult?.uncertain_asset_ids?.includes("asset-foreign-corrupt"));
+eq("many invalid relevant rows collapse to one bounded per-asset sentinel",
+  corruptCounters.lifecycle_history_rows, 4);
+
+let invalidWriterResult = null;
+let invalidWriterError = null;
+try {
+  invalidWriterResult = await persistAttackSurfaceLifecycle({
+    env: corruptEnv,
+    scanId: "scan-invalid-writer-time",
+    domainId: "dom-corrupt-history",
+    domain: "example.com",
+    signalCompleteness: signalCompleteness(),
+    assetExposure: { removal_observations: [negative("clean.example.com")] },
+    observedAt: "not-a-writer-timestamp",
+  });
+} catch (error) {
+  invalidWriterError = error;
+}
+ok("invalid writer timestamp resolves conservatively instead of throwing",
+  invalidWriterError === null &&
+    invalidWriterResult?.status === "uncertain" &&
+    invalidWriterResult?.limitation_codes?.includes("invalid_relevant_timestamp") &&
+    invalidWriterResult?.uncertain_asset_ids === null);
+eq("invalid writer timestamp creates no lifecycle observation",
+  corruptDb.prepare(`
+    SELECT COUNT(*) AS n
+    FROM asset_lifecycle_observations
+    WHERE scan_id='scan-invalid-writer-time'
+  `).get().n, 0);
+eq("invalid writer timestamp creates no falsely timed global signal observation",
+  corruptDb.prepare(`
+    SELECT COUNT(*) AS n
+    FROM attack_surface_signal_observations
+    WHERE scan_id='scan-invalid-writer-time'
+  `).get().n, 0);
+corruptDb.close();
 
 const indexSource = fs.readFileSync(path.join(root, "workers/scan-api/src/index.js"), "utf8");
 ok("purge removes lifecycle children before workspace_assets",

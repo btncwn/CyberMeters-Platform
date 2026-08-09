@@ -603,15 +603,30 @@ export function deriveRemovalObservation(signalStates = {}) {
   return "observation_incomplete";
 }
 
+const CANONICAL_LIFECYCLE_INSTANT =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+function canonicalLifecycleEpoch(value) {
+  // Raw SQLite UTC-space and offset timestamps must first pass through the
+  // shared lifecycle normaliser. Date.parse is safe here only after this exact
+  // canonical-Z contract has been established.
+  if (typeof value !== "string" || !CANONICAL_LIFECYCLE_INSTANT.test(value)) {
+    return null;
+  }
+  const epochMs = Date.parse(value);
+  if (!Number.isFinite(epochMs) || new Date(epochMs).toISOString() !== value) {
+    return null;
+  }
+  return epochMs;
+}
+
 function validObservationRows(rows) {
   return (rows || [])
-    .filter((row) =>
-      row?.scan_id &&
-      Number.isFinite(Date.parse(row?.observed_at))
-    )
+    .map((row) => ({ row, epochMs: canonicalLifecycleEpoch(row?.observed_at) }))
+    .filter(({ row, epochMs }) => row?.scan_id && epochMs !== null)
     .map((row) => ({
-      scan_id: row.scan_id,
-      observed_at: new Date(row.observed_at).toISOString(),
+      scan_id: row.row.scan_id,
+      observed_at: new Date(row.epochMs).toISOString(),
     }));
 }
 
@@ -646,15 +661,15 @@ export function applyAssetRemovalConfirmation(current = {}, observation = {}) {
   if (observationState !== "not_observed") return base;
   if (previousLifecycle === "confirmed_removed") return base;
 
-  const observedMs = Date.parse(observation.observed_at);
-  if (!observation.scan_id || !Number.isFinite(observedMs)) {
+  const observedMs = canonicalLifecycleEpoch(observation.observed_at);
+  if (!observation.scan_id || observedMs === null) {
     return { ...base, last_observation_state: "observation_incomplete" };
   }
   if (previousRows.some((row) => row.scan_id === observation.scan_id)) return base;
 
   const last = previousRows.at(-1);
   if (last &&
-      observedMs - Date.parse(last.observed_at) <
+      observedMs - canonicalLifecycleEpoch(last.observed_at) <
         policy.minimum_observation_spacing_ms) {
     return base;
   }
@@ -667,7 +682,8 @@ export function applyAssetRemovalConfirmation(current = {}, observation = {}) {
     },
   ].slice(-policy.required_qualifying_observations);
   const windowMs = rows.length > 1
-    ? Date.parse(rows.at(-1).observed_at) - Date.parse(rows[0].observed_at)
+    ? canonicalLifecycleEpoch(rows.at(-1).observed_at) -
+      canonicalLifecycleEpoch(rows[0].observed_at)
     : 0;
   const confirmed =
     rows.length >= policy.required_qualifying_observations &&

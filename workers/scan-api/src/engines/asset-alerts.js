@@ -3,10 +3,7 @@
 // customer alert email. Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 import { escapeEmailHtml } from "../lib/lifecycle-email.js";
 import { scanCompletionQualityDisclosure } from "./assessment-presentation.js";
-import {
-  applyAssetRemovalConfirmation,
-  ASSET_REMOVAL_CONFIRMATION_POLICY,
-} from "./attack-surface-signal-completeness.js";
+import { evaluateAssetLifecycleEventSupport } from "./asset-lifecycle-event-support.js";
 
 // ── Asset Change Alert Engine ─────────────────────────────────────────────────
 //
@@ -79,6 +76,12 @@ export const ASSET_ALERT_ELIGIBILITY_REASON_CODES = Object.freeze([
   "withheld_evidence_lookup_unavailable",
   "withheld_removal_confirmation_not_satisfied",
   "withheld_reappearance_predecessor_unconfirmed",
+  "withheld_support_not_evaluable",
+  "withheld_lifecycle_evidence_not_recorded",
+  "withheld_lifecycle_policy_unknown",
+  "withheld_lifecycle_source_detail_malformed",
+  "withheld_lifecycle_timestamp_invalid",
+  "withheld_lifecycle_replay_truncated",
   ASSET_ALERT_WITHHELD_REASON,
 ]);
 
@@ -101,103 +104,29 @@ const DIRECT_EVENT_CLAIMS = new Set([
   "certificate_new_issuer_detected",
 ]);
 
-function safeSourceDetail(value) {
-  if (value && typeof value === "object") return value;
-  try {
-    return JSON.parse(value || "{}") || {};
-  } catch {
-    return {};
-  }
-}
-
-function activeRemovalEvidence(row) {
-  const detail = safeSourceDetail(row?.source_detail_json);
-  const activeSources = new Set(detail.active_sources || []);
-  const excludedSources = new Set(
-    ASSET_REMOVAL_CONFIRMATION_POLICY.passive_sources_excluded,
-  );
-  const confirmationSources = new Set(
-    [...activeSources].filter((source) => !excludedSources.has(source)),
-  );
-  return (
-    row?.policy_version === ASSET_REMOVAL_CONFIRMATION_POLICY.version &&
-    ASSET_REMOVAL_CONFIRMATION_POLICY.relevant_active_sources.every(
-      (source) => confirmationSources.has(source),
-    )
-  );
-}
-
-function lifecycleTransitionForEvent(event, rows) {
-  let current = {
-    lifecycle_state: "not_assessed",
-    qualifying_observations: [],
-    confirmed_removed_at: null,
-  };
-  let eventTransition = null;
-  const ordered = (rows || [])
-    .filter((row) => row?.asset_id === event?.asset_id)
-    .sort((a, b) => {
-      const time = Date.parse(a.observed_at) - Date.parse(b.observed_at);
-      return time || String(a.scan_id).localeCompare(String(b.scan_id));
-    });
-
-  for (const row of ordered) {
-    const isObserved = row.observation_state === "observed";
-    const acceptedNegative =
-      row.qualifies_removal === 1 &&
-      row.observation_state === "not_observed" &&
-      activeRemovalEvidence(row);
-    const signalStates = isObserved || acceptedNegative
-      ? {
-          dns_resolution: { state: row.dns_state },
-          http_https_service: { state: row.http_state },
-        }
-      : {
-          // A non-qualifying negative, unavailable, incomplete or passive-only
-          // observation remains history but cannot advance the threshold.
-          dns_resolution: { state: "not_assessed" },
-          http_https_service: { state: "not_assessed" },
-        };
-    const next = applyAssetRemovalConfirmation(current, {
-      scan_id: row.scan_id,
-      observed_at: row.observed_at,
-      signal_states: signalStates,
-    });
-    current = next;
-    if (row.scan_id === event.scan_id) eventTransition = next.transition;
-  }
-  return eventTransition;
-}
-
-function lifecycleReason(event, evidence) {
-  if (evidence.lifecycle_status === "schema_absent") {
-    return "withheld_lifecycle_schema_absent";
-  }
-  if (evidence.lifecycle_status !== "available") {
-    return "withheld_evidence_lookup_unavailable";
-  }
-  return event.event_type === "asset_no_longer_seen"
-    ? "withheld_removal_confirmation_not_satisfied"
-    : "withheld_reappearance_predecessor_unconfirmed";
+function claimFromProjection(event, evidence) {
+  const claims = evidence.lifecycle_projection?.claims_by_event_id;
+  if (claims instanceof Map) return claims.get(event?.id);
+  if (claims && typeof claims === "object") return claims[event?.id];
+  return null;
 }
 
 function decisionForEvent(event, evidence) {
   if (LIFECYCLE_CLAIMS.has(event.event_type)) {
-    const transition = lifecycleTransitionForEvent(
-      event,
-      evidence.lifecycle_observations,
-    );
-    if (event.event_type === "asset_no_longer_seen" &&
-        transition === "confirmed_removed") {
-      return { eligible: true, reason_code: "eligible_confirmed_removal" };
-    }
-    if (event.event_type === "asset_reappeared" && transition === "reappeared") {
-      return {
-        eligible: true,
-        reason_code: "eligible_reappearance_after_confirmed_removal",
-      };
-    }
-    return { eligible: false, reason_code: lifecycleReason(event, evidence) };
+    const claim = claimFromProjection(event, evidence) ||
+      evaluateAssetLifecycleEventSupport({
+        event,
+        observations: evidence.lifecycle_observations || [],
+        lifecycleStatus: evidence.lifecycle_status || "available",
+        replayComplete: evidence.lifecycle_replay_complete !== false,
+      });
+    return {
+      eligible: claim.state === "supported",
+      reason_code: claim.reason_code,
+      support_state: claim.state,
+      evidence_backed: claim.evidence_backed,
+      limitation_codes: claim.limitation_codes || [],
+    };
   }
 
   const signalKey = CLAIM_SIGNAL_KEYS[event.event_type];
@@ -252,6 +181,13 @@ export function evaluateAssetAlertEligibility(events, evidence = {}) {
       event_type: event.event_type,
       eligible: result.eligible,
       reason_code: result.reason_code,
+      ...(result.support_state ? { support_state: result.support_state } : {}),
+      ...(Object.hasOwn(result, "evidence_backed")
+        ? { evidence_backed: result.evidence_backed }
+        : {}),
+      ...(result.limitation_codes?.length
+        ? { limitation_codes: result.limitation_codes }
+        : {}),
     };
   });
   const eligibleEvents = [];

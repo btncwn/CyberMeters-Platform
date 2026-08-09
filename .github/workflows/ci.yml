@@ -781,6 +781,20 @@ jobs:
       - name: Validate Item 10 P5 Attack Surface customer-surface mutations
         run: node scripts/validate-item10-attack-surface-p5-mutations.js
 
+      - name: Validate Item 10 P5 Arm 2 evidence-support projection and all customer read contracts
+        run: node scripts/validate-item10-attack-surface-p5-arm2.js
+
+      - name: Validate Item 10 P5 Arm 2 and writer lifecycle timestamps across UTC and non-UTC runners
+        run: |
+          for tz in UTC Europe/London Etc/GMT-14; do
+            echo "── TZ=$tz ──"
+            TZ=$tz node scripts/validate-item10-attack-surface-p5-arm2.js
+            TZ=$tz node scripts/validate-item10-attack-surface-p2-integration.js
+          done
+
+      - name: Validate Item 10 P5 Arm 2 frozen semantic mutation contract
+        run: node scripts/validate-item10-attack-surface-p5-arm2-mutations.js
+
       - name: Validate Item 10 P5 pagination-independent domain projection
         run: node scripts/validate-item10-attack-surface-p5-pagination-corrective.js
 

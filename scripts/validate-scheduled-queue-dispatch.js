@@ -432,6 +432,20 @@ const consumerEnv = makeScheduledEnv("queue");
     sr?.last_asset_count === 2 && sr?.asset_change_count === 2 &&
     notifs === 0,
     JSON.stringify({ sr: { la: sr?.last_asset_count, ac: sr?.asset_change_count }, notifs }));
+  let assetChangeProjection = null;
+  try {
+    assetChangeProjection = JSON.parse(sr?.asset_change_projection_json || "null");
+  } catch { /* assertion below reports the invalid persisted contract */ }
+  ok("C2b settlement persists the exact source scan and tri-state scheduled projection",
+    assetChangeProjection?.scan_id === H_ROW.id &&
+    assetChangeProjection?.coverage === "complete" &&
+    assetChangeProjection?.total === 2 &&
+    assetChangeProjection?.supported === 0 &&
+    assetChangeProjection?.unsupported === 0 &&
+    assetChangeProjection?.uncertain === 1 &&
+    assetChangeProjection?.non_lifecycle === 1 &&
+    assetChangeProjection?.customer_change_count === 1,
+    JSON.stringify(assetChangeProjection));
   ok("C2c successful settlement emits NO settlement_failed log",
     settlementFailLines(lines).length === 0, JSON.stringify(settlementFailLines(lines)));
 }

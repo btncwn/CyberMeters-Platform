@@ -77,7 +77,7 @@ function makeD1(db) {
     prepare: (sql) => statement(sql),
     batch: async (statements) =>
       Promise.all(statements.map((entry) =>
-        /^\s*select/i.test(entry.__sql) ? entry.all() : entry.run())),
+        /^\s*(?:select|with)\b/i.test(entry.__sql) ? entry.all() : entry.run())),
   };
 }
 

@@ -17,6 +17,11 @@ const executiveUrl = process.env.ITEM10_P5_EXECUTIVE_MODULE_URL ||
   engine("executive-report.js");
 const assetAlertsUrl = process.env.ITEM10_P5_ASSET_ALERTS_MODULE_URL ||
   engine("asset-alerts.js");
+const routeUrl = process.env.ITEM10_P5_ROUTE_MODULE_URL ||
+  pathToFileURL(path.join(
+    root,
+    "workers/scan-api/src/routes/attack-surface.js",
+  )).href;
 const {
   ATTACK_SURFACE_CUSTOMER_LIFECYCLE_STATES,
   ATTACK_SURFACE_CUSTOMER_OBSERVATION_STATES,
@@ -36,10 +41,7 @@ const {
   buildScanReportPdf,
   buildWorkspaceExecutivePdf,
 } = await import(engine("pdf.js"));
-const { attackSurfaceRoutes } = await import(pathToFileURL(path.join(
-  root,
-  "workers/scan-api/src/routes/attack-surface.js",
-)).href);
+const { attackSurfaceRoutes } = await import(routeUrl);
 
 const fixture = JSON.parse(fs.readFileSync(path.join(
   root,
@@ -380,6 +382,238 @@ ok("assets API evidence reads are bounded, not N+1",
   `read count ${counters.reads}`);
 legacyDb.close();
 
+// Real posture-route response proof. These fields deliberately project the
+// existing asset_no_longer_seen counts; the honest names and legacy names must
+// coexist without changing event counts or asset_count arithmetic.
+const postureDb = new DatabaseSync(":memory:");
+postureDb.exec(`
+  CREATE TABLE workspaces (id TEXT PRIMARY KEY);
+  CREATE TABLE workspace_assets (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    status TEXT,
+    first_seen TEXT
+  );
+  CREATE TABLE workspace_domains (
+    workspace_id TEXT NOT NULL,
+    domain_id TEXT NOT NULL
+  );
+  CREATE TABLE scans (
+    id TEXT PRIMARY KEY,
+    domain_id TEXT,
+    status TEXT,
+    score REAL,
+    rating TEXT,
+    scan_quality TEXT,
+    created_at TEXT
+  );
+  CREATE TABLE findings (
+    id TEXT PRIMARY KEY,
+    scan_id TEXT,
+    severity TEXT
+  );
+  CREATE TABLE asset_events (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    domain_id TEXT,
+    asset_id TEXT,
+    scan_id TEXT,
+    event_type TEXT,
+    hostname TEXT,
+    severity TEXT,
+    description TEXT,
+    created_at TEXT
+  );
+  CREATE TABLE asset_lifecycle_observations (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    domain_id TEXT NOT NULL,
+    asset_id TEXT NOT NULL,
+    scan_id TEXT NOT NULL,
+    observation_state TEXT NOT NULL,
+    dns_state TEXT NOT NULL,
+    http_state TEXT NOT NULL,
+    qualifies_removal INTEGER NOT NULL,
+    policy_version TEXT NOT NULL,
+    source_detail_json TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  INSERT INTO workspaces VALUES ('ws-posture-alias');
+  INSERT INTO workspaces VALUES ('ws-posture-zero');
+  INSERT INTO workspace_assets VALUES (
+    'asset-active-1', 'ws-posture-alias', 'active', datetime('now', '-2 days')
+  );
+  INSERT INTO workspace_assets VALUES (
+    'asset-active-2', 'ws-posture-alias', 'active', datetime('now', '-40 days')
+  );
+  INSERT INTO asset_events
+    (id, workspace_id, domain_id, asset_id, scan_id, event_type,
+     hostname, severity, description, created_at)
+  VALUES (
+    'event-new', 'ws-posture-alias', 'dom-posture', 'asset-new',
+    'scan-new', 'new_asset_discovered', 'new.example.com', 'info',
+    'New asset', datetime('now', '-2 days')
+  );
+  INSERT INTO asset_events
+    (id, workspace_id, domain_id, asset_id, scan_id, event_type,
+     hostname, severity, description, created_at)
+  VALUES (
+    'event-absent', 'ws-posture-alias', 'dom-posture', 'asset-active-2',
+    'scan-absent', 'asset_no_longer_seen', 'absent.example.com', 'info',
+    'Confirmed removed', datetime('now', '-1 day')
+  );
+  INSERT INTO asset_lifecycle_observations VALUES (
+    'alo-absent', 'ws-posture-alias', 'dom-posture', 'asset-active-2',
+    'scan-absent', 'not_observed', 'absent', 'not_observed', 1,
+    'asset-removal-confirmation-v1',
+    '{"active_sources":["dns_resolution","http_https_service"],"passive_sources":[],"dns_resolution":{"state":"absent"},"http_https_service":{"state":"not_observed"}}',
+    datetime('now', '-1 day'), datetime('now', '-1 day', '+1 second')
+  );
+  INSERT INTO asset_events
+    (id, workspace_id, domain_id, asset_id, scan_id, event_type,
+     hostname, severity, description, created_at)
+  VALUES (
+    'event-reappeared', 'ws-posture-alias', 'dom-posture', 'asset-reappeared',
+    'scan-reappeared', 'asset_reappeared', 'reappeared.example.com', 'medium',
+    'Seen again', datetime('now', '-2 days', '+1 minute')
+  );
+  INSERT INTO asset_lifecycle_observations VALUES
+    (
+      'alo-reappeared-n1', 'ws-posture-alias', 'dom-posture', 'asset-reappeared',
+      'scan-reappeared-n1', 'not_observed', 'absent', 'absent', 1,
+      'asset-removal-confirmation-v1',
+      '{"active_sources":["dns_resolution","http_https_service"],"passive_sources":[],"dns_resolution":{"state":"absent"},"http_https_service":{"state":"absent"}}',
+      datetime('now', '-5 days'), datetime('now', '-5 days', '+1 second')
+    ),
+    (
+      'alo-reappeared-n2', 'ws-posture-alias', 'dom-posture', 'asset-reappeared',
+      'scan-reappeared-n2', 'not_observed', 'absent', 'absent', 1,
+      'asset-removal-confirmation-v1',
+      '{"active_sources":["dns_resolution","http_https_service"],"passive_sources":[],"dns_resolution":{"state":"absent"},"http_https_service":{"state":"absent"}}',
+      datetime('now', '-4 days'), datetime('now', '-4 days', '+1 second')
+    ),
+    (
+      'alo-reappeared-n3', 'ws-posture-alias', 'dom-posture', 'asset-reappeared',
+      'scan-reappeared-n3', 'not_observed', 'absent', 'absent', 1,
+      'asset-removal-confirmation-v1',
+      '{"active_sources":["dns_resolution","http_https_service"],"passive_sources":[],"dns_resolution":{"state":"absent"},"http_https_service":{"state":"absent"}}',
+      datetime('now', '-3 days'), datetime('now', '-3 days', '+1 second')
+    ),
+    (
+      'alo-reappeared-target', 'ws-posture-alias', 'dom-posture', 'asset-reappeared',
+      'scan-reappeared', 'observed', 'observed', 'observed', 0,
+      'asset-removal-confirmation-v1',
+      '{"active_sources":["dns_resolution","http_https_service"],"passive_sources":[],"dns_resolution":{"state":"observed"},"http_https_service":{"state":"observed"}}',
+      datetime('now', '-2 days'), datetime('now', '-2 days', '+1 second')
+    );
+`);
+const postureCounters = { reads: 0 };
+const postureEnv = {
+  cybermeters_db: makeD1(postureDb, postureCounters),
+};
+const callPostureRoute = async (workspaceId, timeline = false) => {
+  const target = `https://api.example/api/workspaces/${workspaceId}/posture${
+    timeline ? "/timeline" : ""
+  }`;
+  return attackSurfaceRoutes({
+    request: new Request(target),
+    env: postureEnv,
+    url: new URL(target),
+    json: (body, status = 200) => ({ body, status }),
+    requireAuth: async () => ({ id: "user-fixture" }),
+    requireWorkspaceRole: async () => ({ role: "owner" }),
+  });
+};
+const callAssetTimelineRoute = async (workspaceId) => {
+  const target = `https://api.example/api/workspaces/${workspaceId}/assets/timeline`;
+  return attackSurfaceRoutes({
+    request: new Request(target),
+    env: postureEnv,
+    url: new URL(target),
+    json: (body, status = 200) => ({ body, status }),
+    requireAuth: async () => ({ id: "user-fixture" }),
+    requireWorkspaceRole: async () => ({ role: "owner" }),
+  });
+};
+
+const postureSummary = await callPostureRoute("ws-posture-alias");
+const zeroPostureSummary = await callPostureRoute("ws-posture-zero");
+eq("posture summary route returns non-zero fixture", postureSummary.status, 200);
+eq("posture summary route returns zero fixture", zeroPostureSummary.status, 200);
+
+const summaryBodies = [postureSummary.body, zeroPostureSummary.body];
+const legacySummaryValues = summaryBodies.map(
+  (body) => body.removed_assets_30d,
+);
+const legacySummaryPresent = summaryBodies.every(
+  (body) => Object.hasOwn(body, "removed_assets_30d"),
+);
+ok("posture summary retains finite non-negative legacy counts including zero",
+  legacySummaryPresent &&
+  JSON.stringify(legacySummaryValues) === JSON.stringify([1, 0]) &&
+  legacySummaryValues.every(
+    (value) => Number.isFinite(value) && value >= 0,
+  ));
+const honestSummaryValues = summaryBodies.map(
+  (body) => body.no_longer_observed_assets_30d,
+);
+ok("posture summary keeps unsupported raw history out of honest count",
+  summaryBodies.every(
+    (body) => Object.hasOwn(body, "no_longer_observed_assets_30d"),
+  ) &&
+  JSON.stringify(honestSummaryValues) === JSON.stringify([0, 0]) &&
+  honestSummaryValues.every(
+    (value) => Number.isFinite(value) && value >= 0,
+  ) && postureSummary.body.lifecycle_claim_projection?.unsupported === 1);
+eq("posture summary asset-growth arithmetic remains unchanged",
+  postureSummary.body.asset_growth_30d, 0);
+
+const postureTimeline = await callPostureRoute("ws-posture-alias", true);
+eq("posture timeline route succeeds", postureTimeline.status, 200);
+eq("posture timeline retains the two event days",
+  postureTimeline.body.timeline.length, 2);
+const timelineRows = postureTimeline.body.timeline;
+const legacyTimelineValues = timelineRows.map((row) => row.removed_assets);
+const legacyTimelinePresent = timelineRows.every(
+  (row) => Object.hasOwn(row, "removed_assets"),
+);
+ok("posture timeline retains finite non-negative legacy event counts including zero",
+  legacyTimelinePresent &&
+  JSON.stringify(legacyTimelineValues) === JSON.stringify([0, 1]) &&
+  legacyTimelineValues.every(
+    (value) => Number.isFinite(value) && value >= 0,
+  ));
+const honestTimelineValues = timelineRows.map(
+  (row) => row.no_longer_observed_assets,
+);
+const assetTimeline = await callAssetTimelineRoute("ws-posture-alias");
+const assetReappearanceDay = assetTimeline.body?.timeline?.find(
+  (row) => row.asset_reappeared === 1,
+);
+ok("posture timeline preserves raw history but excludes unsupported honest count",
+  timelineRows.every(
+    (row) => Object.hasOwn(row, "no_longer_observed_assets"),
+  ) &&
+  JSON.stringify(honestTimelineValues) === JSON.stringify([0, 0]) &&
+  honestTimelineValues.every(
+    (value) => Number.isFinite(value) && value >= 0,
+  ) && postureTimeline.body.lifecycle_claim_projection?.unsupported === 1 &&
+  postureTimeline.body.lifecycle_claim_projection?.by_event_type
+    ?.asset_reappeared?.supported === 1 &&
+  assetTimeline.status === 200 &&
+  assetReappearanceDay?.no_longer_observed_assets === 0 &&
+  assetTimeline.body.lifecycle_claim_projection?.by_event_type
+    ?.asset_reappeared?.supported === 1);
+eq("posture timeline new-event counts remain unchanged",
+  JSON.stringify(timelineRows.map((row) => row.new_assets)),
+  JSON.stringify([1, 0]));
+eq("posture timeline asset_count arithmetic remains unchanged",
+  JSON.stringify(timelineRows.map((row) => row.asset_count)),
+  JSON.stringify([3, 2]));
+postureDb.close();
+
 const report = {
   status: "completed",
   domain: fixture.domain,
@@ -490,6 +724,12 @@ const timelineSource = fs.readFileSync(path.join(
 const frontendProjectionSource = fs.readFileSync(path.join(
   root, "frontend/src/components/AttackSurfaceAssurance.jsx",
 ), "utf8");
+const lifecycleClaimDisplaySource = fs.readFileSync(path.join(
+  root, "frontend/src/lib/assetLifecycleClaimDisplay.js",
+), "utf8");
+const lifecycleClaimProjectionSource = fs.readFileSync(path.join(
+  root, "workers/scan-api/src/engines/asset-lifecycle-event-support.js",
+), "utf8");
 ok("assets API calls the one ASM projection",
   /buildAttackSurfaceCustomerPresentation/.test(assetsRouteSource) &&
   /attack_surface_assurance/.test(assetsRouteSource));
@@ -504,14 +744,19 @@ ok("frontend renders backend-owned state labels/messages",
   /signal\.state_label/.test(frontendProjectionSource) &&
   /signal\.customer_message/.test(frontendProjectionSource));
 ok("frontend owns no second ASM state vocabulary",
-  !/const\\s+(?:SIGNAL|LIFECYCLE)_STATE_(?:LABELS|VOCABULARY)/.test(
+  !/const\s+(?:SIGNAL|LIFECYCLE)_STATE_(?:LABELS|VOCABULARY)/.test(
     `${assetsPageSource}\n${timelineSource}\n${frontendProjectionSource}`,
   ));
 ok("AssetsPage preserves the asset_no_longer_seen wire key",
-  /key:\s*['"]asset_no_longer_seen['"]/.test(assetsPageSource));
+  /LIFECYCLE_TYPES\s*=\s*new Set\(\[['"]asset_no_longer_seen['"]/.test(
+    lifecycleClaimDisplaySource,
+  ) && /event\.event_type\s*===\s*['"]asset_no_longer_seen['"]/.test(
+    lifecycleClaimProjectionSource,
+  ));
 ok("AssetsPage labels the event as no longer observed",
-  /key:\s*['"]asset_no_longer_seen['"]\s*,\s*label:\s*['"]No longer observed['"]/.test(
-    assetsPageSource,
+  /assetLifecycleClaimDisplay\(ev\)/.test(assetsPageSource) &&
+  /title\s*=\s*['"]No longer externally observed['"]/.test(
+    lifecycleClaimProjectionSource,
   ));
 
 // Pre-P5 historical snapshot: no in-place rewrite and no inference from raw

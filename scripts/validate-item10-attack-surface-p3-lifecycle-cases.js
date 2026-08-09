@@ -79,12 +79,12 @@ function makeD1(db, counters) {
     __sql: sql,
     bind: (...bound) => statement(sql, bound),
     first: async (column) => {
-      if (/^\s*select/i.test(sql)) counters.reads += 1;
+      if (/^\s*(?:select|with)\b/i.test(sql)) counters.reads += 1;
       const row = db.prepare(sql).get(...args) ?? null;
       return column && row ? row[column] : row;
     },
     all: async () => {
-      if (/^\s*select/i.test(sql)) counters.reads += 1;
+      if (/^\s*(?:select|with)\b/i.test(sql)) counters.reads += 1;
       return { results: db.prepare(sql).all(...args), success: true, meta: {} };
     },
     run: async () => {
@@ -103,7 +103,7 @@ function makeD1(db, counters) {
     batch: async (statements) => {
       counters.batches += 1;
       return Promise.all(statements.map((entry) =>
-        /^\s*select/i.test(entry.__sql) ? entry.all() : entry.run()));
+        /^\s*(?:select|with)\b/i.test(entry.__sql) ? entry.all() : entry.run()));
     },
   };
 }
