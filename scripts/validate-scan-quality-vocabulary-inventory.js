@@ -45,7 +45,7 @@ const EXPECTED = Object.freeze({
     runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "294a117eb907069feceb51ccc9b6e33e2ce0a62a45d5b42decafc5091c06d36a" },
     governance: { occurrence_count: 89, source_file_count: 34, fingerprint: "c81d7cd43decc3747801c5c0da287efe79050ce3263ef899662e1018625bbc3a" },
   },
-  sql_reads: { projection_occurrences: 23, fingerprint: "6503594cef5d058572edf90b770f119b1b92664bd9856552e8ea20a381b8f700" },
+  sql_reads: { projection_occurrences: 23, fingerprint: "cb5d9d23f2f4ca9f71938ac78031837158cf716b4ebfcc478f38d2067c65119f" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
