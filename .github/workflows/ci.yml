@@ -1259,6 +1259,10 @@ jobs:
       - name: Validate OpenAPI spec
         run: node scripts/validate-openapi.js
 
+      - name: Validate CE declaration drift
+        run: node scripts/validate-ce-declaration-drift.js
+      - name: Validate CE declaration drift mutations
+        run: node scripts/validate-ce-declaration-drift-mutations.js
       - name: Validate CAPABILITIES.md drift
         run: node scripts/validate-capabilities-doc.js
 
