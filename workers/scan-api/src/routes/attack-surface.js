@@ -13,6 +13,8 @@ import { assignManagedCaseOwner, getManagedCase, listManagedCaseEvents, listMana
 import { remapToThirdPartyCategory } from "../engines/discovery-scan.js";
 import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, normalizeVendorRiskCategory, signalWeightForVendor } from "../engines/vendor-risk.js";
 import { collapseCustomerTimelineEvents, countCustomerTimelineEventsByDay } from "../engines/timeline-trust.js";
+import { visibleFindingSql } from "../engines/finding-identity.js";
+import { projectTlsModulesForCustomer } from "../engines/tls-evidence.js";
 import { SEVERITY_RANK, enrichEvent, eventTypesForCategory } from "../lib/exposure-events.js";
 import { pageMeta, paginationParams, parseBoundedInteger } from "../lib/util.js";
 import {
@@ -1086,6 +1088,7 @@ export async function attackSurfaceRoutes(rctx) {
                  JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                  WHERE wd.workspace_id = ?
                    AND f.severity = 'critical'
+                   AND ${visibleFindingSql("f", "s")}
                    AND s.created_at >= datetime('now', '-30 days')`
               )
               .bind(wsId),
@@ -1099,6 +1102,7 @@ export async function attackSurfaceRoutes(rctx) {
                  JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                  WHERE wd.workspace_id = ?
                    AND f.severity = 'critical'
+                   AND ${visibleFindingSql("f", "s")}
                    AND s.created_at >= datetime('now', '-60 days')
                    AND s.created_at <  datetime('now', '-30 days')`
               )
@@ -1236,6 +1240,7 @@ export async function attackSurfaceRoutes(rctx) {
                  JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                  WHERE wd.workspace_id = ?
                    AND f.severity = 'critical'
+                   AND ${visibleFindingSql("f", "s")}
                    AND s.created_at >= datetime('now', '-90 days')
                  GROUP BY day
                  ORDER BY day ASC`
@@ -1583,7 +1588,7 @@ export async function attackSurfaceRoutes(rctx) {
         let report;
         try { report = await r2Results[i].value.json(); } catch { continue; }
 
-        const ci = report?.modules?.certificate_intelligence;
+        const ci = projectTlsModulesForCustomer(report?.modules ?? {}).certificate_intelligence;
         if (!ci) continue;
 
         const lifecycle = lifecycleByDomain.get(scanRows[i]?.domain_id) || null;

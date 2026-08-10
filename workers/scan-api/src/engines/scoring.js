@@ -13,6 +13,11 @@ import { classifyHeaderStrength } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
 import { SECURITY_HEADERS } from "./security-headers-config.js";
 import { resolveRemediation } from "./remediation-registry.js";
+import {
+  isHttpRedirectPositivelyAbsent,
+  resolveTlsRuntimeState,
+  TLS_RUNTIME_STATES,
+} from "./tls-evidence.js";
 
 // ── Email Security Applicability ─────────────────────────────────────────────
 //
@@ -229,13 +234,8 @@ export function computeScore(modules, domain) {
   }
 
   // ── SSL ────────────────────────────────────────────────────────────────
-  // `=== false` and not `!https_available`: the field is TRI-STATE (ssl-scan.js).
-  // null means the HTTPS probe never executed — a timeout, a redirect loop, a
-  // blocked target — and this finding asserts "TLS handshake failed or connection
-  // refused on port 443", which is a claim about the customer's server that a
-  // fetch we never completed cannot support. Absent evidence is not a critical
-  // finding; it surfaces as scan_quality `partial` + evidence_insufficient instead.
-  if (modules.ssl?.https_available === false) {
+  const tls = resolveTlsRuntimeState(modules.ssl, { assessedDomain: domain ?? null });
+  if (tls.state === TLS_RUNTIME_STATES.POSITIVELY_ABSENT) {
     finding({
       id:           "ssl_not_available",
       module:       "ssl",
@@ -245,12 +245,14 @@ export function computeScore(modules, domain) {
       description:  `${domain} does not serve content over HTTPS. All traffic is transmitted unencrypted.`,
       score_impact: -25,
       evidence: {
-        evidence_type:               "https_probe",
+        evidence_type:               "active_tls_positive_absence",
         probe_target:                `https://${domain}`,
-        observed_value:              "TLS handshake failed or connection refused on port 443",
+        observed_value:              tls.evidence.absence_outcome,
         expected_value:              "TLS 1.2+ handshake success with valid certificate",
-        source:                      "cloudflare_workers_fetch",
-        checked_at:                  evidenceTime,
+        source:                      tls.evidence.source_type,
+        checked_at:                  tls.evidence.observed_at,
+        tls_state:                   tls.state,
+        tls_positive_absence_evidence: { ...tls.evidence },
         manual_verification_command: `curl -sI https://${domain} | head -3`,
       },
     });
@@ -287,9 +289,7 @@ export function computeScore(modules, domain) {
     // chain, a missing field, false, edge, incomplete, unavailable and not-assessed
     // are now all non-definitive; only an old report carrying an explicit `true`
     // keeps working, which is the sole reason the legacy branch exists.
-    const redirectValidated       = redirectObservation
-      ? redirectObservation === "origin_response"
-      : redirectChain?.http_redirect_validated === true;    // legacy reports (no state)
+    const redirectValidated       = isHttpRedirectPositivelyAbsent(modules.ssl);
     const headersFinalHttps       = modules.headers?.final_https !== false;
     const enterpriseEdgeUncertain = ENTERPRISE_DOMAINS.has(domain)
       && redirectValidated
@@ -298,7 +298,7 @@ export function computeScore(modules, domain) {
     // P1 Trust Fix: when HTTPS is confirmed, the port 80 probe result is irrelevant.
     // A blocked/unreachable HTTP probe is only meaningful if the site has no HTTPS.
     // Suppressing the uncertain finding reduces informational noise on CDN-hosted domains.
-    const httpsConfirmed = modules.ssl?.https_available === true;
+    const httpsConfirmed = tls.state === TLS_RUNTIME_STATES.OBSERVED_PRESENT;
 
     if (!redirectValidated || enterpriseEdgeUncertain) {
       if (!httpsConfirmed) {

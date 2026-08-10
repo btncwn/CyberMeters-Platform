@@ -38,8 +38,10 @@ const worktreeFingerprint = () => {
   const status = runGit(["status", "--porcelain=v1", "--untracked-files=all"]);
   const diff = runGit(["diff", "--binary", "--no-ext-diff", "HEAD", "--", "."]);
   const untrackedRaw = runGit(["ls-files", "--others", "--exclude-standard", "-z"], "buffer");
-  const untracked = untrackedRaw.toString("utf8").split("\0").filter(Boolean).sort().map((relative) =>
-    `${relative}\0${sha256(fs.readFileSync(path.join(root, relative)))}`).join("\n");
+  const untracked = untrackedRaw.toString("utf8").split("\0").filter(Boolean).sort()
+    .filter((relative) => fs.statSync(path.join(root, relative)).isFile())
+    .map((relative) => `${relative}\0${sha256(fs.readFileSync(path.join(root, relative)))}`)
+    .join("\n");
   return sha256(`${status}\0${diff}\0${untracked}`);
 };
 const replaceExactlyOnce = (source, anchor, replacement, name) => {

@@ -20,6 +20,7 @@ import {
   CYBER_MOT_STATES,
   resolveCyberMotDomainStates,
 } from "./cyber-mot-domains.js";
+import { projectLegacyWebsiteDomainState } from "./finding-identity.js";
 import { createId } from "../lib/util.js";
 
 // ── Trend vocabulary ─────────────────────────────────────────────────────────
@@ -139,6 +140,12 @@ export function resolveDomainTrend(current, previous) {
 
   if (!current) return none(DOMAIN_TREND.INSUFFICIENT_HISTORY, "No assessment has been recorded for this domain yet.");
   if (!previous) return none(DOMAIN_TREND.INSUFFICIENT_HISTORY, "Only one assessment has been recorded — a trend needs at least two comparable assessments.");
+
+  // A compatibility projection describes improved evidence honesty, not customer
+  // remediation. Never publish a recovered/new-risk delta across that boundary.
+  if (current.legacy_identity_projection || previous.legacy_identity_projection) {
+    return none(DOMAIN_TREND.NOT_COMPARABLE, "Historical finding identity was reclassified for evidence honesty, so these assessments are not comparable.");
+  }
 
   // Comparability, before any comparison. Both sides must be authoritative.
   if (current.scan_quality !== "complete" || previous.scan_quality !== "complete") {
@@ -337,13 +344,15 @@ export async function readPortfolioDomainStates(db, workspaceIds) {
   ).bind(...workspaceIds).all();
 
   const comparable = new Map(); // series → [newest, previous]
-  for (const r of (compRes.results || [])) {
+  for (const raw of (compRes.results || [])) {
+    const r = projectLegacyWebsiteDomainState(raw);
     const k = `${r.workspace_id}::${r.domain_id}::${r.domain_key}`;
     (comparable.get(k) ?? comparable.set(k, []).get(k)).push(r);
   }
   for (const list of comparable.values()) list.sort((a, b) => a.rn - b.rn);
 
-  for (const cur of (currentRes.results || [])) {
+  for (const raw of (currentRes.results || [])) {
+    const cur = projectLegacyWebsiteDomainState(raw);
     const seriesKey = `${cur.workspace_id}::${cur.domain_id}::${cur.domain_key}`;
     const comp = comparable.get(seriesKey) || [];
     // The predecessor is the newest COMPLETE row that is not the current row itself.
@@ -370,7 +379,7 @@ export async function readPortfolioDomainStates(db, workspaceIds) {
 export async function readDomainStateHistory(db, workspaceId, domainId, opts = {}) {
   const limit = opts.limit ?? 20;
   const res = await db.prepare(
-    `SELECT domain_key, state, coverage, summary, highest_severity, finding_count,
+    `SELECT domain_key, state, coverage, summary, highest_severity, finding_count, finding_ids_json,
             scan_quality, resolver_version, scan_id, assessed_at
      FROM cyber_mot_domain_states
      WHERE workspace_id = ? AND domain_id = ?
@@ -379,7 +388,8 @@ export async function readDomainStateHistory(db, workspaceId, domainId, opts = {
   ).bind(workspaceId, domainId, limit * CYBER_MOT_DOMAIN_KEYS.length).all();
 
   const out = Object.fromEntries(CYBER_MOT_DOMAIN_KEYS.map((k) => [k, []]));
-  for (const r of (res.results || [])) {
+  for (const raw of (res.results || [])) {
+    const r = projectLegacyWebsiteDomainState(raw);
     if (!out[r.domain_key]) continue;
     if (out[r.domain_key].length >= limit) continue;
     out[r.domain_key].push({
@@ -389,7 +399,8 @@ export async function readDomainStateHistory(db, workspaceId, domainId, opts = {
       scan_id: r.scan_id, assessed_at: r.assessed_at,
       // Published so a reader can see WHY two adjacent points were not compared,
       // rather than inferring it from a gap.
-      comparable: r.scan_quality === "complete" && r.resolver_version === CYBER_MOT_RESOLVER_VERSION,
+      comparable: !r.legacy_identity_projection
+        && r.scan_quality === "complete" && r.resolver_version === CYBER_MOT_RESOLVER_VERSION,
     });
   }
   return out;

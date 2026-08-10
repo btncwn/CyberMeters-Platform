@@ -401,6 +401,7 @@ postureDb.exec(`
   CREATE TABLE scans (
     id TEXT PRIMARY KEY,
     domain_id TEXT,
+    domain TEXT,
     status TEXT,
     score REAL,
     rating TEXT,
@@ -410,7 +411,9 @@ postureDb.exec(`
   CREATE TABLE findings (
     id TEXT PRIMARY KEY,
     scan_id TEXT,
-    severity TEXT
+    finding_slug TEXT,
+    severity TEXT,
+    evidence_json TEXT
   );
   CREATE TABLE asset_events (
     id TEXT PRIMARY KEY,

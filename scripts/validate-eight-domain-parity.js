@@ -49,7 +49,9 @@ const cleanComplete = () => ({
   scan_id: "scan_parity", completed_at: "2026-07-14T10:00:00Z",
   scan_quality: { status: "complete", warnings: [], modules_skipped: [] },
   modules: {
-    email_security: {}, dns: {}, ssl: {}, headers: {},
+    email_security: {}, dns: {},
+    ssl: { https_available: true, https_probe_executed: true },
+    headers: {},
     subdomains: { count: 2 }, admin_surface_detection: {}, cloud_storage_discovery: {},
     certificate_intelligence: {}, identity_discovery: {},
     saas_exposure: { count: 1 }, technology_detection: { count: 3 },

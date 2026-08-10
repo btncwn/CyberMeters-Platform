@@ -9,6 +9,7 @@
 // not select those fields independently, because that is how an uncertain
 // transport observation acquired a certificate-install subject and action.
 import { isPublishableModuleEvidence } from "./scan-budget.js";
+import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
 
 const HTTPS_REVIEW_ACTION =
   "Review the available evidence and run another assessment. If the result persists, verify HTTPS availability with your hosting provider.";
@@ -100,13 +101,14 @@ export function resolveCustomerAlertPresentation({
 
   const publishable = isPublishableModuleEvidence(module_evidence);
   if (certificateCondition) {
-    if (publishable && module_evidence?.https_available === false) {
+    const tls = resolveTlsRuntimeState(module_evidence);
+    if (publishable && tls.state === TLS_RUNTIME_STATES.POSITIVELY_ABSENT) {
       return canonicalResult(canonical, "positively_observed_certificate_defect");
     }
     // A completed healthy observation contradicting an eligible lifecycle
     // occurrence is surfaced as an explicit evidence conflict. Presentation must
     // never suppress the occurrence: conflict is visible, bounded and reviewable.
-    if (publishable && module_evidence?.https_available === true) {
+    if (publishable && tls.state === TLS_RUNTIME_STATES.OBSERVED_PRESENT) {
       return {
         ...HTTPS_CONFLICT,
         evidence_state: observationState(module_evidence, type),

@@ -28,6 +28,11 @@ import {
 } from "./cookie-observation.js";
 // One direction only: this module calls into the case layer, which imports nothing back.
 import { openOrReopenWebsiteCase, verifyWebsiteCaseFromResolution } from "./website-security-cases.js";
+import {
+  projectTlsFindingsForCustomer,
+  resolveTlsRuntimeState,
+  TLS_RUNTIME_STATES,
+} from "./tls-evidence.js";
 
 export const WEBSITE_SECURITY_DOMAIN_KEY = "website_security";
 
@@ -234,7 +239,8 @@ export async function evaluateWebsiteSecurityForScan(env, {
 
     const gate = moduleCompletionGate(modules, scanQuality);
     const quality = scanQuality?.status ?? null;
-    const graded = gradeFindings(findings, modules, gate);
+    const tls = resolveTlsRuntimeState(modules?.ssl);
+    const graded = gradeFindings(projectTlsFindingsForCustomer(findings, modules), modules, gate);
 
     const existing = (await env.cybermeters_db
       .prepare(`SELECT * FROM website_security_conditions WHERE workspace_id = ? AND domain_id = ?`)
@@ -253,6 +259,15 @@ export async function evaluateWebsiteSecurityForScan(env, {
       if (!spec) continue;
       const obs = graded.get(key) || null;
       const rec = byKey.get(key) || null;
+
+      // No active-TLS observation means no lifecycle claim at all. In particular,
+      // do not create an unknown transition for a historical condition: that would
+      // still turn collector failure into customer history and mutate recurrence
+      // fields. Preserve the existing row/event/case bytes until a future scan has
+      // observed-present or approved positive-absence evidence.
+      if (key === "ssl_not_available" && tls.state === TLS_RUNTIME_STATES.UNAVAILABLE) {
+        continue;
+      }
 
       // ── What is the condition's state, honestly? ────────────────────────────
       let status, reason = null, unknown_reason = null;

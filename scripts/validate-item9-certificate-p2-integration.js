@@ -297,8 +297,17 @@ try {
     {
       ssl: {
         ...complete.ssl,
+        tls_state: "positively_absent",
         https_probe_executed: true,
         https_available: false,
+        certificate_evidence: { ...(complete.ssl.certificate_evidence ?? {}), observed_at: NOW },
+        tls_positive_absence_evidence: {
+          state: "positively_absent", execution: "completed",
+          source_type: "approved_active_tls_collector",
+          collector: "item9_contract_fixture", collector_version: "1",
+          endpoint: "https://example.com", assessed_domain: "example.com", observed_at: NOW,
+          absence_outcome: "tls_service_absent", evidence_grade: "positive_absence",
+        },
       },
       subdomains: complete.subdomains,
     },

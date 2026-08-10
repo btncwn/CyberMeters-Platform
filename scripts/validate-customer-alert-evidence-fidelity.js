@@ -352,8 +352,22 @@ eq("not-assessed state is preserved",
 
 // 4. Positive certificate defect.
 const cert = await emitWebsite("certdefect", {
+  tls_state: "positively_absent",
   https_available: false,
   https_probe_executed: true,
+  certificate_evidence: { observed_at: "2026-08-09T12:00:05.000Z" },
+  tls_positive_absence_evidence: {
+    state: "positively_absent",
+    execution: "completed",
+    source_type: "approved_active_tls_collector",
+    collector: "contract_fixture",
+    collector_version: "1",
+    endpoint: "https://certdefect.example.test",
+    assessed_domain: "certdefect.example.test",
+    observed_at: "2026-08-09T12:00:00.000Z",
+    absence_outcome: "tls_service_absent",
+    evidence_grade: "positive_absence",
+  },
 });
 assertParity("positive certificate defect", cert);
 ok("positive certificate subject stays specific",
@@ -448,6 +462,7 @@ const certificateConflict = await emitWebsite("certificateconflict", {
   https_probe_executed: true,
   https_observation_state: "origin_response",
   https_observation_completeness: "observed",
+  https_origin_status: 200,
 });
 assertConflict("certificate evidence conflict", certificateConflict, "HTTPS evidence requires review");
 eq("certificate conflict preserves completed observation state",
@@ -549,8 +564,8 @@ async function runMutants() {
     {
       name: "M5 generalise a positively observed certificate defect",
       file: "engines/customer-alert-presentation.js",
-      from: "    if (publishable && module_evidence?.https_available === false) {",
-      to: "    if (false && publishable && module_evidence?.https_available === false) {",
+      from: "    if (publishable && tls.state === TLS_RUNTIME_STATES.POSITIVELY_ABSENT) {",
+      to: "    if (false && publishable && tls.state === TLS_RUNTIME_STATES.POSITIVELY_ABSENT) {",
     },
     {
       name: "M6 generalise a positively observed redirect defect",

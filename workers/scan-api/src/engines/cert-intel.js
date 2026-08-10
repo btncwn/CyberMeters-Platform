@@ -13,6 +13,7 @@ import {
 } from "./cert-analysis.js";
 import { deriveCertificateSignalCompletenessFromModules } from "./certificate-signal-completeness.js";
 import { normalizeHostname } from "./hostnames.js";
+import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
 
 // ── Certificate Intelligence ─────────────────────────────────────────────────
 // Correlates SSL certificate data with CT-discovered hostname inventory to
@@ -134,6 +135,7 @@ function attachSignalCompleteness(result, modules, opts) {
       observedAt:
         opts.observedAt ??
         modules?.ssl?.certificate_evidence?.observed_at ??
+        modules?.ssl?.tls_positive_absence_evidence?.observed_at ??
         null,
       engineVersion: opts.engineVersion ?? null,
     }),
@@ -149,11 +151,15 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
     // ── Certificate expiry data ───────────────────────────────────────────
     const days_until_expiry = ssl.cert_expiry_days ?? null;
     const expires_at        = ssl.cert_not_after   ?? null;
-    const activeServiceObserved =
-      ssl.https_probe_executed === true &&
-      typeof ssl.https_available === "boolean";
-    const https_available = activeServiceObserved ? ssl.https_available : null;
-    const certificate_ownership = buildCertificateOwnershipAssessment(ssl, domain);
+    const tls = resolveTlsRuntimeState(ssl);
+    const https_available = tls.state === TLS_RUNTIME_STATES.OBSERVED_PRESENT
+      ? true
+      : tls.state === TLS_RUNTIME_STATES.POSITIVELY_ABSENT
+        ? false
+        : null;
+    const certificate_ownership = tls.state === TLS_RUNTIME_STATES.UNAVAILABLE
+      ? buildCertificateOwnershipAssessment({}, domain)
+      : buildCertificateOwnershipAssessment(ssl, domain);
 
     // ── CT hostname inventory ─────────────────────────────────────────────
     const ctHosts    = Array.isArray(subMod.items)    ? subMod.items    : [];
@@ -311,6 +317,7 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
 
 	    return attachSignalCompleteness({
 	      total_certificates_seen,
+	      tls_state: tls.state,
 	      certificate_status:
           https_available === true
             ? "valid"
@@ -355,8 +362,9 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
       error:                 null,
     }, modules, opts);
   } catch (err) {
-    return attachSignalCompleteness({
+	    return attachSignalCompleteness({
 	      total_certificates_seen:    0,
+	      tls_state:                   TLS_RUNTIME_STATES.UNAVAILABLE,
 	      certificate_status:         "unknown",
 	      issuer:                     null,
 	      issuer_normalized:          normalizeCertificateIssuer(null),

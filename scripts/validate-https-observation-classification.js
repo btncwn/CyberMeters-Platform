@@ -266,10 +266,27 @@ for (const [label, mod] of [
 ]) {
   ok(`C: ${label} produces NO ssl_not_available finding`, !findingIds(mod).has("ssl_not_available"));
 }
-// Positive control: the finding is still reachable from genuine TLS/cert evidence,
-// so this suite proves a scoped fix and not a deleted check.
-ok("C: positive control — an explicit https_available:false STILL fires ssl_not_available",
-  findingIds({ https_available: false, https_probe_executed: true }).has("ssl_not_available"));
+// Positive control: only an approved, completed, source-bound future collector can
+// reach the reserved finding path, so this proves a scoped fix and not a deletion.
+ok("C: positive control — approved positive absence STILL fires ssl_not_available",
+  findingIds({
+    tls_state: "positively_absent",
+    https_available: false,
+    https_probe_executed: true,
+    certificate_evidence: { observed_at: "2026-08-09T12:00:05.000Z" },
+    tls_positive_absence_evidence: {
+      state: "positively_absent",
+      execution: "completed",
+      source_type: "approved_active_tls_collector",
+      collector: "https_observation_contract",
+      collector_version: "1",
+      endpoint: "https://example.com",
+      assessed_domain: "example.com",
+      observed_at: "2026-08-09T12:00:00.000Z",
+      absence_outcome: "tls_service_absent",
+      evidence_grade: "positive_absence",
+    },
+  }).has("ssl_not_available"));
 
 console.log(`\nhttps-observation-classification: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("https-observation-classification validation FAILED"); process.exit(1); }

@@ -125,11 +125,29 @@ const F = {
 };
 const MODULES_OK = { dns: { resolves: true }, ssl: { https_available: true, https_probe_executed: true }, headers: { accessible: true, headers_assessed: true }, email_security: {} };
 const MODULES_HEADERS_DEAD = { dns: { resolves: true }, ssl: { https_available: true, https_probe_executed: true }, headers: { accessible: false, incomplete: true, incomplete_reason: "probe_not_executed" }, email_security: {} };
+const positiveAbsence = (domain = "acme.example.com") => ({
+  tls_state: "positively_absent",
+  https_available: false,
+  https_probe_executed: true,
+  certificate_evidence: { observed_at: "2026-08-09T12:00:05.000Z" },
+  tls_positive_absence_evidence: {
+    state: "positively_absent", execution: "completed",
+    source_type: "approved_active_tls_collector",
+    collector: "contract_fixture", collector_version: "1",
+    endpoint: `https://${domain}`, assessed_domain: domain,
+    observed_at: "2026-08-09T12:00:00.000Z",
+    absence_outcome: "tls_service_absent", evidence_grade: "positive_absence",
+  },
+});
 const QUALITY_OK = buildScanQuality(MODULES_OK);
 const QUALITY_HEADERS_DEAD = buildScanQuality(MODULES_HEADERS_DEAD);
 
-const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, scan = "scan_x", domainId = "d1", domain = "acme.example.com" } = {}) =>
-  evaluateWebsiteSecurityForScan(env, { workspace_id: ws, domain_id: domainId, domain, scan_id: scan, findings, modules, scanQuality });
+const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, scan = "scan_x", domainId = "d1", domain = "acme.example.com" } = {}) => {
+  const effectiveModules = findings.some((finding) => finding?.id === "ssl_not_available")
+    ? { ...modules, ssl: positiveAbsence(domain) }
+    : modules;
+  return evaluateWebsiteSecurityForScan(env, { workspace_id: ws, domain_id: domainId, domain, scan_id: scan, findings, modules: effectiveModules, scanQuality });
+};
 
 // ── 1. Registration — the silent-failure surface ────────────────────────────
 {
@@ -202,6 +220,47 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
   await run("ws1", [F.noHttps(), F.hstsMissing(), F.noRedirect(), F.malformedCsp()], { scan: "scan_3" });
   eq("the backlog stays silent across repeated passes", notifs("ws1").length, 0);
   eq("repeated passes append no occurrence", occurrences(condFor("ws1", "ssl_not_available").id).length, 0);
+
+  // A current collector failure/bare false must be a true no-op for an existing
+  // historical TLS condition. It must not manufacture an unknown transition,
+  // mutate recurrence, verify/reopen a case, or emit an alert/email.
+  const tlsBeforeUnavailable = condFor("ws1", "ssl_not_available");
+  const tlsEventsBeforeUnavailable = allEvents(tlsBeforeUnavailable.id);
+  const notificationsBeforeUnavailable = notifs("ws1");
+  const casesBeforeUnavailable = db.prepare(
+    "SELECT * FROM managed_cases WHERE workspace_id = ? ORDER BY id"
+  ).all("ws1");
+  const unavailableModules = {
+    ...MODULES_OK,
+    ssl: {
+      tls_state: "unavailable",
+      https_available: false,
+      https_probe_executed: true,
+      error: "collector failed",
+    },
+  };
+  const unavailableResult = await evaluateWebsiteSecurityForScan(env, {
+    workspace_id: "ws1",
+    domain_id: "d1",
+    domain: "acme.example.com",
+    scan_id: "scan_tls_unavailable",
+    findings: [F.noHttps(), F.hstsMissing(), F.noRedirect(), F.malformedCsp()],
+    modules: unavailableModules,
+    scanQuality: buildScanQuality(unavailableModules),
+  });
+  eq("unavailable TLS creates no lifecycle transition", unavailableResult.transitions, 0);
+  eq("unavailable TLS creates no alert or email", unavailableResult.alerts, 0);
+  eq("unavailable TLS creates no recovery", unavailableResult.resolved, 0);
+  eq("unavailable TLS creates no unknown event", unavailableResult.unknown, 0);
+  eq("unavailable TLS preserves the condition row byte-for-byte",
+     condFor("ws1", "ssl_not_available"), tlsBeforeUnavailable);
+  eq("unavailable TLS appends no lifecycle history",
+     allEvents(tlsBeforeUnavailable.id), tlsEventsBeforeUnavailable);
+  eq("unavailable TLS writes no notification",
+     notifs("ws1"), notificationsBeforeUnavailable);
+  eq("unavailable TLS creates or reopens no case",
+     db.prepare("SELECT * FROM managed_cases WHERE workspace_id = ? ORDER BY id").all("ws1"),
+     casesBeforeUnavailable);
   eq("a baselined record stays baseline while its condition is unchanged",
      condFor("ws1", "ssl_not_available").monitoring_status, "baseline");
   eq("the domain marker is not rewritten", allEvents("d1").filter((e) => e.event_type === WS_EVENT_DOMAIN_BASELINE).length, 1);
@@ -435,7 +494,7 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
     const rA = await mA.evaluateWebsiteSecurityForScan(env, {
       workspace_id: "wsMutA", domain_id: "dA", domain: "mut-a.example.com", scan_id: "sA",
       findings: [F.noHttps(), F.hstsMissing(), F.noRedirect(), F.malformedCsp()],
-      modules: MODULES_OK, scanQuality: QUALITY_OK,
+      modules: { ...MODULES_OK, ssl: positiveAbsence("mut-a.example.com") }, scanQuality: QUALITY_OK,
     });
     ok("MUTANT (a): without the flood guard a pre-existing backlog ALERTS — the defect, reproduced",
        rA.alerts > 0 && notifs("wsMutA").length > 0, `alerts=${rA.alerts} notifs=${notifs("wsMutA").length}`);

@@ -84,6 +84,24 @@ const REPORT = (over = {}) => ({ modules: {
   email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
   ...(over.modules || {}),
 } });
+const POSITIVE_TLS_ABSENCE = Object.freeze({
+  tls_state: "positively_absent",
+  https_available: false,
+  https_probe_executed: true,
+  certificate_evidence: { observed_at: "2026-08-09T12:00:05.000Z" },
+  tls_positive_absence_evidence: {
+    state: "positively_absent",
+    execution: "completed",
+    source_type: "approved_active_tls_collector",
+    collector: "m5b_contract_fixture",
+    collector_version: "1",
+    endpoint: "https://acme.example.com",
+    assessed_domain: "acme.example.com",
+    observed_at: "2026-08-09T12:00:00.000Z",
+    absence_outcome: "tls_service_absent",
+    evidence_grade: "positive_absence",
+  },
+});
 
 async function run({ report = REPORT(), seed } = {}) {
   const db = buildDb();
@@ -131,7 +149,7 @@ const shape = (r) => { const c = cat(r, PM); return JSON.stringify({ score: c.sc
       VALUES ('o2','ws1','d1','K2',datetime('now','+5 days'),datetime('now'),datetime('now'))`).run() },
     "certificate renewed (far future)": { seed: (db) => db.prepare(`INSERT INTO certificate_observations (id,workspace_id,domain_id,certificate_key,expires_at,first_seen,last_seen)
       VALUES ('o3','ws1','d1','K3',datetime('now','+800 days'),datetime('now'),datetime('now'))`).run() },
-    "TLS gone entirely": { report: REPORT({ ssl: { https_available: false, https_probe_executed: true } }) },
+    "TLS gone entirely": { report: REPORT({ ssl: POSITIVE_TLS_ABSENCE }) },
     "critical + high ASM findings": { seed: (db) => {
       for (let i = 0; i < 4; i++) {
         db.prepare(`INSERT INTO findings (id,scan_id,severity,title,created_at)
@@ -244,8 +262,8 @@ const shape = (r) => { const c = cat(r, PM); return JSON.stringify({ score: c.sc
 // The portfolio trend compares per-domain states and gates on resolver_version, so that
 // version MUST have moved or every customer's CE would "improve"/"deteriorate" on deploy day.
 {
-  eq("the Cyber MOT resolver version includes the latest methodology boundary",
-    motDomains.CYBER_MOT_RESOLVER_VERSION, "2026-08-09.1");
+  eq("the Cyber MOT resolver version includes the combined SSL corrective boundary",
+    motDomains.CYBER_MOT_RESOLVER_VERSION, "2026-08-09.2");
   const hist = await import(eng("cyber-mot-state-history.js"));
   const mk = (v, state) => ({ resolver_version: v, scan_quality: "complete", state, assessed_at: "2026-07-16T00:00:00Z" });
   const cross = hist.resolveDomainTrend(mk("2026-07-16.2", "assessed_healthy"), mk("2026-07-16.1", "issue_detected"));
@@ -418,7 +436,7 @@ const shape = (r) => { const c = cat(r, PM); return JSON.stringify({ score: c.sc
     eq(`${k}: still zero weight`, cat(r, k).weight, 0);
   }
   // Boundary + Secure Configuration still work and still grade.
-  const gapped = await run({ report: REPORT({ ssl: { https_available: false, https_probe_executed: true } }) });
+  const gapped = await run({ report: REPORT({ ssl: POSITIVE_TLS_ABSENCE }) });
   ok("Boundary Protection still reacts to real evidence",
     cat(gapped, "boundary_protection").score !== cat(r, "boundary_protection").score
     || cat(gapped, "boundary_protection").gaps.length > 0);
@@ -462,9 +480,9 @@ if (!process.argv.includes("--no-mutate")) {
       from: "  return A.ver === B.ver && A.rev === B.rev;", to: "  return A.ver === B.ver;" },
     { file: CE, name: "missing methodology metadata is treated as comparable",
       from: "  if (A.ver == null || B.ver == null || A.rev == null || B.rev == null) return false;", to: "" },
-    { file: MOT, name: "the latest resolver boundary is removed",
-      from: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-09.1";',
-      to: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-07-24.4";' },
+    { file: MOT, name: "the resolver version loses the combined SSL corrective boundary",
+      from: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-09.2";',
+      to: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-09.1";' },
     { file: MODEL, name: "`external` maps to automated again",
       from: '  if (method === "external") return "external";', to: "" },
     { file: MODEL, name: "external verification is accepted from a customer attestation",

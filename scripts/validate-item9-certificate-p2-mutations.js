@@ -122,7 +122,7 @@ await withMutant(
 await withMutant(
   "certificate-signal-completeness.js",
   (source) => source.replace(
-    `ssl.https_probe_executed === true && typeof ssl.https_available === "boolean"
+    `tls.state !== TLS_RUNTIME_STATES.UNAVAILABLE
           ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
           : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE`,
     "ctState",

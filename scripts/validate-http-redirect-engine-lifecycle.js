@@ -351,8 +351,8 @@ const MUTATIONS = [
   {
     name: "M3 incomplete evidence is restored to DEFINITIVE scoring",
     target: SCORING,
-    from: "      ? redirectObservation === \"origin_response\"",
-    to:   "      ? true",
+    from: "    const redirectValidated       = isHttpRedirectPositivelyAbsent(modules.ssl);",
+    to:   "    const redirectValidated       = true;",
     check: async (mod) => {
       // A chain explicitly marked NOT validated but carrying a stale legacy-shaped
       // true would again reach the definitive branch.
@@ -388,8 +388,8 @@ const MUTATIONS = [
   {
     name: "M7 the `!== false` missing-field semantics are restored in scoring",
     target: SCORING,
-    from: '      : redirectChain?.http_redirect_validated === true;    // legacy reports (no state)',
-    to:   '      : redirectChain?.http_redirect_validated !== false;',
+    from: "    const redirectValidated       = isHttpRedirectPositivelyAbsent(modules.ssl);",
+    to:   "    const redirectValidated       = modules.ssl?.http_redirect_chain?.http_redirect_validated !== false;",
     check: async (mod) => {
       // An ABSENT chain (PR-A1 deadline fallback shape) would again be definitive.
       const r = mod.computeScore({ ssl: { https_available: null }, headers: { headers: {} }, dns: {}, email_security: {} }, "example.com");

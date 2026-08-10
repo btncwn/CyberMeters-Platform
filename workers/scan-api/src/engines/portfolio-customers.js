@@ -9,6 +9,7 @@
 // re-deriving one. portfolio-risk.js imports nothing, so this is a one-way edge.
 import { riskLevelForScore } from "./scoring.js";
 import { PORTFOLIO_SCORE_STATES, resolvePortfolioScoreState } from "./portfolio-risk.js";
+import { visibleFindingSql } from "./finding-identity.js";
 import {
   phase5EvidenceReadCoverage,
   projectPhase5ScanRowsForCustomer,
@@ -106,7 +107,9 @@ export async function computePortfolioCustomerRows(db, workspaceIds, { env = nul
        FROM findings f JOIN scans s ON f.scan_id = s.id
        JOIN lpd ON lpd.scan_id = s.id
        JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-       WHERE f.severity IN ('critical','high') AND wd.workspace_id IN (${wsIn})
+       WHERE f.severity IN ('critical','high')
+         AND ${visibleFindingSql("f", "s")}
+         AND wd.workspace_id IN (${wsIn})
        GROUP BY wd.workspace_id, f.severity` },
     // Authoritative per-customer posture uses the latest COMPLETE scan per domain — a
     // partial/degraded latest never establishes the customer's rating (honesty).

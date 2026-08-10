@@ -4,6 +4,7 @@
 // core BRS computation. Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema } from "./findings.js";
 import { resolveRemediation } from "./remediation-registry.js";
+import { projectTlsFindingsForCustomer } from "./tls-evidence.js";
 import { computeWorkspaceVendorRisk } from "./vendor-risk.js";
 import { SCAN_QUALITY, normalizeQuality } from "./assessment-presentation.js";
 import {
@@ -11,6 +12,7 @@ import {
   projectPhase5ScanRowsForCustomer,
 } from "./phase5-evidence.js";
 import { createId } from "../lib/util.js";
+import { visibleFindingSql } from "./finding-identity.js";
 
 // ── Business Risk Score (BRS) v1 ─────────────────────────────────────────────
 //
@@ -183,7 +185,7 @@ export function expandFindingIds(findings) {
  */
 export function deriveScanBusinessRisk(report) {
   const findings = applyEvidenceQuality(
-    (Array.isArray(report?.findings) ? report.findings : []).map(normalizeFindingSchema)
+    projectTlsFindingsForCustomer(report?.findings, report?.modules).map(normalizeFindingSchema)
   );
   const findingIds = expandFindingIds(findings.filter(isActionableFinding));
   const mods = report?.modules || {};
@@ -820,7 +822,10 @@ export async function computeAndPersistWorkspaceBrs(env, workspaceId, {
     if (criticalFindings === 0 && highFindings === 0) {
       try {
         const severityRows = await env.cybermeters_db
-          .prepare(`SELECT severity, COUNT(*) AS n FROM findings WHERE scan_id = ? GROUP BY severity`)
+          .prepare(`SELECT f.severity, COUNT(*) AS n
+                    FROM findings f JOIN scans s ON s.id = f.scan_id
+                    WHERE f.scan_id = ? AND ${visibleFindingSql("f", "s")}
+                    GROUP BY f.severity`)
           .bind(basisScanRow.scan_id).all();
         const severityMap = Object.fromEntries((severityRows.results || []).map((r) => [r.severity, r.n]));
         criticalFindings = severityMap.critical || 0;

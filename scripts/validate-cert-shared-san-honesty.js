@@ -144,7 +144,7 @@ try {
     }),
   });
   const measuredOwnedIntel = intelligenceFor(
-    measuredOwnedSsl,
+    { ...measuredOwnedSsl, https_available: true, https_probe_executed: true },
     subdomainsFor({ items: ["example.com"] }),
   );
   equal("CRT_MEASURED_ZERO_PRESERVED", measuredOwnedSsl.cert_shared_san_count, 0);
@@ -166,7 +166,7 @@ try {
     }),
   });
   const measuredSharedIntel = intelligenceFor(
-    measuredSharedSsl,
+    { ...measuredSharedSsl, https_available: true, https_probe_executed: true },
     subdomainsFor({ items: ["example.com"] }),
   );
   equal("CRT_MEASURED_POSITIVE_COUNT", measuredSharedSsl.cert_shared_san_count, 1);
@@ -240,7 +240,8 @@ try {
   check("FRONTEND_HAS_NO_AFFECTED_READER", !affectedRead.test(frontendSources));
   check(
     "REPORT_API_TRANSPORTS_MODULE_NULLS",
-    /const storedModules = projectPhase5EvidenceForCustomer\(raw\.modules \?\? \{\}\);/.test(scanRouteSource) &&
+    /const customerReport = projectTlsReportForCustomer\(raw\);/.test(scanRouteSource) &&
+      /const storedModules = projectPhase5EvidenceForCustomer\(customerReport\.modules \?\? \{\}\);/.test(scanRouteSource) &&
       /modules: \{\s*\.\.\.normalisedModules,/s.test(scanRouteSource),
   );
 } finally {

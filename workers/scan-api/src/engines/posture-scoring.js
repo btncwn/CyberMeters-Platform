@@ -4,6 +4,11 @@
 // decomposition, Phase 1c). scoreStatus is module-internal.
 import { ENTERPRISE_DOMAINS } from "./scoring-config.js";
 import { resolveRemediation } from "./remediation-registry.js";
+import {
+  isHttpRedirectPositivelyAbsent,
+  resolveTlsRuntimeState,
+  TLS_RUNTIME_STATES,
+} from "./tls-evidence.js";
 
 // Posture scoring OWNS risk interpretation (the `reasons`). Any customer ACTION
 // promoted from a posture category (e.g. into the Executive PDF) must resolve
@@ -105,18 +110,15 @@ export function computeSecurityPosture(sc, report) {
     sslScore = null;
   } else {
     if (ssl !== null) {
-      // `=== false`, not `!https_available`: tri-state (ssl-scan.js). null means the
-      // probe never executed, and deducting 40 points while telling the customer
-      // "all traffic is unencrypted" on the strength of a timed-out fetch is a
-      // claim from absent evidence. Same guard as the scoring engine.
-      if (ssl.https_available === false) {
+      const tls = resolveTlsRuntimeState(ssl, { assessedDomain: sc.last_scanned_domain ?? null });
+      if (tls.state === TLS_RUNTIME_STATES.POSITIVELY_ABSENT) {
         sslScore -= 40;
         sslReasons.push('HTTPS is not available — all traffic is unencrypted');
         pushRem(sslRem, 'ssl_not_available');
       }
       // Only deduct for missing redirect when the chain was confirmed observable
       // and there is no enterprise edge contradiction (same guard as scoring engine)
-      const redirectValidated = ssl.http_redirect_chain?.http_redirect_validated !== false;
+      const redirectValidated = isHttpRedirectPositivelyAbsent(ssl);
       const enterpriseContradiction = ENTERPRISE_DOMAINS.has(sc.last_scanned_domain ?? '')
         && redirectValidated
         && !ssl.http_redirects_to_https

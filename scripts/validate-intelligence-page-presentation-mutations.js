@@ -54,7 +54,8 @@ const workingTreeFingerprint = () => {
   const status = runGit(["status", "--porcelain=v1", "--untracked-files=all"]);
   const diff = runGit(["diff", "--binary", "--no-ext-diff", "HEAD", "--", "."]);
   const untrackedRaw = runGit(["ls-files", "--others", "--exclude-standard", "-z"], "buffer");
-  const untracked = untrackedRaw.toString("utf8").split("\0").filter(Boolean).sort().map(rel => {
+  const untracked = untrackedRaw.toString("utf8").split("\0").filter(Boolean).sort()
+    .filter((rel) => fs.statSync(path.join(root, rel)).isFile()).map(rel => {
     const bytes = fs.readFileSync(path.join(root, rel));
     return `${rel}\0${sha256(bytes)}`;
   }).join("\n");

@@ -37,6 +37,10 @@ async function loadDomainResolver() {
     .replace(
       'from "./cookie-observation.js";',
       `from "${eng("cookie-observation.js")}";`
+    )
+    .replace(
+      'from "./tls-evidence.js";',
+      `from "${eng("tls-evidence.js")}";`
     );
   let target;
   let replacement;
@@ -91,7 +95,7 @@ const byKey = (domains, key) => domains.find((domain) => domain.domain_key === k
 const modules = {
   dns: {},
   subdomains: { count: 0, items: [], error: null },
-  ssl: {},
+  ssl: { https_available: true, https_probe_executed: true },
   headers: {},
   email_security: {},
   email_security_intelligence: {},

@@ -23,6 +23,7 @@ import {
 } from "../engines/portfolio-domains.js";
 import { CYBER_MOT_DOMAIN_KEYS, readDomainStateHistory } from "../engines/cyber-mot-state-history.js";
 import { MATURITY_LEDGER_CONTRACT_VERSION, computePortfolioMaturity } from "../engines/domain-maturity.js";
+import { visibleFindingSql } from "../engines/finding-identity.js";
 import { collapseCustomerTimelineEvents } from "../engines/timeline-trust.js";
 import { auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription } from "../engines/subscription-state.js";
 import { createAuditEvent } from "../lib/events.js";
@@ -164,6 +165,7 @@ export async function portfolioRoutes(rctx) {
             JOIN lpd ON lpd.scan_id = s.id
             JOIN workspace_domains wd ON wd.domain_id = s.domain_id
             WHERE f.severity IN ('critical','high')
+              AND ${visibleFindingSql("f", "s")}
               AND wd.workspace_id IN (${wsIn})
             GROUP BY f.severity
           ` },
@@ -195,6 +197,7 @@ export async function portfolioRoutes(rctx) {
               JOIN scans s ON f.scan_id = s.id
               JOIN lpd ON lpd.scan_id = s.id
               WHERE f.severity = 'critical'
+                AND ${visibleFindingSql("f", "s")}
               GROUP BY s.domain_id
             ),
             ws_crit AS (
@@ -542,6 +545,7 @@ export async function portfolioRoutes(rctx) {
               AND s.scan_quality = 'complete'
               AND s.created_at >= datetime('now', '-30 days')
               AND f.severity IN ('critical', 'high')
+              AND ${visibleFindingSql("f", "s")}
               AND wd.workspace_id IN (${wsIn})
             GROUP BY date(s.created_at), f.severity
             ORDER BY day
