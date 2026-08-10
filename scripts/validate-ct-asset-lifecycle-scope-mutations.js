@@ -108,9 +108,10 @@ const semanticMutants = Object.freeze([
     id: "ALLOW_SHADOW_CT_ABSENCE_DURING_DEGRADED_SCOPE",
     sourcePath: shadowSourcePath,
     envKey: "PR2B1_SHADOW_MODULE_URL",
-    from: `    if (deferredKeys?.has(it.canonical_technology_key) &&
-        !seenKeys?.has(it.canonical_technology_key)) continue;`,
-    to: "    if (false) continue;",
+    from: `  if (deferredKeys?.has(key)) return "defer";
+  return shadowItAbsenceAdmissible(item, sourceOutcomes) ? "absent" : "defer";`,
+    to: `  if (deferredKeys?.has(key)) return "absent";
+  return shadowItAbsenceAdmissible(item, sourceOutcomes) ? "absent" : "defer";`,
     expectedFailures: [
       "SHADOW_DEGRADED_NO_DISAPPEARANCE",
       "SHADOW_DEGRADED_NO_DISAPPEARANCE_EVENT",
@@ -120,9 +121,10 @@ const semanticMutants = Object.freeze([
     id: "OVER_DEFER_SHADOW_INDEPENDENT_SOURCE",
     sourcePath: shadowSourcePath,
     envKey: "PR2B1_SHADOW_MODULE_URL",
-    from: `    if (deferredKeys?.has(it.canonical_technology_key) &&
-        !seenKeys?.has(it.canonical_technology_key)) continue;`,
-    to: "    if (deferredKeys?.has(it.canonical_technology_key)) continue;",
+    from: `  if (seenKeys.has(key)) return "seen";
+  if (deferredKeys?.has(key)) return "defer";`,
+    to: `  if (deferredKeys?.has(key)) return "defer";
+  if (seenKeys.has(key)) return "seen";`,
     expectedFailures: [
       "SHADOW_INDEPENDENT_SOURCE_REMAINS_ASSESSABLE",
       "SHADOW_INDEPENDENT_PHASE2_TRANSITION_RECORDED",

@@ -25,9 +25,9 @@ const MUTATION_TARGET_FILES = Object.freeze([workflowPath, manifestPath, library
 // This validator must remain runnable before commit because founder review is
 // performed against frozen uncommitted candidates. The only permitted target
 // drift is the exact reviewed workflow byte set that wires this candidate's
-// three validators; after commit the ordinary HEAD equality path applies again.
+// two validators; after commit the ordinary HEAD equality path applies again.
 const REVIEWED_UNCOMMITTED_TARGET_SHA256 = Object.freeze(new Map([
-  [workflowPath, "c7e36e4902ad44666f8259b52e15271b0a5f901e9acee376f716968bed7b8ba8"],
+  [workflowPath, "36fbe38549eb44ab5289610b898acb43b00985f23bd9ad4ef8f8bebf56fed1f3"],
 ]));
 const EXPECTED_FIXTURES = 31;
 const EXPECTED_MUTANTS = 26;
