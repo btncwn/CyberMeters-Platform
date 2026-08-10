@@ -12,6 +12,46 @@ import {
   summariseLifecycleClaimProjection,
 } from "./asset-lifecycle-event-support.js";
 
+const CERTIFICATE_RISK_SEVERITIES = new Set(["critical", "high", "medium"]);
+
+export function isCertificateRiskSignal(signal) {
+  return Boolean(signal && typeof signal === "object" &&
+    CERTIFICATE_RISK_SEVERITIES.has(signal.severity));
+}
+
+function isCertificateInformationalObservation(signal) {
+  return Boolean(signal && typeof signal === "object" && signal.severity === "info");
+}
+
+export function buildCertificateRiskFields(signals, riskLevel, daysUntilExpiry) {
+  const allSignals = Array.isArray(signals) ? signals : [];
+  const riskSignals = allSignals.filter(isCertificateRiskSignal);
+  const informationalObservations = allSignals.filter(isCertificateInformationalObservation);
+  return {
+    risk_level: riskLevel,
+    signals: allSignals.length,
+    days_until_expiry: daysUntilExpiry,
+    risk_signal_count: riskSignals.length,
+    risk_signals: riskSignals,
+    informational_observation_count: informationalObservations.length,
+    informational_observations: informationalObservations,
+  };
+}
+
+function certificateSignalPreview(signals) {
+  return signals
+    .slice(0, 2)
+    .map((signal) => signal.description || signal.signal || "certificate signal")
+    .join(", ");
+}
+
+function certificateInformationSummary(observations, { includePreview = false } = {}) {
+  const count = observations.length;
+  const preview = includePreview ? certificateSignalPreview(observations) : "";
+  return `Certificate intelligence recorded ${count} neutral informational observation${count !== 1 ? "s" : ""}` +
+    (preview ? `: ${preview}.` : ".");
+}
+
 /**
  * buildScorecardData(wsId, env)
  *
@@ -200,8 +240,20 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
   const saasTotal      = report?.modules?.saas_exposure?.total ?? 0;
   const adminTotal     = report?.modules?.admin_surface_detection?.total ?? 0;
   const certRiskLevel  = report?.modules?.certificate_intelligence?.certificate_risk_level ?? null;
-  const certSignals    = report?.modules?.certificate_intelligence?.suspicious_certificate_signals ?? [];
+  const certSignals    = Array.isArray(report?.modules?.certificate_intelligence?.suspicious_certificate_signals)
+    ? report.modules.certificate_intelligence.suspicious_certificate_signals
+    : [];
   const certDaysLeft   = report?.modules?.certificate_intelligence?.days_until_expiry ?? null;
+  const certificateRiskFields = buildCertificateRiskFields(
+    certSignals,
+    certRiskLevel,
+    certDaysLeft,
+  );
+  const riskSignals = certificateRiskFields.risk_signals;
+  const informationalObservations = certificateRiskFields.informational_observations;
+  const ctSourcesUnavailable = informationalObservations.some(
+    (signal) => signal.signal === "ct_sources_unavailable",
+  );
   const tpaTotal       = report?.modules?.third_party_assets?.total ?? 0;
   const cloudAssetList = report?.modules?.cloud_storage_discovery?.assets ?? [];
   const phase5Assessment = resolvePhase5HistoricalCustomerProjection({
@@ -274,9 +326,10 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     if (adminEvidence === 'assessed_healthy') good.push('No exposed admin or management surfaces detected.');
     else noteNeutral(adminEvidence, 'Admin surface exposure');   // unavailable/not_assessed → neutral; null (legacy) → silent, never "none detected"
   }
-  if (canSayHealthy(certStateB)) {
+  if (canSayHealthy(certStateB) && !ctSourcesUnavailable &&
+      riskSignals.length === 0 && informationalObservations.length === 0) {
     good.push('Certificate health looks normal — no suspicious signals detected.');
-  } else {
+  } else if (!canSayHealthy(certStateB) || ctSourcesUnavailable) {
     noteNeutral(scorecardBehaviour(certStateB), 'Certificate health');   // null/unavailable/not_assessed → neutral, never "looks normal"; issue handled by the urgent line
   }
 
@@ -298,14 +351,17 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
       `${tpaTotal} third-party service${tpaTotal !== 1 ? 's' : ''} in use — email, support, or marketing tools with external data access.`
     );
   }
-  if (certSignals.length > 0 && certRiskLevel !== 'critical') {
-    const sigPreview = certSignals
-      .slice(0, 2)
-      .map((sig) => typeof sig === 'string' ? sig : (sig.description || sig.signal || 'certificate signal'))
-      .join(', ');
+  if (riskSignals.length > 0 && certRiskLevel !== 'critical') {
+    const sigPreview = certificateSignalPreview(riskSignals);
     attentionRequired.push(
-      `Certificate intelligence flagged ${certSignals.length} suspicious signal${certSignals.length !== 1 ? 's' : ''}: ${sigPreview}.`
+      `Certificate intelligence flagged ${riskSignals.length} suspicious signal${riskSignals.length !== 1 ? 's' : ''}: ${sigPreview}.`
     );
+  }
+  if (informationalObservations.length > 0) {
+    attentionRequired.push(certificateInformationSummary(
+      informationalObservations,
+      { includePreview: true },
+    ));
   }
   if (saasTotal > 0) {
     attentionRequired.push(
@@ -367,7 +423,7 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
       saas_exposures:      saasTotal,
       admin_surfaces:      adminTotal,
       brand_risks:         { high: brandHighRisk, medium: brandMedRisk, low: brandRiskMap.low ?? 0 },
-      certificate_risks:   { risk_level: certRiskLevel, signals: certSignals.length, days_until_expiry: certDaysLeft },
+      certificate_risks:   certificateRiskFields,
     },
     report
   );
@@ -402,11 +458,7 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
       medium: brandMedRisk,
       low:    brandRiskMap.low ?? 0,
     },
-    certificate_risks: {
-      risk_level:        certRiskLevel,
-      signals:           certSignals.length,
-      days_until_expiry: certDaysLeft,
-    },
+    certificate_risks: certificateRiskFields,
     critical_findings: criticalFindings,
     high_findings:     highFindings,
     medium_findings:   mediumFindings,
@@ -437,7 +489,44 @@ export function buildScorecardSections(scorecard) {
   const certState   = domainState(cmd, "certificates_trust");
   const shadowState = domainState(cmd, "shadow_it_unmanaged_technology");
   const adminEv     = scorecard.admin_surface_evidence_status ?? null;
+  const hasCertificateRisksObject = Boolean(
+    scorecard.certificate_risks &&
+    typeof scorecard.certificate_risks === "object" &&
+    !Array.isArray(scorecard.certificate_risks),
+  );
   const cr = scorecard.certificate_risks || {};
+  const riskSignalsValid = Array.isArray(cr.risk_signals) &&
+    cr.risk_signals.every(isCertificateRiskSignal);
+  const informationalObservationsValid = Array.isArray(cr.informational_observations) &&
+    cr.informational_observations.every(isCertificateInformationalObservation);
+  const riskSigs = riskSignalsValid
+    ? cr.risk_signals
+    : [];
+  const infoObs = informationalObservationsValid
+    ? cr.informational_observations
+    : [];
+  const riskCount = riskSigs.length;
+  const infoCount = infoObs.length;
+  const classificationsRecorded = riskSignalsValid && informationalObservationsValid;
+  const classificationsMalformed =
+    (Object.hasOwn(cr, "risk_signals") && !riskSignalsValid) ||
+    (Object.hasOwn(cr, "informational_observations") && !informationalObservationsValid);
+  const ctSourcesUnavailable = infoObs.some(
+    (signal) => signal.signal === "ct_sources_unavailable",
+  );
+  const certificateFallbackStatus = ctSourcesUnavailable || classificationsMalformed ||
+      !hasCertificateRisksObject
+    ? "unknown"
+    : sectionStatus(certState, 'warning');
+  const certificateFallbackSummary = ctSourcesUnavailable || classificationsMalformed ||
+      !hasCertificateRisksObject
+    ? neutralSummary("unavailable", "Certificate health")
+    : !classificationsRecorded && canSayHealthy(certState)
+      ? "Certificate signal classification was not recorded for this historical scorecard."
+    : neutralSummary(
+        scorecardBehaviour(certState) === 'unavailable' ? 'unavailable' : 'not_yet_assessed',
+        'Certificate health',
+      );
 
   return [
     {
@@ -502,12 +591,16 @@ export function buildScorecardSections(scorecard) {
       title:   'Certificate Intelligence',
       status:  cr.risk_level === 'critical' ? 'critical'
              : cr.risk_level === 'high' ? 'warning'
-             : cr.signals > 0 ? 'warning'
-             : sectionStatus(certState, 'warning'),
-      summary: cr.signals > 0 || cr.risk_level === 'critical' || cr.risk_level === 'high'
-        ? `Certificate risk is ${cr.risk_level || 'elevated'}.` + (cr.signals > 0 ? ` ${cr.signals} suspicious signal${cr.signals !== 1 ? 's' : ''} detected.` : ' No suspicious signals.')
-        : canSayHealthy(certState) ? 'Certificate health looks normal — no suspicious signals detected.'
-          : neutralSummary(scorecardBehaviour(certState) === 'unavailable' ? 'unavailable' : 'not_yet_assessed', 'Certificate health'),
+             : riskCount > 0 ? 'warning'
+             : certificateFallbackStatus,
+      summary: riskCount > 0 || cr.risk_level === 'critical' || cr.risk_level === 'high'
+        ? `Certificate risk is ${cr.risk_level || 'elevated'}.` +
+          (riskCount > 0 ? ` ${riskCount} suspicious signal${riskCount !== 1 ? 's' : ''} detected.` : '')
+        : infoCount > 0 && canSayHealthy(certState) && !ctSourcesUnavailable
+          ? certificateInformationSummary(infoObs)
+        : classificationsRecorded && canSayHealthy(certState) && !ctSourcesUnavailable
+          ? 'Certificate health looks normal — no suspicious signals detected.'
+        : certificateFallbackSummary,
       data: scorecard.certificate_risks,
     },
     {

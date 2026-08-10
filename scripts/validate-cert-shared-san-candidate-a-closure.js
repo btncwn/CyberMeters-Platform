@@ -1,15 +1,21 @@
 #!/usr/bin/env node
-// Candidate A F12 — self-relative email-Worker closure invariance.
+// Candidate A F12 — email-Worker closure invariance, in two modes.
 //
-// The candidate parent is derived from git state, never from a frozen digest:
-//   * uncommitted candidate: HEAD is the parent;
-//   * committed candidate: the parent of the projector's introduction commit.
-// The effective email import graph, content digest, and both Worker APP_VERSIONs
-// must be byte-identical. Candidate A is blocked for redesign on any drift.
+// Uncommitted candidate (projector not in HEAD): the parent is derived from git
+// state, never from a frozen digest, and the effective email import graph,
+// content digest, and both Worker APP_VERSIONs must be byte-identical to it.
+//
+// Committed (durable) mode: the working-tree-vs-introduction-parent comparison
+// would permanently pin the closure to Candidate A's parent and block every
+// later legitimate, manifest-coordinated closure release. Instead this mode
+// asserts Candidate A's actual invariants: the introduction commit itself moved
+// nothing (historical, from git blobs), the projector and routes/scans.js stay
+// OUT of the derived closure (constraint C1), and the current tree passes the
+// canonical deploy-traceability governance (digest vs manifest/APP_VERSION).
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -128,33 +134,103 @@ function appVersion(bytes, label) {
   return match[1];
 }
 
+// Durable post-merge semantics. While the projector is an uncommitted candidate,
+// the original PRE/POST parent comparison applies verbatim. Once the projector is
+// committed, comparing the working tree against the introduction parent forever
+// would block every later legitimate, manifest-coordinated closure release — so
+// the committed mode asserts exactly Candidate A's own three invariants instead:
+//   (1) HISTORICAL — the projector's introduction commit changed neither the
+//       closure (list, counts, digest) nor either APP_VERSION, measured from
+//       immutable git blobs, so "Candidate A caused no drift" stays executable;
+//   (2) PLACEMENT — the projector and routes/scans.js are OUT of the closure
+//       derived from the current tree (constraint C1; catches any relocation);
+//   (3) GOVERNANCE — the current tree passes the canonical email-worker deploy
+//       traceability validator, so any un-coordinated closure byte change
+//       (digest vs manifest/APP_VERSION) still fails here.
 let failed = false;
 try {
-  const parent = parentCommit();
-  const parentRead = (relative) => gitFile(parent, relative);
+  const head = git(["rev-parse", "HEAD"]);
   const currentRead = (relative) => currentFile(relative);
-  const pre = measure(parentRead);
-  const post = measure(currentRead);
-  const preApps = {
-    scan_api: appVersion(parentRead("workers/scan-api/wrangler.toml"), "scan-api parent"),
-    email_ingest: appVersion(parentRead("workers/email-ingest/wrangler.toml"), "email parent"),
-  };
-  const postApps = {
-    scan_api: appVersion(currentRead("workers/scan-api/wrangler.toml"), "scan-api current"),
-    email_ingest: appVersion(currentRead("workers/email-ingest/wrangler.toml"), "email current"),
-  };
-  const equal = JSON.stringify(pre) === JSON.stringify(post) &&
-    JSON.stringify(preApps) === JSON.stringify(postApps);
-  const evidence = { parent, pre: { ...pre, app_versions: preApps }, post: { ...post, app_versions: postApps } };
-  if (process.argv.includes("--print")) {
-    process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
-  }
-  if (!equal) {
-    failed = true;
-    console.error("FAIL SAN_A_F12 — Candidate-A-caused email closure or APP_VERSION drift; BLOCKED_FOR_REDESIGN");
-    console.error(JSON.stringify(evidence, null, 2));
+  const marker = "legacy_ambiguous_zero";
+  const projectorCommitted =
+    (gitFile(head, projector)?.toString("utf8") || "").includes(marker);
+
+  if (!projectorCommitted) {
+    const parent = parentCommit();
+    const parentRead = (relative) => gitFile(parent, relative);
+    const pre = measure(parentRead);
+    const post = measure(currentRead);
+    const preApps = {
+      scan_api: appVersion(parentRead("workers/scan-api/wrangler.toml"), "scan-api parent"),
+      email_ingest: appVersion(parentRead("workers/email-ingest/wrangler.toml"), "email parent"),
+    };
+    const postApps = {
+      scan_api: appVersion(currentRead("workers/scan-api/wrangler.toml"), "scan-api current"),
+      email_ingest: appVersion(currentRead("workers/email-ingest/wrangler.toml"), "email current"),
+    };
+    const equal = JSON.stringify(pre) === JSON.stringify(post) &&
+      JSON.stringify(preApps) === JSON.stringify(postApps);
+    const evidence = { mode: "uncommitted_candidate", parent, pre: { ...pre, app_versions: preApps }, post: { ...post, app_versions: postApps } };
+    if (process.argv.includes("--print")) {
+      process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
+    }
+    if (!equal) {
+      failed = true;
+      console.error("FAIL SAN_A_F12 — Candidate-A-caused email closure or APP_VERSION drift; BLOCKED_FOR_REDESIGN");
+      console.error(JSON.stringify(evidence, null, 2));
+    } else {
+      console.log("PASS SAN_A_F12 — parent/current closure list, counts, digest and APP_VERSIONs are byte-identical");
+    }
   } else {
-    console.log("PASS SAN_A_F12 — parent/current closure list, counts, digest and APP_VERSIONs are byte-identical");
+    const introduction = git(["log", "-1", "--format=%H", "--diff-filter=A", "--", projector]);
+    if (!introduction) throw new Error("projector introduction commit missing");
+    const introductionParent = git(["rev-parse", `${introduction}^`]);
+    const introRead = (relative) => gitFile(introduction, relative);
+    const introParentRead = (relative) => gitFile(introductionParent, relative);
+    const intro = measure(introRead);
+    const introParent = measure(introParentRead);
+    const introApps = {
+      scan_api: appVersion(introRead("workers/scan-api/wrangler.toml"), "scan-api introduction"),
+      email_ingest: appVersion(introRead("workers/email-ingest/wrangler.toml"), "email introduction"),
+    };
+    const introParentApps = {
+      scan_api: appVersion(introParentRead("workers/scan-api/wrangler.toml"), "scan-api introduction parent"),
+      email_ingest: appVersion(introParentRead("workers/email-ingest/wrangler.toml"), "email introduction parent"),
+    };
+    const historical = JSON.stringify(intro) === JSON.stringify(introParent) &&
+      JSON.stringify(introApps) === JSON.stringify(introParentApps);
+
+    const current = measure(currentRead);
+    const placement = !current.files.includes(projector) &&
+      !current.files.includes("workers/scan-api/src/routes/scans.js");
+
+    const trace = spawnSync(process.execPath, [
+      path.join(root, "scripts", "validate-email-worker-deploy-traceability.js"),
+    ], { cwd: root, encoding: "utf8", timeout: 120_000 });
+    const governed = trace.status === 0 && trace.error == null && trace.signal == null;
+
+    const evidence = {
+      mode: "committed_durable",
+      introduction,
+      introduction_parent: introductionParent,
+      historical_invariant: historical,
+      introduction_closure: { ...intro, app_versions: introApps },
+      introduction_parent_closure: { ...introParent, app_versions: introParentApps },
+      current_closure: current,
+      placement_clean: placement,
+      deploy_traceability_exit: trace.status,
+    };
+    if (process.argv.includes("--print")) {
+      process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
+    }
+    if (!historical || !placement || !governed) {
+      failed = true;
+      console.error("FAIL SAN_A_F12 — Candidate-A closure invariant violated " +
+        `(historical=${historical}, placement=${placement}, deploy-traceability=${governed})`);
+      console.error(JSON.stringify(evidence, null, 2));
+    } else {
+      console.log("PASS SAN_A_F12 — introduction caused no closure/APP_VERSION drift; projector and scans.js remain outside the governed closure");
+    }
   }
 } catch (error) {
   failed = true;

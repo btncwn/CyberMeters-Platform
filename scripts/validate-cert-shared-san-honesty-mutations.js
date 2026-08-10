@@ -76,6 +76,7 @@ let semanticKilled = 0;
 let controlsPassed = 0;
 let failures = 0;
 const activeMutants = new Set();
+let activeInPlace = null;
 const hash = (value) => crypto.createHash("sha256").update(value).digest("hex");
 function fail(message) {
   failures += 1;
@@ -93,6 +94,10 @@ function worktreeFingerprint() {
 }
 const initialFingerprint = worktreeFingerprint();
 function cleanup() {
+  if (activeInPlace) {
+    try { fs.writeFileSync(activeInPlace.path, activeInPlace.bytes); } catch { /* reported by hash check */ }
+    activeInPlace = null;
+  }
   for (const mutantPath of activeMutants) {
     try { fs.rmSync(mutantPath, { force: true }); } catch { /* best effort */ }
   }
@@ -190,6 +195,89 @@ for (const mutant of semanticMutants) {
   }
 }
 
+// Candidate B M10 is intentionally in-place (and immediately restored) so the
+// real Worker import graph used by the regression validator loads the mutant.
+// Every target runs in a fresh process; the closure validator is never invoked
+// while this in-closure dependency graph is perturbed.
+let candidateBM10Killed = 0;
+try {
+  const config = targets.certIntel;
+  const originalBytes = fs.readFileSync(config.sourcePath);
+  const originalHash = hash(originalBytes);
+  const from = 'const hasMedium   = suspicious_certificate_signals.some((s) => s.severity === "medium");';
+  const to = 'const hasMedium   = suspicious_certificate_signals.some((s) => s.severity === "medium" || s.severity === "info");';
+  const mutated = replaceExactly(originalBytes.toString("utf8"), from, to, "SAN_B_M10");
+  activeInPlace = { path: config.sourcePath, bytes: originalBytes };
+  fs.writeFileSync(config.sourcePath, mutated);
+
+  const honesty = spawnSync(process.execPath, [validator], {
+    cwd: root, encoding: "utf8", timeout: 120_000,
+  });
+  const honestyFailures = failureIds(`${honesty.stdout || ""}\n${honesty.stderr || ""}`);
+  const honestySummary = String(honesty.stdout || "").match(
+    /PR-2A\.2 shared-SAN honesty: (\d+)\/(\d+) contracts passed/,
+  );
+  const honestyNormal = honesty.status === 1 && honestySummary &&
+    Number(honestySummary[2]) === ASSERTION_TOTAL &&
+    Number(honestySummary[1]) + honestyFailures.length === ASSERTION_TOTAL;
+
+  const regression = spawnSync(process.execPath, [
+    path.join(root, "scripts/validate-regression-fixtures.js"),
+  ], { cwd: root, encoding: "utf8", timeout: 180_000 });
+  const regressionFailures = String(regression.stdout || "").split(/\r?\n/)
+    .filter((line) => line.startsWith("FAIL "))
+    .map((line) => line.slice(5));
+  const regressionSummary = String(regression.stdout || "").match(
+    /Regression pass rate: (\d+)\/(\d+) \(\d+%\)/,
+  );
+  const regressionNormal = regression.status === 1 && regressionSummary &&
+    Number(regressionSummary[2]) - Number(regressionSummary[1]) === regressionFailures.length;
+
+  const canonical = spawnSync(process.execPath, [
+    path.join(root, "scripts/validate-b-scorecard-canonical.js"),
+    "--candidate-b-child", "--skip-closure",
+  ], { cwd: root, encoding: "utf8", timeout: 120_000 });
+  const canonicalFailures = String(canonical.stdout || "").split(/\r?\n/)
+    .filter((line) => line.startsWith("FAIL - SAN_B_F"))
+    .map((line) => line.slice("FAIL - ".length));
+  const canonicalSummary = String(canonical.stdout || "").match(
+    /B scorecard canonical: (\d+)\/(\d+) passed/,
+  );
+  const canonicalNormal = canonical.status === 1 && canonicalSummary &&
+    Number(canonicalSummary[2]) - Number(canonicalSummary[1]) === canonicalFailures.length;
+
+  const actual = [
+    ...honestyFailures.map((id) => `validate-cert-shared-san-honesty.js:${id}`),
+    ...regressionFailures.map((id) => `validate-regression-fixtures.js:${id}`),
+    ...canonicalFailures.map((id) => `validate-b-scorecard-canonical.js:${id}`),
+  ];
+  const expected = [
+    "validate-cert-shared-san-honesty.js:BLACKOUT_RISK_UNKNOWN_UNCHANGED",
+    "validate-regression-fixtures.js:detection_wildcard_certificate_signals_are_observations",
+    "validate-b-scorecard-canonical.js:SAN_B_F12",
+    "validate-b-scorecard-canonical.js:SAN_B_F13",
+    "validate-b-scorecard-canonical.js:SAN_B_F14",
+  ];
+  if (honestyNormal && regressionNormal && canonicalNormal &&
+      JSON.stringify(actual) === JSON.stringify(expected)) {
+    candidateBM10Killed = 1;
+    console.log(`PASS SAN_B_M10 exact FAIL set ${JSON.stringify(actual)}`);
+  } else {
+    fail(`SAN_B_M10: wrong semantic failure\nexpected=${JSON.stringify(expected)}\n` +
+      `actual=${JSON.stringify(actual)}\nstatuses=${honesty.status}/${regression.status}/${canonical.status}`);
+  }
+  cleanup();
+  if (hash(fs.readFileSync(config.sourcePath)) !== originalHash) {
+    fail("SAN_B_M10: cert-intel.js bytes were not restored");
+  }
+  if (worktreeFingerprint() !== initialFingerprint) {
+    fail("SAN_B_M10: worktree fingerprint changed after restoration");
+  }
+} catch (error) {
+  cleanup();
+  fail(`SAN_B_M10: ${error?.message || error}`);
+}
+
 // Negative control 1: a syntax failure is not a semantic kill.
 try {
   const result = executeMutant({
@@ -259,7 +347,9 @@ console.log(
   `PR-2A.2 shared-SAN mutations: ${semanticKilled}/${semanticMutants.length} semantic mutants killed; ` +
   `${controlsPassed}/3 invalid-kill controls rejected`,
 );
-if (failures > 0 || semanticKilled !== semanticMutants.length || controlsPassed !== 3) {
+console.log(`Candidate B producer mutations: ${candidateBM10Killed}/1 semantic mutant killed`);
+if (failures > 0 || semanticKilled !== semanticMutants.length || controlsPassed !== 3 ||
+    candidateBM10Killed !== 1) {
   console.error("PR-2A.2 shared-SAN mutation validation FAILED");
   process.exit(1);
 }
