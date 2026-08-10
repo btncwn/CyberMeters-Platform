@@ -13,7 +13,7 @@ const src = (...p) => path.join(root, "workers", "scan-api", "src", ...p);
 const eng = (f) => pathToFileURL(src("engines", f)).href;
 const EXPECTED_ASSERTIONS = 26;
 const EXPECTED_RUNTIME_CONSUMER_COUNT = 27;
-const EXPECTED_RUNTIME_CONSUMER_SHA256 = "f6f93fc9351c0ab655d90cca9a0f4443759d8fa0cc377c9af7c102de1c6ef7ea";
+const EXPECTED_RUNTIME_CONSUMER_SHA256 = "3c7cce3db43f0fbbbc9a89e534cd22568dfd0bcf9e3b2d2b93b2cbe8878b2cbf";
 const ONLY = process.env.CE_CONTAINMENT_ONLY || null;
 
 const readinessMod = await import(eng("ce-readiness.js"));

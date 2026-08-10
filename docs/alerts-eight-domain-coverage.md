@@ -175,7 +175,7 @@ production and neither was about alerting:
 - No alerts were manufactured in production to prove delivery.
 - Website Security identity is domain-level because the evidence is. Per-hostname or
   per-path identity awaits a scan change that attributes a host to a website finding.
-- CE covers 3 of 5 control themes for alerting; the other 2 are not externally
+- CE covers 2 of 5 control themes for alerting; the other 3 are not externally
   assessable and say so.
 - Website Security's `ssl_not_available` resolves `cert.tls.install`
   (`domain_key: certificates_trust`) — a pre-existing registry/resolver split. The

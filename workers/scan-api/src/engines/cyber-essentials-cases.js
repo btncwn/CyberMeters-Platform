@@ -8,25 +8,28 @@
 // from the Canonical Remediation Registry via PR #129's contract.
 //
 // ── WHAT CE CAN AND CANNOT SEE — the whole design turns on this ──
-// Of the five canonical CE controls, the repo's own honesty metadata declares only THREE
+// Of the five canonical CE controls, the repo's own honesty metadata declares only TWO
 // externally assessable, and only ever PARTIALLY:
 //
 //   boundary_protection         external_coverage "partial"  → assessable
 //   secure_configuration        external_coverage "partial"  → assessable
-//   patch_management_readiness  external_coverage "partial"  → assessable
 //   access_control              external_coverage "none"     → questionnaire-only
 //   malware_protection          external_coverage "none"     → questionnaire-only
+//   patch_management_readiness  external_coverage "none"     → questionnaire-only
 //
-// The two `none` controls are scored from email-auth proxies that measure anti-spoofing,
-// not user access control or endpoint AV. gradeCeControl returns
-// `not_externally_assessable` for them, which is never `actionable`, so they can never
+// The three `none` controls have no external observation behind them. access_control and
+// malware_protection were once scored from email-auth proxies that measure anti-spoofing,
+// not user access control or endpoint AV; patch_management_readiness was once scored from
+// certificate expiry and the ASM backlog, neither of which measures patching. Both proxies
+// were withdrawn and no replacement was introduced. gradeCeControl returns
+// `not_externally_assessable` for all three, which is never `actionable`, so they can never
 // carry a recurrence — and therefore can never open a case here at all. That is the honest
 // answer, not an omission: there is no external observation to base a case on, and no
 // verifier could ever close one. A control CyberMeters cannot see must never be presented
 // as externally verified.
 //
 // ── THE PARTIAL CEILING ──
-// The three assessable controls are `partial`, NOT full. CyberMeters observes a slice of
+// The two assessable controls are `partial`, NOT full. CyberMeters observes a slice of
 // each control, never the whole thing, so a case here must never imply the CONTROL is
 // compliant. The lifecycle already scopes its own vocabulary this way
 // (`externally_observed_control_not_ready`), and the case title/summary below keep that

@@ -101,7 +101,7 @@ It has no visibility into internal networks, endpoints, employee devices, browse
 - **Customer-declared inputs:** questionnaire answers (**Customer-declared**), version-stamped.
 - **Alerts & managed workflows:** CE readiness cases where externally assessable.
 - **Evidence sources:** external observation for the assessable areas; customer attestation otherwise.
-- **Known limitations:** **2 of 5** controls are externally assessable, and only partially; `access_control` and `malware_protection` are "Not externally assessable — self-attestation only".
+- **Known limitations:** **2 of 5** controls are externally assessable, and only partially; `access_control`, `malware_protection` and `patch_management_readiness` are "Not externally assessable — self-attestation only".
 - **Explicitly does not do:** certify Cyber Essentials (not a certification body); feed questionnaire answers into the Cyber Metrics Score or Business Risk Indicator.
 - **Current maturity:** **Partial / bounded coverage** — Live within the 2-of-5 external boundary.
 

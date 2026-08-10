@@ -15,12 +15,15 @@ questionnaire is *not* an input. `buildCyberEssentialsReadiness()` never reads
 readiness score, and no answer is treated as security truth. The questionnaire is
 a separate surface with its own completeness status; the two must not be conflated.
 
-**2. Two of the five controls cannot be observed externally at all.** `access_control`
-(User Access Control) and `malware_protection` (Malware Protection) carry
-`external_coverage: none` in `workers/scan-api/src/lib/cyber-essentials.js`. Their
-readiness categories are driven by proxy signals and explicit unknowns, and they
-never alert. The remaining three (`boundary_protection`, `secure_configuration`,
-`patch_management_readiness`) are `external_coverage: partial` — partial, not complete.
+**2. Three of the five controls cannot be observed externally at all.** `access_control`
+(User Access Control), `malware_protection` (Malware Protection) and
+`patch_management_readiness` (Security Update Management) carry `external_coverage: none`
+in `shared/cyber-essentials-questions.js`, the authoritative source for this metadata
+(it is re-exported through `workers/scan-api/src/lib/cyber-essentials.js`). Their readiness
+categories publish no external number, are labelled not externally assessable, and never
+alert; no withdrawn proxy signal is used in their place. The remaining two
+(`boundary_protection`, `secure_configuration`) are `external_coverage: partial` — partial,
+not complete.
 
 It follows that CyberMeters **cannot** predict a certification outcome. Never claim,
 in product or in marketing, that a customer "would pass" or "would fail" Cyber
@@ -42,11 +45,17 @@ gaps. The final score is the weighted average.
 
 | Category | Weight | Signals Used |
 | --- | ---: | --- |
-| Boundary Protection | 20% | HTTPS availability, browser security headers, critical findings, exposed admin surfaces, subdomain takeover risks |
-| Secure Configuration | 20% | HSTS, Content Security Policy, HTTP to HTTPS redirect, TLS availability, certificate intelligence |
-| Access Control | 20% | SPF, DMARC, DKIM, exposed admin surfaces, externally reachable SaaS portals |
-| Phishing & Malware Exposure | 20% | Email authentication strength and high-impact external findings as proxy indicators only |
-| Patch Management Readiness | 20% | Certificate expiry health, certificate risk, critical/high finding backlog, recent asset change visibility |
+| Firewalls & Boundary Protection | split evenly across the assessable areas | HTTPS availability, browser security headers, critical findings, exposed admin surfaces, subdomain takeover risks |
+| Secure Configuration | split evenly across the assessable areas | HSTS, Content Security Policy, HTTP to HTTPS redirect, TLS availability, certificate intelligence |
+| User Access Control | 0% | None — not externally assessable, self-attestation only |
+| Malware Protection | 0% | None — not externally assessable, self-attestation only |
+| Security Update Management | 0% | None — not externally assessable, self-attestation only |
+
+The three `external_coverage: none` areas carry weight 0 and cannot move the external
+readiness indicator. The indicator is the mean of the externally assessable areas only, and
+it states its own denominator (currently 2 of 5). An earlier revision gave all five a fixed
+weight of 20%, which let control areas the product cannot observe carry 40% of the number;
+that arithmetic was withdrawn.
 
 ## Grades
 
@@ -117,10 +126,11 @@ from externally observable technical signals, but it cannot fully assess:
 - Firewall rules that are not externally observable
 - Policies, procedures, or staff attestations
 
-The Phishing & Malware Exposure category is explicitly a proxy estimate based on
-email authentication, domain security posture, and external findings. It must
-not be presented as proof that endpoint malware protection is installed or
-correctly configured.
+Malware Protection was once estimated from email authentication, domain security posture
+and external findings. Those proxies were withdrawn and no replacement was introduced: the
+category is now labelled not externally assessable and publishes no external number. It must
+never be presented as proof that endpoint malware protection is installed or correctly
+configured.
 
 ## Product Boundary
 
