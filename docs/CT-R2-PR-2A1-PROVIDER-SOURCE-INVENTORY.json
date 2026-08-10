@@ -1,7 +1,7 @@
 {
   "rule_version": "ct-provider-source-consumers/1",
-  "runtime_consumer_count": 13,
-  "fingerprint": "b7d834421a23efb6c0f19528c67b1d57e205c015e459d1bb762f0ce363942d61",
+  "runtime_consumer_count": 16,
+  "fingerprint": "29e349a05a807814225b736a23de008098d6bedd5139fc87875f8e1d8354c5aa",
   "sites": [
     {
       "file": "workers/scan-api/src/engines/attack-surface-signal-completeness.js",
@@ -144,6 +144,39 @@
       "source_provenance": "sources.certspotter",
       "classification": "decision",
       "non_null_error_dominates_count": "not_applicable",
+      "classification_reason": "terminal provider-source field read derived by AST taint closure"
+    },
+    {
+      "file": "workers/scan-api/src/routes/certificate-shared-san-projection.js",
+      "line": 63,
+      "column": 4,
+      "ast_access_kind": "member",
+      "field": "error",
+      "source_provenance": "alias/helper/container",
+      "classification": "decision",
+      "non_null_error_dominates_count": "not_applicable",
+      "classification_reason": "terminal provider-source field read derived by AST taint closure"
+    },
+    {
+      "file": "workers/scan-api/src/routes/certificate-shared-san-projection.js",
+      "line": 64,
+      "column": 21,
+      "ast_access_kind": "member",
+      "field": "count",
+      "source_provenance": "alias/helper/container",
+      "classification": "decision",
+      "non_null_error_dominates_count": true,
+      "classification_reason": "terminal provider-source field read derived by AST taint closure"
+    },
+    {
+      "file": "workers/scan-api/src/routes/certificate-shared-san-projection.js",
+      "line": 65,
+      "column": 4,
+      "ast_access_kind": "member",
+      "field": "count",
+      "source_provenance": "alias/helper/container",
+      "classification": "decision",
+      "non_null_error_dominates_count": true,
       "classification_reason": "terminal provider-source field read derived by AST taint closure"
     }
   ]

@@ -722,6 +722,18 @@ jobs:
       - name: Validate shared-SAN honesty mutations (initial zero + unmeasured ownership + invalid-kill controls)
         run: node scripts/validate-cert-shared-san-honesty-mutations.js
 
+      - name: Validate Candidate A historical shared-SAN projection (R1 + R3 + engine/route/tenant/parity)
+        run: node scripts/validate-cert-shared-san-candidate-a.js
+
+      - name: Validate Candidate A semantic mutations (exact v2 kill sets + invalid-kill controls)
+        run: node scripts/validate-cert-shared-san-candidate-a-mutations.js
+
+      - name: Validate Candidate A oracle/projector same-commit atomicity (F11 + M13)
+        run: node scripts/validate-cert-shared-san-candidate-a-atomicity.js
+
+      - name: Validate Candidate A self-relative email-Worker closure invariance (F12)
+        run: node scripts/validate-cert-shared-san-candidate-a-closure.js
+
       - name: Validate CT provider resilience (timeouts + bounded retry + health telemetry + mutations)
         run: node scripts/validate-ct-provider-resilience.js
 

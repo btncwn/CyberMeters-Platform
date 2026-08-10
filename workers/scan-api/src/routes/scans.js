@@ -45,6 +45,7 @@ import {
   projectPhase5ScanRowsForCustomer,
   resolvePhase5EvidenceContract,
 } from "../engines/phase5-evidence.js";
+import { projectCertificateSharedSanForCustomer } from "./certificate-shared-san-projection.js";
 
 function readScheduledAssetChangeProjection(value) {
   if (typeof value !== "string" || value.length === 0) return null;
@@ -717,6 +718,12 @@ export async function scanRoutes(rctx) {
           source: "previous_scan_comparison", error: null,
         },
       };
+      const projectedCertificateIntelligence =
+        projectCertificateSharedSanForCustomer({
+          ssl: normalisedModules.ssl,
+          certificateIntelligence: normalisedModules.certificate_intelligence,
+          domain: scan.domain,
+        });
       const reportFindings = applyEvidenceQuality(
         (Array.isArray(raw.findings) ? raw.findings : []).map(normalizeFindingSchema)
       );
@@ -751,7 +758,10 @@ export async function scanRoutes(rctx) {
               "ASM alert eligibility has not yet been recorded for this scan. No alert outcome is inferred.",
             asOf: raw.completed_at ?? null,
           }),
-          modules: normalisedModules,
+          modules: {
+            ...normalisedModules,
+            certificate_intelligence: projectedCertificateIntelligence,
+          },
           business_risk: null,
           ...(raw.started_at ? { started_at: raw.started_at } : {}),
           ...(raw.completed_at ? { completed_at: raw.completed_at } : {}),
@@ -788,6 +798,7 @@ export async function scanRoutes(rctx) {
           monitoring_states: snap.monitoring_states ?? raw.monitoring_states ?? null,
           modules: {
             ...normalisedModules,
+            certificate_intelligence: projectedCertificateIntelligence,
             risk_intelligence: projectPhase5RiskIntelligenceForCustomer(
               normalisedModules.risk_intelligence,
               resolvePhase5EvidenceContract(raw.modules ?? {}),
