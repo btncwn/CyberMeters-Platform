@@ -518,7 +518,7 @@ export async function runSslModule(domain, opts = {}) {
     // This is metadata over evidence already collected above: it performs no probe
     // and intentionally refuses to present CT issuance as a live TLS certificate.
     certificate_evidence: {
-      schema_version: "external-certificate-observation-v2",
+      schema_version: "external-certificate-observation-v3",
       observed_at: observedAt,
       live_tls: {
         // Legacy booleans remain for historical readers. The structured fields

@@ -320,7 +320,7 @@ try {
     intelligence?.live_certificate_verified, false);
   eq("SSL declares the additive P4 evidence schema",
     report.modules?.ssl?.certificate_evidence?.schema_version,
-    "external-certificate-observation-v2");
+    "external-certificate-observation-v3");
   eq("SSL declares that live leaf collection was unavailable",
     report.modules?.ssl?.certificate_evidence?.live_tls?.leaf_collected,
     false);
