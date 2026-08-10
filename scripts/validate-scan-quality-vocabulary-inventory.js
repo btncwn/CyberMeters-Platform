@@ -42,7 +42,7 @@ const EXPECTED = Object.freeze({
   },
   runtime_source_file_count: 32,
   direct: {
-    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "d81a2929460b3da4078a7ea473ceabf3ca6fe16170ef8807348ae95a94ed2831" },
+    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "5801a83980106385d60cb81210f99530ebddbeb838172067a84d849c0dbfe1b4" },
     governance: { occurrence_count: 89, source_file_count: 34, fingerprint: "2b5098585d180be731e3cfd2162d8d0a5f531be19c97112906ea97edad99b8e2" },
   },
   sql_reads: { projection_occurrences: 23, fingerprint: "9df8a04f9bfb619b5f7a1b36aaf580e21becc2b391e40ee76ac3b4a30b3b4e02" },
