@@ -8,9 +8,13 @@ import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const EXPECTED_NODE = "v24.19.0";
-if (process.version !== EXPECTED_NODE) {
-  console.error(`F4 PR-2 mutations require Node ${EXPECTED_NODE}; observed ${process.version}`);
+// CI owns the Node 24 runtime. Do not treat a patch release as a proxy for
+// SQLite/RETURNING behaviour: the focused baseline below executes the real
+// atomic path, and M7 removes RETURNING to prove that capability is required.
+const expectedNodeMajor = 24;
+const observedNodeMajor = Number.parseInt(process.versions.node.split(".")[0], 10);
+if (observedNodeMajor !== expectedNodeMajor) {
+  console.error(`F4 PR-2 mutations require Node ${expectedNodeMajor}.x; observed ${process.version}`);
   process.exit(1);
 }
 
