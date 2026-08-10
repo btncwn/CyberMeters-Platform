@@ -18,6 +18,7 @@ import { resolveRemediation } from "./remediation-registry.js";
 import { buildMonitoringTransitionDetail, isMonitoringTransition } from "./alert-occurrence.js";
 import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
+import { SAAS_EXPOSURE_CATALOGUE_URLS } from "./discovery-scan.js";
 
 function newId(prefix) {
   const uuid = (globalThis.crypto?.randomUUID?.() || "").replace(/-/g, "");
@@ -25,6 +26,64 @@ function newId(prefix) {
 }
 function parseJson(v, fallback = null) { try { return v ? JSON.parse(v) : fallback; } catch { return fallback; } }
 function safeJson(v, fallback = null) { try { return v == null ? fallback : JSON.stringify(v); } catch { return fallback; } }
+
+// Per-pass evidence-read vocabulary. Only ok/empty are successful evidence
+// outcomes; failed/incomplete are explicitly non-evidence and can never be
+// converted into disappearance.
+export const SHADOW_IT_READ_OUTCOMES = Object.freeze(["ok", "empty", "failed", "incomplete"]);
+const ABSENCE_ADMISSIBLE_OUTCOMES = new Set(["ok", "empty"]);
+const SHADOW_IT_SOURCE_TABLES = new Set([
+  "workspace_vendors", "workspace_assets", "identity_assets",
+  "email_sender_sources", "saas_exposure",
+]);
+const SAAS_CATALOGUE_URL_SET = new Set(SAAS_EXPOSURE_CATALOGUE_URLS);
+
+async function readSourceRows(env, source, sql, ...bindings) {
+  try {
+    const result = await env.cybermeters_db.prepare(sql).bind(...bindings).all();
+    if (!Array.isArray(result?.results)) return { source, outcome: "failed", rows: [] };
+    return { source, outcome: result.results.length > 0 ? "ok" : "empty", rows: result.results };
+  } catch {
+    return { source, outcome: "failed", rows: [] };
+  }
+}
+
+export function shadowItContributingSources(item) {
+  const sources = new Set();
+  const refs = parseJson(item?.source_evidence_json, null);
+  if (!Array.isArray(refs)) return sources;
+  for (const ref of refs) {
+    const source = String(ref?.source_table || "");
+    if (SHADOW_IT_SOURCE_TABLES.has(source)) sources.add(source);
+    else if (source) sources.add(`unknown:${source}`);
+  }
+  if (String(item?.source_type || "").split(",").map((value) => value.trim()).includes("saas_portal")) {
+    sources.add("saas_exposure");
+  }
+  return sources;
+}
+
+export function shadowItAbsenceAdmissible(item, sourceOutcomes) {
+  const sources = shadowItContributingSources(item);
+  return sources.size > 0 && sourceOutcomes != null &&
+    [...sources].every((source) => ABSENCE_ADMISSIBLE_OUTCOMES.has(sourceOutcomes[source]));
+}
+
+export function boundedCatalogueHostnamePrune(item, sourceOutcomes, currentObservedHostnames = new Set()) {
+  if (!shadowItAbsenceAdmissible(item, sourceOutcomes)) return { retained: null, removed: [] };
+  const hosts = parseJson(item?.observed_hostnames_json, null);
+  if (!Array.isArray(hosts) || !hosts.every((value) => typeof value === "string")) return { retained: null, removed: [] };
+  const observed = currentObservedHostnames instanceof Set
+    ? currentObservedHostnames
+    : new Set(Array.isArray(currentObservedHostnames) ? currentObservedHostnames : []);
+  const removed = [];
+  const retained = hosts.filter((hostname) => {
+    const removable = SAAS_CATALOGUE_URL_SET.has(hostname) && !observed.has(hostname);
+    if (removable) removed.push(hostname);
+    return !removable;
+  });
+  return removed.length > 0 ? { retained, removed: [...new Set(removed)] } : { retained: hosts, removed: [] };
+}
 
 // ── Canonical identity ──────────────────────────────────────────────────────
 // PRODUCT-level slug of the observed technology name. Deterministic and stable;
@@ -80,19 +139,25 @@ function cloudProviderMeta(token) {
 async function gatherShadowItObservations(env, workspaceId, saasExposure, {
   deferCtAssetEvidence = false,
 } = {}) {
-  const q = (sql, ...b) => env.cybermeters_db.prepare(sql).bind(...b).all().catch(() => ({ results: [] }));
   const obs = [];
   const deferredKeys = new Set();
+  const sourceOutcomes = {};
 
   // 1. workspace_vendors — SaaS/vendor/provider signals.
-  for (const r of (await q(`SELECT id, vendor_name, category, evidence, confidence, first_seen, last_seen FROM workspace_vendors WHERE workspace_id = ? AND status = 'active'`, workspaceId)).results || []) {
+  const vendorRead = await readSourceRows(env, "workspace_vendors", `SELECT id, vendor_name, category, evidence, confidence, first_seen, last_seen FROM workspace_vendors WHERE workspace_id = ? AND status = 'active'`, workspaceId);
+  sourceOutcomes.workspace_vendors = vendorRead.outcome;
+  for (const r of vendorRead.rows) {
     const hosts = [];
     for (const e of (parseJson(r.evidence, []) || [])) if (e?.detail) hosts.push(String(e.detail).slice(0, 200));
     obs.push({ source_table: "workspace_vendors", source_record_id: r.id, source_type: "vendor", observed_identifier: r.vendor_name, name: r.vendor_name, category: r.category || "other", first_seen_at: r.first_seen, last_seen_at: r.last_seen, confidence: r.confidence || "low", hostnames: hosts });
   }
   // 2. workspace_assets.cloud_provider — cloud/CDN/hosting infrastructure. Kept
   //    honest (category cloud_storage/cdn/hosting), never auto-treated as SaaS.
-  for (const r of (await q(`SELECT id, hostname, source, cloud_provider, first_seen, last_seen FROM workspace_assets WHERE workspace_id = ? AND status = 'active' AND cloud_provider IS NOT NULL AND cloud_provider != ''`, workspaceId)).results || []) {
+  const assetRead = await readSourceRows(env, "workspace_assets", `SELECT id, hostname, source, cloud_provider, first_seen, last_seen FROM workspace_assets WHERE workspace_id = ? AND status = 'active' AND cloud_provider IS NOT NULL AND cloud_provider != ''`, workspaceId);
+  sourceOutcomes.workspace_assets = assetRead.outcome === "failed"
+    ? "failed"
+    : deferCtAssetEvidence ? "incomplete" : assetRead.outcome;
+  for (const r of assetRead.rows) {
     const meta = cloudProviderMeta(r.cloud_provider);
     if (deferCtAssetEvidence && r.source === "certificate_transparency") {
       deferredKeys.add(canonicalTechnologyKey(meta.display));
@@ -101,21 +166,31 @@ async function gatherShadowItObservations(env, workspaceId, saasExposure, {
     obs.push({ source_table: "workspace_assets", source_record_id: r.id, source_type: "cloud_asset", observed_identifier: r.cloud_provider, name: meta.display, category: meta.category, first_seen_at: r.first_seen, last_seen_at: r.last_seen, confidence: "medium", hostnames: r.hostname ? [r.hostname] : [] });
   }
   // 3. identity_assets — externally observed identity providers.
-  for (const r of (await q(`SELECT id, hostname, provider, risk_score, first_seen, last_seen FROM identity_assets WHERE workspace_id = ? AND status = 'active' AND provider IS NOT NULL AND provider != ''`, workspaceId)).results || []) {
+  const identityRead = await readSourceRows(env, "identity_assets", `SELECT id, hostname, provider, risk_score, first_seen, last_seen FROM identity_assets WHERE workspace_id = ? AND status = 'active' AND provider IS NOT NULL AND provider != ''`, workspaceId);
+  sourceOutcomes.identity_assets = identityRead.outcome;
+  for (const r of identityRead.rows) {
     obs.push({ source_table: "identity_assets", source_record_id: r.id, source_type: "identity_provider", observed_identifier: r.provider, name: r.provider, category: "identity_provider", first_seen_at: r.first_seen, last_seen_at: r.last_seen, confidence: (r.risk_score || 0) >= 20 ? "high" : "medium", hostnames: r.hostname ? [r.hostname] : [] });
   }
   // 4. email_sender_sources — email/ESP providers seen in DMARC reports.
-  for (const r of (await q(`SELECT id, provider_guess, provider_confidence, header_from, first_seen, last_seen FROM email_sender_sources WHERE workspace_id = ? AND provider_guess IS NOT NULL AND provider_guess != ''`, workspaceId)).results || []) {
+  const senderRead = await readSourceRows(env, "email_sender_sources", `SELECT id, provider_guess, provider_confidence, header_from, first_seen, last_seen FROM email_sender_sources WHERE workspace_id = ? AND provider_guess IS NOT NULL AND provider_guess != ''`, workspaceId);
+  sourceOutcomes.email_sender_sources = senderRead.outcome;
+  for (const r of senderRead.rows) {
     obs.push({ source_table: "email_sender_sources", source_record_id: r.id, source_type: "email_sender", observed_identifier: r.provider_guess, name: r.provider_guess, category: "email_provider", first_seen_at: r.first_seen, last_seen_at: r.last_seen, confidence: r.provider_confidence || "low", hostnames: r.header_from ? [r.header_from] : [] });
   }
   // 5. saas_exposure (ephemeral, this scan only) — portal/tenant URLs. No durable
   //    record id, so it enriches hostnames but is a distinct evidence source_type.
-  for (const ex of (Array.isArray(saasExposure?.exposures) ? saasExposure.exposures : [])) {
+  const saasRows = Array.isArray(saasExposure?.exposures) ? saasExposure.exposures : [];
+  sourceOutcomes.saas_exposure = !saasExposure || !Array.isArray(saasExposure.exposures)
+    ? "incomplete"
+    : saasExposure.error
+      ? "failed"
+      : saasRows.length > 0 ? "ok" : "empty";
+  for (const ex of saasRows) {
     const name = ex.name || ex.provider || ex.product;
     if (!name) continue;
-    obs.push({ source_table: "saas_exposure", source_record_id: null, source_type: "saas_portal", observed_identifier: name, name, category: "saas", first_seen_at: null, last_seen_at: null, confidence: "low", hostnames: [ex.tenant_url, ex.portal_url, ex.admin_url].filter(Boolean) });
+    obs.push({ source_table: "saas_exposure", source_record_id: null, source_type: "saas_portal", observed_identifier: name, name, category: "saas", first_seen_at: null, last_seen_at: null, confidence: "low", hostnames: [ex.observed_tenant_url].filter(Boolean) });
   }
-  return { observations: obs, deferredKeys };
+  return { observations: obs, deferredKeys, sourceOutcomes: Object.freeze({ ...sourceOutcomes }) };
 }
 
 // Non-destructive evidence UNION: every prior reference is preserved; new ones are
@@ -186,6 +261,18 @@ async function appendEvent(env, item, { actor_type = "system", actor_id = null, 
     .run();
 }
 
+async function readShadowItInventoryRows(env, workspaceId) {
+  try {
+    const result = await env.cybermeters_db
+      .prepare(`SELECT * FROM shadow_it_inventory WHERE workspace_id = ?`)
+      .bind(workspaceId).all();
+    if (!Array.isArray(result?.results)) return { read_outcome: "failed", items: [] };
+    return { read_outcome: result.results.length > 0 ? "ok" : "empty", items: result.results };
+  } catch {
+    return { read_outcome: "failed", items: [] };
+  }
+}
+
 // ── Correlation / upsert ────────────────────────────────────────────────────
 // Read the workspace's active vendor observations, group by canonical technology
 // key, and upsert one inventory item per product. Observation fields refresh;
@@ -206,7 +293,7 @@ export async function correlateShadowItInventory(env, workspaceId, {
   // contribution retains a structured evidence reference.
   const deferCtAssetEvidence = subdomainDiscovery?.executed === false ||
     subdomainDiscovery?.incomplete === true;
-  const { observations, deferredKeys } = await gatherShadowItObservations(
+  const { observations, deferredKeys, sourceOutcomes } = await gatherShadowItObservations(
     env,
     workspaceId,
     saasExposure,
@@ -216,15 +303,33 @@ export async function correlateShadowItInventory(env, workspaceId, {
   // Group observations by canonical technology key (alias-resolved). Unrelated
   // products of one provider stay in separate groups.
   const groups = new Map();
+  const currentObservedHostnamesByKey = new Map();
   for (const o of observations) {
     if (!o.name) continue;
     const key = canonicalTechnologyKey(o.name);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(o);
+    if (!currentObservedHostnamesByKey.has(key)) currentObservedHostnamesByKey.set(key, new Set());
+    for (const hostname of (o.hostnames || [])) if (hostname) currentObservedHostnamesByKey.get(key).add(String(hostname).slice(0, 300));
   }
+
+  // The item-list read is part of the compute phase. A failed inventory read
+  // cannot safely distinguish existing from absent state, so the pass writes
+  // nothing at all. The same rows are refreshed in memory below and supplied to
+  // the evaluator; no second, post-write list read can fail open.
+  const inventoryRead = await readShadowItInventoryRows(env, workspaceId);
+  if (inventoryRead.read_outcome === "failed") {
+    return {
+      correlated: 0, created: 0, changed: 0,
+      read_outcome: "failed", failure: "inventory_list_read_failed",
+      source_outcomes: sourceOutcomes,
+    };
+  }
+  const inventoryItems = inventoryRead.items;
 
   let created = 0, changed = 0;
   const seenKeys = new Set();
+  const lookupDeferredKeys = new Set();
   for (const [key, obs] of groups) {
     seenKeys.add(key);
     // Prefer a vendor-typed name for the display; category = most specific.
@@ -256,9 +361,17 @@ export async function correlateShadowItInventory(env, workspaceId, {
       source_evidence: evidenceRefs,
     };
 
-    const existing = await env.cybermeters_db
-      .prepare(`SELECT * FROM shadow_it_inventory WHERE workspace_id = ? AND canonical_technology_key = ?`)
-      .bind(workspaceId, key).first().catch(() => null);
+    let existing;
+    try {
+      existing = await env.cybermeters_db
+        .prepare(`SELECT * FROM shadow_it_inventory WHERE workspace_id = ? AND canonical_technology_key = ?`)
+        .bind(workspaceId, key).first();
+    } catch {
+      // A failed lookup is not proof that the row is absent. Defer this key for
+      // the entire pass; in particular, never enter the INSERT branch.
+      lookupDeferredKeys.add(key);
+      continue;
+    }
 
     if (!existing) {
       const id = newId("sii");
@@ -275,6 +388,17 @@ export async function correlateShadowItInventory(env, workspaceId, {
           snapshot.first_seen, snapshot.last_seen, snapshot.confidence, safeJson(snapshot.source_evidence, "[]"), now, now)
         .run();
       await appendEvent(env, item, { event_type: "observed", detail: { created: true, category, confidence, source_types: [...sourceTypes] } });
+      inventoryItems.push({
+        id, workspace_id: workspaceId, canonical_technology_key: key,
+        display_name: snapshot.display_name, provider: snapshot.provider, category: snapshot.category,
+        source_type: snapshot.source_type,
+        observed_identifiers_json: safeJson(snapshot.observed_identifiers, "[]"),
+        observed_hostnames_json: safeJson(snapshot.observed_hostnames, "[]"),
+        observed_domains_json: "[]", first_seen_at: snapshot.first_seen, last_seen_at: snapshot.last_seen,
+        confidence: snapshot.confidence, classification: "unreviewed", ownership_status: "missing",
+        monitoring_status: "observed", source_evidence_json: safeJson(snapshot.source_evidence, "[]"),
+        created_at: now, updated_at: now,
+      });
       created++;
       continue;
     }
@@ -304,6 +428,18 @@ export async function correlateShadowItInventory(env, workspaceId, {
         snapshot.last_seen, snapshot.confidence, monitoring, safeJson(unionedEvidence, "[]"),
         material ? 1 : 0, now, now, existing.id, workspaceId)
       .run();
+    Object.assign(existing, {
+      display_name: snapshot.display_name, provider: snapshot.provider, category,
+      source_type: unionedSourceTypes,
+      observed_identifiers_json: safeJson(snapshot.observed_identifiers, "[]"),
+      observed_hostnames_json: safeJson(unionedHosts, "[]"),
+      last_seen_at: snapshot.last_seen, confidence: snapshot.confidence,
+      monitoring_status: monitoring, source_evidence_json: safeJson(unionedEvidence, "[]"),
+      last_changed_at: material ? now : existing.last_changed_at,
+      updated_at: now,
+    });
+    const cachedExisting = inventoryItems.find((item) => item.id === existing.id);
+    if (cachedExisting && cachedExisting !== existing) Object.assign(cachedExisting, existing);
     if (material) { await appendEvent(env, existing, { event_type: "material_change", detail: { category, provider: snapshot.provider, new_host: newHost } }); changed++; }
     if (reappeared) await appendEvent(env, existing, { event_type: "monitoring_changed", detail: { to: "reappeared" } });
   }
@@ -313,9 +449,18 @@ export async function correlateShadowItInventory(env, workspaceId, {
   const monitoring = await evaluateShadowItMonitoring(env, workspaceId, {
     seenKeys,
     deferredKeys,
+    lookupDeferredKeys,
+    sourceOutcomes,
+    currentObservedHostnamesByKey,
+    inventoryItems,
     now,
   });
-  return { correlated: groups.size, created, changed, monitoring };
+  return {
+    correlated: groups.size, created,
+    changed: changed + (monitoring.catalogue_pruned || 0),
+    source_outcomes: sourceOutcomes,
+    monitoring,
+  };
 }
 
 // ── Monitoring evaluator ────────────────────────────────────────────────────
@@ -412,30 +557,108 @@ async function workspaceMonitoredDomain(env, workspaceId) {
   }
 }
 
+export function shadowItMonitoringEvidenceDecision(item, {
+  seenKeys = null,
+  deferredKeys = null,
+  lookupDeferredKeys = null,
+  sourceOutcomes = null,
+} = {}) {
+  if (!(seenKeys instanceof Set)) return "unchanged";
+  const key = item?.canonical_technology_key;
+  if (lookupDeferredKeys?.has(key)) return "defer";
+  if (seenKeys.has(key)) return "seen";
+  if (deferredKeys?.has(key)) return "defer";
+  return shadowItAbsenceAdmissible(item, sourceOutcomes) ? "absent" : "defer";
+}
+
+export function cataloguePruneCorrectionStatements(env, workspaceId, item, correction, now) {
+  const preImageJson = item?.observed_hostnames_json;
+  const correctedJson = safeJson(correction.retained, "[]");
+  const eventId = newId("sie");
+  const detailJson = safeJson({
+    correction: "catalogue_hostname_prune",
+    removed_hostnames: correction.removed,
+    retained_hostname_count: correction.retained.length,
+  });
+  const event = env.cybermeters_db.prepare(`INSERT INTO shadow_it_inventory_events
+    (id, item_id, workspace_id, actor_type, actor_id, event_type, detail_json, created_at)
+    SELECT ?, ?, ?, 'system', NULL, 'material_change', ?, datetime('now')
+    WHERE EXISTS (SELECT 1 FROM shadow_it_inventory
+                  WHERE id = ? AND workspace_id = ? AND observed_hostnames_json = ?)
+      AND EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND deleted_at IS NULL)`)
+    .bind(eventId, item.id, workspaceId, detailJson, item.id, workspaceId, preImageJson, workspaceId);
+  const update = env.cybermeters_db.prepare(`UPDATE shadow_it_inventory
+    SET observed_hostnames_json = ?, updated_at = ?
+    WHERE id = ? AND workspace_id = ? AND observed_hostnames_json = ?
+      AND EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND deleted_at IS NULL)`)
+    .bind(correctedJson, now, item.id, workspaceId, preImageJson, workspaceId);
+  return { eventId, preImageJson, correctedJson, statements: [event, update] };
+}
+
 export async function evaluateShadowItMonitoring(env, workspaceId, {
   seenKeys = null,
   deferredKeys = null,
+  lookupDeferredKeys = null,
+  sourceOutcomes = null,
+  currentObservedHostnamesByKey = null,
+  inventoryItems = null,
   now = new Date().toISOString(),
 } = {}) {
   const ws = await env.cybermeters_db
     .prepare(`SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL`).bind(workspaceId).first().catch(() => null);
   if (!ws) return { evaluated: 0, skipped: "workspace_inactive" };
 
-  const items = (await env.cybermeters_db
-    .prepare(`SELECT * FROM shadow_it_inventory WHERE workspace_id = ?`).bind(workspaceId).all().catch(() => ({ results: [] }))).results || [];
-  let disappeared = 0, contradictions = 0, cases = 0, ownerMissingEvents = 0;
+  let items = inventoryItems;
+  if (!Array.isArray(items)) {
+    const inventoryRead = await readShadowItInventoryRows(env, workspaceId);
+    if (inventoryRead.read_outcome === "failed") {
+      return { evaluated: 0, read_outcome: "failed", failure: "inventory_list_read_failed" };
+    }
+    items = inventoryRead.items;
+  }
+  let disappeared = 0, contradictions = 0, cases = 0, ownerMissingEvents = 0, cataloguePruned = 0;
   // One bounded read per evaluation pass, not per item.
   const monitoredDomain = await workspaceMonitoredDomain(env, workspaceId);
 
   for (const it of items) {
-    // A CT-backed cloud observation whose discovery channel is incomplete is
-    // neither present nor absent. Preserve the entire item/case clock unless
-    // another independent source observed the same canonical technology.
-    if (deferredKeys?.has(it.canonical_technology_key) &&
-        !seenKeys?.has(it.canonical_technology_key)) continue;
+    // Deliberately reuse the one immutable pass map. Re-reading a source here
+    // would let different inventory items observe different completeness.
+    const itemSourceOutcomes = sourceOutcomes;
+    const evidenceDecision = shadowItMonitoringEvidenceDecision(it, {
+      seenKeys, deferredKeys, lookupDeferredKeys, sourceOutcomes: itemSourceOutcomes,
+    });
+    // Failed, incomplete, unknown and lookup-deferred evidence is total silence:
+    // no status/clock/event/recurrence/case/alert write. A successful duplicate
+    // observation is decided as "seen" before source completeness is consulted.
+    if (evidenceDecision === "defer") continue;
+
+    // Bounded forward correction of the mutable host projection. Exact catalogue
+    // constants are removable only when every contributing source completed and
+    // no current customer-derived observation carries the same value. Existing
+    // history/evidence is not edited; the correction gets one material event.
+    const currentHosts = currentObservedHostnamesByKey?.get(it.canonical_technology_key) || new Set();
+    const correction = boundedCatalogueHostnamePrune(it, itemSourceOutcomes, currentHosts);
+    if (correction.removed.length > 0) {
+      const prepared = cataloguePruneCorrectionStatements(env, workspaceId, it, correction, now);
+      const results = await env.cybermeters_db.batch(prepared.statements);
+      const validShape = Array.isArray(results) && results.length === 2 &&
+        results.every((result) => result?.success !== false &&
+          Number.isInteger(result?.meta?.changes) && result.meta.changes >= 0 && result.meta.changes <= 1);
+      const eventChanges = results?.[0]?.meta?.changes;
+      const rowChanges = results?.[1]?.meta?.changes;
+      if (!validShape || eventChanges !== rowChanges || ![0, 1].includes(rowChanges)) {
+        throw new Error("shadow_it_catalogue_prune_batch_invariant");
+      }
+      if (rowChanges === 1) {
+        it.observed_hostnames_json = prepared.correctedJson;
+        it.updated_at = now;
+        cataloguePruned++;
+      }
+    }
+
     let monitoring_status = it.monitoring_status;
     // Disappearance — key no longer observed this correlation. Never verified removal.
-    if (seenKeys && !seenKeys.has(it.canonical_technology_key) && monitoring_status !== "no_longer_observed") {
+    if (evidenceDecision === "absent" && monitoring_status !== "no_longer_observed") {
       monitoring_status = "no_longer_observed";
       await appendEvent(env, it, { event_type: "monitoring_changed", detail: { to: "no_longer_observed", note: "not_verified_removed" } });
       disappeared++;
@@ -556,7 +779,11 @@ export async function evaluateShadowItMonitoring(env, workspaceId, {
       if (acted?.ok) cases++;
     }
   }
-  return { evaluated: items.length, disappeared, contradictions, cases, owner_missing: ownerMissingEvents };
+  return {
+    evaluated: items.length, read_outcome: items.length > 0 ? "ok" : "empty",
+    disappeared, contradictions, cases, owner_missing: ownerMissingEvents,
+    catalogue_pruned: cataloguePruned,
+  };
 }
 
 // Open a new shadow_it_case OR reopen/update the EXISTING linked case through the

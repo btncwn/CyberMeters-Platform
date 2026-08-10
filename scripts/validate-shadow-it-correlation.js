@@ -241,7 +241,14 @@ eq("the customer assertion is preserved (removal_status stays removed)", dropbox
       .all().map((r) => r.canonical_technology_key).filter((k) => k !== dropboxKey),
   );
 
-  await evaluateShadowItMonitoring(env, "ws1", { now: NOW, seenKeys: stillSeen });
+  // This is an explicit complete vendor-source absence fixture. The production
+  // correlator supplies the immutable per-source outcome map; direct evaluator
+  // tests must do the same rather than treating an omitted outcome as complete.
+  await evaluateShadowItMonitoring(env, "ws1", {
+    now: NOW,
+    seenKeys: stillSeen,
+    sourceOutcomes: Object.freeze({ workspace_vendors: "empty" }),
+  });
   const gone = await getShadowItItem(env, "ws1", dropbox0.inventory_item_id);
 
   eq("a removed item that disappeared is no_longer_observed", gone.monitoring_status, "no_longer_observed");

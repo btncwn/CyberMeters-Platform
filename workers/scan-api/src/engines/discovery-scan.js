@@ -285,6 +285,14 @@ const SAAS_EXPOSURE_SIGS = [
   },
 ];
 
+// Reference metadata only. These catalogue constants describe public service
+// portals; they are not evidence that a customer hostname was observed. The
+// exported closed list is used solely by the bounded mutable-row compatibility
+// correction in shadow-it-inventory.js. Exact equality is mandatory there.
+export const SAAS_EXPOSURE_CATALOGUE_URLS = Object.freeze([
+  ...new Set(SAAS_EXPOSURE_SIGS.flatMap((sig) => [sig.portal_url, sig.admin_url]).filter(Boolean)),
+]);
+
 /**
  * Collect all CNAME values from across the scan modules.
  * Reused from the vendor detection signal extraction logic.
@@ -313,7 +321,8 @@ function collectAllCnames(modules) {
  * Returns:
  *   { detected: bool, total: number,
  *     exposures: [{name, category, exposure_type, risk_level, portal_url,
- *       admin_url, tenant_hint, tenant_url, attack_surface, evidence, confidence}],
+ *       admin_url, tenant_hint, tenant_url, observed_tenant_url,
+ *       attack_surface, evidence, confidence}],
  *     source: "saas_exposure_analysis", error: null }
  */
 export function runSaasExposureModule(modules) {
@@ -360,6 +369,13 @@ export function runSaasExposureModule(modules) {
         }
       }
 
+      // Only a tenant-specific URL derived from a customer CNAME is an observed
+      // hostname. HubSpot/Marketo and the default branch reuse the catalogue
+      // portal URL, so equality with sig.portal_url is deliberately excluded.
+      const observed_tenant_url = tenant_hint && tenant_url && tenant_url !== sig.portal_url
+        ? tenant_url
+        : null;
+
       exposures.push({
         name:           sig.name,
         category:       sig.category,
@@ -374,6 +390,7 @@ export function runSaasExposureModule(modules) {
         admin_url:      sig.admin_url || null,
         tenant_hint:    tenant_hint,
         tenant_url:     tenant_url,
+        observed_tenant_url,
         attack_surface: "Third-party service dependency observed; no vulnerable configuration or customer data exposure was confirmed.",
         evidence:       vendor.evidence,
         confidence:     vendor.confidence,

@@ -623,6 +623,12 @@ jobs:
       - name: Validate Shadow IT correlation depth (multi-source + alias + evidence union + ownership + monitoring + removal contradiction + case reopen)
         run: node scripts/validate-shadow-it-correlation.js
 
+      - name: Validate Shadow IT FB-1 + EH-1 (fail-closed source outcomes + customer-derived hostname provenance)
+        run: node scripts/validate-shadow-it-fb1-eh1.js
+
+      - name: Validate Shadow IT FB-1 + EH-1 semantic mutations
+        run: node scripts/validate-shadow-it-fb1-eh1-mutations.js
+
       - name: Validate Certificate Managed Lifecycle (identity + replacement + renewal policy + coverage + verification + monitoring + case reopen)
         run: node scripts/validate-certificate-lifecycle.js
 
