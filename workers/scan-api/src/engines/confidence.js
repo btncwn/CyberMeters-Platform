@@ -2,6 +2,7 @@
 // Numeric confidence (0–100) for findings: legacy-string mapping, per-ID lookup,
 // prefix heuristics. Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 // Behavior-preserving — no logic change.
+import { findingHasApprovedTlsAbsence } from "./tls-evidence.js";
 
 // ── Sprint 9B: Confidence Engine ─────────────────────────────────────────────
 //
@@ -37,7 +38,7 @@ const FINDING_CONFIDENCE_SCORES = {
   dnssec_not_enabled:              90, // fallback — string "high"→90 normally
   dnssec_misconfigured:            70, // fallback — string "medium"→70 normally
   // ── SSL ──────────────────────────────────────────────────────────────────
-  ssl_not_available:               90, // TLS handshake confirmed failed
+  ssl_not_available:               90, // only after approved positive-absence evidence
   ssl_no_http_redirect:            90, // confirmed variant; uncertain gets "low"→60
   canonical_url_uncertain:         70, // inferred from redirect chain
   // ── Email security ───────────────────────────────────────────────────────
@@ -101,6 +102,19 @@ const FINDING_CONFIDENCE_SCORES = {
  *   5. Default: 70
  */
 export function resolveConfidence(finding) {
+  // Historical/bare ssl_not_available carried 90 with no source capable of
+  // proving absence. Do not preserve or manufacture that confidence unless the
+  // canonical evidence envelope is present and approved.
+  if ((finding?.id ?? "") === "ssl_not_available") {
+    if (!findingHasApprovedTlsAbsence(finding)) return null;
+    if (typeof finding.confidence === "number") return finding.confidence;
+    if (typeof finding.confidence === "string") {
+      const mapped = CONFIDENCE_STRING_TO_NUMERIC[finding.confidence.toLowerCase()];
+      if (mapped != null) return mapped;
+    }
+    return FINDING_CONFIDENCE_SCORES.ssl_not_available;
+  }
+
   // 1. Already numeric — preserve
   if (typeof finding.confidence === "number") return finding.confidence;
 

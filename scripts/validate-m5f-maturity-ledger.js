@@ -110,7 +110,9 @@ function completeReport({ website = "issue", email = "healthy" } = {}) {
     completed_at: "2026-07-17T10:00:00Z", created_at: "2026-07-17T09:00:00Z",
     modules: {
       email_security: { ok: true }, email_security_intelligence: { ok: true },
-      headers: email === "healthy" ? { ok: true } : { ok: true }, ssl: { ok: true }, dns: { ok: true },
+      headers: email === "healthy" ? { ok: true } : { ok: true },
+      ssl: { ok: true, https_available: true, https_probe_executed: true },
+      dns: { ok: true },
       subdomains: { ok: true }, certificate_intelligence: { ok: true }, brand_monitoring: { ok: true },
       identity_discovery: { ok: true }, saas_exposure: { count: 3 },
     },

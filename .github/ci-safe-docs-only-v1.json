@@ -41,7 +41,9 @@
         "min_seconds": 20,
         "median_seconds": 20,
         "max_seconds": 20,
-        "source_run_ids": [30699425358]
+        "source_run_ids": [
+          30699425358
+        ]
       },
       "reason": "The AST/SQL inventory scans workers, frontend/src, shared and scripts; its source roots explicitly exclude docs and CHANGELOG.md.",
       "evidence": {
@@ -50,7 +52,7 @@
           "frontend/package.json",
           "frontend/package-lock.json"
         ],
-        "scope_sha256": "81b509fc3db9b7296b02621f89718152f68637785930ca7f1902181a62aac54d",
+        "scope_sha256": "e0a28545e9511667474e1c14b64d7aa1691df9a10f999084b64c676ffedf7a2d",
         "scope_file_count": 3,
         "source_graph_review": "Entry point has only Node built-ins plus TypeScript resolved from frontend; SOURCE_ROOTS is workers, frontend/src, shared and scripts, with no docs or CHANGELOG input.",
         "negative_without_docs": "PASS: exact command exit 0 in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent; fixture worktree clean",
@@ -68,7 +70,11 @@
         "min_seconds": 146,
         "median_seconds": 244,
         "max_seconds": 467,
-        "source_run_ids": [30670627324, 30675733571, 30698741738]
+        "source_run_ids": [
+          30670627324,
+          30675733571,
+          30698741738
+        ]
       },
       "reason": "The fresh-process mutation runner calls only the vocabulary inventory and mutates three runtime/governance source targets; docs are not an input.",
       "evidence": {
@@ -81,7 +87,7 @@
           "frontend/package.json",
           "frontend/package-lock.json"
         ],
-        "scope_sha256": "74837798e65d578822426c0781bbb3ef27413a6c0710f545649f79e87e9b6fec",
+        "scope_sha256": "65fd7ec06e9d9bcde77f8550247274029c015bca2583cb9f7b16975b2a01f063",
         "scope_file_count": 7,
         "source_graph_review": "Runner uses Node built-ins, git fingerprinting, the inventory child and three pinned non-doc mutation targets; the child source-root contract excludes docs and CHANGELOG.",
         "negative_without_docs": "PASS: exact command exit 0 with 20/20 mutants, 1/1 negative control and full fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
@@ -99,7 +105,9 @@
         "min_seconds": 35,
         "median_seconds": 35,
         "max_seconds": 35,
-        "source_run_ids": [30699425358]
+        "source_run_ids": [
+          30699425358
+        ]
       },
       "reason": "The harness reads D1 schema/migrations and imports Worker/shared/frontend runtime contracts; no docs or CHANGELOG input exists in its call graph.",
       "evidence": {
@@ -111,8 +119,8 @@
           "shared",
           "frontend/src/lib/caseDisplay.js"
         ],
-        "scope_sha256": "b39b4f5e23e1fce1e960fc5df1eba02b534f42cbeb5fb66016493320d01b3ce2",
-        "scope_file_count": 302,
+        "scope_sha256": "12175d0326723265ded37d10e17acb7d91a076213cbd0cc800029d543b1dbb7b",
+        "scope_file_count": 314,
         "source_graph_review": "Reviewed dynamic imports, source reads, schema/migration loader, fresh-process mutants and case-display import; every repository input is in database, workers, shared or frontend/src.",
         "negative_without_docs": "PASS: exact command exit 0 (171/171) in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
         "positive_workflow_baseline": "run 30699425358: 35s, success"
@@ -129,7 +137,9 @@
         "min_seconds": 28,
         "median_seconds": 28,
         "max_seconds": 28,
-        "source_run_ids": [30699425358]
+        "source_run_ids": [
+          30699425358
+        ]
       },
       "reason": "The harness reads D1 schema/migrations and Worker/frontend runtime contracts; no docs or CHANGELOG input exists in its call graph.",
       "evidence": {
@@ -140,8 +150,8 @@
           "workers/scan-api/src",
           "frontend/src"
         ],
-        "scope_sha256": "aa17d7cb8072c062b94282c198ae70a44c8454816ac7eaff934246d49c604007",
-        "scope_file_count": 510,
+        "scope_sha256": "fcb24e18934ea403da86fd7e9ee777e1969166104ae75c8d4f4d8e29d11d0ff8",
+        "scope_file_count": 526,
         "source_graph_review": "Reviewed dynamic imports, source reads, schema/migration loader, Worker index import, frontend case display/queue reads and fresh-process mutants; no docs path is reachable.",
         "negative_without_docs": "PASS: exact command exit 0 (233/233) in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
         "positive_workflow_baseline": "run 30699425358: 28s, success"
@@ -158,7 +168,9 @@
         "min_seconds": 26,
         "median_seconds": 26,
         "max_seconds": 26,
-        "source_run_ids": [30699425358]
+        "source_run_ids": [
+          30699425358
+        ]
       },
       "reason": "The runner mutates ScanDetail and calls the AST/Vitest presentation validator; its graph is frontend source/config only.",
       "evidence": {
@@ -170,8 +182,8 @@
           "frontend/package-lock.json",
           "frontend/vite.config.js"
         ],
-        "scope_sha256": "e2bf3fba37e1397587f87fddd63f113d75eab79e0e6153d04c040066301b1f4e",
-        "scope_file_count": 215,
+        "scope_sha256": "c64d3c26ea882a91709dd87ad369b94f0c9db0e10381ddd03dec36bf16f60cd1",
+        "scope_file_count": 219,
         "source_graph_review": "Reviewed mutation target, validator child, git fingerprint, AST closure and Vitest carrier; inputs are the two scripts plus frontend source/config/dependencies.",
         "negative_without_docs": "PASS: exact command exit 0 with 8/8 exact mutant kills and fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
         "positive_workflow_baseline": "run 30699425358: 26s, success"
@@ -188,7 +200,9 @@
         "min_seconds": 27,
         "median_seconds": 27,
         "max_seconds": 27,
-        "source_run_ids": [30699425358]
+        "source_run_ids": [
+          30699425358
+        ]
       },
       "reason": "The runner mutates IntelligencePage and calls the AST/Vitest presentation validator; its graph is frontend source/config only.",
       "evidence": {
@@ -200,8 +214,8 @@
           "frontend/package-lock.json",
           "frontend/vite.config.js"
         ],
-        "scope_sha256": "679bef0cc8a702e0e323a55a30082b4033fac2b3c9200a81d6da1d0508730142",
-        "scope_file_count": 215,
+        "scope_sha256": "3e369a94d470431b839b026cfcb1b3e7f549a33ca59dd3a23204d4ca6b2e8638",
+        "scope_file_count": 219,
         "source_graph_review": "Reviewed mutation target, validator child, git fingerprint, AST closure and Vitest carrier; inputs are the two scripts plus frontend source/config/dependencies.",
         "negative_without_docs": "PASS: exact command exit 0 with 9/9 exact mutant kills and fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
         "positive_workflow_baseline": "run 30699425358: 27s, success"
@@ -218,15 +232,17 @@
         "min_seconds": 80,
         "median_seconds": 80,
         "max_seconds": 80,
-        "source_run_ids": [30699425358]
+        "source_run_ids": [
+          30699425358
+        ]
       },
       "reason": "The package script runs Vitest coverage over the frontend source/test graph; repository docs and CHANGELOG are not test inputs.",
       "evidence": {
         "scope_paths": [
           "frontend"
         ],
-        "scope_sha256": "1659841f45a0289082dfcd29aac995a5f56a5cb1d9a7e04b1a3ef52e97a5857e",
-        "scope_file_count": 228,
+        "scope_sha256": "224087974395f7dbffddc9f1e1e75acb50518a23631f942d50a25d07f722816f",
+        "scope_file_count": 232,
         "source_graph_review": "Reviewed package script, Vite/Vitest config and frontend source/test discovery; generated coverage, dist and node_modules are excluded from the proof fingerprint.",
         "negative_without_docs": "PASS: exact command exit 0 with 63/63 files and 521/521 tests in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
         "positive_workflow_baseline": "run 30699425358: 80s, success"

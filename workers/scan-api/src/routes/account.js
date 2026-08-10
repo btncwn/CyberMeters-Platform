@@ -8,6 +8,7 @@
 import { PLAN_FEATURES, getEffectivePlan, getPlanFeatures, hasFeatureEntitlement, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { validateBrandingInput } from "../engines/report-branding.js";
 import { validateFindingEvidence } from "../engines/findings.js";
+import { visibleFindingSql } from "../engines/finding-identity.js";
 import { getEntitlementUsage, getPlanContext, getPlanLimits, getUpgradeRecommendation, planLimitExceeded } from "../engines/plan-usage.js";
 import { auditApiTokenSessionRouteDenied } from "../engines/subscription-state.js";
 import { generateApiToken, hashToken } from "../lib/auth-crypto.js";
@@ -1097,8 +1098,9 @@ export async function accountRoutes(rctx) {
              FROM findings f
              JOIN scans s ON s.id = f.scan_id
              LEFT JOIN workspace_domains wd ON wd.domain_id = s.domain_id
-             WHERE s.workspace_id IN (${placeholders})
-                OR (s.workspace_id IS NULL AND wd.workspace_id IN (${placeholders}))`
+             WHERE (s.workspace_id IN (${placeholders})
+                OR (s.workspace_id IS NULL AND wd.workspace_id IN (${placeholders})))
+               AND ${visibleFindingSql("f", "s")}`
           )
           .bind(...workspaceIds, ...workspaceIds)
           .all();

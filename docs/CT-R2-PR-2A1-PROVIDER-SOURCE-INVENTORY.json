@@ -1,7 +1,7 @@
 {
   "rule_version": "ct-provider-source-consumers/1",
   "runtime_consumer_count": 16,
-  "fingerprint": "29e349a05a807814225b736a23de008098d6bedd5139fc87875f8e1d8354c5aa",
+  "fingerprint": "ca265a45316adbc05c1ccdae83c5f4f95b2339f4ac41aff92c0d4d3431cb9d84",
   "sites": [
     {
       "file": "workers/scan-api/src/engines/attack-surface-signal-completeness.js",
@@ -27,7 +27,7 @@
     },
     {
       "file": "workers/scan-api/src/engines/cert-intel.js",
-      "line": 63,
+      "line": 64,
       "column": 4,
       "ast_access_kind": "member",
       "field": "error",
@@ -38,7 +38,7 @@
     },
     {
       "file": "workers/scan-api/src/engines/cert-intel.js",
-      "line": 64,
+      "line": 65,
       "column": 21,
       "ast_access_kind": "member",
       "field": "count",
@@ -49,7 +49,7 @@
     },
     {
       "file": "workers/scan-api/src/engines/cert-intel.js",
-      "line": 65,
+      "line": 66,
       "column": 4,
       "ast_access_kind": "member",
       "field": "count",
@@ -60,7 +60,7 @@
     },
     {
       "file": "workers/scan-api/src/engines/cert-intel.js",
-      "line": 179,
+      "line": 185,
       "column": 23,
       "ast_access_kind": "optional_member",
       "field": "error",
@@ -71,7 +71,7 @@
     },
     {
       "file": "workers/scan-api/src/engines/cert-intel.js",
-      "line": 180,
+      "line": 186,
       "column": 26,
       "ast_access_kind": "optional_member",
       "field": "error",
@@ -82,7 +82,7 @@
     },
     {
       "file": "workers/scan-api/src/engines/cert-intel.js",
-      "line": 185,
+      "line": 191,
       "column": 23,
       "ast_access_kind": "optional_member",
       "field": "error",
@@ -93,7 +93,7 @@
     },
     {
       "file": "workers/scan-api/src/engines/cert-intel.js",
-      "line": 185,
+      "line": 191,
       "column": 53,
       "ast_access_kind": "optional_member",
       "field": "count",
@@ -104,7 +104,7 @@
     },
     {
       "file": "workers/scan-api/src/engines/cert-intel.js",
-      "line": 186,
+      "line": 192,
       "column": 26,
       "ast_access_kind": "optional_member",
       "field": "error",
@@ -115,7 +115,7 @@
     },
     {
       "file": "workers/scan-api/src/engines/cert-intel.js",
-      "line": 186,
+      "line": 192,
       "column": 59,
       "ast_access_kind": "optional_member",
       "field": "count",
@@ -126,7 +126,7 @@
     },
     {
       "file": "workers/scan-api/src/engines/certificate-signal-completeness.js",
-      "line": 1405,
+      "line": 1407,
       "column": 23,
       "ast_access_kind": "optional_member",
       "field": "error",
@@ -137,7 +137,7 @@
     },
     {
       "file": "workers/scan-api/src/engines/certificate-signal-completeness.js",
-      "line": 1407,
+      "line": 1409,
       "column": 23,
       "ast_access_kind": "optional_member",
       "field": "error",

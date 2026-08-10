@@ -8,6 +8,7 @@ import { aggregateFetchObservations, classifyFetchObservation } from "../lib/fet
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
 import { raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
 import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertificateSanNames } from "./hostnames.js";
+import { TLS_RUNTIME_STATES } from "./tls-evidence.js";
 
 // ── Module 2: SSL Detection ───────────────────────────────────────────────────
 
@@ -309,6 +310,12 @@ export async function runSslModule(domain, opts = {}) {
   // exactly the founder contract ("probe was executed", observation incomplete).
   const httpsProbeExecuted = httpsRes !== null || wwwRes !== null;
   const httpsAvailable = (httpsOk || wwwHttpsOk) ? true : null;
+  const tlsState = httpsAvailable === true
+    ? TLS_RUNTIME_STATES.OBSERVED_PRESENT
+    : TLS_RUNTIME_STATES.UNAVAILABLE;
+  const tlsStateReason = httpsAvailable === true
+    ? "origin_response_over_tls"
+    : httpsObservation.reason;
 
   // Check whether plain HTTP redirects to HTTPS.
   // Follow up to 2 hops to handle intermediate http→http→https chains
@@ -433,6 +440,8 @@ export async function runSslModule(domain, opts = {}) {
   } = await certPromise;
 
   return {
+    tls_state:                tlsState,
+    tls_state_reason:         tlsStateReason,
     https_available:          httpsAvailable,
     https_probe_executed:     httpsProbeExecuted,
     // Additive observation metadata — the explicit WHY behind a null, so no consumer
@@ -570,6 +579,8 @@ export async function runSslModule(domain, opts = {}) {
         reason: "simultaneous_endpoint_certificate_set_not_collected",
       },
       active_service: {
+        tls_state: tlsState,
+        tls_state_reason: tlsStateReason,
         probe_executed: httpsProbeExecuted,
         https_available: httpsAvailable,
         // Same additive observation metadata as the module root, so the per-signal

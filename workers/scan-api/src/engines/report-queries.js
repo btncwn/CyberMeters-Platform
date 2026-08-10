@@ -1,3 +1,5 @@
+import { suppressedLegacyTlsRemediationSql, visibleFindingSql } from "./finding-identity.js";
+
 // ── Executive-report data queries (customer-facing PDF) ───────────────────────
 // The workspace executive report (GET /api/workspaces/:id/report) must show the
 // CURRENT posture: each finding / recommendation from the LATEST completed scan per
@@ -41,6 +43,7 @@ export const REPORT_FINDINGS_SQL = `SELECT f.title, f.severity, f.recommendation
    JOIN domains d ON d.id = s.domain_id
    JOIN workspace_domains wd ON wd.domain_id = d.id
    WHERE wd.workspace_id = ?
+     AND ${visibleFindingSql("f", "s")}
      AND ${LATEST_COMPLETED_SCAN_SCOPE}
    ORDER BY CASE f.severity
      WHEN 'critical' THEN 1 WHEN 'high' THEN 2
@@ -57,5 +60,6 @@ export const REPORT_RECOMMENDATIONS_SQL = `SELECT r.title, r.priority, r.action,
    JOIN workspace_domains wd ON wd.domain_id = d.id
    WHERE wd.workspace_id = ?
      AND ${LATEST_COMPLETED_SCAN_SCOPE}
+     AND NOT ${suppressedLegacyTlsRemediationSql("r")}
    ORDER BY r.priority ASC
    LIMIT 10`;

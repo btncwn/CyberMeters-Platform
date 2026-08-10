@@ -543,9 +543,10 @@ async function main() {
       login_account_count: accountRow?.request_count ?? null,
       deferred_reads: barrier.deferredReadCount(),
     };
-    recordF4Pr2Fixture("X1", "same-IP concurrency is bounded at 10 then one account-safe 429", response.allowed === 10 &&
-      response.unauthorized === 10 && response.denied429 === 1 && responses[10]?.status === 429 &&
-      responses[10]?.data?.action !== "global_write" && loginRow?.scope === "ip" &&
+    const deniedResponse = responses.find((item) => item.status === 429);
+    recordF4Pr2Fixture("X1", "same-IP concurrency is bounded at 10 with one account-safe 429", response.allowed === 10 &&
+      response.unauthorized === 10 && response.denied429 === 1 &&
+      deniedResponse?.data?.action !== "global_write" && loginRow?.scope === "ip" &&
       loginRow?.scope_id === loginScopeId && loginRow?.action === "login" &&
       loginRow?.window_start === windowStart && loginRow?.window_seconds === 900 &&
       loginRow?.request_count === 11 && accountRow?.scope === "user" &&

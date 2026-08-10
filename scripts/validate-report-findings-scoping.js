@@ -34,7 +34,7 @@ db.exec(`
   CREATE TABLE domains (id TEXT PRIMARY KEY, domain TEXT);
   CREATE TABLE workspace_domains (workspace_id TEXT, domain_id TEXT);
   CREATE TABLE scans (id TEXT PRIMARY KEY, domain_id TEXT, domain TEXT, status TEXT, score INTEGER, created_at TEXT, workspace_id TEXT, scan_quality TEXT);
-  CREATE TABLE findings (id TEXT PRIMARY KEY, scan_id TEXT, severity TEXT, title TEXT, recommendation TEXT, created_at TEXT);
+  CREATE TABLE findings (id TEXT PRIMARY KEY, scan_id TEXT, finding_slug TEXT, severity TEXT, title TEXT, recommendation TEXT, evidence_json TEXT, created_at TEXT);
   CREATE TABLE remediation_items (id TEXT PRIMARY KEY, scan_id TEXT, priority TEXT, title TEXT, reason TEXT, action TEXT);
 `);
 const W1 = "ws_bbb", W2 = "ws_other";
@@ -46,8 +46,14 @@ db.exec(`
 let sc = 0, fi = 0, re = 0;
 const scan = (id, domId, dom, status, created, ws = W1, quality = "complete") =>
   db.prepare(`INSERT INTO scans VALUES (?,?,?,?,?,?,?,?)`).run(id, domId, dom, status, 80, created, ws, quality);
-const finding = (scanId, sev, title) =>
-  db.prepare(`INSERT INTO findings VALUES (?,?,?,?,?,?)`).run(`f${fi++}`, scanId, sev, title, "fix it", "2026-07-14");
+const finding = (scanId, sev, title, opts = {}) => {
+  const id = `f${fi++}`;
+  const slug = Object.prototype.hasOwnProperty.call(opts, "slug") ? opts.slug : `fixture_${id}`;
+  db.prepare(`INSERT INTO findings
+    (id, scan_id, finding_slug, severity, title, recommendation, evidence_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, scanId, slug, sev, title, "fix it", opts.evidence ? JSON.stringify(opts.evidence) : null, "2026-07-14");
+};
 const rec = (scanId, prio, title) =>
   db.prepare(`INSERT INTO remediation_items VALUES (?,?,?,?,?,?)`).run(`r${re++}`, scanId, String(prio), title, "reason", "action");
 
@@ -66,6 +72,18 @@ const S_LATEST = "s_bbb_latest";
 scan(S_LATEST, dom1, "blackbullbarbers.co.uk", "completed", "2026-07-14 01:40:04");
 finding(S_LATEST, "medium", "DMARC Policy is Monitor-Only (p=none)");
 finding(S_LATEST, "medium", "Administrative Interface Publicly Reachable");
+finding(S_LATEST, "critical", "Historical exact unproven TLS row", {
+  slug: null,
+  evidence: {
+    evidence_type: "https_probe",
+    probe_target: "https://blackbullbarbers.co.uk",
+    observed_value: "TLS handshake failed or connection refused on port 443",
+    expected_value: "TLS 1.2+ handshake success with valid certificate",
+    source: "cloudflare_workers_fetch",
+    checked_at: "2026-07-14T01:40:04.000Z",
+    manual_verification_command: "curl -sI https://blackbullbarbers.co.uk | head -3",
+  },
+});
 rec(S_LATEST, 2, "Strengthen DMARC Policy");
 // D1: a still-newer FAILED scan — must be ignored (no findings, but proves status gate).
 scan("s_bbb_failed", dom1, "blackbullbarbers.co.uk", "failed", "2026-07-14 02:00:00");
@@ -93,6 +111,8 @@ eq("Admin interface appears exactly once", titles.filter((t) => t === "Administr
 // ── 3. Latest scan's real findings are present ──
 ok("latest DMARC finding present", titles.includes("DMARC Policy is Monitor-Only (p=none)"));
 ok("latest admin finding present", titles.includes("Administrative Interface Publicly Reachable"));
+ok("exact null-identity historical TLS provenance receives bounded treatment",
+  !titles.includes("Historical exact unproven TLS row"));
 
 // ── 4. Multi-domain: D2's latest finding is included ──
 ok("second domain's latest finding present", titles.includes("Expiring TLS Certificate"));

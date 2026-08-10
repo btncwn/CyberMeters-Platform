@@ -484,9 +484,9 @@ const scanListApi = await scanApi(
   `/api/scans?workspace_id=${fx.incomplete.workspaceId}`,
 );
 const scanDetailApi = await scanApi(fx.env, `/api/scans/${fx.incomplete.scanId}`);
-eq("A9 verbatim snapshot endpoint succeeds", snapshotApi.status, 200);
-eq("A10 endpoint snapshot reserialises to exact stored bytes",
-  JSON.stringify(snapshotApi.body.snapshot), fx.incomplete.snapshotRaw);
+eq("A9 customer-projected snapshot endpoint succeeds", snapshotApi.status, 200);
+eq("A10 endpoint snapshot equals the canonical customer projection",
+  JSON.stringify(snapshotApi.body.snapshot), JSON.stringify(incompleteRead.customerSnapshot));
 eq("A11 endpoint checksum remains the stored-byte checksum",
   snapshotApi.body.integrity.checksum_sha256, fx.incomplete.checksum);
 eq("A12 customer report withholds numeric score", reportApi.body.cyber_metrics_score, null);
@@ -779,15 +779,15 @@ const mutations = [
     survived: () => runChild("frontend").passed === false,
   },
   {
-    name: "M6 masking moves into verbatim checksum endpoint",
+    name: "M6 customer snapshot projection is bypassed by immutable raw bytes",
     edits: [{
       target: SCANS,
-      from: "          snapshot: read.snapshot,\n",
-      to: "          snapshot: read.customerSnapshot,\n",
+      from: "          snapshot: customerSnapshot,\n",
+      to: "          snapshot: read.snapshot,\n",
     }],
     survived: () => {
       const value = runChild("snapshot");
-      return value.snapshot?.overall?.cyber_metrics_score == null;
+      return value.snapshot?.overall?.cyber_metrics_score != null;
     },
   },
   {

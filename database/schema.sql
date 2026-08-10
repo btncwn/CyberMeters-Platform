@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS scans (
 CREATE TABLE IF NOT EXISTS findings (
     id TEXT PRIMARY KEY,
     scan_id TEXT NOT NULL,
+    finding_slug TEXT,
     severity TEXT NOT NULL,
     title TEXT NOT NULL,
     recommendation TEXT,

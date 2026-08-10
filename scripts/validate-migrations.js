@@ -96,6 +96,13 @@ ok(
     scheduledProjectionColumn?.notnull === 0,
 );
 
+const findingColumns = db.prepare("PRAGMA table_info(findings)").all();
+const findingSlugColumn = findingColumns.find((column) => column.name === "finding_slug");
+ok(
+  "schema plus migrations converges on the nullable canonical finding identity column",
+  findingSlugColumn?.type === "TEXT" && findingSlugColumn?.notnull === 0,
+);
+
 // Migration 106 must upgrade an existing scheduled_scans table without rewriting
 // legacy counts. This is a real SQLite execution proof, not a source-text check.
 const pre106 = new DatabaseSync(":memory:");
@@ -128,6 +135,46 @@ ok(
     upgradedSentinel?.asset_change_projection_json === null,
 );
 pre106.close();
+
+// Migration 107 is forward-only identity storage. Applying it to an existing
+// findings table must add one nullable TEXT column while preserving every legacy
+// value byte-for-byte and leaving the new identity NULL (no backfill).
+const pre107 = new DatabaseSync(":memory:");
+const legacyEvidenceBytes = '{"source":"cloudflare_workers_fetch","opaque":"\\u0061","count":1}';
+pre107.exec(`
+  CREATE TABLE findings (
+    id TEXT PRIMARY KEY,
+    scan_id TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    title TEXT NOT NULL,
+    recommendation TEXT,
+    evidence_json TEXT,
+    confidence REAL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+pre107.prepare(`INSERT INTO findings
+  (id, scan_id, severity, title, recommendation, evidence_json, confidence, created_at)
+  VALUES ('legacy-sentinel', 'scan-old', 'critical', 'Original title', 'Original recommendation', ?, 0.42, '2026-08-01T01:02:03.000Z')`)
+  .run(legacyEvidenceBytes);
+const legacyBefore107 = pre107.prepare("SELECT * FROM findings WHERE id='legacy-sentinel'").get();
+pre107.exec(fs.readFileSync(
+  path.join(migDir, "107-finding-canonical-identity.sql"),
+  "utf8",
+));
+const columns107 = pre107.prepare("PRAGMA table_info(findings)").all();
+const legacyAfter107 = pre107.prepare("SELECT * FROM findings WHERE id='legacy-sentinel'").get();
+const { finding_slug: legacySlug107, ...legacyComparable107 } = legacyAfter107;
+ok(
+  "migration 107 adds one nullable TEXT identity without rewriting historical bytes",
+  columns107.filter((column) => column.name === "finding_slug").length === 1
+    && columns107.find((column) => column.name === "finding_slug")?.type === "TEXT"
+    && columns107.find((column) => column.name === "finding_slug")?.notnull === 0
+    && legacySlug107 === null
+    && JSON.stringify(legacyComparable107) === JSON.stringify(legacyBefore107)
+    && legacyAfter107.evidence_json === legacyEvidenceBytes,
+);
+pre107.close();
 
 // The route-local empty-environment bootstrap is a separate physical schema
 // site. Execute the SQL extracted from the source so it cannot silently omit the

@@ -367,7 +367,7 @@ const evidenceV2 = {
   schema_version: "external-certificate-observation-v2",
   observed_at: "<engine-observed-at>",
 };
-const GOLDEN_EVIDENCE_V2 = "91e01851051ab4f13e233dc96b97d3e79d296418d30dce6ecb2f2ed6df99a599";
+const GOLDEN_EVIDENCE_V2 = "69a96451e093f41bc0be77233dbc4a0f21a368d177710310e53bc0848b97cca4";
 fixture("F10",
   evidence.schema_version === "external-certificate-observation-v3" &&
   hash(stable(evidenceV2)) === GOLDEN_EVIDENCE_V2);
@@ -450,8 +450,8 @@ const states = [
   { measurement_state: "unmeasured" },
 ];
 const parity = states.map(parityOutputs);
-const GOLDEN_F13 = "ab4e2c46ca0a78a6cbde317e07b2b5b39e60aecf152b7faddee1693389fbc6b1";
-const GOLDEN_F14 = "fa08a5021162378de027ce5f7a75cc5431c62dbaa40523d70f16c1a1f507fe2c";
+const GOLDEN_F13 = "1915360efdabde8953bd612ae0d4888ba128d2ca97fff5656de7c824c1d1c555";
+const GOLDEN_F14 = "122181110d1b26bb822206663d0a90eeccb7b31d8ccbb366e670f15216fb3fe3";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

@@ -54,6 +54,7 @@ import {
   projectPhase5EvidenceForCustomer,
   projectPhase5SnapshotForCustomer,
 } from "./phase5-evidence.js";
+import { projectTlsReportForCustomer } from "./tls-evidence.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
 export const SNAPSHOT_BUILDER_VERSION = "2026-07-27.1";
@@ -514,6 +515,7 @@ export function composeSnapshot({
   builtAt,
   reconstruction = false, // strict historical reconstruction (founder policy)
 }) {
+  const reportForCustomer = projectTlsReportForCustomer(report ?? {});
   const assessedAt = report?.completed_at || null;
   const scanQuality = report?.scan_quality ?? null;
   const qualityStatus = scanQuality?.status ?? null;
@@ -535,12 +537,12 @@ export function composeSnapshot({
   // Normalise exactly as the canonical read paths do (routes/scans.js /report,
   // deriveScanBusinessRisk) so the frozen findings equal what those paths served.
   const findings = applyEvidenceQuality(
-    (Array.isArray(report?.findings) ? report.findings : []).map(normalizeFindingSchema)
+    (Array.isArray(reportForCustomer.findings) ? reportForCustomer.findings : []).map(normalizeFindingSchema)
   );
 
   // Canonical producers — verbatim, never second-guessed.
-  const domains = resolveCyberMotDomainStates(report, { scanId, cyberEssentials });
-  const businessRisk = deriveScanBusinessRisk(report);
+  const domains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials });
+  const businessRisk = deriveScanBusinessRisk(reportForCustomer);
   const assessment = resolveAssessmentPresentation({
     score: report?.cyber_metrics_score ?? null,
     scanQuality: qualityStatus,
@@ -828,7 +830,7 @@ export function composeSnapshot({
   });
   const certificateAssurance = buildCertificateCustomerPresentation({
     signalCompleteness:
-      report?.modules?.certificate_intelligence?.signal_completeness ?? null,
+      reportForCustomer?.modules?.certificate_intelligence?.signal_completeness ?? null,
     absenceReason:
       "Per-signal certificate assurance was not recorded by this scan. Missing fields are not interpreted as favourable results.",
   });

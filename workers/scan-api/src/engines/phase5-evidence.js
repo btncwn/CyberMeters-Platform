@@ -4,6 +4,12 @@ import {
   resolveAssessmentPresentation,
   SCAN_QUALITY,
 } from "./assessment-presentation.js";
+import {
+  projectTlsModulesForCustomer,
+  projectTlsSnapshotForCustomer,
+  resolveTlsRuntimeState,
+  TLS_RUNTIME_STATES,
+} from "./tls-evidence.js";
 
 export const PHASE5_EVIDENCE_MODULES = Object.freeze({
   cve: "cve_intelligence",
@@ -105,6 +111,9 @@ function missingPhase5Evidence(moduleKey) {
  * rather than interpreting fallback zeroes as measured evidence.
  */
 export function resolvePhase5EvidenceContract(modules = {}) {
+  const tls = resolveTlsRuntimeState(modules?.ssl);
+  const unsupportedTlsAbsence = modules?.ssl?.https_available === false
+    && tls.state === TLS_RUNTIME_STATES.UNAVAILABLE;
   const cveEvidence = resolveCveEvidence(
     modules?.[PHASE5_EVIDENCE_MODULES.cve],
   );
@@ -121,12 +130,15 @@ export function resolvePhase5EvidenceContract(modules = {}) {
   const incompleteModules = Object.entries(PHASE5_EVIDENCE_MODULES)
     .filter(([name]) => !completeByModule[name])
     .map(([, moduleKey]) => moduleKey);
+  if (unsupportedTlsAbsence) incompleteModules.push("ssl");
   return {
     complete: incompleteModules.length === 0,
     publishable,
     coverage_complete: completeByModule,
     cve_coverage: cveEvidence.coverage,
     incomplete_modules: incompleteModules,
+    tls_state: tls.state,
+    unsupported_tls_absence: unsupportedTlsAbsence,
   };
 }
 
@@ -155,7 +167,7 @@ export function resolvePhase5CustomerAssessment({
  */
 export function projectPhase5EvidenceForCustomer(modules = {}) {
   const evidence = resolvePhase5EvidenceContract(modules);
-  const projected = { ...modules };
+  const projected = projectTlsModulesForCustomer(modules);
   for (const [name, moduleKey] of Object.entries(PHASE5_EVIDENCE_MODULES)) {
     const value = modules?.[moduleKey];
     if (value && typeof value === "object") {
@@ -261,7 +273,8 @@ export function projectPhase5RiskIntelligenceForCustomer(riskIntelligence, evide
  * mutated and remains available on read.snapshot for checksum/verbatim APIs.
  */
 export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
-  const overall = snapshot?.overall ?? {};
+  const tlsSnapshot = projectTlsSnapshotForCustomer(snapshot, modules);
+  const overall = tlsSnapshot?.overall ?? {};
   const projection = resolvePhase5HistoricalCustomerProjection({
     score: overall.cyber_metrics_score,
     riskLevel: overall.score_band,
@@ -272,11 +285,11 @@ export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
       null,
     modules,
   });
-  if (projection.evidence.complete) return snapshot;
+  if (projection.evidence.complete) return tlsSnapshot;
 
   const bri = overall.business_risk_indicator ?? {};
   return {
-    ...snapshot,
+    ...tlsSnapshot,
     overall: {
       ...overall,
       cyber_metrics_score: null,

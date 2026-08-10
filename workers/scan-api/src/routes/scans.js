@@ -46,6 +46,7 @@ import {
   resolvePhase5EvidenceContract,
 } from "../engines/phase5-evidence.js";
 import { projectCertificateSharedSanForCustomer } from "./certificate-shared-san-projection.js";
+import { projectTlsReportForCustomer } from "../engines/tls-evidence.js";
 
 function readScheduledAssetChangeProjection(value) {
   if (typeof value !== "string" || value.length === 0) return null;
@@ -604,7 +605,9 @@ export async function scanRoutes(rctx) {
     }
 
     // ── GET /api/scans/:id/snapshot ─────────────────────────────────────
-    // Canonical M5.c reporting snapshot, served VERBATIM. Retrieval, integrity,
+    // Canonical M5.c reporting snapshot, served through the read-only customer
+    // evidence projection. The checksum-gated immutable object remains available
+    // internally as read.snapshot and is never rewritten.
     // schema gating, repair-on-read and reconstruction all live in the ONE
     // shared snapshot helper; the report-availability resolver maps those
     // deterministic states onto the customer read contract. Must be checked
@@ -636,12 +639,13 @@ export async function scanRoutes(rctx) {
           return json(mapped.body, mapped.status);
         }
         const read = resolved.read;
+        const customerSnapshot = read.customerSnapshot ?? read.snapshot;
         return json({
-          snapshot: read.snapshot,
+          snapshot: customerSnapshot,
           superseded_by: read.supersededBy,
           integrity: read.integrity,
-          ...certificateAssuranceApiProjection(read.snapshot),
-          ...attackSurfaceAssuranceApiProjection(read.snapshot),
+          ...certificateAssuranceApiProjection(customerSnapshot),
+          ...attackSurfaceAssuranceApiProjection(customerSnapshot),
           ...dmarcPolicyApiProjection(read.dmarcPolicy),
         });
       } catch (err) {
@@ -698,10 +702,11 @@ export async function scanRoutes(rctx) {
         return json(mapped.body, mapped.status);
       }
       const raw = await obj.json();
+      const customerReport = projectTlsReportForCustomer(raw);
 
       // Normalise modules — ensure every module key is present even for reports
       // stored before a module was introduced (backward-compatible defaults).
-      const storedModules = projectPhase5EvidenceForCustomer(raw.modules ?? {});
+      const storedModules = projectPhase5EvidenceForCustomer(customerReport.modules ?? {});
       const normalisedModules = {
         ...storedModules,
         asset_exposure: storedModules.asset_exposure ?? {
@@ -725,7 +730,7 @@ export async function scanRoutes(rctx) {
           domain: scan.domain,
         });
       const reportFindings = applyEvidenceQuality(
-        (Array.isArray(raw.findings) ? raw.findings : []).map(normalizeFindingSchema)
+        (Array.isArray(customerReport.findings) ? customerReport.findings : []).map(normalizeFindingSchema)
       );
 
       // Non-completed scans have no assessment to report — serve the artefact's
@@ -740,7 +745,7 @@ export async function scanRoutes(rctx) {
           assessment: null,
           cyber_mot_domains: [],
           findings: reportFindings.map((f) => ({ ...f, remediation: findingRemediation(f) })),
-          recommendations: Array.isArray(raw.recommendations) ? raw.recommendations : [],
+          recommendations: Array.isArray(customerReport.recommendations) ? customerReport.recommendations : [],
           scan_quality: raw.scan_quality ?? buildScanQuality(normalisedModules),
           monitoring_states: raw.monitoring_states ?? null,
           certificate_assurance: buildCertificateCustomerPresentation({
@@ -790,7 +795,7 @@ export async function scanRoutes(rctx) {
           assessment,
           cyber_mot_domains: snap.domains || [],
           findings: reportFindings.map((f) => ({ ...f, remediation: findingRemediation(f) })),
-          recommendations: Array.isArray(raw.recommendations) ? raw.recommendations : [],
+          recommendations: Array.isArray(customerReport.recommendations) ? customerReport.recommendations : [],
           scan_quality: raw.scan_quality ?? buildScanQuality(normalisedModules),
           // Completed report consumers use the immutable snapshot's canonical,
           // fail-closed monitoring record. Raw R2 remains the fallback only for

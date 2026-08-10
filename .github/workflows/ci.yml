@@ -326,6 +326,21 @@ jobs:
         if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
         run: node scripts/validate-m5b-remaining-reconciliation.js
 
+      # Atomic SSL runtime tri-state + D1 Option C identity: forward canonical slug
+      # persistence, bounded legacy treatment, and one fail-closed active-TLS state
+      # across runtime and immutable historical customer projections.
+      - name: Validate SSL D1 Option C finding identity (bounded legacy treatment / tenant / soft-delete)
+        run: node scripts/validate-ssl-d1-option-c-identity.js
+
+      - name: Validate SSL D1 Option C semantic mutations (exact anchors / loaded bytes / expected failures)
+        run: node scripts/validate-ssl-d1-option-c-identity-mutations.js
+
+      - name: Validate SSL runtime tri-state contract (producer / consumer / historical projection)
+        run: node scripts/validate-ssl-runtime-tristate-contract.js
+
+      - name: Validate SSL runtime tri-state semantic mutations (exact anchors / right-reason failures)
+        run: node scripts/validate-ssl-runtime-tristate-mutations.js
+
       # M5.c — canonical reporting snapshot (mig 093). Five render paths with three
       # calculation brains could show different score/risk/state/remediation truth to the
       # same customer, and every one recalculated history on read. One completed Cyber MOT

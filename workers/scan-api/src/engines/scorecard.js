@@ -7,6 +7,11 @@ import { getCurrentPosturePresentation } from "./current-posture.js";
 import { resolveCyberMotDomainStates } from "./cyber-mot-domains.js";
 import { canSayHealthy, domainState, neutralSummary, scorecardBehaviour, sectionStatus } from "./scorecard-domain-state.js";
 import { resolvePhase5HistoricalCustomerProjection } from "./phase5-evidence.js";
+import { suppressedLegacyTlsRemediationSql, visibleFindingSql } from "./finding-identity.js";
+import {
+  projectTlsRecommendationsForCustomer,
+  projectTlsReportForCustomer,
+} from "./tls-evidence.js";
 import {
   loadAssetLifecycleEventSupport,
   summariseLifecycleClaimProjection,
@@ -207,11 +212,15 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     try {
       const b2 = await env.cybermeters_db.batch([
         env.cybermeters_db.prepare(
-          `SELECT severity, COUNT(*) AS n FROM findings WHERE scan_id = ? GROUP BY severity`
+          `SELECT f.severity, COUNT(*) AS n
+           FROM findings f JOIN scans s ON s.id = f.scan_id
+           WHERE f.scan_id = ? AND ${visibleFindingSql("f", "s")}
+           GROUP BY f.severity`
         ).bind(scanId),
         env.cybermeters_db.prepare(
           `SELECT title, priority, action FROM remediation_items
-           WHERE scan_id = ? ORDER BY priority ASC LIMIT 5`
+           WHERE scan_id = ? AND NOT ${suppressedLegacyTlsRemediationSql("remediation_items")}
+           ORDER BY priority ASC LIMIT 5`
         ).bind(scanId),
       ]);
       const sevMap = Object.fromEntries((b2[0].results ?? []).map(r => [r.severity, r.n]));
@@ -226,15 +235,18 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
       }));
     } catch { /* non-fatal — findings unavailable */ }
   }
-
   // ── R2: latest scan report for module-level data (1 subrequest) ───────────
   let report = null;
   if (scanId) {
     try {
       const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
-      if (obj) report = await obj.json();
+      if (obj) report = projectTlsReportForCustomer(await obj.json());
     } catch { /* tolerate missing report */ }
   }
+  topRemediation = projectTlsRecommendationsForCustomer(
+    topRemediation,
+    report?.modules ?? {},
+  );
 
   // Derived values from R2 modules
   const saasTotal      = report?.modules?.saas_exposure?.total ?? 0;

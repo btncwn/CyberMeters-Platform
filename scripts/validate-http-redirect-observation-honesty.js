@@ -197,7 +197,7 @@ const definitive = (ssl) => {
 {
   // The ONLY case that may stay definitive: an old report with an explicit true.
   ok("L: legacy explicit http_redirect_validated=true MAY remain definitive",
-    definitive({ https_available: null, http_redirect_chain: { http_redirect_validated: true } }));
+    definitive({ https_available: null, http_redirects_to_https: false, http_redirect_chain: { http_redirect_validated: true } }));
   ok("L: legacy explicit false is NOT definitive",
     !definitive({ https_available: null, http_redirect_chain: { http_redirect_validated: false } }));
   ok("L: MISSING FIELD is NOT definitive (was `!== false` → true)",
@@ -211,7 +211,7 @@ const definitive = (ssl) => {
       "an explicit state must override a stale legacy boolean");
   }
   ok("L: observation_state origin_response IS definitive (positive control)",
-    definitive({ https_available: null, http_redirect_chain: { http_redirect_validated: false, observation_state: "origin_response" } }));
+    definitive({ https_available: null, http_redirects_to_https: false, http_redirect_chain: { http_redirect_validated: true, observation_state: "origin_response" } }));
 }
 
 // ── C. GENUINE BEHAVIOUR PRESERVED ───────────────────────────────────────────

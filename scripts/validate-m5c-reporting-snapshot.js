@@ -553,7 +553,8 @@ async function main() {
   ok("the superseded historical row itself is UNCHANGED (append-only supersession)",
      db.prepare("SELECT checksum_sha256 FROM scan_report_snapshots WHERE id=?").get(res1.snapshot_id).checksum_sha256 === row1.checksum_sha256);
 
-  // Read path never recalculates: the snapshot route serves R2 bytes verbatim.
+  // Read path never recalculates: the snapshot route applies only the canonical
+  // fail-closed customer projection over immutable R2 bytes.
   const routeSrc = fs.readFileSync(srcPath("routes", "scans.js"), "utf8");
   const snapRouteBlock = routeSrc.slice(routeSrc.indexOf("GET /api/scans/:id/snapshot"), routeSrc.indexOf("GET /api/scans/:id/report "));
   ok("snapshot read route exists and never re-resolves/re-scores/re-remediates",
@@ -677,8 +678,17 @@ async function main() {
     };
 
     const got = await call("GET", "/api/scans/scan1/snapshot");
-    ok("route serves the completed snapshot VERBATIM from R2 (bytes equal)",
-       got.status === 200 && JSON.stringify(got.data?.snapshot) === JSON.stringify(JSON.parse(put1.body)));
+    const { projectPhase5SnapshotForCustomer } = await import(
+      pathToFileURL(srcPath("engines", "phase5-evidence.js")).href
+    );
+    const expectedCustomerSnapshot = projectPhase5SnapshotForCustomer(
+      JSON.parse(put1.body),
+      report1.modules,
+    );
+    ok("route serves the fail-closed customer projection while immutable R2 bytes remain verbatim",
+       got.status === 200
+       && store.get(put1.key) === put1.body
+       && JSON.stringify(got.data?.snapshot) === JSON.stringify(expectedCustomerSnapshot));
     ok("route derives superseded_by from the append-only chain",
        got.data?.superseded_by?.snapshot_id === laterRow?.id &&
        got.data?.integrity?.verified === true);
@@ -926,8 +936,8 @@ async function main() {
       {
         name: "insufficient evidence promoted to healthy (resolver second-guessed)",
         file: srcPath("engines", "report-snapshot.js"),
-        from: "  const domains = resolveCyberMotDomainStates(report, { scanId, cyberEssentials });",
-        to:   "  const domains = resolveCyberMotDomainStates(report, { scanId, cyberEssentials }).map((d) => (d.state === \"evidence_insufficient\" || d.state === \"provisional\" || d.state === \"not_yet_assessed\" ? { ...d, state: \"assessed_healthy\" } : d));",
+        from: "  const domains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials });",
+        to:   "  const domains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials }).map((d) => (d.state === \"evidence_insufficient\" || d.state === \"provisional\" || d.state === \"not_yet_assessed\" ? { ...d, state: \"assessed_healthy\" } : d));",
       },
       {
         name: "methodology stamp dropped from the snapshot",
@@ -956,8 +966,8 @@ async function main() {
       {
         name: "snapshot read route re-derives domain states (renderer brain returns)",
         file: srcPath("routes", "scans.js"),
-        from: "        return json({\n          snapshot: read.snapshot,",
-        to:   "        return json({\n          snapshot: { ...read.snapshot, domains: resolveCyberMotDomainStates(read.snapshot, {}) },",
+        from: "        return json({\n          snapshot: customerSnapshot,",
+        to:   "        return json({\n          snapshot: { ...customerSnapshot, domains: resolveCyberMotDomainStates(customerSnapshot, {}) },",
       },
       {
         name: "Phase 8o wiring deleted — scan finalize stops building the snapshot",

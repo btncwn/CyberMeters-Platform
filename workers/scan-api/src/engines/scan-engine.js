@@ -37,6 +37,7 @@ import { buildDnsOperationalResilience } from "./dns-resilience.js";
 import { runDnsModule } from "./dns-scan.js";
 import { runDomainSecurityEnrichmentModule } from "./domain-enrichment.js";
 import { buildEmailRemediationActions, buildEmailTransportDetails, isPublishableEmailEvidence } from "./email-analysis.js";
+import { persistFindingsWithIdentity } from "./finding-identity.js";
 import { runEmailIntelModule } from "./email-intel.js";
 import { applyDmarcbisEmailCompatibilityProjection, deadlineDeferredEmailModuleResult, runEmailModule } from "./email-scan.js";
 import { establishDmarcPolicyBaseline } from "./email-protection-lifecycle.js";
@@ -65,6 +66,7 @@ import { runReservedScan } from "./reserved-scan.js";
 import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, isPublishableModuleEvidence, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
+import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
 import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply-chain.js";
 import { correlateShadowItInventory } from "./shadow-it-inventory.js";
@@ -660,7 +662,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           // which scoring.js reads as positive evidence of absence and turns into the
           // CRITICAL "HTTPS Not Available" finding — a second, independent path to the
           // same false claim the classifier fix closes. Not assessed is not a verdict.
-          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), onConsumerRelease: (cause) => ctCache.releaseConsumer?.(domain, "ssl", cause), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache, subOps: subOpTelemetry }) }),
+          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, tls_state: TLS_RUNTIME_STATES.UNAVAILABLE, tls_state_reason: "deadline_deferred", https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), onConsumerRelease: (cause) => ctCache.releaseConsumer?.(domain, "ssl", cause), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache, subOps: subOpTelemetry }) }),
           runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal }) => runHeadersModule(domain, { accounting, signal, subOps: subOpTelemetry }) }),
           // The email deadline fallback is the CANONICAL unassessed email result
           // owned by email-scan.js. The previous bare shape ({spf:{},dmarc:{},
@@ -1376,7 +1378,9 @@ function buildCanonicalUrlProfile(modules) {
   });
 
   // https://domain — from SSL module availability + headers final URL
-  const httpsAvailable = ssl.https_available === true;
+  const tls = resolveTlsRuntimeState(ssl, { assessedDomain: modules?._domain ?? null });
+  const httpsAvailable = tls.state === TLS_RUNTIME_STATES.OBSERVED_PRESENT;
+  const httpsPositivelyAbsent = tls.state === TLS_RUNTIME_STATES.POSITIVELY_ABSENT;
   const headersUrl     = headers.response_url ?? headers.original_url ?? null;
   const headersStatus  = headers.status_code  ?? null;
   const isWwwRedirect  = headersUrl ? headersUrl.includes("//www.") : false;
@@ -1392,9 +1396,14 @@ function buildCanonicalUrlProfile(modules) {
     headers_observed:        Object.keys(headers.values || {}).filter((k) => headers.values[k]),
     is_canonical_candidate:  httpsAvailable && !isWwwRedirect && headersStatus != null && headersStatus < 400,
     probe_method:            "observed",
+    tls_state:               tls.state,
     note:                    headers.validation_uncertain
       ? "Response may be from bot-protection layer — headers not reliable"
-      : httpsAvailable ? "HTTPS available" : "HTTPS unavailable",
+      : httpsAvailable
+        ? "HTTPS available"
+        : httpsPositivelyAbsent
+          ? "HTTPS positively absent"
+          : "HTTPS availability could not be assessed",
   });
 
   // http://www.domain — inferred from redirect chain destinations
@@ -1450,18 +1459,22 @@ function buildCanonicalUrlProfile(modules) {
 
   // canonical_consistency_score (v5): 0-100
   // Starts at 100, deduct for each uncertainty signal.
-  let consistencyScore = 100;
-  if (!httpsAvailable)                          consistencyScore -= 25;  // no HTTPS at all
-  if (headers.validation_uncertain)             consistencyScore -= 20;  // bot-protection interference
-  if (!httpChain.http_redirect_validated)       consistencyScore -= 15;  // HTTP probe failed
-  if (canonical_confidence === "low")           consistencyScore -= 15;  // low confidence canonical
-  if (isWwwRedirect && !httpsAvailable)         consistencyScore -= 10;  // www redirect but no HTTPS
-  if (!canonical_url)                           consistencyScore -= 15;  // cannot determine canonical
-  consistencyScore = Math.max(0, consistencyScore);
+  let consistencyScore = tls.state === TLS_RUNTIME_STATES.UNAVAILABLE ? null : 100;
+  const deductConsistency = (amount) => {
+    if (consistencyScore != null) consistencyScore -= amount;
+  };
+  if (httpsPositivelyAbsent)                    deductConsistency(25);  // approved positive absence
+  if (headers.validation_uncertain)             deductConsistency(20);  // bot-protection interference
+  if (!httpChain.http_redirect_validated)       deductConsistency(15);  // HTTP probe failed
+  if (canonical_confidence === "low")           deductConsistency(15);  // low confidence canonical
+  if (isWwwRedirect && httpsPositivelyAbsent)   deductConsistency(10);  // www redirect but positively absent HTTPS
+  if (!canonical_url)                           deductConsistency(15);  // cannot determine canonical
+  consistencyScore = consistencyScore == null ? null : Math.max(0, consistencyScore);
 
   return {
     canonical_url,
     canonical_confidence,
+    tls_state: tls.state,
     canonical_consistency_score: consistencyScore,
     variants,
     profile_complete: profileComplete,
@@ -1766,24 +1779,9 @@ function buildCanonicalUrlProfile(modules) {
       } catch { /* non-fatal — a missing row reads as not_established, which is honest */ }
     }
 
-    // Persist findings to D1
-    for (const f of findings) {
-      await env.cybermeters_db
-        .prepare(
-          `INSERT INTO findings (id, scan_id, severity, title, recommendation, evidence_json, confidence)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        )
-        .bind(
-          createId("finding"),
-          scanId,
-          f.severity,
-          f.title,
-          f.description,
-          f.evidence ? JSON.stringify(f.evidence) : null,
-          f.confidence ?? null
-        )
-        .run();
-    }
+    // Forward-only D1 identity: historical rows remain untouched. The shared writer
+    // verifies the scan belongs to this active workspace before the first insert.
+    await persistFindingsWithIdentity(env, { scanId, workspaceId, findings });
 
     // Persist remediation items to D1
     for (const r of recommendations) {

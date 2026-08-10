@@ -6,6 +6,11 @@ import { clamp } from "./posture-scoring.js";
 import { buildScorecardData } from "./scorecard.js";
 import { resolveRemediation } from "./remediation-registry.js";
 import { CE_QUESTIONS } from "../lib/cyber-essentials.js";
+import {
+  isHttpRedirectPositivelyAbsent,
+  resolveTlsRuntimeState,
+  TLS_RUNTIME_STATES,
+} from "./tls-evidence.js";
 
 // ── Cyber Essentials Readiness v1 ────────────────────────────────────────────
 //
@@ -400,6 +405,7 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
 
   const modules = report?.modules ?? {};
   const ssl = modules.ssl ?? {};
+  const tls = resolveTlsRuntimeState(ssl);
   const email = emailSignals(modules);
   const certRisk = scorecard.certificate_risks ?? {};
   const certRiskLevel = certRisk.risk_level ?? null;
@@ -463,9 +469,9 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
   // Boundary Protection: HTTPS, headers, exposed critical assets, takeover risk.
   {
     const state = { score: 100, reasons: [], gaps: [], recommendations: [], remediations: [], unknown: [] };
-    if (ssl.https_available === false) {
+    if (tls.state === TLS_RUNTIME_STATES.POSITIVELY_ABSENT) {
       addGap(state, 30, 'HTTPS is not confirmed for the latest scanned domain.', 'ssl_not_available');
-    } else if (ssl.https_available === true) {
+    } else if (tls.state === TLS_RUNTIME_STATES.OBSERVED_PRESENT) {
       addReason(state, 'HTTPS is available on the latest scanned domain.');
     } else {
       addUnknown(state, 'https_available', 'HTTPS could not be assessed — the probe did not complete.');
@@ -507,10 +513,10 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
     } else {
       addUnknown(state, 'csp', 'Content Security Policy could not be assessed — the header probe did not complete.');
     }
-    if (ssl.http_redirects_to_https === false) {
+    if (isHttpRedirectPositivelyAbsent(ssl)) {
       addGap(state, 15, 'HTTP to HTTPS redirect is not confirmed.', 'ssl_no_http_redirect');
     }
-    if (ssl.https_available === false) {
+    if (tls.state === TLS_RUNTIME_STATES.POSITIVELY_ABSENT) {
       addGap(state, 25, 'TLS is not available on the latest scanned domain.', 'ssl_not_available');
     }
     if (certRiskLevel === 'critical' || certRiskLevel === 'high') {

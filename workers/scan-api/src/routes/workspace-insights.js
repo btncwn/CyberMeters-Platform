@@ -9,6 +9,7 @@ import { runEmailModule } from "../engines/email-scan.js";
 import { getEffectivePlan } from "../engines/entitlements.js";
 import { runHeadersModule } from "../engines/headers-scan.js";
 import { LATEST_COMPLETED_SCAN_SCOPE } from "../engines/report-queries.js";
+import { visibleFindingSql } from "../engines/finding-identity.js";
 import { getMonthStart, getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "../engines/scoring-config.js";
 import { computeScore, isEmailApplicable } from "../engines/scoring.js";
@@ -315,6 +316,7 @@ export async function workspaceInsightRoutes(rctx) {
               FROM findings f
               JOIN scans s ON s.id = f.scan_id
               WHERE ${LATEST_COMPLETED_SCAN_SCOPE}
+                AND ${visibleFindingSql("f", "s")}
             `)
             .bind(workspaceId)
             .first(),

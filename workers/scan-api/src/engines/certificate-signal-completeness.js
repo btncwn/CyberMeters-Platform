@@ -9,6 +9,7 @@
 // "absent", and a degraded positive observation can remain visible without being
 // presented as healthy.
 import { SIGNAL_MONITORING_STATES } from "./signal-monitoring-state.js";
+import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
 
 export const CERTIFICATE_SIGNAL_COMPLETENESS_VERSION =
   "certificate-signal-completeness-v2";
@@ -1297,6 +1298,7 @@ export function deriveCertificateSignalCompletenessFromModules({
   engineVersion = null,
 } = {}) {
   const ssl = modules?.ssl || {};
+  const tls = resolveTlsRuntimeState(ssl);
   const trust = liveTrustEvidence({ ssl, modules, observedAt });
   const ctState = currentCtState({ monitoringStates, providerHealth, modules });
   const selectedCtCertificate = Boolean(
@@ -1457,24 +1459,31 @@ export function deriveCertificateSignalCompletenessFromModules({
     }),
     active_service: evidence({
       completeness_state:
-        ssl.https_probe_executed === true && typeof ssl.https_available === "boolean"
+        tls.state !== TLS_RUNTIME_STATES.UNAVAILABLE
           ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
           : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
       observation:
-        ssl.https_probe_executed === true && typeof ssl.https_available === "boolean"
-          ? (ssl.https_available
+        tls.state !== TLS_RUNTIME_STATES.UNAVAILABLE
+          ? (tls.state === TLS_RUNTIME_STATES.OBSERVED_PRESENT
             ? CERTIFICATE_OBSERVATION_STATES.PRESENT
             : CERTIFICATE_OBSERVATION_STATES.ABSENT)
           : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
       value:
-        ssl.https_probe_executed === true && typeof ssl.https_available === "boolean"
-          ? ssl.https_available
+        tls.state !== TLS_RUNTIME_STATES.UNAVAILABLE
+          ? tls.state === TLS_RUNTIME_STATES.OBSERVED_PRESENT
           : null,
       observation_scope: "live_http_service",
       achieved_grade: "L1",
       source_type: "product_policy",
-      source: "ssl_https_head_probe",
-      method: "http_response_over_tls",
+      source: tls.state === TLS_RUNTIME_STATES.POSITIVELY_ABSENT
+        ? tls.evidence?.source_type
+        : "ssl_https_head_probe",
+      method: tls.state === TLS_RUNTIME_STATES.POSITIVELY_ABSENT
+        ? "approved_active_tls_positive_absence"
+        : "http_response_over_tls",
+      reasons: tls.state === TLS_RUNTIME_STATES.UNAVAILABLE
+        ? [`Active TLS evidence unavailable: ${tls.reason}.`]
+        : [],
     }),
     caa: evidence({
       completeness_state: trust.caaUnavailable
@@ -1634,7 +1643,7 @@ export function deriveCertificateSignalCompletenessFromModules({
 
   return deriveCertificateSignalCompleteness({
     evidenceBySignal,
-    observedAt,
-    engineVersion,
+    observedAt: observedAt ?? tls.evidence?.observed_at ?? null,
+    engineVersion: engineVersion ?? tls.evidence?.collector_version ?? null,
   });
 }

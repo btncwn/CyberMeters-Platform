@@ -88,6 +88,24 @@ const headersNotExecuted = () => ({ ...headersTimedOut });
 const headersHealthy     = () => ({ ...headersOk });
 const sslNotExecuted     = () => ({ ...sslTimedOut });
 const sslHealthy         = () => ({ ...sslOk, https_available: true, https_probe_executed: true });
+const sslPositivelyAbsent = () => ({
+  tls_state: "positively_absent",
+  https_available: false,
+  https_probe_executed: true,
+  certificate_evidence: { observed_at: "2026-08-09T12:00:05.000Z" },
+  tls_positive_absence_evidence: {
+    state: "positively_absent",
+    execution: "completed",
+    source_type: "approved_active_tls_collector",
+    collector: "contract_fixture",
+    collector_version: "1",
+    endpoint: "https://acme.example.com",
+    assessed_domain: "acme.example.com",
+    observed_at: "2026-08-09T12:00:00.000Z",
+    absence_outcome: "tls_service_absent",
+    evidence_grade: "positive_absence",
+  },
+});
 
 // ── 0. The real modules actually report non-execution ───────────────────────
 {
@@ -136,13 +154,14 @@ const sslHealthy         = () => ({ ...sslOk, https_available: true, https_probe
 
   const sc = fs.readFileSync(srcPath("engines", "scoring.js"), "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-  ok("scoring claims HTTPS-unavailable only on an OBSERVED false",
-     /modules\.ssl\?\.https_available === false/.test(sc));
+  ok("scoring claims HTTPS-unavailable only through the canonical positive-absence state",
+     /resolveTlsRuntimeState\(modules\.ssl, \{ assessedDomain: domain \?\? null \}\)/.test(sc) && /TLS_RUNTIME_STATES\.POSITIVELY_ABSENT/.test(sc));
   ok("scoring no longer treats unknown as unavailable", !/if \(!modules\.ssl\?\.https_available\)/.test(sc));
 
   const ps = fs.readFileSync(srcPath("engines", "posture-scoring.js"), "utf8")
     .replace(/\/\/[^\n]*/g, "");
-  ok("posture scoring deducts for HTTPS only on an OBSERVED false", /ssl\.https_available === false/.test(ps));
+  ok("posture scoring deducts for HTTPS only through the canonical positive-absence state",
+     /resolveTlsRuntimeState\(ssl, \{ assessedDomain: sc\.last_scanned_domain \?\? null \}\)/.test(ps) && /TLS_RUNTIME_STATES\.POSITIVELY_ABSENT/.test(ps));
   ok("posture scoring no longer treats unknown as unavailable", !/if \(!ssl\.https_available\)/.test(ps));
 }
 
@@ -202,10 +221,10 @@ const sslHealthy         = () => ({ ...sslOk, https_available: true, https_probe
   // assertion that stops the fix becoming a silencer.
   const observed = computeScore({
     dns: { resolves: true },
-    ssl: { ...sslNotExecuted(), https_available: false, https_probe_executed: true, incomplete: undefined, incomplete_reason: undefined },
+    ssl: sslPositivelyAbsent(),
     headers: headersHealthy(),
   }, "acme.example.com");
-  ok("an OBSERVED https_available:false still emits the critical finding",
+  ok("approved positive-absence evidence still emits the critical finding",
      observed.findings.map((f) => f.id).includes("ssl_not_available"));
 }
 
@@ -308,6 +327,46 @@ const sslHealthy         = () => ({ ...sslOk, https_available: true, https_probe
     const sc = (r?.categories || []).find((c) => c.key === "secure_configuration");
     ok("unavailable headers => secure_configuration is NOT marked externally assessed", sc?.externally_assessed === false);
     ok("unavailable headers => the unknown signals are named honestly", Boolean(sc?.unknown?.some((u) => u.signal === "hsts")));
+  }
+
+  // Every unproven TLS false is unavailable. Neither CE branch may convert it
+  // into a gap or cert.tls.install action.
+  {
+    const report = { modules: {
+      headers: headersHealthy(),
+      ssl: { https_available: false, https_probe_executed: true },
+      email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
+    } };
+    const r = await buildCyberEssentialsReadiness("ws1", envFor(report));
+    const boundary = (r?.categories || []).find((c) => c.key === "boundary_protection");
+    const secure = (r?.categories || []).find((c) => c.key === "secure_configuration");
+    const tlsRemediations = JSON.stringify(r?.canonical_remediations || []);
+    ok("unproven TLS false => boundary branch records unknown, not a gap",
+      boundary?.unknown?.some((u) => u.signal === "https_available")
+        && !boundary?.gaps?.some((gap) => /HTTPS is not confirmed/i.test(gap)));
+    ok("unproven TLS false => secure-configuration branch does not deduct TLS",
+      !secure?.gaps?.some((gap) => /TLS is not available/i.test(gap)));
+    ok("unproven TLS false => CE does not project cert.tls.install",
+      !tlsRemediations.includes("cert.tls.install"), tlsRemediations);
+  }
+
+  // Reserved future path: one approved, completed, source-bound collector can
+  // positively prove absence and both existing CE branches remain live.
+  {
+    const report = { modules: {
+      headers: headersHealthy(),
+      ssl: sslPositivelyAbsent(),
+      email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
+    } };
+    const r = await buildCyberEssentialsReadiness("ws1", envFor(report));
+    const boundary = (r?.categories || []).find((c) => c.key === "boundary_protection");
+    const secure = (r?.categories || []).find((c) => c.key === "secure_configuration");
+    ok("approved positive TLS absence => boundary branch deducts",
+      boundary?.gaps?.some((gap) => /HTTPS is not confirmed/i.test(gap)));
+    ok("approved positive TLS absence => secure-configuration branch deducts",
+      secure?.gaps?.some((gap) => /TLS is not available/i.test(gap)));
+    ok("approved positive TLS absence => canonical install action remains live",
+      (r?.canonical_remediations || []).some((item) => item.remediation_id === "cert.tls.install"));
   }
 
   // The control: a real OBSERVED absence must STILL produce the gap.

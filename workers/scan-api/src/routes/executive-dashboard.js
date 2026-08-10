@@ -8,6 +8,7 @@ import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
 import { getCyberEssentialsSnapshot } from "../engines/ce-readiness.js";
 import { MATURITY_LEDGER_CONTRACT_VERSION, readWorkspaceMaturity, readDomainMaturityHistory } from "../engines/domain-maturity.js";
 import { LATEST_COMPLETED_SCAN_SCOPE } from "../engines/report-queries.js";
+import { suppressedLegacyTlsRemediationSql, visibleFindingSql } from "../engines/finding-identity.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { parseBoundedInteger } from "../lib/util.js";
@@ -142,6 +143,7 @@ export async function executiveDashboardRoutes(rctx) {
                JOIN scans s ON f.scan_id = s.id
                JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                WHERE wd.workspace_id = ? AND f.severity = 'critical'
+                 AND ${visibleFindingSql("f", "s")}
                  AND ${LATEST_COMPLETED_SCAN_SCOPE}`
             )
             .bind(wsId, wsId),
@@ -154,6 +156,7 @@ export async function executiveDashboardRoutes(rctx) {
                JOIN scans s ON f.scan_id = s.id
                JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                WHERE wd.workspace_id = ? AND f.severity = 'high'
+                 AND ${visibleFindingSql("f", "s")}
                  AND ${LATEST_COMPLETED_SCAN_SCOPE}`
             )
             .bind(wsId, wsId),
@@ -177,6 +180,7 @@ export async function executiveDashboardRoutes(rctx) {
                JOIN scans s ON f.scan_id = s.id
                JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                WHERE wd.workspace_id = ?
+                 AND ${visibleFindingSql("f", "s")}
                  AND ${LATEST_COMPLETED_SCAN_SCOPE}
                GROUP BY f.severity`
             )
@@ -192,6 +196,7 @@ export async function executiveDashboardRoutes(rctx) {
                JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                WHERE wd.workspace_id = ?
                  AND f.severity IN ('critical', 'high', 'medium')
+                 AND ${visibleFindingSql("f", "s")}
                  AND ${LATEST_COMPLETED_SCAN_SCOPE}
                ORDER BY CASE f.severity
                  WHEN 'critical' THEN 1
@@ -232,6 +237,7 @@ export async function executiveDashboardRoutes(rctx) {
                WHERE wd.workspace_id = ?
                  AND s.status = 'completed'
                  AND s.created_at >= datetime('now', '-30 days')
+                 AND NOT ${suppressedLegacyTlsRemediationSql("ri")}
                ORDER BY CAST(ri.priority AS INTEGER) ASC
                LIMIT 30`
             )

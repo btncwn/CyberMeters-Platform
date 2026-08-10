@@ -1,6 +1,11 @@
 import { DMARC_MOT_CONTRIBUTION } from "./dmarc-canonical-consumers.js";
 import { resolveSignalMonitoringCoverage } from "./signal-monitoring-state.js";
 import { isCookieFindingType } from "./cookie-observation.js";
+import {
+  projectTlsFindingsForCustomer,
+  resolveTlsRuntimeState,
+  TLS_RUNTIME_STATES,
+} from "./tls-evidence.js";
 // ── Canonical eight-domain Cyber MOT coverage-state resolver ──────────────────
 // ONE source of truth for "what state is each of the eight customer-facing Cyber MOT
 // domains in?" — consumed by the Main Dashboard, Scan Detail, Executive Report UI and
@@ -58,7 +63,11 @@ import { isCookieFindingType } from "./cookie-observation.js";
 // `2026-08-09.1`: RWS.5 atomically transfers the three cookie-attribute finding
 // identities from Attack Surface to Website Security. Persisted earlier rows keep
 // their original bytes; the existing version gate makes the boundary not_comparable.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-08-09.1";
+// `2026-08-09.2`: combined SSL corrective — Website conclusions consume the canonical
+// active-TLS tri-state (legacy/unproven false is evidence-insufficient, never a
+// material issue) and D1 canonical finding identity adds a bounded read-time
+// projection for exact historical null-identity TLS-only Website rows.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-08-09.2";
 
 // Fixed canonical enum — the resolver contract layer. UI maps these to friendly
 // labels; the source state stays stable.
@@ -178,6 +187,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
 function moduleAssessed(report, name, skippedSet) {
   const m = report?.modules?.[name];
   if (m == null) return false;
+  if (name === "ssl" && resolveTlsRuntimeState(m).state === TLS_RUNTIME_STATES.UNAVAILABLE) return false;
   if (m.error) return false;
   if (m.skipped === true || m.incomplete === true) return false;
   if (skippedSet.has(name)) return false;
@@ -187,6 +197,7 @@ function moduleAttempted(report, name, skippedSet) {
   // Attempted-but-insufficient: present but errored/skipped/incomplete.
   const m = report?.modules?.[name];
   if (m == null) return skippedSet.has(name);
+  if (name === "ssl" && resolveTlsRuntimeState(m).state === TLS_RUNTIME_STATES.UNAVAILABLE) return true;
   return !!(m.error || m.skipped === true || m.incomplete === true || skippedSet.has(name));
 }
 
@@ -201,7 +212,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
   const { cyberEssentials = null, scanId = null } = opts;
   const quality = report?.scan_quality?.status ?? (report ? "unknown" : null); // null = no scan at all
   const skippedSet = new Set(report?.scan_quality?.modules_skipped || []);
-  const findings = Array.isArray(report?.findings) ? report.findings : [];
+  const findings = projectTlsFindingsForCustomer(report?.findings, report?.modules);
   const lastAssessedAt = report?.completed_at || report?.created_at || null;
   const sourceScanId = scanId || report?.scan_id || null;
   // Anything that is not an authoritative "complete" scan is provisional — this
