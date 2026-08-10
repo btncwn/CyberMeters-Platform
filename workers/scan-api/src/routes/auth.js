@@ -192,7 +192,7 @@ export async function authRoutes(rctx) {
         10,
         900, // 15 minutes
         // Abuse-critical: never allow unmetered credential guessing.
-        { failClosed: true },
+        { failClosed: true, atomic: true },
       );
       if (_loginRlResult) {
         return json({ error: "Too many login attempts. Please wait before trying again.", code: "rate_limit_exceeded" }, 429);
@@ -211,7 +211,7 @@ export async function authRoutes(rctx) {
         "login_account",
         20,
         900, // 15 minutes
-        { failClosed: true },
+        { failClosed: true, atomic: true },
       );
       if (_loginAcctRl) {
         return json({ error: "Too many login attempts. Please wait before trying again.", code: "rate_limit_exceeded" }, 429);
