@@ -35,6 +35,7 @@ import { verificationCeiling } from "../workers/scan-api/src/engines/report-snap
 import { emitManagedAlert } from "../workers/scan-api/src/engines/managed-alerts.js";
 import { resolveWorkspaceAlertRecipients } from "../workers/scan-api/src/engines/alerts.js";
 import { sendWeeklyDigests } from "../workers/scan-api/src/engines/weekly-digest.js";
+import { consumeApiRateLimit } from "../workers/scan-api/src/lib/rate-limit.js";
 
 let passed = 0, failed = 0, section = "General";
 const results = [];
@@ -43,8 +44,11 @@ const ok = (name, cond) => { cond ? (passed++, results.push(`PASS [${section}] $
 const nowIso = () => new Date().toISOString();
 const RATE_LIMIT_WINDOW_MS = 900_000;
 const RATE_LIMIT_EPOCH_MS = 1_800_000_001_234;
-const EXPECTED_ASSERTION_COUNT = 58;
+const EXPECTED_ASSERTION_COUNT = 66;
 const HARNESS_MUTANT = process.env.F4_PR1_HARNESS_MUTANT || "";
+const F4_PR2_FAIL_FIRST = process.env.F4_PR2_FAIL_FIRST === "1";
+const F4_PR2_BARRIER_MODE = process.env.F4_PR2_BARRIER_MODE || "attached";
+const F4_PR2_FOCUSED = process.env.F4_PR2_FOCUSED === "1";
 const withRateLimitClock = async (epochProvider, operation) => {
   const originalDateNow = Date.now;
   Date.now = () => (typeof epochProvider === "function" ? epochProvider() : epochProvider);
@@ -89,6 +93,123 @@ const renameRateLimitActionInMemory = (env, fromAction, toAction) => {
     },
   };
 };
+const forwardMember = (target, property) => {
+  const value = Reflect.get(target, property, target);
+  return typeof value === "function" ? value.bind(target) : value;
+};
+const wrapD1 = (canonicalDb, wrapBound) => ({
+  prepare(sql) {
+    const statement = canonicalDb.prepare(sql);
+    return new Proxy(statement, {
+      get(target, property) {
+        if (property === "bind") {
+          return (...args) => wrapBound(sql, args, target.bind(...args));
+        }
+        return forwardMember(target, property);
+      },
+    });
+  },
+  batch: (...args) => canonicalDb.batch(...args),
+  exec: (...args) => canonicalDb.exec(...args),
+});
+const withDeferredLegacyReadBarrier = (env, action) => {
+  const canonicalDb = env.cybermeters_db;
+  const targetAction = F4_PR2_BARRIER_MODE === "wrong_action"
+    ? `${action}_wrong_attachment`
+    : action;
+  let deferredReads = 0;
+  let releaseScheduled = false;
+  let released = false;
+  let readGeneration = 0;
+  const waiters = [];
+  const release = () => {
+    released = true;
+    while (waiters.length > 0) waiters.shift()();
+  };
+  const waitForPassiveRelease = () => {
+    if (released) return Promise.resolve();
+    if (!releaseScheduled) {
+      releaseScheduled = true;
+      let observedGeneration = readGeneration;
+      let quietTurns = 0;
+      const observeQuiescence = () => {
+        if (observedGeneration !== readGeneration) {
+          observedGeneration = readGeneration;
+          quietTurns = 0;
+        } else {
+          quietTurns += 1;
+        }
+        if (quietTurns >= 256) release();
+        else setImmediate(observeQuiescence);
+      };
+      setImmediate(observeQuiescence);
+    }
+    return new Promise((resolve) => waiters.push(resolve));
+  };
+  const cybermetersDb = wrapD1(canonicalDb, (sql, args, bound) => {
+    const normalisedSql = String(sql).replace(/\s+/g, " ").trim();
+    const isActualLegacyRead = normalisedSql.startsWith("SELECT request_count FROM api_rate_limits") &&
+      args[2] === targetAction;
+    if (!isActualLegacyRead) return bound;
+    return new Proxy(bound, {
+      get(target, property) {
+        if (property === "first") {
+          return async (...firstArgs) => {
+            // Execute the actual prepared/bound D1 read first, then defer its
+            // result. No caller can enter the write phase until the passive
+            // next-turn release, so all concurrent legacy reads observe the
+            // same pre-write state. Atomic UPSERTs never enter this branch.
+            const row = await target.first(...firstArgs);
+            deferredReads += 1;
+            readGeneration += 1;
+            await waitForPassiveRelease();
+            return row;
+          };
+        }
+        return forwardMember(target, property);
+      },
+    });
+  });
+  return {
+    env: { ...env, cybermeters_db: cybermetersDb },
+    deferredReadCount: () => deferredReads,
+  };
+};
+const withActionScopedRateStoreFailure = (env, action) => {
+  const canonicalDb = env.cybermeters_db;
+  return {
+    ...env,
+    cybermeters_db: wrapD1(canonicalDb, (sql, args, bound) => {
+      const targetsAction = /\bapi_rate_limits\b/i.test(String(sql)) &&
+        args.some((value) => value === action);
+      if (!targetsAction) return bound;
+      return new Proxy(bound, {
+        get(target, property) {
+          if (["first", "all", "run"].includes(String(property))) {
+            return async () => { throw new Error(`forced ${action} rate-store failure`); };
+          }
+          return forwardMember(target, property);
+        },
+      });
+    }),
+  };
+};
+const responseObservation = (responses) => ({
+  allowed: responses.filter((response) => response.status !== 429).length,
+  unauthorized: responses.filter((response) => response.status === 401).length,
+  denied429: responses.filter((response) => response.status === 429).length,
+  statuses: responses.map((response) => response.status),
+});
+const actionRows = (db, action, windowStart) => db.prepare(
+  `SELECT scope, scope_id, action, window_start, window_seconds, request_count
+   FROM api_rate_limits
+   WHERE action = ? AND window_start = ?
+   ORDER BY scope, scope_id`,
+).all(action, windowStart);
+const recordF4Pr2Fixture = (id, description, pass, observation) => {
+  console.log(`F4_PR2_OBSERVATION ${JSON.stringify({ id, ...observation })}`);
+  ok(`${id} — ${description}`, pass);
+};
 const fixedIpCheckResults = ({ responses, loginRow, accountRow, loginScopeId, accountScopeId, windowStart }) => [
   {
     name: "first 10 login attempts are NOT rate-limited (positive control)",
@@ -103,7 +224,7 @@ const fixedIpCheckResults = ({ responses, loginRow, accountRow, loginScopeId, ac
       loginRow?.action === "login" &&
       loginRow?.window_start === windowStart &&
       loginRow?.window_seconds === 900 &&
-      loginRow?.request_count === 10,
+      loginRow?.request_count === 11,
   },
   {
     name: "first ten fixed-IP attempts reached login_account before request 11 was stopped by login",
@@ -137,6 +258,7 @@ async function main() {
   const mod = await loadWorker();
   const worker = mod.default;
 
+  if (!F4_PR2_FOCUSED) {
   // ── F2: verification cannot be forged (attest ≠ verified) ──────────────────
   sec("F2 verification cannot be forged");
   // Positive control: a MANUAL case verifies with a valid customer attestation.
@@ -380,9 +502,281 @@ async function main() {
         action: "login",
         windowStart: rateLimitWindowStart(rolloverEpoch, 900),
       });
-      ok("rollover cap+1 is denied only inside its own bucket by login action", rolloverCap.status === 429 && rolloverCap.data?.action !== "global_write" && rolloverLoginRow?.request_count === 10);
+      ok("rollover cap+1 is denied only inside its own bucket by login action", rolloverCap.status === 429 && rolloverCap.data?.action !== "global_write" && rolloverLoginRow?.request_count === 11);
     });
     ok("Date.now is restored after the rollover fixture", Date.now === dateNowBeforeF4);
+  }
+  }
+
+  // ── F4 PR-2: atomic login/account limiter contract (X1–X7) ───────────────
+  // The passive barrier wraps the actual prepared/bound SELECT statement used
+  // by consumeApiRateLimit. It deterministically forces the permitted
+  // all-reads-before-any-write legacy interleaving. In-process SQLite does not
+  // schedule that race naturally; no production D1 occurrence is claimed.
+  sec("F4 PR-2 login rate-limit atomicity");
+  {
+    const fixtureClockBefore = Date.now;
+    const fixedIp = "203.0.113.101";
+    const email = "f4-x1@example.test";
+    const db = buildDb();
+    const barrier = withDeferredLegacyReadBarrier(makeEnv(db), "login");
+    const call = makeCaller(worker, barrier.env, { fixedIp });
+    const responses = await withRateLimitClock(RATE_LIMIT_EPOCH_MS, () => Promise.all(
+      Array.from({ length: 11 }, () => call("POST", "/api/auth/login", null, {
+        email,
+        password: "wrong-pw",
+      })),
+    ));
+    const windowStart = rateLimitWindowStart(RATE_LIMIT_EPOCH_MS, 900);
+    const loginScopeId = await rateLimitScopeIdForTest("login", fixedIp);
+    const accountScopeId = await rateLimitScopeIdForTest("login_acct", email);
+    const loginRow = scopedActionCounter(db, {
+      scope: "ip", scopeId: loginScopeId, action: "login", windowStart,
+    });
+    const accountRow = scopedActionCounter(db, {
+      scope: "user", scopeId: accountScopeId, action: "login_account", windowStart,
+    });
+    const response = responseObservation(responses);
+    const observation = {
+      ...response,
+      login_count: loginRow?.request_count ?? null,
+      login_account_count: accountRow?.request_count ?? null,
+      deferred_reads: barrier.deferredReadCount(),
+    };
+    recordF4Pr2Fixture("X1", "same-IP concurrency is bounded at 10 then one account-safe 429", response.allowed === 10 &&
+      response.unauthorized === 10 && response.denied429 === 1 && responses[10]?.status === 429 &&
+      responses[10]?.data?.action !== "global_write" && loginRow?.scope === "ip" &&
+      loginRow?.scope_id === loginScopeId && loginRow?.action === "login" &&
+      loginRow?.window_start === windowStart && loginRow?.window_seconds === 900 &&
+      loginRow?.request_count === 11 && accountRow?.scope === "user" &&
+      accountRow?.scope_id === accountScopeId && accountRow?.action === "login_account" &&
+      accountRow?.window_start === windowStart && accountRow?.window_seconds === 900 &&
+      accountRow?.request_count === 10 && barrier.deferredReadCount() === 0 &&
+      Date.now === fixtureClockBefore, observation);
+  }
+
+  {
+    const fixtureClockBefore = Date.now;
+    const email = "f4-x2@example.test";
+    const db = buildDb();
+    const barrier = withDeferredLegacyReadBarrier(makeEnv(db), "login_account");
+    // No fixedIp: makeCaller assigns a distinct deterministic IP to every call.
+    const call = makeCaller(worker, barrier.env);
+    const responses = await withRateLimitClock(RATE_LIMIT_EPOCH_MS, () => Promise.all(
+      Array.from({ length: 21 }, () => call("POST", "/api/auth/login", null, {
+        email,
+        password: "wrong-pw",
+      })),
+    ));
+    const windowStart = rateLimitWindowStart(RATE_LIMIT_EPOCH_MS, 900);
+    const accountScopeId = await rateLimitScopeIdForTest("login_acct", email);
+    const accountRow = scopedActionCounter(db, {
+      scope: "user", scopeId: accountScopeId, action: "login_account", windowStart,
+    });
+    const accountRows = actionRows(db, "login_account", windowStart);
+    const loginRows = actionRows(db, "login", windowStart);
+    const response = responseObservation(responses);
+    const observation = {
+      ...response,
+      login_account_count: accountRow?.request_count ?? null,
+      login_account_rows: accountRows.length,
+      login_rows: loginRows.length,
+      login_row_counts: loginRows.map((row) => row.request_count),
+      deferred_reads: barrier.deferredReadCount(),
+    };
+    recordF4Pr2Fixture("X2", "distributed account concurrency allows exactly 20 before one scoped 429", response.allowed === 20 &&
+      response.unauthorized === 20 && response.denied429 === 1 &&
+      responses.slice(0, 20).every((item) => item.status === 401) &&
+      responses[20]?.status === 429 && responses[20]?.data?.action !== "global_write" &&
+      accountRow?.scope === "user" && accountRow?.scope_id === accountScopeId &&
+      accountRow?.action === "login_account" && accountRow?.window_start === windowStart &&
+      accountRow?.window_seconds === 900 && accountRow?.request_count === 21 &&
+      accountRows.length === 1 && loginRows.length === 21 &&
+      loginRows.every((row) => row.scope === "ip" && row.action === "login" &&
+        row.window_start === windowStart && row.window_seconds === 900 && row.request_count === 1) &&
+      barrier.deferredReadCount() === 0 && Date.now === fixtureClockBefore, observation);
+  }
+
+  {
+    const fixtureClockBefore = Date.now;
+    const fixedIp = "203.0.113.103";
+    const email = "f4-x3@example.test";
+    const db = buildDb();
+    const barrier = withDeferredLegacyReadBarrier(makeEnv(db), "login");
+    const call = makeCaller(worker, barrier.env, { fixedIp });
+    const responses = await withRateLimitClock(RATE_LIMIT_EPOCH_MS, () => Promise.all(
+      Array.from({ length: 10 }, () => call("POST", "/api/auth/login", null, {
+        email,
+        password: "wrong-pw",
+      })),
+    ));
+    const windowStart = rateLimitWindowStart(RATE_LIMIT_EPOCH_MS, 900);
+    const loginScopeId = await rateLimitScopeIdForTest("login", fixedIp);
+    const accountScopeId = await rateLimitScopeIdForTest("login_acct", email);
+    const loginRow = scopedActionCounter(db, {
+      scope: "ip", scopeId: loginScopeId, action: "login", windowStart,
+    });
+    const accountRow = scopedActionCounter(db, {
+      scope: "user", scopeId: accountScopeId, action: "login_account", windowStart,
+    });
+    const response = responseObservation(responses);
+    const expectedDeferredReads = F4_PR2_FAIL_FIRST ? 10 : 0;
+    const observation = {
+      ...response,
+      login_count: loginRow?.request_count ?? null,
+      login_account_count: accountRow?.request_count ?? null,
+      deferred_reads: barrier.deferredReadCount(),
+      expected_deferred_reads: expectedDeferredReads,
+    };
+    recordF4Pr2Fixture("X3", "barrier does not fabricate a below-cap denial", response.allowed === 10 &&
+      response.unauthorized === 10 && response.denied429 === 0 &&
+      loginRow?.request_count === 10 && accountRow?.request_count === 10 &&
+      barrier.deferredReadCount() === expectedDeferredReads && Date.now === fixtureClockBefore,
+    observation);
+  }
+
+  {
+    const fixtureClockBefore = Date.now;
+    const fixedIp = "203.0.113.104";
+    const email = "f4-x4a@example.test";
+    const db = buildDb();
+    const call = makeCaller(worker, makeEnv(db), { fixedIp });
+    const responses = [];
+    await withRateLimitClock(RATE_LIMIT_EPOCH_MS, async () => {
+      for (let index = 0; index < 11; index++) {
+        responses.push(await call("POST", "/api/auth/login", null, { email, password: "wrong-pw" }));
+      }
+    });
+    const windowStart = rateLimitWindowStart(RATE_LIMIT_EPOCH_MS, 900);
+    const loginScopeId = await rateLimitScopeIdForTest("login", fixedIp);
+    const loginRow = scopedActionCounter(db, {
+      scope: "ip", scopeId: loginScopeId, action: "login", windowStart,
+    });
+    const response = responseObservation(responses);
+    const expectedPersisted = F4_PR2_FAIL_FIRST ? 10 : 11;
+    const observation = { ...response, login_count: loginRow?.request_count ?? null, expected_persisted: expectedPersisted };
+    recordF4Pr2Fixture("X4a", "sequential same-IP cap+1 preserves the approved boundary", response.allowed === 10 &&
+      response.unauthorized === 10 && response.denied429 === 1 && responses[10]?.status === 429 &&
+      responses[10]?.data?.action !== "global_write" && loginRow?.request_count === expectedPersisted &&
+      Date.now === fixtureClockBefore, observation);
+  }
+
+  {
+    const fixtureClockBefore = Date.now;
+    const email = "f4-x4b@example.test";
+    const db = buildDb();
+    const call = makeCaller(worker, makeEnv(db));
+    const responses = [];
+    await withRateLimitClock(RATE_LIMIT_EPOCH_MS, async () => {
+      for (let index = 0; index < 21; index++) {
+        responses.push(await call("POST", "/api/auth/login", null, { email, password: "wrong-pw" }));
+      }
+    });
+    const windowStart = rateLimitWindowStart(RATE_LIMIT_EPOCH_MS, 900);
+    const accountScopeId = await rateLimitScopeIdForTest("login_acct", email);
+    const accountRow = scopedActionCounter(db, {
+      scope: "user", scopeId: accountScopeId, action: "login_account", windowStart,
+    });
+    const response = responseObservation(responses);
+    const expectedPersisted = F4_PR2_FAIL_FIRST ? 20 : 21;
+    const observation = { ...response, login_account_count: accountRow?.request_count ?? null, expected_persisted: expectedPersisted };
+    recordF4Pr2Fixture("X4b", "sequential distributed cap+1 preserves the approved account boundary", response.allowed === 20 &&
+      response.unauthorized === 20 && response.denied429 === 1 && responses[20]?.status === 429 &&
+      responses[20]?.data?.action !== "global_write" && accountRow?.request_count === expectedPersisted &&
+      Date.now === fixtureClockBefore, observation);
+  }
+
+  {
+    const fixtureClockBefore = Date.now;
+    const fixedIp = "203.0.113.105";
+    const email = "f4-x5@example.test";
+    const db = buildDb();
+    const failingEnv = withActionScopedRateStoreFailure(makeEnv(db), "login");
+    const call = makeCaller(worker, failingEnv, { fixedIp });
+    const response = await withRateLimitClock(RATE_LIMIT_EPOCH_MS, () =>
+      call("POST", "/api/auth/login", null, { email, password: "wrong-pw" }));
+    const windowStart = rateLimitWindowStart(RATE_LIMIT_EPOCH_MS, 900);
+    const accountScopeId = await rateLimitScopeIdForTest("login_acct", email);
+    const accountRow = scopedActionCounter(db, {
+      scope: "user", scopeId: accountScopeId, action: "login_account", windowStart,
+    });
+    const observation = {
+      status: response.status,
+      action: response.data?.action ?? null,
+      login_account_count: accountRow?.request_count ?? null,
+    };
+    recordF4Pr2Fixture("X5", "login-scoped store failure fails closed before account or credential work", response.status === 429 &&
+      response.data?.action !== "global_write" && accountRow == null && Date.now === fixtureClockBefore,
+    observation);
+  }
+
+  {
+    const fixtureClockBefore = Date.now;
+    const db = buildDb();
+    const env = makeEnv(db);
+    const scope = [{ scope: "ip", scope_id: "f4_x6_scope" }];
+    let epoch = RATE_LIMIT_EPOCH_MS;
+    const firstBucket = [];
+    const secondBucket = [];
+    let capResult = null;
+    await withRateLimitClock(() => epoch, async () => {
+      for (let index = 0; index < 5; index++) {
+        firstBucket.push(await consumeApiRateLimit(env, scope, "login", 10, 900, {
+          failClosed: true,
+          atomic: true,
+        }));
+      }
+      epoch += RATE_LIMIT_WINDOW_MS;
+      for (let index = 0; index < 10; index++) {
+        secondBucket.push(await consumeApiRateLimit(env, scope, "login", 10, 900, {
+          failClosed: true,
+          atomic: true,
+        }));
+      }
+      capResult = await consumeApiRateLimit(env, scope, "login", 10, 900, {
+        failClosed: true,
+        atomic: true,
+      });
+    });
+    const observation = {
+      first_bucket_allowed: firstBucket.filter((result) => result == null).length,
+      second_bucket_allowed: secondBucket.filter((result) => result == null).length,
+      cap_status: capResult?.status ?? null,
+      cap_action: capResult?.body?.action ?? null,
+    };
+    // Deliberately no persisted-count assertion: X6 pins budget semantics only.
+    recordF4Pr2Fixture("X6", "fixed-window rollover grants a fresh budget and denies only cap+1", firstBucket.length === 5 &&
+      firstBucket.every((result) => result == null) && secondBucket.length === 10 &&
+      secondBucket.every((result) => result == null) && capResult?.status === 429 &&
+      capResult?.body?.action === "login" && Date.now === fixtureClockBefore, observation);
+  }
+
+  {
+    const fixtureClockBefore = Date.now;
+    const fixedIp = "203.0.113.107";
+    const email = "f4-x7@example.test";
+    const db = buildDb();
+    const call = makeCaller(worker, makeEnv(db), { fixedIp });
+    const response = await withRateLimitClock(RATE_LIMIT_EPOCH_MS, () =>
+      call("POST", "/api/auth/login", null, { email, password: "wrong-pw" }));
+    const windowStart = rateLimitWindowStart(RATE_LIMIT_EPOCH_MS, 900);
+    const loginRows = actionRows(db, "login", windowStart);
+    const accountRows = actionRows(db, "login_account", windowStart);
+    const observation = {
+      status: response.status,
+      login_rows: loginRows.length,
+      login_account_rows: accountRows.length,
+      login_counts: loginRows.map((row) => row.request_count),
+      login_account_counts: accountRows.map((row) => row.request_count),
+    };
+    recordF4Pr2Fixture("X7", "each login call site remains single-scope with one exact row", response.status === 401 &&
+      loginRows.length === 1 && accountRows.length === 1 &&
+      loginRows[0]?.scope === "ip" && loginRows[0]?.action === "login" &&
+      loginRows[0]?.window_start === windowStart && loginRows[0]?.window_seconds === 900 &&
+      loginRows[0]?.request_count === 1 && accountRows[0]?.scope === "user" &&
+      accountRows[0]?.action === "login_account" && accountRows[0]?.window_start === windowStart &&
+      accountRows[0]?.window_seconds === 900 && accountRows[0]?.request_count === 1 &&
+      Date.now === fixtureClockBefore, observation);
   }
 
   // ── Coverage delta ─────────────────────────────────────────────────────────
@@ -392,8 +786,10 @@ async function main() {
     F3: "alert/digest cannot be spoofed/replayed (dedupe_key dedup, soft-delete suppression, own-tenant recipients, weekly-digest idempotent)",
     F4: "rate limiting holds (login cap+1 → 429; fail-closed on store error)",
   };
-  ok("all three assessable F-section controls asserted", Object.keys(controls).length === 3);
-  enforceExpectedAssertionCount();
+  if (!F4_PR2_FOCUSED) {
+    ok("all three assessable F-section controls asserted", Object.keys(controls).length === 3);
+    enforceExpectedAssertionCount();
+  }
 
   // ── Report ─────────────────────────────────────────────────────────────────
   const bySec = {};

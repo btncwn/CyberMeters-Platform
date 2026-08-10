@@ -152,6 +152,9 @@ jobs:
       - name: Full-repo assurance — workflow abuse coverage (F2 verification / F3 alert+digest / F4 rate-limit)
         run: node scripts/validate-workflow-abuse-coverage.js
 
+      - name: F4 PR-2 login rate-limit atomicity mutation contract (X1–X7 / M1–M8)
+        run: node scripts/validate-login-rate-limit-atomicity-mutations.js
+
       - name: Full-repo assurance — authentication coverage (B2 session / B3 invalidation / B4 MFA / B5 SSO claims / B6 reset)
         run: node scripts/validate-auth-coverage.js
 
