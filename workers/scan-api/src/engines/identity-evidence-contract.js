@@ -8,6 +8,14 @@ export const IDENTITY_EVIDENCE_SCHEMA_VERSION = "identity_evidence.v2";
 export const IDENTITY_CONFIDENCE_SCHEMA_VERSION = "identity_confidence.v1";
 export const IDENTITY_CLAIM_SCHEMA_VERSION = "identity_claim.v2";
 
+// Item 11B is deliberately absent. This registry is the authoritative answer
+// to "can the current runtime measure an Identity endpoint?" and remains empty
+// until a separately approved producer performs a real bounded measurement.
+export const IDENTITY_REACHABILITY_PRODUCERS = Object.freeze([]);
+export function hasIdentityReachabilityProducer() {
+  return IDENTITY_REACHABILITY_PRODUCERS.length > 0;
+}
+
 // U1 canonical storage/read grain. Keep this as the only declaration of the
 // tuple so writers, consumers and mutation tests cannot silently diverge.
 export const CANONICAL_IDENTITY_TUPLE_COLUMNS = Object.freeze([
@@ -101,11 +109,13 @@ SELECT provider, COUNT(*) AS n FROM canonical_identity_assets
 export const IDENTITY_CANONICAL_SUMMARY_HIGH_RISK_QUERY = `${CANONICAL_IDENTITY_CTE}
 SELECT COUNT(*) AS n FROM canonical_identity_assets WHERE risk_score >= 15`;
 export const IDENTITY_CANONICAL_EXPOSURE_QUERY = `${CANONICAL_IDENTITY_CTE}
-SELECT hostname, identity_type, provider, internet_exposed, risk_score
+SELECT id, domain_id, hostname, asset_type, identity_type, provider,
+       internet_exposed, source, risk_score, evidence, first_seen, last_seen
   FROM canonical_identity_assets
  ORDER BY risk_score DESC, internet_exposed DESC, id ASC LIMIT 100`;
 export const IDENTITY_CANONICAL_SHADOW_QUERY = `${CANONICAL_IDENTITY_CTE}
-SELECT id, hostname, provider, risk_score, first_seen, last_seen
+SELECT id, domain_id, hostname, asset_type, identity_type, provider,
+       internet_exposed, source, risk_score, evidence, first_seen, last_seen
   FROM canonical_identity_assets
  WHERE provider IS NOT NULL AND provider != ''`;
 export const IDENTITY_CANONICAL_LIFECYCLE_QUERY = `${CANONICAL_IDENTITY_CTE}
@@ -457,6 +467,23 @@ function relationshipStatus(items, provider) {
   return "unknown";
 }
 
+function supportedSyntheticReachability(row) {
+  const measurement = row?.reachability_measurement;
+  if (!measurement || measurement.supported !== true || measurement.producer !== "synthetic_contract_control") return null;
+  if (!["reachable", "not_reachable", "inconclusive"].includes(measurement.status)) return null;
+  const measuredAt = normalizeIdentityObservedAt(measurement.measured_at);
+  if (!measuredAt || !measurement.method || !measurement.endpoint) return null;
+  const detail = measurement.confidence_detail;
+  if (!detail || detail.schema_version !== IDENTITY_CONFIDENCE_SCHEMA_VERSION || detail.subject !== "endpoint_reachability") return null;
+  return {
+    status: measurement.status,
+    endpoint: String(measurement.endpoint),
+    method: String(measurement.method),
+    measured_at: measuredAt,
+    confidence_detail: { ...detail },
+  };
+}
+
 export function buildIdentityClaim(row = {}) {
   const evidence = readIdentityEvidence(row.evidence);
   const validItems = evidence.items.filter((item) => item?.schema_version === IDENTITY_EVIDENCE_SCHEMA_VERSION);
@@ -469,9 +496,10 @@ export function buildIdentityClaim(row = {}) {
     ? classificationItems.length > 0 ? "possible" : "unknown"
     : "not_applicable";
   const resolution = aggregateIdentityNameResolution(evidence.items, evidence.status);
+  const measuredReachability = supportedSyntheticReachability(row);
   return {
     schema_version: IDENTITY_CLAIM_SCHEMA_VERSION,
-    claim_kind: provider ? "provider_relationship" : "surface_candidate",
+    claim_kind: measuredReachability ? "measured_identity_surface" : provider ? "provider_relationship" : "surface_candidate",
     provider_relationship: {
       status: providerStatus,
       provider,
@@ -485,7 +513,7 @@ export function buildIdentityClaim(row = {}) {
       confidence_detail: strongestIdentityConfidence(classificationItems, "hostname_classification"),
     },
     name_resolution: resolution,
-    reachability: {
+    reachability: measuredReachability ?? {
       status: "not_evaluated",
       endpoint: null,
       method: null,
@@ -496,8 +524,66 @@ export function buildIdentityClaim(row = {}) {
       relationship: providerItems.length > 0 ? "L1" : "L0",
       classification: classificationItems.length > 0 ? "L1" : "L0",
       name_resolution: ["resolved", "mx_only"].includes(resolution.status) ? "L1" : "L0",
-      reachability: "L0",
+      reachability: measuredReachability ? "L2" : "L0",
     },
+  };
+}
+
+export function isMeasuredIdentityClaim(value) {
+  return value?.schema_version === IDENTITY_CLAIM_SCHEMA_VERSION &&
+    value?.claim_kind === "measured_identity_surface" &&
+    ["reachable", "not_reachable", "inconclusive"].includes(value?.reachability?.status) &&
+    typeof value?.reachability?.endpoint === "string" && value.reachability.endpoint.length > 0 &&
+    typeof value?.reachability?.method === "string" && value.reachability.method.length > 0 &&
+    normalizeIdentityObservedAt(value?.reachability?.measured_at) !== null;
+}
+
+const NEUTRAL_IDENTITY_ACTIONS = Object.freeze([
+  "classify_expected", "classify_unexpected", "classify_investigate",
+  "record_exception", "clear_exception",
+  "assign_business_owner", "assign_technical_owner", "assign_identity_owner",
+  "set_business_purpose", "retire", "reopen",
+]);
+const MEASURED_IDENTITY_ACTIONS = Object.freeze([
+  "begin_remediation", "record_configuration_changed",
+  "record_surface_removed", "request_verification",
+]);
+
+export function identityAllowedActionsForClaim(identityClaim) {
+  return isMeasuredIdentityClaim(identityClaim)
+    ? [...NEUTRAL_IDENTITY_ACTIONS, ...MEASURED_IDENTITY_ACTIONS]
+    : [...NEUTRAL_IDENTITY_ACTIONS];
+}
+
+export function managedIdentityClaimFromRow(row = {}) {
+  let refs = row.source_evidence_json;
+  if (typeof refs === "string") {
+    try { refs = JSON.parse(refs); } catch { refs = []; }
+  }
+  const claims = (Array.isArray(refs) ? refs : [])
+    .map((ref) => ref?.identity_claim)
+    .filter((value) => value?.schema_version === IDENTITY_CLAIM_SCHEMA_VERSION);
+  const measured = claims.find(isMeasuredIdentityClaim);
+  if (measured) return measured;
+  const provider = claims.find((value) => value?.claim_kind === "provider_relationship");
+  if (provider) return provider;
+  const candidate = claims.find((value) => value?.claim_kind === "surface_candidate");
+  if (candidate) return candidate;
+  return buildIdentityClaim({
+    provider: row.provider_name ?? row.provider ?? null,
+    hostname: row.primary_hostname ?? row.hostname ?? null,
+    identity_type: row.surface_type ?? row.identity_type ?? null,
+    evidence: "[]",
+  });
+}
+
+export function summarizeIdentityClaims(rows = []) {
+  const claims = rows.map((row) => row?.identity_claim ?? buildIdentityClaim(row));
+  return {
+    provider_relationship_count: claims.filter((value) => value?.claim_kind === "provider_relationship").length,
+    surface_candidate_count: claims.filter((value) => value?.claim_kind === "surface_candidate").length,
+    reachability_evaluated_count: claims.filter(isMeasuredIdentityClaim).length,
+    reachable_surface_count: claims.filter((value) => isMeasuredIdentityClaim(value) && value.reachability.status === "reachable").length,
   };
 }
 
@@ -508,5 +594,18 @@ export function buildIdentityEvidenceProjection(row = {}) {
     evidence_status: evidence.status,
     confidence_detail: strongestIdentityConfidence(evidence.items, subject),
     identity_claim: buildIdentityClaim(row),
+    name_resolution: aggregateIdentityNameResolution(evidence.items, evidence.status),
+  };
+}
+
+export function projectIdentityCustomerRow(row = {}) {
+  const projection = buildIdentityEvidenceProjection(row);
+  const candidate = projection.identity_claim?.surface_classification?.status === "possible" && row.hostname;
+  const endpoint = projection.identity_claim?.reachability?.endpoint;
+  return {
+    ...row,
+    ...projection,
+    candidate_urls: candidate ? [`https://${row.hostname}`] : [],
+    measured_endpoints: endpoint ? [endpoint] : [],
   };
 }

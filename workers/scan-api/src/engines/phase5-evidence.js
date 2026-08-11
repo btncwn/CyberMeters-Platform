@@ -10,6 +10,7 @@ import {
   resolveTlsRuntimeState,
   TLS_RUNTIME_STATES,
 } from "./tls-evidence.js";
+import { buildIdentityEvidenceProjection, summarizeIdentityClaims } from "./identity-evidence-contract.js";
 
 export const PHASE5_EVIDENCE_MODULES = Object.freeze({
   cve: "cve_intelligence",
@@ -168,6 +169,26 @@ export function resolvePhase5CustomerAssessment({
 export function projectPhase5EvidenceForCustomer(modules = {}) {
   const evidence = resolvePhase5EvidenceContract(modules);
   const projected = projectTlsModulesForCustomer(modules);
+  const identity = projected.identity_discovery;
+  if (identity && typeof identity === "object") {
+    const projectItem = (item) => {
+      const projection = buildIdentityEvidenceProjection({
+        ...item,
+        evidence: typeof item?.evidence === "string" ? item.evidence : JSON.stringify(item?.evidence ?? []),
+      });
+      return { ...item, ...projection };
+    };
+    const providers = (Array.isArray(identity.providers) ? identity.providers : []).map(projectItem);
+    const portals = (Array.isArray(identity.portals) ? identity.portals : []).map(projectItem);
+    projected.identity_discovery = {
+      ...identity,
+      providers,
+      portals,
+      ...summarizeIdentityClaims([...providers, ...portals]),
+      reachability_status: "not_evaluated",
+      reachability_reason: "no_supported_reachability_producer",
+    };
+  }
   for (const [name, moduleKey] of Object.entries(PHASE5_EVIDENCE_MODULES)) {
     const value = modules?.[moduleKey];
     if (value && typeof value === "object") {
@@ -268,13 +289,65 @@ export function projectPhase5RiskIntelligenceForCustomer(riskIntelligence, evide
   };
 }
 
+export const LEGACY_IDENTITY_REACHABILITY_REASON = "legacy_identity_reachability_semantics";
+
+// Historical snapshots are immutable evidence. This pure read projection masks
+// only conclusions that depended on the former provider/hostname-as-reachability
+// semantics; unaffected facts and the input object remain untouched.
+export function projectIdentitySnapshotForCustomer(snapshot, modules = {}) {
+  if (!snapshot || typeof snapshot !== "object") return snapshot;
+  const identityModule = modules?.identity_discovery;
+  const domains = Array.isArray(snapshot.domains) ? snapshot.domains : [];
+  const identityDomain = domains.find((entry) => entry?.domain_key === "identity_exposure");
+  const projectionAlreadyHonest = snapshot?.methodology?.cyber_mot_resolver_version === "2026-08-11.1";
+  const hasTypedReachability = Number.isFinite(Number(identityModule?.reachability_evaluated_count)) &&
+    Number.isFinite(Number(identityModule?.reachable_surface_count));
+  const legacyBriAffected = !projectionAlreadyHonest && !hasTypedReachability && Number(identityModule?.high_risk_count || 0) > 0;
+  const legacyHealthyAffected = !projectionAlreadyHonest && identityDomain?.state === "assessed_healthy" && !hasTypedReachability;
+  if (!legacyBriAffected && !legacyHealthyAffected) return { ...snapshot };
+
+  const projectedDomains = domains.map((entry) => entry?.domain_key !== "identity_exposure" || !legacyHealthyAffected
+    ? entry
+    : {
+        ...entry,
+        state: "evidence_insufficient",
+        coverage: "partial",
+        state_reason: "Identity reachability was not evaluated by a supported producer; the historical healthy conclusion is withheld.",
+        summary: "Identity reachability was not evaluated by a supported producer; the historical healthy conclusion is withheld.",
+      });
+  const overall = snapshot.overall ?? {};
+  const bri = overall.business_risk_indicator ?? {};
+  return {
+    ...snapshot,
+    domains: projectedDomains,
+    overall: legacyBriAffected ? {
+      ...overall,
+      business_risk_indicator: {
+        ...bri,
+        band: null,
+        explanation: null,
+        provisional: true,
+        withheld_reason: LEGACY_IDENTITY_REACHABILITY_REASON,
+        internal_metrics: { ...(bri.internal_metrics ?? {}), score: null },
+      },
+    } : overall,
+    customer_projection: {
+      applied: true,
+      reason: LEGACY_IDENTITY_REACHABILITY_REASON,
+      identity_domain_withheld: legacyHealthyAffected,
+      business_risk_indicator_withheld: legacyBriAffected,
+    },
+  };
+}
+
 /**
  * Customer renderer view of an immutable snapshot. The input object is never
  * mutated and remains available on read.snapshot for checksum/verbatim APIs.
  */
 export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
   const tlsSnapshot = projectTlsSnapshotForCustomer(snapshot, modules);
-  const overall = tlsSnapshot?.overall ?? {};
+  const identitySnapshot = projectIdentitySnapshotForCustomer(tlsSnapshot, modules);
+  const overall = identitySnapshot?.overall ?? {};
   const projection = resolvePhase5HistoricalCustomerProjection({
     score: overall.cyber_metrics_score,
     riskLevel: overall.score_band,
@@ -285,11 +358,11 @@ export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
       null,
     modules,
   });
-  if (projection.evidence.complete) return tlsSnapshot;
+  if (projection.evidence.complete) return identitySnapshot;
 
   const bri = overall.business_risk_indicator ?? {};
   return {
-    ...tlsSnapshot,
+    ...identitySnapshot,
     overall: {
       ...overall,
       cyber_metrics_score: null,

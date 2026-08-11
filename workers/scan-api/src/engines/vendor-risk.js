@@ -157,6 +157,19 @@ function riskLevelBaseScore(riskLevel) {
   return 30;
 }
 
+export function identityVendorRiskEvidenceStatus(row = {}) {
+  const modules = new Set([
+    row.source_module,
+    ...(Array.isArray(row._source_modules) ? row._source_modules : []),
+  ].map((value) => String(value || "").toLowerCase()).filter(Boolean));
+  const sources = getVendorSources(row).map((value) => String(value).toLowerCase());
+  const independentSource = sources.some((value) =>
+    value !== "identity_discovery" &&
+    !["cname", "spf", "mx", "csp", "server", "certificate_transparency", "dns_bruteforce", "dns_mx", "unknown"].includes(value));
+  const identityOnly = modules.size > 0 && [...modules].every((value) => value === "identity_discovery") && !independentSource;
+  return identityOnly ? "relationship_only" : "independent_risk_evidence";
+}
+
 function scoreVendorRisk(row, categoryCounts, totalVendors) {
   const normalizedCategory = normalizeVendorRiskCategory(row.category, row.vendor_name, row.source);
   const multiplier = VENDOR_CATEGORY_MULTIPLIERS[normalizedCategory] ?? 1.0;
@@ -170,6 +183,18 @@ function scoreVendorRisk(row, categoryCounts, totalVendors) {
     : concentrationRatio >= 0.35 && categoryCount >= 2
       ? 8
       : 0;
+  const riskEvidenceStatus = identityVendorRiskEvidenceStatus(row);
+  if (riskEvidenceStatus === "relationship_only") {
+    return {
+      normalized_category: normalizedCategory,
+      score: 0,
+      category_multiplier: multiplier,
+      concentration_penalty: 0,
+      confidence_score: confidenceScore,
+      signal_weight: signalWeight,
+      risk_evidence_status: riskEvidenceStatus,
+    };
+  }
   const score = Math.max(0, Math.min(100, Math.round(base * multiplier - concentrationPenalty)));
   return {
     normalized_category: normalizedCategory,
@@ -178,6 +203,7 @@ function scoreVendorRisk(row, categoryCounts, totalVendors) {
     concentration_penalty: concentrationPenalty,
     confidence_score: confidenceScore,
     signal_weight: signalWeight,
+    risk_evidence_status: riskEvidenceStatus,
   };
 }
 
@@ -230,6 +256,7 @@ export function computeWorkspaceVendorRisk(vendors) {
       vendor_key,
       normalized_category,
       _sources: getVendorSources(row),
+      _source_modules: [row.source_module].filter(Boolean),
     };
     if (!existing) {
       canonical.set(vendor_key, candidate);
@@ -242,6 +269,7 @@ export function computeWorkspaceVendorRisk(vendors) {
     const candidateRank = riskLevelBaseScore(candidate.risk_level) * confidenceToScore(candidate.confidence) * candidateSignal;
     const kept = candidateRank > existingRank ? candidate : existing;
     kept._sources = [...new Set([...(existing._sources || []), ...(candidate._sources || [])])];
+    kept._source_modules = [...new Set([...(existing._source_modules || []), ...(candidate._source_modules || [])])];
     canonical.set(vendor_key, kept);
   }
 
@@ -258,8 +286,9 @@ export function computeWorkspaceVendorRisk(vendors) {
   }));
   const concentration = classifyWorkspaceVendorConcentration(scored);
   const topVendors = scored.slice().sort((a, b) => b.score - a.score).slice(0, 10);
-  const topAvg = topVendors.length
-    ? topVendors.reduce((sum, v) => sum + v.score, 0) / topVendors.length
+  const riskEvaluatedTop = topVendors.filter((vendor) => vendor.risk_evidence_status !== "relationship_only");
+  const topAvg = riskEvaluatedTop.length
+    ? riskEvaluatedTop.reduce((sum, v) => sum + v.score, 0) / riskEvaluatedTop.length
     : 0;
   const concentrationBump = concentration.level === "high" ? 10 : concentration.level === "medium" ? 5 : 0;
 
@@ -278,7 +307,7 @@ async function recomputeWorkspaceVendorRiskScores(workspaceId, env) {
     .prepare(
       `SELECT id, workspace_id, vendor_name, category, source, evidence,
               confidence, risk_level, status, first_seen, last_seen,
-              metadata_json
+              metadata_json, source_module
        FROM workspace_vendors
        WHERE workspace_id = ? AND status = 'active'`
     )

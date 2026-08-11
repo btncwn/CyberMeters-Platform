@@ -55,6 +55,26 @@ function mockEnv({ login = { results: [] }, brand = { results: [] }, scans = { r
 }
 const scanRow = { results: [{ scan_id: "s1", domain: "example.com" }] };
 const compute = (opts) => computeIdentityExposure(mockEnv(opts), "ws1");
+const measuredNotReachable = {
+  hostname: "app.example.com",
+  identity_type: "sso",
+  internet_exposed: 0,
+  risk_score: 0,
+  reachability_measurement: {
+    supported: true,
+    producer: "synthetic_contract_control",
+    status: "not_reachable",
+    endpoint: "https://app.example.com",
+    method: "https_get",
+    measured_at: "2026-08-11T10:00:00Z",
+    confidence_detail: {
+      schema_version: "identity_confidence.v1",
+      subject: "endpoint_reachability",
+      level: "high",
+      basis: "synthetic contract control",
+    },
+  },
+};
 
 // ── 1/2. Query / read failure → Unavailable (never benign) ───────────────────
 const loginFail = await compute({ login: new Error("d1 down") });
@@ -78,13 +98,14 @@ const nothing = await compute({});   // all queries succeed, all empty
 ok("nothing assessable → Not Assessed", nothing.identity_exposure_level === "Not Assessed");
 ok("Not Assessed is NOT benign (no Low/clean)", !isBenign(nothing));
 
-// ── 6. Successful observation, ZERO exposure → genuine Low ───────────────────
+// ── 6. A real supported reachability measurement permits genuine Low ────
 const genuineLow = await compute({
-  login: { results: [{ hostname: "app.example.com", identity_type: "sso", internet_exposed: 0, risk_score: 0 }] },
+  login: { results: [measuredNotReachable] },
   scans: scanRow, reports: { "reports/s1.json": CLEAN_REPORT },
 });
-ok("observed assets + readable clean report + zero exposure → Low", genuineLow.identity_exposure_level === "Low");
-ok("genuine Low carries the reassuring clean summary", /clean/i.test(genuineLow.summary));
+ok("supported not-reachable measurement + clean corroborating evidence → Low", genuineLow.identity_exposure_level === "Low");
+ok("genuine Low remains bounded to the evidence actually evaluated",
+  /No material identity-exposure signal was observed within the evidence that was actually evaluated/i.test(genuineLow.summary));
 
 // ── 7. Successful observation WITH exposure → High (never hidden) ─────────────
 const spoofable = await compute({ scans: scanRow, reports: { "reports/s1.json": SPOOFABLE_REPORT } });
@@ -100,7 +121,7 @@ ok("real exposure surfaces as High even when another source is unavailable",
 // ── 9. Legacy / minimal shapes do not crash ──────────────────────────────────
 ok("deriveLevel with legacy 3-arg call does not crash", (() => {
   const r = deriveLevel({ internet_facing: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 });
-  return r.identity_exposure_level === "Low";
+  return r.identity_exposure_level === "Not Assessed";
 })());
 ok("computeIdentityExposure over a minimal legacy report does not crash",
   (await compute({ scans: scanRow, reports: { "reports/s1.json": { modules: {} } } })).identity_exposure_level === "Unavailable");
@@ -122,20 +143,20 @@ async function mutant(from, to) {
 // M1: map unavailable → (fall through, becomes Low on assessed evidence).
 {
   const m = await mutant("  if (unavailable) {", "  if (false) {");
-  const r = m.anchor ? m.mod.deriveLevel({ internet_facing: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 }, { unavailable: true, assessed: true }) : null;
+  const r = m.anchor ? m.mod.deriveLevel({ internet_facing: 0, reachability_evaluated_count: 1, reachable_surface_count: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 }, { unavailable: true, assessed: true }) : null;
   ok("mutation M1 (unavailable→Low) is CAUGHT", m.anchor && r.identity_exposure_level === "Low");
 }
 // M2: award healthy on missing evidence (not_assessed → Low).
 {
   const m = await mutant("  if (!assessed) {", "  if (false) {");
-  const r = m.anchor ? m.mod.deriveLevel({ internet_facing: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 0 }, { unavailable: false, assessed: false }) : null;
+  const r = m.anchor ? m.mod.deriveLevel({ internet_facing: 0, reachability_evaluated_count: 1, reachable_surface_count: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 0 }, { unavailable: false, assessed: false }) : null;
   ok("mutation M2 (not_assessed→Low) is CAUGHT", m.anchor && r.identity_exposure_level === "Low");
 }
 // M3: collapse the unavailable tracking (failed query no longer flagged).
 {
   const m = await mutant("catch(() => { loginUnavailable = true; return { results: [] }; })", "catch(() => { loginUnavailable = false; return { results: [] }; })");
   const r = m.anchor ? await m.mod.computeIdentityExposure(mockEnv({ login: new Error("d1 down"), scans: scanRow, reports: { "reports/s1.json": CLEAN_REPORT } }), "ws1") : null;
-  ok("mutation M3 (drop unavailable tracking → Low) is CAUGHT", m.anchor && r.identity_exposure_level === "Low");
+  ok("mutation M3 (drop unavailable tracking loses Unavailable) is CAUGHT", m.anchor && r.identity_exposure_level === "Not Assessed");
 }
 // M4: suppress a real exposure (the High/Medium gate).
 {

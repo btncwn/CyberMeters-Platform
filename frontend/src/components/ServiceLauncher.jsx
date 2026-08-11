@@ -46,7 +46,7 @@ const SERVICES = [
   },
   {
     key: 'identity', icon: KeyRound, title: 'Identity Exposure',
-    copy: 'Review public login surfaces and identity-facing entry points without inventing breach coverage.',
+    copy: 'Review provider relationships and possible identity-facing hostnames; endpoint reachability is not currently evaluated.',
     cta: 'Open Identity Exposure', to: '/ws/identity-exposure',
   },
   {

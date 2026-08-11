@@ -12,7 +12,7 @@ import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
 import {
   classificationMeta, riskMeta, ownershipMeta, verificationMeta, surfaceLabel, toneClass,
-  isAwaitingVerification, IDENTITY_SCOPE_NOTE,
+  isAwaitingVerification, IDENTITY_SCOPE_NOTE, identityClaimMeta, confidenceDetailLabel,
 } from '../../lib/identityExposureDisplay'
 
 function Pill({ meta }) {
@@ -43,8 +43,7 @@ export default function IdentityExposurePage() {
 
   useEffect(() => { load() }, [load])
 
-  const serverActions = data?.actions || []
-  const can = (a) => serverActions.includes(a)
+  const can = (item, action) => Array.isArray(item?.allowed_actions) && item.allowed_actions.includes(action)
 
   async function act(item, action) {
     const id = item.identity_exposure_id
@@ -91,7 +90,7 @@ export default function IdentityExposurePage() {
       <div className="mb-2">
         <h1 className="text-xl font-semibold text-slate-800">Identity Exposure</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Review, own, remediate and verify the public identity and login surfaces observed for your domains.
+          Review and own provider relationships and possible identity-facing hostnames for your domains.
         </p>
       </div>
 
@@ -114,7 +113,7 @@ export default function IdentityExposurePage() {
       {loading && <p className="text-sm text-slate-400">Loadingâ¦</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
       {!loading && !error && items.length === 0 && (
-        <p className="text-sm text-slate-400">No managed identity surfaces yet. Records appear here after a scan observes identity providers or login surfaces for a monitored domain.</p>
+        <p className="text-sm text-slate-400">No managed identity evidence yet. Records appear here after a scan identifies a provider relationship or possible identity-facing hostname for a monitored domain.</p>
       )}
 
       {!loading && !error && items.length > 0 && (
@@ -136,7 +135,8 @@ export default function IdentityExposurePage() {
                   <td className="py-2 px-3">
                     <div className="font-medium text-slate-700">{it.primary_hostname || it.provider_name || surfaceLabel(it.surface_type)}</div>
                     <div className="text-xs text-slate-400">{surfaceLabel(it.surface_type)}{it.provider_name ? ` Â· ${it.provider_name}` : ''}</div>
-                    <div className="text-[11px] text-slate-400">Observed externally{it.confidence ? ` Â· ${it.confidence} confidence` : ''}</div>
+                    <div className="text-[11px] text-slate-400">{identityClaimMeta(it.identity_claim).label}</div>
+                    <div className="text-[11px] text-slate-400">{confidenceDetailLabel(it.confidence_detail)} · reachability {it.identity_claim?.reachability?.status?.replace(/_/g, ' ') || 'not evaluated'}</div>
                     {it.linked_case_id && (
                       <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-amber-600 hover:underline">
                         Open case →
@@ -166,13 +166,13 @@ export default function IdentityExposurePage() {
                   </td>
                   <td className="py-2 px-3">
                     <div className="flex flex-wrap gap-1">
-                      {can('classify_expected') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'classify_expected')} className="text-xs rounded border border-green-200 text-green-700 px-2 py-0.5">Expected</button>}
-                      {can('classify_unexpected') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'classify_unexpected')} className="text-xs rounded border border-red-200 text-red-700 px-2 py-0.5">Unexpected</button>}
-                      {can('assign_identity_owner') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'assign_identity_owner')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Owner</button>}
-                      {can('record_surface_removed') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'record_surface_removed')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Record removed</button>}
-                      {can('request_verification') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'request_verification')} className="text-xs rounded border border-blue-200 text-blue-700 px-2 py-0.5">Verify</button>}
-                      {can('record_exception') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'record_exception')} className="text-xs rounded border border-amber-200 text-amber-700 px-2 py-0.5">Exception</button>}
-                      {can('retire') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'retire')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Retire</button>}
+                      {can(it, 'classify_expected') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'classify_expected')} className="text-xs rounded border border-green-200 text-green-700 px-2 py-0.5">Expected</button>}
+                      {can(it, 'classify_unexpected') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'classify_unexpected')} className="text-xs rounded border border-red-200 text-red-700 px-2 py-0.5">Unexpected</button>}
+                      {can(it, 'assign_identity_owner') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'assign_identity_owner')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Owner</button>}
+                      {can(it, 'record_surface_removed') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'record_surface_removed')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Record removed</button>}
+                      {can(it, 'request_verification') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'request_verification')} className="text-xs rounded border border-blue-200 text-blue-700 px-2 py-0.5">Verify</button>}
+                      {can(it, 'record_exception') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'record_exception')} className="text-xs rounded border border-amber-200 text-amber-700 px-2 py-0.5">Exception</button>}
+                      {can(it, 'retire') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'retire')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Retire</button>}
                     </div>
                   </td>
                 </tr>

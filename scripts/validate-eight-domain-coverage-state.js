@@ -69,8 +69,11 @@ const cleanComplete = () => ({
 // 5. Complete + successful evidence + no findings → only genuinely assessed domains healthy.
 {
   const r = resolveCyberMotDomainStates(cleanComplete());
-  ok("5: email/attack/website/certs/identity assessed_healthy on clean complete scan",
+  ok("5: email/attack/website/certs assessed_healthy on clean complete scan",
     ["email_protection","attack_surface","website_security","certificates_trust"].every((k) => byKey(r, k).state === HEALTHY));
+  ok("5: Identity without a supported reachability producer is evidence_insufficient, never healthy",
+    byKey(r, "identity_exposure").state === CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT &&
+    /not evaluated|producer/i.test(byKey(r, "identity_exposure").summary));
   // Non-scan domains never fabricate healthy.
   ok("5: cyber_essentials is customer_input_required (needs questionnaire), not healthy",
     byKey(r, "cyber_essentials_readiness").state === CYBER_MOT_STATES.CUSTOMER_INPUT_REQUIRED);
@@ -208,7 +211,7 @@ const cleanComplete = () => ({
   ok("18: identity finding maps to identity_exposure issue_detected", idn.state === CYBER_MOT_STATES.ISSUE_DETECTED);
   ok("18: identity description never positively claims breach/credential/dark-web, and disclaims it",
     !/breach|credential|dark.?web|leaked|stealer|hibp/i.test(idn.description) &&
-    /does not include leaked-credential/i.test(idn.limitations.join(" ")));
+    /does not[\s\S]*include leaked-credential/i.test(idn.limitations.join(" ")));
 }
 
 // 19. Shadow IT — observed tech without inventory is monitoring_only, never "unauthorised".

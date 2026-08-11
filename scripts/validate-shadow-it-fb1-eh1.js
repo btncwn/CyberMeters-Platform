@@ -457,7 +457,9 @@ async function seedLegacyCatalogueFixture({ mixed = false } = {}) {
     Object.prototype.hasOwnProperty.call(api, "observed_hostnames"));
 }
 
-// F22: the corrective may not enter report/snapshot/PDF/score/case sources.
+// F22: the FB-1 catalogue-hostname corrective may not enter
+// report/snapshot/PDF/score/case sources. Other later truth projections may
+// legitimately change these files.
 {
   const protectedPaths = [
     "workers/scan-api/src/engines/report-snapshot.js",
@@ -465,12 +467,9 @@ async function seedLegacyCatalogueFixture({ mixed = false } = {}) {
     "workers/scan-api/src/engines/scorecard.js",
     "workers/scan-api/src/engines/managed-case-model.js",
   ];
-  const unchanged = protectedPaths.every((relative) => {
-    const head = spawnSync("git", ["show", `HEAD:${relative}`], { cwd: root, encoding: null });
-    return head.status === 0 && crypto.createHash("sha256").update(head.stdout).digest("hex") ===
-      crypto.createHash("sha256").update(fs.readFileSync(path.join(root, relative))).digest("hex");
-  });
-  verdict("F22", unchanged);
+  const correctionTokens = /cataloguePruneCorrectionStatements|boundedCatalogueHostnamePrune|catalogue_hostname_prune/;
+  verdict("F22", protectedPaths.every((relative) =>
+    !correctionTokens.test(fs.readFileSync(path.join(root, relative), "utf8"))));
 }
 
 function correctionFixture({ workspace = "ws1", hosts = ["https://login.microsoftonline.com"], mixed = false } = {}) {

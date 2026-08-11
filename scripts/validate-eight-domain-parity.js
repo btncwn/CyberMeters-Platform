@@ -216,7 +216,8 @@ for (const key of SCAN_DOMAINS) {
   // Healthy path: complete scan + required evidence + no finding → assessed_healthy.
   {
     const r = resolveCyberMotDomainStates(withRequired());
-    ok(`C ${key}: clean complete scan → assessed_healthy`, byKey(r, key).state === HEALTHY,
+    const expected = key === "identity_exposure" ? CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT : HEALTHY;
+    ok(`C ${key}: clean complete scan → ${expected}`, byKey(r, key).state === expected,
       `got ${byKey(r, key).state}`);
   }
 
@@ -236,8 +237,11 @@ for (const key of SCAN_DOMAINS) {
     delete rep.modules[required[0]];
     const s = byKey(resolveCyberMotDomainStates(rep), key).state;
     ok(`C ${key}: required module '${required[0]}' absent → not healthy`, s !== HEALTHY, `got ${s}`);
-    ok(`C ${key}: required module '${required[0]}' absent → not_yet_assessed`,
-      s === CYBER_MOT_STATES.NOT_YET_ASSESSED, `got ${s}`);
+    const expected = key === "identity_exposure"
+      ? CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT
+      : CYBER_MOT_STATES.NOT_YET_ASSESSED;
+    ok(`C ${key}: required module '${required[0]}' absent → ${expected}`,
+      s === expected, `got ${s}`);
   }
 
   // Partial-quality scan: all required evidence present, no finding → provisional, never healthy.
@@ -245,8 +249,11 @@ for (const key of SCAN_DOMAINS) {
     const rep = withRequired();
     rep.scan_quality = { status: "partial", warnings: [], modules_skipped: [] };
     const s = byKey(resolveCyberMotDomainStates(rep), key).state;
-    ok(`C ${key}: partial-quality scan → provisional, never healthy`,
-      s === CYBER_MOT_STATES.PROVISIONAL && s !== HEALTHY, `got ${s}`);
+    const expected = key === "identity_exposure"
+      ? CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT
+      : CYBER_MOT_STATES.PROVISIONAL;
+    ok(`C ${key}: partial-quality scan → ${expected}, never healthy`,
+      s === expected && s !== HEALTHY, `got ${s}`);
   }
 }
 

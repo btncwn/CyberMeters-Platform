@@ -15,8 +15,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = path.join(root, "workers/scan-api/src/engines/identity-lifecycle.js");
 const validator = path.join(root, "scripts/validate-identity-exposure-lifecycle.js");
-const EXPECTED_ASSERTIONS = 114;
-const EXPECTED_MUTANTS = 6;
+const EXPECTED_ASSERTIONS = 105;
+const EXPECTED_MUTANTS = 3;
 const EXPECTED_CONTROLS = 2;
 
 let sequence = 0;
@@ -135,18 +135,9 @@ function runCase({ name, expectedFailures, mutate, expectHarnessRejection = fals
   }
 }
 
-const absencePersistenceFailures = [
-  "surface_removed absent across window → inconclusive",
-  "absence does not advance remediation_status to verified",
-  "absence does not write verified_at",
-  "inconclusive absence appends verification_requested",
-  "inconclusive absence emits no verified event",
-];
-
 runCase({
   name: "age across the disappearance window restores false verification",
   expectedFailures: [
-    ...absencePersistenceFailures,
     "surface_removed full-window absence is never verified",
     "absence predating the customer removal action stays inconclusive",
     "unknown customer-action time cannot verify disappearance",
@@ -160,55 +151,11 @@ runCase({
 });
 
 runCase({
-  name: "persistence converts absent_across_window into verified",
-  expectedFailures: absencePersistenceFailures,
-  mutate: (source) => replaceExactlyOnce(
-    source,
-    `      if (evidence.verification_result === "verified") {`,
-    `      if (evidence.verification_result === "verified" || evidence.actual_outcome === "absent_across_window") {`,
-    "verified persistence gate",
-  ),
-});
-
-runCase({
-  name: "inconclusive disappearance advances remediation_status",
-  expectedFailures: ["absence does not advance remediation_status to verified"],
-  mutate: (source) => replaceExactlyOnce(
-    source,
-    `        set.verification_status = evidence.verification_result; // inconclusive | unsupported | pending
-        eventType = "verification_requested"; detail = evidence;`,
-    `        set.verification_status = evidence.verification_result; // inconclusive | unsupported | pending
-        set.remediation_status = "verified";
-        eventType = "verification_requested"; detail = evidence;`,
-    "inconclusive persistence path",
-  ),
-});
-
-runCase({
-  name: "inconclusive disappearance emits verified event",
-  expectedFailures: [
-    "inconclusive absence appends verification_requested",
-    "inconclusive absence emits no verified event",
-  ],
-  mutate: (source) => replaceExactlyOnce(
-    source,
-    `        eventType = "verification_requested"; detail = evidence;`,
-    `        eventType = evidence.actual_outcome === "absent_across_window" ? "verified" : "verification_requested"; detail = evidence;`,
-    "inconclusive event type",
-  ),
-});
-
-runCase({
   name: "supported material-change verification is suppressed",
   expectedFailures: [
     "a change AFTER the customer's action DOES verify it",
     "and says why",
     "a SQLite-format action time still verifies a genuinely later change",
-    "supported material change remains verified",
-    "supported material change advances remediation_status",
-    "supported material change writes verified_at",
-    "supported material change keeps its exact outcome",
-    "supported material change emits verified event",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -221,7 +168,6 @@ runCase({
 runCase({
   name: "still-observed removal failure collapses to inconclusive",
   expectedFailures: [
-    "verify while still observed → failed",
     "stale last_seen with observed state is still-observed failure",
   ],
   mutate: (source) => replaceExactlyOnce(

@@ -72,16 +72,34 @@ export function canonicalIdentityKey({ provider_key, surface_type, hostname }) {
 }
 
 // ── Externally-observable risk model ──────────────────────────────────────
-export const RISK_STATUSES = Object.freeze(["ok", "low", "attention", "elevated", "high"]);
+export const RISK_STATUSES = Object.freeze(["not_evaluated", "ok", "low", "attention", "elevated", "high"]);
 // A public admin/management login is the highest externally-observable concern.
 const HIGH_RISK_SURFACES = new Set(["admin_login"]);
 
 // Deterministic, EXPLAINABLE risk. Reflects surface type, customer expectation,
 // ownership and recurrence — never alarmist (an expected, owned provider login
 // is `ok`), never meaningless (an unexpected public admin surface is `high`).
-export function assessIdentityRisk({ surface_type, customer_classification, ownership_status, recurrence_type }) {
+export function assessIdentityRisk({ surface_type, customer_classification, ownership_status, recurrence_type, identity_claim = null }) {
   const cls = String(customer_classification || "unreviewed");
   const admin = HIGH_RISK_SURFACES.has(surface_type);
+  const measured = identity_claim?.claim_kind === "measured_identity_surface" &&
+    ["reachable", "not_reachable", "inconclusive"].includes(identity_claim?.reachability?.status);
+
+  // Provider relationships and possible hostnames are useful review evidence,
+  // but they are not endpoint reachability. Customer classification and owner
+  // assignment stay available without manufacturing a public-surface risk.
+  if (!measured) {
+    if (recurrence_type === "provider_change" || recurrence_type === "material_change") {
+      return { risk_status: "attention", risk_reason: "provider_relationship_changed" };
+    }
+    if (cls === "unexpected" || cls === "investigate") {
+      return { risk_status: "attention", risk_reason: "customer_classified_candidate" };
+    }
+    if (ownership_status === "missing") {
+      return { risk_status: "attention", risk_reason: "review_owner_missing" };
+    }
+    return { risk_status: "not_evaluated", risk_reason: "reachability_not_evaluated" };
+  }
 
   // Recurrence/monitoring signals dominate when present.
   if (recurrence_type === "removal_contradicted" || recurrence_type === "exception_expired" || recurrence_type === "verification_failed") {

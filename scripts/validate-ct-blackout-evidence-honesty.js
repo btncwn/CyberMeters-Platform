@@ -41,6 +41,10 @@ async function loadDomainResolver() {
     .replace(
       'from "./tls-evidence.js";',
       `from "${eng("tls-evidence.js")}";`
+    )
+    .replace(
+      'from "./identity-evidence-contract.js";',
+      `from "${eng("identity-evidence-contract.js")}";`
     );
   let target;
   let replacement;
@@ -210,8 +214,8 @@ eq("Shadow IT keeps its bounded monitoring-only posture",
   CYBER_MOT_STATES.MONITORING_ONLY);
 eq("Shadow IT records degraded CT-dependent coverage",
   byKey(domains, "shadow_it_unmanaged_technology").coverage, "degraded");
-ok("Identity explains its own incomplete enumeration without leaking CT-provider wording",
-  /Identity-surface enumeration was incomplete this run/.test(
+ok("Identity explains absent reachability measurement without leaking CT-provider wording",
+  /Identity reachability was not evaluated.*no supported reachability producer/i.test(
     byKey(domains, "identity_exposure").summary
   ) &&
   !/certificate transparency/i.test(byKey(domains, "identity_exposure").summary));
@@ -409,7 +413,7 @@ if (!mutation) {
   ok("mutation restoring generic CT wording on every domain turns validation RED",
     mutatedWording.status !== 0 &&
     mutatedWording.stdout.includes(
-      "FAIL Identity explains its own incomplete enumeration without leaking CT-provider wording"
+      "FAIL Shadow IT explains incomplete technology coverage without leaking CT-provider wording"
     ),
     `status=${mutatedWording.status} stdout=${JSON.stringify(mutatedWording.stdout.slice(0, 500))}`);
 }

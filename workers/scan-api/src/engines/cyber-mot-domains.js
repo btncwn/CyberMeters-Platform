@@ -1,6 +1,7 @@
 import { DMARC_MOT_CONTRIBUTION } from "./dmarc-canonical-consumers.js";
 import { resolveSignalMonitoringCoverage } from "./signal-monitoring-state.js";
 import { isCookieFindingType } from "./cookie-observation.js";
+import { hasIdentityReachabilityProducer } from "./identity-evidence-contract.js";
 import {
   projectTlsFindingsForCustomer,
   resolveTlsRuntimeState,
@@ -67,7 +68,10 @@ import {
 // active-TLS tri-state (legacy/unproven false is evidence-insufficient, never a
 // material issue) and D1 canonical finding identity adds a bounded read-time
 // projection for exact historical null-identity TLS-only Website rows.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-08-09.2";
+// `2026-08-11.1`: Identity provider/candidate evidence no longer stands in for
+// endpoint reachability. With no registered producer, a finding-free Identity
+// assessment is evidence-insufficient and cross-version trend is incomparable.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-08-11.1";
 
 // Fixed canonical enum — the resolver contract layer. UI maps these to friendly
 // labels; the source state stays stable.
@@ -160,14 +164,14 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
   {
     domain_key: "identity_exposure",
     display_name: "Identity Exposure",
-    description: "Externally observable spoofing, impersonation and exposed authentication-surface risks.",
+    description: "Externally observable provider relationships and possible identity-facing hostnames, with reachability reported only when measured.",
     modules: ["identity_discovery"],
     required: ["identity_discovery"],
     monitoring_signals: ["certificate_transparency"],
     monitoring_degradation_message: "Identity-surface enumeration was incomplete this run.",
     match: (f) => /^identity_/.test(f.id || "") || f.module === "identity_discovery",
     maturity: "M1", managed_status: "monitoring",
-    limitations: ["Covers spoofing, impersonation and exposed login/identity-provider surfaces. It does not include leaked-credential, breached-password or dark-web monitoring."],
+    limitations: ["Current Identity discovery identifies provider relationships and possible identity-facing hostnames; it does not measure endpoint reachability or include leaked-credential, breached-password or dark-web monitoring."],
   },
   {
     domain_key: "shadow_it_unmanaged_technology",
@@ -413,6 +417,12 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
         base.summary = "DMARC could not be observed this scan (the DNS lookup did not complete) — not enough to assess.";
         return base;
       }
+    }
+    if (d.domain_key === "identity_exposure" && !hasIdentityReachabilityProducer()) {
+      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+      base.coverage = requiredAssessedAll ? "partial" : quality;
+      base.summary = "Identity reachability was not evaluated — no supported reachability producer is implemented. Provider relationships and possible hostnames remain visible for review.";
+      return base;
     }
     if (relevant.length === 0) {
       base.state = CYBER_MOT_STATES.NOT_YET_ASSESSED;

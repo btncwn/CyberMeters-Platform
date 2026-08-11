@@ -112,7 +112,7 @@ const VENDOR_TIER_RULES = {
  * Adds parent_company and tier fields to each vendor object.
  * Pure function — no I/O.
  */
-function enrichVendors(vendors) {
+export function enrichVendors(vendors) {
   return vendors.map(v => {
     const nameKey = (v.vendor_name || '').toLowerCase().replace(/[\s.-]/g, '');
     let parent = null;
@@ -123,8 +123,9 @@ function enrichVendors(vendors) {
     let tier;
     const cat = v.category || '';
     const risk = v.risk_level || '';
-    if (VENDOR_TIER_RULES.tier1_categories.includes(cat) ||
-        (VENDOR_TIER_RULES.tier1_risk_levels.includes(risk) && cat !== 'certificate_authority')) {
+    const relationship_only = v.source_module === 'identity_discovery' && cat === 'identity_provider';
+    if (!relationship_only && (VENDOR_TIER_RULES.tier1_categories.includes(cat) ||
+        (VENDOR_TIER_RULES.tier1_risk_levels.includes(risk) && cat !== 'certificate_authority'))) {
       tier = 1;
     } else if (VENDOR_TIER_RULES.tier2_categories.includes(cat)) {
       tier = 2;
@@ -132,7 +133,7 @@ function enrichVendors(vendors) {
       tier = 3;
     }
 
-    return { ...v, parent_company: parent, tier };
+    return { ...v, parent_company: parent, tier, relationship_only };
   });
 }
 
@@ -206,11 +207,11 @@ export function computeConcentration(graph, activeVendors) {
  * Identifies potential cascade failure scenarios.
  * Returns array of risk objects: { scenario, affected_categories, severity, likelihood }
  */
-function computeCascadingRisks(enrichedVendors, graph) {
+export function computeCascadingRisks(enrichedVendors, graph) {
   const risks = [];
 
   // Identity provider failure → auth collapse
-  const idpVendors = enrichedVendors.filter(v => v.category === 'identity_provider' && v.status === 'active');
+  const idpVendors = enrichedVendors.filter(v => v.category === 'identity_provider' && v.status === 'active' && v.relationship_only !== true);
   if (idpVendors.length === 1) {
     risks.push({
       scenario: 'Single identity provider — authentication single point of failure',

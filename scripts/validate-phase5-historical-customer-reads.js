@@ -485,8 +485,10 @@ const scanListApi = await scanApi(
 );
 const scanDetailApi = await scanApi(fx.env, `/api/scans/${fx.incomplete.scanId}`);
 eq("A9 customer-projected snapshot endpoint succeeds", snapshotApi.status, 200);
-eq("A10 endpoint snapshot equals the canonical customer projection",
-  JSON.stringify(snapshotApi.body.snapshot), JSON.stringify(incompleteRead.customerSnapshot));
+eq("A10 endpoint customer_snapshot equals the canonical customer projection",
+  JSON.stringify(snapshotApi.body.customer_snapshot), JSON.stringify(incompleteRead.customerSnapshot));
+eq("A10 legacy snapshot remains the immutable checksum-scoped object",
+  JSON.stringify(snapshotApi.body.snapshot), JSON.stringify(incompleteRead.snapshot));
 eq("A11 endpoint checksum remains the stored-byte checksum",
   snapshotApi.body.integrity.checksum_sha256, fx.incomplete.checksum);
 eq("A12 customer report withholds numeric score", reportApi.body.cyber_metrics_score, null);
@@ -782,12 +784,12 @@ const mutations = [
     name: "M6 customer snapshot projection is bypassed by immutable raw bytes",
     edits: [{
       target: SCANS,
-      from: "          snapshot: customerSnapshot,\n",
-      to: "          snapshot: read.snapshot,\n",
+      from: "          customer_snapshot: customerSnapshot,\n",
+      to: "          customer_snapshot: read.snapshot,\n",
     }],
     survived: () => {
       const value = runChild("snapshot");
-      return value.snapshot?.overall?.cyber_metrics_score != null;
+      return value.customer_snapshot?.overall?.cyber_metrics_score != null;
     },
   },
   {
@@ -837,7 +839,7 @@ for (const mutation of mutations) {
 ok(`E1 all ${EXPECTED_MUTANTS} pinned mutants killed`,
   killed === EXPECTED_MUTANTS, `${killed}/${EXPECTED_MUTANTS}`);
 
-const EXPECTED_ASSERTIONS = 60;
+const EXPECTED_ASSERTIONS = 61;
 if (assertions !== EXPECTED_ASSERTIONS) {
   failed += 1;
   console.error(`FAIL assertion pin — expected ${EXPECTED_ASSERTIONS}, executed ${assertions}`);

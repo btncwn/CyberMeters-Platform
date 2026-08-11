@@ -131,7 +131,10 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
       // 5. Vendor risk breakdown
       env.cybermeters_db.prepare(
         `SELECT risk_level, COUNT(*) AS n FROM workspace_vendors
-         WHERE workspace_id = ? AND status = 'active' GROUP BY risk_level`
+         WHERE workspace_id = ? AND status = 'active'
+           AND risk_level IS NOT NULL
+           AND COALESCE(source_module, '') != 'identity_discovery'
+         GROUP BY risk_level`
       ).bind(wsId),
 
       // 6. Active brand risks (DNS-confirmed typosquats, status='active')

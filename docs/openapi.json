@@ -9,6 +9,41 @@
       "url": "https://app.cybermeters.com"
     }
   },
+  "x-identity-truth-projection": {
+    "schema_version": "identity_claim.v2",
+    "authoritative_fields": [
+      "evidence_status",
+      "confidence_detail",
+      "identity_claim",
+      "name_resolution",
+      "provider_relationship_count",
+      "surface_candidate_count",
+      "reachability_evaluated_count",
+      "reachable_surface_count",
+      "candidate_urls",
+      "measured_endpoints",
+      "allowed_actions",
+      "customer_snapshot",
+      "customer_projection_metadata"
+    ],
+    "deprecated_compatibility_aliases": [
+      "confidence",
+      "validation_quality",
+      "internet_exposed",
+      "risk_score",
+      "high_risk_count",
+      "externally_observed",
+      "observed_urls",
+      "exposure_status",
+      "exposed_login_surfaces.internet_facing",
+      "recurrence_count"
+    ],
+    "precedence": "Authoritative fields never fall back to deprecated aliases. Provider relationship, hostname classification, name resolution and endpoint reachability are separate propositions.",
+    "snapshot_projection": {
+      "checksum_scope": "immutable_snapshot",
+      "authoritative_customer_field": "customer_snapshot"
+    }
+  },
   "servers": [
     {
       "url": "https://api.cybermeters.com",

@@ -41,8 +41,8 @@ export function toneClass(tone) {
 // evidence row via EVENT_TYPE_LABELS below.
 export const RULE_LABELS = {
   new_host_with_cert: 'New host with a certificate signal',
-  new_host_with_identity: 'New host with a login or identity surface',
-  identity_with_cert: 'Login or admin surface with a certificate signal',
+  new_host_with_identity: 'New host with a possible identity-facing hostname',
+  identity_with_cert: 'Possible identity-facing hostname with a certificate signal',
   email_config_with_host_or_cert: 'Email-authentication change with a new host or a certificate signal',
   new_sender_with_email_config: 'New sending source with an email-authentication change',
   shadow_it_with_host_or_cert: 'Unapproved technology with a new host or a certificate signal',
@@ -226,7 +226,9 @@ export const EVENT_TYPE_LABELS = {
   certificate_expiring_soon: 'Certificate expiring soon',
   // other producers
   email_sender_new_source: 'New sending source observed',
-  identity_surface_observed: 'Login or identity surface observed',
+  // Stored wire vocabulary stays identity_surface_observed (IC-1); display
+  // projects the proposition honestly without rewriting historical rows.
+  identity_surface_observed: 'Possible identity-facing hostname observed',
   brand_candidate_active_dns: 'Lookalike candidate resolving in DNS',
   brand_candidate_active_http: 'Lookalike candidate responding over HTTPS',
   brand_campaign_linked: 'Linked brand campaign observed',

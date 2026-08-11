@@ -232,6 +232,7 @@ const stateUrl = pathToFileURL(p("dmarc-state.js")).href;
 const monitoringUrl = pathToFileURL(p("signal-monitoring-state.js")).href;
 const cookieObservationUrl = pathToFileURL(p("cookie-observation.js")).href;
 const tlsEvidenceUrl = pathToFileURL(p("tls-evidence.js")).href;
+const identityEvidenceUrl = pathToFileURL(p("identity-evidence-contract.js")).href;
 
 async function motFromMutantMap(mutateMap, scn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dmarc-cs-"));
@@ -243,7 +244,8 @@ async function motFromMutantMap(mutateMap, scn) {
       .replace('from "./dmarc-canonical-consumers.js"', `from ${JSON.stringify(pathToFileURL(mapFile).href)}`)
       .replace('from "./signal-monitoring-state.js"', `from ${JSON.stringify(monitoringUrl)}`)
       .replace('from "./cookie-observation.js"', `from ${JSON.stringify(cookieObservationUrl)}`)
-      .replace('from "./tls-evidence.js"', `from ${JSON.stringify(tlsEvidenceUrl)}`);
+      .replace('from "./tls-evidence.js"', `from ${JSON.stringify(tlsEvidenceUrl)}`)
+      .replace('from "./identity-evidence-contract.js"', `from ${JSON.stringify(identityEvidenceUrl)}`);
     const motFile = path.join(dir, "cyber-mot.mjs");
     fs.writeFileSync(motFile, mMot);
     const mod = await import(`${pathToFileURL(motFile).href}?t=${OBS}`);

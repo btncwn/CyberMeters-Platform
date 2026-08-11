@@ -688,7 +688,11 @@ async function main() {
     ok("route serves the fail-closed customer projection while immutable R2 bytes remain verbatim",
        got.status === 200
        && store.get(put1.key) === put1.body
-       && JSON.stringify(got.data?.snapshot) === JSON.stringify(expectedCustomerSnapshot));
+       && JSON.stringify(got.data?.snapshot) === JSON.stringify(JSON.parse(put1.body))
+       && JSON.stringify(got.data?.customer_snapshot) === JSON.stringify(expectedCustomerSnapshot)
+       && got.data?.customer_projection_metadata?.checksum_scope === "immutable_snapshot"
+       && got.data?.customer_projection_metadata?.customer_projection_applied === true
+       && got.data?.customer_projection_metadata?.authoritative_customer_field === "customer_snapshot");
     ok("route derives superseded_by from the append-only chain",
        got.data?.superseded_by?.snapshot_id === laterRow?.id &&
        got.data?.integrity?.verified === true);
@@ -966,8 +970,8 @@ async function main() {
       {
         name: "snapshot read route re-derives domain states (renderer brain returns)",
         file: srcPath("routes", "scans.js"),
-        from: "        return json({\n          snapshot: customerSnapshot,",
-        to:   "        return json({\n          snapshot: { ...customerSnapshot, domains: resolveCyberMotDomainStates(customerSnapshot, {}) },",
+        from: "          customer_snapshot: customerSnapshot,",
+        to:   "          customer_snapshot: { ...customerSnapshot, domains: (customerSnapshot.domains || []).map((domain) => ({ ...domain, state: 'assessed_healthy' })) },",
       },
       {
         name: "Phase 8o wiring deleted — scan finalize stops building the snapshot",

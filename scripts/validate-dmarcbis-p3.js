@@ -555,8 +555,10 @@ ok("historical API does not invent a v2 evidence object",
   ));
 const { projectPhase5SnapshotForCustomer } = await importEngine("phase5-evidence.js");
 eq("historical API serves the canonical customer projection over immutable bytes",
-  JSON.stringify(legacyApi.body?.snapshot),
+  JSON.stringify(legacyApi.body?.customer_snapshot),
   JSON.stringify(projectPhase5SnapshotForCustomer(legacySnapshot, {})));
+eq("historical API preserves immutable bytes in the compatibility snapshot field",
+  JSON.stringify(legacyApi.body?.snapshot), JSON.stringify(legacySnapshot));
 eq("historical read performs no R2 rewrite",
   store.get(legacyKey), legacyBefore);
 

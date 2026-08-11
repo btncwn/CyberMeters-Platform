@@ -34,7 +34,7 @@ import { visibleFindingSql } from "./finding-identity.js";
 // change so a persisted snapshot can refuse cross-methodology comparison. Customer
 // presentation of this value is "Business Risk Indicator" — a band plus explanation,
 // never a second competing score (founder package, 2026-07-16).
-export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-07-16.1";
+export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-08-11.1";
 
 function getBusinessRiskBand(score) {
   if (score <= 30) return "critical";
@@ -194,7 +194,10 @@ export function deriveScanBusinessRisk(report) {
     assetExposureCount:     (mods.asset_exposure?.assets ?? []).filter(a => a.reachable).length,
     brandHighRisk: 0, brandMedRisk: 0, brandLowRisk: 0,
     vendorHigh: 0, vendorMedium: 0, vendorTotal: 0,
-    identityHighRiskCount: (mods.identity_discovery?.high_risk_count ?? 0),
+    // high_risk_count is a deprecated heuristic compatibility aggregate. Only
+    // typed measured reachability can affect the Identity contribution.
+    identityHighRiskCount: 0,
+    identityReachableSurfaceCount: (mods.identity_discovery?.reachable_surface_count ?? 0),
     vendorRelHighConf:     (mods.vendor_relationships?.high_confidence ?? 0),
   };
   const r = computeBusinessRiskScore(findingIds, brsModuleData);
@@ -373,7 +376,8 @@ export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
     vendorHigh              = 0,
     vendorMedium            = 0,
     vendorTotal             = 0,
-    identityHighRiskCount   = 0,
+    identityHighRiskCount   = 0, // deprecated, deliberately ignored
+    identityReachableSurfaceCount = 0,
     vendorRelHighConf       = 0,  // high-confidence CSP-derived vendor relationships (supply chain signal)
   } = workspaceData;
   let attackDed = 0;
@@ -384,8 +388,10 @@ export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   } else {
     attackDed += 10; // No vendor visibility signal
   }
-  // Identity surface deduction: internet-facing SSO/VPN/IdP portals are high-value targets
-  attackDed += Math.min(20, identityHighRiskCount * 7);
+  // Identity deduction requires a supported typed endpoint measurement. Current
+  // runtime producers register none; the explicit input remains for the
+  // contract-only positive control and a future separately approved producer.
+  attackDed += Math.min(20, identityReachableSurfaceCount * 7);
   // Supply chain signal: confirmed payment/identity vendors detected via CSP increase
   // exposure risk (each confirmed relationship is a potential breach vector).
   // Cap at 10 — vendor_risk high count already carries the heavier penalty above.
@@ -441,7 +447,13 @@ export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
     email_trust:              { score: emailScore,   label: categoryLabel(emailScore),   weight: 0.25 },
     website_trust:            { score: websiteScore, label: categoryLabel(websiteScore), weight: 0.20 },
     operational_continuity:   { score: opsScore,     label: categoryLabel(opsScore),     weight: 0.20 },
-    attack_surface_exposure:  { score: attackScore,  label: categoryLabel(attackScore),  weight: 0.20 },
+    attack_surface_exposure:  {
+      score: attackScore, label: categoryLabel(attackScore), weight: 0.20,
+      identity_reachability: {
+        status: identityReachableSurfaceCount > 0 ? "measured" : "not_evaluated",
+        reachable_surface_count: identityReachableSurfaceCount,
+      },
+    },
     brand_reputation_risk:    { score: brandScore,   label: categoryLabel(brandScore),   weight: 0.15 },
   };
 

@@ -57,7 +57,7 @@ import {
 import { projectTlsReportForCustomer } from "./tls-evidence.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
-export const SNAPSHOT_BUILDER_VERSION = "2026-07-27.1";
+export const SNAPSHOT_BUILDER_VERSION = "2026-08-11.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
 
@@ -159,7 +159,7 @@ const DOMAIN_EVIDENCE_BASIS = Object.freeze({
   website_security:
     "Single external HTTP observations evaluated against RFC 9110, HSTS RFC 6797 and Content Security Policy Level 3 under CyberMeters product policy.",
   identity_exposure:
-    "Single external observations of public login and identity-facing surfaces under CyberMeters product policy.",
+    "Single external observations of provider relationships and possible identity-facing hostnames under CyberMeters product policy; endpoint reachability is not currently measured.",
   shadow_it_unmanaged_technology:
     "Single external technology observations; approval, ownership and authorisation remain customer classifications rather than CyberMeters observations.",
 });
@@ -1368,11 +1368,17 @@ export async function readScanReportSnapshot(env, scanId, opts = {}) {
   }
   const customerModules = projectPhase5EvidenceForCustomer(sourceModules);
   const customerSnapshot = projectPhase5SnapshotForCustomer(snapshot, sourceModules);
+  const customerProjectionMetadata = Object.freeze({
+    checksum_scope: "immutable_snapshot",
+    customer_projection_applied: true,
+    authoritative_customer_field: "customer_snapshot",
+  });
 
   return {
     status: "ok",
     snapshot,
     customerSnapshot,
+    customerProjectionMetadata,
     customerModules,
     raw,
     row,

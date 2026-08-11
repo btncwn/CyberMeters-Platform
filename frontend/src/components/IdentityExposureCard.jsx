@@ -11,6 +11,8 @@ const LEVEL = {
   Low:    { text: 'text-green-700', bg: 'bg-green-50',  ring: 'border-green-200' },
   Medium: { text: 'text-amber-700', bg: 'bg-amber-50',  ring: 'border-amber-200' },
   High:   { text: 'text-red-700',   bg: 'bg-red-50',    ring: 'border-red-200' },
+  'Not Assessed': { text: 'text-slate-700', bg: 'bg-slate-50', ring: 'border-slate-200' },
+  Unavailable: { text: 'text-slate-700', bg: 'bg-slate-50', ring: 'border-slate-200' },
 }
 
 function Signal({ icon: Icon, label, value, sub }) {
@@ -46,9 +48,8 @@ export default function IdentityExposureCard({ workspaceId }) {
   const email = s.email_spoofing || {}
   const imp = s.impersonation_infrastructure || {}
   const login = s.exposed_login_surfaces || {}
-  // B: when the overall verdict is Unavailable / Not Assessed (a source failed or
-  // nothing was assessed), the sub-tiles must NOT read "None active" / "None exposed"
-  // / "Protected" off zero counts. Real detections still surface (findings never hidden).
+  // Missing authoritative propositions stay unknown/not evaluated. Deprecated
+  // aliases never become a fallback reachability verdict.
   const notObserved = !['Low', 'Medium', 'High'].includes(data.identity_exposure_level)
 
   return (
@@ -73,14 +74,14 @@ export default function IdentityExposureCard({ workspaceId }) {
         <Signal
           icon={Users}
           label="Impersonation"
-          value={imp.active > 0 ? `${imp.active} active lookalike${imp.active === 1 ? '' : 's'}` : notObserved ? '—' : 'None active'}
-          sub={imp.can_send_mail > 0 ? `${imp.can_send_mail} can send mail as you` : imp.active > 0 ? 'Resolving lookalike domains' : notObserved ? 'Could not assess' : 'No live impersonation'}
+          value={imp.active > 0 ? `${imp.active} active lookalike${imp.active === 1 ? '' : 's'}` : notObserved ? 'Not evaluated' : 'No active lookalike observed'}
+          sub={imp.can_send_mail > 0 ? `${imp.can_send_mail} can send mail as you` : imp.active > 0 ? 'Resolving lookalike domains' : notObserved ? 'Evidence unavailable' : 'Observed brand evidence only'}
         />
         <Signal
           icon={KeyRound}
-          label="Login surfaces"
-          value={login.internet_facing > 0 ? `${login.internet_facing} internet-facing` : notObserved ? '—' : 'None exposed'}
-          sub={login.internet_facing > 0 ? 'Where credentials are attacked' : notObserved ? 'Could not assess' : 'No exposed login portals'}
+          label="Identity discovery"
+          value={`${login.provider_relationship_count ?? 0} provider relationship${login.provider_relationship_count === 1 ? '' : 's'} · ${login.surface_candidate_count ?? 0} possible hostname${login.surface_candidate_count === 1 ? '' : 's'}`}
+          sub={(login.reachability_evaluated_count ?? 0) > 0 ? `${login.reachable_surface_count ?? 0} measured reachable` : 'Endpoint reachability not evaluated'}
         />
       </div>
     </div>
