@@ -76,20 +76,21 @@ jobs:
       - name: Show Node version
         run: node --version && npm --version
 
+      - name: Validate dependency install-script governance (deny-by-default / exact allowlist / must-fail controls)
+        run: node scripts/validate-install-script-governance.js
+
       # Runtime validators import the production scan-engine graph. DMARCbis P2
       # makes that graph reach the pinned tr46 dependency, so install Worker
       # dependencies before the first validator rather than only before bundling.
-      - name: Install worker deps
-        working-directory: workers/scan-api
-        run: npm ci || npm install
+      - name: Install worker dependencies (governed lifecycle scripts)
+        run: node scripts/install-governed-dependencies.js --root workers/scan-api
 
       # The CT consumer-inventory oracle parses frontend source through its own
       # exact-pinned @babel/parser dependency. Install the committed frontend
       # graph before any validator can load that oracle; the later build/test
       # steps reuse this one deterministic install.
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
+      - name: Install frontend dependencies (governed lifecycle scripts)
+        run: node scripts/install-governed-dependencies.js --root frontend
 
       - name: Secret scan (tracked files)
         run: |
