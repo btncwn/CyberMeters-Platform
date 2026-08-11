@@ -693,31 +693,30 @@ export const ARTICLES = [
   // ── 10. Microsoft 365 Exposure Risks ──────────────────────────────────────
   {
     slug: 'microsoft-365-exposure-risks',
-    title: 'Microsoft 365 Exposure Risks',
+    title: 'Microsoft 365 Provider Evidence',
     category: 'identity-discovery',
-    summary: 'Microsoft 365 is the world\'s most widely deployed enterprise productivity suite — and its public-facing infrastructure reveals significant information about an organisation\'s identity and authentication configuration. From tenant enumeration to Autodiscover configuration, these exposures give attackers intelligence that accelerates credential-based attacks.',
+    summary: 'How CyberMeters identifies possible Microsoft 365 provider relationships from external DNS and related evidence, and the limits of that observation.',
     readTime: 8,
     featured: false,
     publishedAt: '2026-06-01',
     sections: [
       {
-        heading: 'Why It Matters',
+        heading: 'What CyberMeters can observe',
         blocks: [
-          p('Microsoft 365 deployments leave a distinctive fingerprint across DNS records (MX, TXT), Autodiscover endpoints, and Azure AD metadata APIs. This fingerprint is by design — it enables email routing and authentication to work. However, it also provides attackers with actionable intelligence about the organisation\'s identity infrastructure before they attempt a single login.'),
-          p('Understanding that a target organisation uses Microsoft 365, which tenant they belong to, whether MFA is enforced, and which identity federation configuration is in use gives attackers a precise roadmap for password spraying, phishing, and Business Email Compromise campaigns.'),
+          p('CyberMeters can identify an observed or possible provider relationship from external evidence such as bounded MX, SPF, CNAME and Content Security Policy values. Exact host and label-boundary matches are stronger provider-identification evidence than substring or token matches.'),
+          p('A hostname pattern can also create a possible identity-facing hostname for review. DNS resolution is reported separately. Neither provider identification, hostname classification nor DNS resolution establishes that an HTTP endpoint is reachable.'),
         ],
       },
       {
-        heading: 'How Attackers Abuse It',
+        heading: 'What CyberMeters cannot observe',
         blocks: [
-          p('Microsoft 365 tenant enumeration is trivially easy. The Azure AD OpenID Connect metadata endpoint returns tenant information for any registered domain. Tools like o365spray and AADInternals use this information to enumerate valid usernames, test credentials against multiple M365 services, and identify whether legacy authentication (Basic Auth) is enabled — a common gap that bypasses MFA.'),
-          p('Password spraying attacks against M365 are pervasive. Attackers use known username formats (first.last@company.com) combined with commonly used passwords, spreading attempts across many accounts to avoid lockout policies. When legacy authentication endpoints are reachable, these attacks bypass even modern MFA policies.'),
+          p('CyberMeters does not currently probe Microsoft tenant metadata, Autodiscover, sign-in or legacy-authentication endpoints. It does not test credentials or determine whether an endpoint is reachable.'),
+          p('CyberMeters cannot see MFA enrolment, Conditional Access, legacy-authentication policy, sign-in telemetry, valid usernames, breached credentials, account compromise or internal identity configuration.'),
           li([
-            'Tenant enumeration via login.microsoftonline.com/TENANT/v2.0/.well-known/openid-configuration',
-            'Username enumeration via Autodiscover and GetMSOLUserByEmail endpoints',
-            'Password spraying via /common/oauth2/token (Basic Auth endpoints)',
-            'Phishing kits that clone M365 login pages targeting discovered user accounts',
-            'SSPR (Self-Service Password Reset) abuse to reset passwords for discovered accounts',
+            'Provider relationship: observed, possible or unknown',
+            'Hostname classification: possible or unknown',
+            'Name resolution: resolved, MX-only, not evaluated or legacy unknown',
+            'Endpoint reachability: not evaluated by the current Identity producer',
           ]),
         ],
       },
@@ -729,14 +728,13 @@ export const ARTICLES = [
         ],
       },
       {
-        heading: 'What CyberMeters Detects',
+        heading: 'How to use the evidence',
         blocks: [
           li([
-            'Microsoft 365 tenant presence confirmed via DNS MX records and autodiscover configuration',
-            'Legacy authentication endpoints accessible (indicates MFA bypass risk)',
-            'Autodiscover endpoint exposed without HTTPS redirect',
-            'Azure AD tenant ID enumerable (enables targeted phishing and spraying)',
-            'Microsoft Online Services presence flagged as part of identity attack surface report',
+            'Confirm whether the provider relationship is expected',
+            'Assign a business, technical or identity owner',
+            'Review possible identity-facing hostnames without treating them as measured endpoints',
+            'Check tenant policy directly in the Microsoft administration tools when your governance requires it',
           ]),
         ],
       },
@@ -759,7 +757,7 @@ export const ARTICLES = [
         heading: 'Verification',
         blocks: [
           code('# Check if MX record indicates M365\ndig MX example.com +short\n# If result ends in mail.protection.outlook.com = M365 confirmed\n\n# Check autodiscover\ncurl -I https://autodiscover.example.com/autodiscover/autodiscover.xml\n# Should return 401 with HTTPS only, not HTTP redirect', 'bash'),
-          p('In the Azure AD admin centre, verify that Conditional Access policies blocking legacy authentication are in place and applied to all users. Check the Azure AD sign-in logs for any successful legacy auth logins in the past 30 days. Re-scan in CyberMeters — M365 identity exposure findings will reflect updated configuration.'),
+          p('Provider configuration and sign-in controls must be verified in the Microsoft administration tools. A later CyberMeters scan may refresh provider or hostname evidence, but it cannot verify tenant policy or endpoint reachability.'),
         ],
       },
     ],

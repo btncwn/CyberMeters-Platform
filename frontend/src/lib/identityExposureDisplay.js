@@ -19,6 +19,7 @@ export const CLASSIFICATION_META = {
 
 // Externally-observable risk (explainable, not alarmist).
 export const RISK_META = {
+  not_evaluated: { label: 'Not evaluated', tone: 'slate' },
   ok:        { label: 'OK',        tone: 'green' },
   low:       { label: 'Low',       tone: 'blue'  },
   attention: { label: 'Attention', tone: 'amber' },
@@ -72,10 +73,37 @@ export function verificationMeta(s) { return VERIFICATION_META[s] || { label: hu
 export function surfaceLabel(s) { return (SURFACE_META[s] && SURFACE_META[s].label) || humanize(s) }
 export function toneClass(tone) { return TONE_CLASS[tone] || TONE_CLASS.slate }
 
+export function identityClaimMeta(claim) {
+  if (claim?.claim_kind === 'measured_identity_surface') {
+    const status = claim?.reachability?.status || 'inconclusive'
+    return { label: status === 'reachable' ? 'Measured reachable surface' : status === 'not_reachable' ? 'Measured not reachable' : 'Reachability inconclusive', tone: status === 'reachable' ? 'amber' : 'slate' }
+  }
+  if (claim?.claim_kind === 'provider_relationship') {
+    const status = claim?.provider_relationship?.status
+    return { label: status === 'observed' ? 'Provider relationship observed' : status === 'possible' ? 'Possible provider relationship' : 'Provider relationship unknown', tone: status === 'observed' ? 'blue' : 'slate' }
+  }
+  if (claim?.claim_kind === 'surface_candidate') {
+    return { label: claim?.surface_classification?.status === 'possible' ? 'Possible identity-facing hostname' : 'Hostname classification unknown', tone: 'slate' }
+  }
+  return { label: 'Identity evidence unknown', tone: 'slate' }
+}
+
+export function confidenceDetailLabel(detail) {
+  if (!detail || detail.level === 'unknown') return 'Confidence unknown'
+  const subject = detail.subject === 'provider_identification'
+    ? 'provider identification'
+    : detail.subject === 'hostname_classification'
+      ? 'hostname classification'
+      : detail.subject === 'endpoint_reachability'
+        ? 'endpoint reachability'
+        : 'evidence'
+  return `${detail.level} confidence in ${subject}`
+}
+
 // A customer-recorded change/removal that CyberMeters has not yet re-observed.
 export function isAwaitingVerification(item) {
   return item?.remediation_status === 'customer_actioned' && item?.verification_status === 'not_verified'
 }
 
 export const IDENTITY_SCOPE_NOTE =
-  'Externally observed identity and login surfaces only. A publicly visible identity entry point is not automatically a vulnerability. CyberMeters does not see leaked or breached credentials, dark-web data, MFA enrolment, Conditional Access or internal identity policy — those remain unknown. Your classification is a decision; a recorded change or removal is not verified until CyberMeters re-observes it externally.'
+  'CyberMeters currently identifies provider relationships and possible identity-facing hostnames. It does not measure endpoint reachability, leaked or breached credentials, dark-web data, MFA enrolment, Conditional Access or internal identity policy. Your classification is a decision, not a CyberMeters verification.'

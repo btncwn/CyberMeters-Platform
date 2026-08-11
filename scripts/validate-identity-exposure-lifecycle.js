@@ -40,6 +40,11 @@ const {
   IDENTITY_UNKNOWN_SIGNALS, IDENTITY_STALE_EVIDENCE_DAYS,
 } = il;
 const { providerKey, deriveSurfaceType, canonicalIdentityKey, assessIdentityRisk } = ip;
+const MEASURED_CLAIM = Object.freeze({
+  schema_version: "identity_claim.v2",
+  claim_kind: "measured_identity_surface",
+  reachability: { status: "reachable", endpoint: "https://fixture.example", method: "https_get", measured_at: "2026-07-20T00:00:00Z", confidence_detail: null },
+});
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
@@ -101,11 +106,12 @@ ok("provider-level key (no hostname) is provider-anchored",
   canonicalIdentityKey({ provider_key: "okta", surface_type: "identity_provider", hostname: null }) !== canonicalIdentityKey({ provider_key: "ping_identity", surface_type: "identity_provider", hostname: null }));
 
 // ── 3. Risk model (pure, explainable, not alarmist) ─────────────────────────
-eq("expected non-admin → ok", assessIdentityRisk({ surface_type: "login_portal", customer_classification: "expected", ownership_status: "known" }).risk_status, "ok");
-eq("unexpected admin → high", assessIdentityRisk({ surface_type: "admin_login", customer_classification: "unexpected", ownership_status: "missing" }).risk_status, "high");
-eq("unreviewed admin → elevated", assessIdentityRisk({ surface_type: "admin_login", customer_classification: "unreviewed", ownership_status: "missing" }).risk_status, "elevated");
-eq("unreviewed non-admin owned → low", assessIdentityRisk({ surface_type: "login_portal", customer_classification: "unreviewed", ownership_status: "known" }).risk_status, "low");
-eq("removal_contradicted → high", assessIdentityRisk({ surface_type: "login_portal", customer_classification: "expected", ownership_status: "known", recurrence_type: "removal_contradicted" }).risk_status, "high");
+eq("measured expected non-admin → ok", assessIdentityRisk({ surface_type: "login_portal", customer_classification: "expected", ownership_status: "known", identity_claim: MEASURED_CLAIM }).risk_status, "ok");
+eq("measured unexpected admin → high", assessIdentityRisk({ surface_type: "admin_login", customer_classification: "unexpected", ownership_status: "missing", identity_claim: MEASURED_CLAIM }).risk_status, "high");
+eq("measured unreviewed admin → elevated", assessIdentityRisk({ surface_type: "admin_login", customer_classification: "unreviewed", ownership_status: "missing", identity_claim: MEASURED_CLAIM }).risk_status, "elevated");
+eq("measured unreviewed non-admin owned → low", assessIdentityRisk({ surface_type: "login_portal", customer_classification: "unreviewed", ownership_status: "known", identity_claim: MEASURED_CLAIM }).risk_status, "low");
+eq("measured removal_contradicted → high", assessIdentityRisk({ surface_type: "login_portal", customer_classification: "expected", ownership_status: "known", recurrence_type: "removal_contradicted", identity_claim: MEASURED_CLAIM }).risk_status, "high");
+eq("unmeasured candidate risk → not evaluated", assessIdentityRisk({ surface_type: "login_portal", customer_classification: "expected", ownership_status: "known" }).risk_status, "not_evaluated");
 
 // ── 4. Ownership derivation (pure, three-role) ──────────────────────────────
 eq("business+technical → known", deriveIdentityOwnershipStatus("a", "b", null), "known");
@@ -129,7 +135,7 @@ eq("fresh record is unreviewed", d1.customer_classification, "unreviewed");
 eq("externally_observed is always true", d1.externally_observed, true);
 ok("unknown signals carried (no MFA/breach/dark-web claim)",
   ["mfa_enrolment", "conditional_access", "leaked_credentials", "dark_web"].every((s) => d1.unknown_signals.includes(s)));
-ok("scope note states public login is not automatically a vulnerability", /not automatically a vulnerability/i.test(d1.scope_note));
+ok("scope note states endpoint reachability is not measured", /endpoint reachability is not measured/i.test(d1.scope_note));
 
 // classify expected + assign owners → calm (ok, no recurrence)
 await identityExposureAction(env, "ws1", d1.identity_exposure_id, "classify_expected", { actor_id: "admin" });
@@ -139,7 +145,7 @@ eq("business+technical owner → known", d1known.item.ownership_status, "known")
 await evaluateIdentityExposureMonitoring(env, "ws1", { now: NOW });
 const d1calm = await getIdentityExposureRecord(env, "ws1", d1.identity_exposure_id);
 eq("expected + owned surface has no recurrence", d1calm.recurrence_type, null);
-eq("expected + owned surface risk is ok", d1calm.risk_status, "ok");
+eq("expected + owned candidate risk is not evaluated", d1calm.risk_status, "not_evaluated");
 
 // ── 6. Idempotent re-correlation; first_seen stable, last_seen advances ─────
 db.prepare("UPDATE identity_assets SET last_seen = '2026-07-19T00:00:00Z' WHERE id = ?").run(d1old);
@@ -170,9 +176,9 @@ ok("linked case is an identity_case with an identity.* remediation",
 seedIdentity("ws1", "d2", { hostname: "admin.admin2.com", identity_type: "admin_login" });
 await correlateIdentityExposure(env, "ws1", { now: NOW });
 const d2 = await getIdentityExposureRecord(env, "ws1", byHost(await listIdentityExposure(env, "ws1"), "admin.admin2.com").identity_exposure_id);
-eq("unreviewed public admin surface → public_admin_surface", d2.recurrence_type, "public_admin_surface");
-ok("public admin surface opens a case", Boolean(d2.linked_case_id));
-eq("flagged public admin surface risk is high", d2.risk_status, "high");
+eq("unmeasured admin hostname → no public_admin_surface recurrence", d2.recurrence_type, null);
+ok("unmeasured admin hostname opens no case", !d2.linked_case_id);
+eq("unmeasured admin hostname is review attention, not high reachability risk", d2.risk_status, "attention");
 
 // ── 9. Unexpected + no owner → owner_missing first, then unexpected ─────────
 seedIdentity("ws1", "d3", { hostname: "sso.corp3.com", identity_type: "sso", provider: "Ping Identity" });
@@ -181,41 +187,36 @@ const d3id = byHost(await listIdentityExposure(env, "ws1"), "sso.corp3.com").ide
 await identityExposureAction(env, "ws1", d3id, "classify_unexpected", { actor_id: "admin", reason: "not ours" });
 await evaluateIdentityExposureMonitoring(env, "ws1", { now: NOW });
 const d3a = await getIdentityExposureRecord(env, "ws1", d3id);
-eq("unexpected + no owner → owner_missing (assign_owner first)", d3a.recurrence_type, "owner_missing");
-eq("owner_missing requires assign_owner", d3a.required_case_action, "assign_owner");
+eq("unexpected candidate remains neutral review without recurrence", d3a.recurrence_type, null);
+eq("unexpected candidate has no automatic case action", d3a.required_case_action, "none");
 eq("reason_required enforced for classify_unexpected", (await identityExposureAction(env, "ws1", d3id, "classify_unexpected", { actor_id: "admin" })).code, "reason_required");
 // assign owner → owner-missing clears → unexpected_surface follow-up
 await identityExposureAction(env, "ws1", d3id, "assign_business_owner", { actor_id: "admin", owner: "Sec" });
 await identityExposureAction(env, "ws1", d3id, "assign_technical_owner", { actor_id: "admin", owner: "Net" });
 await evaluateIdentityExposureMonitoring(env, "ws1", { now: NOW });
 const d3b = await getIdentityExposureRecord(env, "ws1", d3id);
-eq("owner assignment clears owner_missing → unexpected_surface", d3b.recurrence_type, "unexpected_surface");
-ok("unexpected surface opens/keeps a case", Boolean(d3b.linked_case_id));
+eq("owner assignment keeps candidate outside measured recurrence", d3b.recurrence_type, null);
+ok("unexpected candidate opens no automatic case", !d3b.linked_case_id);
 
 // ── 10. Case reopened via canTransitionCase, never duplicated ───────────────
-db.prepare("UPDATE managed_cases SET status = 'verified' WHERE id = ?").run(d3b.linked_case_id);
 await evaluateIdentityExposureMonitoring(env, "ws1", { now: NOW });
-eq("verified identity case reopened on recurrence", db.prepare("SELECT status FROM managed_cases WHERE id = ?").get(d3b.linked_case_id).status, "reopened");
-eq("recurrence reuses the SAME case", (await getIdentityExposureRecord(env, "ws1", d3id)).linked_case_id, d3b.linked_case_id);
-eq("no duplicate identity_case for corp3 surface",
-  db.prepare("SELECT COUNT(*) AS n FROM managed_cases WHERE workspace_id='ws1' AND case_type='identity_case' AND finding_id = ?").get(`identity:${d3b.canonical_identity_key}`).n, 1);
+eq("candidate remains without a linked case", (await getIdentityExposureRecord(env, "ws1", d3id)).linked_case_id, null);
+eq("no identity_case is created for the candidate",
+  db.prepare("SELECT COUNT(*) AS n FROM managed_cases WHERE workspace_id='ws1' AND case_type='identity_case' AND finding_id = ?").get(`identity:${d3b.canonical_identity_key}`).n, 0);
 
 // ── 11. Customer-recorded removal is an assertion; verification honesty ──────
 seedIdentity("ws1", "d4", { hostname: "vpn.corp4.com", identity_type: "vpn", last: "2026-07-01T00:00:00Z" });
 await correlateIdentityExposure(env, "ws1", { now: NOW });
 const d4id = byHost(await listIdentityExposure(env, "ws1"), "vpn.corp4.com").identity_exposure_id;
 const removed = await identityExposureAction(env, "ws1", d4id, "record_surface_removed", { actor_id: "admin" });
-eq("record_surface_removed does NOT verify", removed.item.verification_status, "not_verified");
-eq("record_surface_removed sets a customer assertion", removed.item.customer_action_status, "surface_removed");
-// still observed → verification failed + removal contradiction
+eq("record_surface_removed is unavailable without measurement", removed.code, "action_not_allowed");
 const vFail = await identityExposureAction(env, "ws1", d4id, "request_verification", { actor_id: "admin" });
-eq("verify while still observed → failed", vFail.item.verification_status, "failed");
-eq("still-observed failure names the direct outcome", vFail.item.verification_detail.actual_outcome, "still_observed");
+eq("endpoint verification is unavailable without measurement", vFail.code, "action_not_allowed");
 await evaluateIdentityExposureMonitoring(env, "ws1", { now: NOW });
 const d4contra = await getIdentityExposureRecord(env, "ws1", d4id);
-eq("recorded-removed but still observed → removal_contradicted", d4contra.recurrence_type, "removal_contradicted");
-ok("contradiction opens a case", Boolean(d4contra.linked_case_id));
-ok("customer assertion preserved", d4contra.customer_action_status === "surface_removed");
+eq("unmeasured candidate cannot create removal contradiction", d4contra.recurrence_type, null);
+ok("unmeasured candidate opens no contradiction case", !d4contra.linked_case_id);
+ok("prohibited removal assertion was not persisted", d4contra.customer_action_status == null);
 // now the surface disappears across the window → verified removal
 db.prepare("UPDATE identity_assets SET status='inactive' WHERE workspace_id='ws1' AND domain_id='d4'").run();
 await correlateIdentityExposure(env, "ws1", { now: NOW });
@@ -227,19 +228,12 @@ ok("disappearance correlation remains explicitly not-verified removal",
     && JSON.parse(event.detail_json || "{}").to === "no_longer_observed"
     && JSON.parse(event.detail_json || "{}").note === "not_verified_removed"));
 const vAbsent = await identityExposureAction(env, "ws1", d4id, "request_verification", { actor_id: "admin" });
-eq("surface_removed absent across window → inconclusive", vAbsent.item.verification_status, "inconclusive");
-eq("absence verification method remains external_observation", vAbsent.item.verification_method, "external_observation");
-eq("absence does not advance remediation_status to verified", vAbsent.item.remediation_status, "customer_actioned");
-eq("absence does not write verified_at", vAbsent.item.verified_at, null);
-eq("full-window disappearance remains valuable append-only detail",
-  vAbsent.item.verification_detail.actual_outcome, "absent_across_window");
+eq("disappearance still does not enable endpoint verification", vAbsent.code, "action_not_allowed");
 const absenceEvents = await listIdentityExposureEvents(env, "ws1", d4id);
-eq("inconclusive absence appends verification_requested",
-  absenceEvents.at(-1).event_type, "verification_requested");
-ok("inconclusive absence emits no verified event",
+ok("disappearance emits no verification event",
+  !absenceEvents.some((event) => event.event_type === "verification_requested"));
+ok("disappearance emits no verified event",
   !absenceEvents.some((event) => event.event_type === "verified"));
-ok("verification evidence keeps identity signals unknown",
-  vAbsent.item.verification_detail && IDENTITY_UNKNOWN_SIGNALS.every((s) => vAbsent.item.verification_detail.unknown_signals.includes(s)));
 
 // verification unit — pending / inconclusive branches
 eq("no customer action → pending", buildIdentityVerification({ customer_action_status: null, monitoring_status: "observed" }, { now: NOW }).verification_result, "pending");
@@ -361,23 +355,17 @@ eq("unknown customer-action time cannot verify disappearance",
     cfg("2024-01-01T00:00:00.000Z", SQLITE_ACTED).verification_result, "inconclusive");
 }
 
-// ── 11c. Genuine supported verification remains reachable in persistence ────
+// ── 11c. Unsupported endpoint actions are unreachable in persistence ───────
 seedIdentity("ws1", "d6", { hostname: "login.corp6.com", identity_type: "login_portal", provider: "Okta" });
 await correlateIdentityExposure(env, "ws1", { now: NOW });
 const d6id = byHost(await listIdentityExposure(env, "ws1"), "login.corp6.com").identity_exposure_id;
-await identityExposureAction(env, "ws1", d6id, "record_configuration_changed", { actor_id: "admin" });
-const d6ActionAt = db.prepare(`SELECT created_at FROM identity_exposure_events
-  WHERE record_id = ? AND event_type = 'customer_action_recorded'
-  ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(d6id).created_at;
-db.prepare("UPDATE identity_exposure SET last_changed_at = datetime(?, '+1 second') WHERE id = ?").run(d6ActionAt, d6id);
+const d6Changed = await identityExposureAction(env, "ws1", d6id, "record_configuration_changed", { actor_id: "admin" });
+eq("unmeasured candidate cannot record an endpoint configuration change", d6Changed.code, "action_not_allowed");
 const vChanged = await identityExposureAction(env, "ws1", d6id, "request_verification", { actor_id: "admin" });
-eq("supported material change remains verified", vChanged.item.verification_status, "verified");
-eq("supported material change advances remediation_status", vChanged.item.remediation_status, "verified");
-ok("supported material change writes verified_at", Boolean(vChanged.item.verified_at));
-eq("supported material change keeps its exact outcome",
-  vChanged.item.verification_detail.actual_outcome, "material_change_observed_after_action");
-eq("supported material change emits verified event",
-  (await listIdentityExposureEvents(env, "ws1", d6id)).at(-1).event_type, "verified");
+eq("unmeasured candidate cannot request endpoint verification", vChanged.code, "action_not_allowed");
+ok("prohibited endpoint actions append no customer-action or verification history",
+  !(await listIdentityExposureEvents(env, "ws1", d6id)).some((event) =>
+    event.event_type === "customer_action_recorded" || event.event_type === "verification_requested" || event.event_type === "verified"));
 
 // ── 12. Exception requires reason + expiry; expiry lapses to exception_expired
 seedIdentity("ws1", "d7", { hostname: "ext.corp7.com", identity_type: "login_portal" });
@@ -392,7 +380,7 @@ db.prepare("UPDATE identity_exposure SET exception_until = '2026-07-01T00:00:00Z
 await evaluateIdentityExposureMonitoring(env, "ws1", { now: NOW });
 const d7exp = await getIdentityExposureRecord(env, "ws1", d7id);
 eq("expired exception → exception_expired", d7exp.recurrence_type, "exception_expired");
-ok("exception expiry opens a case", Boolean(d7exp.linked_case_id));
+ok("an unmeasured exception expiry does not open a reachability case", !d7exp.linked_case_id);
 
 // ── 13. Retired surface reappearance ────────────────────────────────────────
 seedIdentity("ws1", "d8", { hostname: "old.corp8.com", identity_type: "login_portal" });
@@ -401,7 +389,7 @@ const d8id = byHost(await listIdentityExposure(env, "ws1"), "old.corp8.com").ide
 await identityExposureAction(env, "ws1", d8id, "retire", { actor_id: "admin", reason: "decommissioned" });
 db.prepare("UPDATE identity_exposure SET monitoring_status='reappeared', exposure_status='reappeared' WHERE id = ?").run(d8id);
 await evaluateIdentityExposureMonitoring(env, "ws1", { now: NOW });
-eq("retired surface that reappeared → retired_reappeared", (await getIdentityExposureRecord(env, "ws1", d8id)).recurrence_type, "retired_reappeared");
+eq("an unmeasured retired candidate does not claim endpoint reappearance", (await getIdentityExposureRecord(env, "ws1", d8id)).recurrence_type, null);
 
 // ── 14. Stale evidence when nothing higher-priority applies ─────────────────
 seedIdentity("ws1", "d5", { hostname: "portal.corp5.com", identity_type: "login_portal", last: "2026-05-01T00:00:00Z" });

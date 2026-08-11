@@ -641,7 +641,15 @@ export async function scanRoutes(rctx) {
         const read = resolved.read;
         const customerSnapshot = read.customerSnapshot ?? read.snapshot;
         return json({
-          snapshot: customerSnapshot,
+          // Legacy snapshot field retains the checksum-scoped immutable bytes.
+          // Customer renderers must use the additive authoritative projection.
+          snapshot: read.snapshot,
+          customer_snapshot: customerSnapshot,
+          customer_projection_metadata: read.customerProjectionMetadata ?? {
+            checksum_scope: "immutable_snapshot",
+            customer_projection_applied: true,
+            authoritative_customer_field: "customer_snapshot",
+          },
           superseded_by: read.supersededBy,
           integrity: read.integrity,
           ...certificateAssuranceApiProjection(customerSnapshot),

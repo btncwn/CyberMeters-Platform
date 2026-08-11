@@ -297,11 +297,14 @@ async function checkParityAndInvariants() {
   const bespoke = Object.values(eng.CASE_TYPE_REGISTRY).filter((e) => !e.base).map((e) => e.domain_key).sort();
   eq("24: exactly ASM + Brand keep bespoke machines", bespoke.join(","), ["attack_surface", "brand_protection"].join(","));
 
-  // 25. Latent fail-open pin: identity/shadow are NOT registry-derived, which is safe ONLY while every
-  //     one of their findings is manual_attestation. Pin it so an observable finding cannot silently fail-open.
+  // 25. Active Identity/Shadow remediations remain manual. Deprecated Identity
+  //     propositions stay resolvable but explicitly unsupported.
   const softDomains = new Set(["identity_exposure", "shadow_it_unmanaged_technology"]);
-  const nonManual = reg.REMEDIATION_REGISTRY.filter((r) => softDomains.has(r.domain_key) && r.verification_method !== "manual_attestation");
-  eq("25: every identity/shadow remediation is manual_attestation (blanket-manual is safe)", nonManual.length, 0);
+  const nonManualActive = reg.REMEDIATION_REGISTRY.filter((r) => softDomains.has(r.domain_key) && r.status !== "deprecated" && r.verification_method !== "manual_attestation");
+  const deprecatedIdentity = reg.REMEDIATION_REGISTRY.filter((r) => r.domain_key === "identity_exposure" && r.status === "deprecated");
+  eq("25: every active identity/shadow remediation is manual_attestation", nonManualActive.length, 0);
+  ok("25: deprecated identity propositions are retained with unsupported verification",
+    deprecatedIdentity.length === 3 && deprecatedIdentity.every((entry) => entry.verification_method === "unsupported"));
   eq("25: identity_case verification support is manual", eng.verificationSupportForCase({ case_type: "identity_case", remediation_id: null }), "manual");
   eq("25: shadow_it_case verification support is manual", eng.verificationSupportForCase({ case_type: "shadow_it_case", remediation_id: null }), "manual");
 

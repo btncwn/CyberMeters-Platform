@@ -29,7 +29,13 @@ import { newCaseEventId } from "./case-workflow.js";
 import {
   providerKey, deriveSurfaceType, canonicalIdentityKey, normalizeHostname, assessIdentityRisk,
 } from "./identity-policy.js";
-import { IDENTITY_CANONICAL_LIFECYCLE_QUERY } from "./identity-evidence-contract.js";
+import {
+  IDENTITY_CANONICAL_LIFECYCLE_QUERY,
+  buildIdentityEvidenceProjection,
+  identityAllowedActionsForClaim,
+  isMeasuredIdentityClaim,
+  managedIdentityClaimFromRow,
+} from "./identity-evidence-contract.js";
 
 function newId(prefix) {
   const uuid = (globalThis.crypto?.randomUUID?.() || "").replace(/-/g, "");
@@ -164,24 +170,37 @@ export async function correlateIdentityExposure(env, workspaceId, { now = new Da
     const provider_key = rowsG.map((r) => r.provider_key).find(Boolean) || null;
     const provider_name = rowsG.map((r) => r.provider).find(Boolean) || null;
     const primary_hostname = normalizeHostname(rowsG.map((r) => r.hostname).find(Boolean) || "") || null;
-    const urls = new Set(), endpoints = new Set(), protocols = new Set(protocolsForSurface(g.surface));
+    const candidateUrls = new Set(), measuredEndpoints = new Set(), protocols = new Set(protocolsForSurface(g.surface));
     const sourceTypes = new Set();
     let confidence = "low", firstSeen = null, lastSeen = null, maxRisk = 0;
     const evidenceRefs = [];
     for (const r of rowsG) {
-      const conf = sourceConfidence(r.source);
+      const projection = buildIdentityEvidenceProjection(r);
+      const conf = projection.confidence_detail?.level === "unknown"
+        ? sourceConfidence(r.source)
+        : projection.confidence_detail.level;
       confidence = strongerConfidence(confidence, conf);
       if (r.first_seen && (!firstSeen || r.first_seen < firstSeen)) firstSeen = r.first_seen;
       if (r.last_seen && (!lastSeen || r.last_seen > lastSeen)) lastSeen = r.last_seen;
       maxRisk = Math.max(maxRisk, Number(r.risk_score) || 0);
       sourceTypes.add(r.source);
       const host = normalizeHostname(r.hostname);
-      if (host) urls.add(`https://${host}`);
+      if (host && projection.identity_claim?.surface_classification?.status === "possible") {
+        candidateUrls.add(`https://${host}`);
+      }
+      if (isMeasuredIdentityClaim(projection.identity_claim)) {
+        measuredEndpoints.add(projection.identity_claim.reachability.endpoint);
+      }
       evidenceRefs.push({
         source_table: "identity_assets", source_record_id: r.id, source_type: r.source,
         observed_identifier: r.provider || host || r.identity_type, hostname: host || null,
-        url: host ? `https://${host}` : null, protocol: [...protocols][0] || null,
+        candidate_url: host && projection.identity_claim?.surface_classification?.status === "possible" ? `https://${host}` : null,
+        measured_endpoint: isMeasuredIdentityClaim(projection.identity_claim) ? projection.identity_claim.reachability.endpoint : null,
+        protocol: [...protocols][0] || null,
         first_seen_at: r.first_seen || null, last_seen_at: r.last_seen || null, confidence: conf,
+        evidence_status: projection.evidence_status,
+        confidence_detail: projection.confidence_detail,
+        identity_claim: projection.identity_claim,
       });
     }
 
@@ -200,7 +219,7 @@ export async function correlateIdentityExposure(env, workspaceId, { now = new Da
            exposure_status, customer_classification, ownership_status, monitoring_status, lifecycle_state, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'observed', 'unreviewed', 'missing', 'observed', 'observed', ?, ?)`)
         .bind(id, workspaceId, g.domain_id, g.key, provider_key, provider_name, g.surface, primary_hostname,
-          safeJson([...urls], "[]"), safeJson([...endpoints], "[]"), safeJson([...protocols], "[]"),
+          safeJson([], "[]"), safeJson([...measuredEndpoints], "[]"), safeJson([...protocols], "[]"),
           safeJson([...sourceTypes], "[]"), safeJson(evidenceRefs, "[]"), firstSeen || lastSeen || now, lastSeen || firstSeen || now,
           confidence, now, now)
         .run();
@@ -213,10 +232,12 @@ export async function correlateIdentityExposure(env, workspaceId, { now = new Da
     // surface-type shift. Provider change on a hostname-anchored surface keeps the
     // SAME record.
     const prevUrls = new Set(parseJson(existing.observed_urls_json, []) || []);
-    const newUrl = [...urls].some((u) => !prevUrls.has(u));
+    // Candidate hostnames are not measured URLs. Keep the historical primitive
+    // observed_urls alias byte-compatible, but never add a heuristic candidate.
+    const newUrl = false;
     const providerChanged = existing.provider_key !== provider_key && Boolean(existing.provider_key) && Boolean(provider_key);
     const material = providerChanged || newUrl || existing.surface_type !== g.surface;
-    const unionedUrls = [...new Set([...prevUrls, ...urls])];
+    const unionedUrls = [...prevUrls];
     const unionedEvidence = unionIdentityEvidence(parseJson(existing.source_evidence_json, []) || [], evidenceRefs);
     const unionedSourceTypes = [...new Set([...(parseJson(existing.source_types_json, []) || []), ...sourceTypes])];
     const exposure_status = existing.exposure_status === "no_longer_observed" ? "reappeared" : "observed";
@@ -381,6 +402,8 @@ export async function evaluateIdentityExposureMonitoring(env, workspaceId, { see
     const stale = evidence_age_days != null && evidence_age_days > IDENTITY_STALE_EVIDENCE_DAYS;
     const ownership_status = deriveIdentityOwnershipStatus(rec.business_owner, rec.technical_owner, rec.identity_owner);
     const cls = rec.customer_classification;
+    const identity_claim = managedIdentityClaimFromRow(rec);
+    const measuredIdentityClaim = isMeasuredIdentityClaim(identity_claim);
     const admin = rec.surface_type === "admin_login";
     const inException = rec.exception_until && rec.exception_until > now;
 
@@ -390,17 +413,18 @@ export async function evaluateIdentityExposureMonitoring(env, workspaceId, { see
     let recurrence_type = "none", monitoring_reason = null, required_case_action = "none";
     if (inException) { monitoring_reason = "under_exception"; }
     else if (rec.exception_until && rec.exception_until <= now && cls === "exception") { recurrence_type = "exception_expired"; monitoring_reason = "exception_window_expired"; required_case_action = "open_or_reopen"; }
-    else if (rec.customer_action_status === "surface_removed" && stillObserved) { recurrence_type = "removal_contradicted"; monitoring_reason = "recorded_removed_but_still_observed"; required_case_action = "open_or_reopen"; }
-    else if (rec.verification_status === "failed") { recurrence_type = "verification_failed"; monitoring_reason = "verification_failed"; required_case_action = "open_or_reopen"; }
-    else if (ownership_status === "missing" && stillObserved && (cls === "unexpected" || cls === "investigate")) { recurrence_type = "owner_missing"; monitoring_reason = "no_owner_on_at_risk_surface"; required_case_action = "assign_owner"; }
-    else if (admin && stillObserved && cls !== "expected") { recurrence_type = "public_admin_surface"; monitoring_reason = "public_admin_login_surface"; required_case_action = "open_or_reopen"; }
-    else if (cls === "unexpected" && stillObserved) { recurrence_type = "unexpected_surface"; monitoring_reason = "unexpected_surface_still_observed"; required_case_action = "open_or_reopen"; }
-    else if (cls === "retired" && monitoring_status === "reappeared") { recurrence_type = "retired_reappeared"; monitoring_reason = "retired_surface_reappeared"; required_case_action = "open_or_reopen"; }
-    else if (cls === "investigate" && stillObserved) { recurrence_type = "investigate_unresolved"; monitoring_reason = "investigate_classification_unresolved"; required_case_action = "open_or_reopen"; }
+    else if (measuredIdentityClaim && rec.customer_action_status === "surface_removed" && stillObserved) { recurrence_type = "removal_contradicted"; monitoring_reason = "recorded_removed_but_still_observed"; required_case_action = "open_or_reopen"; }
+    else if (measuredIdentityClaim && rec.verification_status === "failed") { recurrence_type = "verification_failed"; monitoring_reason = "verification_failed"; required_case_action = "open_or_reopen"; }
+    else if (measuredIdentityClaim && ownership_status === "missing" && stillObserved && (cls === "unexpected" || cls === "investigate")) { recurrence_type = "owner_missing"; monitoring_reason = "no_owner_on_at_risk_surface"; required_case_action = "assign_owner"; }
+    else if (measuredIdentityClaim && admin && stillObserved && cls !== "expected") { recurrence_type = "public_admin_surface"; monitoring_reason = "public_admin_login_surface"; required_case_action = "open_or_reopen"; }
+    else if (measuredIdentityClaim && cls === "unexpected" && stillObserved) { recurrence_type = "unexpected_surface"; monitoring_reason = "unexpected_surface_still_observed"; required_case_action = "open_or_reopen"; }
+    else if (measuredIdentityClaim && cls === "retired" && monitoring_status === "reappeared") { recurrence_type = "retired_reappeared"; monitoring_reason = "retired_surface_reappeared"; required_case_action = "open_or_reopen"; }
+    else if (measuredIdentityClaim && cls === "investigate" && stillObserved) { recurrence_type = "investigate_unresolved"; monitoring_reason = "investigate_classification_unresolved"; required_case_action = "open_or_reopen"; }
     else if (material_change && rec.last_changed_at && stillObserved) { recurrence_type = "provider_change"; monitoring_reason = "material_identity_change"; required_case_action = "open_or_reopen"; }
     else if (stale && stillObserved) { recurrence_type = "evidence_stale"; monitoring_reason = "identity_evidence_stale"; required_case_action = "none"; }
+    else if (!measuredIdentityClaim && (cls === "unexpected" || cls === "investigate")) { monitoring_reason = "neutral_candidate_review"; }
 
-    const { risk_status } = assessIdentityRisk({ surface_type: rec.surface_type, customer_classification: cls, ownership_status, recurrence_type: recurrence_type === "none" ? null : recurrence_type });
+    const { risk_status } = assessIdentityRisk({ surface_type: rec.surface_type, customer_classification: cls, ownership_status, recurrence_type: recurrence_type === "none" ? null : recurrence_type, identity_claim });
     const merged = { ...rec, _now: now, monitoring_status, recurrence_type, ownership_status };
     const lifecycle_state = deriveLifecycleState(merged);
 
@@ -445,7 +469,8 @@ export async function evaluateIdentityExposureMonitoring(env, workspaceId, { see
         material_change, recurrence_type === "none" ? null : recurrence_type, required_case_action, lifecycle_state, now, now, rec.id, workspaceId)
       .run();
 
-    if (required_case_action === "open_or_reopen" || required_case_action === "assign_owner") {
+    const alertEligible = measuredIdentityClaim || recurrence_type === "provider_change";
+    if (alertEligible && (required_case_action === "open_or_reopen" || required_case_action === "assign_owner")) {
       const acted = await openOrReopenIdentityCase(env, { ...rec, monitoring_status, ownership_status }, { recurrence: recurrence_type, now });
       // Tell the customer — through the ONE canonical pipeline, from the same
       // deterministic decision that just opened/reopened the case. Detection is not
@@ -470,18 +495,24 @@ export async function evaluateIdentityExposureMonitoring(env, workspaceId, { see
 export async function openOrReopenIdentityCase(env, rec, { recurrence, now = new Date().toISOString() } = {}) {
   const cfg = RECURRENCE_CASE[recurrence] || { finding_type: "identity_unexpected_surface" };
   const label = String(recurrence || "review").replace(/_/g, " ");
+  const measured = isMeasuredIdentityClaim(managedIdentityClaimFromRow(rec));
+  const evidenceSubject = measured
+    ? "Measured identity surface"
+    : recurrence === "provider_change"
+      ? "Identity provider relationship"
+      : "Identity evidence";
   if (!rec.linked_case_id) {
     return linkIdentityCase(env, rec, {
       actor: { actor_type: "system", actor_id: null }, finding_type: cfg.finding_type,
-      title: `Identity exposure review: ${rec.primary_hostname || rec.provider_name || rec.canonical_identity_key} (${label})`,
-      summary: `Externally observed identity surface needs review: ${label}.`,
+      title: `${evidenceSubject} review: ${rec.primary_hostname || rec.provider_name || rec.canonical_identity_key} (${label})`,
+      summary: `${evidenceSubject} needs review: ${label}. Endpoint reachability is stated only when supported measurement exists.`,
     });
   }
   const kase = await env.cybermeters_db
     .prepare(`SELECT * FROM managed_cases WHERE id = ? AND workspace_id = ?`).bind(rec.linked_case_id, rec.workspace_id).first().catch(() => null);
   if (!kase) {
     await env.cybermeters_db.prepare(`UPDATE identity_exposure SET linked_case_id = NULL WHERE id = ? AND workspace_id = ?`).bind(rec.id, rec.workspace_id).run();
-    return linkIdentityCase(env, rec, { actor: { actor_type: "system", actor_id: null }, finding_type: cfg.finding_type, title: `Identity exposure review: ${rec.primary_hostname || rec.canonical_identity_key}`, summary: `Recurrence: ${label}.` });
+    return linkIdentityCase(env, rec, { actor: { actor_type: "system", actor_id: null }, finding_type: cfg.finding_type, title: `${evidenceSubject} review: ${rec.primary_hostname || rec.canonical_identity_key}`, summary: `${evidenceSubject} recurrence: ${label}.` });
   }
   const phase = canonicalPhaseFor(kase.case_type, kase.status);
   if (phase === "verified" || phase === "monitoring") {
@@ -582,6 +613,9 @@ export async function identityExposureAction(env, workspaceId, id, action, opts 
   if (!IDENTITY_WORKFLOW_ACTIONS.includes(action)) return { ok: false, code: "invalid_action" };
   const rec = await loadRecord(env, workspaceId, id);
   if (!rec) return { ok: false, code: "not_found" }; // same for foreign + nonexistent
+  const identityClaim = managedIdentityClaimFromRow(rec);
+  const allowedActions = identityAllowedActionsForClaim(identityClaim);
+  if (!allowedActions.includes(action)) return { ok: false, code: "action_not_allowed", allowed_actions: allowedActions };
   const actor = { actor_type: "customer", actor_id: opts.actor_id || null };
   const now = new Date().toISOString();
   const set = { updated_at: now };
@@ -596,7 +630,7 @@ export async function identityExposureAction(env, workspaceId, id, action, opts 
       if (!String(opts.reason || "").trim()) return { ok: false, code: "reason_required" };
       set.customer_classification = "unexpected"; set.classification_reason = opts.reason;
       eventType = "classified"; detail = { classification: "unexpected" };
-      openCase = rec.monitoring_status !== "no_longer_observed";
+      openCase = isMeasuredIdentityClaim(identityClaim) && rec.monitoring_status !== "no_longer_observed";
       break;
     case "classify_investigate":
       if (!String(opts.reason || "").trim()) return { ok: false, code: "reason_required" };
@@ -689,6 +723,10 @@ export async function identityExposureAction(env, workspaceId, id, action, opts 
 // ── API serializer ──────────────────────────────────────────────────────────
 export function identityExposureToApi(row) {
   if (!row) return null;
+  const identity_claim = managedIdentityClaimFromRow(row);
+  const sourceEvidence = parseJson(row.source_evidence_json, []) || [];
+  const candidate_urls = [...new Set(sourceEvidence.map((ref) => ref?.candidate_url).filter(Boolean))];
+  const measured_endpoints = [...new Set(sourceEvidence.map((ref) => ref?.measured_endpoint).filter(Boolean))];
   return {
     identity_exposure_id: row.id,
     workspace_id: row.workspace_id,
@@ -704,7 +742,14 @@ export function identityExposureToApi(row) {
     tenant_identifier: row.tenant_identifier || null,
     realm_identifier: row.realm_identifier || null,
     source_types: parseJson(row.source_types_json, []) || [],
-    source_evidence: parseJson(row.source_evidence_json, []) || [],
+    source_evidence: sourceEvidence,
+    evidence_status: sourceEvidence.some((ref) => ref?.evidence_status === "malformed") ? "malformed" : sourceEvidence.some((ref) => ref?.evidence_status) ? "recorded" : "legacy",
+    confidence_detail: identity_claim?.provider_relationship?.confidence_detail ?? identity_claim?.surface_classification?.confidence_detail ?? null,
+    identity_claim,
+    name_resolution: identity_claim?.name_resolution ?? { status: "unknown_legacy", evidence_sources: [], measured_at: null },
+    candidate_urls,
+    measured_endpoints,
+    allowed_actions: identityAllowedActionsForClaim(identity_claim),
     first_seen_at: row.first_seen_at,
     last_seen_at: row.last_seen_at,
     last_changed_at: row.last_changed_at || null,
@@ -740,7 +785,7 @@ export function identityExposureToApi(row) {
     created_at: row.created_at,
     updated_at: row.updated_at,
     unknown_signals: [...IDENTITY_UNKNOWN_SIGNALS],
-    scope_note: "Externally observed identity/login surface only. A publicly visible identity entry point is not automatically a vulnerability. No leaked-credential, breached-password, dark-web, MFA, Conditional Access or internal-policy visibility. Your classification is a decision; a recorded change or removal is not verified until CyberMeters re-observes it externally.",
+    scope_note: "Provider relationships and possible identity-facing hostnames are externally observed review evidence; endpoint reachability is not measured. No leaked-credential, breached-password, dark-web, MFA, Conditional Access or internal-policy visibility. Your classification is a decision, not CyberMeters verification.",
   };
 }
 

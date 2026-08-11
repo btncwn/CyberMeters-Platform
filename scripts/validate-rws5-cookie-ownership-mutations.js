@@ -115,7 +115,7 @@ const MUTATIONS = Object.freeze([
   {
     id: "comparable-historical-transition",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-09.2";',
+    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-11.1";',
     replacement: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-07-24.4";',
     expectedFailures: [
       "historical/new ownership boundary is not_comparable",

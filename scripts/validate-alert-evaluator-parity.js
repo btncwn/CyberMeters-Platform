@@ -154,20 +154,20 @@ db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws1
 {
   const { evaluateIdentityExposureMonitoring } = await import(eng("identity-lifecycle.js"));
 
-  // An identity surface in a state the evaluator will grade as alert-worthy:
-  // customer says removed, we still observe it => removal_contradicted.
+  // A provider relationship change remains an alert-worthy recurrence without
+  // manufacturing an endpoint-reachability claim.
   db.prepare(`INSERT INTO identity_exposure
       (id, workspace_id, domain_id, canonical_identity_key, provider_key, surface_type, primary_hostname,
-       exposure_status, customer_classification, customer_action_status, monitoring_status,
+       exposure_status, customer_classification, customer_action_status, monitoring_status, last_changed_at,
        first_seen_at, last_seen_at, confidence, created_at, updated_at)
     VALUES ('ie1','ws1','dom1','okta::login','okta','login_portal','sso.example.com',
-       'observed','unexpected','surface_removed','observed',
+       'observed','expected',NULL,'observed',datetime('now'),
        datetime('now','-40 days'), datetime('now'), 'high', datetime('now','-40 days'), datetime('now'))`).run();
 
   await evaluateIdentityExposureMonitoring(env, "ws1", { seenKeys: new Set(["dom1::okta::login"]) });
 
   const rec = db.prepare("SELECT * FROM identity_exposure WHERE id='ie1'").get();
-  ok("identity: evaluator graded an alert-worthy recurrence", Boolean(rec.recurrence_type),
+  ok("identity: evaluator graded the provider-change recurrence", rec.recurrence_type === "provider_change",
      `recurrence_type=${rec.recurrence_type}`);
 
   const events = occurrenceEvents("identity_exposure_events", "record_id", "ie1");

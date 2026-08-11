@@ -44,7 +44,7 @@ describe('IdentityExposurePage — workspace resolution', () => {
     useWorkspace.mockReturnValue({ wsId: WS_ID, loading: false })
     api.getIdentitySurfaces.mockResolvedValue({ items: [], counts: {}, actions: [] })
     mount()
-    expect(await screen.findByText(/No managed identity surfaces yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/No managed identity evidence yet/i)).toBeInTheDocument()
   })
 
   it('renders the generic failure state on a backend 403', async () => {

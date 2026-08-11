@@ -5,7 +5,7 @@
 import { createId } from "../lib/util.js";
 import { BRAND_SUSPICIOUS_TLDS, brandSimilarityScore, buildBrandIdnEvidence, normalizeBrandVariantType, scoreBrandCandidateRisk } from "./brand-protection.js";
 import { HIGH_RISK_BRAND_KEYWORDS, extractBrandParts } from "./brand-typosquat.js";
-import { serializeIdentityEvidence } from "./identity-evidence-contract.js";
+import { buildIdentityEvidenceProjection, serializeIdentityEvidence } from "./identity-evidence-contract.js";
 
 const PROTECTED_BRAND_CLASSIFICATIONS = new Set([
   "owned", "ignored", "benign", "false_positive", "dismissed",
@@ -415,19 +415,26 @@ export async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
       }
     }
 
-    // Also upsert identity providers into workspace_vendors so they appear
-    // in the vendor risk layer. Category = 'identity_provider', risk_level = 'high'.
+    // Also upsert identity providers into workspace_vendors as relationship
+    // context. Provider identification is not independent vendor-risk evidence:
+    // new/forward-refreshed Identity rows therefore carry no risk level. The
+    // typed subject/precision stays in evidence; confidence is a deprecated
+    // textual compatibility label only.
     for (const provider of (identityMod.providers ?? [])) {
       try {
         const vid = createId("vendor");
         const evJson = serializeIdentityEvidence(provider.evidence);
+        const providerConfidence = buildIdentityEvidenceProjection({
+          ...provider,
+          evidence: evJson,
+        }).confidence_detail.level;
         await env.cybermeters_db
           .prepare(
             `INSERT OR IGNORE INTO workspace_vendors
                (id, workspace_id, vendor_name, category, source, evidence,
                 confidence, risk_level, first_seen, last_seen, status,
                 source_module, created_at, updated_at)
-             SELECT ?, ?, ?, 'identity_provider', ?, ?, ?, 'high', ?, ?, 'active',
+             SELECT ?, ?, ?, 'identity_provider', ?, ?, ?, NULL, ?, ?, 'active',
                     'identity_discovery', ?, ?
               WHERE EXISTS (
                     SELECT 1 FROM workspaces w
@@ -435,14 +442,14 @@ export async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
                   )`
           )
           .bind(vid, workspace_id, provider.provider, "identity_discovery", evJson,
-                provider.confidence, now, now, now, now, workspace_id)
+                providerConfidence, now, now, now, now, workspace_id)
           .run();
 
         await env.cybermeters_db
           .prepare(
             `UPDATE workspace_vendors
              SET last_seen = ?, evidence = ?, confidence = ?,
-                 risk_level = 'high', status = 'active',
+                 risk_level = NULL, status = 'active',
                  source_module = 'identity_discovery', updated_at = ?
              WHERE workspace_id = ? AND vendor_name = ? AND category = 'identity_provider'
                AND EXISTS (
@@ -451,7 +458,7 @@ export async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
                         AND w.deleted_at IS NULL
                    )`
           )
-          .bind(now, evJson, provider.confidence, now, workspace_id, provider.provider)
+          .bind(now, evJson, providerConfidence, now, workspace_id, provider.provider)
           .run();
       } catch (error) {
         console.error("Identity vendor persistence failed", {

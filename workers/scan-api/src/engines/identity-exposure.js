@@ -10,7 +10,11 @@
 // Read-only; never throws. Breached-credential monitoring (HIBP Pro) is a genuine
 // future signal, not represented here until it's real.
 
-import { IDENTITY_CANONICAL_EXPOSURE_QUERY } from "./identity-evidence-contract.js";
+import {
+  IDENTITY_CANONICAL_EXPOSURE_QUERY,
+  buildIdentityEvidenceProjection,
+  summarizeIdentityClaims,
+} from "./identity-evidence-contract.js";
 
 const MAX_DOMAINS_FOR_EMAIL = 20;
 
@@ -26,13 +30,25 @@ export async function computeIdentityExposure(env, workspaceId) {
   const loginRows = (await db
     .prepare(IDENTITY_CANONICAL_EXPOSURE_QUERY)
     .bind(workspaceId).all().catch(() => { loginUnavailable = true; return { results: [] }; })).results ?? [];
+  const projectedLoginRows = loginRows.map((row) => ({ ...row, ...buildIdentityEvidenceProjection(row) }));
   const byType = {};
-  for (const r of loginRows) byType[r.identity_type] = (byType[r.identity_type] || 0) + 1;
+  for (const r of projectedLoginRows) byType[r.identity_type] = (byType[r.identity_type] || 0) + 1;
+  const claimCounts = summarizeIdentityClaims(projectedLoginRows);
   const login = {
-    count: loginRows.length,
-    internet_facing: loginRows.filter((r) => r.internet_exposed).length,
+    count: projectedLoginRows.length,
+    // Deprecated primitive alias: authoritative counts are the four separated
+    // siblings below. It now reflects typed reachable measurements only.
+    internet_facing: claimCounts.reachable_surface_count,
+    ...claimCounts,
     by_type: byType,
-    top: loginRows.slice(0, 5).map((r) => ({ hostname: r.hostname, type: r.identity_type, provider: r.provider, internet_exposed: !!r.internet_exposed })),
+    top: projectedLoginRows.slice(0, 5).map((r) => ({
+      hostname: r.hostname, type: r.identity_type, provider: r.provider,
+      internet_exposed: r.identity_claim?.reachability?.status === "reachable",
+      evidence_status: r.evidence_status,
+      confidence_detail: r.confidence_detail,
+      identity_claim: r.identity_claim,
+      name_resolution: r.name_resolution,
+    })),
   };
 
   // ── 2. Active impersonation infrastructure ─────────────────────────────────
@@ -104,14 +120,14 @@ export function deriveLevel(login, impersonation, email, evidence = {}) {
     impersonation.can_host_login > 0,                        // a lookalike can host a phishing login
   ].filter(Boolean).length;
   const mediumSignals = [
-    login.internet_facing > 0,                              // exposed login/credential surfaces
+    login.reachable_surface_count > 0,                     // measured reachable identity surfaces
     impersonation.active > 0,                               // resolving lookalikes (even without mail/login)
   ].filter(Boolean).length;
 
   const parts = [];
   if (email.spoofable_domains > 0) parts.push(`${email.spoofable_domains} of your ${email.checked_domains} domain${email.checked_domains === 1 ? "" : "s"} can be spoofed in email (weak or missing DMARC)`);
   if (impersonation.active > 0) parts.push(`${impersonation.active} active lookalike domain${impersonation.active === 1 ? "" : "s"}${impersonation.can_send_mail ? ` (${impersonation.can_send_mail} able to send mail as you)` : ""}`);
-  if (login.internet_facing > 0) parts.push(`${login.internet_facing} internet-facing login surface${login.internet_facing === 1 ? "" : "s"} where credentials are attacked`);
+  if (login.reachable_surface_count > 0) parts.push(`${login.reachable_surface_count} identity surface${login.reachable_surface_count === 1 ? "" : "s"} measured reachable`);
 
   // Real exposure ALWAYS surfaces first — an evidence gap never hides a finding.
   if (highSignals >= 1 || mediumSignals >= 1) {
@@ -137,8 +153,14 @@ export function deriveLevel(login, impersonation, email, evidence = {}) {
       summary: "Identity exposure has not been assessed yet — no identity assets, lookalike domains, or completed scans were available to evaluate.",
     };
   }
+  if (!(Number(login?.reachability_evaluated_count) > 0)) {
+    return {
+      identity_exposure_level: "Not Assessed",
+      summary: "Identity surface reachability was not evaluated — provider relationships and possible identity-facing hostnames are review evidence, not measured public endpoints.",
+    };
+  }
   return {
     identity_exposure_level: "Low",
-    summary: "No significant identity-exposure signals detected — email authentication, lookalike domains, and exposed login surfaces all look clean.",
+    summary: "No material identity-exposure signal was observed within the evidence that was actually evaluated.",
   };
 }

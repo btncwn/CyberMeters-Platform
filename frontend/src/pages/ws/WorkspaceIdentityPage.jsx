@@ -1,15 +1,15 @@
 import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import {
-  ShieldAlert, ExternalLink, RefreshCw, Globe, Lock, User, Key,
-  Wifi, AlertTriangle, CheckCircle2, Building2,
+  ShieldAlert, RefreshCw, Globe, Lock, User, Key,
+  Wifi, Building2,
 } from 'lucide-react'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
-import RiskBadge from '../../components/RiskBadge'
 import StatCard from '../../components/StatCard'
 import IdentityExposureCard from '../../components/IdentityExposureCard'
+import { confidenceDetailLabel, identityClaimMeta, toneClass } from '../../lib/identityExposureDisplay'
 
 // ── Identity type configuration ───────────────────────────────────────────────
 
@@ -32,21 +32,13 @@ function getConfig(identity_type) {
   }
 }
 
-function riskBand(score) {
-  // M5.e: an absent/non-finite risk score is UNKNOWN — never green Low.
-  if (!Number.isFinite(Number(score)) || score == null) return { label: 'Unknown', cls: 'bg-gray-100 text-gray-600 border-gray-200' }
-  if (score >= 20) return { label: 'Critical',  cls: 'bg-red-100    text-red-700    border-red-200'    }
-  if (score >= 15) return { label: 'High',      cls: 'bg-orange-100 text-orange-700 border-orange-200' }
-  if (score >= 10) return { label: 'Medium',    cls: 'bg-amber-100  text-amber-700  border-amber-200'  }
-  return                   { label: 'Low',       cls: 'bg-green-100  text-green-700  border-green-200'  }
-}
-
 // ── Asset card ────────────────────────────────────────────────────────────────
 
 function IdentityAssetCard({ asset }) {
   const cfg  = getConfig(asset.identity_type)
   const Icon = cfg.icon
-  const band = riskBand(asset.risk_score)
+  const claim = asset.identity_claim
+  const claimMeta = identityClaimMeta(claim)
 
   return (
     <div className="card p-5">
@@ -62,34 +54,21 @@ function IdentityAssetCard({ asset }) {
             <p className="text-xs text-gray-400 capitalize mt-0.5">{cfg.label}</p>
           </div>
         </div>
-        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${band.cls}`}>
-          Risk {asset.risk_score}
+        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${toneClass(claimMeta.tone)}`}>
+          {claimMeta.label}
         </span>
       </div>
 
-      {asset.hostname && asset.asset_type === 'portal' && (
-        <div className="mb-3">
-          <a
-            href={`https://${asset.hostname}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-xs text-brand-600 hover:underline truncate"
-          >
-            <ExternalLink className="w-3 h-3 flex-shrink-0" />
-            {asset.hostname}
-          </a>
+      {asset.hostname && (
+        <div className="mb-3 text-xs text-gray-600 truncate">
+          Possible hostname: {asset.hostname}
         </div>
       )}
 
       <div className="flex flex-wrap gap-3 text-[11px] text-gray-400">
-        <span>
-          {asset.internet_exposed
-            ? <span className="text-orange-500 font-medium flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Internet-exposed</span>
-            : asset.internet_exposed === false
-              ? <span className="text-green-600 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Not public</span>
-              : <span className="text-gray-400 flex items-center gap-1">Exposure unknown</span>
-          }
-        </span>
+        <span>Reachability: <span className="font-medium text-gray-600">{claim?.reachability?.status?.replace(/_/g, ' ') || 'not evaluated'}</span></span>
+        <span>{confidenceDetailLabel(asset.confidence_detail)}</span>
+        {asset.name_resolution?.status && <span>Name resolution: <span className="font-medium text-gray-600">{asset.name_resolution.status.replace(/_/g, ' ')}</span></span>}
         {asset.source && <span>Source: <span className="capitalize font-medium text-gray-600">{asset.source.replace(/_/g, ' ')}</span></span>}
       </div>
 
@@ -157,7 +136,6 @@ export default function WorkspaceIdentityPage() {
     return true
   })
 
-  const highRisk = assets.filter(a => a.risk_score >= 15).length
   const providers = [...new Set(assets.filter(a => a.provider).map(a => a.provider))]
 
   return (
@@ -168,7 +146,7 @@ export default function WorkspaceIdentityPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Identity Assets</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            Authentication surfaces, SSO portals, VPN gateways, and identity providers — {wsName}
+            Provider relationships and possible identity-facing hostnames — {wsName}
           </p>
         </div>
         <button
@@ -188,16 +166,16 @@ export default function WorkspaceIdentityPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard icon={ShieldAlert} label="Total Identity Assets" value={assets.length} />
-        <StatCard icon={AlertTriangle} label="High Risk"   value={highRisk}    danger={highRisk > 0} />
-        <StatCard icon={Building2}    label="Providers"   value={providers.length} />
-        <StatCard icon={Wifi}         label="VPN Portals" value={assets.filter(a => a.identity_type === 'vpn').length} />
+        <StatCard icon={ShieldAlert} label="Identity Evidence" value={assets.length} />
+        <StatCard icon={Building2} label="Provider Relationships" value={summary?.provider_relationship_count ?? 0} />
+        <StatCard icon={Globe} label="Possible Hostnames" value={summary?.surface_candidate_count ?? 0} />
+        <StatCard icon={Wifi} label="Reachability Evaluated" value={summary?.reachability_evaluated_count ?? 0} />
       </div>
 
       {/* Provider chips */}
       {providers.length > 0 && (
         <div className="card p-4 mb-5">
-          <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-widest">Detected Identity Providers</p>
+          <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-widest">Observed or possible provider relationships</p>
           <div className="flex flex-wrap gap-2">
             {providers.map(p => (
               <button
@@ -257,19 +235,10 @@ export default function WorkspaceIdentityPage() {
         </div>
       )}
 
-      {/* Risk legend */}
+      {/* Evidence boundary */}
       <div className="mt-6 card p-4">
-        <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-widest">Risk Score Reference</p>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-gray-600">
-          <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />SSO / IdP portal: +20</div>
-          <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />VPN portal: +15</div>
-          <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />Admin login: +10</div>
-          <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />Login portal: +10</div>
-        </div>
-        <p className="text-[11px] text-gray-400 mt-3">
-          Identity assets with risk score ≥ 15 are elevated in the Business Risk Score attack surface category.
-          Detected identity providers automatically appear in Vendor Risk inventory.
-        </p>
+        <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-widest">Evidence boundary</p>
+        <p className="text-xs text-gray-500">Provider identification, hostname classification, name resolution and endpoint reachability are separate propositions. Current discovery does not perform an endpoint reachability check.</p>
       </div>
     </WsPage>
   )

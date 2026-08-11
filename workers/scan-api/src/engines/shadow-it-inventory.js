@@ -19,7 +19,7 @@ import { buildMonitoringTransitionDetail, isMonitoringTransition } from "./alert
 import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
 import { SAAS_EXPOSURE_CATALOGUE_URLS } from "./discovery-scan.js";
-import { IDENTITY_CANONICAL_SHADOW_QUERY } from "./identity-evidence-contract.js";
+import { IDENTITY_CANONICAL_SHADOW_QUERY, buildIdentityEvidenceProjection } from "./identity-evidence-contract.js";
 
 function newId(prefix) {
   const uuid = (globalThis.crypto?.randomUUID?.() || "").replace(/-/g, "");
@@ -170,7 +170,7 @@ async function gatherShadowItObservations(env, workspaceId, saasExposure, {
   const identityRead = await readSourceRows(env, "identity_assets", IDENTITY_CANONICAL_SHADOW_QUERY, workspaceId);
   sourceOutcomes.identity_assets = identityRead.outcome;
   for (const r of identityRead.rows) {
-    obs.push({ source_table: "identity_assets", source_record_id: r.id, source_type: "identity_provider", observed_identifier: r.provider, name: r.provider, category: "identity_provider", first_seen_at: r.first_seen, last_seen_at: r.last_seen, confidence: (r.risk_score || 0) >= 20 ? "high" : "medium", hostnames: r.hostname ? [r.hostname] : [] });
+    obs.push(projectIdentityProviderObservation(r));
   }
   // 4. email_sender_sources — email/ESP providers seen in DMARC reports.
   const senderRead = await readSourceRows(env, "email_sender_sources", `SELECT id, provider_guess, provider_confidence, header_from, first_seen, last_seen FROM email_sender_sources WHERE workspace_id = ? AND provider_guess IS NOT NULL AND provider_guess != ''`, workspaceId);
@@ -224,6 +224,31 @@ export function deriveOwnershipStatus(business_owner, technical_owner) {
 const CONFIDENCE_RANK = { high: 3, medium: 2, low: 1 };
 function strongerConfidence(a, b) {
   return (CONFIDENCE_RANK[a] || 0) >= (CONFIDENCE_RANK[b] || 0) ? (a || b || "low") : (b || "low");
+}
+export function strongerObservationConfidence(a, b) {
+  return strongerConfidence(a, b);
+}
+
+// XD-1: identification precision answers "how confidently did we identify the
+// provider?". It never inherits heuristic risk_score, reachability or criticality.
+export function projectIdentityProviderObservation(row = {}) {
+  const projection = buildIdentityEvidenceProjection(row);
+  const detail = projection.identity_claim?.provider_relationship?.confidence_detail ?? projection.confidence_detail;
+  return {
+    source_table: "identity_assets",
+    source_record_id: row.id,
+    source_type: "identity_provider",
+    observed_identifier: row.provider,
+    name: row.provider,
+    category: "identity_provider",
+    first_seen_at: row.first_seen,
+    last_seen_at: row.last_seen,
+    confidence: detail?.level && detail.level !== "unknown" ? detail.level : "low",
+    confidence_detail: detail,
+    identity_claim: projection.identity_claim,
+    evidence_status: projection.evidence_status,
+    hostnames: row.hostname ? [row.hostname] : [],
+  };
 }
 
 // ── Classification model ────────────────────────────────────────────────────
@@ -352,6 +377,9 @@ export async function correlateShadowItInventory(env, workspaceId, {
         source_table: o.source_table, source_record_id: o.source_record_id,
         source_type: o.source_type, observed_identifier: o.observed_identifier,
         first_seen_at: o.first_seen_at || null, last_seen_at: o.last_seen_at || null, confidence: o.confidence || "low",
+        confidence_detail: o.confidence_detail || null,
+        identity_claim: o.identity_claim || null,
+        evidence_status: o.evidence_status || null,
       });
     }
     const snapshot = {

@@ -12,6 +12,9 @@ import {
   IDENTITY_CANONICAL_SUMMARY_PROVIDER_QUERY,
   IDENTITY_CANONICAL_SUMMARY_HIGH_RISK_QUERY,
   buildCanonicalIdentityListQuery,
+  buildIdentityEvidenceProjection,
+  projectIdentityCustomerRow,
+  summarizeIdentityClaims,
 } from "../engines/identity-evidence-contract.js";
 
 export async function workspaceIntelRoutes(rctx) {
@@ -49,12 +52,13 @@ export async function workspaceIntelRoutes(rctx) {
       if (!access) return json({ error: "Forbidden" }, 403);
 
       const ws = await env.cybermeters_db
-        .prepare(`SELECT id, name FROM workspaces WHERE id = ?`).bind(wsId).first();
+        .prepare(`SELECT id, name FROM workspaces WHERE id = ? AND deleted_at IS NULL`).bind(wsId).first();
       if (!ws) return json({ error: "Workspace not found" }, 404);
 
       if (identitySummaryMatch) {
         try {
-          const [totalRow, typeRows, providerRows, highRiskRow] = await env.cybermeters_db.batch([
+          const claimsQuery = buildCanonicalIdentityListQuery({});
+          const [totalRow, typeRows, providerRows, highRiskRow, claimRows] = await env.cybermeters_db.batch([
             env.cybermeters_db
               .prepare(IDENTITY_CANONICAL_SUMMARY_TOTAL_QUERY)
               .bind(wsId),
@@ -67,13 +71,24 @@ export async function workspaceIntelRoutes(rctx) {
             env.cybermeters_db
               .prepare(IDENTITY_CANONICAL_SUMMARY_HIGH_RISK_QUERY)
               .bind(wsId),
+            env.cybermeters_db
+              .prepare(claimsQuery)
+              .bind(wsId, 10000),
           ]);
           const total = totalRow.results?.[0] ?? totalRow;
           const highRisk = highRiskRow.results?.[0] ?? highRiskRow;
+          const projections = (claimRows.results ?? []).map((row) => ({
+            ...row,
+            ...buildIdentityEvidenceProjection(row),
+          }));
           return json({
             workspace_id:       wsId,
             total:              total.n ?? 0,
             high_risk_count:    highRisk.n ?? 0,
+            provider_relationship_count: summarizeIdentityClaims(projections).provider_relationship_count,
+            surface_candidate_count: summarizeIdentityClaims(projections).surface_candidate_count,
+            reachability_evaluated_count: summarizeIdentityClaims(projections).reachability_evaluated_count,
+            reachable_surface_count: summarizeIdentityClaims(projections).reachable_surface_count,
             by_type:            Object.fromEntries((typeRows.results ?? []).map(r => [r.identity_type, r.n])),
             providers_detected: (providerRows.results ?? []).map(r => ({ provider: r.provider, count: r.n })),
             generated_at:       new Date().toISOString(),
@@ -98,7 +113,9 @@ export async function workspaceIntelRoutes(rctx) {
         params.push(200);
 
         const rows = await env.cybermeters_db.prepare(query).bind(...params).all();
-        const assets = (rows.results ?? []).map(r => ({
+        const assets = (rows.results ?? []).map(r => {
+          const projected = projectIdentityCustomerRow(r);
+          return ({
           id:               r.id,
           hostname:         r.hostname,
           asset_type:       r.asset_type,
@@ -108,15 +125,28 @@ export async function workspaceIntelRoutes(rctx) {
           source:           r.source,
           risk_score:       r.risk_score,
           evidence:         r.evidence ? (() => { try { return JSON.parse(r.evidence); } catch { return []; } })() : [],
+          evidence_status:  projected.evidence_status,
+          confidence_detail: projected.confidence_detail,
+          identity_claim:   projected.identity_claim,
+          name_resolution:  projected.name_resolution,
+          candidate_urls:   projected.candidate_urls,
+          measured_endpoints: projected.measured_endpoints,
           first_seen:       r.first_seen,
           last_seen:        r.last_seen,
-        }));
+        });
+        });
+
+        const claimCounts = summarizeIdentityClaims(assets);
 
         return json({
           workspace_id:    wsId,
           workspace_name:  ws.name,
           total:           assets.length,
           high_risk_count: assets.filter(a => a.risk_score >= 15).length,
+          provider_relationship_count: claimCounts.provider_relationship_count,
+          surface_candidate_count: claimCounts.surface_candidate_count,
+          reachability_evaluated_count: claimCounts.reachability_evaluated_count,
+          reachable_surface_count: claimCounts.reachable_surface_count,
           assets,
           generated_at:    new Date().toISOString(),
         });

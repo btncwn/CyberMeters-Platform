@@ -71,9 +71,9 @@ describe('identityExposureDisplay — canonical presentation of server-owned ide
     expect(isAwaitingVerification(null)).toBe(false)
   })
 
-  it('carries the honest external-scope note (public login not a vuln; no MFA/breach; recorded != verified)', () => {
-    expect(IDENTITY_SCOPE_NOTE).toMatch(/not automatically a vulnerability/i)
+  it('carries the honest external-scope note (candidate is not reachability; no MFA/breach; classification != verification)', () => {
+    expect(IDENTITY_SCOPE_NOTE).toMatch(/does not measure endpoint reachability/i)
     expect(IDENTITY_SCOPE_NOTE).toMatch(/leaked or breached credentials|dark-web/i)
-    expect(IDENTITY_SCOPE_NOTE).toMatch(/not verified until/i)
+    expect(IDENTITY_SCOPE_NOTE).toMatch(/classification is a decision, not a CyberMeters verification/i)
   })
 })

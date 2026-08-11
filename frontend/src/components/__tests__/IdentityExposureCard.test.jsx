@@ -25,7 +25,8 @@ describe('IdentityExposureCard', () => {
     expect(screen.getByText(/can be spoofed/i)).toBeInTheDocument()
     expect(screen.getByText('1 of 1 spoofable')).toBeInTheDocument()
     expect(screen.getByText('1 active lookalike')).toBeInTheDocument()
-    expect(screen.getByText('2 internet-facing')).toBeInTheDocument()
+    expect(screen.getByText('0 provider relationships · 0 possible hostnames')).toBeInTheDocument()
+    expect(screen.getByText('Endpoint reachability not evaluated')).toBeInTheDocument()
   })
 
 })

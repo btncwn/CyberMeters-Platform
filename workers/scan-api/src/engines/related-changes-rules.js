@@ -58,14 +58,14 @@ export const RELATED_CHANGE_RULES = Object.freeze([
   },
   {
     id: "new_host_with_identity",
-    title: "New host with a login or identity surface",
-    summary: "A new host appeared and a login or identity-provider surface was observed on the same registrable domain in the same period.",
+    title: "New host with a possible identity-facing hostname",
+    summary: "A new host and a possible identity-facing hostname were observed on the same registrable domain in the same period. This correlation does not establish endpoint reachability.",
     requires: [F.ASSET, F.IDENTITY],
   },
   {
     id: "identity_with_cert",
-    title: "Login or admin surface with a certificate signal",
-    summary: "A login or admin surface and a certificate signal were observed on the same registrable domain in the same period.",
+    title: "Possible identity-facing hostname with a certificate signal",
+    summary: "A possible identity-facing hostname and a certificate signal were observed on the same registrable domain in the same period. Neither observation establishes endpoint reachability.",
     requires: [F.IDENTITY, F.CERT],
   },
   {

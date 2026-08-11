@@ -662,6 +662,12 @@ jobs:
       - name: Validate Identity canonical substrate semantic mutations
         run: node scripts/mutate-identity-substrate-idempotence.js
 
+      - name: Validate Identity customer/action/risk/report truth projection and XD-1
+        run: node scripts/validate-identity-truth-projection.js
+
+      - name: Validate Identity truth-projection semantic mutations
+        run: node scripts/mutate-identity-truth-projection.js
+
       - name: Validate identity disappearance verification honesty mutations
         run: node scripts/validate-identity-disappearance-verification-mutations.js
 

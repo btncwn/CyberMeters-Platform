@@ -815,8 +815,8 @@ function sectionRemediation(w, snap) {
 // Wording is kept identical to frontend RULE_LABELS (relatedChangesDisplay.js).
 const RELATED_CHANGE_LABELS = {
   new_host_with_cert: "New host with a certificate signal",
-  new_host_with_identity: "New host with a login or identity surface",
-  identity_with_cert: "Login or admin surface with a certificate signal",
+  new_host_with_identity: "New host with a possible identity-facing hostname",
+  identity_with_cert: "Possible identity-facing hostname with a certificate signal",
   email_config_with_host_or_cert: "Email-authentication change with a new host or a certificate signal",
   new_sender_with_email_config: "New sending source with an email-authentication change",
   shadow_it_with_host_or_cert: "Unapproved technology with a new host or a certificate signal",

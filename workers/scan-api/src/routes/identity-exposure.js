@@ -18,6 +18,7 @@ import {
   IDENTITY_WORKFLOW_ACTIONS, IDENTITY_CLASSIFICATIONS, IDENTITY_OWNERSHIP_STATUSES,
 } from "../engines/identity-lifecycle.js";
 import { SURFACE_TYPES, RISK_STATUSES } from "../engines/identity-policy.js";
+import { identityAllowedActionsForClaim } from "../engines/identity-evidence-contract.js";
 import { parseBoundedInteger } from "../lib/util.js";
 
 export async function identityExposureRoutes(rctx) {
@@ -56,9 +57,12 @@ export async function identityExposureRoutes(rctx) {
         workspace_id: wsId, count: items.length, counts,
         classifications: IDENTITY_CLASSIFICATIONS, ownership_statuses: IDENTITY_OWNERSHIP_STATUSES,
         surface_types: SURFACE_TYPES, risk_statuses: RISK_STATUSES,
+        // Deprecated compatibility metadata. Authoritative eligibility is the
+        // per-item allowed_actions field and the same server helper below.
         actions: IDENTITY_WORKFLOW_ACTIONS,
+        actions_deprecated: true,
         items,
-        scope_note: "Externally observed identity/login surfaces only. A publicly visible identity entry point is not automatically a vulnerability. No leaked-credential, breached-password, dark-web, MFA, Conditional Access or internal-policy visibility.",
+        scope_note: "Current evidence identifies provider relationships and possible identity-facing hostnames. Endpoint reachability is not evaluated. No leaked-credential, breached-password, dark-web, MFA, Conditional Access or internal-policy visibility.",
       });
     } catch { return json({ error: "Database error" }, 500); }
   }
@@ -86,6 +90,8 @@ export async function identityExposureRoutes(rctx) {
     try { body = await request.json(); } catch { body = {}; }
     const act = action === "verify" ? "request_verification" : String(body.action || "");
     if (!IDENTITY_WORKFLOW_ACTIONS.includes(act)) return json({ error: "invalid_action", allowed: IDENTITY_WORKFLOW_ACTIONS }, 400);
+    const allowedActions = identityAllowedActionsForClaim(rec.identity_claim);
+    if (!allowedActions.includes(act)) return json({ error: "action_not_allowed", allowed: allowedActions }, 422);
     const result = await identityExposureAction(env, wsId, recId, act, {
       actor_id: user.id,
       owner: body.owner ?? null,

@@ -106,7 +106,7 @@ describe('RelatedChangesList', () => {
     renderList()
 
     expect(await screen.findByText('New host with a certificate signal')).toBeInTheDocument()
-    expect(screen.getByText('Login or admin surface with a certificate signal')).toBeInTheDocument()
+    expect(screen.getByText('Possible identity-facing hostname with a certificate signal')).toBeInTheDocument()
     // Family count wording (explanation first, number second).
     expect(screen.getByText(/2 independent signal families/)).toBeInTheDocument()
     // Backend-owned customer_state badge, rendered verbatim (no derived verdict).
@@ -124,7 +124,7 @@ describe('RelatedChangesList', () => {
     renderList()
     const titles = await screen.findAllByText(/certificate/i)
     // rc2 (last_seen 2026-07-18) must render before rc1 (2026-07-12).
-    expect(titles[0].textContent).toContain('Login or admin surface')
+    expect(titles[0].textContent).toContain('Possible identity-facing hostname')
   })
 
   it('empty state (c): assessed with no related changes', async () => {

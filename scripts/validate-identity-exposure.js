@@ -59,15 +59,16 @@ const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
 const get = async (p, token) => { const res = await worker.default.fetch(new Request(`https://app.cybermeters.com${p}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }), env, ctx); let body = {}; try { body = await res.json(); } catch { /* */ } return { status: res.status, body }; };
 
 // ── 1. Unit: deriveLevel ─────────────────────────────────────────────────────
-ok("clean → Low", deriveLevel({ internet_facing: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 }).identity_exposure_level === "Low");
-ok("exposed login only → Medium", deriveLevel({ internet_facing: 1 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 }).identity_exposure_level === "Medium");
+ok("no reachability producer → Not Assessed", deriveLevel({ internet_facing: 0, reachability_evaluated_count: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 }).identity_exposure_level === "Not Assessed");
+ok("measured reachable identity surface → Medium", deriveLevel({ internet_facing: 1, reachable_surface_count: 1, reachability_evaluated_count: 1 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 }).identity_exposure_level === "Medium");
+ok("deprecated internet_facing primitive cannot manufacture reachability", deriveLevel({ internet_facing: 1, reachable_surface_count: 0, reachability_evaluated_count: 0 }, { active: 0, total: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 0 }).identity_exposure_level === "Not Assessed");
 ok("spoofable domain → High", deriveLevel({ internet_facing: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 1, checked_domains: 1 }).identity_exposure_level === "High");
 ok("mail-capable lookalike → High", deriveLevel({ internet_facing: 0 }, { active: 1, can_send_mail: 1, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 0 }).identity_exposure_level === "High");
 // A2: a reassuring "clean" verdict is honest ONLY when evidence was actually
 // assessed (checked_domains>0). With nothing assessed it must read Not Assessed.
-ok("assessed zero-exposure → Low + reassuring clean summary", (() => {
-  const r = deriveLevel({ internet_facing: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 });
-  return r.identity_exposure_level === "Low" && /clean/i.test(r.summary);
+ok("assessed non-identity evidence cannot imply identity reachability health", (() => {
+  const r = deriveLevel({ internet_facing: 0, reachability_evaluated_count: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 });
+  return r.identity_exposure_level === "Not Assessed" && !/clean/i.test(r.summary);
 })());
 ok("A2: nothing assessed → Not Assessed, never a clean Low", (() => {
   const r = deriveLevel({ internet_facing: 0, count: 0 }, { active: 0, total: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 0 });
@@ -78,7 +79,11 @@ ok("A2: nothing assessed → Not Assessed, never a clean Low", (() => {
 const resp = await get("/api/workspaces/ws_a/identity-exposure", TOKEN);
 ok("identity-exposure authorised (200)", resp.status === 200);
 const sig = resp.body.signals || {};
-ok("exposed login surfaces counted (2 internet-facing)", sig.exposed_login_surfaces?.internet_facing === 2);
+ok("identity candidates remain distinct from measured reachability",
+  sig.exposed_login_surfaces?.surface_candidate_count === 2 &&
+  sig.exposed_login_surfaces?.reachability_evaluated_count === 0 &&
+  sig.exposed_login_surfaces?.reachable_surface_count === 0 &&
+  sig.exposed_login_surfaces?.internet_facing === 0);
 ok("active impersonation infra counted (1, mail-capable)", sig.impersonation_infrastructure?.active === 1 && sig.impersonation_infrastructure?.can_send_mail === 1);
 ok("email spoofing detected from R2 report (1 spoofable)", sig.email_spoofing?.spoofable_domains === 1);
 ok("overall level is High (spoofable + mail lookalike)", resp.body.identity_exposure_level === "High");
