@@ -241,8 +241,8 @@
         "scope_paths": [
           "frontend"
         ],
-        "scope_sha256": "b658799c20d897e6be7a278ce51d2cbb1677d71783a1be0adc7fce3b1b137736",
-        "scope_file_count": 232,
+        "scope_sha256": "b0bccbd1cc77b7402b230c3e3cd0abc6d0265b3d540516eb3bbbc9db968445bb",
+        "scope_file_count": 233,
         "source_graph_review": "Reviewed package script, Vite/Vitest config and frontend source/test discovery; generated coverage, dist and node_modules are excluded from the proof fingerprint.",
         "negative_without_docs": "PASS: exact command exit 0 with 63/63 files and 521/521 tests in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
         "positive_workflow_baseline": "run 30699425358: 80s, success"
@@ -252,6 +252,7 @@
   "always_run": [
     "Secret scan (tracked files)",
     "Classify CI change scope (fail closed)",
+    "Validate dependency install-script governance (deny-by-default / exact allowlist / must-fail controls)",
     "Validate safe docs-only CI classifier and conditional-step governance",
     "Full-repo assurance — entry-point inventory (drift + auth-coverage gate)",
     "Full-repo assurance — tenant-isolation invariant matrix (table classification + harness cross-ref)",

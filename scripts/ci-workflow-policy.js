@@ -12,8 +12,8 @@ const { parseDocument, isMap, isSeq } = workerRequire("yaml");
 
 export const CANONICAL_SKIP_CONDITION = "${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}";
 export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d55297df4fd3f90a2f57548697efcf062";
-export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 319;
-export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "2f9224059b775f5543e80f1d44696dcf836a9a0b5ad23ae83ef27b7dbc1c9842";
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 320;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "7ba35906f32e017094448584dfcc4b2d46ac1c7e0b29ceea6b68027552b97298";
 
 export const EXPECTED_SKIP_IDS = Object.freeze([
   "frontend-test-coverage",
@@ -28,6 +28,7 @@ export const EXPECTED_SKIP_IDS = Object.freeze([
 export const REQUIRED_ALWAYS_RUN = Object.freeze([
   "Classify CI change scope (fail closed)",
   "Secret scan (tracked files)",
+  "Validate dependency install-script governance (deny-by-default / exact allowlist / must-fail controls)",
   "Validate safe docs-only CI classifier and conditional-step governance",
   "Full-repo assurance — entry-point inventory (drift + auth-coverage gate)",
   "Full-repo assurance — tenant-isolation invariant matrix (table classification + harness cross-ref)",

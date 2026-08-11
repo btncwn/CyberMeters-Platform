@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "policy_id": "H-04-INSTALL-SCRIPT-GOVERNANCE-v1",
+  "default_action": "deny",
+  "npmrc_paths": [
+    ".npmrc",
+    "frontend/.npmrc",
+    "workers/email-ingest/.npmrc",
+    "workers/scan-api/.npmrc"
+  ],
+  "expected_package_root_count": 3,
+  "expected_lock_install_marker_count": 6,
+  "expected_approved_script_count": 3,
+  "package_roots": [
+    {
+      "root": "frontend",
+      "package_name": "cybermeters-frontend",
+      "package_version": "1.0.0",
+      "package_json_sha256": "2f719ff7b4a7624178c9f595bfb79cf0760d5218631894b7f61d50ef5454db20",
+      "lockfile_version": 3,
+      "lockfile_sha256": "32e7f4d1b65eb5c442375b8de3715f133f253ca49feea980b391da56eaf54cd0",
+      "install_script_markers": [
+        {
+          "package_path": "node_modules/esbuild",
+          "package_name": "esbuild",
+          "version": "0.25.12",
+          "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.25.12.tgz",
+          "integrity": "sha512-bbPBYYrtZbkt6Os6FiTLCTFxvq4tt3JKall1vRwshA3fdVztsLAatFaZobhkBC8/BrPetoa0oksYoKXoG4ryJg==",
+          "disposition": "approved",
+          "package_json_sha256": "cb7d5b1fe478f8cbaae566a86031b6fdf5f7d444354f35d1cb3cba9adf6d2935",
+          "lifecycle_event": "postinstall",
+          "lifecycle_command": "node install.js",
+          "script_path": "install.js",
+          "script_sha256": "10f6fa3644d8d23d066ff67b0ae449074e75884503546a9fedb667f1dcb9ade2",
+          "platform_binary_subpath": "bin/esbuild",
+          "probe_path": "bin/esbuild",
+          "probe_args": ["--version"],
+          "probe_stdout": "0.25.12"
+        },
+        {
+          "package_path": "node_modules/fsevents",
+          "package_name": "fsevents",
+          "version": "2.3.3",
+          "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz",
+          "integrity": "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==",
+          "disposition": "deny_no_install_lifecycle",
+          "package_json_sha256": "500839fcc76f6c5efcb454e6614b23c26775e75e1140619fff9ca64c291aec2b"
+        },
+        {
+          "package_path": "node_modules/playwright/node_modules/fsevents",
+          "package_name": "fsevents",
+          "version": "2.3.2",
+          "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.2.tgz",
+          "integrity": "sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==",
+          "disposition": "deny_no_install_lifecycle",
+          "package_json_sha256": "80914b12dba592ca926d9e6aae0bf6fdc35d871f756a9b34804b98944fac4506"
+        }
+      ]
+    },
+    {
+      "root": "workers/email-ingest",
+      "package_name": "cybermeters-email-ingest",
+      "package_version": "0.1.0",
+      "package_json_sha256": "b7957a3b81c43af60e1657acf360c419cc4ab006190b9ce64d9aa7bdc82c4141",
+      "lockfile_version": 3,
+      "lockfile_sha256": "2f4b21e0500f752db1307f708b609da21bb7c2e63a82ee79bb6008b221ec938f",
+      "install_script_markers": []
+    },
+    {
+      "root": "workers/scan-api",
+      "package_name": "cybermeters-scan-api",
+      "package_version": "0.1.0",
+      "package_json_sha256": "aa06204fcaf8a6896b117652f70ad69a6671b2f4167787aca1a3d0c721835dba",
+      "lockfile_version": 3,
+      "lockfile_sha256": "82302bf06b42b056874b4d89f0efb53b630742b6fae8a3f528859ae253c2feb7",
+      "install_script_markers": [
+        {
+          "package_path": "node_modules/esbuild",
+          "package_name": "esbuild",
+          "version": "0.28.1",
+          "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.1.tgz",
+          "integrity": "sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==",
+          "disposition": "approved",
+          "package_json_sha256": "d55d1d19fcc5b6079e4a71dd4111340c79c682bc36835ac7058a0c364c7db58a",
+          "lifecycle_event": "postinstall",
+          "lifecycle_command": "node install.js",
+          "script_path": "install.js",
+          "script_sha256": "612294e278914443bdcf81cb17f54afec34dbdd2ebd999a6ee187912320cc315",
+          "platform_binary_subpath": "bin/esbuild",
+          "probe_path": "bin/esbuild",
+          "probe_args": ["--version"],
+          "probe_stdout": "0.28.1"
+        },
+        {
+          "package_path": "node_modules/fsevents",
+          "package_name": "fsevents",
+          "version": "2.3.3",
+          "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz",
+          "integrity": "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==",
+          "disposition": "deny_no_install_lifecycle",
+          "package_json_sha256": "500839fcc76f6c5efcb454e6614b23c26775e75e1140619fff9ca64c291aec2b"
+        },
+        {
+          "package_path": "node_modules/workerd",
+          "package_name": "workerd",
+          "version": "1.20260708.1",
+          "resolved": "https://registry.npmjs.org/workerd/-/workerd-1.20260708.1.tgz",
+          "integrity": "sha512-WAK+Kt/VVCSldH2qSr8lx46XCJ4Q+bdlHNaFqUtOHthBEIB8C1N8HVW+VOLrxDoTCk0NGNv0zajnBeQK4JOB9w==",
+          "disposition": "approved",
+          "package_json_sha256": "9523fabf0fdcb343aacc23b03ce5ffecc03f2ad43d7e18f15d0ed63a15b3d1cc",
+          "lifecycle_event": "postinstall",
+          "lifecycle_command": "node install.js",
+          "script_path": "install.js",
+          "script_sha256": "74d0a63560964afc043d39f3fc9b97efb0c92ef813999b7a686d8973104cced0",
+          "platform_binary_subpath": "bin/workerd",
+          "probe_path": "bin/workerd",
+          "probe_args": ["--version"],
+          "probe_stdout": "workerd 2026-07-08"
+        }
+      ]
+    }
+  ],
+  "workflow_install_invocations": [
+    {
+      "file": ".github/workflows/ci.yml",
+      "step_name": "Install worker dependencies (governed lifecycle scripts)",
+      "root": "workers/scan-api",
+      "command": "node scripts/install-governed-dependencies.js --root workers/scan-api"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "step_name": "Install frontend dependencies (governed lifecycle scripts)",
+      "root": "frontend",
+      "command": "node scripts/install-governed-dependencies.js --root frontend"
+    },
+    {
+      "file": ".github/workflows/frontend-e2e.yml",
+      "step_name": "Install frontend dependencies (governed lifecycle scripts)",
+      "root": "frontend",
+      "command": "node scripts/install-governed-dependencies.js --root frontend"
+    }
+  ],
+  "installer": {
+    "entrypoint_file": "scripts/install-governed-dependencies.js",
+    "entrypoint_sha256": "2c8b748e71fcf1530b7f570a25891bd573e2a364c4aeea5d70883152e5beee28",
+    "implementation_file": "scripts/security/install-script-governance.js",
+    "implementation_sha256": "50e0a4de37a933f2c0d142abd97a371f7a7e4bc28ca7d15aa4e5f1f43290bf31",
+    "npm_subcommand": "ci",
+    "npm_args": ["ci", "--ignore-scripts", "--no-audit", "--no-fund"]
+  }
+}
