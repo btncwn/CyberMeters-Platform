@@ -7,7 +7,8 @@
 // workers/email-ingest/ changed. This validator recursively fingerprints the
 // entry point's effective relative-import closure and requires:
 //   • a committed manifest matching that exact closure;
-//   • an APP_VERSION suffix derived from the closure hash;
+//   • coordinated scan-api/email APP_VERSION values whose suffix is exactly
+//     the first 12 hexadecimal characters of the closure hash (not a Git SHA);
 //   • the exact lockfile-pinned Wrangler binary for email deploy/dry-run; and
 //   • CI coverage for the trace validator and standalone Worker dry-run.
 //
@@ -94,21 +95,29 @@ function readJson(relative) {
   return JSON.parse(fs.readFileSync(repoPath(relative), "utf8"));
 }
 
-function readEmailAppVersion() {
-  const config = fs.readFileSync(repoPath("workers/email-ingest/wrangler.toml"), "utf8");
+function readAppVersion(relative, label) {
+  const config = fs.readFileSync(repoPath(relative), "utf8");
   const match = config.match(/^APP_VERSION\s*=\s*"([^"]+)"\s*$/m);
-  if (!match) throw new Error("email APP_VERSION is missing");
+  if (!match) throw new Error(`${label} APP_VERSION is missing`);
   return match[1];
 }
 
 const closure = collectClosure(entryRelative);
 const digest = closureDigest(closure);
+const emailAppVersion = readAppVersion(
+  "workers/email-ingest/wrangler.toml",
+  "email-ingest",
+);
+const scanApiAppVersion = readAppVersion(
+  "workers/scan-api/wrangler.toml",
+  "scan-api",
+);
 const scanApiFiles = closure.filter((relative) =>
   relative.startsWith("workers/scan-api/"));
 const computed = {
   schema: "cybermeters.email-worker-deploy-manifest/v1",
   entrypoint: entryRelative,
-  app_version: readEmailAppVersion(),
+  app_version: emailAppVersion,
   closure_sha256: digest,
   closure_file_count: closure.length,
   scan_api_file_count: scanApiFiles.length,
@@ -148,8 +157,13 @@ ok("effective relative-import closure content hash is pinned",
   manifest.closure_sha256 === computed.closure_sha256);
 ok("email APP_VERSION matches the manifest",
   manifest.app_version === computed.app_version);
-ok("email APP_VERSION is closure-derived",
-  computed.app_version.endsWith(`.${computed.closure_sha256.slice(0, 12)}`));
+ok("scan-api and email APP_VERSION identities are coordinated",
+  scanApiAppVersion === emailAppVersion);
+const expectedClosureSuffix = computed.closure_sha256.slice(0, 12);
+const appVersionSuffix = computed.app_version.split(".").at(-1);
+ok("APP_VERSION suffix is exactly the closure-digest prefix, not a Git identity",
+  /^[0-9a-f]{12}$/.test(appVersionSuffix || "") &&
+  appVersionSuffix === expectedClosureSuffix);
 ok("manifest records the founder-gated email deployment requirement",
   manifest.deployment_required === true &&
   manifest.deployment_status === "pending_founder_approval");

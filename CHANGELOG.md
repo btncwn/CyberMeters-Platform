@@ -1,11 +1,179 @@
 # Changelog
 
-Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
-`workers/scan-api/wrangler.toml` tracks the human version; each production
-release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
-`GET /health`.
+Internal release notes for CyberMeters. Newest first. The coordinated
+`APP_VERSION` values are source/deployment traceability stamps: their final
+12-hex suffix is the prefix of the effective email-worker closure SHA-256. The
+suffix is not a Git commit. Production releases are git-tagged
+`vYYYY.MM.DD-n`; Worker Version IDs are recorded from the future deployment and
+surfaced at `GET /health`.
+
+## Release candidate — proposed `v2026.08.11-1` — pre-Item11 final-main governance — **NOT TAGGED; NOT DEPLOYED; NOT ACCEPTED**
+
+**Status:** RELEASE CANDIDATE. The audited runtime/source baseline is complete
+through `2287212c31f418f7188cb4bc9e027f19dc6fccb6`. The governance package's
+source identity is the Git commit containing this record and, after normal
+merge, its merge commit as recorded by GitHub; a commit cannot embed its own
+future SHA. The proposed tag must target that governance merge, not the parent
+and not an `APP_VERSION` suffix. No tag, deployment, migration application,
+production proof or acceptance occurred in this corrective.
+
+### Source, deployment and migration boundaries
+
+- **Release-candidate source boundary:** latest tag `v2026.08.03-2` targets
+  `5f72fe40602d1faf45d229dcec4151dd9d890e6e`; audited current-main parent is
+  `2287212c31f418f7188cb4bc9e027f19dc6fccb6`. GitHub's compare API reports 51
+  commits after the tag. The exact first-parent chain below contains 22 merged
+  PRs; the exact tree delta is 243 paths, 26,954 insertions and 1,785 deletions.
+- **Merged is not deployed:** every change after `v2026.08.03-2` through #404
+  is merged source only. None is recorded by this release candidate as
+  deployed, live-accepted or production-accepted.
+- **Migration state:** source contains migrations through
+  `107-finding-canonical-identity.sql`; the latest recorded production-applied
+  migration remains `098-related-changes.sql`. The post-tag delta introduced
+  `106-scheduled-asset-change-projection.sql` (SHA-256
+  `1bb5157157bed645c6a3f327c3f47af1b02c54950423f4406dfa4c2fe7766e81`,
+  #390) and `107-finding-canonical-identity.sql` (SHA-256
+  `48b929eb87bde88066b8461ff51e005ce2c6ec470ef5ca4454ca63f974b45c82`,
+  #399). Neither is recorded as applied. A migration file, schema convergence
+  test or merged PR is not production-application evidence.
+- **Current APP_VERSION contract:** scan-api and email-ingest both read
+  `2026.08.11-brand-h01-soft-delete.dfa1140a1ba4`. The effective email-worker
+  closure is 90 files, including 88 scan-api files, with SHA-256
+  `dfa1140a1ba47f0c2935f684eecb9f408e1e296f1cf53d1f0a2e9f290322019e`.
+  The suffix `dfa1140a1ba4` is exactly that digest's first 12 characters; it is
+  not commit `dfa1140a1ba4`. This governance delta changes no closure member,
+  so no APP_VERSION or deploy-manifest bump is required.
+
+### Complete GitHub merge ledger after `v2026.08.03-2`
+
+The order is the exact first-parent order. Each merge commit's first parent is
+the preceding main boundary; its second parent is the GitHub PR head. This
+records every merge through the required parent, including #387, #391 and
+#393–#404.
+
+| PR | Change | Merge commit | First parent | PR head / second parent |
+| ---: | --- | --- | --- | --- |
+| #383 | dependency advisory and override governance | `3512176f35f5c1df44105121122392bb899631ab` | `5f72fe40602d1faf45d229dcec4151dd9d890e6e` | `cdd469a883b8d5832101fc386cc879ada6fb04e6` |
+| #382 | defer CT asset lifecycle during degraded discovery | `2caf8883f57b1ab0a92747fb9b8e9d6a1115cc65` | `3512176f35f5c1df44105121122392bb899631ab` | `5d0c2ed55b0c3ef5aebda7bdf166d230ff8a39f5` |
+| #385 | preserve CVE evidence honesty under incomplete coverage | `6699f88c396bdc6a5925d2c68f4f939b15091f25` | `2caf8883f57b1ab0a92747fb9b8e9d6a1115cc65` | `e2bc7ba1af250908f6270b6ee33d2a32e5759560` |
+| #386 | CT first-success release without completeness overclaim | `4c744a0ef4579d6407bf3b85d4b61197a05e9643` | `6699f88c396bdc6a5925d2c68f4f939b15091f25` | `e31a40bb19bc99e2b022eb22709fde04cd3dadce` |
+| #388 | stop presenting observed attack-surface absence as removal | `bbd37b7705cfedcbf3cc4ea795ea5e141fa847d0` | `4c744a0ef4579d6407bf3b85d4b61197a05e9643` | `8fddd7af753b494327e8148cf1fb706e8201736e` |
+| #389 | update transitive nanoid past high advisories | `0dcfd2d5120ea30cb6899974e63fd88c1120b7e2` | `bbd37b7705cfedcbf3cc4ea795ea5e141fa847d0` | `3f6695069a2ee1106d7510f8fe6b61f8b2b88476` |
+| #390 | attack-surface lifecycle projection without history rewrite; migration 106 | `757b447fd8d483c179fec41d2af324642f18ce84` | `0dcfd2d5120ea30cb6899974e63fd88c1120b7e2` | `b63b477eae871317df3884d34d6f063af3750a4a` |
+| #392 | Website Security canonical cookie ownership | `c9ce4867aa9830da58817c5a09c986919d051bd6` | `757b447fd8d483c179fec41d2af324642f18ce84` | `733369f7f652c3bd775365b5165530b1a72b4c2a` |
+| #387 | frontend PostCSS 8.5.18 → 8.5.26 | `49451aad59af5cf0309d2ce5f63c2ee6b7c35149` | `c9ce4867aa9830da58817c5a09c986919d051bd6` | `7cb30d9267f2a89c301ec1bddad68d9490a4db40` |
+| #391 | rate-limit harness-integrity corrective | `d3315259d1d8d6da273e728906c74bebe8e3c7f3` | `49451aad59af5cf0309d2ce5f63c2ee6b7c35149` | `e520d754e3e8ac69eef04f3e42e9d9bd96d9bfea` |
+| #393 | bounded attack-surface discovery coverage honesty | `6076d0836b8239129e780f3692790a2925b77e01` | `d3315259d1d8d6da273e728906c74bebe8e3c7f3` | `e7e0fd63153764f733767a6075770ae06105b228` |
+| #394 | preserve shared-SAN evidence honesty | `9b4745706786cfed7dbc0fb61f9d01c5b818935c` | `6076d0836b8239129e780f3692790a2925b77e01` | `00e151fbce32c772e8cd82e45e9f08c0fb054fac` |
+| #395 | separate informational certificate observations | `b81decb4aa4531767e569855f44e2c00c67b81a6` | `9b4745706786cfed7dbc0fb61f9d01c5b818935c` | `92c380bbcdbd5e082986128d389a7b5fb003b5af` |
+| #396 | atomic login account rate limiting | `94f4a50559c03830ef505964849cfc9b9b3ebe79` | `b81decb4aa4531767e569855f44e2c00c67b81a6` | `7031e563e9873d94769d43aa3f5b916760440813` |
+| #397 | correct stale Cyber Essentials readiness declarations | `9f16cb0619706e482ef037cccfc7f025710f7464` | `94f4a50559c03830ef505964849cfc9b9b3ebe79` | `aeb430db84e0cc390108441546c6677ceb85611e` |
+| #398 | atomic Shadow IT catalogue correction and audit event | `ea258ec369ac93cdec5ac2e14292c57d92a89478` | `9f16cb0619706e482ef037cccfc7f025710f7464` | `18a39fd29aa236acb5a897826b679fb979af82f3` |
+| #399 | TLS unavailable-evidence and canonical finding identity; migration 107 | `ba1c0dbdda61458fb610cce348da64f9c9dcf3ae` | `ea258ec369ac93cdec5ac2e14292c57d92a89478` | `f09501283e7640d08a8274e9f0a6173f714a2b78` |
+| #400 | preserve identity-provider evidence precision | `07a9d3f77ba83d492dd932092795ad63ff0eb2d5` | `ba1c0dbdda61458fb610cce348da64f9c9dcf3ae` | `2aed3d9c71ba5e85b3c9af27a73d205399024c39` |
+| #401 | canonicalise managed identity evidence | `8c6a1bf5677a10f768b592907dd11060678f4d80` | `07a9d3f77ba83d492dd932092795ad63ff0eb2d5` | `854fa2bb1f9e24f93d32cac710347d5b8a4a82cf` |
+| #402 | project identity evidence honestly across customer surfaces | `0e5c51cad1ba929269d0b12c928592cba79cd78f` | `8c6a1bf5677a10f768b592907dd11060678f4d80` | `194f8c0c27527545775ee0c31842e552faae4280` |
+| #403 | block Brand persistence into soft-deleted workspaces | `fffde3fc4e4f39931987150ca46668c950693b19` | `0e5c51cad1ba929269d0b12c928592cba79cd78f` | `b2d648c7686c8e2656c018778f9085fac5b3bf27` |
+| #404 | govern dependency install scripts | `2287212c31f418f7188cb4bc9e027f19dc6fccb6` | `fffde3fc4e4f39931987150ca46668c950693b19` | `eb76eaf198deff868915ef076a00274d5e81d5de` |
+
+### Future release, rollback and acceptance record
+
+- **Proposed tag:** `v2026.08.11-1`, derived from the latest API-visible tag
+  (`v2026.08.03-2`) and the candidate date. It is not created or pushed by this
+  corrective. After merge it must target the governance merge commit exactly.
+- **Source rollback:** revert the single governance merge to parent
+  `2287212c31f418f7188cb4bc9e027f19dc6fccb6`. The per-PR first-parent column is
+  the exact source rollback boundary for each post-tag merge. Do not rewrite
+  history.
+- **Future Worker cutover:** both scan-api and email-ingest have coordinated
+  closure identities. Before any future deploy, record each Worker's current
+  100% Version ID as its rollback boundary; after deploy, record each new
+  Version ID. Those four IDs are currently **UNKNOWN / NOT CREATED** and must
+  not be filled from Git SHAs, APP_VERSION or old releases.
+- **Future migration handling:** no database rollback exists in this
+  corrective. If migrations are separately authorised later, apply the pending
+  sequence through the governed migration process and preserve additive schema
+  and append-only history on runtime rollback.
+- **Acceptance:** pending. CI, a deployment health probe, a `401`, or source
+  merge cannot independently establish customer workflow acceptance.
+
+### Open PR #381 disposition
+
+GitHub API inspection shows #381 is open, non-draft, one commit
+(`aaad28785976e48ca69c6df377a2460dcd18451c`), changes only `CHANGELOG.md`, and
+records the missing `v2026.08.03-2` deployment evidence below. At this parent it
+is **NOT YET FULLY SUPERSEDED**, because main lacks that release record. This
+governance PR absorbs the complete evidence without merging #381. After this
+governance PR lands, verify the merged record still contains every #381 fact,
+then close #381 **unmerged** as superseded with a link to the governance merge.
+Do not delete its branch or evidence as part of that closure.
+
+## v2026.08.03-2 — CT-R2 PR-2A.2 shared-SAN measurement and ownership honesty — deployed 2026-08-03; **PENDING FOUNDER PRODUCTION ACCEPTANCE**
+
+> Recovered from open PR #381 by GitHub API. This records its deployment-time
+> evidence; this corrective performed no current production access or re-proof.
+
+**Status:** DEPLOYED — merge identity and operational cutover proof passed;
+founder-controlled two-leg behavioural acceptance remains outstanding.
+Deployment is not acceptance.
+
+PR **#380** removes the fabricated shared-SAN zero that was emitted whenever
+Certificate Transparency evidence came only from CertSpotter. Unmeasured
+`cert_shared_san_count` now remains `null`; certificate ownership fails closed
+to `unknown` / `not_assessed`, with `customer_owned` and `confidence` both
+`null`. A real crt.sh measurement — including a measured zero — retains the
+existing legitimate ownership and confidence derivation. The customer message
+is British English: “Certificate ownership was not assessed because shared
+certificate hostnames were not measured.”
+
+- **Release identity:** merge
+  `5f72fe40602d1faf45d229dcec4151dd9d890e6e` (PR **#380**; reviewed exact
+  head `65680244d36c4ac064fffb8c54a29b35788cfce3`). Annotated tag
+  `v2026.08.03-2` targets the deployed merge SHA exactly. GitHub checks passed:
+  `validate` (15m51s), SAST and Cloudflare Pages. The exact implementation
+  head also passed 39/39 deterministic contracts, 2/2 semantic mutants plus
+  3/3 invalid-kill controls, the full 289-command CI-equivalent local gate,
+  and the mechanically re-derived provider-source inventory pin (10 → 13
+  sites; fingerprint
+  `089c50714df30c59df8b56de18f81cefab1e2cf299d6894a72ebd207a9ea9b83`).
+- **Schema and data:** no migration and no backfill. Historical immutable
+  reports retain their historical values. Rollback is the Worker rollback or
+  a revert of the single implementation commit; no database rollback exists
+  or is required.
+- **Deployment scope:** scan-api only. The changed `ssl-scan.js` and
+  `cert-intel.js` modules are absent from the email-ingest closure, so no
+  linked email-ingest deploy was performed.
+- **scan-api (`cybermeters-platform`):** live Worker Version ID
+  `feb359f0-2308-48e5-9ead-ecc5819f7274`; immediate rollback Version ID
+  `2b8b6aa6-2eed-44ea-bfae-9da7e545df6f`. Cloudflare recorded the new version
+  at 100%. Cache-busted `/health` probes on `api.cybermeters.com` and the
+  workers.dev hostname returned the new Version ID after propagation;
+  `/ready` returned HTTP 200 and an anonymous workspace request remained HTTP
+  401. The first workers.dev propagation probe returned the rollback version;
+  the following cache-busted probe returned the new version. No rollback
+  trigger was observed.
+- **Acceptance boundary:** production acceptance requires two founder-run
+  scans. On a CertSpotter-only run, shared-SAN and ownership must surface as
+  unknown/not assessed, with no fabricated zero and no 70/90 confidence. On a
+  crt.sh-successful run, the measured numeric count and legitimate measured
+  ownership/confidence semantics must remain intact. This release remains
+  **PENDING FOUNDER PRODUCTION ACCEPTANCE** until both legs are reviewed.
+- **Residuals:** output shape is intentionally asymmetric: the unknown branch
+  carries `assessment_state` and `customer_message`, while measured branches
+  preserve their historical shape. `wildcard_san_count` still uses numeric
+  coercion; it is currently measurable through both CT sources, but a future
+  crt.sh-only path would need a separate unknown-state review. Neither item
+  blocks this release.
 
 ## v2026.08.03-1 — CT-R2 PR-2A.1 shared CT consumer isolation and platform-deadline provenance — deployed 2026-08-03; **LIVE-ACCEPTED**
+
+> **Current migration-state corrective (11 August 2026):** the authoritative
+> current boundary for this release candidate is migration 098. The section
+> below preserves the deployment evidence recorded on 3 August, including its
+> then-reported migration-105 application, as historical evidence only. It is
+> not authority for current D1 state. This corrective performed no production
+> query; migrations 099–107 remain pending until a separately authorised
+> production reconciliation proves otherwise.
 
 **Status:** LIVE-ACCEPTED — founder production acceptance PASS, 2026-08-03.
 Operational cutover proof and post-deploy behavioural evidence both passed.
@@ -24,7 +192,8 @@ both bundle the changed shared scan-budget code.
   head `f44dbb3da05c5d142f8db52e6053acc36326f1f2`). Annotated tag
   `v2026.08.03-1` targets the deployed merge SHA exactly. Exact-head GitHub
   checks passed: `validate` (20m58s), Playwright, SAST and Cloudflare Pages.
-- **Migration 105:** canonical file
+- **Migration 105 — historical release report, not current-state authority:**
+  the 3 August record reported that canonical file
   `105-ct-platform-deadline-provenance.sql`, SHA-256
   `f3a95b2ec0af4246b09a88c7d4e4e1326cbd0892d01614a45c2df26569632d0d`,
   applied once to production D1 by the governed atomic

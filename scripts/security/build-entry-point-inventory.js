@@ -57,7 +57,7 @@ export function buildSignature() {
   };
 }
 
-function renderMarkdown(sig, all) {
+export function renderMarkdown(sig, all) {
   const L = [];
   L.push("# CyberMeters — Canonical Entry-Point Inventory");
   L.push("");
