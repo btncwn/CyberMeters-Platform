@@ -58,10 +58,18 @@ const baseEnv = {
   ALLOWED_ORIGIN: "https://app.cybermeters.com", APP_VERSION: "test",
 };
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
-const call = async (urlPath, env, headers = {}) => {
-  const res = await worker.default.fetch(new Request(`https://app.cybermeters.com${urlPath}`, { headers }), env, ctx);
+const call = async (urlPath, env, headers = {}, method = "GET") => {
+  const res = await worker.default.fetch(new Request(`https://app.cybermeters.com${urlPath}`, { method, headers }), env, ctx);
   let body = {}; try { body = await res.json(); } catch { /* */ }
-  return { status: res.status, body, retryAfter: res.headers.get("Retry-After") };
+  return {
+    status: res.status,
+    body,
+    retryAfter: res.headers.get("Retry-After"),
+    acao: res.headers.get("Access-Control-Allow-Origin"),
+    vary: res.headers.get("Vary"),
+    cacheControl: res.headers.get("Cache-Control"),
+    allowMethods: res.headers.get("Access-Control-Allow-Methods"),
+  };
 };
 
 // OFF: normal traffic (protected route → 401, not maintenance).
@@ -92,6 +100,49 @@ const bypassResp = await call("/api/workspaces", onBypass, { "X-Maintenance-Bypa
 ok("ON+bypass: request passes through (401, not 503)", bypassResp.status === 401 && bypassResp.body.code !== "maintenance");
 const noBypass = await call("/api/workspaces", onBypass, { "X-Maintenance-Bypass": "wrong" });
 ok("ON+wrong-bypass: still blocked (503)", noBypass.status === 503);
+
+// Public status-page origins may read only the public liveness/readiness
+// endpoints. Authenticated API surfaces retain the existing app-only policy.
+const apexHealth = await call("/health", off, { Origin: "https://cybermeters.com" });
+const apexReady = await call("/ready", off, { Origin: "https://cybermeters.com" });
+const wwwHealth = await call("/health", off, { Origin: "https://www.cybermeters.com" });
+const wwwReady = await call("/ready", off, { Origin: "https://www.cybermeters.com" });
+const appHealth = await call("/health", off, { Origin: "https://app.cybermeters.com" });
+const appReady = await call("/ready", off, { Origin: "https://app.cybermeters.com" });
+const hostileHealth = await call("/health", off, { Origin: "https://hostile.example" });
+const hostileReady = await call("/ready", off, { Origin: "https://hostile.example" });
+const marketingAuth = await call("/api/workspaces", off, { Origin: "https://cybermeters.com" });
+const marketingPreflight = await call("/health", off, { Origin: "https://cybermeters.com" }, "OPTIONS");
+const marketingWrite = await call("/health", off, { Origin: "https://cybermeters.com" }, "POST");
+
+ok("CORS: cybermeters.com can read /health", apexHealth.acao === "https://cybermeters.com");
+ok("CORS: cybermeters.com can read /ready", apexReady.acao === "https://cybermeters.com");
+ok("CORS: www.cybermeters.com can read /health", wwwHealth.acao === "https://www.cybermeters.com");
+ok("CORS: www.cybermeters.com can read /ready", wwwReady.acao === "https://www.cybermeters.com");
+ok("CORS: app.cybermeters.com remains allowed",
+  [appHealth, appReady].every((response) => response.acao === "https://app.cybermeters.com"));
+ok("CORS: hostile origin cannot read /health", hostileHealth.acao === null);
+ok("CORS: hostile origin cannot read /ready", hostileReady.acao === null);
+ok("CORS: authenticated route does not allow cybermeters.com",
+  marketingAuth.status === 401 && marketingAuth.acao === "https://app.cybermeters.com");
+ok("CORS: status-page preflight is read-only",
+  marketingPreflight.status === 204 &&
+  marketingPreflight.acao === "https://cybermeters.com" &&
+  marketingPreflight.allowMethods === "GET, OPTIONS");
+ok("CORS: status-page origin cannot read a write to the probe path",
+  marketingWrite.acao !== "https://cybermeters.com");
+ok("CORS: no public-probe response uses wildcard ACAO",
+  [apexHealth, apexReady, wwwHealth, wwwReady, appHealth, appReady, hostileHealth, hostileReady]
+    .every((response) => response.acao !== "*"));
+ok("CORS: origin-dependent public probes vary by Origin",
+  [apexHealth, apexReady, wwwHealth, wwwReady, appHealth, appReady, hostileHealth, hostileReady]
+    .every((response) => response.vary?.split(",").map((value) => value.trim()).includes("Origin")));
+ok("CORS: public probes preserve no-store cache behaviour",
+  [apexHealth, apexReady].every((response) => response.cacheControl === "no-store"));
+ok("CORS: public probes preserve health/readiness response semantics",
+  apexHealth.status === 200 && apexHealth.body.status === "ok" &&
+  apexReady.status === 200 && apexReady.body.status === "ready" &&
+  apexReady.body.checks?.d1 === true && apexReady.body.checks?.r2 === true);
 
 console.log(`\nMaintenance mode: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("maintenance-mode validation FAILED"); process.exit(1); }

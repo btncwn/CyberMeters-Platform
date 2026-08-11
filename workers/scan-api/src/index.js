@@ -1587,6 +1587,38 @@ async function generateScheduledReports(now, env) {
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 
+const PUBLIC_STATUS_ORIGINS = new Set([
+  "https://cybermeters.com",
+  "https://www.cybermeters.com",
+]);
+const PUBLIC_STATUS_PATHS = new Set(["/health", "/ready"]);
+
+function buildRequestCorsHeaders(origin, method, pathname, env) {
+  const headers = buildCorsHeaders(env);
+  const isPublicStatusRead =
+    PUBLIC_STATUS_PATHS.has(pathname) &&
+    (method === "GET" || method === "OPTIONS");
+  if (!isPublicStatusRead) return headers;
+
+  // These two public probes vary by the caller's exact Origin. Requests without
+  // an Origin retain the established app header (CLI/monitor compatibility).
+  // A supplied but unrecognised Origin gets no ACAO, so it cannot read the body.
+  headers.Vary = "Origin";
+  if (!origin) return headers;
+
+  const appOrigin = headers["Access-Control-Allow-Origin"];
+  if (origin === appOrigin || PUBLIC_STATUS_ORIGINS.has(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    if (PUBLIC_STATUS_ORIGINS.has(origin)) {
+      headers["Access-Control-Allow-Methods"] = "GET, OPTIONS";
+    }
+    return headers;
+  }
+
+  delete headers["Access-Control-Allow-Origin"];
+  return headers;
+}
+
 // ── RBAC Helpers ─────────────────────────────────────────────────────────────
 
 /**
@@ -2088,8 +2120,14 @@ function isMaintenanceBypass(request, env) {
 
 export default {
   async fetch(request, env, ctx) {
+    const url = new URL(request.url);
     // Build CORS headers once per request, honouring the ALLOWED_ORIGIN binding.
-    const corsHeaders = buildCorsHeaders(env);
+    const corsHeaders = buildRequestCorsHeaders(
+      request.headers.get("Origin"),
+      request.method,
+      url.pathname,
+      env
+    );
     const requestId = crypto.randomUUID();
     // Shadow the module-level json() so every route in this handler uses the
     // correct per-request origin without touching individual call sites.
@@ -2107,9 +2145,6 @@ export default {
       recordMetric(env, "http_5xx", { blobs: [scope || "unknown"], indexes: [scope || "unknown"] });
       return json({ error: message, request_id: requestId }, 500);
     };
-
-    const url = new URL(request.url);
-
     if (url.pathname.length > 2048) {
       return json({ error: "Request URL is too long" }, 414);
     }

@@ -44,22 +44,29 @@ export default function StatusPage() {
     setLoading(true)
     try {
       const [health, ready] = await Promise.allSettled([
-        fetch(`${ROOT}/health`, { cache: 'no-store' }).then((r) => r.json()),
+        fetch(`${ROOT}/health`, { cache: 'no-store' }).then(async (r) => ({ status: r.status, body: await r.json() })),
         fetch(`${ROOT}/ready`, { cache: 'no-store' }).then(async (r) => ({ status: r.status, body: await r.json() })),
       ])
-      const h = health.status === 'fulfilled' ? health.value : null
-      const rd = ready.status === 'fulfilled' ? ready.value?.body : null
-      const apiUp = !!h
-      const d1 = rd ? !!rd.checks?.d1 : null
-      const r2 = rd ? !!rd.checks?.r2 : null
+      const healthProbe = health.status === 'fulfilled' ? health.value : null
+      const readyProbe = ready.status === 'fulfilled' ? ready.value : null
+      const h = healthProbe?.body ?? null
+      const rd = readyProbe?.body ?? null
+      const apiUp = healthProbe?.status === 200 && h?.status === 'ok'
+      const readyObserved =
+        readyProbe !== null &&
+        (readyProbe.status === 200 || readyProbe.status === 503) &&
+        typeof rd?.checks?.d1 === 'boolean' &&
+        typeof rd?.checks?.r2 === 'boolean'
+      const d1 = readyObserved ? rd.checks.d1 : null
+      const r2 = readyObserved ? rd.checks.r2 : null
       setChecks({ api: apiUp, d1, r2 })
-      setVersion(h?.version ?? null)
+      setVersion(apiUp ? (h?.version ?? null) : null)
       setCheckedAt(new Date())
 
-      if (!apiUp) setState('unknown')
+      if (!apiUp || !readyObserved) setState('unknown')
       else if (h?.maintenance === true) setState('maintenance')
-      else if (d1 === false || r2 === false) setState('degraded')
-      else setState('operational')
+      else if (readyProbe.status === 200 && rd?.status === 'ready' && d1 === true && r2 === true) setState('operational')
+      else setState('degraded')
     } catch {
       setChecks({ api: false, d1: null, r2: null })
       setState('unknown')

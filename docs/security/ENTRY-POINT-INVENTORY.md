@@ -71,9 +71,9 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2122 | preflight | public | — |
-| GET | `/health` | 2127 | public-or-global | public | — |
-| GET | `/ready` | 2143 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2157 | preflight | public | — |
+| GET | `/health` | 2162 | public-or-global | public | — |
+| GET | `/ready` | 2178 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
