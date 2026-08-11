@@ -650,6 +650,12 @@ jobs:
       - name: Validate Identity Exposure Managed Workflow (identity key + provider aliases + correlation + classification + ownership + verification + monitoring + case reopen)
         run: node scripts/validate-identity-exposure-lifecycle.js
 
+      - name: Validate Identity producer and evidence-carrier truth
+        run: node scripts/validate-identity-producer-truth.js
+
+      - name: Validate Identity producer truth semantic mutations
+        run: node scripts/mutate-identity-producer-truth.js
+
       - name: Validate identity disappearance verification honesty mutations
         run: node scripts/validate-identity-disappearance-verification-mutations.js
 

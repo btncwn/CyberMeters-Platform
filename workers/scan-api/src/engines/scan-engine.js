@@ -1589,7 +1589,12 @@ function buildCanonicalUrlProfile(modules) {
     // Detects Okta, Auth0, Entra ID, Ping Identity, OneLogin, Duo, JumpCloud, Keycloak,
     // ADFS, and Google Workspace IdP from CNAME/SPF/MX/CSP/server signals.
     // Also classifies discovered subdomains with identity-related hostname prefixes.
-    modules.identity_discovery = runIdentityDiscoveryModule(modules, domain);
+    const identityObservedAt = new Date(now()).toISOString();
+    modules.identity_discovery = runIdentityDiscoveryModule(
+      modules,
+      domain,
+      { observedAt: identityObservedAt },
+    );
 
     // Phase 7k: Vendor Relationship Discovery — pure computation, zero network I/O.
     // Parses CSP directives (script-src, connect-src, frame-src, img-src) to identify
