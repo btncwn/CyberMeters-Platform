@@ -168,8 +168,18 @@ export async function persistBrandCandidateObservation(env, {
                 similarity_score, risk_level, risk_reasons, evidence_json,
                 dns_resolves, https_available, mx_present, status, classification,
                 first_seen, last_seen, updated_at
-           FROM workspace_brand_assets
-          WHERE workspace_id = ? AND domain = ? AND candidate_domain = ? LIMIT 1`
+           FROM workspace_brand_assets a
+          WHERE workspace_id = ? AND domain = ? AND candidate_domain = ?
+            AND EXISTS (
+                  SELECT 1
+                    FROM workspaces w
+                    JOIN workspace_domains wd ON wd.workspace_id = w.id
+                    JOIN domains d ON d.id = wd.domain_id
+                   WHERE w.id = a.workspace_id
+                     AND w.deleted_at IS NULL
+                     AND lower(d.domain) = lower(a.domain)
+                )
+          LIMIT 1`
       ).bind(workspaceId, domain, candidateDomain).first();
     } catch {
       return { status: "failed", error: "candidate_read_failed" };
@@ -180,13 +190,32 @@ export async function persistBrandCandidateObservation(env, {
       const id = createId("bra");
       try {
         const result = await db.prepare(
-          `INSERT OR IGNORE INTO workspace_brand_assets
+          `WITH candidate
+             (id, workspace_id, domain, candidate_domain, variant_type,
+              similarity_score, risk_level, risk_reasons, evidence_json,
+              first_seen, last_seen, created_at, updated_at) AS (
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           )
+           INSERT OR IGNORE INTO workspace_brand_assets
              (id, workspace_id, domain, candidate_domain, variant_type,
               similarity_score, risk_level, risk_reasons, evidence_json,
               dns_resolves, https_available, ip_address, status, classification,
               first_seen, last_seen, last_checked_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'unverified',
-                   'unreviewed', ?, ?, NULL, ?, ?)`
+           SELECT c.id, c.workspace_id, c.domain, c.candidate_domain,
+                  c.variant_type, c.similarity_score, c.risk_level,
+                  c.risk_reasons, c.evidence_json, NULL, NULL, NULL,
+                  'unverified', 'unreviewed', c.first_seen, c.last_seen,
+                  NULL, c.created_at, c.updated_at
+             FROM candidate c
+            WHERE EXISTS (
+                  SELECT 1
+                    FROM workspaces w
+                    JOIN workspace_domains wd ON wd.workspace_id = w.id
+                    JOIN domains d ON d.id = wd.domain_id
+                   WHERE w.id = c.workspace_id
+                     AND w.deleted_at IS NULL
+                     AND lower(d.domain) = lower(c.domain)
+                )`
         ).bind(
           id, workspaceId, domain, candidateDomain, state.variant_type,
           state.similarity_score, state.risk_level, state.risk_reasons,
@@ -194,8 +223,18 @@ export async function persistBrandCandidateObservation(env, {
         ).run();
         if (runChanges(result) === 1) return { status: "inserted", candidate_id: id };
         const winner = await db.prepare(
-          `SELECT id FROM workspace_brand_assets
-            WHERE workspace_id = ? AND domain = ? AND candidate_domain = ? LIMIT 1`
+          `SELECT id FROM workspace_brand_assets a
+            WHERE workspace_id = ? AND domain = ? AND candidate_domain = ?
+              AND EXISTS (
+                    SELECT 1
+                      FROM workspaces w
+                      JOIN workspace_domains wd ON wd.workspace_id = w.id
+                      JOIN domains d ON d.id = wd.domain_id
+                     WHERE w.id = a.workspace_id
+                       AND w.deleted_at IS NULL
+                       AND lower(d.domain) = lower(a.domain)
+                  )
+            LIMIT 1`
         ).bind(workspaceId, domain, candidateDomain).first();
         if (winner?.id === id) return { status: "inserted", candidate_id: id };
       } catch {
@@ -223,7 +262,16 @@ export async function persistBrandCandidateObservation(env, {
             AND risk_level IS ? AND risk_reasons IS ?
             AND evidence_json IS ? AND last_seen IS ? AND updated_at IS ?
             AND dns_resolves IS ? AND https_available IS ? AND mx_present IS ?
-            AND classification IS ?`
+            AND classification IS ?
+            AND EXISTS (
+                  SELECT 1
+                    FROM workspaces w
+                    JOIN workspace_domains wd ON wd.workspace_id = w.id
+                    JOIN domains d ON d.id = wd.domain_id
+                   WHERE w.id = workspace_brand_assets.workspace_id
+                     AND w.deleted_at IS NULL
+                     AND lower(d.domain) = lower(workspace_brand_assets.domain)
+                )`
       ).bind(
         state.variant_type, state.similarity_score, state.risk_level,
         state.risk_reasons, state.evidence_json, state.last_seen, state.updated_at,
@@ -237,7 +285,18 @@ export async function persistBrandCandidateObservation(env, {
       if (runChanges(result) === 1) return { status: "merged", candidate_id: existing.id };
       const verified = await db.prepare(
         `SELECT id, evidence_json, risk_level, risk_reasons, last_seen, updated_at
-           FROM workspace_brand_assets WHERE id = ? AND workspace_id = ? LIMIT 1`
+           FROM workspace_brand_assets a
+          WHERE id = ? AND workspace_id = ?
+            AND EXISTS (
+                  SELECT 1
+                    FROM workspaces w
+                    JOIN workspace_domains wd ON wd.workspace_id = w.id
+                    JOIN domains d ON d.id = wd.domain_id
+                   WHERE w.id = a.workspace_id
+                     AND w.deleted_at IS NULL
+                     AND lower(d.domain) = lower(a.domain)
+                )
+          LIMIT 1`
       ).bind(existing.id, workspaceId).first();
       if (verified && verified.evidence_json === state.evidence_json &&
           verified.risk_level === state.risk_level &&
@@ -484,23 +543,21 @@ export async function upsertBrandAssets(domainId, brandMod, env) {
   let wsRows;
   try {
     const r = await env.cybermeters_db
-      .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+      .prepare(`SELECT wd.workspace_id, d.domain
+                  FROM workspace_domains wd
+                  JOIN workspaces w
+                    ON w.id = wd.workspace_id AND w.deleted_at IS NULL
+                  JOIN domains d ON d.id = wd.domain_id
+                 WHERE wd.domain_id = ?`)
       .bind(domainId)
       .all();
     wsRows = r.results || [];
   } catch { return; }
   if (wsRows.length === 0) return;
 
-  // Resolve domain name (needed as FK / display column in workspace_brand_assets)
-  // NOTE: domains table uses column 'domain', not 'name'.
-  let domainName;
-  try {
-    const r = await env.cybermeters_db
-      .prepare('SELECT domain FROM domains WHERE id = ?')
-      .bind(domainId)
-      .first();
-    domainName = r?.domain;
-  } catch { return; }
+  // The active workspace/domain membership read above is the persistence
+  // authority and supplies the display/FK domain without a second stale read.
+  const domainName = wsRows[0]?.domain;
   if (!domainName) return;
 
   const now = new Date().toISOString();
@@ -537,8 +594,23 @@ export async function upsertBrandAssets(domainId, brandMod, env) {
     try {
       await env.cybermeters_db
         .prepare(`UPDATE workspace_brand_assets
-                  SET brand_profile_id = (SELECT id FROM workspace_brand_profiles WHERE workspace_id = ?)
-                  WHERE workspace_id = ? AND brand_profile_id IS NULL`)
+                  SET brand_profile_id = (
+                        SELECT p.id
+                          FROM workspace_brand_profiles p
+                          JOIN workspaces w
+                            ON w.id = p.workspace_id AND w.deleted_at IS NULL
+                         WHERE p.workspace_id = ?
+                      )
+                  WHERE workspace_id = ? AND brand_profile_id IS NULL
+                    AND EXISTS (
+                          SELECT 1
+                            FROM workspaces w
+                            JOIN workspace_domains wd ON wd.workspace_id = w.id
+                            JOIN domains d ON d.id = wd.domain_id
+                           WHERE w.id = workspace_brand_assets.workspace_id
+                             AND w.deleted_at IS NULL
+                             AND lower(d.domain) = lower(workspace_brand_assets.domain)
+                        )`)
         .bind(workspace_id, workspace_id).run();
     } catch { /* profile is optional and migration-safe */ }
   }

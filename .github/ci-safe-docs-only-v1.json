@@ -52,7 +52,7 @@
           "frontend/package.json",
           "frontend/package-lock.json"
         ],
-        "scope_sha256": "02c4838f51660a4490e9744f3a19fe4cbd9fe8e93f0642241074c4cdd79c7c30",
+        "scope_sha256": "3fc812dc7b4ad0320faed290b6e5dd71ef88b32e0fd6de65e78c56ce1ef7b208",
         "scope_file_count": 3,
         "source_graph_review": "Entry point has only Node built-ins plus TypeScript resolved from frontend; SOURCE_ROOTS is workers, frontend/src, shared and scripts, with no docs or CHANGELOG input.",
         "negative_without_docs": "PASS: exact command exit 0 in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent; fixture worktree clean",
@@ -87,7 +87,7 @@
           "frontend/package.json",
           "frontend/package-lock.json"
         ],
-        "scope_sha256": "1989d14d4941a6a36862a505595a9a08f91ac5fd4dc9d8583f38422eeb1657a6",
+        "scope_sha256": "66d6b6d6cc9f391d1e5e8405c1e4215849a900bd7435d011423839cb501e4fe0",
         "scope_file_count": 7,
         "source_graph_review": "Runner uses Node built-ins, git fingerprinting, the inventory child and three pinned non-doc mutation targets; the child source-root contract excludes docs and CHANGELOG.",
         "negative_without_docs": "PASS: exact command exit 0 with 20/20 mutants, 1/1 negative control and full fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
@@ -119,7 +119,7 @@
           "shared",
           "frontend/src/lib/caseDisplay.js"
         ],
-        "scope_sha256": "6fcb736ef450f1b90cb5cf6dfa3a14caa9a31789399dd0856d7dff2bedc7b2d1",
+        "scope_sha256": "46f1d9786a9870067d445f6e14710a3f120c68c45e6b9c92496f1662f53cfdd0",
         "scope_file_count": 315,
         "source_graph_review": "Reviewed dynamic imports, source reads, schema/migration loader, fresh-process mutants and case-display import; every repository input is in database, workers, shared or frontend/src.",
         "negative_without_docs": "PASS: exact command exit 0 (171/171) in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
@@ -150,7 +150,7 @@
           "workers/scan-api/src",
           "frontend/src"
         ],
-        "scope_sha256": "b14bd0d13573b3871daa91ccf6450c0b4b4d6ab0f947b7f3d6b6ad021c8f093c",
+        "scope_sha256": "aca52d879136d7f5ac55c27d98e2150219de7f2cdce8a764c2d849ab8fa4afa5",
         "scope_file_count": 527,
         "source_graph_review": "Reviewed dynamic imports, source reads, schema/migration loader, Worker index import, frontend case display/queue reads and fresh-process mutants; no docs path is reachable.",
         "negative_without_docs": "PASS: exact command exit 0 (233/233) in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",

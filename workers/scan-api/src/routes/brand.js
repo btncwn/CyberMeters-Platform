@@ -18,6 +18,11 @@ export const BRAND_MANUAL_DISCOVERY_TIMEOUT_MS = 2_500;
 export const BRAND_MANUAL_DISCOVERY_BURST_LIMIT = 1;
 export const BRAND_MANUAL_DISCOVERY_HOURLY_LIMIT = 4;
 
+function runChanges(result) {
+  const value = result?.meta?.changes ?? result?.changes;
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
 export async function brandRoutes(rctx) {
   const { request, env, url, json,
           requireAuth, requireWorkspaceRole, consumeApiRateLimit } = rctx;
@@ -62,6 +67,8 @@ export async function brandRoutes(rctx) {
             .prepare(
               `SELECT p.id, p.primary_domain, d.id AS domain_id
                  FROM workspace_brand_profiles p
+                 JOIN workspaces w
+                   ON w.id = p.workspace_id AND w.deleted_at IS NULL
                  JOIN domains d ON d.domain = p.primary_domain
                  JOIN workspace_domains wd
                    ON wd.workspace_id = p.workspace_id AND wd.domain_id = d.id
@@ -115,6 +122,7 @@ export async function brandRoutes(rctx) {
               retries: 0,
             },
             required: true,
+            active_workspace_required: true,
           });
 
           const stats = await discoverBrandCandidatesForWorkspace(env, wsId, {
@@ -157,6 +165,8 @@ export async function brandRoutes(rctx) {
               partial: summary.partial,
               incomplete: summary.incomplete,
             },
+            required: true,
+            active_workspace_required: true,
           });
           if (stats.queries_succeeded === 0 && stats.query_failures > 0) {
             return json({
@@ -179,21 +189,37 @@ export async function brandRoutes(rctx) {
           const body = await request.json().catch(() => null);
           const domainRows = await env.cybermeters_db
             .prepare(`SELECT d.domain FROM workspace_domains wd
-                      JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id = ?`)
+                      JOIN workspaces w
+                        ON w.id = wd.workspace_id AND w.deleted_at IS NULL
+                      JOIN domains d ON d.id = wd.domain_id
+                      WHERE wd.workspace_id = ?`)
             .bind(wsId).all();
           const workspaceDomains = (domainRows.results || []).map((row) => row.domain);
           const validated = validateBrandProfileInput(body, workspaceDomains);
           if (!validated.ok) return json({ error: validated.error }, 400);
           const value = validated.value;
           const existing = await env.cybermeters_db
-            .prepare("SELECT id FROM workspace_brand_profiles WHERE workspace_id = ? LIMIT 1")
+            .prepare(`SELECT p.id
+                        FROM workspace_brand_profiles p
+                        JOIN workspaces w
+                          ON w.id = p.workspace_id AND w.deleted_at IS NULL
+                       WHERE p.workspace_id = ?
+                       LIMIT 1`)
             .bind(wsId).first();
           const profileId = existing?.id || createId("brandprof");
-          await env.cybermeters_db
+          const profileWrite = await env.cybermeters_db
             .prepare(`INSERT INTO workspace_brand_profiles
                         (id, workspace_id, brand_name, primary_domain, keywords_json,
                          protected_domains_json, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                      SELECT ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now')
+                       WHERE EXISTS (
+                             SELECT 1
+                               FROM workspaces w
+                               JOIN workspace_domains wd ON wd.workspace_id = w.id
+                               JOIN domains d ON d.id = wd.domain_id
+                              WHERE w.id = ? AND w.deleted_at IS NULL
+                                AND lower(d.domain) = lower(?)
+                           )
                       ON CONFLICT(workspace_id) DO UPDATE SET
                         brand_name = excluded.brand_name,
                         primary_domain = excluded.primary_domain,
@@ -201,14 +227,31 @@ export async function brandRoutes(rctx) {
                         protected_domains_json = excluded.protected_domains_json,
                         updated_at = datetime('now')`)
             .bind(profileId, wsId, value.brand_name, value.primary_domain,
-              JSON.stringify(value.keywords), JSON.stringify(value.protected_domains)).run();
+              JSON.stringify(value.keywords), JSON.stringify(value.protected_domains),
+              wsId, value.primary_domain).run();
+          if (runChanges(profileWrite) !== 1) return json({ error: "Workspace not found" }, 404);
           await env.cybermeters_db
-            .prepare("UPDATE workspace_brand_assets SET brand_profile_id = ? WHERE workspace_id = ?")
+            .prepare(`UPDATE workspace_brand_assets
+                         SET brand_profile_id = ?
+                       WHERE workspace_id = ?
+                         AND EXISTS (
+                               SELECT 1
+                                 FROM workspaces w
+                                 JOIN workspace_domains wd ON wd.workspace_id = w.id
+                                 JOIN domains d ON d.id = wd.domain_id
+                                WHERE w.id = workspace_brand_assets.workspace_id
+                                  AND w.deleted_at IS NULL
+                                  AND lower(d.domain) = lower(workspace_brand_assets.domain)
+                             )`)
             .bind(profileId, wsId).run();
           const row = await env.cybermeters_db
-            .prepare(`SELECT id, workspace_id, brand_name, primary_domain, keywords_json,
-                             protected_domains_json, created_at, updated_at
-                      FROM workspace_brand_profiles WHERE workspace_id = ? LIMIT 1`)
+            .prepare(`SELECT p.id, p.workspace_id, p.brand_name, p.primary_domain,
+                             p.keywords_json, p.protected_domains_json,
+                             p.created_at, p.updated_at
+                        FROM workspace_brand_profiles p
+                        JOIN workspaces w
+                          ON w.id = p.workspace_id AND w.deleted_at IS NULL
+                       WHERE p.workspace_id = ? LIMIT 1`)
             .bind(wsId).first();
           await createAuditEvent(env, {
             workspace_id: wsId, user_id: user.id, event_type: "brand_profile_updated",
@@ -216,6 +259,7 @@ export async function brandRoutes(rctx) {
             description: `Updated protected brand profile for ${value.brand_name}`,
             metadata: { brand_name: value.brand_name, primary_domain: value.primary_domain,
               keyword_count: value.keywords.length, protected_domain_count: value.protected_domains.length },
+            active_workspace_required: true,
           });
           return json({ profile: brandProfileToApi(row) });
         }
@@ -396,14 +440,26 @@ export async function brandRoutes(rctx) {
             const previous = BRAND_CLASSIFICATIONS.has(row.classification) ? row.classification : "unreviewed";
             const updatedAt = new Date().toISOString();
             const candidate = brandCandidateToApi({ ...row, classification, updated_at: updatedAt }, profile);
-            await env.cybermeters_db
+            const classificationWrite = await env.cybermeters_db
               .prepare(`UPDATE workspace_brand_assets
                         SET classification = ?, similarity_score = ?, risk_level = ?,
                             risk_reasons = ?, evidence_json = ?, updated_at = ?
-                        WHERE id = ? AND workspace_id = ?`)
+                        WHERE id = ? AND workspace_id = ?
+                          AND EXISTS (
+                                SELECT 1
+                                  FROM workspaces w
+                                  JOIN workspace_domains wd ON wd.workspace_id = w.id
+                                  JOIN domains d ON d.id = wd.domain_id
+                                 WHERE w.id = workspace_brand_assets.workspace_id
+                                   AND w.deleted_at IS NULL
+                                   AND lower(d.domain) = lower(workspace_brand_assets.domain)
+                              )`)
               .bind(classification, candidate.similarity_score, candidate.risk_level,
                 JSON.stringify(candidate.risk_reasons), JSON.stringify(candidate.evidence),
                 updatedAt, candidateId, wsId).run();
+            if (runChanges(classificationWrite) !== 1) {
+              return json({ error: "Brand candidate not found" }, 404);
+            }
             const eventType = classification === "ignored" ? "brand_candidate_ignored"
               : classification === "owned" ? "brand_candidate_marked_owned"
                 : classification === "suspicious" ? "brand_candidate_marked_suspicious"
@@ -413,6 +469,7 @@ export async function brandRoutes(rctx) {
               entity_type: "brand_candidate", entity_id: candidateId,
               description: `Classified brand candidate ${row.candidate_domain} as ${classification}`,
               metadata: brandClassificationAuditMetadata(row, previous, classification, candidate.risk_level),
+              active_workspace_required: true,
             });
             let managedCase = null;
             if (classification === "confirmed_abuse") {
@@ -488,6 +545,8 @@ export async function brandRoutes(rctx) {
           const r = await env.cybermeters_db
             .prepare(
               `SELECT d.domain FROM workspace_domains wd
+               JOIN workspaces w
+                 ON w.id = wd.workspace_id AND w.deleted_at IS NULL
                JOIN domains d ON d.id = wd.domain_id
                WHERE wd.workspace_id = ?
                ORDER BY d.created_at ASC LIMIT 1`
@@ -539,11 +598,31 @@ export async function brandRoutes(rctx) {
           try {
             await env.cybermeters_db
               .prepare(
-                `INSERT OR IGNORE INTO workspace_brand_assets
+                `WITH candidate
+                   (id, workspace_id, domain, candidate_domain, variant_type,
+                    similarity_score, risk_level, risk_reasons, evidence_json,
+                    first_seen, last_seen, created_at, updated_at) AS (
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 )
+                 INSERT OR IGNORE INTO workspace_brand_assets
                    (id, workspace_id, domain, candidate_domain, variant_type,
                     similarity_score, risk_level, risk_reasons, evidence_json, dns_resolves, https_available,
                     ip_address, status, first_seen, last_seen, last_checked_at, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'unverified', ?, ?, NULL, ?, ?)`
+                 SELECT c.id, c.workspace_id, c.domain, c.candidate_domain,
+                        c.variant_type, c.similarity_score, c.risk_level,
+                        c.risk_reasons, c.evidence_json, NULL, NULL, NULL,
+                        'unverified', c.first_seen, c.last_seen, NULL,
+                        c.created_at, c.updated_at
+                   FROM candidate c
+                  WHERE EXISTS (
+                        SELECT 1
+                          FROM workspaces w
+                          JOIN workspace_domains wd ON wd.workspace_id = w.id
+                          JOIN domains d ON d.id = wd.domain_id
+                         WHERE w.id = c.workspace_id
+                           AND w.deleted_at IS NULL
+                           AND lower(d.domain) = lower(c.domain)
+                      )`
               )
               .bind(
                 createId('bra'), wsId, primaryDomain, c.candidate_domain, c.variant_type,
@@ -557,8 +636,23 @@ export async function brandRoutes(rctx) {
         try {
           await env.cybermeters_db
             .prepare(`UPDATE workspace_brand_assets
-                      SET brand_profile_id = (SELECT id FROM workspace_brand_profiles WHERE workspace_id = ?)
-                      WHERE workspace_id = ? AND brand_profile_id IS NULL`)
+                      SET brand_profile_id = (
+                            SELECT p.id
+                              FROM workspace_brand_profiles p
+                              JOIN workspaces w
+                                ON w.id = p.workspace_id AND w.deleted_at IS NULL
+                             WHERE p.workspace_id = ?
+                          )
+                      WHERE workspace_id = ? AND brand_profile_id IS NULL
+                        AND EXISTS (
+                              SELECT 1
+                                FROM workspaces w
+                                JOIN workspace_domains wd ON wd.workspace_id = w.id
+                                JOIN domains d ON d.id = wd.domain_id
+                               WHERE w.id = workspace_brand_assets.workspace_id
+                                 AND w.deleted_at IS NULL
+                                 AND lower(d.domain) = lower(workspace_brand_assets.domain)
+                            )`)
             .bind(wsId, wsId).run();
         } catch { /* profile is optional */ }
 

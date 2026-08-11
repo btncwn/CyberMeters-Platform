@@ -92,11 +92,20 @@ export function httpOutcomeToPersistence(outcome) {
 export function selectBrandHttpCandidatesSql() {
   // Positional binds: workspace_id, staleBefore, batchSize.
   return `SELECT id, candidate_domain, https_available, evidence_json, last_checked_at
-          FROM workspace_brand_assets
+          FROM workspace_brand_assets a
           WHERE workspace_id = ?
             AND dns_resolves = 1
             AND (classification IS NULL OR classification NOT IN ${CLOSED_CLASSIFICATIONS})
             AND (https_available IS NULL OR last_checked_at IS NULL OR last_checked_at < ?)
+            AND EXISTS (
+                  SELECT 1
+                    FROM workspaces w
+                    JOIN workspace_domains wd ON wd.workspace_id = w.id
+                    JOIN domains d ON d.id = wd.domain_id
+                   WHERE w.id = a.workspace_id
+                     AND w.deleted_at IS NULL
+                     AND lower(d.domain) = lower(a.domain)
+                )
           ORDER BY (https_available IS NOT NULL) ASC,
                    CASE risk_level WHEN 'critical' THEN 0 WHEN 'high' THEN 1
                                    WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END ASC,
@@ -125,6 +134,11 @@ export function mergeHttpEvidence(existingJson, persist) {
   if (persist.https_available === 1) setSignal("https_active", true);
   if (persist.looks_like_login === true) setSignal("looks_like_login", true);
   return evidence;
+}
+
+function runChanges(result) {
+  const value = result?.meta?.changes ?? result?.changes;
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
 }
 
 /**
@@ -164,11 +178,21 @@ export async function enrichBrandCandidatesHttp(env, workspaceId, opts = {}) {
     if (persist.looks_like_login) stats.login_surfaces++;
     const evidence = mergeHttpEvidence(row.evidence_json, persist);
     try {
-      await env.cybermeters_db.prepare(
+      const result = await env.cybermeters_db.prepare(
         `UPDATE workspace_brand_assets
             SET https_available = ?, evidence_json = ?, last_checked_at = ?, updated_at = ?
-          WHERE id = ? AND workspace_id = ?`
+          WHERE id = ? AND workspace_id = ?
+            AND EXISTS (
+                  SELECT 1
+                    FROM workspaces w
+                    JOIN workspace_domains wd ON wd.workspace_id = w.id
+                    JOIN domains d ON d.id = wd.domain_id
+                   WHERE w.id = workspace_brand_assets.workspace_id
+                     AND w.deleted_at IS NULL
+                     AND lower(d.domain) = lower(workspace_brand_assets.domain)
+                )`
       ).bind(persist.https_available, JSON.stringify(evidence), now, now, row.id, workspaceId).run();
+      if (runChanges(result) !== 1) continue;
       stats.checked++;
     } catch { /* isolated — the batch continues */ }
   }
@@ -186,13 +210,18 @@ export async function runBrandHttpEnrichmentSweep(env, opts = {}) {
   let rows;
   try {
     rows = await env.cybermeters_db.prepare(
-      `SELECT workspace_id, COUNT(*) AS pending
-         FROM workspace_brand_assets
-        WHERE dns_resolves = 1
-          AND https_available IS NULL
+      `SELECT a.workspace_id, COUNT(*) AS pending
+         FROM workspace_brand_assets a
+         JOIN workspaces w
+           ON w.id = a.workspace_id AND w.deleted_at IS NULL
+         JOIN workspace_domains wd ON wd.workspace_id = w.id
+         JOIN domains d
+           ON d.id = wd.domain_id AND lower(d.domain) = lower(a.domain)
+        WHERE a.dns_resolves = 1
+          AND a.https_available IS NULL
           AND (classification IS NULL OR classification NOT IN ${CLOSED_CLASSIFICATIONS})
-        GROUP BY workspace_id
-        ORDER BY pending DESC, workspace_id ASC`
+        GROUP BY a.workspace_id
+        ORDER BY pending DESC, a.workspace_id ASC`
     ).all();
   } catch {
     return { workspaces: 0, checked: 0, login_surfaces: 0, skipped_workspaces: 0 };

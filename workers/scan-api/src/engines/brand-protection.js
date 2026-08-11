@@ -427,15 +427,28 @@ export function legacyBrandAssetToApi(row) {
 
 export async function loadWorkspaceBrandProfile(env, workspaceId) {
   const persisted = await env.cybermeters_db
-    .prepare(`SELECT id, workspace_id, brand_name, primary_domain, keywords_json,
-                     protected_domains_json, created_at, updated_at
-              FROM workspace_brand_profiles WHERE workspace_id = ? LIMIT 1`)
+    .prepare(`SELECT p.id, p.workspace_id, p.brand_name, p.primary_domain,
+                     p.keywords_json, p.protected_domains_json,
+                     p.created_at, p.updated_at
+                FROM workspace_brand_profiles p
+                JOIN workspaces w
+                  ON w.id = p.workspace_id AND w.deleted_at IS NULL
+                JOIN workspace_domains wd ON wd.workspace_id = w.id
+                JOIN domains d
+                  ON d.id = wd.domain_id
+                 AND lower(d.domain) = lower(p.primary_domain)
+               WHERE p.workspace_id = ?
+               LIMIT 1`)
     .bind(workspaceId).first();
   if (persisted) return brandProfileToApi(persisted);
   const domains = await env.cybermeters_db
-    .prepare(`SELECT d.domain FROM workspace_domains wd
-              JOIN domains d ON d.id = wd.domain_id
-              WHERE wd.workspace_id = ? ORDER BY d.created_at ASC, d.domain ASC`)
+    .prepare(`SELECT d.domain
+                FROM workspace_domains wd
+                JOIN workspaces w
+                  ON w.id = wd.workspace_id AND w.deleted_at IS NULL
+                JOIN domains d ON d.id = wd.domain_id
+               WHERE wd.workspace_id = ?
+               ORDER BY d.created_at ASC, d.domain ASC`)
     .bind(workspaceId).all();
   return inferBrandProfileFromDomains(workspaceId, domains.results || []);
 }
