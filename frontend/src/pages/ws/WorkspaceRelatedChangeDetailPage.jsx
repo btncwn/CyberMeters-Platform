@@ -35,6 +35,20 @@ import {
 
 const CARD = 'rounded-xl border border-slate-200 bg-white p-5'
 
+function recurrenceCopy(recurrence) {
+  if (!recurrence || recurrence.schema_version !== 'related_change_recurrence.v2') return 'Recurrence unavailable'
+  if (recurrence.status === 'comparable' && Number.isInteger(recurrence.count)) {
+    return recurrence.count > 1 ? `Seen ${recurrence.count} times` : 'First observation'
+  }
+  if (recurrence.status === 'not_comparable' && recurrence.reason === 'legacy_identity_multiplicity') {
+    return 'Recurrence not comparable — historical duplicate identity evidence'
+  }
+  if (recurrence.status === 'unknown' && recurrence.reason === 'identity_evidence_unavailable') {
+    return 'Recurrence unavailable — retained evidence pointers could not be resolved'
+  }
+  return 'Recurrence unavailable'
+}
+
 /** @param {{ tone: string, children: import('react').ReactNode }} props */
 function Tag({ tone, children }) {
   return (
@@ -197,7 +211,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
             <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-xs text-slate-500">
               <span>First seen: {shortDate(rc.first_seen)}</span>
               <span>Last seen: {shortDate(rc.last_seen)}</span>
-              <span>Seen {rc.recurrence_count ?? 1} times</span>
+              <span>{recurrenceCopy(rc.recurrence)}</span>
               {rc.linked_case_id && (
                 <Link
                   to={`/ws/cases/${encodeURIComponent(rc.linked_case_id)}`}

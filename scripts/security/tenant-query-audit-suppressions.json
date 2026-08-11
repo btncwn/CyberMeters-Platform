@@ -1,7 +1,7 @@
 {
   "schema": "cybermeters.tenant-query-audit-suppressions/v1",
   "note": "Each suppression clears one high-signal static finding whose safety rests on an out-of-band guard. Every entry was manually verified against the source. Fingerprints are line-independent (SQL / key-expr / trimmed line) so they survive unrelated edits but change when the guarded statement itself changes — forcing re-review. A finding with no matching suppression fails CI.",
-  "reviewed_on": "2026-07-28",
+  "reviewed_on": "2026-08-11",
   "suppressions": [
     {
       "fingerprint": "4ce3d5b17530",
@@ -30,6 +30,13 @@
       "detector": "workspace_domain_scope_missing",
       "reason": "Identity and brand asset persistence share this exact query to fan scan observations out to all workspace links for the canonical scan domain_id.",
       "contract": "The functions run only from scan finalization; they return no tenant data and every asset/vendor write is explicitly bound to each enumerated workspace_id."
+    },
+    {
+      "fingerprint": "f185fb434784",
+      "file": "workers/scan-api/src/engines/asset-persistence.js",
+      "detector": "workspace_domain_scope_missing",
+      "reason": "Identity persistence intentionally enumerates every active workspace linked to the completed scan's canonical domain_id before applying the observation.",
+      "contract": "This background producer returns no customer data; the join excludes soft-deleted workspaces, and every atomic asset/vendor statement rechecks active state and binds the enumerated workspace_id plus canonical domain_id."
     },
     {
       "fingerprint": "dbd9bd8f2322",

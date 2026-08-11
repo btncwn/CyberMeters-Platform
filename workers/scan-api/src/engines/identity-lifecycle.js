@@ -29,6 +29,7 @@ import { newCaseEventId } from "./case-workflow.js";
 import {
   providerKey, deriveSurfaceType, canonicalIdentityKey, normalizeHostname, assessIdentityRisk,
 } from "./identity-policy.js";
+import { IDENTITY_CANONICAL_LIFECYCLE_QUERY } from "./identity-evidence-contract.js";
 
 function newId(prefix) {
   const uuid = (globalThis.crypto?.randomUUID?.() || "").replace(/-/g, "");
@@ -140,9 +141,7 @@ export async function correlateIdentityExposure(env, workspaceId, { now = new Da
   if (!ws) return { correlated: 0, created: 0, changed: 0, skipped: "workspace_inactive" };
 
   const rows = (await env.cybermeters_db
-    .prepare(`SELECT id, domain_id, hostname, asset_type, identity_type, provider, internet_exposed,
-                     source, risk_score, evidence, first_seen, last_seen
-              FROM identity_assets WHERE workspace_id = ? AND status = 'active'`)
+    .prepare(IDENTITY_CANONICAL_LIFECYCLE_QUERY)
     .bind(workspaceId).all().catch(() => ({ results: [] }))).results || [];
 
   // Group by (domain_id, canonical_identity_key).

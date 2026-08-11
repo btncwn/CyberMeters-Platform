@@ -24,6 +24,7 @@ import { collectChangeEvents } from "./related-changes-adapter.js";
 import { correlateChangeEvents } from "./related-changes-rules.js";
 import { createManagedCase } from "./managed-case-model.js";
 import { createAuditEvent } from "../lib/events.js";
+import { projectRelatedChangeRecurrence } from "./identity-evidence-contract.js";
 
 function newId(prefix) {
   const uuid = (globalThis.crypto?.randomUUID?.() || "").replace(/-/g, "");
@@ -45,6 +46,51 @@ export const CUSTOMER_STATES = Object.freeze(["new", "expected", "unrelated", "u
 export const CUSTOMER_FEEDBACK_STATES = Object.freeze(["expected", "unrelated", "unexpected_confirmed"]);
 export const RELATED_CHANGES_CAUSALITY_NOTICE =
   "These changes were observed close together and may be related. CyberMeters has not established that one caused the other or that they indicate compromise.";
+
+// B4 read projection. This is the sole approved raw identity_assets access
+// outside the writer: append-only evidence pointers must be resolved to detect
+// legacy tuple multiplicity and unavailable audit references. It is batched per
+// list/detail statement and never rewrites history or supplies identity counts.
+export const RELATED_CHANGE_IDENTITY_POINTER_CTES = `
+WITH identity_pointers AS (
+  SELECT evidence.related_change_id,
+         evidence.id AS evidence_id,
+         identity.id AS identity_id,
+         identity.workspace_id,
+         identity.domain_id,
+         identity.identity_type,
+         IFNULL(identity.hostname, '') AS canonical_hostname,
+         IFNULL(identity.provider, '') AS canonical_provider
+    FROM related_change_evidence evidence
+    LEFT JOIN identity_assets identity
+      ON identity.id = evidence.source_record_id
+     AND identity.workspace_id = evidence.workspace_id
+   WHERE evidence.workspace_id = ?
+     AND evidence.source_table = 'identity_assets'
+),
+identity_pointer_stats AS (
+  SELECT related_change_id,
+         COUNT(*) AS identity_pointer_count,
+         SUM(CASE WHEN identity_id IS NOT NULL THEN 1 ELSE 0 END) AS identity_resolved_pointer_count
+    FROM identity_pointers
+   GROUP BY related_change_id
+),
+identity_tuple_counts AS (
+  SELECT related_change_id, workspace_id, domain_id, identity_type,
+         canonical_hostname, canonical_provider,
+         COUNT(DISTINCT identity_id) AS identity_row_count
+    FROM identity_pointers
+   WHERE identity_id IS NOT NULL
+   GROUP BY related_change_id, workspace_id, domain_id, identity_type,
+            canonical_hostname, canonical_provider
+),
+identity_pollution AS (
+  SELECT related_change_id,
+         MAX(CASE WHEN identity_row_count > 1 THEN 1 ELSE 0 END) AS polluted
+    FROM identity_tuple_counts
+   GROUP BY related_change_id
+)
+`;
 
 // ── Window ───────────────────────────────────────────────────────────────────
 // The bounded window is [previous-complete-scan time, this-scan time]. A complete
@@ -180,25 +226,36 @@ export async function correlateRelatedChanges(env, { workspaceId, domainId, scan
 export async function listRelatedChanges(env, workspaceId, { customer_state = null, limit = 50, offset = 0 } = {}) {
   const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
   const off = Math.max(Number(offset) || 0, 0);
-  const where = ["workspace_id = ?"];
-  const binds = [workspaceId];
+  const where = ["changes.workspace_id = ?"];
+  const binds = [workspaceId, workspaceId];
   if (customer_state && CUSTOMER_STATES.includes(customer_state)) {
-    where.push("customer_state = ?");
+    where.push("changes.customer_state = ?");
     binds.push(customer_state);
   }
   const rows = await env.cybermeters_db
     .prepare(
-      `SELECT id, registrable_domain, rule_id, direction, signal_family_count,
-              independent_producer_count, confidence, completeness, customer_state,
-              first_seen, last_seen, recurrence_count, linked_case_id, created_at, updated_at
-         FROM related_changes
+      `${RELATED_CHANGE_IDENTITY_POINTER_CTES}
+       SELECT changes.id, changes.registrable_domain, changes.rule_id, changes.direction,
+              changes.signal_family_count, changes.independent_producer_count,
+              changes.confidence, changes.completeness, changes.customer_state,
+              changes.first_seen, changes.last_seen, changes.recurrence_count,
+              changes.linked_case_id, changes.created_at, changes.updated_at,
+              COALESCE(stats.identity_pointer_count, 0) -
+                COALESCE(stats.identity_resolved_pointer_count, 0) AS identity_unresolved_pointer_count,
+              COALESCE(pollution.polluted, 0) AS identity_polluted_tuple_count
+         FROM related_changes changes
+         LEFT JOIN identity_pointer_stats stats ON stats.related_change_id = changes.id
+         LEFT JOIN identity_pollution pollution ON pollution.related_change_id = changes.id
         WHERE ${where.join(" AND ")}
-        ORDER BY last_seen DESC
+        ORDER BY changes.last_seen DESC
         LIMIT ? OFFSET ?`
     )
     .bind(...binds, lim, off)
     .all();
-  return rows.results || [];
+  return (rows.results || []).map((row) => ({
+    ...row,
+    recurrence: projectRelatedChangeRecurrence(row),
+  }));
 }
 
 /**
@@ -245,8 +302,16 @@ export async function getAssessmentContext(env, workspaceId) {
 
 export async function getRelatedChange(env, workspaceId, id) {
   const cluster = await env.cybermeters_db
-    .prepare(`SELECT * FROM related_changes WHERE workspace_id = ? AND id = ?`)
-    .bind(workspaceId, id)
+    .prepare(`${RELATED_CHANGE_IDENTITY_POINTER_CTES}
+      SELECT changes.*,
+             COALESCE(stats.identity_pointer_count, 0) -
+               COALESCE(stats.identity_resolved_pointer_count, 0) AS identity_unresolved_pointer_count,
+             COALESCE(pollution.polluted, 0) AS identity_polluted_tuple_count
+        FROM related_changes changes
+        LEFT JOIN identity_pointer_stats stats ON stats.related_change_id = changes.id
+        LEFT JOIN identity_pollution pollution ON pollution.related_change_id = changes.id
+       WHERE changes.workspace_id = ? AND changes.id = ?`)
+    .bind(workspaceId, workspaceId, id)
     .first();
   if (!cluster) return null;
   const evidence = await env.cybermeters_db
@@ -259,7 +324,10 @@ export async function getRelatedChange(env, workspaceId, id) {
     )
     .bind(id, workspaceId)
     .all();
-  return { cluster, evidence: evidence.results || [] };
+  return {
+    cluster: { ...cluster, recurrence: projectRelatedChangeRecurrence(cluster) },
+    evidence: evidence.results || [],
+  };
 }
 
 // ── Customer feedback (append-only via audit_events) ─────────────────────────

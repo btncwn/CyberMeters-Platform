@@ -19,6 +19,7 @@ import { buildMonitoringTransitionDetail, isMonitoringTransition } from "./alert
 import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
 import { SAAS_EXPOSURE_CATALOGUE_URLS } from "./discovery-scan.js";
+import { IDENTITY_CANONICAL_SHADOW_QUERY } from "./identity-evidence-contract.js";
 
 function newId(prefix) {
   const uuid = (globalThis.crypto?.randomUUID?.() || "").replace(/-/g, "");
@@ -166,7 +167,7 @@ async function gatherShadowItObservations(env, workspaceId, saasExposure, {
     obs.push({ source_table: "workspace_assets", source_record_id: r.id, source_type: "cloud_asset", observed_identifier: r.cloud_provider, name: meta.display, category: meta.category, first_seen_at: r.first_seen, last_seen_at: r.last_seen, confidence: "medium", hostnames: r.hostname ? [r.hostname] : [] });
   }
   // 3. identity_assets — externally observed identity providers.
-  const identityRead = await readSourceRows(env, "identity_assets", `SELECT id, hostname, provider, risk_score, first_seen, last_seen FROM identity_assets WHERE workspace_id = ? AND status = 'active' AND provider IS NOT NULL AND provider != ''`, workspaceId);
+  const identityRead = await readSourceRows(env, "identity_assets", IDENTITY_CANONICAL_SHADOW_QUERY, workspaceId);
   sourceOutcomes.identity_assets = identityRead.outcome;
   for (const r of identityRead.rows) {
     obs.push({ source_table: "identity_assets", source_record_id: r.id, source_type: "identity_provider", observed_identifier: r.provider, name: r.provider, category: "identity_provider", first_seen_at: r.first_seen, last_seen_at: r.last_seen, confidence: (r.risk_score || 0) >= 20 ? "high" : "medium", hostnames: r.hostname ? [r.hostname] : [] });

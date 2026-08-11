@@ -69,6 +69,7 @@ function makeD1(database) {
 function makePersistenceFixture() {
   const database = new DatabaseSync(":memory:");
   database.exec(`
+    CREATE TABLE workspaces (id TEXT PRIMARY KEY, deleted_at TEXT);
     CREATE TABLE workspace_domains (workspace_id TEXT NOT NULL, domain_id TEXT NOT NULL);
     CREATE TABLE identity_assets (
       id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, domain_id TEXT NOT NULL,
@@ -84,6 +85,7 @@ function makePersistenceFixture() {
       source_module TEXT, created_at TEXT, updated_at TEXT,
       UNIQUE (workspace_id, vendor_name, category)
     );
+    INSERT INTO workspaces (id, deleted_at) VALUES ('ws-u2', NULL);
     INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws-u2', 'domain-u2');
   `);
   return { database, env: { cybermeters_db: makeD1(database) } };

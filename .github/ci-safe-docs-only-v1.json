@@ -52,7 +52,7 @@
           "frontend/package.json",
           "frontend/package-lock.json"
         ],
-        "scope_sha256": "e0a28545e9511667474e1c14b64d7aa1691df9a10f999084b64c676ffedf7a2d",
+        "scope_sha256": "bd499f7532b9c86c6602e589467c37585ca29460baefa7bf9141b0ce26491117",
         "scope_file_count": 3,
         "source_graph_review": "Entry point has only Node built-ins plus TypeScript resolved from frontend; SOURCE_ROOTS is workers, frontend/src, shared and scripts, with no docs or CHANGELOG input.",
         "negative_without_docs": "PASS: exact command exit 0 in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent; fixture worktree clean",
@@ -87,7 +87,7 @@
           "frontend/package.json",
           "frontend/package-lock.json"
         ],
-        "scope_sha256": "65fd7ec06e9d9bcde77f8550247274029c015bca2583cb9f7b16975b2a01f063",
+        "scope_sha256": "05b335da1fb47b7ad044daf4ed5a13552734e20a0c8e0166a797599ad2cd637b",
         "scope_file_count": 7,
         "source_graph_review": "Runner uses Node built-ins, git fingerprinting, the inventory child and three pinned non-doc mutation targets; the child source-root contract excludes docs and CHANGELOG.",
         "negative_without_docs": "PASS: exact command exit 0 with 20/20 mutants, 1/1 negative control and full fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
@@ -119,8 +119,8 @@
           "shared",
           "frontend/src/lib/caseDisplay.js"
         ],
-        "scope_sha256": "12175d0326723265ded37d10e17acb7d91a076213cbd0cc800029d543b1dbb7b",
-        "scope_file_count": 314,
+        "scope_sha256": "73a5184b885fb63b19dc35717e806a18eb18a2aaf6160c9414270e31232b11de",
+        "scope_file_count": 315,
         "source_graph_review": "Reviewed dynamic imports, source reads, schema/migration loader, fresh-process mutants and case-display import; every repository input is in database, workers, shared or frontend/src.",
         "negative_without_docs": "PASS: exact command exit 0 (171/171) in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
         "positive_workflow_baseline": "run 30699425358: 35s, success"
@@ -150,8 +150,8 @@
           "workers/scan-api/src",
           "frontend/src"
         ],
-        "scope_sha256": "fcb24e18934ea403da86fd7e9ee777e1969166104ae75c8d4f4d8e29d11d0ff8",
-        "scope_file_count": 526,
+        "scope_sha256": "1e54595a4f3da3e076457fc445dd2961b203b806bda8ddc25ae536c5211e2aa7",
+        "scope_file_count": 527,
         "source_graph_review": "Reviewed dynamic imports, source reads, schema/migration loader, Worker index import, frontend case display/queue reads and fresh-process mutants; no docs path is reachable.",
         "negative_without_docs": "PASS: exact command exit 0 (233/233) in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
         "positive_workflow_baseline": "run 30699425358: 28s, success"
@@ -182,7 +182,7 @@
           "frontend/package-lock.json",
           "frontend/vite.config.js"
         ],
-        "scope_sha256": "c64d3c26ea882a91709dd87ad369b94f0c9db0e10381ddd03dec36bf16f60cd1",
+        "scope_sha256": "dc620aa0a627de2f5ce6ef558d8967af71fa9fdf6a0d53c6e7b120e7dea31bce",
         "scope_file_count": 219,
         "source_graph_review": "Reviewed mutation target, validator child, git fingerprint, AST closure and Vitest carrier; inputs are the two scripts plus frontend source/config/dependencies.",
         "negative_without_docs": "PASS: exact command exit 0 with 8/8 exact mutant kills and fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
@@ -214,7 +214,7 @@
           "frontend/package-lock.json",
           "frontend/vite.config.js"
         ],
-        "scope_sha256": "3e369a94d470431b839b026cfcb1b3e7f549a33ca59dd3a23204d4ca6b2e8638",
+        "scope_sha256": "a18255f07c1c874d45aedaf0a4fccade084367ccdb76f81bcdcaee513d83f9d9",
         "scope_file_count": 219,
         "source_graph_review": "Reviewed mutation target, validator child, git fingerprint, AST closure and Vitest carrier; inputs are the two scripts plus frontend source/config/dependencies.",
         "negative_without_docs": "PASS: exact command exit 0 with 9/9 exact mutant kills and fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
@@ -241,7 +241,7 @@
         "scope_paths": [
           "frontend"
         ],
-        "scope_sha256": "224087974395f7dbffddc9f1e1e75acb50518a23631f942d50a25d07f722816f",
+        "scope_sha256": "bb40cf3a26d6051520a8752c67544cf124ae7b91122ebaa7ac97892683ecc5f9",
         "scope_file_count": 232,
         "source_graph_review": "Reviewed package script, Vite/Vitest config and frontend source/test discovery; generated coverage, dist and node_modules are excluded from the proof fingerprint.",
         "negative_without_docs": "PASS: exact command exit 0 with 63/63 files and 521/521 tests in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",

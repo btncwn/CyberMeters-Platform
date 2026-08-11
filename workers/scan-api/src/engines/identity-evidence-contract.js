@@ -8,6 +8,156 @@ export const IDENTITY_EVIDENCE_SCHEMA_VERSION = "identity_evidence.v2";
 export const IDENTITY_CONFIDENCE_SCHEMA_VERSION = "identity_confidence.v1";
 export const IDENTITY_CLAIM_SCHEMA_VERSION = "identity_claim.v2";
 
+// U1 canonical storage/read grain. Keep this as the only declaration of the
+// tuple so writers, consumers and mutation tests cannot silently diverge.
+export const CANONICAL_IDENTITY_TUPLE_COLUMNS = Object.freeze([
+  "workspace_id", "domain_id", "identity_type",
+  "IFNULL(hostname,'')", "IFNULL(provider,'')",
+]);
+
+// Existing rows are immutable evidence history. Reads collapse legacy physical
+// multiplicity deterministically without a migration or delimiter-built key.
+// The representative owns the stable pointer; the latest row owns mutable
+// observation payload; group aggregates own first/last/risk semantics.
+export const CANONICAL_IDENTITY_CTE = `
+WITH identity_ranked AS (
+  SELECT ia.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY workspace_id, domain_id, identity_type,
+                        IFNULL(hostname, ''), IFNULL(provider, '')
+           ORDER BY first_seen ASC, created_at ASC, id ASC
+         ) AS representative_rank,
+         ROW_NUMBER() OVER (
+           PARTITION BY workspace_id, domain_id, identity_type,
+                        IFNULL(hostname, ''), IFNULL(provider, '')
+           ORDER BY last_seen DESC,
+                    COALESCE(updated_at, created_at, '') DESC,
+                    scan_id DESC, id DESC
+         ) AS latest_rank
+    FROM identity_assets ia
+   WHERE workspace_id = ? AND status = 'active'
+),
+identity_groups AS (
+  SELECT workspace_id, domain_id, identity_type,
+         IFNULL(hostname, '') AS canonical_hostname,
+         IFNULL(provider, '') AS canonical_provider,
+         MIN(first_seen) AS first_seen,
+         MAX(last_seen) AS last_seen,
+         MAX(risk_score) AS risk_score,
+         COUNT(*) AS historical_row_count
+    FROM identity_ranked
+   GROUP BY workspace_id, domain_id, identity_type,
+            IFNULL(hostname, ''), IFNULL(provider, '')
+),
+identity_representatives AS (
+  SELECT * FROM identity_ranked WHERE representative_rank = 1
+),
+identity_latest AS (
+  SELECT * FROM identity_ranked WHERE latest_rank = 1
+),
+canonical_identity_assets AS (
+  SELECT representative.id,
+         grouped.workspace_id,
+         grouped.domain_id,
+         latest.scan_id,
+         NULLIF(grouped.canonical_hostname, '') AS hostname,
+         representative.asset_type,
+         grouped.identity_type,
+         NULLIF(grouped.canonical_provider, '') AS provider,
+         representative.internet_exposed,
+         representative.source,
+         grouped.risk_score,
+         latest.evidence,
+         grouped.first_seen,
+         grouped.last_seen,
+         representative.status,
+         representative.created_at,
+         latest.updated_at,
+         grouped.historical_row_count
+    FROM identity_groups grouped
+    JOIN identity_representatives representative
+      ON representative.workspace_id = grouped.workspace_id
+     AND representative.domain_id = grouped.domain_id
+     AND representative.identity_type = grouped.identity_type
+     AND IFNULL(representative.hostname, '') = grouped.canonical_hostname
+     AND IFNULL(representative.provider, '') = grouped.canonical_provider
+    JOIN identity_latest latest
+      ON latest.workspace_id = grouped.workspace_id
+     AND latest.domain_id = grouped.domain_id
+     AND latest.identity_type = grouped.identity_type
+     AND IFNULL(latest.hostname, '') = grouped.canonical_hostname
+     AND IFNULL(latest.provider, '') = grouped.canonical_provider
+)
+`;
+
+export const IDENTITY_CANONICAL_SUMMARY_TOTAL_QUERY = `${CANONICAL_IDENTITY_CTE}
+SELECT COUNT(*) AS n FROM canonical_identity_assets`;
+export const IDENTITY_CANONICAL_SUMMARY_TYPE_QUERY = `${CANONICAL_IDENTITY_CTE}
+SELECT identity_type, COUNT(*) AS n FROM canonical_identity_assets GROUP BY identity_type`;
+export const IDENTITY_CANONICAL_SUMMARY_PROVIDER_QUERY = `${CANONICAL_IDENTITY_CTE}
+SELECT provider, COUNT(*) AS n FROM canonical_identity_assets
+ WHERE provider IS NOT NULL AND provider != ''
+ GROUP BY provider ORDER BY n DESC, provider ASC`;
+export const IDENTITY_CANONICAL_SUMMARY_HIGH_RISK_QUERY = `${CANONICAL_IDENTITY_CTE}
+SELECT COUNT(*) AS n FROM canonical_identity_assets WHERE risk_score >= 15`;
+export const IDENTITY_CANONICAL_EXPOSURE_QUERY = `${CANONICAL_IDENTITY_CTE}
+SELECT hostname, identity_type, provider, internet_exposed, risk_score
+  FROM canonical_identity_assets
+ ORDER BY risk_score DESC, internet_exposed DESC, id ASC LIMIT 100`;
+export const IDENTITY_CANONICAL_SHADOW_QUERY = `${CANONICAL_IDENTITY_CTE}
+SELECT id, hostname, provider, risk_score, first_seen, last_seen
+  FROM canonical_identity_assets
+ WHERE provider IS NOT NULL AND provider != ''`;
+export const IDENTITY_CANONICAL_LIFECYCLE_QUERY = `${CANONICAL_IDENTITY_CTE}
+SELECT id, domain_id, hostname, asset_type, identity_type, provider,
+       internet_exposed, source, risk_score, evidence, first_seen, last_seen
+  FROM canonical_identity_assets`;
+export const IDENTITY_CANONICAL_RELATED_CHANGES_QUERY = `${CANONICAL_IDENTITY_CTE}
+SELECT id, hostname, identity_type, provider, first_seen
+  FROM canonical_identity_assets
+ WHERE first_seen >= ? AND first_seen <= ?`;
+
+export function buildCanonicalIdentityListQuery({ filterType, filterProvider, filterRisk } = {}) {
+  const clauses = [];
+  if (filterType) clauses.push("identity_type = ?");
+  if (filterProvider) clauses.push("provider = ?");
+  if (filterRisk !== null && filterRisk !== undefined) clauses.push("risk_score >= ?");
+  return `${CANONICAL_IDENTITY_CTE}
+SELECT * FROM canonical_identity_assets${clauses.length ? ` WHERE ${clauses.join(" AND ")}` : ""}
+ ORDER BY risk_score DESC, first_seen DESC, id ASC LIMIT ?`;
+}
+
+export const IDENTITY_CANONICAL_LIST_QUERY = buildCanonicalIdentityListQuery({});
+
+export const RELATED_CHANGE_RECURRENCE_SCHEMA_VERSION = "related_change_recurrence.v2";
+
+export function projectRelatedChangeRecurrence(row = {}) {
+  const polluted = Number(row.identity_polluted_tuple_count || 0);
+  const unresolved = Number(row.identity_unresolved_pointer_count || 0);
+  if (polluted > 0) return {
+    schema_version: RELATED_CHANGE_RECURRENCE_SCHEMA_VERSION,
+    status: "not_comparable", count: null,
+    reason: "legacy_identity_multiplicity",
+    source: "canonical_evidence_projection",
+  };
+  if (unresolved > 0 || !Number.isInteger(Number(row.recurrence_count)) || Number(row.recurrence_count) < 1) return {
+    schema_version: RELATED_CHANGE_RECURRENCE_SCHEMA_VERSION,
+    status: "unknown", count: null,
+    reason: "identity_evidence_unavailable",
+    source: "canonical_evidence_projection",
+  };
+  return {
+    schema_version: RELATED_CHANGE_RECURRENCE_SCHEMA_VERSION,
+    status: "comparable", count: Number(row.recurrence_count), reason: null,
+    source: "canonical_evidence_projection",
+  };
+}
+
+// Raw-access allow-list (NEW in U1): related-changes.js may access physical
+// identity_assets solely for append-only/audit pointer resolution, detecting
+// legacy tuple pollution and missing references. It must never
+// use that raw join as a customer count or canonical identity consumer.
+
 export const IDENTITY_EVIDENCE_SOURCES = Object.freeze([
   "cname", "spf", "mx", "csp", "server",
   "certificate_transparency", "dns_bruteforce", "dns_mx", "unknown",

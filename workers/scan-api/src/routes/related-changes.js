@@ -13,10 +13,11 @@ import {
   CUSTOMER_STATES, CUSTOMER_FEEDBACK_STATES,
   RELATED_CHANGES_CAUSALITY_NOTICE,
 } from "../engines/related-changes.js";
+import { projectRelatedChangeRecurrence } from "../engines/identity-evidence-contract.js";
 import { parseBoundedInteger } from "../lib/util.js";
 
 // Customer-safe projection — never exposes the internal cluster_key.
-function clusterToApi(row) {
+export function clusterToApi(row) {
   return {
     id: row.id,
     registrable_domain: row.registrable_domain,
@@ -29,6 +30,7 @@ function clusterToApi(row) {
     customer_state: row.customer_state,
     first_seen: row.first_seen ?? null,
     last_seen: row.last_seen ?? null,
+    recurrence: projectRelatedChangeRecurrence(row),
     recurrence_count: row.recurrence_count ?? 1,
     linked_case_id: row.linked_case_id ?? null,
     created_at: row.created_at ?? null,

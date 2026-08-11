@@ -121,7 +121,10 @@ const d1 = byHost(items, "login.example.com");
 ok("exactly one record for login.example.com (two sources merged)", items.filter((i) => i.primary_hostname === "login.example.com").length === 1);
 eq("provider alias applied on the record", d1.provider_key, "microsoft_entra_id");
 eq("surface type derived", d1.surface_type, "login_portal");
-ok("two source evidence refs unioned", (d1.source_evidence || []).length >= 2);
+ok("canonical representative supplies one stable source evidence ref while raw history remains",
+  (d1.source_evidence || []).length === 1 &&
+  d1.source_evidence[0]?.source_record_id === d1old &&
+  db.prepare("SELECT COUNT(*) AS n FROM identity_assets WHERE workspace_id='ws1' AND domain_id='d1'").get().n === 2);
 eq("fresh record is unreviewed", d1.customer_classification, "unreviewed");
 eq("externally_observed is always true", d1.externally_observed, true);
 ok("unknown signals carried (no MFA/breach/dark-web claim)",

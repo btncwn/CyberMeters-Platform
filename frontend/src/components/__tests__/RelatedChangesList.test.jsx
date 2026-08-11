@@ -21,6 +21,7 @@ const CLUSTERS = [
     first_seen: '2026-07-10T00:00:00Z',
     last_seen: '2026-07-12T00:00:00Z',
     recurrence_count: 1,
+    recurrence: { schema_version: 'related_change_recurrence.v2', status: 'comparable', count: 1, reason: null, source: 'canonical_evidence_projection' },
     linked_case_id: null,
   },
   {
@@ -36,6 +37,7 @@ const CLUSTERS = [
     first_seen: '2026-07-15T00:00:00Z',
     last_seen: '2026-07-18T00:00:00Z',
     recurrence_count: 4,
+    recurrence: { schema_version: 'related_change_recurrence.v2', status: 'comparable', count: 4, reason: null, source: 'canonical_evidence_projection' },
     linked_case_id: 'case-9',
   },
 ]
@@ -71,6 +73,28 @@ function renderList() {
 }
 
 describe('RelatedChangesList', () => {
+  it('uses authoritative recurrence and never falls back to a polluted raw count', async () => {
+    api.getRelatedChanges.mockResolvedValue({
+      related_changes: [{
+        ...CLUSTERS[1], recurrence_count: 99,
+        recurrence: {
+          schema_version: 'related_change_recurrence.v2', status: 'not_comparable', count: null,
+          reason: 'legacy_identity_multiplicity', source: 'canonical_evidence_projection',
+        },
+      }],
+    })
+    renderList()
+    expect(await screen.findByText(/Recurrence not comparable/)).toBeInTheDocument()
+    expect(screen.queryByText(/Seen 99 times/)).not.toBeInTheDocument()
+  })
+
+  it('renders malformed or missing recurrence as unavailable without raw fallback', async () => {
+    api.getRelatedChanges.mockResolvedValue({ related_changes: [{ ...CLUSTERS[1], recurrence_count: 88, recurrence: null }] })
+    renderList()
+    expect(await screen.findByText(/Recurrence unavailable/)).toBeInTheDocument()
+    expect(screen.queryByText(/Seen 88 times/)).not.toBeInTheDocument()
+  })
+
   it('renders a loading state before data resolves', () => {
     api.getRelatedChanges.mockReturnValue(new Promise(() => {}))
     renderList()
