@@ -5,6 +5,7 @@
 import { createId } from "../lib/util.js";
 import { BRAND_SUSPICIOUS_TLDS, brandSimilarityScore, buildBrandIdnEvidence, normalizeBrandVariantType, scoreBrandCandidateRisk } from "./brand-protection.js";
 import { HIGH_RISK_BRAND_KEYWORDS, extractBrandParts } from "./brand-typosquat.js";
+import { serializeIdentityEvidence } from "./identity-evidence-contract.js";
 
 const PROTECTED_BRAND_CLASSIFICATIONS = new Set([
   "owned", "ignored", "benign", "false_positive", "dismissed",
@@ -305,7 +306,7 @@ export async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
     for (const asset of allAssets) {
       try {
         const id           = createId("idasset");
-        const evidenceJson = JSON.stringify(asset.evidence ?? []);
+        const evidenceJson = serializeIdentityEvidence(asset.evidence);
         const hostname     = asset.hostname ?? null;
 
         await env.cybermeters_db
@@ -341,7 +342,13 @@ export async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
             asset.provider ?? null, asset.provider ?? null
           )
           .run();
-      } catch { /* non-fatal per-asset failure */ }
+      } catch (error) {
+        console.error("Identity asset persistence failed", {
+          workspace_id,
+          identity_type: asset?.identity_type ?? null,
+          error: error?.message ?? "unknown error",
+        });
+      }
     }
 
     // Also upsert identity providers into workspace_vendors so they appear
@@ -349,7 +356,7 @@ export async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
     for (const provider of (identityMod.providers ?? [])) {
       try {
         const vid = createId("vendor");
-        const evJson = JSON.stringify(provider.evidence ?? []);
+        const evJson = serializeIdentityEvidence(provider.evidence);
         await env.cybermeters_db
           .prepare(
             `INSERT OR IGNORE INTO workspace_vendors
@@ -373,7 +380,13 @@ export async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
           )
           .bind(now, evJson, provider.confidence, now, workspace_id, provider.provider)
           .run();
-      } catch { /* non-fatal */ }
+      } catch (error) {
+        console.error("Identity vendor persistence failed", {
+          workspace_id,
+          provider: provider?.provider ?? null,
+          error: error?.message ?? "unknown error",
+        });
+      }
     }
   }
 }
