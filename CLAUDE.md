@@ -21,9 +21,16 @@ This section overrides older workflow wording that conflicts with the canonical
 operating model. It does not override platform safety rules or founder-reserved
 boundaries.
 
-Version: July 2026
+Version: August 2026
 
-Last updated: 20 July 2026 (latest git release tag `v2026.07.20-7`; live Worker `b6b52726` (rollback `01f0a2f4`); latest applied migration `098-related-changes.sql`. Since 18 July: Brand Protection PR-A/B/C, Shadow IT Alert Trust PR-1/PR-2, Weekly Digest Truth, UC3 case surface/transitions, M6 Phase B1 Related Changes, H1 validator recovery + anti-orphan CI governance, anti-date-rot governance, and the trust & UX closure are all engineering-complete and deployed — **each remains PENDING FOUNDER PRODUCTION ACCEPTANCE; none may be described as accepted**. Per-release facts: `CHANGELOG.md`.)
+Last updated: 11 August 2026. GitHub `main` is mechanically measured at
+`2287212c31f418f7188cb4bc9e027f19dc6fccb6` (PR #404), and the latest tag is
+`v2026.08.03-2`. Source contains migrations through
+`107-finding-canonical-identity.sql`; the current production-applied boundary
+remains `098-related-changes.sql`. Never infer application from a migration file
+or merge. The 22 post-tag PR merges are source-only pending a governed release,
+deployment and production acceptance. Item 11 has not started. Per-release and
+rollback facts: `CHANGELOG.md`.
 
 ---
 
@@ -31,9 +38,14 @@ Last updated: 20 July 2026 (latest git release tag `v2026.07.20-7`; live Worker 
 
 CyberMeters is in:
 
-> **Pre-public-beta managed-platform completion**
+> **Pre-public-beta managed-platform completion — final pre-Item11 correction**
 
-M5 Completion Across All Eight Domains is engineering-complete (M5.a–M5.g all CLOSED). The **active canonical episode is "Posture Timeline Trust & Actionability"** — the founder-approved RESCOPE of M6. The M6.0 viability gate ran to conclusion: M6.0-A (competitive differentiation hypothesis) PASSED, and M6.0-B (sensor sufficiency + real-data proof) ran on 18 July 2026 and the founder ruled RESCOPE (the GO criteria were not met). The earlier plan to build the behaviour engine to completion before pricing is therefore superseded. **Behaviour Intelligence (cross-domain correlation as a category) is deferred as a sensor-dependent, founder-gated programme — not promised functionality.** **M7 — Pricing + Billing Alignment — is the following gate.** The single authoritative definition, scope and acceptance criteria for the active episode and M7 live in `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` (Pre-Public-Beta Gate Sequence) and `docs/EPISODE-PLAN-posture-timeline-trust.md`; this file does not restate or redefine them. **Phase A of the episode (timeline-trust: comparability/producer-version gate + flip-flop collapse on `asset_events`) is deployed (Worker `89c398b1`, 18 July 2026) and production-accepted (PASS, 18 July 2026) — code-only, no migration; Phase B (UC3 host-level correlation) is not started (founder-gated).**
+The current bounded gate is release/governance closure H-06/H-07/H-08/H-09.
+H-01 and H-04 are merged in source through PRs #403 and #404. Nothing after
+`v2026.08.03-2` is recorded here as deployed, migration-applied or
+production-accepted, and Item 11 has not started. The earlier M6/M7 narrative
+below is historical roadmap context, not authority to relabel the current
+source state or begin later work.
 
 Do not state that controlled invite-only beta is already GO.
 
@@ -265,26 +277,35 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
 | M5 Completion Across All Eight Domains | Complete — M5.a–M5.g all CLOSED (deployed through `v2026.07.17-5`, migration `095`; M5.g is a CI-only closure, no deploy). |
-| M6 → RESCOPE: Posture Timeline Trust & Actionability | ACTIVE EPISODE. M6.0-A PASSED; M6.0-B ran 18 July 2026, founder ruled RESCOPE (GO criteria unmet). **Phase A (timeline-trust) deployed (Worker `89c398b1`, 18 July 2026; rollback `9d2f96b1`) + production-accepted (PASS, 18 July 2026); code-only, no migration. Phase B (UC3 host-level correlation) NOT started — founder-gated.** Behaviour Intelligence deferred (sensor-dependent, founder-gated). Scope/acceptance defined only in `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` and `docs/EPISODE-PLAN-posture-timeline-trust.md`. |
-| M7 Pricing + Billing Alignment | Following gate (after the active episode). |
-| Debugging and Reliability Hardening | Planned after the active episode + M7 |
+| Pre-Item11 final correction | **IN PROGRESS.** H-01/H-04 are merged in source through PRs #403/#404. H-06/H-07/H-08/H-09 are the current bounded release/governance corrective. No post-`v2026.08.03-2` source is recorded as deployed or accepted; Item 11 has not started. |
+| M6 → RESCOPE: Posture Timeline Trust & Actionability | Historical July episode record. Phase A was deployed and production-accepted on 18 July 2026. This row is not the current source/release gate. |
+| M7 Pricing + Billing Alignment | Earlier roadmap gate; this corrective does not reclassify its historical product status. |
+| Debugging and Reliability Hardening | Pre-Item11 correction in progress |
 | Pentesting and Security Assurance | Planned after managed lifecycle completion |
 | Founder-Controlled Acceptance Testing | Planned |
 | Final Public-Beta Gate | Planned |
 | First Two Controlled Invitations | After final gate |
 
-Current release facts (as of 20 July 2026):
+Current release facts (mechanically measured 11 August 2026):
 
-- latest git release tag: `v2026.07.20-7` (trust & UX closure);
-- live Worker Version ID: `b6b52726-4b33-4ffc-b930-e73d17df11e1` (deployed 2026-07-20 from main `208d5e5`; verified at `GET /health`);
-- rollback Worker Version ID: `01f0a2f4-a431-4e6e-b8fb-7264fd99bd30` (v2026.07.20-6);
-- latest migration applied to production: `098-related-changes.sql` (applied 19 July 2026);
-- Phase A (timeline-trust) production acceptance: **PASS (18 July 2026)** — evidence in `CHANGELOG.md`;
-- shipped since 18 July, all engineering-complete and **PENDING FOUNDER PRODUCTION ACCEPTANCE** (never describe as accepted): Brand Protection PR-A/B/C (`v2026.07.20-1..3`), Shadow IT Alert Trust PR-1/PR-2 (`v2026.07.20-4/-5`), Weekly Digest Truth (`v2026.07.20-6`), UC3 case surface/transitions, M6 Phase B1 Related Changes (mig `098`), H1 validator recovery + anti-orphan CI governance, anti-date-rot governance, trust & UX closure (`v2026.07.20-7`);
-- per-release detail (PRs, Worker IDs, evidence) is authoritative in `CHANGELOG.md`;
-- Behaviour Intelligence remains deferred (sensor-dependent, founder-gated); M7 Pricing + Billing Alignment remains the following gate.
+- GitHub `main`: `2287212c31f418f7188cb4bc9e027f19dc6fccb6`;
+- latest git release tag: `v2026.08.03-2` at
+  `5f72fe40602d1faf45d229dcec4151dd9d890e6e`;
+- source delta after that tag: 51 commits / 22 first-parent PR merges through
+  #404; merge status is not deployment or acceptance;
+- latest source migration: `107-finding-canonical-identity.sql`; latest recorded
+  production-applied migration: `098-related-changes.sql`. Migration 107 is not
+  recorded as applied;
+- coordinated Worker source identity:
+  `2026.08.11-brand-h01-soft-delete.dfa1140a1ba4`; its `dfa1140a1ba4`
+  suffix is the 12-character prefix of the email-worker closure SHA-256, not a
+  Git commit;
+- fast-aging deployment and rollback IDs are authoritative only in
+  `CHANGELOG.md`;
+- current gate: final pre-Item11 release/governance closure. Item 11 is not
+  started.
 
-**M5 (a–g) is COMPLETE** — the account below is the record of how it was completed and remains valid history; the active canonical episode is now the RESCOPE of M6 ("Posture Timeline Trust & Actionability"). Its pre-change parity audit across all eight domains found four false
+**M5 (a–g) is COMPLETE** — the account below is the record of how it was completed and remains valid history. Its pre-change parity audit across all eight domains found four false
 evidence claims live in production, and the founder sequenced them first as data-integrity
 defects. That corrective is **closed** (`v2026.07.16-6`): the Executive PDF no longer calls
 certificates "fully validated" when only HTTPS/redirect/expiry were checked; Certificates &
@@ -471,14 +492,18 @@ Do not frame planned completion work as product failure unless it is a real acti
 
 Unless the founder explicitly changes the roadmap:
 
+The sequence is retained as the long-range roadmap baseline. Current source is
+at the final pre-Item11 release/governance gate; the historical M6/M7 labels
+below do not authorise deployment, acceptance claims or later-phase work.
+
 1. Certificates Managed Lifecycle (complete — Live)
 2. Identity Exposure Managed Workflow (complete — Live)
 3. Complete ASM Verification (complete — Live)
 4. Alerts Across All Eight Domains (complete — Live, 8 of 8; genuine live-event acceptance outstanding)
 5. MSP Portfolio Per-Domain State and Trend (Live — built, NOT customer-accepted; acceptance outstanding)
 6. M5 Completion Across All Eight Domains (COMPLETE — M5.a–M5.g all CLOSED)
-7. Posture Timeline Trust & Actionability — the RESCOPE of M6 (ACTIVE — **Phase A deployed + production-accepted 18 July 2026; Phase B (UC3) not started, founder-gated**; scope/acceptance in `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` and `docs/EPISODE-PLAN-posture-timeline-trust.md`. Behaviour Intelligence deferred as a sensor-dependent, founder-gated programme)
-8. M7 Pricing + Billing Alignment (following gate)
+7. Posture Timeline Trust & Actionability — historical July episode record; Phase A was production-accepted on 18 July 2026
+8. M7 Pricing + Billing Alignment — earlier roadmap gate; not reclassified by this corrective
 9. Systematic debugging and reliability engineering
 10. Security testing and pentesting
 11. Founder-controlled acceptance testing
@@ -486,7 +511,8 @@ Unless the founder explicitly changes the roadmap:
 13. First two controlled customer invitations
 14. Gradual cohort expansion
 
-Do not begin a later roadmap phase before the active canonical episode is closed.
+Do not begin Item 11 or a later roadmap phase before the current pre-Item11 gate
+is closed.
 
 Exceptions:
 

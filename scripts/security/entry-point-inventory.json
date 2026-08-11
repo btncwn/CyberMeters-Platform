@@ -9,6 +9,7 @@
     "workers/scan-api/src/routes/auth.js",
     "workers/scan-api/src/routes/billing.js",
     "workers/scan-api/src/routes/brand.js",
+    "workers/scan-api/src/routes/certificate-shared-san-projection.js",
     "workers/scan-api/src/routes/certificates-lifecycle.js",
     "workers/scan-api/src/routes/cyber-essentials-controls.js",
     "workers/scan-api/src/routes/domains.js",
