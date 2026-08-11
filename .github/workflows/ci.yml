@@ -656,6 +656,12 @@ jobs:
       - name: Validate Identity producer truth semantic mutations
         run: node scripts/mutate-identity-producer-truth.js
 
+      - name: Validate Identity canonical substrate idempotence and Related Changes recurrence honesty
+        run: node scripts/validate-identity-substrate-idempotence.js
+
+      - name: Validate Identity canonical substrate semantic mutations
+        run: node scripts/mutate-identity-substrate-idempotence.js
+
       - name: Validate identity disappearance verification honesty mutations
         run: node scripts/validate-identity-disappearance-verification-mutations.js
 

@@ -34,6 +34,7 @@
 //     cluster mixing materialising + resolving events would be mixed noise (§4.5).
 
 import { getRegisteredDomain } from "./whois-scan.js";
+import { IDENTITY_CANONICAL_RELATED_CHANGES_QUERY } from "./identity-evidence-contract.js";
 import {
   DMARC_POLICY_CONDITION_RECORD_TYPE,
   DMARC_RELATED_CHANGES_SUBTYPES,
@@ -264,12 +265,7 @@ export async function collectChangeEvents(env, { workspaceId, windowStart, windo
   // 5. identity_assets → identity family (new login/IdP surface by first_seen in window).
   try {
     const rows = await db
-      .prepare(
-        `SELECT id, hostname, identity_type, provider, first_seen
-           FROM identity_assets
-          WHERE workspace_id = ?
-            AND first_seen >= ? AND first_seen <= ?`
-      )
+      .prepare(IDENTITY_CANONICAL_RELATED_CHANGES_QUERY)
       .bind(workspaceId, start, end)
       .all();
     for (const r of rows.results || []) {

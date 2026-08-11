@@ -6,6 +6,13 @@
 import { computeSupplyChainIntelligence } from "../engines/supply-chain.js";
 import { computeIdentityExposure } from "../engines/identity-exposure.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
+import {
+  IDENTITY_CANONICAL_SUMMARY_TOTAL_QUERY,
+  IDENTITY_CANONICAL_SUMMARY_TYPE_QUERY,
+  IDENTITY_CANONICAL_SUMMARY_PROVIDER_QUERY,
+  IDENTITY_CANONICAL_SUMMARY_HIGH_RISK_QUERY,
+  buildCanonicalIdentityListQuery,
+} from "../engines/identity-evidence-contract.js";
 
 export async function workspaceIntelRoutes(rctx) {
   const { request, env, url, json, serverError,
@@ -49,22 +56,24 @@ export async function workspaceIntelRoutes(rctx) {
         try {
           const [totalRow, typeRows, providerRows, highRiskRow] = await env.cybermeters_db.batch([
             env.cybermeters_db
-              .prepare(`SELECT COUNT(*) AS n FROM identity_assets WHERE workspace_id = ? AND status = 'active'`)
+              .prepare(IDENTITY_CANONICAL_SUMMARY_TOTAL_QUERY)
               .bind(wsId),
             env.cybermeters_db
-              .prepare(`SELECT identity_type, COUNT(*) AS n FROM identity_assets WHERE workspace_id = ? AND status = 'active' GROUP BY identity_type`)
+              .prepare(IDENTITY_CANONICAL_SUMMARY_TYPE_QUERY)
               .bind(wsId),
             env.cybermeters_db
-              .prepare(`SELECT provider, COUNT(*) AS n FROM identity_assets WHERE workspace_id = ? AND status = 'active' AND provider IS NOT NULL GROUP BY provider ORDER BY n DESC`)
+              .prepare(IDENTITY_CANONICAL_SUMMARY_PROVIDER_QUERY)
               .bind(wsId),
             env.cybermeters_db
-              .prepare(`SELECT COUNT(*) AS n FROM identity_assets WHERE workspace_id = ? AND status = 'active' AND risk_score >= 15`)
+              .prepare(IDENTITY_CANONICAL_SUMMARY_HIGH_RISK_QUERY)
               .bind(wsId),
           ]);
+          const total = totalRow.results?.[0] ?? totalRow;
+          const highRisk = highRiskRow.results?.[0] ?? highRiskRow;
           return json({
             workspace_id:       wsId,
-            total:              totalRow.n ?? 0,
-            high_risk_count:    highRiskRow.n ?? 0,
+            total:              total.n ?? 0,
+            high_risk_count:    highRisk.n ?? 0,
             by_type:            Object.fromEntries((typeRows.results ?? []).map(r => [r.identity_type, r.n])),
             providers_detected: (providerRows.results ?? []).map(r => ({ provider: r.provider, count: r.n })),
             generated_at:       new Date().toISOString(),
@@ -80,12 +89,13 @@ export async function workspaceIntelRoutes(rctx) {
         const filterProvider = url.searchParams.get("provider");
         const filterRisk     = url.searchParams.get("min_risk_score");
 
-        let query = `SELECT * FROM identity_assets WHERE workspace_id = ? AND status = 'active'`;
+        const parsedRisk = filterRisk ? (parseInt(filterRisk, 10) || 0) : null;
+        const query = buildCanonicalIdentityListQuery({ filterType, filterProvider, filterRisk: parsedRisk });
         const params = [wsId];
-        if (filterType)     { query += ` AND identity_type = ?`;  params.push(filterType); }
-        if (filterProvider) { query += ` AND provider = ?`;       params.push(filterProvider); }
-        if (filterRisk)     { query += ` AND risk_score >= ?`;    params.push(parseInt(filterRisk, 10) || 0); }
-        query += ` ORDER BY risk_score DESC, first_seen DESC LIMIT 200`;
+        if (filterType) params.push(filterType);
+        if (filterProvider) params.push(filterProvider);
+        if (parsedRisk !== null) params.push(parsedRisk);
+        params.push(200);
 
         const rows = await env.cybermeters_db.prepare(query).bind(...params).all();
         const assets = (rows.results ?? []).map(r => ({

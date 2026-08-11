@@ -10,6 +10,8 @@
 // Read-only; never throws. Breached-credential monitoring (HIBP Pro) is a genuine
 // future signal, not represented here until it's real.
 
+import { IDENTITY_CANONICAL_EXPOSURE_QUERY } from "./identity-evidence-contract.js";
+
 const MAX_DOMAINS_FOR_EMAIL = 20;
 
 export async function computeIdentityExposure(env, workspaceId) {
@@ -22,9 +24,7 @@ export async function computeIdentityExposure(env, workspaceId) {
 
   // ── 1. Exposed login / credential surfaces ─────────────────────────────────
   const loginRows = (await db
-    .prepare(`SELECT hostname, identity_type, provider, internet_exposed, risk_score
-              FROM identity_assets WHERE workspace_id = ? AND status = 'active'
-              ORDER BY risk_score DESC, internet_exposed DESC LIMIT 100`)
+    .prepare(IDENTITY_CANONICAL_EXPOSURE_QUERY)
     .bind(workspaceId).all().catch(() => { loginUnavailable = true; return { results: [] }; })).results ?? [];
   const byType = {};
   for (const r of loginRows) byType[r.identity_type] = (byType[r.identity_type] || 0) + 1;

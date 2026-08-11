@@ -17,6 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(ROOT, "workers", "scan-api", "src", "engines", "identity-exposure.js");
+const IDENTITY_CONTRACT_SRC = path.join(ROOT, "workers", "scan-api", "src", "engines", "identity-evidence-contract.js");
 const { computeIdentityExposure, deriveLevel } = await import(pathToFileURL(SRC).href);
 
 let pass = 0, fail = 0;
@@ -105,13 +106,14 @@ ok("computeIdentityExposure over a minimal legacy report does not crash",
   (await compute({ scans: scanRow, reports: { "reports/s1.json": { modules: {} } } })).identity_exposure_level === "Unavailable");
 
 // ── 10. MUTATION HARNESS — the honesty gates are load-bearing ────────────────
-// identity-exposure.js has no imports → mutant re-imports cleanly.
+// Keep the production module boundary intact in the isolated mutant directory.
 const src = fs.readFileSync(SRC, "utf8");
 async function mutant(from, to) {
   if (!src.includes(from)) return { anchor: false };
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "a2-"));
   const file = path.join(dir, "identity-exposure.mjs");
   fs.writeFileSync(file, src.replace(from, to));
+  fs.copyFileSync(IDENTITY_CONTRACT_SRC, path.join(dir, "identity-evidence-contract.js"));
   const m = await import(`${pathToFileURL(file).href}?t=${Date.now()}-${Math.random()}`);
   fs.rmSync(dir, { recursive: true, force: true });
   return { anchor: true, mod: m };

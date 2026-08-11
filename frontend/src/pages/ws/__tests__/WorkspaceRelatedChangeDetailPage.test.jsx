@@ -34,6 +34,7 @@ const DETAIL = {
     first_seen: '2026-07-10T00:00:00Z',
     last_seen: '2026-07-12T00:00:00Z',
     recurrence_count: 1,
+    recurrence: { schema_version: 'related_change_recurrence.v2', status: 'comparable', count: 1, reason: null, source: 'canonical_evidence_projection' },
     linked_case_id: null,
   },
   evidence: [
@@ -88,6 +89,33 @@ function renderDetail(id = 'rc1') {
 }
 
 describe('WorkspaceRelatedChangeDetailPage', () => {
+  it('shows polluted recurrence honestly and ignores the compatible raw count', async () => {
+    api.getRelatedChange.mockResolvedValue({
+      ...DETAIL,
+      related_change: {
+        ...DETAIL.related_change,
+        recurrence_count: 77,
+        recurrence: {
+          schema_version: 'related_change_recurrence.v2', status: 'not_comparable', count: null,
+          reason: 'legacy_identity_multiplicity', source: 'canonical_evidence_projection',
+        },
+      },
+    })
+    renderDetail()
+    expect(await screen.findByText(/Recurrence not comparable/)).toBeInTheDocument()
+    expect(screen.queryByText(/Seen 77 times/)).not.toBeInTheDocument()
+  })
+
+  it('shows missing recurrence as unavailable without raw fallback', async () => {
+    api.getRelatedChange.mockResolvedValue({
+      ...DETAIL,
+      related_change: { ...DETAIL.related_change, recurrence_count: 66, recurrence: null },
+    })
+    renderDetail()
+    expect(await screen.findByText('Recurrence unavailable')).toBeInTheDocument()
+    expect(screen.queryByText(/Seen 66 times/)).not.toBeInTheDocument()
+  })
+
   it('viewer (can_manage false) sees no review or case-linkage controls', async () => {
     api.getRelatedChange.mockResolvedValue({ ...DETAIL, can_manage: false })
     renderDetail()

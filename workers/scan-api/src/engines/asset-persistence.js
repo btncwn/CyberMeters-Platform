@@ -283,7 +283,9 @@ export async function persistBrandCandidateObservation(env, {
 /**
  * upsertIdentityAssets(domainId, scanId, identityMod, env)
  * Phase 8f: Persists identity_discovery results into identity_assets table.
- * INSERT OR IGNORE preserves first_seen; UPDATE refreshes last_seen + risk_score.
+ * A single INSERT ... SELECT ... WHERE NOT EXISTS statement claims the canonical
+ * tuple. A deterministic representative-only UPDATE refreshes mutable fields;
+ * legacy duplicate rows and first_seen remain byte-for-byte history.
  * Also upserts detected IdP providers into workspace_vendors.
  */
 export async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
@@ -292,7 +294,11 @@ export async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
   let wsRows;
   try {
     const r = await env.cybermeters_db
-      .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+      .prepare(`SELECT wd.workspace_id
+                  FROM workspace_domains wd
+                  JOIN workspaces w
+                    ON w.id = wd.workspace_id AND w.deleted_at IS NULL
+                 WHERE wd.domain_id = ?`)
       .bind(domainId)
       .all();
     wsRows = r.results || [];
@@ -311,11 +317,39 @@ export async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
 
         await env.cybermeters_db
           .prepare(
-            `INSERT OR IGNORE INTO identity_assets
+            `WITH candidate
+               (id, workspace_id, domain_id, scan_id, hostname, asset_type,
+                identity_type, provider, internet_exposed, source, risk_score,
+                evidence, first_seen, last_seen, created_at, updated_at) AS (
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             )
+             INSERT INTO identity_assets
                (id, workspace_id, domain_id, scan_id, hostname, asset_type,
                 identity_type, provider, internet_exposed, source, risk_score,
                 evidence, first_seen, last_seen, status, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`
+             SELECT c.id, c.workspace_id, c.domain_id, c.scan_id, c.hostname,
+                    c.asset_type, c.identity_type, c.provider,
+                    c.internet_exposed, c.source, c.risk_score, c.evidence,
+                    c.first_seen, c.last_seen, 'active', c.created_at, c.updated_at
+               FROM candidate c
+              WHERE EXISTS (
+                      SELECT 1 FROM workspaces w
+                       WHERE w.id = c.workspace_id AND w.deleted_at IS NULL
+                    )
+                AND NOT EXISTS (
+                      SELECT 1 FROM identity_assets existing
+                       WHERE existing.workspace_id = c.workspace_id
+                         AND existing.domain_id = c.domain_id
+                         AND existing.identity_type = c.identity_type
+                         AND (
+                               existing.hostname = c.hostname
+                               OR (existing.hostname IS NULL AND c.hostname IS NULL)
+                             )
+                         AND (
+                               existing.provider = c.provider
+                               OR (existing.provider IS NULL AND c.provider IS NULL)
+                             )
+                    )`
           )
           .bind(
             id, workspace_id, domainId, scanId,
@@ -328,18 +362,48 @@ export async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
 
         await env.cybermeters_db
           .prepare(
-            `UPDATE identity_assets
-             SET last_seen = ?, risk_score = ?, evidence = ?,
-                 scan_id = ?, status = 'active', updated_at = ?
-             WHERE workspace_id = ? AND identity_type = ?
-               AND (hostname = ? OR (hostname IS NULL AND ? IS NULL))
-               AND (provider = ? OR (provider IS NULL AND ? IS NULL))`
+             `WITH candidate
+               (workspace_id, domain_id, scan_id, hostname, identity_type,
+                provider, risk_score, evidence, last_seen, updated_at) AS (
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ),
+             target AS (
+               SELECT existing.id
+                 FROM identity_assets existing, candidate c
+                WHERE existing.workspace_id = c.workspace_id
+                  AND existing.domain_id = c.domain_id
+                  AND existing.identity_type = c.identity_type
+                  AND (
+                        existing.hostname = c.hostname
+                        OR (existing.hostname IS NULL AND c.hostname IS NULL)
+                      )
+                  AND (
+                        existing.provider = c.provider
+                        OR (existing.provider IS NULL AND c.provider IS NULL)
+                      )
+                ORDER BY existing.first_seen ASC,
+                         existing.created_at ASC, existing.id ASC
+                LIMIT 1
+             )
+             UPDATE identity_assets
+                SET last_seen = (SELECT last_seen FROM candidate),
+                    risk_score = (SELECT risk_score FROM candidate),
+                    evidence = (SELECT evidence FROM candidate),
+                    scan_id = (SELECT scan_id FROM candidate),
+                    status = 'active',
+                    updated_at = (SELECT updated_at FROM candidate)
+              WHERE id = (SELECT id FROM target)
+                AND workspace_id = (SELECT workspace_id FROM candidate)
+                AND domain_id = (SELECT domain_id FROM candidate)
+                AND EXISTS (
+                      SELECT 1 FROM workspaces w
+                       WHERE w.id = (SELECT workspace_id FROM candidate)
+                         AND w.deleted_at IS NULL
+                    )`
           )
           .bind(
-            now, asset.risk_score, evidenceJson, scanId, now,
-            workspace_id, asset.identity_type,
-            hostname, hostname,
-            asset.provider ?? null, asset.provider ?? null
+            workspace_id, domainId, scanId, hostname, asset.identity_type,
+            asset.provider ?? null, asset.risk_score, evidenceJson, now, now
           )
           .run();
       } catch (error) {
@@ -363,11 +427,15 @@ export async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
                (id, workspace_id, vendor_name, category, source, evidence,
                 confidence, risk_level, first_seen, last_seen, status,
                 source_module, created_at, updated_at)
-             VALUES (?, ?, ?, 'identity_provider', ?, ?, ?, 'high', ?, ?, 'active',
-                     'identity_discovery', ?, ?)`
+             SELECT ?, ?, ?, 'identity_provider', ?, ?, ?, 'high', ?, ?, 'active',
+                    'identity_discovery', ?, ?
+              WHERE EXISTS (
+                    SELECT 1 FROM workspaces w
+                     WHERE w.id = ? AND w.deleted_at IS NULL
+                  )`
           )
           .bind(vid, workspace_id, provider.provider, "identity_discovery", evJson,
-                provider.confidence, now, now, now, now)
+                provider.confidence, now, now, now, now, workspace_id)
           .run();
 
         await env.cybermeters_db
@@ -376,7 +444,12 @@ export async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
              SET last_seen = ?, evidence = ?, confidence = ?,
                  risk_level = 'high', status = 'active',
                  source_module = 'identity_discovery', updated_at = ?
-             WHERE workspace_id = ? AND vendor_name = ? AND category = 'identity_provider'`
+             WHERE workspace_id = ? AND vendor_name = ? AND category = 'identity_provider'
+               AND EXISTS (
+                     SELECT 1 FROM workspaces w
+                      WHERE w.id = workspace_vendors.workspace_id
+                        AND w.deleted_at IS NULL
+                   )`
           )
           .bind(now, evJson, provider.confidence, now, workspace_id, provider.provider)
           .run();

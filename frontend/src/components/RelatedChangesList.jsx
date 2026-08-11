@@ -31,6 +31,20 @@ import {
   emptyStateFor,
 } from '../lib/relatedChangesDisplay'
 
+function recurrenceCopy(recurrence) {
+  if (!recurrence || recurrence.schema_version !== 'related_change_recurrence.v2') return 'Recurrence unavailable'
+  if (recurrence.status === 'comparable' && Number.isInteger(recurrence.count)) {
+    return recurrence.count > 1 ? `Seen ${recurrence.count} times` : null
+  }
+  if (recurrence.status === 'not_comparable' && recurrence.reason === 'legacy_identity_multiplicity') {
+    return 'Recurrence not comparable — historical duplicate identity evidence'
+  }
+  if (recurrence.status === 'unknown' && recurrence.reason === 'identity_evidence_unavailable') {
+    return 'Recurrence unavailable — retained evidence pointers could not be resolved'
+  }
+  return 'Recurrence unavailable'
+}
+
 /** @param {{ tone: string, children: import('react').ReactNode }} props */
 function Tag({ tone, children }) {
   return (
@@ -152,8 +166,8 @@ export default function RelatedChangesList({ workspaceId }) {
                     <Tag tone={dir.tone}>{dir.label}</Tag>
                     <Tag tone={complete.tone}>{complete.label}</Tag>
                     <span className="text-xs text-slate-400">{confidenceLabel(rc.confidence)}</span>
-                    {rc.recurrence_count > 1 && (
-                      <span className="text-xs text-slate-400">· Seen {rc.recurrence_count} times</span>
+                    {recurrenceCopy(rc.recurrence) && (
+                      <span className="text-xs text-slate-400">· {recurrenceCopy(rc.recurrence)}</span>
                     )}
                     {rc.linked_case_id && <span className="text-xs text-brand-600">· Linked to a case</span>}
                     <span className="text-xs text-slate-400 ml-auto">Last seen {shortDate(rc.last_seen)}</span>
