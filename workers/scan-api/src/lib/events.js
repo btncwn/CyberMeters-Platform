@@ -47,6 +47,8 @@ async function createNotificationEvent(env, workspace_id, { type, severity = "in
  *   metadata      {object|null}   - Arbitrary JSON context
  *   required      {boolean}       - Rethrow storage failure for terminal
  *                                   evidence-integrity outcomes
+ *   active_workspace_required {boolean} - Atomically reject workspace-scoped
+ *                                   writes after soft deletion.
  */
 async function createAuditEvent(env, {
   workspace_id  = null,
@@ -58,22 +60,47 @@ async function createAuditEvent(env, {
   description   = null,
   metadata      = null,
   required      = false,
+  active_workspace_required = false,
 } = {}) {
-  if (!event_type) return;
+  if (!event_type) return false;
+  if (active_workspace_required && !workspace_id) {
+    if (required) throw new Error("active_workspace_required needs workspace_id");
+    return false;
+  }
   try {
     const id       = createId("audit");
     const metaJson = metadata ? JSON.stringify(metadata) : null;
-    await env.cybermeters_db
-      .prepare(
-        `INSERT INTO audit_events
+    const sql = active_workspace_required
+      ? `INSERT INTO audit_events
            (id, workspace_id, user_id, actor_type, event_type, entity_type, entity_id, description, metadata_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-      )
-      .bind(id, workspace_id, user_id, actor_type || (user_id ? "customer" : "system"), event_type, entity_type, entity_id, description, metaJson)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')
+          WHERE EXISTS (
+                SELECT 1 FROM workspaces w
+                 WHERE w.id = ? AND w.deleted_at IS NULL
+              )`
+      : `INSERT INTO audit_events
+           (id, workspace_id, user_id, actor_type, event_type, entity_type, entity_id, description, metadata_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`;
+    const values = [id, workspace_id, user_id,
+      actor_type || (user_id ? "customer" : "system"), event_type,
+      entity_type, entity_id, description, metaJson];
+    if (active_workspace_required) values.push(workspace_id);
+    const result = await env.cybermeters_db
+      .prepare(sql)
+      .bind(...values)
       .run();
+    if (active_workspace_required) {
+      const changes = Number(result?.meta?.changes ?? result?.changes ?? 0);
+      if (changes !== 1) {
+        if (required) throw new Error("active workspace audit write rejected");
+        return false;
+      }
+    }
+    return true;
   } catch (error) {
     if (required) throw error;
     // Existing audit callers remain non-fatal by default.
+    return false;
   }
 }
 

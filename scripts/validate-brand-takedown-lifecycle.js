@@ -74,6 +74,11 @@ async function seed(db) {
   db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role, created_at) VALUES ('wm-foreign','ws2','foreign','owner',datetime('now'))").run();
   db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at, created_at) VALUES ('s-admin','admin',?,datetime('now','+1 day'),datetime('now'))").run(await hashToken("tok_admin"));
   db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at, created_at) VALUES ('s-foreign','foreign',?,datetime('now','+1 day'),datetime('now'))").run(await hashToken("tok_foreign"));
+  // Brand candidate/profile authority is the active workspace-domain link.
+  db.prepare("INSERT INTO domains (id, user_id, domain, created_at) VALUES ('dom-ws1','admin','example.com',datetime('now'))").run();
+  db.prepare("INSERT INTO domains (id, user_id, domain, created_at) VALUES ('dom-ws2','foreign','other.com',datetime('now'))").run();
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws1','dom-ws1')").run();
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws2','dom-ws2')").run();
   db.prepare(`INSERT INTO workspace_brand_profiles
     (id, workspace_id, brand_name, primary_domain, keywords_json, protected_domains_json, created_at, updated_at)
     VALUES ('bp1','ws1','Example','example.com','["example"]','["example.com"]',datetime('now'),datetime('now'))`).run();

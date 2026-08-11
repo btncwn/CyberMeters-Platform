@@ -79,10 +79,19 @@ export function outcomeToPersistence(outcome) {
 export function selectBrandCandidatesSql() {
   // Positional binds in order: workspace_id, staleBefore, batchSize.
   return `SELECT id, candidate_domain, dns_resolves, last_checked_at
-          FROM workspace_brand_assets
+          FROM workspace_brand_assets a
           WHERE workspace_id = ?
             AND (classification IS NULL OR classification NOT IN ${CLOSED_CLASSIFICATIONS})
             AND (dns_resolves IS NULL OR last_checked_at IS NULL OR last_checked_at < ?)
+            AND EXISTS (
+                  SELECT 1
+                    FROM workspaces w
+                    JOIN workspace_domains wd ON wd.workspace_id = w.id
+                    JOIN domains d ON d.id = wd.domain_id
+                   WHERE w.id = a.workspace_id
+                     AND w.deleted_at IS NULL
+                     AND lower(d.domain) = lower(a.domain)
+                )
           ORDER BY (dns_resolves IS NOT NULL) ASC,     -- unchecked (NULL) strictly first
                    CASE risk_level WHEN 'critical' THEN 0 WHEN 'high' THEN 1
                                    WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END ASC,
@@ -98,21 +107,40 @@ export function selectBrandCandidatesSql() {
 async function fireResolvingAssetEvent(env, workspaceId, candidateDomain, riskLevel, now) {
   try {
     const domRow = await env.cybermeters_db
-      .prepare("SELECT domain_id FROM workspace_domains WHERE workspace_id = ? LIMIT 1")
+      .prepare(`SELECT wd.domain_id
+                  FROM workspace_domains wd
+                  JOIN workspaces w
+                    ON w.id = wd.workspace_id AND w.deleted_at IS NULL
+                 WHERE wd.workspace_id = ?
+                 LIMIT 1`)
       .bind(workspaceId).first();
+    if (!domRow?.domain_id) return;
     const evType = ["high", "critical"].includes(riskLevel)
       ? "high_risk_typosquat_detected"
       : "brand_domain_detected";
     await env.cybermeters_db.prepare(
       `INSERT OR IGNORE INTO asset_events
          (id, workspace_id, domain_id, scan_id, event_type, hostname, severity, description, created_at)
-       VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`
+       SELECT ?, ?, ?, NULL, ?, ?, ?, ?, ?
+        WHERE EXISTS (
+              SELECT 1
+                FROM workspaces w
+                JOIN workspace_domains wd
+                  ON wd.workspace_id = w.id AND wd.domain_id = ?
+               WHERE w.id = ? AND w.deleted_at IS NULL
+            )`
     ).bind(
       createId("asev"), workspaceId, domRow?.domain_id || null, evType, candidateDomain,
       ["high", "critical"].includes(riskLevel) ? "high" : "medium",
       `Lookalike candidate ${candidateDomain} is resolving via DNS`, now,
+      domRow.domain_id, workspaceId,
     ).run();
   } catch { /* non-fatal */ }
+}
+
+function runChanges(result) {
+  const value = result?.meta?.changes ?? result?.changes;
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
 }
 
 /**
@@ -150,15 +178,35 @@ export async function enrichBrandCandidatesDns(env, workspaceId, opts = {}) {
     if (!persist) continue; // transient — untouched, retried next batch
     const wasResolving = row.dns_resolves === 1;
     try {
-      await env.cybermeters_db.prepare(
+      const result = await env.cybermeters_db.prepare(
         `UPDATE workspace_brand_assets
             SET dns_resolves = ?, status = ?, ip_address = ?, last_checked_at = ?, updated_at = ?
-          WHERE id = ? AND workspace_id = ?`
+          WHERE id = ? AND workspace_id = ?
+            AND EXISTS (
+                  SELECT 1
+                    FROM workspaces w
+                    JOIN workspace_domains wd ON wd.workspace_id = w.id
+                    JOIN domains d ON d.id = wd.domain_id
+                   WHERE w.id = workspace_brand_assets.workspace_id
+                     AND w.deleted_at IS NULL
+                     AND lower(d.domain) = lower(workspace_brand_assets.domain)
+                )`
       ).bind(persist.dns_resolves, persist.status, persist.ip_address, now, now, row.id, workspaceId).run();
+      if (runChanges(result) !== 1) continue;
       stats.checked++;
       if (fireEvents && persist.dns_resolves === 1 && !wasResolving) {
         const rl = await env.cybermeters_db
-          .prepare("SELECT risk_level FROM workspace_brand_assets WHERE id = ? AND workspace_id = ?")
+          .prepare(`SELECT risk_level FROM workspace_brand_assets a
+                     WHERE id = ? AND workspace_id = ?
+                       AND EXISTS (
+                             SELECT 1
+                               FROM workspaces w
+                               JOIN workspace_domains wd ON wd.workspace_id = w.id
+                               JOIN domains d ON d.id = wd.domain_id
+                              WHERE w.id = a.workspace_id
+                                AND w.deleted_at IS NULL
+                                AND lower(d.domain) = lower(a.domain)
+                           )`)
           .bind(row.id, workspaceId).first().catch(() => null);
         await fireResolvingAssetEvent(env, workspaceId, row.candidate_domain, rl?.risk_level, now);
       }
@@ -179,12 +227,17 @@ export async function runBrandDnsEnrichmentSweep(env, opts = {}) {
   let rows;
   try {
     rows = await env.cybermeters_db.prepare(
-      `SELECT workspace_id, COUNT(*) AS pending
-         FROM workspace_brand_assets
-        WHERE dns_resolves IS NULL
+      `SELECT a.workspace_id, COUNT(*) AS pending
+         FROM workspace_brand_assets a
+         JOIN workspaces w
+           ON w.id = a.workspace_id AND w.deleted_at IS NULL
+         JOIN workspace_domains wd ON wd.workspace_id = w.id
+         JOIN domains d
+           ON d.id = wd.domain_id AND lower(d.domain) = lower(a.domain)
+        WHERE a.dns_resolves IS NULL
           AND (classification IS NULL OR classification NOT IN ${CLOSED_CLASSIFICATIONS})
-        GROUP BY workspace_id
-        ORDER BY pending DESC, workspace_id ASC
+        GROUP BY a.workspace_id
+        ORDER BY pending DESC, a.workspace_id ASC
         LIMIT ?`
     ).bind(Math.max(1, workspacesPerTick)).all();
   } catch {

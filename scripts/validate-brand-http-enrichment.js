@@ -36,6 +36,20 @@ const {
 } = await import(eng("brand-http-enrichment.js"));
 const { brandCandidateToApi, scoreBrandCandidateRisk } = await import(eng("brand-protection.js"));
 
+function createBrandAuthorityTables(db) {
+  db.exec(`CREATE TABLE workspaces (id TEXT PRIMARY KEY, deleted_at TEXT);
+    CREATE TABLE domains (id TEXT PRIMARY KEY, domain TEXT);
+    CREATE TABLE workspace_domains (workspace_id TEXT, domain_id TEXT, UNIQUE(workspace_id, domain_id));`);
+}
+
+function seedBrandAuthority(db, workspaceId) {
+  const domainId = `dom_${workspaceId}`;
+  db.prepare("INSERT OR IGNORE INTO workspaces (id, deleted_at) VALUES (?, NULL)").run(workspaceId);
+  db.prepare("INSERT OR IGNORE INTO domains (id, domain) VALUES (?, 'acme.com')").run(domainId);
+  db.prepare("INSERT OR IGNORE INTO workspace_domains (workspace_id, domain_id) VALUES (?, ?)")
+    .run(workspaceId, domainId);
+}
+
 // helpers to fake Response objects
 const resp = (status, body = "") => ({ status, text: async () => body });
 
@@ -134,11 +148,14 @@ eq("transient → null (do not persist)", httpOutcomeToPersistence({ outcome: "t
     dns_resolves INTEGER, https_available INTEGER, ip_address TEXT, status TEXT,
     classification TEXT, first_seen TEXT, last_seen TEXT, last_checked_at TEXT, created_at TEXT, updated_at TEXT,
     UNIQUE(workspace_id,domain,candidate_domain));`);
-  const ins = (ws, cand, dns, https, cls = "unreviewed") =>
+  createBrandAuthorityTables(db);
+  const ins = (ws, cand, dns, https, cls = "unreviewed") => {
+    seedBrandAuthority(db, ws);
     db.prepare(`INSERT INTO workspace_brand_assets (id,workspace_id,domain,candidate_domain,variant_type,risk_level,evidence_json,dns_resolves,https_available,status,classification,first_seen,last_seen,last_checked_at,created_at,updated_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(`id_${ws}_${cand}`, ws, "acme.com", cand, "nested_host", "high",
            JSON.stringify([{ signal: "ct_observed", value: true }]), dns, https, "active", cls, "t", "t", null, "t", "t");
+  };
   ins("ws1", "office365password.acme.co", 1, null);  // DNS live, HTTPS unknown → probed
   ins("ws1", "notresolving.acme.co", 0, null);        // DNS dead → NOT probed
   ins("ws1", "owned.acme.co", 1, null, "owned");       // closed → NOT probed
@@ -183,6 +200,8 @@ eq("transient → null (do not persist)", httpOutcomeToPersistence({ outcome: "t
 {
   const db = new DatabaseSync(":memory:");
   db.exec(`CREATE TABLE workspace_brand_assets (id TEXT PRIMARY KEY, workspace_id TEXT, domain TEXT, candidate_domain TEXT, variant_type TEXT, risk_level TEXT, evidence_json TEXT, dns_resolves INTEGER, https_available INTEGER, ip_address TEXT, status TEXT, classification TEXT, first_seen TEXT, last_seen TEXT, last_checked_at TEXT, created_at TEXT, updated_at TEXT, UNIQUE(workspace_id,domain,candidate_domain));`);
+  createBrandAuthorityTables(db);
+  seedBrandAuthority(db, "ws1");
   db.prepare(`INSERT INTO workspace_brand_assets (id,workspace_id,domain,candidate_domain,variant_type,risk_level,evidence_json,dns_resolves,https_available,status,classification,first_seen,last_seen,created_at,updated_at) VALUES ('i1','ws1','acme.com','acme.co','tld_variation','high','[]',1,NULL,'active','unreviewed','t','t','t','t')`).run();
   const env = { cybermeters_db: { prepare(sql){ const st=db.prepare(sql); return { bind:(...a)=>({ all:async()=>({results:st.all(...a)}), run:async()=>st.run(...a), first:async()=>st.get(...a)??null }), all:async()=>({results:st.all()}), run:async()=>st.run(), first:async()=>st.get()??null }; } } };
   const stats = await enrichBrandCandidatesHttp(env, "ws1", { probeFetch: async () => null }); // always SSRF-blocked/transient

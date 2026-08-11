@@ -89,6 +89,14 @@ function makeD1(db) {
 }
 let braSeq = 0;
 function seedCandidate(db, ws, cand, { dns = null, risk = "low", cls = "unreviewed", lastChecked = null } = {}) {
+  const domainId = `dom_${ws}`;
+  db.prepare(`INSERT OR IGNORE INTO workspaces
+    (id, name, owner_user_id, created_at, updated_at)
+    VALUES (?, ?, 'brand-dns-fixture', datetime('now'), datetime('now'))`).run(ws, ws);
+  db.prepare(`INSERT OR IGNORE INTO domains (id, user_id, domain, created_at)
+    VALUES (?, 'brand-dns-fixture', 'cybermeters.com', datetime('now'))`).run(domainId);
+  db.prepare(`INSERT OR IGNORE INTO workspace_domains (workspace_id, domain_id)
+    VALUES (?, ?)`).run(ws, domainId);
   db.prepare(
     `INSERT INTO workspace_brand_assets
        (id, workspace_id, domain, candidate_domain, variant_type, similarity_score,

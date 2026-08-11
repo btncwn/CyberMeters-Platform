@@ -27,6 +27,11 @@ function safeJson(value, fallback = null) {
   try { return JSON.stringify(value); } catch { return fallback; }
 }
 
+function runChanges(result) {
+  const value = result?.meta?.changes ?? result?.changes;
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
 function parseJson(raw, fallback = null) {
   if (!raw) return fallback;
   try { return typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return fallback; }
@@ -205,8 +210,17 @@ function evidencePointer(bundle) {
 
 async function candidateForCase(env, caseRow) {
   return env.cybermeters_db
-    .prepare(`SELECT * FROM workspace_brand_assets
-              WHERE workspace_id = ? AND candidate_domain = ?
+    .prepare(`SELECT a.* FROM workspace_brand_assets a
+              WHERE a.workspace_id = ? AND a.candidate_domain = ?
+                AND EXISTS (
+                      SELECT 1
+                        FROM workspaces w
+                        JOIN workspace_domains wd ON wd.workspace_id = w.id
+                        JOIN domains d ON d.id = wd.domain_id
+                       WHERE w.id = a.workspace_id
+                         AND w.deleted_at IS NULL
+                         AND lower(d.domain) = lower(a.domain)
+                    )
               ORDER BY updated_at DESC LIMIT 1`)
     .bind(caseRow.workspace_id, caseRow.domain)
     .first()
@@ -513,7 +527,18 @@ export async function buildBrandEvidenceBundle(env, caseRow, { now = new Date().
 
 async function candidateById(env, workspaceId, candidateId) {
   return env.cybermeters_db
-    .prepare(`SELECT * FROM workspace_brand_assets WHERE id = ? AND workspace_id = ? LIMIT 1`)
+    .prepare(`SELECT a.* FROM workspace_brand_assets a
+              WHERE a.id = ? AND a.workspace_id = ?
+                AND EXISTS (
+                      SELECT 1
+                        FROM workspaces w
+                        JOIN workspace_domains wd ON wd.workspace_id = w.id
+                        JOIN domains d ON d.id = wd.domain_id
+                       WHERE w.id = a.workspace_id
+                         AND w.deleted_at IS NULL
+                         AND lower(d.domain) = lower(a.domain)
+                    )
+              LIMIT 1`)
     .bind(candidateId, workspaceId)
     .first();
 }
@@ -580,20 +605,35 @@ export async function createBrandCaseForCandidate(env, workspaceId, candidateRow
   // Universal-case linkage: brand cases carry the canonical brand domain_key and
   // resolve to the brand lookalike-review remediation (prepare-and-track).
   const brandRemediationId = findingRemediation({ id: "brand_lookalike_detected", finding_type: "finding" })?.remediation_id ?? null;
-  await env.cybermeters_db
+  const inserted = await env.cybermeters_db
     .prepare(`INSERT INTO managed_cases
       (id, workspace_id, case_type, domain_key, domain, finding_id, source_finding_type,
        remediation_id, asset_ref, severity, status,
        evidence_json, recommended_actions_json, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, 'brand_protection', ?, ?, 'brand_lookalike_detected', ?, ?, ?, 'detected', ?, ?, ?, datetime('now'), datetime('now'))`)
+      SELECT ?, ?, ?, 'brand_protection', ?, ?, 'brand_lookalike_detected', ?, ?, ?,
+             'detected', ?, ?, ?, datetime('now'), datetime('now')
+       WHERE EXISTS (
+             SELECT 1
+               FROM workspace_brand_assets a
+               JOIN workspaces w
+                 ON w.id = a.workspace_id AND w.deleted_at IS NULL
+               JOIN workspace_domains wd ON wd.workspace_id = w.id
+               JOIN domains d
+                 ON d.id = wd.domain_id AND lower(d.domain) = lower(a.domain)
+              WHERE a.id = ? AND a.workspace_id = ?
+           )`)
     .bind(
       id, workspaceId, BRAND_CASE_TYPE, normalizeDomain(candidateRow.candidate_domain),
       key, brandRemediationId, gate.candidate.protected_domain || profile?.primary_domain || null,
       gate.candidate.risk_level || "high",
       null, safeJson([{ title: "Review brand abuse", action: "Confirm whether this candidate is abusive before preparing takedown material." }], "[]"),
       actor_id || "system",
+      candidateRow.id, workspaceId,
     )
     .run();
+  if (runChanges(inserted) !== 1) {
+    return { opened: false, reason: "workspace_inactive_or_candidate_ineligible", candidate: gate.candidate };
+  }
   const row = await getBrandCase(env, workspaceId, id);
   let linked = null;
   let campaignLinkState = "not_linked";
@@ -656,9 +696,18 @@ export async function createBrandCasesForWorkspace(env, workspaceId) {
   const profile = await loadWorkspaceBrandProfile(env, workspaceId);
   if (!profile?.id) return { opened: 0 };
   const rows = await env.cybermeters_db
-    .prepare(`SELECT * FROM workspace_brand_assets
-              WHERE workspace_id = ?
+    .prepare(`SELECT a.* FROM workspace_brand_assets a
+              WHERE a.workspace_id = ?
                 AND COALESCE(classification, 'unreviewed') NOT IN ('owned','ignored','false_positive')
+                AND EXISTS (
+                      SELECT 1
+                        FROM workspaces w
+                        JOIN workspace_domains wd ON wd.workspace_id = w.id
+                        JOIN domains d ON d.id = wd.domain_id
+                       WHERE w.id = a.workspace_id
+                         AND w.deleted_at IS NULL
+                         AND lower(d.domain) = lower(a.domain)
+                    )
               ORDER BY updated_at DESC LIMIT 200`)
     .bind(workspaceId)
     .all();
@@ -678,7 +727,18 @@ export async function createBrandCaseForCandidateId(env, workspaceId, candidateI
 
 async function updateCandidateClassification(env, workspaceId, candidateId, classification) {
   await env.cybermeters_db
-    .prepare(`UPDATE workspace_brand_assets SET classification = ?, updated_at = datetime('now') WHERE id = ? AND workspace_id = ?`)
+    .prepare(`UPDATE workspace_brand_assets
+                 SET classification = ?, updated_at = datetime('now')
+               WHERE id = ? AND workspace_id = ?
+                 AND EXISTS (
+                       SELECT 1
+                         FROM workspaces w
+                         JOIN workspace_domains wd ON wd.workspace_id = w.id
+                         JOIN domains d ON d.id = wd.domain_id
+                        WHERE w.id = workspace_brand_assets.workspace_id
+                          AND w.deleted_at IS NULL
+                          AND lower(d.domain) = lower(workspace_brand_assets.domain)
+                     )`)
     .bind(classification, candidateId, workspaceId)
     .run()
     .catch(() => {});
@@ -687,7 +747,16 @@ async function updateCandidateClassification(env, workspaceId, candidateId, clas
 async function updateCaseCandidateClassification(env, caseRow, classification) {
   await env.cybermeters_db
     .prepare(`UPDATE workspace_brand_assets SET classification = ?, updated_at = datetime('now')
-              WHERE workspace_id = ? AND candidate_domain = ?`)
+              WHERE workspace_id = ? AND candidate_domain = ?
+                AND EXISTS (
+                      SELECT 1
+                        FROM workspaces w
+                        JOIN workspace_domains wd ON wd.workspace_id = w.id
+                        JOIN domains d ON d.id = wd.domain_id
+                       WHERE w.id = workspace_brand_assets.workspace_id
+                         AND w.deleted_at IS NULL
+                         AND lower(d.domain) = lower(workspace_brand_assets.domain)
+                    )`)
     .bind(classification, caseRow.workspace_id, caseRow.domain)
     .run()
     .catch(() => {});

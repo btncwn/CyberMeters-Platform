@@ -25,11 +25,11 @@
       "contract": "This is a background write path with no customer response; every subsequent inventory read/write is bound to the enumerated workspace_id and the same domain_id."
     },
     {
-      "fingerprint": "cdf9bfde61fd",
+      "fingerprint": "3752b75baedb",
       "file": "workers/scan-api/src/engines/asset-persistence.js",
       "detector": "workspace_domain_scope_missing",
-      "reason": "Identity and brand asset persistence share this exact query to fan scan observations out to all workspace links for the canonical scan domain_id.",
-      "contract": "The functions run only from scan finalization; they return no tenant data and every asset/vendor write is explicitly bound to each enumerated workspace_id."
+      "reason": "Brand asset persistence intentionally enumerates every active workspace linked to the completed scan's canonical domain_id before applying the observation.",
+      "contract": "This background producer returns no customer data; the join excludes soft-deleted workspaces, and every candidate write and profile link atomically rechecks active workspace/domain membership while binding the enumerated workspace_id."
     },
     {
       "fingerprint": "f185fb434784",

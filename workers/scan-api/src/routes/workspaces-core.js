@@ -245,7 +245,14 @@ export async function workspacesCoreRoutes(rctx) {
               .run()
               .catch(e => console.error("[domain_remove_cascade] scheduled_scans:", e?.message));
             env.cybermeters_db
-              .prepare(`UPDATE workspace_brand_assets SET status = 'inactive', updated_at = datetime('now') WHERE workspace_id = ? AND domain = ?`)
+              .prepare(`UPDATE workspace_brand_assets
+                           SET status = 'inactive', updated_at = datetime('now')
+                         WHERE workspace_id = ? AND domain = ?
+                           AND EXISTS (
+                                 SELECT 1 FROM workspaces w
+                                  WHERE w.id = workspace_brand_assets.workspace_id
+                                    AND w.deleted_at IS NULL
+                               )`)
               .bind(workspaceId, domainRow.domain)
               .run()
               .catch(e => console.error("[domain_remove_cascade] brand_assets:", e?.message));
