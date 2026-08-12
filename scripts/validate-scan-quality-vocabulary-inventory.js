@@ -24,16 +24,16 @@ const EXPECTED = Object.freeze({
   runtime: {
     comparison_occurrences: 49,
     source_file_count: 22,
-    fingerprint: "651b2055055ede756563bd8d463c5b41ad125bff47255b270f771ac2c92fac7c",
-    partial_only_fingerprint: "7b223d2f4c9d061edd9a02350fe66468d74c6709b26debb4c77b17353c9cecf9",
+    fingerprint: "46bae551f4ff60825925dd4d9b81869ea47c8b5a4e5225111a2957bfc7f2861e",
+    partial_only_fingerprint: "d5610bb728e59e6d6aea7af5ce30097276d9ac97a13e8139269a08ff3a85e5de",
   },
   sql: {
     predicate_occurrences: 35,
     unique_query_sites: 26,
     source_file_count: 15,
-    fingerprint: "28b415f71c0cc6399adf637dfc96b37329ea60ad3a2737c4fd2e0f863ef27006",
+    fingerprint: "91569150525015fe618c89baa729cafd6013f8b57a2c71dce4797d5aac623529",
     resolved_query_sink_count: 19,
-    resolved_query_sink_fingerprint: "6087bae63b054efbb726930fd2e8c429e2afd4a126e9175748b2e0eceb5f7e12",
+    resolved_query_sink_fingerprint: "a552a7f9590e4276082046fcd6c3e062908b9b31ea1e7ad5ebc4b8eb3ea75919",
   },
   governance: {
     comparison_occurrences: 61,
@@ -42,10 +42,10 @@ const EXPECTED = Object.freeze({
   },
   runtime_source_file_count: 32,
   direct: {
-    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "676d44027dd7ba9df763fbc84546908627d458c79501b6395804c23c1388df51" },
+    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "904a3db5a95e8984e5720fdf38b343f4e06050fa2428d1c5107d9991550a549f" },
     governance: { occurrence_count: 89, source_file_count: 34, fingerprint: "3e998c6f19a241dc35f3511ae047edbeea73176722724992423bd5aec2425b52" },
   },
-  sql_reads: { projection_occurrences: 23, fingerprint: "49ac752bc6905722a1ca55d31503e768668efe4ee6c5680178c8d1ecbf2bfec0" },
+  sql_reads: { projection_occurrences: 23, fingerprint: "bfa5def417f85259526168d0117b606da53865951e5afe7fee2128d413fbf588" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
