@@ -247,13 +247,21 @@ export function resolvePhase5HistoricalCustomerProjection({
   assessment = null,
   scanQuality = null,
   modules = {},
+  monitoringStates = undefined,
 } = {}) {
   const customer = resolvePhase5CustomerAssessment({ score, riskLevel, modules });
   if (customer.evidence.complete) {
     return {
       ...customer,
       scan_quality: normalizeQuality(scanQuality),
-      assessment,
+      assessment: assessment ?? resolveAssessmentPresentation({
+        score: customer.score,
+        scanQuality,
+        status: "completed",
+        ...(monitoringStates !== undefined
+          ? { monitoringStates, requireMonitoring: true }
+          : {}),
+      }),
     };
   }
 
@@ -424,6 +432,10 @@ async function readStoredPhase5Modules(env, scanId) {
       state: "verified",
       reason: null,
       modules: report.modules,
+      // The report snapshot and Executive PDF feed this identical frozen
+      // monitoring contract into resolveAssessmentPresentation. Carry it
+      // through the bounded read adapter so list rows reuse the same decision.
+      monitoring_states: report.monitoring_states ?? null,
     };
   } catch {
     return {
@@ -623,6 +635,7 @@ export async function projectPhase5ScanRowsForCustomer(env, rows = []) {
       riskLevel: row.rating,
       scanQuality: row.scan_quality,
       modules: outcome.modules,
+      monitoringStates: outcome.monitoring_states,
     });
     return {
       ...row,

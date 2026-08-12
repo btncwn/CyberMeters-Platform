@@ -12,7 +12,10 @@
 // unqualified rating, and they never establish/replace the authoritative posture or
 // participate in trend deltas. NULL/legacy quality = 'unknown', NEVER 'complete'.
 
-import { riskLevelForScore } from "./scoring.js";
+import {
+  CYBER_METRICS_SCORE_METHODOLOGY_VERSION,
+  riskLevelForScore,
+} from "./scoring.js";
 import {
   SIGNAL_MONITORING_DEFINITIONS,
   resolveSignalMonitoringCoverage,
@@ -20,6 +23,16 @@ import {
 
 export const SCAN_QUALITY = Object.freeze({
   COMPLETE: "complete", PARTIAL: "partial", DEGRADED: "degraded", UNKNOWN: "unknown",
+});
+
+// Additive customer-presentation vocabulary. This is a state of the score
+// conclusion, not a scan status and not a second coverage resolver. Consumers
+// must use this explicit backend decision instead of inferring finality from a
+// numeric value, band, domain name or evidence count.
+export const ASSESSMENT_PRESENTATION_STATES = Object.freeze({
+  ESTABLISHED: "established",
+  PROVISIONAL: "provisional",
+  NOT_ESTABLISHED: "not_established",
 });
 
 // NULL / undefined / any unrecognised value → 'unknown' (never 'complete'). Quality
@@ -174,6 +187,11 @@ export function resolveAssessmentPresentation({
   // A score is only usable when the scan actually completed.
   const completed = status == null || String(status).toLowerCase() === "completed";
   const hasScore  = completed && Number.isFinite(score);
+  const state = !hasScore
+    ? ASSESSMENT_PRESENTATION_STATES.NOT_ESTABLISHED
+    : complete
+      ? ASSESSMENT_PRESENTATION_STATES.ESTABLISHED
+      : ASSESSMENT_PRESENTATION_STATES.PROVISIONAL;
 
   return {
     raw_score:      hasScore ? score : null,
@@ -181,7 +199,9 @@ export function resolveAssessmentPresentation({
     display_score:  hasScore ? score : null,
     // A final rating is displayed ONLY for a complete assessment.
     display_rating: complete && hasScore ? riskLevelForScore(score) : null,
+    methodology_version: CYBER_METRICS_SCORE_METHODOLOGY_VERSION,
     quality,
+    state,
     provisional:    !complete,
     authoritative:  complete,
     comparable:     complete,
@@ -195,6 +215,8 @@ export function resolveAssessmentPresentation({
       : (coverage ?? null),
     message:        hasScore
       ? ASSESSMENT_MESSAGES[quality]
-      : (complete ? null : SCAN_COMPLETION_DISCLOSURES[quality]),
+      : (String(status ?? "").toLowerCase() === "completed"
+          ? (complete ? null : SCAN_COMPLETION_DISCLOSURES[quality])
+          : POSTURE_NOT_ESTABLISHED_MESSAGE),
   };
 }

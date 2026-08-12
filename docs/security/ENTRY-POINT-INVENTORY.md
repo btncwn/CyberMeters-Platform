@@ -437,12 +437,12 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `(none)` | 58 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| PATCH | `(none)` | 185 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| DELETE | `(none)` | 216 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 283 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `(none)` | 351 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| POST | `/^\/api\/workspaces\/([^/` | 437 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 522 | workspace | ✓ | requireAuth |
+| GET | `(none)` | 59 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| PATCH | `(none)` | 186 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `(none)` | 217 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 284 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 367 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^/` | 453 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^/` | 538 | workspace | ✓ | requireAuth |
 
 _`*` = workspace-scoping helper (getAccessibleWorkspaceIds / getWorkspaceBillingUserId)._

@@ -5,6 +5,7 @@
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
+import { resolveAssessmentPresentation } from "../engines/assessment-presentation.js";
 import { domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEntitlementUsage, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, sendCustomerEmail, sendLifecycleEmail } from "../lib/lifecycle-email.js";
@@ -311,7 +312,8 @@ export async function workspacesCoreRoutes(rctx) {
                LEFT JOIN scans s ON s.id = (
                  SELECT id FROM scans
                  WHERE  domain_id = d.id
-                 ORDER  BY created_at DESC LIMIT 1
+                   AND (workspace_id = wd.workspace_id OR workspace_id IS NULL)
+                 ORDER  BY created_at DESC, id DESC LIMIT 1
                )
                WHERE wd.workspace_id = ?
                ORDER BY d.domain ASC`
@@ -328,15 +330,29 @@ export async function workspacesCoreRoutes(rctx) {
               scan_quality: row.latest_scan_quality,
             })),
           );
+          const domains = (result.results ?? []).map((row, index) => {
+            const customerScan = customerScans[index] ?? null;
+            const latestAssessment = customerScan?.assessment ??
+              resolveAssessmentPresentation({
+                score: null,
+                scanQuality: customerScan?.scan_quality ?? row.latest_scan_quality,
+                status: customerScan?.status ?? row.latest_status,
+              });
+            return {
+              ...row,
+              // Compatibility fields remain additive for existing clients. New
+              // customer renderers consume the canonical assessment object and
+              // never reconstruct provisionality from these legacy aliases.
+              latest_score: customerScan?.score ?? null,
+              latest_rating: customerScan?.rating ?? null,
+              latest_scan_quality:
+                customerScan?.scan_quality ?? row.latest_scan_quality ?? null,
+              latest_assessment: latestAssessment,
+            };
+          });
           return json({
             workspace_id: workspaceId,
-            domains: (result.results ?? []).map((row, index) => ({
-              ...row,
-              latest_score: customerScans[index]?.score ?? null,
-              latest_rating: customerScans[index]?.rating ?? null,
-              latest_scan_quality:
-                customerScans[index]?.scan_quality ?? row.latest_scan_quality ?? null,
-            })),
+            domains,
             phase5_evidence_coverage:
               phase5EvidenceReadCoverage(customerScans),
           });
