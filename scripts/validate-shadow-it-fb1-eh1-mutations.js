@@ -145,8 +145,8 @@ const registry = Object.freeze([
   {
     id: "SIT_M17", defect: "Shadow IT mutable state wired into immutable report tier", expected: ["F22"],
     changes: [{ target: SNAPSHOT,
-      anchor: 'export const SNAPSHOT_BUILDER_VERSION = "2026-08-11.1";',
-      replacement: 'export const SNAPSHOT_BUILDER_VERSION = "2026-08-11.1";\n// MUTANT: catalogue_hostname_prune entered the immutable report tier.' }],
+      anchor: 'export const SNAPSHOT_BUILDER_VERSION = "2026-08-12.1";',
+      replacement: 'export const SNAPSHOT_BUILDER_VERSION = "2026-08-12.1";\n// MUTANT: catalogue_hostname_prune entered the immutable report tier.' }],
   },
 ]);
 

@@ -3,7 +3,10 @@
 // via DoH, then delegates parsing/analysis to email-analysis.js. Extracted verbatim from
 // index.js (monolith decomposition, Phase 1c) — no logic change.
 import { dnsQuery } from "./dns.js";
-import { deriveDmarcState } from "./dmarc-state.js";
+import {
+  deriveDmarcState,
+  deriveDmarcStateFromPolicyEvidence,
+} from "./dmarc-state.js";
 import { DKIM_PROVIDER_SELECTORS, DKIM_SELECTORS, buildDkimDetail, buildDmarcPolicyJourney, buildEmailRemediationActions, findDkimInResults, inferEmailProvider, normalizeDnsTxtValue, parseBimiRecord, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
 import { makeDohSpfLookup, resolveSpfAuthorization, SPF_RESOLUTION_STATUS } from "./spf-resolver.js";
 import { markDeadlineDeferred } from "./scan-budget.js";
@@ -318,25 +321,33 @@ export function applyDmarcbisEmailCompatibilityProjection(
   result.dmarc_detail = exactDetail;
   result.policy_journey = buildDmarcPolicyJourney(exactDetail);
   result.bimi_readiness = parseBimiRecord(result._bimi_record || null, exactDetail);
+  const canonicalPolicyState = deriveDmarcStateFromPolicyEvidence(policyEvidence);
+  // Preserve the shipped exact-record scoring bridge for inherited DMARCbis
+  // policies. This corrective changes only the contradictory exact-domain
+  // precedence; organisational/PSD scoring remains outside scope.
+  const useLegacyExactCompatibility =
+    (policyEvidence != null && policyEvidence?.schema !== "dmarc-policy.v2") ||
+    (canonicalPolicyState.canonical_evidence_state === "observed_policy" &&
+      canonicalPolicyState.policy_source_kind !== "exact");
+  const compatibilityState = useLegacyExactCompatibility
+      ? (policyEvidence?.core_completeness === "complete"
+        ? deriveDmarcState({
+          assessed: true,
+          evidence_status: "observed",
+          dmarc: exactDetail,
+          policy_source: "observed_dns",
+          last_observed: policyEvidence?.observed_at ?? null,
+        })
+        : deriveDmarcState({
+          assessed: true,
+          evidence_status: "unavailable",
+          dmarc: exactDetail,
+          policy_source: "observed_dns",
+          last_observed: policyEvidence?.observed_at ?? null,
+        }))
+      : canonicalPolicyState;
   Object.defineProperty(result, "dmarc_state", {
-    // Preserve the shipped exact-record ADR-003 projection until P6 migrates
-    // customer wording. Inherited DMARCbis values remain only in dmarc_core;
-    // they never backfill legacy exact fields or silently change old scoring.
-    value: policyEvidence?.core_completeness === "complete"
-      ? deriveDmarcState({
-        assessed: true,
-        evidence_status: "observed",
-        dmarc: exactDetail,
-        policy_source: "observed_dns",
-        last_observed: policyEvidence?.observed_at ?? null,
-      })
-      : deriveDmarcState({
-        assessed: true,
-        evidence_status: "unavailable",
-        dmarc: exactDetail,
-        policy_source: "observed_dns",
-        last_observed: policyEvidence?.observed_at ?? null,
-      }),
+    value: compatibilityState,
     enumerable: false,
     configurable: true,
   });

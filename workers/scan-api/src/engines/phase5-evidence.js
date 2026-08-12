@@ -299,7 +299,7 @@ export function projectIdentitySnapshotForCustomer(snapshot, modules = {}) {
   const identityModule = modules?.identity_discovery;
   const domains = Array.isArray(snapshot.domains) ? snapshot.domains : [];
   const identityDomain = domains.find((entry) => entry?.domain_key === "identity_exposure");
-  const projectionAlreadyHonest = snapshot?.methodology?.cyber_mot_resolver_version === "2026-08-11.1";
+  const projectionAlreadyHonest = snapshot?.methodology?.cyber_mot_resolver_version === "2026-08-12.1";
   const hasTypedReachability = Number.isFinite(Number(identityModule?.reachability_evaluated_count)) &&
     Number.isFinite(Number(identityModule?.reachable_surface_count));
   const legacyBriAffected = !projectionAlreadyHonest && !hasTypedReachability && Number(identityModule?.high_risk_count || 0) > 0;

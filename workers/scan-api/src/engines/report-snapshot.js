@@ -55,9 +55,13 @@ import {
   projectPhase5SnapshotForCustomer,
 } from "./phase5-evidence.js";
 import { projectTlsReportForCustomer } from "./tls-evidence.js";
+import {
+  projectDmarcReportForCustomer,
+  projectDmarcSnapshotForCustomer,
+} from "./dmarc-state.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
-export const SNAPSHOT_BUILDER_VERSION = "2026-08-11.1";
+export const SNAPSHOT_BUILDER_VERSION = "2026-08-12.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
 
@@ -515,7 +519,10 @@ export function composeSnapshot({
   builtAt,
   reconstruction = false, // strict historical reconstruction (founder policy)
 }) {
-  const reportForCustomer = projectTlsReportForCustomer(report ?? {});
+  const reportForCustomer = projectDmarcReportForCustomer(
+    projectTlsReportForCustomer(report ?? {}),
+    dmarcPolicyEvidence,
+  );
   const assessedAt = report?.completed_at || null;
   const scanQuality = report?.scan_quality ?? null;
   const qualityStatus = scanQuality?.status ?? null;
@@ -1367,7 +1374,10 @@ export async function readScanReportSnapshot(env, scanId, opts = {}) {
     sourceModules = {};
   }
   const customerModules = projectPhase5EvidenceForCustomer(sourceModules);
-  const customerSnapshot = projectPhase5SnapshotForCustomer(snapshot, sourceModules);
+  const customerSnapshot = projectDmarcSnapshotForCustomer(
+    projectPhase5SnapshotForCustomer(snapshot, sourceModules),
+    dmarcPolicy.evidence,
+  );
   const customerProjectionMetadata = Object.freeze({
     checksum_scope: "immutable_snapshot",
     customer_projection_applied: true,
