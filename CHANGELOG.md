@@ -4,52 +4,63 @@ Internal release notes for CyberMeters. Newest first. The coordinated
 `APP_VERSION` values are source/deployment traceability stamps: their final
 12-hex suffix is the prefix of the effective email-worker closure SHA-256. The
 suffix is not a Git commit. Production releases are git-tagged
-`vYYYY.MM.DD-n`; Worker Version IDs are recorded from the future deployment and
+`vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
-## Release candidate — proposed `v2026.08.11-1` — pre-Item11 final-main governance — **NOT TAGGED; NOT DEPLOYED; NOT ACCEPTED**
+## v2026.08.12-1 — pre-Item11 final corrective train — deployed 2026-08-12; **SMOKE PASSED · PENDING FOUNDER PRODUCTION ACCEPTANCE**
 
-**Status:** RELEASE CANDIDATE. The audited runtime/source baseline is complete
-through `2287212c31f418f7188cb4bc9e027f19dc6fccb6`. The governance package's
-source identity is the Git commit containing this record and, after normal
-merge, its merge commit as recorded by GitHub; a commit cannot embed its own
-future SHA. The proposed tag must target that governance merge, not the parent
-and not an `APP_VERSION` suffix. No tag, deployment, migration application,
-production proof or acceptance occurred in this corrective.
+**Status:** DEPLOYED. Source `acab0c0d2eded216cd5cad7b61f79ce329084757`
+was sealed by exact-main CI, deployed to both Workers, and verified by bounded
+side-effect-safe production smoke. The annotated tag for this release targets
+that deployed source commit exactly; the CHANGELOG release-record commit is a
+separate identity above it. Deployment and smoke are not founder-controlled
+customer-workflow acceptance.
 
 ### Source, deployment and migration boundaries
 
-- **Release-candidate source boundary:** latest tag `v2026.08.03-2` targets
+- **Deployed source boundary:** previous tag `v2026.08.03-2` targets
   `5f72fe40602d1faf45d229dcec4151dd9d890e6e`; audited current-main parent is
-  `2287212c31f418f7188cb4bc9e027f19dc6fccb6`. GitHub's compare API reports 51
-  commits after the tag. The exact first-parent chain below contains 22 merged
-  PRs; the exact tree delta is 243 paths, 26,954 insertions and 1,785 deletions.
-- **Merged is not deployed:** every change after `v2026.08.03-2` through #404
-  is merged source only. None is recorded by this release candidate as
-  deployed, live-accepted or production-accepted.
+  `acab0c0d2eded216cd5cad7b61f79ce329084757`. The exact comparison contains 57
+  commits, 25 first-parent merges and 254 changed paths (27,717 insertions and
+  2,046 deletions).
 - **Migration state:** source contains migrations through
-  `107-finding-canonical-identity.sql`; the latest recorded production-applied
-  migration remains `098-related-changes.sql`. The post-tag delta introduced
+  `107-finding-canonical-identity.sql`. The post-tag delta introduced
   `106-scheduled-asset-change-projection.sql` (SHA-256
   `1bb5157157bed645c6a3f327c3f47af1b02c54950423f4406dfa4c2fe7766e81`,
   #390) and `107-finding-canonical-identity.sql` (SHA-256
   `48b929eb87bde88066b8461ff51e005ce2c6ec470ef5ca4454ca63f974b45c82`,
-  #399). Neither is recorded as applied. A migration file, schema convergence
-  test or merged PR is not production-application evidence.
+  #399). The pre-deploy production probe found migration 106 already applied,
+  so it was not re-run. Migration 107 was applied once on 12 August after a
+  D1 snapshot: `finding_slug` is nullable `TEXT`, historical row count remained
+  1,219, and zero historical rows were backfilled. The production migration
+  boundary is now 107.
 - **Current APP_VERSION contract:** scan-api and email-ingest both read
   `2026.08.11-brand-h01-soft-delete.dfa1140a1ba4`. The effective email-worker
   closure is 90 files, including 88 scan-api files, with SHA-256
   `dfa1140a1ba47f0c2935f684eecb9f408e1e296f1cf53d1f0a2e9f290322019e`.
   The suffix `dfa1140a1ba4` is exactly that digest's first 12 characters; it is
-  not commit `dfa1140a1ba4`. This governance delta changes no closure member,
-  so no APP_VERSION or deploy-manifest bump is required.
+  not commit `dfa1140a1ba4`.
+- **scan-api (`cybermeters-platform`):** live Worker Version ID
+  `e9e0b107-4f91-4988-864e-e53a2b9c0442`; immediate rollback Version ID
+  `b38e0275-c1e0-4f6e-88e0-0fc504efdb0f`.
+- **email-ingest (`cybermeters-email`):** live Worker Version ID
+  `fa738e8b-9918-4b1c-95bc-06032c460ffa`; immediate rollback Version ID
+  `4d548e00-63a1-43ee-bf4e-39a3a943d8c1`.
+- **Pages (`cybermeters-dashboard`):** production deployment
+  `1321236a-c4df-497a-80ac-0ee9eb74c2b8` is the build of `acab0c0`; rollback
+  deployment `840eeadf-c572-4a7a-b9b5-a2d2fb128095` is the build of `c37aa14`.
+- **Smoke:** both scan-api hostnames returned the live Version ID and exact
+  APP_VERSION in six consecutive cache-busted probes each; `/ready` reported
+  D1 and R2 ready, the protected workspace route returned 401, email health
+  returned its coordinated identity, and the production login page returned
+  HTTP 200. No scan, customer query, email or billing action was triggered.
 
 ### Complete GitHub merge ledger after `v2026.08.03-2`
 
 The order is the exact first-parent order. Each merge commit's first parent is
 the preceding main boundary; its second parent is the GitHub PR head. This
-records every merge through the required parent, including #387, #391 and
-#393–#404.
+records every merge through the deployed source, including #387, #391 and
+#393–#407.
 
 | PR | Change | Merge commit | First parent | PR head / second parent |
 | ---: | --- | --- | --- | --- |
@@ -75,38 +86,29 @@ records every merge through the required parent, including #387, #391 and
 | #402 | project identity evidence honestly across customer surfaces | `0e5c51cad1ba929269d0b12c928592cba79cd78f` | `8c6a1bf5677a10f768b592907dd11060678f4d80` | `194f8c0c27527545775ee0c31842e552faae4280` |
 | #403 | block Brand persistence into soft-deleted workspaces | `fffde3fc4e4f39931987150ca46668c950693b19` | `0e5c51cad1ba929269d0b12c928592cba79cd78f` | `b2d648c7686c8e2656c018778f9085fac5b3bf27` |
 | #404 | govern dependency install scripts | `2287212c31f418f7188cb4bc9e027f19dc6fccb6` | `fffde3fc4e4f39931987150ca46668c950693b19` | `eb76eaf198deff868915ef076a00274d5e81d5de` |
+| #405 | reconcile pre-Item11 release governance | `0f8cc1b662ae1d32c11b00aa60bc50c89f049b28` | `2287212c31f418f7188cb4bc9e027f19dc6fccb6` | `f05f0f43013312e117751445f3258eb424f0b145` |
+| #407 | allow the public status page to read canonical health | `c37aa1424c9b23f956a79072d2551e0851dfd5f0` | `0f8cc1b662ae1d32c11b00aa60bc50c89f049b28` | `b21454fbd1aa3132922ac278a885c96a2532d43a` |
+| #406 | align AGENTS roadmap and backlog numbering authority | `acab0c0d2eded216cd5cad7b61f79ce329084757` | `c37aa1424c9b23f956a79072d2551e0851dfd5f0` | `0a43990da3cbf45ff656bf49fd48dd8e63f18ca6` |
 
-### Future release, rollback and acceptance record
+### Release, rollback and acceptance record
 
-- **Proposed tag:** `v2026.08.11-1`, derived from the latest API-visible tag
-  (`v2026.08.03-2`) and the candidate date. It is not created or pushed by this
-  corrective. After merge it must target the governance merge commit exactly.
-- **Source rollback:** revert the single governance merge to parent
-  `2287212c31f418f7188cb4bc9e027f19dc6fccb6`. The per-PR first-parent column is
-  the exact source rollback boundary for each post-tag merge. Do not rewrite
-  history.
-- **Future Worker cutover:** both scan-api and email-ingest have coordinated
-  closure identities. Before any future deploy, record each Worker's current
-  100% Version ID as its rollback boundary; after deploy, record each new
-  Version ID. Those four IDs are currently **UNKNOWN / NOT CREATED** and must
-  not be filled from Git SHAs, APP_VERSION or old releases.
-- **Future migration handling:** no database rollback exists in this
-  corrective. If migrations are separately authorised later, apply the pending
-  sequence through the governed migration process and preserve additive schema
-  and append-only history on runtime rollback.
-- **Acceptance:** pending. CI, a deployment health probe, a `401`, or source
-  merge cannot independently establish customer workflow acceptance.
+- **Tag:** annotated tag `v2026.08.12-1` targets deployed source
+  `acab0c0d2eded216cd5cad7b61f79ce329084757`, not the release-record commit and
+  not the APP_VERSION suffix.
+- **Runtime rollback:** use the two immediate rollback Worker Version IDs above.
+  Migration 107 is additive and remains in place; no destructive down migration
+  exists or is authorised. Older code ignores its nullable column.
+- **Source rollback:** revert focused merges; never rewrite history. The
+  first-parent ledger preserves each exact source boundary.
+- **Acceptance:** pending. Exact-main CI, deployment health, smoke and a 401 do
+  not establish customer workflow acceptance. Founder-controlled acceptance is
+  tracked separately by the 17-step Item 11 execution runbook.
 
-### Open PR #381 disposition
+### PR #381 disposition
 
-GitHub API inspection shows #381 is open, non-draft, one commit
-(`aaad28785976e48ca69c6df377a2460dcd18451c`), changes only `CHANGELOG.md`, and
-records the missing `v2026.08.03-2` deployment evidence below. At this parent it
-is **NOT YET FULLY SUPERSEDED**, because main lacks that release record. This
-governance PR absorbs the complete evidence without merging #381. After this
-governance PR lands, verify the merged record still contains every #381 fact,
-then close #381 **unmerged** as superseded with a link to the governance merge.
-Do not delete its branch or evidence as part of that closure.
+PR #381 was closed unmerged on 11 August after PR #405 merged its complete
+`v2026.08.03-2` deployment evidence. Its branch and evidence were preserved;
+the historical record below remains authoritative for that release.
 
 ## v2026.08.03-2 — CT-R2 PR-2A.2 shared-SAN measurement and ownership honesty — deployed 2026-08-03; **PENDING FOUNDER PRODUCTION ACCEPTANCE**
 
