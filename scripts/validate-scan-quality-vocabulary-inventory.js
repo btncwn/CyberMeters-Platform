@@ -24,7 +24,7 @@ const EXPECTED = Object.freeze({
   runtime: {
     comparison_occurrences: 49,
     source_file_count: 22,
-    fingerprint: "b8d00febea1ecdfa7d6ac242dcbd3fc77014947544215978ae5b43a2aaf7e356",
+    fingerprint: "651b2055055ede756563bd8d463c5b41ad125bff47255b270f771ac2c92fac7c",
     partial_only_fingerprint: "7b223d2f4c9d061edd9a02350fe66468d74c6709b26debb4c77b17353c9cecf9",
   },
   sql: {
@@ -42,7 +42,7 @@ const EXPECTED = Object.freeze({
   },
   runtime_source_file_count: 32,
   direct: {
-    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "6478a339bfcfe2c844332e1a5442d83802cfce6d2bd0be6a21846e5e02d3388f" },
+    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "676d44027dd7ba9df763fbc84546908627d458c79501b6395804c23c1388df51" },
     governance: { occurrence_count: 89, source_file_count: 34, fingerprint: "3e998c6f19a241dc35f3511ae047edbeea73176722724992423bd5aec2425b52" },
   },
   sql_reads: { projection_occurrences: 23, fingerprint: "49ac752bc6905722a1ca55d31503e768668efe4ee6c5680178c8d1ecbf2bfec0" },
