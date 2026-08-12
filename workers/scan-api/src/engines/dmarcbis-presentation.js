@@ -4,6 +4,7 @@
 // read. It never parses DNS, discovers policy, changes a conclusion, or fills a
 // legacy snapshot with current semantics. Renderers consume the strings and
 // labels below; they do not independently derive DMARC meaning.
+import { deriveDmarcStateFromPolicyEvidence } from "./dmarc-state.js";
 
 export const DMARCBIS_PRESENTATION_SCHEMA =
   "dmarc-policy-presentation.v1";
@@ -222,6 +223,7 @@ function technicalFacts(evidence) {
 }
 
 function currentPresentation(evidence) {
+  const canonicalAssessment = deriveDmarcStateFromPolicyEvidence(evidence);
   const destinations = Array.isArray(
     evidence?.external_rua_authorisation?.destinations,
   )
@@ -241,6 +243,7 @@ function currentPresentation(evidence) {
   return {
     schema: DMARCBIS_PRESENTATION_SCHEMA,
     status: "current",
+    canonical_assessment: canonicalAssessment,
     headline: effective
       ? `DMARC requested policy: ${POLICY_LABELS[effective] || effective}`
       : "DMARC policy not determined",

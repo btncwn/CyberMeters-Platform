@@ -206,3 +206,288 @@ export function deriveDmarcState(input = {}) {
     last_observed: lastObserved,
   });
 }
+
+const VALID_POLICY_OBSERVATIONS = new Set([
+  "present_valid",
+  "present_valid_with_defaults",
+]);
+const VALID_POLICY_RECORDS = new Set(["valid", "valid_with_defaults"]);
+const POLICY_SOURCE_KINDS = new Set(["exact", "organisational", "psd"]);
+
+function retainedPolicyRecord(evidence) {
+  if (typeof evidence?.source_record?.raw === "string" &&
+      evidence.source_record.raw.trim()) {
+    return evidence.source_record.raw;
+  }
+  const raw = Array.isArray(evidence?.raw_records)
+    ? evidence.raw_records.find((record) =>
+      typeof record?.raw === "string" && record.raw.trim())?.raw
+    : null;
+  return raw || null;
+}
+
+function withCanonicalEvidenceState(state, canonicalEvidenceState, evidence) {
+  const projected = {
+    ...state,
+    canonical_evidence_state: canonicalEvidenceState,
+    policy_source_kind: evidence?.policy_source_kind ?? "unknown",
+    policy_completeness: evidence?.policy_completeness ?? "unavailable",
+    receiver_enforcement_observed: false,
+  };
+  return {
+    ...projected,
+    canonical_summary: canonicalDmarcAssessmentSummary(projected),
+  };
+}
+
+/**
+ * Project the immutable DMARCbis protocol evidence through the existing ADR-003
+ * state resolver. This is the shared bridge used by scan-time compatibility,
+ * report summaries and the technical presentation.
+ *
+ * Precedence is deliberate: a retained, valid policy conclusion is stronger
+ * than a stale provider/core/monitoring marker. The function never changes the
+ * evidence object and never treats ambiguity as healthy.
+ */
+export function deriveDmarcStateFromPolicyEvidence(evidence) {
+  if (!evidence || typeof evidence !== "object") {
+    return withCanonicalEvidenceState(
+      deriveDmarcState({ assessed: false }),
+      "not_assessed",
+      null,
+    );
+  }
+
+  const policy = normalizePolicy(evidence.effective_requested_policy);
+  const raw = retainedPolicyRecord(evidence);
+  const validPolicy =
+    VALID_POLICY_OBSERVATIONS.has(evidence.observation_state) &&
+    VALID_POLICY_RECORDS.has(evidence.record_validity) &&
+    POLICY_SOURCE_KINDS.has(evidence.policy_source_kind) &&
+    evidence.policy_completeness === "complete" &&
+    VALID_POLICIES.has(policy) &&
+    raw != null;
+
+  // Strong positive policy evidence wins before any weaker core/provider marker.
+  if (validPolicy) {
+    return withCanonicalEvidenceState(
+      deriveDmarcState({
+        assessed: true,
+        evidence_status: "observed",
+        dmarc: {
+          raw,
+          valid: true,
+          record_count: 1,
+          policy,
+          percentage: 100,
+          subdomain_policy: null,
+          has_reporting: Array.isArray(evidence.rua_destinations) &&
+            evidence.rua_destinations.length > 0,
+        },
+        policy_source: "observed_dns",
+        last_observed: evidence.observed_at ?? null,
+      }),
+      "observed_policy",
+      evidence,
+    );
+  }
+
+  // A malformed/multiple observation remains a real observation. It is never
+  // converted into absence and never promoted to a usable policy.
+  if (["present_invalid", "multiple"].includes(evidence.observation_state)) {
+    const recordCount = evidence.observation_state === "multiple"
+      ? Math.max(2, Array.isArray(evidence.raw_records)
+        ? evidence.raw_records.length
+        : 2)
+      : Math.max(1, Array.isArray(evidence.raw_records)
+        ? evidence.raw_records.length
+        : 1);
+    return withCanonicalEvidenceState(
+      deriveDmarcState({
+        assessed: true,
+        evidence_status: "observed",
+        dmarc: {
+          raw,
+          valid: false,
+          record_count: recordCount,
+          policy: null,
+          percentage: null,
+          subdomain_policy: null,
+          tags: {},
+        },
+        policy_source: "observed_dns",
+        last_observed: evidence.observed_at ?? null,
+      }),
+      "malformed",
+      evidence,
+    );
+  }
+
+  // Absence is sayable only after a complete policy walk concluded that no
+  // exact, organisational or public-suffix policy applies.
+  if (evidence.observation_state === "absent" &&
+      evidence.policy_source_kind === "none" &&
+      evidence.policy_completeness === "complete") {
+    return withCanonicalEvidenceState(
+      deriveDmarcState({
+        assessed: true,
+        evidence_status: "observed",
+        dmarc: { raw: null, valid: false, record_count: 0 },
+        policy_source: "observed_dns",
+        last_observed: evidence.observed_at ?? null,
+      }),
+      "absent",
+      evidence,
+    );
+  }
+
+  const incomplete =
+    evidence.observation_state === "incomplete_oversized" ||
+    evidence.policy_completeness === "incomplete" ||
+    evidence.core_completeness === "incomplete";
+  return withCanonicalEvidenceState(
+    deriveDmarcState({
+      assessed: true,
+      evidence_status: "unavailable",
+      last_observed: evidence.observed_at ?? null,
+    }),
+    incomplete ? "incomplete" : "unavailable",
+    evidence,
+  );
+}
+
+export function canonicalDmarcAssessmentSummary(state) {
+  switch (state?.canonical_evidence_state) {
+    case "observed_policy":
+      if (state.policy === "none") {
+        return "A valid DMARC no-action policy (p=none) was observed. It requests monitoring only, not quarantine or rejection.";
+      }
+      if (state.policy === "quarantine") {
+        return "A valid DMARC policy requests quarantine for alignment failures. Receiver handling is not observed.";
+      }
+      return "A valid DMARC policy requests rejection for alignment failures. Receiver handling is not observed.";
+    case "absent":
+      return "The completed DMARC policy lookup found no applicable DMARC policy.";
+    case "malformed":
+      return "DMARC-looking evidence was observed, but it was malformed or ambiguous and no valid policy was established.";
+    case "incomplete":
+      return "DMARC policy evidence was incomplete, so no policy or absence conclusion was made.";
+    case "unavailable":
+      return "The DMARC policy lookup was unavailable, so no policy or absence conclusion was made.";
+    case "not_assessed":
+    default:
+      return "DMARC was not assessed in this snapshot.";
+  }
+}
+
+/** Clone-only scan-report projection; raw R2 evidence remains untouched. */
+export function projectDmarcReportForCustomer(report, policyEvidence) {
+  if (!report || typeof report !== "object" || !policyEvidence) return report;
+  const modules = report.modules && typeof report.modules === "object"
+    ? report.modules
+    : {};
+  const email = modules.email_security &&
+    typeof modules.email_security === "object"
+    ? modules.email_security
+    : {};
+  return {
+    ...report,
+    modules: {
+      ...modules,
+      email_security: {
+        ...email,
+        dmarc_state: deriveDmarcStateFromPolicyEvidence(policyEvidence),
+      },
+    },
+  };
+}
+
+const ISSUE_LEVELS = new Set([
+  "no_record",
+  "invalid_record",
+  "monitoring",
+  "partial_quarantine",
+  "quarantine_enforced",
+  "partial_reject",
+]);
+
+/**
+ * Read-time customer projection for immutable snapshots. Only the separate
+ * customer view changes; checksum-scoped snapshot/raw bytes remain verbatim.
+ */
+export function projectDmarcSnapshotForCustomer(snapshot, policyEvidence) {
+  if (!snapshot || typeof snapshot !== "object" || !policyEvidence) return snapshot;
+  const assessment = deriveDmarcStateFromPolicyEvidence(policyEvidence);
+  const summary = canonicalDmarcAssessmentSummary(assessment);
+  let changed = false;
+  const domains = (Array.isArray(snapshot.domains) ? snapshot.domains : [])
+    .map((domain) => {
+      if (domain?.domain_key !== "email_protection") return domain;
+      const next = {
+        ...domain,
+        canonical_dmarc_assessment: assessment,
+      };
+      if (ISSUE_LEVELS.has(assessment.enforcement_level)) {
+        // Preserve an existing issue summary because it may describe unrelated
+        // SPF/DKIM findings. The corrective only replaces a weaker domain state.
+        if (domain.state !== "issue_detected") {
+          next.state = "issue_detected";
+          next.coverage = domain.coverage === "complete" ? "complete" : "partial";
+          next.highest_severity = domain.highest_severity || "medium";
+          next.summary = summary;
+          next.state_reason = summary;
+        }
+      } else if (assessment.enforcement_level === "not_observed" &&
+          domain.state !== "issue_detected") {
+        next.state = "evidence_insufficient";
+        next.coverage = "degraded";
+        next.summary = summary;
+        next.state_reason = summary;
+      } else if (assessment.enforcement_level === "not_yet_assessed" &&
+          !["issue_detected", "evidence_insufficient"].includes(domain.state)) {
+        next.state = "not_yet_assessed";
+        next.summary = summary;
+        next.state_reason = summary;
+      } else if (assessment.enforcement_level === "reject_enforced" &&
+          /DMARC.*(?:could not|unavailable|lookup did not complete)/i.test(
+            String(domain.summary || ""),
+          )) {
+        next.state = domain.coverage === "complete"
+          ? "assessed_healthy"
+          : "provisional";
+        next.summary = summary;
+        next.state_reason = summary;
+      }
+      changed = true;
+      return next;
+    });
+  if (!changed) return snapshot;
+  const counts = domains.reduce((all, domain) => {
+    all[domain.state] = (all[domain.state] || 0) + 1;
+    return all;
+  }, {});
+  const healthy = counts.assessed_healthy || 0;
+  const issues = counts.issue_detected || 0;
+  const attention = domains.length - healthy - issues;
+  const notFullyAssessed = domains
+    .filter((domain) =>
+      !["assessed_healthy", "issue_detected"].includes(domain.state))
+    .map((domain) => ({
+      domain_key: domain.domain_key,
+      state: domain.state,
+      reason: domain.state_reason || domain.summary,
+      evidence_grade: domain.evidence_grade,
+    }));
+  return {
+    ...snapshot,
+    domains,
+    overall: {
+      ...(snapshot.overall || {}),
+      summary:
+        `Across the eight Cyber MOT domains: ${healthy} assessed healthy, ` +
+        `${issues} with issues detected, and ${attention} needing further ` +
+        "evidence, customer input or monitoring.",
+      not_fully_assessed: notFullyAssessed,
+    },
+  };
+}

@@ -450,8 +450,8 @@ const states = [
   { measurement_state: "unmeasured" },
 ];
 const parity = states.map(parityOutputs);
-const GOLDEN_F13 = "cce409cf39083c2bffd83e93cd19bac8a4d7fccdcd69f0e07f7f05b722d6649d";
-const GOLDEN_F14 = "f3b3349693f933edce911b0736f195eb85f4acefd8faec255f0d8fdb1cdce2e3";
+const GOLDEN_F13 = "36a77f1eadf3d1fb9b04a8852bd74bbccbb1dc13f2f5c0f715dde25258549d5a";
+const GOLDEN_F14 = "96793163df9af7112b4c677b64946e026a0bda0eb6643514eac6ea9920140d83";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

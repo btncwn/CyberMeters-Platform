@@ -124,7 +124,13 @@ function fixtureReason(mod, fixture) {
 function rewriteImports(source, overrides = {}) {
   const rewritten = source
     .replace('import { dnsQuery } from "./dns.js";', `import { dnsQuery } from ${JSON.stringify(overrides.dnsUrl || pathToFileURL(DNS_PATH).href)};`)
-    .replace('import { deriveDmarcState } from "./dmarc-state.js";', `import { deriveDmarcState } from ${JSON.stringify(pathToFileURL(STATE_PATH).href)};`)
+    .replace(`import {
+  deriveDmarcState,
+  deriveDmarcStateFromPolicyEvidence,
+} from "./dmarc-state.js";`, `import {
+  deriveDmarcState,
+  deriveDmarcStateFromPolicyEvidence,
+} from ${JSON.stringify(pathToFileURL(STATE_PATH).href)};`)
     .replace('import { makeDohSpfLookup, resolveSpfAuthorization, SPF_RESOLUTION_STATUS } from "./spf-resolver.js";', `import { makeDohSpfLookup, resolveSpfAuthorization, SPF_RESOLUTION_STATUS } from ${JSON.stringify(pathToFileURL(SPF_RESOLVER_PATH).href)};`)
     .replace('import { makeDohSpfLookup, resolveSpfAuthorization } from "./spf-resolver.js";', `import { makeDohSpfLookup, resolveSpfAuthorization } from ${JSON.stringify(pathToFileURL(SPF_RESOLVER_PATH).href)};`)
     .replace('from "./email-analysis.js";', `from ${JSON.stringify(pathToFileURL(ANALYSIS_PATH).href)};`)
@@ -214,7 +220,8 @@ const { buildPostureDiffEvents } = await import(pathToFileURL(POSTURE_EVENTS_PAT
 
 ok("exports DMARC observation enum", baselineMod.DMARC_OBSERVATION_STATUS?.UNAVAILABLE === "unavailable");
 ok("exports DNS evidence builder", typeof baselineMod.buildDmarcEvidenceFromDnsResult === "function");
-ok("email scan imports deriveDmarcState", /import \{ deriveDmarcState \} from "\.\/dmarc-state\.js";/.test(source));
+ok("email scan imports the shared canonical DMARC state resolvers",
+  /import \{[\s\S]*deriveDmarcState,[\s\S]*deriveDmarcStateFromPolicyEvidence,[\s\S]*\} from "\.\/dmarc-state\.js";/.test(source));
 ok("runEmailModule attaches non-enumerable canonical dmarc_state evidence", /Object\.defineProperty\(result, "dmarc_state"/.test(source));
 ok("PR-2 does not JSON-serialize dmarc_state through normal details", !/dmarc_state: dmarcEvidence\.dmarc_state/.test(source));
 

@@ -71,7 +71,10 @@ import {
 // `2026-08-11.1`: Identity provider/candidate evidence no longer stands in for
 // endpoint reachability. With no registered producer, a finding-free Identity
 // assessment is evidence-insufficient and cross-version trend is incomparable.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-08-11.1";
+// `2026-08-12.1`: a valid canonical DMARC policy conclusion outranks stale
+// lookup/core degradation markers from the same frozen evidence. The version
+// boundary prevents that definition correction reading as customer change.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-08-12.1";
 
 // Fixed canonical enum — the resolver contract layer. UI maps these to friendly
 // labels; the source state stays stable.
@@ -401,20 +404,24 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     // fall through to the normal healthy / not-assessed logic. no_record and
     // monitoring already surfaced as findings above and never reach here.
     if (d.domain_key === "email_protection") {
-      const dmarcLevel = report?.modules?.email_security?.dmarc_state?.enforcement_level ?? null;
+      const dmarcState = report?.modules?.email_security?.dmarc_state ?? null;
+      const dmarcLevel = dmarcState?.enforcement_level ?? null;
       const contribution = dmarcLevel ? DMARC_MOT_CONTRIBUTION[dmarcLevel] : null;
       if (contribution === "issue_detected") {
         const caveat = anyRequiredInsufficient || provisional;
         base.state = CYBER_MOT_STATES.ISSUE_DETECTED;
         base.coverage = caveat ? "partial" : (quality || "complete");
         base.highest_severity = base.highest_severity || "medium";
-        base.summary = `DMARC enforcement is incomplete (${dmarcLevel})${caveat ? " (provisional evidence)" : ""}.`;
+        base.summary = (dmarcState.canonical_summary ||
+          `DMARC enforcement is incomplete (${dmarcLevel}).`) +
+          (caveat ? " Other Email Protection evidence was provisional." : "");
         return base;
       }
       if (contribution === "evidence_insufficient") {
         base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
         base.coverage = "degraded";
-        base.summary = "DMARC could not be observed this scan (the DNS lookup did not complete) — not enough to assess.";
+        base.summary = dmarcState.canonical_summary ||
+          "DMARC could not be observed this scan (the DNS lookup did not complete) — not enough to assess.";
         return base;
       }
     }

@@ -618,6 +618,12 @@ jobs:
       - name: Validate DMARC DNS evidence PR-2 (observation status preserved — timeout/servfail never read as absent + mutations)
         run: node scripts/validate-dmarc-dns-evidence-pr2.js
 
+      - name: Validate DMARC summary and technical evidence parity
+        run: node scripts/validate-dmarc-summary-parity.js
+
+      - name: Validate DMARC summary parity exact semantic mutations
+        run: node scripts/validate-dmarc-summary-parity-mutations.js
+
       - name: Validate managed case workflow (generic engine + ASM/DMARC graphs)
         run: node scripts/validate-managed-case-workflow.js
 
