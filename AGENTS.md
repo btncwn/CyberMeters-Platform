@@ -33,7 +33,8 @@ Last updated: 11 August 2026. GitHub `main` is measured at
 boundary remains `098-related-changes.sql`: source presence and merge status do
 not prove migration application. The 22 post-tag PR merges through #404 are
 merged source only and remain pending a governed release, deployment and
-production acceptance. Item 11 has not started. Exact release and rollback facts
+production acceptance. Frozen-backlog Item 11 has not started. Exact release
+and rollback facts
 are recorded in `CHANGELOG.md`.
 
 ---
@@ -136,7 +137,7 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
 | M5 Completion Across All Eight Domains | Complete — **M5.a–M5.g all CLOSED** (deployed through `v2026.07.17-5`, migration `095`). History: evidence-honesty corrective (`v2026.07.16-6`), alerting repair (`v2026.07.16-7`), occurrence resolver (`-8`), read surfaces (`-9`), and the case verification contract (`-10`) all closed. **M5.a is CLOSED** (`-11` Email, `-12` Website Security + verification vocabulary, `-13` Cyber Essentials): all three domains have creation, linkage, case-level ownership, honest verification and recurrence in production; live-event acceptance outstanding. CE readiness honesty corrective closed (`-14`): access_control/malware_protection no longer scored from email-auth proxies; indicator is 3 of 5 assessable areas. CE Questionnaire Hygiene closed (`-15`, mig 092): one shared build-time question set, ISO-versioned answers, CI drift guard. M5.b shipped (`-16` certificate verification; `-17` remaining reconciliation): certificate_case derives support per finding; CE Security Update Management is no longer scored from certificate/ASM proxies (indicator 2 of 5, methodology-versioned); `external` is not `automated`; blanket drift CI-blocked. M5.b engineering closed; live acceptance outstanding. **M5.c Stage 1 shipped** (`v2026.07.17-1`, mig 093): one completed Cyber MOT → one immutable canonical eight-domain snapshot (R2 JSON + D1 index, 081 atomic claim, R2-durable before completed, append-only supersession, repair-on-read), stamped with every methodology version (first CMS + BRI stamps, registry fingerprint); `verification_support` + fail-closed ceiling wording on every item/action; read endpoints for M5.d live and auth-gated. Renderers NOT migrated at Stage 1; 0 snapshots existed in production at that point (created by future scans; no backfill). M5.d–M5.g subsequently closed (renderer migration, eight-domain parity, maturity ledger, final CI closure). |
-| Pre-Item11 final correction | **IN PROGRESS.** H-01 and H-04 are merged in source through PRs #403/#404. H-06/H-07/H-08/H-09 are the current bounded release/governance corrective. No post-`v2026.08.03-2` source is recorded as deployed or accepted; Item 11 has not started. |
+| Pre-Item11 final correction | **IN PROGRESS.** H-01 and H-04 are merged in source through PRs #403/#404. H-06/H-07/H-08/H-09 are the current bounded release/governance corrective. No post-`v2026.08.03-2` source is recorded as deployed or accepted; frozen-backlog Item 11 has not started. |
 | Posture Timeline Trust & Actionability — the RESCOPE of M6 | Historical July episode record. Phase A was deployed and production-accepted on 18 July 2026. This row is not the current source/release gate; use the pre-Item11 row and `CHANGELOG.md`. |
 | M7 Pricing + Billing Alignment | Earlier roadmap gate; this corrective does not reclassify its historical product status. |
 | Final Public-Beta Gate | Planned after managed-platform completion |
@@ -156,7 +157,7 @@ Current release facts (mechanically measured 11 August 2026):
   12-character prefix of the email-worker closure SHA-256, not a Git commit;
 - fast-aging deployment IDs remain in `CHANGELOG.md` and are not duplicated
   here;
-- current gate: final pre-Item11 release/governance closure. Item 11 is not
+- current gate: final pre-Item11 release/governance closure. Frozen-backlog Item 11 is not
   started.
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier
@@ -193,31 +194,52 @@ Use milestone status instead:
 
 # 5. Current Canonical Roadmap
 
-The numbered sequence below is retained as the long-range roadmap baseline.
-Current source has progressed to the final pre-Item11 release/governance gate
-recorded above; the older M6/M7 per-line wording must not be used to relabel
-post-tag source as deployed or accepted.
+## 5.1 Authority and numbering rule
 
-Priority order:
+`docs/PRE-BETA-EXECUTION-BACKLOG.md` is the founder-approved frozen execution
+order. Its `Item N` labels are the authoritative operational item numbers.
+`docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` owns roadmap scope, acceptance
+definitions and the wider gate sequence. `CHANGELOG.md` owns release,
+deployment and rollback facts. These authorities are complementary; their
+phase, gate and item numbers must never be mapped to one another by ordinal
+position.
 
-1. Certificates Managed Lifecycle (complete — Live)
-2. Identity Exposure Managed Workflow (complete — Live)
-3. Complete ASM Verification (complete — Live)
-4. Alerts Across All Eight Domains (complete — Live, 8 of 8; genuine live-event acceptance outstanding)
-5. MSP Portfolio Per-Domain State and Trend (Live — built, NOT customer-accepted; acceptance outstanding)
-6. M5 Completion Across All Eight Domains (COMPLETE — M5.a–M5.g all CLOSED)
-7. Posture Timeline Trust & Actionability — historical July episode record; Phase A was production-accepted on 18 July 2026
-8. M7 Pricing + Billing Alignment — earlier roadmap gate; not reclassified by this corrective
-9. Systematic debugging and reliability hardening
-10. Security testing and pentesting
-11. Founder-controlled acceptance testing
-12. Final public-beta gate
-13. First controlled customer invitations
-14. Gradual cohort expansion
+In particular, frozen-backlog **Item 11** means the three separately accepted
+Website Security, Identity Exposure and Shadow IT domain closures. It does not
+mean the later founder-controlled acceptance milestone. Frozen-backlog Item 12
+is Related Changes B2/B3, Item 13 is the dead-code and reachability audit, and
+Item 14 is founder manual security acceptance. There is no lumped Item 11 PASS:
+11A, 11B and 11C each require their own verdict and evidence.
 
-Do not begin Item 11 or a later phase before the current pre-Item11 gate is
-closed unless an immediate security or production incident requires
-intervention.
+The current execution route after the pre-Item11 release/governance gate is:
+
+1. **Item 11A — Website Security:** implementation delta plus live acceptance.
+2. **Item 11B — Identity Exposure:** implementation delta plus live acceptance.
+3. **Item 11C — Shadow IT:** live acceptance of the deployed surface after the
+   governed release.
+4. **Item 12 — Related Changes B2/B3:** correlation quality and customer
+   actionability.
+5. **Item 13 — Dead-code and reachability audit:** prove reachability before any
+   retirement or deletion.
+6. **Item 14 — Founder manual security acceptance.**
+7. **Item 15 — Independent authenticated pentest (narrow, pre-first-sale).**
+8. **Item 16 — Legal closure and Stripe production cutover.**
+9. **Item 17 — Full public-claims truth audit.**
+10. **Items 18/19 — Final public-beta exit review plus aggregate live
+    source-fidelity/freshness reconciliation.**
+
+The broader roadmap milestones remain, without reusing frozen-backlog item
+numbers: Certificates Managed Lifecycle; Identity Exposure Managed Workflow;
+Complete ASM Verification; Alerts Across All Eight Domains; MSP portfolio state
+and trend; M5 completion; Posture Timeline Trust & Actionability; M7 Pricing and
+Billing Alignment; systematic reliability hardening; security testing and
+pentesting; founder-controlled acceptance; the final public-beta gate; first
+controlled invitations; and gradual cohort expansion. Historical M6/M7 wording
+must not relabel post-tag source as deployed or accepted.
+
+Do not begin frozen-backlog Item 11 or any later frozen-backlog item before the
+current pre-Item11 release/governance gate is closed, unless an immediate
+security or production incident requires intervention.
 
 Cosmetic redesigns, homepage work, dashboard wording changes and service-label cleanup must not displace the active canonical roadmap.
 
