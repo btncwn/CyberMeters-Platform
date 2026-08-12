@@ -345,6 +345,13 @@ export function emptyStateFor(assessment, hasFilter) {
 export const HONESTY_NOTE =
   'Related changes are correlated observations that may be connected. Change is not compromise — confirm whether each was planned.';
 
+// Fallback for the backend's workspace-scope note (the API supplies the
+// canonical `workspace_scope_note`; this renders only when a response predates
+// that field). Related changes are correlated per WORKSPACE, so a cluster may
+// affect a different domain in this workspace than whatever view it appears in.
+export const WORKSPACE_SCOPE_NOTE =
+  'This list is workspace-level: related changes are correlated across all domains in this workspace. Each entry names the domain it affects.';
+
 /**
  * Format an ISO timestamp as a short date. Returns an em dash for empty values
  * so a missing timestamp never renders as an invalid date.

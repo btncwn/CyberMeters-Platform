@@ -23,6 +23,8 @@ import {
 import { evaluateCookieObservation, isCookieFindingType } from "./cookie-observation.js";
 import { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES } from "./asm-case-machine.js";
 import { canTransitionCase, assignCaseOwner, createManagedCase } from "./managed-case-model.js";
+import { classifyAsmCaseTraceability } from "./attack-surface-customer-presentation.js";
+import { readScanReportSnapshot } from "./report-snapshot.js";
 
 // Re-exported from the neutral machine module so existing importers are unchanged.
 export { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES };
@@ -189,6 +191,11 @@ export function managedCaseToApi(row = {}) {
     case_type: row.case_type,
     domain: row.domain,
     finding_id: row.finding_id,
+    // Bounded provenance (additive): which finding contract and which scan
+    // originated this case. Present on the row since migration 082 but never
+    // surfaced here, so the ASM panel could not attribute a case to its scan.
+    source_finding_type: row.source_finding_type ?? null,
+    source_scan_id: row.source_scan_id ?? null,
     asset_ref: row.asset_ref,
     severity: row.severity,
     status: row.status,
@@ -346,6 +353,66 @@ export async function getManagedCase(env, workspaceId, caseId) {
     .prepare(`SELECT * FROM managed_cases WHERE id = ? AND workspace_id = ?`)
     .bind(caseId, workspaceId)
     .first();
+}
+
+// ── ASM case traceability derivation (pre-Item11 blocker 3) ──────────────────
+// Read-only. For each distinct domain among the given ASM cases, resolve the
+// latest recorded COMPLETE snapshot (the readLatestDomainDmarcPolicyEvidence
+// pattern: one D1 lookup + one integrity-gated R2 read, workspace-scoped), then
+// classify every case through the pure presentation classifier. Performs no
+// writes: it never opens, closes, reopens or rewrites a case, an event or a
+// snapshot. Any read failure degrades to "current comparison unavailable" —
+// never to a fabricated linkage and never to an absence claim.
+export async function deriveAsmCaseTraceability(env, workspaceId, cases = []) {
+  const out = new Map();
+  const asmRows = (cases || []).filter((c) => c && c.case_type === ASM_CASE_TYPE);
+  if (!workspaceId || asmRows.length === 0) return out;
+
+  const domains = [...new Set(asmRows.map((c) => normaliseDomain(c.domain)).filter(Boolean))];
+  const contexts = new Map();
+  for (const domain of domains) {
+    let context = { currentScan: null, currentFindingIds: null };
+    try {
+      const row = await env.cybermeters_db
+        .prepare(
+          `SELECT s.scan_id
+             FROM scan_report_snapshots s
+             JOIN domains d ON d.id = s.domain_id
+             JOIN workspace_domains wd
+               ON wd.domain_id = s.domain_id AND wd.workspace_id = s.workspace_id
+            WHERE s.workspace_id = ? AND d.domain = ? AND s.status = 'completed'
+            ORDER BY s.assessed_at DESC, s.id DESC LIMIT 1`
+        )
+        .bind(workspaceId, domain)
+        .first();
+      if (row?.scan_id) {
+        const read = await readScanReportSnapshot(env, row.scan_id, {
+          repair: false, allowReconstruction: false, includeSuccessor: false,
+        });
+        if (read.status === "ok" && read.row.workspace_id === workspaceId) {
+          const ids = new Set();
+          for (const item of [
+            ...(read.snapshot?.observed_findings || []),
+            ...(read.snapshot?.observations || []),
+          ]) {
+            if (item?.finding_id) ids.add(String(item.finding_id));
+          }
+          context = {
+            currentScan: { scan_id: read.row.scan_id, assessed_at: read.row.assessed_at ?? null },
+            currentFindingIds: ids,
+          };
+        }
+      }
+    } catch { /* honest fallback: no current-scan claim for this domain */ }
+    contexts.set(domain, context);
+  }
+
+  for (const c of asmRows) {
+    const context = contexts.get(normaliseDomain(c.domain))
+      || { currentScan: null, currentFindingIds: null };
+    out.set(c.id ?? c.case_id, classifyAsmCaseTraceability(c, context));
+  }
+  return out;
 }
 
 export async function listManagedCaseEvents(env, workspaceId, caseId) {

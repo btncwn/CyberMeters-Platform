@@ -150,6 +150,17 @@ function signalMessage(key, state, presentInModel, reason) {
   ) {
     return "No hostname was observed in the retained discovery set.";
   }
+  // Takeover candidates are the sharpest observation/claim gap in this domain:
+  // passive evidence (a dangling CNAME plus a provider fingerprint, or an
+  // unconfirmed probe) raises the signal to "observed" without any current-scan
+  // customer finding existing. The frozen production defect collapsed that gap —
+  // "Takeover candidate: Observed" read as one undifferentiated claim. State the
+  // boundary explicitly: observed means observed in the recorded scope, nothing
+  // more, and it never becomes a confirmed takeover, an exploitable
+  // vulnerability or a finding by itself.
+  if (key === "takeover_candidate" && state === "observed") {
+    return "Takeover candidate evidence was observed in the recorded scope. This is an informational observation: it is not a confirmed takeover, not a verified exploitable vulnerability, and not a current customer finding unless one is separately recorded. Detection alone does not establish maliciousness or compromise.";
+  }
   switch (state) {
     case "observed":
       return `${label} evidence was observed in the recorded scope. Detection alone does not establish maliciousness or compromise.`;
@@ -454,12 +465,23 @@ function projectRecordedAttackSurfaceAssurance(recorded) {
         const raw = asObject(value) || {};
         const recordedCoverage = BOUNDED_COVERAGE_STATES.includes(raw.coverage_state);
         const coverageState = normalizeBoundedCoverageState(raw.coverage_state);
-        const message = recordedCoverage
-          ? String(raw.customer_message || "")
-          : [
-              String(raw.customer_message || ""),
+        // Frozen takeover-candidate "observed" prose predating the traceability
+        // corrective did not state the observation/claim boundary. Re-derive the
+        // sentence from the preserved state identities (the confirmed_removed
+        // precedent below) — the stored object and bytes stay untouched.
+        const reprojectTakeover =
+          key === "takeover_candidate" && raw.state === "observed";
+        const message = reprojectTakeover
+          ? [
+              signalMessage(key, "observed", true, raw.reason),
               coverageMessage(key, coverageState, asObject(raw.coverage)),
-            ].filter(Boolean).join(" ");
+            ].filter(Boolean).join(" ")
+          : recordedCoverage
+            ? String(raw.customer_message || "")
+            : [
+                String(raw.customer_message || ""),
+                coverageMessage(key, coverageState, asObject(raw.coverage)),
+              ].filter(Boolean).join(" ");
         return [key, {
           ...raw,
           customer_message: message,
@@ -527,4 +549,134 @@ export function attackSurfacePresentationModelCompatible(presentation) {
     presentation?.model_versions?.signal_completeness ===
       ATTACK_SURFACE_SIGNAL_COMPLETENESS_VERSION
   );
+}
+
+// ── ASM case traceability (pre-Item11 blocker 3) ─────────────────────────────
+//
+// An open ASM case, a passive takeover-candidate observation and a current-scan
+// finding are three DIFFERENT facts that used to collapse into one visible
+// claim. This pure projection classifies one case's relationship to the latest
+// recorded scan evidence, from canonical identifiers only. It is presentation:
+// it never creates, closes, reopens or rewrites anything, and it never promotes
+// a passive observation into a finding or a finding into a compromise.
+//
+// The four honest relationships (task contract):
+//   linked_current_evidence — the case's own finding identity was re-observed
+//     as a finding in the latest recorded complete snapshot of its domain;
+//   recurrence_monitoring   — the case sits in a recurrence/monitoring state of
+//     the managed lifecycle (reopened / verification loop), which explains its
+//     visibility without any claim about the latest scan;
+//   retained_historical     — an open case whose originating observation was
+//     NOT re-observed in the latest recorded snapshot. Explicitly NOT evidence
+//     of absence, removal or remediation;
+//   legacy_unknown          — the originating observation is not recorded in a
+//     resolvable form (no source scan identity anywhere on the case). Stated
+//     as such; the case stays visible and is attributed to no scan.
+export const ASM_CASE_TRACEABILITY_SCHEMA = "asm-case-traceability-v1";
+export const ASM_CASE_CURRENT_RELATIONSHIPS = Object.freeze([
+  "linked_current_evidence",
+  "retained_historical",
+  "recurrence_monitoring",
+  "legacy_unknown",
+]);
+
+const ASM_CASE_RELATIONSHIP_LABELS = Object.freeze({
+  linked_current_evidence: "Linked to current evidence",
+  retained_historical: "Retained from historical evidence",
+  recurrence_monitoring: "Recurrence / monitoring state",
+  legacy_unknown: "Legacy - provenance unknown",
+});
+
+// Lifecycle states whose meaning is "the managed lifecycle is tracking this",
+// not "the latest scan observed this": reopened + the verification loop.
+const ASM_CASE_MONITORING_STATES = new Set([
+  "reopened",
+  "verification_requested",
+  "verifying",
+]);
+
+function asmCaseEvidence(caseRow) {
+  const direct = asObject(caseRow?.evidence);
+  if (direct) return direct;
+  return asObject(parseJson(caseRow?.evidence_json, null));
+}
+
+function asmCaseRelationshipMessage(relationship, currentAssessed) {
+  switch (relationship) {
+    case "linked_current_evidence":
+      return "This case is linked to evidence observed in the latest recorded scan of this domain.";
+    case "recurrence_monitoring":
+      return "This case is in a recurrence or monitoring state of the managed lifecycle. Its visibility reflects lifecycle tracking, not a new observation in the latest recorded scan.";
+    case "legacy_unknown":
+      return "The originating observation for this case was not recorded in a resolvable form; its provenance is legacy or unknown. The case remains visible for review and is not attributed to any scan.";
+    case "retained_historical":
+    default:
+      return currentAssessed
+        ? "This case is retained from historical evidence. Its originating observation was not re-observed as a finding in the latest recorded scan. This does not mean the exposure is absent, removed or remediated."
+        : "This case is retained from historical evidence. The latest scan comparison was unavailable, so no current-scan relationship is claimed. This does not mean the exposure is absent, removed or remediated.";
+  }
+}
+
+/**
+ * classifyAsmCaseTraceability — pure, read-only classification of one ASM case
+ * against the latest recorded scan evidence for its domain.
+ *
+ * @param {object} caseRow  a managed_cases row or either customer API projection
+ * @param {object} [context]
+ * @param {{scan_id:string, assessed_at?:string}|null} [context.currentScan]
+ *   the latest recorded complete snapshot's scan identity, or null when no
+ *   current comparison is available
+ * @param {Set<string>|Array<string>|null} [context.currentFindingIds]
+ *   the finding identities recorded by that snapshot (findings + observations);
+ *   null when the snapshot could not be read — never treated as "no findings"
+ */
+export function classifyAsmCaseTraceability(caseRow, { currentScan = null, currentFindingIds = null } = {}) {
+  const findingId = caseRow?.finding_id ?? caseRow?.source_finding_id ?? null;
+  const evidence = asmCaseEvidence(caseRow);
+  const originScanId = caseRow?.source_scan_id
+    || (typeof evidence?.scan_id === "string" && evidence.scan_id ? evidence.scan_id : null)
+    || null;
+  const ids = currentFindingIds == null
+    ? null
+    : currentFindingIds instanceof Set ? currentFindingIds : new Set(currentFindingIds);
+  const currentAssessed = Boolean(currentScan?.scan_id) && ids !== null;
+  const hasMatchingFinding = currentAssessed && findingId != null && ids.has(String(findingId));
+
+  let relationship;
+  if (hasMatchingFinding) {
+    relationship = "linked_current_evidence";
+  } else if (
+    ASM_CASE_MONITORING_STATES.has(String(caseRow?.status || "")) ||
+    Number(caseRow?.reopened_count || 0) > 0
+  ) {
+    relationship = "recurrence_monitoring";
+  } else if (originScanId) {
+    relationship = "retained_historical";
+  } else {
+    relationship = "legacy_unknown";
+  }
+
+  return {
+    schema: ASM_CASE_TRACEABILITY_SCHEMA,
+    relationship,
+    relationship_label: ASM_CASE_RELATIONSHIP_LABELS[relationship],
+    customer_message: asmCaseRelationshipMessage(relationship, currentAssessed),
+    case_id: caseRow?.id ?? caseRow?.case_id ?? null,
+    finding_id: findingId,
+    origin: {
+      scan_id: originScanId,
+      observed_at: caseRow?.created_at ?? null,
+      known: Boolean(originScanId),
+    },
+    current_scan: {
+      scan_id: currentScan?.scan_id ?? null,
+      assessed_at: currentScan?.assessed_at ?? null,
+      assessed: currentAssessed,
+      has_matching_finding: hasMatchingFinding,
+    },
+    affected: {
+      domain: caseRow?.domain ?? null,
+      asset_ref: caseRow?.asset_ref ?? null,
+    },
+  };
 }

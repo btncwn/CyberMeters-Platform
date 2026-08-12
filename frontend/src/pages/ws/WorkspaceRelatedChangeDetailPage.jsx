@@ -190,7 +190,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
                 </span>
                 <h1 className="text-lg font-semibold text-slate-900">{ruleLabel(rc.rule_id)}</h1>
                 <p className="text-sm text-slate-600 mt-1">
-                  {rc.registrable_domain} · {signalFamilyText(rc.signal_family_count)} and{' '}
+                  Affects {rc.affected_domain || rc.registrable_domain} · {signalFamilyText(rc.signal_family_count)} and{' '}
                   {producerText(rc.independent_producer_count)} observed in the same period.
                 </p>
                 {signalLabels.length > 0 && (

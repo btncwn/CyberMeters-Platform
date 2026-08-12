@@ -16,8 +16,9 @@ export default function WorkspaceRelatedChangesPage() {
         <h1 className="text-xl font-semibold text-slate-900">Related changes</h1>
         <p className="text-sm text-slate-500 mt-1">
           When two or more independent signal families change together on the same domain in the same period, CyberMeters
-          groups them into a change cluster. These are correlated observations that may be connected — review each and
-          confirm whether it was planned.
+          groups them into a change cluster. This view is workspace-level — a cluster may affect any domain in this
+          workspace, and each entry names the domain it affects. These are correlated observations that may be
+          connected — review each and confirm whether it was planned.
         </p>
       </div>
       {wsId && <RelatedChangesList workspaceId={wsId} />}

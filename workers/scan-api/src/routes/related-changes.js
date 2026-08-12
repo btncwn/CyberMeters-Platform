@@ -12,6 +12,7 @@ import {
   linkRelatedChangeToCase, createCaseFromRelatedChange, getAssessmentContext,
   CUSTOMER_STATES, CUSTOMER_FEEDBACK_STATES,
   RELATED_CHANGES_CAUSALITY_NOTICE,
+  RELATED_CHANGES_SCOPE, RELATED_CHANGES_WORKSPACE_SCOPE_NOTE,
 } from "../engines/related-changes.js";
 import { projectRelatedChangeRecurrence } from "../engines/identity-evidence-contract.js";
 import { parseBoundedInteger } from "../lib/util.js";
@@ -20,6 +21,11 @@ import { parseBoundedInteger } from "../lib/util.js";
 export function clusterToApi(row) {
   return {
     id: row.id,
+    // Correlation scope + canonical affected domain (additive; the cluster is
+    // workspace-correlated, so a consumer must never attribute it to whatever
+    // report or domain view it happens to be shown in).
+    scope: RELATED_CHANGES_SCOPE,
+    affected_domain: row.registrable_domain,
     registrable_domain: row.registrable_domain,
     rule_id: row.rule_id,
     direction: row.direction,
@@ -74,6 +80,8 @@ export async function relatedChangesRoutes(rctx) {
       const assessment = await getAssessmentContext(env, wsId);
       return json({
         workspace_id: wsId,
+        scope: RELATED_CHANGES_SCOPE,
+        workspace_scope_note: RELATED_CHANGES_WORKSPACE_SCOPE_NOTE,
         customer_states: CUSTOMER_STATES,
         assessment,
         count: rows.length,
@@ -99,6 +107,8 @@ export async function relatedChangesRoutes(rctx) {
     return json({
       related_change: clusterToApi(detail.cluster),
       can_manage: canManage,
+      scope: RELATED_CHANGES_SCOPE,
+      workspace_scope_note: RELATED_CHANGES_WORKSPACE_SCOPE_NOTE,
       scope_note: RELATED_CHANGES_CAUSALITY_NOTICE,
       evidence: detail.evidence.map((e) => ({
         producer_family: e.producer_family,

@@ -1219,6 +1219,18 @@ jobs:
       - name: Validate M6 B1 Related Changes (deterministic correlation / provenance / recurrence / isolation / manual case)
         run: node scripts/validate-m6-b1-related-changes.js
 
+      # Pre-Item11 blocker 3: workspace-level Related-Changes scope attribution
+      # (summary/API/PDF name the affected domain; a row never reads as the report
+      # subject's; different-workspace changes stay excluded) + ASM takeover
+      # traceability (observation / current finding / case classified honestly:
+      # linked / retained-historical / recurrence-monitoring / legacy-unknown;
+      # read-only projection; frozen takeover prose re-projected canonically).
+      - name: Validate workspace Related-Changes scope + ASM takeover traceability (fail-first fixtures)
+        run: node scripts/validate-report-scope-traceability.js
+
+      - name: Validate workspace scope + takeover traceability mutation contract (13 exact fresh-process kills + invalid-kill controls)
+        run: node scripts/validate-report-scope-traceability-mutations.js
+
       - name: Validate exposure timeline feed (auth + filters + pagination)
         run: node scripts/validate-exposure-feed.js
 

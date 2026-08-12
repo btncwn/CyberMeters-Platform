@@ -348,6 +348,18 @@ export default function WorkspaceCaseDetailPage() {
                   {c.source_scan_id ? <Link className="text-brand-600 hover:underline font-mono text-xs" to={`/scans/${c.source_scan_id}`}>{c.source_scan_id}</Link> : '—'}
                 </dd>
               </div>
+              {/* Backend-owned provenance classification (ASM traceability). The
+                  relationship and its explanation arrive from the canonical
+                  classifier and are rendered verbatim — the frontend derives
+                  nothing (an observation is never promoted to a finding, and a
+                  historical case is never attributed to the current scan). */}
+              {c.traceability && (
+                <div className="sm:col-span-2">
+                  <dt className="text-xs text-slate-400">Relationship to the latest scan</dt>
+                  <dd className="text-slate-700 mt-0.5 font-medium">{c.traceability.relationship_label}</dd>
+                  <dd className="text-xs text-slate-500 mt-1">{c.traceability.customer_message}</dd>
+                </div>
+              )}
             </dl>
           </div>
 

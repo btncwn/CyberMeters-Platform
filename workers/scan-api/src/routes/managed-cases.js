@@ -17,6 +17,7 @@ import {
   isDmarcPolicyCaseRequest,
 } from "../engines/dmarcbis-managed-lifecycle.js";
 import { newCaseEventId } from "../engines/case-workflow.js";
+import { deriveAsmCaseTraceability } from "../engines/asm-cases.js";
 import { parseBoundedInteger } from "../lib/util.js";
 
 // Customer-safe projection of a case row + its canonical phase.
@@ -109,6 +110,16 @@ export async function managedCasesRoutes(rctx) {
         .prepare(`SELECT * FROM managed_cases WHERE ${where.join(" AND ")} ORDER BY created_at DESC LIMIT ?`)
         .bind(...binds, limit).all();
       const cases = (rows.results || []).map(caseToUniversalApi);
+      // Additive ASM traceability (pre-Item11 blocker 3): classify each ASM
+      // case's relationship to the latest recorded scan through the SAME
+      // canonical derivation the ASM route uses. Read-only; failure omits.
+      try {
+        const traceability = await deriveAsmCaseTraceability(env, wsId, rows.results || []);
+        for (const c of cases) {
+          const t = traceability.get(c.case_id);
+          if (t) c.traceability = t;
+        }
+      } catch { /* omit rather than guess */ }
       return json({ workspace_id: wsId, domain_keys: CANONICAL_DOMAIN_KEYS, count: cases.length, cases });
     } catch {
       return json({ error: "Database error" }, 500);
@@ -197,8 +208,13 @@ export async function managedCasesRoutes(rctx) {
     const available_transitions = canManage
       ? availableTransitionsForCase(row, { actor_type: "customer" })
       : [];
+    const projected = caseToUniversalApi(row);
+    try {
+      const t = (await deriveAsmCaseTraceability(env, wsId, [row])).get(row.id);
+      if (t) projected.traceability = t;
+    } catch { /* omit rather than guess */ }
     return json({
-      case: caseToUniversalApi(row),
+      case: projected,
       events: events.results || [],
       can_manage: canManage,
       available_transitions,
