@@ -18,6 +18,9 @@
 import { buildDmarcPolicyPresentation } from "./dmarcbis-presentation.js";
 import { certificateAssuranceFromSnapshot } from "./certificate-customer-presentation.js";
 import { attackSurfaceAssuranceFromSnapshot } from "./attack-surface-customer-presentation.js";
+// Canonical Related-Changes scope wording — consumed, never redefined, so the
+// PDF and every other surface state the workspace scope with one voice.
+import { RELATED_CHANGES_WORKSPACE_SCOPE_NOTE } from "./related-changes.js";
 
 // Typographic → ASCII transliteration (trust-closure episode, July 2026).
 // The stream encoder is ASCII-only, and the old behaviour replaced EVERY
@@ -826,15 +829,31 @@ const RELATED_CHANGE_LABELS = {
 // rendered here. Renders NOTHING when there is nothing to show, so existing reports are
 // byte-unchanged. Wording is locked (design §9): "related changes … may be connected …
 // confirm whether planned"; never attack chain / compromise / incident.
-function sectionRelatedChanges(w, summary) {
+//
+// The section is WORKSPACE-level (the summary is built per workspace, not per report
+// subject), so a row may affect a different domain in the same workspace than the
+// report subject. The heading, the scope note and every row state this explicitly —
+// the frozen production defect was a cybermeters.com cluster rendered inside a
+// sheshire.co.uk report with nothing saying which domain it affected. The scope note
+// is consumed from the canonical summary field; the engine constant is the fallback
+// for summaries frozen before the field existed (the fact was always workspace-level).
+function sectionRelatedChanges(w, summary, { reportSubjectDomain = null } = {}) {
   const items = (summary && Array.isArray(summary.items)) ? summary.items : [];
   if (!items.length) return;
-  w.heading(`Related Changes observed in this period (${items.length})`);
+  const subject = String(reportSubjectDomain || "").trim().toLowerCase() || null;
+  w.heading(`Workspace-level Related Changes observed in this period (${items.length})`);
   w.prose("Related changes are correlated observations that may be connected. Change is not compromise - confirm whether each was planned.", { size: 9, color: "0.35 0.38 0.44" });
+  w.prose(summary.scope_note || RELATED_CHANGES_WORKSPACE_SCOPE_NOTE, { size: 8, color: "0.35 0.38 0.44" });
   for (const it of items) {
     const label = RELATED_CHANGE_LABELS[it.rule_id] || it.rule_id;
-    w.text(`${label} - ${it.registrable_domain}`, { size: 10, bold: true });
+    const affected = String(it.affected_domain || it.registrable_domain || "").trim().toLowerCase();
+    w.text(`${label} - affects ${affected}`, { size: 10, bold: true });
     w.text(`${it.signal_family_count} independent signal families - ${it.direction} - status: ${it.customer_state}`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+    if (subject && affected && affected !== subject) {
+      w.text(`This change affects ${affected}, a different domain in this workspace. It is not necessarily a change to ${subject}.`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+    } else if (subject && affected === subject) {
+      w.text(`This change affects ${affected} - this report's domain.`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+    }
   }
 }
 
@@ -1249,7 +1268,7 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
   sectionDmarcPolicy(w, dmarcPresentation);
   sectionFindings(w, snap);
   sectionRemediation(w, snap);
-  sectionRelatedChanges(w, relatedChanges);
+  sectionRelatedChanges(w, relatedChanges, { reportSubjectDomain: s.domain || scan?.domain || null });
   sectionMethodology(w, snap);
   sectionEvidenceGradeAppendix(w, snap);
   sectionDmarcTechnicalAppendix(w, dmarcPresentation);

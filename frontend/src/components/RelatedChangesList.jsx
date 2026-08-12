@@ -27,6 +27,7 @@ import {
   confidenceLabel,
   shortDate,
   HONESTY_NOTE,
+  WORKSPACE_SCOPE_NOTE,
   CUSTOMER_STATE_FILTERS,
   emptyStateFor,
 } from '../lib/relatedChangesDisplay'
@@ -58,6 +59,7 @@ export default function RelatedChangesList({ workspaceId }) {
   const navigate = useNavigate()
   const [items, setItems] = useState([])
   const [assessment, setAssessment] = useState(null)
+  const [scopeNote, setScopeNote] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [stateFilter, setStateFilter] = useState('')
@@ -75,6 +77,9 @@ export default function RelatedChangesList({ workspaceId }) {
         list.sort((a, b) => String(b?.last_seen || '').localeCompare(String(a?.last_seen || '')))
         setItems(list)
         setAssessment(res?.assessment || null)
+        // Backend-owned scope wording, rendered verbatim (fallback for
+        // responses predating the field — the scope was always workspace-level).
+        setScopeNote(res?.workspace_scope_note || WORKSPACE_SCOPE_NOTE)
         setError(null)
       })
       .catch(() => {
@@ -94,7 +99,10 @@ export default function RelatedChangesList({ workspaceId }) {
     <section aria-label="Related changes">
       <div className="rounded-xl border border-slate-200 bg-brand-50/40 px-4 py-3 mb-5 flex items-start gap-2.5">
         <GitCompareArrows className="w-4 h-4 text-brand-600 flex-shrink-0 mt-0.5" aria-hidden="true" />
-        <p className="text-xs text-slate-600 leading-relaxed">{HONESTY_NOTE}</p>
+        <div className="text-xs text-slate-600 leading-relaxed space-y-1">
+          <p>{HONESTY_NOTE}</p>
+          <p>{scopeNote || WORKSPACE_SCOPE_NOTE}</p>
+        </div>
       </div>
 
       <div className="flex items-center justify-between gap-3 mb-4">
@@ -156,7 +164,7 @@ export default function RelatedChangesList({ workspaceId }) {
                       {/* Explanation first, number second. */}
                       <p className="text-sm font-semibold text-slate-900 leading-snug">{ruleLabel(rc.rule_id)}</p>
                       <p className="text-xs text-slate-500 mt-0.5 truncate">
-                        {rc.registrable_domain} · {signalFamilyText(rc.signal_family_count)} · observed in the same period
+                        Affects {rc.affected_domain || rc.registrable_domain} · {signalFamilyText(rc.signal_family_count)} · observed in the same period
                       </p>
                     </div>
                     <Tag tone={state.tone}>{state.label}</Tag>

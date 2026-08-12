@@ -184,6 +184,14 @@ function ManagedCasesPanel({ workspaceId }) {
                 <p className="text-xs text-gray-500 leading-relaxed max-w-3xl">
                   {item.evidence?.finding?.description || item.recommended_actions?.[0]?.action || 'Review this externally visible exposure and confirm the fix when complete.'}
                 </p>
+                {/* Backend-owned relationship to the latest scan — rendered
+                    verbatim; the panel never infers currency from visibility. */}
+                {item.traceability && (
+                  <p className="text-xs text-gray-500">
+                    <span className="font-semibold text-gray-600">{item.traceability.relationship_label}</span>
+                    {' — '}{item.traceability.customer_message}
+                  </p>
+                )}
                 <div className="flex items-center gap-4 text-xs text-gray-400">
                   <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {item.age_hours ?? 0}h open</span>
                   {item.owner_ref && <span className="inline-flex items-center gap-1"><UserCheck className="w-3.5 h-3.5" /> {item.owner_ref}</span>}

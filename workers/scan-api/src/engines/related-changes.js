@@ -47,6 +47,17 @@ export const CUSTOMER_FEEDBACK_STATES = Object.freeze(["expected", "unrelated", 
 export const RELATED_CHANGES_CAUSALITY_NOTICE =
   "These changes were observed close together and may be related. CyberMeters has not established that one caused the other or that they indicate compromise.";
 
+// Related Changes are correlated per WORKSPACE, not per report subject. A cluster
+// appearing in a domain-scoped report may therefore affect a DIFFERENT domain in
+// the same workspace (founder-recorded production evidence: a cybermeters.com
+// cluster rendered inside a sheshire.co.uk Executive PDF with no scope statement).
+// Every read surface must state the scope and name the canonical affected domain;
+// a row must never read as belonging to the report subject merely because it
+// appears in that report. Different-workspace changes remain excluded entirely.
+export const RELATED_CHANGES_SCOPE = "workspace";
+export const RELATED_CHANGES_WORKSPACE_SCOPE_NOTE =
+  "This section is workspace-level: related changes are correlated across all domains in this workspace, so an entry may affect a different domain in this workspace than the report subject. Each entry names the domain it affects.";
+
 // B4 read projection. This is the sole approved raw identity_assets access
 // outside the writer: append-only evidence pointers must be resolved to detect
 // legacy tuple multiplicity and unavailable audit references. It is batched per
@@ -460,7 +471,7 @@ export async function buildRelatedChangesSummary(env, workspaceId) {
               customer_state, last_seen
          FROM related_changes
         WHERE workspace_id = ?
-        ORDER BY last_seen DESC
+        ORDER BY last_seen DESC, id ASC
         LIMIT 20`
     )
     .bind(workspaceId)
@@ -468,6 +479,9 @@ export async function buildRelatedChangesSummary(env, workspaceId) {
   const items = (rows.results || []).map((r) => ({
     rule_id: r.rule_id,
     registrable_domain: r.registrable_domain,
+    // The canonical affected domain — additive twin of registrable_domain so
+    // every renderer can attribute the row without inferring from context.
+    affected_domain: r.registrable_domain,
     direction: r.direction,
     signal_family_count: r.signal_family_count,
     customer_state: r.customer_state,
@@ -475,6 +489,8 @@ export async function buildRelatedChangesSummary(env, workspaceId) {
   }));
   return {
     schema: "related_changes.v1",
+    scope: RELATED_CHANGES_SCOPE,
+    scope_note: RELATED_CHANGES_WORKSPACE_SCOPE_NOTE,
     total: items.length,
     note: RELATED_CHANGES_CAUSALITY_NOTICE,
     items,

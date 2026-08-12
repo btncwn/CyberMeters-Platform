@@ -61,13 +61,13 @@
         "total": 2,
         "authed": 2
       },
-      "unknown": {
-        "total": 49,
-        "authed": 49
-      },
       "workspace": {
         "total": 119,
         "authed": 119
+      },
+      "unknown": {
+        "total": 49,
+        "authed": 49
       },
       "webhook": {
         "total": 2,

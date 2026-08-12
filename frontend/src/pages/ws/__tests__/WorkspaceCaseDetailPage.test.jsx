@@ -61,6 +61,34 @@ describe('WorkspaceCaseDetailPage — verification honesty', () => {
     expect(screen.getByText('identity.exposed_login.remove')).toBeInTheDocument()
   })
 
+  it('renders the backend traceability classification verbatim (blocker 3)', async () => {
+    api.getCase.mockResolvedValue({
+      case: {
+        ...baseCase,
+        domain_key: 'attack_surface',
+        case_type: 'asm_exposure',
+        verification_support: 'automated',
+        traceability: {
+          schema: 'asm-case-traceability-v1',
+          relationship: 'retained_historical',
+          relationship_label: 'Retained from historical evidence',
+          customer_message: 'This case is retained from historical evidence. Its originating observation was not re-observed as a finding in the latest recorded scan. This does not mean the exposure is absent, removed or remediated.',
+        },
+      },
+      events: [],
+    })
+    renderCase()
+    expect(await screen.findByText('Retained from historical evidence')).toBeInTheDocument()
+    expect(screen.getByText(/does not mean the exposure is absent, removed or remediated/)).toBeInTheDocument()
+  })
+
+  it('omits the traceability block when the backend supplies none', async () => {
+    api.getCase.mockResolvedValue({ case: { ...baseCase, verification_support: 'manual' }, events: [] })
+    renderCase()
+    await screen.findByText('identity_exposed_login')
+    expect(screen.queryByText(/Relationship to the latest scan/)).toBeNull()
+  })
+
   it('does not use a green "settled" tone for an automated case that is not yet verified', async () => {
     api.getCase.mockResolvedValue({
       case: { ...baseCase, domain_key: 'website_security', status: 'action_in_progress', canonical_phase: 'action_in_progress', verification_support: 'automated' },

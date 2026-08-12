@@ -119,6 +119,37 @@ describe('RelatedChangesList', () => {
     expect(screen.getByText(/Linked to a case/)).toBeInTheDocument()
   })
 
+  it('states the workspace scope and names each affected domain (blocker 3)', async () => {
+    api.getRelatedChanges.mockResolvedValue({
+      related_changes: [{ ...CLUSTERS[0], affected_domain: 'cybermeters.com', registrable_domain: 'cybermeters.com' }],
+      workspace_scope_note: 'This list is workspace-level: backend-supplied scope note.',
+    })
+    renderList()
+    // Backend-owned scope note rendered verbatim.
+    expect(await screen.findByText('This list is workspace-level: backend-supplied scope note.')).toBeInTheDocument()
+    // The row attributes the change to its canonical affected domain.
+    expect(screen.getByText(/Affects cybermeters\.com/)).toBeInTheDocument()
+  })
+
+  it('falls back to the canonical scope wording and registrable_domain for legacy responses', async () => {
+    // Explicit legacy cluster (no affected_domain): the shared CLUSTERS array is
+    // order-mutated by the component's in-place sort in earlier tests.
+    api.getRelatedChanges.mockResolvedValue({
+      related_changes: [{
+        id: 'rc-legacy', registrable_domain: 'legacyexample.com', rule_id: 'new_host_with_cert',
+        direction: 'appeared', signal_family_count: 2, independent_producer_count: 2,
+        confidence: 'correlated', completeness: 'complete', customer_state: 'new',
+        first_seen: '2026-07-10T00:00:00Z', last_seen: '2026-07-12T00:00:00Z',
+        recurrence_count: 1, recurrence: null, linked_case_id: null,
+      }],
+    })
+    renderList()
+    // Legacy response without affected_domain → registrable_domain fallback.
+    expect(await screen.findByText(/Affects legacyexample\.com/)).toBeInTheDocument()
+    // No workspace_scope_note in the response → the shared fallback constant.
+    expect(screen.getByText(/workspace-level/)).toBeInTheDocument()
+  })
+
   it('sorts by last_seen descending', async () => {
     api.getRelatedChanges.mockResolvedValue({ related_changes: CLUSTERS })
     renderList()

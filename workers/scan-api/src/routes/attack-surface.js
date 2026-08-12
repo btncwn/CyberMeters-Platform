@@ -9,7 +9,7 @@ import { buildCertificateTrustL2 } from "../engines/cert-trust-l2.js";
 import { buildCertificateCustomerPresentation } from "../engines/certificate-customer-presentation.js";
 import { buildAttackSurfaceCustomerPresentation } from "../engines/attack-surface-customer-presentation.js";
 import { listCertificateLifecycle } from "../engines/certificate-lifecycle.js";
-import { assignManagedCaseOwner, getManagedCase, listManagedCaseEvents, listManagedCases, managedCaseToApi, transitionManagedCase, verifyManagedCaseById } from "../engines/asm-cases.js";
+import { assignManagedCaseOwner, deriveAsmCaseTraceability, getManagedCase, listManagedCaseEvents, listManagedCases, managedCaseToApi, transitionManagedCase, verifyManagedCaseById } from "../engines/asm-cases.js";
 import { remapToThirdPartyCategory } from "../engines/discovery-scan.js";
 import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, normalizeVendorRiskCategory, signalWeightForVendor } from "../engines/vendor-risk.js";
 import { collapseCustomerTimelineEvents, countCustomerTimelineEventsByDay } from "../engines/timeline-trust.js";
@@ -437,6 +437,17 @@ export async function attackSurfaceRoutes(rctx) {
             case_type: url.searchParams.get("case_type") || "asm_exposure",
             limit: parseBoundedInteger(url.searchParams.get("limit"), 50, 1, 200),
           });
+          // Additive traceability: each ASM case's honest relationship to the
+          // latest recorded scan (linked / retained-historical / recurrence /
+          // legacy-unknown). Read-only; a derivation failure omits the field
+          // rather than fabricating a classification.
+          try {
+            const traceability = await deriveAsmCaseTraceability(env, wsId, cases);
+            for (const c of cases) {
+              const t = traceability.get(c.id);
+              if (t) c.traceability = t;
+            }
+          } catch { /* omit rather than guess */ }
           return json({ workspace_id: wsId, count: cases.length, cases });
         } catch {
           return json({ error: "Database error" }, 500);
@@ -449,7 +460,12 @@ export async function attackSurfaceRoutes(rctx) {
 
       if (request.method === "GET" && !action) {
         const events = await listManagedCaseEvents(env, wsId, caseId).catch(() => []);
-        return json({ case: managedCaseToApi(row), events });
+        const projected = managedCaseToApi(row);
+        try {
+          const t = (await deriveAsmCaseTraceability(env, wsId, [row])).get(row.id);
+          if (t) projected.traceability = t;
+        } catch { /* omit rather than guess */ }
+        return json({ case: projected, events });
       }
 
       if (request.method === "POST" && action === "assign") {
