@@ -20,17 +20,18 @@ async function loadPresentationModule() {
   const sourcePath = path.join(worker, "engines", "assessment-presentation.js");
   if (!mutationMode) return import(pathToFileURL(sourcePath).href);
 
+  // data: modules cannot resolve relative specifiers, so BOTH real relative
+  // imports are rewritten to absolute file URLs (the REAL scoring bindings —
+  // CYBER_METRICS_SCORE_METHODOLOGY_VERSION + riskLevelForScore — stay intact);
+  // each rewrite is a must-fail anchor: a silent no-op replace previously
+  // crashed the child at load before the gate mutation could run.
   const gate = "const complete = quality === SCAN_QUALITY.COMPLETE;";
-  const source = fs.readFileSync(sourcePath, "utf8")
-    .replace(
-      'import { riskLevelForScore } from "./scoring.js";',
-      'const riskLevelForScore = (score) => score >= 90 ? "excellent" : "unknown";',
-    )
-    .replace(
-      'from "./signal-monitoring-state.js";',
-      `from "${pathToFileURL(path.join(worker, "engines", "signal-monitoring-state.js")).href}";`,
-    );
-  if (!source.includes(gate)) throw new Error("scan-completion quality gate mutation target missing");
+  const scoringAbs = `import {\n  CYBER_METRICS_SCORE_METHODOLOGY_VERSION,\n  riskLevelForScore,\n} from "${pathToFileURL(path.join(worker, "engines", "scoring.js")).href}";`;
+  const raw = fs.readFileSync(sourcePath, "utf8");
+  const withScoring = raw.replace('import {\n  CYBER_METRICS_SCORE_METHODOLOGY_VERSION,\n  riskLevelForScore,\n} from "./scoring.js";', scoringAbs);
+  if (withScoring === raw) throw new Error("scan-completion scoring import anchor missing");
+  const source = withScoring.replace('from "./signal-monitoring-state.js";', `from "${pathToFileURL(path.join(worker, "engines", "signal-monitoring-state.js")).href}";`);
+  if (source === withScoring || !source.includes(gate)) throw new Error("scan-completion monitoring anchor or quality gate target missing");
   const mutated = source.replace(gate, "const complete = true;");
   return import(`data:text/javascript;base64,${Buffer.from(mutated).toString("base64")}`);
 }
