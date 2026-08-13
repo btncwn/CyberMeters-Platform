@@ -7,6 +7,62 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.08.13-1 — pre-Item11 release train (#409 · #410 · #411) — deployed 2026-08-13; **SMOKE PASSED · PENDING FOUNDER PRODUCTION ACCEPTANCE**
+
+**Status:** DEPLOYED. Source `35a3cd6e5fbcce4222235d4cf6958f02a668774f`
+(merge PR #411) was sealed by exact-main CI (`validate`, `sast`, Cloudflare
+Pages all success on the exact SHA), deployed to both Workers from a fresh
+isolated clone detached at that SHA, and verified by bounded side-effect-safe
+production smoke under founder authorisation of 13 August 2026 (Item 11 run
+`I11-20260813T204619Z`). The annotated tag targets the deployed source commit
+exactly; this release-record commit is a separate identity above it.
+Deployment and smoke are not founder-controlled customer-workflow acceptance;
+Item 11 acceptance is tracked by its 17-step execution runbook.
+
+### Source, deployment and migration boundaries
+
+- **Deployed source boundary:** previous tag `v2026.08.12-1` targets
+  `acab0c0d2eded216cd5cad7b61f79ce329084757`; this release deploys
+  `35a3cd6e5fbcce4222235d4cf6958f02a668774f`. First-parent train: #408
+  (v2026.08.12-1 release record), #409 (DMARC summary parity), #410 (report
+  workspace scope + takeover traceability), #411 (provisional-score
+  labelling).
+- **Migration state:** the train contains no new migration files. The
+  production migration boundary remains `107-finding-canonical-identity.sql`
+  (applied and recorded under v2026.08.12-1). Pre-deploy probes on 13 August
+  confirmed `scheduled_scans.asset_change_projection_json` and
+  `findings.finding_slug` both present; pre-deploy row counts: findings 1,252,
+  scheduled_scans 4; no migration was applied and no rows were touched. A
+  pre-deploy remote D1 export was captured to the secure evidence root.
+- **APP_VERSION contract:** scan-api and email-ingest both read
+  `2026.08.13-provisional-score-labeling.e71ff4fe6941`. The effective
+  email-worker closure is 90 files, including 88 scan-api files, with SHA-256
+  `e71ff4fe6941e9d5a79963faa9802afaa8823e35b1d39f75bc14d4d4b6f2da4e`. The
+  suffix is that digest's first 12 characters, not a Git commit.
+- **scan-api (`cybermeters-platform`):** live Worker Version ID
+  `77491264-3606-4655-9a2f-78065a4b6807`; immediate rollback Version ID
+  `e9e0b107-4f91-4988-864e-e53a2b9c0442`.
+- **email-ingest (`cybermeters-email`):** live Worker Version ID
+  `dc22b4cc-4d1e-4166-80bd-5c4d3e84d891`; immediate rollback Version ID
+  `fa738e8b-9918-4b1c-95bc-06032c460ffa`.
+- **Pages (`cybermeters-dashboard`):** production deployment
+  `270f980f-4b52-4d3a-a9aa-fc6743f6bee2` is the auto-build of `35a3cd6`;
+  rollback deployment `1321236a-c4df-497a-80ac-0ee9eb74c2b8` is the accepted
+  v2026.08.12-1 build of `acab0c0`.
+- **Smoke:** both scan-api hostnames returned the live Version ID and exact
+  APP_VERSION in six consecutive cache-busted probes each; `/ready` reported
+  D1 and R2 ready; the protected workspace route returned 401; email health
+  returned its coordinated identity; the production login page returned
+  HTTP 200. No scan, customer query, email or billing action was triggered.
+- **Recorded finding (pre-existing, not introduced by this train):** the Pages
+  production build environment injects
+  `VITE_API_BASE_URL=https://cybermeters-platform.ttrnn47.workers.dev/api`, so
+  the frontend calls the scan-api Worker on its workers.dev host rather than
+  `https://api.cybermeters.com/api`. The v2026.08.12-1 accepted build carries
+  the same value, both hosts serve the identical Worker version, and rollback
+  does not change it. Aligning the Pages build environment with the canonical
+  API host is follow-up configuration work outside this release's source.
+
 ## v2026.08.12-1 — pre-Item11 final corrective train — deployed 2026-08-12; **SMOKE PASSED · PENDING FOUNDER PRODUCTION ACCEPTANCE**
 
 **Status:** DEPLOYED. Source `acab0c0d2eded216cd5cad7b61f79ce329084757`
