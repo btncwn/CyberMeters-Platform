@@ -41,19 +41,19 @@ async function loadPresentationModule() {
     return import(pathToFileURL(presentationPath).href);
   }
 
-  const source = fs.readFileSync(presentationPath, "utf8")
-    .replace(
-      'import { riskLevelForScore } from "./scoring.js";',
-      'const riskLevelForScore = (score) => score >= 90 ? "excellent" : "unknown";'
-    )
-    .replace(
-      'from "./signal-monitoring-state.js";',
-      `from "${pathToFileURL(statePath).href}";`
-    );
-  const mutated = source.replace(
-    'entry?.state !== "monitoring_healthy"',
-    "false"
-  );
+  // data: modules cannot resolve relative specifiers, so BOTH real relative
+  // imports are rewritten to absolute file URLs (the REAL scoring bindings —
+  // CYBER_METRICS_SCORE_METHODOLOGY_VERSION + riskLevelForScore — stay intact);
+  // each rewrite is a must-fail anchor: a silent no-op replace previously left
+  // a relative "./scoring.js" import in the data: module, so the child died at
+  // load with empty stdout and the kill was rejected (hosted run 31653951557).
+  const scoringAbs = `import {\n  CYBER_METRICS_SCORE_METHODOLOGY_VERSION,\n  riskLevelForScore,\n} from "${pathToFileURL(path.join(worker, "engines", "scoring.js")).href}";`;
+  const raw = fs.readFileSync(presentationPath, "utf8");
+  const withScoring = raw.replace('import {\n  CYBER_METRICS_SCORE_METHODOLOGY_VERSION,\n  riskLevelForScore,\n} from "./scoring.js";', scoringAbs);
+  if (withScoring === raw) throw new Error("presentation scoring import anchor missing");
+  const source = withScoring.replace('from "./signal-monitoring-state.js";', `from "${pathToFileURL(statePath).href}";`);
+  if (source === withScoring) throw new Error("presentation monitoring import anchor missing");
+  const mutated = source.replace('entry?.state !== "monitoring_healthy"', "false");
   if (mutated === source) throw new Error("presentation mutation target missing");
   return import(`data:text/javascript;base64,${Buffer.from(mutated).toString("base64")}#${mutation}`);
 }

@@ -27,14 +27,14 @@ const MUTATION_TARGET_FILES = Object.freeze([workflowPath, manifestPath, library
 // drift is the exact reviewed workflow byte set that wires this candidate's
 // two validators; after commit the ordinary HEAD equality path applies again.
 const REVIEWED_UNCOMMITTED_TARGET_SHA256 = Object.freeze(new Map([
-  [workflowPath, "ccff63c6f0af1618202301f37acbb2191943bdef44e581db37c5e117efc7d20c"],
-  [manifestPath, "5b2c6ebe7480a4866cb551191a130e9910c8b440c17d08f81847fb38bc8bcef7"],
+  [workflowPath, "e13db450619cd354e8f022e8893d45ec77c85a98decc0ecca45d14952459593d"],
+  [manifestPath, "cf421dc0e3606d00a305f82e12652dffefc5d621c8dd8d83633e379d0a79e3c6"],
 ]));
 const EXPECTED_FIXTURES = 31;
 const EXPECTED_MUTANTS = 26;
 const EXPECTED_POLICY_ASSERTIONS = 13;
 const EXPECTED_ASSERTIONS = 85;
-const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "e198b04b74678a1881ef3d917b5cb235264181744558f0f28d08065db3debfc0";
+const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "dc98b8772fbfbb2112120d2c97b359fb08929a5b1448392d34be68eb3e174101";
 
 const fixtureChild = process.argv.includes("--fixture-child");
 const policyChild = process.argv.includes("--policy-child");

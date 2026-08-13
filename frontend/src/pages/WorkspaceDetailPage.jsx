@@ -11,7 +11,7 @@ import { api } from '../api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import StatusBadge from '../components/StatusBadge'
-import { scoreBand } from '../lib/score-presentation'
+import CanonicalScore from '../components/CanonicalScore'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -28,27 +28,6 @@ function formatDate(str) {
     month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
   })
-}
-
-// ── Score Badge ───────────────────────────────────────────────────────────────
-
-function ScoreBadge({ score, rating }) {
-  if (score == null) {
-    return <span className="text-xs text-gray-400 font-medium">—</span>
-  }
-  const cls =
-    rating === 'excellent' || rating === 'good'
-      ? 'bg-brand-50 text-brand-700 border-brand-100'
-      : rating === 'moderate'
-      ? 'bg-amber-50 text-amber-700 border-amber-100'
-      : rating === 'high'
-      ? 'bg-orange-50 text-orange-700 border-orange-100'
-      : 'bg-red-50 text-red-700 border-red-100'
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border ${cls}`}>
-      {score}
-    </span>
-  )
 }
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────
@@ -644,9 +623,7 @@ export default function WorkspaceDetailPage() {
 
                     {/* Score */}
                     <td>
-                      <ScoreBadge score={d.latest_score} rating={
-                        scoreBand(d.latest_score)
-                      } />
+                      <CanonicalScore assessment={d.latest_assessment} />
                     </td>
 
                     {/* Status */}

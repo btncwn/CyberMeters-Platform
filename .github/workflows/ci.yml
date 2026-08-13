@@ -1348,6 +1348,17 @@ jobs:
         if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
         run: node scripts/validate-scan-quality-vocabulary-mutations.js
 
+      # PRE-ITEM11 blocker 2 — domain rows consume the same canonical assessment
+      # presentation as snapshots/reports and must label every provisional number.
+      - name: Validate canonical provisional domain-score labeling
+        run: node scripts/validate-provisional-score-labeling.js
+
+      - name: Validate provisional domain-score workspace API contract
+        run: node scripts/validate-provisional-score-labeling-api.js
+
+      - name: Validate provisional domain-score exact mutations
+        run: node scripts/validate-provisional-score-labeling-mutations.js
+
       # Track A A2+A3 — ScanDetail must render frozen assessment rating/score only,
       # preserve canonical comparison-message priority, and require explicit
       # comparable=true for historical claims. The focused validator combines
