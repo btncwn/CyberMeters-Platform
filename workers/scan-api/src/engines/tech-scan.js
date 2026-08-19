@@ -3,6 +3,7 @@
 // infers the technology stack (server/framework/CMS/versions). Extracted verbatim from
 // index.js (monolith decomposition, Phase 1c). looksVersioned is module-internal.
 import { safeFetch } from "../lib/http.js";
+import { classifyFetchObservation, FETCH_OBSERVATION_STATES } from "../lib/fetch-observation.js";
 
 // ── Module 5: Technology Detection ───────────────────────────────────────────
 // Ported from tech_fingerprint.py — collects response headers and infers the
@@ -41,6 +42,38 @@ export async function runTechModule(domain, opts = {}) {
   }
 
   if (!res) return { error: "Tech module: no response" };
+
+  // ── 52x/530: an edge error page is not the customer's technology stack ──────
+  // Item 11A completeness criterion, technology arm. A Cloudflare-synthesised
+  // edge failure carries `server: cloudflare` and a `cf-ray`, which this module
+  // read as positive evidence and published as a DETECTED TECHNOLOGY of the
+  // customer — while every real stack marker (nginx, PHP, WordPress …) came back
+  // absent because no origin body was ever served. Detected-from-an-error-page
+  // and genuinely-absent are different facts.
+  //
+  // Same shared predicate as headers-scan and ssl-scan (lib/fetch-observation.js);
+  // this module asserts nothing new about any status code. `incomplete` is the
+  // canonical "this module did not truly run", so every downstream gate defers.
+  const observation = classifyFetchObservation({ response: res, executed: true });
+  if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) {
+    return {
+      incomplete:        true,
+      incomplete_reason: "origin_not_observed",
+      tech_observation: {
+        state:          observation.state,
+        reason:         observation.reason,
+        completeness:   observation.completeness,
+        probe_executed: observation.probe_executed,
+      },
+      final_url:     res.url || `https://${domain}`,
+      status_code:   res.status ?? null,
+      // Deliberately empty rather than absent: a consumer that reads
+      // `.technologies.length` must see zero WITH `incomplete` beside it, never
+      // a stack inferred from an error page.
+      technologies:  [],
+      info_findings: [],
+    };
+  }
 
   const h = (name) => res.headers.get(name) ?? null;
 

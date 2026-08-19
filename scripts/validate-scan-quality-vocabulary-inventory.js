@@ -36,14 +36,14 @@ const EXPECTED = Object.freeze({
     resolved_query_sink_fingerprint: "57d7b09623e773ee524c3c467bed704fdf294d84e87743fcc0f0b38d1e4a523b",
   },
   governance: {
-    comparison_occurrences: 61,
-    source_file_count: 21,
-    fingerprint: "83ad843aabd12ebb4b3a856154ca60ec210121f184ebe253f3f9fa4e39093976",
+    comparison_occurrences: 63,
+    source_file_count: 23,
+    fingerprint: "d7ca0fa42b8876d4877fff359c1e370892db38884e144b62d50b16ac722b592c",
   },
   runtime_source_file_count: 32,
   direct: {
     runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "46403861229b815bcd0d4a85821e935c31cb209765870987589b25e15aaaff17" },
-    governance: { occurrence_count: 89, source_file_count: 34, fingerprint: "3e998c6f19a241dc35f3511ae047edbeea73176722724992423bd5aec2425b52" },
+    governance: { occurrence_count: 102, source_file_count: 36, fingerprint: "61f6a246c15e3d45862d2883ee77ad051ec2358faba8cd3ac8ac12edfcd3020b" },
   },
   sql_reads: { projection_occurrences: 23, fingerprint: "2f2378d8e99b017b44932a3a1f723c8c8ff2ca8f9fce0c4690f8decc821a9cc7" },
 });

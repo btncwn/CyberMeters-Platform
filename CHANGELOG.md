@@ -7,6 +7,31 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 2026-08-19 — email-ingest closure re-stamp — **DEPLOYED · SMOKE PASSED**
+
+**Status:** Executive-authorised bounded operational redeploy from source
+`297f79a267a2f8d7aa80ec10bd734817ac1a6754` on the unmerged
+`remediation/f42-f48-f47-line` branch. This records the email-ingest closure
+re-stamp only; it is not a PR, merge, scan-api deployment, remediation live
+acceptance or production-occurrence claim.
+
+- **Closure identity:** the effective 90-file email-worker closure SHA-256 is
+  `5c179ac504c99b9c949bedd3014dd00f53ae6936719cbfdb5293bf005517433b`;
+  email-ingest was deployed with APP_VERSION
+  `2026.08.13-provisional-score-labeling.5c179ac504c9`.
+- **email-ingest (`cybermeters-email`):** live deployment ID
+  `78377478-60b8-4a2e-bf0d-7354be3a7870`, live Worker Version ID
+  `3f9ec26d-17ca-4178-adb5-36693c920515`; immediate rollback deployment ID
+  `e5074250-e4f3-4ff8-9c67-6ca9fc55bcdd`, rollback Worker Version ID
+  `dc22b4cc-4d1e-4166-80bd-5c4d3e84d891`.
+- **Smoke:** public `/health` returned `status=ok`, service
+  `cybermeters-email`, the exact APP_VERSION and live Version ID; `/ready`
+  returned `status=ready` with D1 ready. No customer email, scan, billing or
+  data mutation was triggered by the smoke checks.
+- **Boundary:** scan-api was not deployed. Its coordinated source stamp is
+  updated on the branch, but its production Worker remains at the preceding
+  release until the ordinary PR/merge/release gate authorises that service.
+
 ## v2026.08.13-1 — pre-Item11 release train (#409 · #410 · #411) — deployed 2026-08-13; **SMOKE PASSED · PENDING FOUNDER PRODUCTION ACCEPTANCE**
 
 **Status:** DEPLOYED. Source `35a3cd6e5fbcce4222235d4cf6958f02a668774f`

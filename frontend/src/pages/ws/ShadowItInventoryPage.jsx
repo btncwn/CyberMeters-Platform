@@ -9,12 +9,74 @@ import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
 import {
-  classificationMeta, monitoringMeta, ownershipMeta, toneClass, SHADOW_IT_SCOPE_NOTE,
+  classificationMeta, monitoringMeta, ownershipMeta, onboardingMeta, removalMeta,
+  toneClass, SHADOW_IT_SCOPE_NOTE,
 } from '../../lib/shadowItDisplay'
 
 function Pill({ meta }) {
   return <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${toneClass(meta.tone)}`}>{meta.label}</span>
 }
+
+// The customer-facing action surface. Grouping mirrors the BACKEND's own field
+// grouping (classification / ownership / onboarding_status / removal_status) so
+// the UI introduces no taxonomy of its own — the action names are the server's
+// verbatim, and a control is rendered ONLY when the server advertises it.
+// Tailwind classes are written as whole literal strings so the JIT scanner can
+// see them; never build these by concatenation.
+const ACTION_TONE = {
+  green: 'border-green-200 text-green-700',
+  red:   'border-red-200 text-red-700',
+  amber: 'border-amber-200 text-amber-700',
+  slate: 'border-slate-200 text-slate-600',
+}
+
+const ACTION_GROUPS = [
+  {
+    key: 'classification',
+    label: 'Classification',
+    actions: [
+      { action: 'approve',        label: 'Approve',       tone: 'green' },
+      { action: 'reject',         label: 'Reject',        tone: 'red'   },
+      { action: 'mark_exception', label: 'Exception',     tone: 'amber' },
+      { action: 'retire',         label: 'Retire',        tone: 'slate' },
+      { action: 'reopen_review',  label: 'Reopen review', tone: 'slate' },
+    ],
+  },
+  {
+    key: 'ownership',
+    label: 'Ownership',
+    actions: [
+      // Two distinct owner roles now exist, so the original "Owner" label is
+      // disambiguated rather than left ambiguous.
+      { action: 'assign_business_owner',  label: 'Business owner',  tone: 'slate' },
+      { action: 'assign_technical_owner', label: 'Technical owner', tone: 'slate' },
+      { action: 'set_business_purpose',   label: 'Purpose',         tone: 'slate' },
+    ],
+  },
+  {
+    key: 'onboarding',
+    label: 'Onboarding',
+    actions: [
+      { action: 'begin_onboarding', label: 'Start onboarding', tone: 'slate' },
+      { action: 'mark_onboarded',   label: 'Mark onboarded',   tone: 'slate' },
+    ],
+  },
+  {
+    key: 'removal',
+    label: 'Removal',
+    actions: [
+      { action: 'begin_removal', label: 'Start removal', tone: 'slate' },
+      // Customer assertion only — see the confirmation copy in act().
+      { action: 'mark_removed',  label: 'Mark removed',  tone: 'slate' },
+    ],
+  },
+]
+
+// Human label for an action, used in customer-facing failure copy so an error
+// never shows a raw backend enum.
+const ACTION_LABEL = Object.fromEntries(
+  ACTION_GROUPS.flatMap((g) => g.actions.map((a) => [a.action, a.label])),
+)
 
 export default function ShadowItInventoryPage() {
   // Workspace comes from the canonical context hook, not a route param — the
@@ -24,6 +86,10 @@ export default function ShadowItInventoryPage() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  // Action failures are held SEPARATELY from the load error. The list below is
+  // rendered only when `error` is null, so reusing one slot meant a single failed
+  // action erased the entire inventory the customer was working in.
+  const [actionError, setActionError] = useState(null)
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState(null)
   // Deep-link target from an alert CTA (/ws/shadow-it?item=<id>). The id is the
@@ -72,10 +138,32 @@ export default function ShadowItInventoryPage() {
       const purpose = window.prompt(`Business purpose for ${item.display_name}:`)
       if (purpose == null) return
       payload.business_purpose = purpose
+    } else if (action === 'reopen_review') {
+      // Returns the item to "Not yet classified" — the reason is optional at the
+      // backend, so an empty answer is accepted but a cancel aborts.
+      const reason = window.prompt(`Reopen ${item.display_name} for review — reason (optional):`)
+      if (reason == null) return
+      payload.reason = reason
+    } else if (action === 'mark_removed') {
+      // Customer assertion, never a CyberMeters verification. The backend records
+      // this as `customer_asserted_not_verified`; the confirmation must say the
+      // same thing in the customer's own words rather than imply confirmation.
+      const confirmed = window.confirm(
+        `Record that ${item.display_name} has been removed?\n\n` +
+        'This records YOUR assertion. CyberMeters has not verified the removal — ' +
+        'if the technology is still observed externally, this item will be shown ' +
+        'as contradicting your assertion.',
+      )
+      if (!confirmed) return
     }
+    setActionError(null)
     setBusy(item.inventory_item_id)
     try { await api.shadowItAction(workspaceId, item.inventory_item_id, payload); load() }
-    catch { setError('Action failed.') }
+    catch {
+      // Deliberately claims nothing about server state: the request failed from
+      // here, which does not prove the change was not applied.
+      setActionError(`“${ACTION_LABEL[action] || action}” did not complete for ${item.display_name}. The list below may not reflect the latest state — reload to confirm.`)
+    }
     finally { setBusy(null) }
   }
 
@@ -105,6 +193,14 @@ export default function ShadowItInventoryPage() {
 
       {loading && <p className="text-sm text-slate-400">Loading…</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {/* Action-level failure. Rendered ABOVE the inventory and deliberately not
+          part of the table's render gate, so a failed action never removes the
+          list the customer is working in. */}
+      {actionError && (
+        <div role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {actionError}
+        </div>
+      )}
       {!loading && !error && items.length === 0 && (
         <p className="text-sm text-slate-400">No externally observed technology recorded yet. Items appear here after a scan correlates observed vendors and services.</p>
       )}
@@ -143,7 +239,21 @@ export default function ShadowItInventoryPage() {
                     )}
                   </td>
                   <td className="py-2 px-3 text-slate-500 capitalize">{(it.category || '—').replace(/_/g, ' ')}</td>
-                  <td className="py-2 px-3"><Pill meta={classificationMeta(it.classification)} /></td>
+                  <td className="py-2 px-3">
+                    <Pill meta={classificationMeta(it.classification)} />
+                    {/* Managed lifecycle the customer drives through the actions
+                        below. Rendered here rather than under Monitoring because
+                        these are customer decisions, not external observations —
+                        and a control whose effect is invisible is not usable. */}
+                    {onboardingMeta(it.onboarding_status) && (
+                      <div className="text-xs text-slate-500 mt-1">{onboardingMeta(it.onboarding_status).label}</div>
+                    )}
+                    {removalMeta(it.removal_status, it.removal_verified) && (
+                      <div className={`text-xs mt-0.5 ${removalMeta(it.removal_status, it.removal_verified).tone === 'red' ? 'text-red-600' : removalMeta(it.removal_status, it.removal_verified).tone === 'amber' ? 'text-amber-600' : 'text-slate-500'}`}>
+                        {removalMeta(it.removal_status, it.removal_verified).label}
+                      </div>
+                    )}
+                  </td>
                   <td className="py-2 px-3">
                     <Pill meta={ownershipMeta(it.ownership_status)} />
                     {(it.business_owner || it.technical_owner) && <div className="text-xs text-slate-400 mt-0.5">{it.business_owner || it.technical_owner}</div>}
@@ -159,14 +269,34 @@ export default function ShadowItInventoryPage() {
                   </td>
                   <td className="py-2 px-3"><Pill meta={monitoringMeta(it.monitoring_status)} /></td>
                   <td className="py-2 px-3 text-slate-400 text-xs">{it.last_seen_at ? it.last_seen_at.slice(0, 10) : '—'}</td>
-                  <td className="py-2 px-3">
-                    <div className="flex flex-wrap gap-1">
-                      {can('approve') && <button disabled={busy === it.inventory_item_id} onClick={() => act(it, 'approve')} className="text-xs rounded border border-green-200 text-green-700 px-2 py-0.5">Approve</button>}
-                      {can('reject') && <button disabled={busy === it.inventory_item_id} onClick={() => act(it, 'reject')} className="text-xs rounded border border-red-200 text-red-700 px-2 py-0.5">Reject</button>}
-                      {can('mark_exception') && <button disabled={busy === it.inventory_item_id} onClick={() => act(it, 'mark_exception')} className="text-xs rounded border border-amber-200 text-amber-700 px-2 py-0.5">Exception</button>}
-                      {can('assign_business_owner') && <button disabled={busy === it.inventory_item_id} onClick={() => act(it, 'assign_business_owner')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Owner</button>}
-                      {can('set_business_purpose') && <button disabled={busy === it.inventory_item_id} onClick={() => act(it, 'set_business_purpose')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Purpose</button>}
-                      {can('retire') && <button disabled={busy === it.inventory_item_id} onClick={() => act(it, 'retire')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Retire</button>}
+                  <td className="py-2 px-3" aria-busy={busy === it.inventory_item_id}>
+                    {/* One control per server-advertised action, grouped for
+                        hierarchy. A group disappears entirely when the server
+                        advertises none of its actions, so a viewer (actions: [])
+                        sees no action surface at all. */}
+                    <div className="space-y-1.5 min-w-[12rem]">
+                      {ACTION_GROUPS.map((group) => {
+                        const available = group.actions.filter((a) => can(a.action))
+                        if (available.length === 0) return null
+                        return (
+                          <div key={group.key} role="group" aria-label={`${group.label} actions for ${it.display_name}`}>
+                            <div className="text-[10px] uppercase tracking-wide text-slate-400">{group.label}</div>
+                            <div className="flex flex-wrap gap-1 mt-0.5">
+                              {available.map((a) => (
+                                <button
+                                  key={a.action}
+                                  type="button"
+                                  disabled={busy === it.inventory_item_id}
+                                  onClick={() => act(it, a.action)}
+                                  className={`text-xs rounded border px-2 py-0.5 disabled:opacity-50 disabled:cursor-not-allowed ${ACTION_TONE[a.tone]}`}
+                                >
+                                  {a.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   </td>
                 </tr>
