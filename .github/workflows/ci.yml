@@ -651,6 +651,21 @@ jobs:
       - name: Validate Shadow IT FB-1 + EH-1 semantic mutations
         run: node scripts/validate-shadow-it-fb1-eh1-mutations.js
 
+      - name: Validate F-42 signed-edge split fixtures
+        run: node scripts/validate-f42-false-healthy-split-fixtures.js
+
+      - name: Validate F-48 origin 5xx false-healthy behaviour
+        run: node scripts/validate-f48-origin-503-false-healthy.js
+
+      - name: Validate F-48 origin 5xx false-healthy mutations
+        run: node scripts/validate-f48-origin-503-false-healthy-mutations.js
+
+      - name: Validate I11A website completeness
+        run: node scripts/validate-i11a-website-completeness.js
+
+      - name: Validate I11A website completeness mutations
+        run: node scripts/validate-i11a-website-completeness-mutations.js
+
       - name: Validate F-47 Shadow IT UI actions (evidence-fidelity mutations)
         run: node scripts/validate-f47-shadow-it-ui-actions-mutations.js
 
