@@ -4,6 +4,7 @@
 // index.js (monolith decomposition, Phase 1c). Internal: BOT_CHALLENGE_URL_PATTERNS,
 // HEADER_PROBE_INIT, detectBotProtection. classifyHeaderStrength is also used elsewhere.
 import { safeFetch } from "../lib/http.js";
+import { classifyFetchObservation, FETCH_OBSERVATION_STATES } from "../lib/fetch-observation.js";
 import { SECURITY_HEADERS } from "./security-headers-config.js";
 
 // ── Bot Protection & Challenge Detection ─────────────────────────────────────
@@ -195,6 +196,16 @@ export async function runHeadersModule(domain, opts = {}) {
   };
   let headerValues         = {};
   let accessible           = false;
+  // The last executed-but-non-origin observation (edge error / transport
+  // unavailable), so the module can say WHY it has no origin evidence instead of
+  // collapsing every cause into one reason. Null when no probe ever responded.
+  let nonOriginObservation = null;
+  // F-48: the last ORIGIN response that was an error status, i.e. the origin
+  // answered but served no usable representation of the site. Deliberately a
+  // different variable — and later a different reason — from the edge/transport
+  // case above, because "the origin told us it is broken" and "we never reached
+  // the origin" are different facts about the customer.
+  let originErrorObservation = null;
   let statusCode           = null;
   let originalUrl          = null;
   let responseUrl          = null;
@@ -255,6 +266,81 @@ export async function runHeadersModule(domain, opts = {}) {
     });
     subOpFinish(getSubOp, getRes);
     if (!getRes) continue;
+
+    // ── 52x/530: a Response object is not proof the ORIGIN answered ───────────
+    // Item 11A's completeness criterion ("fetch-failed ≠ missing; 52x/530"). A
+    // Cloudflare-synthesised edge failure IS a real Response with real headers,
+    // so the previous `accessible = true` on any non-null result read the edge's
+    // own error page as the customer's site: every security header came back
+    // absent and landed in `missing`, sourced from an origin that never served
+    // the site — the exact confusion this criterion exists to prevent.
+    //
+    // The decision is NOT made here. lib/fetch-observation.js already owns the
+    // canonical predicate (status range AND `server: cloudflare`, both required)
+    // and the completeness vocabulary; ssl-scan and asset-intel consume the same
+    // one. This module now consumes it too rather than growing a second dialect.
+    // No new meaning is assigned to any status code by this change.
+    const getObservation = classifyFetchObservation({ response: getRes, executed: true });
+    if (getObservation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) {
+      // Record WHAT we saw, then keep looking on the next protocol. Nothing from
+      // an edge error may reach headerValues, present/missing or the strength map.
+      nonOriginObservation = getObservation;
+      checkedPaths.push({
+        label:         "origin_not_observed",
+        requested_url: probeUrl,
+        method:        "GET",
+        status:        getObservation.state,
+        final_url:     getRes.url || probeUrl,
+        status_code:   getRes.status ?? null,
+        redirect_chain: [],
+        headers_observed: {},
+      });
+      continue;
+    }
+
+    // ── F-48: an origin 5xx is an answer, but not a serviceable site ─────────
+    // The origin genuinely responded — this is NOT the F-42 edge case and must
+    // not be relabelled as one. But a 5xx carries no representation of the site,
+    // so nothing about the customer's header posture can be assessed from it.
+    //
+    // scoring.js already knows this: every header finding is gated on
+    // `status_code === 200`, so an error response yields no finding. The defect
+    // was that the COMPLETENESS contract was never told the same thing — so the
+    // scan graded `complete`, the resolver saw zero material website findings,
+    // and a site returning 503 to every HTTPS probe was published
+    // ASSESSED_HEALTHY. One contract knew; the other was not informed.
+    //
+    // Bounded to 5xx on purpose. A 200/301/403/404 is a real application answer
+    // and its existing treatment is deliberately untouched: widening this to
+    // `!== 200` would change healthy-origin behaviour, which is a different
+    // decision and not this correction's to make.
+    if (Number(getRes.status) >= 500) {
+      originErrorObservation = {
+        status_code: getRes.status,
+        requested_url: probeUrl,
+        final_url: getRes.url || probeUrl,
+      };
+      // Keep the observed status/URLs as diagnostics. The origin DID answer and
+      // that fact is worth recording; what we refuse to do is treat it as a
+      // serviceable observation. Dropping it lost real information —
+      // validate-security-headers-binding.js caught exactly that, asserting the
+      // module still reports `status_code === 503` for a 5xx. Recording it costs
+      // nothing and keeps that contract true.
+      statusCode  = getRes.status;
+      originalUrl = probeUrl;
+      responseUrl = getRes.url || probeUrl;
+      checkedPaths.push({
+        label:         "origin_error_response",
+        requested_url: probeUrl,
+        method:        "GET",
+        status:        "origin_error",
+        final_url:     getRes.url || probeUrl,
+        status_code:   getRes.status ?? null,
+        redirect_chain: [],
+        headers_observed: {},
+      });
+      continue;
+    }
 
     accessible    = true;
     statusCode    = getRes.status;
@@ -371,12 +457,46 @@ export async function runHeadersModule(domain, opts = {}) {
   // which is the falsely-clean result being removed here, not a fix for it.
   const probeExecuted = accessible === true;
 
+  // An executed probe that reached only a Cloudflare edge error is a DIFFERENT
+  // fact from a probe that never got a response, and the customer-facing reason
+  // must not collapse the two. Both are `incomplete` — neither can support a
+  // header verdict — but only this one can say the request was answered by
+  // something. The spread above is left exactly as it was so the existing
+  // not-executed guard (and the source-pinned assertion that protects it) is
+  // untouched; this refines the reason afterwards without weakening it.
+  const originNotObserved = !probeExecuted && nonOriginObservation !== null;
+  // F-48. Ordered AFTER originNotObserved in the return spread so that when both
+  // happened (one protocol hit an edge error, the other a genuine 5xx) the
+  // customer-facing reason names the origin error — the stronger, more specific
+  // fact about their site. `incomplete: true` itself comes from the untouched
+  // probeExecuted spread either way, so neither guard can be lost.
+  const originErrored = !probeExecuted && originErrorObservation !== null;
+
   return {
     accessible,
     ...(probeExecuted ? {} : {
       incomplete: true,
       incomplete_reason: "probe_not_executed",
     }),
+    ...(originNotObserved ? {
+      incomplete_reason: "origin_not_observed",
+      header_observation: {
+        state:          nonOriginObservation.state,
+        reason:         nonOriginObservation.reason,
+        completeness:   nonOriginObservation.completeness,
+        probe_executed: nonOriginObservation.probe_executed,
+      },
+    } : {}),
+    ...(originErrored ? {
+      incomplete_reason: "origin_error_no_serviceable_response",
+      header_observation: {
+        state:          "origin_error_response",
+        reason:         "origin_error_no_serviceable_response",
+        completeness:   "incomplete",
+        probe_executed: true,
+        origin_status:  originErrorObservation.status_code,
+      },
+    } : {}),
     headers_assessed:       probeExecuted,
     status_code:            statusCode,
     original_url:           originalUrl,
