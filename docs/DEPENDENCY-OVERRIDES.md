@@ -275,11 +275,10 @@ coverage tests still pass. Then delete this record and its register entry.
 
 | Field | Value |
 | --- | --- |
-| **Status** | ACTIVE — renewed 2026-08-19; removal candidate requires a focused toolchain upgrade review |
+| **Status** | ACTIVE — temporary compatibility override |
 | **Introduced** | 2026-08-03 |
 | **Owner** | CyberMeters engineering (founder-owned) |
-| **Last reviewed** | 2026-08-19 |
-| **Review date** | 2026-08-26 (short — upstream has moved, but the candidate graph is not yet adopted or validated) |
+| **Review date** | 2026-08-17 (short — upstream is expected to move) |
 | **Scope** | `workers/scan-api/package.json` `overrides` + `package-lock.json` only. No `src/` change, no `wrangler` version change, no deploy. |
 
 ### What it does
@@ -302,15 +301,11 @@ carries five advisories:
 
 The high advisory fails the `npm audit --audit-level=high` CI gate.
 
-**`undici@7.29.0` is published and is the patched release for all five.** The repository's
-pinned `wrangler@4.110.0` still resolves `miniflare@4.20260730.0`, whose exact dependency is
-the vulnerable `undici@7.28.0`; this pinned graph therefore still requires the override.
-
-The fresh 19 August registry review found that current stable `wrangler@4.124.0` now depends
-on `miniflare@5.20260815.0-alpha`, which declares `undici@7.29.0`. That is a credible removal
-candidate, but adopting a new Wrangler plus a Miniflare major/alpha graph is a separate
-toolchain upgrade requiring its own compatibility gate. It is not silently folded into this
-deadline renewal.
+**`undici@7.29.0` is published and is the patched release for all five.** No `miniflare`
+release consumes it: the latest (`4.20260730.0`, 30 July 2026) still pins `7.28.0` exactly.
+npm's own `fixAvailable` proposes `wrangler@4.35.0`, which is a **downgrade** from the
+pinned `4.110.0`, and `wrangler@4.118.0` depends on a `miniflare` 5.x **alpha**. So the fix
+is installable only by override.
 
 The override therefore **takes the published fix** rather than admitting a vulnerable
 package through an audit exception.
@@ -330,13 +325,10 @@ package through an audit exception.
    `workerd` and `sharp` are unchanged.
 2. `npm audit --audit-level=high` reports **0 vulnerabilities**.
 3. `npx wrangler deploy --dry-run` still builds the Worker bundle.
-4. `7.28.0 → 7.29.0` is a semver-**minor** release; Miniflare's declaration is exact,
-   so the override remains an explicit, tested compatibility deviation.
+4. `7.28.0 → 7.29.0` is a semver-**patch** release inside the range Miniflare pins.
 
 ### Removal criterion
-Remove after the repository adopts and validates a supported `wrangler`/`miniflare` graph
-that declares `undici >= 7.29.0`; the first measured candidate is
-`wrangler@4.124.0` → `miniflare@5.20260815.0-alpha` → `undici@7.29.0`. Verify by deleting
-the entry, confirming `npm ls undici` resolves `>= 7.29.0` with no `overridden` marker,
-`npm audit --audit-level=high` stays at **0**, the dependency-override mutation contract
-passes, and both scan-api and email-ingest Wrangler dry-runs still build.
+Remove when a supported `wrangler` (and its bundled `miniflare`) declares `undici >=
+7.29.0`. Verify by deleting the entry, confirming `npm ls undici` resolves `>= 7.29.0` with
+no `overridden` marker, `npm audit --audit-level=high` stays at **0**, and `npx wrangler
+deploy --dry-run` still builds.
