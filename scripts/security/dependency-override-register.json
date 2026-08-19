@@ -93,32 +93,6 @@
       "reviewed_on": "2026-08-03",
       "review_by": "2026-08-31",
       "record": "docs/DEPENDENCY-OVERRIDES.md#ov-4"
-    },
-    {
-      "id": "OV-5",
-      "workspace": "workers/scan-api",
-      "package": "undici",
-      "declared_spec": "7.29.0",
-      "resolved_version": "7.29.0",
-      "dependency_root": "wrangler",
-      "dependency_path": ["wrangler", "miniflare", "undici"],
-      "reachability": "dev_only",
-      "production_closure_evidence": "npm ls --omit=dev undici",
-      "advisory_basis": "current",
-      "advisories_cleared": [
-        "GHSA-4cwx-7wf7-3272",
-        "GHSA-8xcm-r25x-g524",
-        "GHSA-m8rv-5g2x-5cg5",
-        "GHSA-jr45-8vmc-qm54",
-        "GHSA-v3r7-h72x-cjcm"
-      ],
-      "reason": "miniflare declares undici 7.28.0 exact, and every 7.x below 7.29.0 carries five advisories, one of them high (GHSA-4cwx-7wf7-3272 — cross-user information disclosure and parse-time crash via degenerate private cache directives, CVSS 7.4). undici 7.29.0 is published and is the patched release for all five, but no miniflare release consumes it: the latest miniflare (4.20260730.0) still pins 7.28.0 exactly, and npm's own `fixAvailable` proposes wrangler 4.35.0, which is a DOWNGRADE from the pinned 4.110.0. The override installs the fixed undici rather than admitting the vulnerable one through an audit exception. undici is a dev-toolchain package only — the Worker runs on Cloudflare workerd and does not ship undici as its fetch implementation.",
-      "removal_criterion": "Remove when a supported wrangler (and its bundled miniflare) declares undici >= 7.29.0. Verify by deleting the entry, confirming `npm ls undici` resolves >= 7.29.0 with no `overridden` marker, `npm audit --audit-level=high` stays at 0, and `npx wrangler deploy --dry-run` still builds.",
-      "owner": "CyberMeters engineering (founder-owned)",
-      "introduced_on": "2026-08-03",
-      "reviewed_on": "2026-08-03",
-      "review_by": "2026-08-17",
-      "record": "docs/DEPENDENCY-OVERRIDES.md#ov-5"
     }
   ]
 }
