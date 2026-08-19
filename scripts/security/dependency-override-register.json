@@ -112,12 +112,12 @@
         "GHSA-jr45-8vmc-qm54",
         "GHSA-v3r7-h72x-cjcm"
       ],
-      "reason": "miniflare declares undici 7.28.0 exact, and every 7.x below 7.29.0 carries five advisories, one of them high (GHSA-4cwx-7wf7-3272 — cross-user information disclosure and parse-time crash via degenerate private cache directives, CVSS 7.4). undici 7.29.0 is published and is the patched release for all five, but no miniflare release consumes it: the latest miniflare (4.20260730.0) still pins 7.28.0 exactly, and npm's own `fixAvailable` proposes wrangler 4.35.0, which is a DOWNGRADE from the pinned 4.110.0. The override installs the fixed undici rather than admitting the vulnerable one through an audit exception. undici is a dev-toolchain package only — the Worker runs on Cloudflare workerd and does not ship undici as its fetch implementation.",
-      "removal_criterion": "Remove when a supported wrangler (and its bundled miniflare) declares undici >= 7.29.0. Verify by deleting the entry, confirming `npm ls undici` resolves >= 7.29.0 with no `overridden` marker, `npm audit --audit-level=high` stays at 0, and `npx wrangler deploy --dry-run` still builds.",
+      "reason": "The repository's pinned wrangler 4.110.0 resolves miniflare 4.20260730.0, which declares vulnerable undici 7.28.0 exact; every 7.x below 7.29.0 carries five advisories, including high GHSA-4cwx-7wf7-3272. The override installs patched undici 7.29.0 rather than suppressing the audit. A fresh 2026-08-19 registry review found a removal candidate: stable wrangler 4.124.0 depends on miniflare 5.20260815.0-alpha, which declares undici 7.29.0. That new Wrangler plus Miniflare major/alpha graph is not yet adopted or compatibility-tested and requires a separate focused toolchain upgrade. undici remains dev-toolchain-only; Cloudflare workerd supplies production fetch.",
+      "removal_criterion": "Remove after the repository adopts and validates a supported wrangler/miniflare graph declaring undici >= 7.29.0; first measured candidate is wrangler 4.124.0 -> miniflare 5.20260815.0-alpha -> undici 7.29.0. Verify the override-free graph, npm audit at 0 high vulnerabilities, the dependency-override mutation contract, and both Worker dry-runs.",
       "owner": "CyberMeters engineering (founder-owned)",
       "introduced_on": "2026-08-03",
-      "reviewed_on": "2026-08-03",
-      "review_by": "2026-08-17",
+      "reviewed_on": "2026-08-19",
+      "review_by": "2026-08-26",
       "record": "docs/DEPENDENCY-OVERRIDES.md#ov-5"
     }
   ]
