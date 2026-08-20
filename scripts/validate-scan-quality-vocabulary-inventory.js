@@ -24,7 +24,7 @@ const EXPECTED = Object.freeze({
   runtime: {
     comparison_occurrences: 49,
     source_file_count: 22,
-    fingerprint: "63b4f3bc76a37b3bc0a48ea0a0dfd7e277b2637a9d462dcf1459d9b13cc73ac1",
+    fingerprint: "3ac4ded6abd0006c1be60310f0d3911e5658724a4834dd810fee83f810f9bdf6",
     partial_only_fingerprint: "d5610bb728e59e6d6aea7af5ce30097276d9ac97a13e8139269a08ff3a85e5de",
   },
   sql: {
