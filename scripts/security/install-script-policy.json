@@ -70,9 +70,9 @@
       "root": "workers/scan-api",
       "package_name": "cybermeters-scan-api",
       "package_version": "0.1.0",
-      "package_json_sha256": "aa06204fcaf8a6896b117652f70ad69a6671b2f4167787aca1a3d0c721835dba",
+      "package_json_sha256": "960a4c7e68b8f6d6a4fafd9bc5e22147d1e03dff5a548158998cdd0d120ac924",
       "lockfile_version": 3,
-      "lockfile_sha256": "82302bf06b42b056874b4d89f0efb53b630742b6fae8a3f528859ae253c2feb7",
+      "lockfile_sha256": "e88e65f56902d1aa592cb9b1d1e295fe1f72fd9e923180788ee59fe191702290",
       "install_script_markers": [
         {
           "package_path": "node_modules/esbuild",
@@ -103,19 +103,19 @@
         {
           "package_path": "node_modules/workerd",
           "package_name": "workerd",
-          "version": "1.20260708.1",
-          "resolved": "https://registry.npmjs.org/workerd/-/workerd-1.20260708.1.tgz",
-          "integrity": "sha512-WAK+Kt/VVCSldH2qSr8lx46XCJ4Q+bdlHNaFqUtOHthBEIB8C1N8HVW+VOLrxDoTCk0NGNv0zajnBeQK4JOB9w==",
+          "version": "1.20260801.1",
+          "resolved": "https://registry.npmjs.org/workerd/-/workerd-1.20260801.1.tgz",
+          "integrity": "sha512-/g9JGTyqnHtoIscpBHqKD8swE2V4StBs2i69PmLiOhH45OP95jCFICl4F1hKlgN57rqfni5LiCitttoX5OOkVA==",
           "disposition": "approved",
-          "package_json_sha256": "9523fabf0fdcb343aacc23b03ce5ffecc03f2ad43d7e18f15d0ed63a15b3d1cc",
+          "package_json_sha256": "458338bb575a82f2ee0e3e0cf9340f0408e5ade82323740d857c7297ee102e07",
           "lifecycle_event": "postinstall",
           "lifecycle_command": "node install.js",
           "script_path": "install.js",
-          "script_sha256": "74d0a63560964afc043d39f3fc9b97efb0c92ef813999b7a686d8973104cced0",
+          "script_sha256": "236509d2c737e6bfbf7670a575e80b0348e10581ad4b91b69d35b28bfb8a5495",
           "platform_binary_subpath": "bin/workerd",
           "probe_path": "bin/workerd",
           "probe_args": ["--version"],
-          "probe_stdout": "workerd 2026-07-08"
+          "probe_stdout": "workerd 2026-08-01"
         }
       ]
     }

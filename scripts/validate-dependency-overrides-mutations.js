@@ -57,57 +57,57 @@ export const FIXTURES = {
 
   "stale-record": () => {
     const workspaces = clone(base.workspaces);
-    delete workspaces["workers/scan-api"].manifest.overrides.undici;
+    delete workspaces["workers/scan-api"].manifest.overrides.sharp;
     return { register: clone(base.register), workspaces, now: NOW };
   },
 
   "spec-drift": () => {
     const workspaces = clone(base.workspaces);
-    workspaces["workers/scan-api"].manifest.overrides.undici = "7.28.0";
+    workspaces["workers/scan-api"].manifest.overrides.sharp = "0.35.2";
     return { register: clone(base.register), workspaces, now: NOW };
   },
 
   "resolved-version-drift": () => {
     const workspaces = clone(base.workspaces);
-    workspaces["workers/scan-api"].lock.packages["node_modules/undici"].version = "7.28.0";
+    workspaces["workers/scan-api"].lock.packages["node_modules/sharp"].version = "0.35.2";
     return { register: clone(base.register), workspaces, now: NOW };
   },
 
   "package-name-drift": () => {
     const register = clone(base.register);
-    const entry = entryOf(register, "OV-5");
-    entry.package = "undici-fetch";
-    entry.dependency_path = ["wrangler", "miniflare", "undici-fetch"];
+    const entry = entryOf(register, "OV-1");
+    entry.package = "sharp-image";
+    entry.dependency_path = ["wrangler", "miniflare", "sharp-image"];
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "dependency-root-drift": () => {
     const register = clone(base.register);
-    const entry = entryOf(register, "OV-5");
+    const entry = entryOf(register, "OV-1");
     entry.dependency_root = "not-a-declared-dependency";
-    entry.dependency_path = ["not-a-declared-dependency", "miniflare", "undici"];
+    entry.dependency_path = ["not-a-declared-dependency", "miniflare", "sharp"];
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "dependency-path-drift": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-5").dependency_path = ["wrangler", "miniflare", "some-other-package"];
+    entryOf(register, "OV-1").dependency_path = ["wrangler", "miniflare", "some-other-package"];
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
-  // The dev-only claim, contradicted: undici becomes reachable from a
+  // The dev-only claim, contradicted: sharp becomes reachable from a
   // production root while still declared dev_only.
   "dev-only-claim-contradicted": () => {
     const workspaces = clone(base.workspaces);
     const lock = workspaces["workers/scan-api"].lock;
-    lock.packages[""].dependencies.undici = "7.29.0";
+    lock.packages[""].dependencies.sharp = "0.35.3";
     return { register: clone(base.register), workspaces, now: NOW };
   },
 
   // Runtime reachability claimed where the graph shows none.
   "runtime-claim-without-reachability": () => {
     const register = clone(base.register);
-    const entry = entryOf(register, "OV-5");
+    const entry = entryOf(register, "OV-1");
     entry.reachability = "production_runtime";
     delete entry.production_closure_evidence;
     entry.production_reachability_reason = "asserted without evidence";
@@ -120,55 +120,55 @@ export const FIXTURES = {
 
   "missing-review-by": () => {
     const register = clone(base.register);
-    delete entryOf(register, "OV-5").review_by;
+    delete entryOf(register, "OV-1").review_by;
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "malformed-review-by": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-5").review_by = "2026-13-45";
+    entryOf(register, "OV-1").review_by = "2026-13-45";
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "review-by-not-after-reviewed-on": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-5").review_by = "2026-08-03";
+    entryOf(register, "OV-1").review_by = "2026-08-03";
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "missing-owner": () => {
     const register = clone(base.register);
-    delete entryOf(register, "OV-5").owner;
+    delete entryOf(register, "OV-1").owner;
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "empty-owner": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-5").owner = "   ";
+    entryOf(register, "OV-1").owner = "   ";
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "off-vocabulary-owner": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-5").owner = "somebody else";
+    entryOf(register, "OV-1").owner = "somebody else";
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "duplicate-record": () => {
     const register = clone(base.register);
-    register.overrides.push(clone(entryOf(register, "OV-5")));
+    register.overrides.push(clone(entryOf(register, "OV-1")));
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "unknown-field": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-5").permanent = true;
+    entryOf(register, "OV-1").permanent = true;
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "current-basis-without-advisory": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-5").advisories_cleared = [];
+    entryOf(register, "OV-1").advisories_cleared = [];
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
@@ -180,7 +180,7 @@ export const FIXTURES = {
 
   "malformed-advisory-id": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-5").advisories_cleared = ["CVE-2026-1234"];
+    entryOf(register, "OV-1").advisories_cleared = ["CVE-2026-1234"];
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
@@ -198,13 +198,13 @@ export const FIXTURES = {
 
   "missing-reason-and-removal-criterion": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-5").removal_criterion = "";
+    entryOf(register, "OV-1").removal_criterion = "";
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "ungoverned-workspace": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-5").workspace = "workers/email-ingest";
+    entryOf(register, "OV-1").workspace = "workers/email-ingest";
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
@@ -216,7 +216,7 @@ export const FIXTURES = {
 
   "overrides-not-a-list": () => {
     const register = clone(base.register);
-    register.overrides = { "OV-5": {} };
+    register.overrides = { "OV-1": {} };
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
@@ -256,7 +256,7 @@ export const EXPECTED = {
     "closure: reachability claim matches the locked production graph",
     "closure: npm dev classification agrees with the independent closure walk",
   ],
-  // Only the reachability claim fires: npm marks undici dev=true and the closure
+  // Only the reachability claim fires: npm marks sharp dev=true and the closure
   // walk finds it absent from production, so the two derivations AGREE. The
   // agreement guard is silent here by design — it catches disagreement, not a
   // false claim, which is the preceding guard's job.
@@ -310,7 +310,7 @@ export const EXPECTED = {
     "register: every record states a reason and a removal criterion",
   ],
   // Moving the record out of the governed set genuinely orphans the live
-  // `undici` override too — it is no longer claimed by any governed record.
+  // `sharp` override too — it is no longer claimed by any governed record.
   // Both failures are correct and neither masks the other.
   "ungoverned-workspace": [
     "register: every record targets a governed workspace",
@@ -428,8 +428,8 @@ try {
   // A registered override must be visibly EXERCISED on the happy path, not
   // silently absent: the baseline must actually evaluate real records.
   ok("baseline exercises every registered override",
-    base.register.overrides.length === 5 &&
-      sameSet(base.register.overrides.map((entry) => entry.id), ["OV-1", "OV-2", "OV-3", "OV-4", "OV-5"]),
+    base.register.overrides.length === 4 &&
+      sameSet(base.register.overrides.map((entry) => entry.id), ["OV-1", "OV-2", "OV-3", "OV-4"]),
     `ids ${base.register.overrides.map((entry) => entry.id).join(",")}`);
 
   // ── PART B ────────────────────────────────────────────────────────────────

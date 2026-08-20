@@ -58,14 +58,17 @@ Exact pin (not a range) so the resolved dev-tool graph cannot drift silently on 
 installs.
 
 ### Why it exists
-`npm audit --audit-level=high` (the `validate` CI job) fails on every PR: **sharp <0.35.0**
+**Historical justification (why this override was created, at wrangler 4.110.0):**
+`npm audit --audit-level=high` (the `validate` CI job) failed on every PR: **sharp <0.35.0**
 carries high-severity libvips advisories (GHSA-f88m-g3jw-g9cj — CVE-2026-33327 / -33328 /
--35590 / -35591). sharp is pulled **transitively by the dev toolchain only**:
+-35590 / -35591), and the dev toolchain then declared `sharp 0.34.5`. See **Upstream tracking**
+below — as measured on 2026-08-20 the declared version is no longer within that advisory range.
+sharp is pulled **transitively by the dev toolchain only**:
 
 ```
-wrangler@4.110.0 (devDependency)
-  └─ miniflare@4.20260708.1
-       └─ sharp@0.34.5   ← declared EXACT by miniflare; overridden → 0.35.3
+wrangler@4.120.0 (devDependency)
+  └─ miniflare@5.20260801.1-alpha
+       └─ sharp@0.35.2   ← declared EXACT by miniflare; overridden → 0.35.3
 ```
 
 sharp is **not a production dependency** and is **not imported anywhere in the Worker
@@ -74,7 +77,7 @@ on developer and CI machines (where the dev toolchain is installed), which is pr
 clearing it is correct; it is not a claim that no risk exists anywhere.
 
 ### Compatibility evidence vs Miniflare's declared contract
-Miniflare `4.20260708.1` declares `sharp: 0.34.5` as an **exact** pin, so forcing `0.35.3`
+Miniflare `5.20260801.1-alpha` declares `sharp: 0.35.2` as an **exact** pin, so forcing `0.35.3`
 is **outside** Miniflare's declared dependency graph. This is a deliberate deviation, and it
 is empirically validated rather than asserted:
 
@@ -86,7 +89,7 @@ is empirically validated rather than asserted:
    or CI — Miniflare never invokes sharp for this project.
 3. **Bundle still builds** with the override: `npx wrangler deploy --dry-run` succeeds.
 4. **sharp 0.35.3 itself is functional** natively on macOS arm64: a `create → png →
-   toBuffer` native op produced a valid PNG (95 bytes). 0.34.5 → 0.35.3 is a semver-minor
+   toBuffer` native op produced a valid PNG (95 bytes). 0.35.2 → 0.35.3 is a semver-patch
    sharp release; its dependency graph resolves cleanly (`@img/colour`, `detect-libc`,
    `semver`, `@img/sharp-*` native).
 5. **`npm audit --audit-level=high` = 0 vulnerabilities** after the override.
@@ -101,8 +104,15 @@ declared graph.
 
 ### Upstream tracking
 - Advisory: **GHSA-f88m-g3jw-g9cj** (sharp <0.35.0 / libvips).
-- Upstream fix we are waiting on: **wrangler / miniflare (`cloudflare/workers-sdk`)** bumping
-  its bundled sharp pin to **≥ 0.35.0**. Miniflare currently declares `sharp 0.34.5` exact.
+- Upstream fix we were waiting on: **wrangler / miniflare (`cloudflare/workers-sdk`)** bumping
+  its bundled sharp pin to **≥ 0.35.0**.
+- **MEASURED 2026-08-20 on the Wrangler 4.120.0 branch: that has now happened.** Miniflare
+  `5.20260801.1-alpha` declares `sharp 0.35.2` exact — above the `< 0.35.0` advisory boundary —
+  so the condition in the removal criterion below is **met on the declared version**. The
+  override still resolves sharp to `0.35.3` (`npm ls sharp` reports `overridden`), but it is no
+  longer clearing GHSA-f88m-g3jw-g9cj, because the declared version is not affected by it.
+- **This record is NOT closed here.** Retiring OV-1 requires running the four removal checks
+  below and is a separate lane; this branch changed only the OV-5 line and this documentation.
 - Re-check on each `wrangler` upgrade and at the review date above.
 
 ### Removal criterion
@@ -268,75 +278,3 @@ Retained only to keep the register's introducing PR free of unrelated dependency
 Remove at or before the review date. Verify by deleting the entry, confirming `npm audit
 --audit-level=high` stays at **0** with the restored `test-exclude` 7 chain, and that
 coverage tests still pass. Then delete this record and its register entry.
-
----
-
-## OV-5 — `undici` forced to `7.29.0` (dev-transitive, CI security)
-
-| Field | Value |
-| --- | --- |
-| **Status** | ACTIVE — renewed 2026-08-19; removal candidate requires a focused toolchain upgrade review |
-| **Introduced** | 2026-08-03 |
-| **Owner** | CyberMeters engineering (founder-owned) |
-| **Last reviewed** | 2026-08-19 |
-| **Review date** | 2026-08-26 (short — upstream has moved, but the candidate graph is not yet adopted or validated) |
-| **Scope** | `workers/scan-api/package.json` `overrides` + `package-lock.json` only. No `src/` change, no `wrangler` version change, no deploy. |
-
-### What it does
-```json
-"overrides": { "undici": "7.29.0" }
-```
-Exact pin, so the resolved dev-tool graph cannot drift silently.
-
-### Why it exists
-`miniflare` declares `undici 7.28.0` **exact**, and every `undici` 7.x below `7.29.0`
-carries five advisories:
-
-| Advisory | Severity | CVSS |
-| --- | --- | --- |
-| **GHSA-4cwx-7wf7-3272** — cross-user information disclosure and parse-time crash via degenerate private cache directives | **high** | 7.4 |
-| GHSA-jr45-8vmc-qm54 — cross-user disclosure via whitespace around equals in `Cache-Control` | moderate | 5.9 |
-| GHSA-8xcm-r25x-g524 — downstream response desynchronization via retry interceptor | moderate | 4.8 |
-| GHSA-v3r7-h72x-cjcm — cookie attribute injection via unsanitised domain | moderate | 4.8 |
-| GHSA-m8rv-5g2x-5cg5 — CRLF injection via blob-like body `type` | moderate | 4.2 |
-
-The high advisory fails the `npm audit --audit-level=high` CI gate.
-
-**`undici@7.29.0` is published and is the patched release for all five.** The repository's
-pinned `wrangler@4.110.0` still resolves `miniflare@4.20260730.0`, whose exact dependency is
-the vulnerable `undici@7.28.0`; this pinned graph therefore still requires the override.
-
-The fresh 19 August registry review found that current stable `wrangler@4.124.0` now depends
-on `miniflare@5.20260815.0-alpha`, which declares `undici@7.29.0`. That is a credible removal
-candidate, but adopting a new Wrangler plus a Miniflare major/alpha graph is a separate
-toolchain upgrade requiring its own compatibility gate. It is not silently folded into this
-deadline renewal.
-
-The override therefore **takes the published fix** rather than admitting a vulnerable
-package through an audit exception.
-
-### Runtime exposure
-`undici` is a dev-toolchain package only:
-
-- `workers/scan-api` declares exactly **one** runtime dependency, `tr46`; the complete
-  production closure is `tr46 → punycode`.
-- `npm ls --omit=dev undici` returns empty.
-- No `undici` import exists anywhere in `workers/scan-api/src/` or `shared/`.
-- The Worker runs on Cloudflare **workerd**, which provides its own `fetch`; it does not
-  ship `undici`.
-
-### Compatibility evidence vs Miniflare's declared contract
-1. `npm ci` resolves `undici@7.29.0` with **no** other package moved — `miniflare`,
-   `workerd` and `sharp` are unchanged.
-2. `npm audit --audit-level=high` reports **0 vulnerabilities**.
-3. `npx wrangler deploy --dry-run` still builds the Worker bundle.
-4. `7.28.0 → 7.29.0` is a semver-**minor** release; Miniflare's declaration is exact,
-   so the override remains an explicit, tested compatibility deviation.
-
-### Removal criterion
-Remove after the repository adopts and validates a supported `wrangler`/`miniflare` graph
-that declares `undici >= 7.29.0`; the first measured candidate is
-`wrangler@4.124.0` → `miniflare@5.20260815.0-alpha` → `undici@7.29.0`. Verify by deleting
-the entry, confirming `npm ls undici` resolves `>= 7.29.0` with no `overridden` marker,
-`npm audit --audit-level=high` stays at **0**, the dependency-override mutation contract
-passes, and both scan-api and email-ingest Wrangler dry-runs still build.
