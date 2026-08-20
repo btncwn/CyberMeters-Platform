@@ -58,14 +58,17 @@ Exact pin (not a range) so the resolved dev-tool graph cannot drift silently on 
 installs.
 
 ### Why it exists
-`npm audit --audit-level=high` (the `validate` CI job) fails on every PR: **sharp <0.35.0**
+**Historical justification (why this override was created, at wrangler 4.110.0):**
+`npm audit --audit-level=high` (the `validate` CI job) failed on every PR: **sharp <0.35.0**
 carries high-severity libvips advisories (GHSA-f88m-g3jw-g9cj — CVE-2026-33327 / -33328 /
--35590 / -35591). sharp is pulled **transitively by the dev toolchain only**:
+-35590 / -35591), and the dev toolchain then declared `sharp 0.34.5`. See **Upstream tracking**
+below — as measured on 2026-08-20 the declared version is no longer within that advisory range.
+sharp is pulled **transitively by the dev toolchain only**:
 
 ```
-wrangler@4.110.0 (devDependency)
-  └─ miniflare@4.20260708.1
-       └─ sharp@0.34.5   ← declared EXACT by miniflare; overridden → 0.35.3
+wrangler@4.120.0 (devDependency)
+  └─ miniflare@5.20260801.1-alpha
+       └─ sharp@0.35.2   ← declared EXACT by miniflare; overridden → 0.35.3
 ```
 
 sharp is **not a production dependency** and is **not imported anywhere in the Worker
@@ -74,7 +77,7 @@ on developer and CI machines (where the dev toolchain is installed), which is pr
 clearing it is correct; it is not a claim that no risk exists anywhere.
 
 ### Compatibility evidence vs Miniflare's declared contract
-Miniflare `4.20260708.1` declares `sharp: 0.34.5` as an **exact** pin, so forcing `0.35.3`
+Miniflare `5.20260801.1-alpha` declares `sharp: 0.35.2` as an **exact** pin, so forcing `0.35.3`
 is **outside** Miniflare's declared dependency graph. This is a deliberate deviation, and it
 is empirically validated rather than asserted:
 
@@ -86,7 +89,7 @@ is empirically validated rather than asserted:
    or CI — Miniflare never invokes sharp for this project.
 3. **Bundle still builds** with the override: `npx wrangler deploy --dry-run` succeeds.
 4. **sharp 0.35.3 itself is functional** natively on macOS arm64: a `create → png →
-   toBuffer` native op produced a valid PNG (95 bytes). 0.34.5 → 0.35.3 is a semver-minor
+   toBuffer` native op produced a valid PNG (95 bytes). 0.35.2 → 0.35.3 is a semver-patch
    sharp release; its dependency graph resolves cleanly (`@img/colour`, `detect-libc`,
    `semver`, `@img/sharp-*` native).
 5. **`npm audit --audit-level=high` = 0 vulnerabilities** after the override.
@@ -101,8 +104,15 @@ declared graph.
 
 ### Upstream tracking
 - Advisory: **GHSA-f88m-g3jw-g9cj** (sharp <0.35.0 / libvips).
-- Upstream fix we are waiting on: **wrangler / miniflare (`cloudflare/workers-sdk`)** bumping
-  its bundled sharp pin to **≥ 0.35.0**. Miniflare currently declares `sharp 0.34.5` exact.
+- Upstream fix we were waiting on: **wrangler / miniflare (`cloudflare/workers-sdk`)** bumping
+  its bundled sharp pin to **≥ 0.35.0**.
+- **MEASURED 2026-08-20 on the Wrangler 4.120.0 branch: that has now happened.** Miniflare
+  `5.20260801.1-alpha` declares `sharp 0.35.2` exact — above the `< 0.35.0` advisory boundary —
+  so the condition in the removal criterion below is **met on the declared version**. The
+  override still resolves sharp to `0.35.3` (`npm ls sharp` reports `overridden`), but it is no
+  longer clearing GHSA-f88m-g3jw-g9cj, because the declared version is not affected by it.
+- **This record is NOT closed here.** Retiring OV-1 requires running the four removal checks
+  below and is a separate lane; this branch changed only the OV-5 line and this documentation.
 - Re-check on each `wrangler` upgrade and at the review date above.
 
 ### Removal criterion
