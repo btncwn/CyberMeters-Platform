@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // U3 semantic mutation harness. Every mutant edits exact production bytes,
-// launches the 38-fixture validator in a fresh process, requires the exact FAIL
+// launches the 45-fixture validator in a fresh process, requires the exact FAIL
 // set, and restores both target bytes and the candidate-worktree fingerprint.
 
 import crypto from "node:crypto";
@@ -31,6 +31,10 @@ const TARGETS = Object.freeze({
   workspacePage: "frontend/src/pages/ws/WorkspaceIdentityPage.jsx",
   card: "frontend/src/components/IdentityExposureCard.jsx",
   managedPage: "frontend/src/pages/ws/IdentityExposurePage.jsx",
+  landing: "frontend/src/pages/PublicLandingPage.jsx",
+  dashboard: "frontend/src/pages/Dashboard.jsx",
+  capabilities: "docs/CAPABILITIES.md",
+  methodology: "docs/risk-methodology-v1.md",
 });
 const absolute = (target) => path.join(ROOT, TARGETS[target]);
 const digest = (value) => crypto.createHash("sha256").update(value).digest("hex");
@@ -70,7 +74,7 @@ function runValidator() {
   const controls = String(child.stdout || "").match(/U3 controls: (\d+)\/(\d+) passed/);
   const loaded = String(child.stdout || "").includes("LOADED identity truth contract=true lifecycle=true");
   const normal = child.error == null && child.signal == null && child.status === 1 && loaded &&
-    summary != null && Number(summary[2]) === 38 && Number(summary[1]) + failures.length === 38 &&
+    summary != null && Number(summary[2]) === 45 && Number(summary[1]) + failures.length === 45 &&
     controls != null;
   return { child, output, failures, normal };
 }
@@ -82,7 +86,11 @@ const MUTANTS = [
   { id: "U3-M04", target: "lifecycle", expected: ["U3-LIFE-01", "U3-ALERT-01"], controls: ["U3-POS-01"], replacements: [{ from: '    else if (measuredIdentityClaim && admin && stillObserved && cls !== "expected")', to: '    else if (admin && stillObserved && cls !== "expected")' }] },
   { id: "U3-M05", target: "contract", expected: ["U3-API-02", "U3-API-03", "U3-LIFE-03"], controls: ["U3-LIFE-02"], replacements: [{ from: '  return isMeasuredIdentityClaim(identityClaim)\n    ? [...NEUTRAL_IDENTITY_ACTIONS, ...MEASURED_IDENTITY_ACTIONS]\n    : [...NEUTRAL_IDENTITY_ACTIONS];', to: '  return [...NEUTRAL_IDENTITY_ACTIONS, ...MEASURED_IDENTITY_ACTIONS];' }] },
   { id: "U3-M06", target: "lifecycle", expected: ["U3-API-03"], controls: ["U3-API-02"], replacements: [{ from: '  if (!allowedActions.includes(action)) return { ok: false, code: "action_not_allowed", allowed_actions: allowedActions };', to: '  if (!IDENTITY_WORKFLOW_ACTIONS.includes(action)) return { ok: false, code: "invalid_action" };' }] },
-  { id: "U3-M07", target: "business", expected: ["U3-BRI-01"], controls: ["U3-BRI-02"], replacements: [{ from: '  attackDed += Math.min(20, identityReachableSurfaceCount * 7);', to: '  attackDed += Math.min(20, (identityHighRiskCount || identityReachableSurfaceCount) * 7);' }] },
+  // Kill set widened by I11B: this mutant reintroduces the deprecated
+  // high_risk_count into the BRS deduction - precisely the defect F-51
+  // documents - so the methodology doc-parity fixture U3-CS-06 correctly
+  // fails alongside U3-BRI-01. Widened deliberately, not to dodge a clash.
+  { id: "U3-M07", target: "business", expected: ["U3-BRI-01", "U3-CS-06"], controls: ["U3-BRI-02"], replacements: [{ from: '  attackDed += Math.min(20, identityReachableSurfaceCount * 7);', to: '  attackDed += Math.min(20, (identityHighRiskCount || identityReachableSurfaceCount) * 7);' }] },
   { id: "U3-M08", target: "domains", expected: ["U3-DOM-01"], controls: ["U3-DOM-02"], replacements: [{ from: '      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;\n      base.coverage = requiredAssessedAll ? "partial" : quality;\n      base.summary = "Identity reachability was not evaluated — no supported reachability producer is implemented. Provider relationships and possible hostnames remain visible for review.";', to: '      base.state = CYBER_MOT_STATES.ASSESSED_HEALTHY;\n      base.coverage = "complete";\n      base.summary = "Assessed — no material issue observed.";' }] },
   { id: "U3-M09", target: "shadow", expected: ["U3-XD-01"], controls: ["U3-XD-02"], replacements: [{ from: '    confidence: detail?.level && detail.level !== "unknown" ? detail.level : "low",', to: '    confidence: (row.risk_score || 0) >= 20 ? "high" : "medium",' }] },
   { id: "U3-M10", target: "vendor", expected: ["U3-VR-01"], controls: ["U3-VR-02"], replacements: [{ from: '  return identityOnly ? "relationship_only" : "independent_risk_evidence";', to: '  return "independent_risk_evidence";' }] },
@@ -101,6 +109,15 @@ const MUTANTS = [
   { id: "U3-M23", target: "managedPage", expected: ["U3-API-02", "U3-FE-03"], controls: ["U3-LIFE-02"], replacements: [{ from: '  const can = (item, action) => Array.isArray(item?.allowed_actions) && item.allowed_actions.includes(action)', to: '  const can = (_item, action) => (data?.actions || []).includes(action)' }, { from: '{confidenceDetailLabel(it.confidence_detail)} · reachability {it.identity_claim?.reachability?.status?.replace(/_/g, \' \') || \'not evaluated\'}', to: '{it.confidence || \'confidence unknown\'}' }] },
   { id: "U3-M24", target: "lifecycle", expected: ["U3-ALERT-01"], controls: ["U3-POS-01"], replacements: [{ from: '    const alertEligible = measuredIdentityClaim || recurrence_type === "provider_change";', to: '    const alertEligible = true;' }] },
   { id: "U3-M25", target: "contract", expected: ["U3-DOM-01", "U3-ITEM11-01"], controls: ["U3-DOM-02"], replacements: [{ from: 'export const IDENTITY_REACHABILITY_PRODUCERS = Object.freeze([]);', to: 'export const IDENTITY_REACHABILITY_PRODUCERS = Object.freeze(["unimplemented_reachability"]);' }] },
+  // ── I11B F-50/F-51 — claim-surface mutants (repo-owned, right-reason) ──
+  // Each restores one exact pre-fix wording and must fail ONLY its own fixture.
+  // Wording is the claim, so the claim-surface guard earns the same mutation
+  // discipline as every other U3 assertion.
+  { id: "U3-M26", target: "landing", expected: ["U3-CS-01"], controls: ["U3-CS-03"], replacements: [{ from: "'Identity-provider relationships and identity-facing hostnames observed from public DNS, certificate transparency and response metadata. Endpoint reachability testing is on the roadmap and is not performed today. No breach, credential or dark-web claims.'", to: "'Public login surfaces and identity-facing entry points, without unsupported breach or dark-web claims.'" }] },
+  { id: "U3-M27", target: "landing", expected: ["U3-CS-01"], controls: ["U3-CS-02"], replacements: [{ from: "'Reachability: roadmap'", to: "'IdP exposure'" }] },
+  { id: "U3-M28", target: "dashboard", expected: ["U3-CS-03"], controls: ["U3-CS-01"], replacements: [{ from: 'fallback="Review observed identity-provider relationships and identity-facing hostnames. Endpoint reachability is not measured."', to: 'fallback="Review public login surfaces and identity-facing entry points."' }] },
+  { id: "U3-M29", target: "capabilities", expected: ["U3-CS-04"], controls: ["U3-CS-05"], replacements: [{ from: "- **Observes:** identity-provider relationships and identity-facing hostname candidates, derived from public DNS, certificate transparency and HTTP response metadata.", to: "- **Observes:** public login surfaces and identity-facing entry points." }] },
+  { id: "U3-M30", target: "methodology", expected: ["U3-CS-05", "U3-CS-06"], controls: ["U3-CS-04"], replacements: [{ from: "| Identity exposure (measured reachable surfaces × 7, capped at −20) — requires a registered reachability producer; none is registered today, so this contributes 0. The deprecated `high_risk_count` heuristic is deliberately ignored by the current implementation. | Up to −20 |", to: "| Identity exposure (high_risk_count × 7, capped at −20) | Up to −20 |" }] },
 ];
 
 let killed = 0;
@@ -138,4 +155,4 @@ if (finalFingerprint !== initialFingerprint) {
   console.log(`PASS U3-RESTORE worktree_fingerprint=${finalFingerprint}`);
 }
 console.log(`U3 mutants: ${killed}/${MUTANTS.length} killed with exact right-reason sets`);
-if (MUTANTS.length !== 25 || failures > 0 || killed !== MUTANTS.length) process.exit(1);
+if (MUTANTS.length !== 30 || failures > 0 || killed !== MUTANTS.length) process.exit(1);

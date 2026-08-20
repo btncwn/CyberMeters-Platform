@@ -59,9 +59,9 @@ const SERVICES = [
   },
   {
     icon: KeyRound, name: 'Identity Exposure',
-    q: '“Where are our login surfaces exposed?”',
-    copy: 'Public login surfaces and identity-facing entry points, without unsupported breach or dark-web claims.',
-    tags: ['Login surfaces', 'IdP exposure', 'Entry points'],
+    q: '“Which identity surfaces can we see from outside?”',
+    copy: 'Identity-provider relationships and identity-facing hostnames observed from public DNS, certificate transparency and response metadata. Endpoint reachability testing is on the roadmap and is not performed today. No breach, credential or dark-web claims.',
+    tags: ['Provider relationships', 'Identity-facing hostnames', 'Reachability: roadmap'],
     key: 'identity',
   },
   {
@@ -174,7 +174,7 @@ function MotCard() {
     { icon: Lock, name: 'Certificates & Trust', val: 'valid · 74 days', tag: 'Renew soon', tone: 'adv', chip: SERVICE_COLORS.certs.chip, ic: SERVICE_COLORS.certs.icon },
     { icon: ClipboardList, name: 'Cyber Essentials Readiness', val: 'evidence-led', tag: 'Review', tone: 'adv', chip: SERVICE_COLORS.cyber_essentials.chip, ic: SERVICE_COLORS.cyber_essentials.icon },
     { icon: MonitorCheck, name: 'Website Security', val: 'HTTPS · headers', tag: 'Advisory', tone: 'adv', chip: SERVICE_COLORS.website.chip, ic: SERVICE_COLORS.website.icon },
-    { icon: KeyRound, name: 'Identity Exposure', val: '2 login surfaces', tag: 'Review', tone: 'adv', chip: SERVICE_COLORS.identity.chip, ic: SERVICE_COLORS.identity.icon },
+    { icon: KeyRound, name: 'Identity Exposure', val: '2 identity-facing hostnames', tag: 'Review', tone: 'adv', chip: SERVICE_COLORS.identity.chip, ic: SERVICE_COLORS.identity.icon },
     { icon: Boxes, name: 'Shadow IT & Unmanaged Technology', val: '5 SaaS signals', tag: 'Review', tone: 'adv', chip: SERVICE_COLORS.shadow_it.chip, ic: SERVICE_COLORS.shadow_it.icon },
   ]
   const toneCls = {
