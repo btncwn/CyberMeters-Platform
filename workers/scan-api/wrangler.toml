@@ -89,7 +89,7 @@ dead_letter_queue = "cybermeters-scan-dlq"
 [vars]
 # Human-readable release version, surfaced by GET /health. Bump on each
 # production release (date-based: YYYY.MM.DD).
-APP_VERSION = "2026.08.13-provisional-score-labeling.c9d6c2348eec"
+APP_VERSION = "2026.08.13-provisional-score-labeling.1487c4a53d51"
 # Planned-maintenance switch. "off" = normal. Set to "on" and redeploy to return
 # a clean 503 for every API route (except /health + /ready); flip back to "off"
 # and redeploy to lift. See docs/07-RELEASE-CHECKLIST.md → Maintenance mode.
