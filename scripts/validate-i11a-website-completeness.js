@@ -207,6 +207,35 @@ ok("C1_SURFACE_CARD_DOES_NOT_CLAIM_NEVER_COLLECTED",
    !/could not be collected/.test(wsCard?.summary || ""));
 ok("C1_SURFACE_CARD_IS_NEVER_HEALTHY", wsCard?.state !== "assessed_healthy");
 
+// ── NULL-REASON (TIMEOUT) CASE — must NOT borrow the insufficient-evidence words ──
+//
+// A module cut off by its budget also carries incomplete === true, but with NO
+// reason: it observed nothing at all. Saying "ran, but evidence was insufficient"
+// there asserts an observation that never happened. Measured on the live edgefail
+// scan (scan_92310f91): headers outcome deadline_exceeded, incomplete true,
+// incomplete_reason null. The two cases must stay distinguishable forever.
+const hTimedOut = { incomplete: true, source: "http_headers" }; // no incomplete_reason
+const sqTimeout = buildScanQuality({ headers: hTimedOut });
+eq("C1_SURFACE_TIMEOUT_CARRIES_NULL_REASON",
+   sqTimeout.modules_incomplete, [{ module: "headers", incomplete_reason: null }]);
+
+const wsTimeout = resolveCyberMotDomainStates({
+  scan_quality: sqTimeout,
+  modules: { headers: hTimedOut },
+  findings: [],
+}).find((d) => d.domain_key === "website_security");
+ok("C1_SURFACE_TIMEOUT_SAYS_DID_NOT_COMPLETE",
+   /did not complete within the scan budget/.test(wsTimeout?.summary || ""),
+   `summary=${wsTimeout?.summary}`);
+ok("C1_SURFACE_TIMEOUT_DOES_NOT_CLAIM_UNUSABLE_EVIDENCE",
+   !/was not usable this scan/.test(wsTimeout?.summary || ""),
+   `summary=${wsTimeout?.summary}`);
+ok("C1_SURFACE_TIMEOUT_IS_NEVER_HEALTHY", wsTimeout?.state !== "assessed_healthy");
+// And the reasoned case must NOT borrow the timeout words either — the separation
+// has to hold in BOTH directions or one wording could swallow the other.
+ok("C1_SURFACE_REASONED_DOES_NOT_CLAIM_TIMEOUT",
+   !/did not complete within the scan budget/.test(wsCard?.summary || ""));
+
 // CONTROL — a healthy origin must acquire NO incomplete entry, or the guard would
 // pass by marking everything incomplete.
 const hSurfaceHealthy = await withFetch(originHealthy, () => runHeadersModule("acme.example.com"));

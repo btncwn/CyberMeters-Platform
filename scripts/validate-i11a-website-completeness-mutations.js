@@ -168,7 +168,13 @@ const MUTANTS = Object.freeze([
     mutate: (s) => once(s,
       "  const modulesIncomplete = incompleteModules.map((name) => ({",
       "  const modulesIncomplete = [].map((name) => ({", "MS1"),
-    expect: ["C1_SURFACE_INCOMPLETE_CARRIES_MODULE_AND_REASON", "C1_SURFACE_REASON_IS_NOT_NULL"],
+    // Emptying the list removes the reasoned AND the null-reason entry, so the
+    // timeout fixture dies with them. Widened to the measured set, not narrowed.
+    expect: [
+      "C1_SURFACE_INCOMPLETE_CARRIES_MODULE_AND_REASON",
+      "C1_SURFACE_REASON_IS_NOT_NULL",
+      "C1_SURFACE_TIMEOUT_CARRIES_NULL_REASON",
+    ],
   },
   {
     id: "MS2",
@@ -184,9 +190,21 @@ const MUTANTS = Object.freeze([
     defect: "domain card reverts to 'could not be collected' and states no reason",
     file: "domains",
     mutate: (s) => once(s,
-      "      base.summary = `Required evidence (${insufficientDetail.join(\", \")}) was not usable this scan \u2014 not enough to assess.`;",
-      "      base.summary = `Required evidence (${requiredInsufficient.join(\", \")}) could not be collected this scan \u2014 not enough to assess.`;", "MS3"),
+      "        clauses.push(`Required evidence (${detail.join(\", \")}) was not usable this scan`);",
+      "        clauses.push(`Required evidence (${withReason.join(\", \")}) could not be collected this scan`);", "MS3"),
     expect: ["C1_SURFACE_CARD_STATES_THE_REASON", "C1_SURFACE_CARD_DOES_NOT_CLAIM_NEVER_COLLECTED"],
+  },
+  {
+    id: "MS4",
+    defect: "the timeout case collapses back into the insufficient-evidence wording",
+    file: "domains",
+    mutate: (s) => once(s,
+      "        clauses.push(`Required checks (${withoutReason.join(\", \")}) did not complete within the scan budget \u2014 not assessed`);",
+      "        clauses.push(`Required evidence (${withoutReason.join(\", \")}) was not usable this scan`);", "MS4"),
+    expect: [
+      "C1_SURFACE_TIMEOUT_SAYS_DID_NOT_COMPLETE",
+      "C1_SURFACE_TIMEOUT_DOES_NOT_CLAIM_UNUSABLE_EVIDENCE",
+    ],
   },
 ]);
 

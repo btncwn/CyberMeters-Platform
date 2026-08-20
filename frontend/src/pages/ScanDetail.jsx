@@ -1197,8 +1197,11 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
             )}
             {incompleteModules.slice(0, 4).map(({ module, incomplete_reason }) => (
               <p key={module} className="text-xs mt-0.5">
-                {module}: ran, but evidence was insufficient
-                {incomplete_reason ? ` — ${String(incomplete_reason).replace(/_/g, ' ')}` : ''}
+                {incomplete_reason
+                  /* it ran, and what it observed could not support a conclusion */
+                  ? `${module}: ran, but evidence was insufficient — ${String(incomplete_reason).replace(/_/g, ' ')}`
+                  /* it never finished, so nothing was observed — not an evidence verdict */
+                  : `${module}: did not complete within the scan budget — not assessed`}
               </p>
             ))}
             {qualityWarnings.slice(0, 2).map((warning, i) => (

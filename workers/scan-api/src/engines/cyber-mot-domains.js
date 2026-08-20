@@ -459,11 +459,26 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       // card cannot claim anything the evidence does not itself say.
       base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = "degraded";
-      const insufficientDetail = requiredInsufficient.map((name) => {
-        const reason = report?.modules?.[name]?.incomplete_reason;
-        return reason ? `${name}: ${String(reason).replace(/_/g, " ")}` : name;
-      });
-      base.summary = `Required evidence (${insufficientDetail.join(", ")}) was not usable this scan — not enough to assess.`;
+      // Two DIFFERENT propositions share `incomplete: true`, and they must not be
+      // worded alike:
+      //   reason present — the module ran and what it observed could not support a
+      //                    conclusion (e.g. origin_error_no_serviceable_response);
+      //   reason absent  — the module did NOT complete within the scan budget, so
+      //                    nothing was observed at all. Calling that "not usable"
+      //                    would assert an observation that never happened.
+      // Neither wording carries a favourable or unfavourable inference.
+      const withReason = requiredInsufficient.filter((n) => report?.modules?.[n]?.incomplete_reason);
+      const withoutReason = requiredInsufficient.filter((n) => !report?.modules?.[n]?.incomplete_reason);
+      const clauses = [];
+      if (withReason.length > 0) {
+        const detail = withReason.map((name) =>
+          `${name}: ${String(report.modules[name].incomplete_reason).replace(/_/g, " ")}`);
+        clauses.push(`Required evidence (${detail.join(", ")}) was not usable this scan`);
+      }
+      if (withoutReason.length > 0) {
+        clauses.push(`Required checks (${withoutReason.join(", ")}) did not complete within the scan budget — not assessed`);
+      }
+      base.summary = `${clauses.join(". ")} — not enough to assess.`;
       return base;
     }
     if (!requiredAssessedAll) {
