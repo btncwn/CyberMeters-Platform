@@ -1146,7 +1146,12 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
   const waivedFindings     = allActionable.filter(f => f.id && waivers[f.id])
   const duration = durationSeconds(report.started_at, report.completed_at)
   const showQualityWarning = scan_quality?.status === 'degraded' || scan_quality?.status === 'partial'
-  const skippedModules = scan_quality?.modules_skipped || []
+  const incompleteModules = scan_quality?.modules_incomplete || []
+  const incompleteNames = new Set(incompleteModules.map(m => m?.module).filter(Boolean))
+  // A module that RAN and reported unusable evidence is not "skipped". Subtract it so
+  // the banner never tells the customer a check was never executed when the stored
+  // record shows it executed and produced a reason.
+  const skippedModules = (scan_quality?.modules_skipped || []).filter(n => !incompleteNames.has(n))
   const qualityWarnings = scan_quality?.warnings || []
 
   return (
@@ -1190,10 +1195,19 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
                 Skipped modules: {skippedModules.slice(0, 4).join(', ')}
               </p>
             )}
+            {incompleteModules.slice(0, 4).map(({ module, incomplete_reason }) => (
+              <p key={module} className="text-xs mt-0.5">
+                {incomplete_reason
+                  /* it ran, and what it observed could not support a conclusion */
+                  ? `${module}: ran, but evidence was insufficient — ${String(incomplete_reason).replace(/_/g, ' ')}`
+                  /* it never finished, so nothing was observed — not an evidence verdict */
+                  : `${module}: did not complete within the scan budget — not assessed`}
+              </p>
+            ))}
             {qualityWarnings.slice(0, 2).map((warning, i) => (
               <p key={i} className="text-xs mt-0.5">{warning}</p>
             ))}
-            {skippedModules.length === 0 && qualityWarnings.length === 0 && (
+            {skippedModules.length === 0 && incompleteModules.length === 0 && qualityWarnings.length === 0 && (
               <p className="text-xs mt-0.5">Some scan coverage may be incomplete.</p>
             )}
           </div>

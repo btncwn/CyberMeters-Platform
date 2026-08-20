@@ -450,9 +450,35 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     if (anyRequiredInsufficient) {
       // A REQUIRED module errored / was skipped / reported incomplete → the evidence
       // needed to assess this domain was attempted but not obtained. Never healthy.
+      // The module's own `incomplete_reason` is carried into the customer sentence.
+      // Without it this read "could not be collected", which is wrong for a module that
+      // DID collect a response and found it unusable — an all-5xx origin under F-48 is
+      // observed, not unreachable — and it hid the exact marker
+      // (origin_error_no_serviceable_response / origin_not_observed) the remediation
+      // exists to produce. The reason is read from the stored per-module record, so the
+      // card cannot claim anything the evidence does not itself say.
       base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = "degraded";
-      base.summary = `Required evidence (${requiredInsufficient.join(", ")}) could not be collected this scan — not enough to assess.`;
+      // Two DIFFERENT propositions share `incomplete: true`, and they must not be
+      // worded alike:
+      //   reason present — the module ran and what it observed could not support a
+      //                    conclusion (e.g. origin_error_no_serviceable_response);
+      //   reason absent  — the module did NOT complete within the scan budget, so
+      //                    nothing was observed at all. Calling that "not usable"
+      //                    would assert an observation that never happened.
+      // Neither wording carries a favourable or unfavourable inference.
+      const withReason = requiredInsufficient.filter((n) => report?.modules?.[n]?.incomplete_reason);
+      const withoutReason = requiredInsufficient.filter((n) => !report?.modules?.[n]?.incomplete_reason);
+      const clauses = [];
+      if (withReason.length > 0) {
+        const detail = withReason.map((name) =>
+          `${name}: ${String(report.modules[name].incomplete_reason).replace(/_/g, " ")}`);
+        clauses.push(`Required evidence (${detail.join(", ")}) was not usable this scan`);
+      }
+      if (withoutReason.length > 0) {
+        clauses.push(`Required checks (${withoutReason.join(", ")}) did not complete within the scan budget — not assessed`);
+      }
+      base.summary = `${clauses.join(". ")} — not enough to assess.`;
       return base;
     }
     if (!requiredAssessedAll) {

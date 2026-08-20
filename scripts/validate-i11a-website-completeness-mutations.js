@@ -61,6 +61,8 @@ const VALIDATOR = path.join(root, "scripts", "validate-i11a-website-completeness
 const FILES = Object.freeze({
   headers: src("engines", "headers-scan.js"),
   tech:    src("engines", "tech-scan.js"),
+  engine:  src("engines", "scan-engine.js"),
+  domains: src("engines", "cyber-mot-domains.js"),
 });
 
 // F-42 (GOVERNANCE-RULING-GX530-I-F42-001, bundle 5dbbfd74…fa2f) is proven by a
@@ -154,6 +156,55 @@ const MUTANTS = Object.freeze([
       "      technologies:  [],\n      info_findings: [],",
       "      technologies:  [\"Cloudflare\"],\n      info_findings: [],", "M4"),
     expect: ["C1_TECH_EDGE_NO_TECHNOLOGY_INFERRED", "C1_TECH_EDGE_DOES_NOT_CLAIM_CLOUDFLARE"],
+  },
+  // ── SURFACE-PARITY MUTANTS ────────────────────────────────────────────────
+  // The marker existed in the engine all along; what failed was it REACHING the
+  // customer. Each mutant restores one step of that regression and must die only on
+  // the named surface assertion.
+  {
+    id: "MS1",
+    defect: "engine stops emitting the incomplete list, so the surface loses the reason entirely",
+    file: "engine",
+    mutate: (s) => once(s,
+      "  const modulesIncomplete = incompleteModules.map((name) => ({",
+      "  const modulesIncomplete = [].map((name) => ({", "MS1"),
+    // Emptying the list removes the reasoned AND the null-reason entry, so the
+    // timeout fixture dies with them. Widened to the measured set, not narrowed.
+    expect: [
+      "C1_SURFACE_INCOMPLETE_CARRIES_MODULE_AND_REASON",
+      "C1_SURFACE_REASON_IS_NOT_NULL",
+      "C1_SURFACE_TIMEOUT_CARRIES_NULL_REASON",
+    ],
+  },
+  {
+    id: "MS2",
+    defect: "engine emits the module name but drops the reason, reducing it to a bare skip again",
+    file: "engine",
+    mutate: (s) => once(s,
+      "    incomplete_reason: modules[name]?.incomplete_reason ?? null,",
+      "    incomplete_reason: null,", "MS2"),
+    expect: ["C1_SURFACE_INCOMPLETE_CARRIES_MODULE_AND_REASON", "C1_SURFACE_REASON_IS_NOT_NULL"],
+  },
+  {
+    id: "MS3",
+    defect: "domain card reverts to 'could not be collected' and states no reason",
+    file: "domains",
+    mutate: (s) => once(s,
+      "        clauses.push(`Required evidence (${detail.join(\", \")}) was not usable this scan`);",
+      "        clauses.push(`Required evidence (${withReason.join(\", \")}) could not be collected this scan`);", "MS3"),
+    expect: ["C1_SURFACE_CARD_STATES_THE_REASON", "C1_SURFACE_CARD_DOES_NOT_CLAIM_NEVER_COLLECTED"],
+  },
+  {
+    id: "MS4",
+    defect: "the timeout case collapses back into the insufficient-evidence wording",
+    file: "domains",
+    mutate: (s) => once(s,
+      "        clauses.push(`Required checks (${withoutReason.join(\", \")}) did not complete within the scan budget \u2014 not assessed`);",
+      "        clauses.push(`Required evidence (${withoutReason.join(\", \")}) was not usable this scan`);", "MS4"),
+    expect: [
+      "C1_SURFACE_TIMEOUT_SAYS_DID_NOT_COMPLETE",
+      "C1_SURFACE_TIMEOUT_DOES_NOT_CLAIM_UNUSABLE_EVIDENCE",
+    ],
   },
 ]);
 

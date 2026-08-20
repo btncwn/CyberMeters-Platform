@@ -164,6 +164,19 @@ export function buildScanQuality(modules = {}) {
   const incompleteModules = Object.entries(modules)
     .filter(([, value]) => value?.incomplete === true)
     .map(([name]) => name);
+  // The evidence proposition, kept SEPARATE from the execution proposition.
+  //
+  // `modules_skipped` answers "did it run?". `incomplete` answers "did what it
+  // observed support a conclusion?". Merging them (below, for compatibility) made
+  // an F-42/F-48 success — a module that ran and correctly reported an unusable
+  // origin — render to the customer as "Skipped modules: headers", hiding the very
+  // marker the remediation exists to produce. This carries the reason alongside the
+  // name, derived from the same stored per-module records, so a surface can state
+  // WHY evidence was insufficient instead of claiming the module never executed.
+  const modulesIncomplete = incompleteModules.map((name) => ({
+    module: name,
+    incomplete_reason: modules[name]?.incomplete_reason ?? null,
+  }));
   for (const name of incompleteModules) {
     if (!modulesSkipped.includes(name)) modulesSkipped.push(name);
     warnings.push(`Module incomplete: ${name}`);
@@ -195,6 +208,9 @@ export function buildScanQuality(modules = {}) {
     status,
     warnings,
     modules_skipped: modulesSkipped,
+    // Additive. Existing consumers of modules_skipped are unchanged; a surface that
+    // wants the honest distinction reads this instead.
+    modules_incomplete: modulesIncomplete,
     subrequest_budget: {
       estimated,
       limit:             SUBREQUEST_LIMIT,
