@@ -168,6 +168,51 @@ ok("C1_CONTROL_REAL_CLOUDFLARE_ORIGIN_STILL_DETECTED",
 ok("C1_CONTROL_REAL_STACK_STILL_DETECTED",
    (tHealthy.technologies || []).includes("WordPress"));
 
+// ── SURFACE PARITY — the marker must REACH the customer, not be relabelled ──
+//
+// Production produced `origin_error_no_serviceable_response` correctly, yet the
+// customer surface rendered "Skipped modules: headers", which asserts the module
+// never ran. `incomplete` (it observed, and what it observed was unusable) and
+// `skipped` (it never executed) are different propositions; conflating them hid the
+// F-48 marker from acceptance. These pin the separation and the customer wording.
+const { resolveCyberMotDomainStates } = await import(eng("cyber-mot-domains.js"));
+const sq503 = buildScanQuality({ headers: hOrigin503 });
+
+ok("C1_SURFACE_INCOMPLETE_LIST_EXISTS", Array.isArray(sq503.modules_incomplete));
+eq("C1_SURFACE_INCOMPLETE_CARRIES_MODULE_AND_REASON",
+   sq503.modules_incomplete,
+   [{ module: "headers", incomplete_reason: "origin_error_no_serviceable_response" }]);
+// Compatibility: the legacy list is unchanged, so existing consumers do not shift.
+ok("C1_SURFACE_LEGACY_SKIPPED_LIST_UNCHANGED",
+   (sq503.modules_skipped || []).includes("headers"));
+// A null/absent reason would let a surface fall back to a bare module name and lose
+// the marker. Requires the ENTRY to exist and the reason to be a non-empty string:
+// an empty list previously satisfied a bare `!== null` via undefined, which is
+// exactly the hole a mutant found.
+ok("C1_SURFACE_REASON_IS_NOT_NULL",
+   sq503.modules_incomplete.length === 1
+   && typeof sq503.modules_incomplete[0].incomplete_reason === "string"
+   && sq503.modules_incomplete[0].incomplete_reason.length > 0);
+
+const wsCard = resolveCyberMotDomainStates({
+  scan_quality: sq503,
+  modules: { headers: hOrigin503 },
+  findings: [],
+}).find((d) => d.domain_key === "website_security");
+ok("C1_SURFACE_CARD_IS_EVIDENCE_INSUFFICIENT", wsCard?.state === "evidence_insufficient");
+ok("C1_SURFACE_CARD_STATES_THE_REASON",
+   /origin error no serviceable response/.test(wsCard?.summary || ""),
+   `summary=${wsCard?.summary}`);
+ok("C1_SURFACE_CARD_DOES_NOT_CLAIM_NEVER_COLLECTED",
+   !/could not be collected/.test(wsCard?.summary || ""));
+ok("C1_SURFACE_CARD_IS_NEVER_HEALTHY", wsCard?.state !== "assessed_healthy");
+
+// CONTROL — a healthy origin must acquire NO incomplete entry, or the guard would
+// pass by marking everything incomplete.
+const hSurfaceHealthy = await withFetch(originHealthy, () => runHeadersModule("acme.example.com"));
+eq("C1_SURFACE_CONTROL_HEALTHY_HAS_NO_INCOMPLETE",
+   buildScanQuality({ headers: hSurfaceHealthy }).modules_incomplete, []);
+
 console.log(`\nI11A website completeness: ${pass}/${pass + fail} assertions passed`);
 if (fail > 0) { console.error("I11A website-completeness validation FAILED"); process.exit(1); }
 console.log("I11A website-completeness validation passed");

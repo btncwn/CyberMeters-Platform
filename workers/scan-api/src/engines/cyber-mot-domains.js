@@ -450,9 +450,20 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     if (anyRequiredInsufficient) {
       // A REQUIRED module errored / was skipped / reported incomplete → the evidence
       // needed to assess this domain was attempted but not obtained. Never healthy.
+      // The module's own `incomplete_reason` is carried into the customer sentence.
+      // Without it this read "could not be collected", which is wrong for a module that
+      // DID collect a response and found it unusable — an all-5xx origin under F-48 is
+      // observed, not unreachable — and it hid the exact marker
+      // (origin_error_no_serviceable_response / origin_not_observed) the remediation
+      // exists to produce. The reason is read from the stored per-module record, so the
+      // card cannot claim anything the evidence does not itself say.
       base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = "degraded";
-      base.summary = `Required evidence (${requiredInsufficient.join(", ")}) could not be collected this scan — not enough to assess.`;
+      const insufficientDetail = requiredInsufficient.map((name) => {
+        const reason = report?.modules?.[name]?.incomplete_reason;
+        return reason ? `${name}: ${String(reason).replace(/_/g, " ")}` : name;
+      });
+      base.summary = `Required evidence (${insufficientDetail.join(", ")}) was not usable this scan — not enough to assess.`;
       return base;
     }
     if (!requiredAssessedAll) {
