@@ -117,7 +117,7 @@ Computed by `computeBusinessRiskScore()`. Five weighted categories, each scored 
 | Subdomain takeover risks | Up to −30 |
 | Asset exposures (sensitive tools, admin interfaces) | Up to −15 |
 | High-risk vendor score | Scaled deduction |
-| Identity exposure (high_risk_count × 7, capped at −20) | Up to −20 |
+| Identity exposure (measured reachable surfaces × 7, capped at −20) — requires a registered reachability producer; none is registered today, so this contributes 0. The deprecated `high_risk_count` heuristic is deliberately ignored by the current implementation. | Up to −20 |
 | Supply chain signal (payment/identity vendors in CSP, capped at −10) | Up to −10 |
 
 **Brand / Reputation (base: 100)**

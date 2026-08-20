@@ -117,15 +117,15 @@ It has no visibility into internal networks, endpoints, employee devices, browse
 - **Current maturity:** **Live — founder acceptance pending**.
 
 ### 7. Identity Exposure
-- **Observes:** public login surfaces and identity-facing entry points.
-- **Detects:** externally visible identity/login exposure.
-- **Verifies (Observed):** the externally observable identity-facing surface.
+- **Observes:** identity-provider relationships and identity-facing hostname candidates, derived from public DNS, certificate transparency and HTTP response metadata.
+- **Detects:** changes in those observed provider relationships and hostname candidates. It does **not** detect endpoint exposure: no reachability producer is registered, so CyberMeters does not probe identity endpoints and cannot state that a login surface is reachable.
+- **Verifies (Observed):** only the hostname/provider observation itself. Reachability, and therefore exposure, is **not evaluated** and is roadmap work.
 - **Customer-declared inputs:** the domain in scope.
 - **Alerts & managed workflows:** identity-exposure alerts; managed workflow.
 - **Evidence sources:** external observation.
-- **Known limitations:** external surface only.
+- **Known limitations:** external surface only, and **observation only** — endpoint reachability is not measured, so no exposure conclusion is available. Absence of an observation is not evidence of absence.
 - **Explicitly does not do:** credential / breach / stealer-log / dark-web monitoring; see internal identity events. See **Hard boundaries**.
-- **Current maturity:** **Live — founder acceptance pending**.
+- **Current maturity:** **Observation live; exposure detection not implemented** — the reachability producer registry is empty, so reachability-dependent claims are roadmap, not live. Founder acceptance pending.
 
 ### 8. Shadow IT & Unmanaged Technology
 - **Observes:** externally observed SaaS, vendors, third-party scripts and unmanaged-technology signals (this is where **third-party / vendor technology** lives — not a separate domain).

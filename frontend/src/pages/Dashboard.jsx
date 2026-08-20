@@ -718,7 +718,7 @@ export default function Dashboard() {
                   fallback="Review HTTPS, redirects, headers and cookie flag evidence." />
                 <ServiceKpiCard icon={KeyRound} title="Identity Exposure" to="/ws/identity-exposure" cta="Review Identity Exposure"
                   theme={SERVICE_THEME.identity} status="Externally observed"
-                  fallback="Review public login surfaces and identity-facing entry points." />
+                  fallback="Review observed identity-provider relationships and identity-facing hostnames. Endpoint reachability is not measured." />
                 <ServiceKpiCard icon={Boxes} title="Shadow IT & Unmanaged Technology" to="/ws/shadow-it" cta="Review Shadow IT"
                   theme={SERVICE_THEME.shadow_it} status="Externally observed"
                   fallback="Review SaaS, vendor, script and unmanaged technology observations." />

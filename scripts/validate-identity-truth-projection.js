@@ -23,6 +23,14 @@ import * as phase5 from "../workers/scan-api/src/engines/phase5-evidence.js";
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (relative) => fs.readFileSync(path.join(ROOT, relative), "utf8");
 const OBSERVED_AT = "2026-08-11T09:10:11.000Z";
+// Scope CAPABILITIES assertions to the Identity Exposure section only.
+function capabilitySection() {
+  const doc = read("docs/CAPABILITIES.md");
+  const start = doc.indexOf("### 7. Identity Exposure");
+  if (start < 0) return "";
+  const next = doc.indexOf("### 8.", start);
+  return doc.slice(start, next < 0 ? doc.length : next);
+}
 const unsupportedIds = [
   "identity_microsoft_365_detected",
   "identity_legacy_auth_exposed",
@@ -108,6 +116,10 @@ const source = {
   workspace: () => read("workers/scan-api/src/routes/workspace-intel.js"),
   route: () => read("workers/scan-api/src/routes/identity-exposure.js"),
   shadow: () => read("workers/scan-api/src/engines/shadow-it-inventory.js"),
+  landing: () => read("frontend/src/pages/PublicLandingPage.jsx"),
+  dashboard: () => read("frontend/src/pages/Dashboard.jsx"),
+  capabilities: () => read("docs/CAPABILITIES.md"),
+  methodology: () => read("docs/risk-methodology-v1.md"),
   scorecard: () => read("workers/scan-api/src/engines/scorecard.js"),
   scans: () => read("workers/scan-api/src/routes/scans.js"),
   snapshot: () => read("workers/scan-api/src/engines/report-snapshot.js"),
@@ -148,6 +160,68 @@ const FIXTURES = [
   { id: "U3-ALERT-01", run: () => /measuredIdentityClaim && admin/.test(source.lifecycle()) && /measuredIdentityClaim && cls === "unexpected"/.test(source.lifecycle()) && /const alertEligible = measuredIdentityClaim \|\| recurrence_type === "provider_change"/.test(source.lifecycle()) && /await emitLifecycleAlert/.test(source.lifecycle()) },
   { id: "U3-BRI-01", run: () => { const legacy = computeBusinessRiskScore(new Set(), { vendorTotal: 1, identityHighRiskCount: 9, identityReachableSurfaceCount: 0 }); const control = computeBusinessRiskScore(new Set(), { vendorTotal: 1, identityHighRiskCount: 0, identityReachableSurfaceCount: 0 }); return legacy.categories?.attack_surface_exposure?.score === control.categories?.attack_surface_exposure?.score && legacy.categories?.attack_surface_exposure?.identity_reachability?.status === "not_evaluated"; } },
   { id: "U3-BRI-02", control: true, run: () => { const base = computeBusinessRiskScore(new Set(), { vendorTotal: 1, identityReachableSurfaceCount: 0 }); const measured = computeBusinessRiskScore(new Set(), { vendorTotal: 1, identityReachableSurfaceCount: 2 }); return measured.categories?.attack_surface_exposure?.score < base.categories?.attack_surface_exposure?.score; } },
+  // ── I11B F-50 / F-51 — CLAIM-SURFACE PARITY GUARD ────────────────────────
+  //
+  // Wording IS the claim, so wording gets a guard (same principle as the F-47
+  // removal-vocabulary guard). IDENTITY_REACHABILITY_PRODUCERS is empty, so no
+  // customer-facing surface may assert that an identity endpoint is exposed,
+  // reachable or detected. Each fixture is a CONJUNCTION — the forbidden claim
+  // must be absent AND the honest qualifier must be present — so it cannot pass
+  // vacuously by deleting the sentence altogether.
+  //
+  // capabilitySection() scopes the CAPABILITIES assertions to section 7 only, so
+  // another domain's wording can never satisfy or break this guard.
+  { id: "U3-CS-01", run: () => {
+      const src = source.landing();
+      const forbidden = /Public login surfaces and identity-facing entry points/.test(src)
+        || /'IdP exposure'/.test(src)
+        || /Where are our login surfaces exposed/.test(src);
+      const qualified = /roadmap and is not performed today/.test(src)
+        && /Reachability: roadmap/.test(src);
+      return forbidden === false && qualified === true;
+    } },
+  { id: "U3-CS-02", run: () => {
+      const src = source.landing();
+      return /login surfaces'/.test(src) === false
+        && /identity-facing hostnames/.test(src) === true;
+    } },
+  { id: "U3-CS-03", run: () => {
+      const src = source.dashboard();
+      return /Review public login surfaces and identity-facing entry points/.test(src) === false
+        && /Endpoint reachability is not measured/.test(src) === true;
+    } },
+  { id: "U3-CS-04", run: () => {
+      const sec = capabilitySection();
+      const forbidden = /\*\*Observes:\*\* public login surfaces/.test(sec)
+        || /\*\*Detects:\*\* externally visible identity\/login exposure/.test(sec);
+      const qualified = /no reachability producer is registered/.test(sec)
+        && /not evaluated/.test(sec);
+      return forbidden === false && qualified === true;
+    } },
+  { id: "U3-CS-05", run: () => {
+      const doc = source.methodology();
+      const forbidden = /high_risk_count \u00d7 7/.test(doc);
+      const qualified = /measured reachable surfaces \u00d7 7/.test(doc)
+        && /none is registered today/.test(doc);
+      return forbidden === false && qualified === true;
+    } },
+  // POSITIVE CONTROL — the guard must be capable of seeing the defect. It builds
+  // the pre-fix wording in memory and requires the same predicates to REJECT it.
+  // If this control ever passes trivially, the guard above is not discriminating.
+  { id: "U3-CS-CONTROL", control: true, run: () => {
+      const preFix = "copy: 'Public login surfaces and identity-facing entry points, without unsupported breach or dark-web claims.'";
+      const preFixDoc = "| Identity exposure (high_risk_count \u00d7 7, capped at \u221220) | Up to \u221220 |";
+      const landingRejected = /Public login surfaces and identity-facing entry points/.test(preFix) === true;
+      const docRejected = /high_risk_count \u00d7 7/.test(preFixDoc) === true;
+      return landingRejected && docRejected;
+    } },
+  // F-51 code parity: the doc now describes what the implementation actually does.
+  { id: "U3-CS-06", run: () => {
+      const brs = read("workers/scan-api/src/engines/business-risk.js");
+      return /identityHighRiskCount\s*=\s*0,\s*\/\/ deprecated, deliberately ignored/.test(brs)
+        && /identityReachableSurfaceCount \* 7/.test(brs)
+        && /measured reachable surfaces/.test(source.methodology());
+    } },
   { id: "U3-DOM-01", run: () => { const d = resolveCyberMotDomainStates(cleanComplete()); const i = d.find((x) => x.domain_key === "identity_exposure"); return d.length === 8 && i?.state === "evidence_insufficient" && /not evaluated|producer/i.test(i?.summary || ""); } },
   { id: "U3-DOM-02", control: true, run: () => { const d = resolveCyberMotDomainStates(cleanComplete()).filter((x) => x.domain_key !== "identity_exposure"); return d.length === 7 && d.every((x) => x?.state); } },
   { id: "U3-XD-01", run: () => { const row = { ...providerRow("token_substring"), risk_score: 20 }; const value = inventory.projectIdentityProviderObservation?.(row); return value?.confidence === "low" && value?.confidence_detail?.subject === "provider_identification" && !/row\.risk_score/.test(source.shadow()); } },
