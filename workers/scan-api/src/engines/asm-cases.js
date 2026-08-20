@@ -25,6 +25,7 @@ import { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STAT
 import { canTransitionCase, assignCaseOwner, createManagedCase } from "./managed-case-model.js";
 import { classifyAsmCaseTraceability } from "./attack-surface-customer-presentation.js";
 import { readScanReportSnapshot } from "./report-snapshot.js";
+import { isNonAuthoritativeQuality, isAuthoritativeQuality } from "./scan-degradation-contract.js";
 
 // Re-exported from the neutral machine module so existing importers are unchanged.
 export { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES };
@@ -550,6 +551,27 @@ export async function createManagedAsmCasesForScan(scanId, domainId, domain, fin
 //     was previously trusted by omission; absence of telemetry is not evidence.
 // The gate always returns an object now, so a caller can never silently opt out.
 export function moduleCompletionGate(modules, scanQuality) {
+  // ── D1 successor-3 (Governance seq 181) — SNAPSHOT-ONCE ─────────────────
+  // Read each decision input EXACTLY ONCE, before any other `scanQuality`
+  // property access, and let every predicate consume that one snapshot.
+  //
+  // Successor-2 called `scanQuality?.status` twice — once for the
+  // non-authoritative predicate and once for the authoritative one. A
+  // getter- or Proxy-backed carrier returning a non-authoritative value on the
+  // first read and primitive "complete" on the second made scanPartial false
+  // AND qualityAuthoritative true, so canVerify returned true with present
+  // evidence: a TOCTOU fail-open. Each predicate was individually type-strict;
+  // the defect was the SECOND live read, not the comparison.
+  //
+  // This is the fourth measured narrowing at this one gate — vacuous disjunct,
+  // allow-by-default, coercion-tolerant admission, then read instability — so
+  // the rule is structural rather than another patched comparison: one governed
+  // decision observes each field once.
+  //
+  // First-observation semantics follow necessarily (seq 181 Decision 3): the
+  // single observation decides, so a non-authoritative first value stays
+  // blocked even if a later read would say "complete".
+  const observedQualityStatus = scanQuality?.status;
   const haveEvidence = Boolean(modules || scanQuality);
   const incomplete = new Set(scanQuality?.modules_skipped || []);
   for (const [name, value] of Object.entries(modules || {})) {
@@ -557,13 +579,29 @@ export function moduleCompletionGate(modules, scanQuality) {
     // probes starved by the subrequest budget) did not truly re-check the exposure.
     if (value?.error || value?.incomplete === true) incomplete.add(name);
   }
-  const scanPartial = scanQuality?.status === "partial";
+  // ── D1 Option D (FD-006 seq 50) — I11A-C3 DEFECT REVERSED ──────────────
+  // This gate previously compared to the literal "partial" only, so a `degraded`
+  // scan could still verify and resolve managed cases. FD-006 declares that
+  // behaviour defective: `degraded` is never verification or resolution
+  // permission. The shared predicate covers every non-authoritative quality, so a
+  // future status cannot escape merely by not being spelled "partial".
+  const scanPartial = isNonAuthoritativeQuality(observedQualityStatus);
+  // D1 bounded successor (Governance seq 151). The gate used to fail closed ONLY
+  // for the two statuses it recognised as weak, so every other value — `unknown`,
+  // an unrecognised or empty status, a missing status, or an absent scanQuality
+  // altogether — was treated as authoritative and could VERIFY. `scanQuality` is a
+  // declared default parameter (`= null`) of verifyManagedAsmCasesForScan, so that
+  // shape is supported, not hypothetical. Verification now requires quality to be
+  // EXPLICITLY authoritative; absence and unrecognised values fail closed.
+  const qualityAuthoritative = isAuthoritativeQuality(observedQualityStatus);
   return {
     incomplete,
     scanPartial,
+    qualityAuthoritative,
     haveEvidence,
     canVerify(relevantModule) {
       if (!haveEvidence) return false;              // no completeness evidence → never verify
+      if (!qualityAuthoritative) return false;      // unknown/absent/unrecognised → never verify
       if (scanPartial) return false;
       if (!relevantModule) return false;            // unknown detecting module → cannot prove it ran
       if (incomplete.has(relevantModule)) return false;

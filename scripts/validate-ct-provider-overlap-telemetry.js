@@ -484,8 +484,13 @@ try {
     "crt multi-name record and common name": "617f64ff6f3757b13f442c7708667ebeb14ad1bea8fbf2bd152dc70732bb1509",
     "invalid out-of-domain wildcard candidates": "5454bcf26b200e5a65f4f3f68fca8cbd43de457144976b525c7863f4132139f1",
     "both successful empty": "7d04c8be39aadda0751cb34ea830f6447c3ec8a21580df04a34deecc06003186",
-    "crt failure certspotter success": "c0d76258a7f4331d908ac006ad85a52028828be14668664c5766ba5d9ad9b3fb",
-    "certspotter failure crt success": "7266625a7009cb50d664b1fd2da584567d47113f1b9a3318bb946e0bb3af34ce",
+        // D1 SUCCESSION (FD-006 seq 50 via seq 181): ONLY the two single-provider-loss
+    // fixtures move. Those are precisely the governed `degraded` case, and the
+    // serialized result now carries the structured `degradations` carrier. Both
+    // provider-success cases, the empty case and BOTH-provider-failure are
+    // byte-unchanged — the change is bounded to the case FD-006 governs.
+    "crt failure certspotter success": "feec9476c403292008e5315e68310b9f1ae4dfeaf3793985aef64a6fd1175577",
+    "certspotter failure crt success": "781265d8a36ceafe104cb65c3ba151ddb7d439f2e522067645dcd7888cd19e9c",
     "both provider failure": "afdf74816197466e4bdf5b9ddc638ec2f630e0d580c26d5907f8817b79580deb",
   };
   if (process.env.CT_OVERLAP_PRINT_BASELINE === "1") {

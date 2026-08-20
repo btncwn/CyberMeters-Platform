@@ -1366,6 +1366,18 @@ jobs:
         if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
         run: node scripts/validate-scan-quality-vocabulary-mutations.js
 
+      - name: Validate D1 Option D contract (structured degradation fixtures)
+        run: node scripts/validate-d1-option-d-contract.js
+
+      - name: Validate D1 I11A-C3 successor (degraded never verifies + snapshot-once read stability)
+        run: node scripts/validate-d1-i11a-c3-successor.js
+
+      - name: Validate D1 Option D joint rollback
+        run: node scripts/validate-d1-option-d-joint-rollback.js
+
+      - name: Validate D1 Option D semantic mutations
+        run: node scripts/validate-d1-option-d-mutations.js
+
       # PRE-ITEM11 blocker 2 — domain rows consume the same canonical assessment
       # presentation as snapshots/reports and must label every provisional number.
       - name: Validate canonical provisional domain-score labeling
