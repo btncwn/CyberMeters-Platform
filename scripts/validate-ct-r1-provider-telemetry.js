@@ -128,7 +128,8 @@ async function executeModules(spec, captureTelemetry) {
     Date.now = realDateNow;
   }
   const modules = { ssl, subdomains };
-  const scanQuality = buildScanQuality(modules);
+  // LV-01: supply the persisted observation anchor explicitly.
+  const scanQuality = buildScanQuality(modules, "2026-08-18T01:00:00Z");
   return {
     modules,
     scanQuality,

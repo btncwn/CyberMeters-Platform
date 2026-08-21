@@ -225,7 +225,9 @@ async function assertionBody(id) {
     // semantics, so `degraded` can never be reached without the structured contract.
     case "M3_SCAN_QUALITY_IS_GOVERNED_DEGRADED": {
       const output = await subdomainsOneProviderFixture();
-      const quality = modules.scanEngine.buildScanQuality({ subdomains: output });
+      // LV-01: the observation anchor is an explicit input read from persisted scan
+      // state; the contract no longer manufactures one from wall-clock time.
+      const quality = modules.scanEngine.buildScanQuality({ subdomains: output }, "2026-08-18T01:00:00Z");
       const [record] = Array.isArray(quality.degradations) ? quality.degradations : [];
       return quality.status === "degraded"
         && !!record

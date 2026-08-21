@@ -35,7 +35,7 @@ const EXPECTED = Object.freeze({
     source_file_count: 22,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
-    fingerprint: "582ecab7e86179691a9f3f29c31786e3c772ce5ee7524c5b46c5d6941052f4d0",
+    fingerprint: "9893be0b1a7d3dac0b4fcabdd70781057dac0208ba88083a3e32073c21d42637",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -57,7 +57,7 @@ const EXPECTED = Object.freeze({
     // the successor validator. Nothing was added to or removed from the runtime set.
     // SUCCESSOR-3: 63 -> 65 across 23 -> 25 files. Additive only: PR #414/#416 added
     // governed comparisons in their own validators. Nothing was removed.
-    fingerprint: "daa00d98f7cbf464afaa3154e91c8e1a9a4ee0ec3281b28bc01a17af1714a77d",
+    fingerprint: "f98641cd740aa194840bfc75ccf712854f6641f364a896cfa1382fad41dda4bb",
   },
   runtime_source_file_count: 32,
   direct: {
@@ -65,10 +65,10 @@ const EXPECTED = Object.freeze({
     // asm-cases read now flows through the shared predicate.
     // SEQ-151 SUCCESSION: count UNCHANGED at 92; fingerprint moves for the same
     // reason as the runtime comparison set above.
-    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "6b6efe817fed0b9407045d95cedd0ebf3b584cf49d98018aedeeada1da3adc91" },
+    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "423954987827d63b0179d576da005a621fc628fcf3826968f4bf72ccaca6357c" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
-    governance: { occurrence_count: 104, source_file_count: 36, fingerprint: "8f65e7c85eec0839c192895e8c2d08f81dd13fe780d7ddc449af347410eba266" },
+    governance: { occurrence_count: 104, source_file_count: 36, fingerprint: "10e631c4bd29dd1e90ac9010bbe4341b352c07dda788f45f888401e46b68080c" },
   },
   sql_reads: { projection_occurrences: 23, fingerprint: "2f2378d8e99b017b44932a3a1f723c8c8ff2ca8f9fce0c4690f8decc821a9cc7" },
 });
