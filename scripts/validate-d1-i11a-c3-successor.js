@@ -48,13 +48,17 @@ ok("C3S_COMPLETE_STILL_VERIFIES", gateFor("complete").canVerify("headers") === t
 ok("C3S_COMPLETE_IS_NOT_FLAGGED_NON_AUTHORITATIVE", gateFor("complete").scanPartial === false);
 
 // ── End-to-end: a REAL governed degraded scan cannot verify ─────────────────
+// LV-01: the observation anchor is an explicit input read from persisted scan state
+// (`scans.created_at`). It is supplied here because the contract now fails closed
+// without one rather than manufacturing a wall-clock stamp.
+const PERSISTED_ANCHOR = "2026-08-18T01:00:00Z";
 {
   // Deterministic module FACTS; the engine stamps observed_at centrally.
   const facts = {
     module: "subdomains", dependency: "ct_provider:crt_sh", reason: "fetch failed",
     fallback_source: "ct_provider:certspotter", fallback_count: 2,
   };
-  const quality = buildScanQuality({ dns: {}, headers: {}, subdomains: { degradations: [facts] } });
+  const quality = buildScanQuality({ dns: {}, headers: {}, subdomains: { degradations: [facts] } }, PERSISTED_ANCHOR);
   ok("C3S_E2E_GOVERNED_SCAN_IS_DEGRADED", quality.status === "degraded", `got ${quality.status}`);
   const gate = moduleCompletionGate({ headers: {}, subdomains: {} }, quality);
   ok("C3S_E2E_GOVERNED_DEGRADED_SCAN_CANNOT_VERIFY", gate.canVerify("headers") === false);

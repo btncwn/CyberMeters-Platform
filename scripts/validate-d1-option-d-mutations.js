@@ -163,6 +163,22 @@ const MUTANTS = [
     'export const NON_AUTHORITATIVE_SCAN_QUALITIES = Object.freeze(["partial", "degraded"]);',
     'export const NON_AUTHORITATIVE_SCAN_QUALITIES = Object.freeze(["partial"]);',
     "G4_DEGRADED_IS_NON_AUTHORITATIVE"],
+  // ── LV-01: THE INVENTED-CLOCK NARROWING ────────────────────────────────────
+  // The governing FAIL. Restoring the wall-clock default makes a failed/absent
+  // persisted-anchor read manufacture `observed_at` from process time, which is
+  // not the fact the field claims. The kill is named on the read-failure row, so
+  // this mutant cannot die for an unrelated reason.
+  ["D1-M19-wallclock-anchor-fallback-restored", CONTRACT,
+    "export function collectDegradations(modules = {}, observedAt = null) {",
+    "export function collectDegradations(modules = {}, observedAt = new Date().toISOString()) {",
+    "G6_ANCHOR_READ_FAILURE_DOES_NOT_GRADE_DEGRADED"],
+  // The admission itself must be load-bearing: widening it to accept ANY value
+  // re-opens the same hole through a different door (a non-ISO or non-string
+  // anchor would stamp a record that `observed_at` cannot honestly carry).
+  ["D1-M20-anchor-admission-widened-to-any-truthy", CONTRACT,
+    "  const anchorAvailable = typeof observedAt === \"string\" && ISO_INSTANT.test(observedAt);",
+    "  const anchorAvailable = Boolean(observedAt);",
+    "G6_INVALID_STRING_ANCHOR_IS_REPORTED_AS_UNAVAILABLE"],
 ];
 
 // Cosmetic edits that MUST NOT fail the suite.

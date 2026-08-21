@@ -74,7 +74,9 @@ const validFacts = () => ({
 
 // ── GATE 2 — the producer re-grade (the ONLY degraded case) ─────────────────
 {
-  const q = (modules) => buildScanQuality({ dns: {}, ...modules });
+  // LV-01: the anchor is now an explicit input. OBSERVED stands in for the scan's
+  // persisted `scans.created_at`; without it the contract fails closed by design.
+  const q = (modules) => buildScanQuality({ dns: {}, ...modules }, OBSERVED);
   const single = q({ subdomains: { degradations: [validFacts()] } });
   eq("G2_SINGLE_PROVIDER_LOSS_IS_DEGRADED", single.status, "degraded");
   eq("G2_DEGRADED_CARRIES_THE_STRUCTURED_RECORD", single.degradations.length, 1);
@@ -94,7 +96,7 @@ const validFacts = () => ({
   eq("G2_INDEPENDENT_INCOMPLETE_CAUSE_DOMINATES",
     q({ subdomains: { degradations: [validFacts()] }, headers: { incomplete: true } }).status, "partial");
   eq("G2_CORE_MODULE_ERROR_DOMINATES",
-    buildScanQuality({ dns: { error: "boom" }, subdomains: { degradations: [validFacts()] } }).status, "partial");
+    buildScanQuality({ dns: { error: "boom" }, subdomains: { degradations: [validFacts()] } }, OBSERVED).status, "partial");
   // Honest preservation: a dominated scan still REPORTS the degradation.
   eq("G2_DOMINATED_SCAN_STILL_REPORTS_THE_DEGRADATION",
     q({ subdomains: { degradations: [validFacts()] }, headers: { incomplete: true } }).degradations.length, 1);
@@ -127,6 +129,60 @@ const validFacts = () => ({
   ok("G5_DEGRADED_CANNOT_VERIFY", gate("degraded").canVerify("headers") === false);
   ok("G5_COMPLETE_STILL_VERIFIES", gate("complete").canVerify("headers") === true);
   ok("G5_DEGRADED_SETS_THE_NON_AUTHORITATIVE_FLAG", gate("degraded").scanPartial === true);
+}
+
+// ── GATE 6 — FAIL-CLOSED OBSERVATION ANCHOR (LV-01) ─────────────────────────
+// The governing FAIL: a failed/absent/invalid persisted-anchor read used to reach
+// `collectDegradations` with no anchor, whose default manufactured `observed_at`
+// from wall-clock time. `observed_at` claims to say WHEN THE SCAN OBSERVED the
+// degradation; process time is not that fact. The invariant is:
+//
+//     no valid persisted anchor  =>  no invented time  =>  no degradation write
+//
+// Each row asserts ONE claim, so no assertion can pass for a second reason.
+{
+  const facts = () => ({
+    module: "subdomains", dependency: "ct_provider:crt_sh", reason: "fetch failed",
+    fallback_source: "ct_provider:certspotter", fallback_count: 2,
+  });
+  const withAnchor = (anchor) => buildScanQuality(
+    { dns: {}, subdomains: { degradations: [facts()] } }, anchor);
+
+  // POSITIVE CONTROL — a valid persisted anchor still produces the governed
+  // `degraded` grade. Without this row the gate could pass by refusing everything.
+  eq("G6_VALID_ANCHOR_STILL_GRADES_DEGRADED", withAnchor(OBSERVED).status, "degraded");
+  eq("G6_VALID_ANCHOR_STAMPS_THE_PERSISTED_INSTANT",
+    withAnchor(OBSERVED).degradations[0].observed_at, OBSERVED);
+
+  // THE READ-FAILURE CONTROL. `undefined` is exactly what scan-engine.js threads
+  // when the `scans.created_at` read throws, returns no row, or fails to parse.
+  eq("G6_ANCHOR_READ_FAILURE_DOES_NOT_GRADE_DEGRADED", withAnchor(undefined).status, "partial");
+  eq("G6_ANCHOR_READ_FAILURE_WRITES_NO_DEGRADATION", withAnchor(undefined).degradations.length, 0);
+  eq("G6_ANCHOR_ABSENT_NULL_DOES_NOT_GRADE_DEGRADED", withAnchor(null).status, "partial");
+  eq("G6_ANCHOR_INVALID_STRING_DOES_NOT_GRADE_DEGRADED", withAnchor("yesterday").status, "partial");
+  eq("G6_ANCHOR_NON_STRING_DOES_NOT_GRADE_DEGRADED", withAnchor(1755480000000).status, "partial");
+
+  // The refusal must be REPORTED, not silent: a caller has to be able to tell
+  // "no degradation" from "a degradation we refused to honour".
+  const collected = collectDegradations({ subdomains: { degradations: [facts()] } }, undefined);
+  ok("G6_ANCHOR_UNAVAILABLE_IS_REPORTED_AS_UNAVAILABLE", collected.anchor_available === false);
+  ok("G6_ANCHOR_UNAVAILABLE_COUNTS_THE_REFUSAL", collected.rejected === 1);
+  ok("G6_ANCHOR_UNAVAILABLE_COLLECTS_NOTHING", collected.degradations.length === 0);
+  ok("G6_VALID_ANCHOR_IS_REPORTED_AS_AVAILABLE",
+    collectDegradations({ subdomains: { degradations: [facts()] } }, OBSERVED).anchor_available === true);
+  // The admission must judge the anchor ITSELF, not merely its truthiness. A non-ISO
+  // or non-string anchor is still an unavailable anchor: `isValidDegradation` would
+  // reject the resulting record anyway, so the RECORD path is backstopped — but the
+  // reported flag would lie, and that flag is this admission's own claim.
+  ok("G6_INVALID_STRING_ANCHOR_IS_REPORTED_AS_UNAVAILABLE",
+    collectDegradations({ subdomains: { degradations: [facts()] } }, "yesterday").anchor_available === false);
+  ok("G6_NON_STRING_ANCHOR_IS_REPORTED_AS_UNAVAILABLE",
+    collectDegradations({ subdomains: { degradations: [facts()] } }, 1755480000000).anchor_available === false);
+
+  // No manufactured instant may survive anywhere in the emitted quality object.
+  const emitted = JSON.stringify(withAnchor(undefined));
+  ok("G6_NO_INVENTED_ISO_INSTANT_IS_EMITTED",
+    /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/.test(emitted) === false);
 }
 
 console.log(`\nD1 Option D contract fixtures: ${pass}/${pass + fail} assertions passed`);

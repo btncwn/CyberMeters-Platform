@@ -70,7 +70,9 @@ try {
       fallback_source:"ct_provider:certspotter", fallback_count:2 };
     out.carrier = true;
   } catch { out.carrier = false; }
-  const q = buildScanQuality({ dns:{}, headers:{}, subdomains: deg ? { degradations:[deg] } : { incomplete:true, incomplete_reason:"ct_source_degraded" } });
+  // LV-01: supply the persisted observation anchor explicitly; the contract now
+  // fails closed without one instead of substituting wall-clock time.
+  const q = buildScanQuality({ dns:{}, headers:{}, subdomains: deg ? { degradations:[deg] } : { incomplete:true, incomplete_reason:"ct_source_degraded" } }, "2026-08-18T01:00:00Z");
   out.produced = q.status;
   out.degradedVerifies = moduleCompletionGate({ headers:{} }, { status:"degraded", modules_skipped:[] }).canVerify("headers");
 } catch (e) { out.error = String(e && e.message || e); }

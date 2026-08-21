@@ -123,7 +123,16 @@ export function buildDegradation({
 // Collect the valid degradations declared by modules. Invalid records are dropped
 // AND reported, so a caller can distinguish "no degradation" from "a degradation we
 // refused to honour" — the second must not silently become `degraded`.
-export function collectDegradations(modules = {}, observedAt = new Date().toISOString()) {
+//
+// FAIL-CLOSED OBSERVATION ANCHOR (LV-01). `observedAt` must be a valid ISO instant
+// read from PERSISTED scan state. There is deliberately NO default: a missing,
+// failed or unparseable anchor read must never be back-filled with wall-clock time,
+// because `observed_at` claims to say WHEN THE SCAN OBSERVED the degradation, and
+// process time is not that fact. When no valid anchor exists we abort the
+// degradation write for this scan and REPORT the refusal, so `mayGradeDegraded`
+// cannot grant `degraded` and the scan keeps its conservative status.
+export function collectDegradations(modules = {}, observedAt = null) {
+  const anchorAvailable = typeof observedAt === "string" && ISO_INSTANT.test(observedAt);
   const valid = [];
   let rejected = 0;
   for (const value of Object.values(modules || {})) {
@@ -131,6 +140,9 @@ export function collectDegradations(modules = {}, observedAt = new Date().toISOS
     if (declared === undefined || declared === null) continue;
     if (!Array.isArray(declared)) { rejected += 1; continue; }
     for (const facts of declared) {
+      // No valid persisted anchor => refuse this declared degradation outright.
+      // Counted as rejected so the refusal is visible to the re-grade predicate.
+      if (!anchorAvailable) { rejected += 1; continue; }
       // Modules emit deterministic FACTS; the single observation stamp is applied
       // here so module output stays byte-identical across runs. Anything that does
       // not build into a fully valid record is rejected, never half-honoured.
@@ -148,7 +160,7 @@ export function collectDegradations(modules = {}, observedAt = new Date().toISOS
       else rejected += 1;
     }
   }
-  return { degradations: valid, rejected };
+  return { degradations: valid, rejected, anchor_available: anchorAvailable };
 }
 
 // THE RE-GRADE PREDICATE. `degraded` is permitted only when every one of these

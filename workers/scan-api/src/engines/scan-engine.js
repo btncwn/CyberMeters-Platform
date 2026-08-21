@@ -216,9 +216,11 @@ export function buildScanQuality(modules = {}, observedAt = undefined) {
   // incomplete cause exists, the scan stays `partial` regardless of how well-formed
   // the degradation is. A rejected (malformed/unknown) degradation record also
   // keeps the scan `partial` — the contract module fails closed and reports it.
-  const { degradations, rejected: rejectedDegradations } = observedAt === undefined
-    ? collectDegradations(modules)
-    : collectDegradations(modules, observedAt);
+  // LV-01: no special case for a missing anchor. Passing it through unconditionally
+  // is what makes the contract's fail-closed admission reachable; the old branch
+  // called collectDegradations WITHOUT an anchor precisely when none was read, which
+  // is exactly when the wall-clock default used to manufacture `observed_at`.
+  const { degradations, rejected: rejectedDegradations } = collectDegradations(modules, observedAt);
   // A REJECTED degradation record is malformed/unknown contract data, which
   // FD-006 places firmly on the `partial` side. It is counted as a partial DRIVER,
   // not merely as a warning: emitting only a warning would have let it fall
