@@ -83,6 +83,7 @@ import { recomputeVendorRiskScoresForDomain } from "./vendor-risk.js";
 import { detectVendorsFromModules } from "./vendor-signatures.js";
 import { runCveModule, runKevModule } from "./vuln-intel.js";
 import { runWhoisModule } from "./whois-scan.js";
+import { collectDegradations, mayGradeDegraded } from "./scan-degradation-contract.js";
 
 export function buildCertificateAuthorityConcentrationFromModule(certMod) {
   const issuer = certMod?.issuer ? String(certMod.issuer).trim() : "";
@@ -127,7 +128,16 @@ export function computeScanBudget(bruteforceChecked) {
   };
 }
 
-export function buildScanQuality(modules = {}) {
+// `observedAt` is the scan's PERSISTED observation anchor (scans.created_at),
+// threaded in by the caller. It is deliberately NOT generated here: a degradation
+// is observed DURING A SCAN, so one scan has one anchor. Stamping `new Date()` at
+// collection time recorded when this function happened to run — a different fact
+// from the one the field claims — and made two invocations of one scan disagree
+// about an unchanged observation. That is the same defect class as the gate's
+// double read: one logical fact, read twice from a live source. The default
+// remains a generated value ONLY for callers that have no scan context (fixtures
+// and the 50 validator call sites); the engine always passes the persisted value.
+export function buildScanQuality(modules = {}, observedAt = undefined) {
   // Sprint 10B: Workers Paid plan limit is 1,000 subrequests.
   // Previous value of 50 (free plan) caused every scan to report false "skipped" warnings.
   const SUBREQUEST_LIMIT = 1_000;
@@ -200,13 +210,49 @@ export function buildScanQuality(modules = {}) {
     warnings.push(`Core module incomplete: ${name}`);
   }
 
-  const status = (coreIncomplete.length > 0 || incompleteModules.length > 0 || coreBudgetSkipped.length > 0)
+  // ── D1 Option D (FD-006 seq 50) ──────────────────────────────────────────
+  // A declared, structured single-source loss with surviving publishable evidence
+  // grades `degraded`. Every legacy `partial` driver DOMINATES: if any independent
+  // incomplete cause exists, the scan stays `partial` regardless of how well-formed
+  // the degradation is. A rejected (malformed/unknown) degradation record also
+  // keeps the scan `partial` — the contract module fails closed and reports it.
+  // LV-01: no special case for a missing anchor. Passing it through unconditionally
+  // is what makes the contract's fail-closed admission reachable; the old branch
+  // called collectDegradations WITHOUT an anchor precisely when none was read, which
+  // is exactly when the wall-clock default used to manufacture `observed_at`.
+  const { degradations, rejected: rejectedDegradations } = collectDegradations(modules, observedAt);
+  // A REJECTED degradation record is malformed/unknown contract data, which
+  // FD-006 places firmly on the `partial` side. It is counted as a partial DRIVER,
+  // not merely as a warning: emitting only a warning would have let it fall
+  // through to the legacy `warnings.length > 0 -> degraded` branch below and grade
+  // degraded off unreadable data — the exact escape this contract forbids.
+  const partialDrivers = coreIncomplete.length + incompleteModules.length
+    + coreBudgetSkipped.length + rejectedDegradations;
+  const governedDegraded = mayGradeDegraded({
+    partialDrivers,
+    degradations,
+    rejected: rejectedDegradations,
+  });
+  for (const record of degradations) {
+    // The existing customer warning surface carries the disclosure; no parallel
+    // status system is introduced.
+    warnings.push(`Evidence source degraded: ${record.dependency} (${record.module}) — ${record.reason}`);
+  }
+  if (rejectedDegradations > 0) {
+    warnings.push("Degradation contract not recognised — treated as incomplete evidence");
+  }
+
+  const status = partialDrivers > 0
     ? "partial"
-    : (warnings.length > 0 || modulesSkipped.length > 0 ? "degraded" : "complete");
+    : (governedDegraded
+      ? "degraded"
+      : (warnings.length > 0 || modulesSkipped.length > 0 ? "degraded" : "complete"));
 
   return {
     status,
     warnings,
+    // Structured carrier. Always an array so consumers never branch on undefined.
+    degradations,
     modules_skipped: modulesSkipped,
     // Additive. Existing consumers of modules_skipped are unchanged; a surface that
     // wants the honest distinction reads this instead.
@@ -1533,7 +1579,26 @@ function buildCanonicalUrlProfile(modules) {
     // Estimates subrequest usage across all modules and warns if close to the
     // Cloudflare Worker free-plan 50-subrequest limit.
     modules.scan_budget = computeScanBudget(bruteforceResult.checked);
-    const scanQuality = buildScanQuality(modules);
+    // The scan's PERSISTED observation anchor. `scans.created_at` is written once by
+    // the DB default at row creation and never recomputed, so it survives a
+    // persistence-failure retry BY CONSTRUCTION rather than by luck — unlike the
+    // deadline start, which is recreated on every invocation. Read once here and
+    // threaded down, so a degradation observed during this scan is stamped with when
+    // the scan was observed, which is what the field claims to mean.
+    let persistedObservationAnchor;
+    try {
+      const scanRow = await env.cybermeters_db
+        .prepare("SELECT created_at FROM scans WHERE id = ?")
+        .bind(scanId)
+        .first();
+      const raw = scanRow?.created_at;
+      // SQLite CURRENT_TIMESTAMP is "YYYY-MM-DD HH:MM:SS" (UTC, no zone marker).
+      if (typeof raw === "string" && raw.length > 0) {
+        const parsed = new Date(raw.includes("T") ? raw : `${raw.replace(" ", "T")}Z`);
+        if (!Number.isNaN(parsed.getTime())) persistedObservationAnchor = parsed.toISOString();
+      }
+    } catch { persistedObservationAnchor = undefined; }
+    const scanQuality = buildScanQuality(modules, persistedObservationAnchor);
     ctTelemetryScanQuality = scanQuality;
     // PR-5.4: backend-owned within-scan monitoring truth. Reuse the SAME
     // per-provider snapshot that is written into execution diagnostics; no new

@@ -741,11 +741,19 @@ export function createCertificateTransparencyCache({
     },
     telemetrySnapshot({ modules = {}, scanQuality = null } = {}) {
       const subdomains = modules?.subdomains || {};
-      const ctDegradedScan = scanQuality?.status !== "complete" &&
-        subdomains?.incomplete === true &&
-        ["ct_source_degraded", "ct_sources_unavailable"].includes(
-          subdomains?.incomplete_reason
-        );
+      // D1 Option D (FD-006 seq 50): a single-provider loss still REDUCES
+      // completeness, so its telemetry impact must still be recorded. The legacy
+      // signal was the blanket `incomplete` flag, which the governed case no
+      // longer sets — without this the impact row would silently disappear for
+      // exactly the case D1 governs, which is a monitoring loss, not a fix.
+      // Additive: the legacy reasons keep working unchanged.
+      const ctDegradedScan = scanQuality?.status !== "complete" && (
+        (subdomains?.incomplete === true &&
+          ["ct_source_degraded", "ct_sources_unavailable"].includes(
+            subdomains?.incomplete_reason
+          )) ||
+        (Array.isArray(subdomains?.degradations) && subdomains.degradations.length > 0)
+      );
       const rows = [];
       for (const attempt of providerAttempts) {
         for (const module of providerConsumers.get(attempt.provider) || []) {

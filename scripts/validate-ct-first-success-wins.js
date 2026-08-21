@@ -15,9 +15,9 @@ const requestedMutation = process.argv.find((arg) => arg.startsWith("--mutation-
   ?.split("=")[1] || null;
 
 const ASSERTIONS = Object.freeze([
-  "M1_ONE_SUCCESS_RETAINS_DEGRADATION",
+  "M1_ONE_SUCCESS_RETAINS_STRUCTURED_DEGRADATION",
   "M2_ONE_SUCCESS_NOT_TWO_PROVIDER_COMPLETE",
-  "M3_SCAN_QUALITY_REMAINS_PARTIAL",
+  "M3_SCAN_QUALITY_IS_GOVERNED_DEGRADED",
   "M4_FIRST_FAILURE_CANNOT_WIN",
   "M5_RELEASE_DOES_NOT_CANCEL_PHYSICAL",
   "M6_LATE_SETTLEMENT_CANNOT_MUTATE_OUTPUT",
@@ -36,9 +36,9 @@ const ASSERTIONS = Object.freeze([
 ]);
 
 const MUTATION_ASSERTION = Object.freeze({
-  M1: "M1_ONE_SUCCESS_RETAINS_DEGRADATION",
+  M1: "M1_ONE_SUCCESS_RETAINS_STRUCTURED_DEGRADATION",
   M2: "M2_ONE_SUCCESS_NOT_TWO_PROVIDER_COMPLETE",
-  M3: "M3_SCAN_QUALITY_REMAINS_PARTIAL",
+  M3: "M3_SCAN_QUALITY_IS_GOVERNED_DEGRADED",
   M4: "M4_FIRST_FAILURE_CANNOT_WIN",
   M5: "M5_RELEASE_DOES_NOT_CANCEL_PHYSICAL",
   M6: "M6_LATE_SETTLEMENT_CANNOT_MUTATE_OUTPUT",
@@ -186,9 +186,29 @@ async function subdomainsOneProviderFixture() {
 
 async function assertionBody(id) {
   switch (id) {
-    case "M1_ONE_SUCCESS_RETAINS_DEGRADATION": {
+    // SUCCESSOR of M1_ONE_SUCCESS_RETAINS_DEGRADATION under FD-006/seq50 + seq126.
+    // INTENT PRESERVED, EXPRESSION MOVED — diagnosed before editing, per the
+    // amendment's requirement that M1's defect intent survive. The intent is
+    // "one surviving provider must never read as full coverage". Pre-D1 the only
+    // available expression was the blanket `incomplete` flag. Post-D1 the module
+    // declares the SAME fact structurally and with strictly MORE information: it
+    // names the lost dependency, the surviving fallback and its measured count.
+    // Corroboration that the intent is intact, not weakened: M2 (not
+    // two-provider-complete) and M9 (degradation wording explicit) both still pass
+    // unchanged. This successor therefore asserts MORE than the boolean it
+    // replaces, and additionally pins that the blanket flag is gone.
+    case "M1_ONE_SUCCESS_RETAINS_STRUCTURED_DEGRADATION": {
       const output = await subdomainsOneProviderFixture();
-      return output.incomplete === true && output.incomplete_reason === "ct_source_degraded";
+      const declared = Array.isArray(output.degradations) ? output.degradations : [];
+      const [record] = declared;
+      return declared.length === 1
+        && !!record
+        && record.module === "subdomains"
+        && /^ct_provider:/.test(String(record.dependency))
+        && /^ct_provider:/.test(String(record.fallback_source))
+        && String(record.dependency) !== String(record.fallback_source)
+        && Number(record.fallback_count) > 0
+        && output.incomplete !== true;
     }
     case "M2_ONE_SUCCESS_NOT_TWO_PROVIDER_COMPLETE": {
       const output = await subdomainsOneProviderFixture();
@@ -197,9 +217,24 @@ async function assertionBody(id) {
         dns_bruteforce: { items: [], error: null },
       }) === false;
     }
-    case "M3_SCAN_QUALITY_REMAINS_PARTIAL": {
+    // SUCCESSOR of M3_SCAN_QUALITY_REMAINS_PARTIAL under FD-006/seq50 + seq126 §3.2,
+    // which names M3 explicitly: the governed one-provider positive-fallback case is
+    // no longer an active `partial` contract. `partial` was D1-invalidated for THIS
+    // case only — both-provider loss remains `partial` and is asserted elsewhere.
+    // The successor requires the governed result AND the declared deficiency
+    // semantics, so `degraded` can never be reached without the structured contract.
+    case "M3_SCAN_QUALITY_IS_GOVERNED_DEGRADED": {
       const output = await subdomainsOneProviderFixture();
-      return modules.scanEngine.buildScanQuality({ subdomains: output }).status === "partial";
+      // LV-01: the observation anchor is an explicit input read from persisted scan
+      // state; the contract no longer manufactures one from wall-clock time.
+      const quality = modules.scanEngine.buildScanQuality({ subdomains: output }, "2026-08-18T01:00:00Z");
+      const [record] = Array.isArray(quality.degradations) ? quality.degradations : [];
+      return quality.status === "degraded"
+        && !!record
+        && record.contract_version === "scan-degradation/1"
+        && record.status === "unavailable"
+        && record.claim_effect === "coverage_reduced"
+        && record.fallback_publishable === true;
     }
     case "M4_FIRST_FAILURE_CANNOT_WIN": {
       const fixture = cacheFixture();

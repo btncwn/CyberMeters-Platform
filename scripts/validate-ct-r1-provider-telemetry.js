@@ -128,7 +128,8 @@ async function executeModules(spec, captureTelemetry) {
     Date.now = realDateNow;
   }
   const modules = { ssl, subdomains };
-  const scanQuality = buildScanQuality(modules);
+  // LV-01: supply the persisted observation anchor explicitly.
+  const scanQuality = buildScanQuality(modules, "2026-08-18T01:00:00Z");
   return {
     modules,
     scanQuality,
@@ -147,25 +148,37 @@ const fixtures = [
     name: "crt.sh timeout / CertSpotter ok",
     spec: { crt_sh: "timeout", certspotter: "ok" },
     outcomes: { crt_sh: ["timeout"], certspotter: ["ok"] },
-    quality: "partial",
+    // SUCCESSION (FD-006/seq50 + seq126 §3.1): one provider lost, the other
+    // returned a usable positive result -> governed `degraded`, and ONLY with the
+    // structured deficiency asserted below.
+    quality: "degraded",
+    requiresStructuredDeficiency: true,
   },
   {
     name: "CertSpotter parse error / crt.sh ok",
     spec: { crt_sh: "ok", certspotter: "parse_error" },
     outcomes: { crt_sh: ["ok"], certspotter: ["parse_error"] },
-    quality: "partial",
+    // SUCCESSION (FD-006/seq50 + seq126 §3.1) — see above.
+    quality: "degraded",
+    requiresStructuredDeficiency: true,
   },
   {
     name: "both fail",
     spec: { crt_sh: "timeout", certspotter: "network_error" },
     outcomes: { crt_sh: ["timeout"], certspotter: ["network_error"] },
+    // UNCHANGED and explicitly pinned: BOTH providers lost, so there is no
+    // surviving positive evidence to publish. FD-006 keeps this `partial`, and it
+    // must never acquire a structured deficiency.
     quality: "partial",
+    requiresStructuredDeficiency: false,
   },
   {
     name: "rate-limited",
     spec: { crt_sh: "rate_limited", certspotter: "ok" },
     outcomes: { crt_sh: ["rate_limited"], certspotter: ["ok"] },
-    quality: "partial",
+    // SUCCESSION (FD-006/seq50 + seq126 §3.1) — see above.
+    quality: "degraded",
+    requiresStructuredDeficiency: true,
   },
 ];
 
@@ -190,8 +203,35 @@ try {
       JSON.stringify(observed.modules),
       JSON.stringify(untreated.modules)
     );
-    eq(`${fixture.name}: canonical scan quality unchanged`,
+    eq(`${fixture.name}: canonical scan quality matches the governed D1 grade`,
       observed.scanQuality.status, fixture.quality);
+    // The `degraded` grade is only legitimate WITH the structured deficiency, so
+    // the two are asserted together and never independently. `partial` fixtures
+    // must carry no deficiency at all.
+    {
+      const declared = Array.isArray(observed.modules.subdomains?.degradations)
+        ? observed.modules.subdomains.degradations : [];
+      const carried = Array.isArray(observed.scanQuality.degradations)
+        ? observed.scanQuality.degradations : [];
+      if (fixture.requiresStructuredDeficiency) {
+        eq(`${fixture.name}: module declares exactly one structured deficiency`, declared.length, 1);
+        eq(`${fixture.name}: deficiency names the lost provider and a surviving fallback`,
+          Boolean(declared[0] &&
+            /^ct_provider:/.test(String(declared[0].dependency)) &&
+            /^ct_provider:/.test(String(declared[0].fallback_source)) &&
+            String(declared[0].dependency) !== String(declared[0].fallback_source) &&
+            Number(declared[0].fallback_count) > 0), true);
+        eq(`${fixture.name}: scan quality carries the validated contract record`,
+          Boolean(carried.length === 1 &&
+            carried[0].contract_version === "scan-degradation/1" &&
+            carried[0].status === "unavailable" &&
+            carried[0].claim_effect === "coverage_reduced" &&
+            carried[0].fallback_publishable === true), true);
+      } else {
+        eq(`${fixture.name}: no structured deficiency is declared`, declared.length, 0);
+        eq(`${fixture.name}: no deficiency is carried into scan quality`, carried.length, 0);
+      }
+    }
     ok(`${fixture.name}: telemetry stays within hard row bound`,
       observed.rows.length <= CT_PROVIDER_TELEMETRY_ROW_LIMIT);
     eq(`${fixture.name}: R1 cache state always miss`,
