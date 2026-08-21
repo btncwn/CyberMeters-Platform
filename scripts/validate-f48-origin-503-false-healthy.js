@@ -135,14 +135,44 @@ const R_ALL_503 = async () => origin503();
      !r.websiteMaterial.includes("ssl_not_available"), JSON.stringify(r.websiteMaterial));
 }
 
-// ── BAR 2 — the Governance control must not regress ────────────────────────
+// ── BAR 2 — SUCCEEDED to the three-state contract (P1.1) ───────────────────
+//
+// PROVENANCE CHAIN (the prior semantics were RATIFIED, then SUPERSEDED — never
+// "unauthorized"):
+//   1. GOVERNANCE-RULING-F48-F51-CLASSIFICATION-001        (descriptive)
+//   2. GOVERNANCE-RULING-F48-REMEDIATION-ACCEPTANCE-001    (normative — ratified BAR 2)
+//   3. GOVERNANCE-RULING-I11A-ACC-P2-01-BAR-CONFLICT-001   (declared the conflict P1)
+//   4. …-BAR-CONFLICT-001-ADDENDUM-001                     (first-increment minimum)
+//   5. GOVERNANCE-RULING-F48-BAR2-AUTHORITY-PROVENANCE-CLOSURE-001 (succession framing)
+//
+// WHAT CHANGED AND WHY. BAR 2 pinned the all-503 shape to `issue_detected` with a
+// MATERIAL `ssl_no_http_redirect`. That finding was itself produced from
+// non-serviceable evidence: every probe, including the HTTP hop, returned a genuine
+// origin 503, so CyberMeters never observed whether the origin redirects. Asserting
+// the defect was the false-ISSUE direction of the same class F-48 fixed in the
+// false-HEALTHY direction. Two validators therefore contradicted each other, and
+// `validate-i11a-website-completeness`'s `evidence_insufficient` direction is the
+// CONTROLLING semantics (named per the ADDENDUM).
+//
+// THE ANTI-FALSE-HEALTHY FLOOR IS PRESERVED, not weakened — by explicit replacement
+// assertions below, never by deleting the guard.
 {
   const r = await observe(R_ALL_503);
-  eq("F48_BAR2_ALL_503_STILL_ISSUE_DETECTED", r.website?.state, "issue_detected");
-  ok("F48_BAR2_REDIRECT_FINDING_STILL_MATERIAL",
-     r.websiteMaterial.includes("ssl_no_http_redirect"), JSON.stringify(r.websiteMaterial));
-  ok("F48_BAR2_NOT_RECLASSIFIED_HEALTHY", r.website?.state !== "assessed_healthy");
-  ok("F48_BAR2_NOT_DOWNGRADED_TO_EVIDENCE_INSUFFICIENT", r.website?.state !== "evidence_insufficient");
+  // The floor, restated explicitly. This is the F-48 guarantee and it still holds.
+  ok("F48_BAR2_ALL_503_NEVER_ASSESSED_HEALTHY", r.website?.state !== "assessed_healthy",
+     `state=${r.website?.state}`);
+  ok("F48_BAR2_ALL_503_COVERAGE_NEVER_COMPLETE", r.website?.coverage !== "complete",
+     `coverage=${r.website?.coverage}`);
+  ok("F48_BAR2_ALL_503_SCAN_NEVER_COMPLETE", r.scan_quality.status !== "complete",
+     `quality=${r.scan_quality.status}`);
+  // The succession: the honest third state, not a defect verdict.
+  eq("F48_BAR2_ALL_503_IS_EVIDENCE_INSUFFICIENT", r.website?.state, "evidence_insufficient");
+  // The false ISSUE is gone. A redirect decision that was never observed may not be
+  // published as an observed redirect defect.
+  ok("F48_BAR2_NO_UNOBSERVED_REDIRECT_FINDING",
+     !r.websiteMaterial.includes("ssl_no_http_redirect"), JSON.stringify(r.websiteMaterial));
+  // …and it must not be replaced by some OTHER fabricated material finding.
+  eq("F48_BAR2_NO_FABRICATED_MATERIAL_FINDING_AT_ALL", r.websiteMaterial.length, 0);
 }
 
 // ── BAR 3 — healthy-origin controls unchanged ──────────────────────────────

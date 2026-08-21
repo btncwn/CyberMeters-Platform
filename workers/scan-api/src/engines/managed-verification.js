@@ -21,6 +21,8 @@
 // readily than the scan did — it can never manufacture a false "fixed". That asymmetry is
 // the point: an over-cautious verifier leaves a case open, an over-eager one lies.
 import { assetFingerprintSignals, runAdminSurfaceModule } from "./asset-intel.js";
+import { classifyFetchObservation } from "../lib/fetch-observation.js";
+import { classifyServiceability, maySupportHealthyConclusion } from "../lib/serviceability.js";
 import { evaluateCookieObservation, isCookieFindingType } from "./cookie-observation.js";
 import { dnsQuery } from "./dns.js";
 import { buildCaaFromAnswers } from "./dns-scan.js";
@@ -204,6 +206,14 @@ async function probeHost(host, fetcher) {
   if (ssrfRefused && !response) return { completeness: "ssrf_refused", res: null };
   if (!response) return { completeness: "indeterminate", reason: "unreachable", res: null }; // conservative: defer
 
+  // P1.1: ANY Response used to count as "complete", so a 503 could ground a
+  // "fixed" verification. A response only completes the check when the origin
+  // actually served it; otherwise defer, never conclude remediation.
+  const probeServiceability = classifyServiceability(
+    classifyFetchObservation({ response, executed: true }));
+  if (!maySupportHealthyConclusion(probeServiceability)) {
+    return { completeness: "indeterminate", reason: probeServiceability.reason, res: null };
+  }
   return { completeness: "complete", res: response };
 }
 
