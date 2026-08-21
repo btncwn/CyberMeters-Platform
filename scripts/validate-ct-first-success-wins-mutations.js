@@ -21,9 +21,9 @@ const targets = Object.freeze({
 });
 
 const EXPECTED = Object.freeze([
-  ["M1", ["M1_ONE_SUCCESS_RETAINS_DEGRADATION"]],
+  ["M1", ["M1_ONE_SUCCESS_RETAINS_STRUCTURED_DEGRADATION"]],
   ["M2", ["M2_ONE_SUCCESS_NOT_TWO_PROVIDER_COMPLETE"]],
-  ["M3", ["M3_SCAN_QUALITY_REMAINS_PARTIAL"]],
+  ["M3", ["M3_SCAN_QUALITY_IS_GOVERNED_DEGRADED"]],
   ["M4", ["M4_FIRST_FAILURE_CANNOT_WIN"]],
   ["M5", ["M5_RELEASE_DOES_NOT_CANCEL_PHYSICAL"]],
   ["M6", ["M6_LATE_SETTLEMENT_CANNOT_MUTATE_OUTPUT"]],
@@ -42,16 +42,27 @@ const once = (source, from, to, label) => {
 };
 const target = (name, mutate) => ({ name, mutate });
 const mutationTargets = Object.freeze({
+  // RE-ANCHORED under FD-006/seq50 + seq126 §3.3. The old anchor (the blanket
+  // `incomplete` flag) is unreachable for the governed one-provider case after the
+  // D1 refactor, so it can no longer exercise M1's gate. The successor mutant
+  // deletes the STRUCTURED declaration itself — the post-D1 expression of the same
+  // defect ("one surviving provider read as full coverage") — and must die on the
+  // named successor assertion.
   M1: [target("subdomains", (source) => once(source,
-    '? { incomplete: true, incomplete_reason: "ct_source_degraded" }',
-    '? { incomplete_reason: "ct_source_degraded" }', "M1"))],
+    "  const ctDegradation = (ctLostProvider && items.length > 0 && ctSurvivingCount > 0)",
+    "  const ctDegradation = (false && ctLostProvider && items.length > 0 && ctSurvivingCount > 0)", "M1"))],
   M2: [target("asset", (source) => once(source,
     `  if (sources.crt_sh?.error) return false;       // a CT source errored → partial coverage
   if (sources.certspotter?.error) return false;`,
     `  if (sources.crt_sh?.error && sources.certspotter?.error) return false;`, "M2"))],
+  // RE-ANCHORED under FD-006/seq50 + seq126 §3.3. The old anchor excluded
+  // subdomains from the `incomplete` sweep, which no longer drives the governed
+  // case at all. The successor mutant attacks the post-D1 semantic gate directly:
+  // it makes the governed degraded grade collapse back to `partial`, which is
+  // exactly the outcome M3's successor now forbids.
   M3: [target("scanEngine", (source) => once(source,
-    ".filter(([, value]) => value?.incomplete === true)",
-    '.filter(([name, value]) => value?.incomplete === true && name !== "subdomains")', "M3"))],
+    '    : (governedDegraded\n      ? "degraded"',
+    '    : (governedDegraded\n      ? "partial"', "M3"))],
   M4: [target("orchestrator", (source) => once(source,
     '      if (result?.status === "available") {',
     '      if (result?.status === "available" || settledCount === 1) {', "M4"))],

@@ -412,6 +412,28 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   const items     = [...seen].slice(0, MERGE_CAP).sort();
   const sensitive = items.filter((h) => isSensitiveSubdomain(h, domain));
   const ctCoverageDegraded = !!(sources.crt_sh?.error || sources.certspotter?.error);
+  // Count the losses rather than testing a disjunction: single-provider loss and
+  // both-provider loss are different D1 outcomes and must never be conflated.
+  const ctCrtFailed = !!sources.crt_sh?.error;
+  const ctCertSpotterFailed = !!sources.certspotter?.error;
+  const ctFailedProviderCount = (ctCrtFailed ? 1 : 0) + (ctCertSpotterFailed ? 1 : 0);
+  const ctLostProvider = ctFailedProviderCount === 1 ? (ctCrtFailed ? "crt_sh" : "certspotter") : null;
+  const ctSurvivingProvider = ctLostProvider === "crt_sh" ? "certspotter" : "crt_sh";
+  const ctSurvivingCount = Number(sources[ctSurvivingProvider]?.count ?? 0);
+  // DETERMINISTIC BY CONSTRUCTION. The module emits only observation FACTS and
+  // carries no wall-clock stamp: a timestamp minted here would make the module
+  // result differ between two otherwise identical runs and break the byte-identity
+  // invariant that telemetry must not change module output. The scan engine stamps
+  // `observed_at` once when it builds the validated contract record.
+  const ctDegradation = (ctLostProvider && items.length > 0 && ctSurvivingCount > 0)
+    ? Object.freeze({
+      module: "subdomains",
+      dependency: `ct_provider:${ctLostProvider}`,
+      reason: String(sources[ctLostProvider]?.error || "provider unavailable"),
+      fallback_source: `ct_provider:${ctSurvivingProvider}`,
+      fallback_count: ctSurvivingCount,
+    })
+    : null;
   const mergedCandidateTotal = seen.size;
   const mergedDroppedCount = Math.max(0, mergedCandidateTotal - items.length);
   const mergedCapReached = mergedCandidateTotal > items.length;
@@ -458,9 +480,22 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     wildcard_dns_addresses: wildcardDnsAddresses,
     wildcard_test_host: wildcardHost,
     wildcard_warning:   wildcardWarning,
-    ...(ctCoverageDegraded
-      ? { incomplete: true, incomplete_reason: "ct_source_degraded" }
-      : {}),
+    // ── D1 Option D (FD-006 seq 50) ──────────────────────────────────────
+    // EXACTLY ONE case may earn `degraded`: a single CT provider was lost, the
+    // surviving provider returned usable positive evidence, and a valid
+    // structured deficiency can be built. Everything else keeps the legacy
+    // `incomplete` flag and therefore stays `partial`:
+    //   * BOTH providers lost — counted, never inferred from a disjunction;
+    //   * no surviving positive evidence (nothing publishable to fall back on);
+    //   * a deficiency record the contract refuses to validate.
+    // `sources` keeps its exact legacy `{count, error}` per-provider shape; the
+    // structured facts ride in a SIBLING `degradations[]`, because that shape is
+    // a live deep-equality compatibility invariant.
+    ...(ctDegradation
+      ? { degradations: [ctDegradation] }
+      : (ctCoverageDegraded
+        ? { incomplete: true, incomplete_reason: "ct_source_degraded" }
+        : {})),
     error:              null,
   };
 }

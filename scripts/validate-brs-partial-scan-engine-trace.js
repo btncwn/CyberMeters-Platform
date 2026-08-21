@@ -221,7 +221,15 @@ try {
   eq("real partial engine trace does not throw", partialError, null);
   const partialScan = db.prepare("SELECT status,scan_quality FROM scans WHERE id='scan-partial'").get();
   eq("real second scan terminal completed", partialScan.status, "completed");
-  eq("real second scan canonical partial quality", partialScan.scan_quality, "partial");
+  // D1 SUCCESSION (FD-006 seq 50, via Governance seq 181 successor-3).
+  // This fixture sets providerMode="partial", which makes crt.sh return 403 while
+  // CertSpotter still serves data — i.e. single-CT-provider loss WITH surviving
+  // publishable evidence. FD-006 declares exactly that case `degraded`, not
+  // `partial`: the scan is not fully corroborated, but it is not incomplete either.
+  // The old expectation predates the governed grade and is superseded here, not
+  // weakened — every OTHER partial driver still dominates to `partial`, which the
+  // D1 contract fixtures assert directly.
+  eq("real second scan canonical degraded quality (D1 governed CT case)", partialScan.scan_quality, "degraded");
   eq("real partial scan preserves canonical BRS byte-for-byte", JSON.stringify(db.prepare(
     "SELECT score,risk_band,calculated_at,payload_json FROM workspace_brs_scores WHERE workspace_id='ws'"
   ).get()), JSON.stringify(completeBrs));

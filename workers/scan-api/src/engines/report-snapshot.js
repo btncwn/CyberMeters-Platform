@@ -956,6 +956,12 @@ export function composeSnapshot({
             message: entry.message,
           })),
         modules_skipped: skippedModules,
+        // D1 Option D (FD-006 seq 50): the structured deficiency travels into the
+        // IMMUTABLE snapshot alongside the existing evidence-completeness fields,
+        // so a historical report states which declared source was lost and what
+        // survived. Additive and always an array; it never replaces or reshapes
+        // `modules_skipped`, `warnings` or the per-provider `sources` shape.
+        degradations: Array.isArray(scanQuality?.degradations) ? scanQuality.degradations : [],
         warnings: Array.isArray(scanQuality?.warnings) ? scanQuality.warnings : [],
         evidence_grade: evidenceGrade({
           grade: assessment.authoritative ? "L1" : "L0",

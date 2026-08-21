@@ -22,10 +22,21 @@ const ts = frontendRequire("typescript");
 const EXPECTED_ASSERTIONS = 10;
 const EXPECTED = Object.freeze({
   runtime: {
-    comparison_occurrences: 49,
+    // D1 SUCCESSION (FD-006/seq50 + seq126): 49 -> 48. The literal
+    // `scanQuality?.status === "partial"` in asm-cases.js was replaced by the shared
+    // `isNonAuthoritativeQuality(...)` predicate, which removes one literal status
+    // comparison while WIDENING the protection to cover `degraded`. The
+    // partial_only fingerprint changes for the same reason: there is no longer a
+    // partial-only verification gate to fingerprint.
+    // SEQ-151 SUCCESSION: counts UNCHANGED (48 across 22 files); only the
+    // fingerprint moves, because the governed gate in asm-cases.js now also reads
+    // the authoritative-quality predicate. No comparison was added or removed.
+    comparison_occurrences: 48,
     source_file_count: 22,
-    fingerprint: "104fa157bcda8cca73168cda162813103c1d312c9dcdd4ebd7f38cfa2e98a0da",
-    partial_only_fingerprint: "d5610bb728e59e6d6aea7af5ce30097276d9ac97a13e8139269a08ff3a85e5de",
+    // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
+    // Counts land at 48/22 exactly as the D1 succession above predicted.
+    fingerprint: "9893be0b1a7d3dac0b4fcabdd70781057dac0208ba88083a3e32073c21d42637",
+    partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
     predicate_occurrences: 35,
@@ -36,14 +47,28 @@ const EXPECTED = Object.freeze({
     resolved_query_sink_fingerprint: "57d7b09623e773ee524c3c467bed704fdf294d84e87743fcc0f0b38d1e4a523b",
   },
   governance: {
-    comparison_occurrences: 63,
-    source_file_count: 23,
-    fingerprint: "d7ca0fa42b8876d4877fff359c1e370892db38884e144b62d50b16ac722b592c",
+    // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
+    // fixture/successor validators introduce governed comparisons. No governance
+    // comparison was removed.
+    comparison_occurrences: 65,
+    source_file_count: 25,
+    // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
+    // fingerprint moves, because the type/value matrix adds governed comparisons in
+    // the successor validator. Nothing was added to or removed from the runtime set.
+    // SUCCESSOR-3: 63 -> 65 across 23 -> 25 files. Additive only: PR #414/#416 added
+    // governed comparisons in their own validators. Nothing was removed.
+    fingerprint: "f98641cd740aa194840bfc75ccf712854f6641f364a896cfa1382fad41dda4bb",
   },
   runtime_source_file_count: 32,
   direct: {
-    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "3548207a4b70fb0d065f5b1d09e6ffbc799d7d06c7bfedf2e669d4b4d033871f" },
-    governance: { occurrence_count: 102, source_file_count: 36, fingerprint: "61f6a246c15e3d45862d2883ee77ad051ec2358faba8cd3ac8ac12edfcd3020b" },
+    // D1 SUCCESSION: count unchanged at 92; fingerprint moves because the
+    // asm-cases read now flows through the shared predicate.
+    // SEQ-151 SUCCESSION: count UNCHANGED at 92; fingerprint moves for the same
+    // reason as the runtime comparison set above.
+    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "423954987827d63b0179d576da005a621fc628fcf3826968f4bf72ccaca6357c" },
+    // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
+    // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
+    governance: { occurrence_count: 104, source_file_count: 36, fingerprint: "10e631c4bd29dd1e90ac9010bbe4341b352c07dda788f45f888401e46b68080c" },
   },
   sql_reads: { projection_occurrences: 23, fingerprint: "2f2378d8e99b017b44932a3a1f723c8c8ff2ca8f9fce0c4690f8decc821a9cc7" },
 });
@@ -1379,10 +1404,19 @@ ok(
     current.runtime_source_file_count >= current.sql.source_file_count,
 );
 
+// D1 SUCCESSION of "defect: asm-cases partial-only verification gate remains
+// explicit and unfixed" (old outcome: exactly 1 such gate MUST exist).
+//
+// That assertion deliberately PINNED the I11A-C3 defect open, waiting for exactly
+// this work order. FD-006 (seq 50) declares the defect defective and requires it
+// reversed, so the old expectation is D1-invalidated by founder decision. Its
+// named active successor is `scripts/validate-d1-i11a-c3-successor.js`, which
+// proves a `degraded` scan can never verify or resolve. This row now asserts the
+// inverse of the pin: the partial-only verification gate must NO LONGER exist.
 ok(
-  "defect: asm-cases partial-only verification gate remains explicit and unfixed",
-  cleanParse ? knownAsmPartial.length === 1 : true,
-  `found ${knownAsmPartial.length}; PR-1 inventories this defect and must not fix it`,
+  "successor: asm-cases partial-only verification gate is REVERSED (successor: scripts/validate-d1-i11a-c3-successor.js)",
+  cleanParse ? knownAsmPartial.length === 0 : true,
+  `found ${knownAsmPartial.length}; FD-006/seq50 requires the degraded-verifies defect fixed, not preserved`,
 );
 
 ok("primary: runtime canonical direct-read inventory is exact", cleanParse && JSON.stringify(current.direct.runtime) === JSON.stringify(EXPECTED.direct.runtime), `got ${JSON.stringify(current.direct.runtime)}`);
