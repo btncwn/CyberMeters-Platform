@@ -91,7 +91,7 @@ export const ARTICLES = [
           p('CyberMeters performs continuous ASM across your registered domains. Each scan identifies:'),
           li([
             'Subdomains discovered via DNS enumeration and certificate transparency',
-            'Open ports and service banners across detected IP addresses',
+            'HTTP and HTTPS services responding on discovered hosts, with technology fingerprinting',
             'Exposed administrative interfaces and login pages',
             'Dangling DNS records pointing to decommissioned cloud resources',
             'SSL/TLS certificate health, expiry dates, and chain issues',

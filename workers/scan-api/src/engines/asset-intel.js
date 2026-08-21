@@ -802,7 +802,6 @@ export function runAdminSurfaceModule(modules) {
           ...(hostHit ? ["hostname"] : []),
         ],
         risk_level: sig.risk_level,
-        ip_address: asset.ip || null,
         server:     asset.server || null,
         title:      asset.title  || null,
         infrastructure_provider: asset.infrastructure_provider || null,
