@@ -31,7 +31,6 @@ const SERVICES = [
       { hash: '#dmarc-setup',       label: 'DMARC Setup' },
       { hash: '#sender-inventory',  label: 'Sender Inventory' },
       { hash: '#auth-detail',       label: 'Authentication Detail' },
-      { to: '/ws/reports',          label: 'Reports' },
     ],
   },
   {
@@ -41,7 +40,6 @@ const SERVICES = [
       { to: '/ws/brand-monitoring', label: 'Overview', end: true },
       { hash: '#typosquats',        label: 'Typosquat Candidates' },
       { hash: '#brand-summary',     label: 'Brand Findings' },
-      { to: '/ws/reports',          label: 'Reports' },
     ],
   },
   {
@@ -68,7 +66,6 @@ const SERVICES = [
       { hash: '#cert-expiry',    label: 'Expiry Risk' },
       { hash: '#cert-actions',   label: 'Recommended Actions' },
       { hash: '#cert-trust',     label: 'Trust Posture' },
-      { to: '/ws/reports',       label: 'Reports' },
     ],
   },
   {
@@ -76,7 +73,6 @@ const SERVICES = [
     match: p => p.startsWith('/ws/cyber-essentials'),
     items: [
       { to: '/ws/cyber-essentials', label: 'Overview', end: true },
-      { to: '/ws/reports',          label: 'Reports' },
     ],
   },
   {
@@ -84,7 +80,6 @@ const SERVICES = [
     match: p => p.startsWith('/ws/website-security'),
     items: [
       { to: '/ws/website-security', label: 'Overview', end: true },
-      { to: '/ws/reports',          label: 'Reports' },
     ],
   },
   {
@@ -92,7 +87,6 @@ const SERVICES = [
     match: p => p.startsWith('/ws/identity-exposure'),
     items: [
       { to: '/ws/identity-exposure', label: 'Overview', end: true },
-      { to: '/ws/reports',           label: 'Reports' },
     ],
   },
   {
@@ -102,7 +96,6 @@ const SERVICES = [
       { to: '/ws/shadow-it',       label: 'Overview', end: true },
       { to: '/ws/saas-exposure',   label: 'SaaS Exposure' },
       { to: '/ws/third-party',     label: 'Third-Party' },
-      { to: '/ws/reports',         label: 'Reports' },
     ],
   },
 ]
