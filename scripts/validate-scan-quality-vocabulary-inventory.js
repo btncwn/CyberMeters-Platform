@@ -39,20 +39,12 @@ const EXPECTED = Object.freeze({
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
-    // BL-1: counts UNCHANGED (35 predicates / 26 sites / 15 files); only the
-    // fingerprint moves, because the first-observation subquery shifted line numbers
-    // in shadow-it-inventory.js. A position shift, not a new site.
-    // BL-1: counts UNCHANGED at 35 predicates / 26 sites / 15 files. Only the
-    // fingerprint moves, because the BL-1 edits shifted line numbers in
-    // shadow-it-inventory.js. A position shift, not a new site.
     predicate_occurrences: 35,
     unique_query_sites: 26,
     source_file_count: 15,
-    fingerprint: "ec4ebef5fce00e01b6c3d0bf06b01c1678f5e750519a2d8581a01c49cf4eae62",
+    fingerprint: "171bb0afae88c9920ae0c822be63b01bc18f8316903cc7e7e1b861f4765b6bfd",
     resolved_query_sink_count: 19,
-    // Sink COUNT unchanged at 19 — the new BL-1 query is not a scan-quality sink;
-    // only its position fingerprint moves.
-    resolved_query_sink_fingerprint: "81e135d0d70c8f738230c914a50eb6acbb6249bc07dc686d106d9f09dacc1a9b",
+    resolved_query_sink_fingerprint: "7561a3e3493ca7b24fc1b85b91d23879602ede4d97d00114a5fa1a690fb46aef",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -83,7 +75,7 @@ const EXPECTED = Object.freeze({
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
     governance: { occurrence_count: 108, source_file_count: 37, fingerprint: "520de2ede77bdaeb1e2d56f573a2ca35054344e5aac233f2e1d042dc1a5ac78b" },
   },
-  sql_reads: { projection_occurrences: 23, fingerprint: "11c0012aac9dfa1436907821901d393eb591e7d78921b2eabdfa4d73eb9543e8" },
+  sql_reads: { projection_occurrences: 23, fingerprint: "2f2378d8e99b017b44932a3a1f723c8c8ff2ca8f9fce0c4690f8decc821a9cc7" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
