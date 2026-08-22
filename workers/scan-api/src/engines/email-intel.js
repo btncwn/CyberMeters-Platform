@@ -8,10 +8,12 @@ import { safeFetch } from "../lib/http.js";
 import { runDnsModule } from "./dns-scan.js";
 import { dnsQuery } from "./dns.js";
 import { DMARC_INTEL_STATUS, isDmarcScoreNeutral } from "./dmarc-canonical-consumers.js";
-import { buildDkimDetail, isEmailProbeUnobserved, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
+import { buildDkimDetail, isEmailProbeUnobserved, mtaStsAdmission, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
 import { runEmailModule } from "./email-scan.js";
 import { resolveRemediation } from "./remediation-registry.js";
 import { computeScore } from "./scoring.js";
+import { classifyServiceability, mayGroundAbsence } from "../lib/serviceability.js";
+import { classifyFetchObservation, FETCH_OBSERVATION_STATES } from "../lib/fetch-observation.js";
 
 /**
  * Enrich existing SPF result (from runEmailModule) with status/score/issue.
@@ -169,15 +171,47 @@ export function enrichDkim(emailMod) {
  */
 export async function fetchMtaSts(domain, opts = {}) {
   const accounting = opts.accounting || null;
-  const result = { enabled: false, policy_version: null, policy_mode: null, mx_patterns: [], max_age: null, errors: [] };
+  const result = {
+    enabled: false, policy_version: null, policy_mode: null, mx_patterns: [], max_age: null, errors: [],
+    observation_state: "not_observed", status_code: null, reason: null, serviceability: null,
+  };
+  const fetcher = opts.fetcher || safeFetch;
   try {
-    const res = await safeFetch(`https://mta-sts.${domain}/.well-known/mta-sts.txt`, {
+    const res = await fetcher(`https://mta-sts.${domain}/.well-known/mta-sts.txt`, {
       signal: AbortSignal.timeout(10_000),
       accounting,
     });
-    if (!res || res.status !== 200) return result;
-    result.enabled = true;
+    const observation = classifyFetchObservation({ response: res });
+    const serviceability = classifyServiceability(observation);
+    result.status_code = observation.origin_status;
+    result.serviceability = serviceability;
+    if (!res) {
+      result.observation_state = "unavailable";
+      result.reason = "transport_error";
+      result.errors.push("MTA-STS policy fetch was unavailable.");
+      return result;
+    }
+    if (res.status === 404 && mayGroundAbsence(serviceability)) {
+      result.observation_state = "definitive_absent";
+      result.reason = "well_known_404";
+      return result;
+    }
+    if (res.status >= 500 || observation.state === FETCH_OBSERVATION_STATES.TRANSPORT_UNAVAILABLE) {
+      result.observation_state = "unavailable";
+      result.reason = res.status >= 500 ? "http_5xx" : "transport_error";
+      result.errors.push("MTA-STS policy could not be verified during this scan.");
+      return result;
+    }
+    if (res.status !== 200 || !mayGroundAbsence(serviceability)) {
+      result.observation_state = "unavailable";
+      result.reason = "transport_error";
+      result.errors.push("MTA-STS policy could not be verified during this scan.");
+      return result;
+    }
     const text = await res.text();
+    result.enabled = true;
+    result.observation_state = "present";
+    result.reason = "origin_response";
     for (const raw of text.split(/\r?\n/)) {
       const line = raw.trim();
       if (line.startsWith("version:")) {
@@ -193,7 +227,14 @@ export async function fetchMtaSts(domain, opts = {}) {
       }
     }
   } catch (e) {
-    result.errors.push(e?.message ?? "MTA-STS fetch failed");
+    result.enabled = false;
+    result.observation_state = "unavailable";
+    result.reason = e?.name === "TimeoutError" || e?.name === "AbortError" ? "timeout" : "transport_error";
+    result.serviceability = classifyServiceability({
+      state: FETCH_OBSERVATION_STATES.TRANSPORT_UNAVAILABLE,
+      origin_status: null,
+    });
+    result.errors.push("MTA-STS policy could not be verified during this scan.");
   }
   return result;
 }
@@ -262,7 +303,7 @@ function buildStarttlsStub(dnsModule) {
  * Weights: DMARC=50, SPF=20, DKIM=20, MTA-STS=5, TLS-RPT=5 (exact match).
  * DMARC interpolation bands preserved exactly (reject 75-100%, quarantine 37.5-62.5%).
  */
-function computeEmailScore(spf, dmarc, dkim, mtaSts, tlsRpt) {
+export function computeEmailScore(spf, dmarc, dkim, mtaSts, tlsRpt) {
   const W = { spf: 20, dkim: 20, dmarc: 50, mta_sts: 5, tls_rpt: 5 };
 
   // SPF — mirrors _score_spf()
@@ -299,10 +340,16 @@ function computeEmailScore(spf, dmarc, dkim, mtaSts, tlsRpt) {
     dmarcScore = Math.round(W.dmarc * 0.25);
   }
 
-  // MTA-STS — mirrors _score_mta_sts()
+  // MTA-STS — mirrors _score_mta_sts(), gated through the canonical admission:
+  // a bare observation_state token never scores; only coherent, admitted evidence
+  // does. A zero from admitted definitive absence and a zero from unavailable
+  // evidence are DIFFERENT facts — the unmeasured/measured_weight markers below
+  // keep the customer-visible breakdown honest about its own denominator.
+  const mtaAdmission = mtaStsAdmission(mtaSts);
   let mtaScore = 0;
-  if (mtaSts.enabled && mtaSts.policy_mode === "enforce") mtaScore = W.mta_sts;
-  else if (mtaSts.enabled)                                mtaScore = Math.round(W.mta_sts * 0.6);
+  if (mtaAdmission.score_admitted && mtaSts.policy_mode === "enforce") mtaScore = W.mta_sts;
+  else if (mtaAdmission.score_admitted) mtaScore = Math.round(W.mta_sts * 0.6);
+  const mtaMeasured = mtaAdmission.state === "present" || mtaAdmission.state === "definitive_absent";
 
   // TLS-RPT — mirrors _score_tls_rpt()
   const tlsRptScore = tlsRpt.enabled ? W.tls_rpt : 0;
@@ -316,7 +363,15 @@ function computeEmailScore(spf, dmarc, dkim, mtaSts, tlsRpt) {
   else if (total >= 30) status = "POOR";
   else                  status = "CRITICAL";
 
-  return { total, spf: spfScore, dkim: dkimScore, dmarc: dmarcScore, mta_sts: mtaScore, tls_rpt: tlsRptScore, status };
+  return {
+    total, spf: spfScore, dkim: dkimScore, dmarc: dmarcScore, mta_sts: mtaScore,
+    tls_rpt: tlsRptScore, status,
+    // Denominator honesty: components whose evidence was not admitted this scan
+    // (insufficient / never observed), and the weight that was actually measured.
+    // No new stamp — this is a coverage marker on the existing score object.
+    unmeasured: mtaMeasured ? [] : ["mta_sts"],
+    measured_weight: mtaMeasured ? 100 : 100 - W.mta_sts,
+  };
 }
 
 /**
@@ -384,8 +439,8 @@ export function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
     });
   }
 
-  // MTA-STS
-  if (!mtaSts.enabled) {
+  // MTA-STS — the admission gate decides; a bare token is never an impact.
+  if (mtaStsAdmission(mtaSts).remediation_admitted) {
     impacts.push({
       technical:        "MTA-STS Missing",
       risk_level:       "LOW",
@@ -479,7 +534,8 @@ export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
     });
   }
 
-  if (!mtaSts.enabled) {
+  // The admission gate decides; a bare observation_state token is never a finding.
+  if (mtaStsAdmission(mtaSts).missing_finding) {
     findings.push({
       id:             "email_intel_mta_sts_missing",
       module:         "email_security_intelligence",
@@ -536,7 +592,8 @@ export async function runEmailIntelModule(domain, emailMod, dnsModule, opts = {}
 
   // Step 2: MTA-STS + TLS-RPT in parallel (both are fast, independent)
   const [mtaStsSettled, tlsRptSettled] = await Promise.allSettled([
-    fetchMtaSts(domain, { accounting }),
+    // opts.fetcher is a test seam (undefined in production → safeFetch default).
+    fetchMtaSts(domain, { accounting, fetcher: opts.fetcher }),
     checkTlsRpt(domain, { accounting, cache }),
   ]);
   const mtaSts = mtaStsSettled.status === "fulfilled"
@@ -595,6 +652,10 @@ export async function runEmailIntelModule(domain, emailMod, dnsModule, opts = {}
       mta_sts:  scoreResult.mta_sts,
       tls_rpt:  scoreResult.tls_rpt,
       status:   scoreResult.status,
+      // Denominator honesty (additive): a zero from unmeasured evidence is never
+      // presented byte-identically to a zero from admitted absence.
+      unmeasured:      scoreResult.unmeasured,
+      measured_weight: scoreResult.measured_weight,
     },
     rating,
     business_email_risk:  businessRisk,

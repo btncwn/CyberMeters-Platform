@@ -34,7 +34,7 @@ const EXPECTED_FIXTURES = 31;
 const EXPECTED_MUTANTS = 26;
 const EXPECTED_POLICY_ASSERTIONS = 13;
 const EXPECTED_ASSERTIONS = 85;
-const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "dc98b8772fbfbb2112120d2c97b359fb08929a5b1448392d34be68eb3e174101";
+const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "df0cb5235350586371cc70a564833c218e8d6162c8ea5f945460638a68597352";
 
 const fixtureChild = process.argv.includes("--fixture-child");
 const policyChild = process.argv.includes("--policy-child");
