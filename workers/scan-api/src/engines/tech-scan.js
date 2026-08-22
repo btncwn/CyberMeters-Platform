@@ -4,6 +4,7 @@
 // index.js (monolith decomposition, Phase 1c). looksVersioned is module-internal.
 import { safeFetch } from "../lib/http.js";
 import { classifyFetchObservation, FETCH_OBSERVATION_STATES } from "../lib/fetch-observation.js";
+import { classifyServiceability } from "../lib/serviceability.js";
 
 // ── Module 5: Technology Detection ───────────────────────────────────────────
 // Ported from tech_fingerprint.py — collects response headers and infers the
@@ -41,7 +42,20 @@ export async function runTechModule(domain, opts = {}) {
     return { error: "Tech module fetch failed" };
   }
 
-  if (!res) return { error: "Tech module: no response" };
+  if (!res) {
+    return {
+      error: "Tech module: no response",
+      incomplete: true,
+      incomplete_reason: "origin_not_observed",
+      observation_state: "unavailable",
+      serviceability: "non_serviceable",
+      technologies: [],
+      server: null,
+      x_powered_by: null,
+      info_findings: [],
+      status_code: null,
+    };
+  }
 
   // ── 52x/530: an edge error page is not the customer's technology stack ──────
   // Item 11A completeness criterion, technology arm. A Cloudflare-synthesised
@@ -55,10 +69,14 @@ export async function runTechModule(domain, opts = {}) {
   // this module asserts nothing new about any status code. `incomplete` is the
   // canonical "this module did not truly run", so every downstream gate defers.
   const observation = classifyFetchObservation({ response: res, executed: true });
-  if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) {
+  const serviceability = classifyServiceability(observation);
+  if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE || serviceability.serviceable !== true) {
     return {
       incomplete:        true,
-      incomplete_reason: "origin_not_observed",
+      incomplete_reason: serviceability.reason === "origin_error_no_serviceable_response"
+        ? "origin_error_no_serviceable_response" : "origin_not_observed",
+      observation_state: "unavailable",
+      serviceability:    "non_serviceable",
       tech_observation: {
         state:          observation.state,
         reason:         observation.reason,
@@ -71,6 +89,8 @@ export async function runTechModule(domain, opts = {}) {
       // `.technologies.length` must see zero WITH `incomplete` beside it, never
       // a stack inferred from an error page.
       technologies:  [],
+      server:        null,
+      x_powered_by:  null,
       info_findings: [],
     };
   }

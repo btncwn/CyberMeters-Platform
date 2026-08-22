@@ -74,7 +74,21 @@ import {
 // `2026-08-12.1`: a valid canonical DMARC policy conclusion outranks stale
 // lookup/core degradation markers from the same frozen evidence. The version
 // boundary prevents that definition correction reading as customer change.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-08-12.1";
+export const CYBER_MOT_RESOLVER_VERSION = "2026-08-22.1";
+
+export function isResolverVersionAtLeast(version, minimum = CYBER_MOT_RESOLVER_VERSION) {
+  const parse = (value) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})\.(\d+)$/.exec(String(value || ""));
+    return match ? match.slice(1).map(Number) : null;
+  };
+  const actual = parse(version);
+  const floor = parse(minimum);
+  if (!actual || !floor) return false;
+  for (let i = 0; i < actual.length; i += 1) {
+    if (actual[i] !== floor[i]) return actual[i] > floor[i];
+  }
+  return true;
+}
 
 // Fixed canonical enum — the resolver contract layer. UI maps these to friendly
 // labels; the source state stays stable.
