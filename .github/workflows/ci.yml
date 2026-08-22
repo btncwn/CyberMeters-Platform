@@ -656,6 +656,10 @@ jobs:
 
       - name: Validate F-48 origin 5xx false-healthy behaviour
         run: node scripts/validate-f48-origin-503-false-healthy.js
+      - name: P1.1 canonical serviceability contract
+        run: node scripts/validate-p1-serviceability-contract.js
+      - name: P1.1 serviceability mutation proof
+        run: node scripts/validate-p1-serviceability-mutations.js
 
       - name: Validate F-48 origin 5xx false-healthy mutations
         run: node scripts/validate-f48-origin-503-false-healthy-mutations.js

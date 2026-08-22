@@ -330,7 +330,10 @@ const MUTATIONS = [
   {
     name: "M1 an edge Response is restored as redirect-validated",
     target: SSL,
-    from: "  let redirectEvidenceObserved = httpObservation.transport_observed === true;",
+    // P1.1: the product line moved from transport to the canonical serviceability
+    // authority. The mutant still reintroduces the SAME defect — an edge Response
+    // restored as redirect-validated — only the anchor followed the source.
+    from: "  let redirectEvidenceObserved = mayGroundAbsence(httpServiceability);",
     to:   "  let redirectEvidenceObserved = httpRes !== null;",
     check: async (mod) => (await sslOf(mod, edgeResp)).http_redirect_chain.http_redirect_validated === true,
   },

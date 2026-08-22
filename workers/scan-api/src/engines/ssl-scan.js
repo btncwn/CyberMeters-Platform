@@ -5,6 +5,7 @@
 import { safeFetch } from "../lib/http.js";
 import { customerSafeFailure } from "../lib/errors.js";
 import { aggregateFetchObservations, classifyFetchObservation } from "../lib/fetch-observation.js";
+import { classifyServiceability, mayGroundAbsence } from "../lib/serviceability.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
 import { raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
 import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertificateSanNames } from "./hostnames.js";
@@ -363,7 +364,13 @@ export async function runSslModule(domain, opts = {}) {
   // so a genuine 301 into a Cloudflare-signed 522 published the definitive
   // "HTTP Does Not Redirect to HTTPS" (medium, -5) with the required hop unobserved.
   let chainObservation = httpObservation;
-  let redirectEvidenceObserved = httpObservation.transport_observed === true;
+  // P1.1 (LV: I11A-ACC-P2-01): transport is NOT serviceability. An origin 503
+  // proves bytes came back; it does not prove the origin SERVED the site, so it
+  // can never validate a redirect decision. Consuming the canonical authority here
+  // withholds `http_redirect_validated`, which suppresses the finding through the
+  // EXISTING positively-absent path rather than by a scoring-layer bolt-on.
+  const httpServiceability = classifyServiceability(httpObservation);
+  let redirectEvidenceObserved = mayGroundAbsence(httpServiceability);
 
   let http_redirect_chain = {
     original_url:            httpOrigUrl,

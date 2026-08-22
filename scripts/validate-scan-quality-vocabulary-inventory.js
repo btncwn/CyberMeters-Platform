@@ -50,14 +50,18 @@ const EXPECTED = Object.freeze({
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
     // fixture/successor validators introduce governed comparisons. No governance
     // comparison was removed.
-    comparison_occurrences: 65,
-    source_file_count: 25,
+    // P1.1 SUCCESSION: 65 -> 67 across 25 -> 26 files. Purely ADDITIVE: the new
+    // P1.1 serviceability validators introduce governed comparisons in their own
+    // files. The RUNTIME sets are unchanged (48/22 and 92/34), which is the check
+    // that matters — the product gained no new scan-quality comparison.
+    comparison_occurrences: 67,
+    source_file_count: 26,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
     // the successor validator. Nothing was added to or removed from the runtime set.
     // SUCCESSOR-3: 63 -> 65 across 23 -> 25 files. Additive only: PR #414/#416 added
     // governed comparisons in their own validators. Nothing was removed.
-    fingerprint: "f98641cd740aa194840bfc75ccf712854f6641f364a896cfa1382fad41dda4bb",
+    fingerprint: "8c5c9352d3350a29e844c5a14e8dbb4a751f5b67103bca00b418984a8aa43230",
   },
   runtime_source_file_count: 32,
   direct: {
@@ -68,7 +72,8 @@ const EXPECTED = Object.freeze({
     runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "423954987827d63b0179d576da005a621fc628fcf3826968f4bf72ccaca6357c" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
-    governance: { occurrence_count: 104, source_file_count: 36, fingerprint: "10e631c4bd29dd1e90ac9010bbe4341b352c07dda788f45f888401e46b68080c" },
+    // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
+    governance: { occurrence_count: 108, source_file_count: 37, fingerprint: "520de2ede77bdaeb1e2d56f573a2ca35054344e5aac233f2e1d042dc1a5ac78b" },
   },
   sql_reads: { projection_occurrences: 23, fingerprint: "2f2378d8e99b017b44932a3a1f723c8c8ff2ca8f9fce0c4690f8decc821a9cc7" },
 });

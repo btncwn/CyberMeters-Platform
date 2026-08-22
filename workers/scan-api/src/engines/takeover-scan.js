@@ -4,6 +4,8 @@
 // fingerprint table. Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 // TAKEOVER_FINGERPRINTS is module-internal.
 import { dnsQuery } from "./dns.js";
+import { classifyFetchObservation } from "../lib/fetch-observation.js";
+import { classifyServiceability, maySupportHealthyConclusion } from "../lib/serviceability.js";
 import { safeFetch } from "../lib/http.js";
 
 // ── Module 6: Subdomain Takeover Detection ────────────────────────────────────
@@ -364,6 +366,19 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
       unconfirmed.push({
         host, cname, provider: fingerprint.provider ?? fingerprint.service,
         reason: settled.status !== "fulfilled" ? "fetch_failed" : "probe_refused",
+      });
+      continue;
+    }
+    // P1.1: a provider 5xx (or any non-serviceable response) is NOT the provider
+    // claiming the name. Concluding "no takeover surface" from it verifies a
+    // dangling surface as FIXED during a provider outage — the gravest direction of
+    // the I11A-ACC-P2-01 class. The body is only conclusive if the origin served it.
+    const takeoverServiceability = classifyServiceability(
+      classifyFetchObservation({ response: settled.value, executed: true }));
+    if (!maySupportHealthyConclusion(takeoverServiceability)) {
+      unconfirmed.push({
+        host, cname, provider: fingerprint.provider ?? fingerprint.service,
+        reason: takeoverServiceability.reason,
       });
       continue;
     }

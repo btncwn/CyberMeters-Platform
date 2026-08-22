@@ -81,11 +81,23 @@ for (const status of [520, 522, 527, 530]) {
     JSON.stringify(c.hop_observations));
 }
 // The two statuses PR-A1 narrowed OUT of the edge set are genuine origin answers.
+// SUCCEEDED BY P1.1 (I11A-ACC-P2-01): being a genuine ORIGIN answer is not the same
+// as being a SERVICEABLE one. 528/529 are 5xx — the origin did not serve the site, so
+// the redirect decision was never observed and cannot be "validated". The F-42
+// boundary this row exists to protect — origin_response vs cloudflare_edge_error — is
+// asserted unchanged; only the conclusion drawn from it is superseded.
+// CANONICAL AUTHORITY, cited at its true type: Governance RULINGS seq 42
+// (F48-F51-CLASSIFICATION), seq 63 (F48-REMEDIATION-ACCEPTANCE) and seq 262
+// (I11A-ACC-P2-01-BAR-CONFLICT — FINAL, authorizes this succession). seq 260 is an
+// Executive SUBMISSION and seq 263 an Executive MEASUREMENT: context, not rulings.
 for (const status of [528, 529]) {
   const m = await sslWith({ http: () => edge(status) });
-  ok(`A: signed ${status} is a GENUINE origin answer → validated`,
-    m.http_redirect_chain.http_redirect_validated === true &&
-    m.http_redirect_chain.observation_state === "origin_response");
+  ok(`A: signed ${status} is still a GENUINE ORIGIN answer, not an edge error`,
+    m.http_redirect_chain.observation_state === "origin_response",
+    JSON.stringify(m.http_redirect_chain.observation_state));
+  ok(`A: signed ${status} is NOT serviceable → redirect NOT validated`,
+    m.http_redirect_chain.http_redirect_validated !== true,
+    JSON.stringify(m.http_redirect_chain.http_redirect_validated));
 }
 {
   const m = await sslWith({ http: () => { throw new TypeError("timeout"); } });
@@ -226,9 +238,16 @@ console.log("\n── C. genuine origin behaviour preserved ──");
   // A genuine origin 5xx must stay DISTINGUISHABLE from a Cloudflare edge response.
   const edgeM   = await sslWith({ http: () => edge(522) });
   const originM = await sslWith({ http: () => originPlain(503) });
-  ok("C: genuine origin 503 IS validated evidence (the origin answered)",
-    originM.http_redirect_chain.http_redirect_validated === true &&
-    originM.http_redirect_chain.observation_state === "origin_response");
+  // SUCCEEDED BY P1.1: "the origin answered" was the wrong question. A 503 answers
+  // without serving, so it can ground neither a redirect defect nor its absence. The
+  // edge-vs-origin distinction this section exists to protect is asserted separately
+  // below and is unchanged.
+  ok("C: genuine origin 503 is still recorded as an ORIGIN response, not an edge error",
+    originM.http_redirect_chain.observation_state === "origin_response",
+    JSON.stringify(originM.http_redirect_chain.observation_state));
+  ok("C: genuine origin 503 is NOT serviceable → NOT validated evidence",
+    originM.http_redirect_chain.http_redirect_validated !== true,
+    JSON.stringify(originM.http_redirect_chain.http_redirect_validated));
   ok("C: Cloudflare 522 is NOT — the two remain distinguishable",
     edgeM.http_redirect_chain.http_redirect_validated === false &&
     edgeM.http_redirect_chain.observation_state === "cloudflare_edge_error");
