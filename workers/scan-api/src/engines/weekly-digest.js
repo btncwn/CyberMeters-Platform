@@ -313,8 +313,14 @@ function withFirstObservations(email, changes, origin, workspaceId) {
   const items = Array.isArray(obs.items) ? obs.items : [];
   if (items.length === 0) return email;                       // nothing observed => no section
   const esc = escapeEmailHtml;
-  const base = `${(origin || "https://app.cybermeters.com").replace(/\/$/, "")}/ws/shadow-it`;
-  const link = workspaceId ? `${base}?ws=${encodeURIComponent(workspaceId)}` : base;
+  // NOTE: deliberately NOT the same statement text as the core builder's CTA line.
+  // validate-weekly-digest-truth's M5 mutant uses that exact line as a UNIQUE anchor;
+  // duplicating it here made the anchor ambiguous, so M5 silently stopped testing
+  // anything. A mutation that quietly stops applying is worse than one that fails.
+  const shadowBase = `${(origin || "https://app.cybermeters.com").replace(/\/$/, "")}/ws/shadow-it`;
+  const shadowLink = workspaceId
+    ? `${shadowBase}?ws=${encodeURIComponent(workspaceId)}`
+    : shadowBase;
   const names = items.map((i) => i.display_name);
   // Count and names only. No severity, no verdict, no "unauthorised" — CyberMeters
   // observed these; it has not judged them.
@@ -322,11 +328,11 @@ function withFirstObservations(email, changes, origin, workspaceId) {
     + `${items.length === 1 ? "has" : "have"} not been reviewed yet.`;
   const text = `\n\n${SHADOW_IT_FIRST_OBSERVATION_SECTION}\n${lead}\n`
     + names.map((n) => `  • ${n}`).join("\n")
-    + `\n\nReview them: ${link}`;
+    + `\n\nReview them: ${shadowLink}`;
   const html = `<h3>${esc(SHADOW_IT_FIRST_OBSERVATION_SECTION)}</h3>`
     + `<p>${esc(lead)}</p>`
     + `<ul>${names.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>`
-    + `<p><a href="${link}">Review them →</a></p>`;
+    + `<p><a href="${shadowLink}">Review them →</a></p>`;
   return { ...email, text: `${email.text}${text}`, html: `${email.html}${html}` };
 }
 

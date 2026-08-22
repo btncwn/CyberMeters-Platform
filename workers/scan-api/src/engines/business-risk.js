@@ -918,3 +918,5 @@ export async function computeAndPersistWorkspaceBrs(env, workspaceId, {
     .run();
   return { ...payload, persisted: true, state: WORKSPACE_BRS_STATES.ASSESSED };
 }
+
+export const CT_R2_MUTANT_SQL = "SELECT id FROM scans s WHERE ( 'complete' = s.scan_quality )";
