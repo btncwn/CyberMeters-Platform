@@ -12,6 +12,10 @@ import {
 } from "./tls-evidence.js";
 import { buildIdentityEvidenceProjection, summarizeIdentityClaims } from "./identity-evidence-contract.js";
 import { isResolverVersionAtLeast, FIRST_HONEST_RESOLVER_VERSION } from "./cyber-mot-domains.js";
+// READ-ONLY consumption of the canonical authority. `lib/serviceability.js` belongs
+// to the #422 lane and is NOT edited here; importing it is what keeps the historical
+// read projection and the live producer deciding serviceability the same way.
+import { classifyServiceability, maySupportDefectConclusion } from "../lib/serviceability.js";
 
 export const PHASE5_EVIDENCE_MODULES = Object.freeze({
   cve: "cve_intelligence",
@@ -357,10 +361,93 @@ export function projectIdentitySnapshotForCustomer(snapshot, modules = {}) {
  * Customer renderer view of an immutable snapshot. The input object is never
  * mutated and remains available on read.snapshot for checksum/verbatim APIs.
  */
+export const LEGACY_WEBSITE_REDIRECT_REASON = "legacy_non_serviceable_redirect_conclusion";
+export const LEGACY_WEBSITE_REDIRECT_FINDING = "ssl_no_http_redirect";
+
+/**
+ * projectWebsiteRedirectSnapshotForCustomer(snapshot, modules)
+ *
+ * Read-time customer view; immutable snapshot bytes and checksum remain untouched.
+ *
+ * THE CLASS. Before P1.1, `ssl-scan.js` set `http_redirect_validated` from TRANSPORT
+ * observation, so an origin that answered 5xx on the plain-HTTP hop — never serving,
+ * never revealing whether it redirects — nonetheless "validated" the redirect
+ * decision and published a scored `ssl_no_http_redirect` defect. Those conclusions
+ * are frozen into stored snapshots and are still read at face value.
+ *
+ * THE DISCRIMINATOR IS THE EVIDENCE SHAPE, NOT A VERSION. A version gate would be a
+ * moving boundary, and #424 proved what that costs: comparing stored rows against a
+ * constant that moves on every mint re-classifies honest history as legacy. The
+ * recorded chain says outright whether the hop that "validated" the redirect was
+ * serviceable, so this projection asks the evidence, not the calendar. Snapshots
+ * minted after the producer was corrected cannot exhibit the shape at all.
+ *
+ * FAIL NEUTRAL, NOT FAIL-MASKING. When the source modules are unavailable — the
+ * explicit `{}` fallback report-snapshot.js uses when the R2 source read fails — the
+ * shape CANNOT be evaluated. The snapshot is then returned untouched. Masking on
+ * absent evidence is the same error in the opposite direction: it would tell a
+ * customer their honest historical conclusion was unfounded, on no evidence at all.
+ */
+export function projectWebsiteRedirectSnapshotForCustomer(snapshot, modules = {}) {
+  if (!snapshot || typeof snapshot !== "object") return snapshot;
+  const chain = modules?.ssl?.http_redirect_chain;
+  // No readable chain => cannot evaluate => say nothing.
+  if (!chain || typeof chain !== "object") return snapshot;
+  if (chain.http_redirect_validated !== true) return snapshot;
+
+  // The hop whose answer was treated as the redirect decision.
+  const hops = Array.isArray(chain.hop_observations) ? chain.hop_observations : [];
+  const firstHop = hops.length ? hops[0] : null;
+  const observation = firstHop
+    ? { state: firstHop.state ?? chain.observation_state, origin_status: firstHop.origin_status }
+    : { state: chain.observation_state, origin_status: chain.origin_status };
+  if (typeof observation.state !== "string") return snapshot;   // unreadable => neutral
+  const serviceability = classifyServiceability(observation);
+  // Serviceable evidence: the historical conclusion stands. Unknown also stands —
+  // only a POSITIVE reading of "this could not have grounded a defect" projects.
+  if (serviceability.serviceable !== false) return snapshot;
+  if (maySupportDefectConclusion(serviceability)) return snapshot;
+
+  const findings = Array.isArray(snapshot.observed_findings) ? snapshot.observed_findings : [];
+  const kept = findings.filter((f) => f?.finding_id !== LEGACY_WEBSITE_REDIRECT_FINDING);
+  if (kept.length === findings.length) return snapshot;         // the class is not present here
+
+  const withheld = "The recorded HTTP hop did not serve a response, so whether this site "
+    + "redirected to HTTPS was never observed; the historical defect conclusion is withheld.";
+  const domains = (Array.isArray(snapshot.domains) ? snapshot.domains : []).map((entry) => {
+    if (entry?.domain_key !== "website_security") return entry;
+    const ids = (Array.isArray(entry.finding_ids) ? entry.finding_ids : [])
+      .filter((id) => id !== LEGACY_WEBSITE_REDIRECT_FINDING);
+    return {
+      ...entry,
+      state: "evidence_insufficient",
+      coverage: "partial",
+      state_reason: withheld,
+      summary: withheld,
+      finding_ids: ids,
+      finding_count: ids.length,
+    };
+  });
+  const overall = snapshot.overall ?? {};
+  return {
+    ...snapshot,
+    domains,
+    observed_findings: kept,
+    overall: { ...overall, cyber_metrics_score: null, score_band: null },
+    customer_projection: {
+      ...(snapshot.customer_projection ?? {}),
+      applied: true,
+      website_redirect_withheld: true,
+      website_redirect_reason: LEGACY_WEBSITE_REDIRECT_REASON,
+    },
+  };
+}
+
 export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
   const tlsSnapshot = projectTlsSnapshotForCustomer(snapshot, modules);
   const identitySnapshot = projectIdentitySnapshotForCustomer(tlsSnapshot, modules);
-  const overall = identitySnapshot?.overall ?? {};
+  const websiteSnapshot = projectWebsiteRedirectSnapshotForCustomer(identitySnapshot, modules);
+  const overall = websiteSnapshot?.overall ?? {};
   const projection = resolvePhase5HistoricalCustomerProjection({
     score: overall.cyber_metrics_score,
     riskLevel: overall.score_band,
@@ -371,11 +458,11 @@ export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
       null,
     modules,
   });
-  if (projection.evidence.complete) return identitySnapshot;
+  if (projection.evidence.complete) return websiteSnapshot;
 
   const bri = overall.business_risk_indicator ?? {};
   return {
-    ...identitySnapshot,
+    ...websiteSnapshot,
     overall: {
       ...overall,
       cyber_metrics_score: null,
