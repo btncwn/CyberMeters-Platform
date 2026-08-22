@@ -30,7 +30,7 @@ const MUTANTS = [
   ["P11-M11-state-borrow-terminal", SERVICEABILITY,
     '  if (last.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  // Provenance: EXECUTIVE-RULING-P1-2A-CHAIN-VETO-001 (canonical seq 319, bundle 5fefa1c5…): veto never rescues; unknown tokens fail closed.\n  const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);\n  if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  return mayGroundAbsence(classifyServiceability({\n    state: last.state,',
     '  if (chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  const recognized = true;\n  if (!recognized || false) return false;\n  return mayGroundAbsence(classifyServiceability({\n    state: chain.observation_state,',
-    "P11_LV01_FRACTIONAL_200_5"],
+    "P11_LV01_CHAIN_STATE_NOT_BORROWED_FOR_TERMINAL_CLASSIFIER"],
   ["P11-M13-coherence-veto-removed", SERVICEABILITY,
     '  const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);\n  if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;',
     '  const recognized = true;\n  if (!recognized || false) return false;',
@@ -38,7 +38,7 @@ const MUTANTS = [
   ["P11-M14-unknown-chain-normalized", SERVICEABILITY,
     '  const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);\n  if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;',
     '  const normalizedChainState = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state) ? chain.observation_state : FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE;\n  const recognized = true;\n  if (!recognized || normalizedChainState !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;',
-    "P11_LV01_UNKNOWN_STATE_EXPLICIT_200_REJECTED"],
+    "P11_RULING3_UNKNOWN_CHAIN_TOKEN_TERMINAL_ORIGIN_200_REJECTED"],
   // ── DIRECTION 1 — restore the false ISSUE ────────────────────────────────
   // The exact pre-P1.1 line: transport treated as serviceability.
   // Same direction through the contract instead of the call site.

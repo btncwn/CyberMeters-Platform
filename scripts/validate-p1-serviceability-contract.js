@@ -69,6 +69,22 @@ const MATERIAL = new Set(["critical", "high", "medium"]);
   eq("P11_LV01_MATRIX_COUNT", matrixPass, 65);
 }
 
+// EXPLICIT ADDITIONAL probe — ruling point 3, OUTSIDE the sealed 65 and labeled
+// as such (the sealed matrix exercises an unknown TERMINAL-hop token; this probe
+// exercises an unknown CHAIN-level token accompanying a terminal origin/200,
+// which EXECUTIVE-RULING-P1-2A-CHAIN-VETO-001 §3 declares malformed, not
+// neutral). The old formula matrix covered this only by bending a sealed row's
+// tuple under a lying name; the sealed data stays verbatim and this probe
+// carries the obligation openly.
+ok("P11_RULING3_UNKNOWN_CHAIN_TOKEN_TERMINAL_ORIGIN_200_REJECTED",
+  S.mayGroundRedirectAbsence({
+    observation_state: "invented_state",
+    observation_completeness: "observed",
+    http_redirect_validated: true,
+    origin_status: null,
+    hop_observations: [{ hop: 1, state: "origin_response", origin_status: 200 }],
+  }) === false);
+
 const res = (status, extra = {}, body = "<html>x</html>") =>
   new Response(body, { status, headers: { "server": "nginx", "content-type": "text/html", ...extra } });
 const origin503   = () => res(503);
