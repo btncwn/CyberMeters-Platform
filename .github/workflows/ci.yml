@@ -1118,6 +1118,12 @@ jobs:
       - name: Validate hosted MTA-STS (TXT delegation + HTTPS policy guidance)
         run: node scripts/validate-hosted-mta-sts.js
 
+      - name: Validate MTA-STS tri-state producer and admission gate
+        run: node scripts/validate-mta-sts-tristate.js
+
+      - name: Validate MTA-STS tri-state semantic mutations
+        run: node scripts/validate-mta-sts-tristate-mutations.js
+
       - name: Validate TLS-RPT ingestion (parse + inbound routing + dedup + isolation)
         run: node scripts/validate-tlsrpt-ingest.js
 
