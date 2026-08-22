@@ -67,13 +67,54 @@ const mutants = [
     to:   '  if (mtaSts.observation_state === "present" && mtaSts.policy_mode === "enforce") mtaScore = W.mta_sts;\n  else if (mtaSts.observation_state === "present") mtaScore = Math.round(W.mta_sts * 0.6);',
     mustContain: "FAIL forged-present: production score fail-closed",
   },
+  {
+    // The denominator markers are load-bearing: deleting them from the
+    // customer-visible breakdown goes red on the orchestrator pin.
+    id: "MTA-M6-breakdown-marker-deletion",
+    file: "intel",
+    from: '      unmeasured:      scoreResult.unmeasured,\n      measured_weight: scoreResult.measured_weight,\n',
+    to:   '',
+    mustContain: "FAIL orchestrator breakdown carries denominator markers",
+  },
+  {
+    // ADV-2b, exact: enabled pre-set BEFORE the body read AND the catch reset
+    // removed — a body-read failure then retains enabled=true. Dies on the
+    // body-read-failure enabled-coherence assertion.
+    id: "MTA-M7-ADV-2b-enabled-preset-retention",
+    file: "intel",
+    edits: [
+      {
+        from: '    const text = await res.text();\n    result.enabled = true;',
+        to:   '    result.enabled = true;\n    const text = await res.text();',
+      },
+      {
+        from: '    result.enabled = false;\n    result.observation_state = "unavailable";',
+        to:   '    result.observation_state = "unavailable";',
+      },
+    ],
+    mustContain: "FAIL body-read-failure: enabled coherence",
+  },
+  {
+    // Binding-rule reintroduction: the gate falls back to a private
+    // `serviceable === true` predicate, weaker than the canonical authority
+    // (conclusion_class ignored). Dies on the conclusive-class probe.
+    id: "MTA-M8-private-eligibility-predicate",
+    file: "analysis",
+    from: '  const coherent = rawState === "present"\n    ? status === 200 && reason === "origin_response" && maySupportHealthyConclusion(serviceability)\n    : rawState === "definitive_absent"\n      ? status === 404 && reason === "well_known_404" && mayGroundAbsence(serviceability)',
+    to:   '  const privateServiceable = serviceability?.serviceable === true;\n  const coherent = rawState === "present"\n    ? status === 200 && reason === "origin_response" && privateServiceable\n    : rawState === "definitive_absent"\n      ? status === 404 && reason === "well_known_404" && privateServiceable',
+    mustContain: "FAIL conclusive-class gate: serviceable-true non-conclusive present is not admitted",
+  },
 ];
 let passed = 0;
 for (const m of mutants) {
   const target = FILES[m.file];
   const original = originals[m.file];
-  const mutated = original.replace(m.from, m.to);
-  if (mutated === original) throw new Error(`FAIL ${m.id}: anchor missing`);
+  let mutated = original;
+  for (const edit of (m.edits || [{ from: m.from, to: m.to }])) {
+    const next = mutated.replace(edit.from, edit.to);
+    if (next === mutated) throw new Error(`FAIL ${m.id}: anchor missing`);
+    mutated = next;
+  }
   fs.writeFileSync(target, mutated);
   try {
     const result = run();

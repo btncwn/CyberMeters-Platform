@@ -580,14 +580,17 @@ results.push(
       dkim_detail: dkim,
       bimi_readiness: bimi,
     }, {
-      // Coherent definitive absence: the admission gate (P1.2-B successor-2)
+      // Coherent definitive absence: the admission gate (P1.2-B successor-2/-3)
       // demotes a bare "definitive_absent" token without its grounding evidence
-      // (404 + well_known_404 + serviceable) to unavailable, which correctly
-      // withholds the missing-policy action. The fixture supplies the evidence
-      // a real observed absence carries.
+      // to unavailable, which correctly withholds the missing-policy action.
+      // Eligibility is the CANONICAL serviceability contract — serviceable AND
+      // conclusion_class "conclusive" — so the fixture carries the full record a
+      // real observed absence carries.
       mta_sts: {
         enabled: false, observation_state: "definitive_absent", status_code: 404,
-        reason: "well_known_404", serviceability: { serviceable: true }, errors: [],
+        reason: "well_known_404",
+        serviceability: { serviceable: true, conclusion_class: "conclusive" },
+        errors: [],
       },
       tls_rpt: { enabled: false, reporting_uris: [], errors: [] },
     });

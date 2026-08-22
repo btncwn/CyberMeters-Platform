@@ -9,6 +9,7 @@ import {
   computeEmailScore,
   buildEmailBusinessImpacts,
   buildEmailIntelFindings,
+  runEmailIntelModule,
 } from "../workers/scan-api/src/engines/email-intel.js";
 import { mtaStsAdmission, buildEmailTransportDetails } from "../workers/scan-api/src/engines/email-analysis.js";
 
@@ -64,6 +65,37 @@ for (const [name, response, state, reason] of [
 
 const malformed = mtaStsAdmission({ observation_state: "present", status_code: 200, reason: null, serviceability: null });
 ok("malformed present shape is fail-closed", malformed.state === "unavailable" && !malformed.score_admitted && !malformed.missing_finding);
+
+// ── Canonical-authority eligibility: conclusion_class matters ────────────────
+// A serviceable-true record whose conclusion class is NOT "conclusive" admits
+// nothing. A private `serviceable === true` re-check would pass these probes —
+// this is the binding-rule assertion that kills that private predicate.
+const nonConclusive = { serviceable: true, conclusion_class: "evidence_insufficient", reason: "origin_informational_only", origin_status: 200 };
+const ncPresent = mtaStsAdmission({ observation_state: "present", status_code: 200, reason: "origin_response", serviceability: nonConclusive });
+ok("conclusive-class gate: serviceable-true non-conclusive present is not admitted",
+  ncPresent.state === "unavailable" && !ncPresent.score_admitted);
+const ncAbsent = mtaStsAdmission({ observation_state: "definitive_absent", status_code: 404, reason: "well_known_404", serviceability: nonConclusive });
+ok("conclusive-class gate: serviceable-true non-conclusive absence is not admitted",
+  ncAbsent.state === "unavailable" && !ncAbsent.missing_finding && !ncAbsent.remediation_admitted);
+
+// ── Body-read failure (ADV-2b path): 200 arrives, the body read throws ───────
+// enabled must be false AFTER the catch regardless of any pre-set state, and the
+// outcome is unavailable with a shaped serviceability.
+const bodyReadFailure = await (async () => {
+  const fetcher = async () => {
+    // A REAL 200 Response (so classification and the absence-grounding gate all
+    // pass and execution genuinely reaches the body read), whose body read throws.
+    const res = new Response("version: STSv1\n", { status: 200 });
+    res.text = async () => { throw Object.assign(new Error("body stream reset"), { name: "TypeError" }); };
+    return res;
+  };
+  return fetchMtaSts("example.com", { fetcher });
+})();
+ok("body-read-failure: observation state", bodyReadFailure.observation_state === "unavailable");
+ok("body-read-failure: enabled coherence", bodyReadFailure.enabled === false);
+ok("body-read-failure: serviceability shape",
+  bodyReadFailure.serviceability !== null && typeof bodyReadFailure.serviceability === "object" &&
+  bodyReadFailure.serviceability.serviceable === false);
 
 // ── PRODUCTION consumer paths: forged evidence fails closed at the OUTPUT ────
 const stubs = {
@@ -122,6 +154,28 @@ ok("legacy field-absent row: honestly not_assessed",
   legacyDetail.mta_sts_detail.coverage_state === "not_assessed" &&
   legacyDetail.mta_sts_detail.reason === null &&
   legacyDetail.mta_sts_detail.policy_found === null);
+
+// ── Orchestrator breakdown pin: the denominator markers reach the customer ───
+// Full runEmailIntelModule with an injected 503 MTA-STS fetch (TLS-RPT's DNS
+// lookup is forced onto its own error path — no live network in this validator).
+const orchestratorResult = await (async () => {
+  const savedFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("network disabled in validator"); };
+  try {
+    return await runEmailIntelModule("example.com", {}, {}, {
+      fetcher: async () => new Response("unavailable", { status: 503 }),
+    });
+  } finally {
+    globalThis.fetch = savedFetch;
+  }
+})();
+ok("orchestrator breakdown carries denominator markers",
+  Array.isArray(orchestratorResult.email_score_breakdown.unmeasured) &&
+  orchestratorResult.email_score_breakdown.unmeasured.includes("mta_sts") &&
+  orchestratorResult.email_score_breakdown.measured_weight === 95);
+ok("orchestrator mta_sts outcome is unavailable, not absence",
+  orchestratorResult.mta_sts.observation_state === "unavailable" &&
+  orchestratorResult.email_score_breakdown.mta_sts === 0);
 
 if (failures.length > 0) {
   console.error(`mta-sts-tristate: ${failures.length} assertions FAILED, ${passed} passed`);

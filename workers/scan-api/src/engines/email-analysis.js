@@ -2,11 +2,14 @@
 // Pure parsers + builders for the Email Protection wedge: SPF/DMARC/BIMI/DKIM parsing,
 // provider inference, DMARC policy journey, transport (TLS-RPT/MTA-STS) detail, and
 // remediation-action assembly, plus the DKIM provider lookup tables. Extracted verbatim
-// from index.js (monolith decomposition, Phase 1c). Imports only the canonical
-// remediation registry (a leaf module) so guided email advice matches every other
-// surface. Heavily covered by the accuracy + pipeline regression harnesses.
+// from index.js (monolith decomposition, Phase 1c). Imports only canonical leaf
+// modules — the remediation registry (so guided email advice matches every other
+// surface) and the serviceability authority (so MTA-STS evidence admission can
+// never fork from the canonical eligibility contract). Heavily covered by the
+// accuracy + pipeline regression harnesses.
 import { resolveRemediation } from "./remediation-registry.js";
 import { isPublishableModuleEvidence } from "./scan-budget.js";
+import { mayGroundAbsence, maySupportHealthyConclusion } from "../lib/serviceability.js";
 
 export const DKIM_SELECTORS = [
   "default", "mail", "google", "k1", "selector1", "selector2",
@@ -334,13 +337,18 @@ export function mtaStsAdmission(mtaSts = {}) {
   const rawState = mtaSts?.observation_state || "not_observed";
   const status = mtaSts?.status_code;
   const reason = mtaSts?.reason;
-  const serviceable = mtaSts?.serviceability?.serviceable === true;
+  const serviceability = mtaSts?.serviceability;
+  // Eligibility comes ONLY from the canonical serviceability authority — never a
+  // private `serviceable === true` re-check, which is strictly weaker (the
+  // authority also requires conclusion_class "conclusive"; a serviceable-true
+  // record whose conclusion class is non-conclusive admits nothing).
   const coherent = rawState === "present"
-    ? status === 200 && reason === "origin_response" && serviceable
+    ? status === 200 && reason === "origin_response" && maySupportHealthyConclusion(serviceability)
     : rawState === "definitive_absent"
-      ? status === 404 && reason === "well_known_404" && serviceable
+      ? status === 404 && reason === "well_known_404" && mayGroundAbsence(serviceability)
       : rawState === "unavailable"
-        ? mtaSts?.serviceability?.serviceable === false && typeof reason === "string"
+        ? !maySupportHealthyConclusion(serviceability) && !mayGroundAbsence(serviceability)
+          && typeof reason === "string"
         : rawState === "not_observed" && status == null && reason == null;
   const state = coherent ? rawState : "unavailable";
   return Object.freeze({

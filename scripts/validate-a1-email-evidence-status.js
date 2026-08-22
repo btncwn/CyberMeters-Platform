@@ -133,7 +133,12 @@ ok("intel impact: DKIM observed-not-found → 'DKIM Not Verified' impact",
 const scoringSrc = fs.readFileSync(path.join(ENG, "scoring.js"), "utf8");
 const analysisSrc = fs.readFileSync(path.join(ENG, "email-analysis.js"), "utf8");
 const rewriteRel = (src, overrides = {}) =>
-  src.replace(/from "\.\/([^"]+)"/g, (_m, f) => `from ${JSON.stringify(overrides[f] || absUrl(f))}`);
+  src
+    .replace(/from "\.\/([^"]+)"/g, (_m, f) => `from ${JSON.stringify(overrides[f] || absUrl(f))}`)
+    // Parent-relative imports (e.g. email-analysis.js -> ../lib/serviceability.js,
+    // the canonical eligibility authority) resolve to their ORIGINALS too — the
+    // temp copy must consume the real canonical module, never a stub.
+    .replace(/from "\.\.\/([^"]+)"/g, (_m, f) => `from ${JSON.stringify(pathToFileURL(path.join(ENG, "..", f)).href)}`);
 
 async function scoringMutant({ scoringMutate = (s) => s, analysisMutate = null }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "a1-"));
