@@ -679,6 +679,8 @@ jobs:
 
       - name: Validate F52 technology attribution gate
         run: node scripts/validate-f52-tech-attribution.js
+      - name: F-52 attribution mutation proof
+        run: node scripts/validate-f52-tech-attribution-mutations.js
 
       - name: Validate Certificate Managed Lifecycle (identity + replacement + renewal policy + coverage + verification + monitoring + case reopen)
         run: node scripts/validate-certificate-lifecycle.js

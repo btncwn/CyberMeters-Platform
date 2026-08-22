@@ -11,7 +11,7 @@ import {
   TLS_RUNTIME_STATES,
 } from "./tls-evidence.js";
 import { buildIdentityEvidenceProjection, summarizeIdentityClaims } from "./identity-evidence-contract.js";
-import { isResolverVersionAtLeast } from "./cyber-mot-domains.js";
+import { isResolverVersionAtLeast, FIRST_HONEST_RESOLVER_VERSION } from "./cyber-mot-domains.js";
 
 export const PHASE5_EVIDENCE_MODULES = Object.freeze({
   cve: "cve_intelligence",
@@ -308,7 +308,11 @@ export function projectIdentitySnapshotForCustomer(snapshot, modules = {}) {
   const identityModule = modules?.identity_discovery;
   const domains = Array.isArray(snapshot.domains) ? snapshot.domains : [];
   const identityDomain = domains.find((entry) => entry?.domain_key === "identity_exposure");
-  const projectionAlreadyHonest = isResolverVersionAtLeast(snapshot?.methodology?.cyber_mot_resolver_version);
+  // The floor is passed EXPLICITLY. Relying on the default would compare against the
+  // CURRENT resolver version, so every mint would silently re-classify honest history
+  // as legacy and project a false "not evaluated by a supported producer" over it.
+  const projectionAlreadyHonest = isResolverVersionAtLeast(
+    snapshot?.methodology?.cyber_mot_resolver_version, FIRST_HONEST_RESOLVER_VERSION);
   const hasTypedReachability = Number.isFinite(Number(identityModule?.reachability_evaluated_count)) &&
     Number.isFinite(Number(identityModule?.reachable_surface_count));
   const legacyBriAffected = !projectionAlreadyHonest && !hasTypedReachability && Number(identityModule?.high_risk_count || 0) > 0;

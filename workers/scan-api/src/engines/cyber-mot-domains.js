@@ -76,6 +76,23 @@ import {
 // boundary prevents that definition correction reading as customer change.
 export const CYBER_MOT_RESOLVER_VERSION = "2026-08-22.1";
 
+// THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
+//
+// `CYBER_MOT_RESOLVER_VERSION` moves on every methodology mint. Comparing a stored
+// snapshot against it asks "was this produced by the CURRENT resolver?" — and the
+// answer goes false for every historical row the moment we mint, including rows that
+// were entirely honest when written. A projection keyed on that question therefore
+// masks honest history: a snapshot stamped 2026-08-12.1 with an `assessed_healthy`
+// identity conclusion would be rewritten to `evidence_insufficient` and told the
+// customer "Identity reachability was not evaluated by a supported producer" — a
+// sentence that is false about that snapshot.
+//
+// The question the projection actually needs is "was this produced at or after the
+// version where the semantics became honest?", which is a FIXED point in history.
+// Honest predecessor versions stay honest forever. This floor moves only by explicit
+// future ruling — never as a side effect of a mint.
+export const FIRST_HONEST_RESOLVER_VERSION = "2026-08-12.1";
+
 export function isResolverVersionAtLeast(version, minimum = CYBER_MOT_RESOLVER_VERSION) {
   const parse = (value) => {
     const match = /^(\d{4})-(\d{2})-(\d{2})\.(\d+)$/.exec(String(value || ""));
