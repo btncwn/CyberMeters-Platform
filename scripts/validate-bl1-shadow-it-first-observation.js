@@ -128,11 +128,19 @@ const digestFor = async (ws) => {
   // POSITIVE CONTROL alongside it: the unreviewed one is still surfaced, so the
   // filter cannot pass by suppressing everything.
   ok("BL1_P3_POSITIVE_UNREVIEWED_TECH_STILL_SURFACED", /Slack/.test(email.text));
-  // An observation older than the window is not "this week's" news.
+  // An observation older than the window is not "this week's" news — AND a long-known
+  // technology that is merely SEEN AGAIN this week is not newly observed either.
+  // Zoom carries both shapes: a first observation 30 days ago, plus a re-observation
+  // inside the window. Only the `created` flag separates them, so this row is what
+  // makes that filter load-bearing rather than decorative.
   const stale = seedItem(WS, "zoom", "Zoom");
   seedObservedEvent(WS, stale, { created: true, ageDays: 30 });
+  seedObservedEvent(WS, stale, { created: false, ageDays: 1 });
   const later = await digestFor(WS);
-  ok("BL1_P3_STALE_OBSERVATION_IS_OUT_OF_WINDOW", !/Zoom/.test(later.email.text));
+  ok("BL1_P3_STALE_OBSERVATION_IS_OUT_OF_WINDOW", !/Zoom/.test(later.email.text),
+     later.email.text.slice(-260));
+  ok("BL1_P3_REOBSERVED_KNOWN_TECH_IS_NOT_NEWLY_OBSERVED",
+     !later.obs.items.some((i) => i.technology_key === "zoom"), JSON.stringify(later.obs.items));
 }
 
 // ── PROOF 4 — TENANT ISOLATION ─────────────────────────────────────────────

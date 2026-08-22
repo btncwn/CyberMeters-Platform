@@ -32,7 +32,7 @@ const MUTANTS = [
     "workers/scan-api/src/engines/weekly-digest.js",
     "            AND json_extract(e.detail_json, '$.created') = 1\n",
     "",
-    "BL1_P2_TECHNOLOGY_NAMED_EXACTLY_ONCE"],
+    "BL1_P3_REOBSERVED_KNOWN_TECH_IS_NOT_NEWLY_OBSERVED"],
   // Drop the unreviewed filter -> a REVIEWED technology is called "not yet reviewed".
   ["BL1-M3-unreviewed-filter-dropped",
     "workers/scan-api/src/engines/weekly-digest.js",
