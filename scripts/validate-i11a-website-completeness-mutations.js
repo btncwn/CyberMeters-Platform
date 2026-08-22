@@ -140,7 +140,7 @@ const MUTANTS = Object.freeze([
     defect: "tech: an edge error page is read as the customer's stack again",
     file: "tech",
     mutate: (s) => once(s,
-      "  if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) {",
+      "  if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE || serviceability.serviceable !== true) {",
       "  if (false) {", "M3"),
     expect: [
       "C1_TECH_EDGE_IS_INCOMPLETE", "C1_TECH_EDGE_REASON",
@@ -153,8 +153,8 @@ const MUTANTS = Object.freeze([
     defect: "tech: flags incomplete honestly but still publishes an inferred stack",
     file: "tech",
     mutate: (s) => once(s,
-      "      technologies:  [],\n      info_findings: [],",
-      "      technologies:  [\"Cloudflare\"],\n      info_findings: [],", "M4"),
+      "      technologies:  [],\n      server:        null,\n      x_powered_by:  null,\n      info_findings: [],",
+      "      technologies:  [\"Cloudflare\"],\n      server:        null,\n      x_powered_by:  null,\n      info_findings: [],", "M4"),
     expect: ["C1_TECH_EDGE_NO_TECHNOLOGY_INFERRED", "C1_TECH_EDGE_DOES_NOT_CLAIM_CLOUDFLARE"],
   },
   // ── SURFACE-PARITY MUTANTS ────────────────────────────────────────────────
@@ -345,7 +345,7 @@ const F42_MUTANTS = Object.freeze([
     files: ["tech"],
     mutate: {
       tech: (s) => once(s,
-        "  if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) {",
+        "  if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE || serviceability.serviceable !== true) {",
         "  if (false) {", "F42-M2"),
     },
     requireKilled: [
@@ -367,7 +367,7 @@ const F42_MUTANTS = Object.freeze([
         "    if (getObservation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) {",
         "    if (false) {", "F42-M3h"),
       tech: (s) => once(s,
-        "  if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) {",
+        "  if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE || serviceability.serviceable !== true) {",
         "  if (false) {", "F42-M3t"),
     },
     // SUCCESSOR (seq 63/64): with BOTH guards reverted the customer outcome is
