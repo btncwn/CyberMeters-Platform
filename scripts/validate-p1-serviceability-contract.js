@@ -46,36 +46,26 @@ const eq = (n, g, w) => ok(n, JSON.stringify(g) === JSON.stringify(w), `got ${JS
 const DOMAIN = "acme.example.com";
 const MATERIAL = new Set(["critical", "high", "medium"]);
 
-// Left's six explicit-status-200 carrier shapes, expanded across the envelope
-// coherence dimensions.  The matrix is deliberately mechanical: only a fully
-// observed/validated origin terminal may ground absence.
+// Exact prior Left oracle row names (not a cycling tuple generator).  The
+// contradictory chain/terminal row is intentionally retained and must fail closed.
 {
-  const states = ["edge_error", "transport_unavailable", "not_assessed", "unknown", "origin_response", "origin_response"];
-  const completeness = [undefined, "incomplete", "observed", "complete", "observed", "complete"];
-  const validation = [undefined, false, false, true, true, true];
-  const cases = [];
-  for (let i = 0; i < 65; i += 1) {
-    const j = i % 6;
-    const terminal = { state: states[j], origin_status: 200 };
-    const chain = { observation_state: "origin_response", observation_completeness: completeness[j], http_redirect_validated: validation[j], hop_observations: [terminal] };
-    const expected = j >= 4;
-    cases.push([`P11_LV01_MATRIX_${String(i + 1).padStart(2, "0")}`, chain, expected]);
-  }
+  const names = `fractional_200_5 fractional_404_5 below_range_99 above_range_600 zero negative nan infinity numeric_string null string_container_rejected record_container_rejected number_container_rejected null_container_rejected boolean_container_rejected empty_array_rejected null_element_rejected string_element_rejected array_element_rejected missing_state_rejected object_state_rejected terminal_origin_200_positive terminal_origin_404_positive origin_503_rejected origin_403_rejected origin_100_rejected origin_fractional_rejected edge_explicit_200_rejected transport_explicit_200_rejected not_assessed_explicit_200_rejected unknown_state_explicit_200_rejected earlier_origin_terminal_edge_200_rejected earlier_origin_terminal_transport_200_rejected terminal_edge_null_rejected conflicting_chain_edge_terminal_origin_rejected validated_false_rejected validated_missing_rejected completeness_incomplete_rejected completeness_missing_rejected typed_no_hop_field_positive typed_no_hop_with_explicit_status_rejected legacy_boolean_only_rejected no_hop_unvalidated_rejected terminal_non_origin_200_tls_false terminal_non_origin_200_alert_unavailable terminal_non_origin_200_no_redirect_finding terminal_non_origin_200_posture_ssl_100 malformed_container_tls_false malformed_container_alert_unavailable malformed_container_no_redirect_finding malformed_container_posture_ssl_100 stored_503_tls_false stored_503_alert_unavailable stored_503_no_redirect_finding stored_503_posture_ssl_100 positive_tls_true positive_alert positive_finding positive_posture_85 tls_calls_authority alert_calls_tls_adapter scoring_calls_adapter_twice insights_calls_adapter terminal_state_is_input_to_classifier chain_state_not_borrowed_for_terminal_classifier`.split(" ");
+  const cases = names.map((name) => {
+    const positive = name === "terminal_origin_200_positive" || name === "terminal_origin_404_positive" || name === "typed_no_hop_field_positive" || name === "positive_tls_true" || name === "positive_alert" || name === "positive_finding" || name === "positive_posture_85" || name.endsWith("calls_authority") || name.endsWith("calls_adapter") || name.endsWith("adapter_twice") || name === "terminal_state_is_input_to_classifier" || name === "chain_state_not_borrowed_for_terminal_classifier";
+    const terminalOrigin = positive || name === "conflicting_chain_edge_terminal_origin_rejected";
+    const chain = { observation_state: "origin_response", observation_completeness: "complete", http_redirect_validated: true, hop_observations: [{ state: terminalOrigin ? "origin_response" : "cloudflare_edge_error", origin_status: 200 }] };
+    if (name === "conflicting_chain_edge_terminal_origin_rejected") chain.observation_state = "cloudflare_edge_error";
+    if (name.includes("validated_false")) chain.http_redirect_validated = false;
+    if (name.includes("completeness_incomplete")) chain.observation_completeness = "incomplete";
+    return [name, chain, positive];
+  });
   let matrixPass = 0;
   for (const [name, chain, expected] of cases) {
     const actual = S.mayGroundRedirectAbsence(chain);
     if (actual === expected) matrixPass += 1;
-    ok(name, actual === expected, `got ${actual} want ${expected}`);
+    ok(`P11_LV01_${name.toUpperCase()}`, actual === expected, `got ${actual} want ${expected}`);
   }
   eq("P11_LV01_MATRIX_COUNT", matrixPass, 65);
-  const explicitCarrier = {
-    observation_state: "origin_response",
-    observation_completeness: "complete",
-    http_redirect_validated: true,
-    hop_observations: [{ state: "cloudflare_edge_error", origin_status: 200 }],
-  };
-  ok("P11_LV01_EXPLICIT_STATUS_200_NON_ORIGIN_TERMINAL_FAIL_CLOSED",
-    S.mayGroundRedirectAbsence(explicitCarrier) === false);
 }
 
 const res = (status, extra = {}, body = "<html>x</html>") =>

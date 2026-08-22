@@ -27,9 +27,13 @@ const VALIDATOR      = "scripts/validate-p1-serviceability-contract.js";
 // [id, file, find, replace, mustFailAssertion]
 const MUTANTS = [
   ["P11-M11-state-borrow-terminal", SERVICEABILITY,
-    '  if (last.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  return mayGroundAbsence(classifyServiceability({\n    state: last.state,',
-    '  if (chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  return mayGroundAbsence(classifyServiceability({\n    state: chain.observation_state,',
-    "P11_LV01_EXPLICIT_STATUS_200_NON_ORIGIN_TERMINAL_FAIL_CLOSED"],
+    '  if (last.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);\n  if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  return mayGroundAbsence(classifyServiceability({\n    state: last.state,',
+    '  if (chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  const recognized = true;\n  if (!recognized || false) return false;\n  return mayGroundAbsence(classifyServiceability({\n    state: chain.observation_state,',
+    "P11_LV01_FRACTIONAL_200_5"],
+  ["P11-M13-coherence-veto-removed", SERVICEABILITY,
+    '  const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);\n  if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;',
+    '  const recognized = true;\n  if (!recognized || false) return false;',
+    "P11_LV01_CONFLICTING_CHAIN_EDGE_TERMINAL_ORIGIN_REJECTED"],
   // ── DIRECTION 1 — restore the false ISSUE ────────────────────────────────
   // The exact pre-P1.1 line: transport treated as serviceability.
   // Same direction through the contract instead of the call site.

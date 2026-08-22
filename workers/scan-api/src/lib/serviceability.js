@@ -223,6 +223,8 @@ export function mayGroundRedirectAbsence(chain) {
   // The terminal hop owns both state and status.  Chain state is metadata about
   // the traversal and must never rescue a terminal edge/transport/not-assessed hop.
   if (last.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;
+  const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);
+  if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;
   return mayGroundAbsence(classifyServiceability({
     state: last.state,
     origin_status: last.origin_status,
