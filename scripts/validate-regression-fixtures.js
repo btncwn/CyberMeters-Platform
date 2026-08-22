@@ -580,7 +580,7 @@ results.push(
       dkim_detail: dkim,
       bimi_readiness: bimi,
     }, {
-      mta_sts: { enabled: false, errors: [] },
+      mta_sts: { enabled: false, observation_state: "definitive_absent", errors: [] },
       tls_rpt: { enabled: false, reporting_uris: [], errors: [] },
     });
     const ids = new Set(actions.map((action) => action.id));
