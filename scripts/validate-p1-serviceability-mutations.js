@@ -35,6 +35,10 @@ const MUTANTS = [
     '  const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);\n  if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;',
     '  const recognized = true;\n  if (!recognized || false) return false;',
     "P11_LV01_CONFLICTING_CHAIN_EDGE_TERMINAL_ORIGIN_REJECTED"],
+  ["P11-M14-unknown-chain-normalized", SERVICEABILITY,
+    '  const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);\n  if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;',
+    '  const normalizedChainState = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state) ? chain.observation_state : FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE;\n  const recognized = true;\n  if (!recognized || normalizedChainState !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;',
+    "P11_LV01_UNKNOWN_STATE_EXPLICIT_200_REJECTED"],
   // ── DIRECTION 1 — restore the false ISSUE ────────────────────────────────
   // The exact pre-P1.1 line: transport treated as serviceability.
   // Same direction through the contract instead of the call site.
