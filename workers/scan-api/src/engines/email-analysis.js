@@ -327,7 +327,7 @@ export function buildEmailTransportDetails(emailIntel = {}) {
       status_code: mta.status_code ?? null,
       reason: mta.reason ?? null,
       coverage_state: mta.observation_state === "unavailable" ? "incomplete"
-        : mta.observation_state === "not_observed" ? "not_assessed" : "complete",
+        : ["present", "definitive_absent"].includes(mta.observation_state) ? "complete" : "not_assessed",
       mode: ["enforce", "testing", "none"].includes(mta.policy_mode) ? mta.policy_mode : "unknown",
       warnings: [
         ...(mta.errors || []).map((w) => sanitizeInfraErrorMessage(w, "mta_sts")),

@@ -19,7 +19,7 @@ const run = async (responseOrError) => {
 const policy = () => new Response("version: STSv1\nmode: enforce\nmax_age: 86400\n", { status: 200 });
 
 for (const [name, response, state, reason] of [
-  ["200-valid-policy", policy(), "present", null],
+  ["200-valid-policy", policy(), "present", "origin_response"],
   ["404-served", new Response("not found", { status: 404 }), "definitive_absent", "well_known_404"],
   ["503-origin", new Response("unavailable", { status: 503 }), "unavailable", "http_5xx"],
   ["transport", null, "unavailable", "transport_error"],
@@ -35,5 +35,8 @@ for (const [name, response, state, reason] of [
   const detail = buildEmailTransportDetails({ mta_sts: result });
   ok(`${name}: unavailable maps to incomplete`, state !== "unavailable" || detail.mta_sts_detail.coverage_state === "incomplete");
 }
+
+const malformed = mtaStsAdmission({ observation_state: "present", status_code: 200, reason: null, serviceability: null });
+ok("malformed present shape is fail-closed", malformed.state === "unavailable" && !malformed.score_admitted && !malformed.missing_finding);
 
 console.log(`mta-sts-tristate: ${passed} assertions passed`);

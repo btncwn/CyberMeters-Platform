@@ -170,7 +170,18 @@ export function enrichDkim(emailMod) {
  * Ported from mta_sts.py analyze_mta_sts() — HTTP GET, not DNS.
  */
 export function mtaStsAdmission(mtaSts = {}) {
-  const state = mtaSts.observation_state || "not_observed";
+  const rawState = mtaSts?.observation_state || "not_observed";
+  const status = mtaSts?.status_code;
+  const reason = mtaSts?.reason;
+  const serviceable = mtaSts?.serviceability?.serviceable === true;
+  const coherent = rawState === "present"
+    ? status === 200 && reason === "origin_response" && serviceable
+    : rawState === "definitive_absent"
+      ? status === 404 && reason === "well_known_404" && serviceable
+      : rawState === "unavailable"
+        ? mtaSts?.serviceability?.serviceable === false && typeof reason === "string"
+        : rawState === "not_observed" && status == null && reason == null;
+  const state = coherent ? rawState : "unavailable";
   return Object.freeze({
     state,
     missing_finding: state === "definitive_absent",
@@ -218,9 +229,10 @@ export async function fetchMtaSts(domain, opts = {}) {
       result.errors.push("MTA-STS policy could not be verified during this scan.");
       return result;
     }
+    const text = await res.text();
     result.enabled = true;
     result.observation_state = "present";
-    const text = await res.text();
+    result.reason = "origin_response";
     for (const raw of text.split(/\r?\n/)) {
       const line = raw.trim();
       if (line.startsWith("version:")) {
@@ -236,8 +248,13 @@ export async function fetchMtaSts(domain, opts = {}) {
       }
     }
   } catch (e) {
+    result.enabled = false;
     result.observation_state = "unavailable";
     result.reason = e?.name === "TimeoutError" || e?.name === "AbortError" ? "timeout" : "transport_error";
+    result.serviceability = classifyServiceability({
+      state: FETCH_OBSERVATION_STATES.TRANSPORT_UNAVAILABLE,
+      origin_status: null,
+    });
     result.errors.push("MTA-STS policy could not be verified during this scan.");
   }
   return result;
