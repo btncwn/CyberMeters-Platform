@@ -12,6 +12,8 @@ import { buildDkimDetail, isEmailProbeUnobserved, parseDmarcRecord, parseSpfReco
 import { runEmailModule } from "./email-scan.js";
 import { resolveRemediation } from "./remediation-registry.js";
 import { computeScore } from "./scoring.js";
+import { classifyServiceability, mayGroundAbsence } from "../lib/serviceability.js";
+import { classifyFetchObservation, FETCH_OBSERVATION_STATES } from "../lib/fetch-observation.js";
 
 /**
  * Enrich existing SPF result (from runEmailModule) with status/score/issue.
@@ -167,16 +169,57 @@ export function enrichDkim(emailMod) {
  * Fetch and parse MTA-STS policy.
  * Ported from mta_sts.py analyze_mta_sts() — HTTP GET, not DNS.
  */
+export function mtaStsAdmission(mtaSts = {}) {
+  const state = mtaSts.observation_state || "not_observed";
+  return Object.freeze({
+    state,
+    missing_finding: state === "definitive_absent",
+    score_admitted: state === "present",
+    remediation_admitted: state === "definitive_absent",
+  });
+}
+
 export async function fetchMtaSts(domain, opts = {}) {
   const accounting = opts.accounting || null;
-  const result = { enabled: false, policy_version: null, policy_mode: null, mx_patterns: [], max_age: null, errors: [] };
+  const result = {
+    enabled: false, policy_version: null, policy_mode: null, mx_patterns: [], max_age: null, errors: [],
+    observation_state: "not_observed", status_code: null, reason: null, serviceability: null,
+  };
+  const fetcher = opts.fetcher || safeFetch;
   try {
-    const res = await safeFetch(`https://mta-sts.${domain}/.well-known/mta-sts.txt`, {
+    const res = await fetcher(`https://mta-sts.${domain}/.well-known/mta-sts.txt`, {
       signal: AbortSignal.timeout(10_000),
       accounting,
     });
-    if (!res || res.status !== 200) return result;
+    const observation = classifyFetchObservation({ response: res });
+    const serviceability = classifyServiceability(observation);
+    result.status_code = observation.origin_status;
+    result.serviceability = serviceability;
+    if (!res) {
+      result.observation_state = "unavailable";
+      result.reason = "transport_error";
+      result.errors.push("MTA-STS policy fetch was unavailable.");
+      return result;
+    }
+    if (res.status === 404 && mayGroundAbsence(serviceability)) {
+      result.observation_state = "definitive_absent";
+      result.reason = "well_known_404";
+      return result;
+    }
+    if (res.status >= 500 || observation.state === FETCH_OBSERVATION_STATES.TRANSPORT_UNAVAILABLE) {
+      result.observation_state = "unavailable";
+      result.reason = res.status >= 500 ? "http_5xx" : "transport_error";
+      result.errors.push("MTA-STS policy could not be verified during this scan.");
+      return result;
+    }
+    if (res.status !== 200 || !mayGroundAbsence(serviceability)) {
+      result.observation_state = "unavailable";
+      result.reason = "transport_error";
+      result.errors.push("MTA-STS policy could not be verified during this scan.");
+      return result;
+    }
     result.enabled = true;
+    result.observation_state = "present";
     const text = await res.text();
     for (const raw of text.split(/\r?\n/)) {
       const line = raw.trim();
@@ -193,7 +236,9 @@ export async function fetchMtaSts(domain, opts = {}) {
       }
     }
   } catch (e) {
-    result.errors.push(e?.message ?? "MTA-STS fetch failed");
+    result.observation_state = "unavailable";
+    result.reason = e?.name === "TimeoutError" || e?.name === "AbortError" ? "timeout" : "transport_error";
+    result.errors.push("MTA-STS policy could not be verified during this scan.");
   }
   return result;
 }
@@ -301,8 +346,8 @@ function computeEmailScore(spf, dmarc, dkim, mtaSts, tlsRpt) {
 
   // MTA-STS — mirrors _score_mta_sts()
   let mtaScore = 0;
-  if (mtaSts.enabled && mtaSts.policy_mode === "enforce") mtaScore = W.mta_sts;
-  else if (mtaSts.enabled)                                mtaScore = Math.round(W.mta_sts * 0.6);
+  if (mtaSts.observation_state === "present" && mtaSts.policy_mode === "enforce") mtaScore = W.mta_sts;
+  else if (mtaSts.observation_state === "present") mtaScore = Math.round(W.mta_sts * 0.6);
 
   // TLS-RPT — mirrors _score_tls_rpt()
   const tlsRptScore = tlsRpt.enabled ? W.tls_rpt : 0;
@@ -385,7 +430,7 @@ export function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
   }
 
   // MTA-STS
-  if (!mtaSts.enabled) {
+  if (mtaSts.observation_state === "definitive_absent") {
     impacts.push({
       technical:        "MTA-STS Missing",
       risk_level:       "LOW",
@@ -479,7 +524,7 @@ export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
     });
   }
 
-  if (!mtaSts.enabled) {
+  if (mtaSts.observation_state === "definitive_absent") {
     findings.push({
       id:             "email_intel_mta_sts_missing",
       module:         "email_security_intelligence",

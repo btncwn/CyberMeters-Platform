@@ -321,11 +321,20 @@ export function buildEmailTransportDetails(emailIntel = {}) {
   return {
     mta_sts_detail: {
       record_found: null,
-      policy_found: mta.enabled === true,
+      policy_found: mta.observation_state === "present" ? true
+        : mta.observation_state === "definitive_absent" ? false : null,
+      observation_state: mta.observation_state || "not_observed",
+      status_code: mta.status_code ?? null,
+      reason: mta.reason ?? null,
+      coverage_state: mta.observation_state === "unavailable" ? "incomplete"
+        : mta.observation_state === "not_observed" ? "not_assessed" : "complete",
       mode: ["enforce", "testing", "none"].includes(mta.policy_mode) ? mta.policy_mode : "unknown",
       warnings: [
         ...(mta.errors || []).map((w) => sanitizeInfraErrorMessage(w, "mta_sts")),
-        ...(!mta.enabled ? ["An MTA-STS policy file was not confirmed during this scan."] : []),
+        ...(mta.observation_state === "definitive_absent"
+          ? ["An MTA-STS policy file was not confirmed during this scan."]
+          : mta.observation_state === "unavailable"
+            ? ["MTA-STS evidence was insufficient during this scan."] : []),
         "The _mta-sts DNS TXT record is not assessed separately in this version.",
       ],
     },
@@ -505,7 +514,7 @@ export function buildEmailRemediationActions(domain, details, emailIntel = {}) {
   }
 
   const transport = buildEmailTransportDetails(emailIntel);
-  if (emailIntel.mta_sts && !transport.mta_sts_detail.policy_found) actions.push(remediationAction("mta_sts_policy_missing", "MTA-STS", "low", "Review MTA-STS transport policy",
+  if (emailIntel.mta_sts && transport.mta_sts_detail.policy_found === false) actions.push(remediationAction("mta_sts_policy_missing", "MTA-STS", "low", "Review MTA-STS transport policy",
     "An MTA-STS policy file was not confirmed.", "Inbound SMTP TLS enforcement may be less resilient to downgrade or misconfiguration.",
     "Assess MTA-STS after confirming the domain's MX configuration and operational ownership."));
   if (emailIntel.tls_rpt && !transport.tls_rpt_detail.record_found) actions.push(remediationAction("tls_rpt_missing", "TLS-RPT", "info", "Add TLS delivery reporting",
@@ -535,4 +544,3 @@ export function sanitizeInfraErrorMessage(message, scope) {
   };
   return safe[scope] || "This check could not be completed during this scan. It may be retried automatically on a future scan.";
 }
-
