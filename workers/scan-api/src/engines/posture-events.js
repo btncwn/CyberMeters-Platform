@@ -176,8 +176,15 @@ export function buildPostureDiffEvents(domain, prevModules, currentModules, opts
 
   const previousServices = serviceMap(prevModules?.admin_surface_detection);
   const currentServices = serviceMap(currentModules?.admin_surface_detection);
+  // A service issue is publishable only when the admin-surface probe completed
+  // with an attributable result.  `unavailable`/`not_assessed` are evidence gaps,
+  // not customer-visible detections; the FIXED branch below already applies the
+  // same rule in the opposite direction.
+  const currentAdminIssueAssessed =
+    currentModules?.admin_surface_detection?.evidence_status === "issue_detected";
   for (const [key, service] of currentServices) {
     if (previousServices.has(key)) continue;
+    if (!currentAdminIssueAssessed) continue;
     pushEvent(events, {
       event_type: "exposed_service_detected",
       hostname: normalizeValue(service.hostname),

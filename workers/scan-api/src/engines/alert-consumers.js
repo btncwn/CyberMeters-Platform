@@ -597,6 +597,13 @@ export async function emitLifecycleAlert(env, {
     //    here, or alerts become a second source of remediation truth.
     const remediation = finding_type ? resolveRemediation({ finding_type }) : null;
     const resolved = remediation?.status === "resolved" ? remediation : null;
+    // Registry entries may explicitly declare that their evidence is not
+    // externally observable.  Keep the content field optional while making the
+    // gate ready for reviewed declarations; `none` never becomes an alert.
+    if (resolved?.external_coverage === "none") {
+      console.error("[alert-consumer] external coverage is none", JSON.stringify({ workspace_id, domain_key, finding_type }));
+      return { skipped: "external_coverage_none" };
+    }
 
     // 3. Occurrence identity is the event id, so repeated hourly evaluation of the
     //    same occurrence yields the same key (=> deduplicated), while a genuine
@@ -657,6 +664,11 @@ export async function emitLifecycleAlert(env, {
         recommended_action: presentation.recommended_action,
         presentation_state: presentation.presentation_state,
         evidence_state: presentation.evidence_state || null,
+        // Eligibility is carried as a typed producer fact to the final emitter;
+        // an alert layer cannot infer serviceability from customer copy.
+        evidence_eligible: module_evidence?.serviceability
+          ? module_evidence.serviceability.serviceable === true
+          : true,
         // Typed entity + bounded evidence for the email field mapping
         // (managed-alerts.js buildAlertEmailFields). Absent for legacy callers.
         entity_type: entity_type || null,

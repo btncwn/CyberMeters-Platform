@@ -460,6 +460,21 @@ export async function emitManagedAlert(env, {
   const deliveries = [];
   const base = { workspace_id, domain_key, alert_kind: kind, dedupe_key, severity };
   try {
+    // Producer-fed alerting is deliberately fail-closed at the final seam too:
+    // no producer may turn an evidence-insufficient conclusion into a customer
+    // alert.  The metadata is structured by alert-consumers; direct callers must
+    // provide the same shaped state or the alert remains eligible for legacy data.
+    const evidenceState = metadata?.evidence_state;
+    const serviceability = metadata?.serviceability;
+    const ineligible = metadata?.evidence_eligible === false
+      || evidenceState === "evidence_insufficient"
+      || (serviceability?.serviceable !== undefined && serviceability?.serviceable !== true);
+    if (ineligible) {
+      const reason = "evidence_insufficient";
+      console.error("[managed-alert] suppressed ineligible evidence", JSON.stringify({ workspace_id, domain_key, kind, reason }));
+      deliveries.push(await recordDelivery(env, { ...base, channel: "in_app", outcome: "suppressed", reason }));
+      return { emitted: false, notification_id: null, reason, deliveries };
+    }
     // 1. Soft-deleted workspaces receive nothing at all. The same lookup carries
     //    the customer-facing workspace name for the email (tenant-scoped by id).
     const wsRow = await liveWorkspaceRow(env, workspace_id);

@@ -33,6 +33,7 @@ import {
   resolveTlsRuntimeState,
   TLS_RUNTIME_STATES,
 } from "./tls-evidence.js";
+import { maySupportDefectConclusion, mayGroundRedirectAbsence } from "../lib/serviceability.js";
 
 export const WEBSITE_SECURITY_DOMAIN_KEY = "website_security";
 
@@ -181,6 +182,19 @@ function gradeFindings(findings, modules, gate) {
   return graded;
 }
 
+// ISSUE conclusions must obey the same evidence boundary as FIXED conclusions.
+// Most Website modules predate the shaped serviceability field; preserve their
+// established behaviour until a producer supplies that field, but never admit an
+// explicitly non-serviceable module result (or an ungrounded redirect envelope).
+function mayIssueFromModule(modules, moduleName) {
+  const evidence = modules?.[moduleName];
+  if (evidence?.serviceability && !maySupportDefectConclusion(evidence.serviceability)) return false;
+  if (moduleName === "ssl" && evidence?.http_redirect_chain
+      && !mayGroundRedirectAbsence(evidence.http_redirect_chain)
+      && evidence.http_redirect_chain.http_redirect_validated === false) return false;
+  return true;
+}
+
 /**
  * evaluateWebsiteSecurityForScan — correlate one completed scan into the managed
  * Website Security lifecycle for one workspace, and alert on genuine transitions.
@@ -277,10 +291,17 @@ export async function evaluateWebsiteSecurityForScan(env, {
           moduleComplete: gate.canVerify("domain_security_enrichment"),
         })
         : null;
-      if (obs && obs.material && (!cookieObservation || cookieObservation.state === "present")) {
+      if (obs && obs.material && mayIssueFromModule(modules, spec.module)
+          && (!cookieObservation || cookieObservation.state === "present")) {
         status = "observed";
         recurrence = obs.recurrence;
         band = obs.severity;            // the band IS the grade: worsening escalates
+      } else if (obs && obs.material && !mayIssueFromModule(modules, spec.module)) {
+        // A material-looking finding backed by non-serviceable evidence is neither
+        // an issue nor a recovery. Preserve it as an explicit evidence gap.
+        status = "unknown";
+        unknown_reason = "evidence_insufficient";
+        reason = "condition_observation_not_serviceable";
       } else if (cookieObservation?.state === "clear") {
         // Cookie absence is conclusive only when cookies were actually observed and
         // the canonical predicate evaluated false. A zero-cookie response never enters.

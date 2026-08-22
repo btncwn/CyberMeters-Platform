@@ -70,6 +70,10 @@ function entry(e) {
     effort: "medium",
     owner_type: "customer_it",
     supporting_evidence_types: [],
+    // Optional evidence-coverage declaration.  Entries may opt into the
+    // alert-layer floor; null preserves legacy entries until their content is
+    // authored and reviewed in the separate registry backlog.
+    external_coverage: null,
     managed_workflow_compatible: false,
     case_type: null,
     applicability: "Applies whenever the associated finding is raised.",
@@ -1301,6 +1305,7 @@ function entryToResolution(e, extra = {}) {
     effort: e.effort,
     owner_type: e.owner_type,
     verification_method: e.verification_method,
+    external_coverage: e.external_coverage ?? null,
     verification_evidence_requirements: e.verification_evidence_requirements,
     supporting_evidence_types: e.supporting_evidence_types,
     managed_workflow_compatible: e.managed_workflow_compatible,
