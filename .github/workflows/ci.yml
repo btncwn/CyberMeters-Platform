@@ -677,6 +677,11 @@ jobs:
       - name: Validate F-47 Shadow IT UI actions (evidence-fidelity mutations)
         run: node scripts/validate-f47-shadow-it-ui-actions-mutations.js
 
+      - name: Validate F52 technology attribution gate
+        run: node scripts/validate-f52-tech-attribution.js
+      - name: F-52 attribution mutation proof
+        run: node scripts/validate-f52-tech-attribution-mutations.js
+
       - name: Validate Certificate Managed Lifecycle (identity + replacement + renewal policy + coverage + verification + monitoring + case reopen)
         run: node scripts/validate-certificate-lifecycle.js
 

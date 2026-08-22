@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const HEADERS = path.join(root, "workers", "scan-api", "src", "engines", "headers-scan.js");
+const TECH = path.join(root, "workers", "scan-api", "src", "engines", "tech-scan.js");
 const VALIDATOR = path.join(root, "scripts", "validate-f48-origin-503-false-healthy.js");
 
 const sha = (f) => crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex");
@@ -40,6 +41,9 @@ const MUTANTS = Object.freeze([
     id: "F48-M1",
     defect: "the origin-5xx guard is removed — 301 -> 503 grades complete + assessed_healthy again",
     mutate: (s) => once(s, "    if (Number(getRes.status) >= 500) {", "    if (false) {", "F48-M1"),
+    mutateTech: (s) => once(s,
+      "  if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE || serviceability.serviceable !== true) {",
+      "  if (false) {", "F48-M1-tech"),
     requireKilled: [
       "F48_BAR1_NEVER_COMPLETE_AND_HEALTHY",
       "F48_BAR1_NOT_ASSESSED_HEALTHY",
@@ -80,6 +84,9 @@ const MUTANTS = Object.freeze([
       once(s, "    if (Number(getRes.status) >= 500) {", "    if (false) {", "F48-M3a"),
       "    if (getObservation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) {",
       "    if (false) {", "F48-M3b"),
+    mutateTech: (s) => once(s,
+      "  if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE || serviceability.serviceable !== true) {",
+      "  if (false) {", "F48-M3-tech"),
     requireKilled: [
       "F48_BAR1_NEVER_COMPLETE_AND_HEALTHY",
       "F48_BAR1_NOT_ASSESSED_HEALTHY",
@@ -129,12 +136,15 @@ const reachedSummary = (out) => /F-48 origin-503 false-healthy: \d+\/\d+ asserti
 let killed = 0, rejected = 0;
 for (const m of MUTANTS) {
   const original = fs.readFileSync(HEADERS, "utf8");
+  const originalTech = fs.readFileSync(TECH, "utf8");
   const beforeSha = sha(HEADERS);
+  const beforeTechSha = sha(TECH);
   let verdict = "REJECTED", detail = "";
   try {
     const mutated = m.mutate(original);
     if (mutated === original) throw new Error("identical bytes");
     fs.writeFileSync(HEADERS, mutated);
+    if (m.mutateTech) fs.writeFileSync(TECH, m.mutateTech(originalTech));
     const res = runValidator();
     const got = failSet(res.out);
     const survived = m.requireKilled.filter((id) => !got.has(id));
@@ -147,7 +157,8 @@ for (const m of MUTANTS) {
   } catch (err) { detail = err.message; }
   finally {
     fs.writeFileSync(HEADERS, original);
-    if (sha(HEADERS) !== beforeSha) { console.error("RESTORE FAILED"); process.exit(1); }
+    fs.writeFileSync(TECH, originalTech);
+    if (sha(HEADERS) !== beforeSha || sha(TECH) !== beforeTechSha) { console.error("RESTORE FAILED"); process.exit(1); }
   }
   if (verdict === "KILLED") { killed++; console.log(`PASS ${m.id} killed — required kills died, every control survived (${m.defect})`); }
   else { rejected++; console.log(`FAIL ${m.id} ${verdict} — ${detail}`); }

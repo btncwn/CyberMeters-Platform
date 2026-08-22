@@ -256,6 +256,14 @@ function resolveHttpHttpsService(modules) {
 
 function resolveTechnology(modules) {
   const technology = modules?.technology_detection;
+  // Marker-first: stored legacy rows may retain non-empty values beside an
+  // unavailable marker. The marker is authoritative.
+  if (technology?.observation_state === "unavailable" || technology?.incomplete === true) {
+    return signal("incomplete", "technology_evidence_incomplete", {
+      sources: ["technology_detection"],
+      limitations: [technology.incomplete_reason || "origin_not_observed"],
+    });
+  }
   const observed = new Set([
     ...(technology?.technologies || []),
     technology?.server,
@@ -265,9 +273,7 @@ function resolveTechnology(modules) {
     return signal("observed", "technology_observed", {
       evidence_count: observed.size,
       sources: ["technology_detection"],
-      limitations: technology?.incomplete === true
-        ? [technology.incomplete_reason]
-        : [],
+      limitations: [],
     });
   }
   if (moduleNotAssessed(technology)) {
@@ -278,12 +284,6 @@ function resolveTechnology(modules) {
   if (technology.error) {
     return signal("unavailable", "technology_probe_unavailable", {
       sources: ["technology_detection"],
-    });
-  }
-  if (technology.incomplete === true) {
-    return signal("incomplete", "technology_evidence_incomplete", {
-      sources: ["technology_detection"],
-      limitations: [technology.incomplete_reason],
     });
   }
   if (!Number.isFinite(Number(technology.status_code))) {
