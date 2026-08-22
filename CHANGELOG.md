@@ -7,6 +7,34 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.08.21-1 — merge-line closure (PR #417 · #418 · #419) — deployed 2026-08-21
+
+**Status:** DEPLOYED. Main is tagged at `60420ae18302692da9a10e75a5b0ce820966a3a9` and the
+coordinated Workers were deployed from that merged-main tree. This release record landed under
+the Governance CI-infrastructure exception, with hash-audited local verification recorded in the
+merge-line closure; hosted CI was not spawning runs because of the documented billing/minute
+exhaustion. This is a release record, not founder live acceptance.
+
+- **PR #417 — D1 successor-4:** snapshot-once and the successor fail-closed observation anchor
+  landed, including the LV-01/LV-02 evidence boundary; the merge-restamp correction was then
+  fast-forwarded in `60420ae` after the staged closure suffix was re-read and recomputed.
+- **PR #418 — navigation cleanup:** removed the seven redundant `Reports` child links while
+  preserving the canonical Reports destination.
+- **PR #419 — FD-008 honesty:** removed false port/banner/IP capability claims from the customer-
+  facing honesty surfaces; no unsupported capability is presented as measured.
+- **Deployment:** scan-api (`cybermeters-platform`) Worker Version ID `96c00032-b4ee-4088-8425-
+  b89fb46fffa5`; email-ingest (`cybermeters-email`) Worker Version ID
+  `fd0286cb-2b88-45cc-8b60-dcf2ae67bdfc`; rollback for both is the preceding release with
+  deployment/version identity `284a8654-…` / `…1487c4a53d51`.
+- **Closure identity:** the merged-tree email-worker closure suffix changed from
+  `1487c4a53d51` to `00d09b7ab0dc`; the effective merged closure was recomputed and the
+  deploy-manifest plus both Wrangler files were re-stamped.
+- **Production proof:** `/health` reported deployment `96c00032` and
+  `2026.08.13-provisional-score-labeling.00d09b7ab0dc`; `/api/workspaces` returned `401`.
+- **Boundary:** the merge landed under the Governance CI-infrastructure exception and its local
+  verification was hash-audited. Branch protection and hosted-CI debt remain explicitly tracked;
+  neither is silently represented as a normal green hosted-CI run.
+
 ## 2026-08-19 — email-ingest closure re-stamp — **DEPLOYED · SMOKE PASSED**
 
 **Status:** Executive-authorised bounded operational redeploy from source
