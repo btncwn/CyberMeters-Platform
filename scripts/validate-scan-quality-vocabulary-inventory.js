@@ -42,14 +42,13 @@ const EXPECTED = Object.freeze({
     // BL-1: counts UNCHANGED (35 predicates / 26 sites / 15 files); only the
     // fingerprint moves, because the first-observation subquery shifted line numbers
     // in shadow-it-inventory.js. A position shift, not a new site.
-    // BL-1 SUCCESSION: 35 -> 36 predicates across 26 -> 27 query sites; file count
-    // UNCHANGED at 15. Exactly ONE new site: the first-observation window query in
-    // weekly-digest.js. Named rather than absorbed — a count change means a new site
-    // to review, not a fingerprint to bump.
-    predicate_occurrences: 36,
-    unique_query_sites: 27,
+    // BL-1: counts UNCHANGED at 35 predicates / 26 sites / 15 files. Only the
+    // fingerprint moves, because the BL-1 edits shifted line numbers in
+    // shadow-it-inventory.js. A position shift, not a new site.
+    predicate_occurrences: 35,
+    unique_query_sites: 26,
     source_file_count: 15,
-    fingerprint: "dfabcf5b2528ef18c9cceb62b7903f1c385666a3addc1970efb7778832d1365f",
+    fingerprint: "ec4ebef5fce00e01b6c3d0bf06b01c1678f5e750519a2d8581a01c49cf4eae62",
     resolved_query_sink_count: 19,
     // Sink COUNT unchanged at 19 — the new BL-1 query is not a scan-quality sink;
     // only its position fingerprint moves.
