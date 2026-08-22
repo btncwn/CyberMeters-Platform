@@ -464,11 +464,7 @@ export async function emitManagedAlert(env, {
     // no producer may turn an evidence-insufficient conclusion into a customer
     // alert.  The metadata is structured by alert-consumers; direct callers must
     // provide the same shaped state or the alert remains eligible for legacy data.
-    const evidenceState = metadata?.evidence_state;
-    const serviceability = metadata?.serviceability;
-    const ineligible = metadata?.evidence_eligible === false
-      || evidenceState === "evidence_insufficient"
-      || (serviceability?.serviceable !== undefined && serviceability?.serviceable !== true);
+    const ineligible = !isAlertEvidenceEligible(metadata);
     if (ineligible) {
       const reason = "evidence_insufficient";
       console.error("[managed-alert] suppressed ineligible evidence", JSON.stringify({ workspace_id, domain_key, kind, reason }));
@@ -648,6 +644,14 @@ export async function emitManagedAlert(env, {
     console.error("[managed-alert] emit failed", JSON.stringify({ workspace_id, kind, domain_key, reason: err?.message }));
     return { emitted: false, notification_id: null, reason: "emit_failed", deliveries };
   }
+}
+
+export function isAlertEvidenceEligible(metadata = {}) {
+  const evidenceState = metadata?.evidence_state;
+  const serviceability = metadata?.serviceability;
+  return metadata?.evidence_eligible !== false
+    && evidenceState !== "evidence_insufficient"
+    && !(serviceability?.serviceable !== undefined && serviceability?.serviceable !== true);
 }
 
 // ── Bounded retry sweep ──────────────────────────────────────────────────────

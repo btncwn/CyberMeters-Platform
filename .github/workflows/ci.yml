@@ -443,6 +443,9 @@ jobs:
       - name: Validate canonical managed-alert pipeline (entitlement / preferences / dedupe / ledger)
         run: node scripts/validate-managed-alerts.js
 
+      - name: Validate P1.3 lifecycle and alert conclusion gates (fixtures + named mutants)
+        run: node scripts/validate-p1-3-lifecycle-alert-gates.js
+
       - name: Validate alert truth & field mapping (workspace name + entity typing + what-changed ≠ recommendation + evidence + CTA + mutations)
         run: node scripts/validate-alert-truth-mapping.js
 

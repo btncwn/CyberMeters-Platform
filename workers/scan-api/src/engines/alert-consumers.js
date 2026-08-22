@@ -597,14 +597,6 @@ export async function emitLifecycleAlert(env, {
     //    here, or alerts become a second source of remediation truth.
     const remediation = finding_type ? resolveRemediation({ finding_type }) : null;
     const resolved = remediation?.status === "resolved" ? remediation : null;
-    // Registry entries may explicitly declare that their evidence is not
-    // externally observable.  Keep the content field optional while making the
-    // gate ready for reviewed declarations; `none` never becomes an alert.
-    if (resolved?.external_coverage === "none") {
-      console.error("[alert-consumer] external coverage is none", JSON.stringify({ workspace_id, domain_key, finding_type }));
-      return { skipped: "external_coverage_none" };
-    }
-
     // 3. Occurrence identity is the event id, so repeated hourly evaluation of the
     //    same occurrence yields the same key (=> deduplicated), while a genuine
     //    later recurrence appends a new event => new key => a new eligible alert.

@@ -186,7 +186,7 @@ function gradeFindings(findings, modules, gate) {
 // Most Website modules predate the shaped serviceability field; preserve their
 // established behaviour until a producer supplies that field, but never admit an
 // explicitly non-serviceable module result (or an ungrounded redirect envelope).
-function mayIssueFromModule(modules, moduleName) {
+export function mayIssueFromModule(modules, moduleName) {
   const evidence = modules?.[moduleName];
   if (evidence?.serviceability && !maySupportDefectConclusion(evidence.serviceability)) return false;
   if (moduleName === "ssl" && evidence?.http_redirect_chain
