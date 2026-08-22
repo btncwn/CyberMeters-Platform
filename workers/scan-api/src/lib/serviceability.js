@@ -216,10 +216,16 @@ export function mayGroundRedirectAbsence(chain) {
   if (hops.some((hop) => !isPlainRecord(hop) || typeof hop.state !== "string")) return false;
   // The terminal hop owns the conclusion.  A chain-level origin_response from
   // an earlier hop cannot rescue an edge/transport/missing terminal hop.
+  const completeness = chain.observation_completeness;
+  if (chain.http_redirect_validated !== true
+      || (completeness !== "observed" && completeness !== "complete")) return false;
   const last = hops[hops.length - 1];
+  // The terminal hop owns both state and status.  Chain state is metadata about
+  // the traversal and must never rescue a terminal edge/transport/not-assessed hop.
+  if (last.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;
   return mayGroundAbsence(classifyServiceability({
-    state: chain.observation_state,
-    origin_status: last?.origin_status ?? chain.origin_status ?? null,
+    state: last.state,
+    origin_status: last.origin_status,
   }));
 }
 

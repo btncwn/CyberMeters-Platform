@@ -42,9 +42,9 @@ const EXPECTED = Object.freeze({
     predicate_occurrences: 35,
     unique_query_sites: 26,
     source_file_count: 15,
-    fingerprint: "171bb0afae88c9920ae0c822be63b01bc18f8316903cc7e7e1b861f4765b6bfd",
+    fingerprint: "2127c44f4d47bd0833eaf37d054880d4fe37b3022b84de05b4c5210e7c6f8953",
     resolved_query_sink_count: 19,
-    resolved_query_sink_fingerprint: "7561a3e3493ca7b24fc1b85b91d23879602ede4d97d00114a5fa1a690fb46aef",
+    resolved_query_sink_fingerprint: "91325ab2b522e85a68d5e5e4906631b4ac3d5ebf8fc5c9c29afd33674e8b5a92",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -61,7 +61,7 @@ const EXPECTED = Object.freeze({
     // the successor validator. Nothing was added to or removed from the runtime set.
     // SUCCESSOR-3: 63 -> 65 across 23 -> 25 files. Additive only: PR #414/#416 added
     // governed comparisons in their own validators. Nothing was removed.
-    fingerprint: "8c5c9352d3350a29e844c5a14e8dbb4a751f5b67103bca00b418984a8aa43230",
+    fingerprint: "563beaf0520c24b7ddf49183ba5352465bb74bd1b971d6364ce5b3343682ecfa",
   },
   runtime_source_file_count: 32,
   direct: {
@@ -73,9 +73,9 @@ const EXPECTED = Object.freeze({
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
-    governance: { occurrence_count: 108, source_file_count: 37, fingerprint: "520de2ede77bdaeb1e2d56f573a2ca35054344e5aac233f2e1d042dc1a5ac78b" },
+    governance: { occurrence_count: 108, source_file_count: 37, fingerprint: "4e7e1b919798767d27dd622724b4c2e8bd2e5e5fd9c6ab264bac6fcbe8fdc126" },
   },
-  sql_reads: { projection_occurrences: 23, fingerprint: "2f2378d8e99b017b44932a3a1f723c8c8ff2ca8f9fce0c4690f8decc821a9cc7" },
+  sql_reads: { projection_occurrences: 23, fingerprint: "11c0012aac9dfa1436907821901d393eb591e7d78921b2eabdfa4d73eb9543e8" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

@@ -219,8 +219,8 @@ const MUTATIONS = [
   {
     name: "M11 P12A-LV-01 chain-level state rescues non-serviceable terminal hop",
     target: path.join(LIB, "serviceability.js"),
-    from: "  const last = hops[hops.length - 1];\n  return mayGroundAbsence(classifyServiceability({\n    state: chain.observation_state,\n    origin_status: last?.origin_status ?? chain.origin_status ?? null,\n  }));",
-    to:   "  const last = hops[hops.length - 1];\n  return mayGroundAbsence(classifyServiceability({\n    state: chain.observation_state,\n    origin_status: chain.origin_status ?? null,\n  }));",
+    from: "  const last = hops[hops.length - 1];\n  // The terminal hop owns both state and status.  Chain state is metadata about\n  // the traversal and must never rescue a terminal edge/transport/not-assessed hop.\n  if (last.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  return mayGroundAbsence(classifyServiceability({\n    state: last.state,\n    origin_status: last.origin_status,\n  }));",
+    to:   "  const last = hops[hops.length - 1];\n  // MUTANT: borrow chain-level state and status for the terminal conclusion.\n  return mayGroundAbsence(classifyServiceability({\n    state: chain.observation_state,\n    origin_status: chain.origin_status ?? null,\n  }));",
     check: async (mod) => {
       const chain = { observation_state: "origin_response", observation_completeness: "observed",
         http_redirect_validated: true, origin_status: 200,

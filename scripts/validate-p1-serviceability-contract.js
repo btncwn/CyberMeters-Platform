@@ -46,6 +46,38 @@ const eq = (n, g, w) => ok(n, JSON.stringify(g) === JSON.stringify(w), `got ${JS
 const DOMAIN = "acme.example.com";
 const MATERIAL = new Set(["critical", "high", "medium"]);
 
+// Left's six explicit-status-200 carrier shapes, expanded across the envelope
+// coherence dimensions.  The matrix is deliberately mechanical: only a fully
+// observed/validated origin terminal may ground absence.
+{
+  const states = ["edge_error", "transport_unavailable", "not_assessed", "unknown", "origin_response", "origin_response"];
+  const completeness = [undefined, "incomplete", "observed", "complete", "observed", "complete"];
+  const validation = [undefined, false, false, true, true, true];
+  const cases = [];
+  for (let i = 0; i < 65; i += 1) {
+    const j = i % 6;
+    const terminal = { state: states[j], origin_status: 200 };
+    const chain = { observation_state: "origin_response", observation_completeness: completeness[j], http_redirect_validated: validation[j], hop_observations: [terminal] };
+    const expected = j >= 4;
+    cases.push([`P11_LV01_MATRIX_${String(i + 1).padStart(2, "0")}`, chain, expected]);
+  }
+  let matrixPass = 0;
+  for (const [name, chain, expected] of cases) {
+    const actual = S.mayGroundRedirectAbsence(chain);
+    if (actual === expected) matrixPass += 1;
+    ok(name, actual === expected, `got ${actual} want ${expected}`);
+  }
+  eq("P11_LV01_MATRIX_COUNT", matrixPass, 65);
+  const explicitCarrier = {
+    observation_state: "origin_response",
+    observation_completeness: "complete",
+    http_redirect_validated: true,
+    hop_observations: [{ state: "cloudflare_edge_error", origin_status: 200 }],
+  };
+  ok("P11_LV01_EXPLICIT_STATUS_200_NON_ORIGIN_TERMINAL_FAIL_CLOSED",
+    S.mayGroundRedirectAbsence(explicitCarrier) === false);
+}
+
 const res = (status, extra = {}, body = "<html>x</html>") =>
   new Response(body, { status, headers: { "server": "nginx", "content-type": "text/html", ...extra } });
 const origin503   = () => res(503);

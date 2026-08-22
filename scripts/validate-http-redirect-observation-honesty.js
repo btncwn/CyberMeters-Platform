@@ -227,6 +227,7 @@ const definitive = (ssl) => {
     definitive({ https_available: null, http_redirects_to_https: false, http_redirect_chain: {
       http_redirect_validated: true,
       observation_state: "origin_response",
+      observation_completeness: "observed",
       hop_observations: [{ hop: 1, state: "origin_response", origin_status: 200 }],
     } }));
 }
