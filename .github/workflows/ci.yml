@@ -466,6 +466,10 @@ jobs:
 
       - name: Validate Shadow IT recurrence truth (per-recurrence copy + observed ≠ unauthorised + surface parity + viewer gating + dedupe + mutations)
         run: node scripts/validate-shadow-it-recurrence-truth.js
+      - name: BL-1 shadow-it first-observation surfacing
+        run: node scripts/validate-bl1-shadow-it-first-observation.js
+      - name: BL-1 first-observation mutation proof
+        run: node scripts/validate-bl1-shadow-it-first-observation-mutations.js
 
       - name: Validate alert trust foundation (free-plan blocked on every path / per-user preferences / no legacy bypass)
         run: node scripts/validate-alert-trust-foundation.js
