@@ -3,24 +3,61 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-const repo = path.resolve(process.argv[2]);
-const outputPath = path.resolve(process.argv[3]);
-const at = (relative) => pathToFileURL(path.join(repo, relative)).href;
-const S = await import(at("workers/scan-api/src/lib/serviceability.js"));
-const T = await import(at("workers/scan-api/src/engines/tls-evidence.js"));
-const { resolveCustomerAlertPresentation } = await import(at("workers/scan-api/src/engines/customer-alert-presentation.js"));
-const { computeScore } = await import(at("workers/scan-api/src/engines/scoring.js"));
-const { computeSecurityPosture } = await import(at("workers/scan-api/src/engines/posture-scoring.js"));
-
 // Data-verbatim sealed oracle source; governed by EXECUTIVE-RULING-P1-2A-CHAIN-VETO-001 (canonical seq 319, bundle 5fefa1c5…).
+// This module is THE executed matrix source for validate-p1-serviceability-contract.js
+// (dead-gate law: the sealed data feeds the CI-executed contract, never a formula).
+// The 65 check payloads below are byte-verbatim to the sealed instrument
+// INPUT-PRIOR-LEFT-ORACLE.mjs (sha256 adfa2b6b…); only the harness records input
+// tuples: the five locally-imported functions are wrapped so each row registers the
+// exact (fn, args) it fed — call expressions and expected values are untouched, and
+// engine-internal calls are invisible to the recorder (only these local bindings are
+// wrapped). The collapse guard requires exactly 65 distinct input tuples.
+export async function runSealedOracle(repo, outputPath = null) {
+const at = (relative) => pathToFileURL(path.join(repo, relative)).href;
+const S0 = await import(at("workers/scan-api/src/lib/serviceability.js"));
+const T0 = await import(at("workers/scan-api/src/engines/tls-evidence.js"));
+const { resolveCustomerAlertPresentation: rcap0 } = await import(at("workers/scan-api/src/engines/customer-alert-presentation.js"));
+const { computeScore: cs0 } = await import(at("workers/scan-api/src/engines/scoring.js"));
+const { computeSecurityPosture: csp0 } = await import(at("workers/scan-api/src/engines/posture-scoring.js"));
+
+const currentRowInputs = [];
+// Signature encoding must not collapse genuinely distinct JS inputs: plain
+// JSON.stringify maps NaN, Infinity and null all to null. Non-finite numbers
+// and undefined are encoded as typed tokens (the same discipline the sealed
+// extraction used).
+const tupleSignature = (value) => JSON.stringify(value, (key, v) => {
+  if (typeof v === "number" && !Number.isFinite(v)) return `«num:${String(v)}»`;
+  if (v === undefined) return "«undefined»";
+  return v;
+});
+const recorder = (fnName, fn) => (...args) => {
+  currentRowInputs.push({ fn: fnName, args });
+  return fn(...args);
+};
+const S = {
+  ...S0,
+  classifyServiceability: recorder("classifyServiceability", S0.classifyServiceability),
+  mayGroundRedirectAbsence: recorder("mayGroundRedirectAbsence", S0.mayGroundRedirectAbsence),
+  mayGroundAbsence: S0.mayGroundAbsence,
+};
+const T = { ...T0, isHttpRedirectPositivelyAbsent: recorder("isHttpRedirectPositivelyAbsent", T0.isHttpRedirectPositivelyAbsent) };
+const resolveCustomerAlertPresentation = recorder("resolveCustomerAlertPresentation", rcap0);
+const computeScore = recorder("computeScore", cs0);
+const computeSecurityPosture = recorder("computeSecurityPosture", csp0);
+
 const results = [];
 const inputTupleSignatures = new Set();
 let index = 0;
 function check(group, name, condition, detail = null) {
   index += 1;
   const pass = Boolean(condition);
-  if (detail !== null) inputTupleSignatures.add(JSON.stringify(detail));
-  results.push({ index, group, name, pass, detail });
+  // Input tuple = the exact function calls this row fed (recorded at the wrapped
+  // local bindings), or a static-wiring identity for the file-regex rows.
+  const inputTuple = currentRowInputs.length > 0
+    ? currentRowInputs.splice(0, currentRowInputs.length)
+    : [{ fn: "static-wiring", group, name }];
+  inputTupleSignatures.add(tupleSignature(inputTuple));
+  results.push({ index, group, name, pass, detail, input_tuple: inputTuple });
   console.log(`${pass ? "PASS" : "FAIL"}\t${index}\t${group}\t${name}`);
 }
 const eq = (group, name, got, expected, detail = null) =>
@@ -185,12 +222,20 @@ for (const group of [...new Set(results.map((row) => row.group))]) {
 }
 const summary = { total: results.length, pass: results.filter((row) => row.pass).length,
   fail: results.filter((row) => !row.pass).length, groups, results };
-const distinctTupleCount = inputTupleSignatures.size;
-if (distinctTupleCount < 20) throw new Error(`ORACLE_DISTINCT_TUPLE_COLLAPSE:${distinctTupleCount}`);
-summary.distinctTupleCount = distinctTupleCount;
-fs.writeFileSync(outputPath, `${JSON.stringify(summary, null, 2)}\n`);
+const distinctInputTupleCount = inputTupleSignatures.size;
+// Collapse guard over INPUTS: the sealed matrix has exactly 65 distinct input
+// tuples; anything else — collapse, duplication or growth — fails closed.
+if (distinctInputTupleCount !== 65) throw new Error(`ORACLE_DISTINCT_TUPLE_COLLAPSE:${distinctInputTupleCount}`);
+summary.distinctInputTupleCount = distinctInputTupleCount;
+if (outputPath) fs.writeFileSync(outputPath, `${JSON.stringify(summary, null, 2)}\n`);
 for (const [group, counts] of Object.entries(groups)) {
   console.log(`COUNT\t${group}\t${counts.pass}/${counts.total}\tfail=${counts.fail}\tindices=${counts.failed_indices.join(",") || "none"}`);
 }
 console.log(`COUNT\tTOTAL\t${summary.pass}/${summary.total}\tfail=${summary.fail}`);
-process.exitCode = summary.fail === 0 ? 0 : 1;
+return summary;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const summary = await runSealedOracle(path.resolve(process.argv[2]), path.resolve(process.argv[3]));
+  process.exitCode = summary.fail === 0 ? 0 : 1;
+}
