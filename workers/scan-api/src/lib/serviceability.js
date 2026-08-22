@@ -22,8 +22,11 @@
 // FIXED (a takeover surface "claimed" during a provider outage; a managed
 // verification "complete" off a 503). Both directions are pinned separately below.
 //
-// Provenance: GOVERNANCE-RULING-I11A-ACC-P2-01-BAR-CONFLICT-001 + -ADDENDUM-001 +
-// -F48-BAR2-AUTHORITY-PROVENANCE-CLOSURE-001; plan EXECUTIVE-EPISODE-PLAN-P1-ERROR-CLASS-001.
+// CANONICAL AUTHORITY, cited at its true type: Governance RULINGS seq 42
+// (F48-F51-CLASSIFICATION), seq 63 (F48-REMEDIATION-ACCEPTANCE) and seq 262
+// (I11A-ACC-P2-01-BAR-CONFLICT — FINAL, authorizes this succession). seq 260 is an
+// Executive SUBMISSION and seq 263 an Executive MEASUREMENT: context, not rulings.
+// Plan: EXECUTIVE-EPISODE-PLAN-P1-ERROR-CLASS-001.
 
 import { FETCH_OBSERVATION_STATES } from "./fetch-observation.js";
 
@@ -59,6 +62,11 @@ export const SERVICEABILITY_REASONS = Object.freeze({
 // receive, and treating it as a definitive answer is how a false ISSUE is born for
 // enterprise-edge domains. These are evidence-insufficient.
 export const ACCESS_RESTRICTED_STATUSES = Object.freeze([401, 403, 429]);
+
+// The admissible HTTP status range. A value outside it is a malformed observation,
+// NOT an origin that answered with an unusual code.
+export const MIN_HTTP_STATUS = 100;
+export const MAX_HTTP_STATUS = 599;
 
 const isPlainRecord = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
 
@@ -119,9 +127,21 @@ export function classifyServiceability(observation) {
     return unknown(SERVICEABILITY_REASONS.UNKNOWN_SHAPE);
   }
 
+  // ADMISSION IS A TYPE **AND VALUE** CONTRACT (P11-LV-01). Guarding `typeof` alone
+  // let every finite number through to the range ladder below, so `200.5` reached
+  // `>= 200` and grounded a conclusion, while `600`/`99`/`0`/`-1` were DECIDED
+  // non-serviceable — i.e. reported as if a real origin had answered badly.
+  //
+  // An out-of-range or fractional status is not a worse origin; it is a MALFORMED
+  // OBSERVATION. Conflating the two would let a corrupt record masquerade as a 5xx
+  // and produce an "evidence insufficient because the origin errored" story about an
+  // origin that never said any such thing. Malformed input therefore fails closed to
+  // UNKNOWN — `null` — and never to a decided verdict in either direction.
+  //
+  // Admissible == an INTEGER in [100, 599]. Checked BEFORE any range decision.
   const status = observation.origin_status;
-  if (typeof status !== "number" || !Number.isFinite(status)) {
-    // An origin_response that cannot say WHAT the origin said is not a usable answer.
+  if (typeof status !== "number" || !Number.isInteger(status)
+      || status < MIN_HTTP_STATUS || status > MAX_HTTP_STATUS) {
     return unknown(SERVICEABILITY_REASONS.UNKNOWN_SHAPE);
   }
 

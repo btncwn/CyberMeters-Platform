@@ -86,8 +86,10 @@ for (const status of [520, 522, 527, 530]) {
 // the redirect decision was never observed and cannot be "validated". The F-42
 // boundary this row exists to protect — origin_response vs cloudflare_edge_error — is
 // asserted unchanged; only the conclusion drawn from it is superseded.
-// Provenance: F48-F51-CLASSIFICATION -> F48-REMEDIATION-ACCEPTANCE ->
-// I11A-ACC-P2-01-BAR-CONFLICT -> ADDENDUM -> F48-BAR2-AUTHORITY-PROVENANCE-CLOSURE.
+// CANONICAL AUTHORITY, cited at its true type: Governance RULINGS seq 42
+// (F48-F51-CLASSIFICATION), seq 63 (F48-REMEDIATION-ACCEPTANCE) and seq 262
+// (I11A-ACC-P2-01-BAR-CONFLICT — FINAL, authorizes this succession). seq 260 is an
+// Executive SUBMISSION and seq 263 an Executive MEASUREMENT: context, not rulings.
 for (const status of [528, 529]) {
   const m = await sslWith({ http: () => edge(status) });
   ok(`A: signed ${status} is still a GENUINE ORIGIN answer, not an edge error`,

@@ -61,7 +61,7 @@ const EXPECTED = Object.freeze({
     // the successor validator. Nothing was added to or removed from the runtime set.
     // SUCCESSOR-3: 63 -> 65 across 23 -> 25 files. Additive only: PR #414/#416 added
     // governed comparisons in their own validators. Nothing was removed.
-    fingerprint: "1680545df9427672efa298ce4b725cc7b88549b724b7ec2a9ee405a653c8d044",
+    fingerprint: "8c5c9352d3350a29e844c5a14e8dbb4a751f5b67103bca00b418984a8aa43230",
   },
   runtime_source_file_count: 32,
   direct: {
@@ -73,7 +73,7 @@ const EXPECTED = Object.freeze({
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
-    governance: { occurrence_count: 108, source_file_count: 37, fingerprint: "3369c7cd0ba2a66fd774e6f5cfa25069ac90fa37077591bce4cd691c1d1d842a" },
+    governance: { occurrence_count: 108, source_file_count: 37, fingerprint: "520de2ede77bdaeb1e2d56f573a2ca35054344e5aac233f2e1d042dc1a5ac78b" },
   },
   sql_reads: { projection_occurrences: 23, fingerprint: "2f2378d8e99b017b44932a3a1f723c8c8ff2ca8f9fce0c4690f8decc821a9cc7" },
 });

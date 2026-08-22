@@ -137,13 +137,16 @@ const R_ALL_503 = async () => origin503();
 
 // ── BAR 2 — SUCCEEDED to the three-state contract (P1.1) ───────────────────
 //
-// PROVENANCE CHAIN (the prior semantics were RATIFIED, then SUPERSEDED — never
-// "unauthorized"):
-//   1. GOVERNANCE-RULING-F48-F51-CLASSIFICATION-001        (descriptive)
-//   2. GOVERNANCE-RULING-F48-REMEDIATION-ACCEPTANCE-001    (normative — ratified BAR 2)
-//   3. GOVERNANCE-RULING-I11A-ACC-P2-01-BAR-CONFLICT-001   (declared the conflict P1)
-//   4. …-BAR-CONFLICT-001-ADDENDUM-001                     (first-increment minimum)
-//   5. GOVERNANCE-RULING-F48-BAR2-AUTHORITY-PROVENANCE-CLOSURE-001 (succession framing)
+// CANONICAL AUTHORITY — cited at its TRUE TYPE. Three Governance RULINGS exist in
+// the ledger; the two remaining artifacts are Executive and are NOT rulings:
+//   seq  42  GOVERNANCE-RULING-F48-F51-CLASSIFICATION-001        (ruling — descriptive classification)
+//   seq  63  GOVERNANCE-RULING-F48-REMEDIATION-ACCEPTANCE-001    (ruling — normative, all-503 issue retention)
+//   seq 262  GOVERNANCE-RULING-I11A-ACC-P2-01-BAR-CONFLICT-001   (ruling — FINAL, authorizes this succession)
+// Context, NOT authority:
+//   seq 260  GOVERNANCE-SUBMISSION-…-BAR-CONFLICT-001-ADDENDUM-001  (Executive submission)
+//   seq 263  EXECUTIVE-MEASUREMENT-F48-BAR2-AUTHORITY-PROVENANCE-001 (Executive measurement, no repair authority)
+// The operative authority for the BAR2 succession is seq 262. The prior behaviour was
+// RATIFIED, then SUPERSEDED — never "unauthorized".
 //
 // WHAT CHANGED AND WHY. BAR 2 pinned the all-503 shape to `issue_detected` with a
 // MATERIAL `ssl_no_http_redirect`. That finding was itself produced from

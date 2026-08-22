@@ -2,13 +2,16 @@
 //
 // P1.1 — CANONICAL SERVICEABILITY / CONCLUSION-ELIGIBILITY AUTHORITY. Node 24+.
 //
-// PROVENANCE CHAIN (the prior semantics were RATIFIED, then SUPERSEDED — never
-// "unauthorized"):
-//   1. GOVERNANCE-RULING-F48-F51-CLASSIFICATION-001                 (descriptive)
-//   2. GOVERNANCE-RULING-F48-REMEDIATION-ACCEPTANCE-001             (normative)
-//   3. GOVERNANCE-RULING-I11A-ACC-P2-01-BAR-CONFLICT-001            (conflict = P1)
-//   4. …-BAR-CONFLICT-001-ADDENDUM-001                              (first-increment minimum)
-//   5. GOVERNANCE-RULING-F48-BAR2-AUTHORITY-PROVENANCE-CLOSURE-001  (succession framing)
+// CANONICAL AUTHORITY — cited at its TRUE TYPE. Three Governance RULINGS exist in
+// the ledger; the two remaining artifacts are Executive and are NOT rulings:
+//   seq  42  GOVERNANCE-RULING-F48-F51-CLASSIFICATION-001        (ruling — descriptive classification)
+//   seq  63  GOVERNANCE-RULING-F48-REMEDIATION-ACCEPTANCE-001    (ruling — normative, all-503 issue retention)
+//   seq 262  GOVERNANCE-RULING-I11A-ACC-P2-01-BAR-CONFLICT-001   (ruling — FINAL, authorizes this succession)
+// Context, NOT authority:
+//   seq 260  GOVERNANCE-SUBMISSION-…-BAR-CONFLICT-001-ADDENDUM-001  (Executive submission)
+//   seq 263  EXECUTIVE-MEASUREMENT-F48-BAR2-AUTHORITY-PROVENANCE-001 (Executive measurement, no repair authority)
+// The operative authority for the BAR2 succession is seq 262. The prior behaviour was
+// RATIFIED, then SUPERSEDED — never "unauthorized".
 // Plan: EXECUTIVE-EPISODE-PLAN-P1-ERROR-CLASS-001. Base pin 60420ae.
 //
 // THE CLASS IS BIDIRECTIONAL. One non-serviceable response produced BOTH a false
@@ -98,6 +101,47 @@ const edge522     = () => new Response("edge", { status: 522,
   eq("P11_G1_NOT_ASSESSED_IS_NULL", S.classifyServiceability({ state: "not_assessed" }).serviceable, null);
   ok("P11_G1_CONTRACT_VERSION_IS_STAMPED",
      c("origin_response", 200).contract_version === S.SERVICEABILITY_CONTRACT_VERSION);
+
+  // ── P11-LV-01: MALFORMED NUMERIC SHAPES (Left Mode-2 oracle: 10/10 fail-closed) ──
+  // Admission is a TYPE **AND VALUE** contract. Guarding `typeof` alone let every
+  // finite number reach the range ladder, so `200.5` grounded a conclusion and
+  // `600`/`99`/`0`/`-1` were DECIDED non-serviceable — reported as though a real
+  // origin had answered badly. An out-of-range or fractional status is a MALFORMED
+  // OBSERVATION, not a worse origin: conflating them lets a corrupt record
+  // masquerade as a 5xx. Every row must be UNKNOWN, never a decided verdict.
+  const MALFORMED = [
+    ["fractional_200_5", 200.5], ["fractional_404_5", 404.5],
+    ["below_range_99", 99],      ["above_range_600", 600],
+    ["zero", 0],                 ["negative_1", -1],
+    ["nan", NaN],                ["infinity", Infinity],
+    ["numeric_string_200", "200"], ["null_status", null],
+  ];
+  let failClosed = 0;
+  for (const [label, value] of MALFORMED) {
+    const r = S.classifyServiceability({ state: "origin_response", origin_status: value });
+    const clean = r.serviceable === null
+      && r.conclusion_class === "evidence_insufficient"
+      && r.reason === "unknown_observation_shape"
+      && S.maySupportDefectConclusion(r) === false
+      && S.maySupportHealthyConclusion(r) === false
+      && S.mayGroundAbsence(r) === false;
+    if (clean) failClosed += 1;
+    ok(`P11_G1_MALFORMED_${label.toUpperCase()}_IS_UNKNOWN_SHAPE`, clean,
+       `serviceable=${JSON.stringify(r.serviceable)} class=${r.conclusion_class} reason=${r.reason}`);
+  }
+  eq("P11_G1_MALFORMED_MATRIX_IS_FULLY_FAIL_CLOSED", failClosed, MALFORMED.length);
+  // An out-of-range value must NOT be mistaken for a real non-serviceable origin.
+  ok("P11_G1_600_IS_NOT_REPORTED_AS_AN_ORIGIN_ERROR",
+     S.classifyServiceability({ state: "origin_response", origin_status: 600 }).reason
+       !== "origin_error_no_serviceable_response");
+  ok("P11_G1_99_IS_NOT_REPORTED_AS_INFORMATIONAL",
+     S.classifyServiceability({ state: "origin_response", origin_status: 99 }).reason
+       !== "origin_informational_only");
+  // The admissible boundary itself stays green — the guard must not over-reject.
+  eq("P11_G1_BOUNDARY_100_IS_ADMITTED", S.classifyServiceability(
+     { state: "origin_response", origin_status: 100 }).reason, "origin_informational_only");
+  eq("P11_G1_BOUNDARY_599_IS_ADMITTED", S.classifyServiceability(
+     { state: "origin_response", origin_status: 599 }).reason, "origin_error_no_serviceable_response");
 
   // The three helpers are separately named so a repair in one direction cannot
   // silently re-open the other.

@@ -7,8 +7,10 @@
 // assertions — a single "is it usable" guard would let a repair in one direction
 // silently re-open the other.
 //
-// Provenance chain: F48-F51-CLASSIFICATION -> F48-REMEDIATION-ACCEPTANCE ->
-// I11A-ACC-P2-01-BAR-CONFLICT -> ADDENDUM -> F48-BAR2-AUTHORITY-PROVENANCE-CLOSURE.
+// CANONICAL AUTHORITY, cited at its true type: Governance RULINGS seq 42
+// (F48-F51-CLASSIFICATION), seq 63 (F48-REMEDIATION-ACCEPTANCE) and seq 262
+// (I11A-ACC-P2-01-BAR-CONFLICT — FINAL, authorizes this succession). seq 260 is an
+// Executive SUBMISSION and seq 263 an Executive MEASUREMENT: context, not rulings.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -61,6 +63,18 @@ const MUTANTS = [
     "  if (status >= 400) {\n    return decided(true, CONCLUSION_CLASSES.CONCLUSIVE,\n      SERVICEABILITY_REASONS.ORIGIN_NEGATIVE_ANSWER, status);\n  }",
     "  if (status >= 400) {\n    return decided(false, CONCLUSION_CLASSES.EVIDENCE_INSUFFICIENT,\n      SERVICEABILITY_REASONS.ORIGIN_ERROR, status);\n  }",
     "P11_G1_404_IS_SERVICEABLE_NEGATIVE_ANSWER"],
+  // ── P11-LV-01 — admission is a TYPE **AND VALUE** contract ────────────────
+  // Reverting to the typeof-only guard lets every finite number reach the range
+  // ladder: `200.5` grounds a conclusion and `600` is decided a real 5xx.
+  ["P11-M8-admission-reverts-to-typeof-only", SERVICEABILITY,
+    "  if (typeof status !== \"number\" || !Number.isInteger(status)\n      || status < MIN_HTTP_STATUS || status > MAX_HTTP_STATUS) {",
+    "  if (typeof status !== \"number\" || !Number.isFinite(status)) {",
+    "P11_G1_MALFORMED_FRACTIONAL_200_5_IS_UNKNOWN_SHAPE"],
+  // Keeping the integer check but dropping the RANGE lets 600 masquerade as a 5xx.
+  ["P11-M9-range-bounds-dropped", SERVICEABILITY,
+    "      || status < MIN_HTTP_STATUS || status > MAX_HTTP_STATUS) {",
+    "      || false) {",
+    "P11_G1_MALFORMED_ABOVE_RANGE_600_IS_UNKNOWN_SHAPE"],
 ];
 
 // Cosmetic edits that MUST survive — a suite that dies on a comment proves nothing.
