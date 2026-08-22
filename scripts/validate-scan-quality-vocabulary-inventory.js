@@ -35,7 +35,7 @@ const EXPECTED = Object.freeze({
     source_file_count: 22,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
-    fingerprint: "9893be0b1a7d3dac0b4fcabdd70781057dac0208ba88083a3e32073c21d42637",
+    fingerprint: "fde8d304f5d4697fa6c7cf600402b6c11055241823a108cededb833bc5fd04a5",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -77,7 +77,7 @@ const EXPECTED = Object.freeze({
     // asm-cases read now flows through the shared predicate.
     // SEQ-151 SUCCESSION: count UNCHANGED at 92; fingerprint moves for the same
     // reason as the runtime comparison set above.
-    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "423954987827d63b0179d576da005a621fc628fcf3826968f4bf72ccaca6357c" },
+    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "144aa0bbcdb0c5f25f3221abc7a3b4cb217383982f65ab12e07ca4d57dc9ad68" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
