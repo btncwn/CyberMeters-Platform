@@ -1,3 +1,9 @@
+// BL-1 canonical first-observation copy. MUST stay byte-identical to
+// SHADOW_IT_FIRST_OBSERVATION_LABEL in workers/scan-api/src/engines/shadow-it-inventory.js
+// — validator-pinned on both sides. Observation is not a verdict: the words
+// `unauthorised`/`unapproved`/`malicious` are forbidden here.
+export const SHADOW_IT_FIRST_OBSERVATION_LABEL = "Newly observed technology — not yet reviewed";
+
 // Shared presentation for the Shadow IT approved inventory. Maps a server-owned
 // classification / monitoring status to a display label + tone. The frontend
 // NEVER decides which classification is valid or which actions are allowed —

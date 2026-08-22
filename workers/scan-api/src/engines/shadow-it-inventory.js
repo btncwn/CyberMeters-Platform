@@ -14,6 +14,18 @@
 // (shadow_it_case → shadow_it.saas.review remediation).
 
 import { emitLifecycleAlert, describeRecurrenceEvent, recommendationForRecurrence } from "./alert-consumers.js";
+
+// ── BL-1 canonical first-observation copy ────────────────────────────────────
+// Observation is NOT a verdict. CyberMeters saw this technology; it has not judged
+// it. The words `unauthorised`/`unapproved`/`malicious` are forbidden here and are
+// validator-pinned — a newly observed technology is a REVIEW ITEM, not a problem.
+export const SHADOW_IT_FIRST_OBSERVATION_LABEL = "Newly observed technology — not yet reviewed";
+export const SHADOW_IT_FIRST_OBSERVATION_SECTION = "Newly observed technologies — not yet reviewed";
+// The domain key + kind used to build the SHARED alert dedupe identity. There is no
+// parallel dedupe scheme: the subject is `canonical_technology_key`, the period is
+// the digest's ISO week.
+export const SHADOW_IT_FIRST_OBSERVATION_DOMAIN_KEY = "shadow_it";
+export const SHADOW_IT_FIRST_OBSERVATION_KIND = "first_observation";
 import { resolveRemediation } from "./remediation-registry.js";
 import { buildMonitoringTransitionDetail, isMonitoringTransition } from "./alert-occurrence.js";
 import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
@@ -1028,6 +1040,12 @@ export function shadowItItemToApi(row) {
     observed_identifiers: parseJson(row.observed_identifiers_json, []) || [],
     first_seen_at: row.first_seen_at,
     last_seen_at: row.last_seen_at,
+    // BL-1 facts. `newly_observed` is absent (not false) on read paths that do not
+    // compute it, so a consumer can tell "not new" from "not evaluated here".
+    first_observed_at: row.first_observed_at ?? null,
+    ...(row.newly_observed === undefined || row.newly_observed === null
+      ? {}
+      : { newly_observed: row.newly_observed === 1 || row.newly_observed === true }),
     last_changed_at: row.last_changed_at || null,
     confidence: row.confidence,
     classification: row.classification,
@@ -1073,7 +1091,26 @@ export async function listShadowItInventory(env, workspaceId, { classification =
   if (monitoring_status) { where.push("monitoring_status = ?"); binds.push(monitoring_status); }
   if (ownership_status) { where.push("ownership_status = ?"); binds.push(ownership_status); }
   const rows = (await env.cybermeters_db
-    .prepare(`SELECT * FROM shadow_it_inventory WHERE ${where.join(" AND ")} ORDER BY last_seen_at DESC LIMIT ?`)
+    // BL-1: `first_observed_at` and `newly_observed` come from the SAME append-only
+    // event the weekly digest reads (`observed` with detail.created = 1) and the SAME
+    // 7-day window, so the in-app indicator and the digest can never disagree. The
+    // flag is backend-owned; the frontend renders it and derives nothing.
+    // `newly_observed` also requires `unreviewed`, because the label says "not yet
+    // reviewed" and a technology the customer already reviewed is not that.
+    .prepare(`SELECT i.*,
+                (SELECT MIN(e.created_at) FROM shadow_it_inventory_events e
+                  WHERE e.item_id = i.id AND e.workspace_id = i.workspace_id
+                    AND e.event_type = 'observed'
+                    AND json_extract(e.detail_json, '$.created') = 1) AS first_observed_at,
+                CASE WHEN i.classification = 'unreviewed'
+                      AND (SELECT MIN(e2.created_at) FROM shadow_it_inventory_events e2
+                            WHERE e2.item_id = i.id AND e2.workspace_id = i.workspace_id
+                              AND e2.event_type = 'observed'
+                              AND json_extract(e2.detail_json, '$.created') = 1)
+                          > datetime('now', '-7 days')
+                     THEN 1 ELSE 0 END AS newly_observed
+              FROM shadow_it_inventory i
+             WHERE ${where.join(" AND ")} ORDER BY last_seen_at DESC LIMIT ?`)
     .bind(...binds, Math.max(1, Math.min(500, Number(limit) || 100))).all().catch(() => ({ results: [] }))).results || [];
   return rows.map(shadowItItemToApi);
 }

@@ -276,6 +276,40 @@ async function mutantOf(dir, file, from, to) {
   ok("mutation M7 (disappearance → verified removal claim) is CAUGHT", m.anchor && /was removed/.test(wc) && !/not verify/i.test(wc));
 }
 
+// ── BL-1 — first-observation copy is pinned, and stays a NON-verdict ─────────
+// Surfacing a newly observed technology is the moment the product is most tempted
+// to editorialise. The exact wording is pinned on BOTH sides (engine + frontend)
+// because a copy that drifts on one surface is how "observed" quietly becomes
+// "unauthorised".
+{
+  const eng2 = await import(eng("shadow-it-inventory.js"));
+  const LABEL = eng2.SHADOW_IT_FIRST_OBSERVATION_LABEL;
+  const SECTION = eng2.SHADOW_IT_FIRST_OBSERVATION_SECTION;
+  ok("BL1: first-observation label is exactly the approved copy",
+    LABEL === "Newly observed technology — not yet reviewed", String(LABEL));
+  ok("BL1: digest section header is exactly the approved copy",
+    SECTION === "Newly observed technologies — not yet reviewed", String(SECTION));
+  ok("BL1: neither string claims unauthorised/unapproved/malicious",
+    !/unauthoris|unapproved|malicious/i.test(`${LABEL} ${SECTION}`));
+  // The label is a REVIEW prompt, not a verdict: it must not assert risk or breach.
+  ok("BL1: label asserts no risk verdict",
+    !/risk|threat|breach|violation|dangerous|suspicious/i.test(LABEL), String(LABEL));
+  // The frontend copy must be byte-identical — one drifts, both lie.
+  const feSrc = fs.readFileSync(path.join(root, "frontend/src/lib/shadowItDisplay.js"), "utf8");
+  ok("BL1: frontend copy constant is byte-identical to the engine's",
+    feSrc.includes(`export const SHADOW_IT_FIRST_OBSERVATION_LABEL = "${LABEL}"`));
+  // Assert on the STRING LITERAL, not the file: the surrounding comments
+  // deliberately NAME the forbidden words in order to forbid them, and a
+  // whole-file scan would fail on its own guard-rail text.
+  const feLiteral = (feSrc.match(/SHADOW_IT_FIRST_OBSERVATION_LABEL = "([^"]*)"/) || [])[1] || "";
+  ok("BL1: frontend copy literal carries no forbidden verdict word",
+    feLiteral !== "" && !/unauthoris|unapproved|malicious/i.test(feLiteral), feLiteral);
+  // The shared dedupe identity is reused, never a parallel scheme.
+  ok("BL1: dedupe reuses the shared domain_key/kind, not a private scheme",
+    eng2.SHADOW_IT_FIRST_OBSERVATION_DOMAIN_KEY === "shadow_it"
+    && eng2.SHADOW_IT_FIRST_OBSERVATION_KIND === "first_observation");
+}
+
 globalThis.fetch = realFetch;
 console.log(`\nshadow-it-recurrence-truth: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("shadow-it-recurrence-truth validation FAILED"); process.exit(1); }

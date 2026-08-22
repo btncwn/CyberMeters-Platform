@@ -9,6 +9,7 @@ import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
 import {
+  SHADOW_IT_FIRST_OBSERVATION_LABEL,
   classificationMeta, monitoringMeta, ownershipMeta, onboardingMeta, removalMeta,
   toneClass, SHADOW_IT_SCOPE_NOTE,
 } from '../../lib/shadowItDisplay'
@@ -227,7 +228,21 @@ export default function ShadowItInventoryPage() {
                   className={`border-b border-slate-50 align-top ${it.inventory_item_id === focusItemId ? 'bg-amber-50/60 ring-1 ring-inset ring-amber-200' : ''}`}
                 >
                   <td className="py-2 px-3">
-                    <div className="font-medium text-slate-700">{it.display_name}</div>
+                    <div className="font-medium text-slate-700">
+                      {it.display_name}
+                      {/* BL-1: the backend owns this flag (same event + same 7-day
+                          window as the weekly digest), so the indicator and the
+                          digest can never disagree. Observation is not a verdict —
+                          this says CyberMeters saw it and nobody has reviewed it. */}
+                      {it.newly_observed === true && (
+                        <span
+                          className="ml-2 inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-200 align-middle"
+                          title={SHADOW_IT_FIRST_OBSERVATION_LABEL}
+                        >
+                          New
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-slate-400">{it.provider}{it.confidence ? ` · ${it.confidence} confidence` : ''}</div>
                     {it.linked_case_id && (
                       <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-amber-600 hover:underline">

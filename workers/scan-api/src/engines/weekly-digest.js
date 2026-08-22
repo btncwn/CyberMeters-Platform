@@ -11,6 +11,12 @@ import { enrichEvent, SEVERITY_RANK } from "../lib/exposure-events.js";
 import { collapseCustomerTimelineEvents } from "./timeline-trust.js";
 import { deliverEmail, escapeEmailHtml } from "../lib/lifecycle-email.js";
 import { createId } from "../lib/util.js";
+import { buildAlertDedupeKey } from "./managed-alerts.js";
+import {
+  SHADOW_IT_FIRST_OBSERVATION_SECTION,
+  SHADOW_IT_FIRST_OBSERVATION_DOMAIN_KEY,
+  SHADOW_IT_FIRST_OBSERVATION_KIND,
+} from "./shadow-it-inventory.js";
 import {
   createAssetLifecycleUnavailableProjection,
   loadAssetLifecycleEventSupport,
@@ -110,6 +116,68 @@ export async function assessmentEvidenceForWindow(env, workspaceId) {
 
 // Read-only: the week's change events for a workspace, summarised as DISTINCT
 // semantic changes plus the window's assessment evidence.
+// BL-1 — first-observation surfacing.
+//
+// The insert path in shadow-it-inventory.js writes an append-only `observed` event
+// with `detail.created = true` and then CONTINUES without touching the alert
+// pipeline, so a first observation is genuinely silent today. That event IS the
+// first-observation record; no new table or column is needed.
+//
+// `detail.created = true` is emitted ONLY by the INSERT branch, so a re-observation
+// or a reclassification can never re-enter this set — the negative control is
+// structural, not a filter we remember to apply.
+//
+// The item must ALSO still be `unreviewed`: the copy says "not yet reviewed", and a
+// technology the customer reviewed on Wednesday is not un-reviewed on Sunday. Saying
+// otherwise would be exactly the kind of stale claim this codebase exists to refuse.
+//
+// Dedupe is the SHARED alert identity (domain_key|kind|subject|period) with the
+// canonical_technology_key as subject and the ISO week as period — never a parallel
+// scheme. DISTINCT on the key makes a technology observed twice in one week appear
+// once.
+export async function shadowItFirstObservationsForWindow(env, workspaceId, weekKey) {
+  try {
+    const rows = await env.cybermeters_db
+      .prepare(
+        `SELECT DISTINCT i.canonical_technology_key AS technology_key,
+                i.display_name              AS display_name
+           FROM shadow_it_inventory_events e
+           JOIN shadow_it_inventory i
+             ON i.id = e.item_id
+            AND i.workspace_id = e.workspace_id
+          WHERE e.workspace_id = ?
+            AND i.workspace_id = ?
+            AND e.event_type = 'observed'
+            AND json_extract(e.detail_json, '$.created') = 1
+            AND i.classification = 'unreviewed'
+            AND e.created_at > datetime('now', '-7 days')
+          ORDER BY i.display_name`
+      )
+      .bind(workspaceId, workspaceId)
+      .all();
+    const items = (rows?.results || [])
+      .filter((r) => r && typeof r.technology_key === "string" && r.technology_key !== "")
+      .map((r) => ({
+        technology_key: r.technology_key,
+        display_name: r.display_name || r.technology_key,
+        occurrence_id: buildAlertDedupeKey({
+          domain_key: SHADOW_IT_FIRST_OBSERVATION_DOMAIN_KEY,
+          kind: SHADOW_IT_FIRST_OBSERVATION_KIND,
+          subject: r.technology_key,
+          period: weekKey,
+        }),
+      }));
+    // Defensive: collapse any residual duplicate occurrence identity.
+    const seen = new Set();
+    const deduped = items.filter((i) => (seen.has(i.occurrence_id) ? false : (seen.add(i.occurrence_id), true)));
+    return { count: deduped.length, items: deduped, evaluated: true };
+  } catch {
+    // Fail closed: an unreadable window reports NOTHING rather than an invented zero
+    // that would read as "no new technology this week".
+    return { count: null, items: [], evaluated: false };
+  }
+}
+
 export async function computeWeeklyChanges(env, workspaceId) {
   const lifecycleEventColumns = `id, workspace_id, domain_id, asset_id, scan_id, event_type,
                                  hostname, severity, description, created_at`;
@@ -216,6 +284,8 @@ export async function computeWeeklyChanges(env, workspaceId) {
     },
     assessment,
     lifecycle_claim_projection: projectionSummary,
+    shadow_it_first_observations: await shadowItFirstObservationsForWindow(
+      env, workspaceId, isoWeekKey()),
   };
 }
 
@@ -225,7 +295,42 @@ export async function computeWeeklyChanges(env, workspaceId) {
 // was available — absence of evidence is never presented as stability.
 // `workspaceId` scopes the CTA to the digest's own workspace so the link can
 // never open whichever workspace the reader last had selected.
+// BL-1 wrapper. The core builder has SIX return points; appending the section at
+// each one would mean a future seventh silently drops it — and "the section exists
+// but not on that branch" is precisely the class of quiet omission this codebase
+// keeps having to repair. Wrapping guarantees every path carries it, including the
+// `total === 0` branch, which is the FIRST-SCAN case where new technologies matter
+// most.
 export function buildDigestEmail(wsName, changes, origin, workspaceId = null) {
+  const email = buildDigestEmailCore(wsName, changes, origin, workspaceId);
+  return withFirstObservations(email, changes, origin, workspaceId);
+}
+
+// Pure. Renders the honest first-observation section, or nothing at all.
+function withFirstObservations(email, changes, origin, workspaceId) {
+  const obs = changes?.shadow_it_first_observations;
+  if (!obs || obs.evaluated !== true) return email;          // unreadable => say nothing
+  const items = Array.isArray(obs.items) ? obs.items : [];
+  if (items.length === 0) return email;                       // nothing observed => no section
+  const esc = escapeEmailHtml;
+  const base = `${(origin || "https://app.cybermeters.com").replace(/\/$/, "")}/ws/shadow-it`;
+  const link = workspaceId ? `${base}?ws=${encodeURIComponent(workspaceId)}` : base;
+  const names = items.map((i) => i.display_name);
+  // Count and names only. No severity, no verdict, no "unauthorised" — CyberMeters
+  // observed these; it has not judged them.
+  const lead = `${items.length} newly observed technolog${items.length === 1 ? "y" : "ies"} `
+    + `${items.length === 1 ? "has" : "have"} not been reviewed yet.`;
+  const text = `\n\n${SHADOW_IT_FIRST_OBSERVATION_SECTION}\n${lead}\n`
+    + names.map((n) => `  • ${n}`).join("\n")
+    + `\n\nReview them: ${link}`;
+  const html = `<h3>${esc(SHADOW_IT_FIRST_OBSERVATION_SECTION)}</h3>`
+    + `<p>${esc(lead)}</p>`
+    + `<ul>${names.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>`
+    + `<p><a href="${link}">Review them →</a></p>`;
+  return { ...email, text: `${email.text}${text}`, html: `${email.html}${html}` };
+}
+
+function buildDigestEmailCore(wsName, changes, origin, workspaceId = null) {
   const name = wsName || "your workspace";
   const base = `${(origin || "https://app.cybermeters.com").replace(/\/$/, "")}/exposure`;
   const link = workspaceId ? `${base}?ws=${encodeURIComponent(workspaceId)}` : base;
