@@ -207,9 +207,10 @@ const definitive = (ssl) => {
   return !!f && f.severity === "medium" && Number(f.score_impact) === -5;
 };
 {
-  // The ONLY case that may stay definitive: an old report with an explicit true.
-  ok("L: legacy explicit http_redirect_validated=true MAY remain definitive",
-    definitive({ https_available: null, http_redirects_to_https: false, http_redirect_chain: { http_redirect_validated: true } }));
+  // Legacy rows remain readable but are non-comparable: the old boolean cannot
+  // certify absence, because it carries no canonical serviceability state.
+  ok("L: legacy explicit http_redirect_validated=true is non-comparable, not definitive",
+    !definitive({ https_available: null, http_redirects_to_https: false, http_redirect_chain: { http_redirect_validated: true } }));
   ok("L: legacy explicit false is NOT definitive",
     !definitive({ https_available: null, http_redirect_chain: { http_redirect_validated: false } }));
   ok("L: MISSING FIELD is NOT definitive (was `!== false` → true)",
@@ -222,8 +223,12 @@ const definitive = (ssl) => {
       !definitive({ https_available: null, http_redirect_chain: { http_redirect_validated: true, observation_state: state } }),
       "an explicit state must override a stale legacy boolean");
   }
-  ok("L: observation_state origin_response IS definitive (positive control)",
-    definitive({ https_available: null, http_redirects_to_https: false, http_redirect_chain: { http_redirect_validated: true, observation_state: "origin_response" } }));
+  ok("L: observation_state origin_response with a recorded serviceable hop IS definitive (positive control)",
+    definitive({ https_available: null, http_redirects_to_https: false, http_redirect_chain: {
+      http_redirect_validated: true,
+      observation_state: "origin_response",
+      hop_observations: [{ hop: 1, state: "origin_response", origin_status: 200 }],
+    } }));
 }
 
 // ── C. GENUINE BEHAVIOUR PRESERVED ───────────────────────────────────────────

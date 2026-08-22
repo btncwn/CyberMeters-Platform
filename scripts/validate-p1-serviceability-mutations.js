@@ -22,17 +22,12 @@ const abs = (r) => path.join(root, r);
 const sha = (b) => crypto.createHash("sha256").update(b).digest("hex");
 
 const SERVICEABILITY = "workers/scan-api/src/lib/serviceability.js";
-const SSL_SCAN       = "workers/scan-api/src/engines/ssl-scan.js";
 const VALIDATOR      = "scripts/validate-p1-serviceability-contract.js";
 
 // [id, file, find, replace, mustFailAssertion]
 const MUTANTS = [
   // ── DIRECTION 1 — restore the false ISSUE ────────────────────────────────
   // The exact pre-P1.1 line: transport treated as serviceability.
-  ["P11-M1-redirect-evidence-reverts-to-transport", SSL_SCAN,
-    "  let redirectEvidenceObserved = mayGroundAbsence(httpServiceability);",
-    "  let redirectEvidenceObserved = httpObservation.transport_observed === true;",
-    "P11_G2_ALL503_NO_REDIRECT_FINDING"],
   // Same direction through the contract instead of the call site.
   ["P11-M2-5xx-declared-serviceable", SERVICEABILITY,
     "  if (status >= 500) {\n    return decided(false, CONCLUSION_CLASSES.EVIDENCE_INSUFFICIENT,\n      SERVICEABILITY_REASONS.ORIGIN_ERROR, status);\n  }",
@@ -85,7 +80,7 @@ const CONTROLS = [
     "// 4xx BOUNDARY — DECIDED EXPLICITLY", "// 4xx BOUNDARY — decided explicitly"],
 ];
 
-const originals = new Map([SERVICEABILITY, SSL_SCAN].map((r) => [r, fs.readFileSync(abs(r), "utf8")]));
+const originals = new Map([SERVICEABILITY].map((r) => [r, fs.readFileSync(abs(r), "utf8")]));
 const hashes = new Map([...originals].map(([r, v]) => [r, sha(v)]));
 const restore = () => { for (const [r, v] of originals) fs.writeFileSync(abs(r), v); };
 

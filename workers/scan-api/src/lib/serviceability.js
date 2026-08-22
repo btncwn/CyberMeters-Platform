@@ -188,5 +188,21 @@ export function maySupportHealthyConclusion(record) { return eligible(record); }
 /** May "we did not observe X" be published as "X is absent"? */
 export function mayGroundAbsence(record) { return eligible(record); }
 
+/**
+ * Redirect absence is admissible only when the redirect chain carries the
+ * canonical observation state.  Historical rows without hop observations are
+ * readable, but deliberately non-comparable: their legacy boolean cannot
+ * certify absence (and in particular an all-503 shape must not do so).
+ */
+export function mayGroundRedirectAbsence(chain) {
+  if (!isPlainRecord(chain) || typeof chain.observation_state !== "string") return false;
+  const hops = Array.isArray(chain.hop_observations) ? chain.hop_observations : [];
+  const last = hops.length ? hops[hops.length - 1] : null;
+  return mayGroundAbsence(classifyServiceability({
+    state: chain.observation_state,
+    origin_status: last?.origin_status ?? chain.origin_status ?? null,
+  }));
+}
+
 /** Convenience: classify then ask, for call sites holding a raw fetch observation. */
 export function serviceabilityOf(observation) { return classifyServiceability(observation); }

@@ -414,10 +414,7 @@ export function computeScore(modules, domain) {
     // uncertainty" asserts a CONTRADICTION between two probes; a redirect we never
     // observed cannot evidence a contradiction, so it must not be inferred from an
     // absent field. Prefer the chain's own observation state when present.
-    const hstsRedirectChain         = modules.ssl?.http_redirect_chain;
-    const sslRedirectWasObservable  = hstsRedirectChain?.observation_state
-      ? hstsRedirectChain.observation_state === "origin_response"
-      : hstsRedirectChain?.http_redirect_validated === true;
+    const sslRedirectWasObservable  = isHttpRedirectPositivelyAbsent(modules.ssl);
     const headerEnterpriseUncertain = ENTERPRISE_DOMAINS.has(domain)
       && sslRedirectWasObservable
       && sslNoHttpsRedirect
@@ -1223,4 +1220,4 @@ export function resolveCanonicalScanScore(storedScore, reportScore) {
 // CURRENT deduction weights + band cutoffs; bump it whenever either changes, so a
 // persisted snapshot can refuse to present a methodology change as posture movement
 // (the CYBER_MOT_RESOLVER_VERSION / CE_READINESS_METHODOLOGY_VERSION precedent).
-export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-07-16.1";
+export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-08-22.1";
