@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 //
 // P1.1 — MUTATION PROOF for the canonical serviceability authority. Node 24+.
+// Chain-veto provenance: EXECUTIVE-RULING-P1-2A-CHAIN-VETO-001 (canonical seq 319, bundle 5fefa1c5…).
 //
 // The class is BIDIRECTIONAL, so the kill set is too. Restoring the false ISSUE and
 // overshooting into false HEALTHY must EACH turn the suite red, on DISTINCT named
@@ -22,17 +23,24 @@ const abs = (r) => path.join(root, r);
 const sha = (b) => crypto.createHash("sha256").update(b).digest("hex");
 
 const SERVICEABILITY = "workers/scan-api/src/lib/serviceability.js";
-const SSL_SCAN       = "workers/scan-api/src/engines/ssl-scan.js";
 const VALIDATOR      = "scripts/validate-p1-serviceability-contract.js";
 
 // [id, file, find, replace, mustFailAssertion]
 const MUTANTS = [
+  ["P11-M11-state-borrow-terminal", SERVICEABILITY,
+    '  if (last.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  // Provenance: EXECUTIVE-RULING-P1-2A-CHAIN-VETO-001 (canonical seq 319, bundle 5fefa1c5…): veto never rescues; unknown tokens fail closed.\n  const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);\n  if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  return mayGroundAbsence(classifyServiceability({\n    state: last.state,',
+    '  if (chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  const recognized = true;\n  if (!recognized || false) return false;\n  return mayGroundAbsence(classifyServiceability({\n    state: chain.observation_state,',
+    "P11_LV01_CHAIN_STATE_NOT_BORROWED_FOR_TERMINAL_CLASSIFIER"],
+  ["P11-M13-coherence-veto-removed", SERVICEABILITY,
+    '  const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);\n  if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;',
+    '  const recognized = true;\n  if (!recognized || false) return false;',
+    "P11_LV01_CONFLICTING_CHAIN_EDGE_TERMINAL_ORIGIN_REJECTED"],
+  ["P11-M14-unknown-chain-normalized", SERVICEABILITY,
+    '  const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);\n  if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;',
+    '  const normalizedChainState = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state) ? chain.observation_state : FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE;\n  const recognized = true;\n  if (!recognized || normalizedChainState !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;',
+    "P11_RULING3_UNKNOWN_CHAIN_TOKEN_TERMINAL_ORIGIN_200_REJECTED"],
   // ── DIRECTION 1 — restore the false ISSUE ────────────────────────────────
   // The exact pre-P1.1 line: transport treated as serviceability.
-  ["P11-M1-redirect-evidence-reverts-to-transport", SSL_SCAN,
-    "  let redirectEvidenceObserved = mayGroundAbsence(httpServiceability);",
-    "  let redirectEvidenceObserved = httpObservation.transport_observed === true;",
-    "P11_G2_ALL503_NO_REDIRECT_FINDING"],
   // Same direction through the contract instead of the call site.
   ["P11-M2-5xx-declared-serviceable", SERVICEABILITY,
     "  if (status >= 500) {\n    return decided(false, CONCLUSION_CLASSES.EVIDENCE_INSUFFICIENT,\n      SERVICEABILITY_REASONS.ORIGIN_ERROR, status);\n  }",
@@ -85,7 +93,7 @@ const CONTROLS = [
     "// 4xx BOUNDARY — DECIDED EXPLICITLY", "// 4xx BOUNDARY — decided explicitly"],
 ];
 
-const originals = new Map([SERVICEABILITY, SSL_SCAN].map((r) => [r, fs.readFileSync(abs(r), "utf8")]));
+const originals = new Map([SERVICEABILITY].map((r) => [r, fs.readFileSync(abs(r), "utf8")]));
 const hashes = new Map([...originals].map(([r, v]) => [r, sha(v)]));
 const restore = () => { for (const [r, v] of originals) fs.writeFileSync(abs(r), v); };
 

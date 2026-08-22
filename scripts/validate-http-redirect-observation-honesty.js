@@ -207,9 +207,10 @@ const definitive = (ssl) => {
   return !!f && f.severity === "medium" && Number(f.score_impact) === -5;
 };
 {
-  // The ONLY case that may stay definitive: an old report with an explicit true.
-  ok("L: legacy explicit http_redirect_validated=true MAY remain definitive",
-    definitive({ https_available: null, http_redirects_to_https: false, http_redirect_chain: { http_redirect_validated: true } }));
+  // Legacy rows remain readable but are non-comparable: the old boolean cannot
+  // certify absence, because it carries no canonical serviceability state.
+  ok("L: legacy explicit http_redirect_validated=true is non-comparable, not definitive",
+    !definitive({ https_available: null, http_redirects_to_https: false, http_redirect_chain: { http_redirect_validated: true } }));
   ok("L: legacy explicit false is NOT definitive",
     !definitive({ https_available: null, http_redirect_chain: { http_redirect_validated: false } }));
   ok("L: MISSING FIELD is NOT definitive (was `!== false` → true)",
@@ -222,8 +223,13 @@ const definitive = (ssl) => {
       !definitive({ https_available: null, http_redirect_chain: { http_redirect_validated: true, observation_state: state } }),
       "an explicit state must override a stale legacy boolean");
   }
-  ok("L: observation_state origin_response IS definitive (positive control)",
-    definitive({ https_available: null, http_redirects_to_https: false, http_redirect_chain: { http_redirect_validated: true, observation_state: "origin_response" } }));
+  ok("L: observation_state origin_response with a recorded serviceable hop IS definitive (positive control)",
+    definitive({ https_available: null, http_redirects_to_https: false, http_redirect_chain: {
+      http_redirect_validated: true,
+      observation_state: "origin_response",
+      observation_completeness: "observed",
+      hop_observations: [{ hop: 1, state: "origin_response", origin_status: 200 }],
+    } }));
 }
 
 // ── C. GENUINE BEHAVIOUR PRESERVED ───────────────────────────────────────────
@@ -314,6 +320,30 @@ console.log("\n── E. canonical module incompleteness ──");
   const m = await sslWith({ https: () => originPlain(200), http: () => originRedirect(301, "https://example.com/") });
   ok("E: fully observed scan is NOT incomplete (no over-degradation)",
     m.incomplete !== true, JSON.stringify(m.incomplete_reason));
+}
+
+// ── F. typed hop-container contract (P12A-LV-02 / LV-01) ───────────────────
+// Explicit malformed containers are unknown, while a genuinely absent field
+// retains the narrowly scoped legacy compatibility path.  The terminal hop,
+// not a chain-level state borrowed from an earlier hop, owns absence.
+console.log("\n── F. typed hop-container and terminal-hop contract ──");
+{
+  const base = { observation_state: "origin_response", observation_completeness: "observed",
+    http_redirect_validated: true, origin_status: null };
+  for (const bad of ["not-an-array", { hop: 1 }, 42, null]) {
+    ok(`F: malformed hop_observations (${typeof bad}) is not admissible`,
+      !definitive({ https_available: null, http_redirects_to_https: false,
+        http_redirect_chain: { ...base, hop_observations: bad } }));
+  }
+  ok("F: terminal edge hop cannot borrow chain origin_response",
+    !definitive({ https_available: null, http_redirects_to_https: false,
+      http_redirect_chain: { ...base, hop_observations: [
+        { hop: 1, state: "origin_response", origin_status: 200 },
+        { hop: 2, state: "cloudflare_edge_error", origin_status: null },
+      ] } }));
+  ok("F: genuinely absent hop_observations keeps typed legacy compatibility",
+    definitive({ https_available: null, http_redirects_to_https: false,
+      http_redirect_chain: base }));
 }
 
 console.log(`\nhttp-redirect-observation-honesty: ${pass}/${pass + fail} passed`);

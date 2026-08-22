@@ -14,6 +14,7 @@ import { getMonthStart, getPlanLimits, getWorkspaceBillingUserId } from "../engi
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "../engines/scoring-config.js";
 import { computeScore, isEmailApplicable } from "../engines/scoring.js";
 import { runSslModule } from "../engines/ssl-scan.js";
+import { isHttpRedirectPositivelyAbsent } from "../engines/tls-evidence.js";
 import { createAuditEvent } from "../lib/events.js";
 import {
   projectPhase5ScanRowsForCustomer,
@@ -105,7 +106,7 @@ export async function workspaceInsightRoutes(rctx) {
           //     returned a non-redirecting response but HTTPS headers probed successfully)
           //   • validation_uncertain is false
           // If any of these conditions apply, we cannot conclude the redirect is missing.
-          const redirectValidated   = mods.ssl?.http_redirect_chain?.http_redirect_validated !== false;
+          const redirectValidated   = isHttpRedirectPositivelyAbsent(mods.ssl);
           const redirectDowngraded  = findings.some(f =>
             f.id           === "ssl_no_http_redirect" &&
             f.severity     === "info"                 &&

@@ -39,20 +39,12 @@ const EXPECTED = Object.freeze({
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
-    // BL-1: counts UNCHANGED (35 predicates / 26 sites / 15 files); only the
-    // fingerprint moves, because the first-observation subquery shifted line numbers
-    // in shadow-it-inventory.js. A position shift, not a new site.
-    // BL-1: counts UNCHANGED at 35 predicates / 26 sites / 15 files. Only the
-    // fingerprint moves, because the BL-1 edits shifted line numbers in
-    // shadow-it-inventory.js. A position shift, not a new site.
     predicate_occurrences: 35,
     unique_query_sites: 26,
     source_file_count: 15,
-    fingerprint: "ec4ebef5fce00e01b6c3d0bf06b01c1678f5e750519a2d8581a01c49cf4eae62",
+    fingerprint: "2127c44f4d47bd0833eaf37d054880d4fe37b3022b84de05b4c5210e7c6f8953",
     resolved_query_sink_count: 19,
-    // Sink COUNT unchanged at 19 — the new BL-1 query is not a scan-quality sink;
-    // only its position fingerprint moves.
-    resolved_query_sink_fingerprint: "81e135d0d70c8f738230c914a50eb6acbb6249bc07dc686d106d9f09dacc1a9b",
+    resolved_query_sink_fingerprint: "91325ab2b522e85a68d5e5e4906631b4ac3d5ebf8fc5c9c29afd33674e8b5a92",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -69,7 +61,7 @@ const EXPECTED = Object.freeze({
     // the successor validator. Nothing was added to or removed from the runtime set.
     // SUCCESSOR-3: 63 -> 65 across 23 -> 25 files. Additive only: PR #414/#416 added
     // governed comparisons in their own validators. Nothing was removed.
-    fingerprint: "8c5c9352d3350a29e844c5a14e8dbb4a751f5b67103bca00b418984a8aa43230",
+    fingerprint: "d01804a1b66dd87da5618a544e0e49bc9680cd73dbdb96964d9d29702a49c62c",
   },
   runtime_source_file_count: 32,
   direct: {
@@ -81,7 +73,7 @@ const EXPECTED = Object.freeze({
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
-    governance: { occurrence_count: 108, source_file_count: 37, fingerprint: "520de2ede77bdaeb1e2d56f573a2ca35054344e5aac233f2e1d042dc1a5ac78b" },
+    governance: { occurrence_count: 108, source_file_count: 37, fingerprint: "9649c7514d3fdea01df043d77eff8ab4fa8d2f0ec3d89e2ee8cde9833a1298fd" },
   },
   sql_reads: { projection_occurrences: 23, fingerprint: "11c0012aac9dfa1436907821901d393eb591e7d78921b2eabdfa4d73eb9543e8" },
 });

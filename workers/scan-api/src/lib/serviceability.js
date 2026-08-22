@@ -188,5 +188,49 @@ export function maySupportHealthyConclusion(record) { return eligible(record); }
 /** May "we did not observe X" be published as "X is absent"? */
 export function mayGroundAbsence(record) { return eligible(record); }
 
+/**
+ * Redirect absence is admissible only when the redirect chain carries the
+ * canonical observation state.  Historical rows without hop observations are
+ * readable, but deliberately non-comparable: their legacy boolean cannot
+ * certify absence (and in particular an all-503 shape must not do so).
+ */
+export function mayGroundRedirectAbsence(chain) {
+  if (!isPlainRecord(chain) || typeof chain.observation_state !== "string") return false;
+  const hasHopField = Object.prototype.hasOwnProperty.call(chain, "hop_observations");
+  // A field that is present is an explicit typed contract.  Do not collapse a
+  // string/object (or any other malformed container) into the legacy no-hop
+  // path: malformed observations are unknown, never evidence of absence.
+  if (hasHopField && !Array.isArray(chain.hop_observations)) return false;
+  const hops = hasHopField ? chain.hop_observations : [];
+  // Current persisted envelopes may carry the canonical observed/validated
+  // state without hop detail (the hop array was added later). Preserve that
+  // typed positive result, while never admitting a legacy boolean or a shape
+  // with an explicit non-serviceable status.
+  if (!hasHopField) {
+    return chain.observation_state === FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE
+      && chain.observation_completeness === "observed"
+      && chain.http_redirect_validated === true
+      && chain.origin_status == null;
+  }
+  if (hops.length === 0) return false;
+  if (hops.some((hop) => !isPlainRecord(hop) || typeof hop.state !== "string")) return false;
+  // The terminal hop owns the conclusion.  A chain-level origin_response from
+  // an earlier hop cannot rescue an edge/transport/missing terminal hop.
+  const completeness = chain.observation_completeness;
+  if (chain.http_redirect_validated !== true
+      || (completeness !== "observed" && completeness !== "complete")) return false;
+  const last = hops[hops.length - 1];
+  // The terminal hop owns both state and status.  Chain state is metadata about
+  // the traversal and must never rescue a terminal edge/transport/not-assessed hop.
+  if (last.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;
+  // Provenance: EXECUTIVE-RULING-P1-2A-CHAIN-VETO-001 (canonical seq 319, bundle 5fefa1c5…): veto never rescues; unknown tokens fail closed.
+  const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);
+  if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;
+  return mayGroundAbsence(classifyServiceability({
+    state: last.state,
+    origin_status: last.origin_status,
+  }));
+}
+
 /** Convenience: classify then ask, for call sites holding a raw fetch observation. */
 export function serviceabilityOf(observation) { return classifyServiceability(observation); }

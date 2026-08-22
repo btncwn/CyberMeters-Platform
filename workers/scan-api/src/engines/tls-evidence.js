@@ -1,3 +1,5 @@
+import { mayGroundRedirectAbsence } from "../lib/serviceability.js";
+
 // ── Canonical active-TLS evidence state ─────────────────────────────────────
 //
 // A Workers fetch can prove that TLS transport was present when an origin
@@ -209,11 +211,9 @@ export function isTlsObservedPresent(ssl, context = {}) {
 
 export function isHttpRedirectPositivelyAbsent(ssl) {
   const chain = ssl?.http_redirect_chain;
-  const observed = chain?.observation_state === "origin_response"
-    || (!chain?.observation_state && chain?.http_redirect_validated === true);
   return ssl?.http_redirects_to_https === false
     && chain?.http_redirect_validated === true
-    && observed;
+    && mayGroundRedirectAbsence(chain);
 }
 
 export function findingHasApprovedTlsAbsence(finding) {

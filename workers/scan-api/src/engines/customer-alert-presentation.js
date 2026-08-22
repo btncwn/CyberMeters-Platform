@@ -9,7 +9,11 @@
 // not select those fields independently, because that is how an uncertain
 // transport observation acquired a certificate-install subject and action.
 import { isPublishableModuleEvidence } from "./scan-budget.js";
-import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
+import {
+  isHttpRedirectPositivelyAbsent,
+  resolveTlsRuntimeState,
+  TLS_RUNTIME_STATES,
+} from "./tls-evidence.js";
 
 const HTTPS_REVIEW_ACTION =
   "Review the available evidence and run another assessment. If the result persists, verify HTTPS availability with your hosting provider.";
@@ -120,15 +124,9 @@ export function resolveCustomerAlertPresentation({
     };
   }
 
-  const chain = module_evidence?.http_redirect_chain;
-  const redirectObserved =
-    chain?.observation_state === "origin_response"
-    || (!chain?.observation_state && chain?.http_redirect_validated === true);
   if (
     publishable
-    && module_evidence?.http_redirects_to_https === false
-    && chain?.http_redirect_validated === true
-    && redirectObserved
+    && isHttpRedirectPositivelyAbsent(module_evidence)
   ) {
     return canonicalResult(canonical, "positively_observed_redirect_defect");
   }

@@ -34,7 +34,7 @@ const SSL = path.join(ENG, "ssl-scan.js");
 const ASSET = path.join(ENG, "asset-intel.js");
 
 // PINNED. Adding a mutation without raising this, or losing one, hard-fails.
-const EXPECTED_MUTANTS = 9;
+const EXPECTED_MUTANTS = 12;
 
 let pass = 0, fail = 0, killed = 0;
 const ok = (name, cond, detail = "") => {
@@ -203,6 +203,41 @@ const MUTATIONS = [
       });
       return m.https_observation_state !== "cloudflare_edge_error";
     },
+  },
+  {
+    // P11-M1 — the removed redirect guard must remain live.  Reintroducing the
+    // transport-only predicate makes an origin 503 appear to validate absence.
+    name: "M10 P11-M1 redirect evidence reverts to transport (all-503 false absence)",
+    target: SSL,
+    from: "  let redirectEvidenceObserved = mayGroundAbsence(httpServiceability);",
+    to:   "  let redirectEvidenceObserved = httpObservation.transport_observed === true;",
+    check: async (mod) => {
+      const m = await sslWith(mod, async () => originResponse(503));
+      return m.http_redirect_chain?.http_redirect_validated === true;
+    },
+  },
+  {
+    name: "M11 P12A-LV-01 chain-level state rescues non-serviceable terminal hop",
+    target: path.join(LIB, "serviceability.js"),
+    from: "  const last = hops[hops.length - 1];\n  // The terminal hop owns both state and status.  Chain state is metadata about\n  // the traversal and must never rescue a terminal edge/transport/not-assessed hop.\n  if (last.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  // Provenance: EXECUTIVE-RULING-P1-2A-CHAIN-VETO-001 (canonical seq 319, bundle 5fefa1c5…): veto never rescues; unknown tokens fail closed.\n  const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);\n  if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;\n  return mayGroundAbsence(classifyServiceability({\n    state: last.state,\n    origin_status: last.origin_status,\n  }));",
+    to:   "  const last = hops[hops.length - 1];\n  // MUTANT: borrow chain-level state and status for the terminal conclusion.\n  return mayGroundAbsence(classifyServiceability({\n    state: chain.observation_state,\n    origin_status: chain.origin_status ?? null,\n  }));",
+    check: async (mod) => {
+      const chain = { observation_state: "origin_response", observation_completeness: "observed",
+        http_redirect_validated: true, origin_status: 200,
+        hop_observations: [{ hop: 1, state: "origin_response", origin_status: 200 },
+          { hop: 2, state: "cloudflare_edge_error", origin_status: null }] };
+      return mod.mayGroundRedirectAbsence(chain) === true;
+    },
+  },
+  {
+    name: "M12 P12A-LV-02 malformed hop container collapses to legacy no-hops",
+    target: path.join(LIB, "serviceability.js"),
+    from: "  const hasHopField = Object.prototype.hasOwnProperty.call(chain, \"hop_observations\");",
+    to:   "  const hasHopField = false;",
+    check: async (mod) => mod.mayGroundRedirectAbsence({
+      observation_state: "origin_response", observation_completeness: "observed",
+      http_redirect_validated: true, origin_status: null, hop_observations: "bad",
+    }) === true,
   },
 ];
 

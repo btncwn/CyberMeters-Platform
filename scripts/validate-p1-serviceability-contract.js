@@ -46,6 +46,45 @@ const eq = (n, g, w) => ok(n, JSON.stringify(g) === JSON.stringify(w), `got ${JS
 const DOMAIN = "acme.example.com";
 const MATERIAL = new Set(["critical", "high", "medium"]);
 
+// Exact prior Left oracle — THE executed matrix source is the sealed data module
+// scripts/p1-2a-left-oracle-data.js (dead-gate law: no name-conditional formula may
+// stand in for the sealed tuples; the generator that did so is deleted). Governed by
+// EXECUTIVE-RULING-P1-2A-CHAIN-VETO-001 (canonical seq 319, bundle 5fefa1c5…). The
+// contradictory chain/terminal row is intentionally retained and must fail closed.
+{
+  const EXPECTED_NAMES = `fractional_200_5 fractional_404_5 below_range_99 above_range_600 zero negative nan infinity numeric_string null string_container_rejected record_container_rejected number_container_rejected null_container_rejected boolean_container_rejected empty_array_rejected null_element_rejected string_element_rejected array_element_rejected missing_state_rejected object_state_rejected terminal_origin_200_positive terminal_origin_404_positive origin_503_rejected origin_403_rejected origin_100_rejected origin_fractional_rejected edge_explicit_200_rejected transport_explicit_200_rejected not_assessed_explicit_200_rejected unknown_state_explicit_200_rejected earlier_origin_terminal_edge_200_rejected earlier_origin_terminal_transport_200_rejected terminal_edge_null_rejected conflicting_chain_edge_terminal_origin_rejected validated_false_rejected validated_missing_rejected completeness_incomplete_rejected completeness_missing_rejected typed_no_hop_field_positive typed_no_hop_with_explicit_status_rejected legacy_boolean_only_rejected no_hop_unvalidated_rejected terminal_non_origin_200_tls_false terminal_non_origin_200_alert_unavailable terminal_non_origin_200_no_redirect_finding terminal_non_origin_200_posture_ssl_100 malformed_container_tls_false malformed_container_alert_unavailable malformed_container_no_redirect_finding malformed_container_posture_ssl_100 stored_503_tls_false stored_503_alert_unavailable stored_503_no_redirect_finding stored_503_posture_ssl_100 positive_tls_true positive_alert positive_finding positive_posture_85 tls_calls_authority alert_calls_tls_adapter scoring_calls_adapter_twice insights_calls_adapter terminal_state_is_input_to_classifier chain_state_not_borrowed_for_terminal_classifier`.split(" ");
+  const EXPECTED_GROUP_SPAN = { STATUS_TYPE_VALUE: 10, CONTAINER: 11, TERMINAL_AUTHORITY: 18, LEGACY: 4, CONSUMERS: 16, WIRING: 6 };
+  const { runSealedOracle } = await import(new URL("./p1-2a-left-oracle-data.js", import.meta.url).href);
+  const repoRoot = new URL("..", import.meta.url).pathname;
+  const oracle = await runSealedOracle(repoRoot);
+  let matrixPass = 0;
+  for (const row of oracle.results) {
+    if (row.pass) matrixPass += 1;
+    ok(`P11_LV01_${row.name.toUpperCase()}`, row.pass);
+  }
+  eq("P11_LV01_MATRIX_NAMES_AND_ORDER", oracle.results.map((row) => row.name), EXPECTED_NAMES);
+  const groupSpan = Object.fromEntries(Object.entries(oracle.groups ?? {}).map(([g, c]) => [g, c.total]));
+  eq("P11_LV01_MATRIX_GROUP_SPAN", groupSpan, EXPECTED_GROUP_SPAN);
+  eq("P11_LV01_DISTINCT_INPUT_TUPLES", oracle.distinctInputTupleCount, 65);
+  eq("P11_LV01_MATRIX_COUNT", matrixPass, 65);
+}
+
+// EXPLICIT ADDITIONAL probe — ruling point 3, OUTSIDE the sealed 65 and labeled
+// as such (the sealed matrix exercises an unknown TERMINAL-hop token; this probe
+// exercises an unknown CHAIN-level token accompanying a terminal origin/200,
+// which EXECUTIVE-RULING-P1-2A-CHAIN-VETO-001 §3 declares malformed, not
+// neutral). The old formula matrix covered this only by bending a sealed row's
+// tuple under a lying name; the sealed data stays verbatim and this probe
+// carries the obligation openly.
+ok("P11_RULING3_UNKNOWN_CHAIN_TOKEN_TERMINAL_ORIGIN_200_REJECTED",
+  S.mayGroundRedirectAbsence({
+    observation_state: "invented_state",
+    observation_completeness: "observed",
+    http_redirect_validated: true,
+    origin_status: null,
+    hop_observations: [{ hop: 1, state: "origin_response", origin_status: 200 }],
+  }) === false);
+
 const res = (status, extra = {}, body = "<html>x</html>") =>
   new Response(body, { status, headers: { "server": "nginx", "content-type": "text/html", ...extra } });
 const origin503   = () => res(503);
