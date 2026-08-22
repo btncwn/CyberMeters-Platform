@@ -223,6 +223,7 @@ export function mayGroundRedirectAbsence(chain) {
   // The terminal hop owns both state and status.  Chain state is metadata about
   // the traversal and must never rescue a terminal edge/transport/not-assessed hop.
   if (last.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;
+  // Provenance: EXECUTIVE-RULING-P1-2A-CHAIN-VETO-001 (canonical seq 319, bundle 5fefa1c5…): veto never rescues; unknown tokens fail closed.
   const recognized = Object.values(FETCH_OBSERVATION_STATES).includes(chain.observation_state);
   if (!recognized || chain.observation_state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE) return false;
   return mayGroundAbsence(classifyServiceability({

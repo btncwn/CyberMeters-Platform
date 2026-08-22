@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 //
 // P1.1 — MUTATION PROOF for the canonical serviceability authority. Node 24+.
+// Chain-veto provenance: EXECUTIVE-RULING-P1-2A-CHAIN-VETO-001 (canonical seq 319, bundle 5fefa1c5…).
 //
 // The class is BIDIRECTIONAL, so the kill set is too. Restoring the false ISSUE and
 // overshooting into false HEALTHY must EACH turn the suite red, on DISTINCT named
