@@ -23,14 +23,16 @@ boundaries.
 
 Version: August 2026
 
-Last updated: 11 August 2026. GitHub `main` is mechanically measured at
-`2287212c31f418f7188cb4bc9e027f19dc6fccb6` (PR #404), and the latest tag is
-`v2026.08.03-2`. Source contains migrations through
-`107-finding-canonical-identity.sql`; the current production-applied boundary
-remains `098-related-changes.sql`. Never infer application from a migration file
-or merge. The 22 post-tag PR merges are source-only pending a governed release,
-deployment and production acceptance. Item 11 has not started. Per-release and
-rollback facts: `CHANGELOG.md`.
+Last updated: 22 August 2026 (latest release tag `v2026.08.21-1`; live Workers: scan-api
+`96c00032-b4ee-4088-8425-b89fb46fffa5`, email-ingest `fd0286cb-2b88-45cc-8b60-dcf2ae67bdfc`
+(rollback `284a8654`, closure suffix `00d09b7ab0dc`); latest applied migration
+`107-finding-canonical-identity.sql` (12 Aug production reconciliation; the 3-Aug "105 applied"
+report was demoted to historical evidence). Since 20 July: the pre-beta execution sequence (18 items) replaced
+the single-episode cadence — Items 4–11 closed, **Item 11 (11A Website · 11B Identity · 11C Shadow
+IT) LIVE-ACCEPTED 20–21 Aug 2026** as three independent founder-rendered records; D1 Option D
+(snapshot-once + fail-closed observation anchor) merged and deployed after a two-successor
+verification cycle; FD-008 removed false port/banner/IP capability claims from customer copy.
+Per-release facts: `CHANGELOG.md`.)
 
 ---
 
@@ -38,30 +40,46 @@ rollback facts: `CHANGELOG.md`.
 
 CyberMeters is in:
 
-> **Pre-public-beta managed-platform completion — final pre-Item11 correction**
+> **Pre-public-beta managed-platform completion — corrective-first.**
 
-The current bounded gate is release/governance closure H-06/H-07/H-08/H-09.
-H-01 and H-04 are merged in source through PRs #403 and #404. Nothing after
-`v2026.08.03-2` is recorded here as deployed, migration-applied or
-production-accepted, and Item 11 has not started. The earlier M6/M7 narrative
-below is historical roadmap context, not authority to relabel the current
-source state or begin later work.
+The active mandated lane is the **P1 bidirectional false-conclusion / evidence-integrity episode**
+(Governance ruling `GOVERNANCE-RULING-I11A-ACC-P2-01-BAR-CONFLICT-001` + addendum): a
+triple-verified class of 43 producers could convert non-serviceable HTTP evidence (origin 5xx)
+into either a false ISSUE or a false HEALTHY/FIXED. The lawful contract is three-state:
+serviceable+defect → issue detected; serviceable+compliant → assessed healthy; non-serviceable →
+evidence insufficient (never favourable, never an unsupported adverse score). **P1 closure is
+public-beta-blocking.** P1.1 (canonical serviceability authority,
+`workers/scan-api/src/lib/serviceability.js`) merged 22 Aug 2026 (PR #420) after a two-successor
+verification cycle; the P1.2 contract is ruled (`EXECUTIVE-RULING-P1-2-CONTRACT-001`) and P1.2 is
+in implementation; P1.3–P1.5 (lifecycle/alert gates, frontend consumers, inventory reconciliation +
+founder three-state live acceptance) follow.
 
-Do not state that controlled invite-only beta is already GO.
+After P1, the founder-approved competitive-depth commitments run (FD-007/FD-008): the small-PR
+wedge (Shadow IT first-observation surfacing — BL-1, dispatched; dormant HTTPS-absence; identity
+"Not Assessed" honesty episode) and then the Item-11-domain depth build list BL-2..BL-10 plus the
+committed closure of all 22 Attack Surface depth gaps (Option A). The strategic-NO table stands:
+CVE volume, DAST, port scanning, agent telemetry, dark-web and passive-DNS remain declined.
 
-Do not instruct the founder to send the first two external invitations before the remaining canonical managed-platform phases, debugging, security assurance, founder-controlled acceptance testing and final release gate are complete.
+**M7 Pricing + Billing:** pricing is LOCKED (Trial £0 / Starter £9.99 / Pro £19.99 / Business
+£49.99 / MSP £99.99+); B2/B3 checkout/consent/portal are engineering-complete and PENDING LIVE
+cutover. Behaviour Intelligence remains deferred (sensor-dependent, founder-gated).
 
-The correct sequence is:
+The correct sequence to first customers is unchanged:
 
 ```text
-Complete the remaining managed-platform roadmap
+Close P1 corrective episode
+→ depth commitments (FD-007/FD-008) and remaining item sequence
 → stabilise and debug
-→ perform security testing and pentesting
-→ run founder-controlled acceptance testing
-→ complete the final release gate
+→ security testing and pentesting
+→ founder-controlled acceptance testing
+→ final release gate
 → send the first two controlled invitations
 → observe and expand gradually
 ```
+
+Do not state that controlled invite-only beta is already GO. Do not describe anything merged or
+deployed since 18 July as founder-accepted unless a LIVE-ACCEPTED record exists (Item 11A/11B/11C
+have such records, dated 20–21 Aug 2026).
 
 ---
 
@@ -278,32 +296,25 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
 | M5 Completion Across All Eight Domains | Complete — M5.a–M5.g all CLOSED (deployed through `v2026.07.17-5`, migration `095`; M5.g is a CI-only closure, no deploy). |
 | Pre-Item11 final correction | **IN PROGRESS.** H-01/H-04 are merged in source through PRs #403/#404. H-06/H-07/H-08/H-09 are the current bounded release/governance corrective. No post-`v2026.08.03-2` source is recorded as deployed or accepted; Item 11 has not started. |
-| M6 → RESCOPE: Posture Timeline Trust & Actionability | Historical July episode record. Phase A was deployed and production-accepted on 18 July 2026. This row is not the current source/release gate. |
-| M7 Pricing + Billing Alignment | Earlier roadmap gate; this corrective does not reclassify its historical product status. |
+| Posture Timeline Trust (M6 rescope) | Phase A production-accepted (18 Jul 2026). Episode superseded as the active lane by the pre-beta 18-item execution sequence. Phase B partials (B1 Related Changes, UC3 case surface) shipped; remainder itemised in the sequence. |
+| Pre-beta execution sequence (18 items) | ACTIVE. Items 4–11 CLOSED (Item 11 LIVE-ACCEPTED 20–21 Aug). Active corrective: P1 error-class episode (public-beta-blocking). Item 12 = Related Changes B2/B3 is next in sequence. |
+| M7 Pricing + Billing Alignment | Pricing LOCKED; B2/B3 engineering-complete, PENDING LIVE cutover. |
 | Debugging and Reliability Hardening | Pre-Item11 correction in progress |
 | Pentesting and Security Assurance | Planned after managed lifecycle completion |
 | Founder-Controlled Acceptance Testing | Planned |
 | Final Public-Beta Gate | Planned |
 | First Two Controlled Invitations | After final gate |
 
-Current release facts (mechanically measured 11 August 2026):
+Current release facts (as of 22 August 2026):
 
-- GitHub `main`: `2287212c31f418f7188cb4bc9e027f19dc6fccb6`;
-- latest git release tag: `v2026.08.03-2` at
-  `5f72fe40602d1faf45d229dcec4151dd9d890e6e`;
-- source delta after that tag: 51 commits / 22 first-parent PR merges through
-  #404; merge status is not deployment or acceptance;
-- latest source migration: `107-finding-canonical-identity.sql`; latest recorded
-  production-applied migration: `098-related-changes.sql`. Migration 107 is not
-  recorded as applied;
-- coordinated Worker source identity:
-  `2026.08.11-brand-h01-soft-delete.dfa1140a1ba4`; its `dfa1140a1ba4`
-  suffix is the 12-character prefix of the email-worker closure SHA-256, not a
-  Git commit;
-- fast-aging deployment and rollback IDs are authoritative only in
-  `CHANGELOG.md`;
-- current gate: final pre-Item11 release/governance closure. Item 11 is not
-  started.
+- latest git release tag: `v2026.08.21-1` (D1 snapshot-once merge line);
+- live Worker Version IDs: scan-api `96c00032-b4ee-4088-8425-b89fb46fffa5`, email-ingest
+  `fd0286cb-2b88-45cc-8b60-dcf2ae67bdfc`; rollback `284a8654`; shared closure suffix `00d09b7ab0dc`;
+- Item 11 (11A/11B/11C) LIVE-ACCEPTED 20–21 Aug 2026 — records in the operations archive;
+- active corrective episode: P1 bidirectional false-conclusion class (43 producers) — P1.1 merged
+  22 Aug (PR #420), P1.2 in implementation, P1.3–P1.5 planned; public-beta-blocking;
+- per-release detail (PRs, Worker IDs, evidence) is authoritative in `CHANGELOG.md`;
+- pricing LOCKED; M7 B2/B3 pending live cutover; Behaviour Intelligence deferred (founder-gated).
 
 **M5 (a–g) is COMPLETE** — the account below is the record of how it was completed and remains valid history. Its pre-change parity audit across all eight domains found four false
 evidence claims live in production, and the founder sequenced them first as data-integrity
@@ -496,20 +507,18 @@ The sequence is retained as the long-range roadmap baseline. Current source is
 at the final pre-Item11 release/governance gate; the historical M6/M7 labels
 below do not authorise deployment, acceptance claims or later-phase work.
 
-1. Certificates Managed Lifecycle (complete — Live)
-2. Identity Exposure Managed Workflow (complete — Live)
-3. Complete ASM Verification (complete — Live)
-4. Alerts Across All Eight Domains (complete — Live, 8 of 8; genuine live-event acceptance outstanding)
-5. MSP Portfolio Per-Domain State and Trend (Live — built, NOT customer-accepted; acceptance outstanding)
-6. M5 Completion Across All Eight Domains (COMPLETE — M5.a–M5.g all CLOSED)
-7. Posture Timeline Trust & Actionability — historical July episode record; Phase A was production-accepted on 18 July 2026
-8. M7 Pricing + Billing Alignment — earlier roadmap gate; not reclassified by this corrective
-9. Systematic debugging and reliability engineering
-10. Security testing and pentesting
-11. Founder-controlled acceptance testing
-12. Final public-beta release gate
-13. First two controlled customer invitations
-14. Gradual cohort expansion
+1. P1 bidirectional false-conclusion episode (ACTIVE — public-beta-blocking; P1.1 → P1.5)
+2. FD-007/FD-008 depth commitments (urgent trio first: BL-1 Shadow IT first-observation,
+   dormant HTTPS-absence, identity "Not Assessed" episode; then BL-2..BL-10 + the 22 Attack
+   Surface gaps under Option A)
+3. Remaining pre-beta item sequence (Item 12 = Related Changes B2/B3 next)
+4. M7 Pricing + Billing live cutover (pricing LOCKED)
+5. Systematic debugging and reliability engineering
+6. Security testing and pentesting
+7. Founder-controlled acceptance testing
+8. Final public-beta release gate
+9. First two controlled customer invitations
+10. Gradual cohort expansion
 
 Do not begin Item 11 or a later roadmap phase before the current pre-Item11 gate
 is closed.
