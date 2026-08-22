@@ -315,26 +315,73 @@ export function parseBimiRecord(record, dmarcDetail) {
   };
 }
 
+// The four canonical MTA-STS observation-state tokens. Anything else on a row that
+// DOES carry the field is malformed evidence, which fails closed as insufficient —
+// it is never confused with a legacy row that predates the field entirely.
+const MTA_STS_OBSERVATION_STATES = Object.freeze([
+  "present", "definitive_absent", "unavailable", "not_observed",
+]);
+
+/**
+ * Canonical MTA-STS evidence admission. The ONLY place a bare `observation_state`
+ * token may be turned into an admitted conclusion: the token must cohere with the
+ * recorded status_code / reason / serviceability shape, otherwise the evidence is
+ * demoted to `unavailable` (insufficient) and admits nothing. Every production
+ * consumer — score, business impact, findings, and this module's transport
+ * boundary — must gate through this function, never on the raw token.
+ */
+export function mtaStsAdmission(mtaSts = {}) {
+  const rawState = mtaSts?.observation_state || "not_observed";
+  const status = mtaSts?.status_code;
+  const reason = mtaSts?.reason;
+  const serviceable = mtaSts?.serviceability?.serviceable === true;
+  const coherent = rawState === "present"
+    ? status === 200 && reason === "origin_response" && serviceable
+    : rawState === "definitive_absent"
+      ? status === 404 && reason === "well_known_404" && serviceable
+      : rawState === "unavailable"
+        ? mtaSts?.serviceability?.serviceable === false && typeof reason === "string"
+        : rawState === "not_observed" && status == null && reason == null;
+  const state = coherent ? rawState : "unavailable";
+  return Object.freeze({
+    state,
+    missing_finding: state === "definitive_absent",
+    score_admitted: state === "present",
+    remediation_admitted: state === "definitive_absent",
+  });
+}
+
 export function buildEmailTransportDetails(emailIntel = {}) {
   const mta = emailIntel.mta_sts || {};
   const tls = emailIntel.tls_rpt || {};
+  // Malformed ≠ absent: a row CARRYING an unrecognized observation_state token is
+  // fail-closed evidence-insufficient with its own reason; a row with no field at
+  // all is a legacy non-comparable row and stays honestly not_assessed.
+  const fieldPresent = mta.observation_state != null;
+  const malformed = fieldPresent && !MTA_STS_OBSERVATION_STATES.includes(mta.observation_state);
+  // Admission gate: the admitted state (which demotes an incoherent canonical
+  // token to unavailable) is what every field below renders — the raw token is
+  // never echoed to a customer surface.
+  const admitted = malformed ? "unavailable" : mtaStsAdmission(mta).state;
   return {
     mta_sts_detail: {
       record_found: null,
-      policy_found: mta.observation_state === "present" ? true
-        : mta.observation_state === "definitive_absent" ? false : null,
-      observation_state: mta.observation_state || "not_observed",
+      policy_found: admitted === "present" ? true
+        : admitted === "definitive_absent" ? false : null,
+      observation_state: admitted,
       status_code: mta.status_code ?? null,
-      reason: mta.reason ?? null,
-      coverage_state: mta.observation_state === "unavailable" ? "incomplete"
-        : ["present", "definitive_absent"].includes(mta.observation_state) ? "complete" : "not_assessed",
+      reason: malformed ? "malformed_observation_state" : (mta.reason ?? null),
+      coverage_state: admitted === "unavailable" ? "incomplete"
+        : ["present", "definitive_absent"].includes(admitted) ? "complete" : "not_assessed",
       mode: ["enforce", "testing", "none"].includes(mta.policy_mode) ? mta.policy_mode : "unknown",
       warnings: [
         ...(mta.errors || []).map((w) => sanitizeInfraErrorMessage(w, "mta_sts")),
-        ...(mta.observation_state === "definitive_absent"
-          ? ["An MTA-STS policy file was not confirmed during this scan."]
-          : mta.observation_state === "unavailable"
-            ? ["MTA-STS evidence was insufficient during this scan."] : []),
+        ...(malformed
+          ? ["MTA-STS evidence was malformed and has been treated as insufficient for this scan."]
+          : admitted === "definitive_absent"
+            ? ["An MTA-STS policy file was not confirmed during this scan."]
+            : admitted === "unavailable"
+              ? ["MTA-STS evidence was insufficient during this scan."] : []),
         "The _mta-sts DNS TXT record is not assessed separately in this version.",
       ],
     },

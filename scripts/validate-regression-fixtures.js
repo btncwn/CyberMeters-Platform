@@ -580,7 +580,15 @@ results.push(
       dkim_detail: dkim,
       bimi_readiness: bimi,
     }, {
-      mta_sts: { enabled: false, observation_state: "definitive_absent", errors: [] },
+      // Coherent definitive absence: the admission gate (P1.2-B successor-2)
+      // demotes a bare "definitive_absent" token without its grounding evidence
+      // (404 + well_known_404 + serviceable) to unavailable, which correctly
+      // withholds the missing-policy action. The fixture supplies the evidence
+      // a real observed absence carries.
+      mta_sts: {
+        enabled: false, observation_state: "definitive_absent", status_code: 404,
+        reason: "well_known_404", serviceability: { serviceable: true }, errors: [],
+      },
       tls_rpt: { enabled: false, reporting_uris: [], errors: [] },
     });
     const ids = new Set(actions.map((action) => action.id));
