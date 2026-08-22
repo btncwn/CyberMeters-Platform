@@ -321,6 +321,30 @@ console.log("\n── E. canonical module incompleteness ──");
     m.incomplete !== true, JSON.stringify(m.incomplete_reason));
 }
 
+// ── F. typed hop-container contract (P12A-LV-02 / LV-01) ───────────────────
+// Explicit malformed containers are unknown, while a genuinely absent field
+// retains the narrowly scoped legacy compatibility path.  The terminal hop,
+// not a chain-level state borrowed from an earlier hop, owns absence.
+console.log("\n── F. typed hop-container and terminal-hop contract ──");
+{
+  const base = { observation_state: "origin_response", observation_completeness: "observed",
+    http_redirect_validated: true, origin_status: null };
+  for (const bad of ["not-an-array", { hop: 1 }, 42, null]) {
+    ok(`F: malformed hop_observations (${typeof bad}) is not admissible`,
+      !definitive({ https_available: null, http_redirects_to_https: false,
+        http_redirect_chain: { ...base, hop_observations: bad } }));
+  }
+  ok("F: terminal edge hop cannot borrow chain origin_response",
+    !definitive({ https_available: null, http_redirects_to_https: false,
+      http_redirect_chain: { ...base, hop_observations: [
+        { hop: 1, state: "origin_response", origin_status: 200 },
+        { hop: 2, state: "cloudflare_edge_error", origin_status: null },
+      ] } }));
+  ok("F: genuinely absent hop_observations keeps typed legacy compatibility",
+    definitive({ https_available: null, http_redirects_to_https: false,
+      http_redirect_chain: base }));
+}
+
 console.log(`\nhttp-redirect-observation-honesty: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("http-redirect-observation-honesty validation FAILED"); process.exit(1); }
 console.log("http-redirect-observation-honesty validation passed");

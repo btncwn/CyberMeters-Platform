@@ -196,18 +196,27 @@ export function mayGroundAbsence(record) { return eligible(record); }
  */
 export function mayGroundRedirectAbsence(chain) {
   if (!isPlainRecord(chain) || typeof chain.observation_state !== "string") return false;
-  const hops = Array.isArray(chain.hop_observations) ? chain.hop_observations : [];
+  const hasHopField = Object.prototype.hasOwnProperty.call(chain, "hop_observations");
+  // A field that is present is an explicit typed contract.  Do not collapse a
+  // string/object (or any other malformed container) into the legacy no-hop
+  // path: malformed observations are unknown, never evidence of absence.
+  if (hasHopField && !Array.isArray(chain.hop_observations)) return false;
+  const hops = hasHopField ? chain.hop_observations : [];
   // Current persisted envelopes may carry the canonical observed/validated
   // state without hop detail (the hop array was added later). Preserve that
   // typed positive result, while never admitting a legacy boolean or a shape
   // with an explicit non-serviceable status.
-  if (hops.length === 0) {
+  if (!hasHopField) {
     return chain.observation_state === FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE
       && chain.observation_completeness === "observed"
       && chain.http_redirect_validated === true
       && chain.origin_status == null;
   }
-  const last = hops.length ? hops[hops.length - 1] : null;
+  if (hops.length === 0) return false;
+  if (hops.some((hop) => !isPlainRecord(hop) || typeof hop.state !== "string")) return false;
+  // The terminal hop owns the conclusion.  A chain-level origin_response from
+  // an earlier hop cannot rescue an edge/transport/missing terminal hop.
+  const last = hops[hops.length - 1];
   return mayGroundAbsence(classifyServiceability({
     state: chain.observation_state,
     origin_status: last?.origin_status ?? chain.origin_status ?? null,
