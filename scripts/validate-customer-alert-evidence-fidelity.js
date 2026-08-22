@@ -570,8 +570,8 @@ async function runMutants() {
     {
       name: "M6 generalise a positively observed redirect defect",
       file: "engines/customer-alert-presentation.js",
-      from: "    publishable\n    && module_evidence?.http_redirects_to_https === false",
-      to: "    false && publishable\n    && module_evidence?.http_redirects_to_https === false",
+      from: "    && isHttpRedirectPositivelyAbsent(module_evidence)",
+      to: "    && false",
     },
     {
       name: "M7 let uncertain body and action use different evidence states",

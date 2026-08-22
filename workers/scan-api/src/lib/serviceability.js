@@ -197,6 +197,16 @@ export function mayGroundAbsence(record) { return eligible(record); }
 export function mayGroundRedirectAbsence(chain) {
   if (!isPlainRecord(chain) || typeof chain.observation_state !== "string") return false;
   const hops = Array.isArray(chain.hop_observations) ? chain.hop_observations : [];
+  // Current persisted envelopes may carry the canonical observed/validated
+  // state without hop detail (the hop array was added later). Preserve that
+  // typed positive result, while never admitting a legacy boolean or a shape
+  // with an explicit non-serviceable status.
+  if (hops.length === 0) {
+    return chain.observation_state === FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE
+      && chain.observation_completeness === "observed"
+      && chain.http_redirect_validated === true
+      && chain.origin_status == null;
+  }
   const last = hops.length ? hops[hops.length - 1] : null;
   return mayGroundAbsence(classifyServiceability({
     state: chain.observation_state,
