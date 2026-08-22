@@ -52,7 +52,7 @@
           "frontend/package.json",
           "frontend/package-lock.json"
         ],
-        "scope_sha256": "1a505745e43d4132f3e89d5ff335f60489804a6bcf444ca8f4644f0a519d3b38",
+        "scope_sha256": "bcbb9b8c59f63ee3c740faab75c9b9fd190ca7cc823bef856be3515a7c9f576d",
         "scope_file_count": 3,
         "source_graph_review": "Entry point has only Node built-ins plus TypeScript resolved from frontend; SOURCE_ROOTS is workers, frontend/src, shared and scripts, with no docs or CHANGELOG input.",
         "negative_without_docs": "PASS: exact command exit 0 in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent; fixture worktree clean",
@@ -87,7 +87,7 @@
           "frontend/package.json",
           "frontend/package-lock.json"
         ],
-        "scope_sha256": "fa824ec113d796d019d371c646a37fe3eab3f80e3e2a4b8e59afe1ff2fad94a8",
+        "scope_sha256": "63ea2f05926bd98df74f231df612a7de4dc5b861792c87fd9dbaf7eabed9fa06",
         "scope_file_count": 7,
         "source_graph_review": "Runner uses Node built-ins, git fingerprinting, the inventory child and three pinned non-doc mutation targets; the child source-root contract excludes docs and CHANGELOG.",
         "negative_without_docs": "PASS: exact command exit 0 with 20/20 mutants, 1/1 negative control and full fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
@@ -119,8 +119,8 @@
           "shared",
           "frontend/src/lib/caseDisplay.js"
         ],
-        "scope_sha256": "0001032f6ed145e3b0aacaac2747a9358a9e57359c1cecd3b649c636e3b6cad9",
-        "scope_file_count": 315,
+        "scope_sha256": "4f5e248e391bc9d5904efa68769d285ac107fb85bac08ca051e8e684847388d0",
+        "scope_file_count": 317,
         "source_graph_review": "Reviewed dynamic imports, source reads, schema/migration loader, fresh-process mutants and case-display import; every repository input is in database, workers, shared or frontend/src.",
         "negative_without_docs": "PASS: exact command exit 0 (171/171) in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
         "positive_workflow_baseline": "run 30699425358: 35s, success"
@@ -150,8 +150,8 @@
           "workers/scan-api/src",
           "frontend/src"
         ],
-        "scope_sha256": "c8e1179af3e87b7449542192440481a0191622b396babfc43556fe366a8a2393",
-        "scope_file_count": 531,
+        "scope_sha256": "26304c88a15c274dc193b8852e4212eecfae23614430ccd8c71877e7fbfb11b7",
+        "scope_file_count": 534,
         "source_graph_review": "Reviewed dynamic imports, source reads, schema/migration loader, Worker index import, frontend case display/queue reads and fresh-process mutants; no docs path is reachable.",
         "negative_without_docs": "PASS: exact command exit 0 (233/233) in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
         "positive_workflow_baseline": "run 30699425358: 28s, success"
@@ -182,8 +182,8 @@
           "frontend/package-lock.json",
           "frontend/vite.config.js"
         ],
-        "scope_sha256": "59526f7fbdcb7142bcd65108ccc6614f7b4aa5f853b91c7435e81c140927a8aa",
-        "scope_file_count": 223,
+        "scope_sha256": "3eeb1ba58e7ab954745d9f4b75d7d81df62c287fdd3c2be0ec1ec129bee8326b",
+        "scope_file_count": 224,
         "source_graph_review": "Reviewed mutation target, validator child, git fingerprint, AST closure and Vitest carrier; inputs are the two scripts plus frontend source/config/dependencies.",
         "negative_without_docs": "PASS: exact command exit 0 with 8/8 exact mutant kills and fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
         "positive_workflow_baseline": "run 30699425358: 26s, success"
@@ -214,8 +214,8 @@
           "frontend/package-lock.json",
           "frontend/vite.config.js"
         ],
-        "scope_sha256": "1699afa801b9b569a94694d0aa0c624494e331c81f8413bb53fa30453488aad9",
-        "scope_file_count": 223,
+        "scope_sha256": "6be611e4c4a7bc236bd3d7c4e561c72ea5017c92dca6f658e07319782f16377d",
+        "scope_file_count": 224,
         "source_graph_review": "Reviewed mutation target, validator child, git fingerprint, AST closure and Vitest carrier; inputs are the two scripts plus frontend source/config/dependencies.",
         "negative_without_docs": "PASS: exact command exit 0 with 9/9 exact mutant kills and fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
         "positive_workflow_baseline": "run 30699425358: 27s, success"
@@ -241,8 +241,8 @@
         "scope_paths": [
           "frontend"
         ],
-        "scope_sha256": "d4f16ee544244d3fc155880152f4eda9a55e57a8f8160f2be92da855c70c6604",
-        "scope_file_count": 237,
+        "scope_sha256": "94d81a20f84774f39b6b5c41866d988bfc6dd79e72eecf2b4c2df0893c562ddf",
+        "scope_file_count": 238,
         "source_graph_review": "Reviewed package script, Vite/Vitest config and frontend source/test discovery; generated coverage, dist and node_modules are excluded from the proof fingerprint.",
         "negative_without_docs": "PASS: exact command exit 0 with 63/63 files and 521/521 tests in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",
         "positive_workflow_baseline": "run 30699425358: 80s, success"
@@ -254,14 +254,14 @@
     "Classify CI change scope (fail closed)",
     "Validate dependency install-script governance (deny-by-default / exact allowlist / must-fail controls)",
     "Validate safe docs-only CI classifier and conditional-step governance",
-    "Full-repo assurance — entry-point inventory (drift + auth-coverage gate)",
-    "Full-repo assurance — tenant-isolation invariant matrix (table classification + harness cross-ref)",
+    "Full-repo assurance \u2014 entry-point inventory (drift + auth-coverage gate)",
+    "Full-repo assurance \u2014 tenant-isolation invariant matrix (table classification + harness cross-ref)",
     "Validate M5.a Website Security managed cases + verification vocabulary",
     "Validate M5 closure (full M5 gate wired + append-only idempotency locked)",
     "Validate CI governance (trigger / reachability / anti-orphan)",
     "Validate date-rot governance (future-dated fixtures require a frozen clock or an explicit allowlist reason)",
     "Validate commercial canonicalisation (one direction / no stale price ladder / CE + MSP honesty)",
-    "Validate frontend env contract (.env.example ⟷ import.meta.env / /api shape / no secret)",
+    "Validate frontend env contract (.env.example \u27f7 import.meta.env / /api shape / no secret)",
     "Validate CAPABILITIES.md drift"
   ]
 }
