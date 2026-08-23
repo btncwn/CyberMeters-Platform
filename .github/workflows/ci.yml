@@ -791,6 +791,12 @@ jobs:
       - name: P1.2-E historical read-compat mutations
         run: node scripts/validate-p12e-historical-read-compat-mutations.js
 
+      - name: Validate AS-B2 KEV/CVE score wiring (deterministic fixtures + production caller transform)
+        run: node scripts/validate-as-b2-kev-cve-score-wiring.js
+
+      - name: Validate AS-B2 KEV/CVE score wiring mutations (named source mutants)
+        run: node scripts/validate-as-b2-kev-cve-score-wiring-mutations.js
+
       - name: Validate historical Phase-5 customer reads (verbatim checksum + routes/UI/PDF/dashboard/portfolio + pinned mutants)
         run: node scripts/validate-phase5-historical-customer-reads.js
 

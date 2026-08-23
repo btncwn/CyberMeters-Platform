@@ -937,7 +937,10 @@ export function runRiskModule(findings, modules) {
       description:    "Vulnerabilities on the CISA KEV list carry confirmed active exploitation evidence. CISA mandates remediation for US federal systems; all organisations should treat these as immediate priorities.",
       business_impact:"Active exploitation confirmed. Material risk of ransomware, data breach, or regulatory penalty (GDPR breach notification obligation may apply). Board-level escalation warranted.",
       risk_category:  "Data Security",
-      score_impact:   0,
+      // AS-B2: honest display of the deduction the customer score actually took. The
+      // score is adjusted once, canonically, in resolvePhase5CustomerAssessment, which
+      // stamps score_impact_applied here; this note only mirrors it (no second adder).
+      score_impact:   modules.known_exploited_vulnerabilities?.score_impact_applied ?? 0,
     };
     enrichedFindings.unshift(kevNote);
     categories["Data Security"].unshift(kevNote);
@@ -963,7 +966,11 @@ export function runRiskModule(findings, modules) {
       description:    `Completed NVD lookups matched ${cveIntel.total_cves} CVE(s). ${cveIntel.critical_count || 0} critical, ${cveIntel.high_count || 0} high severity.${limitationText}`,
       business_impact:"Known vulnerabilities in deployed technologies increase the likelihood of exploitation by automated scanners and targeted attacks. Immediate patching or compensating controls required.",
       risk_category:  "Data Security",
-      score_impact:   0,
+      // AS-B2: mirrors the deduction the customer score took (stamped by
+      // resolvePhase5CustomerAssessment). Partial coverage limits the breadth claim
+      // via coverage_limitation below; it never inflates this impact — the magnitude
+      // is per matched severity, and unmeasured technologies contribute nothing.
+      score_impact:   modules.cve_intelligence?.score_impact_applied ?? 0,
       ...(partialCoverage ? {
         coverage_limitation: {
           state: "partial",

@@ -1,4 +1,5 @@
 import { isPublishableModuleEvidence } from "./scan-budget.js";
+import { computeKevCveDeduction, riskLevelForScore } from "./scoring.js";
 import {
   normalizeQuality,
   resolveAssessmentPresentation,
@@ -159,9 +160,36 @@ export function resolvePhase5CustomerAssessment({
   modules = {},
 } = {}) {
   const evidence = resolvePhase5EvidenceContract(modules);
+  if (!(evidence.complete && Number.isFinite(score))) {
+    // Incomplete evidence: no customer score, and NO KEV/CVE deduction — never a
+    // guessed deduction on an unpublishable module (evidence-floor).
+    return {
+      score: null,
+      risk_level: evidence.complete && riskLevel != null ? riskLevel : null,
+      evidence,
+    };
+  }
+  // AS-B2: KEV/CVE evidence moves the customer Cyber Metrics Score. Single owner:
+  // this transform already runs after phase5 evidence exists and owns the customer
+  // score. The deduction is gated by the publishable contract and matched evidence
+  // only (computeKevCveDeduction). Score is clamped to [0,100]; risk band re-derived.
+  const deduction = computeKevCveDeduction({ modules, evidence });
+  const adjustedScore = Math.max(0, Math.min(100, score + deduction.total));
+  const adjustedRiskLevel = riskLevelForScore(adjustedScore);
+  // Stamp the applied per-note magnitude onto the modules so the asset-intel display
+  // notes (kev_active_exploitation / cve_high_severity_detected) show the honest
+  // score_impact instead of a lying 0 — single source of truth, no double counting
+  // (this function is the ONLY place the score is adjusted).
+  if (modules?.known_exploited_vulnerabilities && typeof modules.known_exploited_vulnerabilities === "object") {
+    modules.known_exploited_vulnerabilities.score_impact_applied = deduction.kev;
+  }
+  if (modules?.cve_intelligence && typeof modules.cve_intelligence === "object") {
+    modules.cve_intelligence.score_impact_applied = deduction.cve;
+  }
   return {
-    score: evidence.complete && Number.isFinite(score) ? score : null,
-    risk_level: evidence.complete && riskLevel != null ? riskLevel : null,
+    score: adjustedScore,
+    risk_level: adjustedRiskLevel,
+    kev_cve_deduction: deduction,
     evidence,
   };
 }
