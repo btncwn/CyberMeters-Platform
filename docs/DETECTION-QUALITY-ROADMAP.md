@@ -1,10 +1,10 @@
 # CyberMeters Detection Quality Roadmap (canonical)
 
-**Status: CANONICAL FOUNDER DECISION (21 July 2026).** This is law. It governs how every customer-facing detection capability is judged, sequenced, released, and claimed. Where any other doc conflicts on detection quality, this wins. Companion audit: `docs/DETECTION-DEPTH-AUDIT.md`.
+**Status: CANONICAL FOUNDER DECISION (21 July 2026).** This is law. It governs how every customer-facing detection capability is judged, released, and claimed. Where any other doc conflicts on detection quality, this wins. Its programme sequence is preserved but temporarily overlaid by the 23-August founder-priority successor at `docs/governance/2026-08-23-gtr7-competitor-first-successor/`. Companion audit: `docs/DETECTION-DEPTH-AUDIT.md`.
 
 ## The two gates (kept separate)
 1. **Platform Security Gate** — can CyberMeters *itself* be exploited? (largely engineering-complete: 6 CI security suites, 204+ assertions, `docs/SECURITY-VERIFICATION-MATRIX.md`.)
-2. **Detection Integrity Gate** — does CyberMeters actually catch a dangerous change on the customer's domain? (**the main work now**.)
+2. **Detection Integrity Gate** — does CyberMeters actually catch a dangerous change on the customer's domain? (**mandatory before public beta; not the immediate queue while the 23-August successor join is open**.)
 
 **Honest boundary:** we cannot promise an absolute "nothing will ever be missed." We promise: **no *known* critical false-negative, silent monitoring loss, or unproven customer claim is left open before public beta.**
 
@@ -36,9 +36,18 @@ Every capability is tagged with exactly one: `DISCOVERED` · `DESIGNED` · `IMPL
 
 ## Phases
 
-### Phase 0 — Detection Availability Foundation (P0/P1: Chronic Partial Scan) — ACTIVE
+### Phase 0 — Detection Availability Foundation (P0/P1: Chronic Partial Scan) — PRESERVED (historical ACTIVE label superseded for queue order)
 Find blackbullbarbers.co.uk's seven incomplete modules; explain why it has been `partial` since 2026-07-18 (budget headroom present); measure the real blast radius behind the complete-gate across other domains; verify how monitoring degradation is disclosed to the customer; fix any deterministic bug.
 **Exit:** root cause proven · complete scans reproducible OR a safe per-signal design ready · monitoring never silently disappears · SPF production acceptance repeatable. **No other engine's "live" acceptance completes until this closes.**
+
+**Bounded 23-Aug founder-successor exception:** AS-B2/AS-B6 may complete only the
+operational four-row shame-closure acceptance required for the pre-recovery join,
+and only after an independently accepted narrow successor authorises the exact
+mutation and acceptance scope. This named exception does not release Phase 0, does
+not authorise any other engine acceptance or customer progression, and must retain
+per-signal evidence completeness, global scan honesty, fail-closed unavailable/
+partial states, deterministic fixtures, mutations, end-to-end proof and controlled
+live evidence. Phase 0 remains mandatory after audit recovery and before public beta.
 
 ### Phase 1 — Brand Protection Hardening
 - **PR-A (IDN/Unicode homograph core):** IDNA/punycode round-trip · NFC · script detection · bounded UTS #39-inspired product-policy skeleton (not complete UTS #39) · mixed-script · brand skeleton comparison · legitimate-IDN FP guards · deterministic fixtures · mutation tests.
@@ -78,13 +87,13 @@ Ten competitors compared not by marketing page but by: their public evidence · 
 
 ---
 
-## Aggressive implementation order
-**Now:** 1) Chronic-partial root cause → 2) fix/deploy → 3) complete-scan restore → 4) SPF root-change acceptance → 5) SPF child-include live fixture.
+## Preserved implementation order after audit recovery
+**Resume with:** 1) Chronic-partial root cause → 2) fix/deploy → 3) complete-scan restore → 4) SPF root-change acceptance → 5) SPF child-include live fixture.
 **Then:** 6) Brand IDN PR-A → 7) PR-B → 8) Brand live acceptance.
 **Three quality sprints:** 9) ASM depth → 10) Certificates depth → 11) Email remaining depth.
 **Then:** 12) Website → 13) Shadow IT → 14) Identity → 15) cross-domain correlation → 16) competitor-parity closure → 17) pentest/retest → 18) go-live website conversion → 19) controlled first paying customer → 20) public beta.
 
-*Web design is not forgotten — but we do not paint a weak, unproven product beautifully and sell it. Design advances alongside the detection-truth baseline.* New ideas do not arbitrarily reorder this; only a P0/P1 with proven wider customer harm jumps the queue.
+*Web design is not forgotten — but we do not paint a weak, unproven product beautifully and sell it. Design advances alongside the detection-truth baseline.* The successor pulls forward only the operational four-row shame closure. That is not the full 22-axis FD-008/competitor-parity programme, which remains binding here and resumes after audit recovery. New ideas do not arbitrarily reorder this; only a P0/P1 with proven wider customer harm or a later explicit founder decision changes the queue.
 
 ## Mandatory before public beta
 chronic-partial monitoring integrity · Brand IDN PR-A/B + live acceptance · ASM high-impact depth · Certificates CT/active-service lifecycle · Email effective-state change validation · Website sensitive-surface dependency changes · Shadow IT attribution/owner lifecycle · Identity bounded external-surface workflow · cross-domain dedupe/correlation · independent scoped pentest + retest · claims audit · first-customer end-to-end acceptance.
