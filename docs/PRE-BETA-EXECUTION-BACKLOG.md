@@ -1,11 +1,12 @@
 # Pre-Beta Frozen Execution Backlog
 
-**Status:** FOUNDER-APPROVED (22 July 2026) — corrected and frozen; current
-queue/calendar prospectively overlaid by the 23-August founder-priority successor.
-**Authority:** this document ORDERS the remaining pre-beta work. Scope and acceptance
-definitions remain owned by `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` (gate sequence)
-and `docs/DETECTION-QUALITY-ROADMAP.md` (Detection Depth Law). Release facts are
-authoritative in `CHANGELOG.md`. This file does not redefine either.
+**Status:** ACTIVE CANONICAL EXECUTION ORDER — historical item contracts preserved;
+current queue updated 23 August 2026.
+**Authority:** this document alone ORDERS current and remaining pre-beta work.
+Roles and decision rights live only in `docs/AI-EXECUTIVE-OPERATING-MODEL.md`.
+Strategic scope and acceptance gates remain in
+`docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`; detection engineering policy remains
+in `docs/DETECTION-QUALITY-ROADMAP.md`; release facts remain in `CHANGELOG.md`.
 
 Production baseline at freeze: `main @ bfc7c1d` · live Worker `ecd03d0a`
 (v2026.07.21-5, deployed 2026-07-21T21:28Z) · rollback `d1ad62b8` · latest migration `098`.
@@ -13,11 +14,11 @@ Production baseline at freeze: `main @ bfc7c1d` · live Worker `ecd03d0a`
 Labels: **[ACC]** acceptance-only (already built/deployed — needs live acceptance, not
 re-implementation) · **[IMPL]** implementation work · **[DES]** design-first.
 
-## Current successor overlay — 23 August 2026
+## Current canonical order — 23 August 2026
 
-This file retains authoritative item numbers, scope, dependencies and acceptance
-contracts. Current queue order is governed by
-`docs/governance/2026-08-23-gtr7-competitor-first-successor/`:
+This is the live queue. The dated package under
+`docs/governance/2026-08-23-gtr7-competitor-first-successor/` is immutable source
+evidence for how this order was reached; it has no current operating authority.
 
 ```text
 [GTR-4 successor-5 → FINAL GTR-6 → GTR-7 comparison
@@ -25,12 +26,13 @@ contracts. Current queue order is governed by
 ||
 [AS-B2 STOP/AMEND + corrected isolated preparation/authoring (zero credit)
  + AS-B6 read-only remeasurement
- → narrow mutation authority → independently accepted 4/4 operational shame closure]
+ → Executive R1 dispatch → controlled-live accepted 4/4 operational shame closure]
 ||
 [fresh-clone armour → idle boundary → verified ~/dev cutover
  + independently restored external-disk transport backup]
 → JOIN
-→ exact-candidate audit recovery + cumulative nine-condition Governance gate
+→ exact-candidate audit recovery + one Governance decision against the preserved
+  cumulative nine-condition gate
 → preserved P1 / FD-007 / full FD-008 / Items 12–18
  + pre-existing Item 19 aggregate source-fidelity law
 ```
@@ -38,6 +40,9 @@ contracts. Current queue order is governed by
 Production/customer state is `HOLD`. The former 2026-09-01 recovery-candidate
 target is a reforecast checkpoint. Historical `ACTIVE` labels below mean active
 at their dated freeze/reconciliation point; they are not current queue authority.
+No new governance successor package is required for work already named in this
+order. Claude Desktop dispatches it under R0/R1; Governance adjudicates only the
+named GTR/audit gate or a material authority conflict.
 
 ---
 
@@ -61,7 +66,7 @@ at their dated freeze/reconciliation point; they are not current queue authority
    could-not-be-observed punctuation/template defects were closed by PR #218
    (`v2026.07.20-7`, `pdfEsc` transliteration). Reopen only on a NEW failing artefact.
 4. **Shadow IT Alert Trust is DEPLOYED** (#211/#213, v2026.07.20-4/-5) —
-   remaining work is **founder live acceptance**, not re-implementation.
+   remaining work is **controlled live acceptance**, not re-implementation.
 5. **No stale deployment facts.** #263 is DEPLOYED (v2026.07.21-5); SSL external latency
    28s → ~8.4s verified live. `d1ad62b8` is the rollback baseline, not live.
 
@@ -176,7 +181,7 @@ confidence/evidence-completeness; unknown/unavailable/not-assessed vs healthy
 distinctions; remediation steps; ownership + case status; verification method;
 recurrence; meaningful context for **all eight** Cyber MOT domains; MSP/customer
 branding without content loss; whether the PDF is merely a poorer summary of the
-dashboard. Founder reviews the fresh post-#263 PDF from item 1. No renderer-corruption
+dashboard. Claude Desktop reviews the fresh post-#263 PDF from item 1. No renderer-corruption
 claims without a concrete failing artefact.
 
 ### 7. DMARCbis design + runtime remediation — [CLOSED — LIVE-ACCEPTED · PASS WITH BACKLOG]
@@ -203,7 +208,7 @@ monitoring evidence must not infer or emit a DMARC change alert and must remain
 fail-honest.
 
 #### Backlog 7-B — DMARC managed-case live lifecycle
-Prove founder-controlled manual case creation from a qualifying DMARC regression;
+Prove company-controlled manual case creation from a qualifying DMARC regression;
 never auto-open a case. Prove workspace-scoped condition lookup, IDOR protection,
 verification only from a later complete scan, recurrence after resolution and
 historical case/evidence integrity.
@@ -222,7 +227,7 @@ Orphan routing cleanup remains Item 13 work and must not be silently folded into
 this backlog.
 
 #### Backlog 7-E — Child and deep-label RFC 9989 live scenarios
-Prove additional founder-controlled child and deep-label author domains, inherited
+Prove additional company-controlled child and deep-label author domains, inherited
 `sp` where applicable, equal-policy inheritance suppression and exact-versus-
 organisational precedence across additional label depth. The accepted core run did
 not include them because the current Professional workspace had one remaining
@@ -275,7 +280,7 @@ Per-signal completeness (leaf/chain/SAN/issuer/expiry/CT/wildcard/parallel/activ
 service); renewal lifecycle acceptance (bands, renewed, failed, replaced, issuer/SAN
 changed, wildcard, dedupe, case close/reopen, PDF parity); trust-policy depth (CAA,
 chain state, hostname mismatch, weak algorithms, expired intermediate, CT-only vs
-live-serving); controlled renewal on a founder-owned host.
+live-serving); controlled renewal on a company-controlled host.
 
 ### 10. Attack Surface depth + live acceptance
 Full module reliability with observed/unavailable/incomplete/absent/resolved/reappeared
@@ -283,7 +288,7 @@ distinctions; asset lifecycle trust (first seen → confirmed removed → reappe
 DNS-only vs HTTP-only, no false "resolved"); the deferred
 `www.email.blackbullbarbers.co.uk` alert-quality review (true-positive vs
 noisy-but-true vs false-positive — **scoped review; the alert pipeline stays on**);
-founder-controlled live acceptance (new/removed/reappeared asset, admin surface,
+company-controlled live acceptance (new/removed/reappeared asset, admin surface,
 takeover candidate, KEV signal).
 
 ### Evidence-integrity interlock — Free-Scan False-Healthy P1
@@ -330,7 +335,7 @@ escalated out of it by founder ruling.
 **Gate separation (unchanged by this interlock)**
 
 ```text
-Engineering merged  ≠  deployed  ≠  founder live acceptance
+Engineering merged  ≠  deployed  ≠  controlled live acceptance
 ```
 
 Each remains a separate gate with its own evidence; none inherits from another.
@@ -385,7 +390,7 @@ where current-head state must be remeasured rather than assumed.
 - Mandatory after Item 10 engineering-complete.
 - Was specified as mandatory before Item 11 began; Item 11 is now closed and is
   not retroactively reopened by this historical edge.
-- Mandatory before Item 14 founder live acceptance.
+- Mandatory before Item 14 controlled security acceptance.
 - Does not renumber the frozen backlog.
 - Must not run in parallel with Item 10 P2–P5 because the verified collision surface
   includes `scan-engine.js`, `scan-budget.js`, `ssl-scan.js`, `subdomains-scan.js`,
@@ -427,8 +432,8 @@ where current-head state must be remeasured rather than assumed.
 - No duplicate CT lookup is introduced.
 - The 19-second envelope remains intact.
 - Non-CT sibling signals remain independently publishable.
-- Founder-domain pre/post production evidence is recorded after separately approved
-  deploy.
+- Company-controlled-domain pre/post production evidence is recorded after the
+  Executive-approved deploy.
 
 ### 11. Website / Identity / Shadow IT domain closures
 Three **separately-accepted** sub-items — each is LIVE-ACCEPTED independently and on its
@@ -456,7 +461,7 @@ boundaries (external evidence only).
 ### Preservation boundary before Items 12–13
 
 Items 12 and 13 and all completed design/evidence artifacts remain preserved
-without loss of credit. They resume after the successor join and audit-recovery
+without loss of credit. They resume after the current three-lane join and audit-recovery
 gate. Before then, only the specifically authorised read-only Item 13A
 reachability instrument may support AS-B6 measurement; it grants no Item 13B
 mutation, retirement, deletion, `reserved-scan` activation, merge, deploy, or
@@ -472,7 +477,7 @@ including the negative control: unrelated simultaneous events must NOT correlate
 ### 13. Dead-code & reachability audit — [IMPL]
 Classify every file (runtime-reachable / route-only / cron-only / email-only /
 test-only / docs-only / legacy / retired / orphan). Vendor/Supply retirement per the
-queued founder episode (Option B — fold honest signal into Shadow IT; preserve data +
+queued canonical episode (Option B — fold honest signal into Shadow IT; preserve data +
 pipeline). Frontend surfaces (`VendorsPage`, `WorkspaceSupplyChainPage`,
 `ThirdPartyPage`, `SaasExposurePage`, duplicate lifecycle pages) — **no deletion before
 reachability proof**.
@@ -496,10 +501,11 @@ budget/snapshot-downstream is a silent-drift defect). Long-term ideal is a singl
 `registerScanModule(descriptor)` that derives the four sets — noted as DRIFT DEBT only, not
 scheduled now.
 
-### 14. Founder manual security acceptance — [ACC]
+### 14. Controlled security acceptance — [ACC]
 A6 production viewer spot-check · live Microsoft SSO + MFA-with-SSO · password-reset
 revocation · invitation flows · deleted-workspace behaviour · API-token lifecycle ·
-case ownership/transitions · branded PDF access.
+case ownership/transitions · branded PDF access. Claude Desktop owns execution;
+Founder presence is required only for a human-only action or reserved judgement.
 
 ### 15. Independent authenticated pentest (narrow, pre-first-sale)
 Auth/session/MFA/SSO · tenant isolation · roles · token scopes · invitation abuse ·
@@ -575,10 +581,10 @@ Scope: the 14 live probe modules — `dns`, `ssl`, `headers`, `email_security`, 
   yields an honest evidence-insufficient / monitoring-degraded state (item 5), never a
   confident wrong answer.
 - **Ground-truth cross-check** — output compared against an independent live oracle
-  (dig / openssl / whois / NVD+KEV catalog / curl) on a founder-controlled domain, matching
+  (dig / openssl / whois / NVD+KEV catalog / curl) on a company-controlled domain, matching
   within a documented tolerance. Divergence is a defect, not noise.
-- **Live acceptance** — proven on a founder-controlled domain with a real observation, per
-  the Detection Depth Law's four proofs (fixture · mutation · e2e trace · founder live
+- **Live acceptance** — proven on a company-controlled domain with a real observation, per
+  the Detection Depth Law's four proofs (fixture · mutation · e2e trace · controlled live
   acceptance). CI-green is NOT this.
 
 **Precedence:** executes after item 5 closes and **closes PER-ITEM alongside each 7–13

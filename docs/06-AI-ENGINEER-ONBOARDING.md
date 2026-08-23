@@ -1,5 +1,11 @@
 # CyberMeters AI Engineer Onboarding v1.0
 
+> **Status: HISTORICAL ONBOARDING REFERENCE.** Current sessions read
+> `docs/AI-EXECUTIVE-OPERATING-MODEL.md`, claim one of its eight seats, then
+> read the top of `docs/PRE-BETA-EXECUTION-BACKLOG.md` and their applicable
+> `AGENTS.md` / `CLAUDE.md` contract. Any role, review or approval wording
+> below is superseded.
+
 ## Purpose
 
 Welcome to the CyberMeters engineering team.

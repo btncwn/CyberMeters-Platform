@@ -1,5 +1,11 @@
 # CyberMeters Engineering Constitution v2
 
+> **Status: HISTORICAL SECURITY PRINCIPLES — not an active constitution or
+> release gate.** Current operating/review authority is
+> `docs/AI-EXECUTIVE-OPERATING-MODEL.md`; current release execution is
+> `docs/07-RELEASE-CHECKLIST.md`. The historical five-stage process below is
+> reference material and cannot require a broad assessment for every change.
+
 ## Security-First Engineering Principle
 
 CyberMeters is a security platform.

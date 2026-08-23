@@ -1,39 +1,39 @@
 # AGENTS.md
 
-## Mandatory AI operating authority — 1 August 2026
+## Mandatory lean operating authority — 23 August 2026
 
-Before acting, read `docs/AI-EXECUTIVE-OPERATING-MODEL.md` completely. It is the
-canonical authority for founder-reserved decisions, delegated executive
-decisions, agent roles, review closure, automatic merge gates and session
-handoffs.
+Before acting, read `docs/AI-EXECUTIVE-OPERATING-MODEL.md` completely and the
+top of `docs/PRE-BETA-EXECUTION-BACKLOG.md`. The operating model is the sole
+active governance authority; the backlog is the current canonical order.
 
-Role selection:
+Declare exactly one assigned seat:
 
-- the primary coordinating ChatGPT/Codex session is the Founder-Delegated
-  Executive and Technical Decision Owner;
-- Codex CLI is an assigned implementation/audit owner and must not independently
-  change roadmap or scope;
-- founder confirmation is required only for the reserved decisions listed in
-  the canonical operating model;
-- non-reserved decisions are made by the primary agent and must not be returned
-  to the founder as routine approval questions.
+- **Codex Governance Seat:** sole governance pen; not a routine implementer,
+  merger or deployer;
+- **Codex Desktop:** Integration & Release Engineer;
+- **Codex Right CLI:** Attack Surface & Runtime Engineer;
+- **Codex Left CLI:** Customer Experience & Verification Engineer.
 
-This section overrides older workflow wording that requests founder approval for
-a non-reserved decision. It does not override platform safety rules or the
-founder-reserved boundaries.
+Claude Desktop is the Executive. It assigns daily work and decides routine
+merge/deploy. Codex agents do not independently change governance, canonical
+order or reserved roadmap strategy. Founder confirmation is required only for
+the four reserved classes in the operating model.
+
+This section overrides older role/review wording. Dated governance packages and
+the retired Claude Desktop review contract are historical evidence, not active
+authority. It does not override platform safety rules or founder-reserved
+boundaries.
 
 # CyberMeters Platform — AI Engineering Context
 
 Version: August 2026
 
-Last updated: 23 August 2026. This docs-only governance adoption is based on
-GitHub `main` `83d31e12d1e5d77f2d56dfb760d604c901a64676`; it changes no runtime,
-deployment, migration or customer-acceptance fact. The latest recorded release
-tag is `v2026.08.21-1`; production migration state, live/rollback identities and
-per-release proof remain authoritative only in `CHANGELOG.md`. Frozen-backlog
-Item 11A/11B/11C is separately LIVE-ACCEPTED (20–21 August). Current programme
-order is governed by the 23-August founder-priority successor package at
-`docs/governance/2026-08-23-gtr7-competitor-first-successor/`.
+Last updated: 23 August 2026. The lean operating-model adoption changes no
+runtime, migration or customer-acceptance fact. Release, production migration
+and rollback identities remain authoritative only in `CHANGELOG.md`.
+Frozen-backlog Item 11A/11B/11C is separately LIVE-ACCEPTED (20–21 August).
+Current programme order lives only in `docs/PRE-BETA-EXECUTION-BACKLOG.md`;
+the dated 23-August successor package remains historical decision evidence.
 
 ---
 
@@ -135,14 +135,13 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
 | M5 Completion Across All Eight Domains | Complete — **M5.a–M5.g all CLOSED** (deployed through `v2026.07.17-5`, migration `095`). History: evidence-honesty corrective (`v2026.07.16-6`), alerting repair (`v2026.07.16-7`), occurrence resolver (`-8`), read surfaces (`-9`), and the case verification contract (`-10`) all closed. **M5.a is CLOSED** (`-11` Email, `-12` Website Security + verification vocabulary, `-13` Cyber Essentials): all three domains have creation, linkage, case-level ownership, honest verification and recurrence in production; live-event acceptance outstanding. CE readiness honesty corrective closed (`-14`): access_control/malware_protection no longer scored from email-auth proxies; indicator is 3 of 5 assessable areas. CE Questionnaire Hygiene closed (`-15`, mig 092): one shared build-time question set, ISO-versioned answers, CI drift guard. M5.b shipped (`-16` certificate verification; `-17` remaining reconciliation): certificate_case derives support per finding; CE Security Update Management is no longer scored from certificate/ASM proxies (indicator 2 of 5, methodology-versioned); `external` is not `automated`; blanket drift CI-blocked. M5.b engineering closed; live acceptance outstanding. **M5.c Stage 1 shipped** (`v2026.07.17-1`, mig 093): one completed Cyber MOT → one immutable canonical eight-domain snapshot (R2 JSON + D1 index, 081 atomic claim, R2-durable before completed, append-only supersession, repair-on-read), stamped with every methodology version (first CMS + BRI stamps, registry fingerprint); `verification_support` + fail-closed ceiling wording on every item/action; read endpoints for M5.d live and auth-gated. Renderers NOT migrated at Stage 1; 0 snapshots existed in production at that point (created by future scans; no backfill). M5.d–M5.g subsequently closed (renderer migration, eight-domain parity, maturity ledger, final CI closure). |
-| 23-Aug founder-priority successor | **ACTIVE GOVERNANCE ORDER; PRODUCTION/CUSTOMER HOLD.** GTR/carrier exit, four-row operational shame closure, and source-integrity relocation/independent backup run as three prerequisite lanes with a mandatory join before audit recovery. |
-| Posture Timeline Trust & Actionability — the RESCOPE of M6 | Historical July episode record. Phase A was deployed and production-accepted on 18 July 2026. This row is not the current source/release gate; use the 23-Aug founder-priority row and `CHANGELOG.md`. |
+| Current canonical execution order | **ACTIVE; PRODUCTION/CUSTOMER HOLD.** Read the exact queue only from `docs/PRE-BETA-EXECUTION-BACKLOG.md`; dated governance packages are historical evidence. |
+| Posture Timeline Trust & Actionability — the RESCOPE of M6 | Historical July episode record. Phase A was deployed and production-accepted on 18 July 2026. This row is not the current source/release gate; use the current canonical-order row and `CHANGELOG.md`. |
 | M7 Pricing + Billing Alignment | Earlier roadmap gate; this corrective does not reclassify its historical product status. |
 | Final Public-Beta Gate | Planned after managed-platform completion |
 
-Current governance/release boundary (23 August 2026):
+Recorded release boundary (23 August 2026; use `CHANGELOG.md` for newer facts):
 
-- adoption base: GitHub `main` `83d31e12d1e5d77f2d56dfb760d604c901a64676`;
 - latest recorded release tag: `v2026.08.21-1` at
   `60420ae18302692da9a10e75a5b0ce820966a3a9`;
 - source and recorded production migration boundary both include
@@ -150,8 +149,8 @@ Current governance/release boundary (23 August 2026):
 - Item 11A/11B/11C is separately LIVE-ACCEPTED; this does not imply later-item,
   release-candidate or public-beta acceptance;
 - P1 evidence-integrity work remains a public-beta blocker and retains its
-  technical evidence, but its programme position is now governed by the
-  23-August successor order;
+  technical evidence; its programme position is governed by the current
+  canonical execution order;
 - fast-aging deployment IDs and release proof remain in `CHANGELOG.md` and are
   not duplicated here;
 - current production/customer state is `HOLD`.
@@ -169,10 +168,10 @@ for a site nobody could reach (#105), and `cyber_essentials_answers` survived ev
 workspace purge while the deletion email said "permanently removed" (#106).
 
 Genuine live occurrence proof is outstanding for **every** domain: alerting is proven
-by CI and no-op deployment only. Controlled, founder-led acceptance with real events
-remains a release-gate activity.
+by CI and no-op deployment only. Controlled acceptance with real events remains a
+release-gate activity; routine execution does not require Founder presence.
 
-The founder-approved commercial roadmap from product completion to the first paying customer is `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`. It is the single authoritative copy of that plan.
+The canonical commercial roadmap from product completion to the first paying customer is `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`. It is the single authoritative copy of that strategic plan.
 
 Do not use speculative percentage-completion figures unless they come from an approved, current release-readiness assessment.
 
@@ -192,8 +191,8 @@ Use milestone status instead:
 
 ## 5.1 Authority and numbering rule
 
-`docs/PRE-BETA-EXECUTION-BACKLOG.md` is the founder-approved frozen execution
-order. Its `Item N` labels are the authoritative operational item numbers.
+`docs/PRE-BETA-EXECUTION-BACKLOG.md` is the single current execution order. Its
+`Item N` labels are the authoritative operational item numbers.
 `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` owns roadmap scope, acceptance
 definitions and the wider gate sequence. `CHANGELOG.md` owns release,
 deployment and rollback facts. These authorities are complementary; their
@@ -202,52 +201,27 @@ position.
 
 In particular, frozen-backlog **Item 11** means the three separately accepted
 Website Security, Identity Exposure and Shadow IT domain closures. It does not
-mean the later founder-controlled acceptance milestone. Frozen-backlog Item 12
+mean the later controlled acceptance milestone. Frozen-backlog Item 12
 is Related Changes B2/B3, Item 13 is the dead-code and reachability audit, and
-Item 14 is founder manual security acceptance. There is no lumped Item 11 PASS:
+Item 14 is controlled security acceptance. There is no lumped Item 11 PASS:
 11A, 11B and 11C each require their own verdict and evidence.
 
-The current execution route is the accepted 23-August prospective overlay:
-
-1. **GTR lane:** GTR-4 successor-5 → FINAL GTR-6 → GTR-7 architecture
-   comparison → separate founder selection → independently accepted GTR-7B
-   two-way carrier exit.
-2. **Competitive-truth lane:** AS-B2 `STOP/AMEND` plus corrected isolated
-   preparation/authoring with zero merge or acceptance credit, and AS-B6
-   read-only remeasurement → narrow mutation authority → independently accepted
-   operational shame table at 4/4.
-3. **Source-integrity lane:** fresh-clone armour → declared idle boundary after
-   MERGE 8, its release/two-Worker deployment and MERGE 9 →
-   verified `/Users/turhanacar/dev` full-clone cutover → encrypted external-disk
-   transport backup, manifest and restore proof.
-4. **Mandatory join:** all three lanes close; none implies another.
-5. **Audit recovery:** exact-candidate re-binding and the preserved cumulative
-   nine-condition Governance gate.
-6. **Preserved programme:** remaining P1, FD-007, the full FD-008 commitment,
-   frozen-backlog Items 12–18 plus the pre-existing Item 19 aggregate
-   source-fidelity law, and every customer/public-beta gate resume without loss
-   of accepted evidence.
-
-While this successor `HOLD` is active, it overrides the generic product-mutation,
-merge, migration, deployment and production-proof permissions later in this
-file. Those workflow steps describe how separately authorised work proceeds;
-they are not authority by themselves. The only exceptions are this
-founder-authorised docs-only adoption, already accepted GTR authority, expressly
-permitted read-only or isolated zero-credit preparation/authoring, an
-independently accepted narrow successor for exact scope, and evidence-based
-emergency containment of an active production, security or data-integrity risk.
+Do not copy the current route into this file. Read the top of the backlog. A
+current `HOLD` blocks only the consequences it names; permitted work proceeds
+under the lean operating constitution without a new successor document or
+routine Founder/Governance approval.
 
 The broader roadmap milestones remain, without reusing frozen-backlog item
 numbers: Certificates Managed Lifecycle; Identity Exposure Managed Workflow;
 Complete ASM Verification; Alerts Across All Eight Domains; MSP portfolio state
 and trend; M5 completion; Posture Timeline Trust & Actionability; M7 Pricing and
 Billing Alignment; systematic reliability hardening; security testing and
-pentesting; founder-controlled acceptance; the final public-beta gate; first
+   pentesting; controlled acceptance; the final public-beta gate; first
 controlled invitations; and gradual cohort expansion. Historical M6/M7 wording
 must not relabel post-tag source as deployed or accepted.
 
 Item 11 is closed history. Do not begin Item 12 or a later mutation lane before
-the successor join and audit-recovery gate close. The specific exception is the
+the current three-lane join and audit-recovery gate close. The specific exception is the
 read-only Item 13A reachability instrument supporting AS-B6 measurement; it
 grants no Item 13B mutation, retirement, deletion, activation, merge, deploy or
 acceptance authority. Immediate security/production containment remains allowed
@@ -966,7 +940,7 @@ Before implementing any feature:
 17. Apply migrations through the approved process.
 18. Deploy Worker and Pages changes as required.
 19. Record live and rollback deployment IDs.
-20. Perform production proof on founder-controlled workspaces.
+20. Perform production proof on company-controlled test workspaces.
 21. Do not send unrelated customer notifications, reports or email during testing.
 22. Stop after the requested episode.
 
@@ -978,7 +952,7 @@ Do not allow parallel implementation agents to edit overlapping files without an
 
 # 15. Production Proof Rules
 
-Production testing must use founder-controlled workspaces, founder-controlled domains, controlled test records and side-effect-safe actions.
+Production testing must use company-controlled test workspaces, company-controlled test domains, controlled test records and side-effect-safe actions. Routine proof does not require Founder presence.
 
 Do not modify unrelated customer cases, trigger unrelated email, send reports to unrelated recipients, change third-party production DNS without explicit approval or mark customer issues resolved for test purposes.
 

@@ -1,5 +1,11 @@
 # CyberMeters Security Playbook
 
+> **Status: TECHNICAL REFERENCE — not governance and not a blanket per-release
+> review mandate.** Apply the R0/R1/R2 assurance model in
+> `docs/AI-EXECUTIVE-OPERATING-MODEL.md` and the executable release checklist.
+> Use the broader activities below only at an explicit roadmap security/RC gate,
+> after an incident or when concrete changed-path evidence requires them.
+
 ## Purpose
 
 The CyberMeters Security Playbook defines the operational security procedures used to validate, harden, and continuously improve the CyberMeters platform.
@@ -468,4 +474,3 @@ We continuously demonstrate it.
 Every release should leave CyberMeters more secure than the previous one.
 
 Small, continuous improvements create exceptional security over time.
-

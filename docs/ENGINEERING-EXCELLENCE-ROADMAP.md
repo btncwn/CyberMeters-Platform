@@ -1,10 +1,9 @@
 # CyberMeters — Engineering & Production Excellence Roadmap (Track B)
 
-> **The second constitution.** The [Product & Growth Roadmap](CyberMeters-Yol-Haritasi.docx)
-> (Track A) answers *"what will we build, and how do we go to market?"*. This
-> document answers *"how do we keep it trustworthy, reliable, and operable at
-> world-class standard?"*. The two run in parallel; neither is complete without
-> the other.
+> **Status: HISTORICAL ENGINEERING BACKLOG — not a second constitution, current
+> queue or parallel blocking track.** Retain useful technical observations, but
+> schedule work only through `docs/PRE-BETA-EXECUTION-BACKLOG.md` and apply
+> authority/review only from `docs/AI-EXECUTIVE-OPERATING-MODEL.md`.
 >
 > Temmuz 2026 · Internal · Owner: Lead Engineer
 

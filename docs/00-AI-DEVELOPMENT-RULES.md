@@ -1,14 +1,11 @@
 # CyberMeters AI Development Rules
 
-These rules apply to every AI-assisted engineering task on CyberMeters.
-
-Before writing code, every AI engineer must read and follow:
-
-- docs/01-ENGINEERING-CONSTITUTION-v2.md
-- docs/02-PRODUCT-CONSTITUTION-v1.md
-- docs/03-CYBERMETERS-PHILOSOPHY.md
-- docs/04-SECURITY-PLAYBOOK.md
-- docs/05-PRODUCT-ROADMAP.md
+> **Status: HISTORICAL TECHNICAL REFERENCE — not active governance or
+> onboarding.** Current roles, authority and minimum assurance live only in
+> `docs/AI-EXECUTIVE-OPERATING-MODEL.md`; current order lives in
+> `docs/PRE-BETA-EXECUTION-BACKLOG.md`. `AGENTS.md` / `CLAUDE.md` contain the
+> current engineering bootstrap. No session is required to read the former
+> six-document chain below, and any conflict loses to the current sources.
 
 ---
 
@@ -121,4 +118,3 @@ At the end of every task provide:
 - Tests or checks run
 - Remaining risks
 - Next recommended action
-
