@@ -1,5 +1,5 @@
 import { isPublishableModuleEvidence } from "./scan-budget.js";
-import { computeKevCveDeduction, riskLevelForScore } from "./scoring.js";
+import { applyKevCveDeduction } from "./scoring.js";
 import {
   normalizeQuality,
   resolveAssessmentPresentation,
@@ -169,13 +169,13 @@ export function resolvePhase5CustomerAssessment({
       evidence,
     };
   }
-  // AS-B2: KEV/CVE evidence moves the customer Cyber Metrics Score. Single owner:
-  // this transform already runs after phase5 evidence exists and owns the customer
-  // score. The deduction is gated by the publishable contract and matched evidence
-  // only (computeKevCveDeduction). Score is clamped to [0,100]; risk band re-derived.
-  const deduction = computeKevCveDeduction({ modules, evidence });
-  const adjustedScore = Math.max(0, Math.min(100, score + deduction.total));
-  const adjustedRiskLevel = riskLevelForScore(adjustedScore);
+  // AS-B2: KEV/CVE evidence moves the customer Cyber Metrics Score. Pure orchestration:
+  // ALL score arithmetic, the [0,100] clamp, and the canonical band mapping live in the
+  // single owner (scoring.applyKevCveDeduction). This function contributes no formula and
+  // no band ladder — it only wires phase5 evidence in and stamps the honest per-note
+  // magnitude. The deduction is gated by the publishable contract and matched evidence.
+  const { score: adjustedScore, riskLevel: adjustedRiskLevel, deduction } =
+    applyKevCveDeduction({ score, modules, evidence });
   // Stamp the applied per-note magnitude onto the modules so the asset-intel display
   // notes (kev_active_exploitation / cve_high_severity_detected) show the honest
   // score_impact instead of a lying 0 — single source of truth, no double counting

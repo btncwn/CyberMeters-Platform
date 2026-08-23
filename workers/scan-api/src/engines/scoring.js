@@ -1260,6 +1260,20 @@ export function computeKevCveDeduction({ modules = {}, evidence = {} } = {}) {
   return { total: kev + cve, kev, cve };
 }
 
+// Canonical customer-score adjustment for KEV/CVE evidence. This is the SINGLE owner
+// of the score arithmetic AND the band mapping — the clamp [0,100] and the risk-band
+// derivation both live here, next to CYBER_METRICS_SCORE_BANDS, so no consumer restates
+// a threshold or re-derives a display band outside this engine (M5.e single-owner law).
+// Callers pass the raw phase5 score + modules/evidence and receive the adjusted score,
+// its canonical band, and the per-severity deduction for honest display stamping.
+export function applyKevCveDeduction({ score, modules = {}, evidence = {} } = {}) {
+  const deduction = computeKevCveDeduction({ modules, evidence });
+  // Fail closed: a non-finite score publishes nothing rather than a NaN band.
+  if (!Number.isFinite(score)) return { score: null, riskLevel: null, deduction };
+  const adjustedScore = Math.max(0, Math.min(100, score + deduction.total));
+  return { score: adjustedScore, riskLevel: riskLevelForScore(adjustedScore), deduction };
+}
+
 // Methodology stamp for the Cyber Metrics Score (M5.c). The value dates the CURRENT
 // deduction weights + band cutoffs; bump it whenever either changes, so a persisted
 // snapshot can refuse to present a methodology change as posture movement
