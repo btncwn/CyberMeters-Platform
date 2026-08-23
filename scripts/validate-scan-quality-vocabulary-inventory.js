@@ -35,7 +35,15 @@ const EXPECTED = Object.freeze({
     source_file_count: 22,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
-    fingerprint: "b372fe779cd9cc24c31dc4d7707727190414e415918aa5e1a188e745826c7ccd",
+    // AS-B2 SUCCESSION: counts UNCHANGED (48 across 22 files). The KEV/CVE score
+    // wiring added lines to phase5-evidence.js/scoring.js/asset-intel.js and this
+    // inventory records sites by file:line, so only the fingerprint moves. No
+    // comparison was added, removed or reclassified.
+    // AS-B2 M5.e-CLOSURE REFACTOR: counts STILL UNCHANGED (48 across 22 files). The
+    // single-owner refactor (score/clamp/band moved into scoring.applyKevCveDeduction;
+    // phase5-evidence.js reduced to orchestration) reindexed comparison sites once more,
+    // so only the fingerprint moves. No comparison was added, removed or reclassified.
+    fingerprint: "48bf9ed445987f1bfb26b28c88faab25534ec3ff8f35e3823bf446db800c297c",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -69,7 +77,8 @@ const EXPECTED = Object.freeze({
     // asm-cases read now flows through the shared predicate.
     // SEQ-151 SUCCESSION: count UNCHANGED at 92; fingerprint moves for the same
     // reason as the runtime comparison set above.
-    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "a1d9011b5d0f1ea4f2236b86508dc606b7bfe970fb3b204a447d8769e37765f7" },
+    // AS-B2 SUCCESSION: count UNCHANGED at 92 across 34 files; position-shift only.
+    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "45d72b78fce0dc839eb1b3b175676fa4eebc0c586d3d91269fe3d4278680a191" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

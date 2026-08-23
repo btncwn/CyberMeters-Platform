@@ -1216,8 +1216,67 @@ export function resolveCanonicalScanScore(storedScore, reportScore) {
   return Number.isFinite(reportValue) ? reportValue : 0;
 }
 
-// First methodology stamp for the Cyber Metrics Score (M5.c). The value dates the
-// CURRENT deduction weights + band cutoffs; bump it whenever either changes, so a
-// persisted snapshot can refuse to present a methodology change as posture movement
+// AS-B2 (KEV/CVE score wiring). Weights are DERIVED from the existing critical/high
+// deduction scale in this engine — no new constant system:
+//   • dns_no_resolution = -30 and ssl_not_available = -25 are the two existing criticals;
+//   • high-severity siblings deduct -15 / -10.
+// CISA KEV = confirmed active in-the-wild exploitation, which by definition is >= any
+// UNexploited critical on the same scale, so it takes the TOP of the critical band (-30).
+// A critical CVE (not confirmed exploited) sits at the other critical sibling's weight
+// (-25); a high CVE takes the higher of the high siblings (-15). Ordering is preserved:
+// KEV (-30) < CVE-critical (-25) < CVE-high (-15) in deduction magnitude.
+export const KEV_CVE_SCORE_WEIGHTS = Object.freeze({
+  kev_active_exploitation: -30,
+  cve_critical:            -25,
+  cve_high:                -15,
+});
+
+// Canonical KEV/CVE deduction for the customer Cyber Metrics Score. Single source of
+// truth (consumed by resolvePhase5CustomerAssessment, which owns the customer score
+// post-phase5; the asset-intel display notes read the per-note magnitude it stamps).
+// Evidence-floor discipline (P1 class):
+//   • gated by the phase5 publishable contract — an unexecuted/incomplete KEV or CVE
+//     module contributes NOTHING (no impact, never a guessed deduction);
+//   • impact applies ONLY to matched evidence (KEV matches present; CVE critical/high
+//     counts > 0). Unmeasured technologies (partial coverage) never add impact — the
+//     weight is per matched-severity, not scaled by unmeasured breadth.
+export function computeKevCveDeduction({ modules = {}, evidence = {} } = {}) {
+  // Defense-in-depth evidence-floor: no deduction unless the WHOLE phase5 evidence
+  // contract is complete. A score is a conclusion over a completed assessment; an
+  // incomplete scan never earns a KEV/CVE deduction, whatever a single surface says.
+  if (evidence?.complete !== true) return { total: 0, kev: 0, cve: 0 };
+  const publishable = evidence?.publishable || {};
+  let kev = 0;
+  let cve = 0;
+  if (publishable.kev === true) {
+    const matches = modules?.known_exploited_vulnerabilities?.matches || [];
+    if (matches.length > 0) kev = KEV_CVE_SCORE_WEIGHTS.kev_active_exploitation;
+  }
+  if (publishable.cve === true) {
+    const cveIntel = modules?.cve_intelligence || {};
+    if ((cveIntel.critical_count || 0) > 0) cve = KEV_CVE_SCORE_WEIGHTS.cve_critical;
+    else if ((cveIntel.high_count || 0) > 0) cve = KEV_CVE_SCORE_WEIGHTS.cve_high;
+  }
+  return { total: kev + cve, kev, cve };
+}
+
+// Canonical customer-score adjustment for KEV/CVE evidence. This is the SINGLE owner
+// of the score arithmetic AND the band mapping — the clamp [0,100] and the risk-band
+// derivation both live here, next to CYBER_METRICS_SCORE_BANDS, so no consumer restates
+// a threshold or re-derives a display band outside this engine (M5.e single-owner law).
+// Callers pass the raw phase5 score + modules/evidence and receive the adjusted score,
+// its canonical band, and the per-severity deduction for honest display stamping.
+export function applyKevCveDeduction({ score, modules = {}, evidence = {} } = {}) {
+  const deduction = computeKevCveDeduction({ modules, evidence });
+  // Fail closed: a non-finite score publishes nothing rather than a NaN band.
+  if (!Number.isFinite(score)) return { score: null, riskLevel: null, deduction };
+  const adjustedScore = Math.max(0, Math.min(100, score + deduction.total));
+  return { score: adjustedScore, riskLevel: riskLevelForScore(adjustedScore), deduction };
+}
+
+// Methodology stamp for the Cyber Metrics Score (M5.c). The value dates the CURRENT
+// deduction weights + band cutoffs; bump it whenever either changes, so a persisted
+// snapshot can refuse to present a methodology change as posture movement
 // (the CYBER_MOT_RESOLVER_VERSION / CE_READINESS_METHODOLOGY_VERSION precedent).
-export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-08-22.1";
+// 2026-08-23.1 — AS-B2: KEV/CVE evidence now moves the customer score (was 0-impact).
+export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-08-23.1";
