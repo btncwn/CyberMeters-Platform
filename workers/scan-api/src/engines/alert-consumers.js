@@ -597,7 +597,6 @@ export async function emitLifecycleAlert(env, {
     //    here, or alerts become a second source of remediation truth.
     const remediation = finding_type ? resolveRemediation({ finding_type }) : null;
     const resolved = remediation?.status === "resolved" ? remediation : null;
-
     // 3. Occurrence identity is the event id, so repeated hourly evaluation of the
     //    same occurrence yields the same key (=> deduplicated), while a genuine
     //    later recurrence appends a new event => new key => a new eligible alert.
@@ -657,6 +656,11 @@ export async function emitLifecycleAlert(env, {
         recommended_action: presentation.recommended_action,
         presentation_state: presentation.presentation_state,
         evidence_state: presentation.evidence_state || null,
+        // Eligibility is carried as a typed producer fact to the final emitter;
+        // an alert layer cannot infer serviceability from customer copy.
+        evidence_eligible: module_evidence?.serviceability
+          ? module_evidence.serviceability.serviceable === true
+          : true,
         // Typed entity + bounded evidence for the email field mapping
         // (managed-alerts.js buildAlertEmailFields). Absent for legacy callers.
         entity_type: entity_type || null,
