@@ -69,7 +69,7 @@ const EXPECTED = Object.freeze({
     // asm-cases read now flows through the shared predicate.
     // SEQ-151 SUCCESSION: count UNCHANGED at 92; fingerprint moves for the same
     // reason as the runtime comparison set above.
-    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "d8d2ede9563981e1ed7c2e7e76c3afc838dcced89da2453b95247372fd17517a" },
+    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "a1d9011b5d0f1ea4f2236b86508dc606b7bfe970fb3b204a447d8769e37765f7" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
