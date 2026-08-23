@@ -39,7 +39,11 @@ const EXPECTED = Object.freeze({
     // wiring added lines to phase5-evidence.js/scoring.js/asset-intel.js and this
     // inventory records sites by file:line, so only the fingerprint moves. No
     // comparison was added, removed or reclassified.
-    fingerprint: "96cc1c4ec108717228a291d81e97c9a9f22c7a849401b295218d3fa22fb63ab6",
+    // AS-B2 M5.e-CLOSURE REFACTOR: counts STILL UNCHANGED (48 across 22 files). The
+    // single-owner refactor (score/clamp/band moved into scoring.applyKevCveDeduction;
+    // phase5-evidence.js reduced to orchestration) reindexed comparison sites once more,
+    // so only the fingerprint moves. No comparison was added, removed or reclassified.
+    fingerprint: "48bf9ed445987f1bfb26b28c88faab25534ec3ff8f35e3823bf446db800c297c",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
