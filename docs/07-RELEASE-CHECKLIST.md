@@ -15,15 +15,18 @@ feature branch → PR → CI green (validate + sast) → merge main
    → confirm CI green on main
 ```
 
-## Risk gate — who may deploy (from CLAUDE.md)
+## Risk gate — who may deploy
 
-| Tier | Examples | Claude may deploy? |
+Authority comes only from `docs/AI-EXECUTIVE-OPERATING-MODEL.md`.
+
+| Tier | Examples | Required path |
 |---|---|---|
-| **LOW** | frontend UI/copy, error-handling, scoring calibration, non-destructive API response shaping, test/CI additions, docs | ✅ implement → validate → commit → push → **deploy** |
-| **MEDIUM** | migrations, billing logic, auth routes, scheduled/cron engine, RUA ingestion, Stripe webhooks, delete/retention | ⚠ build → validate → commit → push → **STOP, get Turhan's approval before deploy** |
-| **HIGH** | destructive migrations, DROP/large DELETE, auth/session/RBAC/Stripe architecture redesign, tenant-isolation redesign | ⛔ **STOP before implementation** — present options + risks, wait for approval |
+| **R0** | frontend UI/copy, error handling, non-destructive response shaping, tests/tooling/docs | Owner proof + CI + integration smoke → Executive may merge/deploy |
+| **R1** | auth/tenant/billing changed path, additive migration, scoring truth, scheduled/cron, retention code, release controls | Dangerous-path proof + one non-author targeted review + CI + rollback → Executive may merge/deploy |
+| **R2** | destructive data action, foundational auth/session/RBAC/billing/tenant redesign, irreversible production change | Governance scopes; Founder decides the exact reserved consequence |
 
-Determine the tier first. If MEDIUM/HIGH, stop where the table says.
+Classify actual consequence, not the filename. Do not ask the Founder for a
+routine reversible R0/R1 deploy.
 
 ---
 
@@ -31,7 +34,7 @@ Determine the tier first. If MEDIUM/HIGH, stop where the table says.
 
 - [ ] Change is on a branch / PR; **CI green** (`validate` + `sast`) on the PR or main.
 - [ ] Reviewed the diff (`git diff --check` clean; no stray debug/secrets).
-- [ ] Risk tier identified; if MEDIUM/HIGH, approval obtained per the gate above.
+- [ ] Risk tier identified; required R0/R1 proof or R2 decision obtained.
 
 ## 2. Local validation gate (must all pass)
 
@@ -55,9 +58,9 @@ git diff --check && git status --short
 
 ## 3. Database migration (only if the change adds one)
 
-Migrations are **MEDIUM risk** — needs approval. Additive-only (enforced by
-`validate-migrations.js`). Apply to remote D1 **before** deploying the code that
-reads the new schema.
+Migrations are at least **R1**. Additive-only is enforced by
+`validate-migrations.js`; destructive consequence is R2. Apply to remote D1
+**before** deploying the code that reads the new schema.
 
 ```bash
 cd workers/scan-api
@@ -82,7 +85,7 @@ npx wrangler deploy
 - [ ] **RECORD the printed `Current Version ID`** (rollback needs it): `________________`
 - [ ] Note the **previous** Version ID for rollback (from CHANGELOG's last entry): `________________`
 
-> The `cybermeters-email` Worker requires a separate founder-approved deploy
+> The `cybermeters-email` Worker requires a separately recorded Executive deploy
 > whenever `workers/email-ingest/deploy-manifest.json` changes:
 > `npm run deploy --prefix workers/email-ingest`
 
@@ -131,7 +134,8 @@ curl -s https://api.cybermeters.com/health   # confirm reverted on the host cust
 
 - If the release included a migration, additive migrations are safe to leave in
   place on rollback (older code ignores the new column/table). **Never** pair a
-  rollback with a destructive down-migration without a fresh snapshot + approval.
+  rollback with a destructive down-migration without a fresh snapshot and the
+  R2 decision required by the operating constitution.
 - Secret/key rotation, DB break-glass, and per-incident playbooks all live in
   [INCIDENT-RESPONSE-PLAN.md](INCIDENT-RESPONSE-PLAN.md) — don't duplicate here.
 

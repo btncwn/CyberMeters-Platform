@@ -1,5 +1,10 @@
 # CyberMeters — Security & Hardening Roadmap (Secure SDLC)
 
+> **Status: TECHNICAL CONTROL-STATUS REFERENCE — not role, governance or current
+> queue authority.** Schedule controls through the canonical execution order and
+> apply the R0/R1/R2 assurance model. The dated owner/status text below is
+> historical unless refreshed by measured evidence.
+
 > **Core principle (non-negotiable):** a pentest does not make a SaaS "safe". It
 > finds what was visible on one date, in one scope. Real safety comes from a
 > **Secure SDLC**: close each finding at its root, then make the same mistake
@@ -14,7 +19,8 @@ Pentest + Retest + ASVS verification + Tenant-isolation regression tests
 ```
 
 **Status legend:** ✅ done · 🟡 partial / in progress · ⬜ not started
-**Owner:** Lead Engineer (Turhan + Claude). Last updated: 2026-07-11.
+**Historical owner/status:** Lead Engineer (Turhan + Claude). Last updated:
+2026-07-11.
 
 This document is **living** — update statuses in place, never fork it. When a
 finding is closed, link its fix commit AND its regression test here.

@@ -1,6 +1,6 @@
 # CyberMeters Detection Quality Roadmap (canonical)
 
-**Status: CANONICAL FOUNDER DECISION (21 July 2026).** This is law. It governs how every customer-facing detection capability is judged, released, and claimed. Where any other doc conflicts on detection quality, this wins. Its programme sequence is preserved but temporarily overlaid by the 23-August founder-priority successor at `docs/governance/2026-08-23-gtr7-competitor-first-successor/`. Companion audit: `docs/DETECTION-DEPTH-AUDIT.md`.
+**Status: ACTIVE DETECTION ENGINEERING POLICY — preserves the 21 July 2026 Founder decision.** It governs how customer-facing detection capability is judged and claimed; it does not schedule work or grant governance authority. Current order lives only in `docs/PRE-BETA-EXECUTION-BACKLOG.md`; roles/review depth live only in `docs/AI-EXECUTIVE-OPERATING-MODEL.md`. Companion technical evidence: `docs/DETECTION-DEPTH-AUDIT.md`.
 
 ## The two gates (kept separate)
 1. **Platform Security Gate** — can CyberMeters *itself* be exploited? (largely engineering-complete: 6 CI security suites, 204+ assertions, `docs/SECURITY-VERIFICATION-MATRIX.md`.)
@@ -26,7 +26,7 @@ If any link is missing, the status is **not PASS** — it is `PARTIAL`, `FAIL`, 
 2. **The root record is not enough.** Resolve the effective state behind it where possible (SPF: root TXT → include chain → effective IP/CIDR authorisation set → active use in RUA). Apply the same principle to every domain.
 3. **A global "scan ran" is not enough.** Each signal carries its own evidence-completeness. A missing Website module must not silence a reliable SPF diff forever — and incomplete evidence must never produce a false alert. Target: **per-signal evidence completeness + global scan honesty.**
 4. **Detection ≠ maliciousness.** "New certificate observed / IDN lookalike found / new SPF sender authorised" is sayable. "Attacker / phishing / compromise / malicious sender" requires additional evidence.
-5. **Every critical capability passes four proofs:** deterministic fixture · mutation proof · end-to-end pipeline trace · founder-controlled live acceptance.
+5. **Every critical capability passes four proofs:** deterministic fixture · mutation proof · end-to-end pipeline trace · controlled live acceptance.
 6. **Public copy states only the live-proven level.** `implemented` / `merged` / `deployed` / `live-accepted` are never conflated.
 
 ## Release & claim status ladder
@@ -40,11 +40,11 @@ Every capability is tagged with exactly one: `DISCOVERED` · `DESIGNED` · `IMPL
 Find blackbullbarbers.co.uk's seven incomplete modules; explain why it has been `partial` since 2026-07-18 (budget headroom present); measure the real blast radius behind the complete-gate across other domains; verify how monitoring degradation is disclosed to the customer; fix any deterministic bug.
 **Exit:** root cause proven · complete scans reproducible OR a safe per-signal design ready · monitoring never silently disappears · SPF production acceptance repeatable. **No other engine's "live" acceptance completes until this closes.**
 
-**Bounded 23-Aug founder-successor exception:** AS-B2/AS-B6 may complete only the
-operational four-row shame-closure acceptance required for the pre-recovery join,
-and only after an independently accepted narrow successor authorises the exact
-mutation and acceptance scope. This named exception does not release Phase 0, does
-not authorise any other engine acceptance or customer progression, and must retain
+**Bounded current-order exception:** AS-B2/AS-B6 may complete only the operational
+four-row shame-closure acceptance required for the pre-recovery join. Claude
+Desktop dispatches the exact mutation/acceptance scope under R1; no governance
+successor document is required. This named exception does not release Phase 0,
+does not authorise any other engine acceptance or customer progression, and must retain
 per-signal evidence completeness, global scan honesty, fail-closed unavailable/
 partial states, deterministic fixtures, mutations, end-to-end proof and controlled
 live evidence. Phase 0 remains mandatory after audit recovery and before public beta.
@@ -87,13 +87,19 @@ Ten competitors compared not by marketing page but by: their public evidence · 
 
 ---
 
-## Preserved implementation order after audit recovery
-**Resume with:** 1) Chronic-partial root cause → 2) fix/deploy → 3) complete-scan restore → 4) SPF root-change acceptance → 5) SPF child-include live fixture.
-**Then:** 6) Brand IDN PR-A → 7) PR-B → 8) Brand live acceptance.
-**Three quality sprints:** 9) ASM depth → 10) Certificates depth → 11) Email remaining depth.
-**Then:** 12) Website → 13) Shadow IT → 14) Identity → 15) cross-domain correlation → 16) competitor-parity closure → 17) pentest/retest → 18) go-live website conversion → 19) controlled first paying customer → 20) public beta.
+## Technical dependency outline — not execution order
 
-*Web design is not forgotten — but we do not paint a weak, unproven product beautifully and sell it. Design advances alongside the detection-truth baseline.* The successor pulls forward only the operational four-row shame closure. That is not the full 22-axis FD-008/competitor-parity programme, which remains binding here and resumes after audit recovery. New ideas do not arbitrarily reorder this; only a P0/P1 with proven wider customer harm or a later explicit founder decision changes the queue.
+When the canonical backlog schedules this programme, the load-bearing technical
+dependencies are: chronic-partial root cause → fix/deploy → complete-scan restore
+→ SPF root/child acceptance → Brand IDN PR-A/PR-B/live acceptance → ASM,
+Certificates and Email depth → Website, Shadow IT and Identity depth →
+cross-domain correlation → competitor-parity closure → scoped pentest/retest.
+
+This outline cannot schedule or reorder engineering, marketing, a first customer
+or public beta. Those decisions live in the canonical backlog, strategic roadmap
+and operating constitution. A proven P0/P1 may stop unsafe progression; it does
+not silently create a parallel queue. The operational four-row shame closure is
+only the current backlog's bounded prerequisite, not the full 22-axis programme.
 
 ## Mandatory before public beta
 chronic-partial monitoring integrity · Brand IDN PR-A/B + live acceptance · ASM high-impact depth · Certificates CT/active-service lifecycle · Email effective-state change validation · Website sensitive-surface dependency changes · Shadow IT attribution/owner lifecycle · Identity bounded external-surface workflow · cross-domain dedupe/correlation · independent scoped pentest + retest · claims audit · first-customer end-to-end acceptance.
@@ -119,14 +125,14 @@ A distinct axis from detection depth: depth asks "do we catch the change?"; conf
 
 **Audit order:** 1) SPF RFC 7208 · 2) **DMARC RFC 9989/9990/9991 migration** · 3) DKIM RFC 6376 + updates · 4) MTA-STS RFC 8461 · 5) TLS-RPT RFC 8460 · 6) IDNA RFC 5890–5895 · 7) X.509/CAA/CT · 8) HTTP/security-header. Interleaves with the detection phases (each protocol audit sits alongside its domain phase; DMARCbis migration is a real Email-phase work item, not cosmetic).
 
-## Founder gate — the report at every episode end
+## Episode closure evidence
 1. the real harm that could reach the customer;
 2. whether CyberMeters catches it right now;
 3. exactly where the pipeline breaks;
 4. the small PR sequence + live acceptance needed to close it.
 **"118 modules exist", "tests green", "engine present" are NOT, on their own, success.**
 
-## Canonical founder decision
+## Preserved product decision
 > CyberMeters ships **no** customer-facing domain (except Cyber Essentials Readiness) at a surface-only posture-checker level. Each domain must, where possible, provide dependency-aware effective-state resolution, historical change intelligence, independent corroboration, evidence-backed prioritisation, and managed remediation. No **known** critical false-negative, silent monitoring loss, or unproven security claim may be left open before public beta.
 
 ## Engineering oath

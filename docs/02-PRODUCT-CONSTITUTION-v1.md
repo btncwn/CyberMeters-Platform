@@ -1,5 +1,10 @@
 # CyberMeters Product Constitution v1.0
 
+> **Status: HISTORICAL PRODUCT REFERENCE — superseded as an authority.** The
+> canonical eight-domain product model is in `AGENTS.md` / `CLAUDE.md`; the
+> strategic roadmap is `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`. This file
+> cannot change roles, current order, domain count or product claims.
+
 ## Vision
 
 CyberMeters exists to become the leading **External Exposure Intelligence Platform** for small and medium-sized businesses.

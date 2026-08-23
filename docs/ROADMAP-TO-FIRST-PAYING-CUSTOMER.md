@@ -1,23 +1,24 @@
 # CyberMeters Official Roadmap
 ## From Final Product Completion to the First Paying Customer
 
-Version: August 2026 (r3 — founder-priority successor adoption)
+Version: August 2026 (r4 — lean eight-seat operating model)
 
-Canonical location: `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`. This file is the single authoritative copy. Do not maintain parallel copies outside the repository.
+Canonical location: `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`. This file is the
+single strategic roadmap and customer-gate spine. Current execution order lives
+only in `docs/PRE-BETA-EXECUTION-BACKLOG.md`; do not duplicate or reorder it here.
 
-Current programme priority (founder decision, 23 August 2026): **GTR/carrier
-exit, operational shame-table closure, and source-integrity relocation/independent
-backup are three prerequisite lanes with a mandatory join before audit recovery.**
-Production/customer state remains `HOLD`. The sealed governing package is
-`docs/governance/2026-08-23-gtr7-competitor-first-successor/`; its manifest
-SHA-256 is `886fe763dc88dd874c7e81b939812f0806fc11706aa645bfd94bb4465a5b9ee3`.
-The package's audit-provenance ruling preserves the two audits/two rebuttals under
-bounded exclusions; it does not lift `HOLD` or close source relocation.
+Current programme priority remains the three-lane join recorded at the top of the
+canonical execution backlog. Production/customer state remains `HOLD`. The
+sealed package at
+`docs/governance/2026-08-23-gtr7-competitor-first-successor/` is historical
+decision/provenance evidence, not current operating authority. Roles, autonomy
+and minimum assurance are governed only by
+`docs/AI-EXECUTIVE-OPERATING-MODEL.md`.
 
 The frozen backlog's item numbers, technical scopes and accepted evidence remain
 unchanged. Item 11A/11B/11C is separately LIVE-ACCEPTED (20–21 August). Items 12
 and 13 and all sunk design/evidence work are preserved and resume after the
-successor join and exact-candidate audit-recovery gate. The former 2026-09-01
+current three-lane join and exact-candidate audit-recovery gate. The former 2026-09-01
 recovery-candidate target is now a reforecast checkpoint, not an RC promise.
 
 Historical episode context (recorded 18 July 2026): **Posture Timeline Trust &
@@ -48,7 +49,7 @@ The roadmap is complete when CyberMeters has:
 1. completed the remaining canonical product phases;
 2. passed systematic debugging and reliability hardening;
 3. passed internal security review and focused pentesting;
-4. completed founder-controlled end-to-end acceptance;
+4. completed controlled end-to-end acceptance;
 5. passed a formal release-candidate gate;
 6. onboarded controlled real users;
 7. demonstrated measurable customer value;
@@ -81,22 +82,11 @@ Record:
 # Master sequence
 
 ```text
-[GTR-4 successor-5 → FINAL GTR-6 → GTR-7 comparison
- → separate founder architecture selection → FINAL GTR-7B two-way carrier exit]
-||
-[AS-B2 STOP/AMEND + corrected isolated preparation/authoring (zero credit)
- + AS-B6 read-only remeasurement
- → narrow mutation authority → independently accepted 4/4 operational shame closure]
-||
-[fresh-clone source armour → declared idle boundary
- → verified ~/dev cutover + independently restored external-disk transport backup]
-→ mandatory JOIN
-→ exact-candidate audit recovery + nine-condition Governance gate
-→ preserved P1 / FD-007 / full FD-008 / Items 12–18
- + pre-existing Item 19 aggregate source-fidelity law
+current canonical order (PRE-BETA-EXECUTION-BACKLOG)
+→ preserved P1 / FD-007 / full FD-008 / Items 12–18 + Item 19
 → systematic debugging and reliability hardening
 → security testing, pentesting and retest
-→ founder-controlled end-to-end acceptance
+→ controlled end-to-end acceptance
 → release-candidate and legal/commercial gates
 → first two controlled external invitations
 → first paid conversion
@@ -107,7 +97,7 @@ Record:
 
 # Pre-Public-Beta Gate Sequence
 
-Founder-approved (16 July 2026; **re-sequenced 18 July 2026 to insert M6 before pricing**; **execution model refined 20 July 2026 — see "Execution re-sequencing decision" below the gate specifics**). This remains the preserved canonical gate spine to public beta. Its queue/calendar position is prospectively overlaid by the accepted 23-August founder-priority successor above; once the successor join and audit-recovery gate close, the preserved spine resumes. **No underlying gate may be collapsed or skipped.** Where a gate and a phase overlap, the phase text is the detail.
+Founder-approved (16 July 2026; **re-sequenced 18 July 2026 to insert M6 before pricing**; **execution model refined 20 July 2026 — see "Execution re-sequencing decision" below the gate specifics**). This remains the preserved strategic gate spine to public beta. Its queue/calendar position is controlled only by the current canonical execution backlog; once the current join and audit-recovery gate close, the preserved spine resumes. **No underlying gate may be collapsed or skipped.** Where a gate and a phase overlap, the phase text is the detail.
 
 | # | Gate | Status |
 | --- | --- | --- |
@@ -117,7 +107,7 @@ Founder-approved (16 July 2026; **re-sequenced 18 July 2026 to insert M6 before 
 | 4 | M5.e Eight-domain Parity | CLOSED — deployed `v2026.07.17-4` (migration `094`) |
 | 5 | M5.f Maturity Ledger | CLOSED — deployed `v2026.07.17-5` (migration `095`); founder-controlled complete-scan acceptance passed |
 | 6 | M5.g Final CI Closure | CLOSED — `validate-m5-closure.js` locks the full M5 gate + append-only idempotency (CI-only, no deploy); CE double-build cost is a tracked deploy-gated residual |
-| 7 | **M6.0 Viability Gate → RESCOPE: Posture Timeline Trust & Actionability**, then split into **B1 / B2 / B3** | M6.0-A PASSED; M6.0-B ran 2026-07-18 (read-only), founder **ruled RESCOPE**. **Phase A** (timeline-trust: eligibility/producer-version guards + flip-flop dedupe on `asset_events`) is **shipped (PR #169) → deployed (Worker `89c398b1`) → production-accepted (PASS, 18 Jul 2026)**; code-only, no migration. **M6 is now split by the canonical design `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`:** **B1 — Deterministic Related Changes (pre-public-beta, founder-approved in principle 19 Jul 2026)** — correlation across eligible evidence producers, mapped to affected customer-facing Cyber MOT areas (NOT "eight-domain correlation"); **B2 — Customer baselines & unusualness (post-beta, real-data gated)**; **B3 — Statistical/AI Behaviour Intelligence (post-revenue, founder-gated)**. Historical status at this decision: B1 not started. Later B1/B2/B3 work is preserved and scheduled only under the 23-Aug successor/recovery order. |
+| 7 | **M6.0 Viability Gate → RESCOPE: Posture Timeline Trust & Actionability**, then split into **B1 / B2 / B3** | M6.0-A PASSED; M6.0-B ran 2026-07-18 (read-only), founder **ruled RESCOPE**. **Phase A** (timeline-trust: eligibility/producer-version guards + flip-flop dedupe on `asset_events`) is **shipped (PR #169) → deployed (Worker `89c398b1`) → production-accepted (PASS, 18 Jul 2026)**; code-only, no migration. **M6 is now split by the canonical design `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`:** **B1 — Deterministic Related Changes (pre-public-beta, founder-approved in principle 19 Jul 2026)** — correlation across eligible evidence producers, mapped to affected customer-facing Cyber MOT areas (NOT "eight-domain correlation"); **B2 — Customer baselines & unusualness (post-beta, real-data gated)**; **B3 — Statistical/AI Behaviour Intelligence (post-revenue, founder-gated)**. Historical status at this decision: B1 not started. Later B1/B2/B3 work is preserved and scheduled only under the current canonical order. |
 | 8 | M7 Pricing + Billing Alignment | Planned |
 | 9 | Final Beta Hardening | Planned |
 | 10 | Controlled Authenticated / Live Acceptance | Planned |
@@ -146,21 +136,21 @@ Founder-approved (16 July 2026; **re-sequenced 18 July 2026 to insert M6 before 
     3. **Evidence-based disappearance confirmation** — replace the fixed two-hour disappearance timer with "absent across two consecutive comparable complete scans" and decouple raw inventory state from customer-event eligibility; classified a **medium inventory-lifecycle / detection-latency design weakness, not a security vulnerability**.
     4. **DMARC Enforcement Level Consistency.**
     5. **Security Hardening v2 — Resource Exhaustion & Parser Robustness.**
-- **8 — M7 Pricing + Billing Alignment.** Design may be two tasks, but the production deploy is **one lockstep release** (Stripe products/prices + backend entitlements + pricing cards together); founder deploy approval is mandatory; the first customer is acquired on the adopted pricing, never the legacy pricing. Design the pricing architecture with extensibility for future founder-approved premium intelligence capabilities. This is architecture headroom only and creates no committed tier, entitlement, SKU, customer claim, or shipped functionality until separately approved and delivered.
+- **8 — M7 Pricing + Billing Alignment.** Design may be two tasks, but the production deploy is **one lockstep release** (Stripe products/prices + backend entitlements + pricing cards together). The locked price decision remains Founder-owned; implementing and reversibly deploying that already locked decision is Executive-owned under the R1 gate. The first customer is acquired on the adopted pricing, never the legacy pricing. Design the pricing architecture with extensibility for future founder-approved premium intelligence capabilities. This is architecture headroom only and creates no committed tier, entitlement, SKU, customer claim, or shipped functionality until separately approved and delivered.
 - **9 — Final Beta Hardening.** Auth/session/tenant isolation; rate limits and failure honesty; per-pass row growth and operational scale. Recovery must be **demonstrated, not described**: a tested D1 restore, an R2 object-loss recovery, and a Worker/Pages rollback drill, each with evidence and timings recorded. Includes verifying that CyberMeters' own alert/verification/report email lands in the inbox (our outbound SPF/DKIM/DMARC posture) — ironic to fail this as an email-security product.
 - **10 — Controlled Authenticated / Live Acceptance.** A real production session exercising the full lifecycle across Email, Website Security, Cyber Essentials, Certificates, and every eight-domain path. This clears the accumulated M5.a/M5.b acceptance debt. CI green and a `401` route check do **not** substitute for it.
 - **12 — Legal & Data-Protection Foundation.** A distinct pre-invitations blocker, not website copy. Complete the ICO data-protection-fee self-assessment and pay the applicable fee unless a valid exemption applies — for CyberMeters' business model a fee is **likely**, but this must be confirmed via the self-assessment rather than assumed. Publish a Privacy Notice (controller identity, data types, purpose and lawful basis, retention, sharing and subprocessors, data-subject rights, complaint and contact route), Terms, a DPA, a processor/subprocessor record, a retention/deletion statement, a DSAR process, a responsible-disclosure/security contact, and cookie/analytics control.
 - **13 — Formal Release-Candidate Gate.** `-rc1` is tagged only when every prior gate is green: M5 complete, M6 engine validated, pricing/billing deployed, hardening complete, live acceptance complete, pentest/retest complete, legal foundation complete, recovery drills complete. If private beta surfaces a blocker: `rc1 → fix → rc2`; public beta opens from the last accepted RC.
 - **15–17.** An invitation is not a public launch. Gate 16 (private-beta acceptance and fix cycle) sits deliberately between invitations and the public beta gate.
 
-**Preserved underlying execution decision — founder-approved 20 July 2026.** The gate spine below the 23-August overlay is unchanged; this decision governs *execution order and scope* when the preserved programme resumes:
+**Preserved underlying execution decision — founder-approved 20 July 2026.** The gate spine remains unchanged; this decision governs scope when the preserved programme resumes under the current canonical order:
 
-1. **Early product-acceptance exception.** The four engineering-complete deliverables with a ready acceptance package — Brand Protection (PR-A/B/C), Shadow IT Alert Trust, Weekly Digest Truth (next real Monday digest), and A6 Related Changes — are pulled **forward to the first available founder slot** (they may run while M7 is in progress) instead of waiting for gate 10. Rationale: ~30–60 minutes of founder time validates the foundation the remaining gates build on; a late FAIL would multiply rework. Checklist: `docs/FOUNDER-ACCEPTANCE-PACKAGE.md` (nothing in it is PASS until executed). Gate 10 then clears the *remaining* live-acceptance debt, not these four.
+1. **Early product-acceptance exception.** The four engineering-complete deliverables with a ready acceptance package — Brand Protection (PR-A/B/C), Shadow IT Alert Trust, Weekly Digest Truth (next real Monday digest), and A6 Related Changes — are pulled forward to the first controlled-live slot (they may run while M7 is in progress) instead of waiting for gate 10. Claude Desktop may execute or delegate the controlled proof; Founder presence is not required unless a human-only action or reserved product judgement is identified. Checklist: `docs/FOUNDER-ACCEPTANCE-PACKAGE.md` (nothing in it is PASS until executed). Gate 10 then clears the *remaining* live-acceptance debt, not these four.
 2. **Founder manual work is otherwise batched late.** Commercial approvals (final prices, Stripe product names, trial length, cancellation/refund wording, MSP commercial model, public pricing approval, contracting-entity details) and legal approvals (Terms/Privacy/DPA final sign-off, subprocessor disclosure, sole-trader identity, governing law) are consolidated after the automated phases, immediately before the RC gate.
 3. **Delta-scoping (no double-stitching; historical 20-July baseline, superseded where the 23-Aug audit proves otherwise).** Work that already exists is not re-planned: incident-response plan, release-checklist/rollback runbook, and the **proven** D1 backup/restore drill (`docs/INCIDENT-RESPONSE-PLAN.md`, `docs/07-RELEASE-CHECKLIST.md`, `docs/BACKUP-RESTORE-DRILL.md`, `docs/MONITORING.md` + the daily ops-health heartbeat) need freshness review only. At the 20-July baseline Security Hardening v2 was closed at `v2026.07.19-7` with no then-known open P0/P1/P2, so gate 9 was framed as a delta-audit over new surfaces. The adopted 23-Aug audit `HOLD`, its surviving P0/P1s and exact-candidate recovery gate now supersede that no-open-findings statement; they must close before the later delta-hardening gate. Legal texts were then assessed as live and honest with four named P1 gaps (contracting-entity identity, subprocessor disclosure completeness, hashing-parameter minimisation, stale pricing), so gate 12 preparation remains P1-closure plus a founder placeholder matrix, not fresh drafting.
 4. **Automated execution order within gates 8–13:** M7 pricing+billing lockstep (incl. public pricing copy parity) → legal P1 preparation → MSP commercial-readiness remainder (entitled-account E2E, MSP onboarding, portfolio alert summaries — depends on M7) → public claims & marketing truth audit (site/Academy/SEO surfaces; engineering-complete-but-acceptance-pending features must never read as PASS in public copy) → onboarding first-value gap-closure → operational-readiness true gaps only (status-page readiness, cost/budget alerts, secrets inventory, support escalation matrix, cron inventory) → gate 9 delta-hardening → gate 11 independent pentest → gate 13 RC.
 
-**Detection Quality programme — canonical founder decision, 21 July 2026; preserved under the 23-August overlay.** The **Detection Integrity Gate** remains mandatory before public beta. Its full law, phases and sequence are canonical in `docs/DETECTION-QUALITY-ROADMAP.md` (and CLAUDE.md's Detection Depth Law); the depth audit is `docs/DETECTION-DEPTH-AUDIT.md`. The four-row operational shame closure pulled ahead by the successor is not the full FD-008/Detection Quality programme. That full programme resumes after audit recovery and must still close before customer/public-beta progression.
+**Detection Quality programme — preserved Founder decision, 21 July 2026.** The **Detection Integrity Gate** remains mandatory before public beta. Its technical law and phases are in `docs/DETECTION-QUALITY-ROADMAP.md` (and CLAUDE.md's Detection Depth Law); current scheduling remains in the canonical backlog. The four-row operational shame closure pulled ahead by the current order is not the full FD-008/Detection Quality programme. That full programme resumes after audit recovery and must still close before customer/public-beta progression.
 
 **SEO parallel lane** (preserved underlying programme; never displaces the current successor — see Phase G). It resumes under its existing low-intensity budget after the successor/recovery sequence. This adoption grants no SEO implementation authority under `HOLD`. Existing claim limits remain: no fixed pricing pages, pentest/certification implication, incomplete-workflow-as-live copy, or unproven ransomware-prevention rates.
 
@@ -174,7 +164,10 @@ The largest internal risk to this roadmap is not external; it is unbounded harde
 - Phase C internal work (C1–C3): timebox **2 weeks**.
 - When a timebox ends, remaining findings are triaged: P0 and P1 block the gate; P2 and below are documented and scheduled — they do not silently extend the phase.
 - Every gate decision is made on P0/P1 status, never on "no findings remain".
-- A timebox may be extended only by explicit founder decision, recorded with a reason.
+- Claude Desktop may extend a timebox when a remaining P0/P1 or measured
+  dependency requires it, recording the reason. Founder decision is required
+  only if the extension materially changes reserved programme strategy or a
+  market/customer commitment.
 
 ---
 
@@ -187,7 +180,7 @@ Closed in two releases:
 - Part 1 — `v2026.07.14-19` (PR #83): affected-host truth, deterministic verifiers for six exposure finding types, fail-closed rescan-absence gating.
 - Part 2 — `v2026.07.14-20` (PR #84): honest DNS/header verification for `subdomain_takeover` and `dse_*` findings; the `ASM_VERIFICATION_SUPPORT` matrix (14 automated, 2 intentionally unsupported, 3 observation-only) is asserted in CI.
 
-Exit gate satisfied: focused validators and managed-case/tenant-isolation tests green; deployment and rollback Worker version ids recorded in the CHANGELOG; founder authenticated UI smoke remains queued as a final release-gate action (Phase D3); no Alerts, MSP, or M5 work was started inside the episode.
+Exit gate satisfied: focused validators and managed-case/tenant-isolation tests green; deployment and rollback Worker version ids recorded in the CHANGELOG; controlled authenticated UI smoke remains queued as a final release-gate action (Phase D3) owned by Claude Desktop/verification; no Alerts, MSP, or M5 work was started inside the episode.
 
 ## A2. Alerts Across All Eight Domains — **closed (Live)**
 
@@ -226,7 +219,7 @@ Create one canonical, reliable, deduplicated alert lifecycle across all eight do
 
 - all eight domains use the shared infrastructure;
 - preference, dedupe, cooldown, and retry tests green;
-- founder-controlled email-delivery proof completed;
+- company-controlled email-delivery proof completed;
 - no customer receives a test alert;
 - alert copy reviewed for evidence honesty.
 
@@ -285,10 +278,10 @@ PR-B4a suppressed the outbound email for `new_vendor` and `supply_chain_risk_inc
 
 PR-A's contract is covered by 108 CI-blocking, mutation-tested assertions against the real engine, and its deploy was verified not to silence any live workspace. The authenticated checks below were **deferred, not skipped**: production has **no free-plan workspace, no enabled alert channel, no preference row and no alert_deliveries row**, and the canonical pipeline has never emitted in production — so there was nothing to observe, and manufacturing it would have meant fabricating production data. Founder decision, 15 July 2026.
 
-Run these at PR-D, once all eight domains are connected, founder-controlled occurrences exist, a controlled delivery workspace/channel is available, and the two-pass baseline proof can be performed:
+Run these at PR-D, once all eight domains are connected, company-controlled occurrences exist, a controlled delivery workspace/channel is available, and the two-pass baseline proof can be performed:
 
-1. Founder-controlled **free-plan entitlement suppression** proof — no email, Slack, Teams or webhook.
-2. Founder-controlled **paid delivery** proof.
+1. Company-controlled **free-plan entitlement suppression** proof — no email, Slack, Teams or webhook.
+2. Company-controlled **paid delivery** proof.
 3. **Per-user `disabled`** preference proof (suppresses only that user, in that workspace).
 4. **`critical_only`** proof — `critical` delivered; `high`/`medium`/`low` suppressed.
 5. **Slack/Teams/webhook workspace-level gate** proof, including that the channel test endpoint cannot bypass entitlement or preferences.
@@ -369,7 +362,7 @@ A domain-by-domain parity matrix is complete with no hidden “healthy by absenc
 
 ### Relationship to Phase D
 
-A4 **produces and closes** the parity matrix. Phase D does not repeat A4's work: it re-validates the same matrix end-to-end in one founder-controlled pass through the real UI. Any gap found in Phase D is a defect against A4, not a second parity exercise.
+A4 **produces and closes** the parity matrix. Phase D does not repeat A4's work: it re-validates the same matrix end-to-end in one company-controlled pass through the real UI. Any gap found in Phase D is a defect against A4, not a second parity exercise.
 
 ---
 
@@ -538,9 +531,9 @@ The full-scope independent review (tenant isolation, auth, billing, API, busines
 
 ---
 
-# Phase D — Founder-controlled end-to-end acceptance
+# Phase D — Controlled end-to-end acceptance
 
-Phase D re-validates the A4 parity matrix end-to-end in one founder-controlled pass (see A4); it does not repeat the matrix exercise.
+Phase D re-validates the A4 parity matrix end-to-end in one company-controlled pass (see A4); it does not repeat the matrix exercise.
 
 ## D1. Small-business journey
 
@@ -637,7 +630,9 @@ Use later RCs only when fixes require another candidate.
 
 ## Exit gate
 
-The RC checklist is fully green and founder-approved.
+The RC checklist is fully green and accepted by the Executive/Governance gate.
+Founder approval is separate and required only before the first external-customer
+activation or another reserved market commitment.
 
 ---
 
@@ -649,7 +644,7 @@ The founder-final locked pricing is the 14-day full trial, Starter £9.99,
 Professional £19.99, Business £49.99 (10 domains included, then £3/domain to a
 hard cap of 25), and MSP £99.99 base + £3/domain with a 10-domain minimum; the
 metric is monitored domains. It is **not yet live**; production billing remains
-on the legacy set until the founder-approved lockstep cutover. The superseded
+on the legacy set until the lockstep cutover of the Founder-locked prices. The superseded
 £9/£29/£69 and £29/£149/£399 sets must not be implemented or quoted; exact
 commercial authority remains `docs/PRICING-POLICY.md`.
 
@@ -658,7 +653,8 @@ Before any commercial asset, page, or conversation quotes a price:
 - deploy Stripe products/prices, backend entitlements, and the pricing page together, in lockstep;
 - verify upgrade and downgrade paths and plan limits against the new plans;
 - confirm no existing workspace loses entitlements it currently holds;
-- founder deploy approval is required.
+- Claude Desktop may authorise the reversible lockstep deploy after R1 evidence;
+  changing the locked price or plan policy remains Founder-reserved.
 
 **Precondition — resolve duplicate subscription rows** (found 15 July 2026 while proving PR-A's entitlement gate against production; **not** an Alerts blocker):
 
@@ -860,7 +856,7 @@ Start with a controlled test budget. Define maximum monthly spend, cost per qual
 
 # Phase J — First controlled real users
 
-Entry gate: clean exit of the founder-controlled private beta on the two controlled domains (`cybermeters.com` and `blackbullbarbers.co.uk`) — no open P0/P1 arising from private-beta usage. Cohorts 1 and 2 below are the first two controlled external invitations defined by the canonical sequence.
+Entry gate: clean exit of the company-controlled private beta on the two controlled domains (`cybermeters.com` and `blackbullbarbers.co.uk`) — no open P0/P1 arising from private-beta usage. Cohorts 1 and 2 below are the first two controlled external invitations defined by the canonical sequence.
 
 ## Cohort 1: one real small business
 
@@ -969,7 +965,11 @@ After stability:
 
 ---
 
-# Weekly founder cadence
+# Weekly Executive cadence
+
+Claude Desktop owns this cadence and derives status from Git, CI and production.
+The Founder receives only a short milestone summary, a reserved decision packet
+or a human-only action request.
 
 ## Monday — Product and reliability
 
@@ -1046,17 +1046,15 @@ Eligible calls, applications, requested amount, match, status, funded milestones
 
 # Official next actions
 
-The current order is the 23-August founder-priority successor. The immediate sequence is:
+Read and execute the top of `docs/PRE-BETA-EXECUTION-BACKLOG.md`; that file is
+the sole current queue and is not duplicated here. Claude Desktop dispatches all
+permitted R0/R1 work autonomously. The Codex Governance Seat enters only for the
+named GTR/audit decision, a material HOLD/authority conflict or an R2 boundary.
 
-1. Finish the existing GTR-4 successor-5 prerequisite and obtain FINAL GTR-6 acceptance.
-2. Run the GTR-7 zero-founder architecture comparison, obtain the separate founder architecture selection, and complete independently accepted GTR-7B two-way carrier exit.
-3. In parallel, amend AS-B2 to the accepted KEV-only Stage-1 policy and perform corrected isolated preparation/authoring with zero merge or acceptance credit; run AS-B6 read-only remeasurement. No product mutation receives credit before narrow successor authority.
-4. Under that authority, close the operational shame table at independently accepted 4/4. The full 22-axis FD-008 programme remains preserved and binding after recovery.
-5. In parallel, maintain fresh-clone armour; at the declared idle boundary after MERGE 8, its release/two-Worker deployment and MERGE 9, complete the verified `/Users/turhanacar/dev` cutover and a full encrypted external-disk transport backup with manifest and restore-to-scratch PASS.
-6. Join the three lanes. A partial lane does not grant audit-recovery credit.
-7. Assemble the audit-recovery candidate only from the new full clone, re-bind it to exact remote commit/tree, re-baseline `F-026`, reproduce every surviving blocker, and obtain a new nine-condition Governance ruling.
-8. Resume the preserved P1/FD-007/full-FD-008/Items 12–18 programme plus the pre-existing Item 19 aggregate source-fidelity law, and every hardening, pentest/retest, legal, billing, claims, acceptance and RC gate.
-9. Send the first two controlled external invitations only after the last accepted RC; then pursue first paid conversion and gradual cohort expansion.
+After the current order closes, resume the preserved strategic spine in this
+roadmap: P1/FD-007/full-FD-008/Items 12–18 plus Item 19, hardening,
+pentest/retest, legal/billing/claims, controlled acceptance, RC, the first two
+external invitations and gradual expansion.
 
 On 2026-09-01, report exact gate state and reforecast. Do not manufacture an RC date from the calendar.
 
