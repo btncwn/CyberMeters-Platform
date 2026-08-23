@@ -23,16 +23,14 @@ boundaries.
 
 Version: August 2026
 
-Last updated: 22 August 2026 (latest release tag `v2026.08.21-1`; live Workers: scan-api
-`96c00032-b4ee-4088-8425-b89fb46fffa5`, email-ingest `fd0286cb-2b88-45cc-8b60-dcf2ae67bdfc`
-(rollback `284a8654`, closure suffix `00d09b7ab0dc`); latest applied migration
-`107-finding-canonical-identity.sql` (12 Aug production reconciliation; the 3-Aug "105 applied"
-report was demoted to historical evidence). Since 20 July: the pre-beta execution sequence (18 items) replaced
-the single-episode cadence — Items 4–11 closed, **Item 11 (11A Website · 11B Identity · 11C Shadow
-IT) LIVE-ACCEPTED 20–21 Aug 2026** as three independent founder-rendered records; D1 Option D
-(snapshot-once + fail-closed observation anchor) merged and deployed after a two-successor
-verification cycle; FD-008 removed false port/banner/IP capability claims from customer copy.
-Per-release facts: `CHANGELOG.md`.)
+Last updated: 23 August 2026. This docs-only governance adoption is based on
+`main` `83d31e12d1e5d77f2d56dfb760d604c901a64676` and changes no runtime,
+deployment, migration or acceptance fact. Latest recorded release tag remains
+`v2026.08.21-1`; Item 11A/11B/11C remains separately LIVE-ACCEPTED (20–21
+August); per-release Worker, rollback, migration and proof identities remain
+authoritative in `CHANGELOG.md`. Current programme order is the sealed 23-August
+founder-priority successor at
+`docs/governance/2026-08-23-gtr7-competitor-first-successor/`.
 
 ---
 
@@ -40,46 +38,43 @@ Per-release facts: `CHANGELOG.md`.)
 
 CyberMeters is in:
 
-> **Pre-public-beta managed-platform completion — corrective-first.**
+> **Pre-public-beta managed-platform completion — founder-priority successor active; production/customer HOLD.**
 
-The active mandated lane is the **P1 bidirectional false-conclusion / evidence-integrity episode**
-(Governance ruling `GOVERNANCE-RULING-I11A-ACC-P2-01-BAR-CONFLICT-001` + addendum): a
-triple-verified class of 43 producers could convert non-serviceable HTTP evidence (origin 5xx)
-into either a false ISSUE or a false HEALTHY/FIXED. The lawful contract is three-state:
-serviceable+defect → issue detected; serviceable+compliant → assessed healthy; non-serviceable →
-evidence insufficient (never favourable, never an unsupported adverse score). **P1 closure is
-public-beta-blocking.** P1.1 (canonical serviceability authority,
-`workers/scan-api/src/lib/serviceability.js`) merged 22 Aug 2026 (PR #420) after a two-successor
-verification cycle; the P1.2 contract is ruled (`EXECUTIVE-RULING-P1-2-CONTRACT-001`) and P1.2 is
-in implementation; P1.3–P1.5 (lifecycle/alert gates, frontend consumers, inventory reconciliation +
-founder three-state live acceptance) follow.
-
-After P1, the founder-approved competitive-depth commitments run (FD-007/FD-008): the small-PR
-wedge (Shadow IT first-observation surfacing — BL-1, dispatched; dormant HTTPS-absence; identity
-"Not Assessed" honesty episode) and then the Item-11-domain depth build list BL-2..BL-10 plus the
-committed closure of all 22 Attack Surface depth gaps (Option A). The strategic-NO table stands:
-CVE volume, DAST, port scanning, agent telemetry, dark-web and passive-DNS remain declined.
-
-**M7 Pricing + Billing:** pricing is LOCKED (Trial £0 / Starter £9.99 / Pro £19.99 / Business
-£49.99 / MSP £99.99+); B2/B3 checkout/consent/portal are engineering-complete and PENDING LIVE
-cutover. Behaviour Intelligence remains deferred (sensor-dependent, founder-gated).
-
-The correct sequence to first customers is unchanged:
+The current programme control is three prerequisite lanes with a mandatory join:
 
 ```text
-Close P1 corrective episode
-→ depth commitments (FD-007/FD-008) and remaining item sequence
-→ stabilise and debug
-→ security testing and pentesting
-→ founder-controlled acceptance testing
-→ final release gate
-→ send the first two controlled invitations
-→ observe and expand gradually
+[GTR-4 successor-5 → FINAL GTR-6 → GTR-7 comparison
+ → separate founder architecture selection → FINAL GTR-7B two-way carrier exit]
+||
+[AS-B2 STOP/AMEND + corrected isolated preparation/authoring (zero credit)
+ + AS-B6 read-only remeasurement
+ → narrow mutation authority → independently accepted 4/4 operational shame closure]
+||
+[fresh-clone source armour → declared idle boundary
+ → verified ~/dev cutover + independently restored external-disk transport backup]
+→ JOIN
+→ exact-candidate audit recovery and cumulative nine-condition Governance gate
+→ preserved P1 / FD-007 / full FD-008 / Items 12–18
+ + pre-existing Item 19 aggregate source-fidelity law
 ```
 
-Do not state that controlled invite-only beta is already GO. Do not describe anything merged or
-deployed since 18 July as founder-accepted unless a LIVE-ACCEPTED record exists (Item 11A/11B/11C
-have such records, dated 20–21 Aug 2026).
+The P1 bidirectional false-conclusion work remains a public-beta blocker and all
+completed/in-flight evidence remains valuable. This adoption neither cancels nor
+merges an open runtime PR, and it grants no new runtime authority; programme order
+is now controlled by the successor overlay. The operational shame table is 2/4
+closed, while the full 22-axis FD-008 commitment remains binding after recovery.
+Item 12 and Item 13 artifacts are preserved without loss of credit.
+
+Audit provenance is accepted with bounded exclusions, not globally tainted. The
+Codex matrix is primary, the second Claude rebuttal is the challenge layer, and the
+exact exclusions are in
+`docs/governance/2026-08-23-gtr7-competitor-first-successor/05-AUDIT-SOURCE-PROVENANCE-ADJUDICATION.md`.
+This does not lift `HOLD`; recovery must be rebound from the verified
+`/Users/turhanacar/dev` clone. The former 2026-09-01 recovery-candidate target is a
+reforecast checkpoint only.
+
+Do not state that controlled invite-only beta is GO. Do not infer acceptance from
+merge/deploy status; only exact LIVE-ACCEPTED records govern.
 
 ---
 
@@ -295,24 +290,27 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
 | M5 Completion Across All Eight Domains | Complete — M5.a–M5.g all CLOSED (deployed through `v2026.07.17-5`, migration `095`; M5.g is a CI-only closure, no deploy). |
-| Pre-Item11 final correction | **IN PROGRESS.** H-01/H-04 are merged in source through PRs #403/#404. H-06/H-07/H-08/H-09 are the current bounded release/governance corrective. No post-`v2026.08.03-2` source is recorded as deployed or accepted; Item 11 has not started. |
-| Posture Timeline Trust (M6 rescope) | Phase A production-accepted (18 Jul 2026). Episode superseded as the active lane by the pre-beta 18-item execution sequence. Phase B partials (B1 Related Changes, UC3 case surface) shipped; remainder itemised in the sequence. |
-| Pre-beta execution sequence (18 items) | ACTIVE. Items 4–11 CLOSED (Item 11 LIVE-ACCEPTED 20–21 Aug). Active corrective: P1 error-class episode (public-beta-blocking). Item 12 = Related Changes B2/B3 is next in sequence. |
+| 23-Aug founder-priority successor | **ACTIVE GOVERNANCE ORDER; PRODUCTION/CUSTOMER HOLD.** Three prerequisite lanes—GTR/carrier, 4/4 operational shame closure, and source-integrity relocation/independent backup—must join before audit recovery. |
+| Posture Timeline Trust (M6 rescope) | Phase A production-accepted (18 Jul 2026). Historically, the episode was superseded by the pre-beta frozen execution backlog; that backlog is now preserved under the 23-Aug overlay. Phase B partials (B1 Related Changes, UC3 case surface) shipped; remainder itemised in the backlog. |
+| Pre-beta frozen execution backlog (19 items) | PRESERVED. Items 4–11 CLOSED (Item 11 LIVE-ACCEPTED 20–21 Aug). P1 remains public-beta-blocking; Item 12 and later items retain their scope/evidence but are not the current queue while the 23-Aug successor join is open. |
 | M7 Pricing + Billing Alignment | Pricing LOCKED; B2/B3 engineering-complete, PENDING LIVE cutover. |
-| Debugging and Reliability Hardening | Pre-Item11 correction in progress |
+| Debugging and Reliability Hardening | Preserved after successor/recovery and remaining lifecycle gates |
 | Pentesting and Security Assurance | Planned after managed lifecycle completion |
 | Founder-Controlled Acceptance Testing | Planned |
 | Final Public-Beta Gate | Planned |
 | First Two Controlled Invitations | After final gate |
 
-Current release facts (as of 22 August 2026):
+Release facts through 22 August 2026; governance order updated 23 August 2026:
 
 - latest git release tag: `v2026.08.21-1` (D1 snapshot-once merge line);
 - live Worker Version IDs: scan-api `96c00032-b4ee-4088-8425-b89fb46fffa5`, email-ingest
   `fd0286cb-2b88-45cc-8b60-dcf2ae67bdfc`; rollback `284a8654`; shared closure suffix `00d09b7ab0dc`;
 - Item 11 (11A/11B/11C) LIVE-ACCEPTED 20–21 Aug 2026 — records in the operations archive;
-- active corrective episode: P1 bidirectional false-conclusion class (43 producers) — P1.1 merged
+- preserved technical status, not current queue authority: P1 bidirectional false-conclusion class (43 producers) — P1.1 merged
   22 Aug (PR #420), P1.2 in implementation, P1.3–P1.5 planned; public-beta-blocking;
+- current programme order: 23-Aug founder-priority successor; P1 evidence is
+  preserved but no audit-recovery or later customer progression precedes its
+  GTR/shame/source-integrity join;
 - per-release detail (PRs, Worker IDs, evidence) is authoritative in `CHANGELOG.md`;
 - pricing LOCKED; M7 B2/B3 pending live cutover; Behaviour Intelligence deferred (founder-gated).
 
@@ -437,8 +435,9 @@ an IASME or NCSC identifier. The 20-question readiness model is unchanged; answe
 never touch the Cyber Metrics Score or the Business Risk Indicator, and still never
 auto-create a case.
 
-**M5.c Stage 1 is shipped** (`v2026.07.17-1`, migration 093). One completed Cyber MOT now
-produces ONE immutable canonical eight-domain snapshot — canonical JSON in R2
+**Historical M5.c Stage-1 record at `v2026.07.17-1` (migration 093), superseded by
+the later M5.d–M5.g closures:** one completed Cyber MOT then produced ONE
+immutable canonical eight-domain snapshot — canonical JSON in R2
 (tenant-prefixed, per-attempt key) indexed by a D1 row bound to the bytes via SHA-256 —
 because five render paths with three calculation brains could show the same customer
 different truth, and every one recalculated history on read. Built once via the 081 atomic
@@ -451,15 +450,17 @@ inputs so snapshot domains and persisted state rows cannot disagree. `verificati
 travels on every item and action with fail-closed ceiling wording; unmapped finding types
 are recorded, never replaced with invented advice. Read surface for M5.d:
 `GET /api/scans/:id/snapshot` (verbatim, checksum-gated, parity-403) and
-`GET /api/workspaces/:id/report-snapshots`. Renderers are NOT migrated — existing report
-surfaces are untouched, and **no snapshot exists in production yet**: they are created by
-future completed scans, and pre-M5.c history is honestly absent, never backfilled.
-Proven by 72 behavioural guards + 17 caught mutations, including a real `runScanEngine`
-end-to-end walk; **M5.d renderer migration is the next increment.**
+`GET /api/workspaces/:id/report-snapshots`. At that Stage-1 boundary, renderers were
+not yet migrated, existing report surfaces were untouched, and no production
+snapshot existed yet: snapshots were to be created by future completed scans and
+pre-M5.c history was honestly absent, never backfilled. Proven by 72 behavioural
+guards + 17 caught mutations, including a real `runScanEngine` end-to-end walk.
+M5.d renderer migration was then the next increment; it and the remaining M5
+increments later closed, as the current status table records.
 
-The per-domain maturity ledger remains untouched. The ledger is corrected
-**last**: it is wrong in every row today and most rows *under*-claim, so raising it before
-the underlying gaps close would make the declaration lie in the opposite direction.
+At that same Stage-1 boundary, the per-domain maturity ledger remained untouched
+and was intentionally scheduled last. This is historical state, not a current
+defect claim; M5.f/M5.g and the maturity-ledger closure are complete.
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier
 six-of-eight closure (`v2026.07.15-2`) was premature and is superseded — it deferred
@@ -501,27 +502,38 @@ Do not frame planned completion work as product failure unless it is a real acti
 
 # Current Priority Order
 
-Unless the founder explicitly changes the roadmap:
+Unless the founder explicitly changes the roadmap, execute:
 
-The sequence is retained as the long-range roadmap baseline. Current source is
-at the final pre-Item11 release/governance gate; the historical M6/M7 labels
-below do not authorise deployment, acceptance claims or later-phase work.
+1. GTR-4 successor-5 and FINAL GTR-6 acceptance.
+2. GTR-7 architecture comparison, separate founder selection, and FINAL GTR-7B
+   two-way carrier-exit acceptance.
+3. In parallel, AS-B2 correction and isolated preparation/authoring with zero
+   merge or acceptance credit, plus AS-B6 read-only measurement, followed only
+   under narrow authority by independently accepted 4/4 operational shame closure.
+4. In parallel, fresh-clone armour followed at the declared idle boundary after
+   MERGE 8, its release/two-Worker deployment and MERGE 9 by the
+   verified `/Users/turhanacar/dev` cutover and independent external-disk backup/
+   restore proof.
+5. Join the three lanes; no partial lane grants recovery credit.
+6. Assemble and independently adjudicate the exact audit-recovery candidate under
+   all nine cumulative conditions.
+7. Resume the preserved P1, FD-007, full FD-008 and Items 12–18 programme plus
+   the pre-existing Item 19 aggregate source-fidelity law, then
+   debugging, pentest/retest, legal/billing/claims, founder acceptance, RC, first
+   two controlled invitations and gradual cohort expansion.
 
-1. P1 bidirectional false-conclusion episode (ACTIVE — public-beta-blocking; P1.1 → P1.5)
-2. FD-007/FD-008 depth commitments (urgent trio first: BL-1 Shadow IT first-observation,
-   dormant HTTPS-absence, identity "Not Assessed" episode; then BL-2..BL-10 + the 22 Attack
-   Surface gaps under Option A)
-3. Remaining pre-beta item sequence (Item 12 = Related Changes B2/B3 next)
-4. M7 Pricing + Billing live cutover (pricing LOCKED)
-5. Systematic debugging and reliability engineering
-6. Security testing and pentesting
-7. Founder-controlled acceptance testing
-8. Final public-beta release gate
-9. First two controlled customer invitations
-10. Gradual cohort expansion
+Item 11 is closed history. Before the join/recovery gate, Item 13 is read-only
+only where expressly used as the AS-B6 reachability instrument; no retirement,
+deletion, activation, merge, deployment or Item-13 acceptance is inferred.
 
-Do not begin Item 11 or a later roadmap phase before the current pre-Item11 gate
-is closed.
+While this successor `HOLD` is active, it overrides the generic product-mutation,
+commit/push/merge, migration, deployment and production-proof permissions later
+in this file. Those sections describe the workflow after separate authority; they
+do not grant authority themselves. The only exceptions are this
+founder-authorised docs-only adoption, already accepted GTR authority, expressly
+permitted read-only or isolated zero-credit preparation/authoring, an
+independently accepted narrow successor for exact scope, and evidence-based
+emergency containment of an active production, security or data-integrity risk.
 
 Exceptions:
 

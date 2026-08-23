@@ -1,6 +1,7 @@
 # Pre-Beta Frozen Execution Backlog
 
-**Status:** FOUNDER-APPROVED (22 July 2026) — corrected and frozen.
+**Status:** FOUNDER-APPROVED (22 July 2026) — corrected and frozen; current
+queue/calendar prospectively overlaid by the 23-August founder-priority successor.
 **Authority:** this document ORDERS the remaining pre-beta work. Scope and acceptance
 definitions remain owned by `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` (gate sequence)
 and `docs/DETECTION-QUALITY-ROADMAP.md` (Detection Depth Law). Release facts are
@@ -11,6 +12,32 @@ Production baseline at freeze: `main @ bfc7c1d` · live Worker `ecd03d0a`
 
 Labels: **[ACC]** acceptance-only (already built/deployed — needs live acceptance, not
 re-implementation) · **[IMPL]** implementation work · **[DES]** design-first.
+
+## Current successor overlay — 23 August 2026
+
+This file retains authoritative item numbers, scope, dependencies and acceptance
+contracts. Current queue order is governed by
+`docs/governance/2026-08-23-gtr7-competitor-first-successor/`:
+
+```text
+[GTR-4 successor-5 → FINAL GTR-6 → GTR-7 comparison
+ → separate founder architecture selection → FINAL GTR-7B carrier exit]
+||
+[AS-B2 STOP/AMEND + corrected isolated preparation/authoring (zero credit)
+ + AS-B6 read-only remeasurement
+ → narrow mutation authority → independently accepted 4/4 operational shame closure]
+||
+[fresh-clone armour → idle boundary → verified ~/dev cutover
+ + independently restored external-disk transport backup]
+→ JOIN
+→ exact-candidate audit recovery + cumulative nine-condition Governance gate
+→ preserved P1 / FD-007 / full FD-008 / Items 12–18
+ + pre-existing Item 19 aggregate source-fidelity law
+```
+
+Production/customer state is `HOLD`. The former 2026-09-01 recovery-candidate
+target is a reforecast checkpoint. Historical `ACTIVE` labels below mean active
+at their dated freeze/reconciliation point; they are not current queue authority.
 
 ---
 
@@ -40,9 +67,9 @@ re-implementation) · **[IMPL]** implementation work · **[DES]** design-first.
 
 ---
 
-## Frozen execution order
+## Frozen execution order — preserved base under the 23-August overlay
 
-### 1. Post-#263 authenticated workspace scan acceptance — [ACC] · ACTIVE
+### 1. Post-#263 authenticated workspace scan acceptance — [ACC] · ACTIVE AT FREEZE (HISTORICAL)
 The first post-fix scheduled scan of `blackbullbarbers.co.uk` is
 **2026-07-22 19:00 UTC** (the 2026-07-21 19:00:08 scan pre-dated the 21:28Z deploy and
 ran on the old Worker).
@@ -230,9 +257,10 @@ Preserve acceptance evidence first. Never remove or mutate the
 `blackbullbarbers.co.uk` apex, production `_dmarc.blackbullbarbers.co.uk`,
 production MX/SPF/DKIM records or `status.cybermeters.com`.
 
-### 8. Brand IDN/homograph — PR-A / PR-B / PR-C — [ACTIVE · IMPL + live acceptance]
-Item 8 is the next active frozen-backlog item. This Item 7 reconciliation starts no
-Item 8 implementation.
+### 8. Brand IDN/homograph — PR-A / PR-B / PR-C — [ACTIVE AT FREEZE · HISTORICAL QUEUE LABEL]
+At the 26-July freeze, Item 8 was the next active frozen-backlog item. That is a
+historical queue fact, not current authority; this reconciliation starts no Item 8
+implementation.
 
 PR-A normalisation + confusable core (NFC, punycode round-trip, mixed-script,
 skeleton, allowlists, deterministic fixtures + mutation). PR-B candidate generation +
@@ -325,8 +353,12 @@ different proof obligations, and merging them would make either one impossible t
 revert independently.
 
 ### Reliability interlock — Scan Completion Rate: CT Provider Resilience
-This is a mandatory, unnumbered interlock in the frozen execution order. It is
-docs-governance only at this stage; R1, R2 and R3 implementation has not started.
+This is the historical 26-July record of a mandatory, unnumbered interlock in the
+frozen execution order. At that measurement boundary, R1, R2 and R3 had not
+started. Item 11 has since closed independently; this old edge cannot operate
+retroactively or invalidate that acceptance. Any still-unproven CT/availability
+obligation transfers to exact-candidate audit recovery and Detection Phase 0,
+where current-head state must be remeasured rather than assumed.
 
 **PROVEN**
 
@@ -348,10 +380,11 @@ docs-governance only at this stage; R1, R2 and R3 implementation has not started
 - That cross-scan caching will raise completion from 35% to 90%+.
 - Any specific failover timeout before R1 telemetry supports it.
 
-**SEQUENCING**
+**HISTORICAL SEQUENCING AT 26 JULY — superseded prospectively by the 23-Aug overlay**
 
 - Mandatory after Item 10 engineering-complete.
-- Mandatory before Item 11 begins.
+- Was specified as mandatory before Item 11 began; Item 11 is now closed and is
+  not retroactively reopened by this historical edge.
 - Mandatory before Item 14 founder live acceptance.
 - Does not renumber the frozen backlog.
 - Must not run in parallel with Item 10 P2–P5 because the verified collision surface
@@ -419,6 +452,15 @@ the live product (approved-but-owner-missing wording, owner status, evidence sou
 affected domain, no workspace-UUID leakage, CTA destination, footer, approved ≠
 suspicious, WC ≠ action), then the full approved-inventory acceptance and claim
 boundaries (external evidence only).
+
+### Preservation boundary before Items 12–13
+
+Items 12 and 13 and all completed design/evidence artifacts remain preserved
+without loss of credit. They resume after the successor join and audit-recovery
+gate. Before then, only the specifically authorised read-only Item 13A
+reachability instrument may support AS-B6 measurement; it grants no Item 13B
+mutation, retirement, deletion, `reserved-scan` activation, merge, deploy, or
+acceptance authority.
 
 ### 12. Related Changes B2/B3 — [IMPL]
 B2 correlation quality (stronger cross-domain rules, bounded temporal windows, evidence

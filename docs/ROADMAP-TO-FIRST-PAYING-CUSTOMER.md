@@ -1,17 +1,24 @@
 # CyberMeters Official Roadmap
 ## From Final Product Completion to the First Paying Customer
 
-Version: July 2026 (r2 — founder-approved revision)
+Version: August 2026 (r3 — founder-priority successor adoption)
 
 Canonical location: `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`. This file is the single authoritative copy. Do not maintain parallel copies outside the repository.
 
-Current canonical episode (reconciled 26 July 2026): **frozen pre-beta backlog
-Item 8 — Brand IDN/homograph**. Item 7 — DMARCbis / RFC 9989 is
-**LIVE-ACCEPTED — PASS WITH BACKLOG** and closed for its accepted core behaviour.
-Its explicitly deferred work remains Backlog 7-A through 7-I in
-`docs/PRE-BETA-EXECUTION-BACKLOG.md`; those residuals do not make the accepted core
-exhaustive and do not silently reopen it. This documentation reconciliation starts
-no Item 8 implementation.
+Current programme priority (founder decision, 23 August 2026): **GTR/carrier
+exit, operational shame-table closure, and source-integrity relocation/independent
+backup are three prerequisite lanes with a mandatory join before audit recovery.**
+Production/customer state remains `HOLD`. The sealed governing package is
+`docs/governance/2026-08-23-gtr7-competitor-first-successor/`; its manifest
+SHA-256 is `886fe763dc88dd874c7e81b939812f0806fc11706aa645bfd94bb4465a5b9ee3`.
+The package's audit-provenance ruling preserves the two audits/two rebuttals under
+bounded exclusions; it does not lift `HOLD` or close source relocation.
+
+The frozen backlog's item numbers, technical scopes and accepted evidence remain
+unchanged. Item 11A/11B/11C is separately LIVE-ACCEPTED (20–21 August). Items 12
+and 13 and all sunk design/evidence work are preserved and resume after the
+successor join and exact-candidate audit-recovery gate. The former 2026-09-01
+recovery-candidate target is now a reforecast checkpoint, not an RC promise.
 
 Historical episode context (recorded 18 July 2026): **Posture Timeline Trust &
 Actionability** was the founder-approved **RESCOPE of M6** — see the
@@ -74,27 +81,33 @@ Record:
 # Master sequence
 
 ```text
-Complete final canonical phases
-→ Systematic debugging and reliability hardening (timeboxed)
-→ Internal security review and pentesting (timeboxed)
-→ Founder-controlled end-to-end acceptance
-→ Release Candidate gate
-→ Pricing lockstep + commercial foundation and launch assets
-→ Founder-led sales (SEO already running as a parallel lane)
-→ First controlled real users
-→ Trust and friction fixes
-→ First paid conversion
-→ Repeatable acquisition system
-→ Funding and grant applications
-→ Gradual cohort expansion (full external security review before wide expansion)
-→ Wider public beta
+[GTR-4 successor-5 → FINAL GTR-6 → GTR-7 comparison
+ → separate founder architecture selection → FINAL GTR-7B two-way carrier exit]
+||
+[AS-B2 STOP/AMEND + corrected isolated preparation/authoring (zero credit)
+ + AS-B6 read-only remeasurement
+ → narrow mutation authority → independently accepted 4/4 operational shame closure]
+||
+[fresh-clone source armour → declared idle boundary
+ → verified ~/dev cutover + independently restored external-disk transport backup]
+→ mandatory JOIN
+→ exact-candidate audit recovery + nine-condition Governance gate
+→ preserved P1 / FD-007 / full FD-008 / Items 12–18
+ + pre-existing Item 19 aggregate source-fidelity law
+→ systematic debugging and reliability hardening
+→ security testing, pentesting and retest
+→ founder-controlled end-to-end acceptance
+→ release-candidate and legal/commercial gates
+→ first two controlled external invitations
+→ first paid conversion
+→ gradual cohort expansion and wider public beta
 ```
 
 ---
 
 # Pre-Public-Beta Gate Sequence
 
-Founder-approved (16 July 2026; **re-sequenced 18 July 2026 to insert M6 before pricing**; **execution model refined 20 July 2026 — see "Execution re-sequencing decision" below the gate specifics**). This is the canonical, ordered spine from the current position to public beta. **The order must not be reordered, collapsed, or skipped.** It is the operational expression of the phases below; where a gate and a phase overlap, the phase text is the detail and this list is the sequence.
+Founder-approved (16 July 2026; **re-sequenced 18 July 2026 to insert M6 before pricing**; **execution model refined 20 July 2026 — see "Execution re-sequencing decision" below the gate specifics**). This remains the preserved canonical gate spine to public beta. Its queue/calendar position is prospectively overlaid by the accepted 23-August founder-priority successor above; once the successor join and audit-recovery gate close, the preserved spine resumes. **No underlying gate may be collapsed or skipped.** Where a gate and a phase overlap, the phase text is the detail.
 
 | # | Gate | Status |
 | --- | --- | --- |
@@ -104,7 +117,7 @@ Founder-approved (16 July 2026; **re-sequenced 18 July 2026 to insert M6 before 
 | 4 | M5.e Eight-domain Parity | CLOSED — deployed `v2026.07.17-4` (migration `094`) |
 | 5 | M5.f Maturity Ledger | CLOSED — deployed `v2026.07.17-5` (migration `095`); founder-controlled complete-scan acceptance passed |
 | 6 | M5.g Final CI Closure | CLOSED — `validate-m5-closure.js` locks the full M5 gate + append-only idempotency (CI-only, no deploy); CE double-build cost is a tracked deploy-gated residual |
-| 7 | **M6.0 Viability Gate → RESCOPE: Posture Timeline Trust & Actionability**, then split into **B1 / B2 / B3** | M6.0-A PASSED; M6.0-B ran 2026-07-18 (read-only), founder **ruled RESCOPE**. **Phase A** (timeline-trust: eligibility/producer-version guards + flip-flop dedupe on `asset_events`) is **shipped (PR #169) → deployed (Worker `89c398b1`) → production-accepted (PASS, 18 Jul 2026)**; code-only, no migration. **M6 is now split by the canonical design `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`:** **B1 — Deterministic Related Changes (pre-public-beta, founder-approved in principle 19 Jul 2026)** — correlation across eligible evidence producers, mapped to affected customer-facing Cyber MOT areas (NOT "eight-domain correlation"); **B2 — Customer baselines & unusualness (post-beta, real-data gated)**; **B3 — Statistical/AI Behaviour Intelligence (post-revenue, founder-gated)**. B1 not started — begins in a fresh session/worktree after this docs canonicalisation + authenticated acceptance |
+| 7 | **M6.0 Viability Gate → RESCOPE: Posture Timeline Trust & Actionability**, then split into **B1 / B2 / B3** | M6.0-A PASSED; M6.0-B ran 2026-07-18 (read-only), founder **ruled RESCOPE**. **Phase A** (timeline-trust: eligibility/producer-version guards + flip-flop dedupe on `asset_events`) is **shipped (PR #169) → deployed (Worker `89c398b1`) → production-accepted (PASS, 18 Jul 2026)**; code-only, no migration. **M6 is now split by the canonical design `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`:** **B1 — Deterministic Related Changes (pre-public-beta, founder-approved in principle 19 Jul 2026)** — correlation across eligible evidence producers, mapped to affected customer-facing Cyber MOT areas (NOT "eight-domain correlation"); **B2 — Customer baselines & unusualness (post-beta, real-data gated)**; **B3 — Statistical/AI Behaviour Intelligence (post-revenue, founder-gated)**. Historical status at this decision: B1 not started. Later B1/B2/B3 work is preserved and scheduled only under the 23-Aug successor/recovery order. |
 | 8 | M7 Pricing + Billing Alignment | Planned |
 | 9 | Final Beta Hardening | Planned |
 | 10 | Controlled Authenticated / Live Acceptance | Planned |
@@ -140,16 +153,16 @@ Founder-approved (16 July 2026; **re-sequenced 18 July 2026 to insert M6 before 
 - **13 — Formal Release-Candidate Gate.** `-rc1` is tagged only when every prior gate is green: M5 complete, M6 engine validated, pricing/billing deployed, hardening complete, live acceptance complete, pentest/retest complete, legal foundation complete, recovery drills complete. If private beta surfaces a blocker: `rc1 → fix → rc2`; public beta opens from the last accepted RC.
 - **15–17.** An invitation is not a public launch. Gate 16 (private-beta acceptance and fix cycle) sits deliberately between invitations and the public beta gate.
 
-**Execution re-sequencing decision — founder-approved 20 July 2026.** The gate spine above is unchanged; this decision governs *execution order and scope* inside gates 8–13:
+**Preserved underlying execution decision — founder-approved 20 July 2026.** The gate spine below the 23-August overlay is unchanged; this decision governs *execution order and scope* when the preserved programme resumes:
 
 1. **Early product-acceptance exception.** The four engineering-complete deliverables with a ready acceptance package — Brand Protection (PR-A/B/C), Shadow IT Alert Trust, Weekly Digest Truth (next real Monday digest), and A6 Related Changes — are pulled **forward to the first available founder slot** (they may run while M7 is in progress) instead of waiting for gate 10. Rationale: ~30–60 minutes of founder time validates the foundation the remaining gates build on; a late FAIL would multiply rework. Checklist: `docs/FOUNDER-ACCEPTANCE-PACKAGE.md` (nothing in it is PASS until executed). Gate 10 then clears the *remaining* live-acceptance debt, not these four.
 2. **Founder manual work is otherwise batched late.** Commercial approvals (final prices, Stripe product names, trial length, cancellation/refund wording, MSP commercial model, public pricing approval, contracting-entity details) and legal approvals (Terms/Privacy/DPA final sign-off, subprocessor disclosure, sole-trader identity, governing law) are consolidated after the automated phases, immediately before the RC gate.
-3. **Delta-scoping (no double-stitching).** Work that already exists is not re-planned: incident-response plan, release-checklist/rollback runbook, and the **proven** D1 backup/restore drill (`docs/INCIDENT-RESPONSE-PLAN.md`, `docs/07-RELEASE-CHECKLIST.md`, `docs/BACKUP-RESTORE-DRILL.md`, `docs/MONITORING.md` + the daily ops-health heartbeat) need freshness review only; Security Hardening v2 is closed (`v2026.07.19-7`, no open P0/P1/P2) so gate 9 is a **delta-audit** over new surfaces (M7 billing, MSP flows), not a fresh full audit; legal texts are live and honest with four named P1 gaps (contracting-entity identity, subprocessor disclosure completeness, hashing-parameter minimisation, stale pricing), so gate 12 preparation is P1-closure plus a founder placeholder matrix, not fresh drafting.
+3. **Delta-scoping (no double-stitching; historical 20-July baseline, superseded where the 23-Aug audit proves otherwise).** Work that already exists is not re-planned: incident-response plan, release-checklist/rollback runbook, and the **proven** D1 backup/restore drill (`docs/INCIDENT-RESPONSE-PLAN.md`, `docs/07-RELEASE-CHECKLIST.md`, `docs/BACKUP-RESTORE-DRILL.md`, `docs/MONITORING.md` + the daily ops-health heartbeat) need freshness review only. At the 20-July baseline Security Hardening v2 was closed at `v2026.07.19-7` with no then-known open P0/P1/P2, so gate 9 was framed as a delta-audit over new surfaces. The adopted 23-Aug audit `HOLD`, its surviving P0/P1s and exact-candidate recovery gate now supersede that no-open-findings statement; they must close before the later delta-hardening gate. Legal texts were then assessed as live and honest with four named P1 gaps (contracting-entity identity, subprocessor disclosure completeness, hashing-parameter minimisation, stale pricing), so gate 12 preparation remains P1-closure plus a founder placeholder matrix, not fresh drafting.
 4. **Automated execution order within gates 8–13:** M7 pricing+billing lockstep (incl. public pricing copy parity) → legal P1 preparation → MSP commercial-readiness remainder (entitled-account E2E, MSP onboarding, portfolio alert summaries — depends on M7) → public claims & marketing truth audit (site/Academy/SEO surfaces; engineering-complete-but-acceptance-pending features must never read as PASS in public copy) → onboarding first-value gap-closure → operational-readiness true gaps only (status-page readiness, cost/budget alerts, secrets inventory, support escalation matrix, cron inventory) → gate 9 delta-hardening → gate 11 independent pentest → gate 13 RC.
 
-**Detection Quality re-sequencing — canonical founder decision, 21 July 2026.** A new mandatory pre-public-beta spine element: the **Detection Integrity Gate**. Its full law, phases and sequence are canonical in `docs/DETECTION-QUALITY-ROADMAP.md` (and CLAUDE.md's Detection Depth Law); the depth audit is `docs/DETECTION-DEPTH-AUDIT.md`. It runs in parallel with the commercial/legal lanes and **must close before public beta**. Aggressive order: **now** (1) chronic-partial root cause → (2) fix/deploy → (3) complete-scan restore → (4) SPF root-change acceptance → (5) SPF child-include live fixture; **then** (6-8) Brand IDN PR-A/PR-B/live-acceptance; **then** quality sprints (9) ASM → (10) Certificates → (11) Email remaining depth; **then** (12) Website → (13) Shadow IT → (14) Identity → (15) cross-domain correlation → (16) competitor-parity closure → (17) pentest/retest → (18) go-live website conversion → (19) controlled first paying customer → (20) public beta. Website design advances alongside the detection-truth baseline — a weak, unproven product is not painted beautifully and sold. Only a P0/P1 with proven wider customer harm may jump this queue.
+**Detection Quality programme — canonical founder decision, 21 July 2026; preserved under the 23-August overlay.** The **Detection Integrity Gate** remains mandatory before public beta. Its full law, phases and sequence are canonical in `docs/DETECTION-QUALITY-ROADMAP.md` (and CLAUDE.md's Detection Depth Law); the depth audit is `docs/DETECTION-DEPTH-AUDIT.md`. The four-row operational shame closure pulled ahead by the successor is not the full FD-008/Detection Quality programme. That full programme resumes after audit recovery and must still close before customer/public-beta progression.
 
-**SEO parallel lane** (low-intensity through M5; never displaces the active canonical episode — see Phase G). Do now: honest eight-domain Academy content, glossary and educational pages, canonical/meta/schema checks, internal linking, crawl/index hygiene, and removal of stale Vendor Risk / Supply Chain claims. Do not yet: fixed pricing pages, any pentest or certification implication, presenting incomplete workflows as live features, or unproven ransomware-prevention rates.
+**SEO parallel lane** (preserved underlying programme; never displaces the current successor — see Phase G). It resumes under its existing low-intensity budget after the successor/recovery sequence. This adoption grants no SEO implementation authority under `HOLD`. Existing claim limits remain: no fixed pricing pages, pentest/certification implication, incomplete-workflow-as-live copy, or unproven ransomware-prevention rates.
 
 ---
 
@@ -632,7 +645,13 @@ The RC checklist is fully green and founder-approved.
 
 ## F0. Pricing lockstep (precondition for every commercial asset)
 
-The adopted pricing (Free forever + £9/£29/£69 SMB tiers + MSP £29 + £1/domain; metric = monitored domains) is **not yet live**; production Stripe still carries the legacy £29/£149/£399 plans.
+The founder-final locked pricing is the 14-day full trial, Starter £9.99,
+Professional £19.99, Business £49.99 (10 domains included, then £3/domain to a
+hard cap of 25), and MSP £99.99 base + £3/domain with a 10-domain minimum; the
+metric is monitored domains. It is **not yet live**; production billing remains
+on the legacy set until the founder-approved lockstep cutover. The superseded
+£9/£29/£69 and £29/£149/£399 sets must not be implemented or quoted; exact
+commercial authority remains `docs/PRICING-POLICY.md`.
 
 Before any commercial asset, page, or conversation quotes a price:
 
@@ -1027,21 +1046,19 @@ Eligible calls, applications, requested amount, match, status, funded milestones
 
 # Official next actions
 
-The canonical order is the Pre-Public-Beta Gate Sequence above. **M5 (a–g) is engineering-complete; the active episode is "Posture Timeline Trust & Actionability" (RESCOPE of M6, following M6.0-B) — Phase A is deployed and production-accepted (18 July 2026); Phase B (UC3) is not started.** The immediate sequence:
+The current order is the 23-August founder-priority successor. The immediate sequence is:
 
-1. **Phase A of "Posture Timeline Trust & Actionability" is COMPLETE** — deployed (Worker `89c398b1`, 18 July 2026; rollback `9d2f96b1`) and production-accepted (PASS, 18 July 2026); code-only, no migration (evidence in `CHANGELOG.md`). Post-Phase-A, M6 is canonically split (`docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`) into **B1 — Deterministic Related Changes (pre-public-beta, founder-approved in principle 19 Jul 2026, not started)**, **B2 — baselines/unusualness (post-beta)** and **B3 — statistical/AI behaviour intelligence (post-revenue)**. B1 correlates across eligible evidence producers mapped to affected Cyber MOT areas (never "eight-domain correlation"); B2/B3 stay explicitly deferred. *(M6.0-B ran 2026-07-18; the founder ruled RESCOPE because GO criteria were unmet — see gate 7.)*
-2. Complete **M7 Pricing + Billing** lockstep (Stripe + entitlements + pricing cards, one release, founder-approved). Design the pricing architecture with extensibility for future founder-approved premium intelligence capabilities. This is architecture headroom only and creates no committed tier, entitlement, SKU, customer claim, or shipped functionality until separately approved and delivered.
-3. Run Final Beta Hardening, with demonstrated restore/recovery/rollback drills and outbound email-deliverability verification.
-4. Complete Controlled Authenticated / Live Acceptance across every managed vertical.
-5. Complete Independent Pentest + Remediation Retest.
-6. Complete the Legal & Data-Protection Foundation (ICO fee self-assessment, Privacy Notice, Terms, DPA, retention/DSAR).
-7. Produce and approve `-rc1` once every prior gate is green.
-10. Complete Final Website Design & Conversion.
-11. Send controlled private-beta invitations, then run the private-beta acceptance and fix cycle.
-12. Open the Public Beta Gate only from the last accepted RC.
-13. Convert the first paying customer; document the case study.
-14. Submit strong-fit UK/Scotland funding applications after first paid evidence.
-15. Expand cohorts gradually; commission the full external security review before expanding beyond five users.
+1. Finish the existing GTR-4 successor-5 prerequisite and obtain FINAL GTR-6 acceptance.
+2. Run the GTR-7 zero-founder architecture comparison, obtain the separate founder architecture selection, and complete independently accepted GTR-7B two-way carrier exit.
+3. In parallel, amend AS-B2 to the accepted KEV-only Stage-1 policy and perform corrected isolated preparation/authoring with zero merge or acceptance credit; run AS-B6 read-only remeasurement. No product mutation receives credit before narrow successor authority.
+4. Under that authority, close the operational shame table at independently accepted 4/4. The full 22-axis FD-008 programme remains preserved and binding after recovery.
+5. In parallel, maintain fresh-clone armour; at the declared idle boundary after MERGE 8, its release/two-Worker deployment and MERGE 9, complete the verified `/Users/turhanacar/dev` cutover and a full encrypted external-disk transport backup with manifest and restore-to-scratch PASS.
+6. Join the three lanes. A partial lane does not grant audit-recovery credit.
+7. Assemble the audit-recovery candidate only from the new full clone, re-bind it to exact remote commit/tree, re-baseline `F-026`, reproduce every surviving blocker, and obtain a new nine-condition Governance ruling.
+8. Resume the preserved P1/FD-007/full-FD-008/Items 12–18 programme plus the pre-existing Item 19 aggregate source-fidelity law, and every hardening, pentest/retest, legal, billing, claims, acceptance and RC gate.
+9. Send the first two controlled external invitations only after the last accepted RC; then pursue first paid conversion and gradual cohort expansion.
+
+On 2026-09-01, report exact gate state and reforecast. Do not manufacture an RC date from the calendar.
 
 # Final directive
 
