@@ -7,6 +7,53 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.08.23-2 — P1.3 lifecycle gates + AS-B2 score wiring — deployed 2026-08-23
+
+**Status:** DEPLOYED. Exact merged main
+`3cba300b25e22fad840bdc8f9e1a2228faae4d23` was deployed to both coordinated Workers
+from a fresh non-iCloud detached clone. The annotated tag `v2026.08.23-2` targets that
+exact source. Deployment and side-effect-safe smoke are not authenticated customer-workflow
+acceptance.
+
+- **PR #427 — P1.3 symmetric conclusion gates:** merge
+  `45a106cd6c9842a4bf8cd022ceac48d2c832fd04`, reviewed head
+  `67b4739df83d44155246ebb2f9bb7bbb2a659d15`, prevents unassessed/unavailable posture
+  and non-serviceable Website evidence from producing issue conclusions, and applies the same
+  evidence floor to managed-alert eligibility. Required hosted checks and Pages passed.
+- **PR #432 — AS-B2 KEV/CVE score wiring:** merge
+  `3cba300b25e22fad840bdc8f9e1a2228faae4d23`, reviewed head
+  `951feb756e6e88469673cb51deadc11c0d4d306c`, routes complete, publishable KEV/CVE
+  evidence through the single score owner. The canonical weights are KEV `-30`, critical CVE
+  `-25` and high CVE `-15`; incomplete evidence contributes no deduction. Customer-facing
+  score and risk band are re-derived together and stamped with Cyber Metrics Score methodology
+  `2026-08-23.1`.
+- **Validation:** PR #432 hosted run `32671189718` passed (`validate` 30m36s, SAST and
+  Pages). Exact-main push run `32672799901` passed both `validate` and SAST. Focused release
+  checks passed locally from the detached release source: AS-B2 16/16, P1.3 14/14 and
+  provisional-score API 30/30. The existing full local-gate evidence was consumed; it was not
+  rerun.
+- **Coordinated closure:** both Workers report
+  `2026.08.13-provisional-score-labeling.ec47dd0dbed6`; the effective email-worker closure is
+  `ec47dd0dbed64f74b47e2524ccb18faedd752c27de9769ca444669133ac8d783`
+  (91 files, including 89 scan-api files).
+- **scan-api (`cybermeters-platform`):** deployment ID
+  `74d33b51-2364-44a2-9f61-d0a3a82f1728`; live Worker Version ID
+  `08b7d3e8-5054-4930-b8ea-e7c7166abef7`; immediate rollback Worker Version ID
+  `8cf66e65-82c3-419d-ba79-f0f2385eacb8`.
+- **email-ingest (`cybermeters-email`):** deployment ID
+  `b6b8141e-fff5-4532-988f-0620ae252a9a`; live Worker Version ID
+  `37b67119-f60c-4870-a10f-e951decb114c`; immediate rollback Worker Version ID
+  `af1a045d-85de-43d2-81fd-a5a3c34e701d`.
+- **Production proof:** scan-api `/health` returned the new Version ID and exact closure stamp;
+  `/ready` returned D1/R2 ready on both the custom and workers.dev hosts. Email-ingest
+  cache-busted `/health` and `/ready` returned its new Version ID, exact closure and D1 ready.
+  The protected workspace route returned `401`, recorded only as liveness plus auth-gate
+  preservation, not workflow acceptance.
+- **Rollback:** deploy scan-api version `8cf66e65-82c3-419d-ba79-f0f2385eacb8` and
+  email-ingest version `af1a045d-85de-43d2-81fd-a5a3c34e701d` using
+  `wrangler versions deploy <VERSION_ID>` with the service's matching configuration. No schema
+  rollback is involved.
+
 ## v2026.08.23-1 — P1 serviceability and historical-evidence honesty train — deployed 2026-08-23
 
 **Status:** DEPLOYED. Exact merged main
