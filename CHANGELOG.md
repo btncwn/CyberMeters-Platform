@@ -7,6 +7,55 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.08.23-1 — P1 serviceability and historical-evidence honesty train — deployed 2026-08-23
+
+**Status:** DEPLOYED. Exact merged main
+`916abaa37d1972cc618c6a9313ab278bbacc2b0d` was deployed to both coordinated Workers
+from a fresh non-iCloud detached clone. The release is tagged `v2026.08.23-1`. Deployment and
+side-effect-safe smoke are not authenticated customer-workflow acceptance.
+
+- **PR #423 — MTA-STS tri-state evidence:** merge
+  `aa1846f03737d0c81a46e9eb82c4d08153855c70` preserves observed, unavailable and
+  not-observed states through the producer and admission gate instead of collapsing missing
+  evidence into a customer conclusion. Hosted `validate` (27m44s), SAST and Pages passed.
+- **PR #422 — redirect serviceability authority:** merge
+  `83d31e12d1e5d77f2d56dfb760d604c901a64676` retargets redirect consumers to the
+  canonical serviceability/conclusion-eligibility authority and preserves the fail-closed chain
+  veto. Hosted `validate` (28m32s), SAST and Pages passed.
+- **PR #428 — historical read compatibility:** merge
+  `916abaa37d1972cc618c6a9313ab278bbacc2b0d`, exact reviewed head
+  `60122fc9502f6d92667d9148857576de75beb18f`, keeps historical rows readable without
+  allowing legacy projections to manufacture authoritative current evidence. Hosted CI run
+  `32643498998` passed (`validate` 29m02s, SAST and Pages).
+- **Other runtime changes in the same source boundary:** #420 established the canonical
+  serviceability/conclusion-eligibility authority; #424 gated 5xx technology attribution on
+  serviceable origin evidence; #426 surfaced Shadow IT first-observation state honestly. No
+  database migration was introduced between `v2026.08.21-1` and this source boundary.
+- **Validation:** the existing exact-candidate local gate was consumed at 347/347; Integration did
+  not rerun the full gate. Before deployment, the focused email-worker traceability contract passed
+  15/15 and install-script governance passed 18/18. Required hosted checks were green on the exact
+  merged heads above.
+- **Coordinated closure:** both Workers report
+  `2026.08.13-provisional-score-labeling.48283454be37`; the effective email-worker closure is
+  `48283454be37df242ef2e729c3f97dac46590b716bfd91660567f3c45540f0db`
+  (91 files, including 89 scan-api files).
+- **scan-api (`cybermeters-platform`):** deployment ID
+  `1a9f7922-095b-47ad-8905-5b61bcac0d4c`; live Worker Version ID
+  `8cf66e65-82c3-419d-ba79-f0f2385eacb8`; immediate rollback Worker Version ID
+  `96c00032-b4ee-4088-8425-b89fb46fffa5`.
+- **email-ingest (`cybermeters-email`):** deployment ID
+  `561faa45-f153-4eb6-a10e-f55b6715e232`; live Worker Version ID
+  `af1a045d-85de-43d2-81fd-a5a3c34e701d`; immediate rollback Worker Version ID
+  `fd0286cb-2b88-45cc-8b60-dcf2ae67bdfc`.
+- **Production proof:** both scan-api hosts returned the new Version ID and exact closure stamp;
+  `/ready` returned D1/R2 ready; the protected workspace route returned `401`; email-ingest
+  `/health` returned its new Version ID and exact closure stamp and `/ready` returned D1 ready.
+  The `401` is recorded only as liveness plus auth-gate preservation, not workflow acceptance.
+- **Rollback:** deploy scan-api version `96c00032-b4ee-4088-8425-b89fb46fffa5` and
+  email-ingest version `fd0286cb-2b88-45cc-8b60-dcf2ae67bdfc` using
+  `wrangler versions deploy <VERSION_ID>` (with the email config for email-ingest). No schema
+  rollback is involved.
+
 ## v2026.08.21-1 — merge-line closure (PR #417 · #418 · #419) — deployed 2026-08-21
 
 **Status:** DEPLOYED. Main is tagged at `60420ae18302692da9a10e75a5b0ce820966a3a9` and the
