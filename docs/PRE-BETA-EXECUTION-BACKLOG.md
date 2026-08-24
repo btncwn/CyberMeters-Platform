@@ -1,7 +1,7 @@
 # Pre-Beta Frozen Execution Backlog
 
 **Status:** ACTIVE CANONICAL EXECUTION ORDER — historical item contracts preserved;
-current queue updated 23 August 2026.
+current queue updated 24 August 2026.
 **Authority:** this document alone ORDERS current and remaining pre-beta work.
 Roles and decision rights live only in `docs/AI-EXECUTIVE-OPERATING-MODEL.md`.
 Strategic scope and acceptance gates remain in
@@ -14,15 +14,17 @@ Production baseline at freeze: `main @ bfc7c1d` · live Worker `ecd03d0a`
 Labels: **[ACC]** acceptance-only (already built/deployed — needs live acceptance, not
 re-implementation) · **[IMPL]** implementation work · **[DES]** design-first.
 
-## Current canonical order — 23 August 2026
+## Current canonical order — 24 August 2026
 
 This is the live queue. The dated package under
 `docs/governance/2026-08-23-gtr7-competitor-first-successor/` is immutable source
 evidence for how this order was reached; it has no current operating authority.
 
 ```text
-[GTR-4 successor-5 → FINAL GTR-6 → GTR-7 comparison
- → separate founder architecture selection → FINAL GTR-7B carrier exit]
+[GTR-4 = terminal technical HOLD at successor-8
+ + GTR-6/GTR-7 = PROGRAMME HOLD until after beta
+ → no retry, successor-9, install, observer or technical-PASS credit
+ → Founder risk acceptance terminates this lane for this pre-beta JOIN only]
 ||
 [AS-B2 STOP/AMEND + corrected isolated preparation/authoring (zero credit)
  + AS-B6 read-only remeasurement
@@ -36,6 +38,15 @@ evidence for how this order was reached; it has no current operating authority.
 → preserved P1 / FD-007 / full FD-008 / Items 12–18
  + pre-existing Item 19 aggregate source-fidelity law
 ```
+
+**Governance status correction — 24 August 2026:** GTR-4 did not technically
+pass. Under the current Founder scope cut and the terminal Governance
+disposition, GTR-4, GTR-6 and GTR-7 are removed from the active pre-beta queue
+and held until an explicit after-beta reopening. This is risk acceptance, not
+technical acceptance. For this JOIN only, the terminal HOLD satisfies the
+lane-termination input; it does not authorise a retry, acquisition, installation,
+observer activation, GTR-6/GTR-7 work, release, deployment or customer
+activation. Frozen GTR evidence remains unchanged.
 
 Production/customer state is `HOLD`. The former 2026-09-01 recovery-candidate
 target is a reforecast checkpoint. Historical `ACTIVE` labels below mean active
