@@ -340,22 +340,21 @@ export async function scanRoutes(rctx) {
 
       let result;
       if (wsFilter) {
-        // Direct attribution: scans.workspace_id = wsFilter.
-        // Fallback via domain join for historical scans where workspace_id IS NULL.
+        // F-021 — DIRECT attribution only. The former
+        // `OR (s.workspace_id IS NULL AND wd.workspace_id = ?)` fallback listed
+        // every unattributed scan to each workspace that merely links the same
+        // domain. NULL owner = unknown owner = not listable.
         result = await env.cybermeters_db
           .prepare(
             `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at
              FROM scans s
              JOIN domains d ON d.id = s.domain_id
              JOIN workspace_domains wd ON wd.domain_id = d.id
-             WHERE (
-               s.workspace_id = ?
-               OR (s.workspace_id IS NULL AND wd.workspace_id = ?)
-             )
+             WHERE s.workspace_id = ?
              ORDER BY s.created_at DESC
              LIMIT 20`
           )
-          .bind(wsFilter, wsFilter)
+          .bind(wsFilter)
           .all();
       } else {
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
@@ -363,21 +362,19 @@ export async function scanRoutes(rctx) {
           return json({ scans: [] });
         }
         const placeholders = workspaceIds.map(() => "?").join(",");
-        // Direct attribution for attributed scans; join fallback for NULL workspace_id.
+        // F-021 — DIRECT attribution only; the NULL-owner domain-join fallback
+        // leaked unattributed scans across every co-linked workspace.
         result = await env.cybermeters_db
           .prepare(
             `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at
              FROM scans s
              JOIN domains d ON d.id = s.domain_id
              JOIN workspace_domains wd ON wd.domain_id = d.id
-             WHERE (
-               s.workspace_id IN (${placeholders})
-               OR (s.workspace_id IS NULL AND wd.workspace_id IN (${placeholders}))
-             )
+             WHERE s.workspace_id IN (${placeholders})
              ORDER BY s.created_at DESC
              LIMIT 20`
           )
-          .bind(...workspaceIds, ...workspaceIds)
+          .bind(...workspaceIds)
           .all();
       }
 
@@ -949,8 +946,12 @@ export async function scanRoutes(rctx) {
         .prepare(
           `SELECT DISTINCT s.id, s.domain_id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at
            FROM scans s
-           JOIN workspace_domains wd ON wd.domain_id = s.domain_id
-           WHERE s.domain = ? AND wd.workspace_id IN (${placeholders})
+           -- F-021 — the domain link alone NEVER authorises. This route
+           -- previously filtered on wd.workspace_id with NO condition on
+           -- s.workspace_id at all, so a scan ATTRIBUTED to workspace A was
+           -- returned to workspace B purely because B linked the same domain:
+           -- attributed scans leaked, not merely legacy NULL ones.
+           WHERE s.domain = ? AND s.workspace_id IN (${placeholders})
            ORDER BY s.created_at DESC
            LIMIT ?`
         )

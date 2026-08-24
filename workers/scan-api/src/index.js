@@ -2081,27 +2081,19 @@ async function requireScanReadAccess(user, scanId, env) {
 
     if (!scan) return null;
 
-    if (scan.workspace_id) {
-      const access = await requireWorkspaceRole(user, scan.workspace_id, "workspace:read", env);
-      return access ? { ...access, workspace_id: scan.workspace_id } : null;
-    }
-
-    // Legacy scans created before workspace_id attribution are authorized by
-    // domain link only when the scan has no owning workspace.
-    const rows = await env.cybermeters_db
-      .prepare(
-        `SELECT DISTINCT wd.workspace_id
-         FROM scans s
-         JOIN workspace_domains wd ON wd.domain_id = s.domain_id
-         WHERE s.id = ?`
-      )
-      .bind(scanId)
-      .all();
-    for (const row of (rows.results || [])) {
-      const access = await requireWorkspaceRole(user, row.workspace_id, "workspace:read", env);
-      if (access) return { ...access, workspace_id: row.workspace_id };
-    }
-    return null;
+    // F-021 — a scan is readable ONLY through its own DIRECT workspace
+    // attribution. NULL means the owner is UNKNOWN; it must never mean
+    // "readable by whoever happens to share the domain". A linked domain may
+    // belong to several workspaces, so the former domain-join fallback handed
+    // one tenant's unattributed scan to every co-linked tenant.
+    //
+    // The deny is returned HERE, before the caller reaches any R2 object: every
+    // read route calls this guard ahead of `cybermeters_reports.get`, so a
+    // foreign or unattributed scan never causes object access at all.
+    // Same doctrine already enforced in engines/current-posture.js.
+    if (!scan.workspace_id) return null;
+    const access = await requireWorkspaceRole(user, scan.workspace_id, "workspace:read", env);
+    return access ? { ...access, workspace_id: scan.workspace_id } : null;
   } catch {
     return null;
   }
