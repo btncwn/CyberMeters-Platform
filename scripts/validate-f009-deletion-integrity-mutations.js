@@ -41,19 +41,71 @@ const MUTANTS = [
         .prepare("DELETE FROM workspace_reports WHERE id = ?").bind(r.id).run().catch(() => {});`,
     expect: "C-r2-verified-before-pointer" },
 
+  // M3 re-anchored after R1: the release + parent delete now run as one batch,
+  // so the old two-statement anchors no longer exist. Intent is unchanged —
+  // prove the post-delete ABSENCE RE-READ is load-bearing: swallow the batch and
+  // drop the verification, and a failed delete must be caught by the retry
+  // assertion instead of completing over a surviving row.
   { name: "M3_PARENT_ABSENCE_UNVERIFIED",
     from: `  const wsStill = await env.cybermeters_db
     .prepare("SELECT id FROM workspaces WHERE id = ? LIMIT 1").bind(req.workspace_id).first();
   if (wsStill) throw new Error(\`workspace row survived deletion: \${req.workspace_id}\`);`,
     to: `  // mutant: absence not verified`,
-    also: [[`    .prepare("UPDATE deletion_requests SET workspace_id = NULL WHERE id = ? AND workspace_id = ?")
-    .bind(req.id, req.workspace_id).run();`,
-            `    .prepare("UPDATE deletion_requests SET updated_at = updated_at WHERE id = ? AND workspace_id = ?")
-    .bind(req.id, req.workspace_id).run();`],
-           [`    .prepare("DELETE FROM workspaces WHERE id = ?").bind(req.workspace_id).run();`,
-            `    .prepare("DELETE FROM workspaces WHERE id = ?").bind(req.workspace_id).run().catch(() => {});`]],
-    expect: "G-positive-control" },
+    // anchored on the batch's own tail: a bare "  ]);" is not unique in index.js
+    also: [[`      .prepare("DELETE FROM workspaces WHERE id = ?").bind(req.workspace_id),
+  ]);`,
+            `      .prepare("DELETE FROM workspaces WHERE id = ?").bind(req.workspace_id),
+  ]).catch(() => {});`]],
+    expect: "R1-01-atomic-release" },
 ];
+
+// R1 correctives — each mutant reverts one corrective and must die by name.
+MUTANTS.push(
+  { name: "M4_GATE_REMOVED_FK_CHECK_NOT_WIRED",
+    from: `  // R1-03 — the governed FK proof runs HERE, in production, before any claim.
+  await assertForeignKeyCheckClean(env);`,
+    to: `  // mutant: production FK gate deleted`,
+    expect: "R1-03-production-gate-wired" },
+
+  { name: "M5_GATE_REMOVED_ZERO_COUNT_NOT_WIRED",
+    from: `  await assertWorkspacePurgeProven(env, req.workspace_id);`,
+    to: `  // mutant: production zero-count gate deleted`,
+    expect: "R1-03-production-gate-wired" },
+
+  { name: "M6_RELEASE_AND_DELETE_NOT_ATOMIC",
+    from: `  await env.cybermeters_db.batch([
+    env.cybermeters_db
+      .prepare("UPDATE deletion_requests SET workspace_id = NULL WHERE id = ? AND workspace_id = ?")
+      .bind(req.id, req.workspace_id),
+    env.cybermeters_db
+      .prepare("DELETE FROM workspaces WHERE id = ?").bind(req.workspace_id),
+  ]);`,
+    to: `  await env.cybermeters_db
+    .prepare("UPDATE deletion_requests SET workspace_id = NULL WHERE id = ? AND workspace_id = ?")
+    .bind(req.id, req.workspace_id).run();
+  await env.cybermeters_db
+    .prepare("DELETE FROM workspaces WHERE id = ?").bind(req.workspace_id).run();`,
+    expect: "R1-01-atomic-release" },
+
+  { name: "M7_ERROR_READS_AS_ABSENCE_AGAIN",
+    from: `    .prepare("SELECT id, name, deleted_at, owner_user_id FROM workspaces WHERE id = ? LIMIT 1")
+    .bind(req.workspace_id).first();`,
+    to: `    .prepare("SELECT id, name, deleted_at, owner_user_id FROM workspaces WHERE id = ? LIMIT 1")
+    .bind(req.workspace_id).first().catch(() => null);`,
+    expect: "R1-02-error-is-not-absence" },
+
+  { name: "M8_R2_ABSENCE_OPTIONAL_AGAIN",
+    from: `  if (typeof env.cybermeters_reports.head !== "function") {
+    throw new Error(\`R2 absence unverifiable (no head binding): \${key}\`);
+  }
+  const still = await env.cybermeters_reports.head(key);
+  if (still) throw new Error(\`R2 object still present after delete: \${key}\`);`,
+    to: `  if (typeof env.cybermeters_reports.head === "function") {
+    const still = await env.cybermeters_reports.head(key);
+    if (still) throw new Error(\`R2 object still present after delete: \${key}\`);
+  }`,
+    expect: "R1-04-r2-absence-positively-verified" },
+);
 
 const CONTROL = {
   name: "CONTROL_COSMETIC_COMMENT",
@@ -108,5 +160,5 @@ console.log("\n=== INVALID-KILL CONTROL ===");
     allOk &&= ok;
   }
 }
-console.log(`\nRESULT: ${allOk ? "3/3 MUTANTS KILLED BY NAME, CONTROL SURVIVED" : "FAILED"}`);
+console.log(`\nRESULT: ${allOk ? `${MUTANTS.length}/${MUTANTS.length} MUTANTS KILLED BY NAME, CONTROL SURVIVED` : "FAILED"}`);
 process.exit(allOk ? 0 : 1);

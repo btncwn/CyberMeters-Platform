@@ -47,16 +47,30 @@ function buildDb() {
 
 // D1 surfaces a failed statement as a rejected promise. The fake must do the
 // same, or every swallowed `.catch(() => {})` in the runner looks like success.
+// Fault injection: a statement whose SQL matches `failSql` rejects, the way a
+// real D1 failure does. Used for the R1 negative controls below.
+let failSql = null;
 function makeD1(db) {
+  const guard = (sql) => { if (failSql && String(sql).includes(failSql)) throw new Error(`injected D1 failure: ${failSql}`); };
   const wrap = (sql, args) => ({
     __sql: sql, __args: args,
-    first: async (col) => { const r = db.prepare(sql).get(...args) ?? null; return col && r ? r[col] : r; },
-    all:   async () => ({ results: db.prepare(sql).all(...args), success: true, meta: {} }),
-    run:   async () => { const r = db.prepare(sql).run(...args); return { success: true, meta: { changes: r.changes } }; },
+    first: async (col) => { guard(sql); const r = db.prepare(sql).get(...args) ?? null; return col && r ? r[col] : r; },
+    all:   async () => { guard(sql); return { results: db.prepare(sql).all(...args), success: true, meta: {} }; },
+    run:   async () => { guard(sql); const r = db.prepare(sql).run(...args); return { success: true, meta: { changes: r.changes } }; },
   });
   return {
     prepare(sql) { const b = wrap(sql, []); b.bind = (...a) => wrap(sql, a); return b; },
-    async batch(st) { return Promise.all(st.map((s) => (/^\s*select/i.test(s.__sql) ? s.all() : s.run()))); },
+    // R1-01 — D1 batch() is ONE TRANSACTION. The fake must be too, or an
+    // atomicity fix cannot be proven by a suite that never rolls anything back.
+    async batch(st) {
+      db.exec("BEGIN");
+      try {
+        const out = [];
+        for (const stmt of st) out.push(/^\s*select/i.test(stmt.__sql) ? await stmt.all() : await stmt.run());
+        db.exec("COMMIT");
+        return out;
+      } catch (e) { db.exec("ROLLBACK"); throw e; }
+    },
     async exec(sql) { db.exec(sql); return { count: 0, duration: 0 }; },
   };
 }
@@ -217,6 +231,91 @@ async function main() {
     const u4 = db4.prepare("SELECT id FROM users WHERE id='u4'").get();
     ok("account email is sent only if the user row is truly gone",
        sentEmails.length === 0 || !u4);
+  }
+
+  // ── R1 NEGATIVE CONTROLS — the four load-bearing findings ────────────────
+  const seedWs = (db, sfx) => {
+    const run = (sql, ...a) => { try { db.prepare(sql).run(...a); } catch { /* variance */ } };
+    run(`INSERT INTO users (id,email,name,plan,status,email_verified) VALUES ('u${sfx}','w${sfx}@example.com','W','free','active',1)`);
+    run(`INSERT INTO workspaces (id,name,owner_user_id,deleted_at) VALUES ('ws${sfx}','WS','u${sfx}', datetime('now','-60 days'))`);
+    run(`INSERT INTO deletion_requests (id,request_type,user_id,workspace_id,requested_by,status,created_at) VALUES ('dr${sfx}','workspace','u${sfx}','ws${sfx}','u${sfx}','pending', ${OLD})`);
+  };
+
+  section = "R1-01-atomic-release";
+  {
+    // A parent DELETE that fails must NOT strand the released pointer, and a
+    // SECOND run must not then read the missing pointer as "already gone".
+    const dbA = buildDb(); const envA = makeEnv(dbA); seedWs(dbA, "A");
+    failSql = "DELETE FROM workspaces";
+    await processDeletionRequests(envA);
+    failSql = null;
+    const ptr = dbA.prepare("SELECT workspace_id FROM deletion_requests WHERE id='drA'").get();
+    ok(`the workspace pointer survives a failed parent delete (workspace_id=${ptr?.workspace_id})`,
+       ptr?.workspace_id === "wsA");
+    // second run, no injected fault: it must complete honestly, not falsely
+    dbA.prepare("UPDATE deletion_requests SET updated_at = datetime('now','-2 hours') WHERE id='drA'").run();
+    await processDeletionRequests(envA);
+    const st = dbA.prepare("SELECT status FROM deletion_requests WHERE id='drA'").get();
+    const wsA = dbA.prepare("SELECT id FROM workspaces WHERE id='wsA'").get();
+    ok(`after retry, completed ONLY with the row actually gone (status=${st?.status}, row=${!!wsA})`,
+       st?.status !== "completed" || !wsA);
+  }
+
+  section = "R1-02-error-is-not-absence";
+  {
+    const dbB = buildDb(); const envB = makeEnv(dbB); seedWs(dbB, "B");
+    failSql = "SELECT id, name, deleted_at, owner_user_id FROM workspaces";
+    await processDeletionRequests(envB);
+    failSql = null;
+    const st = dbB.prepare("SELECT status FROM deletion_requests WHERE id='drB'").get();
+    const wsB = dbB.prepare("SELECT id FROM workspaces WHERE id='wsB'").get();
+    ok(`a FAILED parent lookup does not complete (status=${st?.status}, row still present=${!!wsB})`,
+       st?.status !== "completed");
+  }
+  {
+    const dbC = buildDb(); const envC = makeEnv(dbC); seedWs(dbC, "C");
+    failSql = "FROM workspace_reports WHERE workspace_id";
+    await processDeletionRequests(envC);
+    failSql = null;
+    const st = dbC.prepare("SELECT status FROM deletion_requests WHERE id='drC'").get();
+    ok(`a FAILED governed enumeration does not complete (status=${st?.status})`, st?.status !== "completed");
+  }
+
+  section = "R1-04-r2-absence-positively-verified";
+  {
+    const dbD = buildDb(); const envD = makeEnv(dbD); seedWs(dbD, "D");
+    dbD.prepare("INSERT INTO workspace_reports (id,workspace_id,report_type,status,report_key) VALUES ('wrD','wsD','manual','completed','reports/d.pdf')").run();
+    const savedHead = envD.cybermeters_reports.head;
+    delete envD.cybermeters_reports.head;          // binding without head()
+    await processDeletionRequests(envD);
+    envD.cybermeters_reports.head = savedHead;
+    const st = dbD.prepare("SELECT status FROM deletion_requests WHERE id='drD'").get();
+    const ptr = dbD.prepare("SELECT COUNT(*) c FROM workspace_reports WHERE id='wrD'").get().c;
+    ok(`unverifiable R2 absence does NOT complete (status=${st?.status})`, st?.status !== "completed");
+    ok("unverifiable R2 absence does NOT delete the pointer row", ptr === 1);
+  }
+
+  section = "R1-03-production-gate-wired";
+  {
+    // The gates must run IN PRODUCTION, not only in this harness. Each control
+    // makes the gate's OWN query fail: if the call is present the request
+    // cannot complete; if the call is deleted the injection is inert and the
+    // request completes — which is exactly what the paired mutants assert.
+    const dbE = buildDb(); const envE = makeEnv(dbE); seedWs(dbE, "E");
+    failSql = "PRAGMA foreign_key_check";
+    await processDeletionRequests(envE);
+    failSql = null;
+    const st = dbE.prepare("SELECT status FROM deletion_requests WHERE id='drE'").get();
+    ok(`the FK gate RUNS in the production path (status=${st?.status})`, st?.status !== "completed");
+  }
+  {
+    const dbF = buildDb(); const envF = makeEnv(dbF); seedWs(dbF, "F");
+    failSql = "SELECT COUNT(*) AS c FROM workspace_members WHERE workspace_id";
+    await processDeletionRequests(envF);
+    failSql = null;
+    const st = dbF.prepare("SELECT status FROM deletion_requests WHERE id='drF'").get();
+    ok(`the governed zero-count gate RUNS in the production path (status=${st?.status})`,
+       st?.status !== "completed");
   }
 
   console.log(out.join("\n"));
