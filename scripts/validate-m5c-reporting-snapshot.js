@@ -964,7 +964,12 @@ async function main() {
       {
         name: "purge stops deleting snapshot R2 objects (#106 class)",
         file: srcPath("index.js"),
-        from: "      if (s.r2_key) await env.cybermeters_reports.delete(s.r2_key).catch(() => {});",
+        // F-009 re-anchor: the raw `.delete(...).catch(() => {})` was replaced by
+        // deleteR2ObjectVerified, which deletes AND proves absence before the
+        // pointer row is removed. Same mutation intent — drop the R2 delete —
+        // against the current call site. This validator correctly reported
+        // "the mutation tests nothing" when the old anchor disappeared.
+        from: "      await deleteR2ObjectVerified(env, s.r2_key);",
         to:   "      // R2 delete dropped",
       },
       {
