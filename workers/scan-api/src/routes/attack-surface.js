@@ -2019,7 +2019,13 @@ export async function attackSurfaceRoutes(rctx) {
             severity:   svc.severity   || svc.risk_level,
             confidence: svc.confidence,
             risk_level: svc.risk_level,
-            ip_address: svc.ip_address || null,
+            // F-009 — the legacy admin-service `ip_address` is NOT projected.
+            // This endpoint merges admin_surface_detection.services across the
+            // workspace's reports, so it is both the CURRENT and the HISTORICAL
+            // read path; stripping here covers both. Stored R2 bytes are NOT
+            // rewritten — historical integrity is preserved and the field simply
+            // stops being served. The frontend renders it behind a truthiness
+            // check (SecurityPage.jsx), so an absent field degrades quietly.
             server:     svc.server     || null,
             title:      svc.title      || null,
             domain:     report.domain  || null,
