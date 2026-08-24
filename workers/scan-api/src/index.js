@@ -1153,6 +1153,20 @@ const WORKSPACE_PURGE_TABLES = [
  * R2 objects are deleted before their D1 pointer rows so a crash between the
  * two can only leave orphan-free state (a missing R2 object is tolerated).
  */
+// F-009 — delete an R2 object and PROVE it is gone before its D1 pointer row is
+// removed. Previously the delete was `.catch(() => {})` and the pointer row was
+// deleted regardless, so a failed R2 delete orphaned the object permanently and
+// the NEXT run — seeing no pointer — reported the purge complete. Throwing here
+// leaves the request retryable, which is the only honest outcome.
+async function deleteR2ObjectVerified(env, key) {
+  if (!key) return;
+  await env.cybermeters_reports.delete(key);
+  if (typeof env.cybermeters_reports.head === "function") {
+    const still = await env.cybermeters_reports.head(key);
+    if (still) throw new Error(`R2 object still present after delete: ${key}`);
+  }
+}
+
 async function purgeWorkspaceData(env, workspaceId) {
   // 1. Executive/PDF reports stored in R2 (workspace_reports.report_key)
   const reports = await env.cybermeters_db
@@ -1160,9 +1174,9 @@ async function purgeWorkspaceData(env, workspaceId) {
     .bind(workspaceId, PURGE_R2_BATCH).all().catch(() => null);
   if ((reports?.results || []).length > 0) {
     for (const r of reports.results) {
-      if (r.report_key) await env.cybermeters_reports.delete(r.report_key).catch(() => {});
+      await deleteR2ObjectVerified(env, r.report_key);
       await env.cybermeters_db
-        .prepare("DELETE FROM workspace_reports WHERE id = ?").bind(r.id).run().catch(() => {});
+        .prepare("DELETE FROM workspace_reports WHERE id = ?").bind(r.id).run();
     }
     return { done: false }; // more may remain — continue next run
   }
@@ -1176,9 +1190,9 @@ async function purgeWorkspaceData(env, workspaceId) {
     .bind(workspaceId, PURGE_R2_BATCH).all().catch(() => null);
   if ((snaps?.results || []).length > 0) {
     for (const s of snaps.results) {
-      if (s.r2_key) await env.cybermeters_reports.delete(s.r2_key).catch(() => {});
+      await deleteR2ObjectVerified(env, s.r2_key);
       await env.cybermeters_db
-        .prepare("DELETE FROM scan_report_snapshots WHERE id = ?").bind(s.id).run().catch(() => {});
+        .prepare("DELETE FROM scan_report_snapshots WHERE id = ?").bind(s.id).run();
     }
     return { done: false }; // more may remain — continue next run
   }
@@ -1193,7 +1207,7 @@ async function purgeWorkspaceData(env, workspaceId) {
         .catch(() => null)
     : null;
   if ((logos?.objects || []).length > 0) {
-    for (const o of logos.objects) await env.cybermeters_reports.delete(o.key).catch(() => {});
+    for (const o of logos.objects) await deleteR2ObjectVerified(env, o.key);
     return { done: false }; // more may remain — continue next run
   }
 
@@ -1203,15 +1217,15 @@ async function purgeWorkspaceData(env, workspaceId) {
     .bind(workspaceId, PURGE_R2_BATCH).all().catch(() => null);
   if ((scans?.results || []).length > 0) {
     for (const s of scans.results) {
-      await env.cybermeters_reports.delete(`reports/${s.id}.json`).catch(() => {});
+      await deleteR2ObjectVerified(env, `reports/${s.id}.json`);
       // Delete scan children first — D1 enforces the scans FKs, so the scan
       // DELETE below fails (and the purge stalls) if any child row remains.
       for (const child of SCAN_CHILD_TABLES) {
         await env.cybermeters_db
-          .prepare(`DELETE FROM ${child} WHERE scan_id = ?`).bind(s.id).run().catch(() => {});
+          .prepare(`DELETE FROM ${child} WHERE scan_id = ?`).bind(s.id).run();
       }
       await env.cybermeters_db
-        .prepare("DELETE FROM scans WHERE id = ?").bind(s.id).run().catch(() => {});
+        .prepare("DELETE FROM scans WHERE id = ?").bind(s.id).run();
     }
     return { done: false };
   }
@@ -1219,25 +1233,99 @@ async function purgeWorkspaceData(env, workspaceId) {
   // 3. Remaining workspace-scoped D1 rows. Per-table statements (not batch)
   // so a table missing in an older database cannot abort the purge.
   for (const table of WORKSPACE_PURGE_TABLES) {
-    await env.cybermeters_db
-      .prepare(`DELETE FROM ${table} WHERE workspace_id = ?`)
-      .bind(workspaceId).run().catch(() => {});
+    try {
+      await env.cybermeters_db
+        .prepare(`DELETE FROM ${table} WHERE workspace_id = ?`).bind(workspaceId).run();
+    } catch (e) {
+      // A table absent from an older database is tolerated; ANY other error is
+      // fatal to this run and leaves the request retryable.
+      if (!/no such table/i.test(String(e?.message ?? e))) throw e;
+    }
   }
   return { done: true };
 }
 
 // User-scoped rows removed on account purge (after all owned workspaces are
 // gone). subscriptions/subscription_events are retained for accounting.
+// F-009 — each entry is {table, column}. Two predicates here were WRONG and
+// failed silently for the life of the feature, because every DELETE was wrapped
+// in `.catch(() => {})`:
+//   • oauth_states has NO user_id column at all (state, provider, redirect_uri,
+//     created_at, expires_at) — `DELETE ... WHERE user_id = ?` raised an SQL
+//     error on every run. It carries no user linkage of any kind and is
+//     expiry-bounded, so it is REMOVED rather than given an invented predicate.
+//   • customer_profiles keys on owner_user_id, not user_id.
 const ACCOUNT_PURGE_TABLES = [
-  "user_sessions", "password_reset_tokens", "api_tokens",
-  "mfa_challenges", "oauth_states", "customer_profiles",
+  { table: "user_sessions",         column: "user_id" },
+  { table: "password_reset_tokens", column: "user_id" },
+  { table: "api_tokens",            column: "user_id" },
+  { table: "mfa_challenges",        column: "user_id" },
+  { table: "customer_profiles",     column: "owner_user_id" },
 ];
+
+// F-009 — FK edges into users(id) that the account purge does NOT remove.
+// Completion must PROVE these are empty; it may never assume it. Each is either
+// retained by policy or belongs to a workspace this user does not own, so
+// deleting it here would destroy another tenant's data or an accounting record.
+// Whether these should be ERASED or ANONYMISED is a founder/legal decision and
+// is deliberately NOT decided in code — see the audit event emitted below.
+const ACCOUNT_RESIDUAL_FK_EDGES = [
+  { table: "domains",                     column: "user_id" },
+  { table: "workspace_members",           column: "user_id" },
+  { table: "subscription_accounts",       column: "owner_user_id" },
+  { table: "workspace_invitations",       column: "invited_by" },
+  { table: "portfolio_risk_snapshots",    column: "owner_id" },
+  { table: "report_schedules",            column: "created_by" },
+  { table: "deletion_requests",           column: "requested_by" },
+  { table: "deletion_requests",           column: "user_id" },
+  { table: "workspace_retention_settings",column: "updated_by" },
+  { table: "msp_branding_profiles",       column: "owner_user_id" },
+];
+
+// F-009 — count survivors across a set of {table, column} edges. A table that
+// does not exist in an older database is skipped; a QUERY ERROR is NOT skipped,
+// because "the check could not run" must never read as "the check passed".
+async function countResidualRows(env, edges, id) {
+  const survivors = [];
+  for (const { table, column } of edges) {
+    let row;
+    try {
+      row = await env.cybermeters_db
+        .prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE ${column} = ?`).bind(id).first();
+    } catch (e) {
+      const msg = String(e?.message ?? e);
+      if (/no such table/i.test(msg)) continue;
+      throw e;
+    }
+    const c = Number(row?.c ?? 0);
+    if (c > 0) survivors.push({ table, column, rows: c });
+  }
+  return survivors;
+}
 
 /**
  * processDeletionRequests — hourly cron entry point. Processes at most two
  * due requests per run, each in bounded chunks, so one giant workspace can
  * never starve the cron or blow subrequest limits. Never throws.
  */
+// F-009 — atomic claim. Returns true only when THIS runner won the row.
+// D1 reports affected rows in meta.changes; a claim that cannot prove exactly
+// one changed row is not a claim.
+async function claimDeletionRequest(env, req) {
+  const sql = req.status === "pending"
+    ? "UPDATE deletion_requests SET status = 'purging', updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
+    // Stale-lease reclaim: a run that crashed mid-purge left the row 'purging'.
+    // One cron tick (hourly) must elapse before anyone may take it back.
+    : "UPDATE deletion_requests SET updated_at = datetime('now') WHERE id = ? AND status = 'purging' AND updated_at <= datetime('now','-1 hours')";
+  try {
+    const res = await env.cybermeters_db.prepare(sql).bind(req.id).run();
+    return Number(res?.meta?.changes ?? 0) === 1;
+  } catch (e) {
+    console.error("[deletion-purge] claim failed", req.id, String(e?.message ?? e));
+    return false;
+  }
+}
+
 async function processDeletionRequests(env) {
   try {
     const rows = await env.cybermeters_db
@@ -1250,15 +1338,28 @@ async function processDeletionRequests(env) {
     const due = (rows?.results || []).filter((r) => isDeletionPurgeDue(r)).slice(0, 2);
 
     for (const req of due) {
-      if (req.status !== "purging") {
+      // F-009 — ATOMIC ADMISSION. The previous read-then-write let two runners
+      // both observe 'pending' and both proceed, and it swallowed the failure of
+      // its own status write. A claim is now a compare-and-swap that must report
+      // exactly one changed row, or this runner does not own the request and
+      // skips it. A request already 'purging' is only re-claimed once its lease
+      // has aged past one cron tick, so a crashed run resumes without ever
+      // permitting a concurrent second runner.
+      if (!(await claimDeletionRequest(env, req))) continue;
+      try {
+        if (req.request_type === "workspace") {
+          await purgeWorkspaceRequest(env, req);
+        } else if (req.request_type === "account") {
+          await purgeAccountRequest(env, req);
+        }
+      } catch (e) {
+        // F-009 — ANY error leaves the request 'purging', i.e. RETRYABLE. No
+        // error path may reach 'completed'. The claim is released so the next
+        // tick can re-acquire it rather than waiting out the full lease.
+        console.error("[deletion-purge] request", req.id, String(e?.message ?? e));
         await env.cybermeters_db
-          .prepare("UPDATE deletion_requests SET status = 'purging', updated_at = datetime('now') WHERE id = ?")
+          .prepare("UPDATE deletion_requests SET updated_at = datetime('now','-2 hours') WHERE id = ? AND status = 'purging'")
           .bind(req.id).run().catch(() => {});
-      }
-      if (req.request_type === "workspace") {
-        await purgeWorkspaceRequest(env, req);
-      } else if (req.request_type === "account") {
-        await purgeAccountRequest(env, req);
       }
     }
   } catch (e) {
@@ -1325,8 +1426,36 @@ async function purgeWorkspaceRequest(env, req) {
     .prepare("SELECT email, email_verified FROM users WHERE id = ? LIMIT 1")
     .bind(ws.owner_user_id).first().catch(() => null);
 
+  // F-009 — the parent DELETE previously swallowed its own failure, so a row
+  // held by a FK survived while the run went on to mark 'completed' AND send a
+  // permanence email. It now throws on failure, leaving the request retryable,
+  // and absence is PROVEN by re-read before anything is claimed.
+  //
+  // RELEASE THE RETAINED REQUEST'S OWN POINTER FIRST — FLAGGED FOR RATIFICATION.
+  // `deletion_requests.workspace_id` is a real FK to `workspaces(id)`, and the
+  // request row is RETAINED by policy. Measured: with that row present, DELETE
+  // FROM workspaces is refused outright. So contract item 4 ("parent-row absence
+  // verified") is UNSATISFIABLE unless this pointer is released, and only three
+  // outcomes exist:
+  //   (a) never delete the workspace  → the feature stays permanently broken;
+  //   (b) null this one column        → the audit row survives intact, minus a
+  //                                     pointer to a row that no longer exists;
+  //   (c) delete the retained request → destroys the tracking record the
+  //                                     retention policy exists to keep.
+  // (b) is implemented as the minimal-harm consequence of an already-approved
+  // deletion. It is NOT a legal ruling on erasure vs anonymisation and must be
+  // ratified: every other field (id, request_type, status, created_at,
+  // requested_by) is preserved untouched.
   await env.cybermeters_db
-    .prepare("DELETE FROM workspaces WHERE id = ?").bind(req.workspace_id).run().catch(() => {});
+    .prepare("UPDATE deletion_requests SET workspace_id = NULL WHERE id = ? AND workspace_id = ?")
+    .bind(req.id, req.workspace_id).run();
+
+  await env.cybermeters_db
+    .prepare("DELETE FROM workspaces WHERE id = ?").bind(req.workspace_id).run();
+
+  const wsStill = await env.cybermeters_db
+    .prepare("SELECT id FROM workspaces WHERE id = ? LIMIT 1").bind(req.workspace_id).first();
+  if (wsStill) throw new Error(`workspace row survived deletion: ${req.workspace_id}`);
 
   await createAuditEvent(env, {
     workspace_id: req.workspace_id, user_id: req.user_id,
@@ -1377,21 +1506,55 @@ async function purgeAccountRequest(env, req) {
     return; // more work (this or other workspaces) — continue next run
   }
 
-  // Farewell email BEFORE the user row disappears.
-  if (user.email_verified && isValidEmail(String(user.email || "").toLowerCase())) {
-    const text = `Your CyberMeters account has been deleted\n\nYour account and all associated data have now been permanently removed, as requested.\n\nThank you for trying CyberMeters.\n\nCyberMeters`;
-    const html = `<p>Your account and all associated data have now been permanently removed, as requested.</p><p>Thank you for trying CyberMeters.</p><p>CyberMeters</p>`;
-    await sendCustomerEmail("Your CyberMeters account has been deleted", text, html, env, "HELLO_EMAIL_FROM", [String(user.email).toLowerCase()]).catch(() => {});
+  // F-009 — the farewell email used to be sent HERE, before a single row was
+  // deleted, and every DELETE below swallowed its error. The message says the
+  // account "has been permanently removed"; it may never precede the proof that
+  // it was. The email now sends only after the checks below all pass.
+  const recipient = user.email_verified && isValidEmail(String(user.email || "").toLowerCase())
+    ? String(user.email).toLowerCase() : null;
+
+  for (const { table, column } of ACCOUNT_PURGE_TABLES) {
+    try {
+      await env.cybermeters_db
+        .prepare(`DELETE FROM ${table} WHERE ${column} = ?`).bind(req.user_id).run();
+    } catch (e) {
+      if (!/no such table/i.test(String(e?.message ?? e))) throw e;
+    }
+  }
+  await env.cybermeters_db
+    .prepare("DELETE FROM workspace_members WHERE user_id = ?").bind(req.user_id).run();
+
+  // PROOF BEFORE CLAIM. Any surviving FK edge into users(id) means the account
+  // is not erased, whatever the status column says.
+  const residual = await countResidualRows(env, ACCOUNT_RESIDUAL_FK_EDGES, req.user_id);
+  if (residual.length > 0) {
+    // NOT a failure to retry — retrying cannot clear it. These rows are either
+    // retained by policy (deletion_requests, subscription accounting) or belong
+    // to a workspace this user does not own, where deleting them would destroy
+    // ANOTHER tenant's data. Erasure vs anonymisation is a founder/legal
+    // decision and is deliberately NOT made in code.
+    await createAuditEvent(env, {
+      user_id: req.user_id, event_type: "account_purge_blocked_residual_data",
+      entity_type: "user", entity_id: req.user_id,
+      description: "Account purge cannot claim completion: rows referencing this user survive by policy or by shared ownership",
+      metadata: { request_id: req.id, residual_edges: residual },
+    }).catch(() => {});
+    await completeDeletionRequest(env, req.id, "blocked_residual_data");
+    return; // no 'completed', and NO permanence email
   }
 
-  for (const table of ACCOUNT_PURGE_TABLES) {
-    await env.cybermeters_db
-      .prepare(`DELETE FROM ${table} WHERE user_id = ?`).bind(req.user_id).run().catch(() => {});
+  await env.cybermeters_db
+    .prepare("DELETE FROM users WHERE id = ?").bind(req.user_id).run();
+
+  const userStill = await env.cybermeters_db
+    .prepare("SELECT id FROM users WHERE id = ? LIMIT 1").bind(req.user_id).first();
+  if (userStill) throw new Error(`user row survived deletion: ${req.user_id}`);
+
+  if (recipient) {
+    const text = `Your CyberMeters account has been deleted\n\nYour account and all associated data have now been permanently removed, as requested.\n\nThank you for trying CyberMeters.\n\nCyberMeters`;
+    const html = `<p>Your account and all associated data have now been permanently removed, as requested.</p><p>Thank you for trying CyberMeters.</p><p>CyberMeters</p>`;
+    await sendCustomerEmail("Your CyberMeters account has been deleted", text, html, env, "HELLO_EMAIL_FROM", [recipient]).catch(() => {});
   }
-  await env.cybermeters_db
-    .prepare("DELETE FROM workspace_members WHERE user_id = ?").bind(req.user_id).run().catch(() => {});
-  await env.cybermeters_db
-    .prepare("DELETE FROM users WHERE id = ?").bind(req.user_id).run().catch(() => {});
 
   await createAuditEvent(env, {
     user_id: req.user_id, event_type: "account_purged", entity_type: "user", entity_id: req.user_id,
@@ -2502,6 +2665,12 @@ export {
   triggerScheduledScan,
   settleScheduledQueueScan,
   purgeWorkspaceData,
+  // Exported for validate-f009-deletion-integrity.js: same rationale as the two
+  // cron bodies above — the deletion runner is injected into runScheduled, so the
+  // only other way to reach it is to drive the whole hourly tick and every
+  // unrelated task with it. The F-009 contract has to observe THIS function.
+  processDeletionRequests,
+  ACCOUNT_PURGE_TABLES,
   isMaintenanceMode,
   isMaintenanceBypass,
   _cloudflareRouteFailure,
