@@ -78,13 +78,19 @@ const EXPECTED = Object.freeze({
     // SEQ-151 SUCCESSION: count UNCHANGED at 92; fingerprint moves for the same
     // reason as the runtime comparison set above.
     // AS-B2 SUCCESSION: count UNCHANGED at 92 across 34 files; position-shift only.
-    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "45d72b78fce0dc839eb1b3b175676fa4eebc0c586d3d91269fe3d4278680a191" },
+    // F-021 SUCCESSION: counts UNCHANGED — 92 occurrences across 34 files, and
+    // the SQL projection set unchanged at 23. POSITION SHIFT only: removing the
+    // domain-join fallback in requireScanReadAccess and rescoping the scan
+    // list/history SQL moved line numbers, and this inventory records sites by
+    // file:line. Counts equal means no canonical read was added, removed or
+    // reclassified — only relocated.
+    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "5083b65c6bd476f8e76bf90c387347eeff6d0e5be50f11924ca38f4e31d30bb3" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
     governance: { occurrence_count: 108, source_file_count: 37, fingerprint: "9649c7514d3fdea01df043d77eff8ab4fa8d2f0ec3d89e2ee8cde9833a1298fd" },
   },
-  sql_reads: { projection_occurrences: 23, fingerprint: "11c0012aac9dfa1436907821901d393eb591e7d78921b2eabdfa4d73eb9543e8" },
+  sql_reads: { projection_occurrences: 23, fingerprint: "c273181a680d3cdccc978d9dedb27f1f7e3d64e7c1e17aaa8afd07932cea6387" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

@@ -566,9 +566,19 @@ async function main() {
   {
     db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, score, rating, status, scan_quality, created_at) VALUES ('scanNullWs',NULL,'dom1','shared.example',62,'moderate','completed','complete','2026-06-01 09:00:00')").run();
     store.set("reports/scanNullWs.json", JSON.stringify(makeReport("scanNullWs", "dom1", "shared.example", "2026-06-01T09:00:00.000Z")));
-    ok("NULL-workspace legacy scan is honestly unavailable (404, no build)",
-       (await call("GET", "/api/scans/scanNullWs/report")).status === 404 &&
+    // F-021 tightened this: a NULL-owner scan is now refused AT THE GUARD rather
+    // than admitted and then failing to build. The old assertion pinned 404,
+    // which was itself a weak oracle — a foreign scan answered 403 while an
+    // unattributed one answered 404, so the pair leaked which case you were in.
+    // The contract asserted here is STRICTER than the one it replaces: denial,
+    // zero snapshot rows, AND indistinguishable from a scan that does not exist.
+    const nullWs   = await call("GET", "/api/scans/scanNullWs/report");
+    const nonexist = await call("GET", "/api/scans/scanDoesNotExist/report");
+    ok("NULL-workspace legacy scan is honestly unavailable (denied, no build)",
+       nullWs.status === 403 &&
        db.prepare("SELECT COUNT(*) c FROM scan_report_snapshots WHERE scan_id='scanNullWs'").get().c === 0);
+    ok("NULL-workspace scan is indistinguishable from a nonexistent one",
+       nullWs.status === nonexist.status);
   }
 
   // Stored executive report generator: snapshot binding + soft-delete guard.

@@ -88,13 +88,6 @@
       "contract": "No domain data is returned from the candidate query; every candidate is passed through requireWorkspaceRole and failure returns null, so an unauthorized link cannot authorize or disclose the domain."
     },
     {
-      "fingerprint": "4d5e4dc46d69",
-      "file": "workers/scan-api/src/index.js",
-      "detector": "workspace_domain_scope_missing",
-      "reason": "Legacy scans without scans.workspace_id require discovery of domain links for the requested opaque scan id before authorization can be evaluated.",
-      "contract": "The scan is first confirmed to lack an owning workspace; every discovered workspace_id is passed through requireWorkspaceRole before report data or R2 keys are reachable."
-    },
-    {
       "fingerprint": "02b726f68c97",
       "file": "workers/scan-api/src/index.js",
       "detector": "workspace_domain_scope_missing",
