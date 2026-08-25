@@ -375,14 +375,24 @@ export function deriveDmarcStateFromPolicyEvidence(evidence) {
     );
   }
 
-  const axisIncomplete = (value) => value != null && !["complete", "not_applicable"].includes(value);
+  // An axis valued "unavailable" is not an INCOMPLETE marker: unavailable means
+  // the observation could not happen at all and must classify as "unavailable",
+  // never be re-labelled a partial result. Widening this predicate over
+  // unavailable values collapsed the two canonical evidence states into one
+  // (DMARC-PARITY-UNAVAILABLE-DISTINCT).
+  const axisIncomplete = (value) => value != null && !["complete", "not_applicable", "unavailable"].includes(value);
+  // When the observation itself was unavailable, every derived completeness
+  // axis is an echo of that same failed lookup. Classifying the echoes as
+  // "incomplete" would re-label a failed lookup as a partial result — the
+  // exact false-reason class the axis work exists to eliminate.
   const incomplete =
+    evidence.observation_state !== "unavailable" && (
     evidence.observation_state === "incomplete_oversized" ||
     axisIncomplete(evidence.policy_completeness) ||
     axisIncomplete(evidence.core_completeness) ||
     axisIncomplete(evidence.organisational_domain_completeness) ||
     axisIncomplete(evidence.existence_completeness) ||
-    axisIncomplete(evidence.rua_authorisation_completeness);
+    axisIncomplete(evidence.rua_authorisation_completeness));
   return withCanonicalEvidenceState(
     deriveDmarcState({
       assessed: true,
