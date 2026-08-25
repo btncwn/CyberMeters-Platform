@@ -88,13 +88,6 @@
       "contract": "No domain data is returned from the candidate query; every candidate is passed through requireWorkspaceRole and failure returns null, so an unauthorized link cannot authorize or disclose the domain."
     },
     {
-      "fingerprint": "4d5e4dc46d69",
-      "file": "workers/scan-api/src/index.js",
-      "detector": "workspace_domain_scope_missing",
-      "reason": "Legacy scans without scans.workspace_id require discovery of domain links for the requested opaque scan id before authorization can be evaluated.",
-      "contract": "The scan is first confirmed to lack an owning workspace; every discovered workspace_id is passed through requireWorkspaceRole before report data or R2 keys are reachable."
-    },
-    {
       "fingerprint": "02b726f68c97",
       "file": "workers/scan-api/src/index.js",
       "detector": "workspace_domain_scope_missing",
@@ -189,15 +182,15 @@
       "fingerprint": "44194171d8e4",
       "file": "workers/scan-api/src/routes/attack-surface.js",
       "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.get(`reports/${s.id}.json`) where s is drawn from a workspace-scoped scan query inside an authenticated workspace route.",
-      "contract": "The enclosing route is workspace-authorized (see entry-point inventory); s.id derives from the workspace's own domains/scans."
+      "reason": "R2.get(`reports/${s.id}.json`) receives s only from loadLatestAttributedWorkspaceScans, whose SQL requires both the protected-domain link and direct scans.workspace_id attribution before ranking.",
+      "contract": "NULL-owner and co-linked foreign scans are excluded before any R2 key is derived; the F-021 two-tenant harness asserts the exact one permitted R2 key on /certificates."
     },
     {
       "fingerprint": "6d3eb9973d2d",
       "file": "workers/scan-api/src/routes/attack-surface.js",
       "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.get(`reports/${sid}.json`) where sid is a scan id from workspace-scoped scan rows inside an authenticated workspace route.",
-      "contract": "Enclosing route is workspace-authorized; sid comes from the workspace's own scans."
+      "reason": "R2.get(`reports/${sid}.json`) receives sid only from loadLatestAttributedWorkspaceScans, whose SQL requires direct scans.workspace_id attribution inside the authenticated workspace scope.",
+      "contract": "The F-021 two-tenant harness asserts the exact permitted R2 key set for SaaS, cloud, cloud-summary and admin aggregates and kills both NULL-owner and domain-only selector mutants."
     },
     {
       "fingerprint": "6cab39e04b7d",

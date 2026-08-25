@@ -406,6 +406,36 @@ async function loadAssetAttackSurfacePresentation(
   ).forAsset(asset);
 }
 
+// F-021 — customer-facing workspace aggregates may read R2 only for scans
+// directly attributed to that workspace. A workspace_domains relationship
+// selects the protected domain set; it is never scan ownership. NULL means the
+// scan owner is unknown and is therefore excluded. Keeping this selection in
+// one helper prevents the certificate, SaaS, cloud and admin surfaces from
+// drifting back to domain-only or legacy-NULL fallbacks independently.
+async function loadLatestAttributedWorkspaceScans(env, workspaceId) {
+  const result = await env.cybermeters_db
+    .prepare(
+      `SELECT id, domain_id
+       FROM (
+         SELECT s.id, s.domain_id,
+                ROW_NUMBER() OVER (
+                  PARTITION BY s.domain_id
+                  ORDER BY s.created_at DESC, s.id DESC
+                ) AS row_rank
+         FROM scans s
+         JOIN workspace_domains wd
+           ON wd.domain_id = s.domain_id
+          AND wd.workspace_id = ?
+         WHERE s.status = 'completed'
+           AND s.workspace_id = ?
+       )
+       WHERE row_rank = 1`
+    )
+    .bind(workspaceId, workspaceId)
+    .all();
+  return result.results || [];
+}
+
 export async function attackSurfaceRoutes(rctx) {
   const { request, env, url, json,
           requireAuth, requireWorkspaceRole } = rctx;
@@ -1527,34 +1557,12 @@ export async function attackSurfaceRoutes(rctx) {
         return json({ workspace_id: wsId, total: 0, certificates: [] });
       }
 
-      // One workspace-scoped query for the latest completed scan per protected
-      // domain. Avoids the former per-domain N+1 and prevents a caller-provided
-      // workspace from ever selecting a scan outside its own domain links.
-      // Historical scans predate scans.workspace_id, so a NULL attribution is
-      // accepted only through the mandatory workspace_domains ownership JOIN.
+      // One direct-attribution query for the latest completed scan per protected
+      // domain. Legacy NULL-owner and co-linked foreign scans are excluded before
+      // any R2 key is derived.
       let scanRows = [];
       try {
-        const latest = await env.cybermeters_db
-          .prepare(
-            `SELECT id, domain_id
-             FROM (
-               SELECT s.id, s.domain_id,
-                      ROW_NUMBER() OVER (
-                        PARTITION BY s.domain_id
-                        ORDER BY s.created_at DESC, s.id DESC
-                      ) AS row_rank
-               FROM scans s
-               JOIN workspace_domains wd
-                 ON wd.domain_id = s.domain_id
-                AND wd.workspace_id = ?
-               WHERE s.status = 'completed'
-                 AND (s.workspace_id = ? OR s.workspace_id IS NULL)
-             )
-             WHERE row_rank = 1`
-          )
-          .bind(wsId, wsId)
-          .all();
-        scanRows = latest.results || [];
+        scanRows = await loadLatestAttributedWorkspaceScans(env, wsId);
       } catch {
         return json({ error: "Database error" }, 500);
       }
@@ -1707,21 +1715,14 @@ export async function attackSurfaceRoutes(rctx) {
         return json({ workspace_id: wsId, total: 0, high_risk: 0, exposures: [] });
       }
 
-      // 2. Latest completed scan per domain
-      const scanResults = await Promise.allSettled(
-        domainIds.map((did) =>
-          env.cybermeters_db
-            .prepare(
-              "SELECT id FROM scans WHERE domain_id = ? AND status = 'completed' " +
-              "ORDER BY created_at DESC LIMIT 1"
-            )
-            .bind(did)
-            .first()
-        )
-      );
-      const scanIds = scanResults
-        .map((r) => (r.status === "fulfilled" && r.value ? r.value.id : null))
-        .filter(Boolean);
+      // 2. Latest directly attributed completed scan per protected domain.
+      let scanRows;
+      try {
+        scanRows = await loadLatestAttributedWorkspaceScans(env, wsId);
+      } catch {
+        return json({ error: "Database error" }, 500);
+      }
+      const scanIds = scanRows.map((row) => row.id);
 
       // 3. Fetch R2 reports in parallel
       const r2Results = await Promise.allSettled(
@@ -1825,21 +1826,14 @@ export async function attackSurfaceRoutes(rctx) {
         return json(empty);
       }
 
-      // 2. Latest completed scan per domain
-      const scanResults = await Promise.allSettled(
-        domainIds.map((did) =>
-          env.cybermeters_db
-            .prepare(
-              "SELECT id FROM scans WHERE domain_id = ? AND status = 'completed' " +
-              "ORDER BY created_at DESC LIMIT 1"
-            )
-            .bind(did)
-            .first()
-        )
-      );
-      const scanIds = scanResults
-        .map((r) => (r.status === "fulfilled" && r.value ? r.value.id : null))
-        .filter(Boolean);
+      // 2. Latest directly attributed completed scan per protected domain.
+      let scanRows;
+      try {
+        scanRows = await loadLatestAttributedWorkspaceScans(env, wsId);
+      } catch {
+        return json({ error: "Database error" }, 500);
+      }
+      const scanIds = scanRows.map((row) => row.id);
 
       // 3. Fetch R2 reports in parallel
       const r2Results = await Promise.allSettled(
@@ -1962,21 +1956,14 @@ export async function attackSurfaceRoutes(rctx) {
         });
       }
 
-      // 2. Latest completed scan per domain (parallel D1 queries)
-      const scanResults = await Promise.allSettled(
-        domainIds.map((did) =>
-          env.cybermeters_db
-            .prepare(
-              "SELECT id FROM scans WHERE domain_id = ? AND status = 'completed' " +
-              "ORDER BY created_at DESC LIMIT 1"
-            )
-            .bind(did)
-            .first()
-        )
-      );
-      const scanIds = scanResults
-        .map((r) => (r.status === "fulfilled" && r.value ? r.value.id : null))
-        .filter(Boolean);
+      // 2. Latest directly attributed completed scan per protected domain.
+      let scanRows;
+      try {
+        scanRows = await loadLatestAttributedWorkspaceScans(env, wsId);
+      } catch {
+        return json({ error: "Database error" }, 500);
+      }
+      const scanIds = scanRows.map((row) => row.id);
 
       // 3. Fetch R2 reports in parallel
       const r2Results = await Promise.allSettled(
@@ -2019,7 +2006,13 @@ export async function attackSurfaceRoutes(rctx) {
             severity:   svc.severity   || svc.risk_level,
             confidence: svc.confidence,
             risk_level: svc.risk_level,
-            ip_address: svc.ip_address || null,
+            // F-009 — the legacy admin-service `ip_address` is NOT projected.
+            // This endpoint merges admin_surface_detection.services across the
+            // workspace's reports, so it is both the CURRENT and the HISTORICAL
+            // read path; stripping here covers both. Stored R2 bytes are NOT
+            // rewritten — historical integrity is preserved and the field simply
+            // stops being served. The frontend renders it behind a truthiness
+            // check (SecurityPage.jsx), so an absent field degrades quietly.
             server:     svc.server     || null,
             title:      svc.title      || null,
             domain:     report.domain  || null,

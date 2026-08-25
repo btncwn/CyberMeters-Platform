@@ -123,6 +123,15 @@ jobs:
       - name: Validate tenant-isolation matrix (cross-tenant read/write/delete/oracle)
         run: node scripts/validate-tenant-isolation.js
 
+      - name: Validate F-021 scan-read tenant isolation (shared domain / NULL-owner / zero-R2)
+        run: node scripts/validate-f021-scan-read-tenant-isolation.js
+
+      - name: Validate F-021 scan-read isolation mutations (three leaks reintroduced must fail)
+        run: node scripts/validate-f021-scan-read-tenant-isolation-mutations.js
+
+      - name: Validate F-009 admin-service ip_address is not projected (current + historical)
+        run: node scripts/validate-f009-admin-service-ip-projection.js
+
       - name: Full-repo assurance — entry-point inventory (drift + auth-coverage gate)
         run: node scripts/validate-entry-point-inventory.js
 
