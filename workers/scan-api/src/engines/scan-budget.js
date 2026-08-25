@@ -98,6 +98,111 @@ export class SubrequestBudget {
   }
 }
 
+// Runtime-enforced physical-attempt ceiling for the reserved scan path. This is
+// deliberately separate from SubrequestBudget above:
+//
+//   * SubrequestBudget is the conservative ADMISSION ledger. It allocates only
+//     `limit - safetyMargin` and may reserve a module's declared worst case.
+//   * PhysicalSubrequestCounter is the final RUNTIME guard. It records only a
+//     cache-miss DNS/HTTP attempt that is about to be issued, permits attempts
+//     1..limit, and refuses candidate limit+1 before fetch().
+//
+// Keeping the two ledgers separate prevents projected reservations from being
+// mistaken for physical I/O (or charged a second time when the leaf executes).
+export const SUBREQUEST_BUDGET_EXHAUSTED_CODE = "scan_subrequest_budget_exhausted";
+
+export class SubrequestBudgetExhaustedError extends Error {
+  constructor({ limit, issued, category } = {}) {
+    // Preserve the Workers runtime wording as a backwards-compatible classifier
+    // for probeAsset/managed verification while also carrying a typed code.
+    super("Too many subrequests by single Worker invocation.");
+    this.name = "SubrequestBudgetExhaustedError";
+    this.code = SUBREQUEST_BUDGET_EXHAUSTED_CODE;
+    this.subrequestLimit = true;
+    this.limit = limit ?? null;
+    this.issued = issued ?? null;
+    this.category = category ?? null;
+  }
+}
+
+export function isSubrequestBudgetExhaustedError(error) {
+  return error?.code === SUBREQUEST_BUDGET_EXHAUSTED_CODE
+    || error?.subrequestLimit === true
+    || /too many subrequests/i.test(String(error?.message || ""));
+}
+
+export class PhysicalSubrequestCounter {
+  constructor({ limit = CAPACITY_DEFAULTS.limit, safetyMargin = CAPACITY_DEFAULTS.safetyMargin } = {}) {
+    this.limit = Math.max(1, Math.trunc(Number(limit) || CAPACITY_DEFAULTS.limit));
+    this.safetyMargin = Math.max(0, Math.trunc(Number(safetyMargin) || 0));
+    this.issued = 0;
+    this.denied = 0;
+    this.byCategory = {};
+    this.deniedByCategory = {};
+  }
+
+  usable() { return Math.max(0, this.limit - this.safetyMargin); }
+  remaining() { return Math.max(0, this.usable() - this.issued); }
+  hardRemaining() { return Math.max(0, this.limit - this.issued); }
+  wouldExceed(cost = 1) { return this.issued + Math.max(0, Number(cost) || 0) > this.usable(); }
+
+  deny(category) {
+    const key = String(category || "unclassified");
+    this.denied += 1;
+    this.deniedByCategory[key] = (this.deniedByCategory[key] || 0) + 1;
+    throw new SubrequestBudgetExhaustedError({
+      limit: this.limit,
+      issued: this.issued,
+      category: key,
+    });
+  }
+
+  assertCanIssue(category = "unclassified") {
+    if (this.issued >= this.limit) this.deny(category);
+    return true;
+  }
+
+  // Atomic check + charge. Leaf helpers normally call assertCanIssue() followed
+  // synchronously by recordAttempt(); the second check is intentional because the
+  // reserved SSRF-safe GET core exposes recordAttempt without a separate assertion.
+  recordAttempt(category = "unclassified") {
+    this.assertCanIssue(category);
+    const key = String(category || "unclassified");
+    this.issued += 1;
+    this.byCategory[key] = (this.byCategory[key] || 0) + 1;
+    return this.issued;
+  }
+
+  contextFor(category, { signal = null } = {}) {
+    const key = String(category || "unclassified");
+    const deniedAtStart = this.deniedByCategory[key] || 0;
+    const issuedAtStart = this.byCategory[key] || 0;
+    return {
+      signal,
+      assertCanIssue: () => this.assertCanIssue(key),
+      recordAttempt: () => this.recordAttempt(key),
+      recordCompleted: () => {},
+      recordError: () => {},
+      budgetExhausted: () => (this.deniedByCategory[key] || 0) > deniedAtStart,
+      issuedDuringContext: () => (this.byCategory[key] || 0) - issuedAtStart,
+    };
+  }
+
+  snapshot() {
+    return {
+      limit: this.limit,
+      safety_margin: this.safetyMargin,
+      admission_limit: this.usable(),
+      issued: this.issued,
+      denied: this.denied,
+      remaining_to_admission_limit: this.remaining(),
+      remaining_to_hard_limit: this.hardRemaining(),
+      by_category: { ...this.byCategory },
+      denied_by_category: { ...this.deniedByCategory },
+    };
+  }
+}
+
 // ── Global scan wall-clock deadline (Tier 1: waitUntil-cancellation guard) ────
 // The scan engine runs inside ctx.waitUntil(); Cloudflare cancels that background
 // promise ~30s after the response is sent, silently (no exception → no catch → no
