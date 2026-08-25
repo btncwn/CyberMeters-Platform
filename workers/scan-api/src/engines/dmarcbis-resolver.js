@@ -10,7 +10,9 @@ import {
   parseDmarcbisAuthorizationRecordSet,
   parseDmarcbisPolicyRecordSet,
 } from "./dmarcbis-parser.js";
-import { RUA_INBOUND_DOMAIN_DEFAULT } from "../lib/dmarc-ingest.js";
+// Leaf config only: importing the full ingest implementation here reaches the
+// email lifecycle / managed-alert graph while this resolver is initialising.
+import { RUA_INBOUND_DOMAIN_DEFAULT } from "../lib/dmarc-ingest-config.js";
 
 // A DMARC aggregate-report destination under our own hosted RUA endpoint
 // (reports.cybermeters.com) is a domain CyberMeters is authoritative for, so

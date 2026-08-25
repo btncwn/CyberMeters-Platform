@@ -91,6 +91,10 @@ const mutants = [
     from: "    authoritative:  complete && hasScore,\n    comparable:     complete && hasScore,",
     to:   "    authoritative:  complete,\n    comparable:     complete,",
     mustContain: "FAIL D3 no-score invariant: complete quality alone is never authoritative or comparable" },
+  { id: "TRIAGE-M15-D3-persisted-kev-deducted-twice", file: "workers/scan-api/src/engines/phase5-evidence.js",
+    from: "    persistedScoreAlreadyAdjusted: true,",
+    to:   "    persistedScoreAlreadyAdjusted: false,",
+    mustContain: "FAIL D3 persistence boundary: historical projection preserves persisted 60/moderate" },
 ];
 
 let killed = 0; const failures = [];

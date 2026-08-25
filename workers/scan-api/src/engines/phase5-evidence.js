@@ -207,6 +207,7 @@ export function resolvePhase5CustomerAssessment({
   score = null,
   riskLevel = null,
   modules = {},
+  persistedScoreAlreadyAdjusted = false,
 } = {}) {
   const evidence = resolvePhase5EvidenceContract(modules);
   const skippedScored = skippedScoreBearingModules(modules);
@@ -221,6 +222,18 @@ export function resolvePhase5CustomerAssessment({
       suppressed: true,
       suppression_reason: suppressionCause(skippedScored, evidence),
       skipped_score_bearing_modules: skippedScored,
+    };
+  }
+  // Historical rows and immutable reports persist the output of this transform,
+  // not its raw input. Read-time projection must still run the SAME suppression
+  // decision above, but must never charge KEV/CVE a second time (90 -> 60 at
+  // finalisation must remain 60 on every later read, never become 30).
+  if (persistedScoreAlreadyAdjusted === true) {
+    return {
+      score,
+      risk_level: riskLevel,
+      evidence,
+      persisted_score_already_adjusted: true,
     };
   }
   // AS-B2: KEV/CVE evidence moves the customer Cyber Metrics Score. Pure orchestration:
@@ -336,7 +349,12 @@ export function resolvePhase5HistoricalCustomerProjection({
   modules = {},
   monitoringStates = undefined,
 } = {}) {
-  const customer = resolvePhase5CustomerAssessment({ score, riskLevel, modules });
+  const customer = resolvePhase5CustomerAssessment({
+    score,
+    riskLevel,
+    modules,
+    persistedScoreAlreadyAdjusted: true,
+  });
   // Completeness of the three Phase-5 intelligence modules is not, by itself,
   // permission to retain a score. A score-bearing module can have been skipped
   // while Phase-5 evidence is otherwise complete. The customer assessment is

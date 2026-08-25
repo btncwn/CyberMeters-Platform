@@ -200,6 +200,32 @@ function ok(name, cond, detail = "") {
   ok("D3 isolation: complete evidence + skipped score-bearing module STILL nulls the score",
     completePlusSkip.score === null && completePlusSkip.suppressed === true);
 
+  // Persistence boundary: the live transform owns the one KEV deduction. A
+  // historical projection receives that already-adjusted score and must preserve
+  // it byte-for-value while still applying the shared suppression decision.
+  const kevModules = {
+    ...completeMods(),
+    known_exploited_vulnerabilities: { matches: [{ cve: "CVE-2021-0000" }] },
+  };
+  const liveKev = resolvePhase5CustomerAssessment({
+    score: 90,
+    riskLevel: "good",
+    modules: kevModules,
+  });
+  const historicalKev = resolvePhase5HistoricalCustomerProjection({
+    score: liveKev.score,
+    riskLevel: liveKev.risk_level,
+    scanQuality: "complete",
+    modules: kevModules,
+  });
+  ok("D3 persistence boundary: live KEV adjustment applies exactly once (90 to 60)",
+    liveKev.score === 60 && liveKev.risk_level === "moderate");
+  ok("D3 persistence boundary: historical projection preserves persisted 60/moderate",
+    historicalKev.score === 60 &&
+      historicalKev.risk_level === "moderate" &&
+      historicalKev.assessment.display_score === 60 &&
+      historicalKev.assessment.display_rating === "moderate");
+
   // Cause is a single source, reusable by read surfaces.
   ok("D3: resolveScoreSuppressionReason returns the same cause from modules alone",
     /attack surface/.test(resolveScoreSuppressionReason({ asset_exposure: { skipped: true } }) || ""));
