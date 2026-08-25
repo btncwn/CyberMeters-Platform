@@ -25,6 +25,8 @@ function sha256(file) {
 
 const candidateFiles = [
   path.join(workerRoot, "src", "engines", "scan-budget.js"),
+  path.join(workerRoot, "src", "engines", "dns.js"),
+  path.join(workerRoot, "src", "engines", "ct-provider-cache.js"),
   path.join(workerRoot, "src", "engines", "reserved-probe.js"),
   path.join(workerRoot, "src", "engines", "reserved-scan.js"),
   path.join(workerRoot, "src", "engines", "scan-engine.js"),
@@ -88,6 +90,22 @@ const mutants = [
     after: "      if (new URL(current).protocol !== \"http:\") activeAccounting?.recordAttempt?.();",
     expected: "ASB6B_FALLBACK_INTERNAL_EQUALS_PHYSICAL",
   },
+  {
+    id: "ASB6B-M-redirect-follow-restore",
+    name: "redirect-follow-restore",
+    file: path.join("workers", "scan-api", "src", "engines", "dns.js"),
+    before: "      {\n        headers: { Accept: \"application/dns-json\" },\n        redirect: \"manual\",\n        signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(6_000)),\n      }",
+    after: "      {\n        headers: { Accept: \"application/dns-json\" },\n        signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(6_000)),\n      }",
+    expected: "ASB6B_REDIRECT_AT_49_CHARGES_ONE_AND_FAILS_CLOSED",
+  },
+  {
+    id: "ASB6B-M-refusal-mischarge",
+    name: "refusal-mischarge",
+    file: path.join("workers", "scan-api", "src", "engines", "dns.js"),
+    before: "  accounting?.recordError?.(error);",
+    after: "  accounting?.recordAttempt?.();\n  accounting?.recordError?.(error);",
+    expected: "ASB6B_REDIRECT_AT_49_CHARGES_ONE_AND_FAILS_CLOSED",
+  },
 ];
 
 let failures = 0;
@@ -111,6 +129,7 @@ try {
 }
 
 for (const mutant of mutants) {
+  const mutantId = mutant.id || `ASB6B_MUTANT_${mutant.name.toUpperCase().replaceAll("-", "_")}`;
   let mutantSandbox = null;
   try {
     mutantSandbox = makeSandbox();
@@ -128,15 +147,15 @@ for (const mutant of mutants) {
       && !/SyntaxError|ERR_MODULE_NOT_FOUND|uncaught exception/i.test(output);
     if (namedFailure && cleanAssertionExit) {
       killed += 1;
-      console.log(`PASS ASB6B_MUTANT_${mutant.name.toUpperCase().replaceAll("-", "_")} — killed by ${mutant.expected}`);
+      console.log(`PASS ${mutantId} — killed by ${mutant.expected}`);
     } else {
       failures += 1;
-      console.log(`FAIL ASB6B_MUTANT_${mutant.name.toUpperCase().replaceAll("-", "_")} — status=${result.status}, signal=${result.signal}, expected=${mutant.expected}`);
+      console.log(`FAIL ${mutantId} — status=${result.status}, signal=${result.signal}, expected=${mutant.expected}`);
       console.log(output);
     }
   } catch (error) {
     failures += 1;
-    console.log(`FAIL ASB6B_MUTANT_${mutant.name.toUpperCase().replaceAll("-", "_")} — harness error: ${error?.stack || error}`);
+    console.log(`FAIL ${mutantId} — harness error: ${error?.stack || error}`);
   } finally {
     if (mutantSandbox) fs.rmSync(mutantSandbox.tempRoot, { recursive: true, force: true });
   }

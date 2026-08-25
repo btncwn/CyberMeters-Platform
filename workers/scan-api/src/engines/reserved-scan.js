@@ -120,13 +120,22 @@ export async function runCriticalPrefixDiscovery(
 ) {
   const items = [];
   let checked = 0;
+  let unavailableReason = null;
   for (const prefix of prefixes) {
     if (accounting?.budgetExhausted?.()) break;
     const host = `${prefix}.${domain}`;
-    const ans = await dnsResolveACached(host, cache, { accounting });
+    const ans = await dnsResolveACached(host, cache, {
+      accounting,
+      onUnavailable(observation) {
+        if (observation?.reason === "redirect_refused") {
+          unavailableReason = "redirect_refused";
+        }
+      },
+    });
     // dnsResolveACached deliberately converts provider failures to null. Budget
     // refusal is different: this prefix was never assessed, so stop and expose
     // the remaining work instead of reporting all prefixes checked.
+    if (unavailableReason) break;
     if (accounting?.budgetExhausted?.()) break;
     checked += 1;
     if (hasAnswer(ans)) items.push(host);
@@ -140,7 +149,7 @@ export async function runCriticalPrefixDiscovery(
     items,
     ...(deferred > 0 ? {
       incomplete: true,
-      incomplete_reason: "subrequest_budget_exhausted",
+      incomplete_reason: unavailableReason || "subrequest_budget_exhausted",
       deferred_count: deferred,
     } : {}),
   };

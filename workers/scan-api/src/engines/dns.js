@@ -26,6 +26,18 @@ function cacheDecorated(value, disposition) {
   return { ...value, cache_disposition: disposition };
 }
 
+function refuseProviderRedirect(response, accounting, provider) {
+  const status = Number(response?.status);
+  if (!Number.isInteger(status) || status < 300 || status > 399) return;
+  const error = new Error(`${provider} redirect_refused`);
+  error.code = "redirect_refused";
+  error.outcome = "redirect_refused";
+  error.provider = provider;
+  error.http_status = status;
+  accounting?.recordError?.(error);
+  throw error;
+}
+
 // Invocation-scoped question dedupe. The promise is inserted before it is
 // awaited, matching the shared CT-cache law: concurrent DNS/Email/DMARC
 // consumers share one physical provider attempt. Rejections are deliberately
@@ -60,6 +72,7 @@ async function fetchCloudflareDns(name, type, opts, dnssecProfile) {
       `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}${doDnssec ? "&do=1" : ""}`,
       {
         headers: { Accept: "application/dns-json" },
+        redirect: "manual",
         signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(6_000)),
       }
     );
@@ -69,6 +82,7 @@ async function fetchCloudflareDns(name, type, opts, dnssecProfile) {
     if (attemptInFlight) opts.accounting?.recordError?.(err);
     throw err;
   }
+  refuseProviderRedirect(res, opts.accounting, "cloudflare_doh");
   if (!res.ok) {
     throw new Error(
       `${doDnssec ? "DoH DNSSEC" : "DoH"} ${res.status} for ${type} ${name}`,
@@ -94,7 +108,18 @@ export async function dnsQuery(name, type, opts = {}) {
 export async function dnsResolveACached(name, cache = null, opts = {}) {
   try {
     return await dnsQuery(name, "A", { ...opts, cache });
-  } catch {
+  } catch (error) {
+    if (error?.code === "redirect_refused") {
+      try {
+        opts.onUnavailable?.({
+          reason: "redirect_refused",
+          provider: error.provider ?? null,
+          http_status: error.http_status ?? null,
+        });
+      } catch {
+        // Observation hooks cannot change this helper's non-throwing contract.
+      }
+    }
     return null;
   }
 }
@@ -118,7 +143,10 @@ export async function dnsQueryGoogle(name, type, opts = {}) {
     try {
       res = await fetch(
         `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
-        { signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(6_000)) }
+        {
+          redirect: "manual",
+          signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(6_000)),
+        }
       );
       opts.accounting?.recordCompleted?.();
       attemptInFlight = false;
@@ -126,6 +154,7 @@ export async function dnsQueryGoogle(name, type, opts = {}) {
       if (attemptInFlight) opts.accounting?.recordError?.(err);
       throw err;
     }
+    refuseProviderRedirect(res, opts.accounting, "google_doh");
     if (!res.ok) throw new Error(`Google DoH ${res.status} for ${type} ${name}`);
     return res.json();
   });
@@ -146,11 +175,13 @@ export async function dnsQueryQuad9(name, type, opts = {}) {
           `https://dns.quad9.net/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
           {
             headers: { Accept: "application/dns-json" },
+            redirect: "manual",
             signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(5_000)),
           }
         );
         opts.accounting?.recordCompleted?.();
         attemptInFlight = false;
+        refuseProviderRedirect(res, opts.accounting, "quad9_doh");
         if (!res.ok) return null;
         return res.json();
       } catch (err) {

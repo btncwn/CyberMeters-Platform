@@ -64,7 +64,9 @@ const EXPECTED = Object.freeze({
     // recorded evidence_completeness.scan_quality to present the withheld
     // assessment (phase5-evidence.js, projector). SQL sets unchanged in count;
     // position-derived digests move with the same edits.
-    fingerprint: "a77d15e07656e7549d1f3aa14292800008e861f3a665d66a87b9e920084f597b",
+    // AS-B6b SUCCESSION: counts remain 47/22. The reserved critical-prefix
+    // redirect-refusal branch shifts existing comparison sites only.
+    fingerprint: "e1e005963fe9b700d8781e9b10fe89fd8d326bcf05c1a465fb3b1d357167dd8e",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -118,7 +120,8 @@ const EXPECTED = Object.freeze({
     // the two-tree --dump-counts diff shows every other delta as a line shift.
     // D3 CORRECTIVE SUCCESSION: 90/34 unchanged; position shift only (same edits
     // as the runtime comparison succession above).
-    runtime: { occurrence_count: 91, source_file_count: 34, fingerprint: "a277e5b4903a0030e1110629efd9cd368ce2199b68d13e97965ef97096700ad4" },
+    // AS-B6b SUCCESSION: counts remain 91/34; reserved-scan line shifts only.
+    runtime: { occurrence_count: 91, source_file_count: 34, fingerprint: "e5cf3302f0afe8c70c798ec60df27b081f02c66b85c944592ad717cc111454e7" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

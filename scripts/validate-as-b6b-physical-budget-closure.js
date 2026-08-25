@@ -26,8 +26,10 @@ const {
   makeDnsCache,
 } = await engine("scan-budget.js");
 const { makeReservedProbeFetch } = await engine("reserved-probe.js");
+const { dnsQuery, dnsQueryGoogle, dnsQueryQuad9 } = await engine("dns.js");
+const { createCertificateTransparencyCache } = await engine("ct-provider-cache.js");
 const { probeAsset } = await engine("asset-intel.js");
-const { runReservedScan } = await engine("reserved-scan.js");
+const { runCriticalPrefixDiscovery, runReservedScan } = await engine("reserved-scan.js");
 const { runScanEngine } = await engine("scan-engine.js");
 
 let passed = 0;
@@ -75,6 +77,239 @@ function dnsQuestion(value) {
   } catch {
     return { name: "", type: "A" };
   }
+}
+
+// Cloudflare counts an automatically followed redirect as another physical
+// subrequest even though JavaScript called fetch() only once. This focused
+// single-hop stand-in reproduces that platform semantic: default/follow performs
+// the second request, while redirect:"manual" exposes the 302 to product code.
+function makeSingleHopRedirectFetcher(calls, finalResponse) {
+  const target = "https://redirect-target.example.test/final";
+  return async (value, init = {}) => {
+    const url = String(value);
+    calls.push({ url, redirect: init.redirect ?? "follow" });
+    if (url === target) return finalResponse();
+    const redirect = new Response("", { status: 302, headers: { location: target } });
+    if ((init.redirect ?? "follow") === "manual") return redirect;
+    calls.push({ url: target, redirect: "implicit-follow" });
+    return finalResponse();
+  };
+}
+
+function observingAccounting(counter, category) {
+  const base = counter.contextFor(category);
+  const errors = [];
+  return {
+    accounting: {
+      ...base,
+      recordError(error) {
+        errors.push(error);
+        base.recordError(error);
+      },
+    },
+    errors,
+  };
+}
+
+// RED-FIRST redirect law. The control proves this is not a passive mock that
+// would hide the platform's automatic follow. The four production provider
+// leaves must opt into manual redirect handling and fail closed on the 302.
+{
+  const controlCalls = [];
+  const controlFetch = makeSingleHopRedirectFetcher(
+    controlCalls,
+    () => dnsJson([{ data: PUBLIC_A }]),
+  );
+  const control = await controlFetch("https://provider.example.test/start");
+  ok(
+    "ASB6B_REDIRECT_HARNESS_DEFAULT_FOLLOWS",
+    control.status === 200
+      && controlCalls.length === 2
+      && controlCalls[1]?.redirect === "implicit-follow",
+    JSON.stringify(controlCalls),
+  );
+
+  const cloudflareCounter = new PhysicalSubrequestCounter({ limit: 50, safetyMargin: 0 });
+  const preexisting = cloudflareCounter.contextFor("preexisting");
+  for (let i = 0; i < 49; i += 1) preexisting.recordAttempt();
+  const cloudflareObservation = observingAccounting(cloudflareCounter, "dns-cloudflare");
+  const cloudflareCalls = [];
+  globalThis.fetch = makeSingleHopRedirectFetcher(
+    cloudflareCalls,
+    () => dnsJson([{ data: PUBLIC_A }]),
+  );
+  let cloudflareResult = null;
+  let cloudflareError = null;
+  try {
+    cloudflareResult = await dnsQuery("example.com", "A", {
+      accounting: cloudflareObservation.accounting,
+    });
+  } catch (error) {
+    cloudflareError = error;
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  ok(
+    "ASB6B_REDIRECT_AT_49_CHARGES_ONE_AND_FAILS_CLOSED",
+    cloudflareResult == null
+      && cloudflareCalls.length === 1
+      && cloudflareCalls[0]?.redirect === "manual"
+      && cloudflareCounter.issued === 50
+      && cloudflareCounter.denied === 0
+      && cloudflareError?.code === "redirect_refused"
+      && cloudflareObservation.errors.length === 1
+      && cloudflareObservation.errors[0]?.outcome === "redirect_refused",
+    `calls=${JSON.stringify(cloudflareCalls)}, issued=${cloudflareCounter.issued}, denied=${cloudflareCounter.denied}, error=${cloudflareError?.code ?? null}`,
+  );
+
+  const resolverCases = [
+    ["google", dnsQueryGoogle, "throws"],
+    ["quad9", dnsQueryQuad9, "null"],
+  ];
+  const resolverObservations = [];
+  for (const [provider, query, disposition] of resolverCases) {
+    const counter = new PhysicalSubrequestCounter({ limit: 50, safetyMargin: 0 });
+    const observation = observingAccounting(counter, `dns-${provider}`);
+    const calls = [];
+    globalThis.fetch = makeSingleHopRedirectFetcher(
+      calls,
+      () => dnsJson([{ data: PUBLIC_A }]),
+    );
+    let result = null;
+    let error = null;
+    try {
+      result = await query("example.com", "A", { accounting: observation.accounting });
+    } catch (caught) {
+      error = caught;
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    resolverObservations.push({ provider, disposition, counter, calls, result, error, observation });
+  }
+  ok(
+    "ASB6B_DNS_REDIRECTS_REFUSED_ALL_RESOLVERS",
+    resolverObservations.every(({ disposition, counter, calls, result, error, observation }) =>
+      calls.length === 1
+      && calls[0]?.redirect === "manual"
+      && counter.issued === 1
+      && counter.denied === 0
+      && observation.errors.length === 1
+      && observation.errors[0]?.outcome === "redirect_refused"
+      && (disposition === "throws" ? error?.code === "redirect_refused" : result == null)),
+    JSON.stringify(resolverObservations.map(({ provider, counter, calls, result, error, observation }) => ({
+      provider,
+      issued: counter.issued,
+      denied: counter.denied,
+      calls,
+      result,
+      error: error?.code ?? null,
+      observed: observation.errors.map((item) => item?.outcome ?? null),
+    }))),
+  );
+
+  const criticalCounter = new PhysicalSubrequestCounter({ limit: 50, safetyMargin: 0 });
+  const criticalCalls = [];
+  globalThis.fetch = makeSingleHopRedirectFetcher(
+    criticalCalls,
+    () => dnsJson([{ data: PUBLIC_A }]),
+  );
+  let criticalResult;
+  try {
+    criticalResult = await runCriticalPrefixDiscovery(
+      "example.com",
+      makeDnsCache(),
+      ["admin"],
+      { accounting: criticalCounter.contextFor("critical-prefix-redirect") },
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  ok(
+    "ASB6B_CRITICAL_PREFIX_REDIRECT_NOT_CHECKED_CLEAN",
+    criticalCalls.length === 1
+      && criticalResult?.checked === 0
+      && criticalResult?.requested === 1
+      && criticalResult?.found === 0
+      && criticalResult?.incomplete === true
+      && criticalResult?.incomplete_reason === "redirect_refused"
+      && criticalResult?.deferred_count === 1,
+    JSON.stringify({ calls: criticalCalls, result: criticalResult }),
+  );
+
+  let ordinaryFailureCalls = 0;
+  globalThis.fetch = async () => {
+    ordinaryFailureCalls += 1;
+    throw new TypeError("provider offline");
+  };
+  let ordinaryFailureResult;
+  try {
+    ordinaryFailureResult = await runCriticalPrefixDiscovery(
+      "example.com",
+      makeDnsCache(),
+      ["admin"],
+      { accounting: new PhysicalSubrequestCounter({ limit: 50, safetyMargin: 0 }).contextFor("critical-prefix-offline") },
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  ok(
+    "ASB6B_CRITICAL_PREFIX_ORDINARY_FAILURE_SEMANTICS_UNCHANGED",
+    ordinaryFailureCalls === 1
+      && ordinaryFailureResult?.checked === 1
+      && ordinaryFailureResult?.requested === 1
+      && ordinaryFailureResult?.found === 0
+      && ordinaryFailureResult?.incomplete !== true,
+    JSON.stringify({ calls: ordinaryFailureCalls, result: ordinaryFailureResult }),
+  );
+
+  const ctCounter = new PhysicalSubrequestCounter({ limit: 50, safetyMargin: 0 });
+  const ctObservation = observingAccounting(ctCounter, "ct-crt-sh");
+  const ctCalls = [];
+  const ctCache = createCertificateTransparencyCache({
+    accounting: ctObservation.accounting,
+    fetcher: makeSingleHopRedirectFetcher(
+      ctCalls,
+      () => new Response("[]", { status: 200, headers: { "content-type": "application/json" } }),
+    ),
+    policies: {
+      crt_sh: { timeoutMs: 1_000, maxAttempts: 2, backoffMs: 0 },
+      certspotter: { timeoutMs: 1_000, maxAttempts: 2, backoffMs: 0 },
+    },
+    timeoutSignal: () => undefined,
+    sleep: async () => {},
+  });
+  const ctResult = await ctCache.get("example.com", "crt_sh", {
+    accounting: ctObservation.accounting,
+    module: "subdomains",
+  });
+  const ctRows = ctCache.telemetrySnapshot({
+    modules: {
+      subdomains: {
+        incomplete: true,
+        incomplete_reason: "ct_sources_unavailable",
+        sources: { crt_sh: { error: "redirect_refused" } },
+      },
+    },
+    scanQuality: { status: "partial" },
+  });
+  const ctHealth = ctCache.healthSnapshot().crt_sh;
+  ok(
+    "ASB6B_CT_REDIRECT_REFUSED_UNAVAILABLE",
+    ctCalls.length === 1
+      && ctCalls[0]?.redirect === "manual"
+      && ctCounter.issued === 1
+      && ctCounter.denied === 0
+      && ctResult?.status === "unavailable"
+      && ctResult?.error === "redirect_refused"
+      && ctResult?.physical_attempt_state === "terminal_failure"
+      && ctHealth?.outcome === "unavailable"
+      && ctHealth?.attempts === 1
+      && ctHealth?.final_error === "redirect_refused"
+      && ctRows.length === 1
+      && ctRows[0]?.redirect_disposition === "redirect_refused"
+      && !/timeout|budget/i.test(JSON.stringify({ result: ctResult, health: ctHealth, rows: ctRows })),
+    JSON.stringify({ calls: ctCalls, issued: ctCounter.issued, denied: ctCounter.denied, result: ctResult, health: ctHealth, rows: ctRows }),
+  );
 }
 
 // 1) The hard boundary is inclusive: physical attempts 1..50 issue; candidate 51
