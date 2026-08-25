@@ -42,8 +42,12 @@ or destructive-data acceptance.
   already-live implementation weights (KEV `-30`, critical CVE `-25`, high CVE `-15`), while
   the canonical Stage-1 policy requires canonical-serviceability-gated KEV only at `-5` per
   technology capped at `-10`; version-blind non-KEV CVE remains informational until AS-B5.
-  This release neither repairs nor silently redefines that mismatch. AS-B2 acceptance, the
-  4/4 operational-shame closure, JOIN, audit recovery, customer readiness and methodology
+  A second residual also remains: KEV/CVE score-impact notes stay inside
+  `modules.risk_intelligence`, while canonical snapshot findings derive from `report.findings`
+  and Executive/PDF consume `snapshot.observed_findings`; numeric score/methodology can therefore
+  change while PDF/history omit the attributed KEV cause and applied impact. This release neither
+  repairs nor silently redefines either mismatch. AS-B2 acceptance, API/UI/PDF/history parity,
+  the 4/4 operational-shame closure, JOIN, audit recovery, customer readiness and methodology
   acceptance remain **HOLD** and receive zero credit from this deployment.
 - **Validation:** exact-main run `32909462177` passed `validate` and SAST; the corresponding
   Pages status passed. The frozen real-D1 F-009 gate is SHA-256
