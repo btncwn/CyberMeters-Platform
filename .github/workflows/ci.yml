@@ -207,6 +207,12 @@ jobs:
       - name: Validate reserved prober SSRF (per-hop revalidation + rebinding + redirect matrix)
         run: node scripts/validate-reserved-probe-ssrf.js
 
+      - name: Validate AS-B6b physical-budget closure (atomic charge-or-deny + faithful engine wiring)
+        run: node scripts/validate-as-b6b-physical-budget-closure.js
+
+      - name: Validate AS-B6b physical-budget closure mutations (counter + boundary + fallback)
+        run: node scripts/validate-as-b6b-physical-budget-closure-mutations.js
+
       - name: Validate C1 default-prober redirect SSRF (bounded manual redirects + per-hop guard + fail-closed)
         run: node scripts/validate-c1-redirect-ssrf.js
 

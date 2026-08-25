@@ -63,7 +63,7 @@ import { recordPostureEvents } from "./posture-events.js";
 import { recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, isPublishableModuleEvidence, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
+import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, isPublishableModuleEvidence, isSubrequestBudgetExhaustedError, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
@@ -468,6 +468,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   // survive, and in-flight sub-operations read honestly as `aborted` at snapshot.
   const subOpTelemetry = createSubOperationTelemetry(now);
   const outboundAccounting = createOutboundAccounting();
+  // Assigned only by the dormant/reserved branch. Later enrichment phases still
+  // run in this function, so their telemetry contexts compose with the SAME hard
+  // physical counter instead of starting an unmetered second budget episode.
+  let reservedPhysicalCounter = null;
   const dnsCache = makeDnsCache();
   const ctCache = createCertificateTransparencyCache({
     signal: deadline.signal,
@@ -545,6 +549,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   };
   const outboundContext = (module, signal = null) => {
     const ctx = outboundAccounting.contextFor(module);
+    const physical = reservedPhysicalCounter?.contextFor?.(module, { signal }) || null;
+    const recordTelemetryAttempt = ctx.recordAttempt;
     ctx.signal = signal || null;
     ctx.assertCanIssue = () => {
       if (deadline.exceeded()) {
@@ -552,8 +558,40 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         throw new DOMException("Scan deadline exhausted", "AbortError");
       }
       if (ctx.signal?.aborted) throw new DOMException("Module budget exhausted", "AbortError");
+      physical?.assertCanIssue?.();
     };
+    // Physical charge first. If candidate limit+1 is denied, no telemetry row may
+    // claim an issued attempt and, more importantly, fetch() is never reached.
+    ctx.recordAttempt = () => {
+      physical?.recordAttempt?.();
+      recordTelemetryAttempt();
+    };
+    ctx.physicalBudgetExhausted = () => physical?.budgetExhausted?.() === true;
+    ctx.physicalAttemptsIssued = () => physical?.issuedDuringContext?.() || 0;
     return ctx;
+  };
+  const markPhysicalBudgetIncomplete = (module, value, ctx) => {
+    const issued = ctx?.physicalAttemptsIssued?.() || 0;
+    ctx?.markIncomplete?.("subrequest_budget_exhausted");
+    if (issued === 0) {
+      return skippedModuleResult(module, {
+        ...(value && typeof value === "object" ? value : {}),
+        executed: false,
+        incomplete: true,
+        outcome: "not_run",
+        reason: "subrequest_budget_exhausted",
+        incomplete_reason: "subrequest_budget_exhausted",
+        physical_attempts_issued: 0,
+      });
+    }
+    return {
+      ...(value && typeof value === "object" ? value : {}),
+      incomplete: true,
+      outcome: "subrequest_budget_exhausted",
+      reason: "subrequest_budget_exhausted",
+      incomplete_reason: "subrequest_budget_exhausted",
+      physical_attempts_issued: issued,
+    };
   };
   const moduleCapFor = (module) => SCAN_MODULE_BUDGETS[module] ?? deadline.remainingMs();
   const runCappedModule = async (module, {
@@ -594,7 +632,15 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         { hardMs, onStart: (capMs) => { allocatedMs = capMs; } },
       );
     } catch (err) {
-      thrown = err;
+      if (ctx?.physicalBudgetExhausted?.() || isSubrequestBudgetExhaustedError(err)) {
+        value = markPhysicalBudgetIncomplete(module, fallback(), ctx);
+      } else {
+        thrown = err;
+      }
+    }
+    if (!thrown && ctx?.physicalBudgetExhausted?.()
+        && value?.incomplete_reason !== "subrequest_budget_exhausted") {
+      value = markPhysicalBudgetIncomplete(module, value, ctx);
     }
     releaseConsumer(thrown ? "consumer_error" : "consumer_completed");
     const timedOut = value?.outcome === "deadline_exceeded";
@@ -694,6 +740,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       bruteforceResult = m.dns_bruteforce; takeoverResult = m.subdomain_takeover;
       assetExposureResult = m.asset_exposure; criticalPrefixResult = m.critical_prefix_discovery;
       reservedBudget = reserved.budget;
+      reservedPhysicalCounter = reserved.physicalCounter;
     } else {
       // ── Queue-era default path: 9 core modules in parallel under measured
       // per-module caps, then takeover and asset exposure over the merged
@@ -948,6 +995,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // so brand findings are included in the scored findings array.
       brand_monitoring:          runTyposquatModule(domain),
     };
+    // Admin detection is a pure consumer of the exposure evidence and must be
+    // present before scoring and the explicit admin-finding projection below.
+    // The previous late assignment made that live consumer path unreachable.
+    modules.admin_surface_detection = runAdminSurfaceModule(modules);
     ctTelemetryModules = modules;
     // Heartbeat: discovery + exposure done. An orphan cancelled after this point
     // died in scoring/enrichment/finalization, not discovery.
@@ -1123,6 +1174,15 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       modules.email_security_intelligence = emailIntelSettled.status === "fulfilled"
         ? emailIntelSettled.value
         : { error: customerSafeFailure("scan/email-intelligence", emailIntelSettled.reason, "Email intelligence module failed") };
+    }
+    if (cveOutbound?.physicalBudgetExhausted?.()) {
+      modules.cve_intelligence = markPhysicalBudgetIncomplete("cve_intelligence", modules.cve_intelligence, cveOutbound);
+    }
+    if (kevOutbound?.physicalBudgetExhausted?.()) {
+      modules.known_exploited_vulnerabilities = markPhysicalBudgetIncomplete("known_exploited_vulnerabilities", modules.known_exploited_vulnerabilities, kevOutbound);
+    }
+    if (emailIntelOutbound?.physicalBudgetExhausted?.()) {
+      modules.email_security_intelligence = markPhysicalBudgetIncomplete("email_security_intelligence", modules.email_security_intelligence, emailIntelOutbound);
     }
     const phase5WallMs = now() - phase5StartedMs;
     const phase5Raced = settled === PHASE5_DEADLINE;
@@ -1549,7 +1609,6 @@ function buildCanonicalUrlProfile(modules) {
 
     // Phase 7b: Admin surface detection — pure fingerprint pass over HTTP probe
     // results already collected by runExposureModule.  Zero additional I/O.
-    modules.admin_surface_detection = runAdminSurfaceModule(modules);
     modules.attack_surface_signal_completeness =
       deriveAttackSurfaceSignalCompleteness(modules);
 
@@ -1579,6 +1638,9 @@ function buildCanonicalUrlProfile(modules) {
     // Estimates subrequest usage across all modules and warns if close to the
     // Cloudflare Worker free-plan 50-subrequest limit.
     modules.scan_budget = computeScanBudget(bruteforceResult.checked);
+    if (reservedPhysicalCounter) {
+      modules.scan_budget.physical = reservedPhysicalCounter.snapshot();
+    }
     // The scan's PERSISTED observation anchor. `scans.created_at` is written once by
     // the DB default at row creation and never recomputed, so it survives a
     // persistence-failure retry BY CONSTRUCTION rather than by luck — unlike the

@@ -17,12 +17,13 @@ import { annotateExposureInfrastructure, deduplicateExposureAssets, runExposureM
 import { dnsResolveACached } from "./dns.js";
 import { runDnsModule } from "./dns-scan.js";
 import { runEmailModule } from "./email-scan.js";
-import { runDmarcbisCore } from "./dmarcbis-production.js";
+import { runDmarcbisCore, unavailableDmarcbisCore } from "./dmarcbis-production.js";
 import { runHeadersModule } from "./headers-scan.js";
 import { makeReservedProbeFetch } from "./reserved-probe.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
 import {
-  CRITICAL_PREFIXES_MANDATORY, MODULE_SUBREQUEST_COST, SubrequestBudget,
+  CRITICAL_PREFIXES_MANDATORY, MODULE_SUBREQUEST_COST, PhysicalSubrequestCounter,
+  SubrequestBudget, isSubrequestBudgetExhaustedError,
   computeExposureCap, deferredCapacityAsset, makeDnsCache, skippedModuleResult,
 } from "./scan-budget.js";
 import { runSslModule } from "./ssl-scan.js";
@@ -111,14 +112,47 @@ export async function runReservedCtConsumer(domain, module, {
 }
 
 // ── Discovery + priority helpers (also unit-tested directly) ──────────────────
-export async function runCriticalPrefixDiscovery(domain, cache, prefixes = CRITICAL_PREFIXES_MANDATORY) {
+export async function runCriticalPrefixDiscovery(
+  domain,
+  cache,
+  prefixes = CRITICAL_PREFIXES_MANDATORY,
+  { accounting = null } = {},
+) {
   const items = [];
+  let checked = 0;
+  let unavailableReason = null;
   for (const prefix of prefixes) {
+    if (accounting?.budgetExhausted?.()) break;
     const host = `${prefix}.${domain}`;
-    const ans = await dnsResolveACached(host, cache);
+    const ans = await dnsResolveACached(host, cache, {
+      accounting,
+      onUnavailable(observation) {
+        if (observation?.reason === "redirect_refused") {
+          unavailableReason = "redirect_refused";
+        }
+      },
+    });
+    // dnsResolveACached deliberately converts provider failures to null. Budget
+    // refusal is different: this prefix was never assessed, so stop and expose
+    // the remaining work instead of reporting all prefixes checked.
+    if (unavailableReason) break;
+    if (accounting?.budgetExhausted?.()) break;
+    checked += 1;
     if (hasAnswer(ans)) items.push(host);
   }
-  return { source: "critical_prefix_dns", checked: prefixes.length, found: items.length, items };
+  const deferred = Math.max(0, prefixes.length - checked);
+  return {
+    source: "critical_prefix_dns",
+    checked,
+    requested: prefixes.length,
+    found: items.length,
+    items,
+    ...(deferred > 0 ? {
+      incomplete: true,
+      incomplete_reason: unavailableReason || "subrequest_budget_exhausted",
+      deferred_count: deferred,
+    } : {}),
+  };
 }
 
 export function prioritiseExposureHosts(domain, { knownHosts = [], criticalHits = [], ctHosts = [], bruteHosts = [] } = {}) {
@@ -130,8 +164,11 @@ export function prioritiseExposureHosts(domain, { knownHosts = [], criticalHits 
   };
   add(domain, "root");
   add(`www.${domain}`, "www");
-  for (const h of knownHosts) add(h, "known_asset");
   for (const h of criticalHits) add(h, "critical_prefix");
+  // Critical-prefix hits are the customer-critical AS-B6 signal. Known-asset
+  // rechecks remain ahead of passive/expansive CT and brute-force candidates but
+  // cannot consume the critical-prefix envelope before a new hit is probed.
+  for (const h of knownHosts) add(h, "known_asset");
   for (const h of ctHosts) add(h, "ct");
   for (const h of bruteHosts) add(h, "brute");
   return ordered;
@@ -189,14 +226,51 @@ export async function runReservedExposureModule(domain, orderedHosts, {
   };
 }
 
+function physicalBudgetIncomplete(name, value, fallback, accounting) {
+  const issued = accounting?.issuedDuringContext?.() || 0;
+  if (issued === 0) {
+    return skippedModuleResult(name, {
+      ...fallback,
+      executed: false,
+      incomplete: true,
+      outcome: "not_run",
+      reason: "subrequest_budget_exhausted",
+      incomplete_reason: "subrequest_budget_exhausted",
+      physical_attempts_issued: 0,
+    });
+  }
+  return {
+    ...fallback,
+    ...(value && typeof value === "object" ? value : {}),
+    incomplete: true,
+    outcome: "subrequest_budget_exhausted",
+    reason: "subrequest_budget_exhausted",
+    incomplete_reason: "subrequest_budget_exhausted",
+    physical_attempts_issued: issued,
+  };
+}
+
 // Gate a post-exposure module: run it only if its estimated cost fits the remaining
-// budget; otherwise SKIP it before any fetch and report honestly.
-async function gateModule(budget, name, run, skipExtra = {}) {
+// admission budget; the independent physical counter still guards every leaf in
+// case redirects, fallbacks or response-driven fan-out exceed that estimate.
+async function gateModule(budget, physicalCounter, name, run, skipExtra = {}, signal = null) {
   const cost = MODULE_SUBREQUEST_COST[name] ?? 8;
-  if (budget.wouldExceed(cost)) return skippedModuleResult(name, skipExtra);
+  if (budget.wouldExceed(cost) || physicalCounter.wouldExceed(cost)) {
+    return skippedModuleResult(name, skipExtra);
+  }
   budget.spend(name, cost);
-  try { return await run(); }
-  catch (err) { return { error: customerSafeFailure(`scan/${name}`, err, `${name} module failed`) }; }
+  const accounting = physicalCounter.contextFor(name, { signal });
+  try {
+    const value = await run(accounting);
+    return accounting.budgetExhausted()
+      ? physicalBudgetIncomplete(name, value, skipExtra, accounting)
+      : value;
+  } catch (err) {
+    if (accounting.budgetExhausted() || isSubrequestBudgetExhaustedError(err)) {
+      return physicalBudgetIncomplete(name, null, skipExtra, accounting);
+    }
+    return { ...skipExtra, incomplete: true, error: customerSafeFailure(`scan/${name}`, err, `${name} module failed`) };
+  }
 }
 
 // ── Full reserved scan: produces the complete network-module set (real or skipped) ──
@@ -212,6 +286,10 @@ export async function runReservedScan(domain, {
   now = Date.now,
 } = {}) {
   const budget = new SubrequestBudget({ limit: capacity.limit, safetyMargin: capacity.safetyMargin });
+  const physicalCounter = new PhysicalSubrequestCounter({
+    limit: capacity.limit,
+    safetyMargin: capacity.safetyMargin,
+  });
   const dnsCache = suppliedDnsCache || makeDnsCache();
   const sharedCtCache = ctCache || createCertificateTransparencyCache({
     signal,
@@ -223,24 +301,76 @@ export async function runReservedScan(domain, {
   };
 
   // Stage 1: minimal root/www discovery (A only) — enough to know the domain resolves
-  // and to seed the exposure list + the shared cache. ~2 calls.
-  const rootA = await dnsResolveACached(domain, dnsCache);           budget.spend("discovery");
-  await dnsResolveACached(`www.${domain}`, dnsCache);                budget.spend("discovery");
-  const resolves = hasAnswer(rootA);
+  // and to seed the exposure list + the shared cache. Exactly two admitted questions.
+  const discoveryAccounting = physicalCounter.contextFor("discovery", { signal });
+  let rootA = null;
+  let wwwA = null;
+  if (!budget.wouldExceed(2) && !physicalCounter.wouldExceed(2)) {
+    budget.spend("discovery", 2);
+    rootA = await dnsResolveACached(domain, dnsCache, { accounting: discoveryAccounting });
+    if (!discoveryAccounting.budgetExhausted()) {
+      wwwA = await dnsResolveACached(`www.${domain}`, dnsCache, { accounting: discoveryAccounting });
+    }
+  }
+  const discoveryIncomplete = discoveryAccounting.budgetExhausted()
+    || rootA == null
+    || wwwA == null;
+  const resolves = discoveryIncomplete ? null : hasAnswer(rootA);
 
   // Stage 2: reserve and execute the guaranteed DMARC core BEFORE exposure.
   // Reservation is the conservative logical maximum; cache hits reduce physical
   // provider attempts but never increase exposure capacity optimistically.
-  budget.spend("dmarc_core", MODULE_SUBREQUEST_COST.dmarc_core);
-  const dmarcCore = await runDmarcbisCore(domain, {
-    cache: dnsCache,
-    signal,
-    now,
-  });
+  const dmarcAccounting = physicalCounter.contextFor("dmarc_core", { signal });
+  let dmarcCore;
+  if (budget.wouldExceed(MODULE_SUBREQUEST_COST.dmarc_core)
+      || physicalCounter.wouldExceed(MODULE_SUBREQUEST_COST.dmarc_core)) {
+    dmarcCore = {
+      ...unavailableDmarcbisCore(domain, "subrequest_budget"),
+      skipped: true,
+      skip_reason: "subrequest_budget",
+    };
+  } else {
+    budget.spend("dmarc_core", MODULE_SUBREQUEST_COST.dmarc_core);
+    dmarcCore = await runDmarcbisCore(domain, {
+      accounting: dmarcAccounting,
+      cache: dnsCache,
+      signal,
+      now,
+    });
+    if (dmarcAccounting.budgetExhausted()) {
+      dmarcCore = physicalBudgetIncomplete(
+        "dmarc_core",
+        dmarcCore,
+        unavailableDmarcbisCore(domain, "subrequest_budget"),
+        dmarcAccounting,
+      );
+    }
+  }
 
   // Stage 3: critical-prefix discovery (deterministic, CT-independent). 8 A lookups.
-  const criticalPrefixResult = await runCriticalPrefixDiscovery(domain, dnsCache);
-  budget.spend("critical_prefix", criticalPrefixResult.checked);
+  let criticalPrefixResult;
+  const criticalCost = CRITICAL_PREFIXES_MANDATORY.length;
+  if (budget.wouldExceed(criticalCost) || physicalCounter.wouldExceed(criticalCost)) {
+    criticalPrefixResult = {
+      source: "critical_prefix_dns",
+      checked: 0,
+      requested: criticalCost,
+      found: 0,
+      items: [],
+      incomplete: true,
+      incomplete_reason: "subrequest_budget_exhausted",
+      deferred_count: criticalCost,
+    };
+  } else {
+    budget.spend("critical_prefix", criticalCost);
+    const criticalAccounting = physicalCounter.contextFor("critical_prefix", { signal });
+    criticalPrefixResult = await runCriticalPrefixDiscovery(
+      domain,
+      dnsCache,
+      CRITICAL_PREFIXES_MANDATORY,
+      { accounting: criticalAccounting },
+    );
+  }
 
   // Stage 4: prioritise (root → www → critical). CT is NOT here — it is post-exposure.
   const ordered = prioritiseExposureHosts(domain, {
@@ -251,33 +381,40 @@ export async function runReservedScan(domain, {
   // Stage 5: RESERVED EXPOSURE, live-metered (each real prober fetch decrements budget).
   const consumedBeforeExposure = budget.consumed;
   const cap = computeExposureCap({ limit: capacity.limit, safetyMargin: capacity.safetyMargin, consumed: consumedBeforeExposure, perHostCost: capacity.perHostCost });
-  const fetcher = makeReservedProbeFetch({ cache: dnsCache, maxHops: capacity.maxProbeRedirectHops, onOutbound: () => budget.spend("exposure") });
+  const exposureAccounting = physicalCounter.contextFor("asset_exposure", { signal });
+  // One shared accounting context reaches BOTH physical DNS cache misses and GET
+  // hops. Do not also provide onOutbound: that would double-charge the same leaf.
+  const fetcher = makeReservedProbeFetch({
+    cache: dnsCache,
+    maxHops: capacity.maxProbeRedirectHops,
+    accounting: exposureAccounting,
+  });
   let assetExposureResult = await runReservedExposureModule(domain, ordered, {
     cap,
     fetcher,
     cache: dnsCache,
     signal,
-    dnsAccounting: {
-      signal,
-      assertCanIssue: () => {
-        if (budget.wouldExceed(1)) {
-          throw new Error("Projected subrequest budget exhausted");
-        }
-      },
-      recordAttempt: () => budget.spend("exposure"),
-      recordCompleted: () => {},
-      recordError: () => {},
-    },
+    dnsAccounting: exposureAccounting,
   });
+  const physicalExposureAttempts = exposureAccounting.issuedDuringContext();
+  budget.spend("exposure", physicalExposureAttempts);
+  if (exposureAccounting.budgetExhausted()) {
+    assetExposureResult = physicalBudgetIncomplete(
+      "asset_exposure",
+      assetExposureResult,
+      { checked: ordered.length, reachable: 0, assets: [], removal_observations: [], source: "http_probe" },
+      exposureAccounting,
+    );
+  }
 
   // Stage 6: remaining modules, budget-gated (customer-critical exposure already done).
-  const dns                  = await gateModule(budget, "dns", () => runDnsModule(domain, { cache: dnsCache }), { resolves });
-  const ssl                  = await gateModule(budget, "ssl", () => runReservedCtConsumer(domain, "ssl", {
+  const dns                  = await gateModule(budget, physicalCounter, "dns", (accounting) => runDnsModule(domain, { accounting, cache: dnsCache }), { resolves }, signal);
+  const ssl                  = await gateModule(budget, physicalCounter, "ssl", (accounting) => runReservedCtConsumer(domain, "ssl", {
     ctCache: sharedCtCache,
     signal,
     globalDeadlineProvenance,
     budgetMs: reservedCtBudgets.ssl,
-    run: (consumerSignal) => runSslModule(domain, { ctCache: sharedCtCache, signal: consumerSignal }),
+    run: (consumerSignal) => runSslModule(domain, { accounting, ctCache: sharedCtCache, signal: consumerSignal }),
     fallback: (cause) => ({
       incomplete: true,
       incomplete_reason: cause,
@@ -288,19 +425,21 @@ export async function runReservedScan(domain, {
       },
       source: "tls_probe",
     }),
-  }));
-  const headers              = await gateModule(budget, "headers", () => runHeadersModule(domain));
-  const email_security       = await gateModule(budget, "email_security", () => runEmailModule(domain, {
+  }), {}, signal);
+  const headers              = await gateModule(budget, physicalCounter, "headers", (accounting) => runHeadersModule(domain, { accounting, signal }), {}, signal);
+  const email_security       = await gateModule(budget, physicalCounter, "email_security", (accounting) => runEmailModule(domain, {
+    accounting,
     cache: dnsCache,
     dmarcOwnedByCore: true,
-  }));
-  const subdomains           = await gateModule(budget, "subdomains", () => runReservedCtConsumer(domain, "subdomains", {
+  }), {}, signal);
+  const subdomains           = await gateModule(budget, physicalCounter, "subdomains", (accounting) => runReservedCtConsumer(domain, "subdomains", {
     ctCache: sharedCtCache,
     ctOverlap,
     signal,
     globalDeadlineProvenance,
     budgetMs: reservedCtBudgets.subdomains,
     run: (consumerSignal) => runSubdomainsModule(domain, {
+      accounting,
       cache: dnsCache,
       ctCache: sharedCtCache,
       ctOverlap,
@@ -322,9 +461,9 @@ export async function runReservedScan(domain, {
       incomplete_reason: cause,
       error: null,
     }),
-  }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] });
-  const technology_detection = await gateModule(budget, "technology_detection", () => runTechModule(domain));
-  const whois_intelligence   = await gateModule(budget, "whois_intelligence", () => runWhoisModule(domain));
+  }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] }, signal);
+  const technology_detection = await gateModule(budget, physicalCounter, "technology_detection", (accounting) => runTechModule(domain, { accounting, signal }), {}, signal);
+  const whois_intelligence   = await gateModule(budget, physicalCounter, "whois_intelligence", (accounting) => runWhoisModule(domain, { accounting, signal }), {}, signal);
 
   // Takeover + brute-force use the discovered host list.
   const ctItems = Array.isArray(subdomains?.items) ? subdomains.items : [];
@@ -333,17 +472,18 @@ export async function runReservedScan(domain, {
     ...ctItems,
     ...criticalPrefixResult.items.filter((h) => !ctSet.has(String(h).toLowerCase())),
   ];
-  const subdomain_takeover = await gateModule(budget, "subdomain_takeover", () => runTakeoverModule(domain, mergedSubdomainItems, { cache: dnsCache }), { checked: 0, potential_risks: 0, risks: [] });
-  const dns_bruteforce = await gateModule(budget, "dns_bruteforce", async () => {
-    const raw = await runBruteforceModule(domain, { cache: dnsCache });
+  const subdomain_takeover = await gateModule(budget, physicalCounter, "subdomain_takeover", (accounting) => runTakeoverModule(domain, mergedSubdomainItems, { accounting, cache: dnsCache, signal }), { checked: 0, potential_risks: 0, risks: [] }, signal);
+  const dns_bruteforce = await gateModule(budget, physicalCounter, "dns_bruteforce", async (accounting) => {
+    const raw = await runBruteforceModule(domain, { accounting, cache: dnsCache, signal });
     return filterWildcardBruteforceResults(raw, subdomains?.wildcard_dns_addresses || []);
-  }, { checked: 0, found: 0, items: [] });
+  }, { checked: 0, found: 0, items: [] }, signal);
 
   // Annotate + dedupe exposure now that takeover cname_observations are available.
   assetExposureResult = annotateExposureInfrastructure(assetExposureResult, subdomain_takeover?.cname_observations);
   assetExposureResult = deduplicateExposureAssets(assetExposureResult, domain);
   assetExposureResult.projected_consumed = consumedBeforeExposure;
   assetExposureResult.exposure_budget = Math.max(0, budget.usable() - consumedBeforeExposure);
+  assetExposureResult.physical_attempts = physicalExposureAttempts;
 
   return {
     resolves,
@@ -356,6 +496,8 @@ export async function runReservedScan(domain, {
     },
     mergedSubdomainItems,
     budget,
+    physicalCounter,
+    physicalBudget: physicalCounter.snapshot(),
     dnsCache,
   };
 }

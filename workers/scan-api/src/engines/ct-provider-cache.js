@@ -230,6 +230,7 @@ async function fetchAttempt(config, provider, domain, {
     attempted = true;
     response = await fetcher(config.url(domain), {
       headers: { Accept: "application/json", "User-Agent": "CyberMeters/1.0" },
+      redirect: "manual",
       signal: combineSignals(signal, accounting?.signal, timeoutSignal(timeoutMs)),
     });
     accounting?.recordCompleted?.();
@@ -269,6 +270,30 @@ async function fetchAttempt(config, provider, domain, {
           "terminal_failure",
         ),
       transient: attempted && !stoppedByPlatform && !externallyAborted(signal, accounting),
+    };
+  }
+
+  const responseStatus = Number(response?.status);
+  if (Number.isInteger(responseStatus) && responseStatus >= 300 && responseStatus <= 399) {
+    const completedMs = readTelemetryClock(telemetryNow);
+    safeAttemptObservation(recordAttempt, {
+      provider,
+      outcome: "http_error",
+      redirect_disposition: "redirect_refused",
+      http_status: responseStatus,
+      latency_ms: Math.max(0, completedMs - startedMs),
+      result_count: null,
+      started_at: new Date(startedMs).toISOString(),
+      completed_at: new Date(completedMs).toISOString(),
+      cache_state: "miss",
+      cache_age_s: null,
+    });
+    return {
+      result: withPhysicalAttemptState(
+        unavailable(provider, domain, "redirect_refused"),
+        "terminal_failure",
+      ),
+      transient: false,
     };
   }
 
