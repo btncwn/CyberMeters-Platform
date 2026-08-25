@@ -53,7 +53,11 @@ const EXPECTED = Object.freeze({
     // single-owner refactor (score/clamp/band moved into scoring.applyKevCveDeduction;
     // phase5-evidence.js reduced to orchestration) reindexed comparison sites once more,
     // so only the fingerprint moves. No comparison was added, removed or reclassified.
-    fingerprint: "2ca0a13ecac16a18a5e144943e36daad95f6e589a402ea4968a15cfa9c9b4fc1",
+    // D3 CORRECTIVE SUCCESSION: counts UNCHANGED (47 across 22 files); only the
+    // fingerprint moves — the successor correctives edited phase5-evidence.js,
+    // report-snapshot.js and dmarc-state.js inside the recorded span, and this
+    // inventory records sites by file:line. No comparison added or removed.
+    fingerprint: "3cc6cf177a399f9bfd967af836b5f7af16d89b29d6cd4ea92d7c941b5f0ae678",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -72,14 +76,20 @@ const EXPECTED = Object.freeze({
     // P1.1 serviceability validators introduce governed comparisons in their own
     // files. The RUNTIME sets are unchanged (48/22 and 92/34), which is the check
     // that matters — the product gained no new scan-quality comparison.
-    comparison_occurrences: 67,
-    source_file_count: 26,
+    // D3 SUCCESSION: 67 -> 68 across 26 -> 27 files. Purely ADDITIVE: the D3
+    // lane validator gained its first governed scan-quality comparison — the
+    // named boundary assertion that a proven-complete row with an empty score
+    // cell keeps scan_quality "complete" (the TRIAGE-M17 kill site). The
+    // runtime sets are unchanged (47/22 and 90/34), which is the check that
+    // matters — the product gained no new scan-quality comparison.
+    comparison_occurrences: 68,
+    source_file_count: 27,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
     // the successor validator. Nothing was added to or removed from the runtime set.
     // SUCCESSOR-3: 63 -> 65 across 23 -> 25 files. Additive only: PR #414/#416 added
     // governed comparisons in their own validators. Nothing was removed.
-    fingerprint: "d01804a1b66dd87da5618a544e0e49bc9680cd73dbdb96964d9d29702a49c62c",
+    fingerprint: "a3a1ebea6f2513a88f96813e37b037500215a1a74328983a698dd9785a03b013",
   },
   runtime_source_file_count: 32,
   direct: {
@@ -99,11 +109,16 @@ const EXPECTED = Object.freeze({
     // member accesses inside the same deleted revival branch recorded in the
     // runtime comparison succession above. They were removed, not relocated:
     // the two-tree --dump-counts diff shows every other delta as a line shift.
-    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "0e92e02bac812277a37f5cb102875dec1f4a33a404e93600d641f8e8a7c5315a" },
+    // D3 CORRECTIVE SUCCESSION: 90/34 unchanged; position shift only (same edits
+    // as the runtime comparison succession above).
+    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "6ac92bfdf14c0b2d08b9c63d91b74fe7b6cdf609be6ce3f466c6d942d31d4b45" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
-    governance: { occurrence_count: 108, source_file_count: 37, fingerprint: "9649c7514d3fdea01df043d77eff8ab4fa8d2f0ec3d89e2ee8cde9833a1298fd" },
+    // D3 SUCCESSION: 108 -> 109 across 37 -> 38 files — the same additive lane
+    // assertion as the governance comparison succession above reads
+    // .scan_quality directly. Runtime direct reads unchanged (90/34).
+    governance: { occurrence_count: 109, source_file_count: 38, fingerprint: "84b947e7913e77ec7b7c3b5c30feb3913f6188f7d0dac905f5d28c2c9949a2ac" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper

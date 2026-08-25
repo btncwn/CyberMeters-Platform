@@ -1,10 +1,10 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.08.13-provisional-score-labeling.ec47dd0dbed6",
-  "closure_sha256": "ec47dd0dbed64f74b47e2524ccb18faedd752c27de9769ca444669133ac8d783",
-  "closure_file_count": 91,
-  "scan_api_file_count": 89,
+  "app_version": "2026.08.13-provisional-score-labeling.3555fe8ee179",
+  "closure_sha256": "3555fe8ee1791a60cc87ba2c5d5e1d41e370ce2bc3f374e2821d333fb964258d",
+  "closure_file_count": 92,
+  "scan_api_file_count": 90,
   "files": [
     "shared/cyber-essentials-questions.js",
     "workers/email-ingest/src/index.js",
@@ -84,6 +84,7 @@
     "workers/scan-api/src/lib/aggregate-report-ingest.js",
     "workers/scan-api/src/lib/cyber-essentials.js",
     "workers/scan-api/src/lib/dmarc-authority.js",
+    "workers/scan-api/src/lib/dmarc-ingest-config.js",
     "workers/scan-api/src/lib/dmarc-ingest.js",
     "workers/scan-api/src/lib/domain-verification.js",
     "workers/scan-api/src/lib/errors.js",
