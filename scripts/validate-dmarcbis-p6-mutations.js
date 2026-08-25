@@ -107,8 +107,12 @@ await withMutant(
 
 await withMutant(
   "dmarcbis-presentation.js",
-  "This does not prove reports were sent, received, or trusted.",
-  "External reporting is working.",
+  // Anchor re-derived for D3: the honest disclaimer sentence now also appears in
+  // the CyberMeters-hosted destination message, and replace() takes the FIRST
+  // occurrence — anchor on the full authorized-case sentence so the mutant hits
+  // the message the fixture actually reads.
+  "The external reporting destination published a valid DMARC authorisation record. This does not prove reports were sent, received, or trusted.",
+  "The external reporting destination published a valid DMARC authorisation record. External reporting is working.",
   async ({ module }) => {
     const mutant = await module();
     const presentation = mutant.buildDmarcPolicyPresentation(read({
