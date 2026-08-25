@@ -1561,6 +1561,8 @@ export default function ScanDetail() {
   const assessmentScore = Number.isFinite(assessment?.display_score)
     ? assessment.display_score
     : null
+  const assessmentReason = [assessment?.suppression_reason, assessment?.message]
+    .find((value) => typeof value === 'string' && value.trim()) ?? null
   const assessmentBand = bandMeta(assessmentRating)
 
   return (
@@ -1761,6 +1763,11 @@ export default function ScanDetail() {
                       {assessmentBand.label}
                     </span>
                   } />
+                  {assessmentScore === null && assessmentReason && (
+                    <div className="mx-6 my-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900" role="note">
+                      {assessmentReason}
+                    </div>
+                  )}
                   <KV label="Created"   value={formatDate(scan.created_at)} />
                   {report?.started_at   && <KV label="Started"   value={formatDate(report.started_at)} />}
                   {report?.completed_at && <KV label="Completed" value={formatDate(report.completed_at)} />}

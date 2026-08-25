@@ -168,6 +168,7 @@ export function resolveAssessmentPresentation({
   coverage = null,
   monitoringStates = undefined,
   requireMonitoring = false,
+  suppressionReason = null,
 } = {}) {
   const rawQuality = normalizeQuality(scanQuality);
   const monitoringEvaluated = requireMonitoring || monitoringStates !== undefined;
@@ -203,8 +204,8 @@ export function resolveAssessmentPresentation({
     quality,
     state,
     provisional:    !complete,
-    authoritative:  complete,
-    comparable:     complete,
+    authoritative:  complete && hasScore,
+    comparable:     complete && hasScore,
     coverage: monitoringEvaluated
       ? {
           ...(coverage ?? {}),
@@ -213,10 +214,15 @@ export function resolveAssessmentPresentation({
           monitoring_signals: monitoringCoverage.signals,
         }
       : (coverage ?? null),
+    // When the score is withheld, prefer the specific suppression cause (names
+    // the forcing modules/evidence) over the generic per-quality disclosure, so
+    // every surface shows WHY — never a bare "—".
     message:        hasScore
       ? ASSESSMENT_MESSAGES[quality]
-      : (String(status ?? "").toLowerCase() === "completed"
-          ? (complete ? null : SCAN_COMPLETION_DISCLOSURES[quality])
-          : POSTURE_NOT_ESTABLISHED_MESSAGE),
+      : (suppressionReason
+          || (String(status ?? "").toLowerCase() === "completed"
+              ? (complete ? POSTURE_NOT_ESTABLISHED_MESSAGE : SCAN_COMPLETION_DISCLOSURES[quality])
+              : POSTURE_NOT_ESTABLISHED_MESSAGE)),
+    suppression_reason: hasScore ? null : (suppressionReason || null),
   };
 }

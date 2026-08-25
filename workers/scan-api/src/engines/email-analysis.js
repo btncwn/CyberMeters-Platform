@@ -155,6 +155,33 @@ export function parseDmarcRecord(record, recordCount = record ? 1 : 0) {
   };
 }
 
+// Build a suggested DMARC record for a policy UPGRADE (e.g. p=none → p=quarantine)
+// that mirrors the tag-preserving discipline of hosted-dmarc's
+// buildDmarcDnsRecommendedValue: start from the observed record, change ONLY the
+// policy, and keep every other tag byte-for-byte. Two DMARCbis-truth rules:
+//   • DROP pct= entirely — RFC 9989 (DMARCbis) removed the pct tag; suggesting it
+//     would recommend a tag the current spec no longer defines.
+//   • PRESERVE the observed rua verbatim when one exists; only synthesise a
+//     fallback mailbox when the record carries no rua at all. Never overwrite the
+//     customer's existing aggregate-reporting destination.
+export function buildDmarcPolicyUpgradeValue(record, fallbackRua, targetPolicy = "quarantine") {
+  const raw = normalizeDnsTxtValue(record);
+  if (!raw) return `v=DMARC1; p=${targetPolicy}; rua=${fallbackRua}`;
+  const parts = raw.split(";").map((part) => part.trim()).filter(Boolean);
+  let sawPolicy = false;
+  let sawRua = false;
+  const out = [];
+  for (const part of parts) {
+    if (/^pct\s*=/i.test(part)) continue;            // DMARCbis removed pct
+    if (/^p\s*=/i.test(part)) { out.push(`p=${targetPolicy}`); sawPolicy = true; continue; }
+    if (/^rua\s*=/i.test(part)) { sawRua = true; }   // preserve existing rua verbatim
+    out.push(part);
+  }
+  if (!sawPolicy) out.push(`p=${targetPolicy}`);
+  if (!sawRua) out.push(`rua=${fallbackRua}`);
+  return out.join("; ").slice(0, 4096);
+}
+
 // ── Email probe evidence-status (A1) ─────────────────────────────────────────
 // Shared, dependency-free classifier used by BOTH the SPF and DKIM truth
 // consumers (scoring + email-intel) to tell "we could not observe this probe"
@@ -254,7 +281,7 @@ export function buildDmarcPolicyJourney(detail) {
     return {
       stage: "partial_enforcement",
       label: detail.policy === "quarantine" ? "Quarantine" : `Reject at ${detail.percentage}%`,
-      next_step: "Confirm legitimate mail remains aligned, then increase coverage towards p=reject with pct=100.",
+      next_step: "Confirm legitimate mail remains aligned, then move to full enforcement with p=reject.",
       business_risk: "Some messages that fail DMARC may still be delivered, depending on policy coverage and receiver handling.",
     };
   }
@@ -481,7 +508,9 @@ export function buildEmailRemediationActions(domain, details, emailIntel = {}) {
       "Correct the version, policy, and percentage tags while preserving valid reporting destinations."));
   }
   if (dmarc.valid && dmarc.policy === "none") {
-    const value = `v=DMARC1; p=quarantine; pct=100; rua=mailto:${reportAddress}`;
+    // Upgrade suggestion: preserve the observed record's rua and other tags,
+    // change only p=none → p=quarantine, and never emit the DMARCbis-removed pct.
+    const value = buildDmarcPolicyUpgradeValue(dmarc.raw, `mailto:${reportAddress}`, "quarantine");
     actions.push(remediationAction("dmarc_policy_monitoring_only", "DMARC", "medium", "DMARC is in monitoring mode only",
       "The DMARC policy is set to p=none.",
       "Receivers are not instructed to quarantine or reject messages that fail DMARC alignment.",

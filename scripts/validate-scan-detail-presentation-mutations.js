@@ -17,7 +17,7 @@ const targetFile = path.join(root, targetRel);
 const validator = path.join(root, "scripts", "validate-scan-detail-presentation.js");
 
 const EXPECTED_MUTANTS = 8;
-const VALIDATOR_ASSERTIONS = 22;
+const VALIDATOR_ASSERTIONS = 23;
 const SUMMARY_PREFIX = "ScanDetail presentation:";
 
 const AST_RAW = "AST: raw scan.rating cannot feed ScanDetail presentation";
@@ -37,6 +37,7 @@ const UI_C_UNKNOWN = "UI: C: unknown comparable fails closed";
 const UI_D = "UI: D: complete canonical good rating and comparable history retain positive behavior";
 const UI_F = "UI: F: missing canonical assessment never falls back to raw score or rating";
 const UI_F_NULL_SCORE = "UI: F: null canonical display score never falls back to the raw score";
+const UI_F_SUPPRESSED = "UI: F: a suppressed score renders the backend reason in Scan Information";
 const UI_G = "UI: G: observed partial finding stays visible without becoming a new-change claim";
 
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
@@ -108,7 +109,7 @@ const mutants = [
     name: "raw scan.rating restores the provisional band bypass",
     anchor: ratingAnchor,
     replacement: "  const assessmentRating = scan?.rating ?? assessment?.display_rating ?? null",
-    expectedFailures: [AST_RAW, UI_A, UI_F],
+    expectedFailures: [AST_RAW, UI_A, UI_F, UI_F_SUPPRESSED],
   },
   {
     name: "ChangesPanel comparable gate is removed",
@@ -147,7 +148,7 @@ const mutants = [
     name: "computed raw rating bypass evades token-only guards",
     anchor: ratingAnchor,
     replacement: "  const assessmentRating = scan?.[\"rating\"] ?? assessment?.display_rating ?? null",
-    expectedFailures: [AST_RAW, UI_A, UI_F],
+    expectedFailures: [AST_RAW, UI_A, UI_F, UI_F_SUPPRESSED],
   },
   {
     name: "skipped-module inference overrides canonical comparison messages",
@@ -181,7 +182,7 @@ const mutants = [
   const assessmentScore = Number.isFinite(storedScore)
     ? storedScore
     : null`,
-    expectedFailures: [AST_RAW_SCORE, AST_CANONICAL_SCORE, UI_A, UI_F, UI_F_NULL_SCORE],
+    expectedFailures: [AST_RAW_SCORE, AST_CANONICAL_SCORE, UI_A, UI_F, UI_F_NULL_SCORE, UI_F_SUPPRESSED],
   },
 ];
 

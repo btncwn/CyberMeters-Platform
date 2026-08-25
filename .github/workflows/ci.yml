@@ -806,6 +806,12 @@ jobs:
       - name: Validate AS-B2 KEV/CVE score wiring mutations (named source mutants)
         run: node scripts/validate-as-b2-kev-cve-score-wiring-mutations.js
 
+      - name: Validate report-copy live triage (D1 DMARC/SPF template · D2 wrong-reason axis · D3 score-suppression · D4 self-RUA)
+        run: node scripts/validate-report-copy-live-triage.js
+
+      - name: Validate report-copy live triage mutations (named source mutants D1-D4)
+        run: node scripts/validate-report-copy-live-triage-mutations.js
+
       - name: Validate historical Phase-5 customer reads (verbatim checksum + routes/UI/PDF/dashboard/portfolio + pinned mutants)
         run: node scripts/validate-phase5-historical-customer-reads.js
 

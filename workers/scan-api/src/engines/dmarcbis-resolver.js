@@ -10,6 +10,21 @@ import {
   parseDmarcbisAuthorizationRecordSet,
   parseDmarcbisPolicyRecordSet,
 } from "./dmarcbis-parser.js";
+import { RUA_INBOUND_DOMAIN_DEFAULT } from "../lib/dmarc-ingest.js";
+
+// A DMARC aggregate-report destination under our own hosted RUA endpoint
+// (reports.cybermeters.com) is a domain CyberMeters is authoritative for, so
+// external RFC 9990 authorisation is derivable by us and never "unavailable".
+// Matches ONLY the hosted RUA domain and its subdomains — NOT the wider
+// organisational domain (a customer rua at cybermeters.com is not our hosted
+// endpoint). Mirrors the same-org derivation proven in rua-routing.js.
+function isCybermetersHostedDestination(destinationHost, hostedDomain) {
+  if (!destinationHost || !hostedDomain) return false;
+  const host = String(destinationHost).trim().toLowerCase().replace(/\.$/, "");
+  const hosted = String(hostedDomain).trim().toLowerCase().replace(/\.$/, "");
+  if (!host || !hosted) return false;
+  return host === hosted || host.endsWith(`.${hosted}`);
+}
 import {
   DMARCBIS_IDNA_PROFILE,
   canonicalizeDmarcbisDomain,
@@ -755,7 +770,24 @@ async function resolveOneExternalHost({
   policySourceDomain,
   policySourceOrganisationalDomain,
   dns,
+  hostedRuaDomain = RUA_INBOUND_DOMAIN_DEFAULT,
 }) {
+  // CyberMeters-hosted destination: we are authoritative for this endpoint, so
+  // external DNS authorisation is not required and never "unavailable". Resolve
+  // it positively WITHOUT a live lookup, before any DNS timeout/servfail path.
+  if (isCybermetersHostedDestination(uri.destination_host, hostedRuaDomain)) {
+    return {
+      authorization_status: "not_required_cybermeters_hosted",
+      authorization_record_state: "not_required_hosted",
+      lookup_completeness: "complete",
+      same_organisational_domain: false,
+      destination_organisation: null,
+      authorization_query_name: null,
+      authorized_destination: uri.normalized_uri,
+      destination_usability: "usable",
+      trusted_ingestion_status: "observational_item5_gate_required",
+    };
+  }
   const destination = await resolveDestinationOrganisation({
     destinationHost: uri.destination_host,
     dns,
@@ -921,6 +953,7 @@ export async function resolveDmarcbisExternalRuaAuthorizations({
   policyEvidence,
   dns,
   reserveHost = () => true,
+  hostedRuaDomain = RUA_INBOUND_DOMAIN_DEFAULT,
 }) {
   if (!Array.isArray(policyEvidence?.rua_destinations)) {
     return {
@@ -1058,6 +1091,7 @@ export async function resolveDmarcbisExternalRuaAuthorizations({
       policySourceDomain: policyEvidence.policy_source_domain,
       policySourceOrganisationalDomain: policyEvidence.organisational_domain,
       dns,
+      hostedRuaDomain,
     });
     hostResults.set(uri.destination_host, resolved);
     results.push({ ...uri, ...resolved, reused_host_assessment: false });
@@ -1067,7 +1101,7 @@ export async function resolveDmarcbisExternalRuaAuthorizations({
     result.lookup_completeness !== "complete" ||
     result.authorization_status?.startsWith("not_assessed"));
   const definitivePositive = results.every((result) =>
-    ["authorized", "not_required_same_organisational_domain"].includes(
+    ["authorized", "not_required_same_organisational_domain", "not_required_cybermeters_hosted"].includes(
       result.authorization_status,
     ));
 

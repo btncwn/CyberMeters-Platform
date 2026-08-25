@@ -164,7 +164,7 @@ for (const [hostname, score] of [
   eq(`${hostname}: canonical numeric score is preserved`, row?.latest_assessment?.display_score, score)
   eq(`${hostname}: canonical state is provisional`, row?.latest_assessment?.state, 'provisional')
   eq(`${hostname}: explicit provisional flag is true`, row?.latest_assessment?.provisional, true)
-  eq(`${hostname}: methodology identity is explicit`, row?.latest_assessment?.methodology_version, '2026-08-23.1')
+  eq(`${hostname}: methodology identity is explicit`, row?.latest_assessment?.methodology_version, '2026-08-24.1')
 }
 
 const established = byName.get('established.example')

@@ -13,7 +13,7 @@
 //   4. Legacy NULL/unknown quality NEVER outranks a known complete assessment
 //      (the authoritative query matches scan_quality='complete' only).
 
-import { normalizeQuality, resolveAssessmentPresentation, POSTURE_NOT_ESTABLISHED_MESSAGE } from "./assessment-presentation.js";
+import { normalizeQuality, POSTURE_NOT_ESTABLISHED_MESSAGE } from "./assessment-presentation.js";
 import { resolvePhase5HistoricalCustomerProjection } from "./phase5-evidence.js";
 
 // scope: { workspaceId } (latest across the workspace's linked domains) or
@@ -112,17 +112,13 @@ export async function getCurrentPosturePresentation(env, scope) {
       riskLevel: row.rating,
       scanQuality: row.scan_quality,
       modules: phase5Modules,
+      monitoringStates,
     });
-    const value = phase5.evidence.complete
-      ? resolveAssessmentPresentation({
-          score: phase5.score,
-          scanQuality: row.scan_quality,
-          status: "completed",
-          ...(normalizeQuality(row.scan_quality) === "complete"
-            ? { monitoringStates, requireMonitoring: true }
-            : {}),
-        })
-      : phase5.assessment;
+    // Phase-5 owns the complete customer decision, including the distinct case
+    // where its own intelligence evidence is complete but a score-bearing
+    // module was skipped. Re-branching on evidence.complete here used to revive
+    // the stored numeric score for precisely that suppressed case.
+    const value = phase5.assessment;
     presentations.set(row.scan_id, value);
     return value;
   };

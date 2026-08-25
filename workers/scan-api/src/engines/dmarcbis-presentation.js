@@ -37,6 +37,7 @@ const MONITORING_LABELS = Object.freeze({
 
 const RUA_LABELS = Object.freeze({
   not_required_same_organisational_domain: "Same organisational domain",
+  not_required_cybermeters_hosted: "CyberMeters-hosted destination",
   authorized: "Authorised external destination",
   unauthorized: "Unauthorised external destination",
   malformed: "Malformed authorisation record",
@@ -150,6 +151,8 @@ function ruaMessage(destination) {
   switch (destination?.authorization_status) {
     case "not_required_same_organisational_domain":
       return "This reporting destination is within the same organisational domain; external authorisation is not required.";
+    case "not_required_cybermeters_hosted":
+      return "This aggregate-report destination is hosted by CyberMeters, which is authoritative for it, so external DNS authorisation is not required. This does not prove reports were sent, received, or trusted.";
     case "authorized":
       return "The external reporting destination published a valid DMARC authorisation record. This does not prove reports were sent, received, or trusted.";
     case "unauthorized":

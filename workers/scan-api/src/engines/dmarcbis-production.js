@@ -185,6 +185,32 @@ function evidenceGradeForCore(policyEvidence, observedAt) {
 }
 
 function evidenceGradeForExternal(result, observedAt, destination = null) {
+  // CyberMeters-hosted destination: definitive positive derived from our own
+  // authority over the endpoint, NOT from an external RFC 9990 DNS lookup. Grade
+  // it publishable but under a distinct self-authority basis so we never claim a
+  // DNS corroboration that did not happen.
+  if (destination?.authorization_status === "not_required_cybermeters_hosted") {
+    return {
+      observable_ceiling: "L5",
+      beta_target: "L4",
+      minimum_publishable: "L3",
+      degrade_behavior:
+        "Applies only to destinations under the CyberMeters hosted RUA domain; any other destination follows the external RFC 9990 lookup path.",
+      required_corroboration: [
+        "CyberMeters authority over the hosted RUA destination domain",
+      ],
+      grade: "L3",
+      source_type: "operator_authority",
+      basis:
+        "CyberMeters is authoritative for this hosted aggregate-report destination; external RFC 9990 DNS authorisation is not required. Ingestion authority remains governed by Item 5.",
+      limits: [
+        "Authorization does not prove receipt, custody, authenticity, or receiver enforcement.",
+        "Confirms only that the destination is CyberMeters-hosted, not that any report was received.",
+      ],
+      repeat_confirmed: false,
+      observed_at: observedAt,
+    };
+  }
   const complete = destination
     ? destination.lookup_completeness === "complete"
     : result?.rua_authorisation_completeness === "complete" ||
@@ -384,6 +410,12 @@ export async function runDmarcbisCore(authorDomain, {
         ? "not_applicable"
         : "incomplete",
     external_rua_authorisation: null,
+    // Reconcile monitoring_state with the FULL core-completeness check. The
+    // resolver freezes monitoring_state from policy_completeness alone; core
+    // completeness additionally requires the org-domain walk and existence to be
+    // complete. Recompute here so the panel (monitoring_state) can never read
+    // "evidence complete" while core_completeness is incomplete.
+    monitoring_state: complete ? "monitoring_healthy" : "monitoring_degraded",
     core_completeness: complete ? "complete" : "incomplete",
     executed: true,
     ...(complete ? {} : { incomplete: true }),

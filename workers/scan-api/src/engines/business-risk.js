@@ -700,7 +700,7 @@ export async function readWorkspaceBrsAssessments(env, workspaceIds) {
   if (basisIds.length > 0) {
     const basisPlaceholders = basisIds.map(() => "?").join(",");
     const basisResult = await env.cybermeters_db.prepare(
-      `SELECT id AS scan_id, workspace_id, status, scan_quality, created_at
+      `SELECT id AS scan_id, workspace_id, status, scan_quality, score, rating, created_at
        FROM scans WHERE id IN (${basisPlaceholders})`
     ).bind(...basisIds).all();
     basisById = new Map((basisResult?.results ?? []).map((row) => [row.scan_id, row]));

@@ -53,6 +53,7 @@ import {
 import {
   projectPhase5EvidenceForCustomer,
   projectPhase5SnapshotForCustomer,
+  resolvePhase5HistoricalCustomerProjection,
 } from "./phase5-evidence.js";
 import { projectTlsReportForCustomer } from "./tls-evidence.js";
 import {
@@ -550,13 +551,28 @@ export function composeSnapshot({
   // Canonical producers — verbatim, never second-guessed.
   const domains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials });
   const businessRisk = deriveScanBusinessRisk(reportForCustomer);
-  const assessment = resolveAssessmentPresentation({
+  const baseAssessment = resolveAssessmentPresentation({
     score: report?.cyber_metrics_score ?? null,
     scanQuality: qualityStatus,
     status: "completed",
     monitoringStates,
     requireMonitoring: true,
   });
+  // D3: the stored report score already includes the Phase-5 KEV/CVE deduction.
+  // Give that canonical presentation to the historical resolver so a clean read
+  // does not apply the deduction twice, while a suppressed read (incomplete
+  // Phase-5 evidence or a skipped score-bearing module) replaces it with the
+  // single canonical NULL decision and its exact cause.
+  const phase5Projection = resolvePhase5HistoricalCustomerProjection({
+    score: report?.cyber_metrics_score ?? null,
+    riskLevel: report?.risk_level ?? report?.rating ?? null,
+    assessment: baseAssessment,
+    scanQuality: qualityStatus,
+    modules: report?.modules || {},
+    monitoringStates,
+  });
+  const assessment = phase5Projection.assessment;
+  const phase5Suppressed = phase5Projection.suppressed === true;
 
   // ── Finding → domain attribution ──────────────────────────────────────────
   // A finding may legitimately belong to more than one domain (one certificate
@@ -921,15 +937,17 @@ export function composeSnapshot({
       score_band: assessment.display_rating,
       assessment,
       assessment_evidence_grade: scoreEvidenceGrade,
-      summary: overallSummary,
+      summary: phase5Suppressed ? null : overallSummary,
       // Composite grade is the LOWEST decisive domain grade.
       evidence_grade: overallEvidenceGrade,
       // An indicator — a band plus explanation — never a second competing score.
       // The numeric and category breakdown are internal metrics for methodology
       // and trend purposes only.
       business_risk_indicator: {
-        band: assessment.authoritative ? (businessRisk?.band ?? null) : null,
-        explanation: assessment.authoritative
+        band: !phase5Suppressed && assessment.authoritative ? (businessRisk?.band ?? null) : null,
+        explanation: phase5Suppressed
+          ? `${phase5Projection.suppression_reason ?? "The score-bearing assessment was incomplete."} Business Risk Indicator is not authoritative because the score-bearing assessment was incomplete.`
+          : assessment.authoritative
           ? (businessRisk?.summary ?? null)
           : "Business Risk Indicator is not authoritative because monitoring evidence or scan coverage was incomplete.",
         provisional: !assessment.authoritative,
@@ -939,9 +957,9 @@ export function composeSnapshot({
           "supply-chain signals). It is an indicator band with an explanation, not a score.",
         evidence_grade: businessRiskEvidenceGrade,
         internal_metrics: {
-          score: businessRisk?.score ?? null,
-          categories: businessRisk?.categories ?? null,
-          top_business_risks: businessRisk?.top_business_risks ?? null,
+          score: phase5Suppressed ? null : (businessRisk?.score ?? null),
+          categories: phase5Suppressed ? null : (businessRisk?.categories ?? null),
+          top_business_risks: phase5Suppressed ? null : (businessRisk?.top_business_risks ?? null),
         },
       },
       evidence_completeness: {
@@ -956,6 +974,9 @@ export function composeSnapshot({
             message: entry.message,
           })),
         modules_skipped: skippedModules,
+        phase5_evidence: phase5Projection.evidence,
+        skipped_score_bearing_modules:
+          phase5Projection.skipped_score_bearing_modules ?? [],
         // D1 Option D (FD-006 seq 50): the structured deficiency travels into the
         // IMMUTABLE snapshot alongside the existing evidence-completeness fields,
         // so a historical report states which declared source was lost and what
@@ -972,7 +993,16 @@ export function composeSnapshot({
             : ["One or more decisive checks, providers or monitoring signals were incomplete or degraded."],
         }),
       },
-      not_fully_assessed: notFullyAssessed,
+      not_fully_assessed: phase5Suppressed
+        ? [
+            ...notFullyAssessed,
+            {
+              domain_key: "cyber_metrics_score",
+              state: "evidence_insufficient",
+              reason: phase5Projection.suppression_reason,
+            },
+          ]
+        : notFullyAssessed,
     },
     protocol_evidence: {
       ...(dmarcPolicyEvidence

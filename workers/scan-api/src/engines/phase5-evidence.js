@@ -1,5 +1,5 @@
 import { isPublishableModuleEvidence } from "./scan-budget.js";
-import { applyKevCveDeduction } from "./scoring.js";
+import { applyKevCveDeduction, SCORE_BEARING_MODULES } from "./scoring.js";
 import {
   normalizeQuality,
   resolveAssessmentPresentation,
@@ -149,10 +149,59 @@ export function resolvePhase5EvidenceContract(modules = {}) {
   };
 }
 
+// A score-bearing module that was skipped or never ran (budget/deadline) makes a
+// customer score a conclusion over an incomplete assessment. Detected from the
+// SAME per-module skip vocabulary buildScanQuality / cyber-mot-domains read
+// (explicit skip markers only — an entitled module that simply found nothing
+// carries none of these flags, so it does not trigger suppression).
+export function skippedScoreBearingModules(modules = {}) {
+  const skipped = [];
+  for (const key of SCORE_BEARING_MODULES) {
+    const m = modules?.[key];
+    if (!m || typeof m !== "object") continue;
+    // SKIPPED / never-ran / abandoned-on-budget only. A module that RAN and is
+    // merely `incomplete` (ran-partial) keeps the existing provisional-number
+    // contract and is deliberately NOT a suppression trigger here.
+    const budgetOrDeadline = typeof m.error === "string"
+      && /skipped_due_to_subrequest_budget|budget|timed?[ _]?out|timeout|deadline/i.test(m.error);
+    if (m.skipped === true || m.executed === false || budgetOrDeadline) {
+      skipped.push(key);
+    }
+  }
+  return skipped;
+}
+
+const SCORE_BEARING_MODULE_LABELS = Object.freeze({
+  dns: "DNS", ssl: "TLS/SSL", headers: "security headers",
+  email_security: "email security", asset_exposure: "attack surface",
+  subdomains: "subdomains", subdomain_takeover: "subdomain takeover",
+});
+function suppressionCause(skippedScored, evidence) {
+  if (skippedScored.length > 0) {
+    const names = skippedScored.map((k) => SCORE_BEARING_MODULE_LABELS[k] || k);
+    return `The Cyber Metrics Score is withheld because these assessed areas did not complete this scan: ${names.join(", ")}. The results may be incomplete; a score over an incomplete assessment would overstate coverage.`;
+  }
+  const gaps = evidence?.incomplete_modules || [];
+  return `The Cyber Metrics Score is withheld because required evidence did not complete this scan${gaps.length ? ` (${gaps.join(", ")})` : ""}. The results may be incomplete; a score over an incomplete assessment would overstate coverage.`;
+}
+
+// Single source of the score-suppression cause line. Returns null when the score
+// is NOT suppressed (evidence complete AND no score-bearing module skipped), so
+// report-snapshot and other read surfaces can render the SAME honest explanation
+// the scoring path used — never a bare "—".
+export function resolveScoreSuppressionReason(modules = {}) {
+  const evidence = resolvePhase5EvidenceContract(modules);
+  const skippedScored = skippedScoreBearingModules(modules);
+  if (skippedScored.length === 0 && evidence.complete) return null;
+  return suppressionCause(skippedScored, evidence);
+}
+
 /**
  * A score/band is a customer conclusion over the completed assessment.
- * Phase-5 evidence gaps therefore remove the conclusion; they do not turn
- * unassessed CVE/KEV/email evidence into a provisional healthy number.
+ * Phase-5 evidence gaps AND skipped score-bearing modules therefore remove the
+ * conclusion (the same "cannot-assess ⇒ no number" outcome); they do not turn an
+ * unassessed scan into a provisional healthy number. A module that RAN and
+ * produced partial evidence keeps the existing provisional-number contract.
  */
 export function resolvePhase5CustomerAssessment({
   score = null,
@@ -160,13 +209,18 @@ export function resolvePhase5CustomerAssessment({
   modules = {},
 } = {}) {
   const evidence = resolvePhase5EvidenceContract(modules);
-  if (!(evidence.complete && Number.isFinite(score))) {
-    // Incomplete evidence: no customer score, and NO KEV/CVE deduction — never a
-    // guessed deduction on an unpublishable module (evidence-floor).
+  const skippedScored = skippedScoreBearingModules(modules);
+  if (skippedScored.length > 0 || !(evidence.complete && Number.isFinite(score))) {
+    // Cannot-assess: no customer score, no risk band, and NO KEV/CVE deduction —
+    // never a guessed deduction on an unpublishable module (evidence-floor). The
+    // suppression carries an honest cause line so no surface renders a bare "—".
     return {
       score: null,
-      risk_level: evidence.complete && riskLevel != null ? riskLevel : null,
+      risk_level: skippedScored.length === 0 && evidence.complete && riskLevel != null ? riskLevel : null,
       evidence,
+      suppressed: true,
+      suppression_reason: suppressionCause(skippedScored, evidence),
+      skipped_score_bearing_modules: skippedScored,
     };
   }
   // AS-B2: KEV/CVE evidence moves the customer Cyber Metrics Score. Pure orchestration:
@@ -283,7 +337,11 @@ export function resolvePhase5HistoricalCustomerProjection({
   monitoringStates = undefined,
 } = {}) {
   const customer = resolvePhase5CustomerAssessment({ score, riskLevel, modules });
-  if (customer.evidence.complete) {
+  // Completeness of the three Phase-5 intelligence modules is not, by itself,
+  // permission to retain a score. A score-bearing module can have been skipped
+  // while Phase-5 evidence is otherwise complete. The customer assessment is
+  // the single decision source for both cases.
+  if (customer.suppressed !== true) {
     return {
       ...customer,
       scan_quality: normalizeQuality(scanQuality),
@@ -299,21 +357,22 @@ export function resolvePhase5HistoricalCustomerProjection({
   }
 
   const quality = incompleteCustomerQuality(scanQuality);
-  const message = cveCustomerMessage(modules?.cve_intelligence);
   return {
     ...customer,
     scan_quality: quality,
     assessment: {
       ...resolveAssessmentPresentation({
-      score: null,
-      scanQuality: quality,
-      status: "completed",
-      coverage: {
-        reason: PHASE5_INCOMPLETE_REASON,
-        incomplete_modules: customer.evidence.incomplete_modules,
-      },
+        score: null,
+        scanQuality: quality,
+        status: "completed",
+        coverage: {
+          reason: PHASE5_INCOMPLETE_REASON,
+          incomplete_modules: customer.evidence.incomplete_modules,
+          skipped_score_bearing_modules:
+            customer.skipped_score_bearing_modules ?? [],
+        },
+        suppressionReason: customer.suppression_reason,
       }),
-      ...(message ? { message } : {}),
     },
   };
 }
@@ -486,9 +545,10 @@ export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
       null,
     modules,
   });
-  if (projection.evidence.complete) return websiteSnapshot;
+  if (projection.suppressed !== true) return websiteSnapshot;
 
   const bri = overall.business_risk_indicator ?? {};
+  const suppressedModules = projection.skipped_score_bearing_modules ?? [];
   return {
     ...websiteSnapshot,
     overall: {
@@ -500,11 +560,14 @@ export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
       business_risk_indicator: {
         ...bri,
         band: null,
-        explanation: null,
+        explanation: `${projection.suppression_reason ?? PHASE5_INCOMPLETE_REASON} Business Risk Indicator is not authoritative because the score-bearing assessment was incomplete.`,
         provisional: true,
+        withheld_reason: projection.suppression_reason ?? PHASE5_INCOMPLETE_REASON,
         internal_metrics: {
           ...(bri.internal_metrics ?? {}),
           score: null,
+          categories: null,
+          top_business_risks: null,
         },
       },
       evidence_completeness: {
@@ -512,13 +575,22 @@ export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
         scan_quality: projection.scan_quality,
         assessment_quality: projection.scan_quality,
         phase5_evidence: projection.evidence,
+        skipped_score_bearing_modules: suppressedModules,
       },
       not_fully_assessed: [
         ...new Set([
           ...(Array.isArray(overall.not_fully_assessed) ? overall.not_fully_assessed : []),
           ...projection.evidence.incomplete_modules,
+          ...suppressedModules,
         ]),
       ],
+    },
+    customer_projection: {
+      ...(websiteSnapshot?.customer_projection ?? {}),
+      applied: true,
+      phase5_score_withheld: true,
+      phase5_score_withheld_reason:
+        projection.suppression_reason ?? PHASE5_INCOMPLETE_REASON,
     },
   };
 }
