@@ -465,6 +465,23 @@ function ok(name, cond, detail = "") {
       ranPartial.assessment.display_rating === null &&
       ranPartial.assessment.provisional === true);
 
+  // Boundary control: a proven-complete row whose D1 score cell is empty is a
+  // data fact, not an evidence gap. Suppressing it would rewrite scan_quality
+  // and fabricate an incompleteness cause — the defect that nulled every proven
+  // BRS basis row on the portfolio surface (portfolio-score-honesty 51/73).
+  const completeEmptyScoreCell = resolvePhase5HistoricalCustomerProjection({
+    score: null,
+    riskLevel: "low",
+    scanQuality: "complete",
+    modules: completeMods(),
+  });
+  ok("D3 boundary: complete row with empty score cell is not suppressed",
+    completeEmptyScoreCell.suppressed !== true && completeEmptyScoreCell.score === null);
+  ok("D3 boundary: complete row with empty score cell keeps scan_quality complete",
+    completeEmptyScoreCell.scan_quality === "complete");
+  ok("D3 boundary: the withheld-band law holds without a suppression claim",
+    completeEmptyScoreCell.risk_level === null && completeEmptyScoreCell.suppression_reason === undefined);
+
   const scanDetailSource = readFileSync(
     new URL("../frontend/src/pages/ScanDetail.jsx", import.meta.url),
     "utf8",

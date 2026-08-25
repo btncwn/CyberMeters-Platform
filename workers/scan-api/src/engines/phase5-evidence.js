@@ -208,22 +208,44 @@ export function resolvePhase5CustomerAssessment({
   riskLevel = null,
   modules = {},
   persistedScoreAlreadyAdjusted = false,
+  // Live scoring enforces the AS-B2 evidence floor: incomplete Phase-5
+  // intelligence evidence withholds the score it is ABOUT to compute. The
+  // snapshot MINT path passes false: the persisted score it composes was
+  // already floored by its producer, and re-deciding it from evidence absence
+  // would put a calculation brain inside the snapshot (M5.c: producers are
+  // composed verbatim). The skip axis ALWAYS suppresses — that is the D3 law.
+  suppressOnEvidenceGaps = true,
 } = {}) {
   const evidence = resolvePhase5EvidenceContract(modules);
   const skippedScored = skippedScoreBearingModules(modules);
-  if (skippedScored.length > 0 || !(evidence.complete && Number.isFinite(score))) {
+  if (skippedScored.length > 0 || (suppressOnEvidenceGaps && !evidence.complete)) {
     // Cannot-assess: no customer score, no risk band, and NO KEV/CVE deduction —
     // never a guessed deduction on an unpublishable module (evidence-floor). The
     // suppression carries an honest cause line so no surface renders a bare "—".
+    return {
+      score: null,
+      // The same withheld-band rule as the complete/no-score branch below: the
+      // suppression decision removes the score, so no band survives it either.
+      risk_level: null,
+      evidence,
+      suppressed: true,
+      suppression_reason: suppressionCause(skippedScored, evidence),
+      skipped_score_bearing_modules: skippedScored,
+    };
+  }
+  if (!Number.isFinite(score)) {
+    // Evidence is complete and nothing was skipped: the absence of a persisted
+    // score cell is a data fact about the row, NOT an evidence gap. Suppression
+    // here would fabricate an incompleteness claim (its cause line says the scan
+    // did not complete — false for this row) and would let downstream quality
+    // rewriting turn a genuinely complete scan into "partial" (the defect that
+    // nulled every proven BRS basis row). No suppression, no quality rewrite.
     return {
       score: null,
       // A band is a conclusion derived from a score. Once the shared decision
       // withholds that score, no persisted/stale band may survive independently.
       risk_level: null,
       evidence,
-      suppressed: true,
-      suppression_reason: suppressionCause(skippedScored, evidence),
-      skipped_score_bearing_modules: skippedScored,
     };
   }
   // Historical rows and immutable reports persist the output of this transform,
@@ -350,12 +372,14 @@ export function resolvePhase5HistoricalCustomerProjection({
   scanQuality = null,
   modules = {},
   monitoringStates = undefined,
+  suppressOnEvidenceGaps = true,
 } = {}) {
   const customer = resolvePhase5CustomerAssessment({
     score,
     riskLevel,
     modules,
     persistedScoreAlreadyAdjusted: true,
+    suppressOnEvidenceGaps,
   });
   // Completeness of the three Phase-5 intelligence modules is not, by itself,
   // permission to retain a score. A score-bearing module can have been skipped

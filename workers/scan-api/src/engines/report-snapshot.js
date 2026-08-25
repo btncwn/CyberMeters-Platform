@@ -570,6 +570,12 @@ export function composeSnapshot({
     scanQuality: qualityStatus,
     modules: report?.modules || {},
     monitoringStates,
+    // Mint composes the canonical producers verbatim (M5.c): the stored score
+    // was already floored by the producer that computed it, so evidence absence
+    // in this report is never re-decided here. Only the skip axis suppresses —
+    // a score-bearing module that never ran makes any composed score a
+    // conclusion over an incomplete assessment.
+    suppressOnEvidenceGaps: false,
   });
   const assessment = phase5Projection.assessment;
   const phase5Suppressed = phase5Projection.suppressed === true;
