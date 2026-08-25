@@ -7,30 +7,64 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
-## Merged to main — not yet deployed
+## v2026.08.26-1 — F-009/F-021 integrity + D3/Ş1 honesty + AS-B6b budget closure — deployed 2026-08-26
 
-### F-009 deletion-integrity containment — merged 2026-08-25 (PR #436)
+**Status:** DEPLOYED. Exact merged main
+`cf6bec4952b9bd11485ce33b47f774b429698179` was deployed to both coordinated Workers
+from a fresh non-iCloud detached clone. The annotated tag `v2026.08.26-1` targets that
+exact source. Deployment and side-effect-safe smoke are not authenticated customer-workflow
+or destructive-data acceptance.
 
-**Status:** MERGED (main `327923263c5f9f24627ed144beee4194b5ecebfb`), **NOT DEPLOYED**.
-Deploy is explicitly gated on exercising real Cloudflare D1 `PRAGMA foreign_key_check`
-behaviour (unsupported or ambiguous = fail closed) plus the normal release sequence.
-
-- Account/workspace deletion can no longer mark itself `completed` or send the
-  "permanently removed" email while rows, R2 objects or parent records survive. Completion
-  now requires in-path proof: governed zero row-counts, `PRAGMA foreign_key_check` clean,
-  verified parent absence, and R2 objects deleted-and-verified BEFORE their pointers.
-- **Visible behaviour change (honest, by design):** account deletion currently terminates
-  as `blocked_residual_data` — no completion and no permanence email — until the separate
-  founder/legal erasure-vs-anonymisation decision. Workspace deletion completes only after
-  proof; under Governance ruling it releases ONLY `deletion_requests.workspace_id`
-  immediately before the verified parent delete, preserving every other retained audit field.
-- Purge predicates corrected at the schema (`oauth_states` entry removed — no such column;
-  `customer_profiles` keys on `owner_user_id`); purge tables now declare `{table, column}`.
-- Independent R1 (Codex Desktop) FAILED the first head on four load-bearing findings
-  (atomicity, error-as-absence, validator-only proof gate, optional R2 absence check);
-  all four fixed and re-verified PASS on head `86a6f284`. Focused suite 28/28; named
-  mutants 8/8. Production occurrence of the historical false permanence email is
-  **not measured** — no claim is made either way.
+- **PR #436 — F-009 deletion integrity:** merge
+  `327923263c5f9f24627ed144beee4194b5ecebfb`, reviewed corrective head
+  `86a6f284b53c1319c9b5431d6224b42e6ad62910`, prevents deletion from claiming completion
+  before governed row-count, foreign-key, parent-absence and R2-absence proofs complete.
+  The exact-source remote D1 pre-deploy gate returned `PRAGMA foreign_key_check = []` with
+  `success=true`, `rows_written=0` and `changed_db=false`. Account deletion remains
+  `blocked_residual_data` pending the separate Founder/legal erasure-vs-anonymisation decision;
+  no account deletion or destructive customer-data test was performed for this release.
+- **PR #435 — F-021 scan-read tenant isolation:** merge
+  `9a6752a1ee0f723fb8d0660ac8dfbb1f2b88b3ed`, reviewed head
+  `d3dabd3237ff1bc8ff2f630a2e22de09ae21094a`, scopes scan reads by direct workspace
+  attribution, closes the aggregate-read ownership gap and removes the legacy admin-service
+  IP projection from current and historical read surfaces.
+- **PR #438 — D3/Ş1 report-copy live triage:** merge
+  `cc3028f9457223b33b7d5128749b98dc9225a29b`, reviewed head
+  `d039d08c21e679865642edf8e5c99f56c1112805`, unifies incomplete-scan report truth,
+  preserves persisted Phase-5 scores on read, withholds stale bands without scores, makes
+  suppression an evidence decision and keeps unavailable DMARC evidence distinct from
+  incomplete evidence.
+- **PR #439 — AS-B6b physical subrequest accounting:** merge
+  `cf6bec4952b9bd11485ce33b47f774b429698179`, reviewed head
+  `5011636b550601ad08b1ea2f909c96a91dcc4496`, closes the reserved-scan physical-budget
+  path with atomic charge-or-deny accounting and refuses unaccounted provider redirects.
+- **Validation:** exact-main run `32909462177` passed `validate` and SAST; the corresponding
+  Pages status passed. The frozen real-D1 F-009 gate is SHA-256
+  `b231388a696d070243d041bf29ba44befbdef0669c16da17af7566c2c37e18f6` and PASS.
+  Release preflight from the detached source passed install-script governance 18/18,
+  email-worker traceability 15/15, worker audit with zero vulnerabilities, both Worker
+  packaging dry-runs, syntax and `git diff --check`.
+- **Coordinated closure:** both Workers report
+  `2026.08.13-provisional-score-labeling.afa841be99d8`; the effective email-worker closure is
+  `afa841be99d80f0978898b8385526e945ec87e9ea5eeb74179de9199d014776a`
+  (92 files, including 90 scan-api files).
+- **scan-api (`cybermeters-platform`):** deployment ID
+  `3cd0245f-17c7-4f82-9594-3aa5e3ccac03`; live Worker Version ID
+  `2d89c921-1d3b-48fa-890f-5f1025bc7b16`; immediate rollback Worker Version ID
+  `08b7d3e8-5054-4930-b8ea-e7c7166abef7`.
+- **email-ingest (`cybermeters-email`):** deployment ID
+  `da03a532-0297-40ef-8e3e-1eb09fbcfb12`; live Worker Version ID
+  `d470abeb-0943-47f4-b748-70cb9138ebb1`; immediate rollback Worker Version ID
+  `37b67119-f60c-4870-a10f-e951decb114c`.
+- **Production proof:** scan-api `/health` returned its new Version ID and exact closure stamp
+  on both the custom and workers.dev hosts; both `/ready` surfaces returned D1/R2 ready.
+  Email-ingest `/health` returned its new Version ID and exact closure, and `/ready` returned
+  D1 ready. The protected workspace route returned `401`, recorded only as liveness and
+  auth-gate preservation. `app.cybermeters.com` returned `200`.
+- **Rollback:** deploy scan-api version `08b7d3e8-5054-4930-b8ea-e7c7166abef7` and
+  email-ingest version `37b67119-f60c-4870-a10f-e951decb114c` using
+  `wrangler versions deploy <VERSION_ID>` with the matching service configuration. No schema
+  rollback is involved.
 
 ## v2026.08.23-2 — P1.3 lifecycle gates + AS-B2 score wiring — deployed 2026-08-23
 
