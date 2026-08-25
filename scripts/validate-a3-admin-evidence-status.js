@@ -91,7 +91,18 @@ function rctxFor({ domains = [{ domain_id: "d1" }], scans = { d1: { id: "s1" } }
       return {
         bind(...args) {
           return {
-            all: async () => (sql.includes("workspace_domains") ? { results: domains } : { results: [] }),
+            all: async () => {
+              if (sql.includes("FROM scans s")) {
+                return {
+                  results: domains
+                    .map(({ domain_id }) => scans[domain_id]
+                      ? { id: scans[domain_id].id, domain_id }
+                      : null)
+                    .filter(Boolean),
+                };
+              }
+              return sql.includes("workspace_domains") ? { results: domains } : { results: [] };
+            },
             first: async () => (sql.includes("FROM scans") ? (scans[args[0]] ?? null) : null),
           };
         },

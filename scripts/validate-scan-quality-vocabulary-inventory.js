@@ -90,7 +90,10 @@ const EXPECTED = Object.freeze({
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
     governance: { occurrence_count: 108, source_file_count: 37, fingerprint: "9649c7514d3fdea01df043d77eff8ab4fa8d2f0ec3d89e2ee8cde9833a1298fd" },
   },
-  sql_reads: { projection_occurrences: 23, fingerprint: "c273181a680d3cdccc978d9dedb27f1f7e3d64e7c1e17aaa8afd07932cea6387" },
+  // F-021 R1 corrective: projection count remains 23; consolidating four
+  // workspace aggregate scan selectors into one direct-attribution helper
+  // shifts source positions only. No scan-quality read was added or removed.
+  sql_reads: { projection_occurrences: 23, fingerprint: "d801215e7c71d4b1be286523a4f0118a0c4ac8da80e2b33a1ca6063e64ae5f8b" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

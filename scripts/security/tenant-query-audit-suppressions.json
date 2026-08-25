@@ -182,15 +182,15 @@
       "fingerprint": "44194171d8e4",
       "file": "workers/scan-api/src/routes/attack-surface.js",
       "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.get(`reports/${s.id}.json`) where s is drawn from a workspace-scoped scan query inside an authenticated workspace route.",
-      "contract": "The enclosing route is workspace-authorized (see entry-point inventory); s.id derives from the workspace's own domains/scans."
+      "reason": "R2.get(`reports/${s.id}.json`) receives s only from loadLatestAttributedWorkspaceScans, whose SQL requires both the protected-domain link and direct scans.workspace_id attribution before ranking.",
+      "contract": "NULL-owner and co-linked foreign scans are excluded before any R2 key is derived; the F-021 two-tenant harness asserts the exact one permitted R2 key on /certificates."
     },
     {
       "fingerprint": "6d3eb9973d2d",
       "file": "workers/scan-api/src/routes/attack-surface.js",
       "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.get(`reports/${sid}.json`) where sid is a scan id from workspace-scoped scan rows inside an authenticated workspace route.",
-      "contract": "Enclosing route is workspace-authorized; sid comes from the workspace's own scans."
+      "reason": "R2.get(`reports/${sid}.json`) receives sid only from loadLatestAttributedWorkspaceScans, whose SQL requires direct scans.workspace_id attribution inside the authenticated workspace scope.",
+      "contract": "The F-021 two-tenant harness asserts the exact permitted R2 key set for SaaS, cloud, cloud-summary and admin aggregates and kills both NULL-owner and domain-only selector mutants."
     },
     {
       "fingerprint": "6cab39e04b7d",

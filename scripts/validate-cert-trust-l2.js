@@ -179,8 +179,8 @@ async function main() {
   db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES (?, ?, ?, ?)").run("memB", "ws2", "userB", "admin");
   db.prepare("INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)").run("dom1", "userA", "example.co.uk");
   db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?, ?)").run("ws1", "dom1");
-  db.prepare("INSERT INTO scans (id, domain_id, domain, score, rating, status, created_at) VALUES (?, ?, ?, 80, 'good', 'completed', ?)")
-    .run("scan1", "dom1", "example.co.uk", "2026-07-09T12:00:00.000Z");
+  db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, score, rating, status, created_at) VALUES (?, ?, ?, ?, 80, 'good', 'completed', ?)")
+    .run("scan1", "ws1", "dom1", "example.co.uk", "2026-07-09T12:00:00.000Z");
   db.prepare(`INSERT INTO certificate_observations
       (id, workspace_id, domain_id, scan_id, certificate_key, subject, issuer, san_count, expires_at, first_seen, last_seen, evidence_json, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)

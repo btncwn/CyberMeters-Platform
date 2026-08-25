@@ -65,8 +65,46 @@ const MARK = { scan_ws1: "MARKER-WS1", scan_ws2: "MARKER-WS2", scan_null: "MARKE
 const r2Gets = [];
 function objFor(id) {
   const m = MARK[id];
+  const report = {
+    scan_id: id,
+    domain: "shared-tenant.com",
+    status: "completed",
+    modules: {
+      leak_probe: m,
+      certificate_intelligence: {
+        certificate_risk_level: "high",
+        certificate_status: "valid",
+        issuer: `ISSUER-${m}`,
+        subject: "CN=shared-tenant.com",
+        total_certificates_seen: 1,
+        suspicious_certificate_signals: [],
+      },
+      saas_exposure: {
+        exposures: [{
+          name: `SAAS-${m}`, category: "collaboration",
+          exposure_type: "saas_tenant", risk_level: "high",
+          confidence: "confirmed",
+        }],
+      },
+      cloud_storage_discovery: {
+        findings: [{
+          asset: `CLOUD-${m}`, provider: `PROVIDER-${m}`,
+          category: "storage", service_type: "object_storage",
+          evidence: m, risk_level: "high",
+        }],
+      },
+      admin_surface_detection: {
+        evidence_status: "issue_detected",
+        services: [{
+          hostname: `${id}.shared-tenant.com`, product: `ADMIN-${m}`,
+          category: "admin_panel", severity: "critical",
+          confidence: "confirmed", risk_level: "critical",
+        }],
+      },
+    },
+  };
   return {
-    json:        async () => ({ scan_id: id, modules: { leak_probe: m } }),
+    json:        async () => report,
     text:        async () => JSON.stringify({ snapshot: { snapshot_schema_version: "1" }, marker: m }),
     arrayBuffer: async () => new TextEncoder().encode(m).buffer,
     body:        m,
@@ -136,11 +174,11 @@ async function main() {
   tryRun("INSERT INTO domains (id, user_id, domain) VALUES ('dom1','alice',?)", SHARED);
   tryRun("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws1','dom1')");
   tryRun("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws2','dom1')"); // <- co-linked
-  const seedScan = (id, ws) =>
-    tryRun(`INSERT INTO scans (id, workspace_id, domain_id, domain, score, rating, status, scan_quality, created_at) VALUES (?, ?, 'dom1', ?, 80, 'good', 'completed', 'complete', datetime('now'))`, id, ws, SHARED);
-  seedScan("scan_ws1", "ws1");
-  seedScan("scan_ws2", "ws2");
-  seedScan("scan_null", null);   // legacy: owner UNKNOWN
+  const seedScan = (id, ws, createdAt) =>
+    tryRun(`INSERT INTO scans (id, workspace_id, domain_id, domain, score, rating, status, scan_quality, created_at) VALUES (?, ?, 'dom1', ?, 80, 'good', 'completed', 'complete', ?)`, id, ws, SHARED, createdAt);
+  seedScan("scan_ws1", "ws1", "2026-08-25 00:00:01");
+  seedScan("scan_null", null,  "2026-08-25 00:00:02");   // legacy: owner UNKNOWN, newer than ws1
+  seedScan("scan_ws2", "ws2", "2026-08-25 00:00:03");   // foreign, newest for shared domain
 
   // ── FIXTURE PRECONDITIONS — the suite is meaningless if these fail ────────
   section = "fixture-preconditions";
@@ -159,11 +197,6 @@ async function main() {
     let data; try { data = JSON.parse(body); } catch { data = null; }
     return { status: r.status, body, data };
   };
-  // A leak = any 2xx echoing the owner's private marker. A 401 is NOT a pass:
-  // it means the actor was never signed in, so the check proved nothing.
-  const leaks = (r, m) => r.status < 300 && String(r.body ?? "").includes(m);
-  const deniedNotVacuous = (r, m) => r.status !== 401 && !leaks(r, m);
-
   const SURFACES = (id) => [
     [`detail`,      `/api/scans/${id}`],
     [`report`,      `/api/scans/${id}/report`],
@@ -182,31 +215,40 @@ async function main() {
     ok(`${who} is genuinely authenticated (not a vacuous 401)`, probe.status !== 401);
   }
 
-  // ── 1. FOREIGN scan is denied on every surface, with ZERO R2 access ────────
-  section = "foreign-denied";
-  for (const [name, p] of SURFACES("scan_ws2")) {
+  // ── 1. Direct-ID reads: exact denial + no existence or R2 oracle ───────────
+  // A non-401/non-marker response is not enough: 200/404/500 could all mask a
+  // broken test. Foreign, NULL-owner and nonexistent IDs must produce the exact
+  // same 403 body, and denial must occur before ANY R2 access.
+  for (const [name, foreignPath] of SURFACES("scan_ws2")) {
+    const nullPath = SURFACES("scan_null").find(([n]) => n === name)[1];
+    const missingPath = SURFACES("scan_does_not_exist").find(([n]) => n === name)[1];
+    section = `direct-${name}`;
+
     r2Gets.length = 0;
-    const r = await call(p, T.alice);
-    ok(`alice cannot read ws2's scan via ${name}`, deniedNotVacuous(r, MARK.scan_ws2));
-    ok(`ZERO R2 access for foreign scan via ${name}`, r2Gets.filter(k => k.includes("scan_ws2")).length === 0);
+    const missing = await call(missingPath, T.alice);
+    ok(`nonexistent scan is exact 403 via ${name}`, missing.status === 403);
+    ok(`ZERO total R2 access for nonexistent scan via ${name}`, r2Gets.length === 0);
+
+    r2Gets.length = 0;
+    const foreign = await call(foreignPath, T.alice);
+    ok(`foreign scan is exact same 403 via ${name}`,
+      foreign.status === 403 && foreign.body === missing.body);
+    ok(`ZERO total R2 access for foreign scan via ${name}`, r2Gets.length === 0);
+
+    r2Gets.length = 0;
+    const legacy = await call(nullPath, T.alice);
+    ok(`NULL-owner scan is exact same 403 via ${name}`,
+      legacy.status === 403 && legacy.body === missing.body);
+    ok(`ZERO total R2 access for NULL-owner scan via ${name}`, r2Gets.length === 0);
   }
 
-  // ── 2. LEGACY NULL-owner scan is denied, with ZERO R2 access ──────────────
-  section = "legacy-null-denied";
-  for (const [name, p] of SURFACES("scan_null")) {
-    r2Gets.length = 0;
-    const r = await call(p, T.alice);
-    ok(`NULL-owner scan not readable via ${name}`, deniedNotVacuous(r, MARK.scan_null));
-    ok(`ZERO R2 access for NULL-owner scan via ${name}`, r2Gets.filter(k => k.includes("scan_null")).length === 0);
-  }
-
-  // ── 3. POSITIVE CONTROL — the owner still reads its own scan ──────────────
+  // ── 2. POSITIVE CONTROL — the owner still reads its own scan ──────────────
   // Without this the suite would pass by denying everything.
   section = "positive-control";
   const own = await call("/api/scans/scan_ws1", T.alice);
   ok("alice CAN read her own scan (guard is not deny-all)", own.status === 200);
 
-  // ── 4. LIST surfaces are scoped ───────────────────────────────────────────
+  // ── 3. LIST surfaces are scoped ───────────────────────────────────────────
   section = "list";
   for (const [who, tok, mine, theirs] of [["alice", T.alice, "scan_ws1", "scan_ws2"], ["bob", T.bob, "scan_ws2", "scan_ws1"]]) {
     const l = await call("/api/scans", tok);
@@ -219,20 +261,37 @@ async function main() {
   ok("workspace-filtered list EXCLUDES foreign scan",    !String(lf.body).includes("scan_ws2"));
   ok("workspace-filtered list EXCLUDES NULL-owner scan", !String(lf.body).includes("scan_null"));
 
+  // ── 4. WORKSPACE AGGREGATES select only directly attributed scans ─────────
+  // The foreign scan is newest and the NULL-owner scan is newer than Alice's.
+  // Therefore each surface proves that recency is evaluated only AFTER direct
+  // workspace attribution. Every route stays a 200 aggregate but may derive
+  // exactly one R2 key: Alice's own scan.
+  const AGGREGATES = [
+    ["certificates",  "/api/workspaces/ws1/certificates",         "ISSUER-MARKER-WS1"],
+    ["saas",          "/api/workspaces/ws1/saas-exposure",        "SAAS-MARKER-WS1"],
+    ["cloud",         "/api/workspaces/ws1/cloud-assets",         "CLOUD-MARKER-WS1"],
+    ["cloud-summary", "/api/workspaces/ws1/cloud-assets/summary", "PROVIDER-MARKER-WS1"],
+    ["admin",         "/api/workspaces/ws1/admin-surfaces",       "ADMIN-MARKER-WS1"],
+  ];
+  for (const [name, p, ownMarker] of AGGREGATES) {
+    section = `aggregate-${name}`;
+    r2Gets.length = 0;
+    const r = await call(p, T.alice);
+    ok(`${name} returns its normal workspace aggregate`, r.status === 200);
+    ok(`${name} includes own directly attributed scan`, String(r.body).includes(ownMarker));
+    ok(`${name} excludes foreign and NULL-owner report bytes`,
+      !String(r.body).includes(MARK.scan_ws2) && !String(r.body).includes(MARK.scan_null));
+    ok(`${name} derives the exact one permitted R2 key`,
+      r2Gets.length === 1 && r2Gets[0] === "reports/scan_ws1.json");
+  }
+
   // ── 5. HISTORY is scoped by DIRECT attribution ────────────────────────────
   section = "history";
   const h = await call(`/api/domain/${SHARED}/history`, T.alice);
   ok("history route actually engaged (not a vacuous 400/401)", h.status === 200);
-  console.log(`  [debug] history body=${String(h.body).slice(0,500)}`);
   ok("history contains own scan",         String(h.body).includes("scan_ws1"));
   ok("history EXCLUDES foreign scan",    !String(h.body).includes("scan_ws2"));
   ok("history EXCLUDES NULL-owner scan", !String(h.body).includes("scan_null"));
-
-  // ── 6. Enumeration safety ─────────────────────────────────────────────────
-  section = "enumeration";
-  const foreign = await call("/api/scans/scan_ws2/report", T.alice);
-  const missing = await call("/api/scans/scan_does_not_exist/report", T.alice);
-  ok("foreign and nonexistent are indistinguishable", foreign.status === missing.status);
 
   console.log(results.join("\n"));
   console.log(`\nF-021 scan-read tenant isolation: ${passed} passed, ${failed} failed`);

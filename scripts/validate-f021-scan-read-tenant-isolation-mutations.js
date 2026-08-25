@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 //
-// F-021 mutation proof. Each mutant REINTRODUCES one of the three original
-// leaks; the isolation suite must FAIL on a NAMED assertion. An invalid-kill
-// control (cosmetic edit) must SURVIVE, so the suite cannot pass by being
+// F-021 mutation proof. Each mutant REINTRODUCES one member of the scan-read
+// isolation defect class; the isolation suite must FAIL on a NAMED assertion.
+// An invalid-kill control (cosmetic edit) must SURVIVE, so the suite cannot pass by being
 // merely brittle. Baseline is gated: mutants measured against a red baseline
 // prove nothing. Target bytes are restored and hash-verified after every run.
 //
@@ -16,6 +16,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SUITE = path.join(root, "scripts", "validate-f021-scan-read-tenant-isolation.js");
 const GUARD = path.join(root, "workers", "scan-api", "src", "index.js");
 const ROUTES = path.join(root, "workers", "scan-api", "src", "routes", "scans.js");
+const ATTACK_SURFACE = path.join(root, "workers", "scan-api", "src", "routes", "attack-surface.js");
 const sha = (p) => crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
 
 function runSuite() {
@@ -37,11 +38,20 @@ const MUTANTS = [
       }
       return null;
     }`,
-    expect: "legacy-null-denied" },
-  { name: "M2_RESTORE_LIST_NULL_FALLBACK", file: ROUTES,
+    expect: ["direct-detail", "direct-report", "direct-pdf", "direct-exec-v2", "direct-snapshot"] },
+  { name: "M2A_RESTORE_UNFILTERED_LIST_NULL_FALLBACK", file: ROUTES,
     from: `             WHERE s.workspace_id IN (\${placeholders})`,
     to:   `             WHERE (s.workspace_id IN (\${placeholders}) OR (s.workspace_id IS NULL AND wd.workspace_id IN (\${placeholders})))`,
     also: [[`          .bind(...workspaceIds)`, `          .bind(...workspaceIds, ...workspaceIds)`]],
+    expect: "list" },
+  { name: "M2B_RESTORE_FILTERED_LIST_NULL_FALLBACK", file: ROUTES,
+    from: `             WHERE s.workspace_id = ?
+             ORDER BY s.created_at DESC
+             LIMIT 20`,
+    to:   `             WHERE (s.workspace_id = ? OR (s.workspace_id IS NULL AND wd.workspace_id = ?))
+             ORDER BY s.created_at DESC
+             LIMIT 20`,
+    also: [[`          .bind(wsFilter)`, `          .bind(wsFilter, wsFilter)`]],
     expect: "list" },
   // The fix removed the workspace_domains JOIN outright, so a mutant that only
   // swaps the WHERE column is INVALID SQL — it crashes instead of reproducing
@@ -58,6 +68,14 @@ const MUTANTS = [
     also: [[`           WHERE s.domain = ? AND s.workspace_id IN (\${placeholders})`,
             `           WHERE s.domain = ? AND wd.workspace_id IN (\${placeholders})`]],
     expect: "history" },
+  { name: "M4_RESTORE_AGGREGATE_NULL_FALLBACK", file: ATTACK_SURFACE,
+    from: `           AND s.workspace_id = ?`,
+    to:   `           AND (s.workspace_id = ? OR s.workspace_id IS NULL)`,
+    expect: ["aggregate-certificates", "aggregate-saas", "aggregate-cloud", "aggregate-cloud-summary", "aggregate-admin"] },
+  { name: "M5_RESTORE_AGGREGATE_DOMAIN_ONLY_SCOPE", file: ATTACK_SURFACE,
+    from: `           AND s.workspace_id = ?`,
+    to:   `           AND wd.workspace_id = ?`,
+    expect: ["aggregate-certificates", "aggregate-saas", "aggregate-cloud", "aggregate-cloud-summary", "aggregate-admin"] },
 ];
 const CONTROL = { name: "CONTROL_COSMETIC_COMMENT", file: GUARD,
   from: `    // F-021 — a scan is readable ONLY through its own DIRECT workspace`,
@@ -76,7 +94,16 @@ for (const m of MUTANTS) {
   let mutated = orig;
   if (mutated.split(m.from).length - 1 !== 1) { console.log(`  ANCHOR-FAIL ${m.name}`); allKilled = false; continue; }
   mutated = mutated.replace(m.from, m.to);
-  for (const [a, b] of (m.also || [])) mutated = mutated.replace(a, b);
+  let auxiliaryAnchorsValid = true;
+  for (const [a, b] of (m.also || [])) {
+    if (mutated.split(a).length - 1 !== 1) {
+      console.log(`  ANCHOR-FAIL ${m.name} auxiliary replacement`);
+      auxiliaryAnchorsValid = false;
+      break;
+    }
+    mutated = mutated.replace(a, b);
+  }
+  if (!auxiliaryAnchorsValid) { allKilled = false; continue; }
   fs.writeFileSync(m.file, mutated);
   const r = runSuite();
   fs.writeFileSync(m.file, orig);
@@ -85,10 +112,18 @@ for (const m of MUTANTS) {
   // than defective. A kill requires a NAMED assertion failure in the expected
   // section, and the suite must have reached its terminal summary line.
   const reachedEnd = /scan-read tenant isolation: \d+ passed/.test(r.out);
-  const named = failedNames(r.out).filter(l => l.includes(`[${m.expect}]`));
-  const killed = !r.ok && reachedEnd && named.length > 0;
+  const expectedSections = Array.isArray(m.expect) ? m.expect : [m.expect];
+  const allFailures = failedNames(r.out);
+  const named = allFailures.filter((line) =>
+    expectedSections.some((expected) => line.includes(`[${expected}]`))
+  );
+  const coveredSections = expectedSections.filter((expected) =>
+    allFailures.some((line) => line.includes(`[${expected}]`))
+  );
+  const killed = !r.ok && reachedEnd && coveredSections.length === expectedSections.length;
   console.log(`  ${killed ? "KILLED " : "SURVIVED"} ${m.name}`);
-  console.log(`      expected section: [${m.expect}]   named failures: ${named.length}   suite completed: ${reachedEnd}`);
+  console.log(`      expected sections: ${expectedSections.map((s) => `[${s}]`).join(", ")}`);
+  console.log(`      covered sections: ${coveredSections.length}/${expectedSections.length}   named failures: ${named.length}   suite completed: ${reachedEnd}`);
   if (named[0]) console.log(`      e.g. ${named[0]}`);
   console.log(`      bytes restored: ${before === after ? "verified" : "MISMATCH"}`);
   allKilled &&= killed && before === after;
@@ -108,5 +143,5 @@ console.log("\n=== INVALID-KILL CONTROL ===");
     allKilled &&= ok;
   }
 }
-console.log(`\nRESULT: ${allKilled ? "3/3 MUTANTS KILLED BY NAME, CONTROL SURVIVED" : "FAILED"}`);
+console.log(`\nRESULT: ${allKilled ? "6/6 MUTANTS KILLED BY NAME, CONTROL SURVIVED" : "FAILED"}`);
 process.exit(allKilled ? 0 : 1);
