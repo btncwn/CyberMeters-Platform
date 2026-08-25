@@ -7,6 +7,31 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## Merged to main — not yet deployed
+
+### F-009 deletion-integrity containment — merged 2026-08-25 (PR #436)
+
+**Status:** MERGED (main `327923263c5f9f24627ed144beee4194b5ecebfb`), **NOT DEPLOYED**.
+Deploy is explicitly gated on exercising real Cloudflare D1 `PRAGMA foreign_key_check`
+behaviour (unsupported or ambiguous = fail closed) plus the normal release sequence.
+
+- Account/workspace deletion can no longer mark itself `completed` or send the
+  "permanently removed" email while rows, R2 objects or parent records survive. Completion
+  now requires in-path proof: governed zero row-counts, `PRAGMA foreign_key_check` clean,
+  verified parent absence, and R2 objects deleted-and-verified BEFORE their pointers.
+- **Visible behaviour change (honest, by design):** account deletion currently terminates
+  as `blocked_residual_data` — no completion and no permanence email — until the separate
+  founder/legal erasure-vs-anonymisation decision. Workspace deletion completes only after
+  proof; under Governance ruling it releases ONLY `deletion_requests.workspace_id`
+  immediately before the verified parent delete, preserving every other retained audit field.
+- Purge predicates corrected at the schema (`oauth_states` entry removed — no such column;
+  `customer_profiles` keys on `owner_user_id`); purge tables now declare `{table, column}`.
+- Independent R1 (Codex Desktop) FAILED the first head on four load-bearing findings
+  (atomicity, error-as-absence, validator-only proof gate, optional R2 absence check);
+  all four fixed and re-verified PASS on head `86a6f284`. Focused suite 28/28; named
+  mutants 8/8. Production occurrence of the historical false permanence email is
+  **not measured** — no claim is made either way.
+
 ## v2026.08.23-2 — P1.3 lifecycle gates + AS-B2 score wiring — deployed 2026-08-23
 
 **Status:** DEPLOYED. Exact merged main
