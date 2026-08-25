@@ -17,6 +17,19 @@ const engine = (file) => pathToFileURL(
 
 const breakSharing = process.argv.includes("--mutate-break-sharing");
 const falseEmpty = process.argv.includes("--mutate-failure-to-empty");
+const reservedDistinctCaches = process.argv.includes("--mutate-reserved-distinct-caches");
+
+const RESERVED_DISTINCT_CACHE_MUTANT = Object.freeze({
+  id: "CTCACHE-M3-reserved-distinct-caches",
+  before: "      ctCache: sharedCtCache,\n      ctOverlap,",
+  after: "      ctCache: createCertificateTransparencyCache(),\n      ctOverlap,",
+});
+
+function replaceExactlyOnce(source, before, after, id) {
+  const matches = source.split(before).length - 1;
+  if (matches !== 1) throw new Error(`${id}: anchor count ${matches}, expected 1`);
+  return source.replace(before, after);
+}
 
 const {
   createCertificateTransparencyCache,
@@ -158,10 +171,18 @@ try {
       path.join(root, "workers", "scan-api", "src", "engines", "scan-engine.js"),
       "utf8"
     );
-    const reservedSource = fs.readFileSync(
+    let reservedSource = fs.readFileSync(
       path.join(root, "workers", "scan-api", "src", "engines", "reserved-scan.js"),
       "utf8"
     );
+    if (reservedDistinctCaches) {
+      reservedSource = replaceExactlyOnce(
+        reservedSource,
+        RESERVED_DISTINCT_CACHE_MUTANT.before,
+        RESERVED_DISTINCT_CACHE_MUTANT.after,
+        RESERVED_DISTINCT_CACHE_MUTANT.id,
+      );
+    }
     eq("scan engine creates one per-scan CT cache",
       (scanEngineSource.match(/const ctCache = createCertificateTransparencyCache\(/g) || []).length,
       1);
@@ -170,8 +191,8 @@ try {
         /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(scanEngineSource));
     ok("reserved scan reuses one cache for SSL and subdomains",
       /runReservedScan\(domain, \{\s*capacity,\s*ctCache,\s*ctOverlap: ctProviderOverlap,\s*dnsCache,\s*knownAssetHosts,\s*signal: deadline\.signal,\s*globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\),/.test(scanEngineSource) &&
-        /runSslModule\(domain, \{ ctCache: sharedCtCache, signal: consumerSignal \}\)/.test(reservedSource) &&
-        /run: \(consumerSignal\) => runSubdomainsModule\(domain, \{\s*cache: dnsCache,\s*ctCache: sharedCtCache,\s*ctOverlap,\s*signal: consumerSignal,\s*globalSignal: signal,\s*globalDeadlineProvenance,\s*\}\)/.test(reservedSource));
+        /runSslModule\(domain, \{\s*(?:accounting,\s*)?ctCache: sharedCtCache,\s*signal: consumerSignal\s*\}\)/.test(reservedSource) &&
+        /run: \(consumerSignal\) => runSubdomainsModule\(domain, \{\s*(?:accounting,\s*)?cache: dnsCache,\s*ctCache: sharedCtCache,\s*ctOverlap,\s*signal: consumerSignal,\s*globalSignal: signal,\s*globalDeadlineProvenance,\s*\}\)/.test(reservedSource));
   }
 
   // ── Successful provider results: one lookup and byte-stable consumers ─────
@@ -328,8 +349,8 @@ try {
   eq("successful-empty still performs one crt.sh fetch", emptyCalls.crt_sh, 1);
   eq("successful-empty still performs one CertSpotter fetch", emptyCalls.certspotter, 1);
 
-  // Execute both defect-class mutations. Each nested validator must turn red.
-  if (!breakSharing && !falseEmpty) {
+  // Execute all three defect-class mutations. Each nested validator must turn red.
+  if (!breakSharing && !falseEmpty && !reservedDistinctCaches) {
     const sharingMutation = spawnSync(process.execPath, [scriptPath, "--mutate-break-sharing"], {
       cwd: root,
       encoding: "utf8",
@@ -345,6 +366,33 @@ try {
     ok("mutation: converting unavailable to empty-as-healthy makes the validator RED",
       failureMutation.status !== 0 &&
         failureMutation.stdout.includes("FAIL provider timeout is explicit unavailable"));
+
+    const reservedDistinctMutation = spawnSync(
+      process.execPath,
+      [scriptPath, "--mutate-reserved-distinct-caches"],
+      { cwd: root, encoding: "utf8" },
+    );
+    const reservedDistinctOutput =
+      `${reservedDistinctMutation.stdout || ""}\n${reservedDistinctMutation.stderr || ""}`;
+    const reservedDistinctKilled =
+      reservedDistinctMutation.status === 1 &&
+      reservedDistinctMutation.signal === null &&
+      reservedDistinctMutation.stdout.includes(
+        "FAIL reserved scan reuses one cache for SSL and subdomains",
+      ) &&
+      reservedDistinctMutation.stdout.includes(
+        "shared-ct-provider-cache: 61 passed, 1 failed",
+      ) &&
+      !/SyntaxError|ERR_MODULE_NOT_FOUND|uncaught exception/i.test(reservedDistinctOutput);
+    ok(
+      `mutation: ${RESERVED_DISTINCT_CACHE_MUTANT.id} is killed by the named reserved-sharing assertion`,
+      reservedDistinctKilled,
+    );
+    if (reservedDistinctKilled) {
+      console.log(
+        `KILLED ${RESERVED_DISTINCT_CACHE_MUTANT.id} — FAIL reserved scan reuses one cache for SSL and subdomains`,
+      );
+    }
   }
 } finally {
   globalThis.fetch = realFetch;
