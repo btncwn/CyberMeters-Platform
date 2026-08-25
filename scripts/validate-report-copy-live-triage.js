@@ -59,6 +59,55 @@ function ok(name, cond, detail = "") {
   ok("D4: bare org apex is not treated as the hosted RUA endpoint",
     orgApex.destinations[0].authorization_status !== "not_required_cybermeters_hosted");
 
+  // P1-1 negative paths (R1 verdict): a hosted destination consumes NO budget
+  // and NO reservation, so no budget state may un-know our own hosted
+  // authority. Check order decides reachability — these three fixtures pin the
+  // hosted short-circuit AHEAD of every budget/reservation gate.
+  const evidenceFor = (hosts) => ({
+    policy_source_domain: "sheshire.co.uk", organisational_domain: "sheshire.co.uk",
+    rua_destinations: hosts.map(validUri),
+  });
+
+  // (1) Reservation refusal: reserveHost must not even be CALLED for hosted.
+  let hostedReservationCalls = 0;
+  const refusedReservation = await resolveDmarcbisExternalRuaAuthorizations({
+    policyEvidence: evidenceFor(["reports.cybermeters.com"]),
+    dns: dnsMustNotRun,
+    reserveHost: () => { hostedReservationCalls += 1; return false; },
+  });
+  ok("D4-P1: hosted destination survives a refused reservation",
+    refusedReservation.destinations[0].authorization_status === "not_required_cybermeters_hosted" &&
+      refusedReservation.destinations[0].lookup_completeness === "complete" &&
+      refusedReservation.all_destinations_authorized === true,
+    JSON.stringify({ status: refusedReservation.destinations[0].authorization_status, all: refusedReservation.all_destinations_authorized }));
+  ok("D4-P1: hosted destination reserves nothing",
+    hostedReservationCalls === 0, `reserveHost called ${hostedReservationCalls}x`);
+
+  // (2) Already-closed budget: an external vendor's refused reservation closes
+  // the budget; the hosted destination AFTER it must still resolve hosted.
+  const closedBudget = await resolveDmarcbisExternalRuaAuthorizations({
+    policyEvidence: evidenceFor(["reports.vendor.test", "reports.cybermeters.com"]),
+    dns: dnsMustNotRun,
+    reserveHost: () => false,
+  });
+  ok("D4-P1: hosted destination after a closed budget still resolves hosted",
+    closedBudget.destinations[1].authorization_status === "not_required_cybermeters_hosted" &&
+      closedBudget.destinations[1].lookup_completeness === "complete",
+    closedBudget.destinations[1].authorization_status);
+
+  // (3) Hosted after the external-host cap: five admitted externals fill the
+  // cap; the hosted destination is still ours and still resolves hosted.
+  const cappedHosts = [1, 2, 3, 4, 5].map((n) => `reports.vendor${n}.test`).concat("reports.cybermeters.com");
+  const capped = await resolveDmarcbisExternalRuaAuthorizations({
+    policyEvidence: evidenceFor(cappedHosts),
+    dns: async () => ({ outcome: "not_issued_budget" }),
+    reserveHost: () => true,
+  });
+  ok("D4-P1: hosted destination after the external-host cap still resolves hosted",
+    capped.destinations[5].authorization_status === "not_required_cybermeters_hosted" &&
+      capped.destinations[5].lookup_completeness === "complete",
+    capped.destinations[5].authorization_status);
+
   // Wire-in: the presentation layer gives the hosted status an honest label +
   // message and does NOT print "Authorisation unavailable".
   const read = {
@@ -481,6 +530,75 @@ function ok(name, cond, detail = "") {
     completeEmptyScoreCell.scan_quality === "complete");
   ok("D3 boundary: the withheld-band law holds without a suppression claim",
     completeEmptyScoreCell.risk_level === null && completeEmptyScoreCell.suppression_reason === undefined);
+
+  // P1-2 (R1 verdict): the historical website-redirect invalidation must be
+  // ATOMIC. Nulling the headline score/band while the stale assessment
+  // (85/good/authoritative), summary and BRI survive re-publishes the withdrawn
+  // conclusion through every surface that reads those fields.
+  const p12StaleSnapshot = () => ({
+    domains: [{ domain_key: "website_security", state: "issue_detected",
+      finding_ids: ["ssl_no_http_redirect"], finding_count: 1 }],
+    observed_findings: [{ finding_id: "ssl_no_http_redirect", title: "Missing HTTPS redirect" }],
+    overall: {
+      cyber_metrics_score: 85, score_band: "good",
+      assessment: { raw_score: 85, display_score: 85, display_rating: "good",
+        quality: "complete", provisional: false, authoritative: true, comparable: true, message: null },
+      summary: "Stale scored summary",
+      business_risk_indicator: { band: "low", explanation: "Stale BRI explanation",
+        provisional: false, internal_metrics: { score: 20 } },
+      evidence_completeness: { scan_quality: "complete" },
+    },
+  });
+  const p12BadChainModules = () => ({
+    ...completeMods(),
+    ssl: { http_redirect_chain: {
+      http_redirect_validated: true,
+      hop_observations: [{ state: "transport_unavailable", origin_status: null }],
+    } },
+  });
+  const invalidated = projectPhase5SnapshotForCustomer(p12StaleSnapshot(), p12BadChainModules());
+  ok("P1-2: invalidation still nulls headline score and band",
+    invalidated.overall.cyber_metrics_score === null && invalidated.overall.score_band === null);
+  ok("P1-2: stale assessment cannot stay authoritative",
+    invalidated.overall.assessment?.authoritative !== true &&
+      invalidated.overall.assessment?.display_score !== 85 &&
+      invalidated.overall.assessment?.display_rating == null,
+    JSON.stringify({ a: invalidated.overall.assessment?.authoritative, s: invalidated.overall.assessment?.display_score }));
+  ok("P1-2: stale summary does not survive the invalidation",
+    invalidated.overall.summary == null, String(invalidated.overall.summary));
+  ok("P1-2: stale BRI band and internal score do not survive the invalidation",
+    invalidated.overall.business_risk_indicator?.band == null &&
+      invalidated.overall.business_risk_indicator?.internal_metrics?.score == null,
+    JSON.stringify(invalidated.overall.business_risk_indicator?.band));
+  ok("P1-2: the withheld reason is customer-visible on the assessment",
+    /never observed|withheld/i.test(invalidated.overall.assessment?.message || ""),
+    String(invalidated.overall.assessment?.message));
+
+  // P1-2 current-posture: the same invalidation predicate must reach authority
+  // selection — a complete row whose persisted 85/good rests on the withdrawn
+  // redirect conclusion cannot present as the authoritative posture.
+  const withheldRow = { scan_id: "scan-p12", score: 85, rating: "good",
+    scan_quality: "complete", status: "completed", created_at: "2026-08-20T10:00:00.000Z" };
+  const withheldEnv = {
+    cybermeters_db: { prepare: () => ({ bind: () => ({
+      first: async () => withheldRow,
+      all: async () => ({ results: [withheldRow] }),
+    }) }) },
+    cybermeters_reports: { get: async () => ({ json: async () => ({
+      monitoring_states: healthyMonitoringStates,
+      modules: p12BadChainModules(),
+      findings: [{ id: "ssl_no_http_redirect", severity: "medium" }],
+    }) }) },
+  };
+  const withheldPosture = await getCurrentPosturePresentation(withheldEnv, { domainId: "dom-p12" });
+  ok("P1-2 current posture: a withdrawn redirect conclusion cannot be authoritative",
+    withheldPosture.state === "not_established" && withheldPosture.authoritative === null,
+    JSON.stringify({ state: withheldPosture.state }));
+  ok("P1-2 current posture: the row survives only as null-score provisional with the withheld cause",
+    withheldPosture.latest_provisional?.display_score === null &&
+      withheldPosture.latest_provisional?.display_rating == null &&
+      /never observed|withheld/i.test(withheldPosture.latest_provisional?.message || ""),
+    JSON.stringify({ s: withheldPosture.latest_provisional?.display_score, m: withheldPosture.latest_provisional?.message }));
 
   const scanDetailSource = readFileSync(
     new URL("../frontend/src/pages/ScanDetail.jsx", import.meta.url),

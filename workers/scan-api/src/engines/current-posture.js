@@ -14,7 +14,11 @@
 //      (the authoritative query matches scan_quality='complete' only).
 
 import { normalizeQuality, POSTURE_NOT_ESTABLISHED_MESSAGE } from "./assessment-presentation.js";
-import { resolvePhase5HistoricalCustomerProjection } from "./phase5-evidence.js";
+import {
+  resolvePhase5HistoricalCustomerProjection,
+  websiteRedirectConclusionWithheld,
+  WEBSITE_REDIRECT_WITHHELD_MESSAGE,
+} from "./phase5-evidence.js";
 
 // scope: { workspaceId } (latest across the workspace's linked domains) or
 // { domainId } (a single domain). Returns:
@@ -92,6 +96,7 @@ export async function getCurrentPosturePresentation(env, scope) {
 
     let monitoringStates;
     let phase5Modules = {};
+    let reportFindings = null;
     // A raw "complete" scan row is only a candidate for authority. The immutable
     // report carries provider/signal provenance; missing R2, malformed JSON, or
     // absent provenance fails toward provisional. Non-complete rows are already
@@ -102,9 +107,11 @@ export async function getCurrentPosturePresentation(env, scope) {
         const report = object ? await object.json() : null;
         monitoringStates = report?.monitoring_states ?? null;
         phase5Modules = report?.modules ?? {};
+        reportFindings = report?.findings ?? null;
       } catch {
         monitoringStates = null;
         phase5Modules = {};
+        reportFindings = null;
       }
     }
     const phase5 = resolvePhase5HistoricalCustomerProjection({
@@ -118,7 +125,24 @@ export async function getCurrentPosturePresentation(env, scope) {
     // where its own intelligence evidence is complete but a score-bearing
     // module was skipped. Re-branching on evidence.complete here used to revive
     // the stored numeric score for precisely that suppressed case.
-    const value = phase5.assessment;
+    //
+    // P1-2: the SAME historical invalidation the snapshot projector applies
+    // must reach authority selection. A persisted 85/good that rests on the
+    // withdrawn non-serviceable redirect conclusion cannot become the
+    // authoritative posture just because this reader looked at raw modules
+    // instead of the projected snapshot.
+    const websiteWithheld = websiteRedirectConclusionWithheld(phase5Modules, reportFindings);
+    const value = websiteWithheld
+      ? {
+          ...phase5.assessment,
+          display_score: null,
+          display_rating: null,
+          authoritative: false,
+          comparable: false,
+          provisional: true,
+          message: WEBSITE_REDIRECT_WITHHELD_MESSAGE,
+        }
+      : phase5.assessment;
     presentations.set(row.scan_id, value);
     return value;
   };

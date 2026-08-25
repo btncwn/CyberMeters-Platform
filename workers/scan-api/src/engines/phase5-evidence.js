@@ -519,32 +519,43 @@ export const LEGACY_WEBSITE_REDIRECT_FINDING = "ssl_no_http_redirect";
  * absent evidence is the same error in the opposite direction: it would tell a
  * customer their honest historical conclusion was unfounded, on no evidence at all.
  */
-export function projectWebsiteRedirectSnapshotForCustomer(snapshot, modules = {}) {
-  if (!snapshot || typeof snapshot !== "object") return snapshot;
-  const chain = modules?.ssl?.http_redirect_chain;
-  // No readable chain => cannot evaluate => say nothing.
-  if (!chain || typeof chain !== "object") return snapshot;
-  if (chain.http_redirect_validated !== true) return snapshot;
+export const WEBSITE_REDIRECT_WITHHELD_MESSAGE =
+  "The recorded HTTP hop did not serve a response, so whether this site "
+  + "redirected to HTTPS was never observed; the historical defect conclusion is withheld.";
 
-  // The hop whose answer was treated as the redirect decision.
+// The SINGLE invalidation predicate for the legacy non-serviceable redirect
+// conclusion (P1-2). True only when the recorded chain POSITIVELY shows the
+// "validated" hop could not have grounded the defect AND the conclusion set
+// actually contains the legacy finding. Snapshot findings carry `finding_id`;
+// raw report findings carry `id` — both are accepted so the snapshot projector
+// and current-posture authority selection answer the SAME question.
+export function websiteRedirectConclusionWithheld(modules, findings) {
+  const chain = modules?.ssl?.http_redirect_chain;
+  if (!chain || typeof chain !== "object") return false;        // cannot evaluate => neutral
+  if (chain.http_redirect_validated !== true) return false;
   const hops = Array.isArray(chain.hop_observations) ? chain.hop_observations : [];
   const firstHop = hops.length ? hops[0] : null;
   const observation = firstHop
     ? { state: firstHop.state ?? chain.observation_state, origin_status: firstHop.origin_status }
     : { state: chain.observation_state, origin_status: chain.origin_status };
-  if (typeof observation.state !== "string") return snapshot;   // unreadable => neutral
+  if (typeof observation.state !== "string") return false;      // unreadable => neutral
   const serviceability = classifyServiceability(observation);
   // Serviceable evidence: the historical conclusion stands. Unknown also stands —
   // only a POSITIVE reading of "this could not have grounded a defect" projects.
-  if (serviceability.serviceable !== false) return snapshot;
-  if (maySupportDefectConclusion(serviceability)) return snapshot;
+  if (serviceability.serviceable !== false) return false;
+  if (maySupportDefectConclusion(serviceability)) return false;
+  const list = Array.isArray(findings) ? findings : [];
+  return list.some((f) => (f?.finding_id ?? f?.id) === LEGACY_WEBSITE_REDIRECT_FINDING);
+}
+
+export function projectWebsiteRedirectSnapshotForCustomer(snapshot, modules = {}) {
+  if (!snapshot || typeof snapshot !== "object") return snapshot;
+  if (!websiteRedirectConclusionWithheld(modules, snapshot.observed_findings)) return snapshot;
 
   const findings = Array.isArray(snapshot.observed_findings) ? snapshot.observed_findings : [];
   const kept = findings.filter((f) => f?.finding_id !== LEGACY_WEBSITE_REDIRECT_FINDING);
-  if (kept.length === findings.length) return snapshot;         // the class is not present here
 
-  const withheld = "The recorded HTTP hop did not serve a response, so whether this site "
-    + "redirected to HTTPS was never observed; the historical defect conclusion is withheld.";
+  const withheld = WEBSITE_REDIRECT_WITHHELD_MESSAGE;
   const domains = (Array.isArray(snapshot.domains) ? snapshot.domains : []).map((entry) => {
     if (entry?.domain_key !== "website_security") return entry;
     const ids = (Array.isArray(entry.finding_ids) ? entry.finding_ids : [])
@@ -560,11 +571,41 @@ export function projectWebsiteRedirectSnapshotForCustomer(snapshot, modules = {}
     };
   });
   const overall = snapshot.overall ?? {};
+  const bri = overall.business_risk_indicator ?? {};
   return {
     ...snapshot,
     domains,
     observed_findings: kept,
-    overall: { ...overall, cyber_metrics_score: null, score_band: null },
+    // ATOMIC invalidation (P1-2): a withdrawn score conclusion takes its band,
+    // its authoritative assessment, its scored summary and its BRI with it —
+    // nulling the headline number while those survive re-publishes the
+    // withdrawn conclusion on every surface that reads them.
+    overall: {
+      ...overall,
+      cyber_metrics_score: null,
+      score_band: null,
+      summary: null,
+      assessment: resolveAssessmentPresentation({
+        score: null,
+        scanQuality: overall.assessment?.quality
+          ?? overall.evidence_completeness?.scan_quality
+          ?? null,
+        status: "completed",
+        suppressionReason: withheld,
+      }),
+      business_risk_indicator: {
+        ...bri,
+        band: null,
+        explanation: `${withheld} Business Risk Indicator is not authoritative because the recorded evidence could not ground the scored conclusion.`,
+        provisional: true,
+        internal_metrics: {
+          ...(bri.internal_metrics ?? {}),
+          score: null,
+          categories: null,
+          top_business_risks: null,
+        },
+      },
+    },
     customer_projection: {
       ...(snapshot.customer_projection ?? {}),
       applied: true,

@@ -1050,6 +1050,24 @@ export async function resolveDmarcbisExternalRuaAuthorizations({
       results.push(reuseHostAssessment(uri, hostResults.get(uri.destination_host)));
       continue;
     }
+    // CyberMeters-hosted destination: we are authoritative for the endpoint
+    // itself, so the decision needs NO DNS and must consume NO reservation.
+    // Decide it BEFORE every budget/host-cap/reservation gate — a refused
+    // reservation or a closed budget cannot un-know our own hosted authority
+    // (P1-1: check order decides reachability; the gates below exist to ration
+    // external lookups, and this branch performs none).
+    if (isCybermetersHostedDestination(uri.destination_host, hostedRuaDomain)) {
+      const hosted = await resolveOneExternalHost({
+        uri,
+        policySourceDomain: policyEvidence.policy_source_domain,
+        policySourceOrganisationalDomain: policyEvidence.organisational_domain,
+        dns,
+        hostedRuaDomain,
+      });
+      hostResults.set(uri.destination_host, hosted);
+      results.push({ ...uri, ...hosted, reused_host_assessment: false });
+      continue;
+    }
     if (budgetClosed) {
       results.push(unassessedUri(
         uri,
