@@ -31,7 +31,17 @@ const EXPECTED = Object.freeze({
     // SEQ-151 SUCCESSION: counts UNCHANGED (48 across 22 files); only the
     // fingerprint moves, because the governed gate in asm-cases.js now also reads
     // the authoritative-quality predicate. No comparison was added or removed.
-    comparison_occurrences: 48,
+    // D3 REPORT-COPY SUCCESSION: 48 -> 47 (same 22 files). ONE comparison was
+    // genuinely REMOVED, not relocated: current-posture.js
+    // `normalizeQuality(row.scan_quality) === "complete"` — the revival branch
+    // that promoted a persisted row's score/rating back to an authoritative
+    // display whenever quality read complete. D3 deletes that branch outright;
+    // score suppression now flows through the shared skip-suppression resolver
+    // in phase5-evidence.js. Measured by a two-tree --dump-counts diff
+    // (f1af6e41 vs this head): every other key delta is a pure line shift.
+    // Reintroducing the branch is mutant TRIAGE-M11 and must fail
+    // validate-report-copy-live-triage.
+    comparison_occurrences: 47,
     source_file_count: 22,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -43,7 +53,7 @@ const EXPECTED = Object.freeze({
     // single-owner refactor (score/clamp/band moved into scoring.applyKevCveDeduction;
     // phase5-evidence.js reduced to orchestration) reindexed comparison sites once more,
     // so only the fingerprint moves. No comparison was added, removed or reclassified.
-    fingerprint: "48bf9ed445987f1bfb26b28c88faab25534ec3ff8f35e3823bf446db800c297c",
+    fingerprint: "2ca0a13ecac16a18a5e144943e36daad95f6e589a402ea4968a15cfa9c9b4fc1",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -84,7 +94,12 @@ const EXPECTED = Object.freeze({
     // list/history SQL moved line numbers, and this inventory records sites by
     // file:line. Counts equal means no canonical read was added, removed or
     // reclassified — only relocated.
-    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "5083b65c6bd476f8e76bf90c387347eeff6d0e5be50f11924ca38f4e31d30bb3" },
+    // D3 REPORT-COPY SUCCESSION: 92 -> 90 (same 34 files). The two removed
+    // reads are current-posture.js lines 119/121 — the `row.scan_quality`
+    // member accesses inside the same deleted revival branch recorded in the
+    // runtime comparison succession above. They were removed, not relocated:
+    // the two-tree --dump-counts diff shows every other delta as a line shift.
+    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "0e92e02bac812277a37f5cb102875dec1f4a33a404e93600d641f8e8a7c5315a" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
