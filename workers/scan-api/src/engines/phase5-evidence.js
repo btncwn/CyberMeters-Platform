@@ -217,7 +217,9 @@ export function resolvePhase5CustomerAssessment({
     // suppression carries an honest cause line so no surface renders a bare "—".
     return {
       score: null,
-      risk_level: skippedScored.length === 0 && evidence.complete && riskLevel != null ? riskLevel : null,
+      // A band is a conclusion derived from a score. Once the shared decision
+      // withholds that score, no persisted/stale band may survive independently.
+      risk_level: null,
       evidence,
       suppressed: true,
       suppression_reason: suppressionCause(skippedScored, evidence),

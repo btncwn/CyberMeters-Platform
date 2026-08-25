@@ -95,6 +95,10 @@ const mutants = [
     from: "    persistedScoreAlreadyAdjusted: true,",
     to:   "    persistedScoreAlreadyAdjusted: false,",
     mustContain: "FAIL D3 persistence boundary: historical projection preserves persisted 60/moderate" },
+  { id: "TRIAGE-M16-D3-null-score-stale-band-revived", file: "workers/scan-api/src/engines/phase5-evidence.js",
+    from: "      score: null,\n      // A band is a conclusion derived from a score. Once the shared decision\n      // withholds that score, no persisted/stale band may survive independently.\n      risk_level: null,\n      evidence,",
+    to:   "      score: null,\n      // Mutant: revive a stale persisted band despite the withheld score.\n      risk_level: skippedScored.length === 0 && evidence.complete && riskLevel != null ? riskLevel : null,\n      evidence,",
+    mustContain: "FAIL D3 adapter invariant: complete null-score row cannot retain a stale risk band" },
 ];
 
 let killed = 0; const failures = [];

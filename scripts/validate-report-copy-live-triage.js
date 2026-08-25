@@ -155,7 +155,8 @@ function ok(name, cond, detail = "") {
 // an honest cause line on all score surfaces; ran-partial stays provisional.
 // ---------------------------------------------------------------------------
 {
-  const { skippedScoreBearingModules, resolvePhase5CustomerAssessment, resolveScoreSuppressionReason } =
+  const { skippedScoreBearingModules, resolvePhase5CustomerAssessment, resolveScoreSuppressionReason,
+    projectPhase5ScanRowsForCustomer } =
     await import(eng("phase5-evidence.js"));
   const { resolvePhase5HistoricalCustomerProjection, projectPhase5SnapshotForCustomer } =
     await import(eng("phase5-evidence.js"));
@@ -252,6 +253,27 @@ function ok(name, cond, detail = "") {
       completeNoScore.comparable === false);
   ok("D3 no-score invariant: complete no-score has a bounded customer explanation",
     completeNoScore.message === "Current posture not yet established.");
+
+  // Production read-adapter regression: a legacy/inconsistent complete row may
+  // carry a stale band even though its score is NULL. The shared Phase-5 decision
+  // must remove both together before any API consumer sees the row.
+  const [nullScoreAdapterRow] = await projectPhase5ScanRowsForCustomer({
+    cybermeters_reports: {
+      get: async () => ({ json: async () => ({ modules: completeMods() }) }),
+    },
+  }, [{
+    scan_id: "scan-d3-null-score",
+    status: "completed",
+    score: null,
+    rating: "good",
+    scan_quality: "complete",
+  }]);
+  ok("D3 adapter invariant: complete null-score row cannot retain a stale risk band",
+    nullScoreAdapterRow.score === null &&
+      nullScoreAdapterRow.rating === null &&
+      nullScoreAdapterRow.assessment.display_score === null &&
+      nullScoreAdapterRow.assessment.display_rating === null &&
+      nullScoreAdapterRow.assessment.authoritative === false);
 
   // Historical report read: complete Phase-5 intelligence must not revive a
   // stale score when an independent score-bearing module was skipped.
