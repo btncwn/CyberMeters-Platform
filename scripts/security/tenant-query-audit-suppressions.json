@@ -1,6 +1,6 @@
 {
   "schema": "cybermeters.tenant-query-audit-suppressions/v1",
-  "note": "Each suppression clears one high-signal static finding whose safety rests on an out-of-band guard. Every entry was manually verified against the source. Fingerprints are line-independent (SQL / key-expr / trimmed line) so they survive unrelated edits but change when the guarded statement itself changes — forcing re-review. A finding with no matching suppression fails CI.",
+  "note": "Each suppression clears one high-signal static finding whose safety rests on an out-of-band guard. Every entry was manually verified against the source. Fingerprints are line-independent (SQL / key-expr / trimmed line) so they survive unrelated edits but change when the guarded statement itself changes \u2014 forcing re-review. A finding with no matching suppression fails CI.",
   "reviewed_on": "2026-08-11",
   "suppressions": [
     {
@@ -133,28 +133,21 @@
       "fingerprint": "b5d38a008910",
       "file": "workers/scan-api/src/routes/account.js",
       "detector": "global_latest_fallback",
-      "reason": "Bootstrap-workspace no-op: SELECT ... FROM workspaces WHERE id IN (${placeholders}). The placeholder list is getAccessibleWorkspaceIds(user) — the caller's own authorized workspaces.",
+      "reason": "Bootstrap-workspace no-op: SELECT ... FROM workspaces WHERE id IN (${placeholders}). The placeholder list is getAccessibleWorkspaceIds(user) \u2014 the caller's own authorized workspaces.",
       "contract": "The IN-list is the authenticated caller's accessible-workspace set; LIMIT 1 returns the caller's own first workspace, never a foreign one."
-    },
-    {
-      "fingerprint": "6c690ea9bff1",
-      "file": "workers/scan-api/src/index.js",
-      "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.delete(o.key) inside workspace purge, deleting per-workspace branding logo objects. o.key comes from env.cybermeters_reports.list({ prefix: 'branding/logos/{workspaceId}/' }), so every key is tenant-prefixed with the workspace being purged.",
-      "contract": "The deleted keys are enumerated from a workspace-prefixed R2 list during that workspace's own hard-delete; no foreign object can be selected (validate-purge-completeness proves purge scope)."
     },
     {
       "fingerprint": "ec8e57755922",
       "file": "workers/scan-api/src/routes/workspace-branding.js",
       "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.put of a workspace logo. The key is workspaceLogoKey(workspaceId, sha256, ext) = branding/logos/{workspaceId}/{sha256}.ext — the workspaceId comes from the authenticated, requireWorkspaceRole('workspace:manage')-authorised path parameter, never the request body; the bytes were validated (magic-byte PNG/JPEG) and content-hashed first.",
+      "reason": "R2.put of a workspace logo. The key is workspaceLogoKey(workspaceId, sha256, ext) = branding/logos/{workspaceId}/{sha256}.ext \u2014 the workspaceId comes from the authenticated, requireWorkspaceRole('workspace:manage')-authorised path parameter, never the request body; the bytes were validated (magic-byte PNG/JPEG) and content-hashed first.",
       "contract": "The R2 key is tenant-prefixed with the authorised workspaceId and content-addressed by sha256; only a workspace manager can write it, and the object is immutable."
     },
     {
       "fingerprint": "28a0e65cd01f",
       "file": "workers/scan-api/src/routes/workspace-branding.js",
       "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.put of an MSP branding-profile logo. The key is mspLogoKey(ownerId, sha256, ext) = branding/msp/{ownerId}/{sha256}.ext — ownerId is the authenticated account (user.id), the account is white_label-entitled, and the bytes were validated + content-hashed first.",
+      "reason": "R2.put of an MSP branding-profile logo. The key is mspLogoKey(ownerId, sha256, ext) = branding/msp/{ownerId}/{sha256}.ext \u2014 ownerId is the authenticated account (user.id), the account is white_label-entitled, and the bytes were validated + content-hashed first.",
       "contract": "The R2 key is prefixed with the authenticated account owner id and content-addressed; only the account owner (session, not api-token) can write it."
     },
     {
@@ -175,35 +168,21 @@
       "fingerprint": "80179f34260b",
       "file": "workers/scan-api/src/engines/vuln-intel.js",
       "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.get(KEV_CACHE_KEY) — the CISA Known-Exploited-Vulnerabilities catalogue is global reference data cached once for the whole platform.",
+      "reason": "R2.get(KEV_CACHE_KEY) \u2014 the CISA Known-Exploited-Vulnerabilities catalogue is global reference data cached once for the whole platform.",
       "contract": "Global reference cache; contains no tenant data, so a constant key is correct."
     },
     {
       "fingerprint": "900ddb005c28",
       "file": "workers/scan-api/src/engines/vuln-intel.js",
       "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.put(KEV_CACHE_KEY) — writes the global KEV catalogue cache.",
+      "reason": "R2.put(KEV_CACHE_KEY) \u2014 writes the global KEV catalogue cache.",
       "contract": "Global reference cache; no tenant data."
-    },
-    {
-      "fingerprint": "7accbe620c47",
-      "file": "workers/scan-api/src/index.js",
-      "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.delete(s.r2_key) inside workspace purge; s is a scan row belonging to the workspace being purged.",
-      "contract": "Purge iterates only the target workspace's own scans; r2_key comes from those tenant-scoped rows (validate-purge-completeness proves no cross-tenant object is touched)."
-    },
-    {
-      "fingerprint": "1efbde537d1e",
-      "file": "workers/scan-api/src/index.js",
-      "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.delete(`reports/${s.id}.json`) inside workspace purge; s.id is a scan of the workspace being purged.",
-      "contract": "Purge is scoped to the target workspace's scans (validate-purge-completeness)."
     },
     {
       "fingerprint": "cc3b1cf89568",
       "file": "workers/scan-api/src/index.js",
       "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.head(\"__readiness_probe__\") in the /ready health check — a constant infrastructure key.",
+      "reason": "R2.head(\"__readiness_probe__\") in the /ready health check \u2014 a constant infrastructure key.",
       "contract": "Readiness probe; no tenant data."
     },
     {
@@ -282,6 +261,20 @@
       "detector": "body_workspace_trust",
       "reason": "body.role on role-change, validated against a CHANGEABLE_ROLES set derived from the actor's role (admins cannot promote to admin; owners have no ceiling).",
       "contract": "Assigned role is bounded by the actor's own role; requireWorkspaceRole('workspace:invite') is checked before the body is read."
+    },
+    {
+      "fingerprint": "0b11b2e475ba",
+      "file": "workers/scan-api/src/index.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.delete(key) inside deleteR2ObjectVerified \u2014 the single helper the workspace purge now routes every object deletion through (F-009). It replaces three separate call sites whose suppressions this entry supersedes.",
+      "contract": "The helper is called ONLY from purgeWorkspaceData, and every key it receives is derived from a row already selected by workspace_id (workspace_reports.report_key, scan_report_snapshots.r2_key, reports/{scan.id}.json, and branding/logos/{workspaceId}/ listings). It never accepts a caller-supplied key."
+    },
+    {
+      "fingerprint": "1681e273a1cc",
+      "file": "workers/scan-api/src/index.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.head(key) inside deleteR2ObjectVerified \u2014 the absence proof that must run BEFORE the D1 pointer row is deleted (F-009), so a failed delete can no longer orphan an object.",
+      "contract": "Same key provenance as the delete above: workspace-derived, never caller-supplied. It is a read used solely to confirm the object it just deleted is gone."
     }
   ]
 }
