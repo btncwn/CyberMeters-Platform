@@ -31,7 +31,17 @@ const EXPECTED = Object.freeze({
     // SEQ-151 SUCCESSION: counts UNCHANGED (48 across 22 files); only the
     // fingerprint moves, because the governed gate in asm-cases.js now also reads
     // the authoritative-quality predicate. No comparison was added or removed.
-    comparison_occurrences: 48,
+    // D3 REPORT-COPY SUCCESSION: 48 -> 47 (same 22 files). ONE comparison was
+    // genuinely REMOVED, not relocated: current-posture.js
+    // `normalizeQuality(row.scan_quality) === "complete"` — the revival branch
+    // that promoted a persisted row's score/rating back to an authoritative
+    // display whenever quality read complete. D3 deletes that branch outright;
+    // score suppression now flows through the shared skip-suppression resolver
+    // in phase5-evidence.js. Measured by a two-tree --dump-counts diff
+    // (f1af6e41 vs this head): every other key delta is a pure line shift.
+    // Reintroducing the branch is mutant TRIAGE-M11 and must fail
+    // validate-report-copy-live-triage.
+    comparison_occurrences: 47,
     source_file_count: 22,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -43,16 +53,27 @@ const EXPECTED = Object.freeze({
     // single-owner refactor (score/clamp/band moved into scoring.applyKevCveDeduction;
     // phase5-evidence.js reduced to orchestration) reindexed comparison sites once more,
     // so only the fingerprint moves. No comparison was added, removed or reclassified.
-    fingerprint: "48bf9ed445987f1bfb26b28c88faab25534ec3ff8f35e3823bf446db800c297c",
+    // D3 CORRECTIVE SUCCESSION: counts UNCHANGED (47 across 22 files); only the
+    // fingerprint moves — the successor correctives edited phase5-evidence.js,
+    // report-snapshot.js and dmarc-state.js inside the recorded span, and this
+    // inventory records sites by file:line. No comparison added or removed.
+    // R1-P1 CORRECTIVE SUCCESSION: runtime comparisons UNCHANGED (47/22, every
+    // key delta a pure line shift from the hosted-RUA and atomic-invalidation
+    // edits). Direct runtime reads 90 -> 91 (same 34 files): ONE genuine
+    // addition — the atomic historical invalidation reads the snapshot's
+    // recorded evidence_completeness.scan_quality to present the withheld
+    // assessment (phase5-evidence.js, projector). SQL sets unchanged in count;
+    // position-derived digests move with the same edits.
+    fingerprint: "bd89b9382654cfdad7d51bbe5105d40cc323a42320233845dc963bd13f3d8936",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
     predicate_occurrences: 35,
     unique_query_sites: 26,
     source_file_count: 15,
-    fingerprint: "2127c44f4d47bd0833eaf37d054880d4fe37b3022b84de05b4c5210e7c6f8953",
+    fingerprint: "3254ff2524dfc617a30f6c50f266f2b35d0a4b0c07a6816de86590442976926d",
     resolved_query_sink_count: 19,
-    resolved_query_sink_fingerprint: "91325ab2b522e85a68d5e5e4906631b4ac3d5ebf8fc5c9c29afd33674e8b5a92",
+    resolved_query_sink_fingerprint: "efc6a8cf3953f40ee32114de3832b46e013344302635e3b1ac887f91e7dfd729",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -62,14 +83,20 @@ const EXPECTED = Object.freeze({
     // P1.1 serviceability validators introduce governed comparisons in their own
     // files. The RUNTIME sets are unchanged (48/22 and 92/34), which is the check
     // that matters — the product gained no new scan-quality comparison.
-    comparison_occurrences: 67,
-    source_file_count: 26,
+    // D3 SUCCESSION: 67 -> 68 across 26 -> 27 files. Purely ADDITIVE: the D3
+    // lane validator gained its first governed scan-quality comparison — the
+    // named boundary assertion that a proven-complete row with an empty score
+    // cell keeps scan_quality "complete" (the TRIAGE-M17 kill site). The
+    // runtime sets are unchanged (47/22 and 90/34), which is the check that
+    // matters — the product gained no new scan-quality comparison.
+    comparison_occurrences: 68,
+    source_file_count: 27,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
     // the successor validator. Nothing was added to or removed from the runtime set.
     // SUCCESSOR-3: 63 -> 65 across 23 -> 25 files. Additive only: PR #414/#416 added
     // governed comparisons in their own validators. Nothing was removed.
-    fingerprint: "d01804a1b66dd87da5618a544e0e49bc9680cd73dbdb96964d9d29702a49c62c",
+    fingerprint: "cf21c3d15d4f8f65ac966513ff13c15c8d38a801ba47767d532c3a23f3d53461",
   },
   runtime_source_file_count: 32,
   direct: {
@@ -84,16 +111,26 @@ const EXPECTED = Object.freeze({
     // list/history SQL moved line numbers, and this inventory records sites by
     // file:line. Counts equal means no canonical read was added, removed or
     // reclassified — only relocated.
-    runtime: { occurrence_count: 92, source_file_count: 34, fingerprint: "5083b65c6bd476f8e76bf90c387347eeff6d0e5be50f11924ca38f4e31d30bb3" },
+    // D3 REPORT-COPY SUCCESSION: 92 -> 90 (same 34 files). The two removed
+    // reads are current-posture.js lines 119/121 — the `row.scan_quality`
+    // member accesses inside the same deleted revival branch recorded in the
+    // runtime comparison succession above. They were removed, not relocated:
+    // the two-tree --dump-counts diff shows every other delta as a line shift.
+    // D3 CORRECTIVE SUCCESSION: 90/34 unchanged; position shift only (same edits
+    // as the runtime comparison succession above).
+    runtime: { occurrence_count: 91, source_file_count: 34, fingerprint: "a277e5b4903a0030e1110629efd9cd368ce2199b68d13e97965ef97096700ad4" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
-    governance: { occurrence_count: 108, source_file_count: 37, fingerprint: "9649c7514d3fdea01df043d77eff8ab4fa8d2f0ec3d89e2ee8cde9833a1298fd" },
+    // D3 SUCCESSION: 108 -> 109 across 37 -> 38 files — the same additive lane
+    // assertion as the governance comparison succession above reads
+    // .scan_quality directly. Runtime direct reads unchanged (90/34).
+    governance: { occurrence_count: 109, source_file_count: 38, fingerprint: "180898357d7f03a58c5a0b3d305cf6626c96e3d0684707b4a0bd412978f15c08" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
   // shifts source positions only. No scan-quality read was added or removed.
-  sql_reads: { projection_occurrences: 23, fingerprint: "d801215e7c71d4b1be286523a4f0118a0c4ac8da80e2b33a1ca6063e64ae5f8b" },
+  sql_reads: { projection_occurrences: 23, fingerprint: "d45769a1447df783183c3360249ba36c41d8701c7820003c8de115205de26149" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

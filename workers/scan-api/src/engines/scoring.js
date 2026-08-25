@@ -1279,4 +1279,26 @@ export function applyKevCveDeduction({ score, modules = {}, evidence = {} } = {}
 // snapshot can refuse to present a methodology change as posture movement
 // (the CYBER_MOT_RESOLVER_VERSION / CE_READINESS_METHODOLOGY_VERSION precedent).
 // 2026-08-23.1 — AS-B2: KEV/CVE evidence now moves the customer score (was 0-impact).
-export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-08-23.1";
+// 2026-08-24.1 — score-suppression unification: a SCORE-BEARING module that was
+// skipped / never-ran (budget or deadline) now withholds the customer score
+// (null), the same "cannot-assess ⇒ no number" outcome as insufficient phase5
+// evidence. This changes WHEN a score is nulled, so the stamp is bumped; the
+// "partial-but-ran ⇒ provisional number" contract is unchanged.
+export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-08-24.1";
+
+// The modules whose findings move computeScore(). If any of these was skipped or
+// never ran, the customer score is a conclusion over an incomplete assessment and
+// must be withheld rather than shown as a provisional healthy number. Derived by
+// enumerating every module computeScore() attributes a scored finding to (dns,
+// ssl, headers, email_security, asset_exposure, subdomains, subdomain_takeover).
+// brand_monitoring / dns_bruteforce / canonical_url_profile are read for context
+// but attribute no scored finding, so their absence does not distort the score.
+export const SCORE_BEARING_MODULES = Object.freeze([
+  "dns",
+  "ssl",
+  "headers",
+  "email_security",
+  "asset_exposure",
+  "subdomains",
+  "subdomain_takeover",
+]);

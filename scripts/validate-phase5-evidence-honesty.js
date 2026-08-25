@@ -426,8 +426,8 @@ const MUTATIONS = [
     name: "M3 incomplete CVE publishes excellent/100",
     edits: [{
       target: PHASE5,
-      from: "  if (!(evidence.complete && Number.isFinite(score))) {",
-      to: "  if (!(Number.isFinite(score))) {",
+      from: "  if (skippedScored.length > 0 || (suppressOnEvidenceGaps && !evidence.complete)) {",
+      to: "  if (skippedScored.length > 0) {",
     }],
     check: () => {
       const result = runChild("cve-deferred");
@@ -439,8 +439,8 @@ const MUTATIONS = [
     name: "M4 incomplete KEV publishes excellent/100",
     edits: [{
       target: PHASE5,
-      from: "  if (!(evidence.complete && Number.isFinite(score))) {",
-      to: "  if (!(Number.isFinite(score))) {",
+      from: "  if (skippedScored.length > 0 || (suppressOnEvidenceGaps && !evidence.complete)) {",
+      to: "  if (skippedScored.length > 0) {",
     }],
     check: () => {
       const result = runChild("kev-deferred");

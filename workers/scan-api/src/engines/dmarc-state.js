@@ -232,12 +232,46 @@ function withCanonicalEvidenceState(state, canonicalEvidenceState, evidence) {
     canonical_evidence_state: canonicalEvidenceState,
     policy_source_kind: evidence?.policy_source_kind ?? "unknown",
     policy_completeness: evidence?.policy_completeness ?? "unavailable",
+    // Carry all completeness axes so an incomplete/unavailable summary can name
+    // the ACTUAL failing axis instead of generically blaming the policy lookup.
+    organisational_domain_completeness: evidence?.organisational_domain_completeness ?? null,
+    existence_completeness: evidence?.existence_completeness ?? null,
+    rua_authorisation_completeness: evidence?.rua_authorisation_completeness ?? null,
+    core_completeness: evidence?.core_completeness ?? null,
+    provider_state: evidence?.provider_state ?? null,
+    observation_state: evidence?.observation_state ?? null,
     receiver_enforcement_observed: false,
   };
   return {
     ...projected,
     canonical_summary: canonicalDmarcAssessmentSummary(projected),
   };
+}
+
+// Name the actual failing completeness axis, in observation order, so the
+// customer reason is specific ("the aggregate-report destination authorisation
+// could not be completed") rather than a generic "policy lookup unavailable".
+// Returns null when nothing identifiable failed (caller falls back to generic).
+function failingDmarcAxisReason(state) {
+  if (state?.provider_state && state.provider_state !== "available") {
+    return "the DMARC provider could not be corroborated, so no policy or absence conclusion was made.";
+  }
+  if (state?.observation_state === "incomplete_oversized") {
+    return "the DMARC record set was incomplete or oversized, so no policy or absence conclusion was made.";
+  }
+  if (state?.policy_completeness && !["complete", "not_applicable"].includes(state.policy_completeness)) {
+    return "the DMARC policy record could not be fully resolved, so no policy or absence conclusion was made.";
+  }
+  if (state?.organisational_domain_completeness && !["complete", "not_applicable"].includes(state.organisational_domain_completeness)) {
+    return "the organisational-domain tree-walk could not be completed, so no policy or absence conclusion was made.";
+  }
+  if (state?.existence_completeness && !["complete", "not_applicable"].includes(state.existence_completeness)) {
+    return "domain existence could not be confirmed, so no policy or absence conclusion was made.";
+  }
+  if (state?.rua_authorisation_completeness && !["complete", "not_applicable"].includes(state.rua_authorisation_completeness)) {
+    return "the aggregate-report (rua) destination authorisation could not be completed, so no policy or absence conclusion was made.";
+  }
+  return null;
 }
 
 /**
@@ -341,10 +375,24 @@ export function deriveDmarcStateFromPolicyEvidence(evidence) {
     );
   }
 
+  // An axis valued "unavailable" is not an INCOMPLETE marker: unavailable means
+  // the observation could not happen at all and must classify as "unavailable",
+  // never be re-labelled a partial result. Widening this predicate over
+  // unavailable values collapsed the two canonical evidence states into one
+  // (DMARC-PARITY-UNAVAILABLE-DISTINCT).
+  const axisIncomplete = (value) => value != null && !["complete", "not_applicable", "unavailable"].includes(value);
+  // When the observation itself was unavailable, every derived completeness
+  // axis is an echo of that same failed lookup. Classifying the echoes as
+  // "incomplete" would re-label a failed lookup as a partial result — the
+  // exact false-reason class the axis work exists to eliminate.
   const incomplete =
+    evidence.observation_state !== "unavailable" && (
     evidence.observation_state === "incomplete_oversized" ||
-    evidence.policy_completeness === "incomplete" ||
-    evidence.core_completeness === "incomplete";
+    axisIncomplete(evidence.policy_completeness) ||
+    axisIncomplete(evidence.core_completeness) ||
+    axisIncomplete(evidence.organisational_domain_completeness) ||
+    axisIncomplete(evidence.existence_completeness) ||
+    axisIncomplete(evidence.rua_authorisation_completeness));
   return withCanonicalEvidenceState(
     deriveDmarcState({
       assessed: true,
@@ -370,10 +418,18 @@ export function canonicalDmarcAssessmentSummary(state) {
       return "The completed DMARC policy lookup found no applicable DMARC policy.";
     case "malformed":
       return "DMARC-looking evidence was observed, but it was malformed or ambiguous and no valid policy was established.";
-    case "incomplete":
-      return "DMARC policy evidence was incomplete, so no policy or absence conclusion was made.";
-    case "unavailable":
-      return "The DMARC policy lookup was unavailable, so no policy or absence conclusion was made.";
+    case "incomplete": {
+      const axis = failingDmarcAxisReason(state);
+      return axis
+        ? `DMARC evidence was incomplete: ${axis}`
+        : "DMARC policy evidence was incomplete, so no policy or absence conclusion was made.";
+    }
+    case "unavailable": {
+      const axis = failingDmarcAxisReason(state);
+      return axis
+        ? `DMARC evidence was insufficient: ${axis}`
+        : "The DMARC policy lookup was unavailable, so no policy or absence conclusion was made.";
+    }
     case "not_assessed":
     default:
       return "DMARC was not assessed in this snapshot.";

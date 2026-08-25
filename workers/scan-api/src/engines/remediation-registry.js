@@ -206,7 +206,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     customer_title: "Tighten SPF enforcement",
     technical_explanation: "The SPF record ends in a permissive qualifier (+all, ?all or a softfail you intend to harden), so unauthorised senders are not rejected.",
     business_impact: "A permissive SPF record gives the appearance of protection while still allowing spoofed mail to pass.",
-    recommended_action: "Enumerate every authorised sending source, remove +all, and finish the record with -all once you are confident the inventory is complete.",
+    recommended_action: "Enumerate every authorised sending source, then replace the record's permissive ending (+all, ?all, or a ~all softfail you intend to harden) with -all once you are confident the inventory is complete.",
     effort: "medium",
     owner_type: "customer_it",
     verification_method: "dns_recheck",

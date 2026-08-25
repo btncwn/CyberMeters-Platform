@@ -49,6 +49,18 @@ const COMPLETE_ASSESSMENT = {
   message: null,
 }
 
+const SUPPRESSED_ASSESSMENT = {
+  raw_score: null,
+  display_score: null,
+  display_rating: null,
+  quality: 'partial',
+  provisional: true,
+  authoritative: false,
+  comparable: false,
+  message: 'The Cyber Metrics Score is withheld because attack surface did not complete this scan.',
+  suppression_reason: 'The Cyber Metrics Score is withheld because attack surface did not complete this scan.',
+}
+
 function historicalChanges(overrides = {}) {
   return {
     has_previous: true,
@@ -320,6 +332,54 @@ describe('ScanDetail evidence honesty', () => {
     expect(within(scanInfo).getByText('—')).toBeInTheDocument()
     expect(within(scanInfo).queryByText('99 / 100')).not.toBeInTheDocument()
     expect(within(scanInfo).queryByText('99')).not.toBeInTheDocument()
+  })
+
+  it('F: a suppressed score renders the backend reason in Scan Information', async () => {
+    const report = reportFixture({
+      cyber_metrics_score: null,
+      risk_level: null,
+      assessment: SUPPRESSED_ASSESSMENT,
+    })
+    await renderFixture({ scan: scanFixture({ score: 99, rating: 'good' }), report })
+
+    const scanInfo = cardForHeading('Scan Information')
+    expect(within(scanInfo).getByText('Provisional Score')).toBeInTheDocument()
+    expect(within(scanInfo).getByText('—')).toBeInTheDocument()
+    expect(within(scanInfo).getByText(SUPPRESSED_ASSESSMENT.suppression_reason)).toBeInTheDocument()
+    expect(within(scanInfo).queryByText('99 / 100')).not.toBeInTheDocument()
+    expect(within(scanInfo).queryByText('Good')).not.toBeInTheDocument()
+  })
+
+  it('F2: a withheld historical redirect conclusion renders no stale score, band or BRI', async () => {
+    // P1-2 (R1): after the atomic historical invalidation the API sends a
+    // non-authoritative withheld assessment and NO business risk. The real
+    // render must show the reason and none of the stale 85/good conclusions.
+    const WITHHELD =
+      'The recorded HTTP hop did not serve a response, so whether this site ' +
+      'redirected to HTTPS was never observed; the historical defect conclusion is withheld.'
+    const report = reportFixture({
+      cyber_metrics_score: null,
+      risk_level: null,
+      business_risk: null,
+      assessment: {
+        raw_score: null,
+        display_score: null,
+        display_rating: null,
+        quality: 'complete',
+        provisional: true,
+        authoritative: false,
+        comparable: false,
+        message: WITHHELD,
+        suppression_reason: WITHHELD,
+      },
+    })
+    await renderFixture({ scan: scanFixture({ score: 85, rating: 'good' }), report })
+
+    const scanInfo = cardForHeading('Scan Information')
+    expect(within(scanInfo).getByText(WITHHELD)).toBeInTheDocument()
+    expect(within(scanInfo).queryByText('85 / 100')).not.toBeInTheDocument()
+    expect(within(scanInfo).queryByText('Good')).not.toBeInTheDocument()
+    expect(screen.queryByText('Business Risk Score')).not.toBeInTheDocument()
   })
 
   it('G: observed partial finding stays visible without becoming a new-change claim', async () => {

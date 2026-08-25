@@ -1,5 +1,5 @@
 import { isPublishableModuleEvidence } from "./scan-budget.js";
-import { applyKevCveDeduction } from "./scoring.js";
+import { applyKevCveDeduction, SCORE_BEARING_MODULES } from "./scoring.js";
 import {
   normalizeQuality,
   resolveAssessmentPresentation,
@@ -149,24 +149,115 @@ export function resolvePhase5EvidenceContract(modules = {}) {
   };
 }
 
+// A score-bearing module that was skipped or never ran (budget/deadline) makes a
+// customer score a conclusion over an incomplete assessment. Detected from the
+// SAME per-module skip vocabulary buildScanQuality / cyber-mot-domains read
+// (explicit skip markers only — an entitled module that simply found nothing
+// carries none of these flags, so it does not trigger suppression).
+export function skippedScoreBearingModules(modules = {}) {
+  const skipped = [];
+  for (const key of SCORE_BEARING_MODULES) {
+    const m = modules?.[key];
+    if (!m || typeof m !== "object") continue;
+    // SKIPPED / never-ran / abandoned-on-budget only. A module that RAN and is
+    // merely `incomplete` (ran-partial) keeps the existing provisional-number
+    // contract and is deliberately NOT a suppression trigger here.
+    const budgetOrDeadline = typeof m.error === "string"
+      && /skipped_due_to_subrequest_budget|budget|timed?[ _]?out|timeout|deadline/i.test(m.error);
+    if (m.skipped === true || m.executed === false || budgetOrDeadline) {
+      skipped.push(key);
+    }
+  }
+  return skipped;
+}
+
+const SCORE_BEARING_MODULE_LABELS = Object.freeze({
+  dns: "DNS", ssl: "TLS/SSL", headers: "security headers",
+  email_security: "email security", asset_exposure: "attack surface",
+  subdomains: "subdomains", subdomain_takeover: "subdomain takeover",
+});
+function suppressionCause(skippedScored, evidence) {
+  if (skippedScored.length > 0) {
+    const names = skippedScored.map((k) => SCORE_BEARING_MODULE_LABELS[k] || k);
+    return `The Cyber Metrics Score is withheld because these assessed areas did not complete this scan: ${names.join(", ")}. The results may be incomplete; a score over an incomplete assessment would overstate coverage.`;
+  }
+  const gaps = evidence?.incomplete_modules || [];
+  return `The Cyber Metrics Score is withheld because required evidence did not complete this scan${gaps.length ? ` (${gaps.join(", ")})` : ""}. The results may be incomplete; a score over an incomplete assessment would overstate coverage.`;
+}
+
+// Single source of the score-suppression cause line. Returns null when the score
+// is NOT suppressed (evidence complete AND no score-bearing module skipped), so
+// report-snapshot and other read surfaces can render the SAME honest explanation
+// the scoring path used — never a bare "—".
+export function resolveScoreSuppressionReason(modules = {}) {
+  const evidence = resolvePhase5EvidenceContract(modules);
+  const skippedScored = skippedScoreBearingModules(modules);
+  if (skippedScored.length === 0 && evidence.complete) return null;
+  return suppressionCause(skippedScored, evidence);
+}
+
 /**
  * A score/band is a customer conclusion over the completed assessment.
- * Phase-5 evidence gaps therefore remove the conclusion; they do not turn
- * unassessed CVE/KEV/email evidence into a provisional healthy number.
+ * Phase-5 evidence gaps AND skipped score-bearing modules therefore remove the
+ * conclusion (the same "cannot-assess ⇒ no number" outcome); they do not turn an
+ * unassessed scan into a provisional healthy number. A module that RAN and
+ * produced partial evidence keeps the existing provisional-number contract.
  */
 export function resolvePhase5CustomerAssessment({
   score = null,
   riskLevel = null,
   modules = {},
+  persistedScoreAlreadyAdjusted = false,
+  // Live scoring enforces the AS-B2 evidence floor: incomplete Phase-5
+  // intelligence evidence withholds the score it is ABOUT to compute. The
+  // snapshot MINT path passes false: the persisted score it composes was
+  // already floored by its producer, and re-deciding it from evidence absence
+  // would put a calculation brain inside the snapshot (M5.c: producers are
+  // composed verbatim). The skip axis ALWAYS suppresses — that is the D3 law.
+  suppressOnEvidenceGaps = true,
 } = {}) {
   const evidence = resolvePhase5EvidenceContract(modules);
-  if (!(evidence.complete && Number.isFinite(score))) {
-    // Incomplete evidence: no customer score, and NO KEV/CVE deduction — never a
-    // guessed deduction on an unpublishable module (evidence-floor).
+  const skippedScored = skippedScoreBearingModules(modules);
+  if (skippedScored.length > 0 || (suppressOnEvidenceGaps && !evidence.complete)) {
+    // Cannot-assess: no customer score, no risk band, and NO KEV/CVE deduction —
+    // never a guessed deduction on an unpublishable module (evidence-floor). The
+    // suppression carries an honest cause line so no surface renders a bare "—".
     return {
       score: null,
-      risk_level: evidence.complete && riskLevel != null ? riskLevel : null,
+      // The same withheld-band rule as the complete/no-score branch below: the
+      // suppression decision removes the score, so no band survives it either.
+      risk_level: null,
       evidence,
+      suppressed: true,
+      suppression_reason: suppressionCause(skippedScored, evidence),
+      skipped_score_bearing_modules: skippedScored,
+    };
+  }
+  if (!Number.isFinite(score)) {
+    // Evidence is complete and nothing was skipped: the absence of a persisted
+    // score cell is a data fact about the row, NOT an evidence gap. Suppression
+    // here would fabricate an incompleteness claim (its cause line says the scan
+    // did not complete — false for this row) and would let downstream quality
+    // rewriting turn a genuinely complete scan into "partial" (the defect that
+    // nulled every proven BRS basis row). No suppression, no quality rewrite.
+    return {
+      score: null,
+      // A band is a conclusion derived from a score. Once the shared decision
+      // withholds that score, no persisted/stale band may survive independently.
+      risk_level: null,
+      evidence,
+    };
+  }
+  // Historical rows and immutable reports persist the output of this transform,
+  // not its raw input. Read-time projection must still run the SAME suppression
+  // decision above, but must never charge KEV/CVE a second time (90 -> 60 at
+  // finalisation must remain 60 on every later read, never become 30).
+  if (persistedScoreAlreadyAdjusted === true) {
+    return {
+      score,
+      risk_level: riskLevel,
+      evidence,
+      persisted_score_already_adjusted: true,
     };
   }
   // AS-B2: KEV/CVE evidence moves the customer Cyber Metrics Score. Pure orchestration:
@@ -281,9 +372,20 @@ export function resolvePhase5HistoricalCustomerProjection({
   scanQuality = null,
   modules = {},
   monitoringStates = undefined,
+  suppressOnEvidenceGaps = true,
 } = {}) {
-  const customer = resolvePhase5CustomerAssessment({ score, riskLevel, modules });
-  if (customer.evidence.complete) {
+  const customer = resolvePhase5CustomerAssessment({
+    score,
+    riskLevel,
+    modules,
+    persistedScoreAlreadyAdjusted: true,
+    suppressOnEvidenceGaps,
+  });
+  // Completeness of the three Phase-5 intelligence modules is not, by itself,
+  // permission to retain a score. A score-bearing module can have been skipped
+  // while Phase-5 evidence is otherwise complete. The customer assessment is
+  // the single decision source for both cases.
+  if (customer.suppressed !== true) {
     return {
       ...customer,
       scan_quality: normalizeQuality(scanQuality),
@@ -299,21 +401,22 @@ export function resolvePhase5HistoricalCustomerProjection({
   }
 
   const quality = incompleteCustomerQuality(scanQuality);
-  const message = cveCustomerMessage(modules?.cve_intelligence);
   return {
     ...customer,
     scan_quality: quality,
     assessment: {
       ...resolveAssessmentPresentation({
-      score: null,
-      scanQuality: quality,
-      status: "completed",
-      coverage: {
-        reason: PHASE5_INCOMPLETE_REASON,
-        incomplete_modules: customer.evidence.incomplete_modules,
-      },
+        score: null,
+        scanQuality: quality,
+        status: "completed",
+        coverage: {
+          reason: PHASE5_INCOMPLETE_REASON,
+          incomplete_modules: customer.evidence.incomplete_modules,
+          skipped_score_bearing_modules:
+            customer.skipped_score_bearing_modules ?? [],
+        },
+        suppressionReason: customer.suppression_reason,
       }),
-      ...(message ? { message } : {}),
     },
   };
 }
@@ -416,32 +519,43 @@ export const LEGACY_WEBSITE_REDIRECT_FINDING = "ssl_no_http_redirect";
  * absent evidence is the same error in the opposite direction: it would tell a
  * customer their honest historical conclusion was unfounded, on no evidence at all.
  */
-export function projectWebsiteRedirectSnapshotForCustomer(snapshot, modules = {}) {
-  if (!snapshot || typeof snapshot !== "object") return snapshot;
-  const chain = modules?.ssl?.http_redirect_chain;
-  // No readable chain => cannot evaluate => say nothing.
-  if (!chain || typeof chain !== "object") return snapshot;
-  if (chain.http_redirect_validated !== true) return snapshot;
+export const WEBSITE_REDIRECT_WITHHELD_MESSAGE =
+  "The recorded HTTP hop did not serve a response, so whether this site "
+  + "redirected to HTTPS was never observed; the historical defect conclusion is withheld.";
 
-  // The hop whose answer was treated as the redirect decision.
+// The SINGLE invalidation predicate for the legacy non-serviceable redirect
+// conclusion (P1-2). True only when the recorded chain POSITIVELY shows the
+// "validated" hop could not have grounded the defect AND the conclusion set
+// actually contains the legacy finding. Snapshot findings carry `finding_id`;
+// raw report findings carry `id` — both are accepted so the snapshot projector
+// and current-posture authority selection answer the SAME question.
+export function websiteRedirectConclusionWithheld(modules, findings) {
+  const chain = modules?.ssl?.http_redirect_chain;
+  if (!chain || typeof chain !== "object") return false;        // cannot evaluate => neutral
+  if (chain.http_redirect_validated !== true) return false;
   const hops = Array.isArray(chain.hop_observations) ? chain.hop_observations : [];
   const firstHop = hops.length ? hops[0] : null;
   const observation = firstHop
     ? { state: firstHop.state ?? chain.observation_state, origin_status: firstHop.origin_status }
     : { state: chain.observation_state, origin_status: chain.origin_status };
-  if (typeof observation.state !== "string") return snapshot;   // unreadable => neutral
+  if (typeof observation.state !== "string") return false;      // unreadable => neutral
   const serviceability = classifyServiceability(observation);
   // Serviceable evidence: the historical conclusion stands. Unknown also stands —
   // only a POSITIVE reading of "this could not have grounded a defect" projects.
-  if (serviceability.serviceable !== false) return snapshot;
-  if (maySupportDefectConclusion(serviceability)) return snapshot;
+  if (serviceability.serviceable !== false) return false;
+  if (maySupportDefectConclusion(serviceability)) return false;
+  const list = Array.isArray(findings) ? findings : [];
+  return list.some((f) => (f?.finding_id ?? f?.id) === LEGACY_WEBSITE_REDIRECT_FINDING);
+}
+
+export function projectWebsiteRedirectSnapshotForCustomer(snapshot, modules = {}) {
+  if (!snapshot || typeof snapshot !== "object") return snapshot;
+  if (!websiteRedirectConclusionWithheld(modules, snapshot.observed_findings)) return snapshot;
 
   const findings = Array.isArray(snapshot.observed_findings) ? snapshot.observed_findings : [];
   const kept = findings.filter((f) => f?.finding_id !== LEGACY_WEBSITE_REDIRECT_FINDING);
-  if (kept.length === findings.length) return snapshot;         // the class is not present here
 
-  const withheld = "The recorded HTTP hop did not serve a response, so whether this site "
-    + "redirected to HTTPS was never observed; the historical defect conclusion is withheld.";
+  const withheld = WEBSITE_REDIRECT_WITHHELD_MESSAGE;
   const domains = (Array.isArray(snapshot.domains) ? snapshot.domains : []).map((entry) => {
     if (entry?.domain_key !== "website_security") return entry;
     const ids = (Array.isArray(entry.finding_ids) ? entry.finding_ids : [])
@@ -457,11 +571,41 @@ export function projectWebsiteRedirectSnapshotForCustomer(snapshot, modules = {}
     };
   });
   const overall = snapshot.overall ?? {};
+  const bri = overall.business_risk_indicator ?? {};
   return {
     ...snapshot,
     domains,
     observed_findings: kept,
-    overall: { ...overall, cyber_metrics_score: null, score_band: null },
+    // ATOMIC invalidation (P1-2): a withdrawn score conclusion takes its band,
+    // its authoritative assessment, its scored summary and its BRI with it —
+    // nulling the headline number while those survive re-publishes the
+    // withdrawn conclusion on every surface that reads them.
+    overall: {
+      ...overall,
+      cyber_metrics_score: null,
+      score_band: null,
+      summary: null,
+      assessment: resolveAssessmentPresentation({
+        score: null,
+        scanQuality: overall.assessment?.quality
+          ?? overall.evidence_completeness?.scan_quality
+          ?? null,
+        status: "completed",
+        suppressionReason: withheld,
+      }),
+      business_risk_indicator: {
+        ...bri,
+        band: null,
+        explanation: `${withheld} Business Risk Indicator is not authoritative because the recorded evidence could not ground the scored conclusion.`,
+        provisional: true,
+        internal_metrics: {
+          ...(bri.internal_metrics ?? {}),
+          score: null,
+          categories: null,
+          top_business_risks: null,
+        },
+      },
+    },
     customer_projection: {
       ...(snapshot.customer_projection ?? {}),
       applied: true,
@@ -486,9 +630,10 @@ export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
       null,
     modules,
   });
-  if (projection.evidence.complete) return websiteSnapshot;
+  if (projection.suppressed !== true) return websiteSnapshot;
 
   const bri = overall.business_risk_indicator ?? {};
+  const suppressedModules = projection.skipped_score_bearing_modules ?? [];
   return {
     ...websiteSnapshot,
     overall: {
@@ -500,11 +645,14 @@ export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
       business_risk_indicator: {
         ...bri,
         band: null,
-        explanation: null,
+        explanation: `${projection.suppression_reason ?? PHASE5_INCOMPLETE_REASON} Business Risk Indicator is not authoritative because the score-bearing assessment was incomplete.`,
         provisional: true,
+        withheld_reason: projection.suppression_reason ?? PHASE5_INCOMPLETE_REASON,
         internal_metrics: {
           ...(bri.internal_metrics ?? {}),
           score: null,
+          categories: null,
+          top_business_risks: null,
         },
       },
       evidence_completeness: {
@@ -512,13 +660,22 @@ export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
         scan_quality: projection.scan_quality,
         assessment_quality: projection.scan_quality,
         phase5_evidence: projection.evidence,
+        skipped_score_bearing_modules: suppressedModules,
       },
       not_fully_assessed: [
         ...new Set([
           ...(Array.isArray(overall.not_fully_assessed) ? overall.not_fully_assessed : []),
           ...projection.evidence.incomplete_modules,
+          ...suppressedModules,
         ]),
       ],
+    },
+    customer_projection: {
+      ...(websiteSnapshot?.customer_projection ?? {}),
+      applied: true,
+      phase5_score_withheld: true,
+      phase5_score_withheld_reason:
+        projection.suppression_reason ?? PHASE5_INCOMPLETE_REASON,
     },
   };
 }

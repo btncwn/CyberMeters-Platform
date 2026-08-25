@@ -19,7 +19,8 @@ const scanDetailFile = path.join(frontend, "src", "pages", "ScanDetail.jsx");
 const frontendRequire = createRequire(path.join(frontend, "package.json"));
 const ts = frontendRequire("typescript");
 
-const EXPECTED_ASSERTIONS = 22;
+// 23 -> 24: the R1 P1-2 F2 render case joins the pinned set.
+const EXPECTED_ASSERTIONS = 24;
 const UI_TEST_TITLES = Object.freeze([
   "A: partial canonical score and null rating override divergent raw scan presentation",
   "reason A: canonical assessment message outranks skipped modules and warnings",
@@ -32,6 +33,9 @@ const UI_TEST_TITLES = Object.freeze([
   "E: explicit first scan retains the no-history message",
   "F: missing canonical assessment never falls back to raw score or rating",
   "F: null canonical display score never falls back to the raw score",
+  "F: a suppressed score renders the backend reason in Scan Information",
+  // R1 P1-2: the real render assertion for the atomic historical invalidation.
+  "F2: a withheld historical redirect conclusion renders no stale score, band or BRI",
   "G: observed partial finding stays visible without becoming a new-change claim",
 ]);
 

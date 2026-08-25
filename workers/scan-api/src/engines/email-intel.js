@@ -401,7 +401,7 @@ export function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
       technical:        "DMARC Partial Protection",
       risk_level:       dmarc.risk_level || "MEDIUM",
       business_impact:  "Some spoofed emails may still reach recipients because DMARC is not fully enforced.",
-      recommendation:   "Increase DMARC enforcement to p=reject with pct=100 where safe to do so.",
+      recommendation:   "Increase DMARC enforcement to p=reject where safe to do so.",
     });
   }
 

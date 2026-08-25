@@ -13,7 +13,12 @@ const src = (...p) => path.join(root, "workers", "scan-api", "src", ...p);
 const eng = (f) => pathToFileURL(src("engines", f)).href;
 const EXPECTED_ASSERTIONS = 26;
 const EXPECTED_RUNTIME_CONSUMER_COUNT = 27;
-const EXPECTED_RUNTIME_CONSUMER_SHA256 = "c7e8d3cfc725f4484ac2f64d42eeca7af8f14a2328a84c4551a6bdeb18e68d18";
+// D3 SUCCESSION: count UNCHANGED at 27 consumers; position shift only. The D3
+// mint corrective added lines to composeSnapshot in report-snapshot.js, moving
+// the two report-snapshot consumer sites (buildCyberEssentialsReadiness,
+// getCyberEssentialsSnapshot) to new line numbers; this inventory records
+// sites by file:line. No CE consumer was added, removed or reclassified.
+const EXPECTED_RUNTIME_CONSUMER_SHA256 = "247626779feb529dbec778bb6e3592c7ae28cd889ad903ab0e3b17458d3d3cae";
 const ONLY = process.env.CE_CONTAINMENT_ONLY || null;
 
 const readinessMod = await import(eng("ce-readiness.js"));

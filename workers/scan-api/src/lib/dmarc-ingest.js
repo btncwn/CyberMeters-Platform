@@ -4,6 +4,7 @@
 // route and the inbound email worker path.
 import { createId } from "./util.js";
 import { createAuditEvent } from "./events.js";
+import { RUA_INBOUND_DOMAIN_DEFAULT } from "./dmarc-ingest-config.js";
 import {
   DMARC_AUTHORITY_ELIGIBLE_SOURCES,
   isDmarcAuthorityEligibleSource,
@@ -1136,8 +1137,6 @@ async function ingestDmarcReport(env, opts = {}) {
     records: parsed.records.length, messages: messageCount,
     sourcesUpdated: sourceStatements.length, repaired: claim.repaired };
 }
-
-const RUA_INBOUND_DOMAIN_DEFAULT = "reports.cybermeters.com";
 
 // Normalize only DNS hostnames that are safe to retain in audit metadata.
 function normalizeInboundRecipientDomain(domain) {

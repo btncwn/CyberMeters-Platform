@@ -28,8 +28,12 @@ const MUTANTS = [
   // The serviceability gate itself must be load-bearing, not decorative.
   ["P12E-M2-serviceability-gate-inverted",
     "workers/scan-api/src/engines/phase5-evidence.js",
-    "  if (serviceability.serviceable !== false) return snapshot;",
-    "  if (serviceability.serviceable === true) return snapshot;",
+    // Anchor re-derived after the P1-2 refactor moved the serviceability gate
+    // into websiteRedirectConclusionWithheld (return snapshot -> return false).
+    // The mutant is the SAME inversion: unknown serviceability stops being
+    // neutral and falls through toward masking.
+    "  if (serviceability.serviceable !== false) return false;",
+    "  if (serviceability.serviceable === true) return false;",
     "P12E_NEUTRAL_UNKNOWN_SERVICEABILITY_OUT_OF_RANGE_STATE_UNCHANGED"],
   // FAIL-NEUTRAL turned into FAIL-MASKING: an unreadable chain would start masking
   // honest rows — the #424 defect in the opposite direction.
