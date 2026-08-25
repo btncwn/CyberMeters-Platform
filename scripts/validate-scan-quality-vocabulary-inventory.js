@@ -57,16 +57,23 @@ const EXPECTED = Object.freeze({
     // fingerprint moves — the successor correctives edited phase5-evidence.js,
     // report-snapshot.js and dmarc-state.js inside the recorded span, and this
     // inventory records sites by file:line. No comparison added or removed.
-    fingerprint: "3cc6cf177a399f9bfd967af836b5f7af16d89b29d6cd4ea92d7c941b5f0ae678",
+    // R1-P1 CORRECTIVE SUCCESSION: runtime comparisons UNCHANGED (47/22, every
+    // key delta a pure line shift from the hosted-RUA and atomic-invalidation
+    // edits). Direct runtime reads 90 -> 91 (same 34 files): ONE genuine
+    // addition — the atomic historical invalidation reads the snapshot's
+    // recorded evidence_completeness.scan_quality to present the withheld
+    // assessment (phase5-evidence.js, projector). SQL sets unchanged in count;
+    // position-derived digests move with the same edits.
+    fingerprint: "bd89b9382654cfdad7d51bbe5105d40cc323a42320233845dc963bd13f3d8936",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
     predicate_occurrences: 35,
     unique_query_sites: 26,
     source_file_count: 15,
-    fingerprint: "2127c44f4d47bd0833eaf37d054880d4fe37b3022b84de05b4c5210e7c6f8953",
+    fingerprint: "3254ff2524dfc617a30f6c50f266f2b35d0a4b0c07a6816de86590442976926d",
     resolved_query_sink_count: 19,
-    resolved_query_sink_fingerprint: "91325ab2b522e85a68d5e5e4906631b4ac3d5ebf8fc5c9c29afd33674e8b5a92",
+    resolved_query_sink_fingerprint: "efc6a8cf3953f40ee32114de3832b46e013344302635e3b1ac887f91e7dfd729",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -89,7 +96,7 @@ const EXPECTED = Object.freeze({
     // the successor validator. Nothing was added to or removed from the runtime set.
     // SUCCESSOR-3: 63 -> 65 across 23 -> 25 files. Additive only: PR #414/#416 added
     // governed comparisons in their own validators. Nothing was removed.
-    fingerprint: "a3a1ebea6f2513a88f96813e37b037500215a1a74328983a698dd9785a03b013",
+    fingerprint: "cf21c3d15d4f8f65ac966513ff13c15c8d38a801ba47767d532c3a23f3d53461",
   },
   runtime_source_file_count: 32,
   direct: {
@@ -111,19 +118,19 @@ const EXPECTED = Object.freeze({
     // the two-tree --dump-counts diff shows every other delta as a line shift.
     // D3 CORRECTIVE SUCCESSION: 90/34 unchanged; position shift only (same edits
     // as the runtime comparison succession above).
-    runtime: { occurrence_count: 90, source_file_count: 34, fingerprint: "6ac92bfdf14c0b2d08b9c63d91b74fe7b6cdf609be6ce3f466c6d942d31d4b45" },
+    runtime: { occurrence_count: 91, source_file_count: 34, fingerprint: "a277e5b4903a0030e1110629efd9cd368ce2199b68d13e97965ef97096700ad4" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
     // D3 SUCCESSION: 108 -> 109 across 37 -> 38 files — the same additive lane
     // assertion as the governance comparison succession above reads
     // .scan_quality directly. Runtime direct reads unchanged (90/34).
-    governance: { occurrence_count: 109, source_file_count: 38, fingerprint: "84b947e7913e77ec7b7c3b5c30feb3913f6188f7d0dac905f5d28c2c9949a2ac" },
+    governance: { occurrence_count: 109, source_file_count: 38, fingerprint: "180898357d7f03a58c5a0b3d305cf6626c96e3d0684707b4a0bd412978f15c08" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
   // shifts source positions only. No scan-quality read was added or removed.
-  sql_reads: { projection_occurrences: 23, fingerprint: "d801215e7c71d4b1be286523a4f0118a0c4ac8da80e2b33a1ca6063e64ae5f8b" },
+  sql_reads: { projection_occurrences: 23, fingerprint: "d45769a1447df783183c3360249ba36c41d8701c7820003c8de115205de26149" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
