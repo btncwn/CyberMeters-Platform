@@ -38,6 +38,13 @@ or destructive-data acceptance.
   `cf6bec4952b9bd11485ce33b47f774b429698179`, reviewed head
   `5011636b550601ad08b1ea2f909c96a91dcc4496`, closes the reserved-scan physical-budget
   path with atomic charge-or-deny accounting and refuses unaccounted provider redirects.
+- **Known AS-B2 policy mismatch — zero acceptance credit:** this release preserves the
+  already-live implementation weights (KEV `-30`, critical CVE `-25`, high CVE `-15`), while
+  the canonical Stage-1 policy requires canonical-serviceability-gated KEV only at `-5` per
+  technology capped at `-10`; version-blind non-KEV CVE remains informational until AS-B5.
+  This release neither repairs nor silently redefines that mismatch. AS-B2 acceptance, the
+  4/4 operational-shame closure, JOIN, audit recovery, customer readiness and methodology
+  acceptance remain **HOLD** and receive zero credit from this deployment.
 - **Validation:** exact-main run `32909462177` passed `validate` and SAST; the corresponding
   Pages status passed. The frozen real-D1 F-009 gate is SHA-256
   `b231388a696d070243d041bf29ba44befbdef0669c16da17af7566c2c37e18f6` and PASS.
@@ -82,7 +89,7 @@ acceptance.
 - **PR #432 — AS-B2 KEV/CVE score wiring:** merge
   `3cba300b25e22fad840bdc8f9e1a2228faae4d23`, reviewed head
   `951feb756e6e88469673cb51deadc11c0d4d306c`, routes complete, publishable KEV/CVE
-  evidence through the single score owner. The canonical weights are KEV `-30`, critical CVE
+  evidence through the single score owner. The deployed implementation weights are KEV `-30`, critical CVE
   `-25` and high CVE `-15`; incomplete evidence contributes no deduction. Customer-facing
   score and risk band are re-derived together and stamped with Cyber Metrics Score methodology
   `2026-08-23.1`.
