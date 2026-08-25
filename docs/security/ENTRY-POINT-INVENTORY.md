@@ -71,9 +71,9 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2393 | preflight | public | — |
-| GET | `/health` | 2398 | public-or-global | public | — |
-| GET | `/ready` | 2414 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2385 | preflight | public | — |
+| GET | `/health` | 2390 | public-or-global | public | — |
+| GET | `/ready` | 2406 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -119,8 +119,8 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `(none)` | 1686 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `(none)` | 1798 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `(none)` | 1937 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 2083 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 2185 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 2089 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 2191 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/auth.js`
 
@@ -316,15 +316,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 |---|---|---:|---|---|---|
 | POST | `/api/scan` | 69 | public-or-global | ✓ | requireAuth, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
 | GET | `/api/scans` | 330 | public-or-global | ✓ | requireAuth, requireWorkspaceRole, getAccessibleWorkspaceIds* |
-| GET | `(none)` | 460 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
-| GET | `(none)` | 552 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
-| GET | `(none)` | 617 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
-| GET | `(none)` | 675 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
-| GET | `(none)` | 851 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
-| GET | `(none)` | 930 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
-| POST | `/api/schedules` | 970 | public-or-global | ✓ | requireAuth, requireWorkspaceRole, getAccessibleWorkspaceIds* |
-| GET | `/api/schedules` | 1070 | public-or-global | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| DELETE | `(none)` | 1108 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
+| GET | `(none)` | 457 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
+| GET | `(none)` | 549 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
+| GET | `(none)` | 614 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
+| GET | `(none)` | 672 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
+| GET | `(none)` | 848 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
+| GET | `(none)` | 927 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
+| POST | `/api/schedules` | 971 | public-or-global | ✓ | requireAuth, requireWorkspaceRole, getAccessibleWorkspaceIds* |
+| GET | `/api/schedules` | 1071 | public-or-global | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| DELETE | `(none)` | 1109 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/shadow-it.js`
 

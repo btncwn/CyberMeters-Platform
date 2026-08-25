@@ -12,8 +12,8 @@ const { parseDocument, isMap, isSeq } = workerRequire("yaml");
 
 export const CANONICAL_SKIP_CONDITION = "${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}";
 export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d55297df4fd3f90a2f57548697efcf062";
-export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 352;
-export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "c3c1119f7575a3fc1ccfab2150c2d673afe9ecc53999bf6867de404f8d1c4133";
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 355;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "f37ade934fe29b43cc53329994dbe705b700900fb2092d3f88dca988d189d9a7";
 
 export const EXPECTED_SKIP_IDS = Object.freeze([
   "frontend-test-coverage",
