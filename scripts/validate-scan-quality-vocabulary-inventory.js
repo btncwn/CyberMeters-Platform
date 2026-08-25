@@ -64,7 +64,7 @@ const EXPECTED = Object.freeze({
     // recorded evidence_completeness.scan_quality to present the withheld
     // assessment (phase5-evidence.js, projector). SQL sets unchanged in count;
     // position-derived digests move with the same edits.
-    fingerprint: "bd89b9382654cfdad7d51bbe5105d40cc323a42320233845dc963bd13f3d8936",
+    fingerprint: "a77d15e07656e7549d1f3aa14292800008e861f3a665d66a87b9e920084f597b",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
