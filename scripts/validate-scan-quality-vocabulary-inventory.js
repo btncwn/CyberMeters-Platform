@@ -121,7 +121,12 @@ const EXPECTED = Object.freeze({
     // D3 CORRECTIVE SUCCESSION: 90/34 unchanged; position shift only (same edits
     // as the runtime comparison succession above).
     // AS-B6b SUCCESSION: counts remain 91/34; reserved-scan line shifts only.
-    runtime: { occurrence_count: 91, source_file_count: 34, fingerprint: "e5cf3302f0afe8c70c798ec60df27b081f02c66b85c944592ad717cc111454e7" },
+    // I19 PR-D SUCCESSION: counts remain 91/34; POSITION SHIFT ONLY. The
+    // score-impact chip added lines to IntelligencePage.jsx ABOVE the page's
+    // one existing scan_quality read (1355 -> 1369, two-tree --dump-counts
+    // diff); the chip's own risk.incomplete read is NOT a scan-quality
+    // vocabulary site and adds nothing. No read added, removed or reclassified.
+    runtime: { occurrence_count: 91, source_file_count: 34, fingerprint: "129fa1059e721c38254cbe6d0c81b9998c877858a4450689ee4ae031308153fb" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

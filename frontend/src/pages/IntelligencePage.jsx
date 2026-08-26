@@ -541,9 +541,23 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
                           <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{f.business_impact}</p>
                         )}
                       </div>
-                      <span className={`flex-shrink-0 mt-0.5 ${SEV_BADGE[f.severity?.toLowerCase()] || SEV_BADGE.informational}`}>
-                        {f.severity}
-                      </span>
+                      <div className="flex-shrink-0 mt-0.5 flex items-center gap-1.5">
+                        {/* Attributed score impact: the backend stamps the APPLIED
+                            KEV/CVE deduction onto these notes (score_impact mirrors
+                            score_impact_applied — single scoring owner, no second
+                            calculation here). Rendered ONLY for an applied negative
+                            impact on complete evidence: zero/absent stays neutral,
+                            and an incomplete risk projection never presents a
+                            deduction (unavailable evidence is not a signal). */}
+                        {!risk.incomplete && Number.isFinite(f.score_impact) && f.score_impact < 0 && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-100">
+                            {f.score_impact} pts
+                          </span>
+                        )}
+                        <span className={`${SEV_BADGE[f.severity?.toLowerCase()] || SEV_BADGE.informational}`}>
+                          {f.severity}
+                        </span>
+                      </div>
                     </div>
                   ))}
                   {more > 0 && (
