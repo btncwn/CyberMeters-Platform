@@ -2391,7 +2391,17 @@ results.push(await asyncSecurityContract("alert_delivery_signs_and_records_statu
     },
   }; } } };
   const fetchImpl = async (url, opts) => { calls.push({ url, opts }); return { ok: url.includes("slack") ? false : true, status: url.includes("slack") ? 500 : 200 }; };
-  const res = await scanner.deliverWorkspaceAlert(env, "ws1", { kind: "test", title: "T", summary: "S" }, { fetchImpl });
+  // F-041 made delivery DNS fail-closed as well as URL-policy gated. This
+  // fixture exercises HMAC/status behaviour, so give it deterministic public
+  // A and AAAA evidence instead of relying on live DNS or bypassing the guard.
+  const dnsQueryImpl = async (name, type) => ({
+    Status: 0,
+    Answer: [{
+      name: `${name}.`, type: type === "AAAA" ? 28 : 1, TTL: 60,
+      data: type === "AAAA" ? "2606:2800:220:1:248:1893:25c8:1946" : "93.184.216.34",
+    }],
+  });
+  const res = await scanner.deliverWorkspaceAlert(env, "ws1", { kind: "test", title: "T", summary: "S" }, { fetchImpl, dnsQueryImpl });
   const hookCall  = calls.find(c => c.url.includes("example.com"));
   const slackCall = calls.find(c => c.url.includes("slack.com"));
   return res.attempted === 2 && res.delivered === 1 &&
