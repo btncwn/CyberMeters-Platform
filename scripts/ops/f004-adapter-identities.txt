@@ -1,0 +1,20 @@
+# F-004 provider adapter identity contract (repository-owned, immutable).
+#
+# The ops scripts hash the bytes of whatever executable they were handed as
+# F004_PROVIDER_CMD and refuse to take ANY provider action unless that hash appears
+# below. Successor-3 checked only that the path was a file and executable, so an
+# independently byte-modified adapter was accepted and produced `backup=success`
+# (finding F004-S3-R1-01). Editing an adapter without updating its line here is a
+# terminal STOP, by design — this file is the identity, not a convenience.
+#
+# Format:  <sha256>  <role>  <path>
+# Roles:   real     = the repository-owned adapter that maps operations to the pinned
+#                     Wrangler / S3-compatible toolchain (controlled-live use).
+#          fixture  = the deterministic author-stage fake second provider. It contacts
+#                     no provider and must never be credited as live proof.
+#
+# Regenerate by re-measuring both files with sha256 and rewriting the two lines below;
+# the focused validator fails if any line drifts from the file it names.
+#
+32586dc74420d0d30b77441703f5ad727afaa477e7b48a18b156789e2e3fabe0  real     scripts/ops/f004-provider-adapter.sh
+8a832f0c43f3ee5ccd3a806e3ea0efcad4923d40788f8534977cccf1b179a74a  fixture  scripts/fixtures/f004-fake-provider.sh
