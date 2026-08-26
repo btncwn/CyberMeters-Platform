@@ -71,9 +71,9 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2385 | preflight | public | — |
-| GET | `/health` | 2390 | public-or-global | public | — |
-| GET | `/ready` | 2406 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2403 | preflight | public | — |
+| GET | `/health` | 2408 | public-or-global | public | — |
+| GET | `/ready` | 2424 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -195,11 +195,11 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| POST | `/^\/api\/workspaces\/([^/` | 25 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| POST | `/^\/api\/domains\/([^/` | 159 | public-or-global | ✓ | requireAuth |
-| POST | `/^\/api\/domains\/([^/` | 262 | public-or-global | ✓ | requireAuth |
-| GET | `/^\/api\/domains\/([^/` | 643 | public-or-global | ✓ | requireAuth, requireDomainRole |
-| POST | `/^\/api\/domains\/([^/` | 683 | public-or-global | ✓ | requireAuth, requireDomainRole |
+| POST | `/^\/api\/workspaces\/([^/` | 57 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/domains\/([^/` | 191 | public-or-global | ✓ | requireAuth |
+| POST | `/^\/api\/domains\/([^/` | 294 | public-or-global | ✓ | requireAuth |
+| GET | `/^\/api\/domains\/([^/` | 667 | public-or-global | ✓ | requireAuth, requireDomainRole |
+| POST | `/^\/api\/domains\/([^/` | 707 | public-or-global | ✓ | requireAuth, requireDomainRole |
 
 ### `workers/scan-api/src/routes/email-protection.js`
 
