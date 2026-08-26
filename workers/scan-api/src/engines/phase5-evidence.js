@@ -288,6 +288,30 @@ export function resolvePhase5CustomerAssessment({
 }
 
 /**
+ * Reconcile the historical comparison with the canonical post-Phase-5 score.
+ *
+ * `null` means that no comparable historical score exists. JavaScript's
+ * `Number(null) === 0` would manufacture a zero baseline and a fake positive
+ * score change, so only an already-finite numeric baseline is eligible.
+ * Mutates the existing carrier because scan-engine persists that same object.
+ */
+export function reconcilePhase5HistoricalScore(historicalChanges, customerScore) {
+  if (!historicalChanges || typeof historicalChanges !== "object") {
+    return historicalChanges;
+  }
+  historicalChanges.current_score = customerScore;
+  const previousScore = historicalChanges.previous_score;
+  historicalChanges.score_change =
+    historicalChanges.has_previous === true &&
+    typeof previousScore === "number" &&
+    Number.isFinite(previousScore) &&
+    Number.isFinite(customerScore)
+      ? customerScore - previousScore
+      : null;
+  return historicalChanges;
+}
+
+/**
  * Add the canonical backend decision to the three customer-visible module
  * objects. The frontend consumes this boolean and never reimplements the
  * executable-evidence vocabulary.

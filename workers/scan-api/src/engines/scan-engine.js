@@ -75,7 +75,10 @@ import { correlateIdentityExposure } from "./identity-lifecycle.js";
 import { evaluateWebsiteSecurityForScan } from "./website-security-lifecycle.js";
 import { evaluateCyberEssentialsLifecycle } from "./ce-lifecycle.js";
 import { correlateRelatedChanges } from "./related-changes.js";
-import { resolvePhase5CustomerAssessment } from "./phase5-evidence.js";
+import {
+  reconcilePhase5HistoricalScore,
+  resolvePhase5CustomerAssessment,
+} from "./phase5-evidence.js";
 import { runTakeoverModule } from "./takeover-scan.js";
 import { runTechModule } from "./tech-scan.js";
 import { runVendorRelationshipModule } from "./vendor-relationship.js";
@@ -1241,15 +1244,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // Historical comparison ran before the bounded Phase-5 provider fan-out.
     // Reconcile its current-score fields to the canonical post-Phase-5 owner so
     // history never reports the pre-KEV number beside the final report score.
-    if (modules.historical_changes && typeof modules.historical_changes === "object") {
-      modules.historical_changes.current_score = customerScore;
-      const previousScore = Number(modules.historical_changes.previous_score);
-      modules.historical_changes.score_change =
-        modules.historical_changes.has_previous === true &&
-        Number.isFinite(previousScore) && Number.isFinite(customerScore)
-          ? customerScore - previousScore
-          : null;
-    }
+    reconcilePhase5HistoricalScore(modules.historical_changes, customerScore);
 
     // Optional RFC 9990 external-RUA phase. Core evidence is already durable in
     // memory before this gate. Launch requires the whole 600 ms slot, complete
