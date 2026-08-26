@@ -8,6 +8,16 @@
 // referenced AWS S3, Azure Blob Storage, and Google Cloud Storage endpoints.
 // No bucket guessing, no SDK/API credentials, no object-key collection.
 
+import { safeFetch } from "../lib/http.js";
+import { isOutboundControlError } from "../lib/ssrf.js";
+import { dnsQuery } from "./dns.js";
+
+export const CLOUD_STORAGE_CANDIDATE_LIMIT = 5;
+export const CLOUD_STORAGE_DNS_ATTEMPTS_PER_HOST = 2; // one cache-miss A + one AAAA
+export const CLOUD_STORAGE_HTTP_ATTEMPTS_PER_CANDIDATE = 2; // HEAD + bounded GET
+export const CLOUD_STORAGE_MAX_PHYSICAL_ATTEMPTS = CLOUD_STORAGE_CANDIDATE_LIMIT
+  * (CLOUD_STORAGE_DNS_ATTEMPTS_PER_HOST + CLOUD_STORAGE_HTTP_ATTEMPTS_PER_CANDIDATE);
+
 export function hostnameFromValue(value) {
   if (!value) return null;
   try {
@@ -182,21 +192,11 @@ function combineSignals(...signals) {
   return controller.signal;
 }
 
-async function countedFetch(url, init, accounting = null) {
-  accounting?.assertCanIssue?.();
-  accounting?.recordAttempt?.();
-  try {
-    const res = await fetch(url, { ...init, signal: combineSignals(init?.signal, accounting?.signal) });
-    accounting?.recordCompleted?.();
-    return res;
-  } catch (err) {
-    accounting?.recordError?.(err);
-    throw err;
-  }
-}
-
-async function validateCloudStorageCandidate(candidate, opts = {}) {
+export async function validateCloudStorageCandidate(candidate, opts = {}) {
   const accounting = opts.accounting || null;
+  const cache = opts.cache || null;
+  const dnsResolver = opts.dnsResolver || dnsQuery;
+  const fetchImpl = typeof opts.fetchImpl === "function" ? opts.fetchImpl : fetch;
   const result = {
     validation_method: "HEAD",
     status_code: null,
@@ -205,22 +205,50 @@ async function validateCloudStorageCandidate(candidate, opts = {}) {
     object_count_observed: null,
     listing_indicator: null,
     resource_exists: "unknown",
+    incomplete: false,
+    incomplete_reason: null,
+  };
+  const markIncomplete = (reason = "outbound_guard_unavailable") => {
+    result.resource_exists = "unknown";
+    result.listing_enabled = "unknown";
+    result.incomplete = true;
+    result.incomplete_reason = reason;
+    return result;
   };
   const headUrl = buildCloudStorageValidationUrl(candidate, false);
   if (!headUrl) return result;
   let headRes = null;
   try {
-    headRes = await countedFetch(headUrl, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(6_000) }, accounting);
+    headRes = await safeFetch(headUrl, {
+      method: "HEAD",
+      redirect: "manual",
+      signal: combineSignals(opts.signal, AbortSignal.timeout(6_000)),
+      accounting,
+      dnsResolver,
+      dnsCache: cache,
+      fetchImpl,
+    });
+    if (!headRes) return markIncomplete();
     result.status_code = headRes.status;
     result.provider_headers_present = cloudProviderHeadersPresent(candidate.provider, headRes.headers);
-  } catch {
-    return result;
+  } catch (error) {
+    if (isOutboundControlError(error)) throw error;
+    return markIncomplete("outbound_error");
   }
 
   const listUrl = buildCloudStorageValidationUrl(candidate, true);
   if (!listUrl) return result;
   try {
-    const getRes = await countedFetch(listUrl, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(6_000) }, accounting);
+    const getRes = await safeFetch(listUrl, {
+      method: "GET",
+      redirect: "manual",
+      signal: combineSignals(opts.signal, AbortSignal.timeout(6_000)),
+      accounting,
+      dnsResolver,
+      dnsCache: cache,
+      fetchImpl,
+    });
+    if (!getRes) return markIncomplete();
     result.validation_method = "HEAD+GET";
     result.status_code = getRes.status;
     result.provider_headers_present = result.provider_headers_present || cloudProviderHeadersPresent(candidate.provider, getRes.headers);
@@ -235,8 +263,9 @@ async function validateCloudStorageCandidate(candidate, opts = {}) {
     result.listing_enabled = listing.listing_enabled;
     result.object_count_observed = listing.object_count_observed;
     result.listing_indicator = listing.listing_indicator;
-  } catch {
-    result.resource_exists = headRes.status && headRes.status < 500 ? true : "unknown";
+  } catch (error) {
+    if (isOutboundControlError(error)) throw error;
+    return markIncomplete("outbound_error");
   }
   return result;
 }
@@ -316,8 +345,16 @@ export async function runCloudStorageModule(domain, modules, opts = {}) {
 
     const findings = [];
     const validatedCandidates = [];
-    for (const candidate of candidates.slice(0, 5)) {
-      const validation = await validateCloudStorageCandidate(candidate, { accounting });
+    let incomplete = false;
+    for (const candidate of candidates.slice(0, CLOUD_STORAGE_CANDIDATE_LIMIT)) {
+      const validation = await validateCloudStorageCandidate(candidate, {
+        accounting,
+        signal: opts.signal,
+        cache: opts.cache,
+        dnsResolver: opts.dnsResolver,
+        fetchImpl: opts.fetchImpl,
+      });
+      if (validation.incomplete) incomplete = true;
       const enriched = { ...candidate, validation };
       validatedCandidates.push(enriched);
       const findingBase = cloudStorageFindingFromCandidate(enriched);
@@ -395,8 +432,13 @@ export async function runCloudStorageModule(domain, modules, opts = {}) {
       assets:   findings,
       source:   "evidence_based_cloud_storage_discovery",
       error:    null,
+      ...(incomplete ? {
+        incomplete: true,
+        incomplete_reason: "cloud_storage_validation_incomplete",
+      } : {}),
     };
   } catch (err) {
+    if (isOutboundControlError(err)) throw err;
     return {
       checked:  0,
       total:    0,
@@ -405,6 +447,8 @@ export async function runCloudStorageModule(domain, modules, opts = {}) {
       assets:   [],
       source:   "evidence_based_cloud_storage_discovery",
       error:    err?.message ?? "Cloud asset discovery failed",
+      incomplete: true,
+      incomplete_reason: "cloud_storage_probe_failed",
     };
   }
 }

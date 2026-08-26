@@ -24,7 +24,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { routeQueueBatch } from "../workers/scan-api/src/lib/operational-events.js";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href);
-const { createModuleTelemetry, createOutboundAccounting, createScanDeadline, raceModuleDeadline, buildExecutionDiagnostics, SCAN_EXECUTION_DIAGNOSTICS_VERSION } = await eng("scan-budget.js");
+const { createModuleTelemetry, createOutboundAccounting, createScanDeadline, raceModuleDeadline, buildExecutionDiagnostics, makeDnsCache, SCAN_EXECUTION_DIAGNOSTICS_VERSION } = await eng("scan-budget.js");
 const { persistModuleTelemetry, heartbeatScan } = await eng("scan-engine.js");
 const { safeFetch } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "http.js")).href);
 const { dnsQuery } = await eng("dns.js");
@@ -454,20 +454,26 @@ function d1Stub({ fail = false } = {}) {
 {
   const acct = createOutboundAccounting();
   const ctx = acct.contextFor("headers");
+  let observed = null;
   await withMockFetch(async () => {
-    await safeFetch("https://example.com", { signal: AbortSignal.abort(), accounting: ctx });
+    try { await safeFetch("https://example.com", { signal: AbortSignal.abort(), accounting: ctx }); }
+    catch (error) { observed = error; }
   }, async () => { throw new DOMException("aborted", "AbortError"); });
   ctx.markSettled();
-  eq("C1A abort observed without changing safeFetch contract", acct.snapshot("headers").outbound_aborted_observed, 1);
+  ok("F041 typed abort remains observable", observed?.name === "AbortError");
+  eq("C1A abort observed in accounting", acct.snapshot("headers").outbound_aborted_observed, 1);
 }
 
 {
   const acct = createOutboundAccounting();
   const ctx = acct.contextFor("headers");
+  let observed = null;
   await withMockFetch(async () => {
-    await safeFetch("https://example.com", { accounting: ctx });
+    try { await safeFetch("https://example.com", { accounting: ctx }); }
+    catch (error) { observed = error; }
   }, async () => { throw new DOMException("timed out", "TimeoutError"); });
   ctx.markSettled();
+  ok("F041 typed timeout remains observable", observed?.name === "TimeoutError");
   eq("C1A timeout attempt counted", acct.snapshot("headers").outbound_attempts_observed, 1);
   eq("C1A timeout observed", acct.snapshot("headers").outbound_timed_out_observed, 1);
 }
@@ -571,13 +577,18 @@ function d1Stub({ fail = false } = {}) {
   const acct = createOutboundAccounting();
   const ctx = acct.contextFor("cloud_storage_discovery");
   await withMockFetch(async () => {
-    await runCloudStorageModule("example.com", { subdomains: { items: ["assets.s3.amazonaws.com"] } }, { accounting: ctx });
+    await runCloudStorageModule("example.com", { subdomains: { items: ["assets.s3.amazonaws.com"] } }, { accounting: ctx, cache: makeDnsCache() });
   }, async (url, init) => {
+    if (String(url).includes("cloudflare-dns.com/dns-query")) {
+      const type = new URL(String(url)).searchParams.get("type");
+      const data = type === "AAAA" ? "2606:2800:220:1:248:1893:25c8:1946" : "93.184.216.34";
+      return jsonResponse({ Status: 0, Answer: [{ data, type: type === "AAAA" ? 28 : 1 }] });
+    }
     if (init?.method === "HEAD") return new Response("", { status: 200, headers: { "x-amz-request-id": "req-1" } });
     return new Response("<ListBucketResult><Contents /></ListBucketResult>", { status: 200, headers: { "x-amz-request-id": "req-2" } });
   });
   ctx.markSettled();
-  eq("C1B cloud-storage HEAD + GET validation counted", acct.snapshot("cloud_storage_discovery").outbound_attempts_observed, 2);
+  eq("F041 cloud-storage A + AAAA + HEAD + GET counted once with shared cache", acct.snapshot("cloud_storage_discovery").outbound_attempts_observed, 4);
 }
 
 {
@@ -694,10 +705,12 @@ function d1Stub({ fail = false } = {}) {
   ctx.signal = controller.signal;
   ctx.assertCanIssue = () => { if (ctx.signal.aborted) throw new DOMException("Module budget exhausted", "AbortError"); };
   let launched = false;
+  let observed = null;
   await withMockFetch(async () => {
-    const res = await safeFetch("https://example.com", { accounting: ctx });
-    eq("B2 cancelled leaf returns null", res, null);
+    try { await safeFetch("https://example.com", { accounting: ctx }); }
+    catch (error) { observed = error; }
   }, async () => { launched = true; return new Response("unexpected"); });
+  ok("F041 cancelled safeFetch leaf propagates AbortError", observed?.name === "AbortError");
   eq("B2 cancellation prevents physical fetch launch", launched, false);
   eq("B2 cancelled leaf does not count a new attempt", acct.snapshot("headers").outbound_attempts_observed, 0);
 }
@@ -769,6 +782,7 @@ function d1Stub({ fail = false } = {}) {
   const subdomainsSrc = src("workers", "scan-api", "src", "engines", "subdomains-scan.js");
   const ctCacheSrc = src("workers", "scan-api", "src", "engines", "ct-provider-cache.js");
   const cloudSrc = src("workers", "scan-api", "src", "engines", "cloud-storage-scan.js");
+  const httpSrc = src("workers", "scan-api", "src", "lib", "http.js");
   const reservedProbeSrc = src("workers", "scan-api", "src", "engines", "reserved-probe.js");
   sourceGuard("C1B SSL safeFetch leaves carry accounting", sslSrc,
     (s) => /safeFetch\(`https:\/\/\$\{domain\}`,[\s\S]{0,140}accounting/.test(s) && /safeFetch\(httpOrigUrl,[\s\S]{0,120}accounting/.test(s) && /safeFetch\(loc1,[\s\S]{0,120}accounting/.test(s),
@@ -788,11 +802,12 @@ function d1Stub({ fail = false } = {}) {
   sourceGuard("C1B brute-force DNS leaves carry accounting", subdomainsSrc,
     (s) => /dnsQuery\(host, "A", \{ accounting, cache \}\)/.test(s) && /dnsQuery\(host, "MX", \{ accounting, cache \}\)/.test(s),
     (s) => s.replace('dnsQuery(host, "MX", { accounting, cache })', 'dnsQuery(host, "MX", { cache })'));
-  sourceGuard("C1B cloud-storage validation fetches are counted", cloudSrc,
-    (s) => /headRes = await countedFetch\(headUrl,[\s\S]{0,120}accounting/.test(s) && /getRes = await countedFetch\(listUrl,[\s\S]{0,120}accounting/.test(s),
-    (s) => s.replace(/countedFetch\(listUrl,/, "fetch(listUrl,"));
+  sourceGuard("F041 cloud-storage DNS and HTTP share the safeFetch accounting boundary", cloudSrc,
+    (s) => /headRes = await safeFetch\(headUrl, \{[\s\S]{0,220}accounting,[\s\S]{0,160}dnsResolver,[\s\S]{0,120}dnsCache: cache/.test(s)
+      && /getRes = await safeFetch\(listUrl, \{[\s\S]{0,220}accounting,[\s\S]{0,160}dnsResolver,[\s\S]{0,120}dnsCache: cache/.test(s),
+    (s) => s.replace(/(const getRes = await safeFetch\(listUrl, \{[\s\S]{0,180})\s*accounting,\n/, "$1"));
   sourceGuard("C1B scan-engine threads module contexts", engineSrc,
-    (s) => /runSslModule\(domain, \{ accounting, signal, ctCache, subOps: subOpTelemetry \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal, cache: dnsCache \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal \}\)/.test(s),
+    (s) => /runSslModule\(domain, \{ accounting, signal, ctCache, subOps: subOpTelemetry \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal, cache: dnsCache \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal, cache: dnsCache \}\)/.test(s),
     (s) => s.replace('runSslModule(domain, { accounting, signal, ctCache, subOps: subOpTelemetry })', "runSslModule(domain)"));
   sourceGuard("C1B complete-set includes newly covered modules", budgetSrc,
     (s) => ["ssl", "subdomains", "dns_bruteforce", "cloud_storage_discovery"].every((m) => s.includes(`"${m}"`)),
@@ -815,10 +830,11 @@ function d1Stub({ fail = false } = {}) {
   sourceGuard("B2 incomplete outbound counts remain D1 null", budgetSrc,
     (s) => /outbound_measurement_complete \? snap\.outbound_attempts_observed : null/.test(s),
     (s) => s.replace("outbound_measurement_complete ? snap.outbound_attempts_observed : null", "outbound_attempts_observed"));
-  sourceGuard("B2 native counted fetches preserve caller and module signals", ctCacheSrc + "\n" + cloudSrc,
-    (s) => (s.match(/function combineSignals\(/g) || []).length >= 2 &&
+  sourceGuard("B2 native counted fetches preserve caller and module signals", ctCacheSrc + "\n" + cloudSrc + "\n" + httpSrc,
+    (s) => (s.match(/function combineSignals\(/g) || []).length >= 3 &&
       /combineSignals\(signal, accounting\?\.signal, timeoutSignal\(timeoutMs\)\)/.test(s) &&
-      /combineSignals\(init\?\.signal, accounting\?\.signal\)/.test(s),
+      /combineSignals\(opts\.signal, AbortSignal\.timeout\(6_000\)\)/.test(s) &&
+      /combineSignals\(fetchOptions\.signal, accounting\?\.signal, AbortSignal\.timeout\(10_000\)\)/.test(s),
     (s) => s.replace(
       "combineSignals(signal, accounting?.signal, timeoutSignal(timeoutMs))",
       "signal || accounting?.signal || timeoutSignal(timeoutMs)"
