@@ -699,12 +699,12 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // Capacity mode (default "legacy" — the legacy branch below is byte-for-byte the
     // prior behaviour). "reserved" runs the separated exposure-first flow.
     const capacity = resolveScanCapacity(env);
-    // PR-B2 applies to the default queue-era scan path. The older
-    // SCAN_CAPACITY_MODE=reserved experiment has its own hard-50 subrequest
-    // validators and is not enabled in production; it must not be treated as
-    // covered by the B2 cancellation/accounting guarantees until a dedicated
-    // reserved-mode follow-up threads the same module-bound signals through it.
+    // Reserved mode retains its independent hard-50 physical counter, while the
+    // same global deadline now owns a one-shot AbortSignal threaded through every
+    // reserved module/leaf. This closes the former B2 coverage exception without
+    // changing the production mode flag.
     const reservedMode = capacity.mode === "reserved";
+    if (reservedMode) deadline.arm();
 
     // Network module results — set by whichever path runs; both produce the same shape
     // so the modules object and everything downstream are identical.
@@ -2428,6 +2428,8 @@ function buildCanonicalUrlProfile(modules) {
         });
       }
     } catch { /* non-fatal */ }
+  } finally {
+    deadline.disarm?.();
   }
 }
 

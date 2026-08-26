@@ -72,8 +72,8 @@ const mutants = [
   {
     name: "counter-removal",
     file: path.join("workers", "scan-api", "src", "engines", "scan-budget.js"),
-    before: "      recordAttempt: () => this.recordAttempt(key),",
-    after: "      recordAttempt: () => {},",
+    before: "      recordAttempt: () => { assertNotCancelled(); return this.recordAttempt(key); },",
+    after: "      recordAttempt: () => { assertNotCancelled(); },",
     expected: "ASB6B_COUNTER_RECONCILES_PHYSICAL",
   },
   {

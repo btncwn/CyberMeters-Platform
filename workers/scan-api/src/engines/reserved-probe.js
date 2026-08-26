@@ -13,6 +13,23 @@ import { dnsQuery } from "./dns.js";
 
 export const RESERVED_MAX_REDIRECT_HOPS = 3;   // follow up to 3 redirects; cap the 4th
 
+function combineSignals(...signals) {
+  const active = signals.filter(Boolean);
+  if (active.length === 0) return undefined;
+  if (active.length === 1) return active[0];
+  if (typeof AbortSignal.any === "function") return AbortSignal.any(active);
+  const controller = new AbortController();
+  const abort = () => {
+    const source = active.find((candidate) => candidate.aborted);
+    if (!controller.signal.aborted) controller.abort(source?.reason);
+  };
+  for (const signal of active) {
+    if (signal.aborted) { abort(); break; }
+    signal.addEventListener("abort", abort, { once: true });
+  }
+  return controller.signal;
+}
+
 // Resolver for resolvesToPrivateIp — BOTH A and AAAA go through the shared per-scan
 // cache so a host is resolved at most once per (name,type) across the whole scan (A is
 // often already cached by the critical-prefix pass). Never throws (resolvesToPrivateIp
@@ -80,7 +97,11 @@ export function makeSsrfSafeProbeFetch({ resolver: baseResolver, maxHops = RESER
       activeAccounting?.recordAttempt?.();
       let res;
       try {
-        res = await fetch(current, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
+        res = await fetch(current, {
+          method: "GET",
+          redirect: "manual",
+          signal: combineSignals(opts?.signal, activeAccounting?.signal, AbortSignal.timeout(timeoutMs)),
+        });
         activeAccounting?.recordCompleted?.();
       } catch (err) {
         activeAccounting?.recordError?.(err);

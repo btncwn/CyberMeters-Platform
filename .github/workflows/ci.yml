@@ -213,6 +213,12 @@ jobs:
       - name: Validate AS-B6b physical-budget closure mutations (counter + boundary + fallback)
         run: node scripts/validate-as-b6b-physical-budget-closure-mutations.js
 
+      - name: Validate AS-B6 reserved deadline safety (global cancellation + physical accounting)
+        run: node scripts/validate-as-b6-reserved-deadline-safety.js
+
+      - name: Validate AS-B6 reserved deadline safety mutations (signal + accounting + late-work guards)
+        run: node scripts/validate-as-b6-reserved-deadline-safety-mutations.js
+
       - name: Validate C1 default-prober redirect SSRF (bounded manual redirects + per-hop guard + fail-closed)
         run: node scripts/validate-c1-redirect-ssrf.js
 

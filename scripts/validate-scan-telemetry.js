@@ -747,6 +747,7 @@ function d1Stub({ fail = false } = {}) {
   const subdomainsSrc = src("workers", "scan-api", "src", "engines", "subdomains-scan.js");
   const ctCacheSrc = src("workers", "scan-api", "src", "engines", "ct-provider-cache.js");
   const cloudSrc = src("workers", "scan-api", "src", "engines", "cloud-storage-scan.js");
+  const reservedProbeSrc = src("workers", "scan-api", "src", "engines", "reserved-probe.js");
   sourceGuard("C1B SSL safeFetch leaves carry accounting", sslSrc,
     (s) => /safeFetch\(`https:\/\/\$\{domain\}`,[\s\S]{0,140}accounting/.test(s) && /safeFetch\(httpOrigUrl,[\s\S]{0,120}accounting/.test(s) && /safeFetch\(loc1,[\s\S]{0,120}accounting/.test(s),
     (s) => s.replace(/,\s*accounting/g, ""));
@@ -800,9 +801,13 @@ function d1Stub({ fail = false } = {}) {
       "combineSignals(signal, accounting?.signal, timeoutSignal(timeoutMs))",
       "signal || accounting?.signal || timeoutSignal(timeoutMs)"
     ));
-  sourceGuard("B2 reserved mode is explicitly documented as not B2-covered", engineSrc,
-    (s) => /SCAN_CAPACITY_MODE=reserved experiment[\s\S]{0,260}not be treated as[\s\S]{0,120}B2 cancellation\/accounting guarantees/.test(s),
-    (s) => s.replace("not be treated as", "be treated as"));
+  sourceGuard("B2 reserved mode arms deadline and binds every physical GET", engineSrc + "\n" + budgetSrc + "\n" + reservedProbeSrc,
+    (s) => /if \(reservedMode\) deadline\.arm\(\);/.test(s)
+      && /deadline\.disarm\?\.\(\)/.test(s)
+      && /recordAttempt: \(\) => \{ assertNotCancelled\(\)/.test(s)
+      && /combineSignals\(opts\?\.signal, activeAccounting\?\.signal, AbortSignal\.timeout\(timeoutMs\)\)/.test(s)
+      && !/not be treated as[\s\S]{0,120}B2 cancellation\/accounting guarantees/.test(s),
+    (s) => s.replace("if (reservedMode) deadline.arm();", "if (reservedMode) void deadline;"));
   const frontendFiles = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
