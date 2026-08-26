@@ -46,7 +46,7 @@ for (const [label, score, quality] of fixtures) {
   eq(`${label}: state is explicitly provisional`, result.state, 'provisional')
   eq(`${label}: provisional flag is true`, result.provisional, true)
   eq(`${label}: no final rating is published`, result.display_rating, null)
-  eq(`${label}: methodology identity is explicit`, result.methodology_version, '2026-08-24.1')
+  eq(`${label}: methodology identity is explicit`, result.methodology_version, '2026-08-26.1')
 }
 
 const monitoringIncomplete = resolveAssessmentPresentation({
@@ -159,7 +159,7 @@ ok('Executive Report and PDF retain canonical provisional wording parity',
     /Provisional Score/.test(pdf))
 ok('Cyber Metrics Score algorithm and methodology identity remain unchanged',
   /score \+= f\.score_impact;/.test(scoring) &&
-    /CYBER_METRICS_SCORE_METHODOLOGY_VERSION\s*=\s*"2026-08-24\.1"/.test(scoring))
+    /CYBER_METRICS_SCORE_METHODOLOGY_VERSION\s*=\s*"2026-08-26\.1"/.test(scoring))
 
 console.log(`\nprovisional-score-labeling: ${passed} passed, ${failed} failed (${passed + failed} total)`)
 if (failed) {

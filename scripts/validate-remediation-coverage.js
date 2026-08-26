@@ -44,7 +44,7 @@ const ACTIONABLE = [
   "header_missing_strict_transport_security", "subdomain_takeover", "subdomain_sensitive",
   "asset_exposure_sensitive_tool", "asset_exposure_admin_interface", "asset_exposure_dev_env",
   "cloud_storage_takeover_risk", "cloud_storage_public_listing", "cloud_storage_exposure_observed",
-  "kev_active_exploitation", "cve_high_severity_detected",
+  "kev_active_exploitation",
   "admin_surface_critical", "admin_surface_high", "admin_surface_medium",
   "dse_missing_caa", "dse_caa_no_issuers", "dse_hsts_short_maxage", "dse_hsts_not_preload_eligible",
   "dse_cookie_no_secure", "dse_cookie_no_httponly", "dse_cookie_no_samesite",
@@ -73,6 +73,8 @@ const REMEDIATION_NOT_REQUIRED = new Set([
   "dnssec_not_enabled", "dnssec_misconfigured",
   // tech version disclosure (low, score 0) — registry-mapped, advisory
   "tech_server_version_disclosure", "tech_xpoweredby_version_disclosure",
+  // AS-B2 Stage 1: version-blind catalogue correlation is observation-only.
+  "cve_high_severity_detected",
 ]);
 
 // Dynamic / suffixed emitters normalise to a stable prefix the resolver handles.
@@ -116,6 +118,7 @@ const NON_FINDING = new Set([
   "canonical_url_probe", "http_header_probe", "dns_mx_lookup", "dns_txt_lookup",
   "certificate_transparency_observation", "supporting_infrastructure_observation",
   "http_fingerprint_observation", "http_probe", "whois", "self_attestation", "scan_findings",
+  "technology_kev_correlation",
   "identity_discovery", "saas_exposure", "supporting_infrastructure_observation",
   // finding_type CLASS values (not ids)
   "finding", "observation",

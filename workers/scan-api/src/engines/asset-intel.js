@@ -908,6 +908,7 @@ export function runRiskModule(findings, modules) {
 
   let criticalCount = 0, highCount = 0, mediumCount = 0, lowCount = 0;
   const enrichedFindings = [];
+  const customerFindings = [];
 
   for (const f of findings) {
     const sev = (f.severity || "").toLowerCase();
@@ -925,26 +926,52 @@ export function runRiskModule(findings, modules) {
     categories[category].push(enriched);
   }
 
-  // KEV matches warrant a board-level risk notice regardless of score
+  // AS-B2 canonical customer finding. Only the exact technology matches that
+  // the single score owner charged are published here; raw catalogue breadth
+  // and version-blind CVE rows never masquerade as deployed vulnerabilities.
   const kevMatches = phase5Evidence.publishable.kev
     ? (modules.known_exploited_vulnerabilities?.matches || [])
     : [];
-  if (kevMatches.length > 0) {
+  const appliedKevEvidence = Array.isArray(
+    modules.known_exploited_vulnerabilities?.score_evidence_applied,
+  ) ? modules.known_exploited_vulnerabilities.score_evidence_applied : [];
+  if (kevMatches.length > 0 && appliedKevEvidence.length > 0) {
+    const technologies = appliedKevEvidence.map((row) => row.matched_technology);
+    const cveIds = appliedKevEvidence.map((row) => row.cve_id).filter(Boolean);
+    const appliedImpact = modules.known_exploited_vulnerabilities?.score_impact_applied ?? 0;
+    const confidenceValues = appliedKevEvidence
+      .map((row) => Number(row.fingerprint_confidence)).filter(Number.isFinite);
+    const confidence = confidenceValues.length ? Math.min(...confidenceValues) : null;
     const kevNote = {
       id:             "kev_active_exploitation",
-      severity:       "critical",
-      title:          `${kevMatches.length} CISA Known Exploited Vulnerabilit${kevMatches.length === 1 ? "y" : "ies"} detected in technology stack`,
-      description:    "Vulnerabilities on the CISA KEV list carry confirmed active exploitation evidence. CISA mandates remediation for US federal systems; all organisations should treat these as immediate priorities.",
-      business_impact:"Active exploitation confirmed. Material risk of ransomware, data breach, or regulatory penalty (GDPR breach notification obligation may apply). Board-level escalation warranted.",
+      module:         "known_exploited_vulnerabilities",
+      finding_type:   "finding",
+      severity:       "medium",
+      confidence:     Number.isFinite(confidence) ? confidence : null,
+      title:          "Detected technology has known-exploited vulnerabilities (version unconfirmed)",
+      description:    `CISA KEV catalogue entries matched the serviceability-confirmed technology fingerprint${technologies.length === 1 ? "" : "s"} ${technologies.join(", ")}. Matched KEV identifier${cveIds.length === 1 ? "" : "s"}: ${cveIds.join(", ") || "not supplied"}. The deployed product version was not confirmed, so this is a bounded technology-level risk signal, not proof that the deployed version is vulnerable.`,
+      business_impact:"A technology fingerprint overlaps the CISA Known Exploited Vulnerabilities catalogue. Confirm the deployed version and apply vendor remediation where applicable.",
       risk_category:  "Data Security",
-      // AS-B2: honest display of the deduction the customer score actually took. The
-      // score is adjusted once, canonically, in resolvePhase5CustomerAssessment, which
-      // stamps score_impact_applied here; this note only mirrors it (no second adder).
-      score_impact:   modules.known_exploited_vulnerabilities?.score_impact_applied ?? 0,
+      // Display-only mirror of the single score owner; this finding is appended
+      // after scoring and is never re-summed.
+      score_impact:   appliedImpact,
+      matched_technologies: technologies,
+      matched_cve_ids: cveIds,
+      version_confirmed: false,
+      evidence: appliedKevEvidence.map((row) => ({
+        type: "technology_kev_correlation",
+        label: row.matched_technology,
+        value: row.cve_id,
+        source: `http_fingerprint:${row.fingerprint_source || "unknown"}+cisa_kev`,
+        expected_value: "No serviceability-confirmed technology/KEV catalogue correlation",
+        fingerprint_confidence: row.fingerprint_confidence,
+        version_confirmed: false,
+      })),
     };
     enrichedFindings.unshift(kevNote);
+    customerFindings.unshift(kevNote);
     categories["Data Security"].unshift(kevNote);
-    criticalCount++;
+    mediumCount++;
   }
 
   // CVE intelligence summary
@@ -961,16 +988,16 @@ export function runRiskModule(findings, modules) {
       : "";
     const cveNote = {
       id:             "cve_high_severity_detected",
-      severity:       cveIntel.critical_count > 0 ? "critical" : "high",
-      title:          `${cveIntel.total_cves} known CVE${cveIntel.total_cves !== 1 ? "s" : ""} matched in completed technology checks`,
-      description:    `Completed NVD lookups matched ${cveIntel.total_cves} CVE(s). ${cveIntel.critical_count || 0} critical, ${cveIntel.high_count || 0} high severity.${limitationText}`,
-      business_impact:"Known vulnerabilities in deployed technologies increase the likelihood of exploitation by automated scanners and targeted attacks. Immediate patching or compensating controls required.",
+      module:         "cve_intelligence",
+      finding_type:   "observation",
+      severity:       "informational",
+      title:          `${cveIntel.total_cves} CVE catalogue match${cveIntel.total_cves !== 1 ? "es" : ""} observed (deployed versions unconfirmed)`,
+      description:    `Completed NVD lookups matched ${cveIntel.total_cves} catalogue record(s): ${cveIntel.critical_count || 0} critical, ${cveIntel.high_count || 0} high severity. The deployed product versions were not confirmed, so these rows are informational and do not prove exposure.${limitationText}`,
+      business_impact:"Catalogue correlation identifies technologies that warrant version verification. Confirm the deployed versions before assigning vulnerability impact or remediation priority.",
       risk_category:  "Data Security",
-      // AS-B2: mirrors the deduction the customer score took (stamped by
-      // resolvePhase5CustomerAssessment). Partial coverage limits the breadth claim
-      // via coverage_limitation below; it never inflates this impact — the magnitude
-      // is per matched severity, and unmeasured technologies contribute nothing.
-      score_impact:   modules.cve_intelligence?.score_impact_applied ?? 0,
+      // Version-blind NVD keyword matches are informative only. They cannot
+      // move the score until deployed-version applicability is proven.
+      score_impact:   0,
       ...(partialCoverage ? {
         coverage_limitation: {
           state: "partial",
@@ -979,9 +1006,8 @@ export function runRiskModule(findings, modules) {
       } : {}),
     };
     enrichedFindings.push(cveNote);
+    customerFindings.push(cveNote);
     categories["Data Security"].push(cveNote);
-    if (cveNote.severity === "critical") criticalCount++;
-    else highCount++;
   }
 
   // Build overall risk narrative
@@ -1018,6 +1044,7 @@ export function runRiskModule(findings, modules) {
     risk_categories:    populatedCategories,
     finding_counts:     { critical: criticalCount, high: highCount, medium: mediumCount, low: lowCount },
     enriched_findings:  enrichedFindings,
+    customer_findings:  customerFindings,
     ...(phase5Evidence.complete ? {} : {
       incomplete: true,
       incomplete_reason: PHASE5_INCOMPLETE_REASON,
@@ -1039,19 +1066,23 @@ export function runRiskModule(findings, modules) {
  */
 export function runRemediationModule(findings, kevModule, takeoverModule) {
   const kevEvidencePublishable = isPublishableModuleEvidence(kevModule);
-  const p1 = [];  // Immediate — KEV + Critical + Takeover
+  const p1 = [];  // Immediate — version-confirmed Critical + Takeover
   const p2 = [];  // High priority — High severity
   const p3 = [];  // Planned — Medium + Low
 
-  // 1. KEV matches → always P1 (mirrors remediation_prioritization.py)
-  for (const match of (kevEvidencePublishable ? (kevModule?.matches || []) : [])) {
-    p1.push({
-      title:    `Remediate ${match.cve_id} — ${match.vulnerability_name || match.product || "Known Exploited Vulnerability"}`,
-      reason:   "Listed in CISA Known Exploited Vulnerabilities catalog with confirmed active exploitation in the wild.",
-      action:   match.required_action || "Apply vendor security update per CISA advisory immediately.",
-      source:   "cisa_kev",
-      cve_id:   match.cve_id,
-      due_date: match.due_date || null,
+  // 1. Stage-1 KEV technology correlations are version-unconfirmed medium risk,
+  // not proof that the deployed product is vulnerable. Use only the exact
+  // evidence charged by the score owner and place version verification in the
+  // planned lane. Stage 2 (AS-B5) may promote an in-range, version-confirmed KEV.
+  for (const match of (kevEvidencePublishable
+    ? (kevModule?.score_evidence_applied || []) : [])) {
+    p3.push({
+      title:    `Verify deployed version for ${match.cve_id || "KEV catalogue match"} on ${match.matched_technology}`,
+      reason:   "The serviceability-confirmed technology fingerprint matches a CISA KEV catalogue entry, but the deployed version is unconfirmed.",
+      action:   "Confirm the deployed version and apply the vendor remediation only if the affected version range applies.",
+      source:   "cisa_kev_technology_correlation",
+      cve_id:   match.cve_id || null,
+      due_date: null,
     });
   }
 

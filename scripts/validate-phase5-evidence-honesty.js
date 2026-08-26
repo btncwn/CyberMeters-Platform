@@ -85,25 +85,41 @@ const completedEmailIntel = (overrides = {}) => ({
   ...overrides,
 });
 const deferred = (shape) => markDeadlineDeferred(shape);
+const completedTechnology = () => ({
+  technologies: ["nginx"],
+  technology_fingerprints: [{ technology: "nginx", source: "server", confidence: 90 }],
+  serviceability_contract: {
+    serviceable: true,
+    conclusion_class: "conclusive",
+    reason: "origin_response_serviceable",
+  },
+});
 const completeModules = () => ({
+  technology_detection: completedTechnology(),
   cve_intelligence: completedCve(),
   known_exploited_vulnerabilities: completedKev(),
   email_security_intelligence: completedEmailIntel(),
 });
 const fallbackModules = () => ({
+  technology_detection: completedTechnology(),
   cve_intelligence: deferred(completedCve()),
   known_exploited_vulnerabilities: deferred(completedKev()),
   email_security_intelligence: deferred(completedEmailIntel()),
 });
-const probe = (modules, findings = []) => ({
-  risk: runRiskModule(findings, modules),
-  customer: resolvePhase5CustomerAssessment({
+const probe = (modules, findings = []) => {
+  // Production order: the single score owner stamps the exact charged KEV
+  // evidence before risk-intelligence builds the canonical customer finding.
+  const customer = resolvePhase5CustomerAssessment({
     score: 100,
     riskLevel: "excellent",
     modules,
-  }),
-  projected: projectPhase5EvidenceForCustomer(modules),
-});
+  });
+  return {
+    customer,
+    risk: runRiskModule(findings, modules),
+    projected: projectPhase5EvidenceForCustomer(modules),
+  };
+};
 
 function runEngineChild() {
   return JSON.parse(
@@ -312,6 +328,10 @@ console.log("\n── B. isolated producer-to-consumer fixtures ──");
     matches: [{
       cve_id: "CVE-2099-0001",
       vulnerability_name: "Positive fixture",
+      matched_technology: "nginx",
+      fingerprint_source: "server",
+      fingerprint_confidence: 90,
+      version_confirmed: false,
     }],
   });
   const result = probe(modules);
@@ -321,8 +341,10 @@ console.log("\n── B. isolated producer-to-consumer fixtures ──");
   ok("B19 completed positive KEV finding remains publishable",
     result.risk.enriched_findings.some(
       (finding) => finding.id === "kev_active_exploitation"));
-  ok("B20 completed positive evidence produces Critical",
-    result.risk.overall_risk_level === "Critical");
+  ok("B20 version-blind CVE stays informational while bounded KEV produces Moderate",
+    result.risk.overall_risk_level === "Moderate" &&
+      result.risk.enriched_findings.find(
+        (finding) => finding.id === "cve_high_severity_detected")?.severity === "informational");
 }
 {
   const sibling = {
@@ -486,8 +508,8 @@ const MUTATIONS = [
     name: "M8 trustworthy sibling finding is lost",
     edits: [{
       target: ASSET_INTEL,
-      from: "  const enrichedFindings = [];\n\n  for (const f of findings) {\n",
-      to: "  const enrichedFindings = [];\n\n  for (const f of []) {\n",
+      from: "  const enrichedFindings = [];\n  const customerFindings = [];\n\n  for (const f of findings) {\n",
+      to: "  const enrichedFindings = [];\n  const customerFindings = [];\n\n  for (const f of []) {\n",
     }],
     check: () => !runChild("sibling").risk.enriched_findings.some(
       (finding) => finding.id === "trusted_sibling"),

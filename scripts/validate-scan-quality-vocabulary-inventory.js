@@ -69,7 +69,10 @@ const EXPECTED = Object.freeze({
     // AS-B6 RESERVED-DEADLINE SUCCESSION: counts remain 47/22. Arming the
     // canonical deadline in scan-engine shifts existing comparison sites only;
     // no comparison was added, removed or reclassified.
-    fingerprint: "bc2ccb19a646c9099e58c3e6f746788bab23f121d98281704d968e7dad4ec5ef",
+    // AS-B2 FINAL-REBASE SUCCESSION: counts remain 47/22. The canonical scoring
+    // wire-in shifts five existing product comparison sites only; no runtime
+    // comparison was added, removed or reclassified.
+    fingerprint: "449afe4d869461139ff318c30bd27bad6b76b7a73a13c25031f9db78098ec6a7",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -94,6 +97,10 @@ const EXPECTED = Object.freeze({
     // cell keeps scan_quality "complete" (the TRIAGE-M17 kill site). The
     // runtime sets are unchanged (47/22 and 90/34), which is the check that
     // matters — the product gained no new scan-quality comparison.
+    // AS-B2 FINAL-REBASE SUCCESSION: counts remain 68/27. The two reviewed
+    // child-process comparisons and the presentation assertion moved within
+    // validate-phase5-evidence-honesty.js; exact line keys were re-derived on
+    // the final tree. No governance or product comparison changed membership.
     comparison_occurrences: 68,
     source_file_count: 27,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
@@ -101,7 +108,7 @@ const EXPECTED = Object.freeze({
     // the successor validator. Nothing was added to or removed from the runtime set.
     // SUCCESSOR-3: 63 -> 65 across 23 -> 25 files. Additive only: PR #414/#416 added
     // governed comparisons in their own validators. Nothing was removed.
-    fingerprint: "cf21c3d15d4f8f65ac966513ff13c15c8d38a801ba47767d532c3a23f3d53461",
+    fingerprint: "fbb211244829b227f8a9e6e4e9f2d86d85d620eac09bbfed4731652be51c2a92",
   },
   runtime_source_file_count: 32,
   direct: {
@@ -135,14 +142,18 @@ const EXPECTED = Object.freeze({
     // moving those files' existing scan-quality sites; this inventory records
     // sites by file:line. Both fingerprints derived from this tree's own
     // --dump-counts run and independently matched the hosted CI values.
-    runtime: { occurrence_count: 91, source_file_count: 34, fingerprint: "02c14f8d58b2282d7e3e42e465a4fdd9b8a0a339e363f1dfc363f82114c62a41" },
+    // AS-B2 FINAL-REBASE SUCCESSION: counts remain 91/34; final-tree product
+    // line shifts only, with identical canonical-read membership.
+    runtime: { occurrence_count: 91, source_file_count: 34, fingerprint: "6550095401675c6d69e1976aaa22bb3a93004b443b8398897dfb4e707c116ecd" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
     // D3 SUCCESSION: 108 -> 109 across 37 -> 38 files — the same additive lane
     // assertion as the governance comparison succession above reads
     // .scan_quality directly. Runtime direct reads unchanged (90/34).
-    governance: { occurrence_count: 109, source_file_count: 38, fingerprint: "180898357d7f03a58c5a0b3d305cf6626c96e3d0684707b4a0bd412978f15c08" },
+    // AS-B2 FINAL-REBASE SUCCESSION: counts remain 109/38; validator line
+    // shifts only, with identical direct-read membership.
+    governance: { occurrence_count: 109, source_file_count: 38, fingerprint: "88f99ce3efaa8b966b58c4248e73de91504a3d9fa4b6a400bf2a5c8ff8f833bd" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
@@ -194,15 +205,15 @@ const QUALITY_NORMALIZER_METHODS = new Set(["trim", "toLowerCase", "toString"]);
 // a property-name or regex allowlist: any move, rename or new site changes the
 // governance inventory and requires review.
 const REVIEWED_DYNAMIC_QUALITY_EXPRESSIONS = new Map([
-  ["scripts/validate-phase5-evidence-honesty.js:193:engine.quality",
+  ["scripts/validate-phase5-evidence-honesty.js:209:engine.quality",
     "child-process runScanEngine quality projection"],
-  ["scripts/validate-phase5-evidence-honesty.js:193:engine.reportQuality",
+  ["scripts/validate-phase5-evidence-honesty.js:209:engine.reportQuality",
     "child-process runScanEngine report-quality projection"],
 ]);
 const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:232:stale.quality === \"unknown\"",
-  "scripts/validate-phase5-evidence-honesty.js:220:presentation.quality === \"partial\"",
+  "scripts/validate-phase5-evidence-honesty.js:236:presentation.quality === \"partial\"",
   "scripts/validate-signal-monitoring-state.js:257:degraded.quality === \"degraded\"",
 ]);
 

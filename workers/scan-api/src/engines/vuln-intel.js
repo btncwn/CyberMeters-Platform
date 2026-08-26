@@ -6,6 +6,7 @@
 // module-internal.
 import { safeFetch } from "../lib/http.js";
 import { customerSafeFailure } from "../lib/errors.js";
+import { maySupportDefectConclusion } from "../lib/serviceability.js";
 
 // ── Intelligence Module: CVE Correlation ─────────────────────────────────────
 // Ported from cve_lookup.py — queries NVD API for technologies detected by
@@ -368,6 +369,27 @@ export async function getKevCatalogue(env = null, { fetcher = safeFetch, now = D
  * `env` enables the R2 catalogue cache; `opts` injects fetcher/now for tests.
  */
 export async function runKevModule(techModule, env = null, opts = {}) {
+  // A KEV keyword hit is score-bearing only when the technology fingerprint came
+  // from a canonical serviceable origin response. Reuse the shared authority;
+  // never infer serviceability from a status code or from the presence of a
+  // technology string.
+  if (!maySupportDefectConclusion(techModule?.serviceability_contract)) {
+    return {
+      matches: [], checked: 0, matched: 0, source: "cisa_kev",
+      incomplete: true,
+      outcome: "dependency_unavailable",
+      incomplete_reason: "technology_serviceability_unconfirmed",
+    };
+  }
+
+  const fingerprints = Array.isArray(techModule?.technology_fingerprints)
+    ? techModule.technology_fingerprints
+    : [];
+  const fingerprintByTech = new Map(
+    fingerprints
+      .filter((row) => row?.technology)
+      .map((row) => [String(row.technology).toLowerCase(), row]),
+  );
   const detectedTechs = (techModule?.technologies || []).map(t => t.toLowerCase());
   // Include normalised server/x-powered-by values as additional keyword hints
   for (const h of [techModule?.server, techModule?.x_powered_by]) {
@@ -387,8 +409,11 @@ export async function runKevModule(techModule, env = null, opts = {}) {
       const product = (vuln.product        || "").toLowerCase();
       const vendor  = (vuln.vendorProject   || "").toLowerCase();
       // Keyword match: does the KEV product/vendor mention any of our detected techs?
-      const techMatch = detectedTechs.some(t => t.length >= 3 && (product.includes(t) || vendor.includes(t)));
-      if (!techMatch) continue;
+      const matchedTechnology = detectedTechs.find(
+        (t) => t.length >= 3 && (product.includes(t) || vendor.includes(t)),
+      );
+      if (!matchedTechnology) continue;
+      const fingerprint = fingerprintByTech.get(matchedTechnology) || null;
       matches.push({
         cve_id:              vuln.cveID,
         vendor_project:      vuln.vendorProject,
@@ -399,6 +424,11 @@ export async function runKevModule(techModule, env = null, opts = {}) {
         due_date:            vuln.dueDate,
         short_description:   vuln.shortDescription || "",
         match_type:          "technology_keyword",
+        matched_technology:  fingerprint?.technology || matchedTechnology,
+        fingerprint_source:  fingerprint?.source || null,
+        fingerprint_confidence: Number.isFinite(Number(fingerprint?.confidence))
+          ? Number(fingerprint.confidence) : null,
+        version_confirmed:   false,
       });
     }
 

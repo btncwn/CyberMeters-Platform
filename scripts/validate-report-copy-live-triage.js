@@ -240,6 +240,11 @@ function ok(name, cond, detail = "") {
   // own (independent of the evidence-incomplete path) — else disarming the skip
   // check would go unnoticed. Control proves complete evidence yields a score.
   const completeMods = () => ({
+    technology_detection: {
+      technologies: ["nginx"],
+      technology_fingerprints: [{ technology: "nginx", source: "server", confidence: 90 }],
+      serviceability_contract: { serviceable: true, conclusion_class: "conclusive", reason: "origin_response_serviceable" },
+    },
     cve_intelligence: { technologies_checked: ["nginx"], lookup_statuses: { nginx: { status: "complete" } }, results: {}, total_cves: 0, critical_count: 0, high_count: 0, cve_coverage: "complete", source: "nvd_api" },
     known_exploited_vulnerabilities: { matches: [] },
     email_security_intelligence: { email_security_score: 100 },
@@ -255,7 +260,13 @@ function ok(name, cond, detail = "") {
   // it byte-for-value while still applying the shared suppression decision.
   const kevModules = {
     ...completeMods(),
-    known_exploited_vulnerabilities: { matches: [{ cve: "CVE-2021-0000" }] },
+    known_exploited_vulnerabilities: { matches: [{
+      cve_id: "CVE-2021-0000",
+      matched_technology: "nginx",
+      fingerprint_source: "server",
+      fingerprint_confidence: 90,
+      version_confirmed: false,
+    }] },
   };
   const liveKev = resolvePhase5CustomerAssessment({
     score: 90,
@@ -268,13 +279,13 @@ function ok(name, cond, detail = "") {
     scanQuality: "complete",
     modules: kevModules,
   });
-  ok("D3 persistence boundary: live KEV adjustment applies exactly once (90 to 60)",
-    liveKev.score === 60 && liveKev.risk_level === "moderate");
-  ok("D3 persistence boundary: historical projection preserves persisted 60/moderate",
-    historicalKev.score === 60 &&
-      historicalKev.risk_level === "moderate" &&
-      historicalKev.assessment.display_score === 60 &&
-      historicalKev.assessment.display_rating === "moderate");
+  ok("D3 persistence boundary: live KEV adjustment applies exactly once (90 to 85)",
+    liveKev.score === 85 && liveKev.risk_level === "good");
+  ok("D3 persistence boundary: historical projection preserves persisted 85/good",
+    historicalKev.score === 85 &&
+      historicalKev.risk_level === "good" &&
+      historicalKev.assessment.display_score === 85 &&
+      historicalKev.assessment.display_rating === "good");
 
   // Cause is a single source, reusable by read surfaces.
   ok("D3: resolveScoreSuppressionReason returns the same cause from modules alone",
@@ -609,8 +620,8 @@ function ok(name, cond, detail = "") {
       /assessment\?\.suppression_reason, assessment\?\.message/.test(scanDetailSource));
 
   // Methodology bump (paired with golden-consumer re-derivation elsewhere).
-  ok("D3: methodology stamp bumped to 2026-08-24.1",
-    CYBER_METRICS_SCORE_METHODOLOGY_VERSION === "2026-08-24.1", CYBER_METRICS_SCORE_METHODOLOGY_VERSION);
+  ok("D3: methodology stamp remains newer than the pre-D3 contract",
+    CYBER_METRICS_SCORE_METHODOLOGY_VERSION !== "2026-08-23.1", CYBER_METRICS_SCORE_METHODOLOGY_VERSION);
   ok("D3: score-bearing set includes asset_exposure/subdomains (barbers' skipped areas)",
     SCORE_BEARING_MODULES.includes("asset_exposure") && SCORE_BEARING_MODULES.includes("subdomains"));
 }

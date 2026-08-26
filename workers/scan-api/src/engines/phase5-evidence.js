@@ -273,6 +273,8 @@ export function resolvePhase5CustomerAssessment({
   // (this function is the ONLY place the score is adjusted).
   if (modules?.known_exploited_vulnerabilities && typeof modules.known_exploited_vulnerabilities === "object") {
     modules.known_exploited_vulnerabilities.score_impact_applied = deduction.kev;
+    modules.known_exploited_vulnerabilities.score_evidence_applied = deduction.scored_matches;
+    modules.known_exploited_vulnerabilities.score_matched_technologies = deduction.matched_technologies;
   }
   if (modules?.cve_intelligence && typeof modules.cve_intelligence === "object") {
     modules.cve_intelligence.score_impact_applied = deduction.cve;
@@ -283,6 +285,30 @@ export function resolvePhase5CustomerAssessment({
     kev_cve_deduction: deduction,
     evidence,
   };
+}
+
+/**
+ * Reconcile the historical comparison with the canonical post-Phase-5 score.
+ *
+ * `null` means that no comparable historical score exists. JavaScript's
+ * `Number(null) === 0` would manufacture a zero baseline and a fake positive
+ * score change, so only an already-finite numeric baseline is eligible.
+ * Mutates the existing carrier because scan-engine persists that same object.
+ */
+export function reconcilePhase5HistoricalScore(historicalChanges, customerScore) {
+  if (!historicalChanges || typeof historicalChanges !== "object") {
+    return historicalChanges;
+  }
+  historicalChanges.current_score = customerScore;
+  const previousScore = historicalChanges.previous_score;
+  historicalChanges.score_change =
+    historicalChanges.has_previous === true &&
+    typeof previousScore === "number" &&
+    Number.isFinite(previousScore) &&
+    Number.isFinite(customerScore)
+      ? customerScore - previousScore
+      : null;
+  return historicalChanges;
 }
 
 /**

@@ -49,6 +49,7 @@ export async function runTechModule(domain, opts = {}) {
       incomplete_reason: "origin_not_observed",
       observation_state: "unavailable",
       serviceability: "non_serviceable",
+      serviceability_contract: null,
       technologies: [],
       server: null,
       x_powered_by: null,
@@ -77,6 +78,10 @@ export async function runTechModule(domain, opts = {}) {
         ? "origin_error_no_serviceable_response" : "origin_not_observed",
       observation_state: "unavailable",
       serviceability:    "non_serviceable",
+      // Additive canonical contract. Keep the legacy string above for old
+      // readers, but scoring/intelligence consumers must use this shaped
+      // authority rather than inventing another status predicate.
+      serviceability_contract: serviceability,
       tech_observation: {
         state:          observation.state,
         reason:         observation.reason,
@@ -110,6 +115,14 @@ export async function runTechModule(domain, opts = {}) {
 
   // ── Inferred technologies ────────────────────────────────────────────────
   const technologies = [];
+  const technologyFingerprints = new Map();
+  const addTechnology = (technology, source, confidence) => {
+    if (!technologies.includes(technology)) technologies.push(technology);
+    const current = technologyFingerprints.get(technology);
+    if (!current || confidence > current.confidence) {
+      technologyFingerprints.set(technology, { technology, source, confidence });
+    }
+  };
 
   const serverLc    = (server    || "").toLowerCase();
   const poweredByLc = (poweredBy || "").toLowerCase();
@@ -122,26 +135,26 @@ export async function runTechModule(domain, opts = {}) {
     } catch { /* skip malformed script src */ }
   }
 
-  if (cfRay || serverLc.includes("cloudflare"))          technologies.push("Cloudflare");
-  if (serverLc.includes("nginx"))                        technologies.push("nginx");
-  if (serverLc.includes("apache"))                       technologies.push("Apache");
-  if (serverLc.includes("iis"))                          technologies.push("Microsoft IIS");
-  if (serverLc.includes("openresty"))                    technologies.push("OpenResty");
-  if (serverLc.includes("litespeed"))                    technologies.push("LiteSpeed");
-  if (poweredByLc.includes("express"))                   technologies.push("Express");
-  if (poweredByLc.includes("php"))                       technologies.push("PHP");
-  if (poweredByLc.includes("asp.net"))                   technologies.push("ASP.NET");
-  if (poweredByLc.includes("next.js"))                   technologies.push("Next.js");
-  if (poweredByLc.includes("django"))                    technologies.push("Django");
+  if (cfRay || serverLc.includes("cloudflare"))          addTechnology("Cloudflare", cfRay ? "cf-ray" : "server", 90);
+  if (serverLc.includes("nginx"))                        addTechnology("nginx", "server", 90);
+  if (serverLc.includes("apache"))                       addTechnology("Apache", "server", 90);
+  if (serverLc.includes("iis"))                          addTechnology("Microsoft IIS", "server", 90);
+  if (serverLc.includes("openresty"))                    addTechnology("OpenResty", "server", 90);
+  if (serverLc.includes("litespeed"))                    addTechnology("LiteSpeed", "server", 90);
+  if (poweredByLc.includes("express"))                   addTechnology("Express", "x-powered-by", 90);
+  if (poweredByLc.includes("php"))                       addTechnology("PHP", "x-powered-by", 90);
+  if (poweredByLc.includes("asp.net"))                   addTechnology("ASP.NET", "x-powered-by", 90);
+  if (poweredByLc.includes("next.js"))                   addTechnology("Next.js", "x-powered-by", 90);
+  if (poweredByLc.includes("django"))                    addTechnology("Django", "x-powered-by", 90);
   if (bodyLc.includes("/assets/index-") ||
       bodyLc.includes("vite") ||
-      bodyLc.includes("__vite_"))                        technologies.push("React/Vite");
+      bodyLc.includes("__vite_"))                        addTechnology("React/Vite", "body-marker", 70);
   if (!technologies.some(t => t === "React/Vite") &&
-      bodyLc.includes("_next/static"))                   technologies.push("Next.js");
+      bodyLc.includes("_next/static"))                   addTechnology("Next.js", "body-marker", 70);
   if (bodyLc.includes("wp-content") ||
-      bodyLc.includes("wp-includes"))                    technologies.push("WordPress");
-  if (bodyLc.includes("drupal"))                         technologies.push("Drupal");
-  if (bodyLc.includes("joomla"))                         technologies.push("Joomla");
+      bodyLc.includes("wp-includes"))                    addTechnology("WordPress", "body-marker", 70);
+  if (bodyLc.includes("drupal"))                         addTechnology("Drupal", "body-marker", 70);
+  if (bodyLc.includes("joomla"))                         addTechnology("Joomla", "body-marker", 70);
 
   // ── Informational findings (no score impact) ─────────────────────────────
   // Only raised when headers expose specific version strings — not for generic
@@ -182,6 +195,8 @@ export async function runTechModule(domain, opts = {}) {
     x_content_type_options:    xcto,
     external_scripts:          [...new Set(externalScripts)],
     technologies:              [...new Set(technologies)],  // deduplicate
+    technology_fingerprints:   [...technologyFingerprints.values()],
+    serviceability_contract:   serviceability,
     info_findings:             infoFindings,
   };
 }
