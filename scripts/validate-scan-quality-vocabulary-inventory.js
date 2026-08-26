@@ -66,7 +66,10 @@ const EXPECTED = Object.freeze({
     // position-derived digests move with the same edits.
     // AS-B6b SUCCESSION: counts remain 47/22. The reserved critical-prefix
     // redirect-refusal branch shifts existing comparison sites only.
-    fingerprint: "e1e005963fe9b700d8781e9b10fe89fd8d326bcf05c1a465fb3b1d357167dd8e",
+    // AS-B6 RESERVED-DEADLINE SUCCESSION: counts remain 47/22. Arming the
+    // canonical deadline in scan-engine shifts existing comparison sites only;
+    // no comparison was added, removed or reclassified.
+    fingerprint: "c4203a904e79cefde629cfe7aa8e3c40f3332e015a86f17e7b90f253baadc6ea",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
