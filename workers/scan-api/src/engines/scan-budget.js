@@ -177,13 +177,37 @@ export class PhysicalSubrequestCounter {
     const key = String(category || "unclassified");
     const deniedAtStart = this.deniedByCategory[key] || 0;
     const issuedAtStart = this.byCategory[key] || 0;
+    const cancellationReason = () => {
+      const raw = signal?.reason;
+      if (typeof raw === "string" && raw) return raw;
+      if (raw && typeof raw === "object" && typeof raw.reason === "string") return raw.reason;
+      return "scan_deadline_exhausted";
+    };
+    const assertNotCancelled = () => {
+      if (!signal?.aborted) return;
+      const reason = cancellationReason();
+      const error = new Error(
+        reason === "scan_deadline_exhausted"
+          ? "Scan deadline exhausted"
+          : "Module budget exhausted",
+      );
+      error.name = "AbortError";
+      error.code = reason;
+      throw error;
+    };
     return {
       signal,
-      assertCanIssue: () => this.assertCanIssue(key),
-      recordAttempt: () => this.recordAttempt(key),
+      // The AbortSignal is part of the physical boundary, not advisory metadata.
+      // A leaf must lose the right to launch/charge the instant its module/global
+      // deadline fires. Checking again at recordAttempt closes the small interval
+      // between an assertCanIssue() call and the actual fetch() invocation.
+      assertCanIssue: () => { assertNotCancelled(); return this.assertCanIssue(key); },
+      recordAttempt: () => { assertNotCancelled(); return this.recordAttempt(key); },
       recordCompleted: () => {},
       recordError: () => {},
       budgetExhausted: () => (this.deniedByCategory[key] || 0) > deniedAtStart,
+      cancelled: () => signal?.aborted === true,
+      cancellationReason,
       issuedDuringContext: () => (this.byCategory[key] || 0) - issuedAtStart,
     };
   }
@@ -253,6 +277,8 @@ export function createScanDeadline(env = {}, now = Date.now) {
     SCAN_DEADLINE_DEFAULTS.minBudgetMs, SCAN_DEADLINE_DEFAULTS.maxBudgetMs);
   const startedAtMs = now();
   const controller = new AbortController();
+  let armedTimer = null;
+  let armedClearTimer = clearTimeout;
   let abortProvenance = null;
   // The canonical global-deadline event is recorded once, in one place, so that
   // CT-R1 telemetry and overlap freeze read the same owner, reason and time.
@@ -290,6 +316,31 @@ export function createScanDeadline(env = {}, now = Date.now) {
       if (controller.signal.aborted) return;
       recordAbortProvenance(reason);
       controller.abort(abortProvenance);
+    },
+    // The default path also checks the clock at every physical leaf. Reserved mode
+    // is sequential and historically bypassed that wrapper, so it explicitly arms
+    // this one-shot signal. The timer is injectable for deterministic proof and
+    // unref'd in Node so a completed test/process is never kept alive by diagnostics.
+    arm({ setTimer = setTimeout, clearTimer = globalThis.clearTimeout } = {}) {
+      if (armedTimer != null || controller.signal.aborted) return false;
+      const remaining = Math.max(0, budgetMs - (now() - startedAtMs));
+      armedClearTimer = clearTimer;
+      if (remaining <= 0) {
+        this.cancel("scan_deadline_exhausted");
+        return true;
+      }
+      armedTimer = setTimer(() => {
+        armedTimer = null;
+        this.cancel("scan_deadline_exhausted");
+      }, remaining);
+      armedTimer?.unref?.();
+      return true;
+    },
+    disarm() {
+      if (armedTimer == null) return false;
+      armedClearTimer?.(armedTimer);
+      armedTimer = null;
+      return true;
     },
   };
 }

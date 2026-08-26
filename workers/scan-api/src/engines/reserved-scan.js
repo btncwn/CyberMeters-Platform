@@ -122,7 +122,7 @@ export async function runCriticalPrefixDiscovery(
   let checked = 0;
   let unavailableReason = null;
   for (const prefix of prefixes) {
-    if (accounting?.budgetExhausted?.()) break;
+    if (accounting?.budgetExhausted?.() || accounting?.cancelled?.()) break;
     const host = `${prefix}.${domain}`;
     const ans = await dnsResolveACached(host, cache, {
       accounting,
@@ -136,7 +136,7 @@ export async function runCriticalPrefixDiscovery(
     // refusal is different: this prefix was never assessed, so stop and expose
     // the remaining work instead of reporting all prefixes checked.
     if (unavailableReason) break;
-    if (accounting?.budgetExhausted?.()) break;
+    if (accounting?.budgetExhausted?.() || accounting?.cancelled?.()) break;
     checked += 1;
     if (hasAnswer(ans)) items.push(host);
   }
@@ -149,7 +149,8 @@ export async function runCriticalPrefixDiscovery(
     items,
     ...(deferred > 0 ? {
       incomplete: true,
-      incomplete_reason: unavailableReason || "subrequest_budget_exhausted",
+      incomplete_reason: unavailableReason
+        || (accounting?.cancelled?.() ? "scan_deadline_exhausted" : "subrequest_budget_exhausted"),
       deferred_count: deferred,
     } : {}),
   };
@@ -250,22 +251,52 @@ function physicalBudgetIncomplete(name, value, fallback, accounting) {
   };
 }
 
+function deadlineIncomplete(name, value, fallback, accounting) {
+  const issued = accounting?.issuedDuringContext?.() || 0;
+  return {
+    ...fallback,
+    ...(value && typeof value === "object" ? value : {}),
+    executed: false,
+    incomplete: true,
+    outcome: "deadline_exceeded",
+    reason: "scan_deadline_exhausted",
+    incomplete_reason: "scan_deadline_exhausted",
+    physical_attempts_issued: issued,
+    source: value?.source || fallback?.source || name,
+  };
+}
+
 // Gate a post-exposure module: run it only if its estimated cost fits the remaining
 // admission budget; the independent physical counter still guards every leaf in
 // case redirects, fallbacks or response-driven fan-out exceed that estimate.
 async function gateModule(budget, physicalCounter, name, run, skipExtra = {}, signal = null) {
+  // Deadline cancellation outranks projected admission. Calling a cancelled
+  // module "subrequest_budget" would hide the real loss of observation.
+  if (signal?.aborted) {
+    return deadlineIncomplete(
+      name,
+      null,
+      skipExtra,
+      physicalCounter.contextFor(name, { signal }),
+    );
+  }
   const cost = MODULE_SUBREQUEST_COST[name] ?? 8;
   if (budget.wouldExceed(cost) || physicalCounter.wouldExceed(cost)) {
     return skippedModuleResult(name, skipExtra);
   }
   budget.spend(name, cost);
   const accounting = physicalCounter.contextFor(name, { signal });
+  if (accounting.cancelled()) return deadlineIncomplete(name, null, skipExtra, accounting);
   try {
     const value = await run(accounting);
+    if (accounting.cancelled()) return deadlineIncomplete(name, value, skipExtra, accounting);
     return accounting.budgetExhausted()
       ? physicalBudgetIncomplete(name, value, skipExtra, accounting)
       : value;
   } catch (err) {
+    if (accounting.cancelled() || err?.code === "scan_deadline_exhausted") {
+      return deadlineIncomplete(name, null, skipExtra, accounting);
+    }
     if (accounting.budgetExhausted() || isSubrequestBudgetExhaustedError(err)) {
       return physicalBudgetIncomplete(name, null, skipExtra, accounting);
     }
@@ -305,14 +336,16 @@ export async function runReservedScan(domain, {
   const discoveryAccounting = physicalCounter.contextFor("discovery", { signal });
   let rootA = null;
   let wwwA = null;
-  if (!budget.wouldExceed(2) && !physicalCounter.wouldExceed(2)) {
+  if (!discoveryAccounting.cancelled()
+      && !budget.wouldExceed(2) && !physicalCounter.wouldExceed(2)) {
     budget.spend("discovery", 2);
     rootA = await dnsResolveACached(domain, dnsCache, { accounting: discoveryAccounting });
-    if (!discoveryAccounting.budgetExhausted()) {
+    if (!discoveryAccounting.budgetExhausted() && !discoveryAccounting.cancelled()) {
       wwwA = await dnsResolveACached(`www.${domain}`, dnsCache, { accounting: discoveryAccounting });
     }
   }
   const discoveryIncomplete = discoveryAccounting.budgetExhausted()
+    || discoveryAccounting.cancelled()
     || rootA == null
     || wwwA == null;
   const resolves = discoveryIncomplete ? null : hasAnswer(rootA);
@@ -322,7 +355,14 @@ export async function runReservedScan(domain, {
   // provider attempts but never increase exposure capacity optimistically.
   const dmarcAccounting = physicalCounter.contextFor("dmarc_core", { signal });
   let dmarcCore;
-  if (budget.wouldExceed(MODULE_SUBREQUEST_COST.dmarc_core)
+  if (dmarcAccounting.cancelled()) {
+    dmarcCore = deadlineIncomplete(
+      "dmarc_core",
+      null,
+      unavailableDmarcbisCore(domain, "scan_deadline_exhausted"),
+      dmarcAccounting,
+    );
+  } else if (budget.wouldExceed(MODULE_SUBREQUEST_COST.dmarc_core)
       || physicalCounter.wouldExceed(MODULE_SUBREQUEST_COST.dmarc_core)) {
     dmarcCore = {
       ...unavailableDmarcbisCore(domain, "subrequest_budget"),
@@ -337,7 +377,14 @@ export async function runReservedScan(domain, {
       signal,
       now,
     });
-    if (dmarcAccounting.budgetExhausted()) {
+    if (dmarcAccounting.cancelled()) {
+      dmarcCore = deadlineIncomplete(
+        "dmarc_core",
+        dmarcCore,
+        unavailableDmarcbisCore(domain, "scan_deadline_exhausted"),
+        dmarcAccounting,
+      );
+    } else if (dmarcAccounting.budgetExhausted()) {
       dmarcCore = physicalBudgetIncomplete(
         "dmarc_core",
         dmarcCore,
@@ -350,7 +397,21 @@ export async function runReservedScan(domain, {
   // Stage 3: critical-prefix discovery (deterministic, CT-independent). 8 A lookups.
   let criticalPrefixResult;
   const criticalCost = CRITICAL_PREFIXES_MANDATORY.length;
-  if (budget.wouldExceed(criticalCost) || physicalCounter.wouldExceed(criticalCost)) {
+  if (signal?.aborted) {
+    criticalPrefixResult = {
+      source: "critical_prefix_dns",
+      checked: 0,
+      requested: criticalCost,
+      found: 0,
+      items: [],
+      executed: false,
+      incomplete: true,
+      outcome: "deadline_exceeded",
+      reason: "scan_deadline_exhausted",
+      incomplete_reason: "scan_deadline_exhausted",
+      deferred_count: criticalCost,
+    };
+  } else if (budget.wouldExceed(criticalCost) || physicalCounter.wouldExceed(criticalCost)) {
     criticalPrefixResult = {
       source: "critical_prefix_dns",
       checked: 0,
@@ -398,7 +459,14 @@ export async function runReservedScan(domain, {
   });
   const physicalExposureAttempts = exposureAccounting.issuedDuringContext();
   budget.spend("exposure", physicalExposureAttempts);
-  if (exposureAccounting.budgetExhausted()) {
+  if (exposureAccounting.cancelled()) {
+    assetExposureResult = deadlineIncomplete(
+      "asset_exposure",
+      assetExposureResult,
+      { checked: ordered.length, reachable: 0, assets: [], removal_observations: [], source: "http_probe" },
+      exposureAccounting,
+    );
+  } else if (exposureAccounting.budgetExhausted()) {
     assetExposureResult = physicalBudgetIncomplete(
       "asset_exposure",
       assetExposureResult,

@@ -584,7 +584,7 @@ if (process.env.ASB6B_MUTANT_MODE !== "1") {
   eq(
     "ASB6B_RESERVED_PROBE_IMMUTABLE_HASH",
     digest,
-    "97b79ec1b43ea688060806af087a292ba414cacc188878a37ad369409b5b0e1e",
+    "45e19ae3c5720bb2dcf084e1dbb8745c6d730ab1f8693da60ce968c8710db6c1",
   );
 }
 
