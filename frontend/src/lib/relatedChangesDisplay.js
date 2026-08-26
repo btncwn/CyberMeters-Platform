@@ -340,6 +340,68 @@ export function emptyStateFor(assessment, hasFilter) {
   };
 }
 
+// ── Item 12B CL-2: canonical customer surface per evidence producer family ──
+// A deep link is offered ONLY where a canonical customer route already exists
+// for the signal's family; every other source stays a NAMED, non-link pointer.
+// Keys cover both the adapter's family strings and the persisted legacy
+// aliases already present in evidence rows (host/sender/certificate).
+export const EVIDENCE_SURFACE_ROUTES = Object.freeze({
+  asset: '/exposure',
+  host: '/exposure',
+  cert: '/ws/certificates',
+  certificate: '/ws/certificates',
+  email_config: '/ws/email-protection',
+  email_sender: '/ws/email-protection',
+  sender: '/ws/email-protection',
+  identity: '/ws/identity-assets',
+  brand: '/ws/brand-monitoring',
+  shadow_it: '/ws/shadow-it',
+})
+
+/**
+ * @param {string | null | undefined} family
+ * @returns {string | null} canonical route, or null when none exists (no link).
+ */
+export function evidenceSurfaceRoute(family) {
+  return (family && EVIDENCE_SURFACE_ROUTES[family]) || null
+}
+
+// ── Item 12B CL-1: correlation basis (12A frozen contract) ──────────────────
+// correlation_basis: 'exact_host' (re-validated, producer supplies linkage_host)
+// or 'legacy_domain_only' (earlier domain-only correlation, NOT re-validated).
+// Absent or unknown values FAIL CLOSED to the weaker legacy claim — the
+// re-validated wording may only ever come from an explicit 'exact_host'.
+export function correlationBasisMeta(basis) {
+  if (basis === 'exact_host') return { revalidated: true }
+  return { revalidated: false }
+}
+
+/**
+ * Display form of an evidence entity key: strips one known machine prefix
+ * (host:/domain:/campaign:) and nothing else — never invents an entity.
+ * @param {string | null | undefined} entityKey
+ * @returns {string}
+ */
+export function entityHostLabel(entityKey) {
+  const raw = entityKey ? String(entityKey) : ''
+  const m = raw.match(/^(?:host|domain|campaign):(.+)$/)
+  return m ? m[1] : raw
+}
+
+/**
+ * The exact shared entity across ALL evidence rows, or null. The claim is
+ * strict: every row must carry the identical raw entity_key and there must be
+ * at least two rows — anything less is "do not name the same host".
+ * @param {Array<{entity_key?: string}>} evidence
+ * @returns {string | null}
+ */
+export function sharedEvidenceHost(evidence) {
+  const keys = (evidence || []).map((e) => e?.entity_key).filter(Boolean)
+  if (keys.length < 2) return null
+  const first = keys[0]
+  return keys.every((k) => k === first) ? entityHostLabel(first) : null
+}
+
 // The single honesty note shown on every related-changes surface. Kept here so
 // the wording is identical everywhere and stays inside the vocabulary lock.
 export const HONESTY_NOTE =

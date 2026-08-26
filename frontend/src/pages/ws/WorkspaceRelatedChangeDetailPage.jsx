@@ -28,6 +28,9 @@ import {
   producerFamilyLabel,
   eventTypeLabel,
   groupEvidencePointers,
+  correlationBasisMeta,
+  sharedEvidenceHost,
+  evidenceSurfaceRoute,
   shortDate,
   FEEDBACK_OPTIONS,
   HONESTY_NOTE,
@@ -101,6 +104,15 @@ export default function WorkspaceRelatedChangeDetailPage() {
   // The exact observed signals, named from the evidence subtypes, so the
   // heading never claims more or other than the evidence below it.
   const signalLabels = [...new Set(evidenceGroups.map((e) => eventTypeLabel(e.source_event_type)).filter(Boolean))]
+
+  // Item 12B CL-1: grouping grounds are COMPOSED from evidence-backed fields
+  // only. The re-validated claim comes solely from the producer's frozen
+  // correlation_basis/linkage_host contract (12A); absent or unknown values
+  // fail closed to the weaker legacy wording. The shared-host observation is a
+  // strict all-rows-identical fact over the retained evidence pointers.
+  const basis = rc ? correlationBasisMeta(rc.correlation_basis) : { revalidated: false }
+  const sharedHost = sharedEvidenceHost(evidence)
+  const familyNames = [...new Set(evidenceGroups.map((e) => producerFamilyLabel(e.producer_family)).filter(Boolean))]
 
   const state = rc ? customerStateMeta(rc.customer_state) : null
   const dir = rc ? directionMeta(rc.direction) : null
@@ -231,6 +243,36 @@ export default function WorkspaceRelatedChangeDetailPage() {
             <p className="text-xs text-slate-600 leading-relaxed">{HONESTY_NOTE}</p>
           </div>
 
+          {/* ── Why these are grouped — CL-1 ─────────────────────────────
+              Every sentence is composed from fields the API already carries;
+              nothing here is computed, inferred or causal. */}
+          <div className={CARD}>
+            <h2 className="text-sm font-semibold text-slate-800">Why these are grouped</h2>
+            <p className="text-xs text-slate-600 leading-relaxed mt-2">
+              {familyNames.length > 0 ? familyNames.join(' and ') : 'The contributing'} signals for{' '}
+              <span className="font-medium">{rc.registrable_domain}</span> were observed in the same bounded period
+              {' '}({shortDate(rc.first_seen)} – {shortDate(rc.last_seen)}).
+            </p>
+            {basis.revalidated && rc.linkage_host ? (
+              <p className="text-xs text-slate-600 leading-relaxed mt-1.5">
+                Grouped on the same host: <span className="font-medium">{rc.linkage_host}</span>.
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500 leading-relaxed mt-1.5">
+                Correlated at domain level under the earlier rules; not re-validated against exact host linkage.
+              </p>
+            )}
+            {sharedHost ? (
+              <p className="text-xs text-slate-500 leading-relaxed mt-1.5">
+                The retained evidence rows name the same host: <span className="font-medium">{sharedHost}</span>.
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500 leading-relaxed mt-1.5">
+                The retained evidence rows do not name the same host.
+              </p>
+            )}
+          </div>
+
           {/* ── Related evidence ───────────────────────────────────────── */}
           <div className={CARD}>
             <h2 className="text-sm font-semibold text-slate-800">Related evidence</h2>
@@ -246,7 +288,16 @@ export default function WorkspaceRelatedChangeDetailPage() {
                 {evidenceGroups.map((e, i) => (
                   <li key={e.source_record_id || e.evidence_ref || i} className="py-3 flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-800">{producerFamilyLabel(e.producer_family)}</p>
+                      {evidenceSurfaceRoute(e.producer_family) ? (
+                        <Link
+                          to={evidenceSurfaceRoute(e.producer_family)}
+                          className="text-sm font-medium text-brand-700 hover:text-brand-800 hover:underline"
+                        >
+                          {producerFamilyLabel(e.producer_family)}
+                        </Link>
+                      ) : (
+                        <p className="text-sm font-medium text-slate-800">{producerFamilyLabel(e.producer_family)}</p>
+                      )}
                       <p className="text-xs text-slate-500 mt-0.5 break-words">
                         {e.entity_key || e.source_record_id || '—'}
                         {eventTypeLabel(e.source_event_type) ? ` · ${eventTypeLabel(e.source_event_type)}` : ''}
