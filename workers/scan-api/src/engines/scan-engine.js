@@ -140,10 +140,19 @@ export function computeScanBudget(bruteforceChecked) {
 // double read: one logical fact, read twice from a live source. The default
 // remains a generated value ONLY for callers that have no scan context (fixtures
 // and the 50 validator call sites); the engine always passes the persisted value.
-export function buildScanQuality(modules = {}, observedAt = undefined) {
-  // Sprint 10B: Workers Paid plan limit is 1,000 subrequests.
-  // Previous value of 50 (free plan) caused every scan to report false "skipped" warnings.
-  const SUBREQUEST_LIMIT = 1_000;
+export function buildScanQuality(modules = {}, observedAt = undefined, capacity = null) {
+  // F-026 capacity truth. 1,000 is the Workers Paid PLATFORM CEILING — the
+  // hard runtime limit, NOT the effective per-scan budget. The effective limit
+  // is DERIVED from resolveScanCapacity (50 in legacy mode) and passed in by the
+  // engine; reporting the platform ceiling as the effective limit overstated the
+  // per-scan budget ~20x. Callers without scan context (fixtures, the 50
+  // validator call sites) pass no capacity — they then see the platform ceiling
+  // AS a ceiling, never a fabricated effective number.
+  const PLATFORM_SUBREQUEST_CEILING = 1_000;
+  // Never GUESS the legacy 50 here: an absent capacity means "no effective
+  // budget resolved for this context", surfaced as null — not a hard-coded
+  // constant that could drift from resolveScanCapacity.
+  const effectiveLimit = Number.isFinite(capacity?.limit) ? capacity.limit : null;
 
   const budget = modules.scan_budget || computeScanBudget();
   const estimated = budget.estimated_subrequests_total ?? 0;
@@ -262,8 +271,14 @@ export function buildScanQuality(modules = {}, observedAt = undefined) {
     modules_incomplete: modulesIncomplete,
     subrequest_budget: {
       estimated,
-      limit:             SUBREQUEST_LIMIT,
-      remaining_estimate: Math.max(0, SUBREQUEST_LIMIT - estimated),
+      // Effective per-scan limit (resolveScanCapacity); null when no scan
+      // context supplied it. The remaining estimate is computed against THIS,
+      // never the platform ceiling.
+      effective_limit:    effectiveLimit,
+      platform_ceiling:   PLATFORM_SUBREQUEST_CEILING,
+      remaining_estimate: effectiveLimit === null
+        ? null
+        : Math.max(0, effectiveLimit - estimated),
     },
   };
 }
@@ -1673,7 +1688,10 @@ function buildCanonicalUrlProfile(modules) {
         if (!Number.isNaN(parsed.getTime())) persistedObservationAnchor = parsed.toISOString();
       }
     } catch { persistedObservationAnchor = undefined; }
-    const scanQuality = buildScanQuality(modules, persistedObservationAnchor);
+    // F-026: pass the resolved effective capacity so scan_quality reports the
+    // real per-scan limit, not the platform ceiling. resolveScanCapacity is a
+    // pure read of env — never guessed.
+    const scanQuality = buildScanQuality(modules, persistedObservationAnchor, resolveScanCapacity(env));
     ctTelemetryScanQuality = scanQuality;
     // PR-5.4: backend-owned within-scan monitoring truth. Reuse the SAME
     // per-provider snapshot that is written into execution diagnostics; no new
