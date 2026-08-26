@@ -13,12 +13,11 @@ const src = (...p) => path.join(root, "workers", "scan-api", "src", ...p);
 const eng = (f) => pathToFileURL(src("engines", f)).href;
 const EXPECTED_ASSERTIONS = 26;
 const EXPECTED_RUNTIME_CONSUMER_COUNT = 27;
-// AS-B6b SUCCESSION: count UNCHANGED at 27 consumers; position shift only. The
-// physical-budget closure added lines in scan-engine.js, moving its two CE
-// consumer sites (getCyberEssentialsSnapshot, evaluateCyberEssentialsLifecycle)
-// by the same offset. This inventory records sites by file:line; no CE consumer
-// was added, removed or reclassified.
-const EXPECTED_RUNTIME_CONSUMER_SHA256 = "a6fb557788c0a44a9b6802155dd60df07bde209ae1c3181cab76c379e0b62c0f";
+// AS-B2 SUCCESSION: count UNCHANGED at 27 consumers; position shift only. The
+// canonical scoring wire-in moves two report-snapshot.js sites by +6 and two
+// scan-engine.js sites by +13. This inventory records sites by file:line; no CE
+// consumer was added, removed or reclassified.
+const EXPECTED_RUNTIME_CONSUMER_SHA256 = "60fafb8c3a4fa9058d1cafbdf49d99b35b38976c95b02e5d77c7ca60fd2c9462";
 const ONLY = process.env.CE_CONTAINMENT_ONLY || null;
 
 const readinessMod = await import(eng("ce-readiness.js"));
