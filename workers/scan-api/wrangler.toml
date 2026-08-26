@@ -83,6 +83,16 @@ max_retries = 3
 max_concurrency = 2
 dead_letter_queue = "cybermeters-scan-dlq"
 
+# F-027: the scan DLQ now has a DISTINCT consumer (the ops observer in
+# index.js queue handler, dispatched by queue identity). It persists a safe
+# operational event per dead-lettered scan and NEVER runs the scan engine.
+# No dead_letter_queue here: a failed observe no-acks and redelivers on the
+# same DLQ (idempotent), it does not cascade to a further queue.
+[[queues.consumers]]
+queue = "cybermeters-scan-dlq"
+max_batch_size = 10
+max_retries = 5
+
 # Alert email recipients and sender.
 # RESEND_API_KEY must be set as a Wrangler secret (never committed):
 #   wrangler secret put RESEND_API_KEY
