@@ -14,7 +14,39 @@ import { checkDnsTxtProof, outcomeForDnsCategory, persistVerification, recordVer
          VERIFICATION_WINDOW_HOURS } from "../lib/domain-verification.js";
 import { customerSafeFailure } from "../lib/errors.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
+import { safeFetch } from "../lib/http.js";
 import { createId, isValidDomain } from "../lib/util.js";
+
+// HTML ownership proof is tri-state: only an exact token from a guarded public
+// 2xx response is verified. A block, resolver/transport uncertainty, non-2xx or
+// body mismatch is never truthy verification evidence.
+export async function checkDomainHtmlProof(htmlUrl, token, {
+  dnsResolver = dnsQuery,
+  fetchImpl = fetch,
+} = {}) {
+  const response = await safeFetch(htmlUrl, {
+    headers: { "User-Agent": "CyberMeters-Verification/1.0" },
+    signal: AbortSignal.timeout(8_000),
+    redirect: "follow",
+    dnsResolver,
+    fetchImpl,
+  });
+  if (!response) {
+    return { state: "unavailable", verified: null, error: "HTML verification endpoint was blocked or unreachable" };
+  }
+  if (!response.ok) {
+    return { state: "not_verified", verified: false, error: `HTTP ${response.status}` };
+  }
+  const body = (await response.text()).trim();
+  if (body !== token) {
+    return { state: "not_verified", verified: false, error: null };
+  }
+  return { state: "verified", verified: true, error: null };
+}
+
+export function domainHtmlProofVerified(proof) {
+  return proof?.state === "verified" && proof?.verified === true;
+}
 
 export async function domainRoutes(rctx) {
   const { request, env, url, json, serverError, requestId,
@@ -464,17 +496,9 @@ export async function domainRoutes(rctx) {
         let htmlVerified = false;
         let htmlError    = null;
         try {
-          const htmlRes = await fetch(htmlUrl, {
-            headers: { "User-Agent": "CyberMeters-Verification/1.0" },
-            signal: AbortSignal.timeout(8_000),
-            redirect: "follow",
-          });
-          if (htmlRes.ok) {
-            const body = (await htmlRes.text()).trim();
-            htmlVerified = body === token;
-          } else {
-            htmlError = `HTTP ${htmlRes.status}`;
-          }
+          const htmlProof = await checkDomainHtmlProof(htmlUrl, token);
+          htmlVerified = domainHtmlProofVerified(htmlProof);
+          htmlError = htmlProof.error;
         } catch (e) {
           htmlError = customerSafeFailure("domain-verification/html", e, "HTML verification request could not be completed");
         }

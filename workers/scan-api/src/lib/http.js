@@ -1,7 +1,7 @@
 // ── HTTP helpers ──
 // Shared fetch utilities. safeFetch is now SSRF-aware (see below) — the single
 // choke point every scan module already routes through.
-import { urlIsBlockedTarget } from "./ssrf.js";
+import { isOutboundControlError, resolvePublicDnsTarget, STRICT_DNS_STATES, urlIsBlockedTarget } from "./ssrf.js";
 
 const MAX_REDIRECT_HOPS = 4;
 
@@ -32,23 +32,39 @@ function combineSignals(...signals) {
 //    .url = the final URL, exactly as native follow did — just validated.
 //  • redirect:"manual" callers keep single-hop semantics (they read Location
 //    themselves and re-enter safeFetch for the next hop, which re-validates).
-//  • A blocked / errored / timed-out fetch returns null — the existing contract
-//    every caller already handles (`if (!res) …`).
+//  • A blocked / ordinary transport failure returns null — the existing contract
+//    every caller already handles (`if (!res) …`). Typed budget/deadline/cancel
+//    errors remain observable and are re-thrown for honest incomplete outcomes.
 export async function safeFetch(url, options = {}) {
   const followManually = options.redirect !== "manual";
   const accounting = options.accounting || null;
+  const dnsResolver = options.dnsResolver || null;
+  const dnsCache = options.dnsCache || null;
+  const fetchImpl = typeof options.fetchImpl === "function" ? options.fetchImpl : fetch;
   const fetchOptions = { ...options };
   delete fetchOptions.accounting;
+  delete fetchOptions.dnsResolver;
+  delete fetchOptions.dnsCache;
+  delete fetchOptions.fetchImpl;
   let attemptInFlight = false;
   try {
     let current = url;
     for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
       if (urlIsBlockedTarget(current)) return null;
+      if (dnsResolver) {
+        const hostname = new URL(current).hostname;
+        const resolution = await resolvePublicDnsTarget(hostname, dnsResolver, {
+          cache: dnsCache,
+          accounting,
+          signal: fetchOptions.signal,
+        });
+        if (resolution.state !== STRICT_DNS_STATES.PUBLIC) return null;
+      }
       attemptInFlight = false;
       accounting?.assertCanIssue?.();
       accounting?.recordAttempt?.();
       attemptInFlight = true;
-      const res = await fetch(current, {
+      const res = await fetchImpl(current, {
         ...fetchOptions,
         redirect: "manual",
         signal: combineSignals(fetchOptions.signal, accounting?.signal, AbortSignal.timeout(10_000)),
@@ -67,6 +83,7 @@ export async function safeFetch(url, options = {}) {
     return null; // redirect loop / exceeded MAX_REDIRECT_HOPS
   } catch (err) {
     if (attemptInFlight) accounting?.recordError?.(err);
+    if (isOutboundControlError(err)) throw err;
     return null;
   }
 }

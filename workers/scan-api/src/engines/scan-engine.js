@@ -28,7 +28,7 @@ import { persistDomainMaturity } from "./domain-maturity.js";
 import { buildScanReportSnapshot } from "./report-snapshot.js";
 import { insertCertificateEvents, upsertCertificateObservation } from "./cert-events.js";
 import { runCertificateIntelligenceModule } from "./cert-intel.js";
-import { runCloudStorageModule } from "./cloud-storage-scan.js";
+import { CLOUD_STORAGE_MAX_PHYSICAL_ATTEMPTS, runCloudStorageModule } from "./cloud-storage-scan.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
 import { createCtProviderOverlapCollector, persistCtProviderOverlapTelemetry } from "./ct-provider-overlap.js";
 import { deriveSignalMonitoringStates } from "./signal-monitoring-state.js";
@@ -1455,14 +1455,14 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     let cloudThrown = null;
     if (!deadline.canRun(SCAN_MODULE_BUDGETS.cloud_storage_discovery)) {
       modules.cloud_storage_discovery = markDeadlineDeferred({ total: 0, checked: 0, findings: [] });
-    } else if (reservedMode && reservedBudget && reservedBudget.wouldExceed(MODULE_SUBREQUEST_COST.cloud_storage)) {
+    } else if (reservedMode && reservedBudget && reservedBudget.wouldExceed(CLOUD_STORAGE_MAX_PHYSICAL_ATTEMPTS)) {
       modules.cloud_storage_discovery = skippedModuleResult("cloud_storage", { total: 0, checked: 0, findings: [] });
     } else {
-      if (reservedMode && reservedBudget) reservedBudget.spend("cloud_storage", MODULE_SUBREQUEST_COST.cloud_storage);
+      if (reservedMode && reservedBudget) reservedBudget.spend("cloud_storage", CLOUD_STORAGE_MAX_PHYSICAL_ATTEMPTS);
       // Bound the run so a slow validation cannot cross the cliff; defer honestly on the bound.
       const cloudRun = await runCappedModule("cloud_storage_discovery", {
         fallback: () => markDeadlineDeferred({ total: 0, checked: 0, findings: [] }),
-        run: ({ accounting, signal }) => runCloudStorageModule(domain, modules, { accounting, signal }),
+        run: ({ accounting, signal }) => runCloudStorageModule(domain, modules, { accounting, signal, cache: dnsCache }),
       });
       cloudThrown = cloudRun.thrown;
       modules.cloud_storage_discovery = cloudThrown

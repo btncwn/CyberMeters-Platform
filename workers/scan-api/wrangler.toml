@@ -1,6 +1,7 @@
 name = "cybermeters-platform"
 main = "src/index.js"
 compatibility_date = "2026-06-18"
+compatibility_flags = ["global_fetch_strictly_public"]
 
 # Canonical production API host. This is the ONE place the deployment declares
 # where the API lives, and `validate-frontend-env-contract.js` derives the host
