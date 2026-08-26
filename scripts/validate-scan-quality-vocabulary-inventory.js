@@ -69,7 +69,7 @@ const EXPECTED = Object.freeze({
     // AS-B6 RESERVED-DEADLINE SUCCESSION: counts remain 47/22. Arming the
     // canonical deadline in scan-engine shifts existing comparison sites only;
     // no comparison was added, removed or reclassified.
-    fingerprint: "c4203a904e79cefde629cfe7aa8e3c40f3332e015a86f17e7b90f253baadc6ea",
+    fingerprint: "bc2ccb19a646c9099e58c3e6f746788bab23f121d98281704d968e7dad4ec5ef",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -129,7 +129,13 @@ const EXPECTED = Object.freeze({
     // one existing scan_quality read (1355 -> 1369, two-tree --dump-counts
     // diff); the chip's own risk.incomplete read is NOT a scan-quality
     // vocabulary site and adds nothing. No read added, removed or reclassified.
-    runtime: { occurrence_count: 91, source_file_count: 34, fingerprint: "129fa1059e721c38254cbe6d0c81b9998c877858a4450689ee4ae031308153fb" },
+    // I12B R1-CORRECTIVE SUCCESSION: counts UNCHANGED (47/22 comparisons,
+    // 91/34 direct reads). POSITION SHIFT ONLY: the #444 R1 corrective added
+    // lines to relatedChangesDisplay.js and WorkspaceRelatedChangeDetailPage.jsx,
+    // moving those files' existing scan-quality sites; this inventory records
+    // sites by file:line. Both fingerprints derived from this tree's own
+    // --dump-counts run and independently matched the hosted CI values.
+    runtime: { occurrence_count: 91, source_file_count: 34, fingerprint: "02c14f8d58b2282d7e3e42e465a4fdd9b8a0a339e363f1dfc363f82114c62a41" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

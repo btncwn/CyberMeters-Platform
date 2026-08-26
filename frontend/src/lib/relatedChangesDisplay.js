@@ -48,6 +48,11 @@ export const RULE_LABELS = {
   shadow_it_with_host_or_cert: 'Unapproved technology with a new host or a certificate signal',
 };
 
+// R1 P2 CLASS FIX: every map lookup in this file is OWN-property only. Plain
+// objects inherit from Object.prototype, so an attacker-influenced or unknown
+// key ('constructor', 'toString', '__proto__') would otherwise resolve truthy —
+// leaking a link, or rendering a prototype object as a React child (measured:
+// the '__proto__' family crashed the detail page through the label path).
 /**
  * Human title for a rule. Unknown rule ids fall back to a readable form of the
  * raw key rather than an invented label.
@@ -56,7 +61,7 @@ export const RULE_LABELS = {
  */
 export function ruleLabel(ruleId) {
   if (!ruleId) return 'Related change';
-  if (RULE_LABELS[ruleId]) return RULE_LABELS[ruleId];
+  if (Object.hasOwn(RULE_LABELS, ruleId)) return RULE_LABELS[ruleId];
   const words = String(ruleId).replace(/_/g, ' ').trim();
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Related change';
 }
@@ -73,7 +78,7 @@ export const DIRECTION_META = {
  * @returns {{ label: string, tone: string }}
  */
 export function directionMeta(direction) {
-  if (direction && DIRECTION_META[direction]) return DIRECTION_META[direction];
+  if (direction && Object.hasOwn(DIRECTION_META, direction)) return DIRECTION_META[direction];
   const raw = direction ? String(direction) : 'unknown';
   const label = raw.charAt(0).toUpperCase() + raw.slice(1);
   return { label, tone: 'slate' };
@@ -110,7 +115,7 @@ export const CUSTOMER_STATE_META = {
  * @returns {{ label: string, tone: string, description: string }}
  */
 export function customerStateMeta(state) {
-  if (state && CUSTOMER_STATE_META[state]) return CUSTOMER_STATE_META[state];
+  if (state && Object.hasOwn(CUSTOMER_STATE_META, state)) return CUSTOMER_STATE_META[state];
   const raw = state ? String(state) : 'unknown';
   const label = raw.replace(/_/g, ' ');
   return { label: label.charAt(0).toUpperCase() + label.slice(1), tone: 'slate', description: '' };
@@ -139,7 +144,7 @@ export const COMPLETENESS_META = {
  * @returns {{ label: string, tone: string }}
  */
 export function completenessMeta(completeness) {
-  if (completeness && COMPLETENESS_META[completeness]) return COMPLETENESS_META[completeness];
+  if (completeness && Object.hasOwn(COMPLETENESS_META, completeness)) return COMPLETENESS_META[completeness];
   return { label: 'Evidence completeness unknown', tone: 'slate' };
 }
 
@@ -191,7 +196,7 @@ export const PRODUCER_FAMILY_LABELS = {
  */
 export function producerFamilyLabel(family) {
   if (!family) return 'Observation';
-  if (PRODUCER_FAMILY_LABELS[family]) return PRODUCER_FAMILY_LABELS[family];
+  if (Object.hasOwn(PRODUCER_FAMILY_LABELS, family)) return PRODUCER_FAMILY_LABELS[family];
   const words = String(family).replace(/_/g, ' ').trim();
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Observation';
 }
@@ -244,7 +249,7 @@ export const EVENT_TYPE_LABELS = {
  */
 export function eventTypeLabel(eventType) {
   if (!eventType) return '';
-  if (EVENT_TYPE_LABELS[eventType]) return EVENT_TYPE_LABELS[eventType];
+  if (Object.hasOwn(EVENT_TYPE_LABELS, eventType)) return EVENT_TYPE_LABELS[eventType];
   const words = String(eventType).replace(/_/g, ' ').trim();
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : '';
 }
@@ -338,6 +343,74 @@ export function emptyStateFor(assessment, hasFilter) {
     title: 'No related changes observed in this period.',
     description: 'When two or more independent signal families change together on the same domain in the same period, the change cluster appears here for you to confirm whether it was planned.',
   };
+}
+
+// ── Item 12B CL-2: canonical customer surface per evidence producer family ──
+// A deep link is offered ONLY where a canonical customer route already exists
+// for the signal's family; every other source stays a NAMED, non-link pointer.
+// Keys cover both the adapter's family strings and the persisted legacy
+// aliases already present in evidence rows (host/sender/certificate).
+export const EVIDENCE_SURFACE_ROUTES = Object.freeze({
+  asset: '/exposure',
+  host: '/exposure',
+  cert: '/ws/certificates',
+  certificate: '/ws/certificates',
+  email_config: '/ws/email-protection',
+  email_sender: '/ws/email-protection',
+  sender: '/ws/email-protection',
+  identity: '/ws/identity-assets',
+  brand: '/ws/brand-monitoring',
+  shadow_it: '/ws/shadow-it',
+})
+
+/**
+ * @param {string | null | undefined} family
+ * @returns {string | null} canonical route, or null when none exists (no link).
+ */
+export function evidenceSurfaceRoute(family) {
+  // OWN-property lookup only (R1 P2): a plain object inherits from
+  // Object.prototype, so an inherited name ('constructor', 'toString',
+  // '__proto__') would otherwise resolve truthy and leak a link. Fail closed:
+  // anything that is not an own key renders as a named, non-link pointer.
+  return typeof family === 'string' && Object.hasOwn(EVIDENCE_SURFACE_ROUTES, family)
+    ? EVIDENCE_SURFACE_ROUTES[family]
+    : null
+}
+
+// ── Item 12B CL-1: correlation basis (12A frozen contract) ──────────────────
+// correlation_basis: 'exact_host' (re-validated, producer supplies linkage_host)
+// or 'legacy_domain_only' (earlier domain-only correlation, NOT re-validated).
+// Absent or unknown values FAIL CLOSED to the weaker legacy claim — the
+// re-validated wording may only ever come from an explicit 'exact_host'.
+export function correlationBasisMeta(basis) {
+  if (basis === 'exact_host') return { revalidated: true }
+  return { revalidated: false }
+}
+
+/**
+ * Display form of an evidence entity key: strips one known machine prefix
+ * (host:/domain:/campaign:) and nothing else — never invents an entity.
+ * @param {string | null | undefined} entityKey
+ * @returns {string}
+ */
+export function entityHostLabel(entityKey) {
+  const raw = entityKey ? String(entityKey) : ''
+  const m = raw.match(/^(?:host|domain|campaign):(.+)$/)
+  return m ? m[1] : raw
+}
+
+/**
+ * The exact shared entity across ALL evidence rows, or null. The claim is
+ * strict: every row must carry the identical raw entity_key and there must be
+ * at least two rows — anything less is "do not name the same host".
+ * @param {Array<{entity_key?: string}>} evidence
+ * @returns {string | null}
+ */
+export function sharedEvidenceHost(evidence) {
+  const keys = (evidence || []).map((e) => e?.entity_key).filter(Boolean)
+  if (keys.length < 2) return null
+  const first = keys[0]
+  return keys.every((k) => k === first) ? entityHostLabel(first) : null
 }
 
 // The single honesty note shown on every related-changes surface. Kept here so
