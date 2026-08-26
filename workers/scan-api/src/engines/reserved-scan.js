@@ -37,6 +37,42 @@ function hasAnswer(ans) { return !!ans && Array.isArray(ans.Answer) && ans.Answe
 const RESERVED_PLATFORM_ABORT_WORDING =
   "CyberMeters did not observe the provider result within the scan's global execution window.";
 
+function reservedSslCtFallback(cause) {
+  const error = cause === "scan_global_deadline"
+    ? RESERVED_PLATFORM_ABORT_WORDING
+    : "module deadline exceeded";
+  return {
+    incomplete: true,
+    incomplete_reason: cause,
+    outcome: "deadline_exceeded",
+    ct_sources: {
+      crt_sh: { count: 0, error },
+      certspotter: { count: 0, error },
+    },
+    source: "tls_probe",
+  };
+}
+
+function reservedSubdomainsCtFallback(cause) {
+  const error = cause === "scan_global_deadline"
+    ? RESERVED_PLATFORM_ABORT_WORDING
+    : "module deadline exceeded";
+  return {
+    count: 0,
+    items: [],
+    sensitive: [],
+    sources: {
+      crt_sh: { count: 0, error },
+      certspotter: { count: 0, error },
+    },
+    wildcard_dns: false,
+    wildcard_dns_addresses: [],
+    incomplete: true,
+    incomplete_reason: cause,
+    error: null,
+  };
+}
+
 function combineConsumerSignals(...signals) {
   const active = signals.filter(Boolean);
   if (active.length === 0) return undefined;
@@ -269,14 +305,22 @@ function deadlineIncomplete(name, value, fallback, accounting) {
 // Gate a post-exposure module: run it only if its estimated cost fits the remaining
 // admission budget; the independent physical counter still guards every leaf in
 // case redirects, fallbacks or response-driven fan-out exceed that estimate.
-async function gateModule(budget, physicalCounter, name, run, skipExtra = {}, signal = null) {
+async function gateModule(
+  budget,
+  physicalCounter,
+  name,
+  run,
+  skipExtra = {},
+  signal = null,
+  deadlineExtra = skipExtra,
+) {
   // Deadline cancellation outranks projected admission. Calling a cancelled
   // module "subrequest_budget" would hide the real loss of observation.
   if (signal?.aborted) {
     return deadlineIncomplete(
       name,
       null,
-      skipExtra,
+      deadlineExtra,
       physicalCounter.contextFor(name, { signal }),
     );
   }
@@ -286,16 +330,16 @@ async function gateModule(budget, physicalCounter, name, run, skipExtra = {}, si
   }
   budget.spend(name, cost);
   const accounting = physicalCounter.contextFor(name, { signal });
-  if (accounting.cancelled()) return deadlineIncomplete(name, null, skipExtra, accounting);
+  if (accounting.cancelled()) return deadlineIncomplete(name, null, deadlineExtra, accounting);
   try {
     const value = await run(accounting);
-    if (accounting.cancelled()) return deadlineIncomplete(name, value, skipExtra, accounting);
+    if (accounting.cancelled()) return deadlineIncomplete(name, value, deadlineExtra, accounting);
     return accounting.budgetExhausted()
       ? physicalBudgetIncomplete(name, value, skipExtra, accounting)
       : value;
   } catch (err) {
     if (accounting.cancelled() || err?.code === "scan_deadline_exhausted") {
-      return deadlineIncomplete(name, null, skipExtra, accounting);
+      return deadlineIncomplete(name, null, deadlineExtra, accounting);
     }
     if (accounting.budgetExhausted() || isSubrequestBudgetExhaustedError(err)) {
       return physicalBudgetIncomplete(name, null, skipExtra, accounting);
@@ -483,17 +527,8 @@ export async function runReservedScan(domain, {
     globalDeadlineProvenance,
     budgetMs: reservedCtBudgets.ssl,
     run: (consumerSignal) => runSslModule(domain, { accounting, ctCache: sharedCtCache, signal: consumerSignal }),
-    fallback: (cause) => ({
-      incomplete: true,
-      incomplete_reason: cause,
-      outcome: "deadline_exceeded",
-      ct_sources: {
-        crt_sh: { count: 0, error: cause === "scan_global_deadline" ? RESERVED_PLATFORM_ABORT_WORDING : "module deadline exceeded" },
-        certspotter: { count: 0, error: cause === "scan_global_deadline" ? RESERVED_PLATFORM_ABORT_WORDING : "module deadline exceeded" },
-      },
-      source: "tls_probe",
-    }),
-  }), {}, signal);
+    fallback: reservedSslCtFallback,
+  }), {}, signal, reservedSslCtFallback("scan_global_deadline"));
   const headers              = await gateModule(budget, physicalCounter, "headers", (accounting) => runHeadersModule(domain, { accounting, signal }), {}, signal);
   const email_security       = await gateModule(budget, physicalCounter, "email_security", (accounting) => runEmailModule(domain, {
     accounting,
@@ -515,21 +550,9 @@ export async function runReservedScan(domain, {
       globalSignal: signal,
       globalDeadlineProvenance,
     }),
-    fallback: (cause) => ({
-      count: 0,
-      items: [],
-      sensitive: [],
-      sources: {
-        crt_sh: { count: 0, error: cause === "scan_global_deadline" ? RESERVED_PLATFORM_ABORT_WORDING : "module deadline exceeded" },
-        certspotter: { count: 0, error: cause === "scan_global_deadline" ? RESERVED_PLATFORM_ABORT_WORDING : "module deadline exceeded" },
-      },
-      wildcard_dns: false,
-      wildcard_dns_addresses: [],
-      incomplete: true,
-      incomplete_reason: cause,
-      error: null,
-    }),
-  }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] }, signal);
+    fallback: reservedSubdomainsCtFallback,
+  }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] }, signal,
+  reservedSubdomainsCtFallback("scan_global_deadline"));
   const technology_detection = await gateModule(budget, physicalCounter, "technology_detection", (accounting) => runTechModule(domain, { accounting, signal }), {}, signal);
   const whois_intelligence   = await gateModule(budget, physicalCounter, "whois_intelligence", (accounting) => runWhoisModule(domain, { accounting, signal }), {}, signal);
 

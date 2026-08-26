@@ -17,6 +17,8 @@ const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const targetRoot = process.env.ASB6_RESERVED_TARGET_ROOT || repoRoot;
 const engineRoot = path.join(targetRoot, "workers", "scan-api", "src", "engines");
 const load = (file) => import(pathToFileURL(path.join(engineRoot, file)).href);
+const platformAbortWording =
+  "CyberMeters did not observe the provider result within the scan's global execution window.";
 
 let passed = 0;
 let failed = 0;
@@ -179,6 +181,16 @@ ok(
       m.subdomain_takeover, m.dns_bruteforce]
       .every((value) => value?.incomplete === true && value?.outcome === "deadline_exceeded"),
   JSON.stringify({ fullFetchCalls, error: fullError?.message || null, physical: fullResult?.physicalBudget, modules: m }),
+);
+ok(
+  "ASB6R_PREABORT_CT_PLATFORM_WORDING_PRESERVED",
+  [
+    m.ssl?.ct_sources?.crt_sh,
+    m.ssl?.ct_sources?.certspotter,
+    m.subdomains?.sources?.crt_sh,
+    m.subdomains?.sources?.certspotter,
+  ].every((source) => source?.count === 0 && source?.error === platformAbortWording),
+  JSON.stringify({ ssl: m.ssl?.ct_sources, subdomains: m.subdomains?.sources }),
 );
 
 console.log(`\nAS-B6 reserved deadline safety: ${passed} passed, ${failed} failed`);
