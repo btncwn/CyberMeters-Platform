@@ -1206,6 +1206,36 @@ jobs:
       - name: Validate F-009 deletion integrity mutations (completed-on-error / email-before-proof / pointer-before-object)
         run: node scripts/validate-f009-deletion-integrity-mutations.js
 
+      - name: Validate F-004 recovery instrumentation (provider adapter + source identity + proof binding)
+        run: node scripts/validate-f004-recovery-instrumentation.js
+
+      - name: Validate F-004 recovery instrumentation mutations
+        run: node scripts/validate-f004-recovery-instrumentation-mutations.js
+
+      - name: Validate F-025/F-035 migration terminal convergence and fault handling
+        run: node scripts/validate-f025-f035-migration-terminal.js
+
+      - name: Validate F-026 capacity completeness truth
+        run: node scripts/validate-f026-capacity-completeness-truth.js
+
+      - name: Validate F-026 capacity completeness truth mutations
+        run: node scripts/validate-f026-capacity-completeness-truth-mutations.js
+
+      - name: Validate F-027 internal observability
+        run: node scripts/validate-f027-internal-observability.js
+
+      - name: Validate F-027 internal observability mutations
+        run: node scripts/validate-f027-internal-observability-mutations.js
+
+      - name: Validate F-041 outbound configuration
+        run: node scripts/validate-f041-outbound-config.js
+
+      - name: Validate F-041 outbound sink fail-closed controls
+        run: node scripts/validate-f041-outbound-sink-failclosed.js
+
+      - name: Validate F-041 outbound sink fail-closed mutations
+        run: node scripts/validate-f041-outbound-sink-failclosed-mutations.js
+
       # Two live P1s found while re-auditing CE for canonical alerting, neither of
       # them about alerting: cyber_essentials_answers survived every workspace purge
       # for the life of the table (customer notes + answered_by, no FK to
