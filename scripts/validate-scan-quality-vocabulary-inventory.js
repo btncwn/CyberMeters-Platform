@@ -97,19 +97,18 @@ const EXPECTED = Object.freeze({
     // cell keeps scan_quality "complete" (the TRIAGE-M17 kill site). The
     // runtime sets are unchanged (47/22 and 90/34), which is the check that
     // matters — the product gained no new scan-quality comparison.
-    // AS-B2 FINAL-REBASE SUCCESSION: 68 -> 66 across 27 -> 26 files. The
-    // phase5 honesty validator removed the two superseded `engine.quality` and
-    // `engine.reportQuality` partial comparisons when parity moved to the
-    // canonical assessment owner. The remaining report-copy delta is a line
-    // shift only; no product comparison changed membership.
-    comparison_occurrences: 66,
-    source_file_count: 26,
+    // AS-B2 FINAL-REBASE SUCCESSION: counts remain 68/27. The two reviewed
+    // child-process comparisons and the presentation assertion moved within
+    // validate-phase5-evidence-honesty.js; exact line keys were re-derived on
+    // the final tree. No governance or product comparison changed membership.
+    comparison_occurrences: 68,
+    source_file_count: 27,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
     // the successor validator. Nothing was added to or removed from the runtime set.
     // SUCCESSOR-3: 63 -> 65 across 23 -> 25 files. Additive only: PR #414/#416 added
     // governed comparisons in their own validators. Nothing was removed.
-    fingerprint: "e838602cd29fed2ad8487002206c6eb66b1a78e083dafdcd483d5670c12a0512",
+    fingerprint: "fbb211244829b227f8a9e6e4e9f2d86d85d620eac09bbfed4731652be51c2a92",
   },
   runtime_source_file_count: 32,
   direct: {
@@ -206,15 +205,15 @@ const QUALITY_NORMALIZER_METHODS = new Set(["trim", "toLowerCase", "toString"]);
 // a property-name or regex allowlist: any move, rename or new site changes the
 // governance inventory and requires review.
 const REVIEWED_DYNAMIC_QUALITY_EXPRESSIONS = new Map([
-  ["scripts/validate-phase5-evidence-honesty.js:193:engine.quality",
+  ["scripts/validate-phase5-evidence-honesty.js:209:engine.quality",
     "child-process runScanEngine quality projection"],
-  ["scripts/validate-phase5-evidence-honesty.js:193:engine.reportQuality",
+  ["scripts/validate-phase5-evidence-honesty.js:209:engine.reportQuality",
     "child-process runScanEngine report-quality projection"],
 ]);
 const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:232:stale.quality === \"unknown\"",
-  "scripts/validate-phase5-evidence-honesty.js:220:presentation.quality === \"partial\"",
+  "scripts/validate-phase5-evidence-honesty.js:236:presentation.quality === \"partial\"",
   "scripts/validate-signal-monitoring-state.js:257:degraded.quality === \"degraded\"",
 ]);
 
