@@ -450,14 +450,12 @@ const states = [
   { measurement_state: "unmeasured" },
 ];
 const parity = states.map(parityOutputs);
-// D3 RE-DERIVATION: byte drift measured field-by-field against base f1af6e41 —
-// methodology stamp 2026-08-23.1 -> 2026-08-24.1 (the deliberate D3 bump, its
-// own assertion in validate-report-copy-live-triage), two additive
-// evidence_completeness fields (phase5_evidence, skipped_score_bearing_modules)
-// and a null-valued assessment.suppression_reason key. Score, band, summary,
-// domains and findings byte-identical. No value changed; the goldens follow.
-const GOLDEN_F13 = "d46224be662e3a9a7f58202f7ddc791e6e0be54983e1cdbcb19ba2ea7a091886";
-const GOLDEN_F14 = "2ec23d5f7ea37be1703eed200f2a05001b338ac461848d07d06709485c6423bb";
+// AS-B2 RE-DERIVATION: the accepted D3 parity inputs are byte-identical except
+// for the deliberate scoring-methodology stamp 2026-08-24.1 -> 2026-08-26.1.
+// GOLDEN_EVIDENCE_V2, score, band, summary, domains and findings are unchanged;
+// these two downstream hashes follow the governed AS-B2 methodology bump.
+const GOLDEN_F13 = "68acb05c12138a4b5a44607231aa31151574e46577aecb114c6877db077e220c";
+const GOLDEN_F14 = "624c99cb280a48ad42ccb84f19d3fe112f1d14e28e5506e83102460e304460e9";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
