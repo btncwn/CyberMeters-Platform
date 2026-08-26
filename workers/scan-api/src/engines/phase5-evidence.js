@@ -273,6 +273,8 @@ export function resolvePhase5CustomerAssessment({
   // (this function is the ONLY place the score is adjusted).
   if (modules?.known_exploited_vulnerabilities && typeof modules.known_exploited_vulnerabilities === "object") {
     modules.known_exploited_vulnerabilities.score_impact_applied = deduction.kev;
+    modules.known_exploited_vulnerabilities.score_evidence_applied = deduction.scored_matches;
+    modules.known_exploited_vulnerabilities.score_matched_technologies = deduction.matched_technologies;
   }
   if (modules?.cve_intelligence && typeof modules.cve_intelligence === "object") {
     modules.cve_intelligence.score_impact_applied = deduction.cve;

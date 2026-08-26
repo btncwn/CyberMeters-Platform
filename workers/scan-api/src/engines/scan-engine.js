@@ -1238,6 +1238,18 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     });
     const customerScore = phase5CustomerAssessment.score;
     const customerRiskLevel = phase5CustomerAssessment.risk_level;
+    // Historical comparison ran before the bounded Phase-5 provider fan-out.
+    // Reconcile its current-score fields to the canonical post-Phase-5 owner so
+    // history never reports the pre-KEV number beside the final report score.
+    if (modules.historical_changes && typeof modules.historical_changes === "object") {
+      modules.historical_changes.current_score = customerScore;
+      const previousScore = Number(modules.historical_changes.previous_score);
+      modules.historical_changes.score_change =
+        modules.historical_changes.has_previous === true &&
+        Number.isFinite(previousScore) && Number.isFinite(customerScore)
+          ? customerScore - previousScore
+          : null;
+    }
 
     // Optional RFC 9990 external-RUA phase. Core evidence is already durable in
     // memory before this gate. Launch requires the whole 600 ms slot, complete
@@ -1418,6 +1430,12 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       modules.known_exploited_vulnerabilities,
       modules.subdomain_takeover,
     );
+    // Canonical Phase-5 customer findings are produced after the score has been
+    // finalised. Append them to the ONE report findings array so API, UI,
+    // immutable snapshot, PDF and historical reads all carry the same cause and
+    // applied impact. They are not fed back into computeScore or remediation
+    // generation (no duplicate charge or duplicate roadmap item).
+    findings.push(...(modules.risk_intelligence.customer_findings || []));
 
     // Phase 7: Cloud storage discovery — validates only evidence-backed storage
     // candidates from observed ASM/CNAME/header signals. No guessing or listing

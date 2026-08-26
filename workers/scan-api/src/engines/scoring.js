@@ -13,6 +13,7 @@ import { classifyHeaderStrength } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
 import { SECURITY_HEADERS } from "./security-headers-config.js";
 import { resolveRemediation } from "./remediation-registry.js";
+import { maySupportDefectConclusion } from "../lib/serviceability.js";
 import {
   isHttpRedirectPositivelyAbsent,
   resolveTlsRuntimeState,
@@ -1216,19 +1217,17 @@ export function resolveCanonicalScanScore(storedScore, reportScore) {
   return Number.isFinite(reportValue) ? reportValue : 0;
 }
 
-// AS-B2 (KEV/CVE score wiring). Weights are DERIVED from the existing critical/high
-// deduction scale in this engine — no new constant system:
-//   • dns_no_resolution = -30 and ssl_not_available = -25 are the two existing criticals;
-//   • high-severity siblings deduct -15 / -10.
-// CISA KEV = confirmed active in-the-wild exploitation, which by definition is >= any
-// UNexploited critical on the same scale, so it takes the TOP of the critical band (-30).
-// A critical CVE (not confirmed exploited) sits at the other critical sibling's weight
-// (-25); a high CVE takes the higher of the high siblings (-15). Ordering is preserved:
-// KEV (-30) < CVE-critical (-25) < CVE-high (-15) in deduction magnitude.
+// AS-B2 canonical Stage-1 policy. A CISA KEV catalogue keyword match does NOT
+// prove the deployed version is vulnerable. It is therefore a bounded medium
+// risk signal, and only when the matched technology fingerprint came from a
+// canonically serviceable origin response. Plain, version-blind CVE matches are
+// informational and score-neutral. One technology is charged once even when
+// several KEV rows match it; the total is capped at two technologies.
 export const KEV_CVE_SCORE_WEIGHTS = Object.freeze({
-  kev_active_exploitation: -30,
-  cve_critical:            -25,
-  cve_high:                -15,
+  kev_per_technology: -5,
+  kev_total_cap:      -10,
+  cve_critical:        0,
+  cve_high:            0,
 });
 
 // Canonical KEV/CVE deduction for the customer Cyber Metrics Score. Single source of
@@ -1244,20 +1243,44 @@ export function computeKevCveDeduction({ modules = {}, evidence = {} } = {}) {
   // Defense-in-depth evidence-floor: no deduction unless the WHOLE phase5 evidence
   // contract is complete. A score is a conclusion over a completed assessment; an
   // incomplete scan never earns a KEV/CVE deduction, whatever a single surface says.
-  if (evidence?.complete !== true) return { total: 0, kev: 0, cve: 0 };
+  const neutral = { total: 0, kev: 0, cve: 0, scored_matches: [], matched_technologies: [] };
+  if (evidence?.complete !== true) return neutral;
   const publishable = evidence?.publishable || {};
-  let kev = 0;
-  let cve = 0;
-  if (publishable.kev === true) {
-    const matches = modules?.known_exploited_vulnerabilities?.matches || [];
-    if (matches.length > 0) kev = KEV_CVE_SCORE_WEIGHTS.kev_active_exploitation;
+  const technology = modules?.technology_detection || {};
+  if (publishable.kev !== true ||
+      !maySupportDefectConclusion(technology.serviceability_contract)) return neutral;
+
+  const fingerprints = new Map(
+    (Array.isArray(technology.technology_fingerprints) ? technology.technology_fingerprints : [])
+      .filter((row) => row?.technology)
+      .map((row) => [String(row.technology).toLowerCase(), row]),
+  );
+  const byTechnology = new Map();
+  for (const match of (modules?.known_exploited_vulnerabilities?.matches || [])) {
+    const key = String(match?.matched_technology || "").toLowerCase();
+    const fingerprint = fingerprints.get(key);
+    if (!key || !fingerprint || byTechnology.has(key)) continue;
+    byTechnology.set(key, {
+      cve_id: match.cve_id || null,
+      matched_technology: fingerprint.technology,
+      fingerprint_source: fingerprint.source || match.fingerprint_source || null,
+      fingerprint_confidence: Number.isFinite(Number(fingerprint.confidence))
+        ? Number(fingerprint.confidence) : null,
+      version_confirmed: false,
+    });
   }
-  if (publishable.cve === true) {
-    const cveIntel = modules?.cve_intelligence || {};
-    if ((cveIntel.critical_count || 0) > 0) cve = KEV_CVE_SCORE_WEIGHTS.cve_critical;
-    else if ((cveIntel.high_count || 0) > 0) cve = KEV_CVE_SCORE_WEIGHTS.cve_high;
-  }
-  return { total: kev + cve, kev, cve };
+  const scoredMatches = [...byTechnology.values()].slice(0, 2);
+  const kev = Math.max(
+    KEV_CVE_SCORE_WEIGHTS.kev_total_cap,
+    scoredMatches.length * KEV_CVE_SCORE_WEIGHTS.kev_per_technology,
+  );
+  return {
+    total: kev,
+    kev,
+    cve: 0,
+    scored_matches: scoredMatches,
+    matched_technologies: scoredMatches.map((row) => row.matched_technology),
+  };
 }
 
 // Canonical customer-score adjustment for KEV/CVE evidence. This is the SINGLE owner
@@ -1284,7 +1307,11 @@ export function applyKevCveDeduction({ score, modules = {}, evidence = {} } = {}
 // (null), the same "cannot-assess ⇒ no number" outcome as insufficient phase5
 // evidence. This changes WHEN a score is nulled, so the stamp is bumped; the
 // "partial-but-ran ⇒ provisional number" contract is unchanged.
-export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-08-24.1";
+// 2026-08-26.1 — AS-B2 canonical policy correction: KEV is now -5 per
+// serviceability-confirmed technology, capped at -10; version-blind CVE matches
+// are informational. The new stamp prevents historical policy changes from
+// being presented as posture movement.
+export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-08-26.1";
 
 // The modules whose findings move computeScore(). If any of these was skipped or
 // never ran, the customer score is a conclusion over an incomplete assessment and

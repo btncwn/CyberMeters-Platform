@@ -46,6 +46,17 @@ function fakeFetcher({ failing = false } = {}) {
   return { fetcher, calls };
 }
 const clock = (t) => () => t;
+const serviceableTech = (technologies) => ({
+  technologies,
+  technology_fingerprints: technologies.map((technology) => ({
+    technology, source: "server", confidence: 90,
+  })),
+  serviceability_contract: {
+    serviceable: true,
+    conclusion_class: "conclusive",
+    reason: "origin_response_serviceable",
+  },
+});
 
 // ── 1. Cache HIT (fresh) → served from R2, no origin fetch ──
 {
@@ -107,7 +118,7 @@ const clock = (t) => () => t;
   eq("no-cache+fail: unavailable", res.source, "unavailable");
   eq("no-cache+fail: vulnerabilities null", res.vulnerabilities, null);
 
-  const mod = await runKevModule({ technologies: ["log4j"] }, { cybermeters_reports: r2 }, { fetcher, now: clock(nowMs) });
+  const mod = await runKevModule(serviceableTech(["log4j"]), { cybermeters_reports: r2 }, { fetcher, now: clock(nowMs) });
   eq("unavailable → module reports error (honest)", mod.error, "KEV catalog unavailable");
   eq("unavailable → checked 0", mod.checked, 0);
   ok("unavailable → NOT presented as clean zero-match", mod.error !== undefined && mod.matched === 0);
@@ -129,7 +140,7 @@ const clock = (t) => () => t;
   const nowMs = 2_000_000_000_000;
   const r2 = fakeR2({ [KEV_CACHE_KEY]: JSON.stringify({ fetched_at_ms: nowMs - 1000, vulnerabilities: CATALOGUE.vulnerabilities }) });
   const { fetcher, calls } = fakeFetcher();
-  const mod = await runKevModule({ technologies: ["Log4j2"] }, { cybermeters_reports: r2 }, { fetcher, now: clock(nowMs) });
+  const mod = await runKevModule(serviceableTech(["Log4j2"]), { cybermeters_reports: r2 }, { fetcher, now: clock(nowMs) });
   eq("match: source cisa_kev", mod.source, "cisa_kev");
   eq("match: catalogue_source r2_cache", mod.catalogue_source, "r2_cache");
   eq("match: checked = full catalogue size", mod.checked, 2);

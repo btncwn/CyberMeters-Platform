@@ -764,6 +764,12 @@ function sectionFindings(w, snap) {
   for (const f of findings) {
     w.text(`[${String(f.severity || "").toUpperCase()}] ${f.title}`, { size: 10, bold: true });
     if (f.explanation) w.prose(customerBodyText(f.explanation), { size: 9, indent: 10, color: "0.25 0.28 0.33" });
+    const scoreImpact = Number(f.score_impact);
+    if (Number.isFinite(scoreImpact) && scoreImpact !== 0) {
+      w.text(`Cyber Metrics Score impact: ${scoreImpact} points.`, {
+        size: 8, indent: 10, color: "0.25 0.28 0.33",
+      });
+    }
   }
   w.heading(`Observations (${observations.length})`);
   if (!observations.length) {

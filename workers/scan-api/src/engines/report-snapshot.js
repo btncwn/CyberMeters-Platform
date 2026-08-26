@@ -632,6 +632,12 @@ export function composeSnapshot({
       severity: f.severity ?? null,
       module: f.module ?? null,
       confidence: f.confidence ?? null,
+      score_impact: Number.isFinite(Number(f.score_impact)) ? Number(f.score_impact) : 0,
+      matched_technologies: Array.isArray(f.matched_technologies)
+        ? [...f.matched_technologies] : [],
+      matched_cve_ids: Array.isArray(f.matched_cve_ids)
+        ? [...f.matched_cve_ids] : [],
+      version_confirmed: f.version_confirmed ?? null,
       evidence_quality: f.evidence_quality ?? null,
       evidence_grade: findingEvidenceGrade(f, report),
       // Evidence stays in the immutable source artefact; the snapshot references it.
