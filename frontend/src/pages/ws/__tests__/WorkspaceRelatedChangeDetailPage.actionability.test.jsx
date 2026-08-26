@@ -164,6 +164,64 @@ describe('CL-1: correlation basis (fe 12A frozen contract: correlation_basis + l
   })
 })
 
+describe('R1-P1: the observation span is lifecycle history, never a single-window claim', () => {
+  it('labels first/most-recent observation honestly on a RECURRING cluster', async () => {
+    await renderDetail(detailFixture({
+      evidence: [assetEvent(), certEvent()],
+      related: { recurrence_count: 4, first_seen: '2026-07-10T00:00:00Z', last_seen: '2026-08-20T00:00:00Z' },
+    }))
+    const card = whyCard()
+    // first_seen is PRESERVED and last_seen ADVANCES across recurrences: the
+    // span is cluster lifecycle history. The page may state the observations;
+    // it may NOT claim they fell inside one grouping window.
+    expect(within(card).getByText(/first observed/i)).toBeInTheDocument()
+    expect(within(card).getByText(/most recently observed/i)).toBeInTheDocument()
+    expect(within(card).queryByText(/same bounded period/i)).not.toBeInTheDocument()
+    expect(within(card).queryByText(/same period/i)).not.toBeInTheDocument()
+  })
+
+  it('never claims a single bounded period on any cluster', async () => {
+    await renderDetail(detailFixture({ evidence: [assetEvent(), certEvent()] }))
+    expect(within(whyCard()).queryByText(/same bounded period/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('R1-P2: prototype-chain names never resolve to a link', () => {
+  const CANONICAL_ROUTES = [
+    '/exposure', '/ws/certificates', '/ws/email-protection',
+    '/ws/identity-assets', '/ws/brand-monitoring', '/ws/shadow-it',
+  ]
+
+  function evidenceCardLinks() {
+    const card = screen.getByText('Related evidence').closest('div')
+    expect(card).not.toBeNull()
+    return within(card).queryAllByRole('link')
+  }
+
+  const protoCase = (family) => detailFixture({
+    evidence: [assetEvent(), certEvent({ producer_family: family, entity_key: 'thing:zzz' })],
+  })
+
+  for (const family of ['constructor', 'toString', '__proto__']) {
+    it(`'${family}' as a family renders a named, non-link pointer`, async () => {
+      await renderDetail(protoCase(family))
+      const links = evidenceCardLinks()
+      // Exactly the asset row may link; the inherited-name row must NOT be a
+      // link of any kind (measured bug: it leaked a self-path anchor).
+      expect(links).toHaveLength(1)
+      expect(links[0].getAttribute('href')).toBe('/exposure')
+      for (const l of links) expect(CANONICAL_ROUTES).toContain(l.getAttribute('href'))
+    })
+  }
+
+  it('a normal unknown family also stays a named, non-link pointer', async () => {
+    await renderDetail(protoCase('mystery_family'))
+    const links = evidenceCardLinks()
+    expect(links).toHaveLength(1)
+    expect(links[0].getAttribute('href')).toBe('/exposure')
+  })
+})
+
 describe('CL-2: evidence deep links only where a canonical route exists', () => {
   it('links asset and cert evidence to their canonical customer surfaces', async () => {
     await renderDetail(detailFixture({ evidence: [assetEvent(), certEvent()] }))

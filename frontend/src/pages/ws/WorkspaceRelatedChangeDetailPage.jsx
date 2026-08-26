@@ -248,10 +248,14 @@ export default function WorkspaceRelatedChangeDetailPage() {
               nothing here is computed, inferred or causal. */}
           <div className={CARD}>
             <h2 className="text-sm font-semibold text-slate-800">Why these are grouped</h2>
+            {/* R1 P1: first_seen is PRESERVED and last_seen ADVANCES across
+                recurrences, so this span is cluster LIFECYCLE HISTORY — it is
+                never evidence of a single grouping window and must not be
+                labelled as one. State the observations; claim no window. */}
             <p className="text-xs text-slate-600 leading-relaxed mt-2">
               {familyNames.length > 0 ? familyNames.join(' and ') : 'The contributing'} signals for{' '}
-              <span className="font-medium">{rc.registrable_domain}</span> were observed in the same bounded period
-              {' '}({shortDate(rc.first_seen)} – {shortDate(rc.last_seen)}).
+              <span className="font-medium">{rc.registrable_domain}</span> were grouped under the same rule.
+              First observed {shortDate(rc.first_seen)} · most recently observed {shortDate(rc.last_seen)}.
             </p>
             {basis.revalidated && rc.linkage_host ? (
               <p className="text-xs text-slate-600 leading-relaxed mt-1.5">

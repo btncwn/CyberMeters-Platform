@@ -48,6 +48,11 @@ export const RULE_LABELS = {
   shadow_it_with_host_or_cert: 'Unapproved technology with a new host or a certificate signal',
 };
 
+// R1 P2 CLASS FIX: every map lookup in this file is OWN-property only. Plain
+// objects inherit from Object.prototype, so an attacker-influenced or unknown
+// key ('constructor', 'toString', '__proto__') would otherwise resolve truthy —
+// leaking a link, or rendering a prototype object as a React child (measured:
+// the '__proto__' family crashed the detail page through the label path).
 /**
  * Human title for a rule. Unknown rule ids fall back to a readable form of the
  * raw key rather than an invented label.
@@ -56,7 +61,7 @@ export const RULE_LABELS = {
  */
 export function ruleLabel(ruleId) {
   if (!ruleId) return 'Related change';
-  if (RULE_LABELS[ruleId]) return RULE_LABELS[ruleId];
+  if (Object.hasOwn(RULE_LABELS, ruleId)) return RULE_LABELS[ruleId];
   const words = String(ruleId).replace(/_/g, ' ').trim();
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Related change';
 }
@@ -73,7 +78,7 @@ export const DIRECTION_META = {
  * @returns {{ label: string, tone: string }}
  */
 export function directionMeta(direction) {
-  if (direction && DIRECTION_META[direction]) return DIRECTION_META[direction];
+  if (direction && Object.hasOwn(DIRECTION_META, direction)) return DIRECTION_META[direction];
   const raw = direction ? String(direction) : 'unknown';
   const label = raw.charAt(0).toUpperCase() + raw.slice(1);
   return { label, tone: 'slate' };
@@ -110,7 +115,7 @@ export const CUSTOMER_STATE_META = {
  * @returns {{ label: string, tone: string, description: string }}
  */
 export function customerStateMeta(state) {
-  if (state && CUSTOMER_STATE_META[state]) return CUSTOMER_STATE_META[state];
+  if (state && Object.hasOwn(CUSTOMER_STATE_META, state)) return CUSTOMER_STATE_META[state];
   const raw = state ? String(state) : 'unknown';
   const label = raw.replace(/_/g, ' ');
   return { label: label.charAt(0).toUpperCase() + label.slice(1), tone: 'slate', description: '' };
@@ -139,7 +144,7 @@ export const COMPLETENESS_META = {
  * @returns {{ label: string, tone: string }}
  */
 export function completenessMeta(completeness) {
-  if (completeness && COMPLETENESS_META[completeness]) return COMPLETENESS_META[completeness];
+  if (completeness && Object.hasOwn(COMPLETENESS_META, completeness)) return COMPLETENESS_META[completeness];
   return { label: 'Evidence completeness unknown', tone: 'slate' };
 }
 
@@ -191,7 +196,7 @@ export const PRODUCER_FAMILY_LABELS = {
  */
 export function producerFamilyLabel(family) {
   if (!family) return 'Observation';
-  if (PRODUCER_FAMILY_LABELS[family]) return PRODUCER_FAMILY_LABELS[family];
+  if (Object.hasOwn(PRODUCER_FAMILY_LABELS, family)) return PRODUCER_FAMILY_LABELS[family];
   const words = String(family).replace(/_/g, ' ').trim();
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Observation';
 }
@@ -244,7 +249,7 @@ export const EVENT_TYPE_LABELS = {
  */
 export function eventTypeLabel(eventType) {
   if (!eventType) return '';
-  if (EVENT_TYPE_LABELS[eventType]) return EVENT_TYPE_LABELS[eventType];
+  if (Object.hasOwn(EVENT_TYPE_LABELS, eventType)) return EVENT_TYPE_LABELS[eventType];
   const words = String(eventType).replace(/_/g, ' ').trim();
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : '';
 }
@@ -363,7 +368,13 @@ export const EVIDENCE_SURFACE_ROUTES = Object.freeze({
  * @returns {string | null} canonical route, or null when none exists (no link).
  */
 export function evidenceSurfaceRoute(family) {
-  return (family && EVIDENCE_SURFACE_ROUTES[family]) || null
+  // OWN-property lookup only (R1 P2): a plain object inherits from
+  // Object.prototype, so an inherited name ('constructor', 'toString',
+  // '__proto__') would otherwise resolve truthy and leak a link. Fail closed:
+  // anything that is not an own key renders as a named, non-link pointer.
+  return typeof family === 'string' && Object.hasOwn(EVIDENCE_SURFACE_ROUTES, family)
+    ? EVIDENCE_SURFACE_ROUTES[family]
+    : null
 }
 
 // ── Item 12B CL-1: correlation basis (12A frozen contract) ──────────────────
