@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import { splitStatements, isToleratedStatement } from "./lib/migration-apply-tolerated.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migDir = path.join(root, "database", "migrations");
@@ -66,19 +67,25 @@ ok("governed rebuild approval does not transfer to another migration identity",
 // in the app's own startup), but the end state must be a usable schema.
 const db = new DatabaseSync(":memory:");
 let applyErrors = 0;
-const apply = (p, label) => {
-  try { db.exec(fs.readFileSync(p, "utf8")); }
-  catch (e) {
-    // Tolerate idempotency/ordering no-ops — the same classes the app's own
-    // startup tolerates when schema.sql (the consolidated current schema) and the
-    // historical migrations are both applied: duplicate column/table/index, and
-    // "no such table/column" from a migration whose target schema.sql already
-    // moved past. The real convergence gate is the core-tables check below.
-    if (!/duplicate|already exists|no such (table|column)/i.test(e.message)) { applyErrors++; if (process.env.MIG_DEBUG) console.error(`  apply ${label}: ${e.message.slice(0, 100)}`); }
+const shaHex = (s) => crypto.createHash("sha256").update(s).digest("hex");
+// schema.sql is the consolidated current form; it applies as one exec with no self-conflict.
+try { db.exec(fs.readFileSync(path.join(root, "database", "schema.sql"), "utf8")); }
+catch (e) { applyErrors++; if (process.env.MIG_DEBUG) console.error(`  apply schema.sql: ${e.message.slice(0, 100)}`); }
+// F-025/F-035 (corrective) — apply each migration STATEMENT-BY-STATEMENT so a tolerated error
+// on one statement never skips the rest of the file (the R1 false-green). Tolerance is bound
+// to the exact file bytes + the exact failing statement; anything else is a TERMINAL drift.
+for (const f of files) {
+  const raw = fs.readFileSync(path.join(migDir, f), "utf8");
+  const fileSha = shaHex(raw);
+  for (const stmt of splitStatements(raw)) {
+    try { db.exec(stmt); }
+    catch (e) {
+      if (!isToleratedStatement(f, fileSha, stmt, e.message)) {
+        applyErrors++; if (process.env.MIG_DEBUG) console.error(`  apply ${f}: ${e.message.slice(0, 100)} :: ${stmt.slice(0, 60)}`);
+      }
+    }
   }
-};
-apply(path.join(root, "database", "schema.sql"), "schema.sql");
-for (const f of files) apply(path.join(migDir, f), f);
+}
 ok("schema + all migrations apply without a hard error", applyErrors === 0);
 
 // Core tables must exist after applying everything.
