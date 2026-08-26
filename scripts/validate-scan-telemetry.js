@@ -17,6 +17,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+// F-027 (Integration-granted allowed-path extension — C1A scheduled-consumer
+// assertion ONLY; everything else in this shared pin carrier is untouchable):
+// routeQueueBatch is the extracted, executable queue-handler body used to prove
+// the scheduled path stays on the shared consumer behaviourally.
+import { routeQueueBatch } from "../workers/scan-api/src/lib/operational-events.js";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href);
 const { createModuleTelemetry, createOutboundAccounting, createScanDeadline, raceModuleDeadline, buildExecutionDiagnostics, SCAN_EXECUTION_DIAGNOSTICS_VERSION } = await eng("scan-budget.js");
@@ -726,7 +731,24 @@ function d1Stub({ fail = false } = {}) {
   ok("C1A diagnostics include measurement complete", /outbound_measurement_complete/.test(budgetSrc));
   ok("C1A incomplete measurement keeps D1 outbound_calls null", /outbound_measurement_complete \? .*outbound_attempts_observed : null/.test(engineSrc));
   ok("C1A manual queue path still passes trigger only", /doRunScanEngine\([^)]*\{ executionContext: "queue", trigger \}\)/.test(dispatchSrc));
-  ok("C1A scheduled queue consumer remains shared", /queue: \(batch, env, ctx\) => handleScanDispatchBatch/.test(indexSrc));
+  // STRENGTHENED (F-027, Integration-granted allowed-path extension — THIS
+  // assertion ONLY). Property is UNCHANGED: the SCHEDULED (non-DLQ) queue path
+  // still routes through the SHARED scan-dispatch consumer, not a private fork.
+  // The former `=> handleScanDispatchBatch` shape regex could not survive the
+  // F-027 queue-identity dispatch; it is replaced by EXECUTING the extracted
+  // handler body (routeQueueBatch) plus a form-independent wiring check.
+  {
+    let sharedDispatchCalled = false, dlqCalled = false;
+    const handlers = {
+      dispatch: () => { sharedDispatchCalled = true; },
+      dlq:      () => { dlqCalled = true; },
+      settle:   () => {},
+    };
+    routeQueueBatch({ queue: "cybermeters-scan-dispatch" }, {}, {}, handlers);
+    ok("C1A scheduled queue consumer remains shared (routes through the shared dispatch handler, not a private fork)",
+      sharedDispatchCalled === true && dlqCalled === false &&
+      /dispatch:\s*handleScanDispatchBatch/.test(indexSrc));
+  }
   const headersSrc = src("workers", "scan-api", "src", "engines", "headers-scan.js");
   function sourceGuard(name, source, predicate, mutate) {
     ok(`${name} — holds on current source`, predicate(source) === true);
