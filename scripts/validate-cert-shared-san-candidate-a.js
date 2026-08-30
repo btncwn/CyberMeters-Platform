@@ -453,7 +453,7 @@ const parity = states.map(parityOutputs);
 // The accepted B3 resolver mint (2026-08-30.2) changes the canonical domain-state
 // projection carried by both downstream digests. Score methodology and the raw
 // Certificate Transparency evidence golden above remain byte-identical.
-const GOLDEN_F13 = "383be5223458b2e193336c9cc2f5ec883bbf7b6cff4e19512bc619a6aca07103";
+const GOLDEN_F13 = "dc7c568d6b3e8b8a0b6634bc986e5fe149a3cfd088ba9295ec98cc3234053be0";
 const GOLDEN_F14 = "ef72defb55181f0cb2ce84770bb6ae872d3fe8f2bd359e01b74bd9d6b901eabd";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));

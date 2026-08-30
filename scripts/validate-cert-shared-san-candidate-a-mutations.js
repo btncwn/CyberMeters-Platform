@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Candidate A v2 semantic mutation contract. Every byte mutant runs the real
-// 21-fixture validator in a fresh process and is accepted only for its exact,
+// 30-fixture validator in a fresh process and is accepted only for its exact,
 // ordered FAIL set. Target bytes and the complete dirty-worktree fingerprint
 // must be restored after every run.
 import crypto from "node:crypto";
@@ -67,7 +67,7 @@ function runValidator(timeout = 180_000) {
   const failures = failureIds(output);
   const summary = String(child.stdout || "").match(/Candidate A shared-SAN: (\d+)\/(\d+) fixtures passed/);
   const normal = child.error == null && child.signal == null && child.status === 1 &&
-    summary != null && Number(summary[2]) === 21 && Number(summary[1]) + failures.length === 21;
+    summary != null && Number(summary[2]) === 30 && Number(summary[1]) + failures.length === 30;
   return { child, output, failures, normal };
 }
 
@@ -147,8 +147,8 @@ const mutants = [
   {
     id: "SAN_A_M12", target: "route", expected: ["F21"],
     mutate: (s) => replaceExactly(s,
-      `          modules: {\n            ...normalisedModules,\n            certificate_intelligence: projectedCertificateIntelligence,\n          },\n          business_risk: null,`,
-      `          modules: normalisedModules,\n          business_risk: null,`, "M12"),
+      `          modules: {\n            ...normalisedModules,\n            historical_changes: projectHistoricalChangesForCustomer(\n              normalisedModules.historical_changes,\n              { comparable: false, currentModules: normalisedModules },\n            ),\n            certificate_intelligence: projectedCertificateIntelligence,\n          },\n          business_risk: null,`,
+      `          modules: {\n            ...normalisedModules,\n            historical_changes: projectHistoricalChangesForCustomer(\n              normalisedModules.historical_changes,\n              { comparable: false, currentModules: normalisedModules },\n            ),\n            certificate_intelligence: normalisedModules.certificate_intelligence,\n          },\n          business_risk: null,`, "M12"),
   },
   {
     id: "SAN_A_M14", target: "snapshot", expected: ["F12", "F13"],
