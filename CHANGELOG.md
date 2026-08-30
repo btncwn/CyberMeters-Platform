@@ -27,17 +27,17 @@ stability window passes.
 - **Migration:** none. `database/` and all Worker source files are byte-identical
   to the preceding release record; only `workers/scan-api/wrangler.toml`
   changed.
-- **Validation:** reviewed-head run `33339309041` passed the ordinary shards,
-  SAST, terminal `validate`, Cloudflare Pages and all seven F004 recovery
-  mutation shards; exact-head Frontend E2E run `33339937437` also passed. Fresh
+- **Validation:** reviewed-head CI run `33339309041` passed the ordinary shards,
+  SAST, terminal `validate` and all seven F004 recovery mutation shards; the
+  separate exact-head Cloudflare Pages check also passed. Exact-head Frontend
+  E2E run `33339937437` passed. Fresh
   main run `33340697990` passed all 15 jobs at exact merge SHA `96fefa3e`,
   including SAST, five ordinary validation shards, F004 7/7 and terminal
   `validate`, in approximately 13m55s, within the 15-minute release-assurance
   boundary. Local focused validation was 382/382 plus Worker syntax, Wrangler
-  dry-run and `git diff --check`. The first local deploy command stopped before
-  upload because the clean release worktree lacked its locked dependencies;
-  `npm ci` installed the exact lockfile with zero audit findings, after which
-  the same exact source deployed. The failed attempt created no Worker version.
+  dry-run and `git diff --check`. Cloudflare version history moves directly from
+  prior Version `9faf45b4...` to release Version `ca59e215...`; no intermediate
+  Worker version was created.
 - **scan-api (`cybermeters-platform`):** deployment ID
   `65038214-ac8b-4fa6-8971-452b5e9dcaab`; live Worker Version ID
   `ca59e215-68a4-44ac-b696-5d69a884f695` at 100% traffic. Immediate rollback
