@@ -23,20 +23,25 @@
 //
 // Node 24+.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { importMutant, registerMutants } from "./lib/mutant-import.mjs";
+import { wholeSourceFingerprint } from "./run-local-focused-gate.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const srcPath = (...p) => path.join(root, "workers", "scan-api", "src", ...p);
 const eng = (f) => pathToFileURL(srcPath("engines", f)).href;
+const engineDir = srcPath("engines");
+const websiteLifecyclePath = srcPath("engines", "website-security-lifecycle.js");
 
+const realWebsiteLifecycle = await import(eng("website-security-lifecycle.js"));
 const {
   evaluateWebsiteSecurityForScan, websiteConditionSpec, WEBSITE_SECURITY_DOMAIN_KEY,
   WS_NON_ALERTABLE_EVENT_TYPES, WS_EVENT_DOMAIN_BASELINE, WS_EVENT_BASELINE,
   WS_EVENT_RESOLVED, WS_EVENT_UNKNOWN, listWebsiteSecurityConditions,
-} = await import(eng("website-security-lifecycle.js"));
+} = realWebsiteLifecycle;
 const { findConditionOccurrence, LIFECYCLE_EVENT_SOURCES, MONITORING_CHANGED } = await import(eng("alert-occurrence.js"));
 const { severityForRecurrence, INHERIT_SEVERITY } = await import(eng("alert-consumers.js"));
 const { resolveRemediation } = await import(eng("remediation-registry.js"));
@@ -45,6 +50,17 @@ const { buildScanQuality } = await import(eng("scan-engine.js"));
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
 const eq = (n, g, w) => ok(n, JSON.stringify(g) === JSON.stringify(w), `got ${JSON.stringify(g)} want ${JSON.stringify(w)}`);
+
+function mutationSurface() {
+  return {
+    source: wholeSourceFingerprint(root),
+    engines: fs.readdirSync(engineDir).sort().join("\n"),
+    git: execFileSync("git", ["status", "--porcelain", "--", "workers", "frontend", "scripts"], {
+      cwd: root,
+      encoding: "utf8",
+    }),
+  };
+}
 
 function buildDb() {
   const db = new DatabaseSync(":memory:");
@@ -462,66 +478,86 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
 
 // ── 11. MUTATION — would this suite catch the regressions it claims to? ───
 {
-  const original = fs.readFileSync(srcPath("engines", "website-security-lifecycle.js"), "utf8");
+  const mutations = [
+    {
+      id: "website-lifecycle-flood-guard",
+      from: "const seeding = !(await domainIsBaselined(env, workspace_id, domain_id));",
+      to: "const seeding = false;",
+    },
+    {
+      id: "website-lifecycle-completeness-gate",
+      from: "} else if (gate.canVerify(spec.module)) {",
+      to: "} else if (true) {",
+    },
+  ];
+  const missingAnchorId = "website-lifecycle-anchor-missing-probe";
+  registerMutants([
+    ...mutations,
+    {
+      id: missingAnchorId,
+      from: "__CYBERMETERS_INTENTIONAL_MISSING_WEBSITE_LIFECYCLE_ANCHOR__",
+      to: "__CYBERMETERS_UNREACHABLE_WEBSITE_LIFECYCLE_REPLACEMENT__",
+    },
+  ]);
+  const surfaceBefore = mutationSurface();
 
-  // (a) Remove the flood guard: seeding always false => the backlog alerts.
-  const noGuard = original.replace(
-    "const seeding = !(await domainIsBaselined(env, workspace_id, domain_id));",
-    "const seeding = false;",
-  );
-  ok("MUTATION (a) applied — the flood guard is where this suite thinks it is", noGuard !== original);
-
-  // (b) Remove the completeness gate: absence always means recovery.
-  const noGate = original.replace(
-    "} else if (gate.canVerify(spec.module)) {",
-    "} else if (true) {",
-  );
-  ok("MUTATION (b) applied — the recovery gate is where this suite thinks it is", noGate !== original);
-
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cm-ws-"));
-  const runMutant = async (source, tag) => {
-    const tmp = srcPath("engines", `.ws-lifecycle.mutant.${tag}.${path.basename(dir)}.js`);
-    fs.writeFileSync(tmp, source);
-    try { return await import(pathToFileURL(tmp).href); }
-    finally { /* removed by caller */ }
-  };
-
+  let missingAnchorRejected = false;
   try {
-    // (a) the flood: a fresh workspace with a 4-condition backlog must now alert.
-    const mA = await runMutant(noGuard, "a");
-    db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsMutA','u1','MutA')").run();
-    db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('mA','wsMutA','u1','owner')").run();
-    const rA = await mA.evaluateWebsiteSecurityForScan(env, {
-      workspace_id: "wsMutA", domain_id: "dA", domain: "mut-a.example.com", scan_id: "sA",
-      findings: [F.noHttps(), F.hstsMissing(), F.noRedirect(), F.malformedCsp()],
-      modules: { ...MODULES_OK, ssl: positiveAbsence("mut-a.example.com") }, scanQuality: QUALITY_OK,
-    });
-    ok("MUTANT (a): without the flood guard a pre-existing backlog ALERTS — the defect, reproduced",
-       rA.alerts > 0 && notifs("wsMutA").length > 0, `alerts=${rA.alerts} notifs=${notifs("wsMutA").length}`);
-
-    // (b) the false recovery: an unreachable probe now resolves the condition.
-    const mB = await runMutant(noGate, "b");
-    db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsMutB','u1','MutB')").run();
-    db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('mB','wsMutB','u1','owner')").run();
-    await mB.evaluateWebsiteSecurityForScan(env, {
-      workspace_id: "wsMutB", domain_id: "dB", domain: "mut-b.example.com", scan_id: "sB1",
-      findings: [F.hstsMissing()], modules: MODULES_OK, scanQuality: QUALITY_OK,
-    });
-    await mB.evaluateWebsiteSecurityForScan(env, {
-      workspace_id: "wsMutB", domain_id: "dB", domain: "mut-b.example.com", scan_id: "sB2",
-      findings: [], modules: MODULES_HEADERS_DEAD, scanQuality: QUALITY_HEADERS_DEAD,
-    });
-    const mutRec = db.prepare("SELECT * FROM website_security_conditions WHERE workspace_id='wsMutB' AND condition_key='header_missing_strict_transport_security'").get();
-    eq("MUTANT (b): without the completeness gate a timed-out probe reads as a FIX — the defect, reproduced",
-       mutRec.monitoring_status, "no_longer_observed");
-    ok("MUTANT (b): and writes a fabricated recovery event",
-       db.prepare("SELECT * FROM website_security_events WHERE record_id=? AND event_type=?").all(mutRec.id, WS_EVENT_RESOLVED).length > 0);
-  } finally {
-    for (const f of fs.readdirSync(srcPath("engines")).filter((f) => f.startsWith(".ws-lifecycle.mutant."))) {
-      fs.rmSync(srcPath("engines", f), { force: true });
-    }
-    fs.rmSync(dir, { recursive: true, force: true });
+    await importMutant(websiteLifecyclePath, missingAnchorId);
+  } catch (error) {
+    missingAnchorRejected = /MUTANT_ANCHOR_COUNT.*count=0.*expected=1/.test(String(error?.message));
   }
+  ok("mutation loader rejects an anchor count other than one", missingAnchorRejected);
+
+  let controlledExceptionCaught = false;
+  try {
+    await importMutant(websiteLifecyclePath, mutations[0].id);
+    throw new Error("controlled website lifecycle exception probe");
+  } catch (error) {
+    controlledExceptionCaught = error?.message === "controlled website lifecycle exception probe";
+  }
+  ok("a controlled lifecycle exception is caught without source cleanup", controlledExceptionCaught);
+
+  const mA = await importMutant(websiteLifecyclePath, mutations[0].id);
+  ok("real and mutant lifecycle imports have distinct module identities", mA !== realWebsiteLifecycle);
+  const realAgain = await import(eng("website-security-lifecycle.js"));
+  ok("mutant import leaves the cached real lifecycle identity unchanged", realAgain === realWebsiteLifecycle);
+  ok("mutant import leaves the real evaluator export unchanged",
+     realAgain.evaluateWebsiteSecurityForScan === evaluateWebsiteSecurityForScan);
+
+  // (a) the flood: a fresh workspace with a 4-condition backlog must now alert.
+  db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsMutA','u1','MutA')").run();
+  db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('mA','wsMutA','u1','owner')").run();
+  const rA = await mA.evaluateWebsiteSecurityForScan(env, {
+    workspace_id: "wsMutA", domain_id: "dA", domain: "mut-a.example.com", scan_id: "sA",
+    findings: [F.noHttps(), F.hstsMissing(), F.noRedirect(), F.malformedCsp()],
+    modules: { ...MODULES_OK, ssl: positiveAbsence("mut-a.example.com") }, scanQuality: QUALITY_OK,
+  });
+  ok("MUTANT (a): without the flood guard a pre-existing backlog ALERTS — the defect, reproduced",
+     rA.alerts > 0 && notifs("wsMutA").length > 0, `alerts=${rA.alerts} notifs=${notifs("wsMutA").length}`);
+
+  // (b) the false recovery: an unreachable probe now resolves the condition.
+  const mB = await importMutant(websiteLifecyclePath, mutations[1].id);
+  db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsMutB','u1','MutB')").run();
+  db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('mB','wsMutB','u1','owner')").run();
+  await mB.evaluateWebsiteSecurityForScan(env, {
+    workspace_id: "wsMutB", domain_id: "dB", domain: "mut-b.example.com", scan_id: "sB1",
+    findings: [F.hstsMissing()], modules: MODULES_OK, scanQuality: QUALITY_OK,
+  });
+  await mB.evaluateWebsiteSecurityForScan(env, {
+    workspace_id: "wsMutB", domain_id: "dB", domain: "mut-b.example.com", scan_id: "sB2",
+    findings: [], modules: MODULES_HEADERS_DEAD, scanQuality: QUALITY_HEADERS_DEAD,
+  });
+  const mutRec = db.prepare("SELECT * FROM website_security_conditions WHERE workspace_id='wsMutB' AND condition_key='header_missing_strict_transport_security'").get();
+  eq("MUTANT (b): without the completeness gate a timed-out probe reads as a FIX — the defect, reproduced",
+     mutRec.monitoring_status, "no_longer_observed");
+  ok("MUTANT (b): and writes a fabricated recovery event",
+     db.prepare("SELECT * FROM website_security_events WHERE record_id=? AND event_type=?").all(mutRec.id, WS_EVENT_RESOLVED).length > 0);
+
+  const surfaceAfter = mutationSurface();
+  eq("mutations leave the whole-source fingerprint unchanged", surfaceAfter.source, surfaceBefore.source);
+  eq("mutations leave the engines inventory unchanged", surfaceAfter.engines, surfaceBefore.engines);
+  eq("mutations leave git source status unchanged", surfaceAfter.git, surfaceBefore.git);
 }
 
 globalThis.fetch = realFetch;

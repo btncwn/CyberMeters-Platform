@@ -10,10 +10,61 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerRequire = createRequire(path.join(root, "workers", "scan-api", "package.json"));
 const { parseDocument, isMap, isSeq } = workerRequire("yaml");
 
-export const CANONICAL_SKIP_CONDITION = "${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}";
+export const CANONICAL_SKIP_CONDITION = "${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}";
 export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d55297df4fd3f90a2f57548697efcf062";
-export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 361;
-export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "2f447b6cbfcfdeaf929d0c07075341f879e5c35a1452cbc7266bb6c64dfd1915";
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 362;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "f1ff91e9faa1d470d1b5c3320b5d1809985a2876d7e8374244b88d17eac4edd9";
+export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "8cf50cde587e71692ff2ad4a4a167b963a30bd4370b785d5760e3101c1f1ec2d";
+
+export const VALIDATOR_SHARD_JOB_IDS = Object.freeze([
+  "validate_runtime_security",
+  "validate_report_cx",
+  "validate_data_migrations",
+  "validate_frontend_build",
+  "validate_integration_assurance",
+]);
+
+export const EXPECTED_JOB_IDS = Object.freeze([
+  "ci_scope",
+  ...VALIDATOR_SHARD_JOB_IDS,
+  "validate",
+  "sast",
+]);
+
+export const EXPECTED_SHARD_COUNTS = Object.freeze({
+  validate_runtime_security: 86,
+  validate_report_cx: 88,
+  validate_data_migrations: 88,
+  validate_frontend_build: 81,
+  validate_integration_assurance: 19,
+});
+
+const EXPECTED_SHARD_NAMES = Object.freeze({
+  validate_runtime_security: "validate / runtime-security",
+  validate_report_cx: "validate / report-cx",
+  validate_data_migrations: "validate / data-migrations",
+  validate_frontend_build: "validate / frontend-build",
+  validate_integration_assurance: "validate / integration-assurance",
+});
+
+const EXPECTED_CI_SCOPE_OUTPUTS = Object.freeze({
+  decision: "${{ steps.ci_scope.outputs.decision }}",
+  effective_mode: "${{ steps.ci_scope.outputs.effective_mode }}",
+  safe_docs_only: "${{ steps.ci_scope.outputs.safe_docs_only }}",
+  expected_net_savings_seconds: "${{ steps.ci_scope.outputs.expected_net_savings_seconds }}",
+});
+
+const EXPECTED_AGGREGATOR_ENV = Object.freeze({
+  CI_SCOPE_RESULT: "${{ needs.ci_scope.result }}",
+  RUNTIME_SECURITY_RESULT: "${{ needs.validate_runtime_security.result }}",
+  REPORT_CX_RESULT: "${{ needs.validate_report_cx.result }}",
+  DATA_MIGRATIONS_RESULT: "${{ needs.validate_data_migrations.result }}",
+  FRONTEND_BUILD_RESULT: "${{ needs.validate_frontend_build.result }}",
+  INTEGRATION_ASSURANCE_RESULT: "${{ needs.validate_integration_assurance.result }}",
+});
+
+const EXPECTED_AGGREGATOR_RUN_SHA256 = "7fe206ec156396129fbd2e5d8a6703d497239b5a4151d623857363f3a6280075";
+const EXPECTED_SAST_JOB_SHA256 = "48cf38fc15e61660e593fcd7e69bde5b35bc3d7d8a953599af0fe997b3ae3910";
 
 export const EXPECTED_SKIP_IDS = Object.freeze([
   "frontend-test-coverage",
@@ -41,30 +92,37 @@ export const REQUIRED_ALWAYS_RUN = Object.freeze([
   "Validate CAPABILITIES.md drift",
 ]);
 
-const sameSet = (left, right) => {
-  const a = [...left].sort();
-  const b = [...right].sort();
-  return JSON.stringify(a) === JSON.stringify(b);
-};
+const sameSet = (left, right) =>
+  JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
 
+const canonicalJsonValue = (value) => {
+  if (Array.isArray(value)) return value.map(canonicalJsonValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJsonValue(value[key])]));
+  }
+  return value;
+};
+const stableJson = (value) => JSON.stringify(canonicalJsonValue(value));
 const assertion = (name, passed, detail = "") => ({ name, passed: Boolean(passed), detail });
 const hasOwn = (value, key) => value != null && Object.prototype.hasOwnProperty.call(value, key);
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 
-const TIMEZONE_VALIDATOR_STEP = "Validate alert watermark is timezone-independent (non-UTC runners)";
-const TIMEZONE_VALIDATOR_RUN = `for tz in Europe/London America/Los_Angeles Asia/Kolkata; do
-  echo "── TZ=$tz ──"
-  TZ=$tz node scripts/validate-alert-b1-canonical-cases.js
-done
-`;
+export const TIMEZONE_VALIDATOR_STEP =
+  "Validate alert watermark is timezone-independent (non-UTC runners)";
+export const TIMEZONE_VALIDATOR_RUN =
+  "for tz in Europe/London America/Los_Angeles Asia/Kolkata; do\n" +
+  "  echo \"── TZ=$tz ──\"\n" +
+  "  TZ=$tz node scripts/validate-alert-b1-canonical-cases.js\n" +
+  "done\n";
 export const ARM2_TIMEZONE_VALIDATOR_STEP =
   "Validate Item 10 P5 Arm 2 and writer lifecycle timestamps across UTC and non-UTC runners";
-export const ARM2_TIMEZONE_VALIDATOR_RUN = `for tz in UTC Europe/London Etc/GMT-14; do
-  echo "── TZ=$tz ──"
-  TZ=$tz node scripts/validate-item10-attack-surface-p5-arm2.js
-  TZ=$tz node scripts/validate-item10-attack-surface-p2-integration.js
-done
-`;
+export const ARM2_TIMEZONE_VALIDATOR_RUN =
+  "for tz in UTC Europe/London Etc/GMT-14; do\n" +
+  "  echo \"── TZ=$tz ──\"\n" +
+  "  TZ=$tz node scripts/validate-item10-attack-surface-p5-arm2.js\n" +
+  "  TZ=$tz node scripts/validate-item10-attack-surface-p2-integration.js\n" +
+  "done\n";
+
 const EXPECTED_CLASSIFIER_OUTPUT_WRITES = Object.freeze([
   ["decision", "UNKNOWN_FAIL_CLOSED"],
   ["effective_mode", "RUN_ALL"],
@@ -80,9 +138,9 @@ function classifierOutputContract(run) {
   if (typeof run !== "string") return false;
   const writes = [...run.matchAll(/^\s*echo "([a-z_]+)=([^"\n]*)"\s*$/gm)]
     .map((match) => [match[1], match[2]]);
-  const firstDefault = run.indexOf('echo "decision=UNKNOWN_FAIL_CLOSED"');
+  const firstDefault = run.indexOf("echo \"decision=UNKNOWN_FAIL_CLOSED\"");
   const invocation = run.indexOf("if ! node scripts/classify-ci-change.js");
-  const secondDefault = run.indexOf('echo "decision=UNKNOWN_FAIL_CLOSED"', firstDefault + 1);
+  const secondDefault = run.indexOf("echo \"decision=UNKNOWN_FAIL_CLOSED\"", firstDefault + 1);
   return JSON.stringify(writes) === JSON.stringify(EXPECTED_CLASSIFIER_OUTPUT_WRITES) &&
     (run.match(/} >> "\$GITHUB_OUTPUT"/g) || []).length === 2 &&
     (run.match(/node scripts\/classify-ci-change\.js/g) || []).length === 1 &&
@@ -90,36 +148,107 @@ function classifierOutputContract(run) {
     firstDefault >= 0 && invocation > firstDefault && secondDefault > invocation;
 }
 
+function expectedCheckoutStep() {
+  return {
+    name: "Checkout",
+    uses: "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
+    with: { "fetch-depth": 0 },
+  };
+}
+
+function expectedNodeStep() {
+  return {
+    name: "Set up Node",
+    uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+    with: {
+      "node-version": "24",
+      cache: "npm",
+      "cache-dependency-path": "workers/scan-api/package-lock.json\nfrontend/package-lock.json\n",
+    },
+  };
+}
+
+function expectedInstallSteps() {
+  return [
+    {
+      name: "Install worker dependencies (governed lifecycle scripts)",
+      run: "node scripts/install-governed-dependencies.js --root workers/scan-api",
+    },
+    {
+      name: "Install frontend dependencies (governed lifecycle scripts)",
+      run: "node scripts/install-governed-dependencies.js --root frontend",
+    },
+  ];
+}
+
+function aggregatorSuccessOnlyContract(run) {
+  return typeof run === "string" &&
+    sha256(run) === EXPECTED_AGGREGATOR_RUN_SHA256 &&
+    run.includes("if [ \"$result\" != \"success\" ]; then failed=1; fi") &&
+    run.includes("if [ \"$failed\" -ne 0 ]; then") &&
+    run.includes("exit 1") &&
+    !/cancelled|skipped/.test(run);
+}
+
 export function executableValidatorWiring(workflow) {
-  const steps = Array.isArray(workflow?.jobs?.validate?.steps)
-    ? workflow.jobs.validate.steps
-    : [];
   const validators = [];
   const plainValidators = [];
+  const assignments = [];
   const problems = [];
-  for (const step of steps) {
-    if (typeof step?.run !== "string" || !step.run.includes("scripts/validate-")) continue;
-    const plain = step.run.match(/^(?:node|\/usr\/bin\/env node) (scripts\/validate-[a-z0-9-]+\.js)$/);
-    if (plain) {
-      validators.push(plain[1]);
-      plainValidators.push(plain[1]);
+  const carrierCounts = new Map([
+    [TIMEZONE_VALIDATOR_STEP, 0],
+    [ARM2_TIMEZONE_VALIDATOR_STEP, 0],
+  ]);
+
+  for (const jobId of VALIDATOR_SHARD_JOB_IDS) {
+    const steps = workflow?.jobs?.[jobId]?.steps;
+    if (!Array.isArray(steps)) {
+      problems.push(jobId + ": missing step sequence");
       continue;
     }
-    if (step.name === TIMEZONE_VALIDATOR_STEP && step.run === TIMEZONE_VALIDATOR_RUN) {
-      validators.push("scripts/validate-alert-b1-canonical-cases.js");
-      continue;
+    for (const step of steps) {
+      if (typeof step?.run !== "string" || !step.run.includes("scripts/validate-")) continue;
+      const plain = step.run.match(/^(?:node|\/usr\/bin\/env node) (scripts\/validate-[a-z0-9-]+\.js)$/);
+      if (plain) {
+        validators.push(plain[1]);
+        plainValidators.push(plain[1]);
+        assignments.push({ jobId, path: plain[1] });
+        continue;
+      }
+      if (
+        jobId === "validate_report_cx" &&
+        step.name === TIMEZONE_VALIDATOR_STEP &&
+        step.run === TIMEZONE_VALIDATOR_RUN
+      ) {
+        validators.push("scripts/validate-alert-b1-canonical-cases.js");
+        carrierCounts.set(TIMEZONE_VALIDATOR_STEP, carrierCounts.get(TIMEZONE_VALIDATOR_STEP) + 1);
+        continue;
+      }
+      if (
+        jobId === "validate_report_cx" &&
+        step.name === ARM2_TIMEZONE_VALIDATOR_STEP &&
+        step.run === ARM2_TIMEZONE_VALIDATOR_RUN
+      ) {
+        validators.push("scripts/validate-item10-attack-surface-p5-arm2.js");
+        validators.push("scripts/validate-item10-attack-surface-p2-integration.js");
+        carrierCounts.set(ARM2_TIMEZONE_VALIDATOR_STEP, carrierCounts.get(ARM2_TIMEZONE_VALIDATOR_STEP) + 1);
+        continue;
+      }
+      problems.push(jobId + "/" + (step.name || "unnamed step") + ": unsupported validator command carrier");
     }
-    if (
-      step.name === ARM2_TIMEZONE_VALIDATOR_STEP &&
-      step.run === ARM2_TIMEZONE_VALIDATOR_RUN
-    ) {
-      validators.push("scripts/validate-item10-attack-surface-p5-arm2.js");
-      validators.push("scripts/validate-item10-attack-surface-p2-integration.js");
-      continue;
-    }
-    problems.push(`${step.name || "unnamed step"}: unsupported validator command carrier`);
   }
-  return { validators, plainValidators, problems };
+
+  for (const jobId of ["ci_scope", "validate", "sast"]) {
+    for (const step of workflow?.jobs?.[jobId]?.steps || []) {
+      if (typeof step?.run === "string" && step.run.includes("scripts/validate-")) {
+        problems.push(jobId + "/" + (step.name || "unnamed step") + ": validator outside an approved shard");
+      }
+    }
+  }
+  for (const [name, count] of carrierCounts) {
+    if (count !== 1) problems.push(name + ": carrier count " + count + ", want 1 in validate_report_cx");
+  }
+  return { validators, plainValidators, assignments, problems, carrierCounts };
 }
 
 export function parseWorkflowAst(source) {
@@ -129,15 +258,20 @@ export function parseWorkflowAst(source) {
     prettyErrors: true,
   });
   const parseErrors = document.errors.map((error) => error.message);
-  const root = document.contents;
-  if (parseErrors.length || !isMap(root)) return { document, workflow: null, parseErrors };
-  const jobsNode = document.getIn(["jobs"], true);
-  const validateStepsNode = document.getIn(["jobs", "validate", "steps"], true);
-  const sastStepsNode = document.getIn(["jobs", "sast", "steps"], true);
-  if (!isMap(jobsNode) || !isSeq(validateStepsNode) || !isSeq(sastStepsNode)) {
-    return { document, workflow: null, parseErrors: [...parseErrors, "jobs/validate.steps/sast.steps shape is invalid"] };
+  if (parseErrors.length || !isMap(document.contents)) {
+    return { document, workflow: null, parseErrors };
   }
-  return { document, workflow: document.toJS({ maxAliasCount: 0 }), parseErrors };
+  if (!isMap(document.getIn(["jobs"], true))) parseErrors.push("jobs map is invalid");
+  for (const jobId of EXPECTED_JOB_IDS) {
+    if (!isSeq(document.getIn(["jobs", jobId, "steps"], true))) {
+      parseErrors.push("jobs." + jobId + ".steps is invalid");
+    }
+  }
+  return {
+    document,
+    workflow: parseErrors.length ? null : document.toJS({ maxAliasCount: 0 }),
+    parseErrors,
+  };
 }
 
 export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = root }) {
@@ -153,57 +287,116 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = ro
   results.push(assertion("manifest: skip-list identities are exact and pinned", idsPinned));
   results.push(assertion("manifest: always-run identities are exact and pinned", alwaysPinned));
   results.push(assertion("manifest: always-run steps cannot enter the skip-list", disjoint));
-
-  // Invalid authoritative identities are a load-bearing policy failure. Do not
-  // cascade it into misleading workflow-wiring failures; mutation tests pin the
-  // single intended FAIL name.
   if (!idsPinned || !alwaysPinned || !disjoint) return results;
 
   const parsed = parseWorkflowAst(workflowSource);
   results.push(assertion(
-    "YAML AST: workflow parses uniquely with validate and sast step sequences",
+    "YAML AST: workflow parses uniquely with the complete sharded job graph",
     parsed.parseErrors.length === 0 && Boolean(parsed.workflow),
     parsed.parseErrors.join(" | "),
   ));
   if (!parsed.workflow) return results;
 
-  const validateJob = parsed.workflow.jobs?.validate;
-  const sastJob = parsed.workflow.jobs?.sast;
-  const steps = Array.isArray(validateJob?.steps) ? validateJob.steps : [];
-  const sastSteps = Array.isArray(sastJob?.steps) ? sastJob.steps : [];
+  const jobs = parsed.workflow.jobs || {};
+  const ciScopeJob = jobs.ci_scope;
+  const validateJob = jobs.validate;
+  const sastJob = jobs.sast;
+  const shardJobs = VALIDATOR_SHARD_JOB_IDS.map((jobId) => jobs[jobId]);
+  const ciScopeSteps = ciScopeJob.steps || [];
+  const shardSteps = VALIDATOR_SHARD_JOB_IDS.flatMap((jobId) => jobs[jobId].steps || []);
+  const validationSteps = [...ciScopeSteps, ...shardSteps];
+  const sastSteps = sastJob.steps || [];
+
+  results.push(assertion(
+    "jobs: exact scope + five shards + terminal validate + SAST set is pinned",
+    sameSet(Object.keys(jobs), EXPECTED_JOB_IDS) && Object.keys(jobs).length === EXPECTED_JOB_IDS.length,
+    Object.keys(jobs).join(", "),
+  ));
+
+  const graphProblems = [];
+  if (hasOwn(ciScopeJob, "needs") || hasOwn(ciScopeJob, "if")) graphProblems.push("ci_scope is not independent/unconditional");
+  if (hasOwn(sastJob, "needs") || hasOwn(sastJob, "if")) graphProblems.push("sast is not independent/unconditional");
+  for (const jobId of VALIDATOR_SHARD_JOB_IDS) {
+    const job = jobs[jobId];
+    if (job.needs !== "ci_scope") graphProblems.push(jobId + ": needs " + JSON.stringify(job.needs));
+    if (hasOwn(job, "if")) graphProblems.push(jobId + ": job-level if");
+  }
+  results.push(assertion(
+    "job graph: ci_scope and SAST are independent; every shard depends only on ci_scope",
+    graphProblems.length === 0,
+    graphProblems.join(" | "),
+  ));
+
+  const bootstrapProblems = [];
+  for (const jobId of VALIDATOR_SHARD_JOB_IDS) {
+    const job = jobs[jobId];
+    if (job.name !== EXPECTED_SHARD_NAMES[jobId]) bootstrapProblems.push(jobId + ": name drift");
+    if (job["runs-on"] !== "ubuntu-latest") bootstrapProblems.push(jobId + ": runner drift");
+    const expected = [expectedCheckoutStep(), expectedNodeStep(), ...expectedInstallSteps()];
+    if (stableJson((job.steps || []).slice(0, 4)) !== stableJson(expected)) {
+      bootstrapProblems.push(jobId + ": checkout/setup/install prefix drift");
+    }
+  }
+  results.push(assertion(
+    "shards: names, runner, full-history checkout, Node cache and both governed installs are exact",
+    bootstrapProblems.length === 0,
+    bootstrapProblems.join(" | "),
+  ));
+
+  results.push(assertion(
+    "ci_scope: exact outputs and four-step classifier carrier are pinned",
+    ciScopeJob.name === "CI scope" &&
+      ciScopeJob["runs-on"] === "ubuntu-latest" &&
+      stableJson(ciScopeJob.outputs) === stableJson(EXPECTED_CI_SCOPE_OUTPUTS) &&
+      ciScopeSteps.length === 4 &&
+      stableJson(ciScopeSteps[0]) === stableJson(expectedCheckoutStep()) &&
+      stableJson(ciScopeSteps[1]) === stableJson(expectedNodeStep()) &&
+      ciScopeSteps[3]?.name === "Show Node version" &&
+      ciScopeSteps[3]?.run === "node --version && npm --version",
+  ));
+
   const byName = new Map();
-  for (const step of steps) {
+  for (const step of validationSteps) {
     if (!byName.has(step?.name)) byName.set(step?.name, []);
     byName.get(step?.name).push(step);
   }
-
-  const nonManifestConditionals = steps.filter((step) =>
-    hasOwn(step, "if") && !skipNames.has(step.name) && !requiredAlways.has(step.name));
+  const classifier = (byName.get("Classify CI change scope (fail closed)") || [])[0];
   results.push(assertion(
-    "conditions: only versioned skip-list steps may be conditional",
+    "classifier wiring: complete ci_scope step is exact and fail-closed",
+    (byName.get("Classify CI change scope (fail closed)") || []).length === 1 &&
+      classifier?.id === "ci_scope" &&
+      typeof classifier?.run === "string" &&
+      sha256(classifier.run) === EXPECTED_CLASSIFIER_RUN_SHA256 &&
+      classifierOutputContract(classifier.run),
+  ));
+
+  const nonManifestConditionals = shardSteps.filter((step) =>
+    hasOwn(step, "if") && !skipNames.has(step.name));
+  results.push(assertion(
+    "conditions: only versioned skip-list shard steps may be conditional",
     nonManifestConditionals.length === 0,
     nonManifestConditionals.map((step) => step.name).join(", "),
   ));
-
-  const wrongCanonical = steps.filter((step) =>
+  const wrongCanonical = shardSteps.filter((step) =>
     skipNames.has(step?.name) && step.if !== CANONICAL_SKIP_CONDITION);
   results.push(assertion(
-    "conditions: every skip-list step uses the exact canonical fail-closed expression",
+    "conditions: every skip-list step uses the exact cross-job fail-closed expression",
     wrongCanonical.length === 0,
-    wrongCanonical.map((step) => `${step.name}: ${JSON.stringify(step.if)}`).join(" | "),
+    wrongCanonical.map((step) => step.name + ": " + JSON.stringify(step.if)).join(" | "),
   ));
 
   const wiringProblems = [];
   for (const expected of manifest.skipped_heavy_steps) {
     const found = byName.get(expected.name) || [];
     if (found.length !== 1) {
-      wiringProblems.push(`${expected.name}: count ${found.length}`);
+      wiringProblems.push(expected.name + ": count " + found.length);
       continue;
     }
     const actual = found[0];
-    const actualDirectory = actual["working-directory"] || ".";
-    if (actual.run !== expected.command) wiringProblems.push(`${expected.name}: command drift`);
-    if (actualDirectory !== expected.working_directory) wiringProblems.push(`${expected.name}: working-directory drift`);
+    if (actual.run !== expected.command) wiringProblems.push(expected.name + ": command drift");
+    if ((actual["working-directory"] || ".") !== expected.working_directory) {
+      wiringProblems.push(expected.name + ": working-directory drift");
+    }
   }
   results.push(assertion(
     "wiring: every skip-list step has one exact name/command/working-directory mapping",
@@ -214,72 +407,103 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = ro
   const alwaysProblems = [];
   for (const name of REQUIRED_ALWAYS_RUN) {
     const found = byName.get(name) || [];
-    if (found.length !== 1) alwaysProblems.push(`${name}: count ${found.length}`);
-    else if (hasOwn(found[0], "if")) alwaysProblems.push(`${name}: conditional ${JSON.stringify(found[0].if)}`);
+    if (found.length !== 1) alwaysProblems.push(name + ": count " + found.length);
+    else if (hasOwn(found[0], "if")) alwaysProblems.push(name + ": conditional " + JSON.stringify(found[0].if));
   }
   results.push(assertion(
-    "always-run: mandatory steps are present exactly once and unconditional",
+    "always-run: mandatory scope/shard steps are present exactly once and unconditional",
     alwaysProblems.length === 0,
     alwaysProblems.join(" | "),
-  ));
-
-  const classifier = (byName.get("Classify CI change scope (fail closed)") || [])[0];
-  results.push(assertion(
-    "classifier wiring: complete step is exact and fail-closed",
-    classifier?.id === "ci_scope" &&
-      typeof classifier?.run === "string" &&
-      sha256(classifier.run) === EXPECTED_CLASSIFIER_RUN_SHA256 &&
-      classifierOutputContract(classifier.run) &&
-      classifier.run.includes("decision=UNKNOWN_FAIL_CLOSED") &&
-      classifier.run.includes("effective_mode=RUN_ALL") &&
-      (classifier.run.match(/decision=UNKNOWN_FAIL_CLOSED/g) || []).length === 2 &&
-      (classifier.run.match(/effective_mode=RUN_ALL/g) || []).length === 2 &&
-      classifier.run.includes("node scripts/classify-ci-change.js") &&
-      classifier.run.includes("if ! node"),
   ));
 
   const executable = executableValidatorWiring(parsed.workflow);
   const allValidators = fs.readdirSync(path.join(repoRoot, "scripts"))
     .filter((filename) => /^validate-[a-z0-9-]+\.js$/.test(filename));
-  const missing = executable.validators
-    .filter((filename) => !fs.existsSync(path.join(repoRoot, filename)));
-  const orphans = allValidators
-    .filter((filename) => !executable.validators.includes(`scripts/${filename}`));
-  const duplicates = [...new Set(executable.plainValidators
+  const missing = executable.validators.filter((filename) => !fs.existsSync(path.join(repoRoot, filename)));
+  const orphans = allValidators.filter((filename) => !executable.validators.includes("scripts/" + filename));
+  const duplicatePlain = [...new Set(executable.plainValidators
     .filter((filename, index) => executable.plainValidators.indexOf(filename) !== index))];
   const uniqueValidators = [...new Set(executable.validators)].sort();
   const validatorFingerprint = sha256(uniqueValidators.join("\n"));
   results.push(assertion(
-    "anti-orphan: every validator is an exact executable AST run mapping",
+    "anti-orphan: five shards are the exact executable 362-validator union",
     executable.problems.length === 0 && missing.length === 0 && orphans.length === 0 &&
-      duplicates.length === 0 &&
+      duplicatePlain.length === 0 &&
       uniqueValidators.length === EXPECTED_EXECUTABLE_VALIDATOR_COUNT &&
       validatorFingerprint === EXPECTED_EXECUTABLE_VALIDATOR_SHA256,
     [
       ...executable.problems,
-      missing.length ? `missing: ${missing.join(", ")}` : "",
-      orphans.length ? `orphans: ${orphans.join(", ")}` : "",
-      duplicates.length ? `duplicates: ${duplicates.join(", ")}` : "",
+      missing.length ? "missing: " + missing.join(", ") : "",
+      orphans.length ? "orphans: " + orphans.join(", ") : "",
+      duplicatePlain.length ? "duplicates: " + duplicatePlain.join(", ") : "",
       uniqueValidators.length !== EXPECTED_EXECUTABLE_VALIDATOR_COUNT
-        ? `count ${uniqueValidators.length}, want ${EXPECTED_EXECUTABLE_VALIDATOR_COUNT}` : "",
+        ? "count " + uniqueValidators.length + ", want " + EXPECTED_EXECUTABLE_VALIDATOR_COUNT : "",
       validatorFingerprint !== EXPECTED_EXECUTABLE_VALIDATOR_SHA256
-        ? `fingerprint ${validatorFingerprint}` : "",
+        ? "fingerprint " + validatorFingerprint : "",
     ].filter(Boolean).join(" | "),
   ));
 
+  const actualCounts = Object.fromEntries(VALIDATOR_SHARD_JOB_IDS.map((jobId) => [
+    jobId,
+    executable.assignments.filter((assignment) => assignment.jobId === jobId).length,
+  ]));
+  const assignmentFingerprint = sha256(executable.assignments
+    .map((assignment) => assignment.jobId + "\t" + assignment.path)
+    .sort()
+    .join("\n"));
   results.push(assertion(
-    "jobs: validate and sast jobs are unconditional",
-    sameSet(Object.keys(parsed.workflow.jobs || {}), ["validate", "sast"]) &&
-      !hasOwn(validateJob, "if") && !hasOwn(sastJob, "if"),
+    "assignment: exact non-overlapping shard counts and ownership fingerprint are pinned",
+    stableJson(actualCounts) === stableJson(EXPECTED_SHARD_COUNTS) &&
+      assignmentFingerprint === EXPECTED_SHARD_ASSIGNMENT_SHA256,
+    "counts " + stableJson(actualCounts) + "; fingerprint " + assignmentFingerprint,
+  ));
+
+  results.push(assertion(
+    "timezone carriers: both exact loops remain unique, blocking and owned by report-cx",
+    executable.carrierCounts.get(TIMEZONE_VALIDATOR_STEP) === 1 &&
+      executable.carrierCounts.get(ARM2_TIMEZONE_VALIDATOR_STEP) === 1,
+    executable.problems.filter((problem) => problem.includes("timezone") || problem.includes("Arm 2")).join(" | "),
+  ));
+
+  const aggregatorStep = validateJob.steps?.[0];
+  results.push(assertion(
+    "terminal validate: always runs, explicitly needs scope + five shards, and only success passes",
+    validateJob.name === "validate" &&
+      validateJob["runs-on"] === "ubuntu-latest" &&
+      validateJob.if === "${{ always() }}" &&
+      Array.isArray(validateJob.needs) &&
+      sameSet(validateJob.needs, ["ci_scope", ...VALIDATOR_SHARD_JOB_IDS]) &&
+      validateJob.needs.length === 1 + VALIDATOR_SHARD_JOB_IDS.length &&
+      validateJob.steps?.length === 1 &&
+      aggregatorStep?.name === "Require every validation shard to pass" &&
+      stableJson(aggregatorStep?.env) === stableJson(EXPECTED_AGGREGATOR_ENV) &&
+      aggregatorSuccessOnlyContract(aggregatorStep?.run) &&
+      !hasOwn(aggregatorStep, "if") &&
+      !hasOwn(aggregatorStep, "continue-on-error"),
+  ));
+
+  results.push(assertion(
+    "SAST: semantic job contract is exact and independent",
+    sha256(stableJson(sastJob)) === EXPECTED_SAST_JOB_SHA256 &&
+      !hasOwn(sastJob, "needs") && !hasOwn(sastJob, "if"),
   ));
   results.push(assertion(
     "SAST: every step remains unconditional",
-    sastSteps.length > 0 && sastSteps.every((step) => !hasOwn(step, "if")),
+    sastSteps.length === 4 && sastSteps.every((step) => !hasOwn(step, "if")),
   ));
-  const nonBlocking = [validateJob, sastJob, ...steps, ...sastSteps]
-    .filter((item) => hasOwn(item, "continue-on-error"));
+
+  const nonBlocking = [
+    ciScopeJob,
+    ...shardJobs,
+    validateJob,
+    sastJob,
+    ...ciScopeSteps,
+    ...shardSteps,
+    ...(validateJob.steps || []),
+    ...sastSteps,
+  ].filter((item) => hasOwn(item, "continue-on-error"));
   results.push(assertion(
-    "reachability: validate/sast jobs and every step remain blocking",
+    "reachability: scope, shards, terminal validate, SAST and every step remain blocking",
     nonBlocking.length === 0,
     nonBlocking.map((item) => item?.name || "job").join(", "),
   ));

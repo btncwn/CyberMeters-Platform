@@ -13,9 +13,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  validate:
+  ci_scope:
+    name: CI scope
     runs-on: ubuntu-latest
-
+    outputs:
+      decision: ${{ steps.ci_scope.outputs.decision }}
+      effective_mode: ${{ steps.ci_scope.outputs.effective_mode }}
+      safe_docs_only: ${{ steps.ci_scope.outputs.safe_docs_only }}
+      expected_net_savings_seconds: ${{ steps.ci_scope.outputs.expected_net_savings_seconds }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -76,8 +81,29 @@ jobs:
       - name: Show Node version
         run: node --version && npm --version
 
-      - name: Validate dependency install-script governance (deny-by-default / exact allowlist / must-fail controls)
-        run: node scripts/validate-install-script-governance.js
+  validate_runtime_security:
+    name: validate / runtime-security
+    needs: ci_scope
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # The fail-closed PR classifier requires the exact event base/head and
+          # merge-base. A shallow checkout is never treated as a safe diff.
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          # Restore the npm download cache keyed on both lockfiles so `npm ci`
+          # does not re-download every run. No coverage change; save wall-clock
+          # and paid minutes on every run.
+          cache: 'npm'
+          cache-dependency-path: |
+            workers/scan-api/package-lock.json
+            frontend/package-lock.json
 
       # Runtime validators import the production scan-engine graph. DMARCbis P2
       # makes that graph reach the pinned tr46 dependency, so install Worker
@@ -108,23 +134,8 @@ jobs:
           node --check workers/scan-api/src/index.js
           node --check workers/email-ingest/src/index.js
 
-      - name: Validate scanner regression fixtures
-        run: node scripts/validate-regression-fixtures.js
-
       - name: Validate provider-infra classification (edge/CDN tech ≠ provider ownership)
         run: node scripts/validate-provider-classification.js
-
-      - name: Validate security contracts (auth / MFA / RBAC / billing)
-        run: node scripts/validate-security-contracts.js
-
-      - name: Validate integration flows (tenant isolation / access control)
-        run: node scripts/validate-integration.js
-
-      - name: Validate tenant-isolation matrix (cross-tenant read/write/delete/oracle)
-        run: node scripts/validate-tenant-isolation.js
-
-      - name: Validate F-021 scan-read tenant isolation (shared domain / NULL-owner / zero-R2)
-        run: node scripts/validate-f021-scan-read-tenant-isolation.js
 
       - name: Validate F-021 scan-read isolation mutations (three leaks reintroduced must fail)
         run: node scripts/validate-f021-scan-read-tenant-isolation-mutations.js
@@ -132,20 +143,8 @@ jobs:
       - name: Validate F-009 admin-service ip_address is not projected (current + historical)
         run: node scripts/validate-f009-admin-service-ip-projection.js
 
-      - name: Full-repo assurance — entry-point inventory (drift + auth-coverage gate)
-        run: node scripts/validate-entry-point-inventory.js
-
       - name: Full-repo assurance — tenant-isolation invariant matrix (table classification + harness cross-ref)
         run: node scripts/validate-tenant-isolation-matrix.js
-
-      - name: Full-repo assurance — static tenant-query audit (workspace-domain / hostname-only / global-latest / R2-key / body-trust)
-        run: node scripts/validate-tenant-query-audit.js
-
-      - name: Full-repo assurance — workspace-domain tenant-scope mutation proof
-        run: node scripts/validate-tenant-scope-assurance-mutations.js
-
-      - name: Full-repo assurance — extended two-tenant harness (same-hostname / removed-member / identity)
-        run: node scripts/validate-tenant-isolation-extended.js
 
       - name: Full-repo assurance — property-based authorization suite (deterministic seed)
         run: node scripts/validate-authz-properties.js
@@ -153,50 +152,11 @@ jobs:
       - name: Full-repo assurance — cross-tenant authz coverage (C1 smuggle / C2 role / C4 R2 / C5 token)
         run: node scripts/validate-tenant-authz-coverage.js
 
-      - name: A6 viewer-role enforcement (Related Changes — read-allowed / all mutations refused / honest can_manage)
-        run: node scripts/validate-a6-viewer-enforcement.js
-
-      - name: Full-repo assurance — billing/entitlement abuse coverage (D1 downgrade / D2 trial / D3 replay / D4 checkout)
-        run: node scripts/validate-billing-abuse-coverage.js
-
-      - name: Full-repo assurance — workflow abuse coverage (F2 verification / F3 alert+digest / F4 rate-limit)
-        run: node scripts/validate-workflow-abuse-coverage.js
-
-      - name: F4 PR-2 login rate-limit atomicity mutation contract (X1–X7 / M1–M8)
-        run: node scripts/validate-login-rate-limit-atomicity-mutations.js
-
-      - name: Full-repo assurance — authentication coverage (B2 session / B3 invalidation / B4 MFA / B5 SSO claims / B6 reset)
-        run: node scripts/validate-auth-coverage.js
-
       - name: Full-repo assurance — injection coverage (E2 render-sink escaping / E4 mass-assignment)
         run: node scripts/validate-injection-coverage.js
 
       - name: DOM-XSS sink source-guard (no raw-HTML sink in frontend/src + alert-link sanitiser present)
         run: node scripts/validate-dom-xss-sinks.js
-
-      - name: Full-repo assurance — production integrity runbook SQL (executable check)
-        run: node scripts/validate-production-integrity-sql.js
-
-      - name: Validate workspace integrity (own-retained scan count / owner-only soft-delete)
-        run: node scripts/validate-workspace-integrity.js
-
-      - name: Validate DMARC XML safety (XXE / entity-expansion / size DoS)
-        run: node scripts/validate-dmarc-xml-safety.js
-
-      - name: Validate SSRF domain guard (IP/localhost/metadata/reserved-TLD reject)
-        run: node scripts/validate-ssrf-domain-guard.js
-
-      - name: Validate SSRF scan guard (redirect-time + resolved-IP block in safeFetch)
-        run: node scripts/validate-ssrf-scan-guard.js
-
-      - name: Validate security-headers binding (extracted module runtime ref + graceful fail)
-        run: node scripts/validate-security-headers-binding.js
-
-      - name: Validate scan subrequest budget (counter + dynamic cap + CT-state ledgers)
-        run: node scripts/validate-scan-subrequest-budget.js
-
-      - name: Validate scan-engine subrequest counter (faithful engine run, mocked fetch/D1/R2)
-        run: node scripts/validate-scan-engine-counter.js
 
       - name: Validate reserved-mode scan (exposure-first + budget-gated modules)
         run: node scripts/validate-reserved-scan.js
@@ -206,12 +166,6 @@ jobs:
 
       - name: Validate reserved prober SSRF (per-hop revalidation + rebinding + redirect matrix)
         run: node scripts/validate-reserved-probe-ssrf.js
-
-      - name: Validate AS-B6b physical-budget closure (atomic charge-or-deny + faithful engine wiring)
-        run: node scripts/validate-as-b6b-physical-budget-closure.js
-
-      - name: Validate AS-B6b physical-budget closure mutations (counter + boundary + fallback)
-        run: node scripts/validate-as-b6b-physical-budget-closure-mutations.js
 
       - name: Validate AS-B6 reserved deadline safety (global cancellation + physical accounting)
         run: node scripts/validate-as-b6-reserved-deadline-safety.js
@@ -228,8 +182,282 @@ jobs:
       - name: Validate auth/session hardening (SSO MFA gate, reset token revocation, invite + lifecycle deleted_at)
         run: node scripts/validate-auth-session-hardening.js
 
-      - name: B5 OAuth callback readiness (state CSRF single-use/TTL, config/error gates, OTC single-use, nonce binding)
-        run: node scripts/validate-oauth-callback-readiness.js
+      - name: Validate identity exposure (login surfaces + impersonation + spoofing + isolation)
+        run: node scripts/validate-identity-exposure.js
+
+      - name: Validate hosted DNS v2 migration (backfill 1:1 + no-CHECK + idempotent)
+        run: node scripts/validate-hosted-dns-v2.js
+
+      # CE questionnaire hygiene. The public self-check and the authenticated set were two
+      # independently-maintained copies and had drifted: 14 of 20 questions carried a
+      # different KEY on each side, and 4 of the 6 shared keys were worded differently. Both
+      # now consume one build-time module. question_key is PERSISTED, so a rename orphans
+      # stored answers; wording changes require a version bump (fingerprint-pinned).
+      - name: Validate CE questionnaire drift, versioning and scope
+        run: node scripts/validate-ce-question-drift.js
+
+      # Customer-facing Business Risk must be based on the exact latest complete
+      # assessment. Partial evidence cannot overwrite the canonical row, append a
+      # numeric trend point, or make an older score look current. The first validator
+      # covers producer/projection/consumer/report parity, the second drives the real
+      # runScanEngine complete→partial path and authenticated route, and the third
+      # proves all seven founder-required regressions remain load-bearing.
+      - name: Validate BRS partial-scan honesty (persistence / projection / consumer parity)
+        run: node scripts/validate-brs-partial-scan-honesty.js
+
+      - name: Validate BRS partial-scan honesty load-bearing mutations
+        run: node scripts/validate-brs-partial-scan-mutations.js
+
+      - name: Validate BRS reconciliation inventory parity with the runtime resolver
+        run: node scripts/validate-brs-reconciliation-runbook.js
+
+      # M5.f — canonical per-workspace eight-domain maturity ledger. Maturity is decided
+      # deterministically by the backend engine (never the frontend) from the resolver's
+      # domain STATE + the managed-case lifecycle + the registry's verification CAPABILITY.
+      # Missing/failed/partial/unavailable evidence never becomes mature; a partial scan
+      # writes nothing; customer attestation and approved inventory alone never reach
+      # verified; the ledger is append-only, idempotent, tenant-isolated and read-pure; a
+      # query failure surfaces unavailable, never a clean/healthy zero. Mutation-tested:
+      # 10 defects incl. a dropped domain, reordered ladder, unavailable→mature, partial
+      # advancement, dropped workspace filter, write-on-read, attestation→verified,
+      # frontend-derived stage, history overwrite, and failure→healthy.
+      - name: Validate M5.f maturity ledger (deterministic / honest / append-only / read-pure)
+        run: node scripts/validate-m5f-maturity-ledger.js
+
+      - name: Validate atomic active-scan admission guard (mig 099 partial unique indexes + domain-aliasing + NULL-ws defense + honest 409 + drift + mutations)
+        run: node scripts/validate-scan-admission-guard.js
+
+      - name: Validate Shadow IT recurrence truth (per-recurrence copy + observed ≠ unauthorised + surface parity + viewer gating + dedupe + mutations)
+        run: node scripts/validate-shadow-it-recurrence-truth.js
+      - name: BL-1 shadow-it first-observation surfacing
+        run: node scripts/validate-bl1-shadow-it-first-observation.js
+      - name: BL-1 first-observation mutation proof
+        run: node scripts/validate-bl1-shadow-it-first-observation-mutations.js
+
+      - name: Validate RWS.5 cookie ownership semantic mutations
+        run: node scripts/validate-rws5-cookie-ownership-mutations.js
+
+      - name: Validate DMARC graduated-reject ramp (9-step ladder + tag diff + configurable thresholds)
+        run: node scripts/validate-dmarc-graduated-ramp.js
+
+      - name: Validate enforcement readiness v2 (unified 7-check model + score + tri-state status)
+        run: node scripts/validate-enforcement-readiness-v2.js
+
+      - name: Validate DMARC change workflow (state machine + separation-of-duties + review queue)
+        run: node scripts/validate-dmarc-change-workflow.js
+
+      - name: Validate DMARC summary and technical evidence parity
+        run: node scripts/validate-dmarc-summary-parity.js
+
+      - name: Validate DMARC summary parity exact semantic mutations
+        run: node scripts/validate-dmarc-summary-parity-mutations.js
+
+      - name: Validate universal managed-case model (8 domains + transition validator + verified rules + compat + isolation)
+        run: node scripts/validate-managed-case-model.js
+
+      - name: Validate UC3 case-transition surface (available_transitions derived from canonical machine + attestation-only verified + ASM/Brand excluded)
+        run: node scripts/validate-uc3-case-transitions.js
+
+      - name: Validate F-42 signed-edge split fixtures
+        run: node scripts/validate-f42-false-healthy-split-fixtures.js
+
+      - name: Validate Identity customer/action/risk/report truth projection and XD-1
+        run: node scripts/validate-identity-truth-projection.js
+
+      - name: Validate Identity truth-projection semantic mutations
+        run: node scripts/mutate-identity-truth-projection.js
+
+      - name: Validate app-probe reliability (timeout≠refused, all-fail≠healthy, DNS resolver-failure≠no-resolution)
+        run: node scripts/validate-app-probe-reliability.js
+
+      # PR-A — HTTPS Observation Classification (P1). A founder domain serving valid
+      # TLS produced a CRITICAL "HTTPS Not Available" finding and an email telling the
+      # owner to install a certificate, because ssl-scan collapsed "genuine origin
+      # response", "Cloudflare-synthesised edge error" and "not observed" into one
+      # boolean via `status < 500`. One shared classifier now decides, and these three
+      # steps hold the line: matrix → mutation (pinned counts) → faithful engine trace.
+      - name: Validate HTTPS observation classification (origin 5xx proves transport; edge error ≠ absence)
+        run: node scripts/validate-https-observation-classification.js
+
+      - name: Validate HTTPS observation classification mutations (anchor-guarded, pinned mutant count)
+        run: node scripts/validate-https-observation-classification-mutations.js
+
+      - name: Validate AS-B2 KEV/CVE score wiring mutations (named source mutants)
+        run: node scripts/validate-as-b2-kev-cve-score-wiring-mutations.js
+
+      - name: Validate historical Phase-5 customer reads (verbatim checksum + routes/UI/PDF/dashboard/portfolio + pinned mutants)
+        run: node scripts/validate-phase5-historical-customer-reads.js
+
+      - name: Validate Candidate A historical shared-SAN projection (R1 + R3 + engine/route/tenant/parity)
+        run: node scripts/validate-cert-shared-san-candidate-a.js
+
+      - name: Validate Candidate A semantic mutations (exact v2 kill sets + invalid-kill controls)
+        run: node scripts/validate-cert-shared-san-candidate-a-mutations.js
+
+      - name: Validate CT provider resilience (timeouts + bounded retry + health telemetry + mutations)
+        run: node scripts/validate-ct-provider-resilience.js
+
+      - name: Validate free-scan evidence honesty (FAILED/PARTIAL fixtures + real route-to-UI trace)
+        run: node scripts/validate-free-scan-false-healthy.js
+
+      - name: Validate Item 9 certificate per-signal completeness (pure fixtures; no production caller)
+        run: node scripts/validate-item9-certificate-signal-completeness.js
+
+      # AS-C1/C2/C3 U1+U2+U3 — successful-but-bounded collection is a closed,
+      # separate coverage dimension. The focused fixture binds all four caps to
+      # their provenance and consumed meaning; the fresh-process registry kills
+      # exactly the nine approved semantic mutants; the narrow declaration guard
+      # protects only the two corrected source comments and importer inventory.
+      - name: Validate AS-C1/C2/C3 bounded coverage and saturation provenance
+        run: node scripts/validate-as-c1-c2-c3-bounded-coverage.js
+
+      - name: Validate AS-C1/C2/C3 bounded coverage semantic mutations
+        run: node scripts/validate-as-c1-c2-c3-bounded-coverage-mutations.js
+
+      - name: Validate AS-C3 source declarations and importer inventory
+        run: node scripts/validate-as-c3-source-declarations.js
+
+      - name: Validate Item 10 Attack Surface per-signal completeness and removal policy (pure fixtures; no production caller)
+        run: node scripts/validate-item10-attack-surface-p1.js
+
+      - name: Validate Item 10 P2 production-source mutations
+        run: node scripts/validate-item10-attack-surface-p2-mutations.js
+
+      - name: Validate Item 10 P5 pagination corrective mutations
+        run: node scripts/validate-item10-attack-surface-p5-pagination-corrective-mutations.js
+
+      - name: Validate Item 9 P4 certificate trust-policy depth (CAA + chain + hostname + algorithms + trust store + revocation)
+        run: node scripts/validate-item9-certificate-p4-trust-depth.js
+
+      - name: Validate Item 9 P4 certificate trust-policy depth mutations
+        run: node scripts/validate-item9-certificate-p4-mutations.js
+
+      - name: Validate Item 9 P5 certificate customer-surface parity (API + snapshot + report + PDF + legacy)
+        run: node scripts/validate-item9-certificate-p5-customer-parity.js
+
+      - name: Validate partial-scan honesty (provisional score/rating + current posture + trend gating)
+        run: node scripts/validate-partial-scan-honesty.js
+
+      - name: Validate current-findings de-duplication (one canonical latest-complete-scan scope)
+        run: node scripts/validate-current-findings-dedup.js
+
+      - name: Validate security-invariant-stabilization contracts (oracle + finalize/reconcile + dmarc + dead-code)
+        run: node scripts/validate-stabilization-contracts.js
+
+      - name: Validate scan observability (heartbeat + module telemetry, non-fatal)
+        run: node scripts/validate-scan-telemetry.js
+
+      - name: Validate sub-operation timing telemetry load-bearing mutations
+        run: node scripts/validate-subop-timing-telemetry-mutations.js
+
+      - name: Validate CT-R1 provider telemetry load-bearing mutations
+        run: node scripts/validate-ct-r1-provider-telemetry-mutations.js
+
+      - name: Validate CT-R2 PR-2A.1 consumer-isolation semantic mutations
+        run: node scripts/validate-ct-consumer-isolation-oracle-mutations.js
+
+      - name: Validate CT-R2 PR-3 structural first-success-wins semantics
+        run: node scripts/validate-ct-first-success-wins.js
+
+      - name: Validate brand typosquat generator (TLD substitution / credential keywords / family quotas / speculative-risk honesty)
+        run: node scripts/validate-brand-typosquat.js
+
+      - name: Validate Brand IDN/homograph PR-A mutations (decode / whole map / individual high-impact mappings)
+        run: node scripts/validate-brand-idn-homograph-mutations.js
+
+      - name: Validate Brand IDN PR-C (lifecycle evidence / fail-honest alerts / report-PDF-MSP parity)
+        run: node scripts/validate-brand-idn-prc.js
+
+      - name: Validate brand HTTP/TLS enrichment (SSRF-safe live probe / tri-state https / login-surface honesty / tenant isolation)
+        run: node scripts/validate-brand-http-enrichment.js
+
+      - name: Validate hosted MTA-STS (TXT delegation + HTTPS policy guidance)
+        run: node scripts/validate-hosted-mta-sts.js
+
+      - name: Validate MTA-STS tri-state producer and admission gate
+        run: node scripts/validate-mta-sts-tristate.js
+
+      - name: Validate MTA-STS tri-state semantic mutations
+        run: node scripts/validate-mta-sts-tristate-mutations.js
+
+      - name: Validate DMARC sender classification (auto evidence + manual override)
+        run: node scripts/validate-sender-classification.js
+
+      - name: Validate log redaction (secrets never reach logs)
+        run: node scripts/validate-log-redaction.js
+
+      - name: Validate ops-health monitoring (signals + thresholds + DB-down)
+        run: node scripts/validate-ops-health.js
+
+      - name: Validate cron orchestration (dispatch + daily gates + isolation)
+        run: node scripts/validate-cron.js
+
+      - name: Validate exposure timeline events (DNS-level asset changes)
+        run: node scripts/validate-exposure-events.js
+
+      - name: Validate posture timeline events (email-auth + exposed services)
+        run: node scripts/validate-posture-events.js
+
+      - name: Validate SPF CIDR customer-evidence fidelity mutations (display / RFC 5952 / prefix / cap / canonical form)
+        run: node scripts/validate-spf-cidr-evidence-mutations.js
+
+      - name: Validate SPF-RUA corroboration (observed-fail gate / containment / complete-only firm wording / dedupe)
+        run: node scripts/validate-spf-corroboration.js
+
+      - name: Validate disappearance confirmation (asset/email/brand evidence gates + mutations)
+        run: node scripts/validate-disappearance-confirmation.js
+
+      - name: Validate certificate standing-condition dedupe (occurrence identity — unchanged state never re-emits + mutations)
+        run: node scripts/validate-cert-standing-condition-dedupe.js
+
+      - name: Validate DMARCbis P2 integration (budget / cache / lifecycle / aggregate compatibility)
+        run: node scripts/validate-dmarcbis-p2.js
+
+      - name: Validate DMARCbis P4 load-bearing mutations
+        run: node scripts/validate-dmarcbis-p4-mutations.js
+
+      - name: Validate DMARCbis P5 alerts, manual cases and DNS verification
+        run: node scripts/validate-dmarcbis-p5.js
+
+      - name: Validate CE declaration drift
+        run: node scripts/validate-ce-declaration-drift.js
+
+  validate_report_cx:
+    name: validate / report-cx
+    needs: ci_scope
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # The fail-closed PR classifier requires the exact event base/head and
+          # merge-base. A shallow checkout is never treated as a safe diff.
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          # Restore the npm download cache keyed on both lockfiles so `npm ci`
+          # does not re-download every run. No coverage change; save wall-clock
+          # and paid minutes on every run.
+          cache: 'npm'
+          cache-dependency-path: |
+            workers/scan-api/package-lock.json
+            frontend/package-lock.json
+
+      # Runtime validators import the production scan-engine graph. DMARCbis P2
+      # makes that graph reach the pinned tr46 dependency, so install Worker
+      # dependencies before the first validator rather than only before bundling.
+      - name: Install worker dependencies (governed lifecycle scripts)
+        run: node scripts/install-governed-dependencies.js --root workers/scan-api
+
+      # The CT consumer-inventory oracle parses frontend source through its own
+      # exact-pinned @babel/parser dependency. Install the committed frontend
+      # graph before any validator can load that oracle; the later build/test
+      # steps reuse this one deterministic install.
+      - name: Install frontend dependencies (governed lifecycle scripts)
+        run: node scripts/install-governed-dependencies.js --root frontend
 
       # Workspace invitations must actually be delivered: the POST handler dispatches the
       # email through the canonical sendCustomerEmail path, fails CLOSED on a send failure
@@ -252,9 +480,6 @@ jobs:
       - name: Validate executive-report scoping (latest-scan findings/recs, no historical pile-up)
         run: node scripts/validate-report-findings-scoping.js
 
-      - name: Validate identity exposure (login surfaces + impersonation + spoofing + isolation)
-        run: node scripts/validate-identity-exposure.js
-
       - name: Validate report branding (white-label gating + PDF wordmark + isolation)
         run: node scripts/validate-report-branding.js
 
@@ -264,18 +489,8 @@ jobs:
       - name: Validate report content depth + branding (eight-domain richness / co-brand / white-label / logo routes / mutation)
         run: node scripts/validate-report-content-branding.js
 
-      # A5 Executive Security Report PDF quality: evidence-honest risk narrative (no unqualified
-      # "no major gaps" under incomplete coverage), limitation blocks never split across a page,
-      # branded cover, internal version identifiers removed from the visible body, eight domains +
-      # provisional wording preserved. Renders the real PDF and asserts the bytes.
       - name: Validate A5 executive report PDF (evidence-honest narrative / page breaks / branding / no version noise)
         run: node scripts/validate-a5-executive-report.js
-
-      - name: Validate hosted DNS v2 migration (backfill 1:1 + no-CHECK + idempotent)
-        run: node scripts/validate-hosted-dns-v2.js
-
-      - name: Validate Email Protection canonical lifecycle (windowed evidence / baseline / recovery / re-entry)
-        run: node scripts/validate-alert-b3-email-protection.js
 
       - name: Validate Email Protection alert honesty (no posture alerts / no cumulative thresholds / no invented claims)
         run: node scripts/validate-alert-b3-email-honesty.js
@@ -292,6 +507,386 @@ jobs:
       - name: Validate M5.a Email Protection managed cases (creation/linkage/ownership/verification/recurrence)
         run: node scripts/validate-m5a-email-cases.js
 
+      # M5.c — canonical reporting snapshot (mig 093). Five render paths with three
+      # calculation brains could show different score/risk/state/remediation truth to the
+      # same customer, and every one recalculated history on read. One completed Cyber MOT
+      # now produces ONE immutable eight-domain snapshot (R2 JSON + D1 index): built once
+      # (081 claim), completed only over a durable R2 object, never overwritten, superseded
+      # append-only, methodology-stamped so a methodology change can never read as posture
+      # movement. Mutation-tested: 13 defects incl. a ninth domain, five-pillar revival,
+      # answers→score leakage, attestation relabelled Verified, and purge dropping R2.
+      - name: Validate M5.c canonical reporting snapshot (immutability / idempotency / honesty / purge)
+        run: node scripts/validate-m5c-reporting-snapshot.js
+
+      # A1 — completed scan lifecycle is separate from canonical report
+      # availability. Real route/resolver fixtures pin the finite preparation
+      # window, terminal errors, tenant/soft-delete boundaries and frontend
+      # polling bound; strict fresh-process carrier mutants prevent regression.
+      - name: Validate A1 report preparation availability (routes / tenancy / finite polling)
+        run: node scripts/validate-report-preparing.js
+
+      # M5.e-E — closure gate. Proves the M5.e-A/B/C/D fixes are still coherent as
+      # one release: eight-domain completeness, score/band parity, state honesty,
+      # ownership assignment, persisted Business Risk, MSP parity, frontend parity,
+      # migration 094 compatibility, and the founder-required mutation set.
+      - name: Validate M5.e closure (eight-domain parity closure and release gate)
+        run: node scripts/validate-m5e-closure.js
+
+      # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
+      # named for coverage they never executed, so the suites above are themselves proved
+      # load-bearing here: each defect is reintroduced and must reappear.
+      - name: Validate alerting-repair mutations (threat suppression / recovery closure / dedupe / tenant scope / no bypass)
+        run: node scripts/validate-alerting-repair-mutations.js
+
+      - name: Validate tenant alert recipients (no operator fallback / verified-only / soft-delete)
+        run: node scripts/validate-alert-recipients.js
+
+      - name: Validate canonical managed-alert pipeline (entitlement / preferences / dedupe / ledger)
+        run: node scripts/validate-managed-alerts.js
+
+      - name: Validate P1.3 lifecycle and alert conclusion gates (fixtures + named mutants)
+        run: node scripts/validate-p1-3-lifecycle-alert-gates.js
+
+      - name: Validate customer alert evidence fidelity (HTTPS uncertainty + positive controls + CE labels + fresh-process mutations)
+        run: node scripts/validate-customer-alert-evidence-fidelity.js
+
+      - name: Validate first-ever alert activation grace (2s lazy-activation clock-skew + backlog guard + mutations)
+        run: node scripts/validate-alert-activation-grace.js
+
+      - name: Validate canonical managed-case alerts (Brand + ASM occurrence / watermark / namespaced severity)
+        run: node scripts/validate-alert-b1-canonical-cases.js
+
+      # B4b finishes the legacy engine: suppression is now EXHAUSTIVE over every type
+      # the legacy processor can raise (the gate is opt-in, so an unlisted type would
+      # silently send — the suite extracts the types from the source rather than
+      # trusting a list), the advisory read-then-write dedupe is gone, and the two
+      # dead tenant senders that fell back to the OPERATOR's inbox are deleted.
+      # Mutation-tested: it empties the policy set and asserts the legacy path emails
+      # the customer again, so "nothing was sent" is a proven result, not an artefact.
+      - name: Validate B4b legacy alert cleanup (exhaustive suppression / no advisory dedupe / no ungated sender, mutation-tested)
+        run: node scripts/validate-alert-b4b-legacy-cleanup.js
+
+      # The watermark compares an ISO-UTC activated_at against a timezone-implicit
+      # SQLite created_at. Date.parse reads the second as LOCAL time, so the old
+      # comparison was correct ONLY on a UTC runner — i.e. green here and wrong
+      # everywhere else. Re-run the suite under non-UTC zones (including a
+      # half-hour offset) so that class of bug can never pass CI again.
+      - name: Validate alert watermark is timezone-independent (non-UTC runners)
+        run: |
+          for tz in Europe/London America/Los_Angeles Asia/Kolkata; do
+            echo "── TZ=$tz ──"
+            TZ=$tz node scripts/validate-alert-b1-canonical-cases.js
+          done
+
+      - name: Validate evaluator/resolver parity (each engine emits a resolvable occurrence)
+        run: node scripts/validate-alert-evaluator-parity.js
+
+      - name: Validate CI governance (trigger / reachability / anti-orphan)
+        run: node scripts/validate-ci-governance.js
+
+      # GET /api/portfolio/risk appended a portfolio_risk_snapshots row on every call —
+      # one per page load, unbounded, to a table nothing has ever read. Drives the real
+      # fetch() handler against the real schema and counts rows before/after.
+      - name: Validate portfolio read purity (GET /api/portfolio/risk performs no domain write)
+        run: node scripts/validate-portfolio-read-purity.js
+
+      # A null portfolio score failed every `>=` in the summary's band ladder and fell
+      # through to 'serious', publishing "serious overall risk (portfolio score:
+      # null/100)" for a portfolio with no assessments. Absent evidence is not a verdict
+      # — in either direction.
+      - name: Validate portfolio score honesty (absent evidence never becomes a risk verdict)
+        run: node scripts/validate-portfolio-score-honesty.js
+
+      - name: Validate inbound-email authority containment (forged reports remain observational)
+        run: node scripts/validate-inbound-email-authority-containment.js
+
+      - name: Validate DMARC canonical consumer switch (every consumer reads dmarc_state, no legacy-state reads + mutations)
+        run: node scripts/validate-dmarc-consumer-switch.js
+
+      - name: Validate UC3 unified remediation/case/ownership (assignee membership + assertion≠verification + recurrence + 8-domain parity)
+        run: node scripts/validate-uc3-remediation-ownership.js
+      - name: P1.1 serviceability mutation proof
+        run: node scripts/validate-p1-serviceability-mutations.js
+
+      - name: Validate F-48 origin 5xx false-healthy mutations
+        run: node scripts/validate-f48-origin-503-false-healthy-mutations.js
+
+      - name: Validate I11A website completeness mutations
+        run: node scripts/validate-i11a-website-completeness-mutations.js
+
+      - name: Validate Identity producer and evidence-carrier truth
+        run: node scripts/validate-identity-producer-truth.js
+
+      - name: Validate Identity producer truth semantic mutations
+        run: node scripts/mutate-identity-producer-truth.js
+
+      - name: Validate ASM remediation loop (managed cases + verification)
+        run: node scripts/validate-asm-remediation-loop.js
+
+      - name: Validate HTTPS observation engine trace (no false ssl_not_available through runScanEngine)
+        run: node scripts/validate-https-observation-engine-trace.js
+
+      # Email Deadline → Whole-Scan Failure P1. The primary email module's bare
+      # deadline fallback did not match the completed runEmailModule contract:
+      # scoring fabricated Missing-SPF from the absent evidence status, the
+      # remediation gate checked only email_security_intelligence, and
+      # buildEmailRemediationActions crashed the WHOLE scan dereferencing the
+      # absent spf_detail — discarding every sibling module's evidence.
+      - name: Validate email deadline evidence honesty (conforming fallback + primary-module gate + refusal, pinned mutants)
+        run: node scripts/validate-email-deadline-evidence.js
+
+      - name: Validate report-copy live triage (D1 DMARC/SPF template · D2 wrong-reason axis · D3 score-suppression · D4 self-RUA)
+        run: node scripts/validate-report-copy-live-triage.js
+
+      - name: Validate report-copy live triage mutations (named source mutants D1-D4)
+        run: node scripts/validate-report-copy-live-triage-mutations.js
+
+      - name: Validate CT blackout evidence honesty (domain coverage + score/BRI/PDF + mutation)
+        run: node scripts/validate-ct-blackout-evidence-honesty.js
+
+      - name: Validate Item 10 P2 production fixtures (complete + degraded + provider-timeout + deadline)
+        run: node scripts/validate-item10-attack-surface-p2-fixtures.js
+
+      - name: Validate Item 10 P2 lifecycle persistence (threshold + isolation + purge + idempotency + no-N+1)
+        run: node scripts/validate-item10-attack-surface-p2-integration.js
+
+      - name: Validate Item 10 P3 lifecycle/case load-bearing source mutations
+        run: node scripts/validate-item10-attack-surface-p3-mutations.js
+
+      - name: Validate Item 10 P4 evidence-aware ASM alert eligibility and delivery
+        run: node scripts/validate-item10-attack-surface-p4-alert-quality.js
+
+      - name: Validate Item 10 P4 ASM alert-quality source mutations
+        run: node scripts/validate-item10-attack-surface-p4-alert-quality-mutations.js
+
+      - name: Validate canonical ASM alert email-label mutations
+        run: node scripts/validate-asset-alert-email-labels-mutations.js
+
+      - name: Validate Item 10 P5 Attack Surface customer-surface parity (API + snapshot + report + PDF + UI + legacy)
+        run: node scripts/validate-item10-attack-surface-p5-customer-parity.js
+
+      - name: Validate Item 10 P5 Arm 2 evidence-support projection and all customer read contracts
+        run: node scripts/validate-item10-attack-surface-p5-arm2.js
+
+      - name: Validate Item 10 P5 Arm 2 and writer lifecycle timestamps across UTC and non-UTC runners
+        run: |
+          for tz in UTC Europe/London Etc/GMT-14; do
+            echo "── TZ=$tz ──"
+            TZ=$tz node scripts/validate-item10-attack-surface-p5-arm2.js
+            TZ=$tz node scripts/validate-item10-attack-surface-p2-integration.js
+          done
+
+      - name: Validate Item 9 P5 certificate customer-surface mutations
+        run: node scripts/validate-item9-certificate-p5-mutations.js
+
+      - name: Validate Item 9 P5 faithful runScanEngine to persistence, snapshot, API, report and PDF trace
+        run: node scripts/validate-item9-certificate-p5-engine-trace.js
+
+      - name: Validate workspace-scoped domain verification gate (scan-start + verification lifecycle)
+        run: node scripts/validate-domain-verification-gate.js
+
+      - name: Validate Email Protection entitlement (effective plan, not stale users.plan)
+        run: node scripts/validate-email-entitlement.js
+
+      - name: Validate eight-domain Cyber MOT coverage-state resolver (honest states, never healthy-on-missing)
+        run: node scripts/validate-eight-domain-coverage-state.js
+
+      - name: Validate eight-domain coverage-state wiring (four surfaces + PDF renders all eight)
+        run: node scripts/validate-eight-domain-wiring.js
+
+      - name: Validate canonical remediation registry (stable ids + resolver + aliases + honesty scope + cross-surface parity)
+        run: node scripts/validate-remediation-registry.js
+
+      - name: Validate remediation production-finding coverage (every actionable emitter → one canonical remediation)
+        run: node scripts/validate-remediation-coverage.js
+
+      - name: Validate cross-surface remediation parity (scan detail / exec report / scorecard-PDF / posture / CE agree on identity)
+        run: node scripts/validate-remediation-surface-parity.js
+
+      - name: Validate bounded scheduled-report generation (batch limit + determinism + idempotency + fairness + entitlement)
+        run: node scripts/validate-bounded-scheduled-reports.js
+
+      - name: Validate CT-R1 faithful runScanEngine finalization trace
+        run: node scripts/validate-ct-r1-provider-telemetry-engine-trace.js
+
+      - name: Validate CT-R2 PR-2A faithful runScanEngine finalization trace
+        run: node scripts/validate-ct-provider-overlap-engine-trace.js
+
+      - name: Validate CT-R2 PR-3 first-success-wins semantic mutations
+        run: node scripts/validate-ct-first-success-wins-mutations.js
+
+      - name: Validate Brand passive discovery PR-D load-bearing mutations
+        run: node scripts/validate-brand-passive-discovery-corrective-mutations.js
+
+      - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
+        run: node scripts/validate-hosted-tls-rpt.js
+
+      - name: Validate Q7 DMARC/TLS-RPT trust boundary (no forged-report authority + inbound rate limit)
+        run: node scripts/validate-q7-dmarc-report-trust.js
+
+      - name: Validate DMARC impact forecast (legitimate-vs-risky + rollback assessment)
+        run: node scripts/validate-dmarc-impact.js
+
+      - name: Validate email worker equivalence (golden vs api worker)
+        run: node scripts/validate-email-worker.js
+
+      - name: Validate aggregate email ingestion reliability (Gate 3B)
+        run: node scripts/validate-email-ingest-reliability.js
+
+      - name: Validate email parser hardening (Gate 4 structural memory + audited exits)
+        run: node scripts/validate-email-parser-hardening.js
+
+      - name: Validate email worker deploy traceability (closure stamp + pinned tooling)
+        run: node scripts/validate-email-worker-deploy-traceability.js
+
+      - name: Validate email lifecycle (send/dedupe/retry + payment_failed exclusion)
+        run: node scripts/validate-email-lifecycle.js
+
+      - name: Validate weekly digest (active-only + dedup + all-quiet + windowing)
+        run: node scripts/validate-weekly-digest.js
+
+      - name: Validate weekly digest truth (semantic grouping + coverage-aware quiet state + workspace-scoped CTA + mutations)
+        run: node scripts/validate-weekly-digest-truth.js
+
+      - name: Validate Phase A Timeline Trust (comparability + flip-flop collapse + mutations)
+        run: node scripts/validate-phase-a-timeline-trust.js
+
+      - name: Validate A1 email evidence-status honesty (unavailable SPF/DKIM never reads missing/clean + mutations)
+        run: node scripts/validate-a1-email-evidence-status.js
+
+      - name: Validate A2 identity evidence-status honesty (unavailable evidence never reads Low/clean + mutations)
+        run: node scripts/validate-a2-identity-evidence-status.js
+
+      - name: Validate A3 admin-surface evidence-status honesty (unavailable evidence never reads zero-exposure/healthy + mutations)
+        run: node scripts/validate-a3-admin-evidence-status.js
+
+      - name: Validate B workspace scorecard canonicalisation (absent evidence never presented as healthy + mutations)
+        run: node scripts/validate-b-scorecard-canonical.js
+
+      # M6 Phase B1 — Deterministic Related Changes. Correlation ships a cluster ONLY
+      # when a registered rule pairs >=2 INDEPENDENT signal families on the same
+      # registrable domain in a bounded window; same domain + window alone is a
+      # candidate, never a cluster. Drives the real adapter + rules + orchestrator
+      # against schema.sql + every migration: proves the shadow-IT provenance guard,
+      # the complete-evidence + adjacency floors, brand-alone-never-clusters,
+      # append-only recurrence + idempotency, tenant isolation, append-only customer
+      # feedback that a recurrence never resets, and manual-only case creation through
+      # the canonical factory (no bypass).
+      - name: Validate M6 B1 Related Changes (deterministic correlation / provenance / recurrence / isolation / manual case)
+        run: node scripts/validate-m6-b1-related-changes.js
+
+      # Dependency-override governance. An `overrides` entry replaces a version a
+      # dependency declared for itself — the canonical way to TAKE a security fix
+      # upstream has not adopted, and a silent permanent fork if left unwatched.
+      # Two frontend overrides (esbuild, test-exclude) were live with no record,
+      # owner, review date or removal criterion at all. These guards bind every
+      # live override to scripts/security/dependency-override-register.json and
+      # fail closed on an unregistered override, a stale record, spec/version
+      # drift, a dev-only claim the locked production graph contradicts, or an
+      # elapsed review deadline. They run BEFORE the audits so a governance
+      # failure is attributed to governance rather than to a raw advisory.
+      - name: Validate dependency-override governance (register ⟷ manifest ⟷ lockfile, expiring + fail-closed)
+        run: node scripts/validate-dependency-overrides.js
+
+      - name: Validate DMARCbis P1 load-bearing mutations
+        run: node scripts/validate-dmarcbis-p1-mutations.js
+
+      - name: Validate DMARCbis P3 snapshot and additive API dual readers
+        run: node scripts/validate-dmarcbis-p3.js
+
+      - name: Validate DMARCbis P5 load-bearing mutations
+        run: node scripts/validate-dmarcbis-p5-mutations.js
+
+      - name: Validate DMARCbis P5/P6 faithful runScanEngine managed-lifecycle and customer-projection trace
+        run: node scripts/validate-dmarcbis-p5-engine-trace.js
+
+      - name: Validate PDF DMARC record rendering (canonical value, never internal objects)
+        run: node scripts/validate-pdf-dmarc-record-rendering.js
+
+      - name: Validate PDF DMARC record rendering strict mutations
+        run: node scripts/validate-pdf-dmarc-record-rendering-mutations.js
+      - name: Validate CE declaration drift mutations
+        run: node scripts/validate-ce-declaration-drift-mutations.js
+
+      - name: Validate D1 Option D semantic mutations
+        run: node scripts/validate-d1-option-d-mutations.js
+
+      - name: Validate IntelligencePage presentation strict mutations
+        if: ${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
+        run: node scripts/validate-intelligence-page-presentation-mutations.js
+
+      # A1 mutation proof includes a fresh-process real ScanDetail/Vitest carrier,
+      # so it runs only after the pinned frontend dependency tree is installed.
+      - name: Validate A1 report preparation load-bearing mutations
+        run: node scripts/validate-report-preparing-mutations.js
+
+  validate_data_migrations:
+    name: validate / data-migrations
+    needs: ci_scope
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # The fail-closed PR classifier requires the exact event base/head and
+          # merge-base. A shallow checkout is never treated as a safe diff.
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          # Restore the npm download cache keyed on both lockfiles so `npm ci`
+          # does not re-download every run. No coverage change; save wall-clock
+          # and paid minutes on every run.
+          cache: 'npm'
+          cache-dependency-path: |
+            workers/scan-api/package-lock.json
+            frontend/package-lock.json
+
+      # Runtime validators import the production scan-engine graph. DMARCbis P2
+      # makes that graph reach the pinned tr46 dependency, so install Worker
+      # dependencies before the first validator rather than only before bundling.
+      - name: Install worker dependencies (governed lifecycle scripts)
+        run: node scripts/install-governed-dependencies.js --root workers/scan-api
+
+      # The CT consumer-inventory oracle parses frontend source through its own
+      # exact-pinned @babel/parser dependency. Install the committed frontend
+      # graph before any validator can load that oracle; the later build/test
+      # steps reuse this one deterministic install.
+      - name: Install frontend dependencies (governed lifecycle scripts)
+        run: node scripts/install-governed-dependencies.js --root frontend
+
+      - name: Validate tenant-isolation matrix (cross-tenant read/write/delete/oracle)
+        run: node scripts/validate-tenant-isolation.js
+
+      - name: Full-repo assurance — entry-point inventory (drift + auth-coverage gate)
+        run: node scripts/validate-entry-point-inventory.js
+
+      - name: A6 viewer-role enforcement (Related Changes — read-allowed / all mutations refused / honest can_manage)
+        run: node scripts/validate-a6-viewer-enforcement.js
+
+      - name: Full-repo assurance — billing/entitlement abuse coverage (D1 downgrade / D2 trial / D3 replay / D4 checkout)
+        run: node scripts/validate-billing-abuse-coverage.js
+
+      - name: F4 PR-2 login rate-limit atomicity mutation contract (X1–X7 / M1–M8)
+        run: node scripts/validate-login-rate-limit-atomicity-mutations.js
+
+      - name: Full-repo assurance — authentication coverage (B2 session / B3 invalidation / B4 MFA / B5 SSO claims / B6 reset)
+        run: node scripts/validate-auth-coverage.js
+
+      - name: Validate workspace integrity (own-retained scan count / owner-only soft-delete)
+        run: node scripts/validate-workspace-integrity.js
+
+      - name: Validate DMARC XML safety (XXE / entity-expansion / size DoS)
+        run: node scripts/validate-dmarc-xml-safety.js
+
+      - name: Validate AS-B6b physical-budget closure (atomic charge-or-deny + faithful engine wiring)
+        run: node scripts/validate-as-b6b-physical-budget-closure.js
+
+      - name: Validate AS-B6b physical-budget closure mutations (counter + boundary + fallback)
+        run: node scripts/validate-as-b6b-physical-budget-closure-mutations.js
+
       # M5.a Website Security vertical, plus the cross-domain verification vocabulary and
       # the resolver-misuse guard. Two boundaries: absence is a fix ONLY when the detecting
       # module provably ran (the #105 class), and "Verified"/"Confirmed" belong to what
@@ -304,8 +899,351 @@ jobs:
       # presented as externally verified, and what it CAN see is only ever a partial slice.
       # Mutation-tested, including the approved-guard P1 and the #106 purge defect.
       - name: Validate M5.a Cyber Essentials managed cases (final M5.a vertical)
-        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
+        if: ${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
         run: node scripts/validate-m5a-ce-cases.js
+
+      # M5.b remaining reconciliation. D1: patch_management_readiness was scored from
+      # certificate expiry / cert risk / ASM backlog / asset events — none of which measures
+      # any question it asks; the indicator is now 2 of 5 and methodology-versioned so a
+      # denominator change cannot read as a posture change. D2: `external` is not `automated`
+      # (a third party certifies, not our scan). D3: ASM/Brand blanket drift is CI-blocked.
+      - name: Validate M5.b remaining reconciliation (CE patch readiness, external, blankets)
+        if: ${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
+        run: node scripts/validate-m5b-remaining-reconciliation.js
+
+      # Atomic SSL runtime tri-state + D1 Option C identity: forward canonical slug
+      # persistence, bounded legacy treatment, and one fail-closed active-TLS state
+      # across runtime and immutable historical customer projections.
+      - name: Validate SSL D1 Option C finding identity (bounded legacy treatment / tenant / soft-delete)
+        run: node scripts/validate-ssl-d1-option-c-identity.js
+
+      - name: Validate SSL D1 Option C semantic mutations (exact anchors / loaded bytes / expected failures)
+        run: node scripts/validate-ssl-d1-option-c-identity-mutations.js
+
+      # M5.d — renderer migration. Every customer report renderer (scan report JSON,
+      # scan PDF, executive report v3, workspace executive PDF) renders the canonical
+      # immutable snapshot: score/band/BRI identical across surfaces by construction,
+      # live-table changes cannot rewrite rendered history, five-pillar and Vendor
+      # Risk/Supply Chain output cannot return, unknown snapshot schema versions fail
+      # closed, and pre-093 scans reconstruct through the ONE canonical builder under
+      # the founder's strict reconstruction policy (no current case/CE state injected).
+      # Mutation-tested: 11 defects incl. a renderer re-deriving score, taxonomy
+      # collapse, reconstruction injecting live state, and render-time clock leakage.
+      - name: Validate M5.d renderer migration (snapshot-native renderers / reconstruction / parity)
+        run: node scripts/validate-m5d-renderer-migration.js
+
+      - name: Validate alert truth & field mapping (workspace name + entity typing + what-changed ≠ recommendation + evidence + CTA + mutations)
+        run: node scripts/validate-alert-truth-mapping.js
+
+      - name: Validate interrupted-scan terminal recovery (canonical cron repair + read-only GETs + race/idempotency/terminal-report guards)
+        run: node scripts/validate-interrupted-scan-recovery.js
+
+      - name: Validate durable scan Queue dispatch (PR-3A flag-off parity + claim CAS + at-least-once no-ops + dispatch compensation + recovery widening + config invariants + mutations)
+        run: node scripts/validate-scan-queue-dispatch.js
+
+      - name: Validate scheduled durable Queue dispatch (PR-B1A flag-off parity + queued admission ordering + single stamp + stamp/dispatch compensation + settlement hook + advisory origin + config pin + mutations)
+        run: node scripts/validate-scheduled-queue-dispatch.js
+
+      - name: Validate unattributable-claim email suppression (new_vendor / supply_chain_risk_increase)
+        run: node scripts/validate-alert-b4a-suppression.js
+
+      - name: Validate certificate expiry bands (canonical renewal_overdue escalation / no legacy cert_expiry)
+        run: node scripts/validate-alert-b2-cert-expiry-bands.js
+
+      - name: Validate alert occurrence identity (append-only event = condition start)
+        run: node scripts/validate-alert-occurrence.js
+
+      # Website Security is the 7th canonical alerting domain. Its events table is
+      # BRAND NEW, so alert_activation's baseline_count is 0 for every workspace and
+      # emitManagedAlert's firstEverCondition hatch would make an entire pre-existing
+      # backlog look "genuinely new by construction" — the per-domain baseline marker
+      # is the only thing stopping a tenant-wide false-alert incident on deploy day.
+      # Mutation-tested on both load-bearing guards: removing the flood guard alerts
+      # a 14-month backlog, and removing the module-completeness gate turns a
+      # timed-out probe into "the customer fixed it".
+      - name: Validate Website Security lifecycle (flood guard / unknown≠recovery / band escalation / reappearance, mutation-tested)
+        run: node scripts/validate-website-security-lifecycle.js
+
+      # Cyber Essentials is the 8th and last canonical alerting domain, and the one
+      # with the most ways to be dishonest. It detects nothing of its own, so it owns
+      # only control-theme READINESS transitions — never a second "we found X" for a
+      # condition another domain already alerts. Mutation-tested on both guards:
+      # removing the external-coverage gate lets access_control/malware_protection
+      # alert from email-auth proxies (the unsupported claim), and removing the
+      # no-evidence guard turns an unexecuted probe into `control_recovered` — a
+      # fabricated recovery.
+      - name: Validate Cyber Essentials lifecycle (external evidence only / no questionnaire / no score alerts, mutation-tested)
+        run: node scripts/validate-ce-lifecycle.js
+
+      - name: Validate hosted DMARC lifecycle (pass-rate + readiness + auto-rollback runtime)
+        run: node scripts/validate-hosted-dmarc-lifecycle.js
+
+      - name: Validate managed case workflow (generic engine + ASM/DMARC graphs)
+        run: node scripts/validate-managed-case-workflow.js
+
+      - name: Validate universal case-creation factory (6 base types + mismatch/soft-delete/dedup + append-only case_created)
+        run: node scripts/validate-universal-case-factory.js
+
+      - name: Validate Shadow IT FB-1 + EH-1 semantic mutations
+        run: node scripts/validate-shadow-it-fb1-eh1-mutations.js
+
+      - name: Validate F-48 origin 5xx false-healthy behaviour
+        run: node scripts/validate-f48-origin-503-false-healthy.js
+      - name: P1.1 canonical serviceability contract
+        run: node scripts/validate-p1-serviceability-contract.js
+
+      - name: Validate Certificate Managed Lifecycle (identity + replacement + renewal policy + coverage + verification + monitoring + case reopen)
+        run: node scripts/validate-certificate-lifecycle.js
+
+      - name: Validate Identity Exposure Managed Workflow (identity key + provider aliases + correlation + classification + ownership + verification + monitoring + case reopen)
+        run: node scripts/validate-identity-exposure-lifecycle.js
+
+      # The same class of defect as exposure-honesty above, in the modules where it
+      # was never fixed. A headers/HTTPS probe that times out, loops on redirects or
+      # is refused returns via safeFetch → null; the modules reported that as an
+      # ordinary success, so scan_quality graded `complete` and Website Security
+      # rendered ASSESSED_HEALTHY — "no material issue observed" — for a site nobody
+      # could reach. Drives the REAL modules against a genuinely failing fetch, and
+      # mutation-tests itself by removing the guard and asserting the defect returns.
+      - name: Validate passive-probe evidence honesty (timeout/redirect-loop/refused → unknown, never healthy)
+        run: node scripts/validate-probe-evidence-honesty.js
+
+      # PR-A1 — the false-HEALTHY half. An edge error must not finalize `complete`
+      # and publish "Assessed — no material issue observed". Also guards the deadline
+      # fallback (previously unprotected: reverting it left all 253 harnesses green)
+      # and proves an incomplete scan cannot advance an SSL condition or its case.
+      - name: Validate HTTPS observation deadline + lifecycle non-progression (pinned mutants)
+        run: node scripts/validate-https-observation-deadline-lifecycle.js
+
+      - name: Validate HTTP redirect engine trace + lifecycle non-progression (pinned mutants)
+        run: node scripts/validate-http-redirect-engine-lifecycle.js
+
+      - name: Validate Phase-5 incomplete-evidence false-healthy P1 (engine/customer + pinned mutants)
+        run: node scripts/validate-phase5-evidence-honesty.js
+
+      - name: Validate shared per-scan CT provider cache (dedup + unavailable isolation + mutations)
+        run: node scripts/validate-shared-ct-provider-cache.js
+
+      - name: Validate shared-SAN honesty mutations (initial zero + unmeasured ownership + invalid-kill controls)
+        run: node scripts/validate-cert-shared-san-honesty-mutations.js
+
+      - name: Validate Candidate A oracle/projector same-commit atomicity (F11 + M13)
+        run: node scripts/validate-cert-shared-san-candidate-a-atomicity.js
+
+      - name: Validate free-scan false-healthy mutation kills (failed/zero-findings/fixed-list/state-collapse)
+        run: node scripts/validate-free-scan-false-healthy-mutations.js
+
+      - name: Validate Item 10 Attack Surface per-signal completeness and removal-policy mutations
+        run: node scripts/validate-item10-attack-surface-p1-mutations.js
+
+      - name: Validate PR-2B-1 CT asset lifecycle scope (degraded defer + healthy unchanged + provider control)
+        run: node scripts/validate-ct-asset-lifecycle-scope.js
+
+      - name: Validate PR-2B-1 CT asset lifecycle scope mutations
+        run: node scripts/validate-ct-asset-lifecycle-scope-mutations.js
+
+      - name: Validate Item 10 P3 asset lifecycle and canonical ASM case close/reopen
+        run: node scripts/validate-item10-attack-surface-p3-lifecycle-cases.js
+
+      - name: Validate Item 10 P3 faithful runScanEngine to lifecycle and canonical case trace
+        run: node scripts/validate-item10-attack-surface-p3-engine-trace.js
+
+      - name: Validate canonical ASM alert email labels
+        run: node scripts/validate-asset-alert-email-labels.js
+
+      - name: Validate Item 10 P5 Attack Surface customer-surface mutations
+        run: node scripts/validate-item10-attack-surface-p5-mutations.js
+
+      - name: Validate Item 9 P2 certificate production integration (deadlines + shared CT + signal isolation)
+        run: node scripts/validate-item9-certificate-p2-integration.js
+
+      - name: Validate Item 9 P3 certificate renewal lifecycle (bands + replacement history + case close/reopen)
+        run: node scripts/validate-item9-certificate-p3-renewal-lifecycle.js
+
+      - name: Validate Item 9 P3 certificate renewal lifecycle mutations
+        run: node scripts/validate-item9-certificate-p3-mutations.js
+
+      - name: Validate domain-verification integrity (persistence proof + terminal observability + no token in telemetry)
+        run: node scripts/validate-domain-verification-integrity.js
+
+      - name: Validate scan-completion quality disclosure (notification + email + mutation)
+        run: node scripts/validate-scan-completion-quality-copy.js
+
+      - name: Validate scheduled-scan eligibility parity (verification + entitlement + quota + rate-limit at run time)
+        run: node scripts/validate-scheduled-eligibility.js
+
+      - name: Validate eight-domain parity (CE cross-surface + no-scan visibility + healthy-eligibility)
+        run: node scripts/validate-eight-domain-parity.js
+
+      - name: Validate CT-R2 PR-2A.1 platform-abort migration semantics
+        run: node scripts/validate-ct-platform-abort-migration.js
+
+      - name: Validate CT-R2 PR-2A.1 platform-abort migration mutations
+        run: node scripts/validate-ct-platform-abort-migration-mutations.js
+
+      - name: Validate CT-R2 PR-2A.1 governed migration command
+        run: node scripts/validate-ct-platform-abort-migration-command.js
+
+      - name: Validate managed brand takedown lifecycle (evidence + approval + verification)
+        run: node scripts/validate-brand-takedown-lifecycle.js
+
+      - name: Validate Brand passive discovery PR-D corrective (CT merge / active scheduling / authenticated bounded trigger)
+        run: node scripts/validate-brand-passive-discovery-corrective.js
+
+      - name: Validate Brand IDN discovery PR-B (generation / CT expansion / own-IDN exclusion / corroboration)
+        run: node scripts/validate-brand-idn-discovery.js
+
+      - name: Validate Brand IDN discovery PR-B mutation (customer-owned exclusion)
+        run: node scripts/validate-brand-idn-discovery-mutations.js
+
+      - name: Validate Brand soft-delete persistence boundary (active workspace/domain authority / tenant and race isolation / immutable history)
+        run: node scripts/validate-brand-soft-delete-persistence.js
+
+      - name: Validate Brand soft-delete persistence boundary mutations
+        run: node scripts/validate-brand-soft-delete-persistence-mutations.js
+
+      - name: Validate request pipeline (fetch → auth → RBAC → DB; login + webhook)
+        run: node scripts/validate-pipeline.js
+
+      - name: Validate Gate 5 cutover preparation (offline preflight + ordered rollback-safe runbook)
+        run: node scripts/validate-gate5-cutover-prep.js
+
+      - name: Validate purge completeness (no orphaned tenant rows / R2 objects)
+        run: node scripts/validate-purge-completeness.js
+
+      - name: Validate F-009 deletion integrity (FK=ON, account path, proof before completion)
+        run: node scripts/validate-f009-deletion-integrity.js
+
+      - name: Validate F-009 deletion integrity mutations (completed-on-error / email-before-proof / pointer-before-object)
+        run: node scripts/validate-f009-deletion-integrity-mutations.js
+
+      - name: Validate Cyber Essentials data integrity (purge completeness + workspace-scoped evidence, mutation-tested)
+        run: node scripts/validate-ce-data-integrity.js
+
+      - name: Validate migrations (additive-only + fresh-apply convergence)
+        run: node scripts/validate-migrations.js
+
+      - name: Validate pricing policy parity (locked ladder + fail-closed price mapping + checkout guard)
+        run: node scripts/validate-pricing-policy-parity.js
+
+      - name: Validate billing lifecycle (entitlement state machine + grace window)
+        run: node scripts/validate-billing-lifecycle.js
+
+      - name: Validate Stripe events (per-event-type subscription state)
+        run: node scripts/validate-stripe-events.js
+
+      - name: Validate Q3 Stripe webhook idempotency (claim/complete/fail state machine + env + stale guard)
+        run: node scripts/validate-q3-stripe-idempotency.js
+
+      - name: Validate SPF static PASS-authorisation resolver (RFC 7208 limits / TempError fail-safe / CIDR containment / change detection)
+        run: node scripts/validate-spf-resolver.js
+
+      - name: Validate exposure timeline feed (auth + filters + pagination)
+        run: node scripts/validate-exposure-feed.js
+
+      - name: Validate Certificates & Trust L2 (findings + honest unknowns)
+        run: node scripts/validate-cert-trust-l2.js
+
+      - name: Validate DMARCbis P3 load-bearing mutations
+        run: node scripts/validate-dmarcbis-p3-mutations.js
+
+      - name: Validate DMARCbis P4 faithful runScanEngine lifecycle trace
+        run: node scripts/validate-dmarcbis-p4-engine-trace.js
+
+      - name: Validate DMARCbis P6 customer surfaces, Executive Report, PDF and historical parity
+        run: node scripts/validate-dmarcbis-p6.js
+      - name: Validate CAPABILITIES.md drift
+        run: node scripts/validate-capabilities-doc.js
+
+      # CT-R2 PR-1 — AST-backed, exhaustive scan_quality vocabulary inventory.
+      # Counts use separate units (SQL predicate occurrences, SQL query sites,
+      # source files, runtime semantic comparisons and governance comparisons).
+      # The strict fresh-process suite rejects wrong-reason mutant kills.
+      - name: Validate scan-quality vocabulary inventory (AST + SQL taxonomy)
+        if: ${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
+        run: node scripts/validate-scan-quality-vocabulary-inventory.js
+
+      - name: Validate D1 Option D contract (structured degradation fixtures)
+        run: node scripts/validate-d1-option-d-contract.js
+
+      - name: Validate D1 I11A-C3 successor (degraded never verifies + snapshot-once read stability)
+        run: node scripts/validate-d1-i11a-c3-successor.js
+
+      - name: Validate D1 Option D joint rollback
+        run: node scripts/validate-d1-option-d-joint-rollback.js
+
+      - name: Validate provisional domain-score workspace API contract
+        run: node scripts/validate-provisional-score-labeling-api.js
+
+      - name: Validate provisional domain-score exact mutations
+        run: node scripts/validate-provisional-score-labeling-mutations.js
+
+  validate_frontend_build:
+    name: validate / frontend-build
+    needs: ci_scope
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # The fail-closed PR classifier requires the exact event base/head and
+          # merge-base. A shallow checkout is never treated as a safe diff.
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          # Restore the npm download cache keyed on both lockfiles so `npm ci`
+          # does not re-download every run. No coverage change; save wall-clock
+          # and paid minutes on every run.
+          cache: 'npm'
+          cache-dependency-path: |
+            workers/scan-api/package-lock.json
+            frontend/package-lock.json
+
+      # Runtime validators import the production scan-engine graph. DMARCbis P2
+      # makes that graph reach the pinned tr46 dependency, so install Worker
+      # dependencies before the first validator rather than only before bundling.
+      - name: Install worker dependencies (governed lifecycle scripts)
+        run: node scripts/install-governed-dependencies.js --root workers/scan-api
+
+      # The CT consumer-inventory oracle parses frontend source through its own
+      # exact-pinned @babel/parser dependency. Install the committed frontend
+      # graph before any validator can load that oracle; the later build/test
+      # steps reuse this one deterministic install.
+      - name: Install frontend dependencies (governed lifecycle scripts)
+        run: node scripts/install-governed-dependencies.js --root frontend
+
+      - name: Validate security contracts (auth / MFA / RBAC / billing)
+        run: node scripts/validate-security-contracts.js
+
+      - name: Validate integration flows (tenant isolation / access control)
+        run: node scripts/validate-integration.js
+
+      - name: Validate F-021 scan-read tenant isolation (shared domain / NULL-owner / zero-R2)
+        run: node scripts/validate-f021-scan-read-tenant-isolation.js
+
+      - name: Full-repo assurance — static tenant-query audit (workspace-domain / hostname-only / global-latest / R2-key / body-trust)
+        run: node scripts/validate-tenant-query-audit.js
+
+      - name: Full-repo assurance — workspace-domain tenant-scope mutation proof
+        run: node scripts/validate-tenant-scope-assurance-mutations.js
+
+      - name: Full-repo assurance — workflow abuse coverage (F2 verification / F3 alert+digest / F4 rate-limit)
+        run: node scripts/validate-workflow-abuse-coverage.js
+
+      - name: Full-repo assurance — production integrity runbook SQL (executable check)
+        run: node scripts/validate-production-integrity-sql.js
+
+      - name: Validate SSRF domain guard (IP/localhost/metadata/reserved-TLD reject)
+        run: node scripts/validate-ssrf-domain-guard.js
+
+      - name: B5 OAuth callback readiness (state CSRF single-use/TTL, config/error gates, OTC single-use, nonce binding)
+        run: node scripts/validate-oauth-callback-readiness.js
+
+      - name: Validate Email Protection canonical lifecycle (windowed evidence / baseline / recovery / re-entry)
+        run: node scripts/validate-alert-b3-email-protection.js
 
       # CE readiness honesty. access_control and malware_protection declare
       # external_coverage: none, and were scored/banded/flagged externally_assessed from
@@ -314,14 +1252,6 @@ jobs:
       # frontend) plus the arithmetic denominator.
       - name: Validate Cyber Essentials readiness honesty (no proxy scoring)
         run: node scripts/validate-ce-readiness-honesty.js
-
-      # CE questionnaire hygiene. The public self-check and the authenticated set were two
-      # independently-maintained copies and had drifted: 14 of 20 questions carried a
-      # different KEY on each side, and 4 of the 6 shared keys were worded differently. Both
-      # now consume one build-time module. question_key is PERSISTED, so a rename orphans
-      # stored answers; wording changes require a version bump (fingerprint-pinned).
-      - name: Validate CE questionnaire drift, versioning and scope
-        run: node scripts/validate-ce-question-drift.js
 
       # CE answer re-versioning contract + question-set version FORMAT. The client submits the
       # FULL questionnaire on every save, so an unconditional re-stamp silently relabels
@@ -339,59 +1269,8 @@ jobs:
       - name: Validate M5.b Certificates verification reconciliation
         run: node scripts/validate-m5b-certificate-verification.js
 
-      # M5.b remaining reconciliation. D1: patch_management_readiness was scored from
-      # certificate expiry / cert risk / ASM backlog / asset events — none of which measures
-      # any question it asks; the indicator is now 2 of 5 and methodology-versioned so a
-      # denominator change cannot read as a posture change. D2: `external` is not `automated`
-      # (a third party certifies, not our scan). D3: ASM/Brand blanket drift is CI-blocked.
-      - name: Validate M5.b remaining reconciliation (CE patch readiness, external, blankets)
-        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
-        run: node scripts/validate-m5b-remaining-reconciliation.js
-
-      # Atomic SSL runtime tri-state + D1 Option C identity: forward canonical slug
-      # persistence, bounded legacy treatment, and one fail-closed active-TLS state
-      # across runtime and immutable historical customer projections.
-      - name: Validate SSL D1 Option C finding identity (bounded legacy treatment / tenant / soft-delete)
-        run: node scripts/validate-ssl-d1-option-c-identity.js
-
-      - name: Validate SSL D1 Option C semantic mutations (exact anchors / loaded bytes / expected failures)
-        run: node scripts/validate-ssl-d1-option-c-identity-mutations.js
-
-      - name: Validate SSL runtime tri-state contract (producer / consumer / historical projection)
-        run: node scripts/validate-ssl-runtime-tristate-contract.js
-
       - name: Validate SSL runtime tri-state semantic mutations (exact anchors / right-reason failures)
         run: node scripts/validate-ssl-runtime-tristate-mutations.js
-
-      # M5.c — canonical reporting snapshot (mig 093). Five render paths with three
-      # calculation brains could show different score/risk/state/remediation truth to the
-      # same customer, and every one recalculated history on read. One completed Cyber MOT
-      # now produces ONE immutable eight-domain snapshot (R2 JSON + D1 index): built once
-      # (081 claim), completed only over a durable R2 object, never overwritten, superseded
-      # append-only, methodology-stamped so a methodology change can never read as posture
-      # movement. Mutation-tested: 13 defects incl. a ninth domain, five-pillar revival,
-      # answers→score leakage, attestation relabelled Verified, and purge dropping R2.
-      - name: Validate M5.c canonical reporting snapshot (immutability / idempotency / honesty / purge)
-        run: node scripts/validate-m5c-reporting-snapshot.js
-
-      # M5.d — renderer migration. Every customer report renderer (scan report JSON,
-      # scan PDF, executive report v3, workspace executive PDF) renders the canonical
-      # immutable snapshot: score/band/BRI identical across surfaces by construction,
-      # live-table changes cannot rewrite rendered history, five-pillar and Vendor
-      # Risk/Supply Chain output cannot return, unknown snapshot schema versions fail
-      # closed, and pre-093 scans reconstruct through the ONE canonical builder under
-      # the founder's strict reconstruction policy (no current case/CE state injected).
-      # Mutation-tested: 11 defects incl. a renderer re-deriving score, taxonomy
-      # collapse, reconstruction injecting live state, and render-time clock leakage.
-      - name: Validate M5.d renderer migration (snapshot-native renderers / reconstruction / parity)
-        run: node scripts/validate-m5d-renderer-migration.js
-
-      # A1 — completed scan lifecycle is separate from canonical report
-      # availability. Real route/resolver fixtures pin the finite preparation
-      # window, terminal errors, tenant/soft-delete boundaries and frontend
-      # polling bound; strict fresh-process carrier mutants prevent regression.
-      - name: Validate A1 report preparation availability (routes / tenancy / finite polling)
-        run: node scripts/validate-report-preparing.js
 
       # M5.e-A — band-ladder contract. The Cyber Metrics Score has ONE canonical band
       # partition (CYBER_METRICS_SCORE_BANDS); the frontend carries a value-identical
@@ -402,46 +1281,11 @@ jobs:
       - name: Validate band-ladder contract (canonical bands / frontend mirror / no drift)
         run: node scripts/validate-band-ladder-contract.js
 
-      # M5.e-E — closure gate. Proves the M5.e-A/B/C/D fixes are still coherent as
-      # one release: eight-domain completeness, score/band parity, state honesty,
-      # ownership assignment, persisted Business Risk, MSP parity, frontend parity,
-      # migration 094 compatibility, and the founder-required mutation set.
-      - name: Validate M5.e closure (eight-domain parity closure and release gate)
-        run: node scripts/validate-m5e-closure.js
-
-      # Customer-facing Business Risk must be based on the exact latest complete
-      # assessment. Partial evidence cannot overwrite the canonical row, append a
-      # numeric trend point, or make an older score look current. The first validator
-      # covers producer/projection/consumer/report parity, the second drives the real
-      # runScanEngine complete→partial path and authenticated route, and the third
-      # proves all seven founder-required regressions remain load-bearing.
-      - name: Validate BRS partial-scan honesty (persistence / projection / consumer parity)
-        run: node scripts/validate-brs-partial-scan-honesty.js
-
       - name: Validate BRS real complete-to-partial engine and customer-route trace
         run: node scripts/validate-brs-partial-scan-engine-trace.js
 
-      - name: Validate BRS partial-scan honesty load-bearing mutations
-        run: node scripts/validate-brs-partial-scan-mutations.js
-
       - name: Validate BRS downstream completeness (sibling evidence + real customer route)
         run: node scripts/validate-brs-downstream-completeness.js
-
-      - name: Validate BRS reconciliation inventory parity with the runtime resolver
-        run: node scripts/validate-brs-reconciliation-runbook.js
-
-      # M5.f — canonical per-workspace eight-domain maturity ledger. Maturity is decided
-      # deterministically by the backend engine (never the frontend) from the resolver's
-      # domain STATE + the managed-case lifecycle + the registry's verification CAPABILITY.
-      # Missing/failed/partial/unavailable evidence never becomes mature; a partial scan
-      # writes nothing; customer attestation and approved inventory alone never reach
-      # verified; the ledger is append-only, idempotent, tenant-isolated and read-pure; a
-      # query failure surfaces unavailable, never a clean/healthy zero. Mutation-tested:
-      # 10 defects incl. a dropped domain, reordered ladder, unavailable→mature, partial
-      # advancement, dropped workspace filter, write-on-read, attestation→verified,
-      # frontend-derived stage, history overwrite, and failure→healthy.
-      - name: Validate M5.f maturity ledger (deterministic / honest / append-only / read-pure)
-        run: node scripts/validate-m5f-maturity-ledger.js
 
       # M5.g — Final CI closure for the eight-domain M5 episode. Gate-level guard that the
       # WHOLE M5 validator suite (read-surfaces, m5a×3, m5b×2, m5c, m5d, m5e, m5f) plus
@@ -452,85 +1296,8 @@ jobs:
       - name: Validate M5 closure (full M5 gate wired + append-only idempotency locked)
         run: node scripts/validate-m5-closure.js
 
-      # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
-      # named for coverage they never executed, so the suites above are themselves proved
-      # load-bearing here: each defect is reintroduced and must reappear.
-      - name: Validate alerting-repair mutations (threat suppression / recovery closure / dedupe / tenant scope / no bypass)
-        run: node scripts/validate-alerting-repair-mutations.js
-
-      - name: Validate tenant alert recipients (no operator fallback / verified-only / soft-delete)
-        run: node scripts/validate-alert-recipients.js
-
-      - name: Validate canonical managed-alert pipeline (entitlement / preferences / dedupe / ledger)
-        run: node scripts/validate-managed-alerts.js
-
-      - name: Validate P1.3 lifecycle and alert conclusion gates (fixtures + named mutants)
-        run: node scripts/validate-p1-3-lifecycle-alert-gates.js
-
-      - name: Validate alert truth & field mapping (workspace name + entity typing + what-changed ≠ recommendation + evidence + CTA + mutations)
-        run: node scripts/validate-alert-truth-mapping.js
-
-      - name: Validate customer alert evidence fidelity (HTTPS uncertainty + positive controls + CE labels + fresh-process mutations)
-        run: node scripts/validate-customer-alert-evidence-fidelity.js
-
-      - name: Validate first-ever alert activation grace (2s lazy-activation clock-skew + backlog guard + mutations)
-        run: node scripts/validate-alert-activation-grace.js
-
-      - name: Validate interrupted-scan terminal recovery (canonical cron repair + read-only GETs + race/idempotency/terminal-report guards)
-        run: node scripts/validate-interrupted-scan-recovery.js
-
-      - name: Validate atomic active-scan admission guard (mig 099 partial unique indexes + domain-aliasing + NULL-ws defense + honest 409 + drift + mutations)
-        run: node scripts/validate-scan-admission-guard.js
-
-      - name: Validate durable scan Queue dispatch (PR-3A flag-off parity + claim CAS + at-least-once no-ops + dispatch compensation + recovery widening + config invariants + mutations)
-        run: node scripts/validate-scan-queue-dispatch.js
-
-      - name: Validate scheduled durable Queue dispatch (PR-B1A flag-off parity + queued admission ordering + single stamp + stamp/dispatch compensation + settlement hook + advisory origin + config pin + mutations)
-        run: node scripts/validate-scheduled-queue-dispatch.js
-
-      - name: Validate Shadow IT recurrence truth (per-recurrence copy + observed ≠ unauthorised + surface parity + viewer gating + dedupe + mutations)
-        run: node scripts/validate-shadow-it-recurrence-truth.js
-      - name: BL-1 shadow-it first-observation surfacing
-        run: node scripts/validate-bl1-shadow-it-first-observation.js
-      - name: BL-1 first-observation mutation proof
-        run: node scripts/validate-bl1-shadow-it-first-observation-mutations.js
-
       - name: Validate alert trust foundation (free-plan blocked on every path / per-user preferences / no legacy bypass)
         run: node scripts/validate-alert-trust-foundation.js
-
-      - name: Validate canonical managed-case alerts (Brand + ASM occurrence / watermark / namespaced severity)
-        run: node scripts/validate-alert-b1-canonical-cases.js
-
-      - name: Validate unattributable-claim email suppression (new_vendor / supply_chain_risk_increase)
-        run: node scripts/validate-alert-b4a-suppression.js
-
-      # B4b finishes the legacy engine: suppression is now EXHAUSTIVE over every type
-      # the legacy processor can raise (the gate is opt-in, so an unlisted type would
-      # silently send — the suite extracts the types from the source rather than
-      # trusting a list), the advisory read-then-write dedupe is gone, and the two
-      # dead tenant senders that fell back to the OPERATOR's inbox are deleted.
-      # Mutation-tested: it empties the policy set and asserts the legacy path emails
-      # the customer again, so "nothing was sent" is a proven result, not an artefact.
-      - name: Validate B4b legacy alert cleanup (exhaustive suppression / no advisory dedupe / no ungated sender, mutation-tested)
-        run: node scripts/validate-alert-b4b-legacy-cleanup.js
-
-      - name: Validate certificate expiry bands (canonical renewal_overdue escalation / no legacy cert_expiry)
-        run: node scripts/validate-alert-b2-cert-expiry-bands.js
-
-      # The watermark compares an ISO-UTC activated_at against a timezone-implicit
-      # SQLite created_at. Date.parse reads the second as LOCAL time, so the old
-      # comparison was correct ONLY on a UTC runner — i.e. green here and wrong
-      # everywhere else. Re-run the suite under non-UTC zones (including a
-      # half-hour offset) so that class of bug can never pass CI again.
-      - name: Validate alert watermark is timezone-independent (non-UTC runners)
-        run: |
-          for tz in Europe/London America/Los_Angeles Asia/Kolkata; do
-            echo "── TZ=$tz ──"
-            TZ=$tz node scripts/validate-alert-b1-canonical-cases.js
-          done
-
-      - name: Validate alert occurrence identity (append-only event = condition start)
-        run: node scripts/validate-alert-occurrence.js
 
       # created_at is second-precision, so two appends for one record inside one
       # second tie and fall through to the tie-break. On a random-id tie-break the
@@ -541,47 +1308,6 @@ jobs:
       # can actually catch the regression rather than merely agreeing with the code.
       - name: Validate alert occurrence ordering (same-second tie-break = insertion order, mutation-tested)
         run: node scripts/validate-alert-occurrence-ordering.js
-
-      # Website Security is the 7th canonical alerting domain. Its events table is
-      # BRAND NEW, so alert_activation's baseline_count is 0 for every workspace and
-      # emitManagedAlert's firstEverCondition hatch would make an entire pre-existing
-      # backlog look "genuinely new by construction" — the per-domain baseline marker
-      # is the only thing stopping a tenant-wide false-alert incident on deploy day.
-      # Mutation-tested on both load-bearing guards: removing the flood guard alerts
-      # a 14-month backlog, and removing the module-completeness gate turns a
-      # timed-out probe into "the customer fixed it".
-      - name: Validate Website Security lifecycle (flood guard / unknown≠recovery / band escalation / reappearance, mutation-tested)
-        run: node scripts/validate-website-security-lifecycle.js
-
-      # RWS.5 Option A + H-A — the three cookie-attribute findings have one owner
-      # across projection, remediation, cases, alerts and verification. The focused
-      # D1 suite pins the zero-cookie epistemic boundary, exact legacy ASM-case
-      # compatibility, tenant/soft-delete isolation and resolver-version history.
-      # Nine semantic mutants prove broad dse_* removal, dual ownership, false
-      # zero-cookie resolution, duplicate cases, wrong alert domains and historical
-      # rewriting cannot pass through setup/import errors or partial assertions.
-      - name: Validate RWS.5 cookie ownership (Option A + H-A)
-        run: node scripts/validate-rws5-cookie-ownership.js
-
-      - name: Validate RWS.5 cookie ownership semantic mutations
-        run: node scripts/validate-rws5-cookie-ownership-mutations.js
-
-      # Cyber Essentials is the 8th and last canonical alerting domain, and the one
-      # with the most ways to be dishonest. It detects nothing of its own, so it owns
-      # only control-theme READINESS transitions — never a second "we found X" for a
-      # condition another domain already alerts. Mutation-tested on both guards:
-      # removing the external-coverage gate lets access_control/malware_protection
-      # alert from email-auth proxies (the unsupported claim), and removing the
-      # no-evidence guard turns an unexecuted probe into `control_recovered` — a
-      # fabricated recovery.
-      - name: Validate Cyber Essentials lifecycle (external evidence only / no questionnaire / no score alerts, mutation-tested)
-        run: node scripts/validate-ce-lifecycle.js
-
-      - name: Validate evaluator/resolver parity (each engine emits a resolvable occurrence)
-        run: node scripts/validate-alert-evaluator-parity.js
-
-      - name: Validate CI governance (trigger / reachability / anti-orphan)
-        run: node scripts/validate-ci-governance.js
 
       - name: Validate date-rot governance (future-dated fixtures require a frozen clock or an explicit allowlist reason)
         run: node scripts/validate-date-rot-governance.js
@@ -609,94 +1335,17 @@ jobs:
       - name: Validate frontend env contract (.env.example ⟷ import.meta.env / /api shape / no secret)
         run: node scripts/validate-frontend-env-contract.js
 
-      # GET /api/portfolio/risk appended a portfolio_risk_snapshots row on every call —
-      # one per page load, unbounded, to a table nothing has ever read. Drives the real
-      # fetch() handler against the real schema and counts rows before/after.
-      - name: Validate portfolio read purity (GET /api/portfolio/risk performs no domain write)
-        run: node scripts/validate-portfolio-read-purity.js
-
-      # A null portfolio score failed every `>=` in the summary's band ladder and fell
-      # through to 'serious', publishing "serious overall risk (portfolio score:
-      # null/100)" for a portfolio with no assessments. Absent evidence is not a verdict
-      # — in either direction.
-      - name: Validate portfolio score honesty (absent evidence never becomes a risk verdict)
-        run: node scripts/validate-portfolio-score-honesty.js
-
-      - name: Validate hosted DMARC lifecycle (pass-rate + readiness + auto-rollback runtime)
-        run: node scripts/validate-hosted-dmarc-lifecycle.js
-
-      - name: Validate inbound-email authority containment (forged reports remain observational)
-        run: node scripts/validate-inbound-email-authority-containment.js
-
-      - name: Validate DMARC graduated-reject ramp (9-step ladder + tag diff + configurable thresholds)
-        run: node scripts/validate-dmarc-graduated-ramp.js
-
-      - name: Validate enforcement readiness v2 (unified 7-check model + score + tri-state status)
-        run: node scripts/validate-enforcement-readiness-v2.js
-
-      - name: Validate DMARC change workflow (state machine + separation-of-duties + review queue)
-        run: node scripts/validate-dmarc-change-workflow.js
-
       - name: Validate DMARC canonical state (ADR-003 dmarc_state derivation — unavailable never collapses to missing + mutations)
         run: node scripts/validate-dmarc-canonical-state.js
-
-      - name: Validate DMARC canonical consumer switch (every consumer reads dmarc_state, no legacy-state reads + mutations)
-        run: node scripts/validate-dmarc-consumer-switch.js
 
       - name: Validate DMARC DNS evidence PR-2 (observation status preserved — timeout/servfail never read as absent + mutations)
         run: node scripts/validate-dmarc-dns-evidence-pr2.js
 
-      - name: Validate DMARC summary and technical evidence parity
-        run: node scripts/validate-dmarc-summary-parity.js
-
-      - name: Validate DMARC summary parity exact semantic mutations
-        run: node scripts/validate-dmarc-summary-parity-mutations.js
-
-      - name: Validate managed case workflow (generic engine + ASM/DMARC graphs)
-        run: node scripts/validate-managed-case-workflow.js
-
-      - name: Validate universal managed-case model (8 domains + transition validator + verified rules + compat + isolation)
-        run: node scripts/validate-managed-case-model.js
-
-      - name: Validate universal case-creation factory (6 base types + mismatch/soft-delete/dedup + append-only case_created)
-        run: node scripts/validate-universal-case-factory.js
-
-      - name: Validate UC3 unified remediation/case/ownership (assignee membership + assertion≠verification + recurrence + 8-domain parity)
-        run: node scripts/validate-uc3-remediation-ownership.js
-
-      - name: Validate UC3 case-transition surface (available_transitions derived from canonical machine + attestation-only verified + ASM/Brand excluded)
-        run: node scripts/validate-uc3-case-transitions.js
-
-      - name: Validate Shadow IT approved inventory (identity + correlation + classification + case linkage + isolation)
-        run: node scripts/validate-shadow-it-inventory.js
-
       - name: Validate Shadow IT correlation depth (multi-source + alias + evidence union + ownership + monitoring + removal contradiction + case reopen)
         run: node scripts/validate-shadow-it-correlation.js
 
-      - name: Validate Shadow IT FB-1 + EH-1 (fail-closed source outcomes + customer-derived hostname provenance)
-        run: node scripts/validate-shadow-it-fb1-eh1.js
-
-      - name: Validate Shadow IT FB-1 + EH-1 semantic mutations
-        run: node scripts/validate-shadow-it-fb1-eh1-mutations.js
-
-      - name: Validate F-42 signed-edge split fixtures
-        run: node scripts/validate-f42-false-healthy-split-fixtures.js
-
-      - name: Validate F-48 origin 5xx false-healthy behaviour
-        run: node scripts/validate-f48-origin-503-false-healthy.js
-      - name: P1.1 canonical serviceability contract
-        run: node scripts/validate-p1-serviceability-contract.js
-      - name: P1.1 serviceability mutation proof
-        run: node scripts/validate-p1-serviceability-mutations.js
-
-      - name: Validate F-48 origin 5xx false-healthy mutations
-        run: node scripts/validate-f48-origin-503-false-healthy-mutations.js
-
       - name: Validate I11A website completeness
         run: node scripts/validate-i11a-website-completeness.js
-
-      - name: Validate I11A website completeness mutations
-        run: node scripts/validate-i11a-website-completeness-mutations.js
 
       - name: Validate F-47 Shadow IT UI actions (evidence-fidelity mutations)
         run: node scripts/validate-f47-shadow-it-ui-actions-mutations.js
@@ -706,76 +1355,20 @@ jobs:
       - name: F-52 attribution mutation proof
         run: node scripts/validate-f52-tech-attribution-mutations.js
 
-      - name: Validate Certificate Managed Lifecycle (identity + replacement + renewal policy + coverage + verification + monitoring + case reopen)
-        run: node scripts/validate-certificate-lifecycle.js
-
-      - name: Validate Identity Exposure Managed Workflow (identity key + provider aliases + correlation + classification + ownership + verification + monitoring + case reopen)
-        run: node scripts/validate-identity-exposure-lifecycle.js
-
-      - name: Validate Identity producer and evidence-carrier truth
-        run: node scripts/validate-identity-producer-truth.js
-
-      - name: Validate Identity producer truth semantic mutations
-        run: node scripts/mutate-identity-producer-truth.js
-
       - name: Validate Identity canonical substrate idempotence and Related Changes recurrence honesty
         run: node scripts/validate-identity-substrate-idempotence.js
 
       - name: Validate Identity canonical substrate semantic mutations
         run: node scripts/mutate-identity-substrate-idempotence.js
 
-      - name: Validate Identity customer/action/risk/report truth projection and XD-1
-        run: node scripts/validate-identity-truth-projection.js
-
-      - name: Validate Identity truth-projection semantic mutations
-        run: node scripts/mutate-identity-truth-projection.js
-
       - name: Validate identity disappearance verification honesty mutations
         run: node scripts/validate-identity-disappearance-verification-mutations.js
-
-      - name: Validate ASM remediation loop (managed cases + verification)
-        run: node scripts/validate-asm-remediation-loop.js
 
       - name: Validate managed-verification profile (lean re-check + lifecycle + hard-50 + tenant)
         run: node scripts/validate-managed-verification.js
 
       - name: Validate exposure-probe honesty (subrequest exhaustion → not-checked, not clean)
         run: node scripts/validate-exposure-honesty.js
-
-      - name: Validate app-probe reliability (timeout≠refused, all-fail≠healthy, DNS resolver-failure≠no-resolution)
-        run: node scripts/validate-app-probe-reliability.js
-
-      # The same class of defect as exposure-honesty above, in the modules where it
-      # was never fixed. A headers/HTTPS probe that times out, loops on redirects or
-      # is refused returns via safeFetch → null; the modules reported that as an
-      # ordinary success, so scan_quality graded `complete` and Website Security
-      # rendered ASSESSED_HEALTHY — "no material issue observed" — for a site nobody
-      # could reach. Drives the REAL modules against a genuinely failing fetch, and
-      # mutation-tests itself by removing the guard and asserting the defect returns.
-      - name: Validate passive-probe evidence honesty (timeout/redirect-loop/refused → unknown, never healthy)
-        run: node scripts/validate-probe-evidence-honesty.js
-
-      # PR-A — HTTPS Observation Classification (P1). A founder domain serving valid
-      # TLS produced a CRITICAL "HTTPS Not Available" finding and an email telling the
-      # owner to install a certificate, because ssl-scan collapsed "genuine origin
-      # response", "Cloudflare-synthesised edge error" and "not observed" into one
-      # boolean via `status < 500`. One shared classifier now decides, and these three
-      # steps hold the line: matrix → mutation (pinned counts) → faithful engine trace.
-      - name: Validate HTTPS observation classification (origin 5xx proves transport; edge error ≠ absence)
-        run: node scripts/validate-https-observation-classification.js
-
-      - name: Validate HTTPS observation classification mutations (anchor-guarded, pinned mutant count)
-        run: node scripts/validate-https-observation-classification-mutations.js
-
-      - name: Validate HTTPS observation engine trace (no false ssl_not_available through runScanEngine)
-        run: node scripts/validate-https-observation-engine-trace.js
-
-      # PR-A1 — the false-HEALTHY half. An edge error must not finalize `complete`
-      # and publish "Assessed — no material issue observed". Also guards the deadline
-      # fallback (previously unprotected: reverting it left all 253 harnesses green)
-      # and proves an incomplete scan cannot advance an SSL condition or its case.
-      - name: Validate HTTPS observation deadline + lifecycle non-progression (pinned mutants)
-        run: node scripts/validate-https-observation-deadline-lifecycle.js
 
       # PR-A2 — the same root class as PR-A1, one field over. A Cloudflare-synthesised
       # 520–527/530 on http:// used to set http_redirect_validated=true, so scoring
@@ -785,9 +1378,6 @@ jobs:
       - name: Validate HTTP redirect observation honesty (edge/timeout never validates a redirect verdict)
         run: node scripts/validate-http-redirect-observation-honesty.js
 
-      - name: Validate HTTP redirect engine trace + lifecycle non-progression (pinned mutants)
-        run: node scripts/validate-http-redirect-engine-lifecycle.js
-
       # DNS Absence-as-Evidence P1. scoring.js gated the CRITICAL "Domain Does Not
       # Resolve" (-30) on `resolution_assessed !== false`, so a deadline-deferred DNS
       # module that performed no lookup scored -30. Scoring now consumes the canonical
@@ -795,18 +1385,6 @@ jobs:
       # deadline fallback states not-measured as null, never false.
       - name: Validate DNS absence-as-evidence (missing/null/incomplete never authoritative)
         run: node scripts/validate-dns-absence-as-evidence.js
-
-      # Email Deadline → Whole-Scan Failure P1. The primary email module's bare
-      # deadline fallback did not match the completed runEmailModule contract:
-      # scoring fabricated Missing-SPF from the absent evidence status, the
-      # remediation gate checked only email_security_intelligence, and
-      # buildEmailRemediationActions crashed the WHOLE scan dereferencing the
-      # absent spf_detail — discarding every sibling module's evidence.
-      - name: Validate email deadline evidence honesty (conforming fallback + primary-module gate + refusal, pinned mutants)
-        run: node scripts/validate-email-deadline-evidence.js
-
-      - name: Validate Phase-5 incomplete-evidence false-healthy P1 (engine/customer + pinned mutants)
-        run: node scripts/validate-phase5-evidence-honesty.js
       - name: P1.2-E historical read-compatibility
         run: node scripts/validate-p12e-historical-read-compat.js
       - name: P1.2-E historical read-compat mutations
@@ -815,141 +1393,23 @@ jobs:
       - name: Validate AS-B2 KEV/CVE score wiring (deterministic fixtures + production caller transform)
         run: node scripts/validate-as-b2-kev-cve-score-wiring.js
 
-      - name: Validate AS-B2 KEV/CVE score wiring mutations (named source mutants)
-        run: node scripts/validate-as-b2-kev-cve-score-wiring-mutations.js
-
-      - name: Validate report-copy live triage (D1 DMARC/SPF template · D2 wrong-reason axis · D3 score-suppression · D4 self-RUA)
-        run: node scripts/validate-report-copy-live-triage.js
-
-      - name: Validate report-copy live triage mutations (named source mutants D1-D4)
-        run: node scripts/validate-report-copy-live-triage-mutations.js
-
-      - name: Validate historical Phase-5 customer reads (verbatim checksum + routes/UI/PDF/dashboard/portfolio + pinned mutants)
-        run: node scripts/validate-phase5-historical-customer-reads.js
-
       - name: Validate bounded Phase-5 historical evidence reads (1,200-row concurrency/read cap + aggregates/BRS)
         run: node scripts/validate-phase5-evidence-read-bounds.js
 
       - name: Validate SSL concurrent CT lookup (reachability ∥ crt.sh/certspotter — max not sum, evidence preserved)
         run: node scripts/validate-ssl-concurrent-ct.js
 
-      - name: Validate shared per-scan CT provider cache (dedup + unavailable isolation + mutations)
-        run: node scripts/validate-shared-ct-provider-cache.js
-
       - name: Validate shared-SAN measurement and ownership honesty (CertSpotter-only + crt.sh measured + blackout)
         run: node scripts/validate-cert-shared-san-honesty.js
-
-      - name: Validate shared-SAN honesty mutations (initial zero + unmeasured ownership + invalid-kill controls)
-        run: node scripts/validate-cert-shared-san-honesty-mutations.js
-
-      - name: Validate Candidate A historical shared-SAN projection (R1 + R3 + engine/route/tenant/parity)
-        run: node scripts/validate-cert-shared-san-candidate-a.js
-
-      - name: Validate Candidate A semantic mutations (exact v2 kill sets + invalid-kill controls)
-        run: node scripts/validate-cert-shared-san-candidate-a-mutations.js
-
-      - name: Validate Candidate A oracle/projector same-commit atomicity (F11 + M13)
-        run: node scripts/validate-cert-shared-san-candidate-a-atomicity.js
 
       - name: Validate Candidate A self-relative email-Worker closure invariance (F12)
         run: node scripts/validate-cert-shared-san-candidate-a-closure.js
 
-      - name: Validate CT provider resilience (timeouts + bounded retry + health telemetry + mutations)
-        run: node scripts/validate-ct-provider-resilience.js
-
-      - name: Validate CT blackout evidence honesty (domain coverage + score/BRI/PDF + mutation)
-        run: node scripts/validate-ct-blackout-evidence-honesty.js
-
       - name: Validate per-signal monitoring states (CT fallback + incomplete attribution + wording + mutations)
         run: node scripts/validate-signal-monitoring-state.js
 
-      - name: Validate free-scan evidence honesty (FAILED/PARTIAL fixtures + real route-to-UI trace)
-        run: node scripts/validate-free-scan-false-healthy.js
-
-      - name: Validate free-scan false-healthy mutation kills (failed/zero-findings/fixed-list/state-collapse)
-        run: node scripts/validate-free-scan-false-healthy-mutations.js
-
-      - name: Validate Item 9 certificate per-signal completeness (pure fixtures; no production caller)
-        run: node scripts/validate-item9-certificate-signal-completeness.js
-
       - name: Validate Item 9 certificate per-signal completeness mutations
         run: node scripts/validate-item9-certificate-signal-completeness-mutations.js
-
-      # AS-C1/C2/C3 U1+U2+U3 — successful-but-bounded collection is a closed,
-      # separate coverage dimension. The focused fixture binds all four caps to
-      # their provenance and consumed meaning; the fresh-process registry kills
-      # exactly the nine approved semantic mutants; the narrow declaration guard
-      # protects only the two corrected source comments and importer inventory.
-      - name: Validate AS-C1/C2/C3 bounded coverage and saturation provenance
-        run: node scripts/validate-as-c1-c2-c3-bounded-coverage.js
-
-      - name: Validate AS-C1/C2/C3 bounded coverage semantic mutations
-        run: node scripts/validate-as-c1-c2-c3-bounded-coverage-mutations.js
-
-      - name: Validate AS-C3 source declarations and importer inventory
-        run: node scripts/validate-as-c3-source-declarations.js
-
-      - name: Validate Item 10 Attack Surface per-signal completeness and removal policy (pure fixtures; no production caller)
-        run: node scripts/validate-item10-attack-surface-p1.js
-
-      - name: Validate Item 10 Attack Surface per-signal completeness and removal-policy mutations
-        run: node scripts/validate-item10-attack-surface-p1-mutations.js
-
-      - name: Validate Item 10 P2 production fixtures (complete + degraded + provider-timeout + deadline)
-        run: node scripts/validate-item10-attack-surface-p2-fixtures.js
-
-      - name: Validate Item 10 P2 lifecycle persistence (threshold + isolation + purge + idempotency + no-N+1)
-        run: node scripts/validate-item10-attack-surface-p2-integration.js
-
-      - name: Validate PR-2B-1 CT asset lifecycle scope (degraded defer + healthy unchanged + provider control)
-        run: node scripts/validate-ct-asset-lifecycle-scope.js
-
-      - name: Validate PR-2B-1 CT asset lifecycle scope mutations
-        run: node scripts/validate-ct-asset-lifecycle-scope-mutations.js
-
-      - name: Validate Item 10 P2 production-source mutations
-        run: node scripts/validate-item10-attack-surface-p2-mutations.js
-
-      - name: Validate Item 10 P2 real multi-scan runScanEngine to persistence and lifecycle-event trace
-        run: node scripts/validate-item10-attack-surface-p2-engine-trace.js
-
-      - name: Validate Item 10 P3 asset lifecycle and canonical ASM case close/reopen
-        run: node scripts/validate-item10-attack-surface-p3-lifecycle-cases.js
-
-      - name: Validate Item 10 P3 lifecycle/case load-bearing source mutations
-        run: node scripts/validate-item10-attack-surface-p3-mutations.js
-
-      - name: Validate Item 10 P3 faithful runScanEngine to lifecycle and canonical case trace
-        run: node scripts/validate-item10-attack-surface-p3-engine-trace.js
-
-      - name: Validate Item 10 P4 evidence-aware ASM alert eligibility and delivery
-        run: node scripts/validate-item10-attack-surface-p4-alert-quality.js
-
-      - name: Validate Item 10 P4 ASM alert-quality source mutations
-        run: node scripts/validate-item10-attack-surface-p4-alert-quality-mutations.js
-
-      - name: Validate canonical ASM alert email labels
-        run: node scripts/validate-asset-alert-email-labels.js
-
-      - name: Validate canonical ASM alert email-label mutations
-        run: node scripts/validate-asset-alert-email-labels-mutations.js
-
-      - name: Validate Item 10 P5 Attack Surface customer-surface parity (API + snapshot + report + PDF + UI + legacy)
-        run: node scripts/validate-item10-attack-surface-p5-customer-parity.js
-
-      - name: Validate Item 10 P5 Attack Surface customer-surface mutations
-        run: node scripts/validate-item10-attack-surface-p5-mutations.js
-
-      - name: Validate Item 10 P5 Arm 2 evidence-support projection and all customer read contracts
-        run: node scripts/validate-item10-attack-surface-p5-arm2.js
-
-      - name: Validate Item 10 P5 Arm 2 and writer lifecycle timestamps across UTC and non-UTC runners
-        run: |
-          for tz in UTC Europe/London Etc/GMT-14; do
-            echo "── TZ=$tz ──"
-            TZ=$tz node scripts/validate-item10-attack-surface-p5-arm2.js
-            TZ=$tz node scripts/validate-item10-attack-surface-p2-integration.js
-          done
 
       - name: Validate Item 10 P5 Arm 2 frozen semantic mutation contract
         run: node scripts/validate-item10-attack-surface-p5-arm2-mutations.js
@@ -957,101 +1417,23 @@ jobs:
       - name: Validate Item 10 P5 pagination-independent domain projection
         run: node scripts/validate-item10-attack-surface-p5-pagination-corrective.js
 
-      - name: Validate Item 10 P5 pagination corrective mutations
-        run: node scripts/validate-item10-attack-surface-p5-pagination-corrective-mutations.js
-
-      - name: Validate Item 9 P2 certificate production integration (deadlines + shared CT + signal isolation)
-        run: node scripts/validate-item9-certificate-p2-integration.js
-
       - name: Validate Item 9 P2 certificate production integration mutations
         run: node scripts/validate-item9-certificate-p2-mutations.js
-
-      - name: Validate Item 9 P2 faithful runScanEngine trace (budget + persistence + tenant isolation)
-        run: node scripts/validate-item9-certificate-p2-engine-trace.js
-
-      - name: Validate Item 9 P3 certificate renewal lifecycle (bands + replacement history + case close/reopen)
-        run: node scripts/validate-item9-certificate-p3-renewal-lifecycle.js
-
-      - name: Validate Item 9 P3 certificate renewal lifecycle mutations
-        run: node scripts/validate-item9-certificate-p3-mutations.js
-
-      - name: Validate Item 9 P3 faithful multi-scan runScanEngine trace (renewal + dedupe + CT/live honesty)
-        run: node scripts/validate-item9-certificate-p3-engine-trace.js
-
-      - name: Validate Item 9 P4 certificate trust-policy depth (CAA + chain + hostname + algorithms + trust store + revocation)
-        run: node scripts/validate-item9-certificate-p4-trust-depth.js
-
-      - name: Validate Item 9 P4 certificate trust-policy depth mutations
-        run: node scripts/validate-item9-certificate-p4-mutations.js
 
       - name: Validate Item 9 P4 faithful runScanEngine trace (trust signals + budget + shared CT + tenant persistence)
         run: node scripts/validate-item9-certificate-p4-engine-trace.js
 
-      - name: Validate Item 9 P5 certificate customer-surface parity (API + snapshot + report + PDF + legacy)
-        run: node scripts/validate-item9-certificate-p5-customer-parity.js
-
-      - name: Validate Item 9 P5 certificate customer-surface mutations
-        run: node scripts/validate-item9-certificate-p5-mutations.js
-
-      - name: Validate Item 9 P5 faithful runScanEngine to persistence, snapshot, API, report and PDF trace
-        run: node scripts/validate-item9-certificate-p5-engine-trace.js
-
       - name: Validate scan deadline + partial finalization (waitUntil-cancellation guard)
         run: node scripts/validate-scan-deadline.js
-
-      - name: Validate workspace-scoped domain verification gate (scan-start + verification lifecycle)
-        run: node scripts/validate-domain-verification-gate.js
-
-      - name: Validate domain-verification integrity (persistence proof + terminal observability + no token in telemetry)
-        run: node scripts/validate-domain-verification-integrity.js
 
       - name: Validate domain-verification auto-recheck cron (authoritative link + shared proof + idempotent + 48h window)
         run: node scripts/validate-domain-verification-recheck.js
 
-      - name: Validate partial-scan honesty (provisional score/rating + current posture + trend gating)
-        run: node scripts/validate-partial-scan-honesty.js
-
-      - name: Validate scan-completion quality disclosure (notification + email + mutation)
-        run: node scripts/validate-scan-completion-quality-copy.js
-
       - name: Validate canonical presentation parity (all score/rating consumers delegate to one decision)
         run: node scripts/validate-canonical-presentation-parity.js
 
-      - name: Validate scheduled-scan eligibility parity (verification + entitlement + quota + rate-limit at run time)
-        run: node scripts/validate-scheduled-eligibility.js
-
-      - name: Validate Email Protection entitlement (effective plan, not stale users.plan)
-        run: node scripts/validate-email-entitlement.js
-
-      - name: Validate current-findings de-duplication (one canonical latest-complete-scan scope)
-        run: node scripts/validate-current-findings-dedup.js
-
-      - name: Validate security-invariant-stabilization contracts (oracle + finalize/reconcile + dmarc + dead-code)
-        run: node scripts/validate-stabilization-contracts.js
-
-      - name: Validate eight-domain Cyber MOT coverage-state resolver (honest states, never healthy-on-missing)
-        run: node scripts/validate-eight-domain-coverage-state.js
-
-      - name: Validate eight-domain coverage-state wiring (four surfaces + PDF renders all eight)
-        run: node scripts/validate-eight-domain-wiring.js
-
-      - name: Validate eight-domain parity (CE cross-surface + no-scan visibility + healthy-eligibility)
-        run: node scripts/validate-eight-domain-parity.js
-
-      - name: Validate canonical remediation registry (stable ids + resolver + aliases + honesty scope + cross-surface parity)
-        run: node scripts/validate-remediation-registry.js
-
-      - name: Validate remediation production-finding coverage (every actionable emitter → one canonical remediation)
-        run: node scripts/validate-remediation-coverage.js
-
       - name: Validate frontend is not a remediation source (semantics from backend, steps keyed by canonical id)
         run: node scripts/validate-frontend-remediation-source.js
-
-      - name: Validate cross-surface remediation parity (scan detail / exec report / scorecard-PDF / posture / CE agree on identity)
-        run: node scripts/validate-remediation-surface-parity.js
-
-      - name: Validate bounded scheduled-report generation (batch limit + determinism + idempotency + fairness + entitlement)
-        run: node scripts/validate-bounded-scheduled-reports.js
 
       - name: Validate scheduled-report occurrence claim atomicity (concurrent overlap → one generation)
         run: node scripts/validate-report-occurrence-claim.js
@@ -1059,29 +1441,14 @@ jobs:
       - name: Validate KEV catalogue R2 cache (hit/miss/stale/unavailable + honest degrade)
         run: node scripts/validate-kev-cache.js
 
-      - name: Validate scan observability (heartbeat + module telemetry, non-fatal)
-        run: node scripts/validate-scan-telemetry.js
-
       - name: Validate sub-operation timing telemetry (Track B — measurement only, fail-safe)
         run: node scripts/validate-subop-timing-telemetry.js
-
-      - name: Validate sub-operation timing telemetry load-bearing mutations
-        run: node scripts/validate-subop-timing-telemetry-mutations.js
 
       - name: Validate CT-R1 provider telemetry (fixtures + schema + analyzer + governance)
         run: node scripts/validate-ct-r1-provider-telemetry.js
 
-      - name: Validate CT-R1 faithful runScanEngine finalization trace
-        run: node scripts/validate-ct-r1-provider-telemetry-engine-trace.js
-
-      - name: Validate CT-R1 provider telemetry load-bearing mutations
-        run: node scripts/validate-ct-r1-provider-telemetry-mutations.js
-
       - name: Validate CT-R2 PR-2A shadow provider-overlap telemetry
         run: node scripts/validate-ct-provider-overlap-telemetry.js
-
-      - name: Validate CT-R2 PR-2A faithful runScanEngine finalization trace
-        run: node scripts/validate-ct-provider-overlap-engine-trace.js
 
       - name: Validate CT-R2 PR-2A shadow provider-overlap load-bearing mutations
         run: node scripts/validate-ct-provider-overlap-telemetry-mutations.js
@@ -1089,218 +1456,26 @@ jobs:
       - name: Validate CT-R2 PR-2A.1 consumer-isolation binding oracle
         run: node scripts/validate-ct-consumer-isolation-oracle.js
 
-      - name: Validate CT-R2 PR-2A.1 consumer-isolation semantic mutations
-        run: node scripts/validate-ct-consumer-isolation-oracle-mutations.js
-
-      - name: Validate CT-R2 PR-2A.1 platform-abort migration semantics
-        run: node scripts/validate-ct-platform-abort-migration.js
-
-      - name: Validate CT-R2 PR-2A.1 platform-abort migration mutations
-        run: node scripts/validate-ct-platform-abort-migration-mutations.js
-
-      - name: Validate CT-R2 PR-2A.1 governed migration command
-        run: node scripts/validate-ct-platform-abort-migration-command.js
-
-      - name: Validate CT-R2 PR-2A.1 provider-source consumer inventory pin
-        run: node scripts/derive-ct-provider-source-consumer-inventory.js --pin docs/CT-R2-PR-2A1-PROVIDER-SOURCE-INVENTORY.json
-
-      - name: Validate CT-R2 PR-3 structural first-success-wins semantics
-        run: node scripts/validate-ct-first-success-wins.js
-
-      - name: Validate CT-R2 PR-3 first-success-wins semantic mutations
-        run: node scripts/validate-ct-first-success-wins-mutations.js
-
-      - name: Validate managed brand takedown lifecycle (evidence + approval + verification)
-        run: node scripts/validate-brand-takedown-lifecycle.js
-
       - name: Validate brand DNS enrichment (tri-state truth + auto lifecycle + shared helper)
         run: node scripts/validate-brand-dns-enrichment.js
-
-      - name: Validate brand typosquat generator (TLD substitution / credential keywords / family quotas / speculative-risk honesty)
-        run: node scripts/validate-brand-typosquat.js
 
       - name: Validate brand passive discovery (CT nested-host discovery / membership filter / CT-observed honesty / tenant isolation)
         run: node scripts/validate-brand-passive-discovery.js
 
-      - name: Validate Brand passive discovery PR-D corrective (CT merge / active scheduling / authenticated bounded trigger)
-        run: node scripts/validate-brand-passive-discovery-corrective.js
-
-      - name: Validate Brand passive discovery PR-D load-bearing mutations
-        run: node scripts/validate-brand-passive-discovery-corrective-mutations.js
-
       - name: Validate Brand IDN/homograph PR-A (IDNA round-trip / skeleton / script / negatives / ASCII compatibility)
         run: node scripts/validate-brand-idn-homograph.js
-
-      - name: Validate Brand IDN/homograph PR-A mutations (decode / whole map / individual high-impact mappings)
-        run: node scripts/validate-brand-idn-homograph-mutations.js
-
-      - name: Validate Brand IDN discovery PR-B (generation / CT expansion / own-IDN exclusion / corroboration)
-        run: node scripts/validate-brand-idn-discovery.js
-
-      - name: Validate Brand IDN discovery PR-B mutation (customer-owned exclusion)
-        run: node scripts/validate-brand-idn-discovery-mutations.js
-
-      - name: Validate Brand IDN PR-C (lifecycle evidence / fail-honest alerts / report-PDF-MSP parity)
-        run: node scripts/validate-brand-idn-prc.js
-
-      - name: Validate brand HTTP/TLS enrichment (SSRF-safe live probe / tri-state https / login-surface honesty / tenant isolation)
-        run: node scripts/validate-brand-http-enrichment.js
-
-      - name: Validate Brand soft-delete persistence boundary (active workspace/domain authority / tenant and race isolation / immutable history)
-        run: node scripts/validate-brand-soft-delete-persistence.js
-
-      - name: Validate Brand soft-delete persistence boundary mutations
-        run: node scripts/validate-brand-soft-delete-persistence-mutations.js
-
-      - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
-        run: node scripts/validate-hosted-tls-rpt.js
-
-      - name: Validate hosted MTA-STS (TXT delegation + HTTPS policy guidance)
-        run: node scripts/validate-hosted-mta-sts.js
-
-      - name: Validate MTA-STS tri-state producer and admission gate
-        run: node scripts/validate-mta-sts-tristate.js
-
-      - name: Validate MTA-STS tri-state semantic mutations
-        run: node scripts/validate-mta-sts-tristate-mutations.js
-
-      - name: Validate TLS-RPT ingestion (parse + inbound routing + dedup + isolation)
-        run: node scripts/validate-tlsrpt-ingest.js
-
-      - name: Validate Q7 DMARC/TLS-RPT trust boundary (no forged-report authority + inbound rate limit)
-        run: node scripts/validate-q7-dmarc-report-trust.js
-
-      - name: Validate DMARC sender classification (auto evidence + manual override)
-        run: node scripts/validate-sender-classification.js
-
-      - name: Validate DMARC impact forecast (legitimate-vs-risky + rollback assessment)
-        run: node scripts/validate-dmarc-impact.js
-
-      - name: Validate request pipeline (fetch → auth → RBAC → DB; login + webhook)
-        run: node scripts/validate-pipeline.js
-
-      - name: Validate email worker equivalence (golden vs api worker)
-        run: node scripts/validate-email-worker.js
-
-      - name: Validate aggregate email ingestion reliability (Gate 3B)
-        run: node scripts/validate-email-ingest-reliability.js
-
-      - name: Validate email parser hardening (Gate 4 structural memory + audited exits)
-        run: node scripts/validate-email-parser-hardening.js
-
-      - name: Validate Gate 5 cutover preparation (offline preflight + ordered rollback-safe runbook)
-        run: node scripts/validate-gate5-cutover-prep.js
-
-      - name: Validate email worker deploy traceability (closure stamp + pinned tooling)
-        run: node scripts/validate-email-worker-deploy-traceability.js
-
-      - name: Validate log redaction (secrets never reach logs)
-        run: node scripts/validate-log-redaction.js
-
-      - name: Validate purge completeness (no orphaned tenant rows / R2 objects)
-        run: node scripts/validate-purge-completeness.js
-
-      - name: Validate F-009 deletion integrity (FK=ON, account path, proof before completion)
-        run: node scripts/validate-f009-deletion-integrity.js
-
-      - name: Validate F-009 deletion integrity mutations (completed-on-error / email-before-proof / pointer-before-object)
-        run: node scripts/validate-f009-deletion-integrity-mutations.js
-
-      # Two live P1s found while re-auditing CE for canonical alerting, neither of
-      # them about alerting: cyber_essentials_answers survived every workspace purge
-      # for the life of the table (customer notes + answered_by, no FK to
-      # workspaces), and CE graded a client workspace from its MSP's scan because
-      # both the readiness query and the scorecard resolved evidence via
-      # workspace_domains — one domain, many workspaces, by design.
-      - name: Validate Cyber Essentials data integrity (purge completeness + workspace-scoped evidence, mutation-tested)
-        run: node scripts/validate-ce-data-integrity.js
-
-      - name: Validate migrations (additive-only + fresh-apply convergence)
-        run: node scripts/validate-migrations.js
 
       - name: Validate error contract (uniform { error, code, message }, no leak)
         run: node scripts/validate-error-contract.js
 
-      - name: Validate ops-health monitoring (signals + thresholds + DB-down)
-        run: node scripts/validate-ops-health.js
-
       - name: Validate maintenance mode (503 gate + health/ready exempt + bypass)
         run: node scripts/validate-maintenance-mode.js
-
-      - name: Validate cron orchestration (dispatch + daily gates + isolation)
-        run: node scripts/validate-cron.js
-
-      - name: Validate email lifecycle (send/dedupe/retry + payment_failed exclusion)
-        run: node scripts/validate-email-lifecycle.js
-
-      - name: Validate weekly digest (active-only + dedup + all-quiet + windowing)
-        run: node scripts/validate-weekly-digest.js
-
-      - name: Validate weekly digest truth (semantic grouping + coverage-aware quiet state + workspace-scoped CTA + mutations)
-        run: node scripts/validate-weekly-digest-truth.js
-
-      - name: Validate pricing policy parity (locked ladder + fail-closed price mapping + checkout guard)
-        run: node scripts/validate-pricing-policy-parity.js
 
       - name: Validate checkout consent + portal-only plan changes (B2 Terms/immediate-start waiver, B3 no second subscription)
         run: node scripts/validate-checkout-consent-portal.js
 
-      - name: Validate billing lifecycle (entitlement state machine + grace window)
-        run: node scripts/validate-billing-lifecycle.js
-
-      - name: Validate Stripe events (per-event-type subscription state)
-        run: node scripts/validate-stripe-events.js
-
-      - name: Validate Q3 Stripe webhook idempotency (claim/complete/fail state machine + env + stale guard)
-        run: node scripts/validate-q3-stripe-idempotency.js
-
-      - name: Validate exposure timeline events (DNS-level asset changes)
-        run: node scripts/validate-exposure-events.js
-
-      - name: Validate Phase A Timeline Trust (comparability + flip-flop collapse + mutations)
-        run: node scripts/validate-phase-a-timeline-trust.js
-
-      - name: Validate posture timeline events (email-auth + exposed services)
-        run: node scripts/validate-posture-events.js
-
-      - name: Validate SPF static PASS-authorisation resolver (RFC 7208 limits / TempError fail-safe / CIDR containment / change detection)
-        run: node scripts/validate-spf-resolver.js
-
-      - name: Validate SPF CIDR customer-evidence fidelity mutations (display / RFC 5952 / prefix / cap / canonical form)
-        run: node scripts/validate-spf-cidr-evidence-mutations.js
-
-      - name: Validate SPF-RUA corroboration (observed-fail gate / containment / complete-only firm wording / dedupe)
-        run: node scripts/validate-spf-corroboration.js
-
       - name: Validate posture-events false-resolution guard (exposed_service_resolved evidence gate)
         run: node scripts/validate-posture-events-resolution.js
-
-      - name: Validate A1 email evidence-status honesty (unavailable SPF/DKIM never reads missing/clean + mutations)
-        run: node scripts/validate-a1-email-evidence-status.js
-
-      - name: Validate A2 identity evidence-status honesty (unavailable evidence never reads Low/clean + mutations)
-        run: node scripts/validate-a2-identity-evidence-status.js
-
-      - name: Validate A3 admin-surface evidence-status honesty (unavailable evidence never reads zero-exposure/healthy + mutations)
-        run: node scripts/validate-a3-admin-evidence-status.js
-
-      - name: Validate B workspace scorecard canonicalisation (absent evidence never presented as healthy + mutations)
-        run: node scripts/validate-b-scorecard-canonical.js
-
-      - name: Validate disappearance confirmation (asset/email/brand evidence gates + mutations)
-        run: node scripts/validate-disappearance-confirmation.js
-
-      # M6 Phase B1 — Deterministic Related Changes. Correlation ships a cluster ONLY
-      # when a registered rule pairs >=2 INDEPENDENT signal families on the same
-      # registrable domain in a bounded window; same domain + window alone is a
-      # candidate, never a cluster. Drives the real adapter + rules + orchestrator
-      # against schema.sql + every migration: proves the shadow-IT provenance guard,
-      # the complete-evidence + adjacency floors, brand-alone-never-clusters,
-      # append-only recurrence + idempotency, tenant isolation, append-only customer
-      # feedback that a recurrence never resets, and manual-only case creation through
-      # the canonical factory (no bypass).
-      - name: Validate M6 B1 Related Changes (deterministic correlation / provenance / recurrence / isolation / manual case)
-        run: node scripts/validate-m6-b1-related-changes.js
 
       # Pre-Item11 blocker 3: workspace-level Related-Changes scope attribution
       # (summary/API/PDF name the affected domain; a row never reads as the report
@@ -1314,82 +1489,169 @@ jobs:
       - name: Validate workspace scope + takeover traceability mutation contract (13 exact fresh-process kills + invalid-kill controls)
         run: node scripts/validate-report-scope-traceability-mutations.js
 
-      - name: Validate exposure timeline feed (auth + filters + pagination)
-        run: node scripts/validate-exposure-feed.js
-
-      - name: Validate Certificates & Trust L2 (findings + honest unknowns)
-        run: node scripts/validate-cert-trust-l2.js
-
-      - name: Validate certificate standing-condition dedupe (occurrence identity — unchanged state never re-emits + mutations)
-        run: node scripts/validate-cert-standing-condition-dedupe.js
-
-      # Dependency-override governance. An `overrides` entry replaces a version a
-      # dependency declared for itself — the canonical way to TAKE a security fix
-      # upstream has not adopted, and a silent permanent fork if left unwatched.
-      # Two frontend overrides (esbuild, test-exclude) were live with no record,
-      # owner, review date or removal criterion at all. These guards bind every
-      # live override to scripts/security/dependency-override-register.json and
-      # fail closed on an unregistered override, a stale record, spec/version
-      # drift, a dev-only claim the locked production graph contradicts, or an
-      # elapsed review deadline. They run BEFORE the audits so a governance
-      # failure is attributed to governance rather than to a raw advisory.
-      - name: Validate dependency-override governance (register ⟷ manifest ⟷ lockfile, expiring + fail-closed)
-        run: node scripts/validate-dependency-overrides.js
-
       - name: Validate dependency-override load-bearing mutations
         run: node scripts/validate-dependency-overrides-mutations.js
-
-      - name: Audit worker dependencies
-        working-directory: workers/scan-api
-        run: npm audit --audit-level=high
 
       - name: Validate DMARCbis P1 protocol fixtures (pure injected DNS core)
         run: node scripts/validate-dmarcbis-p1.js
 
-      - name: Validate DMARCbis P1 load-bearing mutations
-        run: node scripts/validate-dmarcbis-p1-mutations.js
-
-      - name: Validate DMARCbis P2 integration (budget / cache / lifecycle / aggregate compatibility)
-        run: node scripts/validate-dmarcbis-p2.js
-
       - name: Validate DMARCbis P2 load-bearing mutations
         run: node scripts/validate-dmarcbis-p2-mutations.js
-
-      - name: Validate DMARCbis P3 snapshot and additive API dual readers
-        run: node scripts/validate-dmarcbis-p3.js
-
-      - name: Validate DMARCbis P3 load-bearing mutations
-        run: node scripts/validate-dmarcbis-p3-mutations.js
 
       - name: Validate DMARCbis P4 immutable lifecycle and Related Changes
         run: node scripts/validate-dmarcbis-p4.js
 
-      - name: Validate DMARCbis P4 load-bearing mutations
-        run: node scripts/validate-dmarcbis-p4-mutations.js
-
-      - name: Validate DMARCbis P4 faithful runScanEngine lifecycle trace
-        run: node scripts/validate-dmarcbis-p4-engine-trace.js
-
-      - name: Validate DMARCbis P5 alerts, manual cases and DNS verification
-        run: node scripts/validate-dmarcbis-p5.js
-
-      - name: Validate DMARCbis P5 load-bearing mutations
-        run: node scripts/validate-dmarcbis-p5-mutations.js
-
-      - name: Validate DMARCbis P5/P6 faithful runScanEngine managed-lifecycle and customer-projection trace
-        run: node scripts/validate-dmarcbis-p5-engine-trace.js
-
-      - name: Validate DMARCbis P6 customer surfaces, Executive Report, PDF and historical parity
-        run: node scripts/validate-dmarcbis-p6.js
-
       - name: Validate DMARCbis P6 load-bearing mutations
         run: node scripts/validate-dmarcbis-p6-mutations.js
 
-      - name: Validate PDF DMARC record rendering (canonical value, never internal objects)
-        run: node scripts/validate-pdf-dmarc-record-rendering.js
+      - name: Validate CE multidomain containment
+        run: node scripts/validate-ce-multidomain-containment.js
 
-      - name: Validate PDF DMARC record rendering strict mutations
-        run: node scripts/validate-pdf-dmarc-record-rendering-mutations.js
+      - name: Validate CE multidomain containment strict mutations
+        run: node scripts/validate-ce-multidomain-containment-mutations.js
+
+      # PRE-ITEM11 blocker 2 — domain rows consume the same canonical assessment
+      # presentation as snapshots/reports and must label every provisional number.
+      - name: Validate canonical provisional domain-score labeling
+        run: node scripts/validate-provisional-score-labeling.js
+
+      # Track A A2+A3 — ScanDetail must render frozen assessment rating/score only,
+      # preserve canonical comparison-message priority, and require explicit
+      # comparable=true for historical claims. The focused validator combines
+      # TypeScript-AST guards with the real React fixture matrix; the mutation
+      # runner serially edits/restores ScanDetail and pins exact kills.
+      - name: Validate ScanDetail canonical band and historical comparison honesty
+        run: node scripts/validate-scan-detail-presentation.js
+
+      - name: Validate ScanDetail presentation strict mutations
+        if: ${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
+        run: node scripts/validate-scan-detail-presentation-mutations.js
+
+      # TRACK-A3 — IntelligencePage consumes the same frozen assessment and
+      # explicit comparability contract. The class guard inventories the full
+      # local renderer/helper closure and mutation-proves raw scan aliases,
+      # provisional-score preservation, backend reason priority and history.
+      - name: Validate IntelligencePage canonical assessment and comparison honesty
+        run: node scripts/validate-intelligence-page-presentation.js
+
+      - name: Validate BRS downstream completeness load-bearing mutations
+        run: node scripts/validate-brs-downstream-mutations.js
+
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+      - name: Frontend type check (tsc — api contract + all .ts/.tsx)
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Frontend component tests with coverage (Vitest)
+        if: ${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
+        working-directory: frontend
+        run: npm run test:coverage
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+  validate_integration_assurance:
+    name: validate / integration-assurance
+    needs: ci_scope
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # The fail-closed PR classifier requires the exact event base/head and
+          # merge-base. A shallow checkout is never treated as a safe diff.
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          # Restore the npm download cache keyed on both lockfiles so `npm ci`
+          # does not re-download every run. No coverage change; save wall-clock
+          # and paid minutes on every run.
+          cache: 'npm'
+          cache-dependency-path: |
+            workers/scan-api/package-lock.json
+            frontend/package-lock.json
+
+      # Runtime validators import the production scan-engine graph. DMARCbis P2
+      # makes that graph reach the pinned tr46 dependency, so install Worker
+      # dependencies before the first validator rather than only before bundling.
+      - name: Install worker dependencies (governed lifecycle scripts)
+        run: node scripts/install-governed-dependencies.js --root workers/scan-api
+
+      # The CT consumer-inventory oracle parses frontend source through its own
+      # exact-pinned @babel/parser dependency. Install the committed frontend
+      # graph before any validator can load that oracle; the later build/test
+      # steps reuse this one deterministic install.
+      - name: Install frontend dependencies (governed lifecycle scripts)
+        run: node scripts/install-governed-dependencies.js --root frontend
+
+      - name: Validate dependency install-script governance (deny-by-default / exact allowlist / must-fail controls)
+        run: node scripts/validate-install-script-governance.js
+
+      - name: Validate local focused gate policy and fail-closed execution
+        run: node scripts/validate-local-focused-gate.js
+
+      - name: Validate scanner regression fixtures
+        run: node scripts/validate-regression-fixtures.js
+
+      - name: Full-repo assurance — extended two-tenant harness (same-hostname / removed-member / identity)
+        run: node scripts/validate-tenant-isolation-extended.js
+
+      - name: Validate SSRF scan guard (redirect-time + resolved-IP block in safeFetch)
+        run: node scripts/validate-ssrf-scan-guard.js
+
+      - name: Validate security-headers binding (extracted module runtime ref + graceful fail)
+        run: node scripts/validate-security-headers-binding.js
+
+      - name: Validate scan subrequest budget (counter + dynamic cap + CT-state ledgers)
+        run: node scripts/validate-scan-subrequest-budget.js
+
+      - name: Validate scan-engine subrequest counter (faithful engine run, mocked fetch/D1/R2)
+        run: node scripts/validate-scan-engine-counter.js
+
+      - name: Validate SSL runtime tri-state contract (producer / consumer / historical projection)
+        run: node scripts/validate-ssl-runtime-tristate-contract.js
+
+      # RWS.5 Option A + H-A — the three cookie-attribute findings have one owner
+      # across projection, remediation, cases, alerts and verification. The focused
+      # D1 suite pins the zero-cookie epistemic boundary, exact legacy ASM-case
+      # compatibility, tenant/soft-delete isolation and resolver-version history.
+      # Nine semantic mutants prove broad dse_* removal, dual ownership, false
+      # zero-cookie resolution, duplicate cases, wrong alert domains and historical
+      # rewriting cannot pass through setup/import errors or partial assertions.
+      - name: Validate RWS.5 cookie ownership (Option A + H-A)
+        run: node scripts/validate-rws5-cookie-ownership.js
+
+      - name: Validate Shadow IT approved inventory (identity + correlation + classification + case linkage + isolation)
+        run: node scripts/validate-shadow-it-inventory.js
+
+      - name: Validate Shadow IT FB-1 + EH-1 (fail-closed source outcomes + customer-derived hostname provenance)
+        run: node scripts/validate-shadow-it-fb1-eh1.js
+
+      - name: Validate Item 10 P2 real multi-scan runScanEngine to persistence and lifecycle-event trace
+        run: node scripts/validate-item10-attack-surface-p2-engine-trace.js
+
+      - name: Validate Item 9 P2 faithful runScanEngine trace (budget + persistence + tenant isolation)
+        run: node scripts/validate-item9-certificate-p2-engine-trace.js
+
+      - name: Validate Item 9 P3 faithful multi-scan runScanEngine trace (renewal + dedupe + CT/live honesty)
+        run: node scripts/validate-item9-certificate-p3-engine-trace.js
+
+      - name: Validate CT-R2 PR-2A.1 provider-source consumer inventory pin
+        run: node scripts/derive-ct-provider-source-consumer-inventory.js --pin docs/CT-R2-PR-2A1-PROVIDER-SOURCE-INVENTORY.json
+
+      - name: Validate TLS-RPT ingestion (parse + inbound routing + dedup + isolation)
+        run: node scripts/validate-tlsrpt-ingest.js
+
+      - name: Audit worker dependencies
+        working-directory: workers/scan-api
+        run: npm audit --audit-level=high
 
       - name: DMARCbis P1 tr46 Worker bundle gate (no Node compatibility flags)
         working-directory: workers/scan-api
@@ -1406,101 +1668,9 @@ jobs:
       - name: Validate OpenAPI spec
         run: node scripts/validate-openapi.js
 
-      - name: Validate CE declaration drift
-        run: node scripts/validate-ce-declaration-drift.js
-      - name: Validate CE declaration drift mutations
-        run: node scripts/validate-ce-declaration-drift-mutations.js
-      - name: Validate CAPABILITIES.md drift
-        run: node scripts/validate-capabilities-doc.js
-
-      - name: Validate CE multidomain containment
-        run: node scripts/validate-ce-multidomain-containment.js
-
-      - name: Validate CE multidomain containment strict mutations
-        run: node scripts/validate-ce-multidomain-containment-mutations.js
-
-      # CT-R2 PR-1 — AST-backed, exhaustive scan_quality vocabulary inventory.
-      # Counts use separate units (SQL predicate occurrences, SQL query sites,
-      # source files, runtime semantic comparisons and governance comparisons).
-      # The strict fresh-process suite rejects wrong-reason mutant kills.
-      - name: Validate scan-quality vocabulary inventory (AST + SQL taxonomy)
-        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
-        run: node scripts/validate-scan-quality-vocabulary-inventory.js
-
       - name: Validate scan-quality vocabulary inventory strict mutations
-        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
+        if: ${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
         run: node scripts/validate-scan-quality-vocabulary-mutations.js
-
-      - name: Validate D1 Option D contract (structured degradation fixtures)
-        run: node scripts/validate-d1-option-d-contract.js
-
-      - name: Validate D1 I11A-C3 successor (degraded never verifies + snapshot-once read stability)
-        run: node scripts/validate-d1-i11a-c3-successor.js
-
-      - name: Validate D1 Option D joint rollback
-        run: node scripts/validate-d1-option-d-joint-rollback.js
-
-      - name: Validate D1 Option D semantic mutations
-        run: node scripts/validate-d1-option-d-mutations.js
-
-      # PRE-ITEM11 blocker 2 — domain rows consume the same canonical assessment
-      # presentation as snapshots/reports and must label every provisional number.
-      - name: Validate canonical provisional domain-score labeling
-        run: node scripts/validate-provisional-score-labeling.js
-
-      - name: Validate provisional domain-score workspace API contract
-        run: node scripts/validate-provisional-score-labeling-api.js
-
-      - name: Validate provisional domain-score exact mutations
-        run: node scripts/validate-provisional-score-labeling-mutations.js
-
-      # Track A A2+A3 — ScanDetail must render frozen assessment rating/score only,
-      # preserve canonical comparison-message priority, and require explicit
-      # comparable=true for historical claims. The focused validator combines
-      # TypeScript-AST guards with the real React fixture matrix; the mutation
-      # runner serially edits/restores ScanDetail and pins exact kills.
-      - name: Validate ScanDetail canonical band and historical comparison honesty
-        run: node scripts/validate-scan-detail-presentation.js
-
-      - name: Validate ScanDetail presentation strict mutations
-        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
-        run: node scripts/validate-scan-detail-presentation-mutations.js
-
-      # TRACK-A3 — IntelligencePage consumes the same frozen assessment and
-      # explicit comparability contract. The class guard inventories the full
-      # local renderer/helper closure and mutation-proves raw scan aliases,
-      # provisional-score preservation, backend reason priority and history.
-      - name: Validate IntelligencePage canonical assessment and comparison honesty
-        run: node scripts/validate-intelligence-page-presentation.js
-
-      - name: Validate IntelligencePage presentation strict mutations
-        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
-        run: node scripts/validate-intelligence-page-presentation-mutations.js
-
-      # A1 mutation proof includes a fresh-process real ScanDetail/Vitest carrier,
-      # so it runs only after the pinned frontend dependency tree is installed.
-      - name: Validate A1 report preparation load-bearing mutations
-        run: node scripts/validate-report-preparing-mutations.js
-
-      - name: Validate BRS downstream completeness load-bearing mutations
-        run: node scripts/validate-brs-downstream-mutations.js
-
-      - name: Audit frontend dependencies
-        working-directory: frontend
-        run: npm audit --audit-level=high
-
-      - name: Frontend type check (tsc — api contract + all .ts/.tsx)
-        working-directory: frontend
-        run: npm run typecheck
-
-      - name: Frontend component tests with coverage (Vitest)
-        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
-        working-directory: frontend
-        run: npm run test:coverage
-
-      - name: Build frontend
-        working-directory: frontend
-        run: npm run build
 
       # ── SBOM (CycloneDX) — supply-chain inventory for both workspaces ──────
       # node_modules for both are installed above, so the trees are accurate.
@@ -1522,6 +1692,49 @@ jobs:
           name: sbom-cyclonedx
           path: sbom/*.cdx.json
           if-no-files-found: error
+
+
+
+  validate:
+    name: validate
+    if: ${{ always() }}
+    needs:
+      - ci_scope
+      - validate_runtime_security
+      - validate_report_cx
+      - validate_data_migrations
+      - validate_frontend_build
+      - validate_integration_assurance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every validation shard to pass
+        env:
+          CI_SCOPE_RESULT: ${{ needs.ci_scope.result }}
+          RUNTIME_SECURITY_RESULT: ${{ needs.validate_runtime_security.result }}
+          REPORT_CX_RESULT: ${{ needs.validate_report_cx.result }}
+          DATA_MIGRATIONS_RESULT: ${{ needs.validate_data_migrations.result }}
+          FRONTEND_BUILD_RESULT: ${{ needs.validate_frontend_build.result }}
+          INTEGRATION_ASSURANCE_RESULT: ${{ needs.validate_integration_assurance.result }}
+        run: |
+          set -eu
+          failed=0
+          for entry in \
+            "ci_scope=$CI_SCOPE_RESULT" \
+            "validate_runtime_security=$RUNTIME_SECURITY_RESULT" \
+            "validate_report_cx=$REPORT_CX_RESULT" \
+            "validate_data_migrations=$DATA_MIGRATIONS_RESULT" \
+            "validate_frontend_build=$FRONTEND_BUILD_RESULT" \
+            "validate_integration_assurance=$INTEGRATION_ASSURANCE_RESULT"; do
+            name="${entry%%=*}"
+            result="${entry#*=}"
+            printf '%s: %s\n' "$name" "$result"
+            printf '| %s | %s |\n' "$name" "$result" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$result" != "success" ]; then failed=1; fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::One or more validation prerequisites did not succeed"
+            exit 1
+          fi
 
   # Static application security testing — runs independently of the main suite so
   # a security rule change surfaces on its own. Blocks the merge on any finding
