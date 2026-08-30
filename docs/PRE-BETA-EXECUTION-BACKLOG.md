@@ -22,28 +22,32 @@ feature programme and it does not erase the frozen item contracts below.
 
 Measured state:
 
-- recovery base `integration/audit-recovery-final-20260826 @ a970def2`; current
-  rescue correctives are uncommitted/unmerged candidate work and are **not Live**;
+- recovery base `integration/audit-recovery-final-20260826 @ a970def2`; rescue
+  changes are committed in separate candidate PRs but remain unmerged, unshipped
+  and **not Live**;
 - production source identity reconciled to `47d9bb39`; the after-the-fact
   `v2026.08.26-2` CHANGELOG record is present with zero acceptance credit, while
   its non-backdated annotated tag remains pending Integration;
 - R2 entitlement and read integrity are restored; the controlled write/read/delete
   canary remains open;
-- the exact production report/snapshot/PDF trace is authentic, but customer
-  actionability, report ordering and Phase-5 runtime completeness failed;
-- the bounded CX corrective has focused passing evidence. The prior runtime
-  Phase-5 candidate failed Governance review; corrected A1 v2 also received an
-  independent **FAIL** on true whole-invocation enforcement and physical-budget
-  telemetry provenance. DSE reachability remains unshipped and blocked on
-  explicit `finding_type`, severity and canonical-domain attribution;
-  integration, required CI, production proof and release acceptance remain open;
+- the historical production report/snapshot/PDF trace is authentic and exposed
+  customer-actionability, report-ordering and Phase-5 runtime failures;
+- historical rescue evidence records that the first runtime Phase-5 candidate
+  failed Governance review and corrected A1 v2 also received an independent
+  **FAIL** on true whole-invocation enforcement and physical-budget telemetry
+  provenance. Subsequent bounded runtime, evidence-admission, DSE and CX
+  correctives have focused and independent review evidence in candidate PRs. The
+  explicit DSE `finding_type`, severity and canonical-domain admission blocker is
+  closed only in candidate bytes; none of this is Live. Integration, required CI,
+  production proof and release acceptance remain open;
 - the current evidence-admission convergence keeps CAA, HSTS and DNSSEC as
   observations with no action; admits only definitive-absent MTA-STS as a low
   actionable finding; and keeps the observed CSP `style-src 'unsafe-inline'`
   shape low/observation/no-action. These are candidate contracts, not Live facts;
-- developer-blocking CI has a measured 28.73-minute median and 30.10-minute p95;
-  this fails the current duration boundary and must be sharded without deleting
-  assurance;
+- the prior serial developer-blocking CI path measured a 28.73-minute median and
+  30.10-minute p95. PR #451 merged fail-closed sharding to `main` without deleting
+  assurance; natural cold/cache-miss proof, the required `main` timing sample set
+  and full release acceptance remain open;
 - two `scan_completed` rows for one scan exposed an open audit exactly-once and
   scan-owner scoping defect. Existing append-only rows remain untouched.
 - the preserved P1 audit measured a bidirectional false-conclusion inventory of
