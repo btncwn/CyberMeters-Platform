@@ -100,7 +100,7 @@ max_retries = 5
 [vars]
 # Human-readable release version, surfaced by GET /health. Bump on each
 # production release (date-based: YYYY.MM.DD).
-APP_VERSION = "2026.08.13-provisional-score-labeling.908048591c20"
+APP_VERSION = "2026.08.13-provisional-score-labeling.fceaad4d8f6a"
 # Planned-maintenance switch. "off" = normal. Set to "on" and redeploy to return
 # a clean 503 for every API route (except /health + /ready); flip back to "off"
 # and redeploy to lift. See docs/07-RELEASE-CHECKLIST.md → Maintenance mode.
