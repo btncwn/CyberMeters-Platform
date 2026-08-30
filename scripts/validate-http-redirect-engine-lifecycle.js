@@ -88,7 +88,7 @@ function seedOpenRedirectCondition(db) {
 
 // `httpMode` decides ONLY what http:// answers; https:// always serves a genuine
 // origin 200, so any difference is attributable to the redirect observation alone.
-async function trace(httpMode, { seed = false, deadlineMs = "19000" } = {}) {
+async function trace(httpMode, { seed = false, deadlineMs = "115000" } = {}) {
   const db = buildDb(); const store = new Map();
   const env = {
     cybermeters_db: makeD1(db), cybermeters_reports: makeR2(store),

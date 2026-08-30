@@ -879,6 +879,9 @@ function a2bPreviousReport() {
   };
 }
 
+const NOW = "2026-08-30T09:00:00.000Z";
+const A2B_COMPARABLE_NOW = "2026-08-30T09:30:00.000Z";
+
 const a2bDb = buildA2bDb();
 const a2bStore = new Map();
 const a2bEnv = {
@@ -1005,7 +1008,7 @@ try {
       "ws-a2b",
       "fixture.example",
       a2bEnv,
-      { executionContext: "waituntil", now: () => Date.parse("2026-08-30T09:00:00.000Z") },
+      { executionContext: "waituntil", now: () => Date.parse(NOW) },
     );
   } catch (error) {
     engineError = error;
@@ -1096,7 +1099,7 @@ try {
       "ws-a2b",
       "fixture.example",
       a2bEnv,
-      { executionContext: "waituntil", now: () => Date.parse("2026-08-30T09:30:00.000Z") },
+      { executionContext: "waituntil", now: () => Date.parse(A2B_COMPARABLE_NOW) },
     );
   } catch (error) {
     comparableEngineError = error;

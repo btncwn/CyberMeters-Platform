@@ -802,7 +802,8 @@ function runS4cxFrontendProbe(sandbox, mutation, mutated) {
     },
     maxBuffer: 32 * 1024 * 1024,
   });
-  const output = `${child.stdout || ""}${child.stderr || ""}`;
+  const rawOutput = `${child.stdout || ""}${child.stderr || ""}`;
+  const output = rawOutput.replace(/\u001B(?:[@-_]|\[[0-?]*[ -/]*[@-~])/g, "");
   const expectedFailure =
     "renders the real S4 certificate finding and never derives it from raw module diagnostics";
   const completed = child.status === 1 && !child.signal &&
