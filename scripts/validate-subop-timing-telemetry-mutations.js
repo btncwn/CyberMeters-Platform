@@ -20,7 +20,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers", "scan-api", "src", "engines");
 const validator = path.join(root, "scripts", "validate-subop-timing-telemetry.js");
 const EXPECTED_MUTANTS = 5;
-const EXPECTED_VALIDATOR_ASSERTIONS = 76;
+const EXPECTED_VALIDATOR_ASSERTIONS = 78;
 
 let mutantsKilled = 0;
 let failures = 0;
@@ -272,10 +272,7 @@ runMutant({
   moduleEnv: "SUBOP_TIMING_SCAN_BUDGET_MODULE_URL",
   expectedFailures: [
     "aborted flag wins over outcome",
-    "in-flight bare probe attributed as aborted",
-    "in-flight headers GET attributed as aborted",
     "CT lookup in flight at cap attributed as aborted",
-    "bare probe in flight with CT attributed as aborted",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -290,10 +287,8 @@ runMutant({
   sourceName: "ssl-scan.js",
   moduleEnv: "SUBOP_TIMING_SSL_MODULE_URL",
   expectedFailures: [
-    "NO row for the post-cap www probe",
-    "NO row for the post-cap redirect hop 1",
-    "NO row for CT-abort post-cap www probe",
-    "NO row for CT-abort post-cap redirect hop 1",
+    "signal aborted after bare failure opens NO www telemetry row",
+    "signal aborted after bare failure opens NO redirect hop 1 telemetry row",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,

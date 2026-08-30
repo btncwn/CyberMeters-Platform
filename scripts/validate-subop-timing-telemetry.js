@@ -51,7 +51,7 @@ const { runHeadersModule } = await eng("headers-scan.js");
 const { runSubdomainsModule } = await eng("subdomains-scan.js");
 const { createCertificateTransparencyCache } = await eng("ct-provider-cache.js");
 
-const EXPECTED_ASSERTIONS = 76;
+const EXPECTED_ASSERTIONS = 78;
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
 const eq = (n, g, w) => ok(n, g === w, `got ${JSON.stringify(g)} want ${JSON.stringify(w)}`);
@@ -401,6 +401,36 @@ const sslOpts = (extra = {}) => ({
   ok("NO row for CT-abort post-cap www probe", !("ssl.https_probe_www" in ctAbortBy));
   ok("NO row for CT-abort post-cap redirect hop 1", !("ssl.http_redirect_hop_1" in ctAbortBy));
   ok("NO row for CT-abort post-cap redirect hop 2", !("ssl.http_redirect_hop_2" in ctAbortBy));
+}
+
+// A fetch implementation can settle with an ordinary transport failure at the
+// same instant the module signal flips. safeFetch then returns null rather than a
+// control error, so the local begin gate remains the authority that prevents
+// telemetry rows for subsequent operations that never actually start.
+{
+  const controller = new AbortController();
+  const lateOrdinaryFailureFetch = async (url) => {
+    const u = String(url);
+    if (u.includes("crt.sh") || u.includes("certspotter")) return jsonResponse([]);
+    if (u === `https://${FIXTURE_DOMAIN}`) {
+      controller.abort("module_budget_exhausted");
+      throw new Error("ordinary transport failure after module abort");
+    }
+    throw new Error("post-cap transport call ignored abort signal");
+  };
+  const sub = createSubOperationTelemetry();
+  await withMockFetch(
+    () => runSslModule(FIXTURE_DOMAIN, {
+      ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch }),
+      signal: controller.signal,
+      accounting: { signal: controller.signal },
+      subOps: sub,
+    }),
+    lateOrdinaryFailureFetch,
+  );
+  const by = rowsByModule(sub.snapshotRows());
+  ok("signal aborted after bare failure opens NO www telemetry row", !("ssl.https_probe_www" in by));
+  ok("signal aborted after bare failure opens NO redirect hop 1 telemetry row", !("ssl.http_redirect_hop_1" in by));
 }
 
 // ── 7. Persistence: ONE bounded D1 batch, never a per-row await loop ────────
