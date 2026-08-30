@@ -153,7 +153,11 @@ const EXPECTED = Object.freeze({
     // .scan_quality directly. Runtime direct reads unchanged (90/34).
     // AS-B2 FINAL-REBASE SUCCESSION: counts remain 109/38; validator line
     // shifts only, with identical direct-read membership.
-    governance: { occurrence_count: 109, source_file_count: 38, fingerprint: "88f99ce3efaa8b966b58c4248e73de91504a3d9fa4b6a400bf2a5c8ff8f833bd" },
+    // C-a LOADER-ISOLATION SUCCESSION: counts UNCHANGED (109 across 38 files);
+    // only the fingerprint moves — the existing destructured scanQuality read in
+    // validate-website-security-lifecycle.js shifted 145 -> 161 under the authorised
+    // loader-isolation preamble. No read, site, path, count, SQL or comparison changed.
+    governance: { occurrence_count: 109, source_file_count: 38, fingerprint: "3330baa6596fd1be3fdddba4881f6d66921d734459f8944b6f04be1f9868a01c" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
