@@ -143,7 +143,7 @@ const NON_FINDING = new Set([
   // evidence_type values
   "dns_lookup", "dns_cross_check", "dnssec_lookup", "https_probe", "http_redirect_probe",
   "canonical_url_probe", "http_header_probe", "dns_mx_lookup", "dns_txt_lookup",
-  "certificate_transparency_observation", "supporting_infrastructure_observation",
+  "certificate_transparency", "certificate_transparency_observation", "supporting_infrastructure_observation",
   "http_fingerprint_observation", "http_probe", "whois", "self_attestation", "scan_findings",
   "technology_kev_correlation",
   "identity_discovery", "saas_exposure", "supporting_infrastructure_observation",

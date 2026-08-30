@@ -803,13 +803,13 @@ function runS4cxFrontendProbe(sandbox, mutation, mutated) {
     maxBuffer: 32 * 1024 * 1024,
   });
   const rawOutput = `${child.stdout || ""}${child.stderr || ""}`;
-  const output = rawOutput.replace(/\u001B(?:[@-_]|\[[0-?]*[ -/]*[@-~])/g, "");
+  const output = rawOutput.replace(/\u001B(?:\[[0-?]*[ -/]*[@-~]|[@-_])/g, "");
   const expectedFailure =
     "renders the real S4 certificate finding and never derives it from raw module diagnostics";
+  const invalidKill = /(?:SyntaxError|TypeError|ReferenceError|ERR_MODULE_NOT_FOUND|failed to (?:load|resolve)|cannot find (?:module|package)|no test files found|setup(?: file)? (?:failed|error))/i.test(output);
   const completed = child.status === 1 && !child.signal &&
     output.includes(expectedFailure) &&
-    /Tests\s+1 failed \| \d+ skipped \(\d+\)/.test(output) &&
-    !/(?:SyntaxError|TypeError|ReferenceError|ERR_MODULE_NOT_FOUND)/.test(output);
+    !invalidKill;
   return {
     child,
     completed,

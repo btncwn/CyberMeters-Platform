@@ -40,7 +40,7 @@ const presentation = await loadPresentationModule();
 const { buildScanCompletionPresentation, scanCompletionQualityDisclosure } = presentation;
 const { buildAssetAlertEmail } = await import(pathToFileURL(path.join(worker, "engines", "asset-alerts.js")).href);
 const { buildLifecycleEmail } = await import(pathToFileURL(path.join(worker, "lib", "lifecycle-email.js")).href);
-const { createNotificationsForDomain } = await import(pathToFileURL(path.join(worker, "lib", "events.js")).href);
+const { createNotificationsForDomain, scanCompletionAuditStatement } = await import(pathToFileURL(path.join(worker, "lib", "events.js")).href);
 
 let pass = 0;
 let fail = 0;
@@ -57,6 +57,32 @@ function assertNonCompleteCopy(label, copy, expectedLead) {
   ok(`${label}: score is explicitly provisional`, copy.message?.includes("Score: 95 (provisional)"), copy.message);
   ok(`${label}: description is explicitly provisional`, copy.description?.includes("score 95 (provisional)"), copy.description);
   ok(`${label}: unqualified risk band is suppressed`, !/excellent risk|risk excellent/i.test(`${copy.message} ${copy.description}`));
+}
+
+function captureScanCompletionAudit(scanQuality) {
+  let captured = null;
+  const env = {
+    cybermeters_db: {
+      prepare(sql) {
+        return {
+          bind(...args) {
+            captured = { sql, args };
+            return captured;
+          },
+        };
+      },
+    },
+  };
+  scanCompletionAuditStatement(env, {
+    workspace_id: "workspace_1",
+    scan_id: "scan_1",
+    domain: "example.com",
+    domain_id: "domain_1",
+    score: 95,
+    risk_level: "excellent",
+    scan_quality: scanQuality,
+  });
+  return captured;
 }
 
 // ── Canonical completion copy ───────────────────────────────────────────────
@@ -197,13 +223,19 @@ const lifecycleArgs = {
   const scanEngine = fs.readFileSync(path.join(worker, "engines", "scan-engine.js"), "utf8");
   const assetDelivery = fs.readFileSync(path.join(worker, "engines", "asset-alert-delivery.js"), "utf8");
   const lifecycle = fs.readFileSync(path.join(worker, "lib", "lifecycle-email.js"), "utf8");
+  const partialAudit = captureScanCompletionAudit("partial");
+  const expectedPartialAudit = buildScanCompletionPresentation({
+    domain: "example.com", score: 95, riskLevel: "excellent", scanQuality: "partial",
+  });
 
   ok("scan engine passes quality to asset email delivery",
     /sendAssetChangeAlert\([^)]*scanQuality\?\.status\)/.test(scanEngine));
   ok("scan engine passes quality to in-app notification delivery",
     /createNotificationsForDomain\([\s\S]{0,260}scanQuality\?\.status,\s*monitoringStates,\s*\)/.test(scanEngine));
-  ok("both scan-completed audit writes use canonical completion copy",
-    (scanEngine.match(/description:\s*completion\.description/g) || []).length === 2);
+  ok("atomic scan-completed audit writer uses canonical completion copy",
+    /scanCompletionAuditStatement\(env,\s*latch\.completion\)/.test(scanEngine) &&
+      /INSERT INTO audit_events/.test(partialAudit?.sql || "") &&
+      partialAudit?.args?.[3] === expectedPartialAudit.description);
   ok("first-scan lifecycle email receives the current scan quality",
     /lifecycle_first_scan_completed[\s\S]{0,120}scan_quality:\s*scanQuality\?\.status/.test(scanEngine));
   ok("asset initial and retry delivery read persisted scan quality",

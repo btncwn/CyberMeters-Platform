@@ -329,8 +329,10 @@ const allComplete = derive();
     /monitoring_states:\s+monitoringStates/.test(engine));
   ok("completed diagnostics reuse the identical provider snapshot",
     /const providerHealth = ctCache\.healthSnapshot\(\);[\s\S]{0,800}providerHealth,\s*\}\);/.test(engine));
-  ok("audit completion presentation receives canonical monitoring states",
-    /buildScanCompletionPresentation\(\{[\s\S]{0,220}monitoringStates,[\s\S]{0,30}\}\)/.test(engine));
+  ok("atomic audit completion presentation receives canonical monitoring states",
+    /monitoring_states:\s*report\?\.monitoring_states\s*\?\?\s*null/.test(engine) &&
+      /scanCompletionAuditStatement\(env,\s*latch\.completion\)/.test(engine) &&
+      /const completion = buildScanCompletionPresentation\(\{\s*domain,\s*score,\s*riskLevel: risk_level,\s*scanQuality: scan_quality,\s*monitoringStates: monitoring_states,\s*\}\);/.test(events));
   ok("in-app completion presentation receives canonical monitoring states",
     /createNotificationsForDomain\([\s\S]{0,240}scanQuality\?\.status,\s*monitoringStates,\s*\)/.test(engine) &&
       /buildScanCompletionPresentation\(\{[\s\S]{0,180}monitoringStates,[\s\S]{0,30}\}\)/.test(events));
