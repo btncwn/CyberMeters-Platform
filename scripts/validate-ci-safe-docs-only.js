@@ -27,13 +27,13 @@ const MUTATION_TARGET_FILES = Object.freeze([workflowPath, manifestPath, library
 // drift is the exact reviewed workflow byte set that wires this candidate's
 // five validators; after commit the ordinary HEAD equality path applies again.
 const REVIEWED_UNCOMMITTED_TARGET_SHA256 = Object.freeze(new Map([
-  [workflowPath, "b37e4cb62f83e5dd526b4cfc65653a5db3fb56ea3fc4aeb942120b19b9a67621"],
+  [workflowPath, "f149f462670a16df56948e335faba1da3e4469793bb847072ed165b7981cc0b4"],
   [manifestPath, "cf421dc0e3606d00a305f82e12652dffefc5d621c8dd8d83633e379d0a79e3c6"],
 ]));
 const EXPECTED_FIXTURES = 31;
-const EXPECTED_MUTANTS = 38;
-const EXPECTED_POLICY_ASSERTIONS = 21;
-const EXPECTED_ASSERTIONS = 105;
+const EXPECTED_MUTANTS = 48;
+const EXPECTED_POLICY_ASSERTIONS = 22;
+const EXPECTED_ASSERTIONS = 116;
 const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "df0cb5235350586371cc70a564833c218e8d6162c8ea5f945460638a68597352";
 
 const fixtureChild = process.argv.includes("--fixture-child");
@@ -508,7 +508,7 @@ const MUTANTS = [
       to: "\n  orphaned-validators:\n    if: false\n    runs-on: ubuntu-latest\n    steps:\n      - name: Mutant orphan carrier\n        run: node scripts/validate-regression-fixtures.js\n\n  sast:\n    runs-on: ubuntu-latest",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["jobs: exact scope + five shards + terminal validate + SAST set is pinned"],
+    expectedFailures: ["jobs: exact scope + five ordinary shards + hosted F004 matrix + terminal validate + SAST set is pinned"],
   },
   {
     name: "always-run step enters skip-list",
@@ -712,8 +712,8 @@ const MUTANTS = [
     }],
     childArgs: ["--policy-child"],
     expectedFailures: [
-      "anti-orphan: five shards are the exact executable 376-validator union",
-      "assignment: exact non-overlapping shard counts and ownership fingerprint are pinned",
+      "anti-orphan: six validator jobs are the exact executable 376-validator union",
+      "assignment: exact non-overlapping ordinary-shard and F004-matrix counts/fingerprint are pinned",
     ],
   },
   {
@@ -758,7 +758,7 @@ const MUTANTS = [
       to: "  validate_runtime_security:\n    name: validate / runtime-security\n    needs: sast",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["job graph: ci_scope and SAST are independent; every shard depends only on ci_scope"],
+    expectedFailures: ["job graph: ci_scope, SAST and F004 matrix are independent; every ordinary shard depends only on ci_scope"],
   },
   {
     name: "validation shard receives a job-level condition",
@@ -768,7 +768,7 @@ const MUTANTS = [
       to: "  validate_runtime_security:\n    name: validate / runtime-security\n    needs: ci_scope\n    if: false\n    runs-on: ubuntu-latest",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["job graph: ci_scope and SAST are independent; every shard depends only on ci_scope"],
+    expectedFailures: ["job graph: ci_scope, SAST and F004 matrix are independent; every ordinary shard depends only on ci_scope"],
   },
   {
     name: "validation shard governed install root drifts",
@@ -801,7 +801,7 @@ const MUTANTS = [
         .replace("run: node scripts/__ci_shard_swap_sentinel__.js", reportCommand);
     },
     childArgs: ["--policy-child"],
-    expectedFailures: ["assignment: exact non-overlapping shard counts and ownership fingerprint are pinned"],
+    expectedFailures: ["assignment: exact non-overlapping ordinary-shard and F004-matrix counts/fingerprint are pinned"],
   },
   {
     name: "runtime non-validator mutation carrier command drifts",
@@ -844,6 +844,109 @@ const MUTANTS = [
     expectedFailures: ["non-validator carriers: four exact commands remain unique, blocking and shard-owned"],
   },
   {
+    name: "F004 matrix loses one canonical shard index",
+    file: workflowPath,
+    replacements: [{
+      from: "        shard_index: [0, 1, 2, 3, 4, 5, 6]",
+      to: "        shard_index: [0, 1, 2, 3, 4, 5]",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["F004 hosted matrix: exact seven-way strategy, timeout, candidate checkout/guard and canonical command are pinned"],
+  },
+  {
+    name: "F004 matrix enables fail-fast",
+    file: workflowPath,
+    replacements: [{
+      from: "      fail-fast: false",
+      to: "      fail-fast: true",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["F004 hosted matrix: exact seven-way strategy, timeout, candidate checkout/guard and canonical command are pinned"],
+  },
+  {
+    name: "F004 matrix parallel ceiling drifts",
+    file: workflowPath,
+    replacements: [{
+      from: "      max-parallel: 7",
+      to: "      max-parallel: 6",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["F004 hosted matrix: exact seven-way strategy, timeout, candidate checkout/guard and canonical command are pinned"],
+  },
+  {
+    name: "F004 matrix timeout drifts",
+    file: workflowPath,
+    replacements: [{
+      from: "    timeout-minutes: 25",
+      to: "    timeout-minutes: 30",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["F004 hosted matrix: exact seven-way strategy, timeout, candidate checkout/guard and canonical command are pinned"],
+  },
+  {
+    name: "F004 matrix checkout is no longer pinned to github.sha",
+    file: workflowPath,
+    replacements: [{
+      from: "          ref: ${{ github.sha }}",
+      to: "          ref: ${{ github.ref }}",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["F004 hosted matrix: exact seven-way strategy, timeout, candidate checkout/guard and canonical command are pinned"],
+  },
+  {
+    name: "F004 matrix exact-head guard stops measuring HEAD",
+    file: workflowPath,
+    replacements: [{
+      from: "          actual_head=\"$(git rev-parse HEAD)\"",
+      to: "          actual_head=\"$EXPECTED_HEAD_SHA\"",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["F004 hosted matrix: exact seven-way strategy, timeout, candidate checkout/guard and canonical command are pinned"],
+  },
+  {
+    name: "F004 matrix canonical command narrows the shard total",
+    file: workflowPath,
+    replacements: [{
+      from: "        run: node scripts/validate-f004-recovery-instrumentation-mutations.js --shard-index \"${{ matrix.shard_index }}\" --shard-total 7",
+      to: "        run: node scripts/validate-f004-recovery-instrumentation-mutations.js --shard-index \"${{ matrix.shard_index }}\" --shard-total 6",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["F004 hosted matrix: exact seven-way strategy, timeout, candidate checkout/guard and canonical command are pinned"],
+  },
+  {
+    name: "F004 matrix becomes conditional",
+    file: workflowPath,
+    replacements: [{
+      from: "  validate_f004_recovery_mutations:\n    name: validate / f004-recovery-mutations (${{ matrix.shard_index }}/7)\n    runs-on: ubuntu-latest",
+      to: "  validate_f004_recovery_mutations:\n    name: validate / f004-recovery-mutations (${{ matrix.shard_index }}/7)\n    if: false\n    runs-on: ubuntu-latest",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: [
+      "F004 hosted matrix: exact seven-way strategy, timeout, candidate checkout/guard and canonical command are pinned",
+      "job graph: ci_scope, SAST and F004 matrix are independent; every ordinary shard depends only on ci_scope",
+    ],
+  },
+  {
+    name: "terminal validate omits the F004 matrix dependency",
+    file: workflowPath,
+    replacements: [{
+      from: "      - validate_integration_assurance\n      - validate_f004_recovery_mutations\n    runs-on: ubuntu-latest",
+      to: "      - validate_integration_assurance\n    runs-on: ubuntu-latest",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["terminal validate: always runs, explicitly needs scope + five shards + F004 matrix, and only success passes"],
+  },
+  {
+    name: "terminal validate stops consuming the F004 matrix result",
+    file: workflowPath,
+    replacements: [{
+      from: "          DATA_MIGRATIONS_RESULT: ${{ needs.validate_data_migrations.result == 'success' && needs.validate_f004_recovery_mutations.result == 'success' && 'success' || 'failure' }}",
+      to: "          DATA_MIGRATIONS_RESULT: ${{ needs.validate_data_migrations.result }}",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["terminal validate: always runs, explicitly needs scope + five shards + F004 matrix, and only success passes"],
+  },
+  {
     name: "terminal validate loses always semantics",
     file: workflowPath,
     replacements: [{
@@ -851,17 +954,17 @@ const MUTANTS = [
       to: "  validate:\n    name: validate\n    if: true",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["terminal validate: always runs, explicitly needs scope + five shards, and only success passes"],
+    expectedFailures: ["terminal validate: always runs, explicitly needs scope + five shards + F004 matrix, and only success passes"],
   },
   {
     name: "terminal validate omits one shard dependency",
     file: workflowPath,
     replacements: [{
-      from: "      - validate_frontend_build\n      - validate_integration_assurance\n    runs-on: ubuntu-latest",
-      to: "      - validate_frontend_build\n    runs-on: ubuntu-latest",
+      from: "      - validate_frontend_build\n      - validate_integration_assurance\n      - validate_f004_recovery_mutations\n    runs-on: ubuntu-latest",
+      to: "      - validate_frontend_build\n      - validate_f004_recovery_mutations\n    runs-on: ubuntu-latest",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["terminal validate: always runs, explicitly needs scope + five shards, and only success passes"],
+    expectedFailures: ["terminal validate: always runs, explicitly needs scope + five shards + F004 matrix, and only success passes"],
   },
   {
     name: "terminal validate accepts a non-success result",
@@ -871,7 +974,7 @@ const MUTANTS = [
       to: "            if [ \"$result\" = \"failure\" ]; then failed=1; fi",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["terminal validate: always runs, explicitly needs scope + five shards, and only success passes"],
+    expectedFailures: ["terminal validate: always runs, explicitly needs scope + five shards + F004 matrix, and only success passes"],
   },
   {
     name: "validation shard becomes non-blocking at job level",

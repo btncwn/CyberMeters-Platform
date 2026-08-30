@@ -31,6 +31,7 @@ import {
   ARM2_TIMEZONE_VALIDATOR_RUN,
   ARM2_TIMEZONE_VALIDATOR_STEP,
   EXPECTED_JOB_IDS,
+  F004_MATRIX_JOB_ID,
   TIMEZONE_VALIDATOR_RUN,
   TIMEZONE_VALIDATOR_STEP,
   VALIDATOR_SHARD_JOB_IDS,
@@ -54,6 +55,8 @@ ok("ci.yml defines the CI scope job", /^\s{2}ci_scope:/m.test(src));
 for (const jobId of VALIDATOR_SHARD_JOB_IDS) {
   ok(`ci.yml defines shard ${jobId}`, new RegExp(`^\\s{2}${jobId}:`, "m").test(src));
 }
+ok("ci.yml defines the hosted F004 recovery mutation matrix",
+   new RegExp(`^\\s{2}${F004_MATRIX_JOB_ID}:`, "m").test(src));
 ok("ci.yml defines the validate job", /^\s{2}validate:/m.test(src));
 ok("ci.yml defines the sast job", /^\s{2}sast:/m.test(src));
 

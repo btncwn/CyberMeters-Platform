@@ -1139,9 +1139,6 @@ jobs:
       - name: Validate F-004 recovery instrumentation (provider adapter + source identity + proof binding)
         run: node scripts/validate-f004-recovery-instrumentation.js
 
-      - name: Validate F-004 recovery instrumentation mutations
-        run: node scripts/validate-f004-recovery-instrumentation-mutations.js
-
       - name: Validate F-025/F-035 migration terminal convergence and fault handling
         run: node scripts/validate-f025-f035-migration-terminal.js
 
@@ -1747,6 +1744,41 @@ jobs:
 
 
 
+  validate_f004_recovery_mutations:
+    name: validate / f004-recovery-mutations (${{ matrix.shard_index }}/7)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 7
+      matrix:
+        shard_index: [0, 1, 2, 3, 4, 5, 6]
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require checkout to match exact candidate
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          actual_head="$(git rev-parse HEAD)"
+          if [ "$actual_head" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "::error::F004 matrix checkout drift: expected $EXPECTED_HEAD_SHA, got $actual_head"
+            exit 1
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+
+      - name: Run canonical F-004 recovery mutation shard
+        run: node scripts/validate-f004-recovery-instrumentation-mutations.js --shard-index "${{ matrix.shard_index }}" --shard-total 7
+
   validate:
     name: validate
     if: ${{ always() }}
@@ -1757,6 +1789,7 @@ jobs:
       - validate_data_migrations
       - validate_frontend_build
       - validate_integration_assurance
+      - validate_f004_recovery_mutations
     runs-on: ubuntu-latest
     steps:
       - name: Require every validation shard to pass
@@ -1764,7 +1797,7 @@ jobs:
           CI_SCOPE_RESULT: ${{ needs.ci_scope.result }}
           RUNTIME_SECURITY_RESULT: ${{ needs.validate_runtime_security.result }}
           REPORT_CX_RESULT: ${{ needs.validate_report_cx.result }}
-          DATA_MIGRATIONS_RESULT: ${{ needs.validate_data_migrations.result }}
+          DATA_MIGRATIONS_RESULT: ${{ needs.validate_data_migrations.result == 'success' && needs.validate_f004_recovery_mutations.result == 'success' && 'success' || 'failure' }}
           FRONTEND_BUILD_RESULT: ${{ needs.validate_frontend_build.result }}
           INTEGRATION_ASSURANCE_RESULT: ${{ needs.validate_integration_assurance.result }}
         run: |
