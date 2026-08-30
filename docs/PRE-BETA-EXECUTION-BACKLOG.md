@@ -20,6 +20,14 @@ The 30-August rescue operation is a bounded recovery of customer actionability,
 runtime reliability, CI duration and release/audit integrity. It is not a new
 feature programme and it does not erase the frozen item contracts below.
 
+**Founder conditional HOLD decision — RECORDED, NOT YET CONSUMED (30 August
+2026).** The bounded operating-model §3 pre-authorisation is preserved in the
+[append-only decision receipt](governance/2026-08-30-rescue/founder-conditional-hold-preauthorization-2026-08-30.md).
+It grants no current release, deploy, pilot or acceptance credit: every existing
+technical gate, the exact-candidate nine-condition Governance `ACCEPT`, rollback
+proof and the relevant staged live evidence remain mandatory. Production and
+customer/pilot `HOLD` remain active until their respective hard stage is green.
+
 Measured state:
 
 - recovery base `integration/audit-recovery-final-20260826 @ a970def2`; rescue
