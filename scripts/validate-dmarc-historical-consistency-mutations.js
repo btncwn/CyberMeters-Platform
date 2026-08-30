@@ -446,7 +446,8 @@ const mutants = [
         `    return Number.isFinite(observedAtMs) && Number.isFinite(expiresAtMs) &&
       expiresAtMs > observedAtMs && Number.isFinite(days) && Number.isInteger(days) && days >= 0 &&
       Math.abs(Math.floor((expiresAtMs - observedAtMs) / 86_400_000) - days) <= 1 &&
-      (Number(module.ct_sources?.crt_sh) > 0 || Number(module.ct_sources?.certspotter) > 0);`,
+      ((typeof crtShCount === "number" && crtShCount > 0) ||
+       (typeof certspotterCount === "number" && certspotterCount > 0));`,
         "    return true;",
       );
     },

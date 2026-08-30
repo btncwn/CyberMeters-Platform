@@ -18,7 +18,7 @@ const validator = path.join(root, "scripts", "validate-intelligence-page-present
 
 const EXPECTED_MUTANTS = 9;
 const EXPECTED_LEGACY_SURVIVORS = 2;
-const VALIDATOR_ASSERTIONS = 27;
+const VALIDATOR_ASSERTIONS = 28;
 const SUMMARY_PREFIX = "IntelligencePage presentation:";
 
 const AST_INVENTORY = "AST: assessment-critical field inventory is pinned across the local closure";

@@ -18,12 +18,13 @@ const targetFile = path.join(frontend, "src", "pages", "IntelligencePage.jsx");
 const frontendRequire = createRequire(path.join(frontend, "package.json"));
 const ts = frontendRequire("typescript");
 
-const EXPECTED_ASSERTIONS = 27;
+const EXPECTED_ASSERTIONS = 28;
 const UI_TEST_TITLES = Object.freeze([
   "A: partial raw excellent/99 with null canonical rating and score fails closed",
   "B: partial canonical provisional score remains visible with an explicit label",
   "C: complete authoritative canonical good assessment remains visible",
   "D: comparable true exposes canonical score and finding history",
+  "D2: unavailable DMARC is neutral not re-observed evidence and never Resolved",
   "E: comparable false suppresses every historical claim",
   "F1: null comparable fails closed",
   "F2: missing comparable fails closed",
