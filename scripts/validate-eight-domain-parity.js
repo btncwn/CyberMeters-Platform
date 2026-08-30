@@ -201,6 +201,14 @@ const cleanComplete = () => ({
 // ════ SECTION C — Per-domain healthy-eligibility matrix ════════════════════════
 
 const SCAN_DOMAINS = ["email_protection","brand_protection","attack_surface","certificates_trust","website_security","identity_exposure"];
+const ACTIONABLE_FIXTURES = Object.freeze({
+  email_protection: { id: "email_dmarc_missing", module: "email_security" },
+  brand_protection: { id: "brand_candidate_active", module: "brand_monitoring" },
+  attack_surface: { id: "admin_surface_critical", module: "admin_surface_detection" },
+  certificates_trust: { id: "certificate_expiring_soon", module: "certificate_intelligence" },
+  website_security: { id: "dse_hsts_short_maxage", module: "domain_security_enrichment" },
+  identity_exposure: { id: "identity_admin_login_exposed", module: "identity_discovery" },
+});
 for (const key of SCAN_DOMAINS) {
   const cfg = CYBER_MOT_DOMAINS.find((d) => d.domain_key === key);
   ok(`C ${key}: domain config has a non-empty required list`, Array.isArray(cfg?.required) && cfg.required.length > 0);
@@ -254,6 +262,41 @@ for (const key of SCAN_DOMAINS) {
       : CYBER_MOT_STATES.PROVISIONAL;
     ok(`C ${key}: partial-quality scan → ${expected}, never healthy`,
       s === expected && s !== HEALTHY, `got ${s}`);
+  }
+
+  // Explicit low, score-neutral findings are authoritative in every scan-evidenced
+  // domain. Severity never substitutes for the producer-owned finding type.
+  {
+    const fixture = ACTIONABLE_FIXTURES[key];
+    const row = {
+      ...fixture, finding_type: "finding", severity: "low", score_impact: 0,
+      recommendation: "Use the canonical remediation.",
+    };
+    const rep = withRequired();
+    rep.findings = [row];
+    const state = byKey(resolveCyberMotDomainStates(rep), key);
+    ok(`C ${key}: explicit low score-neutral finding owns issue state/count/identity`,
+      state.state === CYBER_MOT_STATES.ISSUE_DETECTED && state.coverage === "complete" &&
+      state.finding_count === 1 && JSON.stringify(state.finding_ids) === JSON.stringify([fixture.id]),
+      `got ${JSON.stringify(state)}`);
+
+    const incomplete = withRequired();
+    incomplete.modules[required[0]] = { incomplete: true, incomplete_reason: "focused_incomplete" };
+    incomplete.findings = [row];
+    const caveated = byKey(resolveCyberMotDomainStates(incomplete), key);
+    ok(`C ${key}: actionable finding stays positive-first under required-evidence failure`,
+      caveated.state === CYBER_MOT_STATES.ISSUE_DETECTED && caveated.coverage === "partial" &&
+      caveated.finding_count === 1 && JSON.stringify(caveated.finding_ids) === JSON.stringify([fixture.id]),
+      `got ${JSON.stringify(caveated)}`);
+
+    const observation = withRequired();
+    observation.findings = [{
+      ...fixture, finding_type: "observation", severity: "critical", score_impact: -100,
+    }];
+    const refused = byKey(resolveCyberMotDomainStates(observation), key);
+    ok(`C ${key}: critical explicit observation owns no issue/count/identity`,
+      refused.state !== CYBER_MOT_STATES.ISSUE_DETECTED && refused.finding_count === 0 &&
+      JSON.stringify(refused.finding_ids) === "[]", `got ${JSON.stringify(refused)}`);
   }
 }
 

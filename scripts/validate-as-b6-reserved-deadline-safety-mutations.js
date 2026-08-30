@@ -61,8 +61,8 @@ const mutants = [
   {
     id: "ASB6R-M-DEADLINE-ARM-REMOVED",
     file: "workers/scan-api/src/engines/scan-engine.js",
-    before: "    if (reservedMode) deadline.arm();",
-    after: "    if (reservedMode) void deadline;",
+    before: "    if (!durableInvocation && reservedMode) deadline.arm();",
+    after: "    if (!durableInvocation && reservedMode) void deadline;",
     expected: "ASB6R_ENGINE_WIRES_DEADLINE_ARM",
   },
   {

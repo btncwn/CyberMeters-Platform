@@ -20,6 +20,7 @@ import { latestOperationalEvent, readRecentOperationalEventCount, OPS_EVENT_TYPE
 export const OPS_THRESHOLDS = {
   stuck_scans: 3,             // scans stuck 'running' well past the ~15s completion
   failed_lifecycle_emails: 10, // undelivered lifecycle emails past auto-retry
+  lifecycle_emails_outcome_unknown: 1, // any stale provider-ambiguous lifecycle outcome
   failed_asset_alerts: 10,    // undelivered asset-change alerts
   overdue_deletions: 1,       // any deletion request past the 30-day window + buffer
 };
@@ -52,6 +53,19 @@ export async function computeOpsHealth(env) {
       sql: "SELECT COUNT(*) c FROM lifecycle_email_events WHERE status = 'failed' AND type != 'lifecycle_payment_failed'",
     },
     {
+      key: "lifecycle_emails_outcome_unknown",
+      label: "Lifecycle email outcomes requiring reconciliation",
+      sql: `SELECT COUNT(*) c
+            FROM lifecycle_email_events
+            WHERE type NOT IN ('lifecycle_payment_failed','lifecycle_weekly_digest')
+              AND created_at < datetime('now','-15 minutes')
+              AND (
+                status = 'sending'
+                OR (status = 'pending' AND COALESCE(error, '') != 'provider_not_started')
+                OR (status = 'failed' AND error IN ('timeout','network_error'))
+              )`,
+    },
+    {
       key: "failed_asset_alerts",
       label: "Undelivered asset-change alerts",
       sql: "SELECT COUNT(*) c FROM asset_alert_records WHERE status = 'failed'",
@@ -79,7 +93,8 @@ export async function computeOpsHealth(env) {
 
   // D1 reachability: if every signal was skipped, the database is likely down.
   const dbReachable = signals.some((s) => !s.skipped);
-  const healthy = dbReachable && signals.every((s) => !s.breached);
+  const outcomeUnknownReadable = signals.find((s) => s.key === "lifecycle_emails_outcome_unknown")?.skipped === false;
+  const healthy = dbReachable && outcomeUnknownReadable && signals.every((s) => !s.breached);
 
   return { healthy, dbReachable, signals };
 }
@@ -92,6 +107,7 @@ export function formatOpsHealthEmail(health, { version = "dev" } = {}) {
   if (health.healthy) return null;
 
   const breached = health.signals.filter((s) => s.breached);
+  const unavailable = health.signals.filter((s) => s.skipped);
   const lines = [];
   if (!health.dbReachable) {
     lines.push("• Database appears UNREACHABLE — every health query was skipped.");
@@ -99,8 +115,16 @@ export function formatOpsHealthEmail(health, { version = "dev" } = {}) {
   for (const s of breached) {
     lines.push(`• ${s.label}: ${s.count} (threshold ${s.threshold})`);
   }
+  if (health.dbReachable) {
+    for (const s of unavailable) lines.push(`• ${s.label}: query unavailable`);
+  }
 
-  const subject = `⚠️ CyberMeters ops health: ${!health.dbReachable ? "DB unreachable" : `${breached.length} check(s) breached`}`;
+  const issueCount = breached.length + unavailable.length;
+  const subject = `⚠️ CyberMeters ops health: ${!health.dbReachable
+    ? "DB unreachable"
+    : unavailable.length > 0
+      ? `${issueCount} check(s) require attention`
+      : `${breached.length} check(s) breached`}`;
   const text =
     `CyberMeters operational health check found issues (version ${version}):\n\n` +
     lines.join("\n") +

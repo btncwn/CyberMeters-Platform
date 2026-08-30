@@ -25,7 +25,12 @@ import { routeQueueBatch } from "../workers/scan-api/src/lib/operational-events.
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href);
 const { createModuleTelemetry, createOutboundAccounting, createScanDeadline, raceModuleDeadline, buildExecutionDiagnostics, makeDnsCache, SCAN_EXECUTION_DIAGNOSTICS_VERSION } = await eng("scan-budget.js");
-const { persistModuleTelemetry, heartbeatScan } = await eng("scan-engine.js");
+const {
+  cappedModuleCutoffProvenance,
+  heartbeatScan,
+  markPhysicalBudgetIncomplete,
+  persistModuleTelemetry,
+} = await eng("scan-engine.js");
 const { safeFetch } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "http.js")).href);
 const { dnsQuery } = await eng("dns.js");
 const { makeReservedProbeFetch } = await eng("reserved-probe.js");
@@ -172,6 +177,59 @@ function d1Stub({ fail = false } = {}) {
   eq("record carries timeout_source", telem.rows[0].timeout_source, "module_race");
   eq("allocated_ms defaults null", telem.rows[1].allocated_ms, null);
   eq("timeout_source defaults null", telem.rows[1].timeout_source, null);
+}
+
+// ── 9. raceModuleDeadline onStart reports the EXACT applied cap ──
+// ── 8b. Physical budget ownership survives a non-deadline outcome ───────
+{
+  const makeCtx = (issued) => {
+    let incompleteReason = null;
+    return {
+      physicalAttemptsIssued: () => issued,
+      markIncomplete: (reason) => { incompleteReason = reason; },
+      incompleteReason: () => incompleteReason,
+    };
+  };
+  const zeroCtx = makeCtx(0);
+  const zeroAttempt = markPhysicalBudgetIncomplete(
+    "known_exploited_vulnerabilities",
+    { source: "cisa_kev" },
+    zeroCtx,
+  );
+  const oneCtx = makeCtx(1);
+  const afterAttempt = markPhysicalBudgetIncomplete(
+    "cve_intelligence",
+    { source: "nvd_api" },
+    oneCtx,
+  );
+  const zeroSource = cappedModuleCutoffProvenance(zeroAttempt, false);
+  const afterSource = cappedModuleCutoffProvenance(afterAttempt, false);
+
+  eq("zero-attempt physical refusal is not disguised as deadline_exceeded",
+    zeroAttempt.outcome, "not_run");
+  eq("zero-attempt physical refusal owns subrequest_budget provenance",
+    zeroSource, "subrequest_budget");
+  eq("after-attempt physical refusal preserves issued count",
+    afterAttempt.physical_attempts_issued, 1);
+  eq("after-attempt physical refusal owns subrequest_budget provenance",
+    afterSource, "subrequest_budget");
+  eq("both physical refusal paths mark outbound accounting incomplete",
+    `${zeroCtx.incompleteReason()}:${oneCtx.incompleteReason()}`,
+    "subrequest_budget_exhausted:subrequest_budget_exhausted");
+
+  const telemetry = createModuleTelemetry(steppingClock());
+  telemetry.record("known_exploited_vulnerabilities", {
+    outcome: telemetry.outcomeOf(zeroAttempt),
+    timeout: false,
+    timeout_source: zeroSource,
+  });
+  telemetry.record("cve_intelligence", {
+    outcome: telemetry.outcomeOf(afterAttempt),
+    timeout: false,
+    timeout_source: afterSource,
+  });
+  ok("module telemetry keeps physical owner even when timeout flag is false",
+    telemetry.rows.every((row) => row.timeout === false && row.timeout_source === "subrequest_budget"));
 }
 
 // ── 9. raceModuleDeadline onStart reports the EXACT applied cap ──
@@ -839,13 +897,14 @@ function d1Stub({ fail = false } = {}) {
       "combineSignals(signal, accounting?.signal, timeoutSignal(timeoutMs))",
       "signal || accounting?.signal || timeoutSignal(timeoutMs)"
     ));
-  sourceGuard("B2 reserved mode arms deadline and binds every physical GET", engineSrc + "\n" + budgetSrc + "\n" + reservedProbeSrc,
-    (s) => /if \(reservedMode\) deadline\.arm\(\);/.test(s)
+  sourceGuard("B2 Queue/Cron entry or legacy reserved mode arms deadline and binds every physical GET", engineSrc + "\n" + budgetSrc + "\n" + reservedProbeSrc,
+    (s) => /if \(durableInvocation\) deadline\.arm\(\);/.test(s)
+      && /if \(!durableInvocation && reservedMode\) deadline\.arm\(\);/.test(s)
       && /deadline\.disarm\?\.\(\)/.test(s)
       && /recordAttempt: \(\) => \{ assertNotCancelled\(\)/.test(s)
       && /combineSignals\(opts\?\.signal, activeAccounting\?\.signal, AbortSignal\.timeout\(timeoutMs\)\)/.test(s)
       && !/not be treated as[\s\S]{0,120}B2 cancellation\/accounting guarantees/.test(s),
-    (s) => s.replace("if (reservedMode) deadline.arm();", "if (reservedMode) void deadline;"));
+    (s) => s.replace("if (durableInvocation) deadline.arm();", "if (durableInvocation) void deadline;"));
   const frontendFiles = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

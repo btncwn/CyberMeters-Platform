@@ -273,12 +273,18 @@ ok("SAN_B_F03", !fullOneInfo.executive_summary.attention_required.some((line) =>
   ok("SAN_B_F04", medium.status === "warning" && /suspicious/i.test(medium.summary));
 }
 {
-  const fields = certFields([riskSignal("certificate_expiring_critical", "critical"), infoSignal("wildcard_dns_detected")], "critical");
+  const fields = certFields([riskSignal("certificate_expiring_critical", "high"), infoSignal("wildcard_dns_detected")], "high");
   const section = sec(scorecardWith({ cmd: cmd("certificates_trust", "issue_detected"), cert: fields }), "Certificate Intelligence");
-  ok("SAN_B_F05", section.status === "critical" && Array.isArray(fields.risk_signals) &&
+  ok("SAN_B_F05", section.status === "warning" && Array.isArray(fields.risk_signals) &&
     fields.risk_signals.length === 1 && Array.isArray(fields.informational_observations) &&
     fields.informational_observations.length === 1 && fields.risk_signals.every((s) => s.severity !== "info") &&
     /1 suspicious signal/i.test(section.summary));
+}
+{
+  const fields = certFields([riskSignal("historical_critical_signal", "critical")], "critical");
+  const section = sec(scorecardWith({ cmd: cmd("certificates_trust", "issue_detected"), cert: fields }), "Certificate Intelligence");
+  ok("SAN_B_F24", section.status === "critical" && fields.risk_signals?.length === 1 &&
+    fields.risk_signals[0]?.severity === "critical" && /1 suspicious signal/i.test(section.summary));
 }
 ok("SAN_B_F06", [[], oneInfo, [riskSignal("medium"), ...oneInfo]].every((signals) =>
   certFields(signals).signals === signals.length));
@@ -330,6 +336,58 @@ ok("SAN_B_F12", benignProducer.certificate_risk_level === "low" &&
   emptyScorecard?.certificate_risks != null);
 ok("SAN_B_F13", benignProducer.certificate_risk_level === "low");
 ok("SAN_B_F14", benignProducer.certificate_risk_level === "low");
+
+const SCORECARD_EXPIRY_NOW_MS = Date.UTC(2026, 7, 30, 12, 0, 0);
+const scorecardExpiryNotAfter = (days, skewDays = 0) => new Date(
+  SCORECARD_EXPIRY_NOW_MS +
+    ((Number.isFinite(days) && days >= 0 ? days : 10) + 0.5 + skewDays) * 86_400_000,
+).toISOString();
+const expiryProducer = (days, notAfter = scorecardExpiryNotAfter(days)) => runCertificateIntelligenceModule({
+  ssl: {
+    https_available: true,
+    cert_expiry_days: days,
+    cert_not_after: notAfter,
+    cert_issuer: "Fixture CA",
+  },
+  subdomains: { items: [], sources: {} },
+}, "example.com", { nowMs: SCORECARD_EXPIRY_NOW_MS });
+const expirySignals = (days) => expiryProducer(days).suspicious_certificate_signals
+  .filter((signal) => signal.signal.startsWith("certificate_expir"));
+ok("certificate scorecard producer uses exact 13/14/29/30 boundaries",
+  expirySignals(13)[0]?.signal === "certificate_expiring_critical" &&
+    expirySignals(13)[0]?.severity === "high" &&
+    expirySignals(14)[0]?.signal === "certificate_expiring_soon" &&
+    expirySignals(14)[0]?.severity === "medium" &&
+    expirySignals(29)[0]?.signal === "certificate_expiring_soon" &&
+    expirySignals(30).length === 0);
+ok("certificate scorecard producer rejects unusable expiry values",
+  [-1, Number.NaN, null].every((days) => {
+    const result = expiryProducer(days);
+    return result.expiry_evidence === "not_usable" && expirySignals(days).length === 0;
+  }));
+ok("certificate scorecard producer rejects incoherent expiry pairs",
+  [
+    null,
+    "",
+    "not-a-date",
+    scorecardExpiryNotAfter(10, 2),
+    "2100-01-01T00:00:00Z",
+    "2026-08-29T12:00:00.000Z",
+  ].every((notAfter) => {
+    const result = expiryProducer(10, notAfter);
+    return result.expiry_evidence === "not_usable" &&
+      result.suspicious_certificate_signals.every((signal) =>
+        !signal.signal.startsWith("certificate_expir"));
+  }));
+ok("certificate scorecard producer carries exact CT-honest titles",
+  expirySignals(13)[0]?.title === "Logged certificate validity ends within 14 days" &&
+    expirySignals(14)[0]?.title === "Logged certificate validity ends within 30 days" &&
+    [expirySignals(13)[0], expirySignals(14)[0]].every((signal) =>
+      signal?.description?.includes("Certificate Transparency") &&
+      signal.description.includes("returned by the available Certificate Transparency source") &&
+      !signal.description.includes("No currently valid publicly logged certificate") &&
+      signal.description.includes("not inspected") &&
+      !signal.description.includes("service outage")));
 
 const snapshotSource = fs.readFileSync(REPORT_SNAPSHOT, "utf8");
 ok("SAN_B_F15", !/\b(?:risk_signals|informational_observations)\b/.test(snapshotSource));
@@ -479,7 +537,7 @@ const candidateBMutants = [
   },
   {
     id: "SAN_B_M04",
-    expected: ["SAN_B_F04", "SAN_B_F05"],
+    expected: ["SAN_B_F04", "SAN_B_F24"],
     mutateScorecard: (source) => replaceOne(
       replaceOne(source,
         'const CERTIFICATE_RISK_SEVERITIES = new Set(["critical", "high", "medium"]);',
@@ -518,7 +576,7 @@ const candidateBMutants = [
   },
   {
     id: "SAN_B_M09",
-    expected: ["SAN_B_F05"],
+    expected: ["SAN_B_F24"],
     mutateScorecard: (source) => replaceOne(source,
       "const riskSignalsValid = Array.isArray(cr.risk_signals) &&\n    cr.risk_signals.every(isCertificateRiskSignal);",
       "const riskSignalsValid = Array.isArray(cr.risk_signals) &&\n    cr.risk_signals.every((signal) => ['high', 'medium'].includes(signal?.severity));", "SAN_B_M09"),

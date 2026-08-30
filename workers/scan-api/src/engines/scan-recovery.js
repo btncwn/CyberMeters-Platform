@@ -27,7 +27,7 @@
 // terminal `failed` status, a canonical machine reason, a customer-honest
 // message, and one append-only audit event per actual transition.
 
-import { createAuditEvent } from "../lib/events.js";
+import { createAuditEvent, scanCompletionAuditStatement } from "../lib/events.js";
 
 // Non-terminal statuses recovery may touch. Deliberately widened for PR-3A
 // (durable Queue dispatch) — NEVER by importing SCAN_ACTIVE_STATUSES (that is
@@ -119,7 +119,7 @@ export async function recoverInterruptedScans(env, { now = Date.now() } = {}) {
     // ── Class 1: terminal R2 report — converge D1, never overwrite R2 ──────
     if (isTerminalReport(raw)) {
       try {
-        const res = await env.cybermeters_db
+        const updateStatement = env.cybermeters_db
           .prepare(
             `UPDATE scans SET status = ?, score = ?, rating = ?, scan_quality = ?
               WHERE id = ? AND status IN (${statusPlaceholders})`
@@ -131,9 +131,27 @@ export async function recoverInterruptedScans(env, { now = Date.now() } = {}) {
             raw.scan_quality?.status ?? null,
             s.id,
             ...RECOVERY_ACTIVE_STATUSES
-          )
-          .run();
-        if ((res?.meta?.changes ?? 0) > 0) summary.converged_from_r2++;
+          );
+        let updateResult;
+        if (raw.status === "completed") {
+          const results = await env.cybermeters_db.batch([
+            updateStatement,
+            scanCompletionAuditStatement(env, {
+              workspace_id: s.workspace_id ?? null,
+              scan_id: s.id,
+              domain: raw.domain ?? s.domain ?? null,
+              domain_id: raw.domain_id ?? s.domain_id ?? null,
+              score: raw.cyber_metrics_score ?? null,
+              risk_level: raw.risk_level ?? null,
+              scan_quality: raw.scan_quality?.status ?? null,
+              monitoring_states: raw.monitoring_states ?? null,
+            }),
+          ]);
+          updateResult = results?.[0];
+        } else {
+          updateResult = await updateStatement.run();
+        }
+        if ((updateResult?.meta?.changes ?? 0) > 0) summary.converged_from_r2++;
         else summary.skipped++;
       } catch { summary.skipped++; }
       continue;

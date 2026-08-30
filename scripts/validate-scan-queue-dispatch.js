@@ -719,6 +719,11 @@ ok("E2e custom-domain route and cron unchanged",
 ok("E4 scan-dispatch module performs no INSERT INTO scans",
   !fs.readFileSync(srcPath("engines", "scan-dispatch.js"), "utf8").includes("INSERT INTO scans"));
 
+ok("E4b replay/claim-lost dispatch path owns no scan_completed audit writer",
+  !/scan_completed|scanCompletionAuditStatement/.test(
+    fs.readFileSync(srcPath("engines", "scan-dispatch.js"), "utf8")
+  ));
+
 // E5 — producer source order: the queue branch returns BEFORE the waitUntil
 // path's scan_started audit (scan_started is consumer-owned in queue mode).
 {

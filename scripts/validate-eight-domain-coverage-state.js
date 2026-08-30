@@ -71,6 +71,10 @@ const cleanComplete = () => ({
   const r = resolveCyberMotDomainStates(cleanComplete());
   ok("5: email/attack/website/certs assessed_healthy on clean complete scan",
     ["email_protection","attack_surface","website_security","certificates_trust"].every((k) => byKey(r, k).state === HEALTHY));
+  const website = byKey(r, "website_security");
+  ok("5: clean complete Website base control has no finding authority",
+    website.state === HEALTHY && website.coverage === "complete" &&
+    website.finding_count === 0 && JSON.stringify(website.finding_ids) === "[]");
   ok("5: Identity without a supported reachability producer is evidence_insufficient, never healthy",
     byKey(r, "identity_exposure").state === CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT &&
     /not evaluated|producer/i.test(byKey(r, "identity_exposure").summary));
@@ -83,7 +87,7 @@ const cleanComplete = () => ({
 // 6. Complete + a finding → correct domain issue_detected.
 {
   const rep = cleanComplete();
-  rep.findings = [{ id: "email_dmarc_missing", severity: "high", module: "email_security", recommendation: "Add DMARC" }];
+  rep.findings = [{ id: "email_dmarc_missing", finding_type: "finding", severity: "high", score_impact: -8, module: "email_security", recommendation: "Add DMARC" }];
   const r = resolveCyberMotDomainStates(rep);
   ok("6: finding maps to the correct domain (email) as issue_detected",
     byKey(r, "email_protection").state === CYBER_MOT_STATES.ISSUE_DETECTED && byKey(r, "email_protection").finding_count === 1 && byKey(r, "email_protection").highest_severity === "high");
@@ -94,7 +98,7 @@ const cleanComplete = () => ({
 {
   const rep = cleanComplete();
   rep.scan_quality = { status: "partial", warnings: ["Core module incomplete: headers"], modules_skipped: ["headers"] };
-  rep.findings = [{ id: "email_dmarc_missing", severity: "high", module: "email_security" }];
+  rep.findings = [{ id: "email_dmarc_missing", finding_type: "finding", severity: "high", score_impact: -8, module: "email_security" }];
   const r = resolveCyberMotDomainStates(rep);
   ok("7: partial scan keeps the real finding visible (issue_detected, coverage partial)",
     byKey(r, "email_protection").state === CYBER_MOT_STATES.ISSUE_DETECTED && byKey(r, "email_protection").coverage === "partial");
@@ -134,13 +138,81 @@ const cleanComplete = () => ({
   ok("11: absent report → all not_yet_assessed, none healthy", r.length === 8 && r.every((x) => x.state !== HEALTHY));
 }
 
-// 12. Email DKIM common-selector uncertainty stays informational (info severity ignored).
+// 12. Email DKIM common-selector uncertainty stays an explicit observation.
 {
   const rep = cleanComplete();
-  rep.findings = [{ id: "dkim_not_verified", severity: "info", module: "email_security" }];
+  rep.findings = [{ id: "dkim_not_verified", finding_type: "observation", severity: "info", score_impact: 0, module: "email_security" }];
   const r = resolveCyberMotDomainStates(rep);
   ok("12: DKIM common-selector info finding does not force issue_detected",
     byKey(r, "email_protection").state === HEALTHY);
+}
+
+// 12b. Explicit actionability, not severity, owns the positive-first state.
+{
+  const hsts = {
+    id: "dse_hsts_short_maxage", finding_type: "finding", severity: "low",
+    score_impact: 0, module: "domain_security_enrichment", recommendation: "Increase HSTS max-age.",
+  };
+  const complete = cleanComplete();
+  complete.findings = [hsts];
+  const completeWebsite = byKey(resolveCyberMotDomainStates(complete), "website_security");
+  ok("12b: low score-neutral actionable Website finding owns complete issue state and identity",
+    completeWebsite.state === CYBER_MOT_STATES.ISSUE_DETECTED &&
+    completeWebsite.coverage === "complete" && completeWebsite.finding_count === 1 &&
+    JSON.stringify(completeWebsite.finding_ids) === '["dse_hsts_short_maxage"]' &&
+    completeWebsite.highest_severity === "low");
+
+  const partial = cleanComplete();
+  partial.scan_quality = { status: "partial", warnings: [], modules_skipped: [] };
+  partial.findings = [hsts];
+  const partialWebsite = byKey(resolveCyberMotDomainStates(partial), "website_security");
+  ok("12b: actionable finding outranks global partial while retaining the coverage caveat",
+    partialWebsite.state === CYBER_MOT_STATES.ISSUE_DETECTED &&
+    partialWebsite.coverage === "partial" && partialWebsite.finding_count === 1 &&
+    JSON.stringify(partialWebsite.finding_ids) === '["dse_hsts_short_maxage"]');
+
+  const incomplete = cleanComplete();
+  incomplete.modules.headers = { incomplete: true, incomplete_reason: "origin_error_no_serviceable_response" };
+  incomplete.findings = [hsts];
+  const incompleteWebsite = byKey(resolveCyberMotDomainStates(incomplete), "website_security");
+  ok("12b: actionable finding outranks required-evidence failure while retaining identity",
+    incompleteWebsite.state === CYBER_MOT_STATES.ISSUE_DETECTED &&
+    incompleteWebsite.coverage === "partial" && incompleteWebsite.finding_count === 1 &&
+    JSON.stringify(incompleteWebsite.finding_ids) === '["dse_hsts_short_maxage"]');
+
+  const observation = cleanComplete();
+  observation.findings = [{
+    id: "csp_weak_policy", finding_type: "observation", severity: "critical",
+    score_impact: -100, module: "headers",
+  }];
+  const observationWebsite = byKey(resolveCyberMotDomainStates(observation), "website_security");
+  ok("12b: critical explicit observation cannot own issue state, count or identity",
+    observationWebsite.state === HEALTHY && observationWebsite.finding_count === 0 &&
+    JSON.stringify(observationWebsite.finding_ids) === "[]");
+}
+
+// 12c. Finding-free evidence coverage keeps the canonical absence/failure/partial ladder.
+{
+  const absent = cleanComplete();
+  delete absent.modules.headers;
+  const absentWebsite = byKey(resolveCyberMotDomainStates(absent), "website_security");
+  ok("12c: absent required evidence stays not_yet_assessed",
+    absentWebsite.state === CYBER_MOT_STATES.NOT_YET_ASSESSED && absentWebsite.finding_count === 0);
+
+  const incomplete = cleanComplete();
+  incomplete.modules.headers = { incomplete: true, incomplete_reason: "origin_error_no_serviceable_response" };
+  const incompleteWebsite = byKey(resolveCyberMotDomainStates(incomplete), "website_security");
+  ok("12c: attempted incomplete evidence stays evidence_insufficient/degraded with exact reason",
+    incompleteWebsite.state === CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT &&
+    incompleteWebsite.coverage === "degraded" && incompleteWebsite.finding_count === 0 &&
+    /origin error no serviceable response/.test(incompleteWebsite.summary));
+
+  const partial = cleanComplete();
+  partial.scan_quality = { status: "partial", warnings: [], modules_skipped: [] };
+  const partialWebsite = byKey(resolveCyberMotDomainStates(partial), "website_security");
+  ok("12c: assessed finding-free partial evidence stays provisional with backend quality",
+    partialWebsite.state === CYBER_MOT_STATES.PROVISIONAL &&
+    partialWebsite.coverage === "partial" && partialWebsite.finding_count === 0);
 }
 
 // 13. Brand watchlist-only candidates (no material finding) do not become active abuse.
@@ -205,7 +277,7 @@ const cleanComplete = () => ({
 // 18. Identity — maps spoofing/login evidence; no breach/dark-web claim in copy.
 {
   const rep = cleanComplete();
-  rep.findings = [{ id: "identity_admin_login_exposed", severity: "medium", module: "identity_discovery" }];
+  rep.findings = [{ id: "identity_admin_login_exposed", finding_type: "finding", severity: "medium", score_impact: 0, module: "identity_discovery" }];
   const r = resolveCyberMotDomainStates(rep);
   const idn = byKey(r, "identity_exposure");
   ok("18: identity finding maps to identity_exposure issue_detected", idn.state === CYBER_MOT_STATES.ISSUE_DETECTED);

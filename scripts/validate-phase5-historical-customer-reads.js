@@ -33,7 +33,7 @@ const { buildScanReportPdf, buildWorkspaceExecutivePdf } = await eng("pdf.js");
 const { buildScorecardData } = await eng("scorecard.js");
 const { computePortfolioDomainRows } = await eng("portfolio-domains.js");
 const { getCurrentPosturePresentation } = await eng("current-posture.js");
-const { runHistoricalModule } = await eng("historical-scan.js");
+const { reconcileLateFindings, runHistoricalModule } = await eng("historical-scan.js");
 const { scanRoutes } = await route("scans.js");
 const { executiveDashboardRoutes } = await route("executive-dashboard.js");
 const { CYBER_MOT_DOMAIN_KEYS } = await eng("cyber-mot-state-history.js");
@@ -631,6 +631,95 @@ const historical = await runHistoricalModule(
 eq("C23 missing legacy Phase-5 cannot anchor historical score", historical.previous_score, null);
 eq("C24 missing legacy Phase-5 cannot produce score delta", historical.score_change, null);
 
+const previousMtaFinding = {
+  id: "email_intel_mta_sts_missing",
+  module: "email_security_intelligence",
+  severity: "low",
+  title: "MTA-STS policy not published",
+};
+const previousKevFinding = {
+  id: "kev_previous",
+  module: "known_exploited_vulnerabilities",
+  severity: "high",
+  title: "Previously exploited vulnerability",
+};
+const previousCloudFinding = {
+  id: "cloud_previous",
+  module: "cloud_asset_observation",
+  severity: "medium",
+  title: "Previously observed cloud exposure",
+};
+const lateBaseline = {
+  has_previous: true,
+  new_findings: [],
+  resolved_findings: [],
+  not_reobserved_findings: [],
+};
+Object.defineProperty(lateBaseline, "_previous_findings", {
+  value: [previousMtaFinding, previousKevFinding, previousCloudFinding],
+  enumerable: false,
+});
+const mtaPresent = {
+  executed: true,
+  incomplete: false,
+  mta_sts: {
+    observation_state: "present",
+    status_code: 200,
+    reason: "origin_response",
+    serviceability: { serviceable: true, conclusion_class: "conclusive" },
+  },
+};
+const mtaUnavailable = {
+  executed: true,
+  incomplete: false,
+  mta_sts: {
+    observation_state: "unavailable",
+    status_code: 503,
+    reason: "http_5xx",
+    serviceability: { serviceable: false, conclusion_class: "evidence_insufficient" },
+  },
+};
+const latePresent = reconcileLateFindings(lateBaseline, [], {
+  email_security_intelligence: mtaPresent,
+  known_exploited_vulnerabilities: completedKev(),
+  cloud_asset_observation: deferred({ observations: [] }),
+});
+ok("C25 late MTA present observation resolves a prior definitive-absence finding",
+  latePresent.resolved_findings.some((finding) => finding.id === previousMtaFinding.id));
+ok("C26 completed KEV remains governed by the generic producer reconciliation law",
+  latePresent.resolved_findings.some((finding) => finding.id === previousKevFinding.id));
+ok("C27 deferred cloud evidence is not re-observed or called resolved",
+  latePresent.not_reobserved_findings.some((finding) => finding.id === previousCloudFinding.id) &&
+  !latePresent.resolved_findings.some((finding) => finding.id === previousCloudFinding.id));
+ok("C28 private previous rows remain absent from customer JSON after reconciliation",
+  !Object.keys(latePresent).includes("_previous_findings") &&
+  !JSON.stringify(latePresent).includes("_previous_findings"));
+
+const lateUnavailable = reconcileLateFindings(lateBaseline, [], {
+  email_security_intelligence: mtaUnavailable,
+  known_exploited_vulnerabilities: completedKev(),
+  cloud_asset_observation: deferred({ observations: [] }),
+});
+ok("C29 unavailable MTA evidence keeps the prior finding not re-observed",
+  lateUnavailable.not_reobserved_findings.some((finding) => finding.id === previousMtaFinding.id) &&
+  !lateUnavailable.resolved_findings.some((finding) => finding.id === previousMtaFinding.id));
+
+const latePersistent = reconcileLateFindings(lateBaseline, [previousMtaFinding], {
+  email_security_intelligence: mtaUnavailable,
+});
+ok("C30 persistent late MTA rows are neither new, resolved nor not-reobserved",
+  [
+    ...latePersistent.new_findings,
+    ...latePersistent.resolved_findings,
+    ...latePersistent.not_reobserved_findings,
+  ].every((finding) => finding.id !== previousMtaFinding.id));
+ok("C31 late reconciliation is pure and leaves its input arrays untouched",
+  lateBaseline.new_findings.length === 0 && lateBaseline.resolved_findings.length === 0 &&
+  lateBaseline.not_reobserved_findings.length === 0);
+ok("C32 a legacy result without private baseline never invents transition state",
+  reconcileLateFindings({ has_previous: true, new_findings: [] }, [previousMtaFinding], {})
+    .new_findings.length === 0);
+
 console.log("── D. sanitised read-only attribution reducer ──");
 const attributionRows = [
   ...Array.from({ length: 16 }, () => ({
@@ -839,7 +928,7 @@ for (const mutation of mutations) {
 ok(`E1 all ${EXPECTED_MUTANTS} pinned mutants killed`,
   killed === EXPECTED_MUTANTS, `${killed}/${EXPECTED_MUTANTS}`);
 
-const EXPECTED_ASSERTIONS = 61;
+const EXPECTED_ASSERTIONS = 69;
 if (assertions !== EXPECTED_ASSERTIONS) {
   failed += 1;
   console.error(`FAIL assertion pin — expected ${EXPECTED_ASSERTIONS}, executed ${assertions}`);

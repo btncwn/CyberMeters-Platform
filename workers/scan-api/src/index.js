@@ -1132,6 +1132,10 @@ const WORKSPACE_PURGE_TABLES = [
   "cyber_essentials_answers",
   "workspace_brs_scores", "workspace_brs_score_history",
   "workspace_supply_chain_scores", "workspace_supply_chain_history",
+  // Internal operational ledger rows may be platform-level (workspace_id NULL)
+  // or tenant-owned. Purge only the latter for the selected workspace; platform
+  // observability rows remain outside the workspace deletion boundary.
+  "operational_events",
   "alert_deliveries", "alert_activation", "notification_events", "notification_preferences",
   "report_schedule_runs", "report_schedules", "scheduled_reports",
   "workspace_invitations", "workspace_members", "workspace_retention_settings",

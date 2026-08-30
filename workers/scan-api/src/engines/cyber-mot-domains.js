@@ -2,6 +2,7 @@ import { DMARC_MOT_CONTRIBUTION } from "./dmarc-canonical-consumers.js";
 import { resolveSignalMonitoringCoverage } from "./signal-monitoring-state.js";
 import { isCookieFindingType } from "./cookie-observation.js";
 import { hasIdentityReachabilityProducer } from "./identity-evidence-contract.js";
+import { isActionableFinding } from "./findings.js";
 import {
   projectTlsFindingsForCustomer,
   resolveTlsRuntimeState,
@@ -74,7 +75,13 @@ import {
 // `2026-08-12.1`: a valid canonical DMARC policy conclusion outranks stale
 // lookup/core degradation markers from the same frozen evidence. The version
 // boundary prevents that definition correction reading as customer change.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-08-22.1";
+// `2026-08-30.1`: evidence-admission attribution moves CAA to Certificates &
+// Trust and HSTS/CSP to Website Security without changing the global materiality
+// or precedence rules. Cross-version trends therefore remain incomparable.
+// `2026-08-30.2`: explicit finding authority replaces severity as the domain-state
+// admission boundary. Low actionable findings remain visible and observations can
+// never own issue state merely because their presentation severity is high.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-08-30.2";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -123,7 +130,6 @@ export const CYBER_MOT_STATES = Object.freeze({
 });
 
 const SEV_RANK = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
-const materialSeverity = (s) => (SEV_RANK[String(s || "").toLowerCase()] ?? 0) >= 2; // medium+
 
 // Fixed domain order + honest metadata. `modules` = report.modules keys that
 // materially assess this domain. `match(finding)` attributes an authoritative
@@ -157,8 +163,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     required: ["subdomains", "dns"],
     monitoring_signals: ["certificate_transparency"],
     monitoring_degradation_message: "Attack-surface and subdomain discovery coverage was incomplete this run.",
-    match: (f) => !isCookieFindingType(f?.id)
-      && /^(asset_|subdomain_|admin_|takeover_|exposure_|dse_|cve_|kev_|cloud_|dns_)/.test(f?.id || ""),
+    match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_)/.test(f?.id || ""),
     maturity: "M3", managed_status: "managed_case",
     limitations: ["External observation only; no internal-network discovery. Subdomain coverage depends on public Certificate Transparency logs."],
   },
@@ -169,7 +174,9 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     modules: ["certificate_intelligence"],
     required: ["certificate_intelligence"],
     monitoring_signals: ["certificate_transparency"],
-    match: (f) => /^(cert_|certificate_)/.test(f.id || "") || f.module === "certificate_intelligence",
+    match: (f) => /^(cert_|certificate_)/.test(f.id || "")
+      || ["dse_missing_caa", "dse_caa_no_issuers"].includes(f?.id)
+      || f.module === "certificate_intelligence",
     maturity: "M2", managed_status: "recommendations",
     limitations: ["Analysis is based on Certificate Transparency logs. Chain validity, root trust, OCSP and revocation status are not checked and remain unknown."],
   },
@@ -191,7 +198,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     modules: ["headers", "ssl", "dns"],
     required: ["headers", "ssl"],
     match: (f) => isCookieFindingType(f?.id)
-      || /^(header_|https_|redirect_|canonical_|ssl_|tech_)/.test(f?.id || ""),
+      || /^(csp_|dse_hsts_|header_|https_|redirect_|canonical_|ssl_|tech_)/.test(f?.id || ""),
     maturity: "M2", managed_status: "recommendations",
     limitations: ["Passive external check only; no active, authenticated or intrusive testing."],
   },
@@ -401,7 +408,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     const requiredInsufficient = required.filter((n) => moduleAttempted(report, n, skippedSet));
     const anyRequiredInsufficient = requiredInsufficient.length > 0;
 
-    const domainFindings = findings.filter((f) => materialSeverity(f.severity) && d.match(f));
+    const domainFindings = findings.filter((f) => isActionableFinding(f) && d.match(f));
     base.finding_count = domainFindings.length;
     base.evidence_count = assessed.length;
     base.finding_ids = [...new Set(domainFindings.map((f) => f.id).filter(Boolean))].sort();

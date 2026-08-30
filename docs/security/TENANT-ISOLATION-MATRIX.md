@@ -11,12 +11,12 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 92
-- **classified:** 92
-- **tenant owned tables:** 88
+- **schema tables:** 93
+- **classified:** 93
+- **tenant owned tables:** 89
 - **infra or identity tables:** 4
 - **unclassified:** 0
-- **resource classes:** 32
+- **resource classes:** 33
 - **classes with dynamic coverage:** 17
 
 ## The 12 invariants
@@ -66,6 +66,7 @@ data cannot be silently omitted.
 | report_branding | reporting | direct(workspace_id), account(owner_user_id) | 2 | — | — |
 | msp_portfolio | portfolio | account(owner_id) | 1 | — | — |
 | audit_log | core | direct(workspace_id) | 1 | ✓ | — |
+| operational_observability | infra | direct(workspace_id) | 1 | — | — |
 | deletion_lifecycle | core | direct(workspace_id) | 3 | — | — |
 | auth_sessions | auth | user(user_id) | 3 | — | — |
 | infrastructure ⁿᵗ | infra | infra | 3 | — | — |
@@ -88,6 +89,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 - **api_tokens:** workspace_id + user_id scoped; account route ownership-gated
 - **report_branding:** workspace_branding is workspace_id-scoped (per-workspace co-brand logo); msp_branding_profiles is owner_user_id-scoped (MSP white-label profile, usable only for the MSP's own portfolio); isolation proven by validate-report-branding-v2 + the static audit; logos stored in R2 under tenant-prefixed, content-addressed keys
 - **msp_portfolio:** owner_id (MSP account) scoped; cross-MSP isolation proven by validate-portfolio + validate-msp-portfolio-domains
+- **operational_observability:** internal-only operational event producer/read contract; safe fields, idempotency, readiness and fail-closed behavior proven by F-027; workspace-owned rows are hard-purged by validate-purge-completeness while platform-level NULL rows remain
 - **deletion_lifecycle:** workspace/user-scoped lifecycle; purge-completeness proven by validate-purge-completeness
 - **auth_sessions:** per-user auth material; token-hash keyed; not a workspace resource — covered by validate-security-contracts
 - **infrastructure:** global infrastructure — holds no tenant data
@@ -146,6 +148,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `notification_events` | direct(workspace_id) | notifications |
 | `notification_preferences` | direct(workspace_id) | notifications |
 | `oauth_states` | infra | infrastructure |
+| `operational_events` | direct(workspace_id) | operational_observability |
 | `password_reset_tokens` | user(user_id) | auth_sessions |
 | `portfolio_risk_snapshots` | account(owner_id) | msp_portfolio |
 | `related_change_evidence` | direct(workspace_id) | related_changes |

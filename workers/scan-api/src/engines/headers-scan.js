@@ -91,12 +91,100 @@ function detectBotProtection(statusCode, responseUrl, headerMap) {
  *
  * Criteria (v4 — Sprint: Scanner Accuracy Validation v4):
  *   HSTS:                 valid if max-age >= 15,552,000 (180d); weak if 0 < max-age < 180d; malformed if unparsable
- *   CSP:                  valid if present and no obvious dangerous directives; weak if contains unsafe-inline / wildcard-only
+ *   CSP:                  directive-scoped; script/default danger is actionable, style-only danger is observational
  *   X-Frame-Options:      valid if DENY or SAMEORIGIN; malformed otherwise
  *   X-Content-Type-Options: valid if nosniff; malformed otherwise
  *   Referrer-Policy:      valid if strict value; weak if unsafe-url or no-referrer-when-downgrade
  *   Permissions-Policy:   valid if present (content-agnostic); unknown if cannot validate
  */
+export function classifyCspPolicy(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return {
+      status: "unknown",
+      classification: "unparseable",
+      parsed: false,
+      actionable_weakness: false,
+      style_only_weakness: false,
+      dangerous_directives: [],
+      details: "CSP present but value is empty",
+    };
+  }
+
+  const directives = new Map();
+  for (const segment of raw.split(";")) {
+    const parts = segment.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) continue;
+    const [name, ...tokens] = parts;
+    if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+      return {
+        status: "malformed",
+        classification: "unparseable",
+        parsed: false,
+        actionable_weakness: false,
+        style_only_weakness: false,
+        dangerous_directives: [],
+        details: `CSP directive "${name}" is malformed`,
+      };
+    }
+    // CSP applies the first occurrence of a directive. Mirroring that rule avoids
+    // admitting a weakness from a duplicate directive the browser ignores.
+    if (!directives.has(name)) directives.set(name, tokens);
+  }
+  if (directives.size === 0) {
+    return {
+      status: "unknown",
+      classification: "unparseable",
+      parsed: false,
+      actionable_weakness: false,
+      style_only_weakness: false,
+      dangerous_directives: [],
+      details: "CSP contains no parseable directives",
+    };
+  }
+
+  const dangerous = new Set(["'unsafe-inline'", "'unsafe-eval'", "*"]);
+  const dangerousTokens = (directive) =>
+    (directives.get(directive) || []).filter((token) => dangerous.has(token));
+  const scriptDanger = ["script-src", "default-src"]
+    .map((directive) => ({ directive, tokens: dangerousTokens(directive) }))
+    .filter((entry) => entry.tokens.length > 0);
+  const styleDanger = dangerousTokens("style-src");
+
+  if (scriptDanger.length > 0) {
+    const dangerousDirectives = scriptDanger.map((entry) => entry.directive);
+    return {
+      status: "weak",
+      classification: "weak_script",
+      parsed: true,
+      actionable_weakness: true,
+      style_only_weakness: false,
+      dangerous_directives: dangerousDirectives,
+      details: `CSP contains dangerous source tokens in ${dangerousDirectives.join(" and ")}`,
+    };
+  }
+  if (styleDanger.length > 0) {
+    return {
+      status: "weak",
+      classification: "weak_style_only",
+      parsed: true,
+      actionable_weakness: false,
+      style_only_weakness: true,
+      dangerous_directives: ["style-src"],
+      details: "CSP permits an unsafe style source but has no dangerous script-src/default-src token",
+    };
+  }
+  return {
+    status: "valid",
+    classification: "no_admitted_weakness",
+    parsed: true,
+    actionable_weakness: false,
+    style_only_weakness: false,
+    dangerous_directives: [],
+    details: "CSP present with no dangerous script-src or default-src token detected",
+  };
+}
+
 export function classifyHeaderStrength(name, value) {
   const n = (name || "").toLowerCase().trim();
   const v = (value || "").toLowerCase().trim();
@@ -111,14 +199,7 @@ export function classifyHeaderStrength(name, value) {
   }
 
   if (n === "content-security-policy") {
-    if (!v) return { status: "unknown", details: "CSP present but value is empty" };
-    const hasUnsafeInline  = /unsafe-inline/i.test(v);
-    const hasUnsafeEval    = /unsafe-eval/i.test(v);
-    const wildcardDefault  = /default-src\s+['"]?\*['"]?/.test(v);
-    const wildcardScript   = /script-src\s+['"]?\*['"]?/.test(v);
-    if (wildcardDefault || wildcardScript) return { status: "weak", details: "CSP contains wildcard default-src or script-src — effectively disabled" };
-    if (hasUnsafeInline || hasUnsafeEval)  return { status: "weak", details: `CSP contains ${hasUnsafeInline ? "'unsafe-inline'" : ""}${hasUnsafeEval ? " 'unsafe-eval'" : ""} — reduces XSS protection` };
-    return { status: "valid", details: "CSP present with no immediately dangerous directives detected" };
+    return classifyCspPolicy(value);
   }
 
   if (n === "x-frame-options") {

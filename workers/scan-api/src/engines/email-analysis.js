@@ -484,51 +484,55 @@ export function buildEmailRemediationActions(domain, details, emailIntel = {}) {
   const dmarcUnobserved = isEmailProbeUnobserved(
     details.dmarc_evidence_status ?? details.dmarc_state?.evidence_status,
   );
+  const canonicalDmarcEvidenceState = details.dmarc_state?.canonical_evidence_state;
+  const dmarcConclusionObserved = canonicalDmarcEvidenceState == null
+    ? !dmarcUnobserved
+    : ["observed_policy", "absent", "malformed"].includes(canonicalDmarcEvidenceState);
   const actions = [];
   const reportAddress = `dmarc-reports@${domain}`;
 
-  if (!dmarc.raw) {
-    if (!dmarcUnobserved) {
+  if (dmarcConclusionObserved) {
+    if (!dmarc.raw) {
       const value = `v=DMARC1; p=none; rua=mailto:${reportAddress}; fo=1`;
       actions.push(remediationAction("dmarc_missing", "DMARC", "high", "Publish a DMARC monitoring record",
         "No DMARC record was found.",
         "Receiving systems do not have a domain-owner policy for handling messages that fail DMARC alignment.",
         "Publish a monitoring record, identify legitimate senders from aggregate reports, then move gradually towards enforcement.",
         { suggested_dns_record: value, caution: "Do not move directly to enforcement until legitimate sending services are confirmed." }));
+    } else if (dmarc.record_count > 1) {
+      actions.push(remediationAction("dmarc_multiple_records", "DMARC", "high", "Consolidate multiple DMARC records",
+        `${dmarc.record_count} DMARC records were detected.`,
+        "Multiple DMARC records can cause receivers to treat DMARC as invalid.",
+        "Merge the required tags into one TXT record at the _dmarc hostname."));
+    } else if (!dmarc.valid) {
+      actions.push(remediationAction("dmarc_invalid_record", "DMARC", "high", "Correct the invalid DMARC record",
+        dmarc.warnings.join(" ") || "The DMARC record could not be validated.",
+        "An invalid record may be ignored by receiving systems.",
+        "Correct the version, policy, and percentage tags while preserving valid reporting destinations."));
     }
-  } else if (dmarc.record_count > 1) {
-    actions.push(remediationAction("dmarc_multiple_records", "DMARC", "high", "Consolidate multiple DMARC records",
-      `${dmarc.record_count} DMARC records were detected.`,
-      "Multiple DMARC records can cause receivers to treat DMARC as invalid.",
-      "Merge the required tags into one TXT record at the _dmarc hostname."));
-  } else if (!dmarc.valid) {
-    actions.push(remediationAction("dmarc_invalid_record", "DMARC", "high", "Correct the invalid DMARC record",
-      dmarc.warnings.join(" ") || "The DMARC record could not be validated.",
-      "An invalid record may be ignored by receiving systems.",
-      "Correct the version, policy, and percentage tags while preserving valid reporting destinations."));
-  }
-  if (dmarc.valid && dmarc.policy === "none") {
-    // Upgrade suggestion: preserve the observed record's rua and other tags,
-    // change only p=none → p=quarantine, and never emit the DMARCbis-removed pct.
-    const value = buildDmarcPolicyUpgradeValue(dmarc.raw, `mailto:${reportAddress}`, "quarantine");
-    actions.push(remediationAction("dmarc_policy_monitoring_only", "DMARC", "medium", "DMARC is in monitoring mode only",
-      "The DMARC policy is set to p=none.",
-      "Receivers are not instructed to quarantine or reject messages that fail DMARC alignment.",
-      "Confirm legitimate sending sources, then move gradually towards quarantine and reject.",
-      { suggested_dns_record: value, caution: "Do not move to enforcement until legitimate senders are confirmed." }));
-  }
-  if (dmarc.raw && !dmarc.has_reporting) {
-    actions.push(remediationAction("dmarc_reporting_missing", "DMARC", "medium", "Add aggregate DMARC reporting",
-      "The DMARC record does not include a rua destination.",
-      "Without aggregate reports, legitimate and unauthorised sending sources are harder to validate.",
-      "Add a monitored aggregate reporting mailbox or DMARC reporting service.",
-      { suggested_dns_record: `rua=mailto:${reportAddress}`, caution: "Use a mailbox or service capable of handling DMARC XML reports." }));
-  }
-  if (dmarc.valid && dmarc.percentage < 100) {
-    actions.push(remediationAction("dmarc_partial_percentage", "DMARC", "medium", "Increase DMARC policy coverage",
-      `The DMARC pct tag applies policy to ${dmarc.percentage}% of messages.`,
-      "Messages outside the rollout percentage may not receive the requested enforcement treatment.",
-      "After validating legitimate senders, increase pct gradually towards 100."));
+    if (dmarc.valid && dmarc.policy === "none") {
+      // Upgrade suggestion: preserve the observed record's rua and other tags,
+      // change only p=none → p=quarantine, and never emit the DMARCbis-removed pct.
+      const value = buildDmarcPolicyUpgradeValue(dmarc.raw, `mailto:${reportAddress}`, "quarantine");
+      actions.push(remediationAction("dmarc_policy_monitoring_only", "DMARC", "medium", "DMARC is in monitoring mode only",
+        "The DMARC policy is set to p=none.",
+        "Receivers are not instructed to quarantine or reject messages that fail DMARC alignment.",
+        "Confirm legitimate sending sources, then move gradually towards quarantine and reject.",
+        { suggested_dns_record: value, caution: "Do not move to enforcement until legitimate senders are confirmed." }));
+    }
+    if (dmarc.raw && !dmarc.has_reporting) {
+      actions.push(remediationAction("dmarc_reporting_missing", "DMARC", "medium", "Add aggregate DMARC reporting",
+        "The DMARC record does not include a rua destination.",
+        "Without aggregate reports, legitimate and unauthorised sending sources are harder to validate.",
+        "Add a monitored aggregate reporting mailbox or DMARC reporting service.",
+        { suggested_dns_record: `rua=mailto:${reportAddress}`, caution: "Use a mailbox or service capable of handling DMARC XML reports." }));
+    }
+    if (dmarc.valid && dmarc.percentage < 100) {
+      actions.push(remediationAction("dmarc_partial_percentage", "DMARC", "medium", "Increase DMARC policy coverage",
+        `The DMARC pct tag applies policy to ${dmarc.percentage}% of messages.`,
+        "Messages outside the rollout percentage may not receive the requested enforcement treatment.",
+        "After validating legitimate senders, increase pct gradually towards 100."));
+    }
   }
 
   if (!spf.raw) {

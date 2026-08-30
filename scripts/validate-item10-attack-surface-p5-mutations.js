@@ -21,9 +21,14 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers/scan-api/src/engines");
 const routes = path.join(root, "workers/scan-api/src/routes");
 const frontendPages = path.join(root, "frontend/src/pages");
+const frontendComponents = path.join(root, "frontend/src/components");
 const validator = path.join(
   root,
   "scripts/validate-item10-attack-surface-p5-customer-parity.js",
+);
+const b2bValidator = path.join(
+  root,
+  "scripts/validate-email-deadline-evidence.js",
 );
 installMutationSignalCleanup();
 const paths = {
@@ -35,6 +40,9 @@ const paths = {
   assetAlerts: path.join(engines, "asset-alerts.js"),
   assetsPage: path.join(frontendPages, "AssetsPage.jsx"),
   route: path.join(routes, "attack-surface.js"),
+  scanEngine: path.join(engines, "scan-engine.js"),
+  pdf: path.join(engines, "pdf.js"),
+  executiveComponent: path.join(frontendComponents, "ExecutiveReportV2.jsx"),
 };
 const sources = Object.fromEntries(Object.entries(paths).map(([key, file]) => [
   key,
@@ -68,6 +76,19 @@ const EXPECTED_MUTANT_COUNT = 22;
 const EXPECTED_VALIDATOR_ASSERTIONS = 258;
 const EXPECTED_MUTATION_ANCHOR_ASSERTIONS = 24;
 const EXPECTED_HARNESS_SAFETY_ASSERTIONS = 3;
+const EXPECTED_B2B_MUTANT_IDENTITIES = Object.freeze([
+  "B2b M1 observation services enter the bucket",
+  "B2b M2 explicit finding_type stamp is dropped",
+  "B2b M3 score-bearing host exclusion is dropped",
+  "B2b M4 service product replaces host ownership",
+  "B2b M5 bucket becomes score-bearing",
+  "B2b M6 severity becomes the admission proxy",
+  "B2b M7 deferred guard is removed",
+  "B2b M8 empty bucket is emitted",
+  "B2b M9 PDF renderer substitutes backend finding truth",
+  "B2b M10 frontend leaks OpenVPN module severity into customer action",
+]);
+const EXPECTED_B2B_MUTANT_COUNT = 10;
 const EXPECTED_FAILURES = Object.freeze({
   "unavailable renders as healthy": [
     "subdomain_discovery/unavailable: wording retained",
@@ -187,6 +208,10 @@ let mutantsKilled = 0;
 let mutantFailures = 0;
 let assertionsPassed = 0;
 let assertionFailures = 0;
+const registeredB2bMutants = [];
+let b2bMutantsKilled = 0;
+let b2bMutantFailures = 0;
+let b2bAnchorAssertions = 0;
 const canonicalSourceFiles = () => [
   ...filesUnder(path.join(root, "workers/scan-api/src")),
   ...filesUnder(path.join(root, "frontend/src")),
@@ -297,6 +322,157 @@ function runMutant(name, {
     else {
       mutantFailures += 1;
       console.error(`FAIL ${name}: mutant survived`);
+    }
+  } finally {
+    sandbox.cleanup();
+    if (fingerprintFiles(canonicalSourceFiles) !== initialSourceFingerprint) {
+      throw new Error(`${name}: canonical source tree changed`);
+    }
+  }
+}
+
+function runB2bMutant(name, { from, to, mode, defectPresent }) {
+  registeredB2bMutants.push(name);
+  const sandbox = createMutationSandbox(root, "b2b-admin-admission-mutant-");
+  try {
+    const scanEngineFile = path.join(sandbox.workerSource, "engines/scan-engine.js");
+    let mutated;
+    try {
+      mutated = replaceExactly(sources.scanEngine, from, to, name);
+      b2bAnchorAssertions += 1;
+    } catch (error) {
+      b2bMutantFailures += 1;
+      console.error(`FAIL ${name} — mutation anchor missing (${error.message})`);
+      return;
+    }
+    fs.writeFileSync(scanEngineFile, mutated);
+    const scanEngineUrl = pathToFileURL(scanEngineFile).href;
+    const preflight = preflightMutationTargets({ moduleUrls: [scanEngineUrl] });
+    const child = spawnSync(process.execPath, [b2bValidator, `--child=${mode}`], {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EMAIL_DEADLINE_SCAN_ENGINE_MODULE_URL: scanEngineUrl,
+      },
+    });
+    let result = null;
+    try { result = JSON.parse(child.stdout || "null"); } catch { /* classified below */ }
+    const killed = preflight.ok && child.status === 0 && child.signal == null &&
+      result != null && defectPresent(result);
+    if (killed) {
+      b2bMutantsKilled += 1;
+      console.log(`KILLED ${name}`);
+    } else {
+      b2bMutantFailures += 1;
+      console.error(
+        `FAIL ${name} — mutant survived; status=${child.status}; signal=${child.signal}; ` +
+        `preflight=${JSON.stringify(preflight.failures)}; output=${JSON.stringify(child.stdout || child.stderr)}`,
+      );
+    }
+  } finally {
+    sandbox.cleanup();
+    if (fingerprintFiles(canonicalSourceFiles) !== initialSourceFingerprint) {
+      throw new Error(`${name}: canonical source tree changed`);
+    }
+  }
+}
+
+function runB2bPdfMutant(name, { from, to, defectPresent }) {
+  registeredB2bMutants.push(name);
+  const sandbox = createMutationSandbox(root, "b2b-cx-pdf-mutant-");
+  try {
+    const pdfFile = path.join(sandbox.workerSource, "engines/pdf.js");
+    let mutated;
+    try {
+      mutated = replaceExactly(sources.pdf, from, to, name);
+      b2bAnchorAssertions += 1;
+    } catch (error) {
+      b2bMutantFailures += 1;
+      console.error(`FAIL ${name} — mutation anchor missing (${error.message})`);
+      return;
+    }
+    fs.writeFileSync(pdfFile, mutated);
+    const pdfUrl = pathToFileURL(pdfFile).href;
+    const preflight = preflightMutationTargets({ moduleUrls: [pdfUrl] });
+    const child = spawnSync(process.execPath, [b2bValidator, "--child=b2b-cx"], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 4 * 1024 * 1024,
+      env: {
+        ...process.env,
+        EMAIL_DEADLINE_PDF_MODULE_URL: pdfUrl,
+      },
+    });
+    let result = null;
+    try { result = JSON.parse(child.stdout || "null"); } catch { /* classified below */ }
+    const killed = preflight.ok && child.status === 0 && child.signal == null &&
+      result != null && defectPresent(result);
+    if (killed) {
+      b2bMutantsKilled += 1;
+      console.log(`KILLED ${name}`);
+    } else {
+      b2bMutantFailures += 1;
+      console.error(
+        `FAIL ${name} — mutant survived; status=${child.status}; signal=${child.signal}; ` +
+        `preflight=${JSON.stringify(preflight.failures)}; output=${JSON.stringify(child.stdout || child.stderr)}`,
+      );
+    }
+  } finally {
+    sandbox.cleanup();
+    if (fingerprintFiles(canonicalSourceFiles) !== initialSourceFingerprint) {
+      throw new Error(`${name}: canonical source tree changed`);
+    }
+  }
+}
+
+function runB2bFrontendMutant(name, { from, to, failingTest }) {
+  registeredB2bMutants.push(name);
+  const sandbox = createMutationSandbox(root, "b2b-cx-frontend-mutant-");
+  try {
+    const frontendRoot = path.join(sandbox.tempRoot, "frontend");
+    const frontendSource = path.join(frontendRoot, "src");
+    fs.mkdirSync(frontendRoot, { recursive: true });
+    fs.cpSync(path.join(root, "frontend/src"), frontendSource, { recursive: true });
+    fs.copyFileSync(path.join(root, "frontend/package.json"), path.join(frontendRoot, "package.json"));
+    fs.copyFileSync(path.join(root, "frontend/vitest.config.js"), path.join(frontendRoot, "vitest.config.js"));
+    fs.symlinkSync(path.join(root, "frontend/node_modules"), path.join(frontendRoot, "node_modules"), "dir");
+
+    const componentFile = path.join(frontendSource, "components/ExecutiveReportV2.jsx");
+    let mutated;
+    try {
+      mutated = replaceExactly(sources.executiveComponent, from, to, name);
+      b2bAnchorAssertions += 1;
+    } catch (error) {
+      b2bMutantFailures += 1;
+      console.error(`FAIL ${name} — mutation anchor missing (${error.message})`);
+      return;
+    }
+    fs.writeFileSync(componentFile, mutated);
+    const child = spawnSync(process.execPath, [
+      path.join(root, "frontend/node_modules/vitest/vitest.mjs"),
+      "run",
+      "src/components/__tests__/ExecutiveReportV2.report-first.test.jsx",
+    ], {
+      cwd: frontendRoot,
+      encoding: "utf8",
+      maxBuffer: 4 * 1024 * 1024,
+      env: {
+        ...process.env,
+        B2B_PROOF_REPO_ROOT: root,
+      },
+    });
+    const output = `${child.stdout || ""}\n${child.stderr || ""}`;
+    const killed = child.status !== 0 && child.signal == null && output.includes(failingTest);
+    if (killed) {
+      b2bMutantsKilled += 1;
+      console.log(`KILLED ${name}`);
+    } else {
+      b2bMutantFailures += 1;
+      console.error(
+        `FAIL ${name} — mutant survived; status=${child.status}; signal=${child.signal}; ` +
+        `output=${JSON.stringify(output)}`,
+      );
     }
   } finally {
     sandbox.cleanup();
@@ -552,6 +728,123 @@ runMutant("legacy timeline field is removed", {
   ),
 });
 
+runB2bMutant("B2b M1 observation services enter the bucket", {
+  from: `        if (service.finding_type !== "finding") return false;`,
+  to:   `        if (false) return false;`,
+  mode: "b2b-admin",
+  defectPresent: (result) => result.findings?.some((finding) =>
+    finding.id === "admin_surface_high" &&
+    finding.affected_hosts?.includes("openvpn.example.com")),
+});
+
+runB2bMutant("B2b M2 explicit finding_type stamp is dropped", {
+  from: `          id:           "admin_surface_critical",
+          module:       "admin_surface_detection",
+          severity:     "critical",
+          finding_type: "finding",
+          score_impact: 0,`,
+  to:   `          id:           "admin_surface_critical",
+          module:       "admin_surface_detection",
+          severity:     "critical",
+          score_impact: 0,`,
+  mode: "b2b-admin",
+  defectPresent: (result) => result.findings?.some((finding) =>
+    finding.id === "admin_surface_critical" && finding.finding_type === "observation") &&
+    !result.managedCases?.some((row) => row.finding_id === "admin_surface_critical"),
+});
+
+runB2bMutant("B2b M3 score-bearing host exclusion is dropped", {
+  from: `      const claimedAdminHosts = new Set(scoredAdminHosts);`,
+  to:   `      const claimedAdminHosts = new Set();`,
+  mode: "b2b-admin",
+  defectPresent: (result) => result.findings?.some((finding) =>
+    finding.id === "admin_surface_critical" &&
+    finding.affected_hosts?.includes("phpmyadmin.example.com")),
+});
+
+runB2bMutant("B2b M4 service product replaces host ownership", {
+  from: `        claimedAdminHosts.add(hostKey);`,
+  to:   `        claimedAdminHosts.add(String(service.product || "").trim().toLowerCase());`,
+  mode: "b2b-admin",
+  defectPresent: (result) => result.findings?.some((finding) =>
+    finding.id === "admin_surface_medium" &&
+    finding.affected_hosts?.includes("vcenter-gitlab.example.com")),
+});
+
+runB2bMutant("B2b M5 bucket becomes score-bearing", {
+  from: `          id:           "admin_surface_critical",
+          module:       "admin_surface_detection",
+          severity:     "critical",
+          finding_type: "finding",
+          score_impact: 0,`,
+  to:   `          id:           "admin_surface_critical",
+          module:       "admin_surface_detection",
+          severity:     "critical",
+          finding_type: "finding",
+          score_impact: -1,`,
+  mode: "b2b-admin",
+  defectPresent: (result) => result.findings?.some((finding) =>
+    finding.id === "admin_surface_critical" && finding.score_impact === -1),
+});
+
+runB2bMutant("B2b M6 severity becomes the admission proxy", {
+  from: `        if (service.finding_type !== "finding") return false;`,
+  to:   `        if (!["critical", "high", "medium"].includes(service.risk_level)) return false;`,
+  mode: "b2b-admin",
+  defectPresent: (result) => result.findings?.some((finding) =>
+    finding.id === "admin_surface_high" &&
+    finding.affected_hosts?.includes("openvpn.example.com")),
+});
+
+runB2bMutant("B2b M7 deferred guard is removed", {
+  from: `    if (adminMod && !adminMod.error && adminMod.detected && adminMod.total > 0) {`,
+  to:   `    if (adminMod && !adminMod.error) {`,
+  mode: "b2b-contract",
+  defectPresent: (result) => result.adminBucketGuard === false,
+});
+
+runB2bMutant("B2b M8 empty bucket is emitted", {
+  from: `      if (criticalSvcs.length > 0) {`,
+  to:   `      if (criticalSvcs.length >= 0) {`,
+  mode: "b2-admin",
+  defectPresent: (result) => result.findings?.some((finding) =>
+    finding.id === "admin_surface_critical" && finding.affected_hosts?.length === 0),
+});
+
+runB2bPdfMutant("B2b M9 PDF renderer substitutes backend finding truth", {
+  from: `function findingHeading(item, fallbackTitle = "Finding") {
+  const severity = typeof item?.severity === "string" ? item.severity.trim() : "";
+  return \`${'${severity ? `[${severity.toUpperCase()}] ` : ""}${item?.title || fallbackTitle}'}\`;
+}`,
+  to: `function findingHeading(item, fallbackTitle = "Finding") {
+  const severity = typeof item?.severity === "string" ? item.severity.trim() : "";
+  return \`${'${severity ? `[${severity.toUpperCase()}] ` : ""}${item?.finding_id === "admin_surface_critical" ? "Renderer-substituted admin finding" : (item?.title || fallbackTitle)}'}\`;
+}`,
+  defectPresent: (result) =>
+    result.positive?.pdf_text?.includes("[CRITICAL] Renderer-substituted admin finding") === true &&
+    result.positive?.pdf_text?.includes("[CRITICAL] Critical Admin Interface Exposed") === false,
+});
+
+runB2bFrontendMutant("B2b M10 frontend leaks OpenVPN module severity into customer action", {
+  from: `  const canonicalActions = Array.isArray(report.remediation_actions)
+    ? report.remediation_actions
+    : (summary.priority_actions || [])`,
+  to: `  const moduleDerivedActions = (report.modules?.admin_surface_detection?.services || [])
+    .filter((service) => ["critical", "high", "medium"].includes(service.severity))
+    .map((service) => ({
+      title: service.product,
+      action: "Restrict this inferred administrative service.",
+      priority: service.severity,
+    }))
+  const canonicalActions = [
+    ...(Array.isArray(report.remediation_actions)
+      ? report.remediation_actions
+      : (summary.priority_actions || [])),
+    ...moduleDerivedActions,
+  ]`,
+  failingTest: "keeps isolated OpenVPN customer projection and UI byte-identical to its clean control",
+});
+
 const registry = analyseOrderedRegistry({
   registeredIds: registeredMutants,
   expectedIds: EXPECTED_MUTANT_IDENTITIES,
@@ -567,6 +860,21 @@ assert("mutant failure-set registry is complete and independently keyed",
   registry.failureRegistryExact && Object.values(EXPECTED_FAILURES).every(
     (failures) => Array.isArray(failures) && failures.length > 0,
   ));
+const b2bRegistry = analyseOrderedRegistry({
+  registeredIds: registeredB2bMutants,
+  expectedIds: EXPECTED_B2B_MUTANT_IDENTITIES,
+  expectedCount: EXPECTED_B2B_MUTANT_COUNT,
+});
+if (!b2bRegistry.valid) {
+  b2bMutantFailures += 1;
+  console.error(`FAIL B2b mutant registry drift — ${JSON.stringify(b2bRegistry)}`);
+}
+if (b2bAnchorAssertions !== EXPECTED_B2B_MUTANT_COUNT) {
+  b2bMutantFailures += 1;
+  console.error(
+    `FAIL B2b mutation anchors — ${b2bAnchorAssertions}/${EXPECTED_B2B_MUTANT_COUNT}`,
+  );
+}
 assert("mutation targets remain byte-identical after every sandboxed mutant",
   fingerprintFiles(canonicalSourceFiles) === initialSourceFingerprint);
 const signalCleanupProof = handledSignalCleansSandbox({
@@ -585,9 +893,17 @@ console.log(
   `Item 10 P5 customer parity mutations: ${mutantsKilled}/${EXPECTED_MUTANT_COUNT} mutants killed; ` +
   `${assertionsPassed}/${EXPECTED_ASSERTIONS} assertions passed`,
 );
+console.log(
+  `B2b admin-service admission mutations: ${b2bMutantsKilled}/${EXPECTED_B2B_MUTANT_COUNT} mutants killed; ` +
+  `${b2bAnchorAssertions}/${EXPECTED_B2B_MUTANT_COUNT} anchors restored`,
+);
 if (
   mutantsKilled !== EXPECTED_MUTANT_COUNT ||
   mutantFailures > 0 ||
   assertionsPassed !== EXPECTED_ASSERTIONS ||
-  assertionFailures > 0
+  assertionFailures > 0 ||
+  b2bMutantsKilled !== EXPECTED_B2B_MUTANT_COUNT ||
+  b2bMutantFailures > 0 ||
+  b2bAnchorAssertions !== EXPECTED_B2B_MUTANT_COUNT ||
+  !b2bRegistry.valid
 ) process.exit(1);

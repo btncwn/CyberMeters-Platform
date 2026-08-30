@@ -581,6 +581,116 @@
       "note": "CSP is present with unsafe-inline so csp_weak_policy must fire; header_missing_content_security_policy must NOT fire."
     },
     {
+      "scenario": "csp_style_only",
+      "description": "Unsafe inline style is confined to style-src on a conclusive response and remains a low observation with no score impact.",
+      "mock_modules": {
+        "dns": { "resolves": true },
+        "ssl": { "https_available": true, "http_redirects_to_https": true, "http_redirect_chain": { "http_redirect_validated": true } },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "max-age=31536000; includeSubDomains",
+            "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer"
+          }
+        },
+        "email_security": { "spf": { "present": true }, "dmarc": { "present": true, "policy": "reject" }, "dkim": { "present": true } }
+      },
+      "expected_finding": {
+        "id": "csp_weak_policy",
+        "finding_type": "observation",
+        "severity": "low",
+        "confidence": 90,
+        "score_impact": 0,
+        "evidence_type": "http_header_probe"
+      },
+      "expected_finding_ids_absent": ["header_missing_content_security_policy"],
+      "note": "Style-only unsafe-inline is visible but cannot create a canonical action."
+    },
+    {
+      "scenario": "csp_script_unsafe_inline",
+      "description": "Unsafe inline script in script-src on a conclusive response is an explicit medium finding with zero score impact.",
+      "mock_modules": {
+        "dns": { "resolves": true },
+        "ssl": { "https_available": true, "http_redirects_to_https": true, "http_redirect_chain": { "http_redirect_validated": true } },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "max-age=31536000; includeSubDomains",
+            "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer"
+          }
+        },
+        "email_security": { "spf": { "present": true }, "dmarc": { "present": true, "policy": "reject" }, "dkim": { "present": true } }
+      },
+      "expected_finding": {
+        "id": "csp_weak_policy",
+        "finding_type": "finding",
+        "severity": "medium",
+        "confidence": 90,
+        "score_impact": 0,
+        "evidence_type": "http_header_probe"
+      },
+      "expected_finding_ids_absent": ["header_missing_content_security_policy"],
+      "note": "Actionability comes from the explicit producer type, not from severity or prose."
+    },
+    {
+      "scenario": "csp_uncertain",
+      "description": "A weak CSP observed through an uncertain response cannot be admitted as a csp_weak_policy finding or observation.",
+      "mock_modules": {
+        "dns": { "resolves": true },
+        "ssl": { "https_available": true, "http_redirects_to_https": true },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": true,
+          "status_code": 200,
+          "values": { "content-security-policy": "script-src 'unsafe-inline'" }
+        },
+        "email_security": { "spf": { "present": true }, "dmarc": { "present": true, "policy": "reject" }, "dkim": { "present": true } }
+      },
+      "expected_finding_ids_absent": ["csp_weak_policy"],
+      "note": "Bot, redirect or other response uncertainty blocks weak-CSP admission."
+    },
+    {
+      "scenario": "dnssec_absent_explicit_observation",
+      "description": "Conclusive absence of DS, DNSKEY and RRSIG is an explicit informational observation with zero score impact.",
+      "mock_modules": {
+        "dns": {
+          "resolves": true,
+          "dnssec": {
+            "ds": { "present": false },
+            "dnskey": { "present": false },
+            "rrsig": { "present": false },
+            "errors": { "ds": null, "dnskey": null, "rrsig": null },
+            "evidence_source": "cloudflare_doh"
+          }
+        },
+        "ssl": { "https_available": true, "http_redirects_to_https": true },
+        "headers": { "accessible": false, "error": "fixture_not_required" },
+        "email_security": { "spf": { "present": true }, "dmarc": { "present": true, "policy": "reject" }, "dkim": { "present": true } }
+      },
+      "expected_finding": {
+        "id": "dnssec_not_enabled",
+        "finding_type": "observation",
+        "severity": "info",
+        "confidence": 90,
+        "score_impact": 0,
+        "evidence_type": "dnssec_lookup"
+      },
+      "note": "DNSSEC absence remains visible without manufacturing a customer action."
+    },
+    {
       "scenario": "canonical_url_uncertain_finding",
       "description": "Bot protection blocks HTTP probe \u2014 canonical_url_profile has low consistency score \u2014 canonical_url_uncertain finding must fire",
       "mock_modules": {

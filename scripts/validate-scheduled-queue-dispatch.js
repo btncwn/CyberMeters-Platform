@@ -688,9 +688,15 @@ ok("E2 SCAN_DISPATCH_MODE remains \"queue\" (manual path untouched)",
   const slice = indexSrc.slice(start, end > start ? end : undefined);
   const dispatchIdx = slice.indexOf('trigger: "scheduled"');
   const engineIdx = slice.indexOf('executionContext: "cron"');
-  ok("E4 queue branch (scheduled dispatch) precedes the legacy direct-engine call",
+ok("E4 queue branch (scheduled dispatch) precedes the legacy direct-engine call",
     start > -1 && dispatchIdx > -1 && engineIdx > dispatchIdx);
 }
+
+ok("E4b scheduled producer/settlement owns no scan_completed audit writer",
+  !/scan_completed|scanCompletionAuditStatement/.test(indexSrc) &&
+  !/scan_completed|scanCompletionAuditStatement/.test(
+    fs.readFileSync(srcPath("engines", "scan-dispatch.js"), "utf8")
+  ));
 
 // E5 — cron registration and the scheduled-Queue migration surface remain
 // unchanged. PR-5.5 Gate 3B now owns migration 100, so preserve PR-B1's
