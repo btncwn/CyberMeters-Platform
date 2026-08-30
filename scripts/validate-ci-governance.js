@@ -83,12 +83,21 @@ ok("ci runs on push to main", /push:\s*\n\s*branches:\s*\[\s*main\s*\]/.test(hea
 const parsedWorkflow = parseWorkflowAst(src);
 const executable = parsedWorkflow.workflow
   ? executableValidatorWiring(parsedWorkflow.workflow)
-  : { validators: [], plainValidators: [], problems: parsedWorkflow.parseErrors };
+  : {
+      validators: [],
+      plainValidators: [],
+      problems: parsedWorkflow.parseErrors,
+      nonValidatorCarrierProblems: [],
+    };
 const validators = [...new Set(executable.validators)];
+const executableWiringProblems = [
+  ...executable.problems,
+  ...executable.nonValidatorCarrierProblems,
+];
 ok("the CI workflow runs the validator suite", validators.length > 0);
 ok("CI wires a substantial validator suite", validators.length >= 80, `found ${validators.length}`);
-ok("validator wiring uses only exact executable AST run mappings",
-   executable.problems.length === 0, executable.problems.join(" | "));
+ok("validator and non-validator carrier wiring uses only exact executable AST run mappings",
+   executableWiringProblems.length === 0, executableWiringProblems.join(" | "));
 
 const shardSteps = VALIDATOR_SHARD_JOB_IDS.flatMap(
   (jobId) => parsedWorkflow.workflow?.jobs?.[jobId]?.steps || [],

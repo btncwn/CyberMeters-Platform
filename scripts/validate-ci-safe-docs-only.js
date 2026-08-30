@@ -27,13 +27,13 @@ const MUTATION_TARGET_FILES = Object.freeze([workflowPath, manifestPath, library
 // drift is the exact reviewed workflow byte set that wires this candidate's
 // five validators; after commit the ordinary HEAD equality path applies again.
 const REVIEWED_UNCOMMITTED_TARGET_SHA256 = Object.freeze(new Map([
-  [workflowPath, "e6f2aa125ceb347bf16c16a9f527ad71869752a3448c2525d77101c1fd8d2803"],
+  [workflowPath, "b37e4cb62f83e5dd526b4cfc65653a5db3fb56ea3fc4aeb942120b19b9a67621"],
   [manifestPath, "cf421dc0e3606d00a305f82e12652dffefc5d621c8dd8d83633e379d0a79e3c6"],
 ]));
 const EXPECTED_FIXTURES = 31;
-const EXPECTED_MUTANTS = 34;
-const EXPECTED_POLICY_ASSERTIONS = 20;
-const EXPECTED_ASSERTIONS = 100;
+const EXPECTED_MUTANTS = 38;
+const EXPECTED_POLICY_ASSERTIONS = 21;
+const EXPECTED_ASSERTIONS = 105;
 const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "df0cb5235350586371cc70a564833c218e8d6162c8ea5f945460638a68597352";
 
 const fixtureChild = process.argv.includes("--fixture-child");
@@ -712,7 +712,7 @@ const MUTANTS = [
     }],
     childArgs: ["--policy-child"],
     expectedFailures: [
-      "anti-orphan: five shards are the exact executable 362-validator union",
+      "anti-orphan: five shards are the exact executable 376-validator union",
       "assignment: exact non-overlapping shard counts and ownership fingerprint are pinned",
     ],
   },
@@ -791,7 +791,7 @@ const MUTANTS = [
     file: workflowPath,
     mutate: (source) => {
       const runtimeCommand = "run: node scripts/validate-provider-classification.js";
-      const reportCommand = "run: node scripts/validate-report-findings-scoping.js";
+      const reportCommand = "run: node scripts/validate-report-first-cx.js";
       if (source.split(runtimeCommand).length !== 2 || source.split(reportCommand).length !== 2) {
         throw new Error("validator ownership anchors missing or non-unique");
       }
@@ -802,6 +802,46 @@ const MUTANTS = [
     },
     childArgs: ["--policy-child"],
     expectedFailures: ["assignment: exact non-overlapping shard counts and ownership fingerprint are pinned"],
+  },
+  {
+    name: "runtime non-validator mutation carrier command drifts",
+    file: workflowPath,
+    replacements: [{
+      from: "        run: node scripts/mutate-identity-truth-projection.js",
+      to: "        run: node scripts/mutate-identity-truth-projection.js --mutant",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["non-validator carriers: four exact commands remain unique, blocking and shard-owned"],
+  },
+  {
+    name: "report non-validator mutation carrier command drifts",
+    file: workflowPath,
+    replacements: [{
+      from: "        run: node scripts/mutate-identity-producer-truth.js",
+      to: "        run: node scripts/mutate-identity-producer-truth.js --mutant",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["non-validator carriers: four exact commands remain unique, blocking and shard-owned"],
+  },
+  {
+    name: "data non-validator mutation carrier command drifts",
+    file: workflowPath,
+    replacements: [{
+      from: "        run: node scripts/mutate-identity-substrate-idempotence.js",
+      to: "        run: node scripts/mutate-identity-substrate-idempotence.js --mutant",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["non-validator carriers: four exact commands remain unique, blocking and shard-owned"],
+  },
+  {
+    name: "integration non-validator inventory carrier loses its exact pin target",
+    file: workflowPath,
+    replacements: [{
+      from: "        run: node scripts/derive-ct-provider-source-consumer-inventory.js --pin docs/CT-R2-PR-2A1-PROVIDER-SOURCE-INVENTORY.json",
+      to: "        run: node scripts/derive-ct-provider-source-consumer-inventory.js",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["non-validator carriers: four exact commands remain unique, blocking and shard-owned"],
   },
   {
     name: "terminal validate loses always semantics",

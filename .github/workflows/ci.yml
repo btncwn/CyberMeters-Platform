@@ -386,6 +386,15 @@ jobs:
       - name: Validate log redaction (secrets never reach logs)
         run: node scripts/validate-log-redaction.js
 
+      - name: Validate F-026 capacity completeness truth
+        run: node scripts/validate-f026-capacity-completeness-truth.js
+
+      - name: Validate F-041 outbound configuration
+        run: node scripts/validate-f041-outbound-config.js
+
+      - name: Validate F-041 outbound sink fail-closed mutations
+        run: node scripts/validate-f041-outbound-sink-failclosed-mutations.js
+
       - name: Validate ops-health monitoring (signals + thresholds + DB-down)
         run: node scripts/validate-ops-health.js
 
@@ -489,6 +498,13 @@ jobs:
       - name: Validate report content depth + branding (eight-domain richness / co-brand / white-label / logo routes / mutation)
         run: node scripts/validate-report-content-branding.js
 
+      - name: Validate report-first Executive PDF/CX contract
+        run: node scripts/validate-report-first-cx.js
+
+      # A5 Executive Security Report PDF quality: evidence-honest risk narrative (no unqualified
+      # "no major gaps" under incomplete coverage), limitation blocks never split across a page,
+      # branded cover, internal version identifiers removed from the visible body, eight domains +
+      # provisional wording preserved. Renders the real PDF and asserts the bytes.
       - name: Validate A5 executive report PDF (evidence-honest narrative / page breaks / branding / no version noise)
         run: node scripts/validate-a5-executive-report.js
 
@@ -738,6 +754,9 @@ jobs:
 
       - name: Validate email worker deploy traceability (closure stamp + pinned tooling)
         run: node scripts/validate-email-worker-deploy-traceability.js
+
+      - name: Validate F-026 capacity completeness truth mutations
+        run: node scripts/validate-f026-capacity-completeness-truth-mutations.js
 
       - name: Validate email lifecycle (send/dedupe/retry + payment_failed exclusion)
         run: node scripts/validate-email-lifecycle.js
@@ -1117,6 +1136,21 @@ jobs:
       - name: Validate F-009 deletion integrity mutations (completed-on-error / email-before-proof / pointer-before-object)
         run: node scripts/validate-f009-deletion-integrity-mutations.js
 
+      - name: Validate F-004 recovery instrumentation (provider adapter + source identity + proof binding)
+        run: node scripts/validate-f004-recovery-instrumentation.js
+
+      - name: Validate F-004 recovery instrumentation mutations
+        run: node scripts/validate-f004-recovery-instrumentation-mutations.js
+
+      - name: Validate F-025/F-035 migration terminal convergence and fault handling
+        run: node scripts/validate-f025-f035-migration-terminal.js
+
+      # Two live P1s found while re-auditing CE for canonical alerting, neither of
+      # them about alerting: cyber_essentials_answers survived every workspace purge
+      # for the life of the table (customer notes + answered_by, no FK to
+      # workspaces), and CE graded a client workspace from its MSP's scan because
+      # both the readiness query and the scorecard resolved evidence via
+      # workspace_domains — one domain, many workspaces, by design.
       - name: Validate Cyber Essentials data integrity (purge completeness + workspace-scoped evidence, mutation-tested)
         run: node scripts/validate-ce-data-integrity.js
 
@@ -1465,6 +1499,15 @@ jobs:
       - name: Validate Brand IDN/homograph PR-A (IDNA round-trip / skeleton / script / negatives / ASCII compatibility)
         run: node scripts/validate-brand-idn-homograph.js
 
+      - name: Validate F-027 internal observability
+        run: node scripts/validate-f027-internal-observability.js
+
+      - name: Validate F-027 internal observability mutations
+        run: node scripts/validate-f027-internal-observability-mutations.js
+
+      - name: Validate F-041 outbound sink fail-closed controls
+        run: node scripts/validate-f041-outbound-sink-failclosed.js
+
       - name: Validate error contract (uniform { error, code, message }, no leak)
         run: node scripts/validate-error-contract.js
 
@@ -1497,6 +1540,12 @@ jobs:
 
       - name: Validate DMARCbis P2 load-bearing mutations
         run: node scripts/validate-dmarcbis-p2-mutations.js
+
+      - name: Validate DMARC historical consistency (production shape + read projection)
+        run: node scripts/validate-dmarc-historical-consistency.js
+
+      - name: Validate DMARC historical consistency load-bearing mutations
+        run: node scripts/validate-dmarc-historical-consistency-mutations.js
 
       - name: Validate DMARCbis P4 immutable lifecycle and Related Changes
         run: node scripts/validate-dmarcbis-p4.js
@@ -1593,6 +1642,9 @@ jobs:
 
       - name: Validate dependency install-script governance (deny-by-default / exact allowlist / must-fail controls)
         run: node scripts/validate-install-script-governance.js
+
+      - name: Validate F-004 recovery mutation sharding
+        run: node scripts/validate-f004-recovery-mutation-sharding.js
 
       - name: Validate local focused gate policy and fail-closed execution
         run: node scripts/validate-local-focused-gate.js
