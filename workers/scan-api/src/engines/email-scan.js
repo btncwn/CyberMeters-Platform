@@ -379,6 +379,13 @@ export function applyDmarcbisEmailCompatibilityProjection(
         : DMARC_OBSERVATION_STATUS.UNAVAILABLE,
       enumerable: false,
     });
+    // The canonical conclusion, not the parsed policy detail, decides whether
+    // DMARC remediation is supportable. Keep the non-enumerable ADR-003 state
+    // on this transient rebuild exactly as it is kept on the module result.
+    Object.defineProperty(rebuildDetails, "dmarc_state", {
+      value: compatibilityState,
+      enumerable: false,
+    });
     result.remediation_actions = buildEmailRemediationActions(domain, rebuildDetails);
   }
   return result;

@@ -1,0 +1,99 @@
+{
+  "schema": "dmarc-policy.v2",
+  "submitted_domain": "fixture.example",
+  "author_domain": "fixture.example",
+  "organisational_domain": "fixture.example",
+  "policy_source_domain": "fixture.example",
+  "policy_source_kind": "exact",
+  "observation_state": "present_valid_with_defaults",
+  "record_validity": "valid_with_defaults",
+  "effective_requested_policy": "none",
+  "declared_policy": "none",
+  "effective_policy_tag": "p",
+  "policy_completeness": "complete",
+  "organisational_domain_completeness": "complete",
+  "existence_completeness": "not_applicable",
+  "core_completeness": "complete",
+  "provider_state": "available",
+  "monitoring_state": "monitoring_healthy",
+  "rua_authorisation_completeness": "incomplete",
+  "receiver_enforcement_observed": false,
+  "source_record": {
+    "raw": {
+      "data": "\"v=DMARC1; p=none; rua=mailto:redacted@reports.cybermeters.com\""
+    },
+    "value": "v=DMARC1; p=none; rua=mailto:redacted@reports.cybermeters.com"
+  },
+  "raw_records": [
+    {
+      "raw": {
+        "data": "\"v=DMARC1; p=none; rua=mailto:redacted@reports.cybermeters.com\""
+      },
+      "value": "v=DMARC1; p=none; rua=mailto:redacted@reports.cybermeters.com"
+    }
+  ],
+  "lookup_path": [
+    {
+      "question": {
+        "ordinal": 1,
+        "target_domain": "fixture.example",
+        "name": "_dmarc.fixture.example",
+        "type": "TXT",
+        "resolver": "primary",
+        "purpose": "policy_tree_walk",
+        "dnssec_profile": "default"
+      },
+      "record_set": {
+        "candidate_count": 1,
+        "complete": true,
+        "raw_state": "present",
+        "candidates": [
+          {
+            "raw": {
+              "data": "\"v=DMARC1; p=none; rua=mailto:redacted@reports.cybermeters.com\""
+            },
+            "value": "v=DMARC1; p=none; rua=mailto:redacted@reports.cybermeters.com",
+            "validity": "valid_with_defaults",
+            "p": {
+              "present": true,
+              "raw": "none",
+              "normalized": "none",
+              "validity": "valid",
+              "defaulted": false
+            }
+          }
+        ],
+        "selected": {
+          "raw": {
+            "data": "\"v=DMARC1; p=none; rua=mailto:redacted@reports.cybermeters.com\""
+          },
+          "value": "v=DMARC1; p=none; rua=mailto:redacted@reports.cybermeters.com",
+          "validity": "valid_with_defaults",
+          "p": {
+            "present": true,
+            "raw": "none",
+            "normalized": "none",
+            "validity": "valid",
+            "defaulted": false
+          }
+        }
+      }
+    }
+  ],
+  "rua_destinations": [
+    {
+      "index": 0,
+      "raw": "mailto:redacted@reports.cybermeters.com",
+      "normalized_uri": "mailto:redacted@reports.cybermeters.com",
+      "scheme": "mailto",
+      "destination_host_raw": "reports.cybermeters.com",
+      "destination_host": "reports.cybermeters.com",
+      "syntax_valid": true,
+      "supported_scheme": true,
+      "over_product_limit": false,
+      "uri_parse_status": "valid",
+      "error": null
+    }
+  ],
+  "observed_at": "2026-08-30T00:26:29.697Z"
+}

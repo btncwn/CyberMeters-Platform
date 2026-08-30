@@ -45,9 +45,11 @@ const COOKIE_IDS = Object.freeze([
   "dse_cookie_no_httponly",
   "dse_cookie_no_samesite",
 ]);
-const UNRELATED_DSE = Object.freeze([
+const CAA_IDS = Object.freeze([
   "dse_missing_caa",
   "dse_caa_no_issuers",
+]);
+const HSTS_IDS = Object.freeze([
   "dse_hsts_short_maxage",
   "dse_hsts_not_preload_eligible",
 ]);
@@ -61,6 +63,12 @@ const websiteCases = await import(eng("website-security-cases.js"));
 const remediation = await import(eng("remediation-registry.js"));
 const asmCases = await import(eng("asm-cases.js"));
 const managedVerification = await import(eng("managed-verification.js"));
+const dseFindings = await import(eng("dse-findings.js"));
+const findingsContract = await import(eng("findings.js"));
+const scoring = await import(eng("scoring.js"));
+const headersContract = await import(eng("headers-scan.js"));
+const certIntel = await import(eng("cert-intel.js"));
+const emailAnalysis = await import(eng("email-analysis.js"));
 
 function buildDb() {
   const db = new DatabaseSync(":memory:");
@@ -198,21 +206,205 @@ if (cookieContract) {
   }
 }
 
+// Producer-owned evidence admission: type is explicit and severity never promotes
+// an observation. Invalid/absent evidence produces no DSE card.
+const dseCases = [
+  {
+    id: "dse_missing_caa", type: "observation", severity: "low",
+    enrich: { ...cookieEvidence(), caa: { present: false, records: [], issuers: [], error: null } },
+  },
+  {
+    id: "dse_caa_no_issuers", type: "observation", severity: "low",
+    enrich: { ...cookieEvidence(), caa: { present: true, records: ['0 iodef "mailto:security@example.test"'], issuers: [], error: null } },
+  },
+  {
+    id: "dse_hsts_short_maxage", type: "finding", severity: "low",
+    enrich: { ...cookieEvidence(), hsts: { present: true, max_age: 86_400, include_subdomains: true, preload_directive: true, preload_eligible: false, error: null } },
+  },
+  {
+    id: "dse_hsts_not_preload_eligible", type: "observation", severity: "low",
+    enrich: { ...cookieEvidence(), hsts: { present: true, max_age: 31_536_000, include_subdomains: false, preload_directive: false, preload_eligible: false, error: null } },
+  },
+  {
+    id: "dse_cookie_no_secure", type: "finding", severity: "high",
+    enrich: cookieEvidence({ insecure: 1 }),
+  },
+  {
+    id: "dse_cookie_no_httponly", type: "finding", severity: "medium",
+    enrich: cookieEvidence({ noHttpOnly: 1 }),
+  },
+  {
+    id: "dse_cookie_no_samesite", type: "finding", severity: "low",
+    enrich: cookieEvidence({ noSameSite: 1 }),
+  },
+];
+for (const sample of dseCases) {
+  const emitted = dseFindings.buildDseFindings(sample.enrich, "shared.example.test")
+    .find((entry) => entry.id === sample.id);
+  eq(`${sample.id}: producer emits explicit finding_type`, emitted?.finding_type, sample.type);
+  eq(`${sample.id}: producer emits exact severity`, emitted?.severity, sample.severity);
+  eq(`${sample.id}: producer keeps zero score impact`, emitted?.score_impact, 0);
+  eq(`${sample.id}: actionability follows explicit type`, findingsContract.isActionableFinding(emitted), sample.type === "finding");
+}
+eq("DSE error emits no findings", dseFindings.buildDseFindings({ error: "unavailable" }, "shared.example.test"), []);
+eq("DSE NaN cookie counters emit no cookie findings",
+  dseFindings.buildDseFindings(cookieEvidence({ insecure: Number.NaN }), "shared.example.test").filter((entry) => COOKIE_IDS.includes(entry.id)), []);
+eq("DSE errored cookie evidence emits no cookie findings",
+  dseFindings.buildDseFindings(cookieEvidence({ insecure: 1, error: "unavailable" }), "shared.example.test").filter((entry) => COOKIE_IDS.includes(entry.id)), []);
+ok("severity cannot promote an explicit observation",
+  !findingsContract.isActionableFinding({ id: "synthetic_observation", finding_type: "observation", severity: "critical", score_impact: 0 }));
+ok("legacy negative score fallback remains actionable",
+  findingsContract.isActionableFinding({ id: "legacy", score_impact: -1 }));
+ok("legacy zero score without explicit type remains an observation",
+  !findingsContract.isActionableFinding({ id: "legacy_zero", score_impact: 0 }));
+
+const cspModules = (policy, { uncertain = false, status = 200 } = {}) => ({
+  dns: { resolves: true },
+  ssl: { https_available: true, http_redirects_to_https: true },
+  headers: {
+    accessible: true, final_https: true, validation_uncertain: uncertain, status_code: status,
+    values: {
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "content-security-policy": policy,
+      "x-frame-options": "DENY", "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer", "permissions-policy": "geolocation=()",
+    },
+  },
+  email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
+});
+const cspFinding = (policy, opts) => scoring.computeScore(cspModules(policy, opts), "shared.example.test")
+  .findings.find((entry) => entry.id === "csp_weak_policy");
+eq("CSP style-only producer is a low observation", cspFinding("default-src 'self'; script-src 'self'; style-src 'unsafe-inline'")?.finding_type, "observation");
+eq("CSP style-only producer severity is low", cspFinding("default-src 'self'; script-src 'self'; style-src 'unsafe-inline'")?.severity, "low");
+eq("CSP script weakness producer is an explicit finding", cspFinding("default-src 'self'; script-src 'unsafe-inline'")?.finding_type, "finding");
+eq("CSP script weakness producer severity is medium", cspFinding("default-src 'self'; script-src 'unsafe-inline'")?.severity, "medium");
+eq("CSP font/img wildcard is not header-wide promoted", cspFinding("default-src 'self'; script-src 'self'; img-src *"), undefined);
+eq("CSP uncertain response admits no weak-policy result", cspFinding("script-src 'unsafe-inline'", { uncertain: true }), undefined);
+eq("CSP non-200 response admits no weak-policy result", cspFinding("script-src 'unsafe-inline'", { status: 503 }), undefined);
+eq("shared CSP classifier identifies style-only weakness",
+  headersContract.classifyCspPolicy("script-src 'self'; style-src 'unsafe-inline'")?.classification, "weak_style_only");
+
+eq("score methodology version remains frozen", scoring.CYBER_METRICS_SCORE_METHODOLOGY_VERSION, "2026-08-26.1");
+eq("score-bearing module order remains frozen", scoring.SCORE_BEARING_MODULES,
+  ["dns", "ssl", "headers", "email_security", "asset_exposure", "subdomains", "subdomain_takeover"]);
+
+const CERTIFICATE_EXPIRY_NOW_MS = Date.UTC(2026, 7, 30, 12, 0, 0);
+const expiryNotAfterForDays = (days, skewDays = 0) => new Date(
+  CERTIFICATE_EXPIRY_NOW_MS +
+    ((Number.isFinite(days) && days >= 0 ? days : 10) + 0.5 + skewDays) * 86_400_000,
+).toISOString();
+const certificateExpiryIntel = (days, notAfter = expiryNotAfterForDays(days)) =>
+  certIntel.runCertificateIntelligenceModule({
+    ssl: { cert_expiry_days: days, cert_not_after: notAfter },
+    subdomains: { items: [], sources: {} },
+  }, "shared.example.test", { nowMs: CERTIFICATE_EXPIRY_NOW_MS });
+const certificateExpirySignals = (days, notAfter) =>
+  certificateExpiryIntel(days, notAfter).suspicious_certificate_signals || [];
+const criticalExpiryDate = expiryNotAfterForDays(10);
+const certResult = certificateExpiryIntel(10, criticalExpiryDate);
+const certSignals = certResult.suspicious_certificate_signals || [];
+const criticalCert = certSignals.find((entry) => entry.signal === "certificate_expiring_critical");
+eq("reachable certificate critical signal is high", criticalCert?.severity, "high");
+eq("reachable certificate critical signal is explicit finding", criticalCert?.finding_type, "finding");
+eq("certificate expiry critical score impact stays zero", criticalCert?.score_impact, 0);
+eq("certificate expiry critical title is producer-owned", criticalCert?.title,
+  "Logged certificate validity ends within 14 days");
+eq("certificate expiry critical description is CT-honest", criticalCert?.description,
+  `The latest-expiring currently valid certificate record returned by the available Certificate Transparency source for shared.example.test ends on ${criticalExpiryDate} (10 days). This is Certificate Transparency evidence; the certificate served by the live site was not inspected. Renew and deploy a replacement before that date, or confirm that a newer certificate is already in service.`);
+ok("certificate expiry evidence is CT-only and not live-verified",
+  criticalCert?.evidence_source === "certificate_transparency" &&
+    criticalCert?.live_certificate_verified === false &&
+    criticalCert?.evidence_basis === "latest_expiring_logged_certificate" &&
+    certResult.expiry_evidence === "usable");
+eq("certificate expiry pair accepts at most one day of independent-clock skew",
+  certificateExpiryIntel(10, expiryNotAfterForDays(10, 1)).expiry_evidence, "usable");
+eq("certificate expiry 13-day boundary emits high critical-window finding",
+  certificateExpirySignals(13).find((entry) => entry.signal === "certificate_expiring_critical")?.severity, "high");
+eq("certificate expiry 14-day boundary emits medium soon finding",
+  certificateExpirySignals(14).find((entry) => entry.signal === "certificate_expiring_soon")?.severity, "medium");
+eq("certificate expiry 29-day boundary emits medium soon finding",
+  certificateExpirySignals(29).find((entry) => entry.signal === "certificate_expiring_soon")?.severity, "medium");
+eq("certificate expiry 30-day boundary emits no expiry finding",
+  certificateExpirySignals(30).filter((entry) => entry.signal.startsWith("certificate_expir")), []);
+const soonExpiryDate = expiryNotAfterForDays(14);
+const soonCert = certificateExpirySignals(14, soonExpiryDate)
+  .find((entry) => entry.signal === "certificate_expiring_soon");
+eq("certificate expiry soon title is producer-owned", soonCert?.title,
+  "Logged certificate validity ends within 30 days");
+ok("certificate expiry soon description is CT-honest",
+  soonCert?.description ===
+    `The latest-expiring currently valid certificate record returned by the available Certificate Transparency source for shared.example.test ends on ${soonExpiryDate} (14 days). This is Certificate Transparency evidence; the certificate served by the live site was not inspected. Plan renewal now so the replacement is deployed before that date.` &&
+    !soonCert.description.includes("service outage"));
+ok("certificate expiry descriptions stay within returned CT evidence scope",
+  [criticalCert, soonCert].every((entry) =>
+    entry?.description.includes("returned by the available Certificate Transparency source") &&
+    !entry.description.includes("No currently valid publicly logged certificate")));
+const invalidExpiryValues = [-1, Number.NaN, Number.POSITIVE_INFINITY, 0.5, null, "13"];
+ok("invalid certificate expiry evidence emits no signal and stays not usable",
+  invalidExpiryValues.every((days) => {
+    const result = certificateExpiryIntel(days);
+    return result.expiry_evidence === "not_usable" &&
+      !result.suspicious_certificate_signals?.some((entry) => entry.signal.startsWith("certificate_expir"));
+  }));
+const incoherentExpiryPairs = [
+  { days: 10, notAfter: null },
+  { days: 10, notAfter: "" },
+  { days: 10, notAfter: "   " },
+  { days: 10, notAfter: "not-a-date" },
+  { days: 10, notAfter: expiryNotAfterForDays(10, 2) },
+  { days: 10, notAfter: "2100-01-01T00:00:00Z" },
+  { days: 0, notAfter: "2026-08-29T12:00:00.000Z" },
+];
+ok("incoherent certificate expiry pairs emit no signal and stay not usable",
+  incoherentExpiryPairs.every(({ days, notAfter }) => {
+    const result = certificateExpiryIntel(days, notAfter);
+    return result.expiry_evidence === "not_usable" &&
+      !result.suspicious_certificate_signals?.some((entry) => entry.signal.startsWith("certificate_expir"));
+  }));
+ok("certificate intelligence never emits scan-time expired identity",
+  [...invalidExpiryValues, 0, 13, 14, 29, 30].every((days) =>
+    !certificateExpirySignals(days).some((entry) => entry.signal === "certificate_expired")));
+const scoreWithoutCertificateExpiry = scoring.computeScore(cspModules(
+  "default-src 'self'; script-src 'self'; style-src 'self'",
+), "shared.example.test").score;
+const scoreWithCertificateExpiry = scoring.computeScore({
+  ...cspModules("default-src 'self'; script-src 'self'; style-src 'self'"),
+  certificate_intelligence: certResult,
+}, "shared.example.test").score;
+eq("certificate expiry signals remain score-neutral", scoreWithCertificateExpiry, scoreWithoutCertificateExpiry);
+eq("certificate critical maps to expiring action",
+  remediation.resolveRemediation({ finding_type: criticalCert?.signal })?.remediation_id, "cert.expiry.expiring");
+
+ok("raw MTA-STS absence token alone admits no finding",
+  emailAnalysis.mtaStsAdmission({ observation_state: "definitive_absent" }).missing_finding === false);
+ok("TLS-RPT absence observation cannot become actionable from severity",
+  !findingsContract.isActionableFinding({ id: "email_intel_tls_rpt_missing", finding_type: "observation", severity: "high", score_impact: 0 }));
+
 // 2. Projection has one owner and preserves every unrelated dse_* mapping.
 const attack = domains.CYBER_MOT_DOMAINS.find((entry) => entry.domain_key === "attack_surface");
 const website = domains.CYBER_MOT_DOMAINS.find((entry) => entry.domain_key === "website_security");
+const certificates = domains.CYBER_MOT_DOMAINS.find((entry) => entry.domain_key === "certificates_trust");
 for (const id of COOKIE_IDS) {
   eq(`${id}: Attack Surface no longer owns`, attack?.match({ id }), false);
   eq(`${id}: Website Security owns`, website?.match({ id }), true);
   eq(`${id}: generic ASM creation excludes`, asmCases.isAsmManagedFinding(finding(id)), false);
   eq(`${id}: managed verification ownership is Website Security`, managedVerification.managedVerificationDomainKey(id), "website_security");
 }
-for (const id of UNRELATED_DSE) {
-  eq(`${id}: Attack Surface ownership preserved`, attack?.match({ id }), true);
+for (const id of CAA_IDS) {
+  eq(`${id}: Attack Surface no longer owns`, attack?.match({ id }), false);
+  eq(`${id}: Certificates & Trust owns`, certificates?.match({ id }), true);
   eq(`${id}: not dual-owned by Website Security`, website?.match({ id }), false);
-  eq(`${id}: generic ASM creation remains enabled`, asmCases.isAsmManagedFinding({ id, module: "domain_security_enrichment" }), true);
-  eq(`${id}: managed verification ownership remains Attack Surface`, managedVerification.managedVerificationDomainKey(id), "attack_surface");
+  eq(`${id}: managed verification ownership is Certificates & Trust`, managedVerification.managedVerificationDomainKey(id), "certificates_trust");
 }
+for (const id of HSTS_IDS) {
+  eq(`${id}: Attack Surface no longer owns`, attack?.match({ id }), false);
+  eq(`${id}: Website Security owns`, website?.match({ id }), true);
+  eq(`${id}: not dual-owned by Certificates & Trust`, certificates?.match({ id }), false);
+  eq(`${id}: managed verification ownership is Website Security`, managedVerification.managedVerificationDomainKey(id), "website_security");
+}
+eq("dnssec finding remains Attack Surface-owned", attack?.match({ id: "dnssec_not_enabled" }), true);
+eq("csp_weak_policy is Website Security-owned", website?.match({ id: "csp_weak_policy" }), true);
+eq("csp_weak_policy is not Attack Surface-owned", attack?.match({ id: "csp_weak_policy" }), false);
 
 const report = {
   scan_id: "scan-projection",
@@ -230,6 +422,56 @@ const projectedWebsite = projected.find((entry) => entry.domain_key === "website
 eq("cookie is absent from Attack Surface count", projectedAttack?.finding_count, 0);
 eq("cookie appears once in Website Security count", projectedWebsite?.finding_count, 1);
 eq("cookie is counted exactly once across all eight domains", projected.reduce((sum, entry) => sum + entry.finding_count, 0), 1);
+
+// B3 resolver admission: real producer rows retain their explicit authority
+// independently from severity and score impact.
+const producerRow = (id, enrich) => dseFindings.buildDseFindings(enrich, "shared.example.test")
+  .find((entry) => entry.id === id);
+const hstsShort = producerRow("dse_hsts_short_maxage",
+  { ...cookieEvidence(), hsts: { present: true, max_age: 86_400, include_subdomains: true, preload_directive: true, preload_eligible: false, error: null } });
+const sameSite = producerRow("dse_cookie_no_samesite", cookieEvidence({ noSameSite: 1 }));
+const caaAbsent = producerRow("dse_missing_caa",
+  { ...cookieEvidence(), caa: { present: false, records: [], issuers: [], error: null } });
+const hstsPreload = producerRow("dse_hsts_not_preload_eligible",
+  { ...cookieEvidence(), hsts: { present: true, max_age: 31_536_000, include_subdomains: false, preload_directive: false, preload_eligible: false, error: null } });
+const resolveRow = (row, mutate = null) => {
+  const candidate = {
+    ...report,
+    modules: { ...report.modules, headers: { values: {} }, ssl: { https_available: true, https_probe_executed: true } },
+    findings: row ? [row] : [],
+  };
+  if (mutate) mutate(candidate);
+  return domains.resolveCyberMotDomainStates(candidate);
+};
+
+const hstsDomain = resolveRow(hstsShort).find((entry) => entry.domain_key === "website_security");
+eq("B3 low HSTS finding owns Website issue state", hstsDomain?.state, "issue_detected");
+eq("B3 low HSTS finding retains count", hstsDomain?.finding_count, 1);
+eq("B3 low HSTS finding retains identity", hstsDomain?.finding_ids, ["dse_hsts_short_maxage"]);
+eq("B3 low HSTS finding retains presentation severity", hstsDomain?.highest_severity, "low");
+
+const sameSiteDomain = resolveRow(sameSite).find((entry) => entry.domain_key === "website_security");
+eq("B3 low SameSite finding owns Website issue state", sameSiteDomain?.state, "issue_detected");
+eq("B3 low SameSite finding retains count and identity",
+  [sameSiteDomain?.finding_count, sameSiteDomain?.finding_ids], [1, ["dse_cookie_no_samesite"]]);
+
+const caveatedHsts = resolveRow(hstsShort, (candidate) => {
+  candidate.modules.headers = { incomplete: true, incomplete_reason: "origin_error_no_serviceable_response" };
+}).find((entry) => entry.domain_key === "website_security");
+eq("B3 actionable HSTS finding stays positive-first under required-evidence failure",
+  [caveatedHsts?.state, caveatedHsts?.coverage, caveatedHsts?.finding_count, caveatedHsts?.finding_ids],
+  ["issue_detected", "partial", 1, ["dse_hsts_short_maxage"]]);
+
+for (const [label, row, domainKey] of [
+  ["CAA", caaAbsent, "certificates_trust"],
+  ["HSTS preload", hstsPreload, "website_security"],
+  ["synthetic critical", { id: "csp_weak_policy", finding_type: "observation", severity: "critical", score_impact: -100, module: "headers" }, "website_security"],
+]) {
+  const state = resolveRow(row).find((entry) => entry.domain_key === domainKey);
+  ok(`B3 ${label} observation owns no domain issue/count/identity`,
+    state?.state !== "issue_detected" && state?.finding_count === 0 && JSON.stringify(state?.finding_ids) === "[]");
+}
+eq("B3 resolver version is the explicit evidence-admission mint", domains.CYBER_MOT_RESOLVER_VERSION, "2026-08-30.2");
 
 // 3. One canonical remediation identity, already Website-owned.
 const cookieEntries = remediation.REMEDIATION_REGISTRY.filter((entry) =>

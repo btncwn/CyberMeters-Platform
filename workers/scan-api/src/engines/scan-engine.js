@@ -5,7 +5,7 @@
 // vendor inventory/relationship persistence. Extracted verbatim from index.js (monolith
 // decomposition, Phase 1c). buildCanonicalUrlProfile is a nested function inside runScanEngine.
 import { customerSafeFailure } from "../lib/errors.js";
-import { createAuditEvent, createNotificationsForDomain } from "../lib/events.js";
+import { createAuditEvent, createNotificationsForDomain, scanCompletionAuditStatement } from "../lib/events.js";
 import { json, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { createId } from "../lib/util.js";
 import { redactedJson } from "../lib/redact.js";
@@ -18,7 +18,6 @@ import { upsertAssetInventory } from "./asset-inventory.js";
 import { loadKnownAssetRecheckHosts, persistAttackSurfaceLifecycle } from "./attack-surface-lifecycle.js";
 import { deriveAttackSurfaceSignalCompleteness } from "./attack-surface-signal-completeness.js";
 import { upsertBrandAssets, upsertIdentityAssets } from "./asset-persistence.js";
-import { buildScanCompletionPresentation } from "./assessment-presentation.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
 import { computeAndPersistWorkspaceBrs, computeBusinessRiskScore, expandFindingIds } from "./business-risk.js";
 import { getCyberEssentialsSnapshot } from "./ce-readiness.js";
@@ -36,7 +35,7 @@ import { runSaasExposureModule, runThirdPartyDiscoveryModule } from "./discovery
 import { buildDnsOperationalResilience } from "./dns-resilience.js";
 import { runDnsModule } from "./dns-scan.js";
 import { runDomainSecurityEnrichmentModule } from "./domain-enrichment.js";
-import { buildEmailRemediationActions, buildEmailTransportDetails, isPublishableEmailEvidence } from "./email-analysis.js";
+import { buildEmailRemediationActions, buildEmailTransportDetails, isPublishableEmailEvidence, mtaStsAdmission } from "./email-analysis.js";
 import { persistFindingsWithIdentity } from "./finding-identity.js";
 import { runEmailIntelModule } from "./email-intel.js";
 import { applyDmarcbisEmailCompatibilityProjection, deadlineDeferredEmailModuleResult, runEmailModule } from "./email-scan.js";
@@ -57,13 +56,13 @@ import {
 import { sealDmarcPolicyEvidence } from "./dmarcbis-contract.js";
 import { isActionableFinding, normalizeFindingSchema } from "./findings.js";
 import { runHeadersModule } from "./headers-scan.js";
-import { runHistoricalModule } from "./historical-scan.js";
+import { applyScanComparability, reconcileLateFindings, runHistoricalModule } from "./historical-scan.js";
 import { runIdentityDiscoveryModule } from "./identity-scan.js";
 import { recordPostureEvents } from "./posture-events.js";
 import { recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, isPublishableModuleEvidence, isSubrequestBudgetExhaustedError, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
+import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, isPublishableModuleEvidence, isSubrequestBudgetExhaustedError, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_DURABLE_PHASE5_MODULE_BUDGETS, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
@@ -87,6 +86,7 @@ import { detectVendorsFromModules } from "./vendor-signatures.js";
 import { runCveModule, runKevModule } from "./vuln-intel.js";
 import { runWhoisModule } from "./whois-scan.js";
 import { collectDegradations, mayGradeDegraded } from "./scan-degradation-contract.js";
+import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
 
 export function buildCertificateAuthorityConcentrationFromModule(certMod) {
   const issuer = certMod?.issuer ? String(certMod.issuer).trim() : "";
@@ -300,10 +300,19 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
 // polls. If R2 is written but the D1 write keeps failing, the scan is left with a
 // durable completed report the reconciler converges D1 from — never a silent orphan.
 export function createFinalizeLatch() {
-  return { state: "open", status: null, at: null, r2Written: false, d1Written: false, score: null, rating: null, quality: null };
+  return {
+    state: "open", status: null, at: null,
+    r2Written: false, d1Written: false,
+    r2WriteUncertain: false, d1WriteUncertain: false,
+    score: null, rating: null, quality: null,
+    completion: null,
+  };
 }
 
-export async function finalizeScanResult(latch, { scanId, report, score = null, rating = null, status, env }) {
+export async function finalizeScanResult(latch, {
+  scanId, report, score = null, rating = null, status, env, deadline = null,
+  workspaceId = null,
+}) {
   if (latch.state === "finalized") {
     return { finalized: true, wrote: false, reason: "already_finalized", status: latch.status };
   }
@@ -322,6 +331,18 @@ export async function finalizeScanResult(latch, { scanId, report, score = null, 
     // R2 can never present contradictory quality. NULL for a failed/qualityless report
     // (= 'unknown'); never inferred from status/score.
     latch.quality = report?.scan_quality?.status ?? null;
+    if (status === "completed" && !latch.completion) {
+      latch.completion = {
+        workspace_id: workspaceId ?? null,
+        scan_id: scanId,
+        domain: report?.domain ?? null,
+        domain_id: report?.domain_id ?? null,
+        score: report?.cyber_metrics_score ?? score,
+        risk_level: report?.risk_level ?? rating,
+        scan_quality: report?.scan_quality?.status ?? null,
+        monitoring_states: report?.monitoring_states ?? null,
+      };
+    }
   }
   const effStatus  = latch.status;
   const effScore   = latch.score;
@@ -329,30 +350,68 @@ export async function finalizeScanResult(latch, { scanId, report, score = null, 
   const effQuality = latch.quality;
 
   const errors = {};
+  const runTerminalWrite = async (side, write) => {
+    if (typeof deadline?.raceToTotal !== "function") {
+      await write();
+      return { settled: true, uncertain: false };
+    }
+    let started = false;
+    const outcome = await deadline.raceToTotal(
+      async () => {
+        started = true;
+        await write();
+        return { settled: true, uncertain: false };
+      },
+      () => ({ settled: false, uncertain: started }),
+    );
+    if (!outcome.settled) {
+      errors[side] = outcome.uncertain
+        ? "scan_total_ceiling_exhausted_write_outcome_unknown"
+        : "scan_total_ceiling_exhausted_before_write";
+      if (outcome.uncertain) latch[`${side}WriteUncertain`] = true;
+    }
+    return outcome;
+  };
   // Terminal R2 report — skipped when the completed report is already durable
   // (guardCompleted) so a failed report can never overwrite it.
-  if (!latch.r2Written && !guardCompleted) {
+  if (!latch.r2Written && !guardCompleted && !latch.r2WriteUncertain) {
     try {
-      await env.cybermeters_reports.put(
-        `reports/${scanId}.json`,
-        JSON.stringify(report, null, 2),
-        { httpMetadata: { contentType: "application/json" } }
+      const write = await runTerminalWrite("r2", () =>
+        env.cybermeters_reports.put(
+          `reports/${scanId}.json`,
+          JSON.stringify(report, null, 2),
+          { httpMetadata: { contentType: "application/json" } },
+        ),
       );
-      latch.r2Written = true;
+      if (write.settled) latch.r2Written = true;
     } catch (e) { errors.r2 = e?.message || String(e); }
+  } else if (latch.r2WriteUncertain && !latch.r2Written) {
+    errors.r2 = "terminal_r2_write_outcome_unknown";
   }
   // Terminal D1 status — a 'completed' status is written ONLY once its R2 report is
   // durable (never claim completed in D1 while R2 still holds the running placeholder;
   // the reconciler trusts R2). A 'failed' terminal is written regardless, so a scan
   // whose report could not be persisted still ends 'failed', never silently 'running'.
-  if (!latch.d1Written && (latch.r2Written || effStatus === "failed")) {
+  if (!latch.d1Written && !latch.d1WriteUncertain
+      && (latch.r2Written || effStatus === "failed")) {
     try {
-      await env.cybermeters_db
-        .prepare(`UPDATE scans SET status = ?, score = ?, rating = ?, scan_quality = ? WHERE id = ?`)
-        .bind(effStatus, effScore, effRating, effQuality, scanId)
-        .run();
-      latch.d1Written = true;
+      const write = await runTerminalWrite("d1", async () => {
+        const statusStatement = env.cybermeters_db
+          .prepare(`UPDATE scans SET status = ?, score = ?, rating = ?, scan_quality = ? WHERE id = ?`)
+          .bind(effStatus, effScore, effRating, effQuality, scanId);
+        if (effStatus === "completed") {
+          await env.cybermeters_db.batch([
+            statusStatement,
+            scanCompletionAuditStatement(env, latch.completion),
+          ]);
+        } else {
+          await statusStatement.run();
+        }
+      });
+      if (write.settled) latch.d1Written = true;
     } catch (e) { errors.d1 = e?.message || String(e); }
+  } else if (latch.d1WriteUncertain && !latch.d1Written) {
+    errors.d1 = "terminal_d1_write_outcome_unknown";
   }
 
   if (latch.r2Written && latch.d1Written) {
@@ -470,13 +529,217 @@ const TELEMETRY_TRACKED_MODULES = Object.freeze([
   "cloud_storage_discovery",
 ]);
 
+// Queue/Cron callers need a caller-visible total ceiling even when a provider
+// promise is not abortable (notably D1). This guard does not pretend to cancel an
+// already-issued provider operation. It freezes admission, records the in-flight
+// outcome as unknown, and refuses every later D1/R2 launch. A running scan with an
+// unknown initial write remains intentionally recoverable by the stuck-scan
+// reconciler; the engine must not race it with a competing terminal body.
+const TOTAL_CEILING_REFUSAL_CODE = "scan_total_ceiling_provider_refused";
+const RAW_D1_STATEMENT = Symbol("raw_d1_statement");
+// Customer email uses a provider-owned 10s fetch timeout. Stop admitting a new
+// send with two seconds of room for response handling + its delivery-ledger
+// update, so an accepted provider response cannot outrun the invocation result.
+const EXTERNAL_SIDE_EFFECT_MIN_TOTAL_REMAINING_MS = 12_000;
+
+export function createInvocationProviderGuard(sourceEnv, deadline) {
+  let frozen = false;
+  let nextOperationId = 0;
+  let refusedOperations = 0;
+  let lateCompletionsRefused = 0;
+  let externalSideEffectsRefused = 0;
+  const active = new Map();
+  const unknown = new Map();
+
+  const totalExceeded = () => frozen || deadline?.totalExceeded?.() === true;
+  const externalSideEffectAdmissionClosed = () => totalExceeded()
+    || (typeof deadline?.totalRemainingMs === "function"
+      && deadline.totalRemainingMs() < EXTERNAL_SIDE_EFFECT_MIN_TOTAL_REMAINING_MS);
+  const refusal = (label) => {
+    refusedOperations += 1;
+    const error = new Error(`Provider operation refused after scan total ceiling (${label})`);
+    error.name = "ScanTotalCeilingRefusalError";
+    error.code = TOTAL_CEILING_REFUSAL_CODE;
+    return error;
+  };
+  const classifySql = (sql) => /^\s*(INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP)\b/i.test(String(sql || ""))
+    ? "write"
+    : "read";
+  const track = (label, mutation, thunk) => {
+    if (totalExceeded()) throw refusal(label);
+    const id = ++nextOperationId;
+    let value;
+    try {
+      value = thunk();
+    } catch (error) {
+      throw error;
+    }
+    if (!value || typeof value.then !== "function") return value;
+    active.set(id, { label, mutation: mutation === true });
+    return Promise.resolve(value).then(
+      (result) => {
+        active.delete(id);
+        // An uncancellable provider operation may finish after the caller has
+        // returned. Its underlying outcome stays reconciliation-owned, but its
+        // late value must never resume an abandoned continuation that can launch
+        // a fresh D1/R2/email/webhook side effect.
+        if (frozen && unknown.has(id)) {
+          lateCompletionsRefused += 1;
+          throw refusal(`${label}.late_completion`);
+        }
+        return result;
+      },
+      (error) => { active.delete(id); throw error; },
+    );
+  };
+
+  const wrapStatement = (statement, sqlClass) => new Proxy({}, {
+    get(_target, property) {
+      if (property === RAW_D1_STATEMENT) return statement;
+      if (property === "bind") {
+        return (...args) => wrapStatement(statement.bind(...args), sqlClass);
+      }
+      if (["run", "all", "first", "raw"].includes(String(property))) {
+        return (...args) => track(
+          `d1.${sqlClass}.${String(property)}`,
+          sqlClass === "write" && property === "run",
+          () => statement[property](...args),
+        );
+      }
+      const value = statement[property];
+      return typeof value === "function" ? value.bind(statement) : value;
+    },
+  });
+
+  const database = sourceEnv?.cybermeters_db;
+  const guardedDatabase = database && new Proxy(database, {
+    get(target, property) {
+      if (property === "prepare") {
+        return (sql) => wrapStatement(target.prepare(sql), classifySql(sql));
+      }
+      if (property === "batch") {
+        return (statements) => track("d1.batch", true, () =>
+          target.batch((statements || []).map((statement) => statement?.[RAW_D1_STATEMENT] ?? statement)));
+      }
+      if (["exec", "dump"].includes(String(property))) {
+        return (...args) => track(`d1.${String(property)}`, property === "exec", () => target[property](...args));
+      }
+      const value = target[property];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+
+  const bucket = sourceEnv?.cybermeters_reports;
+  const guardedBucket = bucket && new Proxy(bucket, {
+    get(target, property) {
+      if (["put", "delete", "get", "head", "list"].includes(String(property))) {
+        return (...args) => track(
+          `r2.${String(property)}`,
+          property === "put" || property === "delete",
+          () => target[property](...args),
+        );
+      }
+      const value = target[property];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+
+  const guardedEnv = new Proxy(sourceEnv || {}, {
+    get(target, property) {
+      if (property === "cybermeters_db") return guardedDatabase;
+      if (property === "cybermeters_reports") return guardedBucket;
+      // Every scan-owned customer email trunk reads this binding immediately
+      // before its Resend fetch. Returning no credential is the existing
+      // fail-closed `missing_api_key` path; it launches no external request and
+      // leaves the idempotency row retryable rather than falsely marking sent.
+      if (property === "RESEND_API_KEY" && externalSideEffectAdmissionClosed()) {
+        externalSideEffectsRefused += 1;
+        return undefined;
+      }
+      return target[property];
+    },
+  });
+
+  const snapshot = () => ({
+    frozen,
+    active_count: active.size,
+    in_flight_outcome_unknown_count: unknown.size,
+    in_flight_mutation_outcome_unknown_count:
+      [...unknown.values()].filter((operation) => operation.mutation).length,
+    in_flight_outcome_unknown: [...unknown.values()].map((operation) => ({ ...operation })),
+    refused_operations: refusedOperations,
+    late_completions_refused: lateCompletionsRefused,
+    external_side_effect_admission_closed: externalSideEffectAdmissionClosed(),
+    external_side_effects_refused: externalSideEffectsRefused,
+    external_side_effect_min_total_remaining_ms: EXTERNAL_SIDE_EFFECT_MIN_TOTAL_REMAINING_MS,
+  });
+
+  return {
+    env: guardedEnv,
+    freeze() {
+      frozen = true;
+      for (const [id, operation] of active) {
+        if (!unknown.has(id)) unknown.set(id, { ...operation });
+      }
+      return snapshot();
+    },
+    snapshot,
+  };
+}
+
+export function markPhysicalBudgetIncomplete(module, value, ctx) {
+  const issued = ctx?.physicalAttemptsIssued?.() || 0;
+  ctx?.markIncomplete?.("subrequest_budget_exhausted");
+  if (issued === 0) {
+    return skippedModuleResult(module, {
+      ...(value && typeof value === "object" ? value : {}),
+      executed: false,
+      incomplete: true,
+      outcome: "not_run",
+      reason: "subrequest_budget_exhausted",
+      incomplete_reason: "subrequest_budget_exhausted",
+      timeout_source: "subrequest_budget",
+      physical_attempts_issued: 0,
+    });
+  }
+  return {
+    ...(value && typeof value === "object" ? value : {}),
+    incomplete: true,
+    outcome: "subrequest_budget_exhausted",
+    reason: "subrequest_budget_exhausted",
+    incomplete_reason: "subrequest_budget_exhausted",
+    timeout_source: "subrequest_budget",
+    physical_attempts_issued: issued,
+  };
+}
+
+export function cappedModuleCutoffProvenance(value, timedOut) {
+  if (typeof value?.timeout_source === "string" && value.timeout_source) {
+    return value.timeout_source;
+  }
+  return timedOut ? "module_race" : null;
+}
+
 export async function runScanEngine(scanId, domainId, workspaceId, domain, env, opts = {}) {
   // Injectable clock (tests drive it deterministically); production uses Date.now.
   const now = typeof opts.now === "function" ? opts.now : Date.now;
   const startedAt = new Date(now()).toISOString();
-  // Wall-clock budget below the ~30s waitUntil-cancellation cliff. Expensive network
-  // phases refuse to launch once spent, reserving headroom to finalize honestly.
-  const deadline = createScanDeadline(env, now);
+  // Resolve the invocation owner before creating its deadline. Durable Queue/Cron
+  // invocations receive the bounded 120s total safety profile; waitUntil and
+  // unknown callers retain the fail-closed 19s cancellation profile.
+  const executionContext = opts.executionContext === "queue" || opts.executionContext === "cron" || opts.executionContext === "waituntil"
+    ? opts.executionContext
+    : null;
+  const durableInvocation = executionContext === "queue" || executionContext === "cron";
+  const deadline = createScanDeadline(env, now, { executionContext });
+  // A durable invocation owns its ceiling from true engine entry, including the
+  // initial D1 status/identity reads. Reserved legacy callers are armed later,
+  // once their capacity mode is known, to preserve waitUntil/unknown behaviour.
+  if (durableInvocation) deadline.arm();
+  const providerGuard = durableInvocation
+    ? createInvocationProviderGuard(env, deadline)
+    : null;
+  if (providerGuard) env = providerGuard.env;
   // Finalize-once latch shared by the success and failure paths.
   const latch = createFinalizeLatch();
   // Per-module telemetry collector (persisted at finalization; non-fatal).
@@ -490,6 +753,12 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   // run in this function, so their telemetry contexts compose with the SAME hard
   // physical counter instead of starting an unmetered second budget episode.
   let reservedPhysicalCounter = null;
+  // Deterministic validation seam only. Production callers never pass this;
+  // focused validators use the real nested runCappedModule wiring with a real
+  // PhysicalSubrequestCounter already at/near exhaustion.
+  if (opts.testOnlyPhysicalSubrequestCounter?.contextFor) {
+    reservedPhysicalCounter = opts.testOnlyPhysicalSubrequestCounter;
+  }
   const dnsCache = makeDnsCache();
   const ctCache = createCertificateTransparencyCache({
     signal: deadline.signal,
@@ -588,29 +857,6 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     ctx.physicalAttemptsIssued = () => physical?.issuedDuringContext?.() || 0;
     return ctx;
   };
-  const markPhysicalBudgetIncomplete = (module, value, ctx) => {
-    const issued = ctx?.physicalAttemptsIssued?.() || 0;
-    ctx?.markIncomplete?.("subrequest_budget_exhausted");
-    if (issued === 0) {
-      return skippedModuleResult(module, {
-        ...(value && typeof value === "object" ? value : {}),
-        executed: false,
-        incomplete: true,
-        outcome: "not_run",
-        reason: "subrequest_budget_exhausted",
-        incomplete_reason: "subrequest_budget_exhausted",
-        physical_attempts_issued: 0,
-      });
-    }
-    return {
-      ...(value && typeof value === "object" ? value : {}),
-      incomplete: true,
-      outcome: "subrequest_budget_exhausted",
-      reason: "subrequest_budget_exhausted",
-      incomplete_reason: "subrequest_budget_exhausted",
-      physical_attempts_issued: issued,
-    };
-  };
   const moduleCapFor = (module) => SCAN_MODULE_BUDGETS[module] ?? deadline.remainingMs();
   const runCappedModule = async (module, {
     fallback,
@@ -619,11 +865,27 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     onConsumerRelease = null,
     run,
   }) => {
+    const deadlineFallback = (cause) => {
+      const value = fallback();
+      // Preserve the legacy waitUntil/unknown module bytes. Durable owners add
+      // one canonical source so the module record agrees with abort + telemetry.
+      // Attribute the fresh fallback in place: some canonical module contracts
+      // carry non-enumerable evidence-status properties that object spreading
+      // would silently erase and reinterpret as observed evidence.
+      if (durableInvocation && value && typeof value === "object") {
+        value.reason = cause.reason;
+        value.timeout_source = cause.timeoutSource;
+      }
+      return value;
+    };
     let allocatedMs = 0;
     let startedMs = null;
     let ctx = null;
     if (!deadline.canRun(estimateMs)) {
-      return { value: fallback(), ctx, allocatedMs, startedMs, timedOut: true, timeoutSource: "launch_gate" };
+      return {
+        value: deadlineFallback({ reason: "scan_deadline_exhausted", timeoutSource: "launch_gate" }),
+        ctx, allocatedMs, startedMs, timedOut: true, timeoutSource: "launch_gate",
+      };
     }
     const controller = createChildSignal();
     ctx = outboundContext(module, controller.signal);
@@ -645,7 +907,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         () => {
           releaseConsumer("module_budget_exhausted");
           controller.abort("module_budget_exhausted");
-          return fallback();
+          return deadlineFallback({ reason: "module_budget_exhausted", timeoutSource: "module_race" });
         },
         { hardMs, onStart: (capMs) => { allocatedMs = capMs; } },
       );
@@ -663,7 +925,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     releaseConsumer(thrown ? "consumer_error" : "consumer_completed");
     const timedOut = value?.outcome === "deadline_exceeded";
     if (timedOut && !controller.signal.aborted) controller.abort("module_budget_exhausted");
-    return { value, thrown, ctx, allocatedMs, startedMs, timedOut, timeoutSource: timedOut ? "module_race" : null };
+    const timeoutSource = cappedModuleCutoffProvenance(value, timedOut);
+    return { value, thrown, ctx, allocatedMs, startedMs, timedOut, timeoutSource };
   };
   const settleOutbound = (ctx, module, settled) => {
     if (!ctx) return null;
@@ -688,12 +951,53 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     ctx?.markAbandoned?.(cutoff);
     return outboundAccounting.snapshot(module);
   };
-  // PR-A1: execution context threaded from the dispatch site (queue | cron |
-  // waituntil). Telemetry-only — it never alters scheduling, budgets or module
-  // behaviour; an unrecognised value fails safe to null, never guessed.
-  const executionContext = opts.executionContext === "queue" || opts.executionContext === "cron" || opts.executionContext === "waituntil"
-    ? opts.executionContext
-    : null;
+  const invocationCeilingResult = (stage) => {
+    const providerState = providerGuard?.freeze?.() || {
+      in_flight_outcome_unknown_count: 0,
+      in_flight_mutation_outcome_unknown_count: 0,
+      in_flight_outcome_unknown: [],
+      refused_operations: 0,
+    };
+    return {
+      completed: false,
+      ceiling_exceeded: true,
+      outcome: "scan_total_ceiling_exhausted",
+      stage,
+      // An issued D1/R2 operation is not cancellable. `unknown` is deliberate:
+      // the caller is bounded, later provider launches are frozen, and the
+      // existing reconciler remains authoritative for any running scan.
+      provider_outcome: providerState.in_flight_outcome_unknown_count > 0
+        ? "in_flight_unknown"
+        : "no_in_flight_provider_operation",
+      reconciliation_required:
+        stage !== "initial_d1_running"
+        || providerState.in_flight_mutation_outcome_unknown_count > 0,
+      provider_guard: providerState,
+    };
+  };
+  const raceInvocationCeiling = async (stage, thunk, timers = {}) => {
+    if (!durableInvocation) return thunk();
+    // Deterministic focused-test seam. Production callers never provide it;
+    // tests can fire one exact inner stage without shortening the durable
+    // Queue/Cron profile or sleeping for its 120-second safety ceiling.
+    const stageTimers = opts.testOnlyInvocationCeilingTimers?.[stage] || timers;
+    return deadline.raceToTotal(
+      thunk,
+      () => invocationCeilingResult(stage),
+      stageTimers,
+    );
+  };
+  const runInitialCeilingAwareStep = async (stage, thunk) => {
+    if (!durableInvocation) return { settled: true, value: await thunk() };
+    const outcome = await raceInvocationCeiling(
+      stage,
+      async () => ({ settled: true, value: await thunk() }),
+      opts.preTerminalCeilingTimers || {},
+    );
+    return outcome?.ceiling_exceeded
+      ? { settled: false, ceiling: outcome }
+      : outcome;
+  };
   // PR-B1A: advisory scan origin (manual | scheduled) for diagnostics only —
   // after the scheduled Queue cutover both origins execute with
   // executionContext "queue", so origin needs its own additive field. Same
@@ -703,26 +1007,31 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     ? opts.trigger
     : null;
 
+  const runInvocationBody = async () => {
   try {
     // Mark scan as running in D1
-    await env.cybermeters_db
-      .prepare(`UPDATE scans SET status = 'running' WHERE id = ?`)
-      .bind(scanId)
-      .run();
+    const runningWrite = await runInitialCeilingAwareStep("initial_d1_running", () =>
+      env.cybermeters_db
+        .prepare(`UPDATE scans SET status = 'running' WHERE id = ?`)
+        .bind(scanId)
+        .run());
+    if (!runningWrite.settled) return runningWrite.ceiling;
 
     // Existing identities are rechecked through the same active DNS + SSRF-safe
     // HTTP paths. This is one bounded read and CT is only discovery provenance.
-    const knownAssetHosts = await loadKnownAssetRecheckHosts(env, domainId, domain);
+    const identityRead = await runInitialCeilingAwareStep("initial_identity_read", () =>
+      loadKnownAssetRecheckHosts(env, domainId, domain));
+    if (!identityRead.settled) return identityRead.ceiling;
+    const knownAssetHosts = identityRead.value;
 
     // Capacity mode (default "legacy" — the legacy branch below is byte-for-byte the
     // prior behaviour). "reserved" runs the separated exposure-first flow.
     const capacity = resolveScanCapacity(env);
-    // Reserved mode retains its independent hard-50 physical counter, while the
-    // same global deadline now owns a one-shot AbortSignal threaded through every
-    // reserved module/leaf. This closes the former B2 coverage exception without
-    // changing the production mode flag.
+    // Reserved mode retains its independent hard-50 physical counter. Durable
+    // Queue/Cron was armed at engine entry; only a legacy reserved caller still
+    // needs arming here. Default waitUntil/unknown remains byte-compatible.
     const reservedMode = capacity.mode === "reserved";
-    if (reservedMode) deadline.arm();
+    if (!durableInvocation && reservedMode) deadline.arm();
 
     // Network module results — set by whichever path runs; both produce the same shape
     // so the modules object and everything downstream are identical.
@@ -1017,6 +1326,24 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // present before scoring and the explicit admin-finding projection below.
     // The previous late assignment made that live consumer path unreachable.
     modules.admin_surface_detection = runAdminSurfaceModule(modules);
+
+    // Phase 7c: Domain security enrichment — pure computation, zero network I/O.
+    // Reads CAA from modules.dns.caa, HSTS from modules.headers, cookies from
+    // modules.headers.set_cookie_raw.  All data was captured in Phase 1.
+    try {
+      modules.domain_security_enrichment = runDomainSecurityEnrichmentModule(domain, modules);
+    } catch {
+      modules.domain_security_enrichment = {
+        caa:     {
+          present: false, records: [], issuers: [], wildcard_issuers: [], iodef: [],
+          quality: { score: 0, status: "lookup_failed", wildcard_issuer_usage: false, iodef_present: false, issuer_count: 0 },
+          error: "enrichment failed",
+        },
+        hsts:    { present: false, value: null, max_age: null, include_subdomains: false, preload_directive: false, preload_eligible: false, error: "enrichment failed" },
+        cookies: { found: 0, cookies: [], insecure_count: 0, no_httponly: 0, no_samesite: 0, error: "enrichment failed" },
+        source:  "dns_headers_analysis", error: "enrichment failed",
+      };
+    }
     ctTelemetryModules = modules;
     // Heartbeat: discovery + exposure done. An orphan cancelled after this point
     // died in scoring/enrichment/finalization, not discovery.
@@ -1045,15 +1372,32 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // Append admin surface detection findings (score_impact: 0 — no scoring changes in Phase 1)
     const adminMod = modules.admin_surface_detection;
     if (adminMod && !adminMod.error && adminMod.detected && adminMod.total > 0) {
-      const criticalSvcs = adminMod.services.filter((s) => s.risk_level === "critical");
-      const highSvcs     = adminMod.services.filter((s) => s.risk_level === "high");
-      const mediumSvcs   = adminMod.services.filter((s) => s.risk_level === "medium");
+      const adminHostKey = (hostname) => String(hostname || "")
+        .trim().toLowerCase().replace(/\.$/, "");
+      const scoredAdminHosts = new Set(findings
+        .filter((finding) => finding.id === "asset_exposure_sensitive_tool" ||
+          finding.id === "asset_exposure_admin_interface")
+        .flatMap((finding) => finding.affected_hosts || [])
+        .map(adminHostKey)
+        .filter(Boolean));
+      const claimedAdminHosts = new Set(scoredAdminHosts);
+      const bucketServices = (adminMod.services || []).filter((service) => {
+        if (service.finding_type !== "finding") return false;
+        const hostKey = adminHostKey(service.hostname);
+        if (!hostKey || claimedAdminHosts.has(hostKey)) return false;
+        claimedAdminHosts.add(hostKey);
+        return true;
+      });
+      const criticalSvcs = bucketServices.filter((s) => s.risk_level === "critical");
+      const highSvcs     = bucketServices.filter((s) => s.risk_level === "high");
+      const mediumSvcs   = bucketServices.filter((s) => s.risk_level === "medium");
 
       if (criticalSvcs.length > 0) {
         findings.push({
           id:           "admin_surface_critical",
           module:       "admin_surface_detection",
           severity:     "critical",
+          finding_type: "finding",
           score_impact: 0,
           // Machine-readable affected hosts. Managed cases derive their verification
           // target from this — never from the prose description below.
@@ -1068,6 +1412,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           id:           "admin_surface_high",
           module:       "admin_surface_detection",
           severity:     "high",
+          finding_type: "finding",
           score_impact: 0,
           affected_hosts: highSvcs.map((s) => s.hostname).filter(Boolean),
           title:        `High-Risk Admin Interface${highSvcs.length > 1 ? "s" : ""} Exposed`,
@@ -1080,6 +1425,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           id:           "admin_surface_medium",
           module:       "admin_surface_detection",
           severity:     "medium",
+          finding_type: "finding",
           score_impact: 0,
           affected_hosts: mediumSvcs.map((s) => s.hostname).filter(Boolean),
           title:        `Collaboration Tool${mediumSvcs.length > 1 ? "s" : ""} Publicly Accessible`,
@@ -1112,6 +1458,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         removed_subdomains: [],
         new_findings:       [],
         resolved_findings:  [],
+        not_reobserved_findings: [],
         new_takeover_risks: [],
         new_exposed_assets: [],
         source:             "previous_scan_comparison",
@@ -1126,14 +1473,26 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // In reserved mode these are budget-permitting enrichment: skipped honestly (no fetch
     // attempted) when the exposure-first budget is already spent.
     const phase5Cost = MODULE_SUBREQUEST_COST.cve + MODULE_SUBREQUEST_COST.kev + 4;
+    const durablePhase5 = executionContext === "queue" || executionContext === "cron";
+    // Queue/Cron runs the trio concurrently with independent source-envelope caps,
+    // so global admission reserves the longest possible sibling, never their sum.
+    // Legacy waitUntil/unknown retains the original one-second shared race below.
+    const phase5LaunchEstimate = durablePhase5
+      ? Math.max(...Object.values(SCAN_DURABLE_PHASE5_MODULE_BUDGETS))
+      : SCAN_MODULE_BUDGETS.phase5_intelligence;
     // Deadline first: if the enrichment trio can't finish in budget, defer it honestly
     // (partial scan) rather than risk the whole invocation being cancelled mid-write.
-    const phase5DeadlineBlocked = !deadline.canRun(SCAN_MODULE_BUDGETS.phase5_intelligence);
     await heartbeatScan(env, scanId, "phase5_intelligence", telemetry.rows.filter((r) => r.outcome === "ok").length);
+    // Admission is evaluated after the heartbeat write so time spent reaching
+    // this boundary is included; a phase never launches on a stale clock sample.
+    const phase5DeadlineBlocked = !deadline.canRun(phase5LaunchEstimate);
     if (phase5DeadlineBlocked) {
-      modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
-      modules.known_exploited_vulnerabilities = markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" });
-      modules.email_security_intelligence = markDeadlineDeferred({ source: "email_intelligence" });
+      const phase5LaunchCause = durablePhase5
+        ? { reason: "scan_deadline_exhausted", timeoutSource: "launch_gate" }
+        : {};
+      modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" }, phase5LaunchCause);
+      modules.known_exploited_vulnerabilities = markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" }, phase5LaunchCause);
+      modules.email_security_intelligence = markDeadlineDeferred({ source: "email_intelligence" }, phase5LaunchCause);
       telemetry.record("cve_intelligence", { outcome: "deadline_exceeded", allocated_ms: 0, timeout_source: "launch_gate" });
       telemetry.record("known_exploited_vulnerabilities", { outcome: "deadline_exceeded", allocated_ms: 0, timeout_source: "launch_gate" });
       telemetry.record("email_security_intelligence", { outcome: "deadline_exceeded", allocated_ms: 0, timeout_source: "launch_gate" });
@@ -1143,88 +1502,148 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       modules.email_security_intelligence = skippedModuleResult("email_intelligence");
     } else {
     if (reservedMode && reservedBudget) reservedBudget.spend("phase5", phase5Cost);
-    // Bound the enrichment trio to the remaining budget — even launched, it cannot
-    // overrun toward the ~30s cliff. On the bound, all three defer honestly. (No
-    // telemetry.run wrapper here: an abandoned late promise must not push a second
-    // row; a single coarse row per module is recorded from the resolved outcome.)
-    const PHASE5_DEADLINE = "__phase5_deadline__";
-    // PR-A1: the trio shares ONE race, so all three modules share the same
-    // allocation and observed wall time — recorded per module for diagnosability.
-    let phase5AllocatedMs = null;
-    const phase5StartedMs = now();
-    const phase5Controller = createChildSignal();
-    const cveOutbound = outboundContext("cve_intelligence", phase5Controller.signal);
-    const kevOutbound = outboundContext("known_exploited_vulnerabilities", phase5Controller.signal);
-    const emailIntelOutbound = outboundContext("email_security_intelligence", phase5Controller.signal);
-    const settled = await raceModuleDeadline(
-      deadline,
-      () => Promise.allSettled([
-        runCveModule(modules.technology_detection, { accounting: cveOutbound, signal: phase5Controller.signal }),
-        runKevModule(modules.technology_detection, env, { accounting: kevOutbound, signal: phase5Controller.signal }),
-        runEmailIntelModule(domain, modules.email_security, modules.dns, {
-          accounting: emailIntelOutbound,
-          signal: phase5Controller.signal,
-          cache: dnsCache,
-        }),
-      ]),
-      () => {
-        phase5Controller.abort("module_budget_exhausted");
-        return PHASE5_DEADLINE;
-      },
-      { hardMs: SCAN_MODULE_BUDGETS.phase5_intelligence, onStart: (capMs) => { phase5AllocatedMs = capMs; } },
-    );
-    if (settled === PHASE5_DEADLINE) {
-      modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
-      modules.known_exploited_vulnerabilities = markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" });
-      modules.email_security_intelligence = markDeadlineDeferred({ source: "email_intelligence" });
+    if (!durablePhase5) {
+      // Byte-compatible legacy path: waitUntil/unknown callers retain one shared
+      // one-second race and the established all-three terminal fallback.
+      const PHASE5_DEADLINE = "__phase5_deadline__";
+      let phase5AllocatedMs = null;
+      const phase5StartedMs = now();
+      const phase5Controller = createChildSignal();
+      const cveOutbound = outboundContext("cve_intelligence", phase5Controller.signal);
+      const kevOutbound = outboundContext("known_exploited_vulnerabilities", phase5Controller.signal);
+      const emailIntelOutbound = outboundContext("email_security_intelligence", phase5Controller.signal);
+      const settled = await raceModuleDeadline(
+        deadline,
+        () => Promise.allSettled([
+          runCveModule(modules.technology_detection, { accounting: cveOutbound, signal: phase5Controller.signal }),
+          runKevModule(modules.technology_detection, env, { accounting: kevOutbound, signal: phase5Controller.signal }),
+          runEmailIntelModule(domain, modules.email_security, modules.dns, {
+            accounting: emailIntelOutbound,
+            signal: phase5Controller.signal,
+            cache: dnsCache,
+          }),
+        ]),
+        () => {
+          phase5Controller.abort("module_budget_exhausted");
+          return PHASE5_DEADLINE;
+        },
+        { hardMs: SCAN_MODULE_BUDGETS.phase5_intelligence, onStart: (capMs) => { phase5AllocatedMs = capMs; } },
+      );
+      if (settled === PHASE5_DEADLINE) {
+        modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
+        modules.known_exploited_vulnerabilities = markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" });
+        modules.email_security_intelligence = markDeadlineDeferred({ source: "email_intelligence" });
+      } else {
+        const [cveSettled, kevSettled, emailIntelSettled] = settled;
+        modules.cve_intelligence = cveSettled.status === "fulfilled"
+          ? cveSettled.value
+          : { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0,
+              source: "nvd_api", error: customerSafeFailure("scan/cve", cveSettled.reason, "CVE module failed") };
+        modules.known_exploited_vulnerabilities = kevSettled.status === "fulfilled"
+          ? kevSettled.value
+          : { matches: [], checked: 0, matched: 0,
+              source: "cisa_kev", error: customerSafeFailure("scan/kev", kevSettled.reason, "KEV module failed") };
+        modules.email_security_intelligence = emailIntelSettled.status === "fulfilled"
+          ? emailIntelSettled.value
+          : { error: customerSafeFailure("scan/email-intelligence", emailIntelSettled.reason, "Email intelligence module failed") };
+      }
+      if (cveOutbound?.physicalBudgetExhausted?.()) {
+        modules.cve_intelligence = markPhysicalBudgetIncomplete("cve_intelligence", modules.cve_intelligence, cveOutbound);
+      }
+      if (kevOutbound?.physicalBudgetExhausted?.()) {
+        modules.known_exploited_vulnerabilities = markPhysicalBudgetIncomplete("known_exploited_vulnerabilities", modules.known_exploited_vulnerabilities, kevOutbound);
+      }
+      if (emailIntelOutbound?.physicalBudgetExhausted?.()) {
+        modules.email_security_intelligence = markPhysicalBudgetIncomplete("email_security_intelligence", modules.email_security_intelligence, emailIntelOutbound);
+      }
+      const phase5WallMs = now() - phase5StartedMs;
+      const phase5Raced = settled === PHASE5_DEADLINE;
+      const cveOutboundSnapshot = phase5Raced ? abandonOutbound(cveOutbound, "cve_intelligence", "module_race") : settleOutboundValue(cveOutbound, "cve_intelligence", modules.cve_intelligence);
+      const kevOutboundSnapshot = phase5Raced ? abandonOutbound(kevOutbound, "known_exploited_vulnerabilities", "module_race") : settleOutboundValue(kevOutbound, "known_exploited_vulnerabilities", modules.known_exploited_vulnerabilities);
+      const emailIntelOutboundSnapshot = phase5Raced ? abandonOutbound(emailIntelOutbound, "email_security_intelligence", "module_race") : settleOutboundValue(emailIntelOutbound, "email_security_intelligence", modules.email_security_intelligence);
+      telemetry.record("cve_intelligence", {
+        outcome: telemetry.outcomeOf(modules.cve_intelligence), timeout: modules.cve_intelligence?.outcome === "deadline_exceeded",
+        duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
+        outbound: cveOutboundSnapshot,
+        outbound_calls: cveOutboundSnapshot.outbound_measurement_complete ? cveOutboundSnapshot.outbound_attempts_observed : null,
+      });
+      telemetry.record("known_exploited_vulnerabilities", {
+        outcome: telemetry.outcomeOf(modules.known_exploited_vulnerabilities), timeout: modules.known_exploited_vulnerabilities?.outcome === "deadline_exceeded",
+        duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
+        outbound: kevOutboundSnapshot,
+        outbound_calls: kevOutboundSnapshot.outbound_measurement_complete ? kevOutboundSnapshot.outbound_attempts_observed : null,
+      });
+      telemetry.record("email_security_intelligence", {
+        outcome: telemetry.outcomeOf(modules.email_security_intelligence), timeout: modules.email_security_intelligence?.outcome === "deadline_exceeded",
+        duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
+        outbound: emailIntelOutboundSnapshot,
+        outbound_calls: emailIntelOutboundSnapshot.outbound_measurement_complete ? emailIntelOutboundSnapshot.outbound_attempts_observed : null,
+      });
     } else {
-      const [cveSettled, kevSettled, emailIntelSettled] = settled;
-      modules.cve_intelligence = cveSettled.status === "fulfilled"
-        ? cveSettled.value
-        : { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0,
-            source: "nvd_api", error: customerSafeFailure("scan/cve", cveSettled.reason, "CVE module failed") };
+      const cveFallback = () => markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
+      const kevFallback = () => markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" });
+      const emailIntelFallback = () => markDeadlineDeferred({ source: "email_intelligence" });
+      const [cveRun, kevRun, emailIntelRun] = await Promise.all([
+        runCappedModule("cve_intelligence", {
+          fallback: cveFallback,
+          estimateMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.cve_intelligence,
+          hardMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.cve_intelligence,
+          run: ({ accounting, signal }) => runCveModule(modules.technology_detection, { accounting, signal }),
+        }),
+        runCappedModule("known_exploited_vulnerabilities", {
+          fallback: kevFallback,
+          estimateMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.known_exploited_vulnerabilities,
+          hardMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.known_exploited_vulnerabilities,
+          run: ({ accounting, signal }) => runKevModule(modules.technology_detection, env, { accounting, signal }),
+        }),
+        runCappedModule("email_security_intelligence", {
+          fallback: emailIntelFallback,
+          estimateMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.email_security_intelligence,
+          hardMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.email_security_intelligence,
+          run: ({ accounting, signal }) => runEmailIntelModule(domain, modules.email_security, modules.dns, {
+            accounting,
+            signal,
+            cache: dnsCache,
+          }),
+        }),
+      ]);
 
-      modules.known_exploited_vulnerabilities = kevSettled.status === "fulfilled"
-        ? kevSettled.value
-        : { matches: [], checked: 0, matched: 0,
-            source: "cisa_kev", error: customerSafeFailure("scan/kev", kevSettled.reason, "KEV module failed") };
+      modules.cve_intelligence = cveRun.thrown
+        ? { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0,
+            source: "nvd_api", error: customerSafeFailure("scan/cve", cveRun.thrown, "CVE module failed") }
+        : cveRun.value;
+      modules.known_exploited_vulnerabilities = kevRun.thrown
+        ? { matches: [], checked: 0, matched: 0,
+            source: "cisa_kev", error: customerSafeFailure("scan/kev", kevRun.thrown, "KEV module failed") }
+        : kevRun.value;
+      modules.email_security_intelligence = emailIntelRun.thrown
+        ? { error: customerSafeFailure("scan/email-intelligence", emailIntelRun.thrown, "Email intelligence module failed") }
+        : emailIntelRun.value;
 
-      modules.email_security_intelligence = emailIntelSettled.status === "fulfilled"
-        ? emailIntelSettled.value
-        : { error: customerSafeFailure("scan/email-intelligence", emailIntelSettled.reason, "Email intelligence module failed") };
+      // Each late work promise can finish only into its own discarded local value;
+      // no promise writes modules/report state after its race resolves. KEV's
+      // existing R2 catalogue cache put is explicitly accepted as an idempotent,
+      // domain-independent cache refresh — never scan/customer report state.
+      const recordDurablePhase5 = (module, run) => {
+        const value = modules[module];
+        const durationMs = run.startedMs == null ? 0 : Math.max(0, now() - run.startedMs);
+        const outbound = run.timedOut
+          ? abandonOutbound(run.ctx, module, run.timeoutSource || "module_race")
+          : settleOutboundValue(run.ctx, module, value);
+        telemetry.record(module, {
+          outcome: telemetry.outcomeOf(value),
+          timeout: value?.outcome === "deadline_exceeded",
+          duration_ms: durationMs,
+          allocated_ms: run.allocatedMs,
+          timeout_source: run.timeoutSource,
+          outbound,
+          outbound_calls: outbound.outbound_measurement_complete ? outbound.outbound_attempts_observed : null,
+        });
+      };
+      recordDurablePhase5("cve_intelligence", cveRun);
+      recordDurablePhase5("known_exploited_vulnerabilities", kevRun);
+      recordDurablePhase5("email_security_intelligence", emailIntelRun);
     }
-    if (cveOutbound?.physicalBudgetExhausted?.()) {
-      modules.cve_intelligence = markPhysicalBudgetIncomplete("cve_intelligence", modules.cve_intelligence, cveOutbound);
-    }
-    if (kevOutbound?.physicalBudgetExhausted?.()) {
-      modules.known_exploited_vulnerabilities = markPhysicalBudgetIncomplete("known_exploited_vulnerabilities", modules.known_exploited_vulnerabilities, kevOutbound);
-    }
-    if (emailIntelOutbound?.physicalBudgetExhausted?.()) {
-      modules.email_security_intelligence = markPhysicalBudgetIncomplete("email_security_intelligence", modules.email_security_intelligence, emailIntelOutbound);
-    }
-    const phase5WallMs = now() - phase5StartedMs;
-    const phase5Raced = settled === PHASE5_DEADLINE;
-    const cveOutboundSnapshot = phase5Raced ? abandonOutbound(cveOutbound, "cve_intelligence", "module_race") : settleOutboundValue(cveOutbound, "cve_intelligence", modules.cve_intelligence);
-    const kevOutboundSnapshot = phase5Raced ? abandonOutbound(kevOutbound, "known_exploited_vulnerabilities", "module_race") : settleOutboundValue(kevOutbound, "known_exploited_vulnerabilities", modules.known_exploited_vulnerabilities);
-    const emailIntelOutboundSnapshot = phase5Raced ? abandonOutbound(emailIntelOutbound, "email_security_intelligence", "module_race") : settleOutboundValue(emailIntelOutbound, "email_security_intelligence", modules.email_security_intelligence);
-    telemetry.record("cve_intelligence", {
-      outcome: telemetry.outcomeOf(modules.cve_intelligence), timeout: modules.cve_intelligence?.outcome === "deadline_exceeded",
-      duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
-      outbound: cveOutboundSnapshot,
-      outbound_calls: cveOutboundSnapshot.outbound_measurement_complete ? cveOutboundSnapshot.outbound_attempts_observed : null,
-    });
-    telemetry.record("known_exploited_vulnerabilities", {
-      outcome: telemetry.outcomeOf(modules.known_exploited_vulnerabilities), timeout: modules.known_exploited_vulnerabilities?.outcome === "deadline_exceeded",
-      duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
-      outbound: kevOutboundSnapshot,
-      outbound_calls: kevOutboundSnapshot.outbound_measurement_complete ? kevOutboundSnapshot.outbound_attempts_observed : null,
-    });
-    telemetry.record("email_security_intelligence", {
-      outcome: telemetry.outcomeOf(modules.email_security_intelligence), timeout: modules.email_security_intelligence?.outcome === "deadline_exceeded",
-      duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
-      outbound: emailIntelOutboundSnapshot,
-      outbound_calls: emailIntelOutboundSnapshot.outbound_measurement_complete ? emailIntelOutboundSnapshot.outbound_attempts_observed : null,
-    });
     }
     // One module never stands in as the completion guard for the other:
     //   • the intelligence module proves its OWN completion — deferred, errored
@@ -1238,6 +1657,37 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     //     absent spf_detail crashed the entire scan.
     const emailIntelUsable =
       isPublishableModuleEvidence(modules.email_security_intelligence) && emailApplicability.applicable;
+    const mtaStsEvidence = modules.email_security_intelligence?.mta_sts;
+    const mtaStsMissingRows = Array.isArray(modules.email_security_intelligence?.findings)
+      ? modules.email_security_intelligence.findings.filter((finding) =>
+        finding?.id === "email_intel_mta_sts_missing" &&
+        finding?.module === "email_security_intelligence" &&
+        finding?.severity === "low" &&
+        Number.isFinite(finding?.score_impact) &&
+        finding.score_impact === 0)
+      : [];
+    if (
+      emailIntelUsable &&
+      emailApplicability.applicable &&
+      mtaStsAdmission(mtaStsEvidence).missing_finding === true &&
+      mtaStsMissingRows.length === 1 &&
+      !findings.some((finding) => finding?.id === "email_intel_mta_sts_missing")
+    ) {
+      findings.push({
+        ...mtaStsMissingRows[0],
+        finding_type: "finding",
+        severity: "low",
+        score_impact: 0,
+        evidence: [{
+          type: "https_probe",
+          target: `https://mta-sts.${domain}/.well-known/mta-sts.txt`,
+          status: 404,
+          reason: "well_known_404",
+          source: "cloudflare_workers_fetch",
+          contract: mtaStsEvidence.serviceability.contract_version,
+        }],
+      });
+    }
     if (emailIntelUsable) {
       const transportDetails = buildEmailTransportDetails(modules.email_security_intelligence);
       Object.assign(modules.email_security, transportDetails);
@@ -1644,24 +2094,6 @@ function buildCanonicalUrlProfile(modules) {
     modules._domain = domain;
     modules.canonical_url_profile = buildCanonicalUrlProfile(modules);
 
-    // Phase 7c: Domain security enrichment — pure computation, zero network I/O.
-    // Reads CAA from modules.dns.caa, HSTS from modules.headers, cookies from
-    // modules.headers.set_cookie_raw.  All data was captured in Phase 1.
-    try {
-      modules.domain_security_enrichment = runDomainSecurityEnrichmentModule(domain, modules);
-    } catch {
-      modules.domain_security_enrichment = {
-        caa:     {
-          present: false, records: [], issuers: [], wildcard_issuers: [], iodef: [],
-          quality: { score: 0, status: "lookup_failed", wildcard_issuer_usage: false, iodef_present: false, issuer_count: 0 },
-          error: "enrichment failed",
-        },
-        hsts:    { present: false, value: null, max_age: null, include_subdomains: false, preload_directive: false, preload_eligible: false, error: "enrichment failed" },
-        cookies: { found: 0, cookies: [], insecure_count: 0, no_httponly: 0, no_samesite: 0, error: "enrichment failed" },
-        source:  "dns_headers_analysis", error: "enrichment failed",
-      };
-    }
-
     // Phase 7d: Scan budget — pure computation, zero I/O.
     // Estimates subrequest usage across all modules and warns if close to the
     // Cloudflare Worker free-plan 50-subrequest limit.
@@ -1708,13 +2140,8 @@ function buildCanonicalUrlProfile(modules) {
     // produce a score delta (improved/declined/+N), so suppress its own report's
     // score_change here — the single central gate feeding the report, scan-detail,
     // and the executive-report trend direction.
-    if (modules.historical_changes) {
-      const comparable = scanQuality.status === "complete";
-      modules.historical_changes.comparable   = comparable;
-      if (!comparable) modules.historical_changes.score_change = null;
-      if (!phase5CustomerAssessment.evidence.complete) {
-        modules.historical_changes.current_score = null;
-      }
+    if (modules.historical_changes && !phase5CustomerAssessment.evidence.complete) {
+      modules.historical_changes.current_score = null;
     }
 
     // Phase 7e: Vendor Risk — pure computation, zero I/O.
@@ -1754,6 +2181,86 @@ function buildCanonicalUrlProfile(modules) {
       });
     }
 
+    // B2d: project only the two producer-owned, CT-bounded expiry findings into
+    // the canonical report path. This is evidence admission, not new detection:
+    // score computation has already finished, and the producer remains the sole
+    // owner of identity, severity, title and customer description.
+    const certificateIntel = modules.certificate_intelligence;
+    const certificateExpiryIds = [
+      "certificate_expiring_critical",
+      "certificate_expiring_soon",
+    ];
+    const certificateSignals = Array.isArray(certificateIntel?.suspicious_certificate_signals)
+      ? certificateIntel.suspicious_certificate_signals
+      : [];
+    const certificateEvidenceProviders = ["crt_sh", "certspotter"].filter((provider) =>
+      Number(certificateIntel?.ct_sources?.[provider]) > 0);
+    if (
+      modules.ssl?.tls_state === TLS_RUNTIME_STATES.OBSERVED_PRESENT &&
+      certificateIntel && certificateIntel.error == null &&
+      certificateIntel.evidence_source === "certificate_transparency" &&
+      certificateIntel.live_certificate_verified === false &&
+      certificateIntel.expiry_evidence === "usable" &&
+      typeof certificateIntel.expires_at === "string" &&
+      certificateIntel.expires_at.trim().length > 0 &&
+      Number.isFinite(Date.parse(certificateIntel.expires_at)) &&
+      certificateEvidenceProviders.length > 0
+    ) {
+      for (const findingId of certificateExpiryIds) {
+        const sourceRows = certificateSignals.filter((signal) => signal?.signal === findingId);
+        if (sourceRows.length !== 1 || findings.some((finding) => finding?.id === findingId)) continue;
+        const source = sourceRows[0];
+        const days = source.days_until_expiry ?? certificateIntel.days_until_expiry;
+        const exactBand = findingId === "certificate_expiring_critical"
+          ? days >= 0 && days < 14 && source.severity === "high"
+          : days >= 14 && days <= 29 && source.severity === "medium";
+        if (
+          source.finding_type !== "finding" || source.score_impact !== 0 ||
+          source.evidence_source !== "certificate_transparency" ||
+          source.live_certificate_verified !== false ||
+          source.evidence_basis !== "latest_expiring_logged_certificate" ||
+          !Number.isFinite(days) || !Number.isInteger(days) || !exactBand ||
+          typeof source.title !== "string" || source.title.trim().length === 0 ||
+          typeof source.description !== "string" || source.description.trim().length === 0
+        ) continue;
+        findings.push({
+          id: findingId,
+          module: "certificate_intelligence",
+          finding_type: "finding",
+          severity: source.severity,
+          score_impact: 0,
+          title: source.title,
+          description: source.description,
+          evidence_source: source.evidence_source,
+          evidence_basis: source.evidence_basis,
+          live_certificate_verified: false,
+          not_after: certificateIntel.expires_at,
+          days_until_expiry: days,
+          evidence: [{
+            type: "certificate_transparency",
+            basis: "latest_expiring_logged_certificate",
+            not_after: certificateIntel.expires_at,
+            days_until_expiry: days,
+            live_certificate_verified: false,
+            providers: certificateEvidenceProviders,
+          }],
+        });
+      }
+    }
+
+    if (modules.historical_changes) {
+      modules.historical_changes = reconcileLateFindings(
+        modules.historical_changes,
+        findings,
+        modules,
+      );
+      modules.historical_changes = applyScanComparability(
+        modules.historical_changes,
+        scanQuality.status === "complete",
+        scanQuality.status,
+      );
+    }
+
     // Phase 7i: brand_monitoring already populated in modules before computeScore —
     // see module initialisation block above. No re-run needed here.
 
@@ -1784,6 +2291,17 @@ function buildCanonicalUrlProfile(modules) {
     // Additive only — existing fields are preserved; missing fields default to
     // null / [] so every finding exposes a consistent shape to consumers.
     const normalizedFindings = findings.map(normalizeFindingSchema);
+    const managedAsmFindings = normalizedFindings.filter((finding) => {
+      if (!isActionableFinding(finding)) return false;
+      const isDomainSecurityEnrichment =
+        finding?.module === "domain_security_enrichment"
+        || String(finding?.id || "").startsWith("dse_");
+      if (!isDomainSecurityEnrichment) return true;
+      const domainKeys = CYBER_MOT_DOMAINS
+        .filter((definition) => definition.match(finding))
+        .map((definition) => definition.domain_key);
+      return domainKeys.length === 1 && domainKeys[0] === "attack_surface";
+    });
 
     // Item 7 P3: seal the one canonical DMARCbis protocol object before the
     // immutable scan report is written. The snapshot copies this same object;
@@ -1837,8 +2355,13 @@ function buildCanonicalUrlProfile(modules) {
     const finalizeStartedMs = now();
     const finalized = await finalizeScanResult(latch, {
       scanId, report, score: customerScore, rating: customerRiskLevel, status: "completed", env,
+      workspaceId,
+      deadline: durableInvocation ? deadline : null,
     });
     if (!finalized.finalized) {
+      if (durableInvocation && deadline.totalExceeded()) {
+        return invocationCeilingResult("terminal_finalization");
+      }
       // A terminal write did not durably land. Do NOT silently continue with a
       // half-written state — throw into the failure path, which (downgrade-safe)
       // preserves a durable completed R2 report and retries the D1 status, or writes
@@ -1854,6 +2377,12 @@ function buildCanonicalUrlProfile(modules) {
     // duplicates it, and it is purged with the scan via SCAN_CHILD_TABLES.
     telemetry.record("scan_finalisation", { outcome: "ok", duration_ms: now() - finalizeStartedMs });
 
+    // Everything below is post-terminal, best-effort projection/persistence. A
+    // durable Queue/Cron invocation must return at its total ceiling even when a
+    // non-critical dependency stalls. The terminal R2+D1 pair above remains the
+    // authoritative, separately bounded result; abandoning this local promise
+    // cannot mutate the already-frozen report or downgrade the finalized latch.
+    const runPostTerminalWork = async () => {
     // Persist per-module telemetry (non-fatal; after the terminal status is written
     // so a telemetry failure can never leave the scan 'running').
     await persistModuleTelemetry(scanId, telemetry, env);
@@ -2018,7 +2547,7 @@ function buildCanonicalUrlProfile(modules) {
     // verifies customer-completed fixes against the fresh scan, and reopens
     // resolved cases when the same finding returns. Reuses scan evidence only.
     try {
-      await createManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, recommendations, env);
+      await createManagedAsmCasesForScan(scanId, domainId, domain, managedAsmFindings, recommendations, env);
       await verifyManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, env, {
         modules,
         scanQuality,
@@ -2338,53 +2867,53 @@ function buildCanonicalUrlProfile(modules) {
       }
     } catch { /* non-fatal */ }
 
-    // Phase 11: Audit — scan completed. Fire per-workspace. Non-fatal.
+    // Phase 11: first-scan lifecycle delivery remains per-workspace. The
+    // scan_completed audit is part of the atomic terminal D1 unit above.
     try {
-      const completion = buildScanCompletionPresentation({
-        domain,
-        score: customerScore,
-        riskLevel: customerRiskLevel,
-        scanQuality: scanQuality?.status,
-        monitoringStates,
-      });
       const wsRows = await env.cybermeters_db
         .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
         .bind(domainId)
         .all();
       for (const { workspace_id } of (wsRows.results || [])) {
-        await createAuditEvent(env, {
-          workspace_id,
-          event_type:  "scan_completed",
-          entity_type: "scan",
-          entity_id:   scanId,
-          description: completion.description,
-          metadata:    { scan_id: scanId, domain, domain_id: domainId, score: customerScore, risk_level: customerRiskLevel },
-        });
         // Lifecycle: first scan completed (once per workspace+domain via dedupe).
         await sendLifecycleEmail(env, {
           type: "lifecycle_first_scan_completed", workspace_id, domain, scan_quality: scanQuality?.status,
         }).catch(() => {});
       }
-      // Also fire a workspace-agnostic event if domain has no workspaces
-      if ((wsRows.results || []).length === 0) {
-        await createAuditEvent(env, {
-          event_type:  "scan_completed",
-          entity_type: "scan",
-          entity_id:   scanId,
-          description: completion.description,
-          metadata:    { scan_id: scanId, domain, domain_id: domainId, score: customerScore, risk_level: customerRiskLevel },
-        });
-      }
     } catch { /* non-fatal */ }
+
+      return { completed: true, ceiling_exceeded: false };
+    };
+    if (durableInvocation) {
+      const postTerminal = await raceInvocationCeiling(
+        "success_post_terminal",
+        runPostTerminalWork,
+      );
+      return postTerminal;
+    } else {
+      await runPostTerminalWork();
+    }
+    return { completed: true, ceiling_exceeded: false };
 
   } catch (err) {
     // If a terminal state was already DURABLY finalized (completed or partial), a
     // later error — e.g. a post-completion persistence phase throwing — must NEVER
     // downgrade it. Refuse to touch it.
     if (latch.state === "finalized") {
-      await persistCtTelemetryAfterTerminal();
-      await persistCtOverlapAfterTerminal();
-      return;
+      const persistFinalizedDiagnostics = async () => {
+        await persistCtTelemetryAfterTerminal();
+        await persistCtOverlapAfterTerminal();
+        return { completed: true, ceiling_exceeded: false };
+      };
+      if (durableInvocation) {
+        return raceInvocationCeiling(
+          "finalized_diagnostics",
+          persistFinalizedDiagnostics,
+        );
+      } else {
+        await persistFinalizedDiagnostics();
+      }
+      return { completed: true, ceiling_exceeded: false };
     }
 
     // Otherwise the scan is NOT durably finalized (finalization never started, or a
@@ -2419,49 +2948,75 @@ function buildCanonicalUrlProfile(modules) {
     };
     await finalizeScanResult(latch, {
       scanId, report: failedReport, score: 0, rating: "unknown", status: "failed", env,
+      workspaceId,
+      deadline: durableInvocation ? deadline : null,
     });
-    await persistCtTelemetryAfterTerminal();
-    await persistCtOverlapAfterTerminal();
+    if (durableInvocation && deadline.totalExceeded()) {
+      return invocationCeilingResult("failure_terminal_finalization");
+    }
+    const runFailurePostTerminalWork = async () => {
+      await persistCtTelemetryAfterTerminal();
+      await persistCtOverlapAfterTerminal();
 
-    // Clean outcome: durably finalized as completed (original or recovered) → no
-    // failure audit needed. Otherwise emit an auditable event for the terminal state:
-    //   • "failed"    — the scan genuinely failed (results could not be persisted);
-    //   • "completed" but not durably finalized — a DEGRADED finalize: the completed
-    //     R2 report is durable, D1 convergence is pending (the reconciler backstops).
-    // Both are recorded so the outcome is never silent.
-    if (latch.state === "finalized" && latch.status === "completed") return;
-    const degraded = latch.status !== "failed";
-    const auditType = degraded ? "scan_finalize_degraded" : "scan_failed";
-    const auditDesc = degraded
-      ? `Scan for ${domain} degraded during finalization — results persisted, status convergence pending`
-      : `Scan failed for ${domain}`;
+      // Clean outcome: durably finalized as completed (original or recovered) → no
+      // failure audit needed. Otherwise emit an auditable event for the terminal state:
+      //   • "failed"    — the scan genuinely failed (results could not be persisted);
+      //   • "completed" but not durably finalized — a DEGRADED finalize: the completed
+      //     R2 report is durable, D1 convergence is pending (the reconciler backstops).
+      // Both are recorded so the outcome is never silent.
+      if (latch.state === "finalized" && latch.status === "completed") {
+        return { completed: true, ceiling_exceeded: false };
+      }
+      const degraded = latch.status !== "failed";
+      const auditType = degraded ? "scan_finalize_degraded" : "scan_failed";
+      const auditDesc = degraded
+        ? `Scan for ${domain} degraded during finalization — results persisted, status convergence pending`
+        : `Scan failed for ${domain}`;
 
-    try {
-      let wsRows = [];
-      if (workspaceId) {
-        wsRows = [{ workspace_id: workspaceId }];
-      } else {
-        const linked = await env.cybermeters_db
-          .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
-          .bind(domainId)
-          .all();
-        wsRows = linked.results || [];
-      }
-      const auditRows = wsRows.length > 0 ? wsRows : [{ workspace_id: null }];
-      for (const { workspace_id } of auditRows) {
-        await createAuditEvent(env, {
-          workspace_id: workspace_id ?? null,
-          event_type:  auditType,
-          entity_type: "scan",
-          entity_id:   scanId,
-          description: auditDesc,
-          metadata:    { scan_id: scanId, domain, domain_id: domainId, degraded, error: err?.message ?? "Unknown scan engine error" },
-        });
-      }
-    } catch { /* non-fatal */ }
+      try {
+        let wsRows = [];
+        if (workspaceId) {
+          wsRows = [{ workspace_id: workspaceId }];
+        } else {
+          const linked = await env.cybermeters_db
+            .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+            .bind(domainId)
+            .all();
+          wsRows = linked.results || [];
+        }
+        const auditRows = wsRows.length > 0 ? wsRows : [{ workspace_id: null }];
+        for (const { workspace_id } of auditRows) {
+          await createAuditEvent(env, {
+            workspace_id: workspace_id ?? null,
+            event_type:  auditType,
+            entity_type: "scan",
+            entity_id:   scanId,
+            description: auditDesc,
+            metadata:    { scan_id: scanId, domain, domain_id: domainId, degraded, error: err?.message ?? "Unknown scan engine error" },
+          });
+        }
+      } catch { /* non-fatal */ }
+      return { completed: true, ceiling_exceeded: false };
+    };
+    if (durableInvocation) {
+      return raceInvocationCeiling(
+        "failure_post_terminal",
+        runFailurePostTerminalWork,
+      );
+    } else {
+      await runFailurePostTerminalWork();
+    }
+    return { completed: true, ceiling_exceeded: false };
   } finally {
     deadline.disarm?.();
   }
+  };
+
+  if (!durableInvocation) return runInvocationBody();
+  return raceInvocationCeiling(
+    "whole_invocation",
+    runInvocationBody,
+  );
 }
 
 export async function insertAdminSurfaceEvents(scanId, domainId, adminModule, env, opts = {}) {

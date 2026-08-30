@@ -248,6 +248,12 @@ async function main() {
      snap1?.methodology?.ce_question_set_version === CE_QUESTION_SET_VERSION &&
      JSON.stringify(snap1?.methodology?.ce_question_set_versions) === JSON.stringify(["2026-07-16"]) &&
      snap1?.methodology?.remediation_registry_fingerprint === remediationRegistryFingerprint());
+  ok("B3 resolver methodology stamp is independently pinned",
+     CYBER_MOT_RESOLVER_VERSION === "2026-08-30.2" &&
+     snap1?.methodology?.cyber_mot_resolver_version === "2026-08-30.2");
+  ok("B3 does not move the Cyber Metrics score methodology stamp",
+     CYBER_METRICS_SCORE_METHODOLOGY_VERSION === "2026-08-26.1" &&
+     snap1?.methodology?.cyber_metrics_score_methodology_version === "2026-08-26.1");
   ok("snapshot schema version stamped", snap1?.snapshot?.snapshot_schema_version === SNAPSHOT_SCHEMA_VERSION);
   ok("as_of is the SCAN's time, never build time", snap1?.snapshot?.as_of === report1.completed_at);
 
@@ -545,6 +551,8 @@ async function main() {
   const row1b = db.prepare("SELECT * FROM scan_report_snapshots WHERE scan_id='scan1'").get();
   ok("completed row is byte-identical after the rebuild attempt",
      row1b.checksum_sha256 === row1.checksum_sha256 && row1b.completed_at === row1.completed_at);
+  ok("completed historical R2 bytes remain verbatim after the rebuild attempt",
+     store.get(row1.r2_key) === put1.body);
 
   // Later scan supersedes append-only.
   const laterRow = db.prepare("SELECT * FROM scan_report_snapshots WHERE scan_id='scan_p'").get();
@@ -833,6 +841,37 @@ async function main() {
   };
   ok("composeSnapshot is deterministic (same inputs → identical JSON)",
      JSON.stringify(composeSnapshot(pureArgs)) === JSON.stringify(composeSnapshot(pureArgs)));
+
+  const b3Report = makeReport("scanB3", "domX", "pure.example", {
+    findings: [
+      {
+        id: "dse_hsts_short_maxage", title: "HSTS max-age is short", description: "d",
+        severity: "low", score_impact: 0, module: "domain_security_enrichment",
+        finding_type: "finding", evidence: [],
+      },
+      {
+        id: "csp_weak_policy", title: "Style-only CSP observation", description: "d",
+        severity: "critical", score_impact: -100, module: "headers",
+        finding_type: "observation", evidence: [],
+      },
+    ],
+  });
+  b3Report.modules.ssl = { https_available: true, https_probe_executed: true };
+  const b3Snapshot = composeSnapshot({
+    ...pureArgs,
+    snapshotId: "snap-b3", scanId: "scanB3", report: b3Report,
+  });
+  const b3Website = b3Snapshot.domains.find((entry) => entry.domain_key === "website_security");
+  ok("new B3 snapshot retains low actionable Website finding state/count/identity",
+     b3Website?.state === "issue_detected" && b3Website?.coverage === "complete" &&
+     b3Website?.finding_count === 1 &&
+     JSON.stringify(b3Website?.finding_ids) === '["dse_hsts_short_maxage"]',
+     JSON.stringify(b3Website));
+  ok("new B3 snapshot observation cannot acquire domain issue authority from severity",
+     !b3Website?.finding_ids?.includes("csp_weak_policy"));
+  ok("new B3 snapshot stamps resolver and score methodologies independently",
+     b3Snapshot.methodology?.cyber_mot_resolver_version === "2026-08-30.2" &&
+     b3Snapshot.methodology?.cyber_metrics_score_methodology_version === "2026-08-26.1");
 
   // ── Report ──────────────────────────────────────────────────────────────────
   console.log(`\nM5.c reporting snapshot: ${pass}/${pass + fail} passed`);

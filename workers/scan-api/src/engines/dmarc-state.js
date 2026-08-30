@@ -215,13 +215,16 @@ const VALID_POLICY_RECORDS = new Set(["valid", "valid_with_defaults"]);
 const POLICY_SOURCE_KINDS = new Set(["exact", "organisational", "psd"]);
 
 function retainedPolicyRecord(evidence) {
-  if (typeof evidence?.source_record?.raw === "string" &&
-      evidence.source_record.raw.trim()) {
-    return evidence.source_record.raw;
+  for (const candidate of [
+    evidence?.source_record?.raw,
+    evidence?.source_record?.value,
+  ]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
   }
   const raw = Array.isArray(evidence?.raw_records)
-    ? evidence.raw_records.find((record) =>
-      typeof record?.raw === "string" && record.raw.trim())?.raw
+    ? evidence.raw_records
+      .flatMap((record) => [record?.raw, record?.value])
+      .find((candidate) => typeof candidate === "string" && candidate.trim())
     : null;
   return raw || null;
 }

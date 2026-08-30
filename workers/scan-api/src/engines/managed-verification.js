@@ -28,7 +28,7 @@ import { dnsQuery } from "./dns.js";
 import { buildCaaFromAnswers } from "./dns-scan.js";
 import { runDomainSecurityEnrichmentModule } from "./domain-enrichment.js";
 import { DSE_PRESENCE, dsePresenceEvidenceUsable } from "./dse-findings.js";
-import { captureSetCookieRaw, securityHeaderValuesFrom } from "./headers-scan.js";
+import { classifyCspPolicy, captureSetCookieRaw, securityHeaderValuesFrom } from "./headers-scan.js";
 import { makeReservedProbeFetch } from "./reserved-probe.js";
 import { hostHasConfirmedTakeoverRisk, runTakeoverModule, takeoverObservationFor } from "./takeover-scan.js";
 
@@ -86,12 +86,14 @@ const VERIFICATION_DISPATCH = Object.freeze({
   admin_surface_medium:           { technique: "http_asset", present: presentAdminSurface("medium") },
   // Re-run the takeover detector for this host: CNAME + provider fingerprint + body.
   subdomain_takeover:             { technique: "dns_takeover" },
+  // Re-observe and parse CSP through the same directive-scoped classifier used by detection.
+  csp_weak_policy:                { technique: "http_csp", domain_key: "website_security" },
   // Re-query CAA and re-evaluate the canonical dse_* predicate.
-  dse_missing_caa:                { technique: "dns_caa" },
-  dse_caa_no_issuers:             { technique: "dns_caa" },
+  dse_missing_caa:                { technique: "dns_caa", domain_key: "certificates_trust" },
+  dse_caa_no_issuers:             { technique: "dns_caa", domain_key: "certificates_trust" },
   // Re-observe response headers and re-evaluate the canonical dse_* predicate.
-  dse_hsts_short_maxage:          { technique: "http_headers" },
-  dse_hsts_not_preload_eligible:  { technique: "http_headers" },
+  dse_hsts_short_maxage:          { technique: "http_headers", domain_key: "website_security" },
+  dse_hsts_not_preload_eligible:  { technique: "http_headers", domain_key: "website_security" },
   dse_cookie_no_secure:           { technique: "http_headers", domain_key: "website_security" },
   dse_cookie_no_httponly:         { technique: "http_headers", domain_key: "website_security" },
   dse_cookie_no_samesite:         { technique: "http_headers", domain_key: "website_security" },
@@ -114,6 +116,7 @@ export const ASM_VERIFICATION_SUPPORT = Object.freeze({
   admin_surface_high:              { support: "automated", technique: "http_asset" },
   admin_surface_medium:            { support: "automated", technique: "http_asset" },
   subdomain_takeover:              { support: "automated", technique: "dns_takeover" },
+  csp_weak_policy:                 { support: "automated", technique: "http_csp" },
   dse_missing_caa:                 { support: "automated", technique: "dns_caa" },
   dse_caa_no_issuers:              { support: "automated", technique: "dns_caa" },
   dse_hsts_short_maxage:           { support: "automated", technique: "http_headers" },
@@ -293,6 +296,31 @@ async function observeDseCaa(findingId, host, dnsImpl) {
   };
 }
 
+// csp_weak_policy: a complete, serviceable response must contain a parseable CSP.
+// Only the detector's admitted script-src/default-src condition keeps the case open;
+// a style-only weakness clears this actionable case but remains an observation in a scan.
+async function observeCspWeakPolicy(host, fetcher) {
+  const probe = await probeHost(host, fetcher);
+  if (probe.completeness !== "complete") {
+    return { completeness: probe.completeness, reason: probe.reason || null };
+  }
+  const policy = probe.res.headers.get("content-security-policy");
+  const csp = classifyCspPolicy(policy);
+  if (!policy || !csp.parsed) {
+    return { completeness: "indeterminate", reason: policy ? "csp_unparseable" : "csp_not_observed" };
+  }
+  return {
+    completeness: "complete",
+    present: csp.actionable_weakness === true,
+    evidence: {
+      status: probe.res.status,
+      csp_classification: csp.classification,
+      dangerous_directives: csp.dangerous_directives,
+      limitations: "External observation of one serviceable response only; per-path policies may differ.",
+    },
+  };
+}
+
 // dse_hsts_* / dse_cookie_*: re-observe the response headers with the scan's own capture
 // helpers, rebuild the enrichment through the real (pure) module, then re-evaluate the
 // canonical predicate.
@@ -347,6 +375,7 @@ async function observeHost(entry, findingId, host, { fetcher, dnsImpl }) {
   switch (entry.technique) {
     case "http_asset":   return observeHttpAsset(entry, host, fetcher);
     case "dns_takeover": return observeTakeover(host, fetcher, dnsImpl);
+    case "http_csp":     return observeCspWeakPolicy(host, fetcher);
     case "dns_caa":      return observeDseCaa(findingId, host, dnsImpl);
     case "http_headers": return observeDseHeaders(findingId, host, fetcher);
     default:             return { completeness: "unsupported_finding_type", reason: "fail_closed" };
