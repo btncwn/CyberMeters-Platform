@@ -9,6 +9,9 @@ Use for docs-only governance changes.
 
 ## Canonical documents
 
+- `docs/AI-EXECUTIVE-OPERATING-MODEL.md`: sole active governance authority
+- `docs/PRE-BETA-EXECUTION-BACKLOG.md`: current execution order and rescue gate
+- `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`: strategic/customer acceptance spine
 - `README.md`: product, architecture, setup and development
 - `OPERATIONS.md`: deploy, rollback, secrets, observability and incidents
 - `AGENTS.md`: engineering constitution and roadmap discipline
@@ -27,7 +30,11 @@ Use for docs-only governance changes.
 - Keep feature code out of docs-only commits.
 - Do not add temporary probe comments.
 - Do not duplicate full operational procedures across every document.
-- Keep `.claude/skills/` in sync: when a governance rule, release procedure or roadmap fact changes in the canonical documents, update any skill under `.claude/skills/` that restates it in the same docs commit.
+- Governance or decision texts first written before 1 August 2026 are historical evidence unless explicitly re-ratified by a current canonical source. Preserve them; do not let their old self-labels override the operating model or backlog.
+- Historical classification does not erase permanent security/data invariants, accepted evidence, release facts or current technical standards.
+- Never mark rescue/candidate work `Live` before deployment and required production proof.
+- A release discovered without its tag/CHANGELOG record is reconciled explicitly after the fact, never backdated and never by rewriting the preceding release.
+- Keep tracked `.claude/skills/` current. If a local untracked `.agents/skills/` mirror is present, it may be synchronized as a local-only copy but must not be staged or treated as repository authority by default.
 
 ## CAPABILITIES.md governance hook
 
@@ -49,7 +56,7 @@ Check:
 ```bash
 git diff --check
 git status --short
-git diff -- README.md OPERATIONS.md AGENTS.md CLAUDE.md CHANGELOG.md docs/CAPABILITIES.md
+git diff -- README.md OPERATIONS.md AGENTS.md CLAUDE.md CHANGELOG.md docs/AI-EXECUTIVE-OPERATING-MODEL.md docs/PRE-BETA-EXECUTION-BACKLOG.md docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md docs/CAPABILITIES.md .claude/skills
 node scripts/validate-capabilities-doc.js
 ```
 

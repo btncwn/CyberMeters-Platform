@@ -2,25 +2,28 @@
 
 > A written, practical playbook for when something goes wrong in production.
 > Scoped to CyberMeters' actual stack (Cloudflare Workers · D1 · R2 · Pages ·
-> Stripe · Resend) and its real operating model (solo founder + AI engineer).
+> Stripe · Resend) and its real lean operating model.
 > Not enterprise theatre — every step is an action you can take tonight.
 
-**Owner:** Turhan Acar (Incident Commander). **Last updated:** 2026-07-11.
+**Routine Incident Commander:** Claude Desktop (Delivery Executive).
+**Founder and legal owner:** Turhan Acar. **Last updated:** 2026-08-30.
 This is a living document — after every incident, update the relevant playbook.
 
 ---
 
-## 0. Roles (the solo-founder reality)
+## 0. Roles and authority
 
 | Role | Who | Does |
 |---|---|---|
-| **Incident Commander (IC)** | Turhan | Declares the incident, makes the call on customer/regulator notification, owns comms. The only human with production secret access. |
-| **Technical Responder** | Claude (this agent) | Diagnoses, proposes + executes containment under IC direction, preserves evidence, drafts comms and the post-mortem. |
-| **Scribe** | Claude | Timestamps every action into the incident log from the first minute. |
+| **Incident Commander (IC)** | Claude Desktop (Delivery Executive) | Declares severity, dispatches bounded responders, authorises immediate reversible containment and recovery, preserves evidence and reports the outcome. |
+| **Founder / legal owner** | Turhan | Decides only operating-model §3 reserved consequences, including external customer/regulator communication and destructive or externally high-impact action; performs human-only login, signature, credential or console steps when requested. |
+| **Technical Responder** | Assigned Codex or Claude delivery seat | Diagnoses and executes the IC's bounded containment/recovery dispatch, preserves evidence, and drafts comms and the post-mortem. |
+| **Scribe** | Assigned delivery seat | Timestamps every action into the incident log from the first minute. |
 
-There is one person and one agent. That means: **contain first, investigate
-second, and write everything down** — you cannot rely on memory across a long
-night.
+The lean team is small: **contain first, investigate second, and write everything
+down**. Routine containment does not wait for Founder approval. Escalate after
+immediate containment if the durable consequence enters operating-model §3; a
+human-only action is an execution request, not a fifth approval class.
 
 ---
 
@@ -68,13 +71,21 @@ fraud alert, or a Cloudflare account-security email.
 
 Run from `workers/scan-api/`. **Record the printed Version ID of every deploy.**
 
+The Executive may immediately pause a rollout, roll back, revoke a bounded
+credential or contain harm under this runbook. Preserve evidence and obtain the
+Founder decision before a durable consequence enters operating-model §3, such as
+destructive customer-data action, a destructive migration, consequential
+DNS/secret or production-account change, external communication or an action
+affecting unrelated customers. Do not delay temporary containment needed to stop
+harm.
+
 **Roll the worker back to the last known-good version**
 ```bash
 wrangler deployments list                 # find the last good Version ID
-wrangler rollback --version-id <ID>       # or: wrangler versions deploy <ID>
+wrangler versions deploy <ID>             # use the matching service config
 ```
-Recent known-good chain (newest first, see CHANGELOG): `5dc30474` (v-11) →
-`fa3c49d1` (v-10) → `fd583e3d` (v-8) → `4003937f` (v-2).
+Read the exact current and rollback identities from `CHANGELOG.md` and the live
+deployment list at incident time. Do not use a hardcoded historical version chain.
 
 **Rotate a leaked/abused secret** (invalidates the old value immediately)
 ```bash
@@ -189,13 +200,19 @@ Each: **Detect → Contain → Investigate → Recover → Notify**.
 individuals' rights must be reported to the **ICO within 72 hours** of becoming
 aware; affected individuals must be told without undue delay if the risk is high.
 
+The Executive IC starts the clock, establishes the facts, assesses risk and
+drafts the notice. Customer or regulator notification is an external
+communication and therefore a Founder-reserved decision under operating-model
+§3; this authority boundary never pauses a legal deadline.
+
 Decision path:
 1. Was **personal data** of a person (customer, their end-users) actually
    exposed, altered, or lost — not just theoretically reachable? If clearly no →
    document the reasoning, no ICO report, still fix + review.
-2. If yes or unclear → IC assesses risk to individuals. High risk → notify
-   affected customers **and** the ICO. Low/contained → record the assessment;
-   ICO report may still be required — when in doubt, report within 72h.
+2. If yes or unclear → IC prepares the risk assessment for the Founder. High
+   risk → the Founder authorises notice to affected customers **and** the ICO.
+   Low/contained → record the assessment; an ICO report may still be required —
+   when in doubt, act within 72h.
 
 **Customer notice — say plainly:** what happened, what data was involved, when,
 what you've done, what they should do, and how to reach you. No spin, no jargon.

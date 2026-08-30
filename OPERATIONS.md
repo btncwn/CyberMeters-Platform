@@ -1,15 +1,17 @@
 # CyberMeters — Operations Runbook
 
-Version: July 2026
+Version: August 2026
 
-Last updated: 14 July 2026
+Last updated: 30 August 2026
 
 Operational runbook for deploying, operating, observing, recovering and securing CyberMeters in production.
 
 This document complements:
 
 - `README.md` — local development and common developer commands;
-- `AGENTS.md` — permanent engineering rules and canonical roadmap;
+- `docs/AI-EXECUTIVE-OPERATING-MODEL.md` — sole active governance authority;
+- `docs/PRE-BETA-EXECUTION-BACKLOG.md` — current canonical execution order;
+- `AGENTS.md` — permanent engineering rules and roadmap discipline;
 - `CLAUDE.md` — product ownership, implementation authority and release behaviour;
 - `CHANGELOG.md` — deployed release history.
 
@@ -210,6 +212,24 @@ Run the full CI-equivalent gate when changing:
 - RUA ingestion;
 - workspace deletion or purge.
 
+## Validation duration boundary
+
+Assurance must stay strong enough to run routinely. The measured 30-August baseline
+for the previous serial product-code path was 28.73 minutes median, 30.10 minutes p95
+and 53.38 minutes maximum; that developer-blocking path is not acceptable.
+
+Current p95 targets on the reference Mac are:
+
+- focused local gate: no more than 5 minutes;
+- developer-blocking local full/PR critical path: no more than 12 minutes;
+- scheduled/release full-assurance critical path: no more than 15 minutes.
+
+Meet the boundary through deterministic risk classification, fail-fast parallel
+shards and separate mutation/full-assurance carriers. Never meet it by deleting
+tests, mutations, tenant/security coverage or evidence. An unknown classifier result,
+missing base, stale evidence or shard-accounting mismatch fails closed to the full
+required gate.
+
 ---
 
 # 5. Deploy
@@ -230,6 +250,16 @@ curl -sS https://api.cybermeters.com/health
 ```
 
 Use the actual production API hostname if different.
+
+Before any new deploy, compare all three identities:
+
+1. the exact candidate commit and both Worker `APP_VERSION` closure stamps;
+2. the live `/health` Version ID and closure stamp;
+3. the newest deployed release record in `CHANGELOG.md`.
+
+If the live stamp or Version ID is not represented by the newest release record,
+stop the new deploy. Treat the gap as a release-record incident, preserve the live
+state and reconcile it first. Do not hide the gap by editing an older release entry.
 
 ## Apply migration
 
@@ -295,6 +325,13 @@ Record:
 - Pages status;
 - known limitations.
 
+The tag and CHANGELOG record belong to the same release session as the deploy and
+proof. If a deployed release is discovered without either record, add one explicit
+`RECORDED AFTER THE FACT` entry and an annotated tag targeting the exact deployed
+commit. Keep the real tagger/recording date, record the original deploy time from
+evidence, grant no retrospective acceptance credit and never backdate or rewrite the
+preceding release.
+
 ---
 
 # 6. Rollback
@@ -305,8 +342,12 @@ Record:
 cd workers/scan-api
 npx wrangler deployments list
 npx wrangler versions list
-npx wrangler rollback --version-id <version-id>
+npx wrangler versions deploy <VERSION_ID>
 ```
+
+Use the matching service configuration; email-ingest rollback must use
+`--config ../email-ingest/wrangler.toml`. Record the newly created rollback
+deployment identity and keep the source/tag mapping explicit.
 
 After rollback:
 
@@ -494,6 +535,25 @@ Use:
 - `/health` for liveness and deployment ID;
 - `/ready` for D1/R2 dependency readiness.
 
+For scan/report production readiness, `/ready` passes only when both D1 and R2 are
+ready. A `200 /health` with `r2:false`, an R2 provider code such as `10042`, a
+zero-byte download or a missing object is not readiness. Freeze new scan/proof/deploy
+work that depends on R2, preserve the existing bucket and objects, and diagnose
+binding, entitlement and provider state separately. Do not create a replacement
+bucket, Worker or public route as an unreviewed workaround.
+
+30-August incident record: the existing `cybermeters-reports` bucket was preserved
+(611 objects, 81.39 MB), the account entitlement was re-enabled, both live scan-api
+hosts returned repeated `d1:true,r2:true`, and known report/snapshot reads matched the
+D1 byte/hash evidence. This is **R2 READ/INTEGRITY PASS; WRITE PATH OPEN**: the
+controlled write/read/delete canary has not run and no release acceptance follows.
+The two redacted incident receipts are preserved as
+`docs/governance/2026-08-30-rescue/production-identity-audit-receipt-2026-08-30.json`
+and
+`docs/governance/2026-08-30-rescue/r2-read-integrity-receipt-2026-08-30.json`;
+raw scan/report/snapshot/PDF artefacts remain outside Git. Release facts stay in
+`CHANGELOG.md`.
+
 ## Analytics Engine
 
 Dataset:
@@ -563,6 +623,23 @@ Actions:
 8. latest deploy;
 9. latest migration;
 10. customer side effects.
+
+## Append-only audit occurrence integrity
+
+Append-only history must be preserved, but one business occurrence must not create
+duplicate audit truth. Occurrence-style events such as `scan_completed` require:
+
+- the authoritative workspace/tenant scope of the entity, not domain-wide fan-out;
+- a deterministic idempotency identity for the exact occurrence;
+- atomic durability with the terminal D1 transition, plus the same idempotent
+  contract in terminal-state recovery;
+- negative tests for concurrent/replayed delivery, legacy rows, null historical
+  scope and cross-workspace leakage.
+
+On 30 August, two content-identical `scan_completed` rows were observed for one
+company-controlled scan. The existing rows are historical evidence and must not be
+deleted or rewritten. Until the bounded corrective and its integration/release proof
+pass, scan-completion audit exactly-once remains an open release-acceptance blocker.
 
 ## Tenant-isolation incident
 

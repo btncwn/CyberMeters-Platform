@@ -12,6 +12,11 @@ Release target:
 
 Do not use this skill until implementation and the full required validation gate are green.
 
+Before preflight, read the full `docs/AI-EXECUTIVE-OPERATING-MODEL.md` and the
+top/current order in `docs/PRE-BETA-EXECUTION-BACKLOG.md`. Green CI does not
+clear a production/customer `HOLD`. Stop unless the current order and every
+named HOLD condition permit the exact merge, deploy, canary and proof consequence.
+
 ## Preflight
 
 Confirm:
@@ -21,8 +26,12 @@ Confirm:
 - no unrelated working-tree changes
 - migration is additive/reversible if present
 - rollback target is known
-- no high-risk change lacks founder approval
+- no reserved-class decision under the operating model §3 lacks the Founder decision
 - current `main`, latest release tag and deployment facts are known
+- the live `/health` Version ID and closure stamp match the newest deployed
+  `CHANGELOG.md` record; otherwise stop and reconcile the release-record incident
+- the required local/PR gates meet the canonical duration boundary without
+  deleting assurance
 
 Record current Worker version before merge/deploy.
 
@@ -44,9 +53,17 @@ PR green
 → final report
 ```
 
+Create the tag and CHANGELOG record in the same release session. If an older
+deploy is discovered without either record, use one explicit after-the-fact
+record and annotated tag against the exact deployed commit. Never backdate or
+rewrite the preceding release.
+
 ## Commands
 
 Use repository paths and current Wrangler syntax from `OPERATIONS.md`.
+
+Rollback uses `wrangler versions deploy <VERSION_ID>` with the matching service
+configuration; record the resulting deployment identity.
 
 The primary Worker deploys manually.
 
@@ -98,6 +115,6 @@ Stop before deployment if:
 - unrelated changes are mixed in
 - rollback target is missing
 - live contract regression exists
-- founder approval is required
+- an unresolved operating-model §3 reserved consequence lacks its Founder decision
 
 Do not hide a blocked deployment behind optimistic language.
