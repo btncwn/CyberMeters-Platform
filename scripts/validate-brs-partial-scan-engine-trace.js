@@ -177,7 +177,7 @@ try {
   db.prepare("INSERT INTO workspace_domains (workspace_id,domain_id) VALUES ('ws','dom')").run();
   db.prepare(`
     INSERT INTO subscriptions (id,owner_user_id,plan,subscription_status,current_period_end,created_at)
-    VALUES ('sub','user','starter','active','2026-08-28T00:00:00.000Z','2026-07-28T00:00:00.000Z')
+    VALUES ('sub','user','starter','active','2099-12-31T23:59:59.000Z','2026-07-28T00:00:00.000Z')
   `).run();
 
   const run = async (scanId, createdAt, nowMs) => {
@@ -243,7 +243,7 @@ try {
   const token = "brs-engine-route-token";
   db.prepare(`
     INSERT INTO user_sessions (id,user_id,token_hash,expires_at)
-    VALUES ('session','user',?, '2026-08-28T00:00:00.000Z')
+    VALUES ('session','user',?, '2099-12-31T23:59:59.000Z')
   `).run(await worker.hashToken(token));
   const response = await worker.default.fetch(new Request(
     "https://api.cybermeters.com/api/workspaces/ws/business-risk",
