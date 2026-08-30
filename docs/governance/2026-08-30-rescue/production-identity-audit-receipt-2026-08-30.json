@@ -1,0 +1,56 @@
+{
+  "receipt_version": "cybermeters-rescue-production-identity/1",
+  "captured_at_utc": "2026-08-30T01:00:40Z",
+  "mode": "read_only_redacted",
+  "production_customer_hold": true,
+  "scan_api": {
+    "source_commit": "47d9bb3942f9ca06d73204bdb643658dda51a5cb",
+    "version_id": "acf0b953-5214-4aae-95aa-0598207723a8",
+    "version_created_at": "2026-08-26T06:34:40.674Z",
+    "deployment_created_at": "2026-08-26T06:34:43.200Z",
+    "traffic_percent": 100,
+    "message": "v2026.08.26-2 — AS-B2 canonical KEV policy, exact main 47d9bb3942f9ca06d73204bdb643658dda51a5cb"
+  },
+  "email_ingest": {
+    "source_commit": "47d9bb3942f9ca06d73204bdb643658dda51a5cb",
+    "version_id": "510a14af-297a-4775-88dc-553ff434990a",
+    "version_created_at": "2026-08-26T06:35:22.050Z",
+    "deployment_created_at": "2026-08-26T06:35:24.252Z",
+    "traffic_percent": 100,
+    "message": "v2026.08.26-2 — coordinated closure, exact main 47d9bb3942f9ca06d73204bdb643658dda51a5cb"
+  },
+  "rollback_candidate": {
+    "recorded_release": "v2026.08.26-1",
+    "source_commit": "cf6bec4952b9bd11485ce33b47f774b429698179",
+    "scan_api_version_id": "2d89c921-1d3b-48fa-890f-5f1025bc7b16",
+    "version_created_at": "2026-08-25T23:31:38.483Z"
+  },
+  "manual_company_controlled_scan": {
+    "scan_id": "scan_06d10558-edef-4ac5-a7ca-0090473820f5",
+    "actor_class": "authenticated_company_account_owner_redacted",
+    "requested_at": "2026-08-30T00:26:26Z",
+    "started_at": "2026-08-30T00:26:29Z",
+    "completed_audit_at": "2026-08-30T00:27:51Z",
+    "report_downloaded_at": "2026-08-30T00:27:51Z",
+    "d1_query_meta": {
+      "changes": 0,
+      "changed_db": false,
+      "rows_written": 0
+    },
+    "audit_anomaly": "Two scan_completed audit rows exist with the same timestamp and content; investigate exactly-once audit emission before release acceptance."
+  },
+  "redactions": [
+    "Cloudflare account author email",
+    "D1 user id and user email",
+    "Cloudflare account and database identifiers",
+    "secret names and all secret values",
+    "unrelated tenant and audit rows"
+  ],
+  "conclusion": {
+    "r2_timeline_reconciled": true,
+    "deployment_identity_reconciled": true,
+    "release_record_drift": true,
+    "new_deploy_performed": false,
+    "production_write_performed": false
+  }
+}
