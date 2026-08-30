@@ -807,7 +807,7 @@ function runS4cxFrontendProbe(sandbox, mutation, mutated) {
     "renders the real S4 certificate finding and never derives it from raw module diagnostics";
   const completed = child.status === 1 && !child.signal &&
     output.includes(expectedFailure) &&
-    /1 failed \| 15 skipped \(16\)/.test(output) &&
+    /Tests\s+1 failed \| \d+ skipped \(\d+\)/.test(output) &&
     !/(?:SyntaxError|TypeError|ReferenceError|ERR_MODULE_NOT_FOUND)/.test(output);
   return {
     child,

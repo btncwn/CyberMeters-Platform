@@ -21,8 +21,19 @@ export const F004_MATRIX_VALIDATOR_PATH = "scripts/validate-f004-recovery-instru
 export const F004_MATRIX_STEP_NAME = "Run canonical F-004 recovery mutation shard";
 export const F004_MATRIX_RUN =
   "node scripts/validate-f004-recovery-instrumentation-mutations.js --shard-index \"${{ matrix.shard_index }}\" --shard-total 7";
+export const F004_MATRIX_SOURCE_HEAD = "${{ github.event.pull_request.head.sha || github.sha }}";
 export const F004_MATRIX_HEAD_GUARD_RUN =
   "set -eu\n" +
+  "if [ -z \"$EXPECTED_HEAD_SHA\" ]; then\n" +
+  "  echo \"::error::F004 matrix candidate head is empty\"\n" +
+  "  exit 1\n" +
+  "fi\n" +
+  "if [ \"$EVENT_NAME\" = \"pull_request\" ]; then\n" +
+  "  if [ -z \"$PULL_REQUEST_HEAD_SHA\" ] || [ \"$EXPECTED_HEAD_SHA\" != \"$PULL_REQUEST_HEAD_SHA\" ]; then\n" +
+  "    echo \"::error::F004 matrix PR source-head identity is absent or inconsistent\"\n" +
+  "    exit 1\n" +
+  "  fi\n" +
+  "fi\n" +
   "actual_head=\"$(git rev-parse HEAD)\"\n" +
   "if [ \"$actual_head\" != \"$EXPECTED_HEAD_SHA\" ]; then\n" +
   "  echo \"::error::F004 matrix checkout drift: expected $EXPECTED_HEAD_SHA, got $actual_head\"\n" +
@@ -225,11 +236,15 @@ function expectedF004MatrixJob() {
       {
         name: "Checkout exact candidate",
         uses: "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
-        with: { ref: "${{ github.sha }}", "fetch-depth": 0 },
+        with: { ref: F004_MATRIX_SOURCE_HEAD, "fetch-depth": 0 },
       },
       {
         name: "Require checkout to match exact candidate",
-        env: { EXPECTED_HEAD_SHA: "${{ github.sha }}" },
+        env: {
+          EVENT_NAME: "${{ github.event_name }}",
+          PULL_REQUEST_HEAD_SHA: "${{ github.event.pull_request.head.sha }}",
+          EXPECTED_HEAD_SHA: F004_MATRIX_SOURCE_HEAD,
+        },
         run: F004_MATRIX_HEAD_GUARD_RUN,
       },
       {

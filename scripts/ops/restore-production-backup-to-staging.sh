@@ -331,7 +331,7 @@ env_put_r2()     { printf 'wrangler r2 object put %s/%s --pipe --remote\n' "${1:
 #    invoked under an EXPLICIT ALLOWLISTED ENVIRONMENT; fail-closed). ──
 PROVIDER_OPS="now backup_epoch src_identity dest_identity create_staging store_get replay_d1 restore_r2 verify_d1 verify_r2 target_r2_list check_integrity check_fk check_schema check_tables check_rows check_r2"
 provider_schema_ok() {
-  local op="$1" out="$2"
+  local op="$1" out="$2" tab=$'\t'
   case "$op" in
     now|backup_epoch)          printf '%s' "$out" | grep -qxE '[0-9]+' ;;
     check_integrity|check_fk|check_schema) case "$out" in ok|bad) return 0 ;; *) return 1 ;; esac ;;
@@ -340,7 +340,7 @@ provider_schema_ok() {
     verify_d1|verify_r2)       printf '%s' "$out" | grep -qxE '[0-9a-f]{64}' ;;
     target_r2_list)            [ -z "$out" ] || ! printf '%s\n' "$out" | grep -qvE '^[A-Za-z0-9._~=+%/-]+$' ;;
     src_identity)   printf '%s' "$out" | grep -qxE '[A-Za-z0-9._-]+' ;;
-    dest_identity)             printf '%s' "$out" | grep -qxE '[A-Za-z0-9._+-]+\t[A-Za-z0-9._-]+\t[A-Za-z0-9._:/+-]+\t[A-Za-z0-9._-]+' ;;
+    dest_identity)             printf '%s' "$out" | grep -qxE "[A-Za-z0-9._+-]+${tab}[A-Za-z0-9._-]+${tab}[A-Za-z0-9._:/+-]+${tab}[A-Za-z0-9._-]+" ;;
     *) return 0 ;;
   esac
 }

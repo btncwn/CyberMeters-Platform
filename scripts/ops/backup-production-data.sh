@@ -468,14 +468,14 @@ env_store_get()  { printf 'aws s3api get-object --bucket %s --key %s --endpoint-
 #    the plaintext-metadata path, the evidence path, or any other secret. ──
 PROVIDER_OPS="now r2_list verify_summary d1_export r2_object store_put store_get src_identity dest_identity dest_list record_backup_completed"
 provider_schema_ok() {   # metadata ops only; byte-stream ops validated by downstream crypto/hash
-  local op="$1" out="$2"
+  local op="$1" out="$2" tab=$'\t'
   case "$op" in
     now)            printf '%s' "$out" | grep -qxE '[0-9]+' ;;
     verify_summary) case "$out" in PASS|FAIL) return 0 ;; *) return 1 ;; esac ;;
-    r2_list)        [ -z "$out" ] || ! printf '%s\n' "$out" | grep -qvE '^[A-Za-z0-9._~=+%/-]+\t[0-9]+\t[0-9a-f]{64}$' ;;
-    dest_list)      [ -z "$out" ] || ! printf '%s\n' "$out" | grep -qvE '^[A-Za-z0-9._~=+%/-]+\t[0-9]+\t[0-9a-f]{64}$' ;;
+    r2_list)        [ -z "$out" ] || ! printf '%s\n' "$out" | grep -qvE "^[A-Za-z0-9._~=+%/-]+${tab}[0-9]+${tab}[0-9a-f]{64}$" ;;
+    dest_list)      [ -z "$out" ] || ! printf '%s\n' "$out" | grep -qvE "^[A-Za-z0-9._~=+%/-]+${tab}[0-9]+${tab}[0-9a-f]{64}$" ;;
     src_identity)   printf '%s' "$out" | grep -qxE '[A-Za-z0-9._-]+' ;;
-    dest_identity)  printf '%s' "$out" | grep -qxE '[A-Za-z0-9._+-]+\t[A-Za-z0-9._-]+\t[A-Za-z0-9._:/+-]+\t[A-Za-z0-9._-]+' ;;
+    dest_identity)  printf '%s' "$out" | grep -qxE "[A-Za-z0-9._+-]+${tab}[A-Za-z0-9._-]+${tab}[A-Za-z0-9._:/+-]+${tab}[A-Za-z0-9._-]+" ;;
     record_backup_completed) printf '%s' "$out" | grep -qxE '(recorded|duplicate) opev_[0-9a-f]{32}' ;;
     *) return 0 ;;
   esac

@@ -31,9 +31,9 @@ const REVIEWED_UNCOMMITTED_TARGET_SHA256 = Object.freeze(new Map([
   [manifestPath, "cf421dc0e3606d00a305f82e12652dffefc5d621c8dd8d83633e379d0a79e3c6"],
 ]));
 const EXPECTED_FIXTURES = 31;
-const EXPECTED_MUTANTS = 48;
+const EXPECTED_MUTANTS = 50;
 const EXPECTED_POLICY_ASSERTIONS = 22;
-const EXPECTED_ASSERTIONS = 116;
+const EXPECTED_ASSERTIONS = 118;
 const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "df0cb5235350586371cc70a564833c218e8d6162c8ea5f945460638a68597352";
 
 const fixtureChild = process.argv.includes("--fixture-child");
@@ -884,11 +884,31 @@ const MUTANTS = [
     expectedFailures: ["F004 hosted matrix: exact seven-way strategy, timeout, candidate checkout/guard and canonical command are pinned"],
   },
   {
-    name: "F004 matrix checkout is no longer pinned to github.sha",
+    name: "F004 matrix checkout collapses PR source head to synthetic github.sha",
     file: workflowPath,
     replacements: [{
-      from: "          ref: ${{ github.sha }}",
-      to: "          ref: ${{ github.ref }}",
+      from: "          ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+      to: "          ref: ${{ github.sha }}",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["F004 hosted matrix: exact seven-way strategy, timeout, candidate checkout/guard and canonical command are pinned"],
+  },
+  {
+    name: "F004 matrix expected head collapses PR source head to synthetic github.sha",
+    file: workflowPath,
+    replacements: [{
+      from: "          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
+      to: "          EXPECTED_HEAD_SHA: ${{ github.sha }}",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["F004 hosted matrix: exact seven-way strategy, timeout, candidate checkout/guard and canonical command are pinned"],
+  },
+  {
+    name: "F004 matrix drops the PR source-head identity guard",
+    file: workflowPath,
+    replacements: [{
+      from: "          if [ \"$EVENT_NAME\" = \"pull_request\" ]; then\n            if [ -z \"$PULL_REQUEST_HEAD_SHA\" ] || [ \"$EXPECTED_HEAD_SHA\" != \"$PULL_REQUEST_HEAD_SHA\" ]; then\n              echo \"::error::F004 matrix PR source-head identity is absent or inconsistent\"\n              exit 1\n            fi\n          fi",
+      to: "          true # MUTANT: PR source-head identity guard removed",
     }],
     childArgs: ["--policy-child"],
     expectedFailures: ["F004 hosted matrix: exact seven-way strategy, timeout, candidate checkout/guard and canonical command are pinned"],

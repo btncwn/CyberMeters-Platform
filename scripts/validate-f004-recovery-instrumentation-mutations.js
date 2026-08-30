@@ -55,7 +55,23 @@ const WT_PARENT = path.join(ROOT, ".f004-mutation-worktrees");
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; console.log((cond ? "PASS " : "FAIL ") + name); };
 const git = (args) => execFileSync("git", args, { cwd: ROOT, encoding: "utf8" }).trim();
-const validatorExit = (rootDir) => { try { execFileSync("node", [VALIDATOR], { stdio: "pipe", env: { ...process.env, F004_ROOT: rootDir } }); return 0; } catch (e) { return typeof e.status === "number" ? e.status : 1; } };
+const validatorResult = (rootDir) => {
+  try {
+    const stdout = execFileSync("node", [VALIDATOR], {
+      stdio: "pipe",
+      env: { ...process.env, F004_ROOT: rootDir },
+      encoding: "utf8",
+    });
+    return { status: 0, stdout, stderr: "" };
+  } catch (error) {
+    return {
+      status: typeof error.status === "number" ? error.status : 1,
+      stdout: error.stdout?.toString?.() || "",
+      stderr: error.stderr?.toString?.() || "",
+    };
+  }
+};
+const validatorExit = (rootDir) => validatorResult(rootDir).status;
 
 const B = "scripts/ops/backup-production-data.sh";
 const R = "scripts/ops/restore-production-backup-to-staging.sh";
@@ -241,9 +257,22 @@ fs.mkdirSync(WT_BASE, { recursive: true });
 // later red to its mutation.
 const base = path.join(WT_BASE, `baseline${worktreeSuffix}`);
 git(["worktree", "add", "--detach", "--quiet", base, "HEAD"]);
-const baselineGreen = validatorExit(base) === 0;
+const baseline = validatorResult(base);
+const baselineGreen = baseline.status === 0;
 git(["worktree", "remove", "--force", base]);
 ok("baseline worktree is GREEN before any mutation (attribution)", baselineGreen);
+if (!baselineGreen) {
+  if (baseline.stdout) process.stdout.write(`F004_BASELINE_STDOUT_BEGIN\n${baseline.stdout}F004_BASELINE_STDOUT_END\n`);
+  if (baseline.stderr) process.stderr.write(`F004_BASELINE_STDERR_BEGIN\n${baseline.stderr}F004_BASELINE_STDERR_END\n`);
+  fs.rmSync(WT_BASE, { recursive: true, force: true });
+  if (cli.shardTotal !== null) {
+    try { fs.rmdirSync(WT_PARENT); } catch { /* another shard may still own it */ }
+  }
+  try { git(["worktree", "prune"]); } catch { /* best effort */ }
+  console.log(`\nF-004 execution-path mutation proof: ${pass}/${pass + fail} passed (baseline only; mutants refused)`);
+  console.error("f004 mutation proof FAILED: baseline was red; no mutation credit was attempted");
+  process.exit(1);
+}
 for (const m of selectedMutants) {
   const wt = path.join(WT_BASE, `wt-${m.index}${worktreeSuffix}`);
   let applied = false, killed = false;

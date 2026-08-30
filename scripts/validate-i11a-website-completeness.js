@@ -79,6 +79,7 @@ const originHealthy = async () => new Response(
   { status: 200, headers: { "content-type": "text/html", "server": "cloudflare", "cf-ray": "8f00-LHR",
                             "strict-transport-security": "max-age=63072000" } });
 const TIMEOUT = async () => { const e = new Error("aborted due to timeout"); e.name = "TimeoutError"; throw e; };
+const TRANSPORT_FAILURE = async () => { throw new TypeError("fetch failed"); };
 
 // ── HEADERS ─────────────────────────────────────────────────────────────────
 for (const status of [520, 523, 527, 530]) {
@@ -137,10 +138,16 @@ const hHealthy = await withFetch(originHealthy, () => runHeadersModule("acme.exa
 ok("C1_CONTROL_HEALTHY_ORIGIN_UNCHANGED",
    hHealthy.accessible === true && hHealthy.incomplete !== true && hHealthy.headers_assessed === true);
 
-// REGRESSION — the pre-existing not-executed path keeps its own distinct reason.
-const hTimeout = await withFetch(TIMEOUT, () => runHeadersModule("acme.example.com"));
-ok("C1_REGRESSION_TIMEOUT_STILL_INCOMPLETE", hTimeout.incomplete === true);
-eq("C1_REGRESSION_TIMEOUT_REASON_UNCHANGED", hTimeout.incomplete_reason, "probe_not_executed");
+// REGRESSION — typed timeout remains observable to the scan-engine deadline
+// wrapper; the direct module's ordinary transport-failure path keeps its own
+// distinct not-executed reason.
+let timeoutError = null;
+try { await withFetch(TIMEOUT, () => runHeadersModule("acme.example.com")); }
+catch (error) { timeoutError = error; }
+ok("C1_REGRESSION_TIMEOUT_PROPAGATES_TO_DEADLINE_WRAPPER", timeoutError?.name === "TimeoutError");
+const hTimeout = await withFetch(TRANSPORT_FAILURE, () => runHeadersModule("acme.example.com"));
+ok("C1_REGRESSION_TRANSPORT_FAILURE_STILL_INCOMPLETE", hTimeout.incomplete === true);
+eq("C1_REGRESSION_TRANSPORT_FAILURE_REASON_UNCHANGED", hTimeout.incomplete_reason, "probe_not_executed");
 // Asserted as an exact PAIR, not as inequality. Inequality passed even with the
 // guard deleted (the edge reason became `undefined`, which is trivially "not
 // equal"), so it could not discriminate — the mutation run caught that and the

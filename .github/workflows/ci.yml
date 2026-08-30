@@ -1757,14 +1757,26 @@ jobs:
       - name: Checkout exact candidate
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Require checkout to match exact candidate
         env:
-          EXPECTED_HEAD_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -eu
+          if [ -z "$EXPECTED_HEAD_SHA" ]; then
+            echo "::error::F004 matrix candidate head is empty"
+            exit 1
+          fi
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if [ -z "$PULL_REQUEST_HEAD_SHA" ] || [ "$EXPECTED_HEAD_SHA" != "$PULL_REQUEST_HEAD_SHA" ]; then
+              echo "::error::F004 matrix PR source-head identity is absent or inconsistent"
+              exit 1
+            fi
+          fi
           actual_head="$(git rev-parse HEAD)"
           if [ "$actual_head" != "$EXPECTED_HEAD_SHA" ]; then
             echo "::error::F004 matrix checkout drift: expected $EXPECTED_HEAD_SHA, got $actual_head"
