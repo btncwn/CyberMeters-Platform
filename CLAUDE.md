@@ -22,10 +22,19 @@ top of `docs/PRE-BETA-EXECUTION-BACKLOG.md`.
 This section overrides older role, review and routine-approval wording. It does
 not override platform safety rules or founder-reserved boundaries.
 
+Founder clarification (30 August 2026): a governance or decision text first
+written before 1 August 2026 is historical evidence unless a current canonical
+source explicitly re-ratifies its particular rule. Preserve the file and useful
+evidence, but ignore its old self-description as `canonical`, `binding` or
+`current` when it conflicts with the operating model or backlog. This authority
+classification does not invalidate permanent security/data invariants, accepted
+technical evidence, release facts or current technical standards.
+
 Version: August 2026
 
-Last updated: 23 August 2026. The lean operating-model adoption changes no
-runtime, migration or customer-acceptance fact. Item 11A/11B/11C remains
+Last updated: 30 August 2026. The lean operating-model adoption and authority
+clarification change no runtime, migration or customer-acceptance fact. Item
+11A/11B/11C remains
 separately LIVE-ACCEPTED (20–21 August); per-release Worker, rollback, migration
 and proof identities remain authoritative in `CHANGELOG.md`. Current programme
 order lives only in `docs/PRE-BETA-EXECUTION-BACKLOG.md`; the sealed 23-August
@@ -181,18 +190,18 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 | Final Public-Beta Gate | Planned |
 | First Two Controlled Invitations | After final gate |
 
-Release facts through 22 August 2026; governance order updated 23 August 2026:
+Release facts are intentionally not frozen in this file. Read the latest
+deployed source, tag state, Worker Version IDs, rollback identity, closure stamp,
+production proof and migration boundary only from `CHANGELOG.md`.
 
-- latest git release tag: `v2026.08.21-1` (D1 snapshot-once merge line);
-- live Worker Version IDs: scan-api `96c00032-b4ee-4088-8425-b89fb46fffa5`, email-ingest
-  `fd0286cb-2b88-45cc-8b60-dcf2ae67bdfc`; rollback `284a8654`; shared closure suffix `00d09b7ab0dc`;
 - Item 11 (11A/11B/11C) LIVE-ACCEPTED 20–21 Aug 2026 — records in the operations archive;
-- preserved technical status, not current queue authority: P1 bidirectional false-conclusion class (43 producers) — P1.1 merged
-  22 Aug (PR #420), P1.2 in implementation, P1.3–P1.5 planned; public-beta-blocking;
+- preserved technical status, not current queue authority: P1 bidirectional
+  false-conclusion evidence remains public-beta-blocking; use the current backlog
+  for programme position and `CHANGELOG.md` for shipped facts rather than older
+  internal phase labels;
 - current programme order: the top of `docs/PRE-BETA-EXECUTION-BACKLOG.md`; P1
   evidence is preserved but no audit-recovery or later customer progression
   precedes its GTR/shame/source-integrity join;
-- per-release detail (PRs, Worker IDs, evidence) is authoritative in `CHANGELOG.md`;
 - pricing LOCKED; M7 B2/B3 pending live cutover; Behaviour Intelligence deferred (founder-gated).
 
 **M5 (a–g) is COMPLETE** — the account below is the record of how it was completed and remains valid history. Its pre-change parity audit across all eight domains found four false

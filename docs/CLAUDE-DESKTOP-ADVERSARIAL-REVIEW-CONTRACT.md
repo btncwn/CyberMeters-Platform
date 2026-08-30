@@ -8,6 +8,11 @@ The former binding contract that made Claude Desktop a permanent read-only
 adversarial reviewer is superseded. Its complete historical bytes remain in Git
 before the lean eight-seat operating-model adoption.
 
+Any pre-1-August-2026 version, quotation or copied instruction from this contract
+is historical even when its own text called itself `canonical`, `binding` or
+`current`. Only an explicit re-ratification in the active operating model could
+restore a particular rule; none restores the former permanent-review seat.
+
 Claude Desktop is now the Delivery Executive. It owns daily dispatch, ordinary
 technical decisions, routine merge/deploy and incident command within the
 canonical order. It is neither Founder nor Governance.

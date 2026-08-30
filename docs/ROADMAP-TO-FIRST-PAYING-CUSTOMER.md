@@ -57,6 +57,44 @@ The roadmap is complete when CyberMeters has:
 9. established a repeatable acquisition and onboarding process;
 10. prepared an evidence-backed funding and growth application pack.
 
+## Evidence and actions first — Founder acceptance principle (30 August 2026)
+
+CyberMeters' primary product contract is defensible evidence and a usable action,
+not a score. This principle governs the rescue gate and every later customer,
+release-candidate and public-beta acceptance:
+
+```text
+observed signal
+| completed measurement: signal not observed
+| unmeasured / unavailable / insufficient evidence
+→ evidence-led finding state
+→ severity and confidence
+→ canonical remediation and first actions
+→ coverage/method limits
+→ secondary score and trend
+```
+
+- A score never decides whether a signal exists, whether it is admitted as a
+  finding, whether it is visible, or whether the customer receives an action.
+- `score_impact: 0` does not mean “not a finding” or “informational”. A signal
+  that passes its explicit evidence and serviceability contract may be actionable
+  while remaining score-neutral.
+- An unexecuted, unavailable or incomplete measurement is never absent or healthy;
+  it remains `unknown`, `incomplete`, `unavailable` or the equivalent canonical
+  fail-closed state.
+- Customer reports and primary screens show the strongest defensible evidence,
+  findings and first three canonical actions before coverage/confidence detail;
+  the compatible score and trend are a secondary summary shown afterwards.
+- Acceptance requires a customer to understand what was observed, why it matters,
+  what to do first and how CyberMeters will verify the outcome. A numerically
+  plausible score cannot compensate for missing evidence, suppressed findings or
+  an absent canonical action.
+
+This principle does not itself change the historical scoring methodology, add a
+ninth domain, promote every observation, or mark rescue code deployed. Producer-
+specific evidence admission, backward compatibility and release proof remain
+mandatory.
+
 ## First paying customer definition
 
 A first paying customer is a real external organisation that has completed onboarding, accepted commercial terms, paid through production billing, and is actively monitoring at least one real domain.
