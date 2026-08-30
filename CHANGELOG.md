@@ -7,6 +7,93 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.08.30-1 — rescue recovery, runtime integrity and report actionability — deployed 2026-08-30
+
+**Status:** DEPLOYED — exact merged main
+`32c54f34dad99ab360595426435245e2f280c8ca` (PR #460 merge; reviewed head
+`38885b9be30a2d5c4452cb970400d70271c8b3e1`) is live on both coordinated
+Workers and Cloudflare Pages. Side-effect-safe infrastructure smoke passed.
+Customer/pilot acceptance, authenticated scan/report proof and Kademe-2 were not
+performed; the production/customer HOLD remains in force.
+
+- **Scope:** the release integrates the accepted audit-recovery series and the
+  rescue runtime/CX corrective as one coordinated boundary: encrypted
+  independent recovery-domain backup, disposable staging restore, source/target
+  identity and manifest/byte-integrity checks, operational-event recording,
+  fail-closed outbound notification controls, bounded scan runtime and Queue
+  settlement, duplicate-completion prevention, evidence admission and
+  historical DMARC/certificate truth, and finding-to-snapshot-to-Executive/PDF
+  actionability. Relative to the preceding live Pages source `4d1c8553`, the
+  exact release contains 136 changed files, 19,476 insertions and 1,069
+  deletions. It does not grant later-roadmap, public-beta or customer-acceptance
+  credit.
+- **Migration 108:** applied `database/migrations/108-operational-events.sql`
+  (SHA-256
+  `deb86f632e9a35c641f377ab4ef473397f403ace6e478a98afef7484589fdaeb`)
+  to production D1 before Worker deployment. Read-back confirmed table
+  `operational_events` and indexes
+  `idx_operational_events_type_created` and
+  `idx_operational_events_workspace`. A controlled duplicate
+  `INSERT OR IGNORE` probe returned exactly one row (`attempts=1`, `status=ok`).
+  Pre/post Time Travel bookmarks were
+  `00000c2d-00000000-000050d7-a5b6afaa9defd823d1bf7915491112ff` and
+  `00000c2d-00000006-000050d7-ec659ffacc83de96bb518079163cef31`.
+- **Validation:** exact-main GitHub run `33334174986` completed 15/15 jobs
+  successfully at `32c54f34`, including SAST, all five validation shards, all
+  seven F004 recovery-mutation shards and the terminal fail-closed `validate`
+  job. Both exact-source Wrangler dry-runs passed. Worker syntax and the focused
+  rescue/recovery/CX validator sets were already green on the reviewed PR head.
+- **Coordinated closure:** both Workers report
+  `2026.08.13-provisional-score-labeling.fceaad4d8f6a`; the effective
+  email-worker closure SHA-256 is
+  `fceaad4d8f6aed71682f4f90d084b084b90b138b5afa68a2c70c6d319bc581d1`
+  (92 files, including 90 scan-api files).
+- **scan-api (`cybermeters-platform`):** deployment ID
+  `f7078bbe-d228-4364-8263-f45bc5e15873`; live Worker Version ID
+  `9faf45b4-6b38-4b6a-89a7-4d595e82dffd` at 100% traffic. Immediate rollback
+  Worker Version ID: `acf0b953-5214-4aae-95aa-0598207723a8`.
+- **email-ingest (`cybermeters-email`):** deployment ID
+  `c2c0da6f-d105-4c73-a9d7-6554ba43f7a9`; live Worker Version ID
+  `f9af5afa-dfc7-43de-a7d0-3ef6e672256c` at 100% traffic. Immediate rollback
+  Worker Version ID: `510a14af-297a-4775-88dc-553ff434990a`.
+- **Pages:** production deployment
+  `73a98606-371d-41b9-946b-1c9243f5b52b`, source `32c54f34`; immediate
+  rollback deployment `6f675e52-580d-4823-9b98-d0f17337fc50`. The first Worker
+  deploy attempt was rejected before version creation with Cloudflare API 10089
+  because account-level Analytics Engine access had drifted off. Pages was
+  immediately rolled back, both Workers remained old, and the release stopped.
+  After the Founder re-enabled Analytics Engine and the existing
+  `cybermeters_metrics` dataset was proved by `SHOW TABLES`, the same exact
+  source resumed; no source workaround or observability downgrade was used.
+- **Production proof:** scan-api `/health` on the custom and workers.dev hosts
+  returned Version `9faf45b4…` and exact closure `…fceaad4d8f6a`; `/ready`
+  returned HTTP 200 with `d1:true,r2:true`, and an anonymous workspace read
+  returned `401`. Email-ingest `/health` returned Version `f9af5afa…` and the
+  same closure; `/ready` returned `d1:true`, while an unrelated path returned
+  `404`. `app.cybermeters.com`, `cybermeters.com`, `www.cybermeters.com`, and
+  the tested SPA routes returned HTML SHA-256
+  `491bd88756df40219b9296c038f97223ce24897eed3a075c6744e347dac727a9`,
+  byte-identical to immutable Pages deployment `73a98606`; every referenced
+  JS/CSS asset was also byte-identical.
+- **Release tag:** annotated `v2026.08.30-1` targets exact deployed commit
+  `32c54f34dad99ab360595426435245e2f280c8ca` and was created/pushed in this
+  release session.
+- **Known limitations:** `/ready.operational` is readable and fail-closed, but
+  immediately after deployment reported `cron_fresh:false` and
+  `backup_fresh:false` with null ages because no post-108 hourly cron or
+  `backup_completed` event yet existed. This is not claimed green and must be
+  observed before Kademe-2. No Founder-domain scan, authenticated customer
+  workflow, PDF acceptance, customer communication or HOLD removal occurred.
+  The separately recorded after-the-fact `v2026.08.26-2` tag remains pending and
+  is not silently rewritten by this release.
+- **Rollback:** deploy scan-api Version
+  `acf0b953-5214-4aae-95aa-0598207723a8` and email-ingest Version
+  `510a14af-297a-4775-88dc-553ff434990a` with their matching Wrangler
+  configurations, then roll Pages back to
+  `6f675e52-580d-4823-9b98-d0f17337fc50`. Migration 108 is additive and remains
+  inert under the old Workers; no D1 Time Travel restore is part of the routine
+  application rollback.
+
 ## v2026.08.26-2 — AS-B2 canonical KEV/CVE policy + Intelligence/Related-Changes render + reserved-deadline signal — deployed 2026-08-26; **RECORDED AFTER THE FACT 2026-08-30**
 
 **Status:** DEPLOYED — release record reconciled after the fact. Exact merged main
