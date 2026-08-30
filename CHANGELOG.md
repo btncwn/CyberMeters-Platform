@@ -7,6 +7,92 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.08.26-2 — AS-B2 canonical KEV/CVE policy + Intelligence/Related-Changes render + reserved-deadline signal — deployed 2026-08-26; **RECORDED AFTER THE FACT 2026-08-30**
+
+**Status:** DEPLOYED — release record reconciled after the fact. Exact merged main
+`47d9bb3942f9ca06d73204bdb643658dda51a5cb` (PR #445 merge,
+2026-08-26 06:06Z) was deployed to both coordinated Workers at
+2026-08-26 06:34Z without a CHANGELOG entry, annotated tag or recorded smoke at
+deploy time. This entry was written on 2026-08-30 from the read-only, redacted
+production-identity receipt at
+`docs/governance/2026-08-30-rescue/production-identity-audit-receipt-2026-08-30.json`,
+the redacted R2 read-integrity receipt at
+`docs/governance/2026-08-30-rescue/r2-read-integrity-receipt-2026-08-30.json`,
+the exact Git history and later live `/health` / `/ready` reads. Nothing in this
+entry is backdated. The required annotated `v2026.08.26-2` tag is still pending;
+when created it must target the exact source above, retain its real creation date
+and state `RECORDED AFTER THE FACT`. This deployment and record grant zero
+customer-workflow, roadmap, audit-recovery or public-beta acceptance credit and
+change no HOLD.
+
+- **PR #442 — Intelligence score-impact render:** merge
+  `31fd013b16452b6ce428ac915fd1f5504f19f149`, reviewed head
+  `1ec65b72b3b74fd212996b27999e16b6967a5a1d`, renders attributed KEV/CVE score
+  impact on Intelligence risk notes (frontend only).
+- **PR #443 — AS-B6 reserved-mode deadline safety:** merge
+  `18b8b9bebc5aa3c5160280b38c9d9abcd4a8e095`, reviewed head
+  `e16f743dd76c3543c2a4ad2add36a52db22d465a`, threads the reserved-mode global
+  deadline as a one-shot AbortSignal through the reserved module/leaf path and
+  preserves reserved CT abort shapes. The production capacity-mode flag was not
+  changed; the default Queue path retained its 19-second executable budget.
+- **PR #444 — Item 12B CL-1/CL-2 related-change actionability:** merge
+  `b5e99e9b3e0725a12bd5958f1d51ae9d435458af`, reviewed head
+  `8c091c4d8daaa9d8aa69475d830dce85d8979843`, adds related-change grouping
+  grounds and evidence deep links with lifecycle-honest span labels.
+- **PR #445 — AS-B2 canonical scoring policy corrective:** merge
+  `47d9bb3942f9ca06d73204bdb643658dda51a5cb`, reviewed head
+  `981af20e02f1360663fda7d2863e5d836d497480`, replaces the previously live KEV
+  `-30` / critical CVE `-25` / high CVE `-15` weights with the canonical,
+  serviceability-gated KEV deduction (`-5` per technology, capped at two
+  technologies); version-blind non-KEV CVE remains informational. It rejects a
+  null historical score baseline, appends Phase-5 `customer_findings` to the one
+  `report.findings` array, and carries `matched_technologies`, `matched_cve_ids`
+  and `version_confirmed` into canonical snapshot findings. This addresses the
+  known AS-B2 mismatch disclosed in `v2026.08.26-1`; AS-B2 acceptance,
+  API/UI/PDF/history parity, the 4/4 operational-shame closure, JOIN, audit
+  recovery and customer readiness remain HOLD.
+- **Migration:** none. `database/` is unchanged between `cf6bec49` and
+  `47d9bb39`; the production migration boundary remains `107`.
+- **Validation record:** branch protection at merge time required `validate` and
+  `sast` with `enforce_admins: true` (OPERATIONS §3). Per-PR check results,
+  exact-main run IDs and a release-preflight record were not captured and are not
+  asserted or invented here.
+- **Coordinated closure:** both Workers stamp
+  `2026.08.13-provisional-score-labeling.908048591c20`; the effective email-worker
+  closure SHA-256 is
+  `908048591c2029ebdd8db6f7e9b718eda02dfd118c02c2d33beee25ee04b8d1d`
+  (92 files, including 90 scan-api files).
+- **scan-api (`cybermeters-platform`):** live Worker Version ID
+  `acf0b953-5214-4aae-95aa-0598207723a8` (version created
+  2026-08-26T06:34:40Z; deployment created 06:34:43Z; 100% traffic; deployment
+  ID not captured). Immediate rollback Worker Version ID:
+  `2d89c921-1d3b-48fa-890f-5f1025bc7b16` (`v2026.08.26-1`).
+- **email-ingest (`cybermeters-email`):** live Worker Version ID
+  `510a14af-297a-4775-88dc-553ff434990a` (version created
+  2026-08-26T06:35:22Z; deployment created 06:35:24Z; 100% traffic; deployment
+  ID not captured). Immediate rollback Worker Version ID:
+  `d470abeb-0943-47f4-b748-70cb9138ebb1` (`v2026.08.26-1`).
+- **Production proof (after the fact, 2026-08-30):** both scan-api hosts returned
+  Version `acf0b953…` and closure stamp `…908048591c20` at `/health`; repeated
+  `/ready` reads returned `d1:true,r2:true` after the existing R2 entitlement was
+  re-enabled. A company-controlled manual scan
+  (`scan_06d10558-edef-4ac5-a7ca-0090473820f5`, 00:26Z) ran on this version and
+  produced an immutable snapshot whose bytes and checksum match D1. No smoke was
+  recorded at deploy time on 26 August.
+- **Record-integrity residuals:** this deployment bypassed the same-session
+  tag/CHANGELOG/proof record and was detected by comparing the live
+  `/health.version` stamp with the latest recorded closure. The controlled R2
+  write/read/delete canary remains open. Two content-identical `scan_completed`
+  audit rows were also observed for the company scan; append-only history is
+  preserved and the scan-owner/exactly-once corrective is tracked separately.
+- **Rollback:** deploy scan-api Version
+  `2d89c921-1d3b-48fa-890f-5f1025bc7b16` and email-ingest Version
+  `d470abeb-0943-47f4-b748-70cb9138ebb1` with
+  `wrangler versions deploy <VERSION_ID>` and the matching service
+  configuration. No schema rollback is involved. Rolling back reintroduces the
+  pre-#445 KEV/CVE weights disclosed in `v2026.08.26-1`; rollback is readiness,
+  not a recommendation.
+
 ## v2026.08.26-1 — F-009/F-021 integrity + D3/Ş1 honesty + AS-B6b budget closure — deployed 2026-08-26
 
 **Status:** DEPLOYED. Exact merged main

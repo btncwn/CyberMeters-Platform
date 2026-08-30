@@ -1,0 +1,42 @@
+{
+  "receipt_version": "cybermeters-rescue-r2-read-integrity/1",
+  "captured_at_utc": "2026-08-30T00:51:10Z",
+  "mode": "read_only",
+  "production_customer_hold": true,
+  "ready_checks": {
+    "url": "https://api.cybermeters.com/ready",
+    "consecutive_results": [
+      { "status": "ready", "d1": true, "r2": true, "version": "2026.08.13-provisional-score-labeling.908048591c20" },
+      { "status": "ready", "d1": true, "r2": true, "version": "2026.08.13-provisional-score-labeling.908048591c20" },
+      { "status": "ready", "d1": true, "r2": true, "version": "2026.08.13-provisional-score-labeling.908048591c20" }
+    ]
+  },
+  "bucket": {
+    "name": "cybermeters-reports",
+    "creation_date": "2026-06-18T08:47:49.896Z"
+  },
+  "exact_production_triple": {
+    "scan_id": "scan_06d10558-edef-4ac5-a7ca-0090473820f5",
+    "snapshot_id": "snap_7bbefaf3-cbd5-4151-a0d7-9f9cf8893a36",
+    "report_json": {
+      "bytes": 225473,
+      "sha256": "de291ce7cf700819b3404aa89d3932afd95d9beee059ff35f5925a76eb8af229"
+    },
+    "snapshot_json": {
+      "bytes": 234403,
+      "sha256": "4bab31a1ed1e966652f0e4bd39bcd125219b2b273e234de44e1f9f6ff065327c",
+      "matches_recorded_d1_size_and_checksum": true
+    },
+    "pdf": {
+      "bytes": 80765,
+      "sha256": "1c2764d40ab2ca1ea52fedae8e1ce5c2256e7a20c011b4cd72e1b9460a850c5f",
+      "pages": 13
+    }
+  },
+  "limitations": [
+    "No write-read-delete canary was run under HOLD.",
+    "The workers.dev hostname did not resolve during this evidence recapture; the custom API hostname was used.",
+    "The D1 rows_written=0 and changed_db=false metadata remains attested in the integration report, not embedded here as a raw provider response.",
+    "No credentials, cookies, authorization headers, account identifiers or unrelated tenant rows are stored in this receipt."
+  ]
+}
