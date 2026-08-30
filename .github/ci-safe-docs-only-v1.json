@@ -182,7 +182,7 @@
           "frontend/package-lock.json",
           "frontend/vite.config.js"
         ],
-        "scope_sha256": "47366492bd60f41408c8e124ca77053c5eff1becf382c12c8c61d68585ffaed9",
+        "scope_sha256": "8bf6591988958576772957e1b505f4a7b80007c9cf1b6e6bbf04287b1673967d",
         "scope_file_count": 229,
         "source_graph_review": "Reviewed mutation target, validator child, git fingerprint, AST closure and Vitest carrier; inputs are the two scripts plus frontend source/config/dependencies.",
         "negative_without_docs": "PASS: exact command exit 0 with 8/8 exact mutant kills and fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",

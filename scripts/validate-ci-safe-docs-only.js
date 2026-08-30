@@ -28,13 +28,13 @@ const MUTATION_TARGET_FILES = Object.freeze([workflowPath, manifestPath, library
 // five validators; after commit the ordinary HEAD equality path applies again.
 const REVIEWED_UNCOMMITTED_TARGET_SHA256 = Object.freeze(new Map([
   [workflowPath, "f149f462670a16df56948e335faba1da3e4469793bb847072ed165b7981cc0b4"],
-  [manifestPath, "927c775f7cd8e73c8de5b0d73b0a14f8f7f7b7540b201d921e413719bd7703c7"],
+  [manifestPath, "66c93a0078c0f5ccb22fda696c58d99f989d8d7bd6872c4a4da524ddf8bf2c11"],
 ]));
 const EXPECTED_FIXTURES = 31;
 const EXPECTED_MUTANTS = 50;
 const EXPECTED_POLICY_ASSERTIONS = 22;
 const EXPECTED_ASSERTIONS = 118;
-const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "77874395f264673a98c3638f1ec872a51a1359c65d004086051136a65ee28581";
+const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "50000ed6faef819684b81c98a1a0658c78c097e2fec26dc1eb974b3039fdb583";
 
 const fixtureChild = process.argv.includes("--fixture-child");
 const policyChild = process.argv.includes("--policy-child");
