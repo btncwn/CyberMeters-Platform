@@ -30,6 +30,10 @@ import { loadManifest } from "./ci-safe-docs-only-lib.js";
 import {
   ARM2_TIMEZONE_VALIDATOR_RUN,
   ARM2_TIMEZONE_VALIDATOR_STEP,
+  EXPECTED_JOB_IDS,
+  TIMEZONE_VALIDATOR_RUN,
+  TIMEZONE_VALIDATOR_STEP,
+  VALIDATOR_SHARD_JOB_IDS,
   evaluateWorkflowPolicy,
   executableValidatorWiring,
   parseWorkflowAst,
@@ -46,6 +50,10 @@ const header = src.slice(0, src.indexOf("\njobs:"));   // the `on:` block only
 
 // ── 1. The workflow exists and is the gate ───────────────────────────────────
 ok("ci.yml exists on this branch", fs.existsSync(ciPath));
+ok("ci.yml defines the CI scope job", /^\s{2}ci_scope:/m.test(src));
+for (const jobId of VALIDATOR_SHARD_JOB_IDS) {
+  ok(`ci.yml defines shard ${jobId}`, new RegExp(`^\\s{2}${jobId}:`, "m").test(src));
+}
 ok("ci.yml defines the validate job", /^\s{2}validate:/m.test(src));
 ok("ci.yml defines the sast job", /^\s{2}sast:/m.test(src));
 
@@ -82,14 +90,29 @@ ok("CI wires a substantial validator suite", validators.length >= 80, `found ${v
 ok("validator wiring uses only exact executable AST run mappings",
    executable.problems.length === 0, executable.problems.join(" | "));
 
-const validateSteps = parsedWorkflow.workflow?.jobs?.validate?.steps || [];
-const arm2TimezoneSteps = validateSteps.filter(
+const shardSteps = VALIDATOR_SHARD_JOB_IDS.flatMap(
+  (jobId) => parsedWorkflow.workflow?.jobs?.[jobId]?.steps || [],
+);
+const alertTimezoneSteps = shardSteps.filter(
+  (step) => step?.name === TIMEZONE_VALIDATOR_STEP,
+);
+ok(
+  "Alert watermark timezone carrier is exact, unique, blocking, and report-cx-owned",
+  alertTimezoneSteps.length === 1 &&
+    alertTimezoneSteps[0].run === TIMEZONE_VALIDATOR_RUN &&
+    (parsedWorkflow.workflow?.jobs?.validate_report_cx?.steps || []).includes(alertTimezoneSteps[0]) &&
+    !Object.prototype.hasOwnProperty.call(alertTimezoneSteps[0], "if") &&
+    !Object.prototype.hasOwnProperty.call(alertTimezoneSteps[0], "continue-on-error"),
+);
+
+const arm2TimezoneSteps = shardSteps.filter(
   (step) => step?.name === ARM2_TIMEZONE_VALIDATOR_STEP,
 );
 ok(
-  "Arm2/writer timezone carrier is exact, unique, blocking, and spans UTC/London/+14",
+  "Arm2/writer timezone carrier is exact, unique, blocking, report-cx-owned, and spans UTC/London/+14",
   arm2TimezoneSteps.length === 1 &&
     arm2TimezoneSteps[0].run === ARM2_TIMEZONE_VALIDATOR_RUN &&
+    (parsedWorkflow.workflow?.jobs?.validate_report_cx?.steps || []).includes(arm2TimezoneSteps[0]) &&
     !Object.prototype.hasOwnProperty.call(arm2TimezoneSteps[0], "if") &&
     !Object.prototype.hasOwnProperty.call(arm2TimezoneSteps[0], "continue-on-error"),
 );
@@ -177,6 +200,13 @@ ok("no validator is wired as a plain run step more than once",
 ok("the M5 final-closure guard is wired as an uncommented run step",
    /^\s*run:\s*node scripts\/validate-m5-closure\.js\s*$/m.test(src),
    "validate-m5-closure.js must run in ci.yml");
+
+ok(
+  "the workflow exposes only the exact sharded gate job IDs",
+  parsedWorkflow.workflow &&
+    JSON.stringify(Object.keys(parsedWorkflow.workflow.jobs).sort()) === JSON.stringify([...EXPECTED_JOB_IDS].sort()),
+  `got ${Object.keys(parsedWorkflow.workflow?.jobs || {}).join(", ")}`,
+);
 
 // ── 6. Step reachability and conditional-skip governance (V1) ────────────────
 // Text presence alone is not wiring: `if: false` can leave a validator visible
