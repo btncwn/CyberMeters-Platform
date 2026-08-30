@@ -11,7 +11,7 @@
  * Each notification card navigates to the scan, report, or lifecycle record
  * when metadata provides a safe in-app target.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
   Bell, CheckCheck, AlertTriangle, ShieldAlert,
@@ -234,6 +234,14 @@ function NotificationCard({ n, onMarkRead }) {
 
 const PAGE_LIMIT = 50
 
+function notificationParams(statusFilter, offset = null) {
+  return {
+    limit: PAGE_LIMIT,
+    ...(offset === null ? {} : { offset }),
+    ...(statusFilter === 'unread' ? { status: 'unread' } : {}),
+  }
+}
+
 export default function NotificationsPage() {
   const wsId = localStorage.getItem('cybermeters_workspace_id')
 
@@ -247,23 +255,31 @@ export default function NotificationsPage() {
   const [markingAll,     setMarkingAll]     = useState(false)
   const [offset,         setOffset]         = useState(0)
   const [hasMore,        setHasMore]        = useState(false)
+  const [loadError,      setLoadError]      = useState(null)
+  const [hasLoadedSuccessfully, setHasLoadedSuccessfully] = useState(false)
+  const [failedRequest,  setFailedRequest]  = useState(null)
+  const loadGenerationRef = useRef(0)
 
   // ── Load notifications ────────────────────────────────────────────────────
 
-  const load = useCallback(async (reset = true) => {
+  const load = useCallback(async ({ reset = true, params }) => {
     if (!wsId) return
-    const isReset = reset
-    if (isReset) setLoading(true)
-    else setLoadingMore(true)
+    const request = { reset, params: { ...params } }
+    const generation = ++loadGenerationRef.current
+    if (reset) {
+      setLoading(true)
+      setLoadingMore(false)
+    } else {
+      setLoading(false)
+      setLoadingMore(true)
+    }
 
     try {
-      const params = { limit: PAGE_LIMIT }
-      if (statusFilter === 'unread') params.status = 'unread'
-
-      const data = await api.getWorkspaceNotifications(wsId, params)
+      const data = await api.getWorkspaceNotifications(wsId, request.params)
+      if (generation !== loadGenerationRef.current) return
       const all  = data.notifications || []
 
-      if (isReset) {
+      if (reset) {
         setNotifications(all)
         setOffset(all.length)
       } else {
@@ -274,17 +290,30 @@ export default function NotificationsPage() {
       setUnreadCount(data.unread_count ?? 0)
       setTotalCount(data.count ?? all.length)
       setHasMore(all.length === PAGE_LIMIT)
-    } catch { /* silent */ }
-    finally {
-      setLoading(false)
-      setLoadingMore(false)
+      setHasLoadedSuccessfully(true)
+      setLoadError(null)
+      setFailedRequest(null)
+    } catch {
+      if (generation !== loadGenerationRef.current) return
+      setLoadError('Notifications could not be loaded.')
+      setFailedRequest(request)
     }
-  }, [wsId, statusFilter])
+    finally {
+      if (generation === loadGenerationRef.current) {
+        setLoading(false)
+        setLoadingMore(false)
+      }
+    }
+  }, [wsId])
+
+  const retryLoad = useCallback(() => {
+    if (failedRequest) load(failedRequest)
+  }, [failedRequest, load])
 
   // Re-fetch when status filter changes
   useEffect(() => {
     setOffset(0)
-    load(true)
+    load({ reset: true, params: notificationParams(statusFilter) })
   }, [load, statusFilter])
 
   // ── Client-side severity filter ───────────────────────────────────────────
@@ -297,23 +326,33 @@ export default function NotificationsPage() {
 
   async function handleMarkRead(notifId) {
     if (!wsId) return
+    loadGenerationRef.current += 1
+    setLoading(false)
+    setLoadingMore(false)
     setNotifications(prev =>
       prev.map(n => n.id === notifId ? { ...n, status: 'read' } : n)
     )
     setUnreadCount(prev => Math.max(0, prev - 1))
     try {
       await api.markNotificationRead(wsId, notifId)
-    } catch { load(true) }
+    } catch {
+      load({ reset: true, params: notificationParams(statusFilter) })
+    }
   }
 
   async function handleMarkAll() {
     if (!wsId || markingAll) return
+    loadGenerationRef.current += 1
+    setLoading(false)
+    setLoadingMore(false)
     setMarkingAll(true)
     try {
       await api.markNotificationRead(wsId, 'all')
       setNotifications(prev => prev.map(n => ({ ...n, status: 'read' })))
       setUnreadCount(0)
-    } catch { load(true) }
+    } catch {
+      load({ reset: true, params: notificationParams(statusFilter) })
+    }
     finally { setMarkingAll(false) }
   }
 
@@ -382,9 +421,13 @@ export default function NotificationsPage() {
               )}
             </h1>
             <p className="text-sm text-gray-400 mt-0.5">
-              {totalCount > 0
-                ? `${totalCount} total · ${unreadCount} unread`
-                : 'No notifications yet'}
+              {!hasLoadedSuccessfully
+                ? loadError ? 'Notifications unavailable' : 'Loading notifications…'
+                : loadError && totalCount === 0
+                  ? 'Couldn’t refresh notifications'
+                  : totalCount > 0
+                  ? `${totalCount} total · ${unreadCount} unread`
+                  : 'No notifications yet'}
             </p>
           </div>
 
@@ -453,29 +496,66 @@ export default function NotificationsPage() {
           </div>
 
           {/* Notification list */}
-          {loading ? (
-            <div className="py-16 text-center">
-              <div className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          {loadError && !hasLoadedSuccessfully ? (
+            <div role="alert" className="px-6 py-16 text-center">
+              <AlertTriangle className="w-10 h-10 text-amber-400 mx-auto mb-3" aria-hidden="true" />
+              <p className="text-sm font-semibold text-gray-700">We couldn’t load notifications.</p>
+              <p className="text-xs text-gray-400 mt-1">Check your connection and try again.</p>
+              <button
+                type="button"
+                onClick={retryLoad}
+                disabled={loading || loadingMore}
+                className="mt-4 px-3 py-2 text-sm font-medium text-brand-600 rounded-xl bg-brand-50 hover:bg-brand-100 transition-colors disabled:opacity-50"
+              >
+                {loading || loadingMore ? 'Retrying…' : 'Retry'}
+              </button>
             </div>
-          ) : visible.length === 0 ? (
-            <EmptyState />
           ) : (
             <>
-              <div>
-                {visible.map(n => (
-                  <NotificationCard
-                    key={n.id}
-                    n={n}
-                    onMarkRead={handleMarkRead}
-                  />
-                ))}
-              </div>
+              {loadError && (
+                <div role="alert" className="flex items-center gap-3 px-4 py-3 bg-amber-50 border-b border-amber-100 text-amber-800">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+                  <p className="text-xs flex-1">
+                    <span className="font-semibold">Couldn’t refresh notifications.</span>{' '}
+                    Showing the last known results.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={retryLoad}
+                    disabled={loading || loadingMore}
+                    className="text-xs font-semibold underline underline-offset-2 disabled:opacity-50"
+                  >
+                    {loading || loadingMore ? 'Retrying…' : 'Retry'}
+                  </button>
+                </div>
+              )}
+
+              {loading && !loadError ? (
+                <div className="py-16 text-center">
+                  <div className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto" />
+                </div>
+              ) : visible.length === 0 && !loadError ? (
+                <EmptyState />
+              ) : visible.length > 0 ? (
+                <div>
+                  {visible.map(n => (
+                    <NotificationCard
+                      key={n.id}
+                      n={n}
+                      onMarkRead={handleMarkRead}
+                    />
+                  ))}
+                </div>
+              ) : null}
 
               {/* Load more */}
-              {hasMore && severityFilter === 'all' && (
+              {!loadError && !loading && hasMore && severityFilter === 'all' && (
                 <div className="px-4 py-4 border-t border-gray-100">
                   <button
-                    onClick={() => load(false)}
+                    onClick={() => load({
+                      reset: false,
+                      params: notificationParams(statusFilter, offset),
+                    })}
                     disabled={loadingMore}
                     className="w-full flex items-center justify-center gap-2 text-sm text-gray-500 hover:text-gray-700 py-2 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
                   >

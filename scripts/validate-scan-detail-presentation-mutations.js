@@ -17,8 +17,8 @@ const targetFile = path.join(root, targetRel);
 const validator = path.join(root, "scripts", "validate-scan-detail-presentation.js");
 
 const EXPECTED_MUTANTS = 8;
-// 23 -> 24: the R1 P1-2 F2 render case joined the plain validator.
-const VALIDATOR_ASSERTIONS = 24;
+// 24 -> 25: the D2 not-reobserved DMARC render case joined the plain validator.
+const VALIDATOR_ASSERTIONS = 25;
 const SUMMARY_PREFIX = "ScanDetail presentation:";
 
 const AST_RAW = "AST: raw scan.rating cannot feed ScanDetail presentation";
@@ -36,6 +36,7 @@ const UI_C_MISSING = "UI: C: missing comparable fails closed";
 const UI_C_NULL = "UI: C: null comparable fails closed";
 const UI_C_UNKNOWN = "UI: C: unknown comparable fails closed";
 const UI_D = "UI: D: complete canonical good rating and comparable history retain positive behavior";
+const UI_D2 = "UI: D2: unavailable DMARC is shown only as not re-observed and never as resolved";
 const UI_F = "UI: F: missing canonical assessment never falls back to raw score or rating";
 const UI_F_NULL_SCORE = "UI: F: null canonical display score never falls back to the raw score";
 const UI_F_SUPPRESSED = "UI: F: a suppressed score renders the backend reason in Scan Information";
@@ -145,7 +146,7 @@ const mutants = [
     name: "comparable true positive path is over-suppressed",
     anchor: deltaAnchor,
     replacement: "  if (changes.comparable === true) return null\n\n  const delta = changes.score_change",
-    expectedFailures: [AST_POSITIVE, UI_D],
+    expectedFailures: [AST_POSITIVE, UI_D, UI_D2],
   },
   {
     name: "computed raw rating bypass evades token-only guards",

@@ -19,8 +19,8 @@ const scanDetailFile = path.join(frontend, "src", "pages", "ScanDetail.jsx");
 const frontendRequire = createRequire(path.join(frontend, "package.json"));
 const ts = frontendRequire("typescript");
 
-// 23 -> 24: the R1 P1-2 F2 render case joins the pinned set.
-const EXPECTED_ASSERTIONS = 24;
+// 24 -> 25: the D2 not-reobserved DMARC render case joins the pinned set.
+const EXPECTED_ASSERTIONS = 25;
 const UI_TEST_TITLES = Object.freeze([
   "A: partial canonical score and null rating override divergent raw scan presentation",
   "reason A: canonical assessment message outranks skipped modules and warnings",
@@ -30,6 +30,7 @@ const UI_TEST_TITLES = Object.freeze([
   "C: null comparable fails closed",
   "C: unknown comparable fails closed",
   "D: complete canonical good rating and comparable history retain positive behavior",
+  "D2: unavailable DMARC is shown only as not re-observed and never as resolved",
   "E: explicit first scan retains the no-history message",
   "F: missing canonical assessment never falls back to raw score or rating",
   "F: null canonical display score never falls back to the raw score",

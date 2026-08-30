@@ -441,12 +441,17 @@ export async function budgetRefusedDmarcbisExternal(
     dns: async () => ({ outcome: "not_issued_budget" }),
     reserveHost: () => false,
   });
+  const allDestinationsNotRequired = Array.isArray(result.destinations)
+    && result.destinations.length > 0
+    && result.destinations.every((destination) =>
+      destination?.lookup_completeness === "complete"
+      && String(destination?.authorization_status || "").startsWith("not_required_"));
   return withExternalEvidenceGrades({
     ...result,
     rua_authorisation_completeness:
       result.rua_authorisation_completeness === "not_applicable"
         ? "not_applicable"
-        : "incomplete",
+        : allDestinationsNotRequired ? "complete" : "incomplete",
     assessment_reason: reason,
   }, policyEvidence);
 }

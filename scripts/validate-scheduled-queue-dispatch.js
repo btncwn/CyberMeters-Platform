@@ -53,6 +53,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+// F-027 (Integration-granted allowed-path extension, E3 only): routeQueueBatch is
+// the extracted, executable queue-handler body — E3 now proves the settlement-hook
+// injection behaviourally instead of via a brittle single-line shape regex.
+import { routeQueueBatch } from "../workers/scan-api/src/lib/operational-events.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const srcPath = (...p) => path.join(root, "workers", "scan-api", "src", ...p);
@@ -636,8 +640,45 @@ ok("E2 SCAN_DISPATCH_MODE remains \"queue\" (manual path untouched)",
 
 // E3 — the queue handler wires the settlement hook (dropping the injection
 // silently disables scheduled settlement in production).
-ok("E3 queue handler injects onScheduledScanSettled: settleScheduledQueueScan",
-  /queue: \(batch, env, ctx\) => handleScanDispatchBatch\(batch, env, ctx, \{ onScheduledScanSettled: settleScheduledQueueScan \}\)/.test(indexSrc));
+// STRENGTHENED (F-027, Integration-granted allowed-path extension — E3 ONLY).
+// The property under test is unchanged: the scheduled settlement hook is injected
+// into the scan-dispatch call, and dropping it silently disables scheduled
+// settlement. The former single-line SHAPE regex could not survive the F-027
+// queue-identity dispatch (routing the DLQ to its observer breaks the `=>
+// handleScanDispatchBatch` adjacency), and a shape proxy that reddens while the
+// property still holds is a false alarm. E3 now proves the PROPERTY by EXECUTING
+// the extracted handler body (routeQueueBatch), plus a form-independent wiring
+// check that the real Worker handler binds the real hook and handlers.
+{
+  // (A) BEHAVIOUR: a scan-dispatch batch runs the dispatch handler WITH the hook;
+  // a DLQ batch runs the observer and NEVER the dispatch (engine) handler.
+  const settleSentinel = Symbol("settle");
+  let dispatchArgs = null, dispatchCalled = false, dlqCalled = false;
+  const handlers = {
+    dispatch: (_b, _e, _c, deps) => { dispatchCalled = true; dispatchArgs = deps; },
+    dlq:      () => { dlqCalled = true; },
+    settle:   settleSentinel,
+  };
+  routeQueueBatch({ queue: "cybermeters-scan-dispatch" }, {}, {}, handlers);
+  ok("E3a scan-dispatch batch injects the settlement hook INTO THE DISPATCH branch",
+    dispatchCalled === true && dlqCalled === false &&
+    !!dispatchArgs && dispatchArgs.onScheduledScanSettled === settleSentinel);
+
+  dispatchCalled = false; dlqCalled = false; dispatchArgs = null;
+  routeQueueBatch({ queue: "cybermeters-scan-dlq" }, {}, {}, handlers);
+  ok("E3b the DLQ batch runs the observer and NEVER the scan-dispatch engine",
+    dlqCalled === true && dispatchCalled === false);
+
+  // (B) WIRING (form-independent — no single-line assumption): the real Worker
+  // queue handler binds settleScheduledQueueScan and BOTH real handlers to
+  // routeQueueBatch. Catches the injection being dropped from the real handler.
+  const qStart = indexSrc.indexOf("queue: (batch, env, ctx) => routeQueueBatch");
+  const qhBlock = qStart >= 0 ? indexSrc.slice(qStart, qStart + 400) : "";
+  ok("E3c the Worker queue handler binds the real hook and both handlers to routeQueueBatch",
+    /settle:\s*settleScheduledQueueScan/.test(qhBlock) &&
+    /dispatch:\s*handleScanDispatchBatch/.test(qhBlock) &&
+    /dlq:\s*handleScanDlqBatch/.test(qhBlock));
+}
 
 // E4 — inside triggerScheduledScan, the queue branch returns via dispatch and
 // never reaches the direct engine call (behavioural twin: B2e).
@@ -647,9 +688,15 @@ ok("E3 queue handler injects onScheduledScanSettled: settleScheduledQueueScan",
   const slice = indexSrc.slice(start, end > start ? end : undefined);
   const dispatchIdx = slice.indexOf('trigger: "scheduled"');
   const engineIdx = slice.indexOf('executionContext: "cron"');
-  ok("E4 queue branch (scheduled dispatch) precedes the legacy direct-engine call",
+ok("E4 queue branch (scheduled dispatch) precedes the legacy direct-engine call",
     start > -1 && dispatchIdx > -1 && engineIdx > dispatchIdx);
 }
+
+ok("E4b scheduled producer/settlement owns no scan_completed audit writer",
+  !/scan_completed|scanCompletionAuditStatement/.test(indexSrc) &&
+  !/scan_completed|scanCompletionAuditStatement/.test(
+    fs.readFileSync(srcPath("engines", "scan-dispatch.js"), "utf8")
+  ));
 
 // E5 — cron registration and the scheduled-Queue migration surface remain
 // unchanged. PR-5.5 Gate 3B now owns migration 100, so preserve PR-B1's

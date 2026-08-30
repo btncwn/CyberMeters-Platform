@@ -19,7 +19,10 @@ const {
   getManagedCase,
   transitionManagedCase,
 } = await import(engine("asm-cases.js"));
-const { SCAN_DEADLINE_DEFAULTS } = await import(engine("scan-budget.js"));
+const {
+  SCAN_DEADLINE_DEFAULTS,
+  SCAN_DURABLE_INVOCATION_DEADLINE_DEFAULTS,
+} = await import(engine("scan-budget.js"));
 
 let passed = 0;
 let failed = 0;
@@ -115,7 +118,7 @@ const env = {
   cybermeters_reports: makeR2(reports),
   SCAN_CAPACITY_MODE: "legacy",
   SCAN_SUBREQUEST_LIMIT: "200",
-  SCAN_DEADLINE_MS: "19000",
+  SCAN_DEADLINE_MS: "115000",
   APP_VERSION: "item10-p3-engine-trace",
 };
 
@@ -326,20 +329,25 @@ try {
   const later = await run(
     "scan-4", "2026-07-31T00:00:00.000Z", "negative",
   );
-  eq("later re-observation scan is complete and publishable",
-    later.report.scan_quality?.status, "complete");
+  ok("later re-observation scan is complete and publishable",
+    later.report.scan_quality?.status === "complete",
+    JSON.stringify(later.report.scan_quality));
   kase = await getManagedCase(env, "ws", originalCaseId);
   eq("later real re-observation resolves the same case", kase.status, "resolved");
   eq("later real re-observation creates no replacement case",
     db.prepare("SELECT COUNT(*) AS n FROM managed_cases WHERE workspace_id='ws'").get().n,
     1);
-  const verifiedDetail = JSON.parse(db.prepare(
+  const verifiedRow = db.prepare(
     "SELECT detail_json FROM managed_case_events WHERE case_id=? AND action='verified_resolved' ORDER BY rowid DESC LIMIT 1",
-  ).get(originalCaseId).detail_json);
-  eq("case evidence names the same stable asset",
-    verifiedDetail.lifecycle.asset_ids[0], "asset-gone");
-  eq("case evidence proves later re-observation",
-    verifiedDetail.lifecycle.later_reobservation, true);
+  ).get(originalCaseId);
+  ok("resolved case retains structured verification evidence", !!verifiedRow?.detail_json);
+  if (verifiedRow?.detail_json) {
+    const verifiedDetail = JSON.parse(verifiedRow.detail_json);
+    eq("case evidence names the same stable asset",
+      verifiedDetail.lifecycle.asset_ids[0], "asset-gone");
+    eq("case evidence proves later re-observation",
+      verifiedDetail.lifecycle.later_reobservation, true);
+  }
 
   const reappeared = await run(
     "scan-5", "2026-08-01T00:00:00.000Z", "observed",
@@ -348,6 +356,13 @@ try {
     reappeared.report.findings.some((entry) =>
       entry.id === "asset_exposure_sensitive_tool" &&
       entry.affected_hosts?.includes("gone.example.com")));
+  ok("score-bearing admin host has no duplicate score-zero admin bucket",
+    !reappeared.report.findings.some((entry) =>
+      entry.id.startsWith("admin_surface_") &&
+      entry.affected_hosts?.includes("gone.example.com")),
+    JSON.stringify(reappeared.report.findings
+      .filter((entry) => entry.id.startsWith("admin_surface_") ||
+        entry.id === "asset_exposure_sensitive_tool")));
   kase = await getManagedCase(env, "ws", originalCaseId);
   eq("real reappearance reopens the same case", kase.status, "remediation_in_progress");
   eq("real reappearance increments recurrence once", Number(kase.reopened_count), 1);
@@ -373,12 +388,14 @@ try {
     providerCalls.crt === 6 && providerCalls.certspotter === 6,
     JSON.stringify(providerCalls));
 
-  eq("whole-scan executable envelope remains 19,000 ms",
+  eq("legacy waitUntil executable envelope remains 19,000 ms",
     SCAN_DEADLINE_DEFAULTS.budgetMs, 19_000);
-  eq("whole-scan configurable ceiling remains 19,000 ms",
+  eq("legacy waitUntil configurable ceiling remains 19,000 ms",
     SCAN_DEADLINE_DEFAULTS.maxBudgetMs, 19_000);
-  eq("trace runs under the unchanged 19,000 ms configuration",
-    env.SCAN_DEADLINE_MS, "19000");
+  eq("durable queue executable envelope remains 115,000 ms",
+    SCAN_DURABLE_INVOCATION_DEADLINE_DEFAULTS.budgetMs, 115_000);
+  eq("trace runs under the durable queue configuration",
+    env.SCAN_DEADLINE_MS, "115000");
 } finally {
   globalThis.fetch = originalFetch;
   Math.random = originalRandom;

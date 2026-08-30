@@ -125,7 +125,13 @@ function ScoreRing({ score, rating, size = 132 }) {
 }
 
 function ItemRow({ item, index, muted = false }) {
-  const sev = item.severity || 'info'
+  const explicitSeverity = typeof item.severity === 'string' && item.severity.trim()
+    ? item.severity.trim()
+    : null
+  const severityStyleKey = explicitSeverity?.toLowerCase()
+  const evidenceGrade = typeof item.evidence_grade === 'string'
+    ? item.evidence_grade
+    : item.evidence_grade?.grade
   return (
     <li className="flex items-start gap-3 px-5 py-3">
       <div className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5 ${muted ? 'bg-gray-100 text-gray-500' : 'bg-brand-50 text-brand-700'}`}>
@@ -134,11 +140,25 @@ function ItemRow({ item, index, muted = false }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-semibold text-gray-900 leading-snug">{item.title}</p>
-          {!muted && <span className={`flex-shrink-0 ${SEV_BADGE[sev] || SEV_BADGE.info}`}>{sev}</span>}
+          {explicitSeverity && (
+            <span
+              className={`flex-shrink-0 ${SEV_BADGE[severityStyleKey] || SEV_BADGE.info}`}
+              aria-label={`${muted ? 'Observation severity' : 'Severity'}: ${explicitSeverity}`}
+            >
+              {explicitSeverity}
+            </span>
+          )}
         </div>
         {(item.explanation || item.description) && (
           <p className="text-xs text-gray-400 mt-0.5 leading-relaxed line-clamp-2">
             {customerEvidenceText(item.explanation || item.description)}
+          </p>
+        )}
+        {(item.confidence != null || evidenceGrade) && (
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+            {item.confidence != null && <span>Confidence: {String(item.confidence)}</span>}
+            {item.confidence != null && evidenceGrade && <span aria-hidden="true"> · </span>}
+            {evidenceGrade && <span>Evidence grade: {evidenceGrade}</span>}
           </p>
         )}
       </div>
@@ -203,6 +223,56 @@ function ActionList({ items }) {
   )
 }
 
+function AssessmentCoverage({ coverage }) {
+  if (!coverage) return null
+  const facts = [
+    ['Scan quality', coverage.scan_quality],
+    ['Assessment quality', coverage.assessment_quality],
+    ['Monitoring state', coverage.monitoring_state],
+  ].filter(([, value]) => value != null && value !== '')
+  const skipped = Array.isArray(coverage.modules_skipped) ? coverage.modules_skipped : []
+  const skippedScoreBearing = Array.isArray(coverage.skipped_score_bearing_modules)
+    ? coverage.skipped_score_bearing_modules
+    : []
+  const degradedSignals = Array.isArray(coverage.monitoring_degraded_signals)
+    ? coverage.monitoring_degraded_signals
+    : []
+
+  if (!facts.length && !skipped.length && !skippedScoreBearing.length && !degradedSignals.length) return null
+
+  return (
+    <section aria-label="Assessment coverage" className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <h3 className="text-xs font-bold text-slate-800">Assessment coverage</h3>
+      {facts.length > 0 && (
+        <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {facts.map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
+              <dd className="mt-0.5 text-xs font-semibold text-slate-700">{String(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {skipped.length > 0 && (
+        <p className="mt-2 text-xs leading-relaxed text-amber-700">
+          <span className="font-semibold">Modules skipped:</span> {skipped.join(', ')}
+        </p>
+      )}
+      {skippedScoreBearing.length > 0 && (
+        <p className="mt-1 text-xs leading-relaxed text-amber-700">
+          <span className="font-semibold">Score-bearing modules skipped:</span> {skippedScoreBearing.join(', ')}
+        </p>
+      )}
+      {degradedSignals.map((entry, index) => (
+        <p key={`${entry?.signal || 'signal'}-${index}`} className="mt-1 text-xs leading-relaxed text-slate-500">
+          <span className="font-semibold text-slate-700">{entry?.signal || 'Monitoring signal'}:</span>
+          {' '}{entry?.state || 'not_recorded'}{entry?.message ? ` — ${customerEvidenceText(entry.message)}` : ''}
+        </p>
+      ))}
+    </section>
+  )
+}
+
 function SectionCard({ icon: Icon, title, count, children }) {
   return (
     <section className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
@@ -245,10 +315,14 @@ export default function ExecutiveReportV2({ report }) {
   const summary = report.executive_summary || {}
   const branding = report.branding
   const methodology = report.methodology || {}
+  const canonicalActions = Array.isArray(report.remediation_actions)
+    ? report.remediation_actions
+    : (summary.priority_actions || [])
+  const priorityActions = canonicalActions.slice(0, 3)
 
   return (
     <div className="space-y-5">
-      {/* Header: identity + one score + the indicator */}
+      {/* Header: identity, evidence and coverage. Findings/actions lead the score. */}
       <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
         <HowToReadReport />
         <EvidenceStrengthSummary
@@ -259,7 +333,7 @@ export default function ExecutiveReportV2({ report }) {
           ]}
           className="mt-4"
         />
-        <div className="mt-4 flex flex-wrap items-start justify-between gap-6">
+        <div className="mt-4">
           <div className="min-w-0">
             {branding?.logo
               ? <img src={branding.logo} alt={branding.company_name || 'logo'} className="h-8 mb-2 object-contain" />
@@ -272,19 +346,6 @@ export default function ExecutiveReportV2({ report }) {
                 Reconstructed on {fmtDate(report.generated_at)} from the evidence recorded at assessment time.
               </p>
             )}
-            {cms.message && <p className="text-xs text-amber-600 mt-2">{customerEvidenceText(cms.message)}</p>}
-            <EvidenceBasis label="Score basis" assertion={cms.evidence_grade} className="mt-3 max-w-xl" />
-          </div>
-          <div className="flex items-center gap-8">
-            <ScoreRing score={cms.value} rating={cms.rating} />
-            <div className="max-w-xs">
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Business Risk Indicator</p>
-              <EvidenceBasis label="Business Risk Indicator basis" assertion={bri.evidence_grade} className="mb-2" />
-              {bri.band
-                ? <span className={`text-xs font-bold px-3 py-1 rounded-full border ${BRI_PILL[bri.band] || 'bg-gray-100 text-gray-500 border-gray-200'}`}>{String(bri.band).toUpperCase()}</span>
-                : <span className="text-xs text-gray-400">Not available</span>}
-              {bri.explanation && <p className="text-xs text-gray-500 mt-2 leading-relaxed">{customerEvidenceText(bri.explanation)}</p>}
-            </div>
           </div>
         </div>
         {summary.summary && (
@@ -293,7 +354,14 @@ export default function ExecutiveReportV2({ report }) {
             <p className="text-sm text-gray-600 leading-relaxed">{customerEvidenceText(summary.summary)}</p>
           </div>
         )}
+        <AssessmentCoverage coverage={report.evidence_completeness} />
       </div>
+
+      {priorityActions.length > 0 && (
+        <SectionCard icon={Target} title="Priority Actions" count={priorityActions.length}>
+          <ActionList items={priorityActions} />
+        </SectionCard>
+      )}
 
       {/* Eight canonical domains — backend-owned states, rendered verbatim */}
       <CyberMotDomains domains={report.cyber_mot_domains} />
@@ -310,12 +378,6 @@ export default function ExecutiveReportV2({ report }) {
         />
       )}
 
-      {summary.priority_actions?.length > 0 && (
-        <SectionCard icon={Target} title="Priority Actions" count={summary.priority_actions.length}>
-          <ActionList items={summary.priority_actions} />
-        </SectionCard>
-      )}
-
       <SectionCard icon={FileText} title="Observed Findings" count={summary.observed_findings_count ?? report.observed_findings?.length ?? 0}>
         <ItemList items={report.observed_findings} emptyLabel="No material findings were observed in this assessment." />
       </SectionCard>
@@ -327,6 +389,27 @@ export default function ExecutiveReportV2({ report }) {
       <SectionCard icon={Target} title="Recommended Actions" count={report.remediation_actions?.length ?? 0}>
         <ActionList items={report.remediation_actions} />
       </SectionCard>
+
+      <section aria-labelledby="assessment-score-heading" className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
+        <h3 id="assessment-score-heading" className="text-sm font-bold text-gray-900">Assessment Score</h3>
+        <div className="mt-4 flex flex-wrap items-start justify-between gap-6">
+          <div className="max-w-xl">
+            {cms.message && <p className="text-xs text-amber-600">{customerEvidenceText(cms.message)}</p>}
+            <EvidenceBasis label="Score basis" assertion={cms.evidence_grade} className="mt-2" />
+          </div>
+          <div className="flex items-center gap-8">
+            <ScoreRing score={cms.value} rating={cms.rating} />
+            <div className="max-w-xs">
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Business Risk Indicator</p>
+              <EvidenceBasis label="Business Risk Indicator basis" assertion={bri.evidence_grade} className="mb-2" />
+              {bri.band
+                ? <span className={`text-xs font-bold px-3 py-1 rounded-full border ${BRI_PILL[bri.band] || 'bg-gray-100 text-gray-500 border-gray-200'}`}>{String(bri.band).toUpperCase()}</span>
+                : <span className="text-xs text-gray-400">Not available</span>}
+              {bri.explanation && <p className="text-xs text-gray-500 mt-2 leading-relaxed">{customerEvidenceText(bri.explanation)}</p>}
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Methodology + limitations — honesty footer */}
       <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">

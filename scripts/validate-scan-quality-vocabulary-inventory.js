@@ -42,7 +42,7 @@ const EXPECTED = Object.freeze({
     // Reintroducing the branch is mutant TRIAGE-M11 and must fail
     // validate-report-copy-live-triage.
     comparison_occurrences: 47,
-    source_file_count: 22,
+    source_file_count: 23,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
     // AS-B2 SUCCESSION: counts UNCHANGED (48 across 22 files). The KEV/CVE score
@@ -72,16 +72,18 @@ const EXPECTED = Object.freeze({
     // AS-B2 FINAL-REBASE SUCCESSION: counts remain 47/22. The canonical scoring
     // wire-in shifts five existing product comparison sites only; no runtime
     // comparison was added, removed or reclassified.
-    fingerprint: "449afe4d869461139ff318c30bd27bad6b76b7a73a13c25031f9db78098ec6a7",
+    // RESCUE SUCCESSION: count remains 47; the report-first customer surface
+    // adds one reviewed runtime source and moves existing exact line keys.
+    fingerprint: "e0fe70bf887ddaef5a63bbe65015126042d54845d0e6b9225a0375608bb8dd1a",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
     predicate_occurrences: 35,
     unique_query_sites: 26,
     source_file_count: 15,
-    fingerprint: "3254ff2524dfc617a30f6c50f266f2b35d0a4b0c07a6816de86590442976926d",
+    fingerprint: "9d722f9d0b41c62b01ab8ce5693ffdbff2f38872e5fb5e60a1428309e5376fe2",
     resolved_query_sink_count: 19,
-    resolved_query_sink_fingerprint: "efc6a8cf3953f40ee32114de3832b46e013344302635e3b1ac887f91e7dfd729",
+    resolved_query_sink_fingerprint: "92158e1dd0bc4eaa9083967dd0915c7921b993e94bfb56759388c4438653744f",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -101,16 +103,18 @@ const EXPECTED = Object.freeze({
     // child-process comparisons and the presentation assertion moved within
     // validate-phase5-evidence-honesty.js; exact line keys were re-derived on
     // the final tree. No governance or product comparison changed membership.
-    comparison_occurrences: 68,
-    source_file_count: 27,
+    comparison_occurrences: 81,
+    source_file_count: 30,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
     // the successor validator. Nothing was added to or removed from the runtime set.
     // SUCCESSOR-3: 63 -> 65 across 23 -> 25 files. Additive only: PR #414/#416 added
     // governed comparisons in their own validators. Nothing was removed.
-    fingerprint: "fbb211244829b227f8a9e6e4e9f2d86d85d620eac09bbfed4731652be51c2a92",
+    // RESCUE SUCCESSION: additive validator coverage plus two exact reviewed
+    // child-process comparisons and one canonical quality-parity assertion.
+    fingerprint: "ebc00fd074b9d9554f89d5ce190eb9f62fa395628e286a4e796243d085481905",
   },
-  runtime_source_file_count: 32,
+  runtime_source_file_count: 33,
   direct: {
     // D1 SUCCESSION: count unchanged at 92; fingerprint moves because the
     // asm-cases read now flows through the shared predicate.
@@ -144,7 +148,7 @@ const EXPECTED = Object.freeze({
     // --dump-counts run and independently matched the hosted CI values.
     // AS-B2 FINAL-REBASE SUCCESSION: counts remain 91/34; final-tree product
     // line shifts only, with identical canonical-read membership.
-    runtime: { occurrence_count: 91, source_file_count: 34, fingerprint: "6550095401675c6d69e1976aaa22bb3a93004b443b8398897dfb4e707c116ecd" },
+    runtime: { occurrence_count: 98, source_file_count: 36, fingerprint: "d2acc689279302519184281316d4d9de8479033e8a847ec59b4d4b9baea55b7a" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
@@ -157,12 +161,12 @@ const EXPECTED = Object.freeze({
     // only the fingerprint moves — the existing destructured scanQuality read in
     // validate-website-security-lifecycle.js shifted 145 -> 161 under the authorised
     // loader-isolation preamble. No read, site, path, count, SQL or comparison changed.
-    governance: { occurrence_count: 109, source_file_count: 38, fingerprint: "3330baa6596fd1be3fdddba4881f6d66921d734459f8944b6f04be1f9868a01c" },
+    governance: { occurrence_count: 121, source_file_count: 39, fingerprint: "e3b21e121a3846fca43f9b761bdd027327668eb6fa570de6181197a02032b0c4" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
   // shifts source positions only. No scan-quality read was added or removed.
-  sql_reads: { projection_occurrences: 23, fingerprint: "d45769a1447df783183c3360249ba36c41d8701c7820003c8de115205de26149" },
+  sql_reads: { projection_occurrences: 23, fingerprint: "65cb9006539613188ba6f99641dd934dff7866e412b82de5cd818b3dbcf1692d" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
@@ -174,6 +178,7 @@ const QUALITY_SLOT_NAMES = new Set([
   "latest_scan_quality", "latestScanQuality",
   "current_scan_quality", "currentScanQuality",
   "previous_scan_quality", "previousScanQuality",
+  "comparison_scan_quality", "comparisonScanQuality",
   // Immutable report projections of the same canonical quality value.
   "assessment_quality", "assessmentQuality",
 ]);
@@ -209,15 +214,22 @@ const QUALITY_NORMALIZER_METHODS = new Set(["trim", "toLowerCase", "toString"]);
 // a property-name or regex allowlist: any move, rename or new site changes the
 // governance inventory and requires review.
 const REVIEWED_DYNAMIC_QUALITY_EXPRESSIONS = new Map([
-  ["scripts/validate-phase5-evidence-honesty.js:209:engine.quality",
+  ["scripts/validate-phase5-evidence-honesty.js:208:engine.quality",
     "child-process runScanEngine quality projection"],
-  ["scripts/validate-phase5-evidence-honesty.js:209:engine.reportQuality",
+  ["scripts/validate-phase5-evidence-honesty.js:208:engine.reportQuality",
     "child-process runScanEngine report-quality projection"],
+]);
+// Exact presentation-only presence checks may consume a quality-tainted value
+// without deciding a security status. They are keyed by file, line and snippet;
+// a move, duplicate or wording change fails the classification gate.
+const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
+  ["frontend/src/components/ExecutiveReportV2.jsx:232:value !== ''",
+    "omit a blank coverage fact after the adjacent null guard"],
 ]);
 const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
-  "scripts/validate-partial-scan-honesty.js:232:stale.quality === \"unknown\"",
-  "scripts/validate-phase5-evidence-honesty.js:236:presentation.quality === \"partial\"",
+  "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
+  "scripts/validate-phase5-evidence-honesty.js:234:presentation.quality === \"partial\"",
   "scripts/validate-signal-monitoring-state.js:257:degraded.quality === \"degraded\"",
 ]);
 
@@ -365,6 +377,7 @@ function analyseSemanticComparisons(sourceFiles, checker) {
   const collectionReasons = new Map();
   const taintReasons = new Map();
   const reviewedDynamicSeen = new Set();
+  const reviewedNonStatusPresenceSeen = new Map();
   const functionLikes = [];
 
   const addReason = (symbol, reason) => {
@@ -827,6 +840,14 @@ function analyseSemanticComparisons(sourceFiles, checker) {
           return;
         }
         if (!status || !status.recognized) {
+          const reviewedPresenceKey = `${base.file}:${base.line}:${base.snippet}`;
+          if (REVIEWED_NON_STATUS_PRESENCE_COMPARISONS.has(reviewedPresenceKey)) {
+            reviewedNonStatusPresenceSeen.set(
+              reviewedPresenceKey,
+              (reviewedNonStatusPresenceSeen.get(reviewedPresenceKey) || 0) + 1,
+            );
+            return;
+          }
           if (isQualitySemantic(base)) {
             unclassified.push({
               ...base,
@@ -931,6 +952,7 @@ function analyseSemanticComparisons(sourceFiles, checker) {
     governance,
     unclassified,
     reviewedDynamicOccurrences: reviewedDynamicSeen.size,
+    reviewedNonStatusPresenceSeen,
     unresolvedGovernance,
     runtimeFingerprint: fingerprint(runtime.map(comparisonSignature)),
     governanceFingerprint: fingerprint(governance.map(comparisonSignature)),
@@ -1482,10 +1504,20 @@ ok(
 );
 
 const unclassified = [...semantic.unclassified, ...sql.unclassified];
+const reviewedPresenceExact =
+  semantic.reviewedNonStatusPresenceSeen.size === REVIEWED_NON_STATUS_PRESENCE_COMPARISONS.size &&
+  [...REVIEWED_NON_STATUS_PRESENCE_COMPARISONS.keys()].every((key) =>
+    semantic.reviewedNonStatusPresenceSeen.get(key) === 1);
 ok(
   "classification: no scan-quality gate is unclassified or uses an unknown status",
-  cleanParse ? unclassified.length === 0 : true,
-  unclassified.map((site) => `${site.file}:${site.line}:${site.reason || site.predicate?.status}`).join(" | "),
+  cleanParse ? unclassified.length === 0 && reviewedPresenceExact : true,
+  [
+    ...unclassified.map((site) =>
+      `${site.file}:${site.line}:${site.reason || site.predicate?.status}`),
+    ...[...REVIEWED_NON_STATUS_PRESENCE_COMPARISONS.keys()]
+      .filter((key) => semantic.reviewedNonStatusPresenceSeen.get(key) !== 1)
+      .map((key) => `${key}:reviewed-presence-count=${semantic.reviewedNonStatusPresenceSeen.get(key) || 0}`),
+  ].join(" | "),
 );
 
 ok(

@@ -180,14 +180,12 @@ runMutant({
   moduleEnv: "CT_R1_SCAN_ENGINE_MODULE_URL",
   mutate: (source) => replaceRequired(
     source,
-    `    await finalizeScanResult(latch, {
-      scanId, report: failedReport, score: 0, rating: "unknown", status: "failed", env,
-    });
-    await persistCtTelemetryAfterTerminal();
+    `    const runFailurePostTerminalWork = async () => {
+      await persistCtTelemetryAfterTerminal();
+      await persistCtOverlapAfterTerminal();
 `,
-    `    await finalizeScanResult(latch, {
-      scanId, report: failedReport, score: 0, rating: "unknown", status: "failed", env,
-    });
+    `    const runFailurePostTerminalWork = async () => {
+      await persistCtOverlapAfterTerminal();
 `,
     "failed terminal CT persistence"
   ),

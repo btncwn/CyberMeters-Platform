@@ -45,6 +45,10 @@ async function loadDomainResolver() {
     .replace(
       'from "./identity-evidence-contract.js";',
       `from "${eng("identity-evidence-contract.js")}";`
+    )
+    .replace(
+      'from "./findings.js";',
+      `from "${eng("findings.js")}";`
     );
   let target;
   let replacement;

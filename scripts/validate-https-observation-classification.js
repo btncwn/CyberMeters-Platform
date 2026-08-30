@@ -233,9 +233,10 @@ async function sslWith(fetchImpl) {
     m.https_probe_executed === true);
 }
 {
-  const m = await sslWith(timeoutError);
-  ok("B: timeout → https_available NULL and probe_executed FALSE (scan degrades honestly)",
-    m.https_available === null && m.https_probe_executed === false);
+  let observed = null;
+  try { await sslWith(timeoutError); } catch (error) { observed = error; }
+  ok("B: typed timeout propagates to the scan boundary for honest incomplete classification",
+    observed?.name === "TimeoutError" && observed?.message === "aborted due to timeout");
 }
 {
   const m = await sslWith(tlsFailure);
@@ -261,7 +262,7 @@ for (const [label, mod] of [
   ["origin 500", await sslWith(async () => originResponse(500))],
   ["Cloudflare-signed 522", await sslWith(async () => edgeResponse(522))],
   ["Cloudflare-signed 530", await sslWith(async () => edgeResponse(530))],
-  ["timeout", await sslWith(timeoutError)],
+  ["network rejection", await sslWith(networkRejection)],
   ["TLS failure", await sslWith(tlsFailure)],
 ]) {
   ok(`C: ${label} produces NO ssl_not_available finding`, !findingIds(mod).has("ssl_not_available"));

@@ -77,16 +77,26 @@ const HEALTHY = async (url) => new Response("<html></html>", {
              "strict-transport-security": "max-age=63072000; includeSubDomains; preload" },
 });
 
-const headersTimedOut  = await withFetch(TIMEOUT,       () => runHeadersModule("acme.example.com"));
-const headersRefused   = await withFetch(CONN_REFUSED,  () => runHeadersModule("acme.example.com"));
+let headersTimeoutError = null;
+try { await withFetch(TIMEOUT, () => runHeadersModule("acme.example.com")); }
+catch (error) { headersTimeoutError = error; }
+let sslTimeoutError = null;
+try { await withFetch(TIMEOUT, () => runSslModule("acme.example.com")); }
+catch (error) { sslTimeoutError = error; }
+
+// A typed timeout is scan-engine control flow and must remain observable to the
+// deadline wrapper. An ordinary transport failure is the direct-module path that
+// returns the canonical not-executed shape used by the projections below.
+const headersUnavailable = await withFetch(CONN_REFUSED,  () => runHeadersModule("acme.example.com"));
+const headersRefused     = await withFetch(CONN_REFUSED,  () => runHeadersModule("acme.example.com"));
 const headersLooped    = await withFetch(REDIRECT_LOOP, () => runHeadersModule("acme.example.com"));
 const headersOk        = await withFetch(HEALTHY,       () => runHeadersModule("acme.example.com"));
-const sslTimedOut      = await withFetch(TIMEOUT,       () => runSslModule("acme.example.com"));
+const sslUnavailable   = await withFetch(CONN_REFUSED,  () => runSslModule("acme.example.com"));
 const sslOk            = await withFetch(HEALTHY,       () => runSslModule("acme.example.com"));
 
-const headersNotExecuted = () => ({ ...headersTimedOut });
+const headersNotExecuted = () => ({ ...headersUnavailable });
 const headersHealthy     = () => ({ ...headersOk });
-const sslNotExecuted     = () => ({ ...sslTimedOut });
+const sslNotExecuted     = () => ({ ...sslUnavailable });
 const sslHealthy         = () => ({ ...sslOk, https_available: true, https_probe_executed: true });
 const sslPositivelyAbsent = () => ({
   tls_state: "positively_absent",
@@ -109,18 +119,20 @@ const sslPositivelyAbsent = () => ({
 
 // ── 0. The real modules actually report non-execution ───────────────────────
 {
-  ok("REAL headers module: a timeout is not accessible", headersTimedOut.accessible === false);
-  eq("REAL headers module: a timeout declares incomplete", headersTimedOut.incomplete, true);
-  eq("REAL headers module: with an honest reason", headersTimedOut.incomplete_reason, "probe_not_executed");
+  ok("REAL safeFetch boundary: a typed headers timeout remains observable control flow", headersTimeoutError?.name === "TimeoutError");
+  ok("REAL safeFetch boundary: a typed SSL timeout remains observable control flow", sslTimeoutError?.name === "TimeoutError");
+  ok("REAL headers module: a transport failure is not accessible", headersUnavailable.accessible === false);
+  eq("REAL headers module: a transport failure declares incomplete", headersUnavailable.incomplete, true);
+  eq("REAL headers module: with an honest reason", headersUnavailable.incomplete_reason, "probe_not_executed");
   eq("REAL headers module: a connection failure declares incomplete", headersRefused.incomplete, true);
   eq("REAL headers module: redirect exhaustion declares incomplete", headersLooped.incomplete, true);
   ok("REAL headers module: a reachable site is accessible", headersOk.accessible === true);
   ok("REAL headers module: a reachable site is NOT incomplete", headersOk.incomplete === undefined);
 
-  eq("REAL ssl module: a timeout leaves https_available UNKNOWN, not false", sslTimedOut.https_available, null);
-  eq("REAL ssl module: a timeout records that the probe did not execute", sslTimedOut.https_probe_executed, false);
-  eq("REAL ssl module: a timeout declares incomplete", sslTimedOut.incomplete, true);
-  eq("REAL ssl module: with an honest reason", sslTimedOut.incomplete_reason, "https_probe_not_executed");
+  eq("REAL ssl module: a transport failure leaves https_available UNKNOWN, not false", sslUnavailable.https_available, null);
+  eq("REAL ssl module: a transport failure records that the probe did not execute", sslUnavailable.https_probe_executed, false);
+  eq("REAL ssl module: a transport failure declares incomplete", sslUnavailable.incomplete, true);
+  eq("REAL ssl module: with an honest reason", sslUnavailable.incomplete_reason, "https_probe_not_executed");
   ok("REAL ssl module: a reachable site is NOT incomplete", sslOk.incomplete === undefined);
   eq("REAL ssl module: a reachable site records that the probe ran", sslOk.https_probe_executed, true);
 }

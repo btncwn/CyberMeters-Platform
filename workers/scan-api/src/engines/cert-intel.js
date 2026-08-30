@@ -217,17 +217,46 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
       });
     }
 
-    if (days_until_expiry !== null && days_until_expiry < 14) {
+    const expiryTimestamp = typeof expires_at === "string" && expires_at.trim().length > 0
+      ? Date.parse(expires_at)
+      : Number.NaN;
+    const expiryEvidenceNowMs = Number.isFinite(opts.nowMs) ? opts.nowMs : Date.now();
+    const expiryDateMatchesDayCount = Number.isFinite(expiryTimestamp) &&
+      expiryTimestamp > expiryEvidenceNowMs &&
+      Math.abs(Math.floor((expiryTimestamp - expiryEvidenceNowMs) / 86_400_000) - days_until_expiry) <= 1;
+    const expiryEvidenceUsable = Number.isFinite(days_until_expiry) &&
+      Number.isInteger(days_until_expiry) && days_until_expiry >= 0 &&
+      expiryDateMatchesDayCount;
+    const expiryWindowDescription = (renewalInstruction) =>
+      `The latest-expiring currently valid certificate record returned by the available Certificate Transparency source for ${domain} ends on ${expires_at} (${days_until_expiry} day${days_until_expiry === 1 ? "" : "s"}). This is Certificate Transparency evidence; the certificate served by the live site was not inspected. ${renewalInstruction}`;
+
+    if (expiryEvidenceUsable && days_until_expiry < 14) {
       suspicious_certificate_signals.push({
         signal:      "certificate_expiring_critical",
-        severity:    "critical",
-        description: `Certificate expires in ${days_until_expiry} day${days_until_expiry === 1 ? "" : "s"} (${expires_at}). Immediate renewal required to avoid service outage.`,
+        finding_type: "finding",
+        severity:    "high",
+        score_impact: 0,
+        evidence_source: "certificate_transparency",
+        live_certificate_verified: false,
+        evidence_basis: "latest_expiring_logged_certificate",
+        title:        "Logged certificate validity ends within 14 days",
+        description: expiryWindowDescription(
+          "Renew and deploy a replacement before that date, or confirm that a newer certificate is already in service.",
+        ),
       });
-    } else if (days_until_expiry !== null && days_until_expiry < 30) {
+    } else if (expiryEvidenceUsable && days_until_expiry < 30) {
       suspicious_certificate_signals.push({
         signal:      "certificate_expiring_soon",
+        finding_type: "finding",
         severity:    "medium",
-        description: `Certificate expires in ${days_until_expiry} day${days_until_expiry === 1 ? "" : "s"} (${expires_at}). Renewal recommended within the next week.`,
+        score_impact: 0,
+        evidence_source: "certificate_transparency",
+        live_certificate_verified: false,
+        evidence_basis: "latest_expiring_logged_certificate",
+        title:        "Logged certificate validity ends within 30 days",
+        description: expiryWindowDescription(
+          "Plan renewal now so the replacement is deployed before that date.",
+        ),
       });
     }
 
@@ -337,6 +366,7 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
 	      reuse_status:          "not_assessed",
 	      evidence_source:       "certificate_transparency",
 	      live_certificate_verified: false,
+	      expiry_evidence:       expiryEvidenceUsable ? "usable" : "not_usable",
 	      issued_at:             ssl.cert_not_before ?? null,
 	      certificate_age_days:  ssl.cert_age_days ?? null,
 	      expires_at,
@@ -379,6 +409,7 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
 	      reuse_status:               "not_assessed",
 	      evidence_source:            "certificate_transparency",
 	      live_certificate_verified:  false,
+	      expiry_evidence:            "not_usable",
 	      issued_at:                  null,
 	      certificate_age_days:       null,
 	      expires_at:                 null,

@@ -12,9 +12,33 @@ const { parseDocument, isMap, isSeq } = workerRequire("yaml");
 
 export const CANONICAL_SKIP_CONDITION = "${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}";
 export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d55297df4fd3f90a2f57548697efcf062";
-export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 362;
-export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "f1ff91e9faa1d470d1b5c3320b5d1809985a2876d7e8374244b88d17eac4edd9";
-export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "8cf50cde587e71692ff2ad4a4a167b963a30bd4370b785d5760e3101c1f1ec2d";
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 376;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "8dcdeab643dbd1be7f82864ea21891dab14b838911dad057dc5ee7828a42f8aa";
+export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "5f2c5c43db9c5564812f55c4fe35f2290e3bb75e46ac67442b1a4b04e3fa714b";
+
+export const F004_MATRIX_JOB_ID = "validate_f004_recovery_mutations";
+export const F004_MATRIX_VALIDATOR_PATH = "scripts/validate-f004-recovery-instrumentation-mutations.js";
+export const F004_MATRIX_STEP_NAME = "Run canonical F-004 recovery mutation shard";
+export const F004_MATRIX_RUN =
+  "node scripts/validate-f004-recovery-instrumentation-mutations.js --shard-index \"${{ matrix.shard_index }}\" --shard-total 7";
+export const F004_MATRIX_SOURCE_HEAD = "${{ github.event.pull_request.head.sha || github.sha }}";
+export const F004_MATRIX_HEAD_GUARD_RUN =
+  "set -eu\n" +
+  "if [ -z \"$EXPECTED_HEAD_SHA\" ]; then\n" +
+  "  echo \"::error::F004 matrix candidate head is empty\"\n" +
+  "  exit 1\n" +
+  "fi\n" +
+  "if [ \"$EVENT_NAME\" = \"pull_request\" ]; then\n" +
+  "  if [ -z \"$PULL_REQUEST_HEAD_SHA\" ] || [ \"$EXPECTED_HEAD_SHA\" != \"$PULL_REQUEST_HEAD_SHA\" ]; then\n" +
+  "    echo \"::error::F004 matrix PR source-head identity is absent or inconsistent\"\n" +
+  "    exit 1\n" +
+  "  fi\n" +
+  "fi\n" +
+  "actual_head=\"$(git rev-parse HEAD)\"\n" +
+  "if [ \"$actual_head\" != \"$EXPECTED_HEAD_SHA\" ]; then\n" +
+  "  echo \"::error::F004 matrix checkout drift: expected $EXPECTED_HEAD_SHA, got $actual_head\"\n" +
+  "  exit 1\n" +
+  "fi\n";
 
 export const VALIDATOR_SHARD_JOB_IDS = Object.freeze([
   "validate_runtime_security",
@@ -27,17 +51,47 @@ export const VALIDATOR_SHARD_JOB_IDS = Object.freeze([
 export const EXPECTED_JOB_IDS = Object.freeze([
   "ci_scope",
   ...VALIDATOR_SHARD_JOB_IDS,
+  F004_MATRIX_JOB_ID,
   "validate",
   "sast",
 ]);
 
+const EXECUTABLE_VALIDATOR_JOB_IDS = Object.freeze([
+  ...VALIDATOR_SHARD_JOB_IDS,
+  F004_MATRIX_JOB_ID,
+]);
+
 export const EXPECTED_SHARD_COUNTS = Object.freeze({
-  validate_runtime_security: 86,
-  validate_report_cx: 88,
-  validate_data_migrations: 88,
-  validate_frontend_build: 81,
-  validate_integration_assurance: 19,
+  validate_runtime_security: 89,
+  validate_report_cx: 90,
+  validate_data_migrations: 90,
+  validate_frontend_build: 86,
+  validate_integration_assurance: 20,
+  validate_f004_recovery_mutations: 1,
 });
+
+export const EXPECTED_NON_VALIDATOR_CARRIERS = Object.freeze([
+  Object.freeze({
+    jobId: "validate_runtime_security",
+    name: "Validate Identity truth-projection semantic mutations",
+    run: "node scripts/mutate-identity-truth-projection.js",
+  }),
+  Object.freeze({
+    jobId: "validate_report_cx",
+    name: "Validate Identity producer truth semantic mutations",
+    run: "node scripts/mutate-identity-producer-truth.js",
+  }),
+  Object.freeze({
+    jobId: "validate_frontend_build",
+    name: "Validate Identity canonical substrate semantic mutations",
+    run: "node scripts/mutate-identity-substrate-idempotence.js",
+  }),
+  Object.freeze({
+    jobId: "validate_integration_assurance",
+    name: "Validate CT-R2 PR-2A.1 provider-source consumer inventory pin",
+    run: "node scripts/derive-ct-provider-source-consumer-inventory.js --pin docs/CT-R2-PR-2A1-PROVIDER-SOURCE-INVENTORY.json",
+  }),
+]);
 
 const EXPECTED_SHARD_NAMES = Object.freeze({
   validate_runtime_security: "validate / runtime-security",
@@ -58,7 +112,7 @@ const EXPECTED_AGGREGATOR_ENV = Object.freeze({
   CI_SCOPE_RESULT: "${{ needs.ci_scope.result }}",
   RUNTIME_SECURITY_RESULT: "${{ needs.validate_runtime_security.result }}",
   REPORT_CX_RESULT: "${{ needs.validate_report_cx.result }}",
-  DATA_MIGRATIONS_RESULT: "${{ needs.validate_data_migrations.result }}",
+  DATA_MIGRATIONS_RESULT: "${{ needs.validate_data_migrations.result == 'success' && needs.validate_f004_recovery_mutations.result == 'success' && 'success' || 'failure' }}",
   FRONTEND_BUILD_RESULT: "${{ needs.validate_frontend_build.result }}",
   INTEGRATION_ASSURANCE_RESULT: "${{ needs.validate_integration_assurance.result }}",
 });
@@ -168,6 +222,41 @@ function expectedNodeStep() {
   };
 }
 
+function expectedF004MatrixJob() {
+  return {
+    name: "validate / f004-recovery-mutations (${{ matrix.shard_index }}/7)",
+    "runs-on": "ubuntu-latest",
+    "timeout-minutes": 25,
+    strategy: {
+      "fail-fast": false,
+      "max-parallel": 7,
+      matrix: { shard_index: [0, 1, 2, 3, 4, 5, 6] },
+    },
+    steps: [
+      {
+        name: "Checkout exact candidate",
+        uses: "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
+        with: { ref: F004_MATRIX_SOURCE_HEAD, "fetch-depth": 0 },
+      },
+      {
+        name: "Require checkout to match exact candidate",
+        env: {
+          EVENT_NAME: "${{ github.event_name }}",
+          PULL_REQUEST_HEAD_SHA: "${{ github.event.pull_request.head.sha }}",
+          EXPECTED_HEAD_SHA: F004_MATRIX_SOURCE_HEAD,
+        },
+        run: F004_MATRIX_HEAD_GUARD_RUN,
+      },
+      {
+        name: "Set up Node",
+        uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+        with: { "node-version": "24" },
+      },
+      { name: F004_MATRIX_STEP_NAME, run: F004_MATRIX_RUN },
+    ],
+  };
+}
+
 function expectedInstallSteps() {
   return [
     {
@@ -200,7 +289,7 @@ export function executableValidatorWiring(workflow) {
     [ARM2_TIMEZONE_VALIDATOR_STEP, 0],
   ]);
 
-  for (const jobId of VALIDATOR_SHARD_JOB_IDS) {
+  for (const jobId of EXECUTABLE_VALIDATOR_JOB_IDS) {
     const steps = workflow?.jobs?.[jobId]?.steps;
     if (!Array.isArray(steps)) {
       problems.push(jobId + ": missing step sequence");
@@ -208,6 +297,14 @@ export function executableValidatorWiring(workflow) {
     }
     for (const step of steps) {
       if (typeof step?.run !== "string" || !step.run.includes("scripts/validate-")) continue;
+      const f004Matrix = step.run.match(
+        /^node (scripts\/validate-f004-recovery-instrumentation-mutations\.js)(?: .*)?$/,
+      );
+      if (jobId === F004_MATRIX_JOB_ID && step.name === F004_MATRIX_STEP_NAME && f004Matrix) {
+        validators.push(f004Matrix[1]);
+        assignments.push({ jobId, path: f004Matrix[1] });
+        continue;
+      }
       const plain = step.run.match(/^(?:node|\/usr\/bin\/env node) (scripts\/validate-[a-z0-9-]+\.js)$/);
       if (plain) {
         validators.push(plain[1]);
@@ -248,7 +345,43 @@ export function executableValidatorWiring(workflow) {
   for (const [name, count] of carrierCounts) {
     if (count !== 1) problems.push(name + ": carrier count " + count + ", want 1 in validate_report_cx");
   }
-  return { validators, plainValidators, assignments, problems, carrierCounts };
+
+  const observedNonValidatorCarriers = [];
+  for (const jobId of VALIDATOR_SHARD_JOB_IDS) {
+    for (const step of workflow?.jobs?.[jobId]?.steps || []) {
+      if (typeof step?.run !== "string") continue;
+      const plainNodeScript = step.run.match(/^node (scripts\/[a-z0-9-]+\.js)(?: .+)?$/);
+      if (!plainNodeScript || plainNodeScript[1].startsWith("scripts/validate-") ||
+          plainNodeScript[1] === "scripts/install-governed-dependencies.js") continue;
+      observedNonValidatorCarriers.push({
+        jobId,
+        name: step.name,
+        run: step.run,
+        conditional: hasOwn(step, "if"),
+        nonBlocking: hasOwn(step, "continue-on-error"),
+      });
+    }
+  }
+  const expectedNonValidatorCarriers = EXPECTED_NON_VALIDATOR_CARRIERS.map((carrier) => ({
+    ...carrier,
+    conditional: false,
+    nonBlocking: false,
+  }));
+  const nonValidatorCarrierProblems = [];
+  if (stableJson(observedNonValidatorCarriers) !== stableJson(expectedNonValidatorCarriers)) {
+    nonValidatorCarrierProblems.push(
+      "observed " + stableJson(observedNonValidatorCarriers) +
+      "; want " + stableJson(expectedNonValidatorCarriers),
+    );
+  }
+  return {
+    validators,
+    plainValidators,
+    assignments,
+    problems,
+    carrierCounts,
+    nonValidatorCarrierProblems,
+  };
 }
 
 export function parseWorkflowAst(source) {
@@ -299,16 +432,19 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = ro
 
   const jobs = parsed.workflow.jobs || {};
   const ciScopeJob = jobs.ci_scope;
+  const f004MatrixJob = jobs[F004_MATRIX_JOB_ID];
   const validateJob = jobs.validate;
   const sastJob = jobs.sast;
   const shardJobs = VALIDATOR_SHARD_JOB_IDS.map((jobId) => jobs[jobId]);
   const ciScopeSteps = ciScopeJob.steps || [];
   const shardSteps = VALIDATOR_SHARD_JOB_IDS.flatMap((jobId) => jobs[jobId].steps || []);
-  const validationSteps = [...ciScopeSteps, ...shardSteps];
+  const f004MatrixSteps = f004MatrixJob.steps || [];
+  const governedValidatorSteps = [...shardSteps, ...f004MatrixSteps];
+  const validationSteps = [...ciScopeSteps, ...governedValidatorSteps];
   const sastSteps = sastJob.steps || [];
 
   results.push(assertion(
-    "jobs: exact scope + five shards + terminal validate + SAST set is pinned",
+    "jobs: exact scope + five ordinary shards + hosted F004 matrix + terminal validate + SAST set is pinned",
     sameSet(Object.keys(jobs), EXPECTED_JOB_IDS) && Object.keys(jobs).length === EXPECTED_JOB_IDS.length,
     Object.keys(jobs).join(", "),
   ));
@@ -316,13 +452,16 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = ro
   const graphProblems = [];
   if (hasOwn(ciScopeJob, "needs") || hasOwn(ciScopeJob, "if")) graphProblems.push("ci_scope is not independent/unconditional");
   if (hasOwn(sastJob, "needs") || hasOwn(sastJob, "if")) graphProblems.push("sast is not independent/unconditional");
+  if (hasOwn(f004MatrixJob, "needs") || hasOwn(f004MatrixJob, "if")) {
+    graphProblems.push("F004 matrix is not independent/unconditional");
+  }
   for (const jobId of VALIDATOR_SHARD_JOB_IDS) {
     const job = jobs[jobId];
     if (job.needs !== "ci_scope") graphProblems.push(jobId + ": needs " + JSON.stringify(job.needs));
     if (hasOwn(job, "if")) graphProblems.push(jobId + ": job-level if");
   }
   results.push(assertion(
-    "job graph: ci_scope and SAST are independent; every shard depends only on ci_scope",
+    "job graph: ci_scope, SAST and F004 matrix are independent; every ordinary shard depends only on ci_scope",
     graphProblems.length === 0,
     graphProblems.join(" | "),
   ));
@@ -341,6 +480,12 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = ro
     "shards: names, runner, full-history checkout, Node cache and both governed installs are exact",
     bootstrapProblems.length === 0,
     bootstrapProblems.join(" | "),
+  ));
+
+  results.push(assertion(
+    "F004 hosted matrix: exact seven-way strategy, timeout, candidate checkout/guard and canonical command are pinned",
+    stableJson(f004MatrixJob) === stableJson(expectedF004MatrixJob()),
+    stableJson(f004MatrixJob),
   ));
 
   results.push(assertion(
@@ -370,14 +515,14 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = ro
       classifierOutputContract(classifier.run),
   ));
 
-  const nonManifestConditionals = shardSteps.filter((step) =>
+  const nonManifestConditionals = governedValidatorSteps.filter((step) =>
     hasOwn(step, "if") && !skipNames.has(step.name));
   results.push(assertion(
     "conditions: only versioned skip-list shard steps may be conditional",
     nonManifestConditionals.length === 0,
     nonManifestConditionals.map((step) => step.name).join(", "),
   ));
-  const wrongCanonical = shardSteps.filter((step) =>
+  const wrongCanonical = governedValidatorSteps.filter((step) =>
     skipNames.has(step?.name) && step.if !== CANONICAL_SKIP_CONDITION);
   results.push(assertion(
     "conditions: every skip-list step uses the exact cross-job fail-closed expression",
@@ -426,7 +571,7 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = ro
   const uniqueValidators = [...new Set(executable.validators)].sort();
   const validatorFingerprint = sha256(uniqueValidators.join("\n"));
   results.push(assertion(
-    "anti-orphan: five shards are the exact executable 362-validator union",
+    "anti-orphan: six validator jobs are the exact executable 376-validator union",
     executable.problems.length === 0 && missing.length === 0 && orphans.length === 0 &&
       duplicatePlain.length === 0 &&
       uniqueValidators.length === EXPECTED_EXECUTABLE_VALIDATOR_COUNT &&
@@ -443,7 +588,7 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = ro
     ].filter(Boolean).join(" | "),
   ));
 
-  const actualCounts = Object.fromEntries(VALIDATOR_SHARD_JOB_IDS.map((jobId) => [
+  const actualCounts = Object.fromEntries(EXECUTABLE_VALIDATOR_JOB_IDS.map((jobId) => [
     jobId,
     executable.assignments.filter((assignment) => assignment.jobId === jobId).length,
   ]));
@@ -452,7 +597,7 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = ro
     .sort()
     .join("\n"));
   results.push(assertion(
-    "assignment: exact non-overlapping shard counts and ownership fingerprint are pinned",
+    "assignment: exact non-overlapping ordinary-shard and F004-matrix counts/fingerprint are pinned",
     stableJson(actualCounts) === stableJson(EXPECTED_SHARD_COUNTS) &&
       assignmentFingerprint === EXPECTED_SHARD_ASSIGNMENT_SHA256,
     "counts " + stableJson(actualCounts) + "; fingerprint " + assignmentFingerprint,
@@ -465,15 +610,21 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = ro
     executable.problems.filter((problem) => problem.includes("timezone") || problem.includes("Arm 2")).join(" | "),
   ));
 
+  results.push(assertion(
+    "non-validator carriers: four exact commands remain unique, blocking and shard-owned",
+    executable.nonValidatorCarrierProblems.length === 0,
+    executable.nonValidatorCarrierProblems.join(" | "),
+  ));
+
   const aggregatorStep = validateJob.steps?.[0];
   results.push(assertion(
-    "terminal validate: always runs, explicitly needs scope + five shards, and only success passes",
+    "terminal validate: always runs, explicitly needs scope + five shards + F004 matrix, and only success passes",
     validateJob.name === "validate" &&
       validateJob["runs-on"] === "ubuntu-latest" &&
       validateJob.if === "${{ always() }}" &&
       Array.isArray(validateJob.needs) &&
-      sameSet(validateJob.needs, ["ci_scope", ...VALIDATOR_SHARD_JOB_IDS]) &&
-      validateJob.needs.length === 1 + VALIDATOR_SHARD_JOB_IDS.length &&
+      sameSet(validateJob.needs, ["ci_scope", ...VALIDATOR_SHARD_JOB_IDS, F004_MATRIX_JOB_ID]) &&
+      validateJob.needs.length === 2 + VALIDATOR_SHARD_JOB_IDS.length &&
       validateJob.steps?.length === 1 &&
       aggregatorStep?.name === "Require every validation shard to pass" &&
       stableJson(aggregatorStep?.env) === stableJson(EXPECTED_AGGREGATOR_ENV) &&
@@ -495,10 +646,12 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = ro
   const nonBlocking = [
     ciScopeJob,
     ...shardJobs,
+    f004MatrixJob,
     validateJob,
     sastJob,
     ...ciScopeSteps,
     ...shardSteps,
+    ...f004MatrixSteps,
     ...(validateJob.steps || []),
     ...sastSteps,
   ].filter((item) => hasOwn(item, "continue-on-error"));

@@ -105,6 +105,68 @@ async function createAuditEvent(env, {
 }
 
 /**
+ * Build (but do not execute) the idempotent audit statement that is committed
+ * with a scan's terminal D1 status. The deterministic primary key collapses
+ * concurrent modern writers; the legacy guard honours an older random-id row.
+ */
+function scanCompletionAuditStatement(env, {
+  workspace_id = null,
+  scan_id,
+  domain = null,
+  domain_id = null,
+  score = null,
+  risk_level = null,
+  scan_quality = null,
+  monitoring_states = null,
+} = {}) {
+  const workspaceId = workspace_id ?? null;
+  const id = `audit_scan_completed:v1:${workspaceId ?? "global"}:${scan_id}`;
+  const completion = buildScanCompletionPresentation({
+    domain,
+    score,
+    riskLevel: risk_level,
+    scanQuality: scan_quality,
+    monitoringStates: monitoring_states,
+  });
+  const metadata = JSON.stringify({
+    scan_id,
+    domain,
+    domain_id,
+    score,
+    risk_level,
+  });
+
+  return env.cybermeters_db
+    .prepare(
+      `INSERT INTO audit_events
+         (id, workspace_id, user_id, actor_type, event_type, entity_type, entity_id, description, metadata_json, created_at)
+       SELECT ?, ?, NULL, 'system', 'scan_completed', 'scan', ?, ?, ?, datetime('now')
+        WHERE EXISTS (
+              SELECT 1 FROM scans
+               WHERE id = ? AND status = 'completed'
+            )
+          AND NOT EXISTS (
+              SELECT 1 FROM audit_events
+               WHERE event_type = 'scan_completed'
+                 AND entity_type = 'scan'
+                 AND entity_id = ?
+                 AND workspace_id IS ?
+            )
+       ON CONFLICT(id) DO NOTHING`
+    )
+    .bind(
+      id,
+      workspaceId,
+      scan_id,
+      completion.description,
+      metadata,
+      scan_id,
+      scan_id,
+      workspaceId,
+    );
+}
+
+/**
  * sanitizeAuditMetadata — removes sensitive keys from audit event metadata
  * before returning to clients or writing to exports.
  * Keys matching any blocked substring are replaced with "[redacted]".
@@ -194,5 +256,6 @@ export {
   createAuditEvent,
   createNotificationEvent,
   createNotificationsForDomain,
+  scanCompletionAuditStatement,
   sanitizeAuditMetadata,
 };

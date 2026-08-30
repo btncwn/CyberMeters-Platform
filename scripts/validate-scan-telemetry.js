@@ -17,10 +17,20 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+// F-027 (Integration-granted allowed-path extension — C1A scheduled-consumer
+// assertion ONLY; everything else in this shared pin carrier is untouchable):
+// routeQueueBatch is the extracted, executable queue-handler body used to prove
+// the scheduled path stays on the shared consumer behaviourally.
+import { routeQueueBatch } from "../workers/scan-api/src/lib/operational-events.js";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href);
-const { createModuleTelemetry, createOutboundAccounting, createScanDeadline, raceModuleDeadline, buildExecutionDiagnostics, SCAN_EXECUTION_DIAGNOSTICS_VERSION } = await eng("scan-budget.js");
-const { persistModuleTelemetry, heartbeatScan } = await eng("scan-engine.js");
+const { createModuleTelemetry, createOutboundAccounting, createScanDeadline, raceModuleDeadline, buildExecutionDiagnostics, makeDnsCache, SCAN_EXECUTION_DIAGNOSTICS_VERSION } = await eng("scan-budget.js");
+const {
+  cappedModuleCutoffProvenance,
+  heartbeatScan,
+  markPhysicalBudgetIncomplete,
+  persistModuleTelemetry,
+} = await eng("scan-engine.js");
 const { safeFetch } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "http.js")).href);
 const { dnsQuery } = await eng("dns.js");
 const { makeReservedProbeFetch } = await eng("reserved-probe.js");
@@ -167,6 +177,59 @@ function d1Stub({ fail = false } = {}) {
   eq("record carries timeout_source", telem.rows[0].timeout_source, "module_race");
   eq("allocated_ms defaults null", telem.rows[1].allocated_ms, null);
   eq("timeout_source defaults null", telem.rows[1].timeout_source, null);
+}
+
+// ── 9. raceModuleDeadline onStart reports the EXACT applied cap ──
+// ── 8b. Physical budget ownership survives a non-deadline outcome ───────
+{
+  const makeCtx = (issued) => {
+    let incompleteReason = null;
+    return {
+      physicalAttemptsIssued: () => issued,
+      markIncomplete: (reason) => { incompleteReason = reason; },
+      incompleteReason: () => incompleteReason,
+    };
+  };
+  const zeroCtx = makeCtx(0);
+  const zeroAttempt = markPhysicalBudgetIncomplete(
+    "known_exploited_vulnerabilities",
+    { source: "cisa_kev" },
+    zeroCtx,
+  );
+  const oneCtx = makeCtx(1);
+  const afterAttempt = markPhysicalBudgetIncomplete(
+    "cve_intelligence",
+    { source: "nvd_api" },
+    oneCtx,
+  );
+  const zeroSource = cappedModuleCutoffProvenance(zeroAttempt, false);
+  const afterSource = cappedModuleCutoffProvenance(afterAttempt, false);
+
+  eq("zero-attempt physical refusal is not disguised as deadline_exceeded",
+    zeroAttempt.outcome, "not_run");
+  eq("zero-attempt physical refusal owns subrequest_budget provenance",
+    zeroSource, "subrequest_budget");
+  eq("after-attempt physical refusal preserves issued count",
+    afterAttempt.physical_attempts_issued, 1);
+  eq("after-attempt physical refusal owns subrequest_budget provenance",
+    afterSource, "subrequest_budget");
+  eq("both physical refusal paths mark outbound accounting incomplete",
+    `${zeroCtx.incompleteReason()}:${oneCtx.incompleteReason()}`,
+    "subrequest_budget_exhausted:subrequest_budget_exhausted");
+
+  const telemetry = createModuleTelemetry(steppingClock());
+  telemetry.record("known_exploited_vulnerabilities", {
+    outcome: telemetry.outcomeOf(zeroAttempt),
+    timeout: false,
+    timeout_source: zeroSource,
+  });
+  telemetry.record("cve_intelligence", {
+    outcome: telemetry.outcomeOf(afterAttempt),
+    timeout: false,
+    timeout_source: afterSource,
+  });
+  ok("module telemetry keeps physical owner even when timeout flag is false",
+    telemetry.rows.every((row) => row.timeout === false && row.timeout_source === "subrequest_budget"));
 }
 
 // ── 9. raceModuleDeadline onStart reports the EXACT applied cap ──
@@ -449,20 +512,26 @@ function d1Stub({ fail = false } = {}) {
 {
   const acct = createOutboundAccounting();
   const ctx = acct.contextFor("headers");
+  let observed = null;
   await withMockFetch(async () => {
-    await safeFetch("https://example.com", { signal: AbortSignal.abort(), accounting: ctx });
+    try { await safeFetch("https://example.com", { signal: AbortSignal.abort(), accounting: ctx }); }
+    catch (error) { observed = error; }
   }, async () => { throw new DOMException("aborted", "AbortError"); });
   ctx.markSettled();
-  eq("C1A abort observed without changing safeFetch contract", acct.snapshot("headers").outbound_aborted_observed, 1);
+  ok("F041 typed abort remains observable", observed?.name === "AbortError");
+  eq("C1A abort observed in accounting", acct.snapshot("headers").outbound_aborted_observed, 1);
 }
 
 {
   const acct = createOutboundAccounting();
   const ctx = acct.contextFor("headers");
+  let observed = null;
   await withMockFetch(async () => {
-    await safeFetch("https://example.com", { accounting: ctx });
+    try { await safeFetch("https://example.com", { accounting: ctx }); }
+    catch (error) { observed = error; }
   }, async () => { throw new DOMException("timed out", "TimeoutError"); });
   ctx.markSettled();
+  ok("F041 typed timeout remains observable", observed?.name === "TimeoutError");
   eq("C1A timeout attempt counted", acct.snapshot("headers").outbound_attempts_observed, 1);
   eq("C1A timeout observed", acct.snapshot("headers").outbound_timed_out_observed, 1);
 }
@@ -566,13 +635,18 @@ function d1Stub({ fail = false } = {}) {
   const acct = createOutboundAccounting();
   const ctx = acct.contextFor("cloud_storage_discovery");
   await withMockFetch(async () => {
-    await runCloudStorageModule("example.com", { subdomains: { items: ["assets.s3.amazonaws.com"] } }, { accounting: ctx });
+    await runCloudStorageModule("example.com", { subdomains: { items: ["assets.s3.amazonaws.com"] } }, { accounting: ctx, cache: makeDnsCache() });
   }, async (url, init) => {
+    if (String(url).includes("cloudflare-dns.com/dns-query")) {
+      const type = new URL(String(url)).searchParams.get("type");
+      const data = type === "AAAA" ? "2606:2800:220:1:248:1893:25c8:1946" : "93.184.216.34";
+      return jsonResponse({ Status: 0, Answer: [{ data, type: type === "AAAA" ? 28 : 1 }] });
+    }
     if (init?.method === "HEAD") return new Response("", { status: 200, headers: { "x-amz-request-id": "req-1" } });
     return new Response("<ListBucketResult><Contents /></ListBucketResult>", { status: 200, headers: { "x-amz-request-id": "req-2" } });
   });
   ctx.markSettled();
-  eq("C1B cloud-storage HEAD + GET validation counted", acct.snapshot("cloud_storage_discovery").outbound_attempts_observed, 2);
+  eq("F041 cloud-storage A + AAAA + HEAD + GET counted once with shared cache", acct.snapshot("cloud_storage_discovery").outbound_attempts_observed, 4);
 }
 
 {
@@ -689,10 +763,12 @@ function d1Stub({ fail = false } = {}) {
   ctx.signal = controller.signal;
   ctx.assertCanIssue = () => { if (ctx.signal.aborted) throw new DOMException("Module budget exhausted", "AbortError"); };
   let launched = false;
+  let observed = null;
   await withMockFetch(async () => {
-    const res = await safeFetch("https://example.com", { accounting: ctx });
-    eq("B2 cancelled leaf returns null", res, null);
+    try { await safeFetch("https://example.com", { accounting: ctx }); }
+    catch (error) { observed = error; }
   }, async () => { launched = true; return new Response("unexpected"); });
+  ok("F041 cancelled safeFetch leaf propagates AbortError", observed?.name === "AbortError");
   eq("B2 cancellation prevents physical fetch launch", launched, false);
   eq("B2 cancelled leaf does not count a new attempt", acct.snapshot("headers").outbound_attempts_observed, 0);
 }
@@ -726,7 +802,24 @@ function d1Stub({ fail = false } = {}) {
   ok("C1A diagnostics include measurement complete", /outbound_measurement_complete/.test(budgetSrc));
   ok("C1A incomplete measurement keeps D1 outbound_calls null", /outbound_measurement_complete \? .*outbound_attempts_observed : null/.test(engineSrc));
   ok("C1A manual queue path still passes trigger only", /doRunScanEngine\([^)]*\{ executionContext: "queue", trigger \}\)/.test(dispatchSrc));
-  ok("C1A scheduled queue consumer remains shared", /queue: \(batch, env, ctx\) => handleScanDispatchBatch/.test(indexSrc));
+  // STRENGTHENED (F-027, Integration-granted allowed-path extension — THIS
+  // assertion ONLY). Property is UNCHANGED: the SCHEDULED (non-DLQ) queue path
+  // still routes through the SHARED scan-dispatch consumer, not a private fork.
+  // The former `=> handleScanDispatchBatch` shape regex could not survive the
+  // F-027 queue-identity dispatch; it is replaced by EXECUTING the extracted
+  // handler body (routeQueueBatch) plus a form-independent wiring check.
+  {
+    let sharedDispatchCalled = false, dlqCalled = false;
+    const handlers = {
+      dispatch: () => { sharedDispatchCalled = true; },
+      dlq:      () => { dlqCalled = true; },
+      settle:   () => {},
+    };
+    routeQueueBatch({ queue: "cybermeters-scan-dispatch" }, {}, {}, handlers);
+    ok("C1A scheduled queue consumer remains shared (routes through the shared dispatch handler, not a private fork)",
+      sharedDispatchCalled === true && dlqCalled === false &&
+      /dispatch:\s*handleScanDispatchBatch/.test(indexSrc));
+  }
   const headersSrc = src("workers", "scan-api", "src", "engines", "headers-scan.js");
   function sourceGuard(name, source, predicate, mutate) {
     ok(`${name} — holds on current source`, predicate(source) === true);
@@ -747,6 +840,7 @@ function d1Stub({ fail = false } = {}) {
   const subdomainsSrc = src("workers", "scan-api", "src", "engines", "subdomains-scan.js");
   const ctCacheSrc = src("workers", "scan-api", "src", "engines", "ct-provider-cache.js");
   const cloudSrc = src("workers", "scan-api", "src", "engines", "cloud-storage-scan.js");
+  const httpSrc = src("workers", "scan-api", "src", "lib", "http.js");
   const reservedProbeSrc = src("workers", "scan-api", "src", "engines", "reserved-probe.js");
   sourceGuard("C1B SSL safeFetch leaves carry accounting", sslSrc,
     (s) => /safeFetch\(`https:\/\/\$\{domain\}`,[\s\S]{0,140}accounting/.test(s) && /safeFetch\(httpOrigUrl,[\s\S]{0,120}accounting/.test(s) && /safeFetch\(loc1,[\s\S]{0,120}accounting/.test(s),
@@ -766,11 +860,12 @@ function d1Stub({ fail = false } = {}) {
   sourceGuard("C1B brute-force DNS leaves carry accounting", subdomainsSrc,
     (s) => /dnsQuery\(host, "A", \{ accounting, cache \}\)/.test(s) && /dnsQuery\(host, "MX", \{ accounting, cache \}\)/.test(s),
     (s) => s.replace('dnsQuery(host, "MX", { accounting, cache })', 'dnsQuery(host, "MX", { cache })'));
-  sourceGuard("C1B cloud-storage validation fetches are counted", cloudSrc,
-    (s) => /headRes = await countedFetch\(headUrl,[\s\S]{0,120}accounting/.test(s) && /getRes = await countedFetch\(listUrl,[\s\S]{0,120}accounting/.test(s),
-    (s) => s.replace(/countedFetch\(listUrl,/, "fetch(listUrl,"));
+  sourceGuard("F041 cloud-storage DNS and HTTP share the safeFetch accounting boundary", cloudSrc,
+    (s) => /headRes = await safeFetch\(headUrl, \{[\s\S]{0,220}accounting,[\s\S]{0,160}dnsResolver,[\s\S]{0,120}dnsCache: cache/.test(s)
+      && /getRes = await safeFetch\(listUrl, \{[\s\S]{0,220}accounting,[\s\S]{0,160}dnsResolver,[\s\S]{0,120}dnsCache: cache/.test(s),
+    (s) => s.replace(/(const getRes = await safeFetch\(listUrl, \{[\s\S]{0,180})\s*accounting,\n/, "$1"));
   sourceGuard("C1B scan-engine threads module contexts", engineSrc,
-    (s) => /runSslModule\(domain, \{ accounting, signal, ctCache, subOps: subOpTelemetry \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal, cache: dnsCache \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal \}\)/.test(s),
+    (s) => /runSslModule\(domain, \{ accounting, signal, ctCache, subOps: subOpTelemetry \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal, cache: dnsCache \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal, cache: dnsCache \}\)/.test(s),
     (s) => s.replace('runSslModule(domain, { accounting, signal, ctCache, subOps: subOpTelemetry })', "runSslModule(domain)"));
   sourceGuard("C1B complete-set includes newly covered modules", budgetSrc,
     (s) => ["ssl", "subdomains", "dns_bruteforce", "cloud_storage_discovery"].every((m) => s.includes(`"${m}"`)),
@@ -793,21 +888,23 @@ function d1Stub({ fail = false } = {}) {
   sourceGuard("B2 incomplete outbound counts remain D1 null", budgetSrc,
     (s) => /outbound_measurement_complete \? snap\.outbound_attempts_observed : null/.test(s),
     (s) => s.replace("outbound_measurement_complete ? snap.outbound_attempts_observed : null", "outbound_attempts_observed"));
-  sourceGuard("B2 native counted fetches preserve caller and module signals", ctCacheSrc + "\n" + cloudSrc,
-    (s) => (s.match(/function combineSignals\(/g) || []).length >= 2 &&
+  sourceGuard("B2 native counted fetches preserve caller and module signals", ctCacheSrc + "\n" + cloudSrc + "\n" + httpSrc,
+    (s) => (s.match(/function combineSignals\(/g) || []).length >= 3 &&
       /combineSignals\(signal, accounting\?\.signal, timeoutSignal\(timeoutMs\)\)/.test(s) &&
-      /combineSignals\(init\?\.signal, accounting\?\.signal\)/.test(s),
+      /combineSignals\(opts\.signal, AbortSignal\.timeout\(6_000\)\)/.test(s) &&
+      /combineSignals\(fetchOptions\.signal, accounting\?\.signal, AbortSignal\.timeout\(10_000\)\)/.test(s),
     (s) => s.replace(
       "combineSignals(signal, accounting?.signal, timeoutSignal(timeoutMs))",
       "signal || accounting?.signal || timeoutSignal(timeoutMs)"
     ));
-  sourceGuard("B2 reserved mode arms deadline and binds every physical GET", engineSrc + "\n" + budgetSrc + "\n" + reservedProbeSrc,
-    (s) => /if \(reservedMode\) deadline\.arm\(\);/.test(s)
+  sourceGuard("B2 Queue/Cron entry or legacy reserved mode arms deadline and binds every physical GET", engineSrc + "\n" + budgetSrc + "\n" + reservedProbeSrc,
+    (s) => /if \(durableInvocation\) deadline\.arm\(\);/.test(s)
+      && /if \(!durableInvocation && reservedMode\) deadline\.arm\(\);/.test(s)
       && /deadline\.disarm\?\.\(\)/.test(s)
       && /recordAttempt: \(\) => \{ assertNotCancelled\(\)/.test(s)
       && /combineSignals\(opts\?\.signal, activeAccounting\?\.signal, AbortSignal\.timeout\(timeoutMs\)\)/.test(s)
       && !/not be treated as[\s\S]{0,120}B2 cancellation\/accounting guarantees/.test(s),
-    (s) => s.replace("if (reservedMode) deadline.arm();", "if (reservedMode) void deadline;"));
+    (s) => s.replace("if (durableInvocation) deadline.arm();", "if (durableInvocation) void deadline;"));
   const frontendFiles = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

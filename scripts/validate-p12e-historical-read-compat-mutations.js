@@ -47,7 +47,7 @@ const MUTANTS = [
   ["P12E-M4-closed-enumeration-extended",
     "workers/scan-api/src/engines/finding-identity.js",
     '  "2026-07-24.4",\n]);',
-    '  "2026-07-24.4",\n  "2026-08-22.1",\n]);',
+    '  "2026-07-24.4",\n  "2026-08-22.1",\n  "2026-08-30.1",\n  "2026-08-30.2",\n]);',
     "P12E_ENUM_CURRENT_VERSION_IS_NOT_MASKED_AS_LEGACY"],
 ];
 

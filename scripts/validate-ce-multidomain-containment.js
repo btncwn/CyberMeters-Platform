@@ -13,11 +13,12 @@ const src = (...p) => path.join(root, "workers", "scan-api", "src", ...p);
 const eng = (f) => pathToFileURL(src("engines", f)).href;
 const EXPECTED_ASSERTIONS = 26;
 const EXPECTED_RUNTIME_CONSUMER_COUNT = 27;
-// AS-B2 SUCCESSION: count UNCHANGED at 27 consumers; position shift only. The
-// canonical scoring wire-in moves two report-snapshot.js sites by +6 and two
-// scan-engine.js sites by +13. This inventory records sites by file:line; no CE
-// consumer was added, removed or reclassified.
-const EXPECTED_RUNTIME_CONSUMER_SHA256 = "60fafb8c3a4fa9058d1cafbdf49d99b35b38976c95b02e5d77c7ca60fd2c9462";
+// RESCUE SUCCESSION: the semantic inventory remains unchanged at 27 consumers;
+// no CE consumer was added, removed or reclassified. Accepted integrations move
+// only these five file:line positions: cyber-mot-domains 321->328; scan-engine
+// 1925->2472 and 2182->2729; index purge-order 1113->1116; index orphan-import
+// 63->66.
+const EXPECTED_RUNTIME_CONSUMER_SHA256 = "7ec4afe6e8f62ea62e7b4203c8e1f8591124ecb37f6638d96ed80861712a8fcd";
 const ONLY = process.env.CE_CONTAINMENT_ONLY || null;
 
 const readinessMod = await import(eng("ce-readiness.js"));

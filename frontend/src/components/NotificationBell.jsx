@@ -29,6 +29,8 @@ const SEVERITY_CFG = {
   info:     { dot: 'bg-gray-300',   text: 'text-gray-500',   bg: 'bg-gray-50'   },
 }
 
+const BELL_QUERY = { limit: 30 }
+
 function severityCfg(sev) {
   return SEVERITY_CFG[sev] ?? SEVERITY_CFG.info
 }
@@ -95,7 +97,13 @@ export default function NotificationBell() {
   const [unreadCount,   setUnreadCount]  = useState(0)
   const [loading,       setLoading]      = useState(false)
   const [markingAll,    setMarkingAll]   = useState(false)
+  const [loadError,     setLoadError]    = useState(null)
+  const [hasLoadedSuccessfully, setHasLoadedSuccessfully] = useState(false)
+  const [failedQuery,   setFailedQuery]  = useState(null)
   const ref = useRef(null)
+  const loadGenerationRef = useRef(0)
+  const markRequestsInFlightRef = useRef(0)
+  const markRecoveryNeededRef = useRef(false)
 
   // Close on outside click
   useEffect(() => {
@@ -106,16 +114,34 @@ export default function NotificationBell() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const load = useCallback(async (silent = false) => {
+  const load = useCallback(async (silent = false, query = BELL_QUERY) => {
     if (!wsId) return
-    if (!silent) setLoading(true)
+    const requestQuery = { ...query }
+    const generation = ++loadGenerationRef.current
+    const blockedByMark = markRequestsInFlightRef.current > 0
+    if (!silent && !blockedByMark) setLoading(true)
     try {
-      const data = await api.getWorkspaceNotifications(wsId, { limit: 30 })
+      const data = await api.getWorkspaceNotifications(wsId, requestQuery)
+      if (generation !== loadGenerationRef.current || blockedByMark) return
       setNotifications(data.notifications || [])
       setUnreadCount(data.unread_count ?? 0)
-    } catch { /* silent */ }
-    finally { setLoading(false) }
+      setHasLoadedSuccessfully(true)
+      setLoadError(null)
+      setFailedQuery(null)
+      markRecoveryNeededRef.current = false
+    } catch {
+      if (generation !== loadGenerationRef.current || blockedByMark) return
+      setLoadError('Notifications could not be loaded.')
+      setFailedQuery(requestQuery)
+    }
+    finally {
+      if (generation === loadGenerationRef.current && !blockedByMark) setLoading(false)
+    }
   }, [wsId])
+
+  function retryLoad() {
+    if (failedQuery) load(false, failedQuery)
+  }
 
   // Load on mount + poll every 60s
   useEffect(() => {
@@ -131,6 +157,9 @@ export default function NotificationBell() {
 
   async function handleMarkRead(notifId) {
     if (!wsId) return
+    markRequestsInFlightRef.current += 1
+    loadGenerationRef.current += 1
+    setLoading(false)
     // Optimistically update UI
     setNotifications(prev =>
       prev.map(n => n.id === notifId ? { ...n, status: 'read' } : n)
@@ -138,18 +167,39 @@ export default function NotificationBell() {
     setUnreadCount(prev => Math.max(0, prev - 1))
     try {
       await api.markNotificationRead(wsId, notifId)
-    } catch { /* revert on error — reload */ load(true) }
+    } catch {
+      markRecoveryNeededRef.current = true
+    } finally {
+      markRequestsInFlightRef.current = Math.max(0, markRequestsInFlightRef.current - 1)
+      loadGenerationRef.current += 1
+      setLoading(false)
+      if (markRequestsInFlightRef.current === 0 && markRecoveryNeededRef.current) {
+        load(true)
+      }
+    }
   }
 
   async function handleMarkAll() {
     if (!wsId || markingAll) return
+    markRequestsInFlightRef.current += 1
+    loadGenerationRef.current += 1
+    setLoading(false)
     setMarkingAll(true)
     try {
       await api.markNotificationRead(wsId, 'all')
       setNotifications(prev => prev.map(n => ({ ...n, status: 'read' })))
       setUnreadCount(0)
-    } catch { load(true) }
-    finally { setMarkingAll(false) }
+    } catch {
+      markRecoveryNeededRef.current = true
+    } finally {
+      markRequestsInFlightRef.current = Math.max(0, markRequestsInFlightRef.current - 1)
+      loadGenerationRef.current += 1
+      setLoading(false)
+      setMarkingAll(false)
+      if (markRequestsInFlightRef.current === 0 && markRecoveryNeededRef.current) {
+        load(true)
+      }
+    }
   }
 
   // If no workspace selected, render a plain non-interactive bell
@@ -213,17 +263,51 @@ export default function NotificationBell() {
 
           {/* Notification list */}
           <div className="max-h-[420px] overflow-y-auto">
-            {loading && notifications.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-gray-400">Loading…</div>
-            ) : notifications.length === 0 ? (
-              <div className="px-4 py-10 text-center">
-                <Bell className="w-8 h-8 text-gray-200 mx-auto mb-2" />
-                <p className="text-sm text-gray-400">No notifications yet.</p>
-                <p className="text-xs text-gray-300 mt-1">Events appear here after scans and reports.</p>
+            {loadError && !hasLoadedSuccessfully ? (
+              <div role="alert" className="px-4 py-8 text-center">
+                <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto mb-2" aria-hidden="true" />
+                <p className="text-sm font-semibold text-gray-700">We couldn’t load notifications.</p>
+                <p className="text-xs text-gray-400 mt-1">Check your connection and try again.</p>
+                <button
+                  type="button"
+                  onClick={retryLoad}
+                  disabled={loading}
+                  className="mt-3 px-3 py-1.5 text-xs font-semibold text-brand-600 rounded-lg bg-brand-50 hover:bg-brand-100 transition-colors disabled:opacity-50"
+                >
+                  {loading ? 'Retrying…' : 'Retry'}
+                </button>
               </div>
             ) : (
-              <ul className="divide-y divide-gray-50">
-                {notifications.map(n => {
+              <>
+                {loadError && (
+                  <div role="alert" className="flex items-start gap-2 px-4 py-3 bg-amber-50 border-b border-amber-100 text-amber-800">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
+                    <p className="text-xs leading-relaxed flex-1">
+                      <span className="font-semibold">Couldn’t refresh notifications.</span>{' '}
+                      Showing the last known notifications.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={retryLoad}
+                      disabled={loading}
+                      className="text-xs font-semibold underline underline-offset-2 disabled:opacity-50"
+                    >
+                      {loading ? 'Retrying…' : 'Retry'}
+                    </button>
+                  </div>
+                )}
+
+                {loading && notifications.length === 0 && !loadError ? (
+                  <div className="px-4 py-8 text-center text-sm text-gray-400">Loading…</div>
+                ) : notifications.length === 0 && !loadError ? (
+                  <div className="px-4 py-10 text-center">
+                    <Bell className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+                    <p className="text-sm text-gray-400">No notifications yet.</p>
+                    <p className="text-xs text-gray-300 mt-1">Events appear here after scans and reports.</p>
+                  </div>
+                ) : notifications.length > 0 ? (
+                  <ul className="divide-y divide-gray-50">
+                    {notifications.map(n => {
                   const cfg      = severityCfg(n.severity)
                   const isUnread = n.status === 'unread'
 
@@ -245,12 +329,12 @@ export default function NotificationBell() {
                     }
                   }
 
-                  return (
-                    <li
-                      key={n.id}
-                      onClick={handleNotifClick}
-                      className={`flex gap-3 px-4 py-3.5 transition-colors ${isUnread ? 'bg-brand-50/30' : ''} ${link ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default hover:bg-gray-50/50'}`}
-                    >
+                      return (
+                        <li
+                          key={n.id}
+                          onClick={handleNotifClick}
+                          className={`flex gap-3 px-4 py-3.5 transition-colors ${isUnread ? 'bg-brand-50/30' : ''} ${link ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default hover:bg-gray-50/50'}`}
+                        >
                       {/* Type icon */}
                       <div className="flex-shrink-0 mt-0.5">
                         <TypeIcon type={n.type} domainKey={meta?.domain_key || meta?.domain} />
@@ -289,10 +373,12 @@ export default function NotificationBell() {
                           <span className="text-[10px] text-gray-400">{fmtRelative(n.created_at)}</span>
                         </div>
                       </div>
-                    </li>
-                  )
-                })}
-              </ul>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : null}
+              </>
             )}
           </div>
 

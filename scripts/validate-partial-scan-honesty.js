@@ -150,7 +150,10 @@ const d1 = (db) => ({ prepare(sql) { const w = (a) => ({ first: async () => db.p
   const captured = [];
   const env = {
     cybermeters_reports: { put: async (k, body) => { captured.push({ r2: JSON.parse(body).scan_quality?.status }); } },
-    cybermeters_db: { prepare: (sql) => ({ bind: (...a) => ({ run: async () => { if (/UPDATE scans SET status/.test(sql)) captured.push({ d1_quality: a[3] }); } }) }) },
+    cybermeters_db: {
+      prepare: (sql) => ({ bind: (...a) => ({ run: async () => { if (/UPDATE scans SET status/.test(sql)) captured.push({ d1_quality: a[3] }); } }) }),
+      batch: async (statements) => Promise.all(statements.map((statement) => statement.run())),
+    },
   };
   const latch = createFinalizeLatch();
   const report = { status: "completed", scan_quality: { status: "partial" }, cyber_metrics_score: 95 };
@@ -218,15 +221,24 @@ const d1 = (db) => ({ prepare(sql) { const w = (a) => ({ first: async () => db.p
   // Persist a COMPLETE report to R2 but make the D1 UPDATE throw.
   let r2Body = null;
   let d1Quality = null; // simulated D1 column value
+  let updateAttempted = false;
   const failingEnv = {
     cybermeters_reports: { put: async (k, b) => { r2Body = JSON.parse(b); } },
-    cybermeters_db: { prepare: (sql) => ({ bind: (...a) => ({ run: async () => { if (/UPDATE scans SET status/.test(sql)) throw new Error("D1 down"); } }) }) },
+    cybermeters_db: {
+      prepare: (sql) => ({ bind: (...a) => ({ run: async () => {
+        if (/UPDATE scans SET status/.test(sql)) {
+          updateAttempted = true;
+          throw new Error("D1 down");
+        }
+      } }) }),
+      batch: async (statements) => Promise.all(statements.map((statement) => statement.run())),
+    },
   };
   const latch = createFinalizeLatch();
   const report = { status: "completed", scan_quality: { status: "complete" }, cyber_metrics_score: 82 };
   const fin = await finalizeScanResult(latch, { scanId: "scan_fp", report, score: 82, rating: "good", status: "completed", env: failingEnv });
   ok("failure path: R2 completed report is durable", r2Body?.scan_quality?.status === "complete");
-  ok("failure path: NOT finalized when the D1 write fails", fin.finalized === false && latch.d1Written === false);
+  ok("failure path: NOT finalized when the D1 write fails", updateAttempted === true && fin.errors?.d1 === "D1 down" && fin.finalized === false && latch.d1Written === false);
   // While D1 quality is NULL, the canonical resolver treats it as unknown → NOT complete.
   const stale = resolveAssessmentPresentation({ score: 82, scanQuality: d1Quality /* NULL */, status: "completed" });
   ok("failure path: D1-NULL quality is NOT authoritative (never assumed complete)", !stale.authoritative && stale.quality === "unknown");

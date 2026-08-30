@@ -39,10 +39,11 @@ ok("real empty schema: no alert email", formatOpsHealthEmail(realHealth) === nul
 // ── 2. Controlled counts via a mock D1 keyed by table name ───────────────────
 function mockEnv(counts, { throwAll = false } = {}) {
   const pick = (sql) => {
-    if (/FROM scans/i.test(sql)) return counts.stuck_scans;
-    if (/lifecycle_email_events/i.test(sql)) return counts.failed_lifecycle_emails;
-    if (/asset_alert_records/i.test(sql)) return counts.failed_asset_alerts;
-    if (/deletion_requests/i.test(sql)) return counts.overdue_deletions;
+    if (/FROM scans/i.test(sql)) return counts.stuck_scans ?? 0;
+    if (/COALESCE\(error/i.test(sql)) return counts.lifecycle_emails_outcome_unknown ?? 0;
+    if (/lifecycle_email_events/i.test(sql)) return counts.failed_lifecycle_emails ?? 0;
+    if (/asset_alert_records/i.test(sql)) return counts.failed_asset_alerts ?? 0;
+    if (/deletion_requests/i.test(sql)) return counts.overdue_deletions ?? 0;
     return 0;
   };
   return { cybermeters_db: { prepare: (sql) => ({ first: async () => {
@@ -81,7 +82,49 @@ ok("multi: unhealthy", multi.healthy === false);
 ok("multi: subject counts breaches", /3 check/.test(multiMail.subject));
 ok("multi: healthy asset signal not listed", !multiMail.text.includes("asset-change"));
 
-// ── 3. Database unreachable → every query skipped → unhealthy + DB alarm ─────
+// ── 3. Exact A1r outcome-unknown population and exclusions ───────────────────
+const insertLifecycle = (id, type, status, error, age) => db.prepare(
+  `INSERT INTO lifecycle_email_events (id,type,dedupe_key,status,error,created_at)
+   VALUES (?,?,?,?,?,datetime('now',?))`
+).run(id, type, `dedupe:${id}`, status, error, age);
+
+insertLifecycle("unknown_sending", "lifecycle_welcome", "sending", "timeout", "-16 minutes");
+insertLifecycle("unknown_pending", "lifecycle_welcome", "pending", null, "-16 minutes");
+insertLifecycle("unknown_timeout", "lifecycle_welcome", "failed", "timeout", "-16 minutes");
+insertLifecycle("unknown_network", "lifecycle_welcome", "failed", "network_error", "-16 minutes");
+insertLifecycle("fresh_sending", "lifecycle_welcome", "sending", "timeout", "-14 minutes");
+insertLifecycle("marked_pending", "lifecycle_welcome", "pending", "provider_not_started", "-2 days");
+insertLifecycle("already_sent", "lifecycle_welcome", "sent", null, "-2 days");
+insertLifecycle("safe_preflight", "lifecycle_welcome", "failed", "missing_api_key", "-2 days");
+insertLifecycle("safe_rejection", "lifecycle_welcome", "failed", "provider_rejected", "-2 days");
+insertLifecycle("payment_unknown", "lifecycle_payment_failed", "sending", "timeout", "-2 days");
+insertLifecycle("digest_unknown", "lifecycle_weekly_digest", "pending", null, "-2 days");
+
+const unknownHealth = await computeOpsHealth({ cybermeters_db: realD1 });
+const unknownSignal = unknownHealth.signals.find((signal) => signal.key === "lifecycle_emails_outcome_unknown");
+ok("outcome unknown: exact stale unknown population counted", unknownSignal?.count === 4);
+ok("outcome unknown: threshold 1 breaches", unknownSignal?.threshold === 1 && unknownSignal?.breached === true);
+ok("outcome unknown: aggregate unhealthy", unknownHealth.healthy === false);
+const unknownMail = formatOpsHealthEmail(unknownHealth, { version: "test" });
+ok("outcome unknown: alert email names reconciliation signal", unknownMail?.text.includes("Lifecycle email outcomes requiring reconciliation"));
+
+// The new safety query is fail-closed independently: a read failure stays
+// `skipped`, makes the aggregate unhealthy and is named in the email.
+const partialDown = {
+  cybermeters_db: {
+    prepare: (sql) => ({ first: async () => {
+      if (/COALESCE\(error/i.test(sql)) throw new Error("outcome query unavailable");
+      return { c: 0 };
+    } }),
+  },
+};
+const unknownUnreadable = await computeOpsHealth(partialDown);
+const unreadableSignal = unknownUnreadable.signals.find((signal) => signal.key === "lifecycle_emails_outcome_unknown");
+ok("outcome unknown: query failure remains skipped", unreadableSignal?.skipped === true && unreadableSignal?.count === null);
+ok("outcome unknown: query failure fails aggregate closed", unknownUnreadable.dbReachable === true && unknownUnreadable.healthy === false);
+ok("outcome unknown: query failure is visible in email", formatOpsHealthEmail(unknownUnreadable)?.text.includes("query unavailable"));
+
+// ── 4. Database unreachable → every query skipped → unhealthy + DB alarm ─────
 const down = await computeOpsHealth(mockEnv({}, { throwAll: true }));
 ok("db down: unhealthy", down.healthy === false);
 ok("db down: dbReachable false", down.dbReachable === false);

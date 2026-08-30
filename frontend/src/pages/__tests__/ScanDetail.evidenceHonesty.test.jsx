@@ -73,6 +73,7 @@ function historicalChanges(overrides = {}) {
     removed_subdomains: ['old.example.com'],
     new_findings: [{ title: 'New comparative finding' }],
     resolved_findings: [{ title: 'Resolved comparative finding' }],
+    not_reobserved_findings: [],
     new_takeover_risks: [{ host: 'takeover.example.com' }],
     new_exposed_assets: [{ host: 'admin.example.com' }],
     ...overrides,
@@ -290,6 +291,37 @@ describe('ScanDetail evidence honesty', () => {
     expect(within(changes).getByText(/\+7/)).toBeInTheDocument()
     expect(within(changes).getByText('Resolved Findings')).toBeInTheDocument()
     expect(within(changes).getByText('Security Headers Not Fully Observed')).toBeInTheDocument()
+  })
+
+  it('D2: unavailable DMARC is shown only as not re-observed and never as resolved', async () => {
+    const report = reportFixture({
+      cyber_metrics_score: 82,
+      risk_level: 'good',
+      assessment: COMPLETE_ASSESSMENT,
+      modules: {
+        historical_changes: historicalChanges({
+          comparable: true,
+          new_subdomains: [],
+          removed_subdomains: [],
+          new_findings: [],
+          resolved_findings: [],
+          not_reobserved_findings: [{
+            id: 'email_dmarc_policy_none',
+            title: 'DMARC policy remains in monitoring mode',
+          }],
+          new_takeover_risks: [],
+          new_exposed_assets: [],
+        }),
+      },
+      scan_quality: { status: 'complete', modules_skipped: [], warnings: [] },
+    })
+    await renderFixture({ report })
+
+    const changes = cardForHeading('Changes Since Last Scan')
+    expect(within(changes).getByText('Not re-observed')).toBeInTheDocument()
+    expect(within(changes).getByText('DMARC policy remains in monitoring mode')).toBeInTheDocument()
+    expect(within(changes).queryByText('Resolved Findings')).not.toBeInTheDocument()
+    expect(within(changes).queryByText(/No changes detected/i)).not.toBeInTheDocument()
   })
 
   it('E: explicit first scan retains the no-history message', async () => {

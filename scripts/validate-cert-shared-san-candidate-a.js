@@ -450,12 +450,11 @@ const states = [
   { measurement_state: "unmeasured" },
 ];
 const parity = states.map(parityOutputs);
-// AS-B2 RE-DERIVATION: the accepted D3 parity inputs are byte-identical except
-// for the deliberate scoring-methodology stamp 2026-08-24.1 -> 2026-08-26.1.
-// GOLDEN_EVIDENCE_V2, score, band, summary, domains and findings are unchanged;
-// these two downstream hashes follow the governed AS-B2 methodology bump.
-const GOLDEN_F13 = "68acb05c12138a4b5a44607231aa31151574e46577aecb114c6877db077e220c";
-const GOLDEN_F14 = "624c99cb280a48ad42ccb84f19d3fe112f1d14e28e5506e83102460e304460e9";
+// The accepted B3 resolver mint (2026-08-30.2) changes the canonical domain-state
+// projection carried by both downstream digests. Score methodology and the raw
+// Certificate Transparency evidence golden above remain byte-identical.
+const GOLDEN_F13 = "dc7c568d6b3e8b8a0b6634bc986e5fe149a3cfd088ba9295ec98cc3234053be0";
+const GOLDEN_F14 = "ef72defb55181f0cb2ce84770bb6ae872d3fe8f2bd359e01b74bd9d6b901eabd";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
@@ -524,6 +523,76 @@ fixture("F18",
   unavailableIntel.san_count === 0 && unavailableIntel.raw_san_count === 0 &&
   unavailableIntel.wildcard_san_count === 0 && unavailableIntel.shared_san_count === null);
 
+const CANDIDATE_EXPIRY_NOW_MS = Date.UTC(2026, 7, 30, 12, 0, 0);
+const candidateExpiryNotAfter = (days, skewDays = 0) => new Date(
+  CANDIDATE_EXPIRY_NOW_MS +
+    ((Number.isFinite(days) && days >= 0 ? days : 10) + 0.5 + skewDays) * 86_400_000,
+).toISOString();
+const expiryIntel = (days, notAfter = candidateExpiryNotAfter(days)) => runCertificateIntelligenceModule({
+  ssl: {
+    https_available: true,
+    cert_expiry_days: days,
+    cert_not_after: notAfter,
+    cert_issuer: "Candidate A Fixture CA",
+  },
+  subdomains: { items: [], sources: {} },
+}, "example.com", { nowMs: CANDIDATE_EXPIRY_NOW_MS });
+const expiryRows = (days, notAfter) => expiryIntel(days, notAfter).suspicious_certificate_signals
+  .filter((signal) => signal.signal.startsWith("certificate_expir"));
+fixture("F22",
+  expiryRows(13).length === 1 &&
+  expiryRows(13)[0]?.signal === "certificate_expiring_critical" &&
+  expiryRows(13)[0]?.severity === "high" &&
+  expiryRows(13)[0]?.finding_type === "finding" &&
+  expiryRows(13)[0]?.score_impact === 0);
+fixture("F23",
+  expiryRows(14).length === 1 &&
+  expiryRows(14)[0]?.signal === "certificate_expiring_soon" &&
+  expiryRows(14)[0]?.severity === "medium");
+fixture("F24",
+  expiryRows(29).length === 1 &&
+  expiryRows(29)[0]?.signal === "certificate_expiring_soon" &&
+  expiryRows(29)[0]?.severity === "medium");
+fixture("F25", expiryRows(30).length === 0);
+fixture("F26",
+  [-1, Number.NaN, Number.POSITIVE_INFINITY, 0.5, null, "13"].every((days) => {
+    const result = expiryIntel(days);
+    return result.expiry_evidence === "not_usable" && expiryRows(days).length === 0;
+  }));
+fixture("F27",
+  [-1, 0, 13, 14, 29, 30].every((days) =>
+    !expiryIntel(days).suspicious_certificate_signals
+      .some((signal) => signal.signal === "certificate_expired")));
+const criticalExpiry = expiryRows(13)[0];
+const soonExpiry = expiryRows(14)[0];
+fixture("F28",
+  expiryIntel(13).expiry_evidence === "usable" &&
+  criticalExpiry?.evidence_source === "certificate_transparency" &&
+  criticalExpiry?.live_certificate_verified === false &&
+  criticalExpiry?.evidence_basis === "latest_expiring_logged_certificate" &&
+  criticalExpiry?.title === "Logged certificate validity ends within 14 days" &&
+  soonExpiry?.title === "Logged certificate validity ends within 30 days");
+fixture("F29",
+  [criticalExpiry, soonExpiry].every((signal) =>
+    signal?.description?.includes("Certificate Transparency") &&
+    signal.description.includes("returned by the available Certificate Transparency source") &&
+    !signal.description.includes("No currently valid publicly logged certificate") &&
+    signal.description.includes("not inspected") &&
+    !signal.description.includes("service outage")));
+fixture("F30",
+  [
+    null,
+    "",
+    "   ",
+    "not-a-date",
+    candidateExpiryNotAfter(10, 2),
+    "2100-01-01T00:00:00Z",
+    "2026-08-29T12:00:00.000Z",
+  ].every((notAfter) => {
+    const result = expiryIntel(10, notAfter);
+    return result.expiry_evidence === "not_usable" && expiryRows(10, notAfter).length === 0;
+  }));
+
 function p2Guard() {
   const sslFile = source("workers", "scan-api", "src", "engines", "ssl-scan.js");
   const validator = source("scripts", "validate-item9-certificate-p2-engine-trace.js");
@@ -584,7 +653,7 @@ if (process.argv.includes("--print-goldens")) {
   }, null, 2));
 }
 
-const ordered = Array.from({ length: 21 }, (_, index) => `F${String(index + 1).padStart(2, "0")}`);
+const ordered = Array.from({ length: 30 }, (_, index) => `F${String(index + 1).padStart(2, "0")}`);
 const passed = ordered.filter((id) => results.get(id) === true).length;
 for (const id of ordered) {
   if (results.get(id) === true) continue;

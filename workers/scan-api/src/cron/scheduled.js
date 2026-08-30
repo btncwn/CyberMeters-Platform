@@ -4,6 +4,7 @@
 // scan engine — moving them is phase 2) and are injected via the `tasks`
 // registry, so this module has no import cycle.
 import { recordMetric } from "../lib/metrics.js";
+import { persistOperationalEvent, OPS_EVENT_TYPES } from "../lib/operational-events.js";
 
 // Scheduled-scan burst controls. Each full scan fans out ~80-250 subrequests,
 // and every due scan in a tick shares the ONE Worker invocation's 1,000-
@@ -48,6 +49,16 @@ export async function runCronTask(env, name, fn) {
 // ── Cron Handler ──────────────────────────────────────────────────────
 export async function runScheduled(event, env, ctx, tasks) {
   const now = new Date().toISOString();
+
+  // F-027: durable proof the hourly cron actually ran. One idempotent event per
+  // hour bucket (safe correlation id, no content), so a deadman monitor can tell
+  // "cron is firing" from "cron silently stopped". Never fatal to the tick.
+  const hourBucket = now.slice(0, 13);
+  await persistOperationalEvent(env, {
+    eventType:     OPS_EVENT_TYPES.CRON_TICK,
+    correlationId: `cron:${hourBucket}`,
+    status:        "ok",
+  }).catch(() => { /* observability is best-effort; the tick's real work follows */ });
 
   // ── Scheduled scans ────────────────────────────────────────────────────
   let result;

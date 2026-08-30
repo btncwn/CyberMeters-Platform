@@ -10,7 +10,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import crypto from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { splitStatements, isToleratedStatement } from "../../lib/migration-apply-tolerated.js";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const workerPath = path.join(ROOT, "workers", "scan-api", "src", "index.js");
@@ -23,10 +25,19 @@ export async function loadWorker() {
 
 export function buildDb() {
   const db = new DatabaseSync(":memory:");
-  const apply = (p) => { try { db.exec(fs.readFileSync(p, "utf8")); } catch { /* ordering/dup — schema converges */ } };
-  apply(path.join(ROOT, "database", "schema.sql"));
+  // F-025/F-035 (corrective) — a migration/schema apply error is TERMINAL. Migrations apply
+  // STATEMENT-BY-STATEMENT so a tolerated error on one statement never skips the remainder of
+  // the file (the R1 false-green). Tolerance is bound to the exact file bytes + the exact
+  // failing statement (single source of truth: lib/migration-apply-tolerated); anything else
+  // throws — a harness must never run its assertions on a silently-broken schema.
+  db.exec(fs.readFileSync(path.join(ROOT, "database", "schema.sql"), "utf8")); // consolidated form; a real error here is terminal
   for (const f of fs.readdirSync(path.join(ROOT, "database", "migrations")).filter((f) => f.endsWith(".sql")).sort()) {
-    apply(path.join(ROOT, "database", "migrations", f));
+    const raw = fs.readFileSync(path.join(ROOT, "database", "migrations", f), "utf8");
+    const fileSha = crypto.createHash("sha256").update(raw).digest("hex");
+    for (const stmt of splitStatements(raw)) {
+      try { db.exec(stmt); }
+      catch (e) { if (!isToleratedStatement(f, fileSha, stmt, e.message)) throw e; }
+    }
   }
   return db;
 }

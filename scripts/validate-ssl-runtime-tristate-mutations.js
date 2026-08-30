@@ -125,8 +125,6 @@ const MUTANTS = Object.freeze([
   return [...values];
   return values.filter((finding) =>`,
     expectedFailures: [
-      "domain.unavailable.state",
-      "domain.unavailable.findings",
       "report.unavailable.findings",
     ],
   },

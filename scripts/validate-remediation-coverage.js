@@ -21,7 +21,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const enginesDir = path.join(root, "workers", "scan-api", "src", "engines");
 const imp = (f) => import(pathToFileURL(path.join(enginesDir, f)).href);
-const { resolveRemediation, REMEDIATION_REGISTRY } = await imp("remediation-registry.js");
+const { resolveRemediation, REMEDIATION_REGISTRY, remediationRegistryFingerprint } = await imp("remediation-registry.js");
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
@@ -41,13 +41,14 @@ const ACTIONABLE = [
   "bimi_dmarc_enforcement_required", "mta_sts_policy_missing",
   // web / attack surface — scoring.js + scan-engine.js DSE + admin surface
   "dns_no_resolution", "ssl_not_available", "ssl_no_http_redirect", "no_https_redirect",
-  "header_missing_strict_transport_security", "subdomain_takeover", "subdomain_sensitive",
+  "header_missing_strict_transport_security", "csp_weak_policy", "subdomain_takeover", "subdomain_sensitive",
   "asset_exposure_sensitive_tool", "asset_exposure_admin_interface", "asset_exposure_dev_env",
   "cloud_storage_takeover_risk", "cloud_storage_public_listing", "cloud_storage_exposure_observed",
   "kev_active_exploitation",
   "admin_surface_critical", "admin_surface_high", "admin_surface_medium",
-  "dse_missing_caa", "dse_caa_no_issuers", "dse_hsts_short_maxage", "dse_hsts_not_preload_eligible",
+  "dse_hsts_short_maxage",
   "dse_cookie_no_secure", "dse_cookie_no_httponly", "dse_cookie_no_samesite",
+  "certificate_expiring_critical", "certificate_expiring_soon",
   // certificates — cert-trust-l2.js `type:` values
   "expired", "expiring_soon", "self_signed", "unexpected_issuer", "unexpected_san", "unexpected_wildcard",
   // whois — whois-scan.js
@@ -68,7 +69,10 @@ const REMEDIATION_NOT_REQUIRED = new Set([
   "asset_exposure_interface_observed", "whois_new_domain", "whois_registrar_info",
   "ct_source_incomplete", "coverage_gap", "parallel_certificate", "unknown",
   // header info variants (non-HSTS): observed-elsewhere / low-quality / malformed non-scored
-  "header_weak_hsts", "csp_weak_policy",
+  "header_weak_hsts",
+  // Explicit producer observations. Some retain a registry mapping for historical
+  // compatibility, but finding_type=observation prevents action admission.
+  "dse_missing_caa", "dse_caa_no_issuers", "dse_hsts_not_preload_eligible",
   // dnssec info variants (score 0) — registry-mapped but not scored/forced
   "dnssec_not_enabled", "dnssec_misconfigured",
   // tech version disclosure (low, score 0) — registry-mapped, advisory
@@ -102,6 +106,29 @@ ok("informational set is non-empty and explicit", REMEDIATION_NOT_REQUIRED.size 
 const overlap = ACTIONABLE.filter((ft) => REMEDIATION_NOT_REQUIRED.has(ft));
 ok("no finding type is both actionable and remediation_not_required", overlap.length === 0, overlap.join(", "));
 
+// B1 registry identity: exactly four entries move to v2 and every other entry remains v1.
+const byId = new Map(REMEDIATION_REGISTRY.map((entry) => [entry.remediation_id, entry]));
+const v2Ids = REMEDIATION_REGISTRY.filter((entry) => entry.version === 2).map((entry) => entry.remediation_id).sort();
+ok("exactly the four B1 remediation identities are version 2",
+  JSON.stringify(v2Ids) === JSON.stringify(["cert.expiry.expired", "cert.expiry.expiring", "web.cookie.flags", "web.header.csp"]));
+ok("all other remediation identities remain version 1",
+  REMEDIATION_REGISTRY.filter((entry) => !v2Ids.includes(entry.remediation_id)).every((entry) => entry.version === 1));
+ok("registry stays at 67 entries", REMEDIATION_REGISTRY.length === 67);
+ok("B1 registry fingerprint is exact", remediationRegistryFingerprint() === "r67-c98a810a", remediationRegistryFingerprint());
+ok("certificate_expiring_critical maps to expiring, never expired",
+  resolveRemediation({ finding_type: "certificate_expiring_critical" }).remediation_id === "cert.expiry.expiring"
+  && !byId.get("cert.expiry.expired")?.finding_types.includes("certificate_expiring_critical"));
+ok("expired identity keeps the exact historical pair",
+  JSON.stringify(byId.get("cert.expiry.expired")?.finding_types) === JSON.stringify(["ssl_certificate_expired", "certificate_expired"]));
+ok("CSP remediation names strengthening and exact parsed verification",
+  /Add or strengthen/.test(byId.get("web.header.csp")?.customer_title || "")
+  && /parseable/i.test(byId.get("web.header.csp")?.verification_evidence_requirements || "")
+  && /script-src\/default-src/.test(byId.get("web.header.csp")?.verification_evidence_requirements || ""));
+ok("cookie remediation names SameSite and preserves zero-cookie inconclusive semantics",
+  /SameSite=Lax/.test(byId.get("web.cookie.flags")?.recommended_action || "")
+  && /SameSite=Strict/.test(byId.get("web.cookie.flags")?.recommended_action || "")
+  && /zero cookies is inconclusive/i.test(byId.get("web.cookie.flags")?.verification_evidence_requirements || ""));
+
 // ── 3. Static emitter sweep — discover literal ids, assert each is classified ─
 // Finding-emitting engine files. We extract `id:`/`type:` string literals and
 // require each plausible finding id to be actionable, informational, a dynamic
@@ -116,7 +143,7 @@ const NON_FINDING = new Set([
   // evidence_type values
   "dns_lookup", "dns_cross_check", "dnssec_lookup", "https_probe", "http_redirect_probe",
   "canonical_url_probe", "http_header_probe", "dns_mx_lookup", "dns_txt_lookup",
-  "certificate_transparency_observation", "supporting_infrastructure_observation",
+  "certificate_transparency", "certificate_transparency_observation", "supporting_infrastructure_observation",
   "http_fingerprint_observation", "http_probe", "whois", "self_attestation", "scan_findings",
   "technology_kev_correlation",
   "identity_discovery", "saas_exposure", "supporting_infrastructure_observation",

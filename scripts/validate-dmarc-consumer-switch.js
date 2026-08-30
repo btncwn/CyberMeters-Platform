@@ -233,6 +233,32 @@ const monitoringUrl = pathToFileURL(p("signal-monitoring-state.js")).href;
 const cookieObservationUrl = pathToFileURL(p("cookie-observation.js")).href;
 const tlsEvidenceUrl = pathToFileURL(p("tls-evidence.js")).href;
 const identityEvidenceUrl = pathToFileURL(p("identity-evidence-contract.js")).href;
+const findingsUrl = pathToFileURL(p("findings.js")).href;
+
+function replaceExactImport(source, anchor, replacement, label) {
+  const anchorCount = source.split(anchor).length - 1;
+  if (anchorCount !== 1) {
+    throw new Error(`HARNESS_PRECONDITION ${label} import anchor count=${anchorCount}; expected=1`);
+  }
+  return source.replace(anchor, replacement);
+}
+
+const findingsImportAnchor = 'from "./findings.js"';
+const findingsImportReplacement = `from ${JSON.stringify(findingsUrl)}`;
+for (const [name, source, expectedCount] of [
+  ["missing findings import", motSrc.replace(findingsImportAnchor, ""), 0],
+  ["duplicate findings import", `${motSrc}\nimport ${findingsImportAnchor};`, 2],
+]) {
+  let reason = "";
+  try {
+    replaceExactImport(source, findingsImportAnchor, findingsImportReplacement, "findings.js");
+  } catch (error) {
+    reason = String(error?.message || error);
+  }
+  ok(`mutation harness: ${name} is rejected by exact-anchor preflight`,
+    reason === `HARNESS_PRECONDITION findings.js import anchor count=${expectedCount}; expected=1`,
+    `reason=${reason || "none"}`);
+}
 
 async function motFromMutantMap(mutateMap, scn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dmarc-cs-"));
@@ -246,8 +272,14 @@ async function motFromMutantMap(mutateMap, scn) {
       .replace('from "./cookie-observation.js"', `from ${JSON.stringify(cookieObservationUrl)}`)
       .replace('from "./tls-evidence.js"', `from ${JSON.stringify(tlsEvidenceUrl)}`)
       .replace('from "./identity-evidence-contract.js"', `from ${JSON.stringify(identityEvidenceUrl)}`);
+    const portableMot = replaceExactImport(
+      mMot,
+      findingsImportAnchor,
+      findingsImportReplacement,
+      "findings.js",
+    );
     const motFile = path.join(dir, "cyber-mot.mjs");
-    fs.writeFileSync(motFile, mMot);
+    fs.writeFileSync(motFile, portableMot);
     const mod = await import(`${pathToFileURL(motFile).href}?t=${OBS}`);
     const modules = buildModules(scn);
     const report = reportFor(modules, computeScore(modules, DOMAIN).findings);

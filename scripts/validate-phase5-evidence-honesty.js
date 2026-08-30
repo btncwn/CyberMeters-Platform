@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 // Phase-5 False-Healthy P1 — CI-blocking customer-output and mutation proof.
 //
-// The faithful trace delegates to validate-email-deadline-evidence's shared
-// real runScanEngine harness. Its deferred-intel fixture uses the normal
-// SCAN_DEADLINE_MS=19000, completes every earlier/core module, and holds only
-// the shared CVE/KEV/email-intelligence Promise.all past its actual 1000ms
-// raceModuleDeadline hard cap. There is no global-deadline manipulation,
-// production access or external network access.
+// The faithful trace delegates to validate-email-deadline-evidence's real
+// runScanEngine harness. Its deferred-intel fixture uses Queue context, completes
+// CVE + KEV, and holds only Email Intelligence past its independent bounded cap.
+// This proves a slow sibling cannot erase fulfilled Phase-5 evidence. There is no
+// global-deadline manipulation, production access or external network access.
 //
 // Canonical implementation base (origin/main after PR #350):
 // 9f2014994ecd3e57c6ec2cf64da2cbac4dec904a
@@ -190,7 +189,7 @@ const ok = (name, condition, detail = "") => {
   }
 };
 
-console.log("── A. real runScanEngine shared Phase-5 hard-cap trace ──");
+console.log("── A. real runScanEngine independent durable Phase-5 trace ──");
 const engine = runEngineChild();
 const projectedEngine = projectPhase5EvidenceForCustomer({
   cve_intelligence: engine.cve,
@@ -207,20 +206,19 @@ ok("A1 no exception escaped", engine.escaped == null, String(engine.escaped));
 ok("A2 scan completed terminally", engine.dbStatus === "completed");
 ok("A3 scan quality remains partial",
   engine.quality === "partial" && engine.reportQuality === "partial");
-ok("A4 only Phase-5 and its derived risk/remediation consumers are incomplete",
-  PHASE5_KEYS.every((key) =>
-    engine.scanQuality?.modules_skipped?.includes(key)) &&
+ok("A4 only Email Intelligence and its derived risk consumer are incomplete",
+  engine.scanQuality?.modules_skipped?.includes("email_security_intelligence") &&
+    !engine.scanQuality?.modules_skipped?.includes("cve_intelligence") &&
+    !engine.scanQuality?.modules_skipped?.includes("known_exploited_vulnerabilities") &&
     engine.scanQuality.modules_skipped.every((key) =>
-      [...PHASE5_KEYS, "risk_intelligence", "remediation_plan"].includes(key)),
+      ["email_security_intelligence", "risk_intelligence", "remediation_plan"].includes(key)),
   JSON.stringify(engine.scanQuality?.modules_skipped));
-ok("A5 CVE fallback is canonical non-publishable evidence",
-  engine.cve?.executed === false && engine.cve?.incomplete === true &&
-    engine.cve?.outcome === "deadline_exceeded" &&
-    projectedEngine.cve_intelligence.evidence_publishable === false);
-ok("A6 KEV fallback is canonical non-publishable evidence",
-  engine.kev?.executed === false && engine.kev?.incomplete === true &&
-    engine.kev?.outcome === "deadline_exceeded" &&
-    projectedEngine.known_exploited_vulnerabilities.evidence_publishable === false);
+ok("A5 completed CVE sibling remains canonical publishable evidence",
+  engine.cve?.executed !== false && engine.cve?.outcome !== "deadline_exceeded" &&
+    projectedEngine.cve_intelligence.evidence_publishable === true);
+ok("A6 completed KEV sibling remains canonical publishable evidence",
+  engine.kev?.executed !== false && engine.kev?.outcome !== "deadline_exceeded" &&
+    projectedEngine.known_exploited_vulnerabilities.evidence_publishable === true);
 ok("A7 email-intelligence fallback is canonical non-publishable evidence",
   engine.intel?.executed === false && engine.intel?.incomplete === true &&
     engine.intel?.outcome === "deadline_exceeded" &&
@@ -246,8 +244,10 @@ ok("A14 completed primary email evidence remains visible",
 ok("A15 completed DNS/SSL/header siblings remain visible",
   engine.dns?.resolves === true && engine.ssl != null && engine.headers != null);
 ok("A16 completed technology sibling remains visible", engine.technology != null);
-ok("A17 risk/remediation state explicitly disclose incompleteness",
-  engine.risk?.incomplete === true && engine.remediation?.incomplete === true);
+ok("A17 risk is incomplete while trustworthy remediation remains available",
+  engine.risk?.incomplete === true &&
+    engine.remediation?.incomplete !== true &&
+    engine.remediation?.summary?.total > 0);
 
 console.log("\n── B. isolated producer-to-consumer fixtures ──");
 {

@@ -964,11 +964,18 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
     delta > 0  ? 'text-brand-600' :
     delta < 0  ? 'text-red-500'   : 'text-gray-400'
 
+  // Additive history field: older stored reports may not carry it. Absence is
+  // rendered as an empty list, never folded into "Resolved Findings".
+  const notReobservedFindings = Array.isArray(changes.not_reobserved_findings)
+    ? changes.not_reobserved_findings
+    : []
+
   const noChanges =
     changes.new_subdomains.length === 0 &&
     changes.removed_subdomains.length === 0 &&
     changes.new_findings.length === 0 &&
     changes.resolved_findings.length === 0 &&
+    notReobservedFindings.length === 0 &&
     changes.new_takeover_risks.length === 0 &&
     changes.new_exposed_assets.length === 0
 
@@ -1007,6 +1014,11 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
             <ChangeList title="Resolved Findings" items={changes.resolved_findings.slice(0, 5)}
               total={changes.resolved_findings.length}
               renderItem={f => f.title} tone="good" />
+          )}
+          {notReobservedFindings.length > 0 && (
+            <ChangeList title="Not re-observed" items={notReobservedFindings.slice(0, 5)}
+              total={notReobservedFindings.length}
+              renderItem={f => f.title} tone="neutral" />
           )}
           {changes.new_takeover_risks.length > 0 && (
             <ChangeList title="New Takeover Risks" items={changes.new_takeover_risks.slice(0, 5)}

@@ -1,6 +1,7 @@
 name = "cybermeters-platform"
 main = "src/index.js"
 compatibility_date = "2026-06-18"
+compatibility_flags = ["global_fetch_strictly_public"]
 
 # Canonical production API host. This is the ONE place the deployment declares
 # where the API lives, and `validate-frontend-env-contract.js` derives the host
@@ -83,13 +84,23 @@ max_retries = 3
 max_concurrency = 2
 dead_letter_queue = "cybermeters-scan-dlq"
 
+# F-027: the scan DLQ now has a DISTINCT consumer (the ops observer in
+# index.js queue handler, dispatched by queue identity). It persists a safe
+# operational event per dead-lettered scan and NEVER runs the scan engine.
+# No dead_letter_queue here: a failed observe no-acks and redelivers on the
+# same DLQ (idempotent), it does not cascade to a further queue.
+[[queues.consumers]]
+queue = "cybermeters-scan-dlq"
+max_batch_size = 10
+max_retries = 5
+
 # Alert email recipients and sender.
 # RESEND_API_KEY must be set as a Wrangler secret (never committed):
 #   wrangler secret put RESEND_API_KEY
 [vars]
 # Human-readable release version, surfaced by GET /health. Bump on each
 # production release (date-based: YYYY.MM.DD).
-APP_VERSION = "2026.08.13-provisional-score-labeling.908048591c20"
+APP_VERSION = "2026.08.13-provisional-score-labeling.fceaad4d8f6a"
 # Planned-maintenance switch. "off" = normal. Set to "on" and redeploy to return
 # a clean 503 for every API route (except /health + /ready); flip back to "off"
 # and redeploy to lift. See docs/07-RELEASE-CHECKLIST.md → Maintenance mode.
