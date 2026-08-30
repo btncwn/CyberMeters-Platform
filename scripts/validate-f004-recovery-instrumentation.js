@@ -385,8 +385,12 @@ ok("drill doc does not claim the deadman transition itself is proven",
   ok("BACKUP run path PROCEEDS when the accounts are distinct", backup().success);
   const b = backup();
   ok("BACKUP records the bound source account in its evidence", field(b.evidence, "src_account") === SRC_ACCOUNT);
+  const rAbsentOpsBefore = canaryEnvs(b.store).map(({ op }) => op).sort();
   const rAbsent = restore(b.store, b.d1sha, b.mansha, [], { F004_SRC_ACCOUNT: "", F004_RESTORE_TARGET: "drill-a1" });
+  const rAbsentOpsAfter = canaryEnvs(b.store).map(({ op }) => op).sort();
   ok("RESTORE run path STOPs when the source account is absent", rAbsent.code !== 0 && !rAbsent.success);
+  ok("RESTORE source-account STOP issues ZERO provider actions",
+    JSON.stringify(rAbsentOpsAfter) === JSON.stringify(rAbsentOpsBefore));
   ok("RESTORE run path STOPs when source and destination accounts are identical",
     !restore(b.store, b.d1sha, b.mansha, [], { F004_SRC_ACCOUNT: DOM.DA, F004_RESTORE_TARGET: "drill-a2" }).success);
   const rOk = restore(b.store, b.d1sha, b.mansha, [], { F004_RESTORE_TARGET: "drill-a3" });
