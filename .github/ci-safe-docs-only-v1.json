@@ -52,7 +52,7 @@
           "frontend/package.json",
           "frontend/package-lock.json"
         ],
-        "scope_sha256": "cbcb1b40f89047edf97bfbb3d0d52cdab061f5179a6df93bd4199711c80a1f11",
+        "scope_sha256": "2853c0f01091fd5f0908f86c830c4a1683f9686bf43c624f19d9aaf6deac5d91",
         "scope_file_count": 3,
         "source_graph_review": "Entry point has only Node built-ins plus TypeScript resolved from frontend; SOURCE_ROOTS is workers, frontend/src, shared and scripts, with no docs or CHANGELOG input.",
         "negative_without_docs": "PASS: exact command exit 0 in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent; fixture worktree clean",
@@ -87,7 +87,7 @@
           "frontend/package.json",
           "frontend/package-lock.json"
         ],
-        "scope_sha256": "ea0e418fdb37dc517f84588ca761c2fcd3911c3bfb68376fc54293052ec7eda4",
+        "scope_sha256": "08cc029216a8a6356c92bc7e7a8742a9f1c0703f86983cf04f8bb3e9ced7e0f8",
         "scope_file_count": 7,
         "source_graph_review": "Runner uses Node built-ins, git fingerprinting, the inventory child and three pinned non-doc mutation targets; the child source-root contract excludes docs and CHANGELOG.",
         "negative_without_docs": "PASS: exact command exit 0 with 20/20 mutants, 1/1 negative control and full fingerprint restore in clean fixture 1a97c88ef89ae2fb60961c4f62b6ff682cf589a8 with docs tree absent",

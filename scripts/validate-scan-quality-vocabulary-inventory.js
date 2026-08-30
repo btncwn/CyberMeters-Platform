@@ -112,7 +112,7 @@ const EXPECTED = Object.freeze({
     // governed comparisons in their own validators. Nothing was removed.
     // RESCUE SUCCESSION: additive validator coverage plus two exact reviewed
     // child-process comparisons and one canonical quality-parity assertion.
-    fingerprint: "55995e19fe84e08f53f7162bbd06833d978b8f5f9ab9e94d13adefa468000d22",
+    fingerprint: "ebc00fd074b9d9554f89d5ce190eb9f62fa395628e286a4e796243d085481905",
   },
   runtime_source_file_count: 33,
   direct: {
@@ -161,7 +161,7 @@ const EXPECTED = Object.freeze({
     // only the fingerprint moves — the existing destructured scanQuality read in
     // validate-website-security-lifecycle.js shifted 145 -> 161 under the authorised
     // loader-isolation preamble. No read, site, path, count, SQL or comparison changed.
-    governance: { occurrence_count: 121, source_file_count: 39, fingerprint: "f3707ead95a32d7f691de325c667af796e51ebf943a62821799e72763770e435" },
+    governance: { occurrence_count: 121, source_file_count: 39, fingerprint: "e3b21e121a3846fca43f9b761bdd027327668eb6fa570de6181197a02032b0c4" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
@@ -228,7 +228,7 @@ const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
 ]);
 const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
-  "scripts/validate-partial-scan-honesty.js:232:stale.quality === \"unknown\"",
+  "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
   "scripts/validate-phase5-evidence-honesty.js:234:presentation.quality === \"partial\"",
   "scripts/validate-signal-monitoring-state.js:257:degraded.quality === \"degraded\"",
 ]);
