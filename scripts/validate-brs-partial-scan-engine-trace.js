@@ -156,7 +156,11 @@ try {
     cybermeters_reports: makeR2(store),
     SCAN_CAPACITY_MODE: "legacy",
     SCAN_SUBREQUEST_LIMIT: "200",
-    SCAN_DEADLINE_MS: "19000",
+    // This carrier exercises the durable Queue owner. Keep its configured
+    // deadline aligned with that owner's real executable envelope: a 19s
+    // override cannot admit the independently bounded 32s CVE source envelope
+    // and therefore turns the intended complete control honestly partial.
+    SCAN_DEADLINE_MS: "115000",
     APP_VERSION: "brs-partial-scan-engine-trace",
     MFA_ENCRYPTION_KEY: "brs-partial-scan-engine-trace-key",
     ALLOWED_ORIGIN: "https://app.cybermeters.com",
@@ -212,9 +216,11 @@ try {
     db.prepare("SELECT COUNT(*) n FROM workspace_brs_score_history WHERE workspace_id='ws'").get().n, 1);
   eq("real complete scan appends one complete scan trend point",
     db.prepare("SELECT COUNT(*) n FROM historical_scores WHERE workspace_id='ws' AND brs_score IS NOT NULL").get().n, 1);
-  const completePayload = JSON.parse(completeBrs.payload_json);
-  eq("real complete scan exact BRS basis", completePayload.basis_scan.scan_id, "scan-complete");
-  eq("real complete scan basis quality", completePayload.basis_scan.scan_quality, "complete");
+  // Keep reporting the remaining assertions if persistence is absent; the
+  // validator must fail with contract names rather than abort on a TypeError.
+  const completePayload = JSON.parse(completeBrs?.payload_json || "{}");
+  eq("real complete scan exact BRS basis", completePayload.basis_scan?.scan_id, "scan-complete");
+  eq("real complete scan basis quality", completePayload.basis_scan?.scan_quality, "complete");
 
   providerMode = "partial";
   const partialError = await run("scan-partial", PARTIAL_NOW, Date.parse(PARTIAL_NOW));
@@ -254,12 +260,12 @@ try {
   eq("customer route latest partial state", body.state, "latest_incomplete");
   eq("customer route current score unavailable", body.score, null);
   eq("customer route current grade unavailable", body.grade, null);
-  eq("customer route identifies latest partial scan", body.current_assessment.scan_id, "scan-partial");
-  eq("customer route identifies historical complete basis", body.last_complete_assessment.basis_scan.scan_id, "scan-complete");
+  eq("customer route identifies latest partial scan", body.current_assessment?.scan_id, "scan-partial");
+  eq("customer route identifies historical complete basis", body.last_complete_assessment?.basis_scan?.scan_id, "scan-complete");
   check("customer route separates latest and basis scans",
-    body.current_assessment.scan_id !== body.last_complete_assessment.basis_scan.scan_id);
-  eq("customer route trend contains complete points only", body.trend.length, 1);
-  eq("customer route trend basis is exact complete scan", body.trend[0].basis_scan_id, "scan-complete");
+    body.current_assessment?.scan_id !== body.last_complete_assessment?.basis_scan?.scan_id);
+  eq("customer route trend contains complete points only", body.trend?.length, 1);
+  eq("customer route trend basis is exact complete scan", body.trend?.[0]?.basis_scan_id, "scan-complete");
 
   if (passed + failed !== EXPECTED_ASSERTIONS) {
     failed += 1;
