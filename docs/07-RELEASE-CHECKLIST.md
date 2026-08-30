@@ -38,6 +38,9 @@ routine reversible R0/R1 deploy.
 
 ## 1. Pre-flight (before touching the deploy)
 
+- [ ] Read the full operating model and the top/current canonical backlog. The
+      current order and every named HOLD condition permit this exact merge,
+      deploy, canary and proof consequence; green CI alone does not clear HOLD.
 - [ ] Change is on a branch / PR; **CI green** (`validate` + `sast`) on the PR or main.
 - [ ] Reviewed the diff (`git diff --check` clean; no stray debug/secrets).
 - [ ] Risk tier identified; required R0/R1 proof or R2 decision obtained.

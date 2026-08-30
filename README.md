@@ -674,7 +674,9 @@ npm run deploy --prefix workers/email-ingest
 The email package invokes the exact Wrangler version pinned in the scan-api
 lockfile. Any change to its effective shared-source import closure must also
 update `workers/email-ingest/deploy-manifest.json` and its closure-derived
-`APP_VERSION`, then receive a founder-approved email-worker deployment.
+`APP_VERSION`, then receive a separately recorded Executive deploy decision
+under the current backlog and HOLD. A Founder decision is required only when the
+exact consequence enters operating-model §3.
 
 ## Release tag
 

@@ -12,6 +12,11 @@ Release target:
 
 Do not use this skill until implementation and the full required validation gate are green.
 
+Before preflight, read the full `docs/AI-EXECUTIVE-OPERATING-MODEL.md` and the
+top/current order in `docs/PRE-BETA-EXECUTION-BACKLOG.md`. Green CI does not
+clear a production/customer `HOLD`. Stop unless the current order and every
+named HOLD condition permit the exact merge, deploy, canary and proof consequence.
+
 ## Preflight
 
 Confirm:
@@ -110,6 +115,6 @@ Stop before deployment if:
 - unrelated changes are mixed in
 - rollback target is missing
 - live contract regression exists
-- founder approval is required
+- an unresolved operating-model §3 reserved consequence lacks its Founder decision
 
 Do not hide a blocked deployment behind optimistic language.
