@@ -24,12 +24,21 @@ the retired Claude Desktop review contract are historical evidence, not active
 authority. It does not override platform safety rules or founder-reserved
 boundaries.
 
+Founder clarification (30 August 2026): a governance or decision text first
+written before 1 August 2026 is historical evidence unless a current canonical
+source explicitly re-ratifies its particular rule. Preserve those files and
+their useful findings. Do not let an old file's internal `canonical`, `binding`
+or `current` label override the operating model or current backlog. This
+authority rule does not erase permanent security/data invariants, accepted
+technical evidence, release facts or current technical standards.
+
 # CyberMeters Platform — AI Engineering Context
 
 Version: August 2026
 
-Last updated: 23 August 2026. The lean operating-model adoption changes no
-runtime, migration or customer-acceptance fact. Release, production migration
+Last updated: 30 August 2026. The lean operating-model adoption and authority
+clarification change no runtime, migration or customer-acceptance fact. Release,
+production migration
 and rollback identities remain authoritative only in `CHANGELOG.md`.
 Frozen-backlog Item 11A/11B/11C is separately LIVE-ACCEPTED (20–21 August).
 Current programme order lives only in `docs/PRE-BETA-EXECUTION-BACKLOG.md`;
@@ -140,19 +149,15 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 | M7 Pricing + Billing Alignment | Earlier roadmap gate; this corrective does not reclassify its historical product status. |
 | Final Public-Beta Gate | Planned after managed-platform completion |
 
-Recorded release boundary (23 August 2026; use `CHANGELOG.md` for newer facts):
+Recorded release boundary: read the latest deployed source, tag state, Worker
+Version IDs, rollback identity, production proof and migration boundary only
+from `CHANGELOG.md`; do not copy fast-aging release identity into this file.
 
-- latest recorded release tag: `v2026.08.21-1` at
-  `60420ae18302692da9a10e75a5b0ce820966a3a9`;
-- source and recorded production migration boundary both include
-  `107-finding-canonical-identity.sql`;
 - Item 11A/11B/11C is separately LIVE-ACCEPTED; this does not imply later-item,
   release-candidate or public-beta acceptance;
 - P1 evidence-integrity work remains a public-beta blocker and retains its
   technical evidence; its programme position is governed by the current
   canonical execution order;
-- fast-aging deployment IDs and release proof remain in `CHANGELOG.md` and are
-  not duplicated here;
 - current production/customer state is `HOLD`.
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier

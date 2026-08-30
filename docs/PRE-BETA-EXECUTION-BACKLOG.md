@@ -1,7 +1,7 @@
 # Pre-Beta Frozen Execution Backlog
 
 **Status:** ACTIVE CANONICAL EXECUTION ORDER — historical item contracts preserved;
-current queue updated 24 August 2026.
+current rescue queue updated 30 August 2026.
 **Authority:** this document alone ORDERS current and remaining pre-beta work.
 Roles and decision rights live only in `docs/AI-EXECUTIVE-OPERATING-MODEL.md`.
 Strategic scope and acceptance gates remain in
@@ -14,9 +14,73 @@ Production baseline at freeze: `main @ bfc7c1d` · live Worker `ecd03d0a`
 Labels: **[ACC]** acceptance-only (already built/deployed — needs live acceptance, not
 re-implementation) · **[IMPL]** implementation work · **[DES]** design-first.
 
-## Current canonical order — 24 August 2026
+## Current rescue gate and canonical order — 30 August 2026
 
-This is the live queue. The dated package under
+The 30-August rescue operation is a bounded recovery of customer actionability,
+runtime reliability, CI duration and release/audit integrity. It is not a new
+feature programme and it does not erase the frozen item contracts below.
+
+Measured state:
+
+- recovery base `integration/audit-recovery-final-20260826 @ a970def2`; rescue
+  changes are committed in separate candidate PRs but remain unmerged, unshipped
+  and **not Live**;
+- production source identity reconciled to `47d9bb39`; the after-the-fact
+  `v2026.08.26-2` CHANGELOG record is present with zero acceptance credit, while
+  its non-backdated annotated tag remains pending Integration;
+- R2 entitlement and read integrity are restored; the controlled write/read/delete
+  canary remains open;
+- the historical production report/snapshot/PDF trace is authentic and exposed
+  customer-actionability, report-ordering and Phase-5 runtime failures;
+- historical rescue evidence records that the first runtime Phase-5 candidate
+  failed Governance review and corrected A1 v2 also received an independent
+  **FAIL** on true whole-invocation enforcement and physical-budget telemetry
+  provenance. Subsequent bounded runtime, evidence-admission, DSE and CX
+  correctives have focused and independent review evidence in candidate PRs. The
+  explicit DSE `finding_type`, severity and canonical-domain admission blocker is
+  closed only in candidate bytes; none of this is Live. Integration, required CI,
+  production proof and release acceptance remain open;
+- the current evidence-admission convergence keeps CAA, HSTS and DNSSEC as
+  observations with no action; admits only definitive-absent MTA-STS as a low
+  actionable finding; and keeps the observed CSP `style-src 'unsafe-inline'`
+  shape low/observation/no-action. These are candidate contracts, not Live facts;
+- the prior serial developer-blocking CI path measured a 28.73-minute median and
+  30.10-minute p95. PR #451 merged fail-closed sharding to `main` without deleting
+  assurance; natural cold/cache-miss proof, the required `main` timing sample set
+  and full release acceptance remain open;
+- two `scan_completed` rows for one scan exposed an open audit exactly-once and
+  scan-owner scoping defect. Existing append-only rows remain untouched.
+- the preserved P1 audit measured a bidirectional false-conclusion inventory of
+  **43 producers** at its dated evidence boundary. This is a historical measured
+  fact, not a claim that the current producer count is still 43; remeasurement
+  remains part of the preserved P1 work after the rescue gate.
+
+Execute only this order:
+
+```text
+[freeze the exact rescue candidate + keep docs and feature changes disjoint]
+→ [bounded evidence-admission / runtime / CX corrective
+   + scan-completion audit exactly-once corrective]
+|| [risk-based local/PR CI sharding + independent mutation/release assurance]
+→ [integration; focused, tenant/security and full sharded gates
+   within the measured duration boundaries]
+→ [exact-candidate Governance audit-recovery decision]
+→ [Executive release preparation, merge/deploy/rollback proof and
+   company-controlled production proof only if every required gate is green]
+→ [resume the preserved P1 / FD-007 / full FD-008 / Items 12–18
+   + Item 19 sequence below]
+```
+
+Production/customer state remains `HOLD`. No new scanner breadth, migration,
+customer activation, pilot, public claim, broad cleanup, GTR reopening or later
+item mutation is authorised by this rescue order. The separate Founder decisions
+remain public Assisted/Automated language, any material roadmap timebox change and
+the eventual controlled-pilot/customer HOLD boundary.
+
+## Preserved predecessor order — 24 August 2026
+
+This was the immediately preceding queue and remains the preserved source of the
+join and later-item order. The dated package under
 `docs/governance/2026-08-23-gtr7-competitor-first-successor/` is immutable source
 evidence for how this order was reached; it has no current operating authority.
 

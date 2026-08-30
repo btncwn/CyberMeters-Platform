@@ -23,6 +23,17 @@ They are not current operating authority and cannot override this constitution
 or the current roadmap. No new parallel governance constitution, successor
 package or governance chain may be created.
 
+**Founder authority clarification — 30 August 2026:** any governance or decision
+text first written before 1 August 2026 is historical evidence unless a current
+canonical source explicitly re-ratifies the particular rule. An old file's own
+words such as `canonical`, `binding`, `approved` or `current` do not re-activate
+it. This classification changes authority, not history: permanent security and
+data invariants, accepted technical evidence, release facts and technical
+standards remain valid when they are preserved or re-ratified by the current
+engineering, release, pricing or roadmap sources. Historical files are retained
+and cross-referenced; they are not deleted or rewritten merely because their
+former governance authority retired.
+
 ## 1. Canonical order
 
 Apply authority in this order:

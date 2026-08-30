@@ -36,7 +36,7 @@ see `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`.
 - **Cross-source correlation** is canonicalised by `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`. The correct framing is **correlation across eligible evidence producers, mapped to affected customer-facing Cyber MOT areas** — never "correlation across the eight domains". **Cyber Essentials Readiness and Website Security summaries are DERIVED OUTPUTS, not independent corroborating inputs** (a raw HTTP/TLS/header signal enters once; the result maps back to Website Security). **B1** (deterministic Related Changes, pre-beta) is founder-approved and covers a broad producer scope — Attack Surface, Certificates, app-probe/login/admin, Identity Exposure, Email configuration, one bounded Email sender-behaviour rule, Brand Protection, and provenance-safe Shadow IT. The registrable-domain resolver is **UK-scoped (not full-PSL) today** — sufficient for the UK private beta; a full Public Suffix List upgrade is a gated prerequisite before any non-UK customer. **B2 (baselines/unusualness) and B3 (statistical/AI behaviour intelligence) remain DEFERRED** — post-beta and post-revenue respectively, founder-gated.
 - **M7** — Pricing + Billing Alignment — remains the following gate (after the rescoped episode).
 
-Earlier canonical episodes — Alerts Across All Eight Domains and MSP Portfolio Per-Domain State and Trend — are Live. Engineering is closed on the shipped M5 items, but genuine authenticated live-event acceptance remains outstanding for every managed vertical (gate 10 below). This roadmap uses milestone language; for exact release tags, migrations, and deployment IDs see `CHANGELOG.md` and `CLAUDE.md` — they are the source of truth for fast-aging release facts, which are deliberately not duplicated here.
+Earlier canonical episodes — Alerts Across All Eight Domains and MSP Portfolio Per-Domain State and Trend — are Live. Engineering is closed on the shipped M5 items, but genuine authenticated live-event acceptance remains outstanding for every managed vertical (gate 10 below). This roadmap uses milestone language; for exact release tags, migrations, deployment IDs, rollback identities and production proof see `CHANGELOG.md` — the sole source of truth for fast-aging release facts, which are deliberately not duplicated here.
 
 ## Mission
 
@@ -56,6 +56,44 @@ The roadmap is complete when CyberMeters has:
 8. converted at least one external organisation into a paying customer;
 9. established a repeatable acquisition and onboarding process;
 10. prepared an evidence-backed funding and growth application pack.
+
+## Evidence and actions first — Founder acceptance principle (30 August 2026)
+
+CyberMeters' primary product contract is defensible evidence and a usable action,
+not a score. This principle governs the rescue gate and every later customer,
+release-candidate and public-beta acceptance:
+
+```text
+observed signal
+| completed measurement: signal not observed
+| unmeasured / unavailable / insufficient evidence
+→ evidence-led finding state
+→ severity and confidence
+→ canonical remediation and first actions
+→ coverage/method limits
+→ secondary score and trend
+```
+
+- A score never decides whether a signal exists, whether it is admitted as a
+  finding, whether it is visible, or whether the customer receives an action.
+- `score_impact: 0` does not mean “not a finding” or “informational”. A signal
+  that passes its explicit evidence and serviceability contract may be actionable
+  while remaining score-neutral.
+- An unexecuted, unavailable or incomplete measurement is never absent or healthy;
+  it remains `unknown`, `incomplete`, `unavailable` or the equivalent canonical
+  fail-closed state.
+- Customer reports and primary screens show the strongest defensible evidence,
+  findings and first three canonical actions before coverage/confidence detail;
+  the compatible score and trend are a secondary summary shown afterwards.
+- Acceptance requires a customer to understand what was observed, why it matters,
+  what to do first and how CyberMeters will verify the outcome. A numerically
+  plausible score cannot compensate for missing evidence, suppressed findings or
+  an absent canonical action.
+
+This principle does not itself change the historical scoring methodology, add a
+ninth domain, promote every observation, or mark rescue code deployed. Producer-
+specific evidence admission, backward compatibility and release proof remain
+mandatory.
 
 ## First paying customer definition
 
