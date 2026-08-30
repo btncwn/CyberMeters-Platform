@@ -452,49 +452,12 @@ function overallEvidenceStrength(w, assertions) {
 function sectionOverall(w, snap) {
   const o = snap.overall || {};
   const bri = o.business_risk_indicator || {};
-  const ec0 = o.evidence_completeness || {};
   w.callout("How to read this report", HOW_TO_READ_REPORT);
   overallEvidenceStrength(w, [
     o.evidence_grade,
     o.assessment_evidence_grade,
     bri.evidence_grade,
   ]);
-  // Explanation first, number second.
-  evidenceBasisLine(w, "Score basis", o.assessment_evidence_grade);
-  const scoreText = o.cyber_metrics_score == null
-    ? "Not available for this assessment"
-    : `${o.cyber_metrics_score} / 100`;
-  w.text(`${o.assessment?.provisional ? "Provisional Score" : "Cyber Metrics Score"}: ${scoreText}`, { size: 14, bold: true });
-  if (o.score_band) w.text(`CyberMeters assessment band: ${o.score_band}`, { size: 11 });
-  if (o.assessment?.message) w.prose(customerBodyText(o.assessment.message), { size: 9, color: "0.45 0.35 0.10" });
-  w.gap(4);
-  // Coverage is incomplete when the snapshot's OWN frozen facts say so: a non-complete
-  // scan quality, any skipped module, or any domain still needing further evidence /
-  // customer input / monitoring. This reads only frozen snapshot facts — it never
-  // recomputes the score or band.
-  const coverageIncomplete =
-    (ec0.scan_quality && ec0.scan_quality !== "complete") ||
-    (ec0.assessment_quality && ec0.assessment_quality !== "complete") ||
-    (ec0.monitoring_state && ec0.monitoring_state !== "monitoring_healthy") ||
-    (Array.isArray(ec0.modules_skipped) && ec0.modules_skipped.length > 0) ||
-    (Array.isArray(o.not_fully_assessed) && o.not_fully_assessed.length > 0);
-  evidenceBasisLine(w, "Business Risk Indicator basis", bri.evidence_grade);
-  if (bri.band) {
-    // An indicator: band + explanation. Never a second numeric score.
-    w.text(`Business Risk Indicator: ${String(bri.band).toUpperCase()}`, { size: 11, bold: true });
-    // Evidence-honest narrative. The band is a frozen indicator; the EXPLANATION must
-    // not imply a complete absence of gaps when the frozen evidence is incomplete. When
-    // coverage is incomplete we present an evidence-bounded statement instead of the
-    // frozen (unqualified) "no major gaps" summary — no scoring change, frozen facts only.
-    if (coverageIncomplete) {
-      w.proseKeep("No major gaps were identified in the evidence available. Coverage is incomplete - some checks did not run or still need customer input - so this provisional indicator is not confirmation that no other material gaps exist.", { size: 9 });
-    } else if (bri.explanation) {
-      w.proseKeep(customerBodyText(bri.explanation), { size: 9 });
-    }
-  } else if (bri.provisional) {
-    w.text("Business Risk Indicator: NOT AUTHORITATIVE", { size: 11, bold: true });
-    if (bri.explanation) w.proseKeep(customerBodyText(bri.explanation), { size: 9 });
-  }
   if (o.summary) {
     w.gap(2);
     evidenceBasisLine(w, "Eight-domain summary basis", o.evidence_grade);
@@ -536,6 +499,51 @@ function sectionOverall(w, snap) {
       `Monitoring coverage: ${[...new Set(monitoringLimitations)].join(" ")}`,
       { size: 9, color: "0.45 0.35 0.10" }
     );
+  }
+}
+
+// Evidence and actions lead the report. The frozen score and assessment band are
+// rendered only after findings and canonical remediation; this is presentation
+// order only and never recalculates or reclassifies snapshot facts.
+function sectionAssessmentScore(w, snap) {
+  const o = snap.overall || {};
+  const bri = o.business_risk_indicator || {};
+  const ec0 = o.evidence_completeness || {};
+  w.heading("Assessment Score");
+  evidenceBasisLine(w, "Score basis", o.assessment_evidence_grade);
+  const scoreText = o.cyber_metrics_score == null
+    ? "Not available for this assessment"
+    : `${o.cyber_metrics_score} / 100`;
+  w.text(`${o.assessment?.provisional ? "Provisional Score" : "Cyber Metrics Score"}: ${scoreText}`, { size: 14, bold: true });
+  if (o.score_band) w.text(`CyberMeters assessment band: ${o.score_band}`, { size: 11 });
+  if (o.assessment?.message) w.prose(customerBodyText(o.assessment.message), { size: 9, color: "0.45 0.35 0.10" });
+  w.gap(4);
+  // Coverage is incomplete when the snapshot's OWN frozen facts say so: a non-complete
+  // scan quality, any skipped module, or any domain still needing further evidence /
+  // customer input / monitoring. This reads only frozen snapshot facts — it never
+  // recomputes the score or band.
+  const coverageIncomplete =
+    (ec0.scan_quality && ec0.scan_quality !== "complete") ||
+    (ec0.assessment_quality && ec0.assessment_quality !== "complete") ||
+    (ec0.monitoring_state && ec0.monitoring_state !== "monitoring_healthy") ||
+    (Array.isArray(ec0.modules_skipped) && ec0.modules_skipped.length > 0) ||
+    (Array.isArray(o.not_fully_assessed) && o.not_fully_assessed.length > 0);
+  evidenceBasisLine(w, "Business Risk Indicator basis", bri.evidence_grade);
+  if (bri.band) {
+    // An indicator: band + explanation. Never a second numeric score.
+    w.text(`Business Risk Indicator: ${String(bri.band).toUpperCase()}`, { size: 11, bold: true });
+    // Evidence-honest narrative. The band is a frozen indicator; the EXPLANATION must
+    // not imply a complete absence of gaps when the frozen evidence is incomplete. When
+    // coverage is incomplete we present an evidence-bounded statement instead of the
+    // frozen (unqualified) "no major gaps" summary — no scoring change, frozen facts only.
+    if (coverageIncomplete) {
+      w.proseKeep("No major gaps were identified in the evidence available. Coverage is incomplete - some checks did not run or still need customer input - so this provisional indicator is not confirmation that no other material gaps exist.", { size: 9 });
+    } else if (bri.explanation) {
+      w.proseKeep(customerBodyText(bri.explanation), { size: 9 });
+    }
+  } else if (bri.provisional) {
+    w.text("Business Risk Indicator: NOT AUTHORITATIVE", { size: 11, bold: true });
+    if (bri.explanation) w.proseKeep(customerBodyText(bri.explanation), { size: 9 });
   }
 }
 
@@ -1330,6 +1338,7 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
   sectionDmarcPolicy(w, dmarcPresentation);
   sectionFindings(w, snap);
   sectionRemediation(w, snap);
+  sectionAssessmentScore(w, snap);
   sectionRelatedChanges(w, relatedChanges, { reportSubjectDomain: s.domain || scan?.domain || null });
   sectionMethodology(w, snap);
   sectionEvidenceGradeAppendix(w, snap);
@@ -1413,6 +1422,7 @@ export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding
         buildDmarcPolicyPresentation(r.dmarcPolicy);
       sectionDmarcPolicy(w, dmarcPresentation);
       sectionRemediation(w, r.snapshot);
+      sectionAssessmentScore(w, r.snapshot);
       sectionMethodology(w, r.snapshot);
       sectionEvidenceGradeAppendix(w, r.snapshot);
       sectionDmarcTechnicalAppendix(w, dmarcPresentation);

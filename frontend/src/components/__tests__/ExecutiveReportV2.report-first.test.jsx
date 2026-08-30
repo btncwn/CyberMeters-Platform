@@ -8,6 +8,8 @@ import { CYBER_MOT_DISPLAY_ORDER } from '../../lib/cyberMotDisplay'
 import { composeSnapshot } from '../../../../workers/scan-api/src/engines/report-snapshot.js'
 import { buildExecutiveReportV2 } from '../../../../workers/scan-api/src/engines/executive-report.js'
 import { buildDseFindings } from '../../../../workers/scan-api/src/engines/dse-findings.js'
+import { computeScore } from '../../../../workers/scan-api/src/engines/scoring.js'
+import { normalizeFindingSchema } from '../../../../workers/scan-api/src/engines/findings.js'
 
 const repoRoot = process.env.B2B_PROOF_REPO_ROOT ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
@@ -155,6 +157,33 @@ const rawDseFinding = (findingId, evidence) => {
   return row
 }
 
+const cspProducer = (policy) => {
+  const modules = {
+    ...completeModules(),
+    dns: { resolves: true, has_mx: true },
+    ssl: { https_available: true, https_probe_executed: true },
+    headers: {
+      accessible: true,
+      final_https: true,
+      validation_uncertain: false,
+      status_code: 200,
+      response_url: 'https://example.test/',
+      values: {
+        'strict-transport-security': 'max-age=31536000; includeSubDomains',
+        'content-security-policy': policy,
+        'x-frame-options': 'DENY',
+        'x-content-type-options': 'nosniff',
+        'referrer-policy': 'no-referrer',
+        'permissions-policy': 'geolocation=()',
+      },
+    },
+  }
+  const scored = computeScore(modules, 'example.test')
+  const produced = scored.findings.find((row) => row.id === 'csp_weak_policy')
+  if (!produced) throw new Error(`CSP producer did not emit csp_weak_policy for ${policy}`)
+  return { modules, score: scored.score, finding: normalizeFindingSchema(produced) }
+}
+
 const hstsFinding = rawDseFinding('dse_hsts_short_maxage', dseEvidence({ shortHsts: true }))
 const sameSiteFinding = rawDseFinding('dse_cookie_no_samesite', dseEvidence({ noSameSite: true }))
 
@@ -230,6 +259,8 @@ describe('ExecutiveReportV2 report-first corrective', () => {
 
     const text = container.textContent
     expect(text.indexOf('Priority Actions')).toBeLessThan(text.indexOf('Email Protection'))
+    expect(text.indexOf('Recommended Actions')).toBeLessThan(text.indexOf('Assessment Score'))
+    expect(text.indexOf('Fourth action')).toBeLessThan(text.indexOf('81'))
     expect(screen.getByText('81')).toBeInTheDocument()
   })
 
@@ -379,6 +410,91 @@ describe('ExecutiveReportV2 report-first corrective', () => {
     expect(within(observations).getByText('Critical CSP observation control')).toBeInTheDocument()
     expect(within(observations).getByLabelText('Observation severity: critical')).toHaveTextContent('critical')
     expect(screen.queryByText('Priority Actions')).not.toBeInTheDocument()
+  })
+
+  it('renders the real dangerous script/default CSP chain and keeps style-only CSP non-authoritative', () => {
+    const dangerous = cspProducer("default-src 'self'; script-src 'unsafe-inline'")
+    const candidate = b3ReportFixture('dangerous-csp', {
+      findings: [dangerous.finding],
+      mutateReport: (report) => {
+        report.modules = dangerous.modules
+        report.cyber_metrics_score = dangerous.score
+      },
+    })
+    const snapshotFinding = candidate.snapshot.observed_findings
+      .find((row) => row.finding_id === 'csp_weak_policy')
+    const executiveFinding = candidate.report.observed_findings
+      .find((row) => row.finding_id === 'csp_weak_policy')
+    expect(dangerous.finding).toMatchObject({
+      finding_type: 'finding',
+      severity: 'medium',
+      confidence: 90,
+    })
+    expect(websiteDomain(candidate)).toMatchObject({
+      state: 'issue_detected',
+      finding_count: 1,
+      finding_ids: ['csp_weak_policy'],
+    })
+    expect(candidate.report.remediation_actions
+      .filter((action) => action.remediation_id === 'web.header.csp')).toHaveLength(1)
+    expect(snapshotFinding.confidence).toBe(dangerous.finding.confidence)
+    expect(snapshotFinding.evidence_grade.grade).toBe('L1')
+    expect(executiveFinding).toEqual(snapshotFinding)
+
+    const { container } = render(<ExecutiveReportV2 report={candidate.report} />)
+    const findings = screen.getByText('Observed Findings').closest('section')
+    expect(within(findings).getByText('Weak Content Security Policy')).toBeInTheDocument()
+    expect(within(findings).getByLabelText('Severity: medium')).toHaveTextContent('medium')
+    expect(within(findings).getByText('Confidence: 90')).toBeInTheDocument()
+    expect(within(findings).getByText('Evidence grade: L1')).toBeInTheDocument()
+    expect(screen.getAllByText('Add or strengthen the Content Security Policy')).toHaveLength(2)
+    expect(container.textContent.indexOf('Add or strengthen the Content Security Policy'))
+      .toBeLessThan(container.textContent.indexOf('Assessment Score'))
+
+    const styleOnly = cspProducer("default-src 'self'; script-src 'self'; style-src 'unsafe-inline'")
+    const styleCandidate = b3ReportFixture('style-only-csp', {
+      findings: [styleOnly.finding],
+      mutateReport: (report) => {
+        report.modules = styleOnly.modules
+        report.cyber_metrics_score = styleOnly.score
+      },
+    })
+    expect(styleOnly.finding).toMatchObject({ finding_type: 'observation', severity: 'low' })
+    expect(websiteDomain(styleCandidate)).toMatchObject({ finding_count: 0, finding_ids: [] })
+    expect(styleCandidate.snapshot.observed_findings).toHaveLength(0)
+    expect(styleCandidate.snapshot.observations
+      .filter((row) => row.finding_id === 'csp_weak_policy')).toHaveLength(1)
+    expect(styleCandidate.report.remediation_actions
+      .filter((action) => action.remediation_id === 'web.header.csp')).toHaveLength(0)
+  })
+
+  it('renders the real positive MTA-STS Executive chain with exact metadata and no frontend derivation', () => {
+    const candidate = loadB2bCustomerProof('b2c-cx')
+    const finding = candidate.snapshot_findings[0]
+    expect(candidate.report_findings).toHaveLength(1)
+    expect(candidate.email_domain).toMatchObject({
+      state: 'issue_detected',
+      finding_count: 1,
+      finding_ids: ['email_intel_mta_sts_missing'],
+    })
+    expect(candidate.actions).toHaveLength(1)
+    expect(candidate.executive.observed_findings
+      .filter((row) => row.finding_id === finding.finding_id)).toEqual([finding])
+    expect(candidate.executive.remediation_actions
+      .filter((row) => row.remediation_id === 'email.mta_sts.enable')).toHaveLength(1)
+    expect(finding.confidence).toBe(candidate.report_findings[0].confidence)
+    expect(finding.evidence_grade.grade).toBe('L1')
+
+    const { container } = render(<ExecutiveReportV2 report={candidate.executive} />)
+    const findings = screen.getByText('Observed Findings').closest('section')
+    const findingRow = within(findings).getByText('MTA-STS policy not published').closest('li')
+    expect(findingRow).not.toBeNull()
+    expect(within(findingRow).getByLabelText('Severity: low')).toHaveTextContent('low')
+    expect(within(findingRow).getByText(`Confidence: ${finding.confidence}`)).toBeInTheDocument()
+    expect(within(findingRow).getByText(`Evidence grade: ${finding.evidence_grade.grade}`)).toBeInTheDocument()
+    expect(screen.getAllByText('Enable MTA-STS')).toHaveLength(2)
+    expect(container.textContent.indexOf('Enable MTA-STS'))
+      .toBeLessThan(container.textContent.indexOf('Assessment Score'))
   })
 
   it.each([

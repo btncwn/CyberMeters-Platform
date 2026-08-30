@@ -4,14 +4,16 @@ import { buildScanReportPdf } from '../workers/scan-api/src/engines/pdf.js'
 import { composeSnapshot } from '../workers/scan-api/src/engines/report-snapshot.js'
 import { buildExecutiveReportV2 } from '../workers/scan-api/src/engines/executive-report.js'
 import { buildDseFindings } from '../workers/scan-api/src/engines/dse-findings.js'
+import { computeScore } from '../workers/scan-api/src/engines/scoring.js'
+import { normalizeFindingSchema } from '../workers/scan-api/src/engines/findings.js'
 
 let passed = 0
 let failed = 0
-const ok = (name, condition) => {
+const ok = (name, condition, detail = null) => {
   if (condition) passed += 1
   else {
     failed += 1
-    console.error(`FAIL ${name}`)
+    console.error(`FAIL ${name}${detail == null ? '' : `: ${JSON.stringify(detail)}`}`)
   }
 }
 
@@ -94,6 +96,35 @@ const rawDseFinding = (findingId, evidence) => {
     .find((finding) => finding.id === findingId)
   if (!row) throw new Error(`B1 producer did not emit ${findingId}`)
   return row
+}
+
+const cspProducer = (policy) => {
+  const modules = {
+    ...completeModules(),
+    dns: { resolves: true, has_mx: true },
+    ssl: { https_available: true, https_probe_executed: true },
+    headers: {
+      accessible: true,
+      final_https: true,
+      validation_uncertain: false,
+      status_code: 200,
+      response_url: 'https://example.test/',
+      values: {
+        'strict-transport-security': 'max-age=31536000; includeSubDomains',
+        'content-security-policy': policy,
+        'x-frame-options': 'DENY',
+        'x-content-type-options': 'nosniff',
+        'referrer-policy': 'no-referrer',
+        'permissions-policy': 'geolocation=()',
+      },
+    },
+  }
+  const scored = computeScore(modules, 'example.test')
+  const produced = scored.findings.find((row) => row.id === 'csp_weak_policy')
+  if (!produced) throw new Error(`CSP producer did not emit csp_weak_policy for ${policy}`)
+  // The real engine normalises the producer row before report assembly.
+  const finding = normalizeFindingSchema(produced)
+  return { modules, score: scored.score, finding }
 }
 
 const baseB3Report = ({ findings = [], quality = 'complete' } = {}) => ({
@@ -227,6 +258,7 @@ const normalizedPlain = plain.replace(/\s+/g, ' ')
 const priorityStart = plain.indexOf('Priority Actions (3)')
 const domainsStart = plain.indexOf('Eight-Domain Cyber MOT')
 const recommendedStart = plain.indexOf('Recommended Actions (4)')
+const assessmentScoreStart = plain.indexOf('Assessment Score')
 const priorityBlock = plain.slice(priorityStart, domainsStart)
 const recommendedBlock = plain.slice(recommendedStart)
 
@@ -235,6 +267,10 @@ ok('priority section contains canonical actions one to three',
   ['First action', 'Second action', 'Third action'].every((title) => priorityBlock.includes(title)))
 ok('priority section excludes the fourth action', !priorityBlock.includes('Fourth action'))
 ok('full action list remains present', recommendedStart >= 0 && recommendedBlock.includes('Fourth action'))
+ok('numeric score and assessment band follow evidence, findings and the full action list',
+  assessmentScoreStart > recommendedStart &&
+  plain.indexOf('Provisional Score: 81 / 100') > recommendedStart &&
+  plain.indexOf('CyberMeters assessment band: good') > recommendedStart)
 ok('observation severity remains visible without reclassification', plain.includes('[CRITICAL] Critical observation'))
 ok('finding confidence and evidence grade are rendered verbatim',
   plain.includes('Confidence: 91 - Evidence grade: L1'))
@@ -304,6 +340,8 @@ ok('empty priority summary is omitted while the full empty-state remains',
 // row is authored in this carrier.
 const hstsFinding = rawDseFinding('dse_hsts_short_maxage', dseEvidence({ shortHsts: true }))
 const sameSiteFinding = rawDseFinding('dse_cookie_no_samesite', dseEvidence({ noSameSite: true }))
+const dangerousCsp = cspProducer("default-src 'self'; script-src 'unsafe-inline'")
+const styleOnlyCsp = cspProducer("default-src 'self'; script-src 'self'; style-src 'unsafe-inline'")
 const criticalObservation = {
   id: 'csp_weak_policy',
   finding_type: 'observation',
@@ -398,6 +436,56 @@ ok('B3 critical observation remains explicitly labelled in Executive/PDF without
   observationOnly.executive.observed_findings.length === 0 &&
   observationOnly.pdfText.includes('[CRITICAL] Critical CSP observation control') &&
   observationOnly.pdfText.includes('Conclusion: Assessed - no material issue observed'))
+
+const dangerousCspCase = composeB3Case('dangerous-csp', {
+  findings: [dangerousCsp.finding],
+  mutateReport: (report) => {
+    report.modules = dangerousCsp.modules
+    report.cyber_metrics_score = dangerousCsp.score
+  },
+})
+const dangerousCspWebsite = websiteDomain(dangerousCspCase.snapshot)
+const dangerousCspSnapshotFinding = dangerousCspCase.snapshot.observed_findings
+  .find((row) => row.finding_id === 'csp_weak_policy')
+const dangerousCspExecutiveFinding = dangerousCspCase.executive.observed_findings
+  .find((row) => row.finding_id === 'csp_weak_policy')
+ok('CX-A dangerous script/default CSP real producer owns Website issue/count/id and one action',
+  dangerousCsp.finding.finding_type === 'finding' && dangerousCsp.finding.severity === 'medium' &&
+  dangerousCsp.finding.confidence === 90 &&
+  dangerousCspWebsite?.state === 'issue_detected' && dangerousCspWebsite?.finding_count === 1 &&
+  JSON.stringify(dangerousCspWebsite?.finding_ids) === '["csp_weak_policy"]' &&
+  actionCount(dangerousCspCase, 'web.header.csp') === 1)
+ok('CX-A CSP confidence and evidence grade remain exact through snapshot and Executive',
+  dangerousCspSnapshotFinding?.confidence === dangerousCsp.finding.confidence &&
+  Boolean(dangerousCspSnapshotFinding?.evidence_grade?.grade) &&
+  JSON.stringify(dangerousCspExecutiveFinding) === JSON.stringify(dangerousCspSnapshotFinding), {
+    producerConfidence: dangerousCsp.finding.confidence,
+    snapshot: dangerousCspSnapshotFinding,
+    executive: dangerousCspExecutiveFinding,
+  })
+ok('CX-A dangerous CSP PDF renders exact finding metadata and canonical action before score',
+  dangerousCspCase.pdfText.includes('[MEDIUM] Weak Content Security Policy') &&
+  dangerousCspCase.pdfText.includes(`Confidence: ${dangerousCsp.finding.confidence} - Evidence grade: ${dangerousCspSnapshotFinding.evidence_grade.grade}`) &&
+  dangerousCspCase.pdfText.includes('Add or strengthen the Content Security Policy') &&
+  dangerousCspCase.pdfText.indexOf('Add or strengthen the Content Security Policy') <
+    dangerousCspCase.pdfText.indexOf('Assessment Score'), {
+      grade: dangerousCspSnapshotFinding?.evidence_grade?.grade,
+      actionTitles: dangerousCspCase.snapshot.remediation_actions.map((row) => row.title),
+    })
+
+const styleOnlyCspCase = composeB3Case('style-only-csp', {
+  findings: [styleOnlyCsp.finding],
+  mutateReport: (report) => {
+    report.modules = styleOnlyCsp.modules
+    report.cyber_metrics_score = styleOnlyCsp.score
+  },
+})
+ok('CX-A real style-only CSP remains an observation with no issue or action authority',
+  styleOnlyCsp.finding.finding_type === 'observation' && styleOnlyCsp.finding.severity === 'low' &&
+  websiteDomain(styleOnlyCspCase.snapshot)?.finding_count === 0 &&
+  styleOnlyCspCase.snapshot.observed_findings.length === 0 &&
+  styleOnlyCspCase.snapshot.observations.some((row) => row.finding_id === 'csp_weak_policy') &&
+  actionCount(styleOnlyCspCase, 'web.header.csp') === 0)
 
 const absentRequired = composeB3Case('absent-required', {
   mutateReport: (report) => { delete report.modules.headers },

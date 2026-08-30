@@ -549,6 +549,38 @@ function b2bCustomerOutput(t, { includeExecutive = false, includePdf = false } =
   };
 }
 
+function mtaCustomerOutput(t, { includeExecutive = false, includePdf = false } = {}) {
+  const scan = {
+    id: t.report?.scan_id ?? "scan-em",
+    domain_id: t.report?.domain_id ?? "dom",
+    domain: t.report?.domain ?? "example.com",
+  };
+  const read = {
+    snapshot: t.snapshot,
+    row: { id: t.snapshot?.snapshot?.snapshot_id ?? null },
+    integrity: { verified: true },
+  };
+  const executive = includeExecutive ? buildExecutiveReportV2({ scan, read }) : null;
+  const pdfText = includePdf ? pdfPlainText(buildScanReportPdf(scan, read)) : null;
+  const findingId = "email_intel_mta_sts_missing";
+  return {
+    report_findings: (t.report?.findings || []).filter((finding) => finding.id === findingId),
+    email_domain: (t.snapshot?.domains || [])
+      .find((domain) => domain.domain_key === "email_protection") || null,
+    snapshot_findings: (t.snapshot?.observed_findings || [])
+      .filter((finding) => finding.finding_id === findingId),
+    actions: (t.snapshot?.remediation_actions || [])
+      .filter((action) => action.remediation_id === "email.mta_sts.enable"),
+    historical: t.historical,
+    ...(includeExecutive ? { executive } : {}),
+    ...(includePdf ? { pdf_text: pdfText } : {}),
+    score: t.report?.cyber_metrics_score ?? null,
+    paired_score_control: computeScore(t.report?.modules || {}, scan.domain).score,
+    score_methodology: t.snapshot?.methodology?.cyber_metrics_score_methodology_version ?? null,
+    resolver_version: t.snapshot?.methodology?.cyber_mot_resolver_version ?? null,
+  };
+}
+
 const PRIOR_CRITICAL_CERTIFICATE_FINDING = Object.freeze({
   id: "certificate_expiring_critical",
   module: "certificate_intelligence",
@@ -798,6 +830,10 @@ if (childArg) {
         bridge.includes('source: "cloudflare_workers_fetch"'),
       tlsRptExcluded: !bridge.includes("email_intel_tls_rpt_missing"),
     };
+  }
+  else if (mode === "b2c-cx") {
+    const t = await trace("mta-missing", { deterministicProof: true, previousFindings: [] });
+    out = mtaCustomerOutput(t, { includeExecutive: true, includePdf: true });
   }
   else if (mode === "b2d-contract") {
     const scanEngineSource = fs.readFileSync(fileURLToPath(scanEngineUrl), "utf8");
@@ -1186,6 +1222,29 @@ ok("B3c: low MTA finding owns Email state and one canonical action",
       finding.finding_id === priorMtaStsFinding.id).length === 1 &&
     mtaMissing.snapshot?.remediation_actions?.filter((action) =>
       action.remediation_id === "email.mta_sts.enable").length === 1);
+const mtaCx = mtaCustomerOutput(mtaMissing, { includeExecutive: true, includePdf: true });
+const mtaSnapshotFinding = mtaCx.snapshot_findings[0];
+const mtaExecutiveFinding = mtaCx.executive?.observed_findings?.find((finding) =>
+  finding.finding_id === priorMtaStsFinding.id);
+ok("B3c CX: positive MTA producer reaches one exact Executive finding and action",
+  mtaCx.report_findings.length === 1 && mtaCx.snapshot_findings.length === 1 &&
+    mtaCx.email_domain?.state === "issue_detected" &&
+    mtaCx.email_domain?.finding_count === 1 &&
+    JSON.stringify(mtaCx.email_domain?.finding_ids) === '["email_intel_mta_sts_missing"]' &&
+    mtaCx.actions.length === 1 &&
+    mtaCx.executive?.remediation_actions?.filter((action) =>
+      action.remediation_id === "email.mta_sts.enable").length === 1);
+ok("B3c CX: MTA confidence and evidence grade stay exact from report/snapshot to Executive",
+  mtaSnapshotFinding?.confidence === mtaCx.report_findings[0]?.confidence &&
+    Boolean(mtaSnapshotFinding?.evidence_grade?.grade) &&
+    JSON.stringify(mtaExecutiveFinding) === JSON.stringify(mtaSnapshotFinding));
+ok("B3c CX: MTA PDF renders exact finding metadata and canonical action before score",
+  mtaCx.pdf_text?.includes("[LOW] MTA-STS policy not published") &&
+    mtaCx.pdf_text?.includes(
+      `Confidence: ${mtaSnapshotFinding?.confidence} - Evidence grade: ${mtaSnapshotFinding?.evidence_grade?.grade}`,
+    ) &&
+    mtaCx.pdf_text?.includes("Enable MTA-STS") &&
+    mtaCx.pdf_text.indexOf("Enable MTA-STS") < mtaCx.pdf_text.indexOf("Assessment Score"));
 ok("B3c: TLS-RPT module observations never enter main findings or actions",
   !(mtaMissing.report?.findings || []).some((finding) =>
     finding.id === "email_intel_tls_rpt_missing") &&

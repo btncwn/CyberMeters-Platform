@@ -322,7 +322,7 @@ export default function ExecutiveReportV2({ report }) {
 
   return (
     <div className="space-y-5">
-      {/* Header: identity + one score + the indicator */}
+      {/* Header: identity, evidence and coverage. Findings/actions lead the score. */}
       <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
         <HowToReadReport />
         <EvidenceStrengthSummary
@@ -333,7 +333,7 @@ export default function ExecutiveReportV2({ report }) {
           ]}
           className="mt-4"
         />
-        <div className="mt-4 flex flex-wrap items-start justify-between gap-6">
+        <div className="mt-4">
           <div className="min-w-0">
             {branding?.logo
               ? <img src={branding.logo} alt={branding.company_name || 'logo'} className="h-8 mb-2 object-contain" />
@@ -346,19 +346,6 @@ export default function ExecutiveReportV2({ report }) {
                 Reconstructed on {fmtDate(report.generated_at)} from the evidence recorded at assessment time.
               </p>
             )}
-            {cms.message && <p className="text-xs text-amber-600 mt-2">{customerEvidenceText(cms.message)}</p>}
-            <EvidenceBasis label="Score basis" assertion={cms.evidence_grade} className="mt-3 max-w-xl" />
-          </div>
-          <div className="flex items-center gap-8">
-            <ScoreRing score={cms.value} rating={cms.rating} />
-            <div className="max-w-xs">
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Business Risk Indicator</p>
-              <EvidenceBasis label="Business Risk Indicator basis" assertion={bri.evidence_grade} className="mb-2" />
-              {bri.band
-                ? <span className={`text-xs font-bold px-3 py-1 rounded-full border ${BRI_PILL[bri.band] || 'bg-gray-100 text-gray-500 border-gray-200'}`}>{String(bri.band).toUpperCase()}</span>
-                : <span className="text-xs text-gray-400">Not available</span>}
-              {bri.explanation && <p className="text-xs text-gray-500 mt-2 leading-relaxed">{customerEvidenceText(bri.explanation)}</p>}
-            </div>
           </div>
         </div>
         {summary.summary && (
@@ -402,6 +389,27 @@ export default function ExecutiveReportV2({ report }) {
       <SectionCard icon={Target} title="Recommended Actions" count={report.remediation_actions?.length ?? 0}>
         <ActionList items={report.remediation_actions} />
       </SectionCard>
+
+      <section aria-labelledby="assessment-score-heading" className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
+        <h3 id="assessment-score-heading" className="text-sm font-bold text-gray-900">Assessment Score</h3>
+        <div className="mt-4 flex flex-wrap items-start justify-between gap-6">
+          <div className="max-w-xl">
+            {cms.message && <p className="text-xs text-amber-600">{customerEvidenceText(cms.message)}</p>}
+            <EvidenceBasis label="Score basis" assertion={cms.evidence_grade} className="mt-2" />
+          </div>
+          <div className="flex items-center gap-8">
+            <ScoreRing score={cms.value} rating={cms.rating} />
+            <div className="max-w-xs">
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Business Risk Indicator</p>
+              <EvidenceBasis label="Business Risk Indicator basis" assertion={bri.evidence_grade} className="mb-2" />
+              {bri.band
+                ? <span className={`text-xs font-bold px-3 py-1 rounded-full border ${BRI_PILL[bri.band] || 'bg-gray-100 text-gray-500 border-gray-200'}`}>{String(bri.band).toUpperCase()}</span>
+                : <span className="text-xs text-gray-400">Not available</span>}
+              {bri.explanation && <p className="text-xs text-gray-500 mt-2 leading-relaxed">{customerEvidenceText(bri.explanation)}</p>}
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Methodology + limitations — honesty footer */}
       <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">

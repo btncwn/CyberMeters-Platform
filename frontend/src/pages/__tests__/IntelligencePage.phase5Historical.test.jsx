@@ -62,6 +62,7 @@ const historicalChanges = (overrides = {}) => ({
   removed_subdomains: [],
   new_findings: [{ title: 'Claimed New Finding' }],
   resolved_findings: [{ title: 'Claimed Resolved Finding' }],
+  not_reobserved_findings: [],
   new_takeover_risks: [],
   new_exposed_assets: [],
   ...overrides,
@@ -211,6 +212,34 @@ describe('IntelligencePage canonical assessment and history presentation', () =>
     expect(within(history).getByText('New comparable finding')).toBeInTheDocument()
     expect(within(history).getByText('Resolved comparable finding')).toBeInTheDocument()
     expect(within(history).getByText('old.intelligence.example')).toBeInTheDocument()
+  })
+
+  it('D2: unavailable DMARC is neutral not re-observed evidence and never Resolved', async () => {
+    const report = reportFixture({
+      assessment: COMPLETE_ASSESSMENT,
+      modules: {
+        historical_changes: historicalChanges({
+          comparable: true,
+          new_findings: [],
+          resolved_findings: [],
+          not_reobserved_findings: [{
+            id: 'email_dmarc_policy_none',
+            title: 'DMARC policy remains in monitoring mode',
+          }],
+          new_subdomains: [],
+          removed_subdomains: [],
+          new_takeover_risks: [],
+          new_exposed_assets: [],
+        }),
+      },
+    })
+    await renderFixture({ report })
+
+    const history = cardForHeading('Changes Since Last Scan')
+    expect(within(history).getByText('Not re-observed')).toBeInTheDocument()
+    expect(within(history).getByText('DMARC policy remains in monitoring mode')).toBeInTheDocument()
+    expect(within(history).queryByText('Resolved Findings')).not.toBeInTheDocument()
+    expect(within(history).queryByText(/No changes detected/i)).not.toBeInTheDocument()
   })
 
   it('E: comparable false suppresses every historical claim', async () => {

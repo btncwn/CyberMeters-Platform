@@ -372,9 +372,13 @@ function HistoricalComparisonSection({ changes, assessment, scanQuality }) {
   const previousScore = Number.isFinite(changes.previous_score) ? changes.previous_score : null
   const currentScore = Number.isFinite(changes.current_score) ? changes.current_score : null
   const scoreDelta = Number.isFinite(changes.score_change) ? changes.score_change : null
+  const notReobservedFindings = Array.isArray(changes.not_reobserved_findings)
+    ? changes.not_reobserved_findings
+    : []
   const changeGroups = [
     { label: 'New Findings', items: changes.new_findings, tone: 'text-red-700 bg-red-50' },
     { label: 'Resolved Findings', items: changes.resolved_findings, tone: 'text-brand-700 bg-brand-50' },
+    { label: 'Not re-observed', items: notReobservedFindings, tone: 'text-slate-700 bg-slate-100' },
     { label: 'New Subdomains', items: changes.new_subdomains, tone: 'text-amber-700 bg-amber-50' },
     { label: 'Removed Subdomains', items: changes.removed_subdomains, tone: 'text-brand-700 bg-brand-50' },
     { label: 'New Takeover Risks', items: changes.new_takeover_risks, tone: 'text-red-700 bg-red-50' },
