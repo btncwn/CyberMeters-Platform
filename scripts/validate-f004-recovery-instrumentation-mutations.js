@@ -50,7 +50,7 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
 const VALIDATOR = path.join(ROOT, "scripts", "validate-f004-recovery-instrumentation.js");
-const WT_BASE = path.join(ROOT, ".f004-mutation-worktrees");
+const WT_PARENT = path.join(ROOT, ".f004-mutation-worktrees");
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; console.log((cond ? "PASS " : "FAIL ") + name); };
@@ -146,20 +146,106 @@ const MUTANTS = [
   { name: "S5-BIND restore skips the measured source-account binding", file: R, find: BIND_B, repl: T },
 ];
 
+const mutationId = (index) => `F004-M${String(index + 1).padStart(3, "0")}`;
+
+function argumentError(message) {
+  console.error(`f004 mutation runner argument error: ${message}`);
+  process.exit(2);
+}
+
+function parseNonNegativeInteger(raw, option) {
+  if (!/^(0|[1-9][0-9]*)$/.test(String(raw ?? ""))) {
+    argumentError(`${option} must be a canonical non-negative integer`);
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) argumentError(`${option} exceeds the safe integer range`);
+  return value;
+}
+
+function parseArguments(argv) {
+  let list = false;
+  let shardIndex = null;
+  let shardTotal = null;
+  const seen = new Set();
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--list") {
+      if (seen.has("--list")) argumentError("--list may be specified only once");
+      seen.add("--list");
+      list = true;
+      continue;
+    }
+
+    const match = arg.match(/^(--shard-index|--shard-total)(?:=(.*))?$/);
+    if (!match) argumentError(`unknown argument: ${arg}`);
+    const option = match[1];
+    if (seen.has(option)) argumentError(`${option} may be specified only once`);
+    seen.add(option);
+    const raw = match[2] !== undefined ? match[2] : argv[++i];
+    const value = parseNonNegativeInteger(raw, option);
+    if (option === "--shard-index") shardIndex = value;
+    else shardTotal = value;
+  }
+
+  if ((shardIndex === null) !== (shardTotal === null)) {
+    argumentError("--shard-index and --shard-total must be provided together");
+  }
+  if (shardTotal !== null) {
+    if (shardTotal < 1) argumentError("--shard-total must be at least 1");
+    if (shardTotal > MUTANTS.length) {
+      argumentError(`--shard-total cannot exceed the ${MUTANTS.length} registered mutants`);
+    }
+    if (shardIndex >= shardTotal) argumentError("--shard-index must be less than --shard-total");
+  }
+
+  return { list, shardIndex, shardTotal };
+}
+
+const cli = parseArguments(process.argv.slice(2));
+const registeredMutants = MUTANTS.map((mutant, index) => ({
+  ...mutant,
+  id: mutationId(index),
+  index,
+}));
+const selectedMutants = cli.shardTotal === null
+  ? registeredMutants
+  : registeredMutants.filter(({ index }) => index % cli.shardTotal === cli.shardIndex);
+
+if (cli.list) {
+  for (const mutant of selectedMutants) {
+    console.log(`${mutant.id}\t${mutant.index}\t${mutant.file}\t${mutant.name}`);
+  }
+  process.exit(0);
+}
+
+let WT_BASE = WT_PARENT;
+let worktreeSuffix = "";
+if (cli.shardTotal !== null) {
+  fs.mkdirSync(WT_PARENT, { recursive: true });
+  WT_BASE = fs.mkdtempSync(path.join(
+    WT_PARENT,
+    `shard-${cli.shardIndex}-of-${cli.shardTotal}-`,
+  ));
+  // Git derives its administrative worktree key from the checkout's leaf name.
+  // A distinct parent is therefore insufficient: parallel shards must also use
+  // distinct baseline/mutant leaf names.
+  worktreeSuffix = `-${cli.shardIndex}-of-${cli.shardTotal}-${process.pid}`;
+}
+
 fs.rmSync(WT_BASE, { recursive: true, force: true });
 try { git(["worktree", "prune"]); } catch { /* best effort */ }
 fs.mkdirSync(WT_BASE, { recursive: true });
 // Baseline: one throwaway worktree off HEAD must be GREEN before any mutation. All
 // mutant worktrees are identical HEAD checkouts, so a single baseline attributes every
 // later red to its mutation.
-const base = path.join(WT_BASE, "baseline");
+const base = path.join(WT_BASE, `baseline${worktreeSuffix}`);
 git(["worktree", "add", "--detach", "--quiet", base, "HEAD"]);
 const baselineGreen = validatorExit(base) === 0;
 git(["worktree", "remove", "--force", base]);
 ok("baseline worktree is GREEN before any mutation (attribution)", baselineGreen);
-let idx = 0;
-for (const m of MUTANTS) {
-  const wt = path.join(WT_BASE, `wt-${idx++}`);
+for (const m of selectedMutants) {
+  const wt = path.join(WT_BASE, `wt-${m.index}${worktreeSuffix}`);
   let applied = false, killed = false;
   try {
     git(["worktree", "add", "--detach", "--quiet", wt, "HEAD"]);
@@ -174,8 +260,14 @@ for (const m of MUTANTS) {
   ok(`${m.name}: KILLED (validator falls)`, baselineGreen && applied && killed);
 }
 fs.rmSync(WT_BASE, { recursive: true, force: true });
+if (cli.shardTotal !== null) {
+  try { fs.rmdirSync(WT_PARENT); } catch { /* another shard may still own it */ }
+}
 try { git(["worktree", "prune"]); } catch { /* best effort */ }
 
-console.log(`\nF-004 execution-path mutation proof: ${pass}/${pass + fail} passed (${MUTANTS.length} mutants)`);
+const summaryScope = cli.shardTotal === null
+  ? `(${MUTANTS.length} mutants)`
+  : `(${selectedMutants.length} mutants; shard ${cli.shardIndex}/${cli.shardTotal})`;
+console.log(`\nF-004 execution-path mutation proof: ${pass}/${pass + fail} passed ${summaryScope}`);
 if (fail > 0) { console.error("f004 mutation proof FAILED"); process.exit(1); }
 console.log("f004 mutation proof passed");

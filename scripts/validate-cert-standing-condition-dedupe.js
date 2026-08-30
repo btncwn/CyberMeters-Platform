@@ -21,11 +21,15 @@
 // defect and MUST make the contract fail for the intended reason.
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { importMutant, registerMutants } from "./lib/mutant-import.mjs";
+import { wholeSourceFingerprint } from "./run-local-focused-gate.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const certEventsPath = path.join(root, "workers", "scan-api", "src", "engines", "cert-events.js");
+const engineDir = path.dirname(certEventsPath);
 const realMod = await import(pathToFileURL(certEventsPath).href);
 
 let pass = 0, fail = 0;
@@ -34,6 +38,17 @@ const ok = (name, cond, detail = "") => {
   if (!cond) console.log(`FAIL ${name}${detail ? ` — ${detail}` : ""}`);
 };
 const eq = (name, actual, expected) => ok(name, actual === expected, `got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+
+function mutationSurface() {
+  return {
+    source: wholeSourceFingerprint(root),
+    engines: fs.readdirSync(engineDir).sort().join("\n"),
+    git: execFileSync("git", ["status", "--porcelain", "--", "workers", "frontend", "scripts"], {
+      cwd: root,
+      encoding: "utf8",
+    }),
+  };
+}
 
 const PRODUCER = "asset-timeline-trust-v1";
 
@@ -364,7 +379,6 @@ const baseline = await contract(realMod);
 eq("cert standing-condition dedupe contract passes on real source", baseline, null);
 
 if (!process.argv.includes("--no-mutate")) {
-  const original = fs.readFileSync(certEventsPath, "utf8");
   const mutations = [
     {
       name: "re-emit unchanged condition (drop signature comparison)",
@@ -434,29 +448,73 @@ if (!process.argv.includes("--no-mutate")) {
     },
     {
       name: "remove idempotent insert",
-      from: "INSERT OR IGNORE INTO asset_events",
-      to: "INSERT INTO asset_events",
+      from: "INSERT OR IGNORE INTO asset_events\n               (id, workspace_id, domain_id, scan_id, event_type,\n                hostname, severity, description, created_at)\n             VALUES (?, ?, ?, ?, 'certificate_sensitive_host_detected',",
+      to: "INSERT INTO asset_events\n               (id, workspace_id, domain_id, scan_id, event_type,\n                hostname, severity, description, created_at)\n             VALUES (?, ?, ?, ?, 'certificate_sensitive_host_detected',",
       expected: "standing_condition_insert_not_idempotent",
     },
   ];
+  const hookMutations = mutations.map((mutation, index) => ({
+    id: `cert-dedupe-${index + 1}`,
+    from: mutation.from,
+    to: mutation.to,
+  }));
+  const missingAnchorId = "cert-dedupe-anchor-missing-probe";
+  const repeatedAnchorId = "cert-dedupe-anchor-repeated-probe";
+  hookMutations.push({
+    id: missingAnchorId,
+    from: "__CYBERMETERS_INTENTIONAL_MISSING_CERT_DEDUPE_ANCHOR__",
+    to: "__CYBERMETERS_UNREACHABLE_CERT_DEDUPE_REPLACEMENT__",
+  });
+  hookMutations.push({
+    id: repeatedAnchorId,
+    from: "INSERT OR IGNORE INTO asset_events",
+    to: "INSERT INTO asset_events",
+  });
+  registerMutants(hookMutations);
+
   let mutationFailures = 0;
-  // Mutants must sit beside the original so cert-events.js's relative imports
-  // (../lib/*, ./cert-analysis.js, ./cert-intel.js, ./timeline-trust.js) resolve.
-  const engineDir = path.dirname(certEventsPath);
-  for (const m of mutations) {
-    if (!original.includes(m.from)) {
-      console.log(`FAIL mutation anchor missing: ${m.name}`);
-      mutationFailures++;
-      continue;
-    }
-    const mutantPath = path.join(engineDir, `cert-events.__mutant_${Math.random().toString(36).slice(2)}__.mjs`);
-    fs.writeFileSync(mutantPath, original.replace(m.from, m.to));
+  const surfaceBefore = mutationSurface();
+
+  let missingAnchorRejected = false;
+  try {
+    await importMutant(certEventsPath, missingAnchorId);
+  } catch (error) {
+    missingAnchorRejected = /MUTANT_ANCHOR_COUNT.*count=0.*expected=1/.test(String(error?.message));
+  }
+  ok("mutation loader rejects a missing anchor", missingAnchorRejected);
+
+  let repeatedAnchorRejected = false;
+  try {
+    await importMutant(certEventsPath, repeatedAnchorId);
+  } catch (error) {
+    repeatedAnchorRejected = /MUTANT_ANCHOR_COUNT.*count=3.*expected=1/.test(String(error?.message));
+  }
+  ok("mutation loader rejects a repeated anchor", repeatedAnchorRejected);
+
+  let controlledExceptionCaught = false;
+  try {
+    await importMutant(certEventsPath, hookMutations[0].id);
+    throw new Error("controlled contract exception probe");
+  } catch (error) {
+    controlledExceptionCaught = error?.message === "controlled contract exception probe";
+  }
+  ok("a controlled contract exception is caught without source cleanup", controlledExceptionCaught);
+
+  const identityMutant = await importMutant(certEventsPath, hookMutations[0].id);
+  ok("real and mutant imports have distinct module identities", identityMutant !== realMod);
+  const realAgain = await import(pathToFileURL(certEventsPath).href);
+  ok("mutant import leaves the cached real module identity unchanged", realAgain === realMod);
+  eq("mutant import leaves real exports behaviourally unchanged", await contract(realAgain), null);
+
+  for (const [index, m] of mutations.entries()) {
     let reason;
     try {
-      const mutant = await import(pathToFileURL(mutantPath).href + `?m=${encodeURIComponent(m.name)}`);
+      const mutant = await importMutant(certEventsPath, hookMutations[index].id);
       reason = await contract(mutant);
-    } finally {
-      fs.rmSync(mutantPath, { force: true });
+    } catch (error) {
+      console.log(`FAIL mutation execution threw: ${m.name} — ${error?.message || error}`);
+      mutationFailures++;
+      continue;
     }
     if (reason !== m.expected) {
       console.log(`FAIL mutation NOT caught as intended: ${m.name} — got ${reason || "survived"}`);
@@ -465,6 +523,10 @@ if (!process.argv.includes("--no-mutate")) {
       console.log(`  mutation CAUGHT: ${m.name} (${reason})`);
     }
   }
+  const surfaceAfter = mutationSurface();
+  eq("mutations leave the whole-source fingerprint unchanged", surfaceAfter.source, surfaceBefore.source);
+  eq("mutations leave the engines inventory unchanged", surfaceAfter.engines, surfaceBefore.engines);
+  eq("mutations leave git source status unchanged", surfaceAfter.git, surfaceBefore.git);
   ok("cert dedupe mutations fail for intended reasons", mutationFailures === 0);
 }
 
