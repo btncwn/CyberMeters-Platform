@@ -106,6 +106,30 @@ const mutants = [
     after: "  accounting?.recordAttempt?.();\n  accounting?.recordError?.(error);",
     expected: "ASB6B_REDIRECT_AT_49_CHARGES_ONE_AND_FAILS_CLOSED",
   },
+  {
+    id: "ASB6B-M-cutoff-provenance-handoff",
+    name: "cutoff-provenance-handoff",
+    file: path.join("workers", "scan-api", "src", "engines", "scan-engine.js"),
+    before: "    const timeoutSource = cappedModuleCutoffProvenance(value, timedOut);",
+    after: "    const timeoutSource = timedOut ? \"module_race\" : null;",
+    expected: "ASB6B_LIVE_CORE_TELEMETRY_PHYSICAL_PROVENANCE",
+  },
+  {
+    id: "ASB6B-M-core-telemetry-provenance",
+    name: "core-telemetry-provenance",
+    file: path.join("workers", "scan-api", "src", "engines", "scan-engine.js"),
+    before: "          row.timeout_source = wrapped.timeoutSource;",
+    after: "          row.timeout_source = null;",
+    expected: "ASB6B_LIVE_CORE_TELEMETRY_PHYSICAL_PROVENANCE",
+  },
+  {
+    id: "ASB6B-M-phase5-telemetry-provenance",
+    name: "phase5-telemetry-provenance",
+    file: path.join("workers", "scan-api", "src", "engines", "scan-engine.js"),
+    before: "          timeout_source: run.timeoutSource,",
+    after: "          timeout_source: null,",
+    expected: "ASB6B_LIVE_PHASE5_TELEMETRY_PHYSICAL_PROVENANCE",
+  },
 ];
 
 let failures = 0;

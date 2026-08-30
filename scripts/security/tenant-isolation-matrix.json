@@ -875,6 +875,25 @@
       }
     },
     {
+      "class": "operational_observability",
+      "domain": "infra",
+      "tables": [
+        "operational_events"
+      ],
+      "ownership": {
+        "operational_events": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "internal-only operational event producer/read contract; safe fields, idempotency, readiness and fail-closed behavior proven by F-027; workspace-owned rows are hard-purged by validate-purge-completeness while platform-level NULL rows remain"
+      }
+    },
+    {
       "class": "deletion_lifecycle",
       "domain": "core",
       "tables": [
@@ -1031,6 +1050,7 @@
     "notification_events": "notifications",
     "notification_preferences": "notifications",
     "oauth_states": "infrastructure",
+    "operational_events": "operational_observability",
     "password_reset_tokens": "auth_sessions",
     "portfolio_risk_snapshots": "msp_portfolio",
     "related_change_evidence": "related_changes",
@@ -1076,12 +1096,12 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 92,
-    "classified": 92,
-    "tenant_owned_tables": 88,
+    "schema_tables": 93,
+    "classified": 93,
+    "tenant_owned_tables": 89,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
-    "resource_classes": 32,
+    "resource_classes": 33,
     "classes_with_dynamic_coverage": 17
   }
 }

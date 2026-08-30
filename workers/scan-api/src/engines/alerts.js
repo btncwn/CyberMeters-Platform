@@ -16,8 +16,10 @@
 // re-implemented five triggers inline. Two drifting copies of "is this alert-worthy"
 // is one more than the product can defend.
 import { createId } from "../lib/util.js";
+import { safeFetch } from "../lib/http.js";
 import { deliverEmail, escapeEmailHtml, getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
 import { alertEmailFrequencyForUser, channelEnabledForWorkspace, resolveAlertEntitlement, severityAllowedByFrequency, workspaceAlertsEntitled } from "./alert-gate.js";
+import { dnsQuery } from "./dns.js";
 
 // Reasons that mean "we deliberately did not send", as opposed to "the send broke".
 // Recorded as `skipped`, never `failed`: a deliberate rule is not a transient error,
@@ -443,8 +445,12 @@ export function alertChannelToApi(row) {
 
 // deliverWorkspaceAlert — fan an event out to every enabled channel. Never
 // throws; delivery state is recorded per channel with customer-safe status
-// strings. fetchImpl is injectable for tests (house pattern: dnsQueryImpl).
-export async function deliverWorkspaceAlert(env, workspaceId, event, { fetchImpl = fetch, channelId = null } = {}) {
+// strings. Transport and DNS are injectable for focused local proof only.
+export async function deliverWorkspaceAlert(env, workspaceId, event, {
+  fetchImpl = fetch,
+  dnsQueryImpl = dnsQuery,
+  channelId = null,
+} = {}) {
   // ── The channel gate ───────────────────────────────────────────────────────
   // This function is the shared trunk for every Slack/Teams/webhook alert:
   // emitManagedAlert, the legacy scan alerts, dmarc-alerts, the four inline
@@ -483,21 +489,38 @@ export async function deliverWorkspaceAlert(env, workspaceId, event, { fetchImpl
 
   let delivered = 0;
   for (const ch of channels) {
-    const body = JSON.stringify(buildAlertChannelPayload(ch.channel_type, event));
-    const headers = { "content-type": "application/json" };
-    if (ch.channel_type === "webhook" && ch.secret) {
-      headers["X-CyberMeters-Signature"] = `sha256=${await signAlertWebhookBody(ch.secret, body)}`;
-      headers["X-CyberMeters-Event"] = _alertChannelText(event?.kind, 64) || "alert";
-    }
     let status;
-    try {
-      const res = await fetchImpl(ch.webhook_url, {
-        method: "POST", headers, body, signal: AbortSignal.timeout(5000),
-      });
-      status = res.ok ? "ok" : `failed:http_${res.status}`;
-      if (res.ok) delivered += 1;
-    } catch {
-      status = "failed:unreachable";
+    // Stored channel rows can outlive provider migrations or be changed outside
+    // the creation route. Re-apply type/allowlist/literal policy at the moment of
+    // delivery; create-time validation is not a durable network trust decision.
+    const deliveryTarget = validateAlertChannelInput(ch.channel_type, ch.webhook_url);
+    if (!deliveryTarget.ok) {
+      status = "failed:blocked";
+    } else {
+      const body = JSON.stringify(buildAlertChannelPayload(ch.channel_type, event));
+      const headers = { "content-type": "application/json" };
+      if (ch.channel_type === "webhook" && ch.secret) {
+        headers["X-CyberMeters-Signature"] = `sha256=${await signAlertWebhookBody(ch.secret, body)}`;
+        headers["X-CyberMeters-Event"] = _alertChannelText(event?.kind, 64) || "alert";
+      }
+      try {
+        // Webhook POST redirects are terminal failures. Even a same-origin 3xx is
+        // not followed: no body or HMAC header can cross to a redirect target.
+        const res = await safeFetch(deliveryTarget.url, {
+          method: "POST",
+          headers,
+          body,
+          signal: AbortSignal.timeout(5000),
+          redirect: "manual",
+          dnsResolver: dnsQueryImpl,
+          fetchImpl,
+        });
+        status = !res ? "failed:blocked_or_unreachable"
+          : res.ok ? "ok" : `failed:http_${res.status}`;
+        if (res?.ok) delivered += 1;
+      } catch {
+        status = "failed:unreachable";
+      }
     }
     try {
       await env.cybermeters_db

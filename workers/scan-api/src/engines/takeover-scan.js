@@ -306,11 +306,71 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
     : (name, type) => dnsQuery(name, type, { accounting, cache });
 
   if (!subdomains || subdomains.length === 0) {
-    return { checked: 0, potential_risks: 0, risks: [], checked_hosts: [], lookup_failed_hosts: [], unconfirmed: [], source, error: null };
+    return { checked: 0, potential_risks: 0, risks: [], checked_hosts: [], lookup_failed_hosts: [], unconfirmed: [], unconfirmed_hosts: [], source, error: null,
+      totals: { requested: 0, checked: 0, omitted: 0, lookup_failed: 0, unconfirmed: 0 }, incomplete: false, incomplete_reason: null, incomplete_reasons: [] };
   }
 
-  // Cap at 100 to bound concurrent I/O without sacrificing coverage
-  const targets = subdomains.slice(0, 100);
+  // Cap at 100 to bound concurrent I/O without sacrificing coverage.
+  // F-026: the cap must be EXPLICIT — a truncated run states requested vs
+  // checked and flags itself incomplete so a dropped host is never presented as
+  // full coverage (unmeasured is never "healthy").
+  const HOST_CAP = 100;
+  // F-026 R1 #2 (delta): establish ONE canonical DNS host identity at the PRODUCER
+  // BOUNDARY — before the cap and before every completeness door — so case,
+  // surrounding whitespace, and one-or-more trailing dots collapse consistently and
+  // requested/checked/lookup_failed/unconfirmed all count the SAME per-host basis,
+  // never raw duplicate rows (which let one DNS host inflate the denominator or
+  // occupy two cap slots). Mirrors the repository's hostname canonicalisation idiom
+  // (hostnames.js normalizeDiscoveredHostname / parseCertificateSanNames:
+  // trim -> lowercase -> strip trailing dot), generalised to collapse MULTIPLE
+  // trailing dots. Unlike normalizeDiscoveredHostname it deliberately does NOT drop
+  // out-of-domain or otherwise-rejected hosts, so no discovered host is silently
+  // removed from coverage — only empty/whitespace inputs (never a host) fall away.
+  const canonicalHost = (h) => String(h ?? "").trim().toLowerCase().replace(/\.+$/, "");
+  const requestedHosts = [...new Set(subdomains.map(canonicalHost).filter(Boolean))];
+  const requestedHostCount = requestedHosts.length;
+  const targets = requestedHosts.slice(0, HOST_CAP);
+  const omittedHostCount = Math.max(0, requestedHostCount - targets.length);
+  // F-026 R1 (F1): a host is UNMEASURED whether it was truncated OR its CNAME
+  // lookup failed — both must flag incomplete. Truncation is known now; the
+  // lookup-failure count is only known after Step 1, so the completeness verdict
+  // is finalized just before each return via resolveCoverage(). The two reasons
+  // COEXIST (one never overwrites the other), and the two counts are orthogonal:
+  // omitted hosts were never attempted, lookup-failed hosts were attempted and
+  // got no answer — no double counting.
+  //
+  // F-026 R1 (#2): every total is a per-HOST count, never a per-candidate count.
+  // Because targets are canonical-and-deduped (above), omitted/lookup_failed are
+  // distinct canonical hosts by construction, and the caller passes a DISTINCT
+  // canonical-host unconfirmed count (see unconfirmedHostCount below). A canonical
+  // host reaches exactly one door, so the disjoint per-reason totals honour
+  //   lookup_failed + unconfirmed <= checked
+  // as a set relation, not merely as arithmetic on raw rows.
+  const resolveCoverage = (lookupFailedCount, unconfirmedHostCount = 0) => {
+    const reasons = [];
+    if (omittedHostCount > 0) reasons.push("host_cap_truncation");
+    if (lookupFailedCount > 0) reasons.push("host_lookup_failure");
+    // A host whose probe was refused/failed/unreadable was ATTEMPTED but NOT
+    // assessed — the same unmeasured class as a lookup failure, one stage later.
+    // The per-CANDIDATE reason (probe_refused / fetch_failed / body_unreadable /
+    // serviceability) is retained on the unconfirmed[] rows; this coverage reason
+    // is raised per distinct host so the module never reads complete over it.
+    if (unconfirmedHostCount > 0) reasons.push("host_probe_unconfirmed");
+    return {
+      totals: {
+        requested: requestedHostCount,
+        checked: targets.length,
+        omitted: omittedHostCount,
+        lookup_failed: lookupFailedCount,
+        unconfirmed: unconfirmedHostCount,
+      },
+      incomplete: reasons.length > 0,
+      // Backward-compatible primary reason (deterministic order); incomplete_reasons
+      // carries EVERY applicable reason so none is hidden or overwritten.
+      incomplete_reason: reasons[0] ?? null,
+      incomplete_reasons: reasons,
+    };
+  };
 
   // Step 1: CNAME lookups for all targets in parallel
   const cnameResults = await Promise.allSettled(
@@ -342,7 +402,8 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
   if (candidates.length === 0) {
     return {
       checked: targets.length, potential_risks: 0, risks: [], cname_observations,
-      checked_hosts: targets, lookup_failed_hosts, unconfirmed: [], source, error: null,
+      checked_hosts: targets, lookup_failed_hosts, unconfirmed: [], unconfirmed_hosts: [], source, error: null,
+      ...resolveCoverage(lookup_failed_hosts.length, 0),
     };
   }
 
@@ -404,6 +465,16 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
     }
   }
 
+  // F-026 R1 (#2): the coverage denominator counts DISTINCT unmeasured hosts, not
+  // CNAME candidates. unconfirmed[] holds one row per vulnerable candidate, so a host
+  // with a two-hop chain or duplicate CNAME answers appears more than once; collapse
+  // to distinct canonical host identities before it becomes a total. Uses the SAME
+  // canonicalHost boundary as targets, so unconfirmed_hosts shares the exact basis of
+  // checked_hosts/lookup_failed_hosts (each host was already canonical from targets).
+  // The candidate rows are preserved verbatim on unconfirmed[] as forensic detail
+  // (never discarded); unconfirmed_hosts exposes the distinct basis for the denominator.
+  const unconfirmed_hosts = [...new Set(unconfirmed.map((u) => canonicalHost(u.host)))];
+
   return {
     checked:         targets.length,
     potential_risks: candidates.length,
@@ -413,7 +484,12 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
     checked_hosts:   targets,
     lookup_failed_hosts,
     unconfirmed,
+    unconfirmed_hosts,
     source,
     error: null,
+    // F-026 explicit coverage truth: truncation + lookup-failure + unconfirmed
+    // probe (three orthogonal unmeasured axes, all flagged). Each axis is a
+    // distinct-host count, so lookup_failed + unconfirmed <= checked holds.
+    ...resolveCoverage(lookup_failed_hosts.length, unconfirmed_hosts.length),
   };
 }

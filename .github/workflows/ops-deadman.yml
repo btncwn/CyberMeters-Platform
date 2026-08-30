@@ -1,0 +1,80 @@
+# F-027 external deadman monitor. Runs on a schedule (independent of the Worker),
+# probes /ready, and requires BOTH a 200 AND valid JSON carrying TRUE operational
+# fields. A 200 with missing/garbled JSON or with stale operational booleans is
+# NOT healthy — fail closed, so a broken deploy that still answers 200 cannot
+# silence the deadman. On failure it opens or updates ONE generic durable issue;
+# on recovery it closes that issue. No customer data ever enters GitHub — only the
+# non-sensitive operational booleans and a generic reason string.
+name: ops-deadman
+
+on:
+  schedule:
+    - cron: "17 * * * *"   # hourly, offset so it does not collide with the Worker cron
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: ops-deadman
+  cancel-in-progress: false
+
+jobs:
+  deadman:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository (for the strict deadman evaluator)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Probe /ready and evaluate the deadman verdict
+        id: probe
+        env:
+          READY_URL: ${{ secrets.OPS_READY_URL }}
+        run: |
+          set -u
+          if [ -z "${READY_URL:-}" ]; then
+            printf 'healthy=false\nreason=ready_url_unset\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          code=$(curl -s -o /tmp/ready.json -w "%{http_code}" --max-time 20 "$READY_URL" || echo "000")
+          # The verdict is computed by the SAME strict evaluateDeadman the focused
+          # validator exercises — the workflow does NOT re-implement the decision in
+          # shell/jq. jq's `//` collapses a boolean false to the default (so a correct
+          # healthy payload would read unhealthy and the recovery branch below could
+          # never run) and `jq -r` renders the string "false" identically to the
+          # boolean (so string impostors would pass). Structural JSON-boolean parsing
+          # in the entrypoint avoids both. Node is preinstalled on ubuntu-latest and
+          # the script has no dependencies. If node fails, no healthy line is written
+          # and the failure branch below fires — fail closed.
+          node scripts/ops-deadman-verdict.mjs "$code" /tmp/ready.json >> "$GITHUB_OUTPUT"
+          echo "deadman verdict computed (http=$code)"
+
+      - name: Open or update the durable issue on failure
+        if: steps.probe.outputs.healthy != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REASON: ${{ steps.probe.outputs.reason }}
+        run: |
+          set -u
+          title="ops-deadman: platform operational health degraded"
+          existing=$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number' || echo "")
+          body="Automated deadman: /ready did not report healthy. Reason: ${REASON}. This issue auto-closes when /ready recovers. No customer data is included."
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Still degraded — reason: ${REASON} ($(date -u +%FT%TZ))."
+          else
+            gh issue create --title "$title" --body "$body" --label ops-deadman || \
+              gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the durable issue on recovery
+        if: steps.probe.outputs.healthy == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          title="ops-deadman: platform operational health degraded"
+          for n in $(gh issue list --state open --search "$title in:title" --json number --jq '.[].number'); do
+            gh issue comment "$n" --body "Recovered — /ready reports healthy ($(date -u +%FT%TZ)). Auto-closing."
+            gh issue close "$n"
+          done

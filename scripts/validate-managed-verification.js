@@ -258,7 +258,7 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
   const supported = supportedVerificationTypes();
   for (const id of ["asset_exposure_admin_interface", "asset_exposure_sensitive_tool", "asset_exposure_dev_env",
                     "admin_surface_critical", "admin_surface_high", "admin_surface_medium",
-                    "subdomain_takeover", "dse_missing_caa", "dse_caa_no_issuers",
+                    "subdomain_takeover", "csp_weak_policy", "dse_missing_caa", "dse_caa_no_issuers",
                     "dse_hsts_short_maxage", "dse_hsts_not_preload_eligible",
                     "dse_cookie_no_secure", "dse_cookie_no_httponly", "dse_cookie_no_samesite"]) {
     ok(`dispatch: ${id} is verifiable`, supported.includes(id) && isSupportedVerification({ id }));
@@ -523,6 +523,48 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
      (await run("dse_cookie_no_samesite", { headers: { "set-cookie": "sid=1; Secure; HttpOnly" } })).decision, "still_present");
   eq("dse_cookie_no_samesite: SameSite set → fixed",
      (await run("dse_cookie_no_samesite", { headers: { "set-cookie": "sid=1; Secure; HttpOnly; SameSite=Strict" } })).decision, "fixed");
+  globalThis.fetch = realFetch;
+}
+
+// ── 15. CSP verification reuses the directive-scoped detector classifier ─────
+{
+  const { runManagedVerificationProbe, managedVerificationDomainKey } =
+    await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "managed-verification.js")).href);
+  const HOST = "example.com";
+  const run = async ({ policy, status = 200, throws = false } = {}) => {
+    globalThis.fetch = async (url) => {
+      const s = String(url);
+      if (classifyRequest(s) === "doh") {
+        const u = new URL(s);
+        return new Response(JSON.stringify({
+          Answer: u.searchParams.get("type") === "A" && u.searchParams.get("name") === HOST
+            ? [{ data: "93.184.216.34" }] : [],
+        }), { status: 200 });
+      }
+      if (throws) throw new Error("network down");
+      return new Response("<html></html>", {
+        status,
+        headers: policy == null ? {} : { "content-security-policy": policy },
+      });
+    };
+    return runManagedVerificationProbe({ id: "csp_weak_policy" }, HOST);
+  };
+
+  eq("csp: script-src unsafe-inline remains still_present",
+    (await run({ policy: "default-src 'self'; script-src 'self' 'unsafe-inline'" })).decision, "still_present");
+  eq("csp: default-src wildcard remains still_present",
+    (await run({ policy: "default-src *; style-src 'self'" })).decision, "still_present");
+  eq("csp: style-only unsafe-inline clears original actionable case",
+    (await run({ policy: "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'" })).decision, "fixed");
+  eq("csp: img-src wildcard does not keep actionable case open",
+    (await run({ policy: "default-src 'self'; script-src 'self'; img-src *" })).decision, "fixed");
+  eq("csp: missing policy defers, never fixes", (await run()).decision, "deferred");
+  eq("csp: missing policy reason is exact", (await run()).reason, "csp_not_observed");
+  eq("csp: malformed policy defers, never fixes", (await run({ policy: "@@@" })).decision, "deferred");
+  eq("csp: non-serviceable response defers", (await run({ policy: "script-src *", status: 503 })).decision, "deferred");
+  eq("csp: unreachable response defers", (await run({ throws: true })).decision, "deferred");
+  eq("csp: managed verification ownership is Website Security",
+    managedVerificationDomainKey("csp_weak_policy"), "website_security");
   globalThis.fetch = realFetch;
 }
 

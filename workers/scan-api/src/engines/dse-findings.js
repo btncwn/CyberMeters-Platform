@@ -105,8 +105,9 @@ export function buildDseFindings(enrich, domain) {
   if (DSE_PRESENCE.dse_missing_caa(enrich)) {
     findings.push({
       id:             "dse_missing_caa",
+      finding_type:   "observation",
       module:         "domain_security_enrichment",
-      severity:       "medium",
+      severity:       "low",
       score_impact:   0,
       affected_hosts: host,
       title:          "No CAA DNS Record",
@@ -116,6 +117,7 @@ export function buildDseFindings(enrich, domain) {
   } else if (DSE_PRESENCE.dse_caa_no_issuers(enrich)) {
     findings.push({
       id:             "dse_caa_no_issuers",
+      finding_type:   "observation",
       module:         "domain_security_enrichment",
       severity:       "low",
       score_impact:   0,
@@ -130,6 +132,7 @@ export function buildDseFindings(enrich, domain) {
     const h = enrich.hsts;
     findings.push({
       id:             "dse_hsts_short_maxage",
+      finding_type:   "finding",
       module:         "domain_security_enrichment",
       severity:       "low",
       score_impact:   0,
@@ -142,6 +145,7 @@ export function buildDseFindings(enrich, domain) {
   if (DSE_PRESENCE.dse_hsts_not_preload_eligible(enrich)) {
     findings.push({
       id:             "dse_hsts_not_preload_eligible",
+      finding_type:   "observation",
       module:         "domain_security_enrichment",
       severity:       "low",
       score_impact:   0,
@@ -156,6 +160,7 @@ export function buildDseFindings(enrich, domain) {
     const c = enrich.cookies;
     findings.push({
       id:             "dse_cookie_no_secure",
+      finding_type:   "finding",
       module:         "domain_security_enrichment",
       severity:       "high",
       score_impact:   0,
@@ -169,6 +174,7 @@ export function buildDseFindings(enrich, domain) {
     const c = enrich.cookies;
     findings.push({
       id:             "dse_cookie_no_httponly",
+      finding_type:   "finding",
       module:         "domain_security_enrichment",
       severity:       "medium",
       score_impact:   0,
@@ -182,6 +188,7 @@ export function buildDseFindings(enrich, domain) {
     const c = enrich.cookies;
     findings.push({
       id:             "dse_cookie_no_samesite",
+      finding_type:   "finding",
       module:         "domain_security_enrichment",
       severity:       "low",
       score_impact:   0,

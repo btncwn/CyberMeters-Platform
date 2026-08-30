@@ -60,7 +60,7 @@ await withMutant(
   "dmarcbis-production.js",
   `result.rua_authorisation_completeness === "not_applicable"
         ? "not_applicable"
-        : "incomplete"`,
+        : allDestinationsNotRequired ? "complete" : "incomplete"`,
   `result.rua_authorisation_completeness === "not_applicable"
         ? "not_applicable"
         : "complete"`,

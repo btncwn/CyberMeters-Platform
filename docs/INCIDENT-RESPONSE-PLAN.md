@@ -207,7 +207,12 @@ Draft template lives in `incidents/templates/customer-notice.md` (to add).
 
 - **Backup:** `wrangler d1 export cybermeters-db --remote --output=<path>` →
   `~/Documents/cybermeters-backups/` (kept out of the repo; contains customer
-  data). R2 report objects are regenerable from scans.
+  data). Prefer the guarded `scripts/ops/backup-production-data.sh`, which copies
+  D1 **and** the R2 object set into a verified encrypted destination. R2 report
+  objects are regenerable from scans; **R2 has no object versioning**, so their
+  recovery point is a separately copied object set plus manifest, not an in-bucket
+  version. Restore drills use `scripts/ops/restore-production-backup-to-staging.sh`
+  into a disposable staging target — never in place, never D1 Time Travel.
 - **Targets (initial, revisit at scale):** **RPO ≤ 24h** (at most a day of data
   loss — take a daily export during active beta), **RTO ≤ 4h** (service restored
   within four hours of a SEV1).

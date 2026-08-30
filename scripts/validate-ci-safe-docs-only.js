@@ -25,15 +25,15 @@ const MUTATION_TARGET_FILES = Object.freeze([workflowPath, manifestPath, library
 // This validator must remain runnable before commit because founder review is
 // performed against frozen uncommitted candidates. The only permitted target
 // drift is the exact reviewed workflow byte set that wires this candidate's
-// two validators; after commit the ordinary HEAD equality path applies again.
+// five validators; after commit the ordinary HEAD equality path applies again.
 const REVIEWED_UNCOMMITTED_TARGET_SHA256 = Object.freeze(new Map([
-  [workflowPath, "e13db450619cd354e8f022e8893d45ec77c85a98decc0ecca45d14952459593d"],
+  [workflowPath, "b37e4cb62f83e5dd526b4cfc65653a5db3fb56ea3fc4aeb942120b19b9a67621"],
   [manifestPath, "cf421dc0e3606d00a305f82e12652dffefc5d621c8dd8d83633e379d0a79e3c6"],
 ]));
 const EXPECTED_FIXTURES = 31;
-const EXPECTED_MUTANTS = 26;
-const EXPECTED_POLICY_ASSERTIONS = 13;
-const EXPECTED_ASSERTIONS = 85;
+const EXPECTED_MUTANTS = 34;
+const EXPECTED_POLICY_ASSERTIONS = 20;
+const EXPECTED_ASSERTIONS = 100;
 const EXPECTED_MANIFEST_SEMANTIC_FINGERPRINT = "df0cb5235350586371cc70a564833c218e8d6162c8ea5f945460638a68597352";
 
 const fixtureChild = process.argv.includes("--fixture-child");
@@ -472,7 +472,10 @@ const MUTANTS = [
       to: "      - name: Validate CI governance (trigger / reachability / anti-orphan)\n        if: false\n        run: node scripts/validate-ci-governance.js",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["always-run: mandatory steps are present exactly once and unconditional"],
+    expectedFailures: [
+      "always-run: mandatory scope/shard steps are present exactly once and unconditional",
+      "conditions: only versioned skip-list shard steps may be conditional",
+    ],
   },
   {
     name: "mandatory step receives an empty if key",
@@ -482,7 +485,10 @@ const MUTANTS = [
       to: "      - name: Validate CI governance (trigger / reachability / anti-orphan)\n        if:\n        run: node scripts/validate-ci-governance.js",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["always-run: mandatory steps are present exactly once and unconditional"],
+    expectedFailures: [
+      "always-run: mandatory scope/shard steps are present exactly once and unconditional",
+      "conditions: only versioned skip-list shard steps may be conditional",
+    ],
   },
   {
     name: "mandatory step becomes non-blocking",
@@ -492,7 +498,7 @@ const MUTANTS = [
       to: "      - name: Validate CI governance (trigger / reachability / anti-orphan)\n        continue-on-error: true\n        run: node scripts/validate-ci-governance.js",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["reachability: validate/sast jobs and every step remain blocking"],
+    expectedFailures: ["reachability: scope, shards, terminal validate, SAST and every step remain blocking"],
   },
   {
     name: "a conditional third job is introduced",
@@ -502,7 +508,7 @@ const MUTANTS = [
       to: "\n  orphaned-validators:\n    if: false\n    runs-on: ubuntu-latest\n    steps:\n      - name: Mutant orphan carrier\n        run: node scripts/validate-regression-fixtures.js\n\n  sast:\n    runs-on: ubuntu-latest",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["jobs: validate and sast jobs are unconditional"],
+    expectedFailures: ["jobs: exact scope + five shards + terminal validate + SAST set is pinned"],
   },
   {
     name: "always-run step enters skip-list",
@@ -541,7 +547,7 @@ const MUTANTS = [
       to: `            echo "::warning::CI scope classifier failed unexpectedly; MUTANT leaves late outputs active"`,
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["classifier wiring: complete step is exact and fail-closed"],
+    expectedFailures: ["classifier wiring: complete ci_scope step is exact and fail-closed"],
   },
   {
     name: ">300 files are truncated",
@@ -622,7 +628,7 @@ const MUTANTS = [
       to: "          fi\n          echo \"decision=SAFE_DOCS_ONLY\" >> \"$GITHUB_OUTPUT\"\n\n      - name: Show Node version",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["classifier wiring: complete step is exact and fail-closed"],
+    expectedFailures: ["classifier wiring: complete ci_scope step is exact and fail-closed"],
   },
   {
     name: "ordinary non-manifest step becomes conditional",
@@ -632,7 +638,7 @@ const MUTANTS = [
       to: "      - name: Validate tenant-isolation matrix (cross-tenant read/write/delete/oracle)\n        if: false\n        run: node scripts/validate-tenant-isolation.js",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["conditions: only versioned skip-list steps may be conditional"],
+    expectedFailures: ["conditions: only versioned skip-list shard steps may be conditional"],
   },
   {
     name: "skip-list command drifts",
@@ -648,8 +654,8 @@ const MUTANTS = [
     name: "skip-list working directory drifts",
     file: workflowPath,
     replacements: [{
-      from: "      - name: Validate scan-quality vocabulary inventory (AST + SQL taxonomy)\n        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}\n        run: node scripts/validate-scan-quality-vocabulary-inventory.js",
-      to: "      - name: Validate scan-quality vocabulary inventory (AST + SQL taxonomy)\n        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}\n        working-directory: scripts\n        run: node scripts/validate-scan-quality-vocabulary-inventory.js",
+      from: "      - name: Validate scan-quality vocabulary inventory (AST + SQL taxonomy)\n        if: ${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}\n        run: node scripts/validate-scan-quality-vocabulary-inventory.js",
+      to: "      - name: Validate scan-quality vocabulary inventory (AST + SQL taxonomy)\n        if: ${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}\n        working-directory: scripts\n        run: node scripts/validate-scan-quality-vocabulary-inventory.js",
     }],
     childArgs: ["--policy-child"],
     expectedFailures: ["wiring: every skip-list step has one exact name/command/working-directory mapping"],
@@ -662,7 +668,10 @@ const MUTANTS = [
       to: "      - name: Set up Python\n        if: false\n        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["SAST: every step remains unconditional"],
+    expectedFailures: [
+      "SAST: every step remains unconditional",
+      "SAST: semantic job contract is exact and independent",
+    ],
   },
   {
     name: "skip-list identity drifts",
@@ -688,11 +697,11 @@ const MUTANTS = [
     name: "workflow contains a duplicate YAML key",
     file: workflowPath,
     replacements: [{
-      from: "  validate:\n    runs-on: ubuntu-latest",
-      to: "  validate:\n    runs-on: ubuntu-latest\n    runs-on: ubuntu-latest",
+      from: "  validate:\n    name: validate\n",
+      to: "  validate:\n    name: validate\n    name: validate\n",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["YAML AST: workflow parses uniquely with validate and sast step sequences"],
+    expectedFailures: ["YAML AST: workflow parses uniquely with the complete sharded job graph"],
   },
   {
     name: "validator command survives only in a comment",
@@ -702,7 +711,10 @@ const MUTANTS = [
       to: "      - name: Validate scanner regression fixtures\n        run: |\n          echo validator-disabled\n          # node scripts/validate-regression-fixtures.js",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["anti-orphan: every validator is an exact executable AST run mapping"],
+    expectedFailures: [
+      "anti-orphan: five shards are the exact executable 376-validator union",
+      "assignment: exact non-overlapping shard counts and ownership fingerprint are pinned",
+    ],
   },
   {
     name: "allowed exact path overrides a denied prefix",
@@ -732,11 +744,104 @@ const MUTANTS = [
     name: "canonical skip condition drifts",
     file: workflowPath,
     replacements: [{
-      from: "      - name: Validate scan-quality vocabulary inventory (AST + SQL taxonomy)\n        if: ${{ steps.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}",
+      from: "      - name: Validate scan-quality vocabulary inventory (AST + SQL taxonomy)\n        if: ${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}",
       to: "      - name: Validate scan-quality vocabulary inventory (AST + SQL taxonomy)\n        if: false",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["conditions: every skip-list step uses the exact canonical fail-closed expression"],
+    expectedFailures: ["conditions: every skip-list step uses the exact cross-job fail-closed expression"],
+  },
+  {
+    name: "validation shard loses ci_scope dependency",
+    file: workflowPath,
+    replacements: [{
+      from: "  validate_runtime_security:\n    name: validate / runtime-security\n    needs: ci_scope",
+      to: "  validate_runtime_security:\n    name: validate / runtime-security\n    needs: sast",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["job graph: ci_scope and SAST are independent; every shard depends only on ci_scope"],
+  },
+  {
+    name: "validation shard receives a job-level condition",
+    file: workflowPath,
+    replacements: [{
+      from: "  validate_runtime_security:\n    name: validate / runtime-security\n    needs: ci_scope\n    runs-on: ubuntu-latest",
+      to: "  validate_runtime_security:\n    name: validate / runtime-security\n    needs: ci_scope\n    if: false\n    runs-on: ubuntu-latest",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["job graph: ci_scope and SAST are independent; every shard depends only on ci_scope"],
+  },
+  {
+    name: "validation shard governed install root drifts",
+    file: workflowPath,
+    mutate: (source) => {
+      const start = source.indexOf("  validate_runtime_security:\n");
+      const end = source.indexOf("\n  validate_report_cx:\n", start);
+      if (start < 0 || end < 0) throw new Error("runtime-security shard boundaries missing");
+      const shard = source.slice(start, end);
+      const anchor = "run: node scripts/install-governed-dependencies.js --root workers/scan-api";
+      if (shard.split(anchor).length !== 2) throw new Error("runtime-security worker install anchor missing or non-unique");
+      return source.slice(0, start) + shard.replace(anchor,
+        "run: node scripts/install-governed-dependencies.js --root frontend") + source.slice(end);
+    },
+    childArgs: ["--policy-child"],
+    expectedFailures: ["shards: names, runner, full-history checkout, Node cache and both governed installs are exact"],
+  },
+  {
+    name: "validator ownership swaps across shards with the union unchanged",
+    file: workflowPath,
+    mutate: (source) => {
+      const runtimeCommand = "run: node scripts/validate-provider-classification.js";
+      const reportCommand = "run: node scripts/validate-report-first-cx.js";
+      if (source.split(runtimeCommand).length !== 2 || source.split(reportCommand).length !== 2) {
+        throw new Error("validator ownership anchors missing or non-unique");
+      }
+      return source
+        .replace(runtimeCommand, "run: node scripts/__ci_shard_swap_sentinel__.js")
+        .replace(reportCommand, runtimeCommand)
+        .replace("run: node scripts/__ci_shard_swap_sentinel__.js", reportCommand);
+    },
+    childArgs: ["--policy-child"],
+    expectedFailures: ["assignment: exact non-overlapping shard counts and ownership fingerprint are pinned"],
+  },
+  {
+    name: "terminal validate loses always semantics",
+    file: workflowPath,
+    replacements: [{
+      from: "  validate:\n    name: validate\n    if: ${{ always() }}",
+      to: "  validate:\n    name: validate\n    if: true",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["terminal validate: always runs, explicitly needs scope + five shards, and only success passes"],
+  },
+  {
+    name: "terminal validate omits one shard dependency",
+    file: workflowPath,
+    replacements: [{
+      from: "      - validate_frontend_build\n      - validate_integration_assurance\n    runs-on: ubuntu-latest",
+      to: "      - validate_frontend_build\n    runs-on: ubuntu-latest",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["terminal validate: always runs, explicitly needs scope + five shards, and only success passes"],
+  },
+  {
+    name: "terminal validate accepts a non-success result",
+    file: workflowPath,
+    replacements: [{
+      from: "            if [ \"$result\" != \"success\" ]; then failed=1; fi",
+      to: "            if [ \"$result\" = \"failure\" ]; then failed=1; fi",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["terminal validate: always runs, explicitly needs scope + five shards, and only success passes"],
+  },
+  {
+    name: "validation shard becomes non-blocking at job level",
+    file: workflowPath,
+    replacements: [{
+      from: "  validate_runtime_security:\n    name: validate / runtime-security\n    needs: ci_scope\n    runs-on: ubuntu-latest",
+      to: "  validate_runtime_security:\n    name: validate / runtime-security\n    needs: ci_scope\n    continue-on-error: true\n    runs-on: ubuntu-latest",
+    }],
+    childArgs: ["--policy-child"],
+    expectedFailures: ["reachability: scope, shards, terminal validate, SAST and every step remain blocking"],
   },
 ];
 

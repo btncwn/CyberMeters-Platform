@@ -9,7 +9,7 @@ import { resolveDnsResolution } from "./attack-surface-signal-completeness.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
 import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, isEmailProbeUnobserved } from "./email-analysis.js";
 import { applyEvidenceQuality } from "./findings.js";
-import { classifyHeaderStrength } from "./headers-scan.js";
+import { classifyCspPolicy, classifyHeaderStrength } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
 import { SECURITY_HEADERS } from "./security-headers-config.js";
 import { resolveRemediation } from "./remediation-registry.js";
@@ -190,6 +190,7 @@ export function computeScore(modules, domain) {
     if (noDnssecLookupErrors && !dsPresent && !dnskeyPresent && !rrsigPresent) {
       findings.push({
         id:           "dnssec_not_enabled",
+        finding_type: "observation",
         module:       "dns",
         severity:     "info",
         confidence:   "high",
@@ -212,6 +213,7 @@ export function computeScore(modules, domain) {
     } else if (noDnssecLookupErrors && ((dsPresent && !dnskeyPresent) || (!dsPresent && dnskeyPresent))) {
       findings.push({
         id:           "dnssec_misconfigured",
+        finding_type: "observation",
         module:       "dns",
         severity:     "info",
         confidence:   "medium",
@@ -579,13 +581,18 @@ export function computeScore(modules, domain) {
             },
           });
         } else if (h.name === "content-security-policy" && strength.status === "weak") {
+          const csp = classifyCspPolicy(rawValue);
+          const actionable = csp.classification === "weak_script";
           findings.push({
             id:           "csp_weak_policy",
+            finding_type: actionable ? "finding" : "observation",
             module:       "headers",
-            severity:     "medium",
+            severity:     actionable ? "medium" : "low",
             confidence:   "high",
             title:        "Weak Content Security Policy",
-            description:  `The Content-Security-Policy header on ${domain} is present but contains directives that reduce its effectiveness. ${strength.details}.`,
+            description:  actionable
+              ? `The Content-Security-Policy header on ${domain} permits a dangerous script source. ${csp.details}.`
+              : `The Content-Security-Policy header on ${domain} permits an unsafe style source. ${csp.details}.`,
             score_impact: 0,
             evidence: {
               evidence_type:               "http_header_probe",
@@ -593,8 +600,8 @@ export function computeScore(modules, domain) {
               header_name:                 h.name,
               observed_value:              rawValue,
               expected_value:              "default-src 'self'; no unsafe-inline or wildcard source",
-              strength_classification:     strength.status,
-              strength_details:            strength.details,
+              strength_classification:     csp.classification,
+              strength_details:            csp.details,
               source:                      "cloudflare_workers_fetch",
               checked_at:                  evidenceTime,
               manual_verification_command: `curl -sI https://${domain} | grep -i content-security-policy`,

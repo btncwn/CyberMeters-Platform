@@ -33,6 +33,8 @@ const ok = (name, cond, detail = "") => {
 
 // A reachable host that fingerprints as a verified Jenkins admin surface (a finding).
 const ADMIN_HOST = { host: "jenkins.example.com", reachable: true, title: "Jenkins Dashboard", server: "Jetty(9.4)", url: "https://jenkins.example.com" };
+const OBSERVATION_HOST = { host: "openvpn.example.com", reachable: true, title: "", server: "nginx", url: "https://openvpn.example.com" };
+const DUAL_SERVICE_HOST = { host: "vcenter-gitlab.example.com", reachable: true, title: "VMware vCenter GitLab", server: "VMware", url: "https://vcenter-gitlab.example.com" };
 const BENIGN_HOST = { host: "shop.example.com", reachable: true, title: "Acme Store", server: "cloudflare", url: "https://shop.example.com" };
 
 // ── 1. PRODUCER runAdminSurfaceModule — evidence_status honesty ──────────────
@@ -42,6 +44,8 @@ const pIncomplete = runAdminSurfaceModule({ asset_exposure: { assets: [{ host: "
 const pError      = runAdminSurfaceModule({ asset_exposure: { assets: [BENIGN_HOST], error: "probe crashed" } });
 const pHealthy    = runAdminSurfaceModule({ asset_exposure: { assets: [BENIGN_HOST], error: null } });
 const pIssue      = runAdminSurfaceModule({ asset_exposure: { assets: [ADMIN_HOST], error: null } });
+const pObservation = runAdminSurfaceModule({ asset_exposure: { assets: [OBSERVATION_HOST], error: null } });
+const pDualService = runAdminSurfaceModule({ asset_exposure: { assets: [DUAL_SERVICE_HOST], error: null } });
 
 ok("producer: asset_exposure absent → not_assessed", pNotRun.evidence_status === "not_assessed");
 ok("producer: asset_exposure empty (nothing probed) → not_assessed (empty ≠ healthy)", pEmpty.evidence_status === "not_assessed");
@@ -51,6 +55,20 @@ ok("producer: unavailable is NOT healthy and total stays 0 (incomplete not silen
 ok("producer: asset_exposure error → unavailable", pError.evidence_status === "unavailable");
 ok("producer: completed probe, zero verified admin surfaces → assessed_healthy", pHealthy.evidence_status === "assessed_healthy" && pHealthy.total === 0);
 ok("producer: verified admin surface → issue_detected", pIssue.evidence_status === "issue_detected" && pIssue.total > 0);
+ok("producer: every confirmed service carries explicit finding_type=finding",
+  pIssue.services.length > 0 && pIssue.services.every((service) => service.finding_type === "finding"));
+ok("producer: hostname-only service remains an explicit observation and never increments detected/total",
+  pObservation.services.length === 1
+    && pObservation.services[0].finding_type === "observation"
+    && pObservation.observations.length === 1
+    && pObservation.detected === false
+    && pObservation.total === 0,
+  JSON.stringify(pObservation));
+ok("producer: distinct service identities on one host remain in inventory",
+  pDualService.services.filter((service) => service.finding_type === "finding").length === 2
+    && new Set(pDualService.services.map((service) => service.product)).size === 2
+    && pDualService.services.every((service) => service.hostname === "vcenter-gitlab.example.com"),
+  JSON.stringify(pDualService.services));
 // Real finding is never hidden by an unavailable/incomplete source.
 const pIssueDespiteIncomplete = runAdminSurfaceModule({ asset_exposure: { assets: [ADMIN_HOST, { host: "y", reachable: null }], incomplete: true } });
 ok("producer: verified admin surface surfaces as issue_detected even when the pass was incomplete",

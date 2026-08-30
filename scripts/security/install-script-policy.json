@@ -129,6 +129,54 @@
     },
     {
       "file": ".github/workflows/ci.yml",
+      "step_name": "Install worker dependencies (governed lifecycle scripts)",
+      "root": "workers/scan-api",
+      "command": "node scripts/install-governed-dependencies.js --root workers/scan-api"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "step_name": "Install worker dependencies (governed lifecycle scripts)",
+      "root": "workers/scan-api",
+      "command": "node scripts/install-governed-dependencies.js --root workers/scan-api"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "step_name": "Install worker dependencies (governed lifecycle scripts)",
+      "root": "workers/scan-api",
+      "command": "node scripts/install-governed-dependencies.js --root workers/scan-api"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "step_name": "Install worker dependencies (governed lifecycle scripts)",
+      "root": "workers/scan-api",
+      "command": "node scripts/install-governed-dependencies.js --root workers/scan-api"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "step_name": "Install frontend dependencies (governed lifecycle scripts)",
+      "root": "frontend",
+      "command": "node scripts/install-governed-dependencies.js --root frontend"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "step_name": "Install frontend dependencies (governed lifecycle scripts)",
+      "root": "frontend",
+      "command": "node scripts/install-governed-dependencies.js --root frontend"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "step_name": "Install frontend dependencies (governed lifecycle scripts)",
+      "root": "frontend",
+      "command": "node scripts/install-governed-dependencies.js --root frontend"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "step_name": "Install frontend dependencies (governed lifecycle scripts)",
+      "root": "frontend",
+      "command": "node scripts/install-governed-dependencies.js --root frontend"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
       "step_name": "Install frontend dependencies (governed lifecycle scripts)",
       "root": "frontend",
       "command": "node scripts/install-governed-dependencies.js --root frontend"

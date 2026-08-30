@@ -38,7 +38,8 @@ const scanEngineSource = fs.readFileSync(path.join(engineRoot, "scan-engine.js")
 
 ok(
   "ASB6R_ENGINE_WIRES_DEADLINE_ARM",
-  /const reservedMode = capacity\.mode === "reserved";\s*if \(reservedMode\) deadline\.arm\(\);/.test(scanEngineSource)
+  /const deadline = createScanDeadline\(env, now, \{ executionContext \}\);\s*[\s\S]{0,320}if \(durableInvocation\) deadline\.arm\(\);/.test(scanEngineSource)
+    && /const reservedMode = capacity\.mode === "reserved";\s*if \(!durableInvocation && reservedMode\) deadline\.arm\(\);/.test(scanEngineSource)
     && /finally \{\s*deadline\.disarm\?\.\(\);\s*\}/.test(scanEngineSource)
     && !/not be treated as[\s\S]{0,120}B2 cancellation\/accounting guarantees/.test(scanEngineSource),
 );

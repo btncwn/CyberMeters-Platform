@@ -72,7 +72,9 @@ const EXPECTED = Object.freeze({
     // AS-B2 FINAL-REBASE SUCCESSION: counts remain 47/22. The canonical scoring
     // wire-in shifts five existing product comparison sites only; no runtime
     // comparison was added, removed or reclassified.
-    fingerprint: "449afe4d869461139ff318c30bd27bad6b76b7a73a13c25031f9db78098ec6a7",
+    // AUDIT-RECOVERY JOIN: count and file membership remain 47/22; accepted
+    // runtime changes shift governed line positions only.
+    fingerprint: "224c996bd9e7a3652945946fe0e2a5c65525623c6b1c220e2b9ed6d294c60311",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -101,14 +103,16 @@ const EXPECTED = Object.freeze({
     // child-process comparisons and the presentation assertion moved within
     // validate-phase5-evidence-honesty.js; exact line keys were re-derived on
     // the final tree. No governance or product comparison changed membership.
-    comparison_occurrences: 68,
-    source_file_count: 27,
+    // AUDIT-RECOVERY JOIN: three additive validator comparisons in one new
+    // governance source; runtime membership remains unchanged.
+    comparison_occurrences: 71,
+    source_file_count: 28,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
     // the successor validator. Nothing was added to or removed from the runtime set.
     // SUCCESSOR-3: 63 -> 65 across 23 -> 25 files. Additive only: PR #414/#416 added
     // governed comparisons in their own validators. Nothing was removed.
-    fingerprint: "fbb211244829b227f8a9e6e4e9f2d86d85d620eac09bbfed4731652be51c2a92",
+    fingerprint: "0eb4a957060b9fe2a08e653ab874346338346353d81ff0c6b1b5252bb72d4f7d",
   },
   runtime_source_file_count: 32,
   direct: {
@@ -144,7 +148,7 @@ const EXPECTED = Object.freeze({
     // --dump-counts run and independently matched the hosted CI values.
     // AS-B2 FINAL-REBASE SUCCESSION: counts remain 91/34; final-tree product
     // line shifts only, with identical canonical-read membership.
-    runtime: { occurrence_count: 91, source_file_count: 34, fingerprint: "6550095401675c6d69e1976aaa22bb3a93004b443b8398897dfb4e707c116ecd" },
+    runtime: { occurrence_count: 91, source_file_count: 34, fingerprint: "11131f0836b072424d72b2b1a7ff69e0c55dc6f41ecdcb8f409d1be69456491a" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
@@ -153,7 +157,7 @@ const EXPECTED = Object.freeze({
     // .scan_quality directly. Runtime direct reads unchanged (90/34).
     // AS-B2 FINAL-REBASE SUCCESSION: counts remain 109/38; validator line
     // shifts only, with identical direct-read membership.
-    governance: { occurrence_count: 109, source_file_count: 38, fingerprint: "88f99ce3efaa8b966b58c4248e73de91504a3d9fa4b6a400bf2a5c8ff8f833bd" },
+    governance: { occurrence_count: 109, source_file_count: 38, fingerprint: "dc3513734e6d9a8a74a3375375086cf9957fc72a849430bcdb71c65197314437" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper

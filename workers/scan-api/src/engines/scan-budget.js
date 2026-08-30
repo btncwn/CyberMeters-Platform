@@ -227,14 +227,12 @@ export class PhysicalSubrequestCounter {
   }
 }
 
-// ── Global scan wall-clock deadline (Tier 1: waitUntil-cancellation guard) ────
-// The scan engine runs inside ctx.waitUntil(); Cloudflare cancels that background
-// promise ~30s after the response is sent, silently (no exception → no catch → no
-// failed report → orphaned "running" row). The deadline gives the engine an
-// explicit wall-clock budget BELOW that cliff: expensive network phases refuse to
-// launch once the budget is spent, leaving headroom to finalize honestly. Proven
-// root cause: an invocation with wallTime 31170ms / cpuTime 40ms / outcome "ok"
-// logged "waitUntil() tasks did not complete ... have been cancelled".
+// ── Global scan wall-clock deadline (Tier 1: invocation safety guard) ────────
+// The legacy HTTP fallback runs inside ctx.waitUntil(), which can be cancelled
+// shortly after the response is sent. Queue consumers and cron handlers own a
+// durable invocation instead, so they get a generous safety-net envelope while
+// retaining the same strict per-module/per-fetch caps and finalisation reserve.
+// Unknown contexts fail closed to the legacy waitUntil profile.
 export const SCAN_DEADLINE_DEFAULTS = Object.freeze({
   // PR-B2 measured from 13 PR-C2 queue samples: keep a hard finalisation reserve
   // below the ~30s waitUntil cliff, and stop launching/issuing network attempts
@@ -247,6 +245,19 @@ export const SCAN_DEADLINE_DEFAULTS = Object.freeze({
   // finalization (the terminal R2+D1 write runs first in finalization and is fast,
   // so this comfortably protects the anti-orphan guarantee).
   maxBudgetMs: 19_000,
+});
+
+// Queue consumers and cron handlers have a durable invocation lifetime. This is
+// deliberately still bounded: the 120s total ceiling is a runaway safety net,
+// not an entitlement for any single provider or module. The existing measured
+// module caps below remain authoritative and the last 5s stay reserved for
+// terminal writes.
+export const SCAN_DURABLE_INVOCATION_DEADLINE_DEFAULTS = Object.freeze({
+  totalCeilingMs:       120_000,
+  finalizationReserveMs: 5_000,
+  budgetMs:             115_000,
+  minBudgetMs:            5_000,
+  maxBudgetMs:          115_000,
 });
 
 export const SCAN_MODULE_BUDGETS = Object.freeze({
@@ -269,17 +280,39 @@ export const SCAN_MODULE_BUDGETS = Object.freeze({
   cloud_storage_discovery:       500,
 });
 
+// Queue/Cron Phase-5 source envelopes. These are hard module ceilings, not
+// expected durations: CVE can make three sequential 10s NVD calls with two
+// 300ms pacing gaps; KEV and Email Intelligence each contain a 10s HTTP leaf
+// plus bounded parsing/cache or parallel DNS work. The global 115s executable
+// deadline remains the upper authority. Legacy waitUntil/unknown callers retain
+// the 1s SCAN_MODULE_BUDGETS contract above.
+export const SCAN_DURABLE_PHASE5_MODULE_BUDGETS = Object.freeze({
+  cve_intelligence:                  32_000,
+  known_exploited_vulnerabilities:   12_000,
+  email_security_intelligence:       12_000,
+});
+
 // A monotonic wall-clock deadline. `now` is injectable so tests can drive the clock
 // deterministically (production passes Date.now). exceeded() gates launched phases;
 // canRun(estimateMs) refuses a phase that could not plausibly finish in budget.
-export function createScanDeadline(env = {}, now = Date.now) {
-  const budgetMs = clampInt(env.SCAN_DEADLINE_MS, SCAN_DEADLINE_DEFAULTS.budgetMs,
-    SCAN_DEADLINE_DEFAULTS.minBudgetMs, SCAN_DEADLINE_DEFAULTS.maxBudgetMs);
+export function createScanDeadline(env = {}, now = Date.now, options = {}) {
+  const executionContext = options?.executionContext;
+  const defaults = executionContext === "queue" || executionContext === "cron"
+    ? SCAN_DURABLE_INVOCATION_DEADLINE_DEFAULTS
+    : SCAN_DEADLINE_DEFAULTS;
+  const budgetMs = clampInt(env.SCAN_DEADLINE_MS, defaults.budgetMs,
+    defaults.minBudgetMs, defaults.maxBudgetMs);
+  // An override may shorten the executable budget, but it never consumes or
+  // expands the fixed terminal-write reserve owned by the selected profile.
+  const totalCeilingMs = budgetMs + defaults.finalizationReserveMs;
   const startedAtMs = now();
   const controller = new AbortController();
   let armedTimer = null;
   let armedClearTimer = clearTimeout;
+  let armedTotalTimer = null;
+  let armedTotalClearTimer = clearTimeout;
   let abortProvenance = null;
+  let totalCeilingProvenance = null;
   // The canonical global-deadline event is recorded once, in one place, so that
   // CT-R1 telemetry and overlap freeze read the same owner, reason and time.
   const recordAbortProvenance = (reason) => {
@@ -290,15 +323,17 @@ export function createScanDeadline(env = {}, now = Date.now) {
       observed_at: new Date(now()).toISOString(),
     };
   };
-  return {
+  const deadline = {
     budgetMs,
-    totalCeilingMs: SCAN_DEADLINE_DEFAULTS.totalCeilingMs,
-    finalizationReserveMs: SCAN_DEADLINE_DEFAULTS.finalizationReserveMs,
+    totalCeilingMs,
+    finalizationReserveMs: defaults.finalizationReserveMs,
     startedAtMs,
     signal: controller.signal,
     elapsedMs()   { return now() - startedAtMs; },
     remainingMs() { return Math.max(0, budgetMs - (now() - startedAtMs)); },
+    totalRemainingMs() { return Math.max(0, totalCeilingMs - (now() - startedAtMs)); },
     exceeded()    { return now() - startedAtMs >= budgetMs; },
+    totalExceeded() { return now() - startedAtMs >= totalCeilingMs || totalCeilingProvenance != null; },
     // A phase launches only if elapsed + its estimate still fits the budget.
     canRun(estimateMs = 0) { return (now() - startedAtMs) + estimateMs < budgetMs; },
     globalDeadlineProvenance() {
@@ -312,6 +347,28 @@ export function createScanDeadline(env = {}, now = Date.now) {
       }
       return { ...abortProvenance };
     },
+    totalCeilingProvenance() {
+      if (!totalCeilingProvenance) {
+        return {
+          exceeded: false,
+          owner: "scan_invocation_ceiling",
+          reason: null,
+          observed_at: null,
+        };
+      }
+      return { ...totalCeilingProvenance };
+    },
+    markTotalExceeded(reason = "scan_total_ceiling_exhausted") {
+      if (!totalCeilingProvenance) {
+        totalCeilingProvenance = {
+          exceeded: true,
+          owner: "scan_invocation_ceiling",
+          reason: String(reason),
+          observed_at: new Date(now()).toISOString(),
+        };
+      }
+      if (!controller.signal.aborted) this.cancel(reason);
+    },
     cancel(reason = "scan_deadline_exhausted") {
       if (controller.signal.aborted) return;
       recordAbortProvenance(reason);
@@ -321,28 +378,73 @@ export function createScanDeadline(env = {}, now = Date.now) {
     // is sequential and historically bypassed that wrapper, so it explicitly arms
     // this one-shot signal. The timer is injectable for deterministic proof and
     // unref'd in Node so a completed test/process is never kept alive by diagnostics.
-    arm({ setTimer = setTimeout, clearTimer = globalThis.clearTimeout } = {}) {
-      if (armedTimer != null || controller.signal.aborted) return false;
+    arm({
+      setTimer = setTimeout,
+      clearTimer = globalThis.clearTimeout,
+      setTotalTimer = setTimeout,
+      clearTotalTimer = globalThis.clearTimeout,
+    } = {}) {
+      if (armedTimer != null || armedTotalTimer != null || controller.signal.aborted) return false;
       const remaining = Math.max(0, budgetMs - (now() - startedAtMs));
+      const totalRemaining = Math.max(0, totalCeilingMs - (now() - startedAtMs));
       armedClearTimer = clearTimer;
+      armedTotalClearTimer = clearTotalTimer;
       if (remaining <= 0) {
         this.cancel("scan_deadline_exhausted");
-        return true;
+      } else {
+        armedTimer = setTimer(() => {
+          armedTimer = null;
+          this.cancel("scan_deadline_exhausted");
+        }, remaining);
+        armedTimer?.unref?.();
       }
-      armedTimer = setTimer(() => {
-        armedTimer = null;
-        this.cancel("scan_deadline_exhausted");
-      }, remaining);
-      armedTimer?.unref?.();
+      if (totalRemaining <= 0) {
+        this.markTotalExceeded();
+      } else {
+        armedTotalTimer = setTotalTimer(() => {
+          armedTotalTimer = null;
+          this.markTotalExceeded();
+        }, totalRemaining);
+        armedTotalTimer?.unref?.();
+      }
       return true;
+    },
+    async raceToTotal(thunk, onCeiling, {
+      setTimer = setTimeout,
+      clearTimer = globalThis.clearTimeout,
+    } = {}) {
+      const remaining = this.totalRemainingMs();
+      if (remaining <= 0 || this.totalExceeded()) {
+        this.markTotalExceeded();
+        return onCeiling();
+      }
+      let timer = null;
+      const work = Promise.resolve().then(thunk).then(
+        (value) => ({ kind: "work", value }),
+        (error) => ({ kind: "error", error }),
+      );
+      const ceiling = new Promise((resolve) => {
+        timer = setTimer(() => {
+          this.markTotalExceeded();
+          resolve({ kind: "ceiling" });
+        }, remaining);
+        timer?.unref?.();
+      });
+      const winner = await Promise.race([work, ceiling]);
+      if (winner.kind !== "ceiling" && timer != null) clearTimer(timer);
+      if (winner.kind === "error") throw winner.error;
+      return winner.kind === "ceiling" ? onCeiling() : winner.value;
     },
     disarm() {
-      if (armedTimer == null) return false;
-      armedClearTimer?.(armedTimer);
+      const hadTimer = armedTimer != null || armedTotalTimer != null;
+      if (armedTimer != null) armedClearTimer?.(armedTimer);
+      if (armedTotalTimer != null) armedTotalClearTimer?.(armedTotalTimer);
       armedTimer = null;
-      return true;
+      armedTotalTimer = null;
+      return hadTimer;
     },
   };
+  return deadline;
 }
 
 // Bound a LAUNCHED network phase to the remaining wall-clock budget. canRun() only
@@ -381,14 +483,18 @@ export async function raceModuleDeadline(deadline, thunk, onDeadline, { hardMs =
 // classify the scan "partial"; executed:false + reason keep the record diagnosable.
 // The caller supplies the module's normal empty shape so downstream scoring/
 // remediation see the same fields they would on a genuine empty run.
-export function markDeadlineDeferred(base = {}) {
-  return {
+export function markDeadlineDeferred(base = {}, options = {}) {
+  const deferred = {
     ...base,
     executed:   false,
     incomplete: true,
     outcome:    "deadline_exceeded",
-    reason:     "scan_deadline_exhausted",
+    reason:     options.reason || "scan_deadline_exhausted",
   };
+  // Additive only when the caller owns a more specific timeout boundary. The
+  // default call remains byte-compatible for legacy waitUntil/unknown results.
+  if (options.timeoutSource) deferred.timeout_source = options.timeoutSource;
+  return deferred;
 }
 
 // The canonical read of the deferral/skip vocabulary this module writes

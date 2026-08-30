@@ -487,7 +487,7 @@ function nextRedirect(url) {
   );
 }
 
-function makeWorkerEnv(onReport) {
+function makeWorkerEnv(onReport, capacityMode = "reserved") {
   const statement = {
     bind() { return this; },
     async run() { return {}; },
@@ -500,15 +500,33 @@ function makeWorkerEnv(onReport) {
       async batch() { return []; },
     },
     cybermeters_reports: {
-      async put(_key, body) {
-        try { onReport(JSON.parse(body)); } catch { /* validator records null */ }
+      async put(key, body) {
+        if (/^reports\/[^/]+\.json$/.test(String(key))) {
+          try { onReport(JSON.parse(body)); } catch { /* validator records null */ }
+        }
         return {};
       },
       async get() { return null; },
       async delete() { return {}; },
     },
-    SCAN_CAPACITY_MODE: "reserved",
+    SCAN_CAPACITY_MODE: capacityMode,
   };
+}
+
+async function runEnginePhysicalProvenanceFixture(scanId, counter) {
+  let report = null;
+  await runScanEngine(
+    scanId,
+    `domain_${scanId}`,
+    `workspace_${scanId}`,
+    "example.com",
+    makeWorkerEnv((value) => { report = value; }, "legacy"),
+    {
+      executionContext: "queue",
+      testOnlyPhysicalSubrequestCounter: counter,
+    },
+  );
+  return report;
 }
 
 // 4) The actual scan engine must consume the reserved exposure evidence before
@@ -556,13 +574,39 @@ function makeWorkerEnv(onReport) {
   const admin = modules.admin_surface_detection || {};
   const physical = modules.scan_budget?.physical || {};
   const findings = Array.isArray(report?.findings) ? report.findings : [];
+  const adminHost = "admin.example.com";
+  const findingClaimsHost = (finding) => (finding?.affected_hosts || [])
+    .map((hostname) => String(hostname || "").trim().toLowerCase().replace(/\.$/, ""))
+    .includes(adminHost);
+  const jenkinsProducerFinding = admin.services?.find((service) =>
+    service.product === "Jenkins" && service.hostname === adminHost &&
+      service.finding_type === "finding");
+  const scoreBearingAdminOwners = findings.filter((finding) =>
+    Number(finding?.score_impact) < 0 && findingClaimsHost(finding));
+  const adminBucketHostClaims = findings.filter((finding) =>
+    finding.id?.startsWith("admin_surface_") && findingClaimsHost(finding));
+  const secondAssetExposureOwners = findings.filter((finding) =>
+    finding.id === "asset_exposure_admin_interface" && findingClaimsHost(finding));
+  const interfaceObservations = findings.filter((finding) =>
+    finding.id === "asset_exposure_interface_observed");
   ok("ASB6B_LIVE_ENGINE_COMPLETES", engineError == null && report != null, String(engineError?.stack || engineError || ""));
   ok(
     "ASB6B_LIVE_ADMIN_CONSUMER_PERSISTS",
     admin.evidence_status === "issue_detected"
-      && admin.services?.some((service) => service.product === "Jenkins" && service.hostname === "admin.example.com")
-      && findings.some((finding) => finding.id === "admin_surface_critical"),
-    `admin=${JSON.stringify(admin)}, finding_ids=${JSON.stringify(findings.map((finding) => finding.id))}`,
+      && jenkinsProducerFinding != null
+      && scoreBearingAdminOwners.length === 1
+      && scoreBearingAdminOwners[0]?.id === "asset_exposure_sensitive_tool"
+      && scoreBearingAdminOwners[0]?.finding_type === "finding"
+      && scoreBearingAdminOwners[0]?.score_impact === -10
+      && adminBucketHostClaims.length === 0
+      && secondAssetExposureOwners.length === 0
+      && interfaceObservations.every((finding) =>
+        finding.finding_type === "observation" && finding.score_impact === 0 &&
+          !findingClaimsHost(finding)),
+    `admin=${JSON.stringify(admin)}, owners=${JSON.stringify(scoreBearingAdminOwners)}, ` +
+      `admin_bucket_claims=${JSON.stringify(adminBucketHostClaims)}, ` +
+      `admin_interface_claims=${JSON.stringify(secondAssetExposureOwners)}, ` +
+      `interface_observations=${JSON.stringify(interfaceObservations)}`,
   );
   ok(
     "ASB6B_LIVE_ENGINE_COUNTER_RECONCILES",
@@ -572,6 +616,89 @@ function makeWorkerEnv(onReport) {
   ok(
     "ASB6B_LIVE_ENGINE_CRITICAL_HOST_PROBED",
     modules.asset_exposure?.assets?.some((asset) => asset.host === "admin.example.com" && asset.reachable === true),
+  );
+}
+
+// 5) Drive physical refusal through the actual nested runCappedModule and both
+// telemetry consumers. These are not helper-shaped stand-ins: the report is the
+// terminal R2 payload emitted by runScanEngine.
+{
+  globalThis.fetch = async (value) => {
+    const url = String(value);
+    const kind = requestKind(url);
+    if (kind === "dns") {
+      const { type } = dnsQuestion(url);
+      if (type === "A") return dnsJson([{ data: PUBLIC_A }]);
+      if (type === "AAAA") return dnsJson([{ data: PUBLIC_AAAA }]);
+      return dnsJson([]);
+    }
+    if (kind === "ct") return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+    if (kind === "http") return html("Public Site");
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  let zeroReport = null;
+  let oneReport = null;
+  try {
+    const zeroCounter = new PhysicalSubrequestCounter({ limit: 1, safetyMargin: 0 });
+    zeroCounter.contextFor("fixture_precharge").recordAttempt();
+    zeroReport = await runEnginePhysicalProvenanceFixture("scan_asb6b_zero", zeroCounter);
+
+    const oneCounter = new PhysicalSubrequestCounter({ limit: 1, safetyMargin: 0 });
+    oneReport = await runEnginePhysicalProvenanceFixture("scan_asb6b_one", oneCounter);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  const diag = (report, module) => report?.execution_diagnostics?.modules
+    ?.find((row) => row.module === module);
+  const zeroCoreModules = Object.values(zeroReport?.modules || {}).filter((value) =>
+    value?.incomplete_reason === "subrequest_budget_exhausted"
+      && value?.physical_attempts_issued === 0);
+  const oneCoreModules = Object.values(oneReport?.modules || {}).filter((value) =>
+    value?.incomplete_reason === "subrequest_budget_exhausted"
+      && value?.physical_attempts_issued === 1);
+  ok(
+    "ASB6B_LIVE_ZERO_ATTEMPT_MODULE_PROVENANCE",
+    zeroCoreModules.length > 0
+      && zeroCoreModules.every((value) => value.timeout_source === "subrequest_budget"),
+    JSON.stringify(zeroCoreModules),
+  );
+  ok(
+    "ASB6B_LIVE_AFTER_ATTEMPT_MODULE_PROVENANCE",
+    oneCoreModules.length > 0
+      && oneCoreModules.every((value) => value.timeout_source === "subrequest_budget"),
+    JSON.stringify(oneCoreModules),
+  );
+  ok(
+    "ASB6B_LIVE_CORE_TELEMETRY_PHYSICAL_PROVENANCE",
+    [diag(zeroReport, "dns"), diag(oneReport, "dns")].every((row) =>
+      row?.timeout === false && row?.timeout_source === "subrequest_budget"),
+    JSON.stringify([diag(zeroReport, "dns"), diag(oneReport, "dns")]),
+  );
+  ok(
+    "ASB6B_LIVE_PHASE5_TELEMETRY_PHYSICAL_PROVENANCE",
+    (() => {
+      const emailRow = diag(zeroReport, "email_security_intelligence");
+      const emailValue = zeroReport?.modules?.email_security_intelligence;
+      const dependencyOnly = ["cve_intelligence", "known_exploited_vulnerabilities"];
+      return emailValue?.incomplete_reason === "subrequest_budget_exhausted"
+        && emailValue?.timeout_source === "subrequest_budget"
+        && emailRow?.timeout === false
+        && emailRow?.timeout_source === "subrequest_budget"
+        // CVE/KEV never reach a provider attempt in this fixture because their
+        // technology dependency is unavailable. They must not inherit the
+        // sibling's physical refusal provenance.
+        && dependencyOnly.every((module) => {
+          const row = diag(zeroReport, module);
+          const value = zeroReport?.modules?.[module];
+          return value?.timeout_source == null
+            && row?.timeout === false
+            && row?.outcome === "dependency_unavailable"
+            && row?.timeout_source == null;
+        });
+    })(),
+    JSON.stringify(zeroReport?.execution_diagnostics?.modules),
   );
 }
 

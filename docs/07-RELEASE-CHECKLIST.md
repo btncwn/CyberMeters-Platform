@@ -64,7 +64,8 @@ Migrations are at least **R1**. Additive-only is enforced by
 
 ```bash
 cd workers/scan-api
-# Snapshot first (cheap insurance — see BACKUP-RESTORE-DRILL.md)
+# Snapshot first (cheap insurance — see BACKUP-RESTORE-DRILL.md; for a full
+# D1+R2 verified encrypted backup use scripts/ops/backup-production-data.sh)
 npx wrangler d1 export cybermeters-db --remote --output=../../backups/pre-$(git rev-parse --short HEAD).sql
 # Apply
 npx wrangler d1 execute cybermeters-db --remote --file=../../database/migrations/<NNN>-*.sql

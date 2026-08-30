@@ -42,27 +42,35 @@ function emailDeliveryLog(level, details) {
   else console.log("[email-delivery]", payload);
 }
 
-async function deliverEmail(subject, text, html, env, fromKey, toEmails) {
+function prepareEmailDelivery(subject, text, html, env, fromKey, toEmails) {
   const to = normalizeEmailRecipients(toEmails);
   const from = resolveEmailSender(env, fromKey);
   const safeSubject = String(subject || "").replace(/[\r\n]+/g, " ").trim();
   const context = { from_key: fromKey, recipient_count: to.length };
 
-  if (!env.RESEND_API_KEY) {
-    emailDeliveryLog("error", { ...context, outcome: "skipped", reason: "missing_api_key" });
-    return { sent: false, reason: "missing_api_key" };
-  }
   if (!from) {
-    emailDeliveryLog("error", { ...context, outcome: "skipped", reason: "invalid_sender" });
-    return { sent: false, reason: "invalid_sender" };
+    return { ok: false, reason: "invalid_sender", context };
   }
   if (to.length === 0) {
-    emailDeliveryLog("error", { ...context, outcome: "skipped", reason: "no_valid_recipients" });
-    return { sent: false, reason: "no_valid_recipients" };
+    return { ok: false, reason: "no_valid_recipients", context };
   }
   if (!safeSubject || !String(text || "").trim() || !String(html || "").trim()) {
-    emailDeliveryLog("error", { ...context, outcome: "skipped", reason: "invalid_content" });
-    return { sent: false, reason: "invalid_content" };
+    return { ok: false, reason: "invalid_content", context };
+  }
+  const body = JSON.stringify({ from, to, subject: safeSubject, text, html });
+  return { ok: true, from, to, subject: safeSubject, text, html, body, context };
+}
+
+async function deliverPreparedEmail(prepared, env, {
+  idempotencyKey = null,
+  apiKey = null,
+  readCredential = true,
+  lifecycleOutcomeContract = false,
+} = {}) {
+  const credential = readCredential ? env.RESEND_API_KEY : apiKey;
+  if (!credential) {
+    emailDeliveryLog("error", { ...prepared.context, outcome: "skipped", reason: "missing_api_key" });
+    return { sent: false, reason: "missing_api_key", ...(lifecycleOutcomeContract ? { definitive: true } : {}) };
   }
 
   try {
@@ -70,9 +78,10 @@ async function deliverEmail(subject, text, html, env, fromKey, toEmails) {
       method:  "POST",
       headers: {
         "Content-Type":  "application/json",
-        "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+        "Authorization": `Bearer ${credential}`,
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
       },
-      body: JSON.stringify({ from, to, subject: safeSubject, text, html }),
+      body: prepared.body,
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {
@@ -87,21 +96,58 @@ async function deliverEmail(subject, text, html, env, fromKey, toEmails) {
         const raw = String(body?.name || "").trim().toLowerCase();
         if (/^[a-z0-9_]{1,64}$/.test(raw)) providerCode = raw;
       } catch { /* non-JSON or empty error body — stay unclassified */ }
-      emailDeliveryLog("error", { ...context, outcome: "failed", reason: "provider_rejected", status: response.status, provider_code: providerCode });
-      return { sent: false, reason: "provider_rejected", status: response.status, provider_code: providerCode };
+      if (!lifecycleOutcomeContract) {
+        emailDeliveryLog("error", { ...prepared.context, outcome: "failed", reason: "provider_rejected", status: response.status, provider_code: providerCode });
+        return { sent: false, reason: "provider_rejected", status: response.status, provider_code: providerCode };
+      }
+      if (response.status === 409) {
+        const reason = providerCode === "invalid_idempotent_request"
+          ? "idempotency_conflict_invalid"
+          : providerCode === "concurrent_idempotent_requests"
+            ? "idempotency_conflict_concurrent"
+            : "idempotency_conflict_unknown";
+        emailDeliveryLog("error", { ...prepared.context, outcome: "unknown", reason, status: response.status, provider_code: providerCode });
+        return { sent: false, reason, status: response.status, outcomeUnknown: true };
+      }
+      if (response.status >= 500 || response.status < 400) {
+        emailDeliveryLog("error", { ...prepared.context, outcome: "unknown", reason: "provider_server_error", status: response.status, provider_code: providerCode });
+        return { sent: false, reason: "provider_server_error", status: response.status, outcomeUnknown: true };
+      }
+      emailDeliveryLog("error", { ...prepared.context, outcome: "failed", reason: "provider_rejected", status: response.status, provider_code: providerCode });
+      return { sent: false, reason: "provider_rejected", status: response.status, provider_code: providerCode, definitive: true };
     }
     let providerId = null;
     try { providerId = (await response.json())?.id || null; } catch { /* response ID is optional */ }
-    emailDeliveryLog("info", { ...context, outcome: "accepted", provider_id: providerId });
+    emailDeliveryLog("info", { ...prepared.context, outcome: "accepted", provider_id: providerId });
     return { sent: true, provider_id: providerId };
   } catch (error) {
+    const reason = error?.name === "TimeoutError" ? "timeout" : "network_error";
     emailDeliveryLog("error", {
-      ...context,
-      outcome: "failed",
-      reason: error?.name === "TimeoutError" ? "timeout" : "network_error",
+      ...prepared.context,
+      outcome: "unknown",
+      reason,
     });
-    return { sent: false, reason: error?.name === "TimeoutError" ? "timeout" : "network_error" };
+    return lifecycleOutcomeContract
+      ? { sent: false, reason, outcomeUnknown: true }
+      : { sent: false, reason };
   }
+}
+
+async function deliverEmail(subject, text, html, env, fromKey, toEmails) {
+  // Preserve the public/generic delivery contract: generic, alert and digest
+  // callers do not receive a lifecycle idempotency header.
+  const apiKey = env.RESEND_API_KEY;
+  const context = { from_key: fromKey, recipient_count: normalizeEmailRecipients(toEmails).length };
+  if (!apiKey) {
+    emailDeliveryLog("error", { ...context, outcome: "skipped", reason: "missing_api_key" });
+    return { sent: false, reason: "missing_api_key" };
+  }
+  const prepared = prepareEmailDelivery(subject, text, html, env, fromKey, toEmails);
+  if (!prepared.ok) {
+    emailDeliveryLog("error", { ...prepared.context, outcome: "skipped", reason: prepared.reason });
+    return { sent: false, reason: prepared.reason };
+  }
+  return deliverPreparedEmail(prepared, env, { apiKey, readCredential: false });
 }
 
 /**
@@ -151,6 +197,101 @@ function lifecycleDedupeKey({ type, user_id = null, workspace_id = null, domain 
     case "lifecycle_payment_failed":              return `lifecycle_payment_failed:${ref || workspace_id || "unknown"}`;
     default:                                       return `${type}:${user_id || ""}:${workspace_id || ""}:${d}`;
   }
+}
+
+const LIFECYCLE_PROVIDER_NOT_STARTED = "provider_not_started";
+const LIFECYCLE_SAFE_RETRY_ERRORS = new Set([
+  "missing_api_key",
+  "invalid_sender",
+  "no_valid_recipients",
+  "invalid_content",
+  "idempotency_key_unavailable",
+]);
+
+async function lifecycleProviderIdempotencyKey(dedupeKey) {
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(String(dedupeKey)),
+  );
+  const hex = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+  if (!/^[a-f0-9]{64}$/.test(hex)) throw new Error("idempotency_key_unavailable");
+  return `cybermeters:lifecycle:v1:${hex}`;
+}
+
+async function recordLifecyclePreflightFailure(env, { rowId, dedupeKey, workspaceId, reason }) {
+  return env.cybermeters_db
+    .prepare(`UPDATE lifecycle_email_events
+              SET status = 'failed', error = ?, provider_id = NULL
+              WHERE id = ? AND dedupe_key = ?
+                AND status = 'pending' AND error = 'provider_not_started'
+                AND ((? IS NULL AND workspace_id IS NULL) OR workspace_id = ?)`)
+    .bind(reason, rowId, dedupeKey, workspaceId, workspaceId)
+    .run();
+}
+
+async function reclaimLifecycleFailure(env, { rowId, dedupeKey, workspaceId }) {
+  return env.cybermeters_db
+    .prepare(`UPDATE lifecycle_email_events
+              SET status = 'pending', error = 'provider_not_started', provider_id = NULL
+              WHERE id = ? AND dedupe_key = ? AND status = 'failed'
+                AND ((? IS NULL AND workspace_id IS NULL) OR workspace_id = ?)
+                AND created_at > datetime('now', '-3 days')
+                AND (
+                  error IN ('missing_api_key','invalid_sender','no_valid_recipients','invalid_content','idempotency_key_unavailable')
+                  OR (error = 'provider_rejected' AND created_at < datetime('now', '-24 hours'))
+                )`)
+    .bind(rowId, dedupeKey, workspaceId, workspaceId)
+    .run();
+}
+
+async function claimLifecycleProviderAttempt(env, {
+  rowId,
+  dedupeKey,
+  workspaceId,
+  allowImmediate,
+}) {
+  return env.cybermeters_db
+    .prepare(`UPDATE lifecycle_email_events
+              SET status = 'sending', error = NULL
+              WHERE id = ? AND dedupe_key = ?
+                AND status = 'pending' AND error = 'provider_not_started'
+                AND (? = 1 OR created_at < datetime('now', '-15 minutes'))
+                AND (
+                  (? IS NULL AND workspace_id IS NULL)
+                  OR (workspace_id = ? AND EXISTS (
+                    SELECT 1 FROM workspaces WHERE id = ? AND deleted_at IS NULL
+                  ))
+                )`)
+    .bind(rowId, dedupeKey, allowImmediate ? 1 : 0, workspaceId, workspaceId, workspaceId)
+    .run();
+}
+
+async function recordLifecycleProviderOutcome(env, { rowId, dedupeKey, workspaceId, result }) {
+  if (result.sent) {
+    return env.cybermeters_db
+      .prepare(`UPDATE lifecycle_email_events
+                SET status = 'sent', provider_id = ?, error = NULL, sent_at = datetime('now')
+                WHERE id = ? AND dedupe_key = ? AND status = 'sending'
+                  AND ((? IS NULL AND workspace_id IS NULL) OR workspace_id = ?)`)
+      .bind(result.provider_id || null, rowId, dedupeKey, workspaceId, workspaceId)
+      .run();
+  }
+  if (result.definitive) {
+    return env.cybermeters_db
+      .prepare(`UPDATE lifecycle_email_events
+                SET status = 'failed', provider_id = NULL, error = ?
+                WHERE id = ? AND dedupe_key = ? AND status = 'sending'
+                  AND ((? IS NULL AND workspace_id IS NULL) OR workspace_id = ?)`)
+      .bind(result.reason, rowId, dedupeKey, workspaceId, workspaceId)
+      .run();
+  }
+  return env.cybermeters_db
+    .prepare(`UPDATE lifecycle_email_events
+              SET error = ?
+              WHERE id = ? AND dedupe_key = ? AND status = 'sending'
+                AND ((? IS NULL AND workspace_id IS NULL) OR workspace_id = ?)`)
+    .bind(result.reason || "provider_outcome_unknown", rowId, dedupeKey, workspaceId, workspaceId)
+    .run();
 }
 
 function _lifecycleHtml({ heading, paras, ctaLabel, ctaUrl }) {
@@ -256,7 +397,20 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
  * UNIQUE dedupe_key, then delivers through the strict customer-email path. Never
  * throws, never sends to unverified/missing addresses, never leaks internals.
  */
-async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = null, domain = null, to = null, wsName = null, ref = null, scan_quality = null } = {}) {
+async function sendLifecycleEmail(env, {
+  type,
+  user_id = null,
+  workspace_id = null,
+  domain = null,
+  to = null,
+  wsName = null,
+  ref = null,
+  scan_quality = null,
+  _recovery_id = null,
+} = {}) {
+  let admitted = false;
+  let admittedRow = null;
+  let admittedDedupeKey = null;
   try {
     if (!LIFECYCLE_TYPES.has(type)) return { skipped: "unknown_type" };
 
@@ -284,41 +438,89 @@ async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = nu
 
     const dedupeKey = lifecycleDedupeKey({ type, user_id: uid, workspace_id, domain, ref });
     let rowId = createId("lifemail");
+    let allowImmediate = true;
     const ins = await env.cybermeters_db
-      .prepare(`INSERT INTO lifecycle_email_events (id, user_id, workspace_id, domain, type, dedupe_key, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'pending', datetime('now'))
+      .prepare(`INSERT INTO lifecycle_email_events (id, user_id, workspace_id, domain, type, dedupe_key, status, error, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', 'provider_not_started', datetime('now'))
                 ON CONFLICT(dedupe_key) DO NOTHING`)
       .bind(rowId, uid ?? null, workspace_id ?? null, domain ?? null, type, dedupeKey)
       .run();
 
-    // Conflict → a row for this scope already exists. Retry only if the prior
-    // attempt FAILED (e.g. a transient network error); 'sent' and in-flight
-    // 'pending' rows are still deduped so we never double-send. Claiming the
-    // failed row back to 'pending' also guards against two concurrent retries.
+    // Only the bounded recovery selector may reclaim an existing row. A live
+    // duplicate never turns an ambiguous historical state into resend authority.
     if ((ins.meta?.changes ?? 0) === 0) {
       const existing = await env.cybermeters_db
-        .prepare("SELECT id, status FROM lifecycle_email_events WHERE dedupe_key = ? LIMIT 1")
+        .prepare("SELECT id, workspace_id, status, error FROM lifecycle_email_events WHERE dedupe_key = ? LIMIT 1")
         .bind(dedupeKey).first();
-      if (!existing || existing.status !== "failed") return { skipped: "duplicate" };
-      const claim = await env.cybermeters_db
-        .prepare("UPDATE lifecycle_email_events SET status = 'pending', error = NULL WHERE id = ? AND status = 'failed'")
-        .bind(existing.id).run();
-      if ((claim.meta?.changes ?? 0) === 0) return { skipped: "duplicate" };
+      if (!existing || existing.id !== _recovery_id) return { skipped: "duplicate" };
+      if ((existing.workspace_id ?? null) !== (workspace_id ?? null)) return { skipped: "duplicate" };
       rowId = existing.id;
+      allowImmediate = false;
+
+      if (existing.status === "failed") {
+        const safeFailure = LIFECYCLE_SAFE_RETRY_ERRORS.has(existing.error)
+          || existing.error === "provider_rejected";
+        if (!safeFailure) return { skipped: "duplicate" };
+        const reclaim = await reclaimLifecycleFailure(env, { rowId, dedupeKey, workspaceId: workspace_id });
+        if ((reclaim.meta?.changes ?? 0) === 0) return { skipped: "duplicate" };
+        // Reclaim itself proves the provider has not been invoked in this new
+        // attempt; it may advance immediately to the separate admission CAS.
+        allowImmediate = true;
+      } else if (existing.status !== "pending" || existing.error !== LIFECYCLE_PROVIDER_NOT_STARTED) {
+        return { skipped: "duplicate" };
+      }
     }
 
     const origin = getEmailFrontendOrigin(env);
     const { subject, html, text } = buildLifecycleEmail(type, { origin, wsName: name, domain, scanQuality: scan_quality });
-    const res = await sendCustomerEmail(subject, text, html, env, "HELLO_EMAIL_FROM", [email]);
+    const prepared = prepareEmailDelivery(subject, text, html, env, "HELLO_EMAIL_FROM", [email]);
+    if (!prepared.ok) {
+      await recordLifecyclePreflightFailure(env, { rowId, dedupeKey, workspaceId: workspace_id, reason: prepared.reason });
+      emailDeliveryLog("error", { ...prepared.context, outcome: "skipped", reason: prepared.reason });
+      return { sent: false, reason: prepared.reason };
+    }
 
-    await env.cybermeters_db
-      .prepare(`UPDATE lifecycle_email_events
-                SET status = ?, provider_id = ?, error = ?, sent_at = CASE WHEN ? = 'sent' THEN datetime('now') ELSE sent_at END
-                WHERE id = ?`)
-      .bind(res.sent ? "sent" : "failed", res.provider_id || null, res.sent ? null : (res.reason || "send_failed"), res.sent ? "sent" : "failed", rowId)
-      .run();
-    return res.sent ? { sent: true } : { sent: false, reason: res.reason };
+    let idempotencyKey;
+    try {
+      idempotencyKey = await lifecycleProviderIdempotencyKey(dedupeKey);
+    } catch {
+      await recordLifecyclePreflightFailure(env, { rowId, dedupeKey, workspaceId: workspace_id, reason: "idempotency_key_unavailable" });
+      return { sent: false, reason: "idempotency_key_unavailable" };
+    }
+
+    // This expected-state CAS is the final D1 mutation before the provider. For
+    // workspace-owned rows it also closes the soft-delete race atomically.
+    const attempt = await claimLifecycleProviderAttempt(env, {
+      rowId,
+      dedupeKey,
+      workspaceId: workspace_id,
+      allowImmediate,
+    });
+    if ((attempt.meta?.changes ?? 0) === 0) return { skipped: "duplicate" };
+    admitted = true;
+    admittedRow = rowId;
+    admittedDedupeKey = dedupeKey;
+
+    // The guarded credential is deliberately read inside this helper, after the
+    // CAS and immediately before fetch. A frozen A1 invocation therefore emits
+    // no customer email even if the earlier deterministic preflight succeeded.
+    const result = await deliverPreparedEmail(prepared, env, { idempotencyKey, lifecycleOutcomeContract: true });
+    const terminal = await recordLifecycleProviderOutcome(env, { rowId, dedupeKey, workspaceId: workspace_id, result });
+    if ((terminal.meta?.changes ?? 0) === 0) {
+      return { sent: false, reason: "provider_outcome_unknown" };
+    }
+    return result.sent ? { sent: true } : { sent: false, reason: result.reason };
   } catch (e) {
+    if (admitted && admittedRow && admittedDedupeKey) {
+      try {
+        await recordLifecycleProviderOutcome(env, {
+          rowId: admittedRow,
+          dedupeKey: admittedDedupeKey,
+          workspaceId: workspace_id,
+          result: { sent: false, reason: "provider_outcome_unknown", outcomeUnknown: true },
+        });
+      } catch { /* keep the admitted row conservatively in sending */ }
+    }
     console.error("[lifecycle-email]", String(e?.message ?? e));
     return { sent: false, reason: "error" };
   }
@@ -352,10 +554,18 @@ async function retryFailedLifecycleEmails(env) {
                          LIMIT 1
                        ) ELSE NULL END AS scan_quality
                 FROM lifecycle_email_events le
-                WHERE le.status = 'failed'
-                  AND le.type != 'lifecycle_payment_failed'
+                WHERE le.type != 'lifecycle_payment_failed'
                   AND le.type != 'lifecycle_weekly_digest'
                   AND le.created_at > datetime('now', '-3 days')
+                  AND (
+                    (le.status = 'pending'
+                      AND le.error = 'provider_not_started'
+                      AND le.created_at < datetime('now', '-15 minutes'))
+                    OR (le.status = 'failed' AND (
+                      le.error IN ('missing_api_key','invalid_sender','no_valid_recipients','invalid_content','idempotency_key_unavailable')
+                      OR (le.error = 'provider_rejected' AND le.created_at < datetime('now', '-24 hours'))
+                    ))
+                  )
                 ORDER BY le.created_at ASC
                 LIMIT 10`)
       .all().catch(() => null);
@@ -366,6 +576,7 @@ async function retryFailedLifecycleEmails(env) {
         workspace_id: row.workspace_id ?? null,
         domain:       row.domain ?? null,
         scan_quality: row.scan_quality ?? null,
+        _recovery_id: row.id,
       }).catch(() => {});
     }
   } catch (e) {

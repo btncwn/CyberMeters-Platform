@@ -30,6 +30,7 @@ import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
 import { activeScanConflictBody, isUniqueConstraintError } from "../lib/scan-admission.js";
 import { dispatchAdmittedScan, isQueueDispatchMode } from "../engines/scan-dispatch.js";
 import { dmarcPolicyApiProjection } from "../engines/dmarcbis-contract.js";
+import { deriveDmarcStateFromPolicyEvidence } from "../engines/dmarc-state.js";
 import {
   buildCertificateCustomerPresentation,
   certificateAssuranceApiProjection,
@@ -58,6 +59,65 @@ function readScheduledAssetChangeProjection(value) {
   } catch {
     return null;
   }
+}
+
+const isHistoricalDmarcFinding = (item) =>
+  /^email_(?:dmarc_|missing_dmarc$)/.test(String(item?.id || ""));
+
+export function projectHistoricalChangesForCustomer(historicalChanges, {
+  comparable,
+  currentModules,
+} = {}) {
+  const stored = historicalChanges && typeof historicalChanges === "object"
+    ? historicalChanges
+    : {};
+  const storedNotReobserved = Array.isArray(stored.not_reobserved_findings)
+    ? stored.not_reobserved_findings
+    : [];
+  if (comparable !== true) {
+    return {
+      ...stored,
+      new_findings: [],
+      resolved_findings: [],
+      not_reobserved_findings: storedNotReobserved,
+    };
+  }
+
+  const dmarcState = deriveDmarcStateFromPolicyEvidence(currentModules?.dmarc_core);
+  const dmarcObserved = ["observed_policy", "absent", "malformed"].includes(
+    dmarcState?.canonical_evidence_state,
+  );
+  const resolved = [];
+  const notReobserved = [...storedNotReobserved];
+  for (const item of Array.isArray(stored.resolved_findings) ? stored.resolved_findings : []) {
+    if (!isHistoricalDmarcFinding(item)) {
+      resolved.push(item);
+      continue;
+    }
+    if (!dmarcObserved) {
+      notReobserved.push(item);
+      continue;
+    }
+    // Repair the exact v2026.08.13-1 regression on read: the retained policy was
+    // observed but its finding disappeared only because the DoH record object was
+    // not read through `.value`. It is still present, not resolved.
+    if (item.id === "email_dmarc_policy_none"
+        && dmarcState.canonical_evidence_state === "observed_policy"
+        && dmarcState.policy === "none") continue;
+    if (item.id === "email_missing_dmarc"
+        && dmarcState.canonical_evidence_state === "absent") continue;
+    resolved.push(item);
+  }
+
+  const uniqueNotReobserved = [...new Map(
+    notReobserved.map((item) => [String(item?.id || ""), item]),
+  ).values()];
+  return {
+    ...stored,
+    new_findings: Array.isArray(stored.new_findings) ? stored.new_findings : [],
+    resolved_findings: resolved,
+    not_reobserved_findings: uniqueNotReobserved,
+  };
 }
 
 export async function scanRoutes(rctx) {
@@ -724,6 +784,7 @@ export async function scanRoutes(rctx) {
           has_previous: false, previous_scan_id: null, previous_score: null,
           current_score: null, score_change: null, new_subdomains: [],
           removed_subdomains: [], new_findings: [], resolved_findings: [],
+          not_reobserved_findings: [],
           new_takeover_risks: [], new_exposed_assets: [],
           source: "previous_scan_comparison", error: null,
         },
@@ -770,6 +831,10 @@ export async function scanRoutes(rctx) {
           }),
           modules: {
             ...normalisedModules,
+            historical_changes: projectHistoricalChangesForCustomer(
+              normalisedModules.historical_changes,
+              { comparable: false, currentModules: normalisedModules },
+            ),
             certificate_intelligence: projectedCertificateIntelligence,
           },
           business_risk: null,
@@ -814,7 +879,10 @@ export async function scanRoutes(rctx) {
               resolvePhase5EvidenceContract(raw.modules ?? {}),
             ),
             historical_changes: {
-              ...historicalChanges,
+              ...projectHistoricalChangesForCustomer(historicalChanges, {
+                comparable,
+                currentModules: normalisedModules,
+              }),
               current_score: overall.cyber_metrics_score ?? null,
               comparable,
               score_change: (comparable && historicalChanges?.previous_score != null && overall.cyber_metrics_score != null)

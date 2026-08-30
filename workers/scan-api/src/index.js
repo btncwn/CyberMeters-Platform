@@ -1,6 +1,9 @@
 import { handleInboundEmail } from "./email/inbound.js";
 import { runScheduled } from "./cron/scheduled.js";
 import { handleScanDispatchBatch, dispatchAdmittedScan, isScheduledQueueDispatchMode } from "./engines/scan-dispatch.js";
+import { handleScanDlqBatch } from "./queues/scan-dlq-observer.js";
+import { recordAlertDeliveryOutcome, routeQueueBatch } from "./lib/operational-events.js";
+import { computeOperationalHealth } from "./lib/ops-health.js";
 import { recoverInterruptedScans } from "./engines/scan-recovery.js";
 import { recordMetric } from "./lib/metrics.js";
 import { redactedJson } from "./lib/redact.js";
@@ -1129,6 +1132,10 @@ const WORKSPACE_PURGE_TABLES = [
   "cyber_essentials_answers",
   "workspace_brs_scores", "workspace_brs_score_history",
   "workspace_supply_chain_scores", "workspace_supply_chain_history",
+  // Internal operational ledger rows may be platform-level (workspace_id NULL)
+  // or tenant-owned. Purge only the latter for the selected workspace; platform
+  // observability rows remain outside the workspace deletion boundary.
+  "operational_events",
   "alert_deliveries", "alert_activation", "notification_events", "notification_preferences",
   "report_schedule_runs", "report_schedules", "scheduled_reports",
   "workspace_invitations", "workspace_members", "workspace_retention_settings",
@@ -1445,7 +1452,22 @@ async function opsHealthHeartbeat(env) {
 
   const mail = formatOpsHealthEmail(health, { version: env.APP_VERSION || "dev" });
   if (mail) {
-    await sendAlertEmail(mail.subject, mail.text, mail.html, env, "ALERT_EMAIL_FROM").catch(() => {});
+    // F-027 contract item 3: a delivery failure here must become a DURABLE
+    // operational event — REPLACING the old silent `.catch(() => {})` that made a
+    // dropped ops-health alert look like a success. Both a thrown sender and a
+    // returned `{ sent: false }` fail closed to the same durable record + metric.
+    let result;
+    try {
+      result = await sendAlertEmail(mail.subject, mail.text, mail.html, env, "ALERT_EMAIL_FROM");
+    } catch {
+      result = { sent: false, reason: "sender_threw" };
+    }
+    const hourBucket = new Date().toISOString().slice(0, 13); // safe, idempotent-per-hour id
+    const outcome = await recordAlertDeliveryOutcome(env, result, `ops_health:${hourBucket}`);
+    if (outcome.recorded) {
+      recordMetric(env, "alert_delivery_failed", { blobs: [outcome.reason], indexes: [outcome.reason] });
+      console.error("[alert-delivery-failed]", JSON.stringify({ scope: "ops_health", reason: outcome.reason }));
+    }
   }
 }
 
@@ -2407,8 +2429,18 @@ export default {
       const checks = { d1: false, r2: false };
       try { await env.cybermeters_db.prepare("SELECT 1").first(); checks.d1 = true; } catch { /* d1 unreachable */ }
       try { await env.cybermeters_reports.head("__readiness_probe__"); checks.r2 = true; } catch { /* r2 unreachable */ }
+      // F-027: the HTTP readiness contract is UNCHANGED — 200 iff D1 AND R2 are
+      // reachable, 503 otherwise. The operational booleans are ADDITIVE context
+      // (cron/backup freshness, recent DLQ, stuck scans) the deadman monitor
+      // reads; they never flip the readiness status code. Non-sensitive only.
+      const operational = await computeOperationalHealth(env).catch(() => null);
       const ready = checks.d1 && checks.r2;
-      return json({ status: ready ? "ready" : "degraded", checks, version: env.APP_VERSION || "dev" }, ready ? 200 : 503);
+      return json({
+        status: ready ? "ready" : "degraded",
+        checks,
+        operational,
+        version: env.APP_VERSION || "dev",
+      }, ready ? 200 : 503);
     }
 
     // ── Maintenance mode ────────────────────────────────────────────────
@@ -2702,7 +2734,15 @@ export default {
   // engines/scan-dispatch.js. The settlement hook runs the scheduled-only
   // post-engine follow-up (asset counts + failure notification) — derived,
   // advisory, non-fatal.
-  queue: (batch, env, ctx) => handleScanDispatchBatch(batch, env, ctx, { onScheduledScanSettled: settleScheduledQueueScan }),
+  // F-027: dispatch by QUEUE IDENTITY. The scan-dispatch queue runs the engine;
+  // the scan DLQ goes to a DISTINCT observer that persists a safe operational
+  // event and NEVER enters the scan engine (a dead-letter is a give-up signal,
+  // not work to retry through the engine).
+  queue: (batch, env, ctx) => routeQueueBatch(batch, env, ctx, {
+    dlq:      handleScanDlqBatch,
+    dispatch: handleScanDispatchBatch,
+    settle:   settleScheduledQueueScan,
+  }),
 
   // ── Inbound DMARC aggregate (RUA) email handler ──────────────────────────
   // Extracted to src/email/inbound.js (Sprint 9 phase 1). Cloudflare Email Routing
