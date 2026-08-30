@@ -695,8 +695,11 @@ See `OPERATIONS.md` for the full production procedure.
 cd workers/scan-api
 npx wrangler deployments list
 npx wrangler versions list
-npx wrangler rollback --version-id <version-id>
+npx wrangler versions deploy <VERSION_ID>
 ```
+
+Use the matching Worker configuration and record the deployment identity created
+by the rollback. `OPERATIONS.md` owns the current release and rollback procedure.
 
 ## Frontend
 

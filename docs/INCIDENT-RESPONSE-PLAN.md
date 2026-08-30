@@ -71,10 +71,10 @@ Run from `workers/scan-api/`. **Record the printed Version ID of every deploy.**
 **Roll the worker back to the last known-good version**
 ```bash
 wrangler deployments list                 # find the last good Version ID
-wrangler rollback --version-id <ID>       # or: wrangler versions deploy <ID>
+wrangler versions deploy <ID>             # use the matching service config
 ```
-Recent known-good chain (newest first, see CHANGELOG): `5dc30474` (v-11) →
-`fa3c49d1` (v-10) → `fd583e3d` (v-8) → `4003937f` (v-2).
+Read the exact current and rollback identities from `CHANGELOG.md` and the live
+deployment list at incident time. Do not use a hardcoded historical version chain.
 
 **Rotate a leaked/abused secret** (invalidates the old value immediately)
 ```bash

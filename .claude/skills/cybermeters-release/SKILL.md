@@ -21,8 +21,12 @@ Confirm:
 - no unrelated working-tree changes
 - migration is additive/reversible if present
 - rollback target is known
-- no high-risk change lacks founder approval
+- no reserved-class decision under the operating model §3 lacks the Founder decision
 - current `main`, latest release tag and deployment facts are known
+- the live `/health` Version ID and closure stamp match the newest deployed
+  `CHANGELOG.md` record; otherwise stop and reconcile the release-record incident
+- the required local/PR gates meet the canonical duration boundary without
+  deleting assurance
 
 Record current Worker version before merge/deploy.
 
@@ -44,9 +48,17 @@ PR green
 → final report
 ```
 
+Create the tag and CHANGELOG record in the same release session. If an older
+deploy is discovered without either record, use one explicit after-the-fact
+record and annotated tag against the exact deployed commit. Never backdate or
+rewrite the preceding release.
+
 ## Commands
 
 Use repository paths and current Wrangler syntax from `OPERATIONS.md`.
+
+Rollback uses `wrangler versions deploy <VERSION_ID>` with the matching service
+configuration; record the resulting deployment identity.
 
 The primary Worker deploys manually.
 

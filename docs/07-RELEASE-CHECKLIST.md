@@ -6,6 +6,12 @@
 > deploy is a deliberate act). Frontend (Pages) auto-deploys on push to `main`.
 > Cross-links: [MONITORING](MONITORING.md) · [INCIDENT-RESPONSE-PLAN](INCIDENT-RESPONSE-PLAN.md) · [BACKUP-RESTORE-DRILL](BACKUP-RESTORE-DRILL.md).
 
+**Authority:** this is the executable checklist subordinate to `OPERATIONS.md`.
+Roles and reserved decisions come only from
+`docs/AI-EXECUTIVE-OPERATING-MODEL.md`; the current work order comes only from
+`docs/PRE-BETA-EXECUTION-BACKLOG.md`. If a command here conflicts with
+`OPERATIONS.md`, stop and correct this checklist before release.
+
 ## Release flow (canonical)
 
 ```
@@ -35,6 +41,11 @@ routine reversible R0/R1 deploy.
 - [ ] Change is on a branch / PR; **CI green** (`validate` + `sast`) on the PR or main.
 - [ ] Reviewed the diff (`git diff --check` clean; no stray debug/secrets).
 - [ ] Risk tier identified; required R0/R1 proof or R2 decision obtained.
+- [ ] Exact candidate + both Worker `APP_VERSION` stamps, live `/health` identity
+      and newest deployed `CHANGELOG.md` record agree. A gap is reconciled before
+      another deploy.
+- [ ] Required validation stays inside the OPERATIONS duration boundary without
+      deleting tests, mutations or tenant/security assurance.
 
 ## 2. Local validation gate (must all pass)
 
@@ -121,6 +132,12 @@ git push origin main && git push origin vYYYY.MM.DD-n
 - [ ] Release tagged `vYYYY.MM.DD-n` and pushed.
 - [ ] CI green on the main push.
 
+Tag and CHANGELOG recording are part of the same release session. If an older
+deploy is found without them, create one explicit `RECORDED AFTER THE FACT`
+entry and a non-backdated annotated tag against the exact deployed commit. Do
+not edit the preceding release to hide the incident and grant no retrospective
+acceptance credit.
+
 ## 7. Rollback (if smoke test fails or an alert fires)
 
 Fast path — no rebuild needed (full detail in [INCIDENT-RESPONSE-PLAN §4](INCIDENT-RESPONSE-PLAN.md)):
@@ -128,7 +145,7 @@ Fast path — no rebuild needed (full detail in [INCIDENT-RESPONSE-PLAN §4](INC
 ```bash
 cd workers/scan-api
 npx wrangler deployments list                    # confirm the last good Version ID
-npx wrangler rollback --version-id <PREVIOUS_ID>  # or: wrangler versions deploy <ID>
+npx wrangler versions deploy <PREVIOUS_ID>        # use matching service config
 curl -s https://api.cybermeters.com/health   # confirm reverted on the host customers hit
 ```
 
