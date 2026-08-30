@@ -7,6 +7,74 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.08.31-1 — reserved scan-capacity allocation — deployed 2026-08-30 23:04Z
+
+**Status:** DEPLOYED — exact merged main
+`96fefa3e845df6b7d686a67ba351226d0721ce82` (PR #462 merge; reviewed head
+`9cf5657a466b5b0ad72cc1ae4752ac35b14ed324`) is live on the scan-api Worker and
+Cloudflare Pages. The email Worker, schema and customer-facing frontend bytes
+are unchanged. Customer/pilot acceptance and Kademe-2 remain on `HOLD` until
+the Founder performs the three human-only controlled scans and the subsequent
+stability window passes.
+
+- **Scope:** one production configuration line enables the already-built
+  reserved scan-capacity path:
+  `SCAN_CAPACITY_MODE = "reserved"`. `SCAN_SUBREQUEST_LIMIT` remains unset, so
+  the effective limit stays at the Workers Free ceiling of `50`; the existing
+  safety margin leaves `45` usable subrequests. The change does not increase a
+  provider limit. It changes allocation order so exposure work receives its
+  reserved budget before lower-priority work can exhaust the invocation.
+- **Migration:** none. `database/` and all Worker source files are byte-identical
+  to the preceding release record; only `workers/scan-api/wrangler.toml`
+  changed.
+- **Validation:** reviewed-head CI run `33339309041` passed the ordinary shards,
+  SAST, terminal `validate` and all seven F004 recovery mutation shards; the
+  separate exact-head Cloudflare Pages check also passed. Exact-head Frontend
+  E2E run `33339937437` passed. Fresh
+  main run `33340697990` passed all 15 jobs at exact merge SHA `96fefa3e`,
+  including SAST, five ordinary validation shards, F004 7/7 and terminal
+  `validate`, in approximately 13m55s, within the 15-minute release-assurance
+  boundary. Local focused validation was 382/382 plus Worker syntax, Wrangler
+  dry-run and `git diff --check`. Cloudflare version history moves directly from
+  prior Version `9faf45b4...` to release Version `ca59e215...`; no intermediate
+  Worker version was created.
+- **scan-api (`cybermeters-platform`):** deployment ID
+  `65038214-ac8b-4fa6-8971-452b5e9dcaab`; live Worker Version ID
+  `ca59e215-68a4-44ac-b696-5d69a884f695` at 100% traffic. Immediate rollback
+  Worker Version ID: `9faf45b4-6b38-4b6a-89a7-4d595e82dffd`.
+- **email-ingest (`cybermeters-email`):** not redeployed; it remains on
+  deployment `c2c0da6f-d105-4c73-a9d7-6554ba43f7a9` and Version ID
+  `f9af5afa-dfc7-43de-a7d0-3ef6e672256c`. The coordinated closure remains
+  `2026.08.13-provisional-score-labeling.fceaad4d8f6a`.
+- **Pages:** production deployment
+  `9dee2b0c-efde-4576-9e7b-011239e39321`, source `96fefa3`; immediate rollback
+  deployment `14b58016-a02e-4953-bd19-7b80cc25b4a9`. The new immutable host,
+  preceding immutable host and `app.cybermeters.com` returned identical root
+  HTML SHA-256
+  `491bd88756df40219b9296c038f97223ce24897eed3a075c6744e347dac727a9`.
+  All four referenced JS/CSS assets were also byte-identical.
+- **Production proof:** scan-api `/health` returned HTTP 200, new Version ID
+  `ca59e215...` and maintenance `false`; `/ready` returned HTTP 200 with
+  `d1:true`, `r2:true`, fresh cron, readable zero DLQ events and no stale queued
+  scan. An anonymous workspace read returned `401`. Wrangler's deployment
+  receipt exposed `SCAN_CAPACITY_MODE="reserved"`; source truth resolves the
+  unchanged limit/safety values to `50/45`.
+- **Release tag:** annotated `v2026.08.31-1` object
+  `fc2b3a9a4b664cb47fd3dd57e882f6bc0958f6b9` targets exact deployed commit
+  `96fefa3e845df6b7d686a67ba351226d0721ce82`, with tagger
+  `Turhan ACAR <ttrnn47@gmail.com>`, and was pushed in this release session.
+- **Known limitations:** `/ready.operational.backup_fresh` remains `false` with
+  null age because no qualifying independent F004 production backup has yet
+  completed. The three pre-corrective Founder-domain scans remain honest
+  partial evidence, not acceptance. No post-corrective scan was started by the
+  team; live full-coverage behaviour, single-completion parity and the 24-hour
+  stability clock remain Kademe-2 work.
+- **Rollback:** deploy scan-api Version
+  `9faf45b4-6b38-4b6a-89a7-4d595e82dffd` with the matching scan-api Wrangler
+  configuration, then revert merge commit `96fefa3e` to restore the legacy
+  allocation flag. Pages can be rolled back to `14b58016`; no migration or data
+  rollback is involved.
+
 ## v2026.08.30-1 — rescue recovery, runtime integrity and report actionability — deployed 2026-08-30
 
 **Status:** DEPLOYED — exact merged main
