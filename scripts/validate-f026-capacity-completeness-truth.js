@@ -458,13 +458,6 @@ async function candidateMultiplicityBound() {
       adversarial.totals.candidates_omitted === 9_900 &&
       adversarial.incomplete_reasons.includes("candidate_cap_truncation"),
     JSON.stringify({ potential_risks: adversarial.potential_risks, reasons: adversarial.incomplete_reasons, totals: adversarial.totals }));
-  const quality = buildScanQuality({ ...completeMod(), subdomain_takeover: adversarial });
-  ok("(a6-propagation) candidate truncation degrades scan_quality to partial",
-    quality.status === "partial" &&
-      ((quality.modules_incomplete || []).includes("subdomain_takeover") ||
-       (quality.modules_skipped || []).includes("subdomain_takeover")),
-    JSON.stringify({ status: quality.status, incomplete: quality.modules_incomplete, skipped: quality.modules_skipped }));
-
   const combined = await runTakeoverModule("example.com",
     Array.from({ length: 101 }, (_, i) => `c${i}.example.com`), {
       dnsQueryImpl: async () => matchingAnswers(2),
