@@ -14,7 +14,7 @@
 //
 // Red-first through the real producers (runTakeoverScan, buildScanQuality). Node 24+.
 
-import { runTakeoverModule } from "../workers/scan-api/src/engines/takeover-scan.js";
+import { runTakeoverModule, takeoverObservationFor } from "../workers/scan-api/src/engines/takeover-scan.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -163,8 +163,8 @@ function capacityTruth() {
 // ── (c) source-bounded variable outbound envelope under provider 10,000 ─────
 // This is deliberately NOT a physical whole-scan counter. It freezes the existing
 // cardinality and redirect bounds for the host-driven external paths named by the
-// Route-A decision. The valid CNAME path has one CNAME RRset member per DNS owner;
-// cache reuse can only reduce the conservative arithmetic below.
+// Route-A decision. Candidate multiplicity is independently capped before HTTP;
+// cache reuse and host-level probe sharing can only reduce the arithmetic below.
 function variableOutboundBoundTruth() {
   const subdomainsSource = source("workers/scan-api/src/engines/subdomains-scan.js");
   const attackLifecycleSource = source("workers/scan-api/src/engines/attack-surface-lifecycle.js");
@@ -181,6 +181,7 @@ function variableOutboundBoundTruth() {
   const knownAssetCap = integerLiteral(attackLifecycleSource, /const MAX_RECHECK_HOSTS\s*=\s*([\d_]+)/, "MAX_RECHECK_HOSTS");
   const exposureHostCap = integerLiteral(assetSource, /const targets\s*=\s*candidates\.slice\(0,\s*([\d_]+)\)/, "exposure host cap");
   const takeoverHostCap = integerLiteral(takeoverSource, /const HOST_CAP\s*=\s*([\d_]+)/, "takeover HOST_CAP");
+  const takeoverCandidateCapUsesHostCap = /const CANDIDATE_CAP\s*=\s*HOST_CAP;/.test(takeoverSource);
   const takeoverRedirectHops = integerLiteral(httpSource, /const MAX_REDIRECT_HOPS\s*=\s*([\d_]+)/, "takeover redirect hops");
   const protocolBlock = assetSource.match(/for \(const proto of \[([^\]]+)\]\)/)?.[1] || "";
   const protocolCount = (protocolBlock.match(/"[^"]+"/g) || []).length;
@@ -190,8 +191,8 @@ function variableOutboundBoundTruth() {
   const exposureRedirectAttempts = RESERVED_MAX_REDIRECT_HOPS + 1;
   const exposurePerHostBound = 2 + protocolCount * exposureRedirectAttempts * (2 + 1);
   const exposureOutboundBound = exposureHostCap * exposurePerHostBound;
-  const takeoverPerHostBound = 1 + takeoverRedirectHops + 1;
-  const takeoverOutboundBound = takeoverHostCap * takeoverPerHostBound;
+  const takeoverHttpPerCandidateBound = takeoverRedirectHops + 1;
+  const takeoverOutboundBound = takeoverHostCap + takeoverHostCap * takeoverHttpPerCandidateBound;
   const namedVariableOutboundBound = bruteHostCap + exposureOutboundBound + takeoverOutboundBound;
   const fixedModeledEstimate = computeScanBudget(bruteHostCap).estimated_subrequests_total - bruteHostCap;
   const conservativeProfileEnvelope = fixedModeledEstimate + namedVariableOutboundBound;
@@ -214,8 +215,10 @@ function variableOutboundBoundTruth() {
       exposurePerHostBound === 26 && exposureOutboundBound === 1300,
     JSON.stringify({ protocolCount, redirectHops: RESERVED_MAX_REDIRECT_HOPS, exposurePerHostBound, exposureOutboundBound }));
   ok("(c) takeover valid-CNAME path is source-bounded",
-    takeoverRedirectHops === 4 && takeoverPerHostBound === 6 && takeoverOutboundBound === 600,
-    JSON.stringify({ takeoverRedirectHops, takeoverPerHostBound, takeoverOutboundBound }));
+    takeoverRedirectHops === 4 && takeoverCandidateCapUsesHostCap &&
+      takeoverHttpPerCandidateBound === 5 && takeoverOutboundBound === 600,
+    JSON.stringify({ takeoverRedirectHops, takeoverCandidateCapUsesHostCap,
+      takeoverHttpPerCandidateBound, takeoverOutboundBound }));
   ok("(c) admin_surface is derived from completed exposure evidence with zero new network I/O",
     adminIsPure, JSON.stringify({ adminStart, adminEnd }));
   ok("(c) conservative named-variable envelope stays below provider 10000 but above admission 200",
@@ -396,6 +399,84 @@ async function unconfirmedPerHostDenominator() {
   assertCoverageInvariant("three-distinct", many);
 }
 
+// ── (a6) candidate multiplicity cannot multiply network fan-out ──────────────
+// A malformed/adversarial resolver can return many matching CNAME answer rows
+// for one owner. Candidate rows remain useful forensic detail, but all rows for
+// one host target the same HTTPS URL and therefore must share one body probe.
+async function candidateMultiplicityBound() {
+  const matchingAnswers = (count) => ({
+    Answer: Array.from({ length: count }, () => ({ data: "victim.github.io" })),
+  });
+  let fetchCalls = 0;
+  const claimed = async () => {
+    fetchCalls += 1;
+    return { ok: true, status: 200, text: async () => "claimed provider page" };
+  };
+  const boundary = await runTakeoverModule("example.com", ["boundary.example.com"], {
+    dnsQueryImpl: async () => matchingAnswers(100),
+    fetcher: claimed,
+  });
+
+  ok("(a6-boundary) exactly 100 candidates share one host probe and remain complete",
+    fetchCalls === 1 && boundary.incomplete === false &&
+      boundary.totals.candidates_matched === 100 &&
+      boundary.totals.candidates_admitted === 100 &&
+      boundary.totals.candidates_omitted === 0,
+    JSON.stringify({ fetchCalls, incomplete: boundary.incomplete, totals: boundary.totals }));
+
+  fetchCalls = 0;
+  const overBoundary = await runTakeoverModule("example.com", ["boundary.example.com"], {
+    dnsQueryImpl: async () => matchingAnswers(101),
+    fetcher: claimed,
+  });
+  ok("(a6-boundary) candidate 101 is omitted explicitly and makes coverage partial",
+    fetchCalls === 1 && overBoundary.incomplete === true &&
+      overBoundary.totals.candidates_matched === 101 &&
+      overBoundary.totals.candidates_admitted === 100 &&
+      overBoundary.totals.candidates_omitted === 1 &&
+      overBoundary.incomplete_reasons.includes("candidate_cap_truncation") &&
+      overBoundary.candidate_truncated_hosts.includes("boundary.example.com"),
+    JSON.stringify({ fetchCalls, reasons: overBoundary.incomplete_reasons, totals: overBoundary.totals }));
+  const observation = takeoverObservationFor(overBoundary, "boundary.example.com");
+  ok("(a6-observation) a truncated candidate host cannot become no-takeover-surface",
+    observation.complete === false && observation.status === "candidate_truncated",
+    JSON.stringify(observation));
+
+  fetchCalls = 0;
+  const hosts = Array.from({ length: 100 }, (_, i) => `h${i}.example.com`);
+  const adversarial = await runTakeoverModule("example.com", hosts, {
+    dnsQueryImpl: async () => matchingAnswers(100),
+    fetcher: claimed,
+  });
+  ok("(a6-adversarial) 100 hosts x 100 matching answers admit at most 100 HTTP probes",
+    fetchCalls > 0 && fetchCalls <= 100,
+    JSON.stringify({ fetchCalls, potential_risks: adversarial.potential_risks }));
+  ok("(a6-adversarial) 10000 matched candidates report 9900 omitted and fail closed",
+    adversarial.potential_risks === 10_000 && adversarial.incomplete === true &&
+      adversarial.totals.candidates_matched === 10_000 &&
+      adversarial.totals.candidates_admitted === 100 &&
+      adversarial.totals.candidates_omitted === 9_900 &&
+      adversarial.incomplete_reasons.includes("candidate_cap_truncation"),
+    JSON.stringify({ potential_risks: adversarial.potential_risks, reasons: adversarial.incomplete_reasons, totals: adversarial.totals }));
+  const quality = buildScanQuality({ ...completeMod(), subdomain_takeover: adversarial });
+  ok("(a6-propagation) candidate truncation degrades scan_quality to partial",
+    quality.status === "partial" &&
+      ((quality.modules_incomplete || []).includes("subdomain_takeover") ||
+       (quality.modules_skipped || []).includes("subdomain_takeover")),
+    JSON.stringify({ status: quality.status, incomplete: quality.modules_incomplete, skipped: quality.modules_skipped }));
+
+  const combined = await runTakeoverModule("example.com",
+    Array.from({ length: 101 }, (_, i) => `c${i}.example.com`), {
+      dnsQueryImpl: async () => matchingAnswers(2),
+      fetcher: claimed,
+    });
+  ok("(a6-combined) host-cap and candidate-cap truncation reasons coexist",
+    combined.incomplete_reasons.includes("host_cap_truncation") &&
+      combined.incomplete_reasons.includes("candidate_cap_truncation") &&
+      combined.totals.omitted === 1 && combined.totals.candidates_omitted === 100,
+    JSON.stringify({ reasons: combined.incomplete_reasons, totals: combined.totals }));
+}
+
 // ── (a5) canonical host identity at the PRODUCER boundary (delta R1 #2) ────────
 // Case, surrounding whitespace, and one-OR-MORE trailing dots collapse to ONE DNS
 // host BEFORE the cap and before every door, so requested/checked/lookup_failed/
@@ -460,6 +541,7 @@ async function canonicalHostBoundary() {
 await lookupFailureCompleteness();
 await unconfirmedCompleteness();
 await unconfirmedPerHostDenominator();
+await candidateMultiplicityBound();
 await canonicalHostBoundary();
 await takeoverTruncation();
 scanQualityWithTruncatedTakeover();

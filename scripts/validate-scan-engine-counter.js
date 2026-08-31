@@ -51,13 +51,17 @@ function respond(url, {
   dmarcRua = false,
   authorizeExternal = false,
   variableFanout = false,
+  takeoverAnswerMultiplicity = 1,
 } = {}) {
   const cat = classifyRequest(url);
   if (cat === "doh") {
     let name = "", type = "A";
     try { const u = new URL(url); name = u.searchParams.get("name") || ""; type = u.searchParams.get("type") || "A"; } catch {}
     if (variableFanout && type === "CNAME" && /^ct\d+\.example\.com$/.test(name)) {
-      return new Response(JSON.stringify({ Answer: [{ type: 5, data: "candidate.github.io" }] }), {
+      return new Response(JSON.stringify({ Answer: Array.from(
+        { length: takeoverAnswerMultiplicity },
+        () => ({ type: 5, data: "candidate.github.io" }),
+      ) }), {
         status: 200,
         headers: { "content-type": "application/dns-json" },
       });
@@ -113,6 +117,7 @@ async function runEngineLedger(mode, {
   authorizeExternal = false,
   subrequestLimit = null,
   variableFanout = false,
+  takeoverAnswerMultiplicity = 1,
 } = {}) {
   const counter = { total: 0, byCategory: {}, dnsQuestions: [] };
   globalThis.fetch = async (url) => {
@@ -129,7 +134,7 @@ async function runEngineLedger(mode, {
         dnssec: u.searchParams.get("do") === "1",
       });
     }
-    return respond(s, { dmarcRua, authorizeExternal, variableFanout });
+    return respond(s, { dmarcRua, authorizeExternal, variableFanout, takeoverAnswerMultiplicity });
   };
   let report = null;
   let snapshot = null;
@@ -311,13 +316,15 @@ async function runEngineLedger(mode, {
 // ── Section E: maximum existing host-driven fan-out remains provider-bounded ─
 // This is a behavioral fixture, not a self-imposed physical 200 counter. It drives
 // the real legacy engine with 300 CT hosts, 50 historical recheck hosts, the
-// takeover 100-host cap, exposure 50-host cap, and the real redirect-hop guards.
+// takeover 100-host cap plus adversarial 100-answer CNAME multiplicity, exposure
+// 50-host cap, and the real redirect-hop guards.
 // The observed call count must exceed the application admission/report value 200
 // while remaining far below the authenticated Workers Paid provider ceiling 10k.
 {
   const bounded = await runEngineLedger("legacy", {
     subrequestLimit: 200,
     variableFanout: true,
+    takeoverAnswerMultiplicity: 100,
   });
   console.log(`legacy max-fanout ledger: total=${bounded.counter.total} ${JSON.stringify(bounded.counter.byCategory)}`);
   eq("max-fanout: real legacy engine completes", bounded.threw, null);
@@ -334,6 +341,16 @@ async function runEngineLedger(mode, {
     bounded.counter.total < 10_000, `total ${bounded.counter.total}`);
   eq("max-fanout: takeover executes its existing 100-host bound",
     bounded.report?.modules?.subdomain_takeover?.totals?.checked, 100);
+  eq("max-fanout: takeover reports all adversarial matching candidates",
+    bounded.report?.modules?.subdomain_takeover?.totals?.candidates_matched, 10_000);
+  eq("max-fanout: takeover admits only the governed candidate cap",
+    bounded.report?.modules?.subdomain_takeover?.totals?.candidates_admitted, 100);
+  eq("max-fanout: takeover exposes every omitted candidate",
+    bounded.report?.modules?.subdomain_takeover?.totals?.candidates_omitted, 9_900);
+  ok("max-fanout: takeover candidate truncation fails coverage closed",
+    bounded.report?.modules?.subdomain_takeover?.incomplete === true &&
+      bounded.report?.modules?.subdomain_takeover?.incomplete_reasons?.includes("candidate_cap_truncation"),
+    JSON.stringify(bounded.report?.modules?.subdomain_takeover?.incomplete_reasons));
   eq("max-fanout: exposure executes its existing 50-host bound",
     bounded.report?.modules?.asset_exposure?.probe_coverage?.checked, 50);
   ok("max-fanout: exposure records bounded truncation rather than unbounded launch",

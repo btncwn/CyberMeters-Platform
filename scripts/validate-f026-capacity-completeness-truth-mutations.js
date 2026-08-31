@@ -113,6 +113,50 @@ const mutants = [
     mustContain: "FAIL (a4-two-hop) totals.unconfirmed counts the DISTINCT host",
   },
   {
+    // One host may yield many matching CNAME rows. Restoring per-candidate HTTP
+    // probes must be killed by the adversarial 100 x 100 fan-out fixture.
+    id: "TAKEOVER_PER_CANDIDATE_FETCH_RESTORED",
+    file: "workers/scan-api/src/engines/takeover-scan.js",
+    from: "  const probeHosts = [...candidatesByHost.keys()];",
+    to:   "  const probeHosts = candidates.map(({ host }) => host);",
+    mustContain: "FAIL (a6-boundary) exactly 100 candidates share one host probe and remain complete",
+  },
+  {
+    id: "TAKEOVER_CANDIDATE_CAP_REMOVED",
+    file: "workers/scan-api/src/engines/takeover-scan.js",
+    from: "  const CANDIDATE_CAP = HOST_CAP;",
+    to:   "  const CANDIDATE_CAP = Number.MAX_SAFE_INTEGER;",
+    mustContain: "FAIL (a6-boundary) candidate 101 is omitted explicitly and makes coverage partial",
+  },
+  {
+    id: "TAKEOVER_CANDIDATE_CAP_OFF_BY_ONE",
+    file: "workers/scan-api/src/engines/takeover-scan.js",
+    from: "          if (candidateAdmittedCount < CANDIDATE_CAP) {",
+    to:   "          if (candidateAdmittedCount <= CANDIDATE_CAP) {",
+    mustContain: "FAIL (a6-boundary) candidate 101 is omitted explicitly and makes coverage partial",
+  },
+  {
+    id: "TAKEOVER_CANDIDATE_OMITTED_COUNT_ZEROED",
+    file: "workers/scan-api/src/engines/takeover-scan.js",
+    from: "            candidateOmittedCount += 1;",
+    to:   "            candidateOmittedCount += 0;",
+    mustContain: "FAIL (a6-boundary) candidate 101 is omitted explicitly and makes coverage partial",
+  },
+  {
+    id: "TAKEOVER_CANDIDATE_TRUNCATION_REASON_SUPPRESSED",
+    file: "workers/scan-api/src/engines/takeover-scan.js",
+    from: "    if (candidateOmittedCount > 0) reasons.push(\"candidate_cap_truncation\");",
+    to:   "    if (false) reasons.push(\"candidate_cap_truncation\");",
+    mustContain: "FAIL (a6-boundary) candidate 101 is omitted explicitly and makes coverage partial",
+  },
+  {
+    id: "TAKEOVER_TRUNCATED_HOST_OBSERVATION_BYPASSED",
+    file: "workers/scan-api/src/engines/takeover-scan.js",
+    from: "  if ((mod?.candidate_truncated_hosts || []).some((x) => String(x).toLowerCase() === h)) {",
+    to:   "  if (false) {",
+    mustContain: "FAIL (a6-observation) a truncated candidate host cannot become no-takeover-surface",
+  },
+  {
     // R1 #2 delta: omitting the canonical dedupe at the producer boundary (counting
     // raw input rows for requested/checked/lookup_failed) must break the canonical
     // host-identity controls — a spelling variant then inflates the denominator and
