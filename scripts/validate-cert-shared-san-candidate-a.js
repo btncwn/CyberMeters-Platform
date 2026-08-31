@@ -235,7 +235,7 @@ async function runEngineScenario({ name, domain, commonName, names, expected }) 
     cybermeters_reports: makeR2(store, trace),
     SCAN_CAPACITY_MODE: "legacy",
     SCAN_SUBREQUEST_LIMIT: "200",
-    SCAN_DEADLINE_MS: "19000",
+    SCAN_DEADLINE_MS: "115000",
     APP_VERSION: "candidate-a-engine-fixture",
   };
   const scanId = `scan-candidate-a-${name}`;

@@ -122,7 +122,7 @@ async function trace(httpsMode) {
   const env = {
     cybermeters_db: makeD1(db), cybermeters_reports: makeR2(store),
     SCAN_CAPACITY_MODE: "legacy", SCAN_SUBREQUEST_LIMIT: "200",
-    SCAN_DEADLINE_MS: "19000", APP_VERSION: "pra-engine-trace",
+    SCAN_DEADLINE_MS: "115000", APP_VERSION: "pra-engine-trace",
   };
   db.prepare("INSERT INTO users (id, email) VALUES ('usr','owner@example.com')").run();
   db.prepare("INSERT INTO workspaces (id, name, deleted_at) VALUES ('ws','PR-A',NULL)").run();

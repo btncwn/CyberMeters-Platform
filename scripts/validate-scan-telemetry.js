@@ -827,6 +827,23 @@ function d1Stub({ fail = false } = {}) {
     ok(`${name} — mutation changed source`, mutated !== source);
     ok(`${name} — CAUGHT when defect reintroduced`, predicate(mutated) === false);
   }
+  sourceGuard("Lane-A durable core cap map is frozen, exact and own-keyed", budgetSrc,
+    (s) => /export const SCAN_DURABLE_CORE_MODULE_BUDGETS = Object\.freeze\(\{[\s\S]{0,220}dns:\s+6_000,[\s\S]{0,80}ssl:\s+39_997,[\s\S]{0,80}headers:\s+99_991,[\s\S]{0,80}email_security:\s+113_982,[\s\S]{0,80}technology_detection:\s+49_996,[\s\S]{0,40}\}\);/.test(s)
+      && /export function durableCoreModuleBudget\(module\) \{[\s\S]{0,180}Object\.prototype\.hasOwnProperty\.call\(SCAN_DURABLE_CORE_MODULE_BUDGETS, module\)/.test(s),
+    (s) => s.replace("Object.prototype.hasOwnProperty.call(SCAN_DURABLE_CORE_MODULE_BUDGETS, module)", "true"));
+  sourceGuard("Lane-A durable cap selection is Queue/Cron-only with legacy compatibility", engineSrc,
+    (s) => /const moduleCapFor = \(module\) => durableInvocation[\s\S]{0,180}durableCoreModuleBudget\(module\)[\s\S]{0,180}: \(SCAN_MODULE_BUDGETS\[module\]/.test(s),
+    (s) => s.replace("const moduleCapFor = (module) => durableInvocation", "const moduleCapFor = (module) => true"));
+  sourceGuard("Lane-A remainingMs is runner-owned and headers-only", engineSrc,
+    (s) => /remainingMs: \(\) => Math\.max\(0, allocatedMs - Math\.max\(0, now\(\) - startedMs\)\)/.test(s)
+      && /runHeadersModule\(domain, \{ accounting, signal, remainingMs: durableInvocation \? remainingMs : null, subOps: subOpTelemetry \}\)/.test(s),
+    (s) => s.replace("remainingMs: durableInvocation ? remainingMs : null", "remainingMs"));
+  sourceGuard("Lane-A module duration is captured once by the runner", engineSrc,
+    (s) => /finally \{\s*finishedMs = now\(\);\s*\}/.test(s)
+      && /const durationMs = startedMs == null \|\| finishedMs == null[\s\S]{0,100}finishedMs - startedMs/.test(s)
+      && /duration_ms: wrapped\.durationMs/.test(s)
+      && /const durationMs = run\.durationMs;/.test(s),
+    (s) => s.replace("const durationMs = run.durationMs;", "const durationMs = run.durationMs ?? 0;"));
   sourceGuard("C1A headers bot HEAD carries accounting", headersSrc,
     (s) => /const headRes = await safeFetch\(probeUrl, \{[\s\S]{0,180}accounting,[\s\S]{0,180}\}\);/.test(s),
     (s) => s.replace(/(const headRes = await safeFetch\(probeUrl, \{[\s\S]{0,180})\s*accounting,\n/, "$1"));

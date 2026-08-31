@@ -202,7 +202,7 @@ function createTraceFixture(options = {}) {
     cybermeters_reports: makeR2(store, options),
     SCAN_CAPACITY_MODE: "legacy",
     SCAN_SUBREQUEST_LIMIT: "200",
-    SCAN_DEADLINE_MS: "19000",
+    SCAN_DEADLINE_MS: "115000",
     APP_VERSION: "ct-r1-engine-trace",
   };
 
@@ -293,12 +293,12 @@ try {
     report.modules?.subdomains?.items?.includes("trace.example.com"), true);
   eq("existing CertSpotter certificate result survives telemetry",
     report.modules?.ssl?.cert_issuer, "CT-R1 Fixture CA");
-  eq("19-second executable envelope remains intact",
-    report.execution_diagnostics?.deadline_budget_ms, 19_000);
+  eq("durable 115-second executable envelope remains intact",
+    report.execution_diagnostics?.deadline_budget_ms, 115_000);
   const sslDiagnostic = (report.execution_diagnostics?.modules || [])
     .find((row) => row.module === "ssl");
-  eq("SSL allocation remains exactly nine seconds",
-    sslDiagnostic?.allocated_ms, 9_000);
+  eq("SSL allocation remains exactly the durable cap",
+    sslDiagnostic?.allocated_ms, 39_997);
 
   const rows = db.prepare(
     `SELECT module, provider, outcome, http_status, latency_ms, result_count,

@@ -62,7 +62,13 @@ const loadedModule = (url) => ({
 });
 const { computeScore } = await import(engUrl("scoring.js"));
 const { runScanEngine } = await import(scanEngineUrl);
-const { isPublishableModuleEvidence, markDeadlineDeferred, skippedModuleResult } = await import(engUrl("scan-budget.js"));
+const {
+  isPublishableModuleEvidence,
+  markDeadlineDeferred,
+  SCAN_DURABLE_INVOCATION_DEADLINE_DEFAULTS,
+  SCAN_DURABLE_PHASE5_MODULE_BUDGETS,
+  skippedModuleResult,
+} = await import(engUrl("scan-budget.js"));
 const { deadlineDeferredEmailModuleResult, runEmailModule, applyDmarcbisEmailCompatibilityProjection } = await import(engUrl("email-scan.js"));
 const {
   buildDkimDetail, buildDmarcPolicyJourney, buildEmailRemediationActions,
@@ -78,7 +84,7 @@ const { buildScanReportPdf } = await import(pdfModuleUrl);
 
 const NOW = "2026-07-29T09:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
-const EXPECTED_MUTANTS = 20;
+const EXPECTED_MUTANTS = 21;
 
 const SPF_RECORD = "v=spf1 include:_spf.google.com -all";
 const DMARC_REJECT = "v=DMARC1; p=reject; rua=mailto:dmarc-reports@example.com";
@@ -380,6 +386,7 @@ async function trace(variant, {
   capacityMode = "legacy",
   subrequestLimit = 200,
   phase5ElapsedMs = 0,
+  phase5InnerAdvanceMs = 0,
   accelerateDurableCaps = false,
   deterministicProof = false,
   engineRunner = runScanEngine,
@@ -387,12 +394,26 @@ async function trace(variant, {
 } = {}) {
   const db = buildDb(); const store = new Map();
   let clockMs = NOW_MS;
+  let phase5BoundaryArmed = false;
+  let phase5BoundaryReads = 0;
   let lateResolvedWallMs = null;
   const onD1Run = (sql, args) => {
     if (phase5ElapsedMs > 0 && /current_stage/.test(sql)
         && args?.[1] === "phase5_intelligence") {
       clockMs = NOW_MS + phase5ElapsedMs;
+      phase5BoundaryArmed = phase5InnerAdvanceMs > 0;
+      phase5BoundaryReads = 0;
     }
+  };
+  const engineNow = () => {
+    if (phase5BoundaryArmed) {
+      phase5BoundaryReads += 1;
+      if (phase5BoundaryReads === 2) {
+        clockMs += phase5InnerAdvanceMs;
+        phase5BoundaryArmed = false;
+      }
+    }
+    return clockMs;
   };
   const env = {
     cybermeters_db: makeD1(db, onD1Run), cybermeters_reports: makeR2(store),
@@ -461,7 +482,7 @@ async function trace(variant, {
   let engineReturnedWallMs = null;
   try {
     await engineRunner("scan-em", "dom", "ws", "example.com", env,
-      { now: () => clockMs, executionContext, trigger: "manual" });
+      { now: engineNow, executionContext, trigger: "manual" });
     engineReturnedWallMs = Date.now();
   } catch (e) {
     escaped = `${e?.name}: ${e?.message}`;
@@ -884,6 +905,23 @@ if (childArg) {
       customer: emailSkipCustomerOutput(t, { includeExecutive: true, includePdf: true }),
     };
   }
+  else if (mode === "phase5-launch-gate") {
+    const maxCap = Math.max(...Object.values(SCAN_DURABLE_PHASE5_MODULE_BUDGETS));
+    const minCap = Math.min(...Object.values(SCAN_DURABLE_PHASE5_MODULE_BUDGETS));
+    const t = await trace("complete", {
+      executionContext: "queue",
+      phase5ElapsedMs: SCAN_DURABLE_INVOCATION_DEADLINE_DEFAULTS.budgetMs - (maxCap + 1),
+      phase5InnerAdvanceMs: (maxCap + 1) - (minCap - 1),
+    });
+    const names = new Set([
+      "cve_intelligence",
+      "known_exploited_vulnerabilities",
+      "email_security_intelligence",
+    ]);
+    out = {
+      diagnostics: (t.diagnostics?.modules || []).filter((row) => names.has(row.module)),
+    };
+  }
   else if (mode === "b2d-contract") {
     const scanEngineSource = fs.readFileSync(fileURLToPath(scanEngineUrl), "utf8");
     const bridgeStart = scanEngineSource.indexOf(
@@ -977,7 +1015,9 @@ if (childArg) {
     };
   }
   else {
-    const t = await trace(mode);
+    const t = await trace(mode, mode === "deferred-email"
+      ? { executionContext: "waituntil" }
+      : {});
     const findingProjection = (t.report?.findings || []).map((finding) => ({
       id: finding.id,
       finding_type: finding.finding_type,
@@ -1150,9 +1190,9 @@ console.log("── A. canonical fallback contract + non-publishable refusal mat
     enrichDkim(deadlineDeferredEmailModuleResult()).observation_unavailable === true);
 }
 
-// ── B. REAL runScanEngine — email exceeds its 750ms hard cap ─────────────────
-console.log("\n── B. REAL runScanEngine, durable Queue budget, ONLY primary email past its hard cap ──");
-const t1 = await trace("deferred-email");
+// ── B. REAL runScanEngine — legacy email exceeds its unchanged 750ms cap ─────
+console.log("\n── B. REAL runScanEngine, legacy waitUntil budget, ONLY primary email past its hard cap ──");
+const t1 = await trace("deferred-email", { executionContext: "waituntil" });
 ok("B: no exception escaped the engine", t1.escaped === null, String(t1.escaped));
 ok("B: the scan reached a terminal COMPLETED state (not failed)",
   t1.dbStatus === "completed" && t1.report?.status === "completed",
@@ -1692,6 +1732,46 @@ for (const executionContext of ["queue", "cron"]) {
     JSON.stringify(boundary.diagnostics?.modules));
 }
 
+// The same real-engine seam proves a module rejected before launch is never
+// represented as a measured zero-duration execution. The outer max-cap gate
+// sees max+1ms and passes; before the three individual admissions the virtual
+// clock advances to min-1ms, so every sibling is rejected by runCappedModule.
+const phase5MaxCap = Math.max(...Object.values(SCAN_DURABLE_PHASE5_MODULE_BUDGETS));
+const phase5MinCap = Math.min(...Object.values(SCAN_DURABLE_PHASE5_MODULE_BUDGETS));
+const phase5OuterElapsed = SCAN_DURABLE_INVOCATION_DEADLINE_DEFAULTS.budgetMs - (phase5MaxCap + 1);
+const phase5InnerAdvance = (phase5MaxCap + 1) - (phase5MinCap - 1);
+for (const executionContext of ["queue", "cron"]) {
+  const gated = await trace("complete", {
+    executionContext,
+    phase5ElapsedMs: phase5OuterElapsed,
+    phase5InnerAdvanceMs: phase5InnerAdvance,
+  });
+  const phase5Names = new Set([
+    "cve_intelligence",
+    "known_exploited_vulnerabilities",
+    "email_security_intelligence",
+  ]);
+  const diagnostics = (gated.diagnostics?.modules || [])
+    .filter((row) => phase5Names.has(row.module));
+  ok(`B7 launch gate: ${executionContext} preserves null duration in R2 diagnostics`,
+    diagnostics.length === 3 && diagnostics.every((row) =>
+      row.timeout_source === "launch_gate"
+        && row.wall_ms === null
+        && row.allocated_ms === 0
+        && row.outcome === "deadline_exceeded"),
+    JSON.stringify(diagnostics));
+  const persisted = gated.db.prepare(
+    "SELECT module, started_at, completed_at, duration_ms, outcome FROM scan_module_telemetry WHERE scan_id='scan-em'"
+  ).all().filter((row) => phase5Names.has(row.module));
+  ok(`B7 launch gate: ${executionContext} preserves null duration in D1 telemetry`,
+    persisted.length === 3 && persisted.every((row) =>
+      row.started_at === null
+        && row.completed_at === null
+        && row.duration_ms === null
+        && row.outcome === "deadline_exceeded"),
+    JSON.stringify(persisted));
+}
+
 // ── B8. B2 evidence admission: DSE reachability + ASM hand-off ──────────────
 console.log("\n── B8. DSE evidence reaches the report without cross-domain ASM cases ──");
 const caaFindings = (t2.report?.findings || []).filter((finding) => finding.id === "dse_missing_caa");
@@ -1984,7 +2064,7 @@ ok("B9 CX2: OpenVPN changes no Executive or PDF customer bytes",
 
 // ── L. LIFECYCLE / CASE NON-PROGRESSION ─────────────────────────────────────
 console.log("\n── L. email case non-progression on the incomplete observation ──");
-const lf = await trace("deferred-email", { seed: true });
+const lf = await trace("deferred-email", { seed: true, executionContext: "waituntil" });
 console.log(`   BEFORE case=awaiting_verification    AFTER case=${lf.caseAfter.status} verified_at=${lf.caseAfter.verified_at}`);
 ok("L: the email case did NOT advance to verification/resolution",
   !["verification_requested", "verifying", "resolved", "verified"].includes(lf.caseAfter.status), String(lf.caseAfter.status));
@@ -2287,6 +2367,19 @@ const MUTATIONS = [
     check: () => runChild("mta-missing").findings
       .some((finding) => finding.id === "email_intel_mta_sts_missing" &&
         (finding.severity !== "low" || finding.score_impact !== 0)),
+  },
+  {
+    name: "Lane-A Phase-5 launch refusal is collapsed to zero duration",
+    edits: [{
+      target: SCAN_ENGINE,
+      from: "        const durationMs = run.durationMs;",
+      to:   "        const durationMs = run.durationMs ?? 0;",
+    }],
+    check: () => {
+      const rows = runChild("phase5-launch-gate").diagnostics || [];
+      return rows.length === 3 && rows.every((row) =>
+        row.timeout_source === "launch_gate" && row.wall_ms === 0);
+    },
   },
 ];
 

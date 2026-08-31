@@ -19,8 +19,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers", "scan-api", "src", "engines");
 const validator = path.join(root, "scripts", "validate-subop-timing-telemetry.js");
-const EXPECTED_MUTANTS = 5;
-const EXPECTED_VALIDATOR_ASSERTIONS = 78;
+const EXPECTED_MUTANTS = 16;
+const EXPECTED_VALIDATOR_ASSERTIONS = 113;
 
 let mutantsKilled = 0;
 let failures = 0;
@@ -325,6 +325,246 @@ runMutant({
     `    await env.cybermeters_db.batch(statements);`,
     `    for (const statement of statements) await statement.run();`,
     "single D1 batch",
+  ),
+});
+
+runMutant({
+  name: "headers primary GET drops the caller signal",
+  sourceName: "headers-scan.js",
+  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
+  expectedFailures: ["primary GET safeFetch receives the caller signal"],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `    const getRes = await safeFetch(probeUrl, {
+      method:   "GET",
+      redirect: "follow",
+      accounting,
+      signal: opts.signal,
+      ...HEADER_PROBE_INIT,
+    });`,
+    `    const getRes = await safeFetch(probeUrl, {
+      method:   "GET",
+      redirect: "follow",
+      accounting,
+      ...HEADER_PROBE_INIT,
+    });`,
+    "headers primary direct signal",
+  ),
+});
+
+runMutant({
+  name: "headers bot HEAD drops the caller signal",
+  sourceName: "headers-scan.js",
+  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
+  expectedFailures: [
+    "bot HEAD safeFetch receives the caller signal",
+    "pending bot HEAD is cancelled by the caller signal",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `        const headRes = await safeFetch(probeUrl, {
+          method:   "HEAD",
+          redirect: "follow",
+          accounting,
+          signal: opts.signal,
+          ...HEADER_PROBE_INIT,
+        });`,
+    `        const headRes = await safeFetch(probeUrl, {
+          method:   "HEAD",
+          redirect: "follow",
+          accounting,
+          ...HEADER_PROBE_INIT,
+        });`,
+    "headers bot direct signal",
+  ),
+});
+
+runMutant({
+  name: "headers www HEAD drops the caller signal",
+  sourceName: "headers-scan.js",
+  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
+  expectedFailures: [
+    "www HEAD safeFetch receives the caller signal",
+    "pending www HEAD is cancelled by the caller signal",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `        const wwwRes = await safeFetch(wwwUrl, {
+          method:   "HEAD",
+          redirect: "follow",
+          accounting,
+          signal: opts.signal,
+          ...HEADER_PROBE_INIT,
+        });`,
+    `        const wwwRes = await safeFetch(wwwUrl, {
+          method:   "HEAD",
+          redirect: "follow",
+          accounting,
+          ...HEADER_PROBE_INIT,
+        });`,
+    "headers www direct signal",
+  ),
+});
+
+runMutant({
+  name: "headers auxiliary admission boundary is off by one",
+  sourceName: "headers-scan.js",
+  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
+  expectedFailures: [
+    "optional floor: only mandatory primary fetch launches below 49,996ms",
+    "optional floor: www is explicit not_executed",
+    "optional floor: omitted row has empty observation fields",
+    "optional floor: omission makes the module honestly partial",
+    "optional floor: an omitted probe opens no sub-op row",
+    "optional floor: truncated matrix closes the existing scoring authority gate",
+    "optional floor: stronger observed primary evidence remains available",
+    "optional floor: exact truncated Headers evidence resolves scan quality partial",
+    "optional floor: unobserved www yields zero missing-header findings",
+    "optional floor: unobserved www yields zero header remediation",
+    "bot and www auxiliaries both truncate without a second fetch",
+    "bot/www truncation always carries incomplete=true",
+    "slow challenge admits bot HEAD but launches no www fetch",
+    "slow challenge makes www explicit partial evidence",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    "  const OPTIONAL_PROBE_ADMISSION_MS = 49_996;",
+    "  const OPTIONAL_PROBE_ADMISSION_MS = 49_995;",
+    "headers auxiliary cap-minus-one",
+  ),
+});
+
+runMutant({
+  name: "headers optional truncation drops incomplete true",
+  sourceName: "headers-scan.js",
+  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
+  expectedFailures: [
+    "optional floor: omission makes the module honestly partial",
+    "optional floor: exact truncated Headers evidence resolves scan quality partial",
+    "bot/www truncation always carries incomplete=true",
+    "slow challenge makes www explicit partial evidence",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `    ...(!originNotObserved && !originErrored && optionalProbeBudgetExhausted ? {
+      incomplete: true,
+      incomplete_reason: "optional_probe_budget_exhausted",
+    } : {}),`,
+    `    ...(!originNotObserved && !originErrored && optionalProbeBudgetExhausted ? {
+      incomplete_reason: "optional_probe_budget_exhausted",
+    } : {}),`,
+    "headers optional incomplete flag",
+  ),
+});
+
+runMutant({
+  name: "headers optional truncation remains authoritative to scoring",
+  sourceName: "headers-scan.js",
+  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
+  expectedFailures: [
+    "optional floor: truncated matrix closes the existing scoring authority gate",
+    "optional floor: unobserved www yields zero missing-header findings",
+    "optional floor: unobserved www yields zero header remediation",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    "  const evidenceAuthoritative = probeExecuted && !optionalProbeBudgetExhausted;",
+    "  const evidenceAuthoritative = probeExecuted;",
+    "headers optional truncation scoring authority",
+  ),
+});
+
+runMutant({
+  name: "headers omitted auxiliary row loses not_executed state",
+  sourceName: "headers-scan.js",
+  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
+  expectedFailures: [
+    "optional floor: www is explicit not_executed",
+    "bot and www auxiliaries both truncate without a second fetch",
+    "slow challenge makes www explicit partial evidence",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `      status: "not_executed",`,
+    `      status: "unavailable",`,
+    "headers not-executed row",
+  ),
+});
+
+runMutant({
+  name: "headers bot optional admission guard is bypassed",
+  sourceName: "headers-scan.js",
+  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
+  expectedFailures: [
+    "bot and www auxiliaries both truncate without a second fetch",
+    "slow challenge admits bot HEAD but launches no www fetch",
+    "slow challenge makes www explicit partial evidence",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `      if (!canLaunchOptionalProbe()) {
+        recordUnexecutedOptional("bot_head_retry", probeUrl);`,
+    `      if (false) {
+        recordUnexecutedOptional("bot_head_retry", probeUrl);`,
+    "headers bot admission guard",
+  ),
+});
+
+runMutant({
+  name: "headers www optional admission guard is bypassed",
+  sourceName: "headers-scan.js",
+  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
+  expectedFailures: [
+    "optional floor: only mandatory primary fetch launches below 49,996ms",
+    "optional floor: www is explicit not_executed",
+    "optional floor: omitted row has empty observation fields",
+    "optional floor: omission makes the module honestly partial",
+    "optional floor: an omitted probe opens no sub-op row",
+    "optional floor: truncated matrix closes the existing scoring authority gate",
+    "optional floor: stronger observed primary evidence remains available",
+    "optional floor: exact truncated Headers evidence resolves scan quality partial",
+    "optional floor: unobserved www yields zero missing-header findings",
+    "optional floor: unobserved www yields zero header remediation",
+    "bot and www auxiliaries both truncate without a second fetch",
+    "slow challenge admits bot HEAD but launches no www fetch",
+    "slow challenge makes www explicit partial evidence",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `      if (!canLaunchOptionalProbe()) {
+        recordUnexecutedOptional("www_variant", wwwUrl);`,
+    `      if (false) {
+        recordUnexecutedOptional("www_variant", wwwUrl);`,
+    "headers www admission guard",
+  ),
+});
+
+runMutant({
+  name: "headers stronger bot HEAD can no longer replace challenge evidence",
+  sourceName: "headers-scan.js",
+  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
+  expectedFailures: ["admitted stronger bot HEAD still replaces challenge evidence"],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `          if (headSecCount > getSecCount || headBotSignals.length < botProtectionSignals.length) {`,
+    `          if (false) {`,
+    "headers stronger HEAD selection",
+  ),
+});
+
+runMutant({
+  name: "headers abort after bot HEAD creates a www evidence row",
+  sourceName: "headers-scan.js",
+  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
+  expectedFailures: ["completed bot HEAD after abort still creates no www evidence row"],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `      const wwwUrl = \`${'${proto}'}://www.${'${domain}'}\`;
+      if (!canLaunchProbe()) break;
+      if (!canLaunchOptionalProbe()) {`,
+    `      const wwwUrl = \`${'${proto}'}://www.${'${domain}'}\`;
+      if (!canLaunchOptionalProbe()) {`,
+    "headers pre-www abort gate",
   ),
 });
 
