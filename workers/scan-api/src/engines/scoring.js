@@ -735,11 +735,15 @@ export function computeScore(modules, domain) {
     }
 
     // A1: SPF evidence status (NON-ENUMERABLE — direct read off the source object,
-    // never a spread/JSON copy). A failed/unexecuted SPF probe is unavailable /
-    // not_yet_assessed → score-neutral, NOT a missing record. Absent (pre-A1 reports
-    // / R2 reconstruction) → legacy present-based read, so history is not rewritten.
+    // never a spread/JSON copy). Explicit module skip/non-execution and a failed
+    // SPF probe are unobserved → score-neutral, NOT a missing record. Merely partial
+    // modules still use completed per-probe evidence. Absent status on an otherwise
+    // executed legacy/R2 result keeps the historical present-based read.
+    const emailModuleUnobserved = modules.email_security?.skipped === true ||
+      modules.email_security?.executed === false;
     const spfEvidence = modules.email_security?.spf_evidence_status ?? null;
-    const spfUnobserved = spfEvidence ? isEmailProbeUnobserved(spfEvidence) : false;
+    const spfUnobserved = emailModuleUnobserved ||
+      (spfEvidence ? isEmailProbeUnobserved(spfEvidence) : false);
     if (!spfUnobserved && !modules.email_security?.spf?.present) {
       finding({
         id:           "email_missing_spf",
@@ -775,7 +779,8 @@ export function computeScore(modules, domain) {
     // claims selectors were probed. Absent status (pre-A1 reports / R2
     // reconstruction) keeps the legacy present-based read.
     const dkimEvidence = modules.email_security?.dkim_evidence_status ?? null;
-    const dkimUnobserved = dkimEvidence ? isEmailProbeUnobserved(dkimEvidence) : false;
+    const dkimUnobserved = emailModuleUnobserved ||
+      (dkimEvidence ? isEmailProbeUnobserved(dkimEvidence) : false);
     if (!dkimUnobserved && !modules.email_security?.dkim?.present) {
       // Provider-aware DKIM observation.
       // Common-selector probing is best-effort — enterprise domains often use custom

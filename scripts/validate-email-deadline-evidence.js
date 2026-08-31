@@ -78,7 +78,7 @@ const { buildScanReportPdf } = await import(pdfModuleUrl);
 
 const NOW = "2026-07-29T09:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
-const EXPECTED_MUTANTS = 19;
+const EXPECTED_MUTANTS = 20;
 
 const SPF_RECORD = "v=spf1 include:_spf.google.com -all";
 const DMARC_REJECT = "v=DMARC1; p=reject; rua=mailto:dmarc-reports@example.com";
@@ -377,6 +377,8 @@ function seedDseVerificationCase(db) {
 async function trace(variant, {
   seed = false,
   executionContext = "queue",
+  capacityMode = "legacy",
+  subrequestLimit = 200,
   phase5ElapsedMs = 0,
   accelerateDurableCaps = false,
   deterministicProof = false,
@@ -394,7 +396,7 @@ async function trace(variant, {
   };
   const env = {
     cybermeters_db: makeD1(db, onD1Run), cybermeters_reports: makeR2(store),
-    SCAN_CAPACITY_MODE: "legacy", SCAN_SUBREQUEST_LIMIT: "200",
+    SCAN_CAPACITY_MODE: capacityMode, SCAN_SUBREQUEST_LIMIT: String(subrequestLimit),
     SCAN_DEADLINE_MS: executionContext === "queue" || executionContext === "cron"
       ? "115000"
       : "19000",
@@ -578,6 +580,40 @@ function mtaCustomerOutput(t, { includeExecutive = false, includePdf = false } =
     paired_score_control: computeScore(t.report?.modules || {}, scan.domain).score,
     score_methodology: t.snapshot?.methodology?.cyber_metrics_score_methodology_version ?? null,
     resolver_version: t.snapshot?.methodology?.cyber_mot_resolver_version ?? null,
+  };
+}
+
+const FALSE_EMAIL_FINDING_IDS = new Set([
+  "email_missing_spf",
+  "email_dkim_not_detected",
+]);
+
+function emailSkipCustomerOutput(t, { includeExecutive = false, includePdf = false } = {}) {
+  const scan = {
+    id: t.report?.scan_id ?? "scan-em",
+    domain_id: t.report?.domain_id ?? "dom",
+    domain: t.report?.domain ?? "example.com",
+  };
+  const read = {
+    snapshot: t.snapshot,
+    row: { id: t.snapshot?.snapshot?.snapshot_id ?? null },
+    integrity: { verified: true },
+  };
+  return {
+    report_findings: (t.report?.findings || [])
+      .filter((finding) => FALSE_EMAIL_FINDING_IDS.has(finding.id)),
+    snapshot_findings: (t.snapshot?.observed_findings || [])
+      .filter((finding) => FALSE_EMAIL_FINDING_IDS.has(finding.finding_id)),
+    snapshot_observations: (t.snapshot?.observations || [])
+      .filter((finding) => FALSE_EMAIL_FINDING_IDS.has(finding.finding_id)),
+    actions: (t.snapshot?.remediation_actions || [])
+      .filter((action) => ["email.spf.publish", "email.dkim.verify"].includes(action.remediation_id)),
+    email_domain: (t.snapshot?.domains || [])
+      .find((domain) => domain.domain_key === "email_protection") || null,
+    managed_cases: t.managedCases.filter((managedCase) =>
+      FALSE_EMAIL_FINDING_IDS.has(managedCase.finding_id)),
+    ...(includeExecutive ? { executive: buildExecutiveReportV2({ scan, read }) } : {}),
+    ...(includePdf ? { pdf_text: pdfPlainText(buildScanReportPdf(scan, read)) } : {}),
   };
 }
 
@@ -835,6 +871,19 @@ if (childArg) {
     const t = await trace("mta-missing", { deterministicProof: true, previousFindings: [] });
     out = mtaCustomerOutput(t, { includeExecutive: true, includePdf: true });
   }
+  else if (mode === "reserved-email-skip-cx") {
+    const t = await trace("reserved-email-skip", {
+      capacityMode: "reserved",
+      subrequestLimit: 50,
+      deterministicProof: true,
+    });
+    out = {
+      email: t.email,
+      dmarc_core: t.report?.modules?.dmarc_core ?? null,
+      d1_titles: t.titles,
+      customer: emailSkipCustomerOutput(t, { includeExecutive: true, includePdf: true }),
+    };
+  }
   else if (mode === "b2d-contract") {
     const scanEngineSource = fs.readFileSync(fileURLToPath(scanEngineUrl), "utf8");
     const bridgeStart = scanEngineSource.indexOf(
@@ -1086,6 +1135,15 @@ console.log("── A. canonical fallback contract + non-publishable refusal mat
     positive.some((f) => f.id === "email_missing_spf" && Number(f.score_impact) === -10));
   ok("A6: POSITIVE — observed DKIM non-detection still emits the informational observation",
     positive.some((f) => f.id === "email_dkim_not_detected"));
+  const partialObservedMissing = { ...observedMissing, incomplete: true };
+  Object.defineProperty(partialObservedMissing, "spf_evidence_status", { value: "observed", enumerable: false });
+  Object.defineProperty(partialObservedMissing, "dkim_evidence_status", { value: "observed", enumerable: false });
+  const partialPositive = computeScore({
+    dns: { has_mx: true }, ssl: {}, headers: { headers: {} },
+    email_security: partialObservedMissing,
+  }, "example.com").findings;
+  ok("A6: POSITIVE — a partial module with completed SPF evidence still scores observed absence",
+    partialPositive.some((f) => f.id === "email_missing_spf" && Number(f.score_impact) === -10));
   ok("A7: email-intel reads the fallback SPF as unobserved (finding + impact gated)",
     enrichSpf(deadlineDeferredEmailModuleResult()).observation_unavailable === true);
   ok("A7: email-intel reads the fallback DKIM as unobserved",
@@ -1128,6 +1186,54 @@ ok("B: the customer email domain is EVIDENCE-INSUFFICIENT — never healthy, nev
   t1.motEmail.state === "evidence_insufficient" && t1.motEmail.coverage !== "complete",
   JSON.stringify(t1.motEmail));
 ok("B: no scan_failed audit — the scan did not fail", !t1.audits.includes("scan_failed"), t1.audits.join("|"));
+
+// ── B1. Reserved-mode admission skip: no SPF/DKIM evidence was executed ─────
+console.log("\n── B1. reserved-mode subrequest skip is fail-closed across customer surfaces ──");
+const reservedSkip = await trace("reserved-email-skip", {
+  capacityMode: "reserved",
+  subrequestLimit: 50,
+  deterministicProof: true,
+});
+const reservedCx = emailSkipCustomerOutput(reservedSkip, {
+  includeExecutive: true,
+  includePdf: true,
+});
+const reservedExecutiveText = JSON.stringify(reservedCx.executive);
+ok("B1: reserved admission produces the exact bare email subrequest-skip shape",
+  reservedSkip.email?.skipped === true &&
+    reservedSkip.email?.skip_reason === "subrequest_budget" &&
+    reservedSkip.email?.executed !== true,
+  JSON.stringify(reservedSkip.email));
+ok("B1: independently completed DMARC remains projected after the email module skip",
+  reservedSkip.report?.modules?.dmarc_core?.skipped !== true &&
+    reservedSkip.email?.dmarc?.present === true &&
+    reservedSkip.email?.dmarc_detail?.raw === DMARC_REJECT,
+  JSON.stringify({
+    dmarc_core: reservedSkip.report?.modules?.dmarc_core,
+    projected_dmarc: reservedSkip.email?.dmarc,
+  }));
+ok("B1: engine/report and D1 contain no false SPF finding or DKIM observation",
+  reservedCx.report_findings.length === 0 &&
+    !reservedSkip.titles.includes("Missing SPF Record") &&
+    !reservedSkip.findingIds.includes("email_dkim_not_detected"),
+  JSON.stringify({ findings: reservedCx.report_findings, titles: reservedSkip.titles }));
+ok("B1: immutable snapshot contains no false SPF/DKIM item or canonical action",
+  reservedCx.snapshot_findings.length === 0 &&
+    reservedCx.snapshot_observations.length === 0 &&
+    reservedCx.actions.length === 0 &&
+    reservedCx.managed_cases.length === 0,
+  JSON.stringify(reservedCx));
+ok("B1: customer email domain is evidence-insufficient, never assessed healthy",
+  reservedCx.email_domain?.state === "evidence_insufficient" &&
+    reservedCx.email_domain?.coverage !== "complete",
+  JSON.stringify(reservedCx.email_domain));
+ok("B1: Executive and PDF contain no false finding/action wording",
+  !reservedExecutiveText.includes("email_missing_spf") &&
+    !reservedExecutiveText.includes("Missing SPF Record") &&
+    !reservedExecutiveText.includes("email_dkim_not_detected") &&
+    !reservedCx.pdf_text.includes("Missing SPF Record") &&
+    !reservedCx.pdf_text.includes("Publish an SPF record") &&
+    !reservedCx.pdf_text.includes("DKIM Could Not Be Verified Using Common Selectors"));
 
 // ── B2. POSITIVE engine control: completed scan, genuinely missing SPF ──────
 console.log("\n── B2. positive control: fast probes, NO SPF record, DMARC p=none ──");
@@ -1900,6 +2006,7 @@ console.log("\n── M. mutation proof ──");
 const SCAN_ENGINE = path.join(root, "workers/scan-api/src/engines/scan-engine.js");
 const SCAN_BUDGET = path.join(root, "workers/scan-api/src/engines/scan-budget.js");
 const EMAIL_ANALYSIS = path.join(root, "workers/scan-api/src/engines/email-analysis.js");
+const SCORING = path.join(root, "workers/scan-api/src/engines/scoring.js");
 
 function runChild(mode) {
   const out = execFileSync(process.execPath, [selfPath, `--child=${mode}`], {
@@ -1931,11 +2038,12 @@ const MUTATIONS = [
       from: "runCappedModule(\"email_security\",       { fallback: deadlineDeferredEmailModuleResult,",
       to:   "runCappedModule(\"email_security\",       { fallback: () => markDeadlineDeferred({ spf: {}, dmarc: {}, dkim: {}, source: \"email_security\" }),",
     }],
-    // The bare shape has no evidence statuses → scoring again fabricates the
-    // Missing SPF Record for a probe that never ran (customer D1 + report).
+    // The new scoring guard contains the old false finding too, so pin the
+    // original fallback defect at the customer report contract it still breaks:
+    // the canonical nullable detail field disappears entirely.
     check: () => {
       const r = runChild("deferred-email");
-      return r.titles.includes("Missing SPF Record") || r.dbStatus === "failed";
+      return !Object.prototype.hasOwnProperty.call(r.email || {}, "spf_detail");
     },
   },
   {
@@ -2018,6 +2126,20 @@ const MUTATIONS = [
     check: () => {
       const f = runChild("builder-flags").unavailableSpf;
       return Array.isArray(f.ids) && f.ids.includes("spf_missing");
+    },
+  },
+  {
+    name: "P1 reserved skipped email is treated as observed again",
+    edits: [{
+      target: SCORING,
+      from: `    const emailModuleUnobserved = modules.email_security?.skipped === true ||
+      modules.email_security?.executed === false;`,
+      to:   "    const emailModuleUnobserved = false;",
+    }],
+    check: () => {
+      const value = runChild("reserved-email-skip-cx");
+      return value.customer.report_findings.some((finding) =>
+        FALSE_EMAIL_FINDING_IDS.has(finding.id));
     },
   },
   {
