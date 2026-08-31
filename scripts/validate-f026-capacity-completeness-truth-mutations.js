@@ -2,19 +2,21 @@
 //
 // F-026 mutation proof. Each named mutant reintroduces one half of the two
 // defects; the plain validator must fail with a NAMED assertion. Mutations run
-// in-process against a temporary copy of the source, restored in finally. The
-// worktree fingerprint is checked so a killed mutant can never leak edits.
+// in a disposable sandbox copy. The worktree fingerprint is checked so a killed
+// mutant can never write into another owner's product path or leak edits.
 // Node 24+.
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
 
-const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const f = (rel) => path.join(root, rel);
-function git(args) { return execFileSync("git", args, { cwd: root, encoding: "utf8" }); }
+const sourceRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const sandboxRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cm-f026-mutations-"));
+const f = (rel) => path.join(sandboxRoot, rel);
+function git(args) { return execFileSync("git", args, { cwd: sourceRoot, encoding: "utf8" }); }
 function worktreeFingerprint() {
   const status = git(["status", "--porcelain=v1", "-z"]);
   return crypto.createHash("sha256").update(status).digest("hex");
@@ -26,6 +28,29 @@ function replaceExactly(src, from, to, id) {
 }
 
 const LANE = "scripts/validate-f026-capacity-completeness-truth.js";
+
+function prepareSandbox() {
+  fs.mkdirSync(path.join(sandboxRoot, "scripts"), { recursive: true });
+  fs.mkdirSync(path.join(sandboxRoot, "workers", "scan-api"), { recursive: true });
+  const workerPackage = path.join(sourceRoot, "workers", "scan-api", "package.json");
+  fs.copyFileSync(workerPackage, path.join(sandboxRoot, "package.json"));
+  fs.copyFileSync(workerPackage, f("workers/scan-api/package.json"));
+  fs.copyFileSync(path.join(sourceRoot, LANE), f(LANE));
+  fs.copyFileSync(
+    path.join(sourceRoot, "workers", "scan-api", "wrangler.toml"),
+    f("workers/scan-api/wrangler.toml"),
+  );
+  fs.cpSync(
+    path.join(sourceRoot, "workers", "scan-api", "src"),
+    f("workers/scan-api/src"),
+    { recursive: true },
+  );
+  fs.cpSync(path.join(sourceRoot, "shared"), f("shared"), { recursive: true });
+  const dependencies = path.join(sourceRoot, "workers", "scan-api", "node_modules");
+  if (fs.existsSync(dependencies)) {
+    fs.symlinkSync(dependencies, f("workers/scan-api/node_modules"), "dir");
+  }
+}
 
 const mutants = [
   {
@@ -106,11 +131,11 @@ const mutants = [
     mustContain: "FAIL (a2-zero-fail) a fully-measured within-cap run stays COMPLETE",
   },
   {
-    id: "QUALITY_KEEPS_1000_LITERAL",
+    id: "QUALITY_CONFUSES_PROVIDER_WITH_EFFECTIVE",
     file: "workers/scan-api/src/engines/scan-engine.js",
     from: "  const effectiveLimit = Number.isFinite(capacity?.limit) ? capacity.limit : null;",
     to:   "  const effectiveLimit = PLATFORM_SUBREQUEST_CEILING;",
-    mustContain: "FAIL (b) the reported effective limit equals the resolved capacity",
+    mustContain: "FAIL (b) candidate resolves explicit legacy admission/report effective_limit 200",
   },
   {
     id: "QUALITY_GUESSES_LEGACY_EFFECTIVE_LIMIT",
@@ -119,23 +144,101 @@ const mutants = [
     to:   "  const effectiveLimit = 50;",
     mustContain: "FAIL (b) a different resolved capacity (120) flows through",
   },
+  {
+    id: "QUALITY_RESTORES_STALE_PROVIDER_1000",
+    file: "workers/scan-api/src/engines/scan-engine.js",
+    from: "  const PLATFORM_SUBREQUEST_CEILING = 10_000;",
+    to:   "  const PLATFORM_SUBREQUEST_CEILING = 1_000;",
+    mustContain: "FAIL (b) provider ceiling is reported as 10000",
+  },
+  {
+    id: "LEGACY_ACTIVATES_RESERVED_PHYSICAL_COUNTER",
+    file: "workers/scan-api/src/engines/scan-engine.js",
+    from: "    const reservedMode = capacity.mode === \"reserved\";",
+    to:   "    const reservedMode = capacity.mode === \"legacy\";",
+    mustContain: "FAIL (b) legacy 200 is not configured as a provider-enforced physical hard cap",
+  },
+  {
+    id: "WRANGLER_TURNS_200_INTO_PROVIDER_HARD_CAP",
+    file: "workers/scan-api/wrangler.toml",
+    from: "SCAN_SUBREQUEST_LIMIT = 200\n",
+    to:   "SCAN_SUBREQUEST_LIMIT = 200\n\n[limits]\nsubrequests = 200\n",
+    mustContain: "FAIL (b) legacy 200 is not configured as a provider-enforced physical hard cap",
+  },
+  {
+    id: "VARIABLE_BRUTEFORCE_CAP_ESCAPES_PROVIDER",
+    file: "workers/scan-api/src/engines/subdomains-scan.js",
+    from: "export const BRUTEFORCE_MAX_NAMES  = 15;",
+    to:   "export const BRUTEFORCE_MAX_NAMES  = 9_000;",
+    mustContain: "FAIL (c) discovered and historical candidates are source-bounded before variable probes",
+  },
+  {
+    id: "VARIABLE_EXPOSURE_CAP_ESCAPES_PROVIDER",
+    file: "workers/scan-api/src/engines/asset-intel.js",
+    from: "  const targets = candidates.slice(0, 50);",
+    to:   "  const targets = candidates.slice(0, 500);",
+    mustContain: "FAIL (c) discovered and historical candidates are source-bounded before variable probes",
+  },
+  {
+    id: "VARIABLE_TAKEOVER_CAP_ESCAPES_PROVIDER",
+    file: "workers/scan-api/src/engines/takeover-scan.js",
+    from: "  const HOST_CAP = 100;",
+    to:   "  const HOST_CAP = 2_000;",
+    mustContain: "FAIL (c) discovered and historical candidates are source-bounded before variable probes",
+  },
+  {
+    id: "VARIABLE_EXPOSURE_REDIRECTS_ESCAPE_PROVIDER",
+    file: "workers/scan-api/src/engines/reserved-probe.js",
+    from: "export const RESERVED_MAX_REDIRECT_HOPS = 3;",
+    to:   "export const RESERVED_MAX_REDIRECT_HOPS = 100;",
+    mustContain: "FAIL (c) exposure redirect/DNS fan-out is source-bounded",
+  },
+  {
+    id: "VARIABLE_TAKEOVER_REDIRECTS_ESCAPE_PROVIDER",
+    file: "workers/scan-api/src/lib/http.js",
+    from: "const MAX_REDIRECT_HOPS = 4;",
+    to:   "const MAX_REDIRECT_HOPS = 100;",
+    mustContain: "FAIL (c) takeover valid-CNAME path is source-bounded",
+  },
+  {
+    id: "ADMIN_SURFACE_REINTRODUCES_NETWORK_IO",
+    file: "workers/scan-api/src/engines/asset-intel.js",
+    from: "export function runAdminSurfaceModule(modules) {\n",
+    to:   "export function runAdminSurfaceModule(modules) {\n  fetch(\"https://example.invalid\");\n",
+    mustContain: "FAIL (c) admin_surface is derived from completed exposure evidence with zero new network I/O",
+  },
 ];
 
 let killed = 0; const failures = [];
 const initial = worktreeFingerprint();
-for (const m of mutants) {
-  const abs = f(m.file);
-  const original = fs.readFileSync(abs);
-  try {
-    fs.writeFileSync(abs, replaceExactly(original.toString("utf8"), m.from, m.to, m.id));
-    const child = spawnSync(process.execPath, [f(LANE)], { cwd: root, encoding: "utf8", timeout: 120000 });
-    const out = `${child.stdout || ""}\n${child.stderr || ""}`;
-    const diedRightReason = child.status !== 0 && out.includes(m.mustContain);
-    if (diedRightReason) { killed++; console.log(`PASS ${m.id}: killed by "${m.mustContain}"`); }
-    else { failures.push(m.id); console.error(`FAIL ${m.id}: not killed for the named reason (status ${child.status})`); }
-  } finally {
-    fs.writeFileSync(abs, original);
+try {
+  prepareSandbox();
+  const baseline = spawnSync(process.execPath, [f(LANE)], {
+    cwd: sandboxRoot,
+    encoding: "utf8",
+    timeout: 120000,
+  });
+  if (baseline.status !== 0) {
+    failures.push("sandbox-baseline-red");
+    console.error(`FAIL sandbox baseline red (status ${baseline.status})`);
+    console.error(`${baseline.stdout || ""}${baseline.stderr || ""}`);
   }
+  for (const m of mutants) {
+    const abs = f(m.file);
+    const original = fs.readFileSync(abs);
+    try {
+      fs.writeFileSync(abs, replaceExactly(original.toString("utf8"), m.from, m.to, m.id));
+      const child = spawnSync(process.execPath, [f(LANE)], { cwd: sandboxRoot, encoding: "utf8", timeout: 120000 });
+      const out = `${child.stdout || ""}\n${child.stderr || ""}`;
+      const diedRightReason = child.status !== 0 && out.includes(m.mustContain);
+      if (diedRightReason) { killed++; console.log(`PASS ${m.id}: killed by "${m.mustContain}"`); }
+      else { failures.push(m.id); console.error(`FAIL ${m.id}: not killed for the named reason (status ${child.status})`); }
+    } finally {
+      fs.writeFileSync(abs, original);
+    }
+  }
+} finally {
+  fs.rmSync(sandboxRoot, { recursive: true, force: true });
 }
 if (worktreeFingerprint() !== initial) { failures.push("worktree-not-restored"); console.error("FAIL worktree fingerprint changed"); }
 
