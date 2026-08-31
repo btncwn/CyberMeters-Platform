@@ -51,7 +51,7 @@ export const FIXTURES = {
 
   "unregistered-override": () => {
     const workspaces = clone(base.workspaces);
-    workspaces.frontend.manifest.overrides.lodash = "4.17.21";
+    workspaces.frontend.manifest.overrides = { lodash: "4.17.21" };
     return { register: clone(base.register), workspaces, now: NOW };
   },
 
@@ -174,7 +174,9 @@ export const FIXTURES = {
 
   "historical-basis-still-listing-advisories": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-3").advisories_cleared = ["GHSA-67mh-4wv8-2f99"];
+    const entry = entryOf(register, "OV-1");
+    entry.advisory_basis = "historical";
+    entry.historical_note = "fixture: historical basis must not retain a cleared advisory";
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
@@ -186,14 +188,22 @@ export const FIXTURES = {
 
   "range-spec-without-justification": () => {
     const register = clone(base.register);
-    delete entryOf(register, "OV-3").range_justification;
-    return { register, workspaces: clone(base.workspaces), now: NOW };
+    const workspaces = clone(base.workspaces);
+    entryOf(register, "OV-1").declared_spec = "^0.35.3";
+    workspaces["workers/scan-api"].manifest.overrides.sharp = "^0.35.3";
+    return { register, workspaces, now: NOW };
   },
 
   "runtime-record-claiming-closure-evidence": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-2").production_closure_evidence = "npm ls --omit=dev react-router";
-    return { register, workspaces: clone(base.workspaces), now: NOW };
+    const workspaces = clone(base.workspaces);
+    const entry = entryOf(register, "OV-1");
+    entry.reachability = "production_runtime";
+    entry.production_reachability_reason = "fixture: injected production reachability";
+    workspaces["workers/scan-api"].manifest.dependencies.sharp = "0.35.3";
+    workspaces["workers/scan-api"].lock.packages[""].dependencies.sharp = "0.35.3";
+    delete workspaces["workers/scan-api"].lock.packages["node_modules/sharp"].dev;
+    return { register, workspaces, now: NOW };
   },
 
   "missing-reason-and-removal-criterion": () => {
@@ -428,8 +438,8 @@ try {
   // A registered override must be visibly EXERCISED on the happy path, not
   // silently absent: the baseline must actually evaluate real records.
   ok("baseline exercises every registered override",
-    base.register.overrides.length === 4 &&
-      sameSet(base.register.overrides.map((entry) => entry.id), ["OV-1", "OV-2", "OV-3", "OV-4"]),
+    base.register.overrides.length === 1 &&
+      sameSet(base.register.overrides.map((entry) => entry.id), ["OV-1"]),
     `ids ${base.register.overrides.map((entry) => entry.id).join(",")}`);
 
   // ── PART B ────────────────────────────────────────────────────────────────

@@ -128,17 +128,28 @@ version.
 
 ---
 
-## OV-2 — `react-router` forced to `8.3.0` (frontend runtime, CI security)
+## OV-2 — `react-router` forced to `8.3.0` (frontend runtime, CI security) — CLOSED
 
 | Field | Value |
 | --- | --- |
-| **Status** | ACTIVE — temporary compatibility override |
+| **Status** | CLOSED — override removed 2026-08-31 |
 | **Introduced** | 2026-07-24 (branch `chore/deps-clear-audit-advisories`) |
 | **Owner** | CyberMeters engineering (founder-owned) |
-| **Review date** | 2026-08-31 (and on every React Router release) |
+| **Review date** | 2026-08-31 — removal review completed |
 | **Scope** | `frontend/package.json` `overrides` + dependency/lockfile compatibility bumps only. No application source change and no deploy. |
 
-### What it does
+### Closure evidence — 2026-08-31
+
+The removal criterion was met by the supported exact pair
+`react-router-dom@7.18.3` → `react-router@7.18.3`. Commit
+`a4a0d393818e8ee4ab45faaaa757cca6848f37f8` removes the override and records that
+pair directly in the manifest and lockfile. The resulting graph has no `invalid` or
+`overridden` marker; the full audit, frontend typecheck, 673 tests with coverage,
+production build and E2E passed. OV-2 was therefore removed from the live
+machine-readable register. No application source or production deployment changed in
+this closure commit.
+
+### What it did (historical)
 
 ```json
 "overrides": {
@@ -152,7 +163,8 @@ first fixed `react-router`, `8.3.0`.
 
 ### Why it exists
 
-There is no single, clean `react-router-dom` release that clears the current advisory set:
+At the preceding 2026-08-03 review there was no single, clean `react-router-dom` release
+that cleared the then-current advisory set:
 
 - `react-router-dom` / `react-router` `7.18.1` fixes the open-redirect and SSR hydration
   advisories present in the former `6.30.4` graph.
@@ -179,7 +191,7 @@ installs the fixed router instead of suppressing or weakening `npm audit`.
    production build pass with this graph.
 5. `npm audit --audit-level=high` reports **0 vulnerabilities**.
 
-This remains a temporary override because `react-router-dom@7.18.1` did not declare or
+This remained a temporary override because `react-router-dom@7.18.1` did not declare or
 test against router 8.3.0, even though its compatibility wrapper and CyberMeters' used API
 surface validate successfully.
 
@@ -188,11 +200,11 @@ surface validate successfully.
 - High advisory: **GHSA-qwww-vcr4-c8h2** (`react-router >=7.12.0 <8.3.0`; unstable RSC).
 - Earlier fixed advisories: **GHSA-wrjc-x8rr-h8h6**,
   **GHSA-337j-9hxr-rhxg**, and **GHSA-jjmj-jmhj-qwj2**.
-- Upstream fix awaited: a supported `react-router-dom` release whose declared
+- Upstream fix awaited at the preceding review: a supported `react-router-dom` release whose declared
   `react-router` dependency is `>=8.3.0`, or a supported 7.x backport that clears all
   advisories.
 
-### Removal criterion
+### Removal criterion — satisfied
 
 Remove `OV-2` when a supported `react-router-dom` declares a router version unaffected by
 all four advisories. Verify removal by:
@@ -202,21 +214,30 @@ all four advisories. Verify removal by:
 3. keeping `npm audit --audit-level=high` at 0 vulnerabilities,
 4. passing frontend typecheck, coverage tests, production build, and E2E CI.
 
-If all four hold, mark this record closed and note the closing DOM/router versions.
+All four held for the exact `7.18.3` DOM/router pair; this historical record is retained
+while its live register entry is deleted.
 
 ---
 
-## OV-3 — `esbuild` forced to `^0.25.0` (frontend dev-transitive) — REDUNDANT
+## OV-3 — `esbuild` forced to `^0.25.0` (frontend dev-transitive) — CLOSED
 
 | Field | Value |
 | --- | --- |
-| **Status** | REDUNDANT — retained pending removal |
+| **Status** | CLOSED — redundant override removed 2026-08-31 |
 | **Introduced** | 2026-07-05 (commit `2bdf413`, alongside the Vite 6 upgrade) |
 | **Owner** | CyberMeters engineering (founder-owned) |
-| **Review date** | 2026-08-31 |
+| **Review date** | 2026-08-31 — removal review completed |
 | **Scope** | `frontend/package.json` `overrides` + lockfile only |
 
-### What it does
+### Closure evidence — 2026-08-31
+
+Commit `a4a0d393818e8ee4ab45faaaa757cca6848f37f8` removes the redundant override.
+Without it, `vite@6.4.3` still resolves `esbuild@0.25.12` through its declared
+`^0.25.0` dependency with no `overridden` marker. The full audit remained clean and the
+production build passed. OV-3 was therefore removed from the live machine-readable
+register; this prose remains as historical evidence.
+
+### What it did (historical)
 ```json
 "overrides": { "esbuild": "^0.25.0" }
 ```
@@ -233,28 +254,37 @@ entry, created by the register that now makes such an omission impossible.
 The pinned `vite@6.4.3` **itself declares `esbuild: ^0.25.0`**, so the override forces
 exactly what Vite already requires. The resolved `esbuild@0.25.12` carries no advisory.
 
-It is retained only so the PR that introduced the register did not also move unrelated
+It was retained only so the PR that introduced the register did not also move unrelated
 dependencies. Removing it is a separate, reviewable change.
 
-### Removal criterion
+### Removal criterion — satisfied
 Remove at or before the review date. Verify by deleting the entry, confirming `npm ls
 esbuild` still resolves `>= 0.25.0` with no `overridden` marker, `npm audit
 --audit-level=high` stays at **0**, and the production build passes. Then delete this
-record and its register entry.
+live register entry while preserving this historical prose.
 
 ---
 
-## OV-4 — `test-exclude` forced to `8.0.0` (frontend dev-transitive) — REDUNDANT
+## OV-4 — `test-exclude` forced to `8.0.0` (frontend dev-transitive) — CLOSED
 
 | Field | Value |
 | --- | --- |
-| **Status** | REDUNDANT — retained pending removal |
+| **Status** | CLOSED — redundant override removed 2026-08-31 |
 | **Introduced** | 2026-07-24 (commit `9b81819`) |
 | **Owner** | CyberMeters engineering (founder-owned) |
-| **Review date** | 2026-08-31 |
+| **Review date** | 2026-08-31 — removal review completed |
 | **Scope** | `frontend/package.json` `overrides` + lockfile only |
 
-### What it does
+### Closure evidence — 2026-08-31
+
+Commit `a4a0d393818e8ee4ab45faaaa757cca6848f37f8` removes the redundant override.
+The declared coverage graph now resolves `test-exclude@7.0.2`, `glob@10.5.0`,
+`minimatch@10.2.2` and `brace-expansion@2.1.4` without an `overridden` marker. The full
+audit remained clean; 673 tests with coverage and the production build passed. OV-4 was
+therefore removed from the live machine-readable register; this prose remains as
+historical evidence.
+
+### What it did (historical)
 ```json
 "overrides": { "test-exclude": "8.0.0" }
 ```
@@ -272,9 +302,11 @@ On current registry facts a fresh `test-exclude@7.0.1` graph resolves `brace-exp
 `2.1.4` and audits **clean**, and `test-exclude@8.0.0` itself carries no advisory. The
 override no longer clears anything.
 
-Retained only to keep the register's introducing PR free of unrelated dependency movement.
+It was retained only to keep the register's introducing PR free of unrelated dependency
+movement.
 
-### Removal criterion
+### Removal criterion — satisfied
 Remove at or before the review date. Verify by deleting the entry, confirming `npm audit
 --audit-level=high` stays at **0** with the restored `test-exclude` 7 chain, and that
-coverage tests still pass. Then delete this record and its register entry.
+coverage tests still pass. The live register entry is deleted while this historical prose
+is preserved.
