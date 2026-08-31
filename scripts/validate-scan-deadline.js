@@ -24,21 +24,38 @@ import { importMutant, registerMutants } from "./lib/mutant-import.mjs";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href);
 const scanEnginePath = path.join(root, "workers", "scan-api", "src", "engines", "scan-engine.js");
-registerMutants([{
-  id: "A3-E1-call-status-instead-of-effective-status",
-  from: '        if (effStatus === "completed") {',
-  to: '        if (status === "completed") {',
-}]);
+const scanBudgetPath = path.join(root, "workers", "scan-api", "src", "engines", "scan-budget.js");
+registerMutants([
+  {
+    id: "A3-E1-call-status-instead-of-effective-status",
+    from: '        if (effStatus === "completed") {',
+    to: '        if (status === "completed") {',
+  },
+  {
+    id: "LANEA-durable-cap-inherited-key",
+    from: `  return Object.prototype.hasOwnProperty.call(SCAN_DURABLE_CORE_MODULE_BUDGETS, module)
+    ? SCAN_DURABLE_CORE_MODULE_BUDGETS[module]
+    : null;`,
+    to: `  return SCAN_DURABLE_CORE_MODULE_BUDGETS[module] ?? null;`,
+  },
+]);
 const {
   createScanDeadline,
+  durableCoreModuleBudget,
   markDeadlineDeferred,
   PhysicalSubrequestCounter,
   raceModuleDeadline,
   SCAN_DEADLINE_DEFAULTS,
+  SCAN_DURABLE_CORE_MODULE_BUDGETS,
   SCAN_DURABLE_INVOCATION_DEADLINE_DEFAULTS,
   SCAN_DURABLE_PHASE5_MODULE_BUDGETS,
   SCAN_MODULE_BUDGETS,
 } = await eng("scan-budget.js");
+const { runDnsModule } = await eng("dns-scan.js");
+const { runEmailModule } = await eng("email-scan.js");
+const { runHeadersModule } = await eng("headers-scan.js");
+const { runSslModule } = await eng("ssl-scan.js");
+const { runTechModule } = await eng("tech-scan.js");
 const {
   buildScanQuality,
   createFinalizeLatch,
@@ -424,6 +441,221 @@ const lastD1Status = (env) => { const w = env._d1[env._d1.length - 1]; return w 
       dl.totalCeilingProvenance().reason, "scan_total_ceiling_exhausted");
   }
 }
+
+// ── 1b-iii. Durable core caps come from real-module virtual-clock boundaries ─
+// The scheduler owns both the module race and mocked provider completions. At an
+// equal due time the race timer was registered first, so cap-minus-one is a true
+// semantic module_race, not a process timeout or source-pattern assertion.
+function virtualScheduler() {
+  let nowMs = 0, nextId = 0;
+  const timers = new Map();
+  const setTimer = (fn, delay) => {
+    const id = ++nextId;
+    timers.set(id, { id, due: nowMs + Math.max(0, Number(delay) || 0), fn });
+    return id;
+  };
+  const clearTimer = (id) => timers.delete(id);
+  const delayed = (value, delay, signal) => new Promise((resolve, reject) => {
+    const id = setTimer(() => {
+      if (signal?.aborted) reject(new DOMException("The operation was aborted", "AbortError"));
+      else resolve(typeof value === "function" ? value() : value);
+    }, delay);
+    const abort = () => { clearTimer(id); reject(new DOMException("The operation was aborted", "AbortError")); };
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
+  });
+  const settle = async (promise) => {
+    let done = false, value, error;
+    promise.then((v) => { done = true; value = v; }, (e) => { done = true; error = e; });
+    for (let step = 0; step < 20_000 && !done; step += 1) {
+      for (let turn = 0; turn < 50; turn += 1) await Promise.resolve();
+      if (done) break;
+      const next = [...timers.values()].sort((a, b) => a.due - b.due || a.id - b.id)[0];
+      // Promise chains may need several microtask turns after the last provider
+      // completion before the outer race settles; an empty timer queue is not by
+      // itself a stall.
+      if (!next) continue;
+      nowMs = next.due;
+      const due = [...timers.values()]
+        .filter((entry) => entry.due === nowMs)
+        .sort((a, b) => a.id - b.id);
+      for (const entry of due) {
+        if (!timers.delete(entry.id)) continue;
+        entry.fn();
+      }
+    }
+    if (!done) throw new Error("virtual boundary exceeded step limit");
+    if (error) throw error;
+    return value;
+  };
+  return { now: () => nowMs, setTimer, clearTimer, delayed, settle };
+}
+
+async function runVirtualModuleBoundary({ capMs, fetcher, run }) {
+  const scheduler = virtualScheduler();
+  const controller = new AbortController();
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = (input, init = {}) => fetcher(scheduler, input, init);
+  try {
+    const promise = raceModuleDeadline(
+      { remainingMs: () => capMs },
+      () => run({
+        signal: controller.signal,
+        remainingMs: () => Math.max(0, capMs - scheduler.now()),
+      }),
+      () => {
+        controller.abort("module_budget_exhausted");
+        return { outcome: "deadline_exceeded", reason: "module_budget_exhausted" };
+      },
+      { hardMs: capMs, setTimer: scheduler.setTimer, clearTimer: scheduler.clearTimer },
+    );
+    return await scheduler.settle(promise);
+  } finally {
+    globalThis.fetch = priorFetch;
+  }
+}
+
+const delayedJson = (scheduler, body, delay, signal) => scheduler.delayed(
+  () => Response.json(body), delay, signal,
+);
+const delayedHttp = (scheduler, status, headers, delay, signal) => scheduler.delayed(
+  () => new Response("fixture", { status, headers }), delay, signal,
+);
+
+function headersPrimaryFallbackBoundaryFixture() {
+  const hops = new Map();
+  return {
+    fetcher: (scheduler, input, init) => {
+      const url = new URL(String(input));
+      const key = url.protocol;
+      const hop = (hops.get(key) || 0) + 1;
+      hops.set(key, hop);
+      return delayedHttp(scheduler,
+        hop < 5 ? 302 : (url.protocol === "https:" ? 522 : 200),
+        hop < 5 ? { location: `${url.protocol}//${url.hostname}/primary-${hop}` }
+          : (url.protocol === "https:"
+            ? { server: "cloudflare" }
+            : { server: "origin", "content-type": "text/html" }),
+        9_999, init.signal);
+    },
+    run: ({ signal, remainingMs }) => runHeadersModule("example.com", { signal, remainingMs }),
+  };
+}
+
+const boundaryFixtures = {
+  dns: {
+    fetcher: (scheduler, input, init) => delayedJson(
+      scheduler,
+      { Status: 0, Answer: [] },
+      String(input).includes("dns.quad9.net") ? 4_999 : 5_999,
+      init.signal,
+    ),
+    run: ({ signal }) => runDnsModule("example.com", { signal, cache: new Map() }),
+  },
+  ssl: {
+    fetcher: (() => {
+      let httpHop = 0;
+      return (scheduler, input, init) => {
+        const url = String(input);
+        if (url.includes("crt.sh") || url.includes("certspotter")) {
+          return delayedJson(scheduler, [], url.includes("crt.sh") ? 5_999 : 3_999, init.signal);
+        }
+        if (url.startsWith("https://")) {
+          return delayedHttp(scheduler, 522, { server: "cloudflare" }, 9_999, init.signal);
+        }
+        httpHop += 1;
+        return delayedHttp(scheduler, httpHop === 1 ? 301 : 200,
+          httpHop === 1 ? { location: "http://step.example.com" } : { server: "origin" },
+          9_999, init.signal);
+      };
+    })(),
+    run: ({ signal }) => runSslModule("example.com", { signal }),
+  },
+  headers: headersPrimaryFallbackBoundaryFixture(),
+  email_security: {
+    fetcher: (scheduler, input, init) => {
+      const url = new URL(String(input));
+      const name = String(url.searchParams.get("name") || "");
+      const type = String(url.searchParams.get("type") || "").toUpperCase();
+      const root = name === "example.com" && type === "TXT";
+      const record = `v=spf1 ${Array.from({ length: 9 }, (_, i) => `a:h${i + 1}.example.com`).join(" ")} -all`;
+      return delayedJson(scheduler, {
+        Status: 0,
+        Answer: root ? [{ type: 16, data: `"${record}"` }] : [],
+      }, 5_999, init.signal);
+    },
+    run: ({ signal }) => runEmailModule("example.com", {
+      signal, cache: new Map(), dmarcOwnedByCore: true,
+    }),
+  },
+  technology_detection: {
+    fetcher: (() => {
+      let hop = 0;
+      return (scheduler, input, init) => {
+        hop += 1;
+        const url = new URL(String(input));
+        return delayedHttp(scheduler, hop < 5 ? 302 : 200,
+          hop < 5 ? { location: `${url.protocol}//${url.hostname}/tech-${hop}` } : { server: "origin", "content-type": "text/html" },
+          9_999, init.signal);
+      };
+    })(),
+    run: ({ signal }) => runTechModule("example.com", { signal }),
+  },
+};
+
+for (const [module, capMs] of Object.entries(SCAN_DURABLE_CORE_MODULE_BUDGETS)) {
+  const passFixture = boundaryFixtures[module];
+  const passResult = await runVirtualModuleBoundary({ capMs, ...passFixture });
+  ok(`${module}: real module completes at derived cap ${capMs}`,
+    passResult?.outcome !== "deadline_exceeded", JSON.stringify(passResult));
+  if (module === "headers") {
+    ok("headers durable PASS uses the HTTPS-edge to HTTP-primary path",
+      passResult?.original_url?.startsWith("http://")
+        && passResult?.checked_paths?.some((row) => row.requested_url?.startsWith("https://")
+          && row.status === "cloudflare_edge_error")
+        && passResult?.incomplete_reason === "optional_probe_budget_exhausted",
+      JSON.stringify(passResult));
+  }
+
+  // Fixture closures retain counters, so rebuild the stateful branches for the
+  // cap-minus-one direction by recreating this bounded fixture set.
+  let failFetcher = passFixture.fetcher;
+  if (module === "ssl") {
+    let httpHop = 0;
+    failFetcher = (scheduler, input, init) => {
+      const url = String(input);
+      if (url.includes("crt.sh") || url.includes("certspotter")) return delayedJson(scheduler, [], url.includes("crt.sh") ? 5_999 : 3_999, init.signal);
+      if (url.startsWith("https://")) return delayedHttp(scheduler, 522, { server: "cloudflare" }, 9_999, init.signal);
+      httpHop += 1;
+      return delayedHttp(scheduler, httpHop === 1 ? 301 : 200, httpHop === 1 ? { location: "http://step.example.com" } : { server: "origin" }, 9_999, init.signal);
+    };
+  } else if (module === "headers") {
+    failFetcher = headersPrimaryFallbackBoundaryFixture().fetcher;
+  } else if (module === "technology_detection") {
+    let hop = 0;
+    failFetcher = (scheduler, input, init) => {
+      hop += 1;
+      const url = new URL(String(input));
+      return delayedHttp(scheduler, hop < 5 ? 302 : 200,
+        hop < 5 ? { location: `${url.protocol}//${url.hostname}/tech-fail-${hop}` } : { server: "origin", "content-type": "text/html" },
+        9_999, init.signal);
+    };
+  }
+  const failResult = await runVirtualModuleBoundary({
+    capMs: capMs - 1,
+    fetcher: failFetcher,
+    run: passFixture.run,
+  });
+  eq(`${module}: cap-minus-one is a semantic module race`, failResult?.outcome, "deadline_exceeded");
+}
+eq("headers durable boundary is exact", SCAN_DURABLE_CORE_MODULE_BUDGETS.headers, 99_991);
+eq("durable core lookup selects an explicit own key", durableCoreModuleBudget("headers"), 99_991);
+eq("durable core lookup refuses an inherited key", durableCoreModuleBudget("toString"), null);
+ok("all durable core caps remain below the 115s executable envelope",
+  Object.values(SCAN_DURABLE_CORE_MODULE_BUDGETS)
+    .every((cap) => cap < SCAN_DURABLE_INVOCATION_DEADLINE_DEFAULTS.budgetMs));
+eq("durable core phase admission is max-not-sum",
+  Math.max(...Object.values(SCAN_DURABLE_CORE_MODULE_BUDGETS)), 113_982);
 
 // ── 1c. Env override remains deterministic and clamps per profile ──────────
 {
@@ -1149,6 +1381,13 @@ await withEngineFetchFixture(async (fetchCount) => {
   ok("Phase 11 retains lifecycle delivery but owns no scan_completed audit",
     /type:\s*"lifecycle_first_scan_completed"/.test(src) &&
     !/event_type:\s*["']scan_completed["']/.test(src));
+}
+
+// ── Lane-A mutation: inherited object keys are never durable caps ───────────
+{
+  const mutant = await importMutant(scanBudgetPath, "LANEA-durable-cap-inherited-key");
+  ok("Lane-A own-key mutant killed: inherited key becomes selectable",
+    mutant.durableCoreModuleBudget("toString") !== null);
 }
 
 // ── A3 mutation: guardCompleted must use the effective completed intent ─────

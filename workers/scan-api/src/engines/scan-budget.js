@@ -280,6 +280,27 @@ export const SCAN_MODULE_BUDGETS = Object.freeze({
   cloud_storage_discovery:       500,
 });
 
+// Queue/Cron core-module source envelopes. Each value is the first integer above
+// a deterministic real-engine virtual-clock boundary; selection is per module
+// (max, never sum) and every cap remains below the immutable 115s executable
+// envelope. Legacy waitUntil/unknown callers retain the compact caps above.
+export const SCAN_DURABLE_CORE_MODULE_BUDGETS = Object.freeze({
+  dns:                    6_000,
+  ssl:                   39_997,
+  headers:               99_991,
+  email_security:       113_982,
+  technology_detection:  49_996,
+});
+
+// Only an explicitly configured module may select a durable cap. The map is a
+// normal frozen object for backwards-compatible enumeration, so callers must
+// not let inherited Object.prototype keys become budgets.
+export function durableCoreModuleBudget(module) {
+  return Object.prototype.hasOwnProperty.call(SCAN_DURABLE_CORE_MODULE_BUDGETS, module)
+    ? SCAN_DURABLE_CORE_MODULE_BUDGETS[module]
+    : null;
+}
+
 // Queue/Cron Phase-5 source envelopes. These are hard module ceilings, not
 // expected durations: CVE can make three sequential 10s NVD calls with two
 // 300ms pacing gaps; KEV and Email Intelligence each contain a 10s HTTP leaf

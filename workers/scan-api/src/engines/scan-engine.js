@@ -62,7 +62,7 @@ import { recordPostureEvents } from "./posture-events.js";
 import { recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, isPublishableModuleEvidence, isSubrequestBudgetExhaustedError, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_DURABLE_PHASE5_MODULE_BUDGETS, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
+import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, durableCoreModuleBudget, isPublishableModuleEvidence, isSubrequestBudgetExhaustedError, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_DURABLE_PHASE5_MODULE_BUDGETS, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
@@ -856,7 +856,12 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     ctx.physicalAttemptsIssued = () => physical?.issuedDuringContext?.() || 0;
     return ctx;
   };
-  const moduleCapFor = (module) => SCAN_MODULE_BUDGETS[module] ?? deadline.remainingMs();
+  const moduleCapFor = (module) => durableInvocation
+    ? (durableCoreModuleBudget(module)
+      ?? SCAN_DURABLE_PHASE5_MODULE_BUDGETS[module]
+      ?? SCAN_MODULE_BUDGETS[module]
+      ?? deadline.remainingMs())
+    : (SCAN_MODULE_BUDGETS[module] ?? deadline.remainingMs());
   const runCappedModule = async (module, {
     fallback,
     estimateMs = moduleCapFor(module),
@@ -879,11 +884,12 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     };
     let allocatedMs = 0;
     let startedMs = null;
+    let finishedMs = null;
     let ctx = null;
     if (!deadline.canRun(estimateMs)) {
       return {
         value: deadlineFallback({ reason: "scan_deadline_exhausted", timeoutSource: "launch_gate" }),
-        ctx, allocatedMs, startedMs, timedOut: true, timeoutSource: "launch_gate",
+        ctx, allocatedMs, startedMs, durationMs: null, timedOut: true, timeoutSource: "launch_gate",
       };
     }
     const controller = createChildSignal();
@@ -902,7 +908,11 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     try {
       value = await raceModuleDeadline(
         deadline,
-        () => run({ accounting: ctx, signal: controller.signal }),
+        () => run({
+          accounting: ctx,
+          signal: controller.signal,
+          remainingMs: () => Math.max(0, allocatedMs - Math.max(0, now() - startedMs)),
+        }),
         () => {
           releaseConsumer("module_budget_exhausted");
           controller.abort("module_budget_exhausted");
@@ -916,6 +926,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       } else {
         thrown = err;
       }
+    } finally {
+      finishedMs = now();
     }
     if (!thrown && ctx?.physicalBudgetExhausted?.()
         && value?.incomplete_reason !== "subrequest_budget_exhausted") {
@@ -925,7 +937,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     const timedOut = value?.outcome === "deadline_exceeded";
     if (timedOut && !controller.signal.aborted) controller.abort("module_budget_exhausted");
     const timeoutSource = cappedModuleCutoffProvenance(value, timedOut);
-    return { value, thrown, ctx, allocatedMs, startedMs, timedOut, timeoutSource };
+    const durationMs = startedMs == null || finishedMs == null
+      ? null
+      : Math.max(0, finishedMs - startedMs);
+    return { value, thrown, ctx, allocatedMs, startedMs, durationMs, timedOut, timeoutSource };
   };
   const settleOutbound = (ctx, module, settled) => {
     if (!ctx) return null;
@@ -1098,7 +1113,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           // CRITICAL "HTTPS Not Available" finding — a second, independent path to the
           // same false claim the classifier fix closes. Not assessed is not a verdict.
           runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, tls_state: TLS_RUNTIME_STATES.UNAVAILABLE, tls_state_reason: "deadline_deferred", https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), onConsumerRelease: (cause) => ctCache.releaseConsumer?.(domain, "ssl", cause), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache, subOps: subOpTelemetry }) }),
-          runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal }) => runHeadersModule(domain, { accounting, signal, subOps: subOpTelemetry }) }),
+          runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal, remainingMs }) => runHeadersModule(domain, { accounting, signal, remainingMs: durableInvocation ? remainingMs : null, subOps: subOpTelemetry }) }),
           // The email deadline fallback is the CANONICAL unassessed email result
           // owned by email-scan.js. The previous bare shape ({spf:{},dmarc:{},
           // dkim:{}}) did not match the completed contract: scoring fabricated a
@@ -1146,7 +1161,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
             outcome: wrapped.thrown ? "error" : telemetry.outcomeOf(wrapped.value),
             timeout: wrapped.timedOut || /timed out|timeout|abort/i.test(String(wrapped.thrown?.message || "")),
             error_class: wrapped.thrown?.name || null,
-            duration_ms: wrapped.startedMs != null ? now() - wrapped.startedMs : null,
+            duration_ms: wrapped.durationMs,
             outbound: snap,
             outbound_calls: snap?.outbound_measurement_complete ? snap.outbound_attempts_observed : null,
           });
@@ -1198,7 +1213,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // Takeover: canRun() gates the launch; raceModuleDeadline BOUNDS the run so an
       // overrun cannot cross the ~30s cliff. On the bound it defers honestly.
       // PR-A1: launched/allocated/started are telemetry-only observations.
-      let takeoverAllocatedMs = null, takeoverStartedMs = null;
+      let takeoverAllocatedMs = null, takeoverStartedMs = null, takeoverDurationMs = null;
       let takeoverOutbound = null;
       let takeoverThrown = null;
       try {
@@ -1212,6 +1227,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           : takeoverRun.value;
         takeoverOutbound = takeoverRun.ctx;
         takeoverStartedMs = takeoverRun.startedMs;
+        takeoverDurationMs = takeoverRun.durationMs;
         takeoverAllocatedMs = takeoverRun.allocatedMs;
       } catch (err) {
         takeoverThrown = err;
@@ -1227,7 +1243,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         outcome:        telemetry.outcomeOf(takeoverResult),
         timeout:        takeoverTimedOut || /timed out|timeout|abort/i.test(String(takeoverThrown?.message || "")),
         error_class:    takeoverThrown?.name || null,
-        duration_ms:    takeoverStartedMs != null ? now() - takeoverStartedMs : null,
+        duration_ms:    takeoverDurationMs,
         allocated_ms:   takeoverStartedMs != null ? takeoverAllocatedMs : 0,
         timeout_source: takeoverTimedOut ? (takeoverStartedMs != null ? "module_race" : "launch_gate") : null,
         outbound:       takeoverOutboundSnapshot,
@@ -1238,7 +1254,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // cheaper enrichment phases — but its probes time out at 8-10s each, exceeding the
       // 6s launch estimate, so the run is hard-bounded to the remaining budget. On the
       // bound it defers honestly rather than orphaning the scan.
-      let exposureAllocatedMs = null, exposureStartedMs = null;
+      let exposureAllocatedMs = null, exposureStartedMs = null, exposureDurationMs = null;
       let exposureOutbound = null;
       let exposureThrown = null;
       try {
@@ -1263,6 +1279,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           : exposureRun.value;
         exposureOutbound = exposureRun.ctx;
         exposureStartedMs = exposureRun.startedMs;
+        exposureDurationMs = exposureRun.durationMs;
         exposureAllocatedMs = exposureRun.allocatedMs;
         if (!assetExposureResult.incomplete) {
           assetExposureResult = annotateExposureInfrastructure(assetExposureResult, takeoverResult.cname_observations);
@@ -1287,7 +1304,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         outcome:        telemetry.outcomeOf(assetExposureResult),
         timeout:        exposureTimedOut || /timed out|timeout|abort/i.test(String(exposureThrown?.message || "")),
         error_class:    exposureThrown?.name || null,
-        duration_ms:    exposureStartedMs != null ? now() - exposureStartedMs : null,
+        duration_ms:    exposureDurationMs,
         allocated_ms:   exposureStartedMs != null ? exposureAllocatedMs : 0,
         timeout_source: exposureTimedOut ? (exposureStartedMs != null ? "module_race" : "launch_gate") : null,
         outbound:       exposureOutboundSnapshot,
@@ -1625,7 +1642,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // domain-independent cache refresh — never scan/customer report state.
       const recordDurablePhase5 = (module, run) => {
         const value = modules[module];
-        const durationMs = run.startedMs == null ? 0 : Math.max(0, now() - run.startedMs);
+        const durationMs = run.durationMs;
         const outbound = run.timedOut
           ? abandonOutbound(run.ctx, module, run.timeoutSource || "module_race")
           : settleOutboundValue(run.ctx, module, value);
@@ -1840,7 +1857,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           externalRuaResult?.assessment_reason,
         ),
         error_class: externalRun.thrown?.name || null,
-        duration_ms: externalRun.startedMs != null ? now() - externalRun.startedMs : null,
+        duration_ms: externalRun.durationMs,
         allocated_ms: externalRun.allocatedMs,
         timeout_source:
           externalRuaResult?.assessment_reason === "provider_timeout"
@@ -1900,7 +1917,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // candidates from observed ASM/CNAME/header signals. No guessing or listing
     // enumeration; response bodies are only inspected for listing indicators.
     // Reserved mode: cloud-storage validation is budget-permitting enrichment.
-    let cloudAllocatedMs = null, cloudStartedMs = null, cloudOutbound = null;
+    let cloudAllocatedMs = null, cloudStartedMs = null, cloudDurationMs = null, cloudOutbound = null;
     let cloudThrown = null;
     if (!deadline.canRun(SCAN_MODULE_BUDGETS.cloud_storage_discovery)) {
       modules.cloud_storage_discovery = markDeadlineDeferred({ total: 0, checked: 0, findings: [] });
@@ -1918,6 +1935,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         ? { total: 0, checked: 0, findings: [], incomplete: true, incomplete_reason: "cloud_storage_probe_failed", error: customerSafeFailure("scan/cloud-storage", cloudThrown, "Cloud storage module failed") }
         : cloudRun.value;
       cloudStartedMs = cloudRun.startedMs;
+      cloudDurationMs = cloudRun.durationMs;
       cloudAllocatedMs = cloudRun.allocatedMs;
       cloudOutbound = cloudRun.ctx;
     }
@@ -1934,7 +1952,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       outcome:        telemetry.outcomeOf(modules.cloud_storage_discovery),
       timeout:        cloudTimedOut || /timed out|timeout|abort/i.test(String(cloudThrown?.message || "")),
       error_class:    cloudThrown?.name || null,
-      duration_ms:    cloudStartedMs != null ? now() - cloudStartedMs : null,
+      duration_ms:    cloudDurationMs,
       allocated_ms:   cloudStartedMs != null ? cloudAllocatedMs : (modules.cloud_storage_discovery?.skipped ? null : 0),
       timeout_source: cloudTimedOut ? (cloudStartedMs != null ? "module_race" : "launch_gate") : null,
       outbound:       cloudOutboundSnapshot,

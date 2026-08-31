@@ -252,6 +252,14 @@ export function captureSetCookieRaw(headers) {
 
 export async function runHeadersModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
+  // One redirect-following safeFetch may consume five valid 9,999ms attempts.
+  // Queue/Cron supplies a runner-owned remainingMs carrier; callers without it
+  // preserve the historical full-probe behaviour.
+  const OPTIONAL_PROBE_ADMISSION_MS = 49_996;
+  let optionalProbeBudgetExhausted = false;
+  const canLaunchProbe = () => opts.signal?.aborted !== true;
+  const canLaunchOptionalProbe = () => canLaunchProbe()
+    && (typeof opts.remainingMs !== "function" || opts.remainingMs() >= OPTIONAL_PROBE_ADMISSION_MS);
   // Track B sub-operation timing — observational only, guarded at every call so a
   // broken/absent collector can never alter probe behaviour or the module result.
   // Each row times ONE safeFetch call end to end, including the redirect hops
@@ -296,6 +304,21 @@ export async function runHeadersModule(domain, opts = {}) {
   let rawHeaderSnapshot    = {};   // all response headers for diagnostics / bot detection
   const checkedPaths       = [];
 
+  const recordUnexecutedOptional = (label, requestedUrl, method = "HEAD") => {
+    optionalProbeBudgetExhausted = true;
+    checkedPaths.push({
+      label,
+      requested_url: requestedUrl,
+      method,
+      status: "not_executed",
+      reason: "module_budget_insufficient",
+      final_url: null,
+      status_code: null,
+      redirect_chain: [],
+      headers_observed: {},
+    });
+  };
+
   const snapshotHeaders = (headers) => {
     const out = {};
     headers.forEach((v, k) => { out[k.toLowerCase()] = v; });
@@ -335,6 +358,7 @@ export async function runHeadersModule(domain, opts = {}) {
   // Prefer HTTPS; fall back to HTTP.
   // redirect:"follow" → res.url is the final URL after all redirects (Fetch API spec).
   for (const proto of ["https", "http"]) {
+    if (!canLaunchProbe()) break;
     const probeUrl = `${proto}://${domain}`;
 
     // ── Step 1: GET (primary) ─────────────────────────────────────────────
@@ -343,6 +367,7 @@ export async function runHeadersModule(domain, opts = {}) {
       method:   "GET",
       redirect: "follow",
       accounting,
+      signal: opts.signal,
       ...HEADER_PROBE_INIT,
     });
     subOpFinish(getSubOp, getRes);
@@ -457,46 +482,58 @@ export async function runHeadersModule(domain, opts = {}) {
     if (botProtectionSignals.length > 0) {
       // GET was intercepted by an edge challenge.  Try HEAD — some WAFs skip
       // challenge injection on HEAD requests, potentially returning real headers.
-      const headSubOp = subOpBegin("probe_head_bot_retry");
-      const headRes = await safeFetch(probeUrl, {
-        method:   "HEAD",
-        redirect: "follow",
-        accounting,
-        ...HEADER_PROBE_INIT,
-      });
-      subOpFinish(headSubOp, headRes);
-      if (headRes) {
-        const headSnapshot = snapshotHeaders(headRes.headers);
-        const headBotSignals = detectBotProtection(headRes.status, headRes.url, headSnapshot);
+      if (!canLaunchProbe()) break;
+      if (!canLaunchOptionalProbe()) {
+        recordUnexecutedOptional("bot_head_retry", probeUrl);
+      } else {
+        const headSubOp = subOpBegin("probe_head_bot_retry");
+        const headRes = await safeFetch(probeUrl, {
+          method:   "HEAD",
+          redirect: "follow",
+          accounting,
+          signal: opts.signal,
+          ...HEADER_PROBE_INIT,
+        });
+        subOpFinish(headSubOp, headRes);
+        if (headRes) {
+          const headSnapshot = snapshotHeaders(headRes.headers);
+          const headBotSignals = detectBotProtection(headRes.status, headRes.url, headSnapshot);
 
-        // Count how many security headers each response provides
-        const getSecCount  = SECURITY_HEADERS.filter(h => headerValues[h.name]).length;
-        const headSecCount = SECURITY_HEADERS.filter(h => headRes.headers.get(h.name)).length;
+          // Count how many security headers each response provides
+          const getSecCount  = SECURITY_HEADERS.filter(h => headerValues[h.name]).length;
+          const headSecCount = SECURITY_HEADERS.filter(h => headRes.headers.get(h.name)).length;
 
-        // Prefer the response with more security headers or fewer bot signals
-        if (headSecCount > getSecCount || headBotSignals.length < botProtectionSignals.length) {
-          for (const h of SECURITY_HEADERS) {
-            headerValues[h.name] = headRes.headers.get(h.name) || null;
+          // Prefer the response with more security headers or fewer bot signals
+          if (headSecCount > getSecCount || headBotSignals.length < botProtectionSignals.length) {
+            for (const h of SECURITY_HEADERS) {
+              headerValues[h.name] = headRes.headers.get(h.name) || null;
+            }
+            botProtectionSignals = headBotSignals;
+            statusCode  = headRes.status;
+            responseUrl = headRes.url;
+            rawHeaderSnapshot = headSnapshot;
           }
-          botProtectionSignals = headBotSignals;
-          statusCode  = headRes.status;
-          responseUrl = headRes.url;
-          rawHeaderSnapshot = headSnapshot;
         }
       }
     }
 
     if (!domain.startsWith("www.")) {
       const wwwUrl = `${proto}://www.${domain}`;
-      const wwwSubOp = subOpBegin("probe_head_www");
-      const wwwRes = await safeFetch(wwwUrl, {
-        method:   "HEAD",
-        redirect: "follow",
-        accounting,
-        ...HEADER_PROBE_INIT,
-      });
-      subOpFinish(wwwSubOp, wwwRes);
-      recordHeaderCheck("www_variant", wwwUrl, wwwRes, "HEAD");
+      if (!canLaunchProbe()) break;
+      if (!canLaunchOptionalProbe()) {
+        recordUnexecutedOptional("www_variant", wwwUrl);
+      } else {
+        const wwwSubOp = subOpBegin("probe_head_www");
+        const wwwRes = await safeFetch(wwwUrl, {
+          method:   "HEAD",
+          redirect: "follow",
+          accounting,
+          signal: opts.signal,
+          ...HEADER_PROBE_INIT,
+        });
+        subOpFinish(wwwSubOp, wwwRes);
+        recordHeaderCheck("www_variant", wwwUrl, wwwRes, "HEAD");
+      }
     }
 
     break;
@@ -511,10 +548,12 @@ export async function runHeadersModule(domain, opts = {}) {
   const missing = SECURITY_HEADERS.filter((h) => !headerValues[h.name]).map((h) => h.name);
 
   // ── Probe execution is EVIDENCE, and its absence must say so ────────────────
-  // `accessible` is false when the loop above never got a response on EITHER
-  // protocol — safeFetch returns null on a 10s timeout, a redirect loop, more than
-  // MAX_REDIRECT_HOPS, a blocked target or any thrown error. None of those is an
-  // observation about the customer's headers: we did not look.
+  // `accessible` is the existing authority gate consumed by scoring. It is false
+  // when the loop above never got a response on EITHER protocol, and also when
+  // the mandatory primary succeeded but an optional canonical-host probe was
+  // intentionally not executed. The latter retains `primary_accessible`, raw
+  // capture, present/values and checked-path diagnostics, but cannot turn a
+  // single-host absence into a customer finding or remediation.
   //
   // Before this, the module returned that state as an ordinary success — no error,
   // no incomplete, no skipped — so buildScanQuality graded the scan `complete`,
@@ -532,11 +571,12 @@ export async function runHeadersModule(domain, opts = {}) {
   // turns it into "cannot verify" — so an unexecuted probe can never resolve a
   // condition either. One flag, and every gate downstream fails closed.
   //
-  // `present`/`missing` are deliberately left as they are. They are diagnostics,
-  // and every backend consumer now defers on `incomplete`; emptying `missing`
-  // would make a caller that reads its length conclude "0 missing headers = good",
-  // which is the falsely-clean result being removed here, not a fix for it.
+  // `present`/`missing` are deliberately left as they are. They are diagnostics
+  // and remain useful evidence about the primary response. The authoritative
+  // scoring gate is closed when the optional matrix is truncated; emptying
+  // `missing` would instead let a caller read "0 missing headers = good".
   const probeExecuted = accessible === true;
+  const evidenceAuthoritative = probeExecuted && !optionalProbeBudgetExhausted;
 
   // An executed probe that reached only a Cloudflare edge error is a DIFFERENT
   // fact from a probe that never got a response, and the customer-facing reason
@@ -554,7 +594,8 @@ export async function runHeadersModule(domain, opts = {}) {
   const originErrored = !probeExecuted && originErrorObservation !== null;
 
   return {
-    accessible,
+    accessible: evidenceAuthoritative,
+    ...(optionalProbeBudgetExhausted ? { primary_accessible: probeExecuted } : {}),
     ...(probeExecuted ? {} : {
       incomplete: true,
       incomplete_reason: "probe_not_executed",
@@ -578,7 +619,11 @@ export async function runHeadersModule(domain, opts = {}) {
         origin_status:  originErrorObservation.status_code,
       },
     } : {}),
-    headers_assessed:       probeExecuted,
+    ...(!originNotObserved && !originErrored && optionalProbeBudgetExhausted ? {
+      incomplete: true,
+      incomplete_reason: "optional_probe_budget_exhausted",
+    } : {}),
+    headers_assessed:       evidenceAuthoritative,
     status_code:            statusCode,
     original_url:           originalUrl,
     response_url:           responseUrl,

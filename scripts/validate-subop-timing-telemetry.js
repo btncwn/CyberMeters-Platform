@@ -33,6 +33,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const moduleOverrides = {
   "scan-budget.js": process.env.SUBOP_TIMING_SCAN_BUDGET_MODULE_URL,
   "scan-engine.js": process.env.SUBOP_TIMING_SCAN_ENGINE_MODULE_URL,
+  "headers-scan.js": process.env.SUBOP_TIMING_HEADERS_MODULE_URL,
   "ssl-scan.js": process.env.SUBOP_TIMING_SSL_MODULE_URL,
 };
 const eng = (f) => import(
@@ -45,13 +46,14 @@ const {
   SUB_OPERATION_TELEMETRY_OUTCOMES,
   raceModuleDeadline,
 } = await eng("scan-budget.js");
-const { persistSubOperationTelemetry } = await eng("scan-engine.js");
+const { buildScanQuality, persistSubOperationTelemetry } = await eng("scan-engine.js");
+const { computeScore } = await eng("scoring.js");
 const { runSslModule } = await eng("ssl-scan.js");
 const { runHeadersModule } = await eng("headers-scan.js");
 const { runSubdomainsModule } = await eng("subdomains-scan.js");
 const { createCertificateTransparencyCache } = await eng("ct-provider-cache.js");
 
-const EXPECTED_ASSERTIONS = 78;
+const EXPECTED_ASSERTIONS = 113;
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
 const eq = (n, g, w) => ok(n, g === w, `got ${JSON.stringify(g)} want ${JSON.stringify(w)}`);
@@ -350,7 +352,6 @@ const sslOpts = (extra = {}) => ({
   const headersSub = createSubOperationTelemetry();
   const headersRaced = await raceAborted((controller) => runHeadersModule(FIXTURE_DOMAIN, {
     signal: controller.signal,
-    accounting: { signal: controller.signal },
     subOps: headersSub,
   }));
   eq("headers race returned the deadline fallback", headersRaced?.outcome, "deadline_exceeded");
@@ -431,6 +432,265 @@ const sslOpts = (extra = {}) => ({
   const by = rowsByModule(sub.snapshotRows());
   ok("signal aborted after bare failure opens NO www telemetry row", !("ssl.https_probe_www" in by));
   ok("signal aborted after bare failure opens NO redirect hop 1 telemetry row", !("ssl.http_redirect_hop_1" in by));
+}
+
+// ── 6c. Headers optional-probe budget is explicit and fail-closed ───────────
+{
+  let fetches = 0;
+  const sub = createSubOperationTelemetry();
+  const primaryOnly = await withMockFetch(
+    () => runHeadersModule(FIXTURE_DOMAIN, {
+      remainingMs: () => 49_995,
+      subOps: sub,
+    }),
+    async () => {
+      fetches += 1;
+      const response = new Response("ok", { status: 200, headers: { server: "origin", "content-type": "text/html", "content-security-policy": "default-src 'self'" } });
+      Object.defineProperty(response, "url", { value: `https://${FIXTURE_DOMAIN}` });
+      return response;
+    },
+  );
+  eq("optional floor: only mandatory primary fetch launches below 49,996ms", fetches, 1);
+  const omittedWww = primaryOnly.checked_paths.find((row) => row.label === "www_variant");
+  eq("optional floor: www is explicit not_executed", omittedWww?.status, "not_executed");
+  ok("optional floor: omitted row has empty observation fields",
+    omittedWww?.reason === "module_budget_insufficient"
+      && omittedWww?.final_url === null
+      && omittedWww?.status_code === null
+      && Array.isArray(omittedWww?.redirect_chain) && omittedWww.redirect_chain.length === 0
+      && Object.keys(omittedWww?.headers_observed || {}).length === 0);
+  ok("optional floor: omission makes the module honestly partial",
+    primaryOnly.incomplete === true
+      && primaryOnly.incomplete_reason === "optional_probe_budget_exhausted");
+  ok("optional floor: an omitted probe opens no sub-op row",
+    !rowsByModule(sub.snapshotRows())["headers.probe_head_www"]);
+  ok("optional floor: truncated matrix closes the existing scoring authority gate",
+    primaryOnly.accessible === false && primaryOnly.headers_assessed === false);
+  ok("optional floor: stronger observed primary evidence remains available",
+    primaryOnly.primary_accessible === true
+      && primaryOnly.values?.["content-security-policy"] === "default-src 'self'"
+      && primaryOnly.present.includes("content-security-policy")
+      && primaryOnly.raw_capture?.headers_snapshot?.["content-security-policy"] === "default-src 'self'");
+  const truncatedQuality = buildScanQuality({ headers: primaryOnly });
+  eq("optional floor: exact truncated Headers evidence resolves scan quality partial",
+    truncatedQuality.status, "partial");
+  const truncatedScore = computeScore({
+    dns: {}, ssl: {}, headers: primaryOnly,
+    email_security: { executed: false, skipped: true, incomplete: true },
+  }, FIXTURE_DOMAIN);
+  ok("optional floor: unobserved www yields zero missing-header findings",
+    truncatedScore.findings.filter((finding) => finding.module === "headers").length === 0,
+    JSON.stringify(truncatedScore.findings));
+  ok("optional floor: unobserved www yields zero header remediation",
+    truncatedScore.recommendations.filter((recommendation) => recommendation.module === "headers").length === 0,
+    JSON.stringify(truncatedScore.recommendations));
+
+  fetches = 0;
+  const admitted = await withMockFetch(
+    () => runHeadersModule(FIXTURE_DOMAIN, { remainingMs: () => 49_996 }),
+    async () => { fetches += 1; return new Response("ok", { status: 200, headers: { server: "origin", "content-type": "text/html" } }); },
+  );
+  eq("optional floor: exact 49,996ms admits www", fetches, 2);
+  ok("optional floor: admitted fast path stays complete", admitted.incomplete !== true);
+  eq("optional floor: admitted www remains observed", admitted.checked_paths.find((row) => row.label === "www_variant")?.status, "ok");
+
+  fetches = 0;
+  const direct = await withMockFetch(
+    () => runHeadersModule(FIXTURE_DOMAIN),
+    async () => { fetches += 1; return new Response("ok", { status: 200, headers: { server: "origin", "content-type": "text/html" } }); },
+  );
+  ok("no remainingMs carrier preserves direct-caller full probing",
+    fetches === 2 && direct.incomplete !== true);
+
+  const edgeOnly = await withMockFetch(
+    () => runHeadersModule(FIXTURE_DOMAIN, { remainingMs: () => 0 }),
+    async () => new Response("edge", { status: 522, headers: { server: "cloudflare" } }),
+  );
+  eq("stronger origin-not-observed reason is never overwritten by optional budget",
+    edgeOnly.incomplete_reason, "origin_not_observed");
+
+  const preAborted = new AbortController();
+  preAborted.abort("module_budget_exhausted");
+  fetches = 0;
+  await withMockFetch(
+    () => runHeadersModule(FIXTURE_DOMAIN, { signal: preAborted.signal }),
+    async () => { fetches += 1; return new Response("unsafe"); },
+  );
+  eq("pre-aborted headers module launches zero fetches", fetches, 0);
+
+  fetches = 0;
+  const challenge = await withMockFetch(
+    () => runHeadersModule(FIXTURE_DOMAIN, { remainingMs: () => 49_995 }),
+    async () => {
+      fetches += 1;
+      return new Response("challenge", {
+        status: 200,
+        headers: { server: "cloudflare", "content-type": "text/html", "cf-mitigated": "challenge" },
+      });
+    },
+  );
+  ok("bot and www auxiliaries both truncate without a second fetch",
+    fetches === 1
+      && challenge.checked_paths.filter((row) => row.status === "not_executed").length === 2
+      && challenge.incomplete_reason === "optional_probe_budget_exhausted");
+  ok("bot/www truncation always carries incomplete=true", challenge.incomplete === true);
+
+  let slowCalls = 0;
+  const remainingSequence = [49_996, 49_995];
+  const slowChallenge = await withMockFetch(
+    () => runHeadersModule(FIXTURE_DOMAIN, {
+      remainingMs: () => remainingSequence.shift() ?? 49_995,
+    }),
+    async () => {
+      slowCalls += 1;
+      if (slowCalls === 1) {
+        return new Response("challenge", {
+          status: 200,
+          headers: { "cf-mitigated": "challenge", "content-type": "text/html" },
+        });
+      }
+      return new Response("origin", {
+        status: 200,
+        headers: { server: "origin", "content-type": "text/html", "content-security-policy": "default-src 'self'" },
+      });
+    },
+  );
+  eq("slow challenge admits bot HEAD but launches no www fetch", slowCalls, 2);
+  ok("slow challenge makes www explicit partial evidence",
+    slowChallenge.checked_paths.find((row) => row.label === "www_variant")?.status === "not_executed"
+      && slowChallenge.incomplete === true
+      && slowChallenge.incomplete_reason === "optional_probe_budget_exhausted");
+  ok("admitted stronger bot HEAD still replaces challenge evidence",
+    slowChallenge.validation_uncertain === false
+      && slowChallenge.values?.["content-security-policy"] === "default-src 'self'");
+
+  const primaryAbort = new AbortController();
+  let primarySignalReachedLeaf = false;
+  await withMockFetch(
+    () => runHeadersModule(FIXTURE_DOMAIN, { signal: primaryAbort.signal }),
+    async (_url, init) => {
+      primaryAbort.abort("module_budget_exhausted");
+      primarySignalReachedLeaf = init.signal?.aborted === true;
+      return new Response("late", { status: 200 });
+    },
+  );
+  ok("primary GET safeFetch receives the caller signal", primarySignalReachedLeaf);
+
+  const pendingUntilAbort = (init, onAbort) => new Promise((_resolve, reject) => {
+    const signal = init?.signal;
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      signal?.removeEventListener?.("abort", abort);
+      reject(error);
+    };
+    const abort = () => {
+      onAbort();
+      finish(new DOMException("The operation was aborted", "AbortError"));
+    };
+    const watchdog = setTimeout(
+      () => finish(new Error("pending fixture was not cancelled by the caller signal")),
+      150,
+    );
+    if (signal?.aborted) abort();
+    else signal?.addEventListener?.("abort", abort, { once: true });
+  });
+  const racePendingHeaders = async (fetchImpl, subOps) => {
+    const controller = new AbortController();
+    const unhandled = [];
+    const onUnhandled = (error) => { unhandled.push(String(error?.message || error)); };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      return await withMockFetch(async () => {
+        let modulePromise = null;
+        const raced = await raceModuleDeadline(
+          { remainingMs: () => 60_000 },
+          () => {
+            modulePromise = runHeadersModule(FIXTURE_DOMAIN, {
+              signal: controller.signal,
+              subOps,
+            });
+            return modulePromise;
+          },
+          () => {
+            controller.abort("module_budget_exhausted");
+            return { outcome: "deadline_exceeded" };
+          },
+          { hardMs: 40 },
+        );
+        const moduleSettled = await modulePromise.then(
+          (value) => ({ value, error: null }),
+          (error) => ({ value: null, error }),
+        );
+        await new Promise((resolve) => setImmediate(resolve));
+        return { raced, moduleSettled, unhandled: [...unhandled] };
+      }, fetchImpl);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  };
+
+  let botCalls = 0, botSignalReachedLeaf = false, botCancelled = false;
+  const botSub = createSubOperationTelemetry();
+  const botAbort = await racePendingHeaders(async (_url, init) => {
+    botCalls += 1;
+    if (botCalls === 1) {
+      return new Response("challenge", { status: 200, headers: { "cf-mitigated": "challenge", "content-type": "text/html" } });
+    }
+    return pendingUntilAbort(init, () => {
+      botSignalReachedLeaf = true;
+      botCancelled = true;
+    });
+  }, botSub);
+  eq("pending bot HEAD race returns the deadline fallback", botAbort.raced?.outcome, "deadline_exceeded");
+  ok("bot HEAD safeFetch receives the caller signal", botSignalReachedLeaf);
+  ok("pending bot HEAD is cancelled by the caller signal", botCancelled);
+  eq("pending bot HEAD sub-op is attributed as aborted",
+    rowsByModule(botSub.snapshotRows())["headers.probe_head_bot_retry"]?.outcome, "aborted");
+  ok("abort during bot HEAD creates no later www fetch, checked-path or sub-op",
+    botCalls === 2
+      && Object.keys(rowsByModule(botSub.snapshotRows())).length === 2
+      && !rowsByModule(botSub.snapshotRows())["headers.probe_head_www"]);
+  eq("pending bot HEAD leaves no unhandled rejection", botAbort.unhandled.length, 0);
+
+  const postBotAbort = new AbortController();
+  let postBotCalls = 0;
+  const postBotResult = await withMockFetch(
+    () => runHeadersModule(FIXTURE_DOMAIN, { signal: postBotAbort.signal }),
+    async () => {
+      postBotCalls += 1;
+      if (postBotCalls === 1) {
+        return new Response("challenge", { status: 200, headers: { "cf-mitigated": "challenge", "content-type": "text/html" } });
+      }
+      postBotAbort.abort("module_budget_exhausted");
+      return new Response("late", { status: 200 });
+    },
+  );
+  ok("completed bot HEAD after abort still creates no www evidence row",
+    postBotCalls === 2 && !postBotResult.checked_paths.some((row) => row.label === "www_variant"));
+
+  let wwwCalls = 0, wwwSignalReachedLeaf = false, wwwCancelled = false;
+  const wwwSub = createSubOperationTelemetry();
+  const wwwAbort = await racePendingHeaders(async (_url, init) => {
+    wwwCalls += 1;
+    if (wwwCalls === 1) {
+      return new Response("ok", { status: 200, headers: { server: "origin", "content-type": "text/html" } });
+    }
+    return pendingUntilAbort(init, () => {
+      wwwSignalReachedLeaf = true;
+      wwwCancelled = true;
+    });
+  }, wwwSub);
+  eq("pending www HEAD race returns the deadline fallback", wwwAbort.raced?.outcome, "deadline_exceeded");
+  ok("www HEAD safeFetch receives the caller signal", wwwSignalReachedLeaf);
+  ok("pending www HEAD is cancelled by the caller signal", wwwCancelled);
+  eq("pending www HEAD sub-op is attributed as aborted",
+    rowsByModule(wwwSub.snapshotRows())["headers.probe_head_www"]?.outcome, "aborted");
+  ok("abort during www HEAD launches no later fetch or sub-op",
+    wwwCalls === 2 && Object.keys(rowsByModule(wwwSub.snapshotRows())).length === 2);
+  eq("pending www HEAD leaves no unhandled rejection", wwwAbort.unhandled.length, 0);
 }
 
 // ── 7. Persistence: ONE bounded D1 batch, never a per-row await loop ────────
