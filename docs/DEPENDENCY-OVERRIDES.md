@@ -142,7 +142,7 @@ version.
 
 The removal criterion was met by the supported exact pair
 `react-router-dom@7.18.3` → `react-router@7.18.3`. Commit
-`a4a0d393818e8ee4ab45faaaa757cca6848f37f8` removes the override and records that
+`c81db0a7858f13aac73663a829a1600efd1812ad` removes the override and records that
 pair directly in the manifest and lockfile. The resulting graph has no `invalid` or
 `overridden` marker; the full audit, frontend typecheck, 673 tests with coverage,
 production build and E2E passed. OV-2 was therefore removed from the live
@@ -231,7 +231,7 @@ while its live register entry is deleted.
 
 ### Closure evidence — 2026-08-31
 
-Commit `a4a0d393818e8ee4ab45faaaa757cca6848f37f8` removes the redundant override.
+Commit `c81db0a7858f13aac73663a829a1600efd1812ad` removes the redundant override.
 Without it, `vite@6.4.3` still resolves `esbuild@0.25.12` through its declared
 `^0.25.0` dependency with no `overridden` marker. The full audit remained clean and the
 production build passed. OV-3 was therefore removed from the live machine-readable
@@ -277,12 +277,14 @@ live register entry while preserving this historical prose.
 
 ### Closure evidence — 2026-08-31
 
-Commit `a4a0d393818e8ee4ab45faaaa757cca6848f37f8` removes the redundant override.
-The declared coverage graph now resolves `test-exclude@7.0.2`, `glob@10.5.0`,
-`minimatch@10.2.2` and `brace-expansion@2.1.4` without an `overridden` marker. The full
-audit remained clean; 673 tests with coverage and the production build passed. OV-4 was
-therefore removed from the live machine-readable register; this prose remains as
-historical evidence.
+Commit `c81db0a7858f13aac73663a829a1600efd1812ad` removes the redundant override.
+The declared coverage graph now resolves `test-exclude@7.0.2` and `glob@10.5.0`.
+The direct `test-exclude` edge `minimatch: ^10.2.2` resolves to
+`minimatch@10.2.5` with `brace-expansion@5.0.9`; the nested `glob` edge resolves to
+`minimatch@9.0.9` with `brace-expansion@2.1.4`. None carries an `overridden` marker.
+The full audit remained clean; 673 tests with coverage and the production build passed.
+OV-4 was therefore removed from the live machine-readable register; this prose remains
+as historical evidence.
 
 ### What it did (historical)
 ```json
