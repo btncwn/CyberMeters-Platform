@@ -145,7 +145,7 @@ const env = {
   cybermeters_reports: makeR2(store),
   SCAN_CAPACITY_MODE: "legacy",
   SCAN_SUBREQUEST_LIMIT: "200",
-  SCAN_DEADLINE_MS: "19000",
+  SCAN_DEADLINE_MS: "115000",
   APP_VERSION: "item9-p3-engine-trace",
 };
 
@@ -324,8 +324,8 @@ try {
   for (const report of [firstReport, secondReport, thirdReport]) {
     const diagnostic = (report.execution_diagnostics?.modules || [])
       .find((entry) => entry.module === "ssl");
-    eq("trace preserves 19-second executable budget", report.execution_diagnostics?.deadline_budget_ms, 19_000);
-    eq("trace preserves 9-second SSL cap", diagnostic?.allocated_ms, 9_000);
+    eq("trace preserves durable 115-second executable budget", report.execution_diagnostics?.deadline_budget_ms, 115_000);
+    eq("trace preserves durable SSL cap", diagnostic?.allocated_ms, 39_997);
     ok(
       "trace preserves six-subrequest SSL ceiling",
       Number(diagnostic?.outbound_attempts_observed) <= 6,

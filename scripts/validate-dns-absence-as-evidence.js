@@ -16,7 +16,7 @@
 //
 // Absence of evidence scored as evidence of absence. Production has recorded 0 DNS
 // deadline fallbacks to date — a MEASURED historical fact, not a claim that the path
-// cannot be reached. It is reached whenever the DNS module exceeds its 750ms hard cap
+// cannot be reached. It is reached whenever the DNS module exceeds its durable hard cap
 // under a normal budget (raceModuleDeadline → onDeadline → fallback), which section B
 // drives end to end.
 //
@@ -37,7 +37,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engUrl = (f) => pathToFileURL(path.join(root, "workers/scan-api/src/engines", f)).href;
 const { computeScore } = await import(engUrl("scoring.js"));
 const { runScanEngine } = await import(engUrl("scan-engine.js"));
-const { markDeadlineDeferred } = await import(engUrl("scan-budget.js"));
+const { markDeadlineDeferred, SCAN_DURABLE_CORE_MODULE_BUDGETS } = await import(engUrl("scan-budget.js"));
 const { resolveDnsResolution } = await import(engUrl("attack-surface-signal-completeness.js"));
 const { moduleCompletionGate } = await import(engUrl("asm-cases.js"));
 
@@ -214,11 +214,12 @@ function seedDnsCase(db) {
 
 // The REAL production path. `runCappedModule` reaches the DNS fallback from TWO
 // places: the launch gate, and the raceModuleDeadline HARD-CAP race. Under a normal
-// 19000ms budget the launch gate always passes for DNS (750ms estimate, first module),
-// but the hard cap fires whenever DNS does not settle within 750ms:
+// 115000ms durable budget the launch gate always passes for DNS (750ms estimate,
+// first module),
+// but the hard cap fires whenever DNS does not settle within its measured durable cap:
 //
-//     raceModuleDeadline(deadline, run, onDeadline, { hardMs: 750 })
-//       capMs = min(750, remaining) → real setTimeout(750)
+//     raceModuleDeadline(deadline, run, onDeadline, { hardMs: durable DNS cap })
+//       capMs = min(durable DNS cap, remaining) → real cap timer
 //       winner === DEADLINE → onDeadline() → controller.abort() → fallback()
 //
 // Hanging DoH makes the DNS module exceed that cap deterministically, so this drives
@@ -229,7 +230,7 @@ async function trace({ seed = false, engine = null, slowResolution = true } = {}
     cybermeters_db: makeD1(db), cybermeters_reports: makeR2(store),
     SCAN_CAPACITY_MODE: "legacy", SCAN_SUBREQUEST_LIMIT: "200",
     // NORMAL production budget — not 0, not clamped.
-    SCAN_DEADLINE_MS: "19000", APP_VERSION: "dns-p1",
+    SCAN_DEADLINE_MS: "115000", APP_VERSION: "dns-p1",
   };
   db.prepare("INSERT INTO users (id, email) VALUES ('usr','o@example.com')").run();
   db.prepare("INSERT INTO workspaces (id, name, deleted_at) VALUES ('ws','DNS-P1',NULL)").run();
@@ -249,12 +250,15 @@ async function trace({ seed = false, engine = null, slowResolution = true } = {}
         ? json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] })
         : json({ Status: 0, Answer: [] });
       // Delay ONLY the DNS module's A/AAAA resolution contract, so IT exceeds its
-      // 750ms hard cap while every other module's lookups complete normally. Delaying
+      // measured durable hard cap while every other module's lookups complete normally. Delaying
       // all DoH would also defer email_security, whose own deadline fallback has a
       // separate pre-existing crash (buildEmailRemediationActions reads `.raw` on an
       // absent field) that would fail the scan and mask what is under test here.
       if (slowResolution && (type === "A" || type === "AAAA")) {
-        return new Promise((res) => setTimeout(() => res(answer()), 1_200));
+        return new Promise((res) => setTimeout(
+          () => res(answer()),
+          SCAN_DURABLE_CORE_MODULE_BUDGETS.dns + 200,
+        ));
       }
       return answer();
     }
@@ -263,7 +267,7 @@ async function trace({ seed = false, engine = null, slowResolution = true } = {}
   };
   console.error = () => {};
   // The clock is FROZEN so remainingMs stays at the full budget: the only thing that
-  // can end the DNS module is its own 750ms hard cap, on a real timer.
+  // can end the DNS module is its own durable hard cap, on a real timer.
   const runner = (engine || { runScanEngine }).runScanEngine;
   try {
     await runner("scan-dns", "dom", "ws", "example.com", env,
@@ -286,7 +290,7 @@ async function trace({ seed = false, engine = null, slowResolution = true } = {}
   };
 }
 
-console.log("\n── B. REAL runScanEngine, normal 19000ms budget, DNS exceeds its 750ms hard cap ──");
+console.log("\n── B. REAL runScanEngine, durable 115000ms budget, DNS exceeds its measured hard cap ──");
 const dl = await trace();
 ok("B: a report was produced", dl.report !== null);
 // TERMINAL COMPLETION. Delaying ALL DoH also defers email_security, whose own

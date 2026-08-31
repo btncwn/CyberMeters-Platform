@@ -81,6 +81,7 @@ function fakeClock(start = 1_000_000) {
 
 function makePostTerminalEngineFixture({
   failFirstTerminalReport = false,
+  holdPostTerminal = true,
   onPostTerminalHold = null,
 } = {}) {
   let terminalStatus = null;
@@ -88,6 +89,7 @@ function makePostTerminalEngineFixture({
   let heldPostTerminalLaunches = 0;
   let releaseHeld;
   const calls = [];
+  const reports = new Map();
   const statement = (sql) => {
     let args = [];
     return {
@@ -104,7 +106,7 @@ function makePostTerminalEngineFixture({
         if (/INSERT INTO audit_events/.test(sql)) {
           return Promise.resolve({ meta: { changes: 1 } });
         }
-        if (terminalStatus != null && releaseHeld == null) {
+        if (holdPostTerminal && terminalStatus != null && releaseHeld == null) {
           heldPostTerminalLaunches += 1;
           const held = new Promise((resolve) => { releaseHeld = () => resolve({ meta: { changes: 1 } }); });
           onPostTerminalHold?.();
@@ -125,12 +127,13 @@ function makePostTerminalEngineFixture({
       },
     },
     cybermeters_reports: {
-      async put(key) {
+      async put(key, body) {
         calls.push({ kind: "r2_put", key });
         terminalReportAttempts += 1;
         if (failFirstTerminalReport && terminalReportAttempts === 1) {
           throw new Error("fixture terminal report refusal");
         }
+        reports.set(key, String(body));
         return {};
       },
       async get() { calls.push({ kind: "r2_get" }); return null; },
@@ -140,6 +143,7 @@ function makePostTerminalEngineFixture({
   return {
     env,
     calls,
+    reports,
     get terminalStatus() { return terminalStatus; },
     get terminalReportAttempts() { return terminalReportAttempts; },
     get heldPostTerminalLaunches() { return heldPostTerminalLaunches; },
@@ -676,6 +680,46 @@ eq("durable core phase admission is max-not-sum",
     createScanDeadline({ SCAN_DEADLINE_MS: 100 }, c.now, { executionContext: "queue" }).budgetMs,
     SCAN_DURABLE_INVOCATION_DEADLINE_DEFAULTS.minBudgetMs);
 }
+
+// A deliberately short Queue override remains a supported fail-closed control.
+// The real engine must refuse the durable SSL module before creating its fetch
+// accounting context: no SSL fetch/sub-operation is launched, no time is charged,
+// and unobserved HTTPS evidence must not become a customer finding.
+await withEngineFetchFixture(async () => {
+  const fixture = makePostTerminalEngineFixture({ holdPostTerminal: false });
+  fixture.env.SCAN_DEADLINE_MS = "19000";
+  fixture.env.APP_VERSION = "queue-short-budget-negative";
+  delete fixture.env.RESEND_API_KEY;
+  const result = await runScanEngine(
+    "queue-short-budget-negative", "dom", "ws", "example.com", fixture.env,
+    { now: () => 1_000_000, executionContext: "queue", trigger: "manual" },
+  );
+  ok("Queue+19000 real engine reaches its durable terminal",
+    result?.completed === true && result?.ceiling_exceeded === false);
+  eq("Queue+19000 real engine finalizes completed", fixture.terminalStatus, "completed");
+  const report = JSON.parse(fixture.reports.get("reports/queue-short-budget-negative.json") || "{}");
+  const ssl = report.modules?.ssl || {};
+  const sslDiagnostic = (report.execution_diagnostics?.modules || [])
+    .find((row) => row.module === "ssl");
+  const sslSubOperations = fixture.calls.filter((call) =>
+    /INSERT INTO scan_module_telemetry/.test(call.sql || "")
+      && String(call.args?.[2] || "").startsWith("ssl."));
+  eq("Queue+19000 SSL is refused at the launch gate", sslDiagnostic?.timeout_source, "launch_gate");
+  eq("Queue+19000 SSL receives zero allocation", sslDiagnostic?.allocated_ms, 0);
+  eq("Queue+19000 SSL records null duration", sslDiagnostic?.wall_ms, null);
+  eq("Queue+19000 SSL issues zero fetch attempts", sslDiagnostic?.outbound_attempts_observed, 0);
+  eq("Queue+19000 SSL emits zero sub-operation rows", sslSubOperations.length, 0);
+  ok("Queue+19000 SSL is explicit not-executed evidence",
+    ssl.executed === false
+      && ssl.https_probe_executed === false
+      && ssl.https_available === null
+      && ssl.incomplete === true
+      && ssl.incomplete_reason === "https_probe_not_executed");
+  ok("Queue+19000 unobserved SSL emits no customer finding",
+    !(report.findings || []).some((finding) =>
+      finding?.id === "ssl_not_available"
+        || /https not available/i.test(String(finding?.title || ""))));
+});
 
 // ── 2. Deferred module is honest, never a clean result ──
 {

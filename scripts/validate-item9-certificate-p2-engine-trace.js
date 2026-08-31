@@ -209,7 +209,7 @@ const env = {
   cybermeters_reports: makeR2(store),
   SCAN_CAPACITY_MODE: "legacy",
   SCAN_SUBREQUEST_LIMIT: "200",
-  SCAN_DEADLINE_MS: "19000",
+  SCAN_DEADLINE_MS: "115000",
   APP_VERSION: "item9-p2-engine-trace",
 };
 
@@ -330,12 +330,12 @@ try {
     false);
 
   const diagnostics = report.execution_diagnostics || {};
-  eq("real engine uses the 19-second whole-scan executable budget",
-    diagnostics.deadline_budget_ms, 19_000);
+  eq("real engine uses the durable 115-second executable budget",
+    diagnostics.deadline_budget_ms, 115_000);
   const sslDiagnostic = (diagnostics.modules || [])
     .find((row) => row.module === "ssl");
-  eq("real engine allocated exactly the 9-second SSL cap",
-    sslDiagnostic?.allocated_ms, 9_000);
+  eq("real engine allocated exactly the durable SSL cap",
+    sslDiagnostic?.allocated_ms, 39_997);
   ok("real engine observed no more than six SSL subrequests",
     Number(sslDiagnostic?.outbound_attempts_observed) <= 6,
     `attempts ${sslDiagnostic?.outbound_attempts_observed}`);

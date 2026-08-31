@@ -207,7 +207,7 @@ function createFixture(options = {}) {
     cybermeters_reports: makeR2(store),
     SCAN_CAPACITY_MODE: "legacy",
     SCAN_SUBREQUEST_LIMIT: "200",
-    SCAN_DEADLINE_MS: "19000",
+    SCAN_DEADLINE_MS: "115000",
     APP_VERSION: "ct-overlap-engine-trace",
   };
   db.prepare("INSERT INTO users (id, email) VALUES ('usr', 'owner@example.com')").run();
