@@ -141,14 +141,13 @@ export function computeScanBudget(bruteforceChecked) {
 // remains a generated value ONLY for callers that have no scan context (fixtures
 // and the 50 validator call sites); the engine always passes the persisted value.
 export function buildScanQuality(modules = {}, observedAt = undefined, capacity = null) {
-  // F-026 capacity truth. 1,000 is the Workers Paid PLATFORM CEILING — the
-  // hard runtime limit, NOT the effective per-scan budget. The effective limit
-  // is DERIVED from resolveScanCapacity (50 in legacy mode) and passed in by the
-  // engine; reporting the platform ceiling as the effective limit overstated the
-  // per-scan budget ~20x. Callers without scan context (fixtures, the 50
-  // validator call sites) pass no capacity — they then see the platform ceiling
-  // AS a ceiling, never a fabricated effective number.
-  const PLATFORM_SUBREQUEST_CEILING = 1_000;
+  // F-026 capacity truth. 10,000 is the authenticated Workers Paid provider
+  // default ceiling, NOT the application's effective admission/report limit and
+  // NOT a claim that legacy mode installs a whole-scan physical counter. The
+  // effective limit is derived independently from resolveScanCapacity and passed
+  // in by the engine. Callers without scan context see the provider value only as
+  // a ceiling, never as a fabricated effective limit.
+  const PLATFORM_SUBREQUEST_CEILING = 10_000;
   // Never GUESS the legacy 50 here: an absent capacity means "no effective
   // budget resolved for this context", surfaced as null — not a hard-coded
   // constant that could drift from resolveScanCapacity.

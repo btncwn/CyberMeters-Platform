@@ -5,16 +5,32 @@
 //       reports checked:100 with NO signal that a host was dropped, so the
 //       customer believes full coverage. Truncation must be EXPLICIT and the
 //       partial-truth must propagate up (unmeasured/partial is never "healthy").
-//   (b) buildScanQuality reports the 1,000 PLATFORM subrequest ceiling as if it
-//       were the effective limit, while the effective capacity is 50 (legacy).
-//       The effective limit must be DERIVED from resolveScanCapacity — never the
-//       hard-coded 1000 literal, and never a guessed legacy constant.
+//   (b) buildScanQuality keeps three different facts separate: the authenticated
+//       Workers Paid provider ceiling is 10,000; the configured legacy
+//       admission/report effective_limit is 200; and legacy mode does not install
+//       the reserved path's physical whole-scan counter.
+//   (c) source-bounded variable outbound paths remain below the Paid provider
+//       ceiling without pretending that 200 is a physical per-scan hard cap.
 //
 // Red-first through the real producers (runTakeoverScan, buildScanQuality). Node 24+.
 
-import { runTakeoverModule } from "../workers/scan-api/src/engines/takeover-scan.js";
-import { buildScanQuality } from "../workers/scan-api/src/engines/scan-engine.js";
+import { runTakeoverModule, takeoverObservationFor } from "../workers/scan-api/src/engines/takeover-scan.js";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { buildScanQuality, computeScanBudget } from "../workers/scan-api/src/engines/scan-engine.js";
 import { resolveScanCapacity } from "../workers/scan-api/src/engines/scan-budget.js";
+import { BRUTEFORCE_MAX_NAMES } from "../workers/scan-api/src/engines/subdomains-scan.js";
+import { RESERVED_MAX_REDIRECT_HOPS } from "../workers/scan-api/src/engines/reserved-probe.js";
+
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const source = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
+const integerLiteral = (text, pattern, label) => {
+  const match = text.match(pattern);
+  if (!match) throw new Error(`missing source-bound integer: ${label}`);
+  return Number.parseInt(match[1].replaceAll("_", ""), 10);
+};
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => { cond ? pass++ : fail++; console.log(`${cond ? "PASS" : "FAIL"} ${name}${cond ? "" : (detail ? " — " + detail : "")}`); };
@@ -95,24 +111,120 @@ function scanQualityWithTruncatedTakeover() {
     JSON.stringify({ status: qu.status, inc: qu.modules_incomplete }));
 }
 
-// ── (b) capacity truth: effective is derived, 1000 is only the platform ceiling ─
+// ── (b) capacity truth: provider, admission/report and physical are distinct ──
 function capacityTruth() {
-  const q = buildScanQuality(completeMod(), undefined, resolveScanCapacity({}));
+  const wrangler = source("workers/scan-api/wrangler.toml");
+  const configuredMode = wrangler.match(/^SCAN_CAPACITY_MODE\s*=\s*"([^"]+)"/m)?.[1];
+  const configuredLimit = integerLiteral(
+    wrangler,
+    /^SCAN_SUBREQUEST_LIMIT\s*=\s*([\d_]+)/m,
+    "SCAN_SUBREQUEST_LIMIT",
+  );
+  const capacity = resolveScanCapacity({
+    SCAN_CAPACITY_MODE: configuredMode,
+    SCAN_SUBREQUEST_LIMIT: configuredLimit,
+  });
+  const round3Estimate = computeScanBudget(23);
+  const q = buildScanQuality({ ...completeMod(), scan_budget: round3Estimate }, undefined, capacity);
   const b = q.subrequest_budget || {};
-  const effective = resolveScanCapacity({}).limit; // 50 (legacy default)
+  const engineSource = source("workers/scan-api/src/engines/scan-engine.js");
+  const reservedBranchStart = engineSource.indexOf("if (reservedMode) {");
+  const legacyBranchStart = engineSource.indexOf("} else {", reservedBranchStart);
+  const physicalAssignment = engineSource.indexOf("reservedPhysicalCounter = reserved.physicalCounter;");
 
-  ok("(b) the reported effective limit equals the resolved capacity (50), not 1000",
-    b.effective_limit === effective, JSON.stringify(b));
-  ok("(b) the 1000 platform ceiling is labelled as a ceiling, never the effective limit",
-    b.platform_ceiling === 1000 && b.effective_limit !== 1000, JSON.stringify(b));
+  ok("(b) candidate resolves explicit legacy admission/report effective_limit 200",
+    capacity.mode === "legacy" && capacity.limit === 200 && b.effective_limit === 200,
+    JSON.stringify({ capacity, budget: b }));
+  ok("(b) provider ceiling is reported as 10000, never substituted for effective_limit",
+    b.platform_ceiling === 10_000 && b.effective_limit !== b.platform_ceiling,
+    JSON.stringify(b));
   ok("(b) remaining estimate is computed against the EFFECTIVE limit",
-    b.remaining_estimate === Math.max(0, effective - (b.estimated ?? 0)), JSON.stringify(b));
+    b.remaining_estimate === 105 && b.remaining_estimate === Math.max(0, capacity.limit - (b.estimated ?? 0)),
+    JSON.stringify(b));
+  ok("(b) legacy 200 is not configured as a provider-enforced physical hard cap",
+    !/^\s*subrequests\s*=/m.test(wrangler) &&
+      engineSource.includes('const reservedMode = capacity.mode === "reserved";') &&
+      reservedBranchStart >= 0 && legacyBranchStart > reservedBranchStart &&
+      physicalAssignment > reservedBranchStart && physicalAssignment < legacyBranchStart,
+    JSON.stringify({
+      has_provider_subrequests_key: /^\s*subrequests\s*=/m.test(wrangler),
+      reservedBranchStart,
+      legacyBranchStart,
+      physicalAssignment,
+    }));
 
-  // Guess-guard: a non-default env capacity must FLOW THROUGH, proving the value
-  // is derived from resolveScanCapacity and not a hard-coded 50 or 1000.
+  // Guess-guard: another capacity must still flow through. This checks derivation,
+  // not physical enforcement.
   const q2 = buildScanQuality(completeMod(), undefined, resolveScanCapacity({ SCAN_SUBREQUEST_LIMIT: 120 }));
   ok("(b) a different resolved capacity (120) flows through — not a guessed constant",
     q2.subrequest_budget.effective_limit === 120, JSON.stringify(q2.subrequest_budget));
+}
+
+// ── (c) source-bounded variable outbound envelope under provider 10,000 ─────
+// This is deliberately NOT a physical whole-scan counter. It freezes the existing
+// cardinality and redirect bounds for the host-driven external paths named by the
+// Route-A decision. Candidate multiplicity is independently capped before HTTP;
+// cache reuse and host-level probe sharing can only reduce the arithmetic below.
+function variableOutboundBoundTruth() {
+  const subdomainsSource = source("workers/scan-api/src/engines/subdomains-scan.js");
+  const attackLifecycleSource = source("workers/scan-api/src/engines/attack-surface-lifecycle.js");
+  const assetSource = source("workers/scan-api/src/engines/asset-intel.js");
+  const takeoverSource = source("workers/scan-api/src/engines/takeover-scan.js");
+  const httpSource = source("workers/scan-api/src/lib/http.js");
+  const ssrfSource = source("workers/scan-api/src/lib/ssrf.js");
+  const engineSource = source("workers/scan-api/src/engines/scan-engine.js");
+
+  const ctMergeCap = integerLiteral(subdomainsSource, /const MERGE_CAP\s*=\s*([\d_]+)/, "CT MERGE_CAP");
+  const mailLabelsBlock = subdomainsSource.match(/const MAIL_SUBDOMAIN_LABELS\s*=\s*\[([\s\S]*?)\];/)?.[1] || "";
+  const mailLabelCount = (mailLabelsBlock.match(/"[^"]+"/g) || []).length;
+  const bruteHostCap = BRUTEFORCE_MAX_NAMES + mailLabelCount;
+  const knownAssetCap = integerLiteral(attackLifecycleSource, /const MAX_RECHECK_HOSTS\s*=\s*([\d_]+)/, "MAX_RECHECK_HOSTS");
+  const exposureHostCap = integerLiteral(assetSource, /const targets\s*=\s*candidates\.slice\(0,\s*([\d_]+)\)/, "exposure host cap");
+  const takeoverHostCap = integerLiteral(takeoverSource, /const HOST_CAP\s*=\s*([\d_]+)/, "takeover HOST_CAP");
+  const takeoverCandidateCapUsesHostCap = /const CANDIDATE_CAP\s*=\s*HOST_CAP;/.test(takeoverSource);
+  const takeoverRedirectHops = integerLiteral(httpSource, /const MAX_REDIRECT_HOPS\s*=\s*([\d_]+)/, "takeover redirect hops");
+  const protocolBlock = assetSource.match(/for \(const proto of \[([^\]]+)\]\)/)?.[1] || "";
+  const protocolCount = (protocolBlock.match(/"[^"]+"/g) || []).length;
+
+  const exposureHasTwoRemovalDnsQueries = /dnsQuery\(host, "A"[\s\S]*dnsQuery\(host, "AAAA"/.test(assetSource);
+  const ssrfHasTwoAddressQueries = /Promise\.allSettled\(\[dnsQuery\(domain, "A"\), dnsQuery\(domain, "AAAA"\)\]\)/.test(ssrfSource);
+  const exposureRedirectAttempts = RESERVED_MAX_REDIRECT_HOPS + 1;
+  const exposurePerHostBound = 2 + protocolCount * exposureRedirectAttempts * (2 + 1);
+  const exposureOutboundBound = exposureHostCap * exposurePerHostBound;
+  const takeoverHttpPerCandidateBound = takeoverRedirectHops + 1;
+  const takeoverOutboundBound = takeoverHostCap + takeoverHostCap * takeoverHttpPerCandidateBound;
+  const namedVariableOutboundBound = bruteHostCap + exposureOutboundBound + takeoverOutboundBound;
+  const fixedModeledEstimate = computeScanBudget(bruteHostCap).estimated_subrequests_total - bruteHostCap;
+  const conservativeProfileEnvelope = fixedModeledEstimate + namedVariableOutboundBound;
+  const providerCeiling = buildScanQuality(completeMod(), undefined, resolveScanCapacity({ SCAN_SUBREQUEST_LIMIT: 200 }))
+    .subrequest_budget.platform_ceiling;
+
+  const adminStart = assetSource.indexOf("export function runAdminSurfaceModule");
+  const adminEnd = assetSource.indexOf("\nexport function ", adminStart + 1);
+  const adminBody = adminStart >= 0 ? assetSource.slice(adminStart, adminEnd >= 0 ? adminEnd : undefined) : "";
+  const adminIsPure = adminBody.length > 0 && !/\b(fetch|dnsQuery|safeFetch|probeAsset)\s*\(/.test(adminBody) &&
+    engineSource.includes("modules.admin_surface_detection = runAdminSurfaceModule(modules);");
+
+  ok("(c) discovered and historical candidates are source-bounded before variable probes",
+    ctMergeCap === 300 && bruteHostCap === 23 && knownAssetCap === 50 &&
+      exposureHostCap === 50 && takeoverHostCap === 100,
+    JSON.stringify({ ctMergeCap, bruteHostCap, knownAssetCap, exposureHostCap, takeoverHostCap }));
+  ok("(c) exposure redirect/DNS fan-out is source-bounded",
+    protocolCount === 2 && RESERVED_MAX_REDIRECT_HOPS === 3 &&
+      exposureHasTwoRemovalDnsQueries && ssrfHasTwoAddressQueries &&
+      exposurePerHostBound === 26 && exposureOutboundBound === 1300,
+    JSON.stringify({ protocolCount, redirectHops: RESERVED_MAX_REDIRECT_HOPS, exposurePerHostBound, exposureOutboundBound }));
+  ok("(c) takeover valid-CNAME path is source-bounded",
+    takeoverRedirectHops === 4 && takeoverCandidateCapUsesHostCap &&
+      takeoverHttpPerCandidateBound === 5 && takeoverOutboundBound === 600,
+    JSON.stringify({ takeoverRedirectHops, takeoverCandidateCapUsesHostCap,
+      takeoverHttpPerCandidateBound, takeoverOutboundBound }));
+  ok("(c) admin_surface is derived from completed exposure evidence with zero new network I/O",
+    adminIsPure, JSON.stringify({ adminStart, adminEnd }));
+  ok("(c) conservative named-variable envelope stays below provider 10000 but above admission 200",
+    conservativeProfileEnvelope === 1995 &&
+      conservativeProfileEnvelope > 200 && conservativeProfileEnvelope < providerCeiling,
+    JSON.stringify({ fixedModeledEstimate, namedVariableOutboundBound, conservativeProfileEnvelope, providerCeiling }));
 }
 
 // ── (a2) lookup-failure completeness (F-026 R1 F1) — five cases ───────────────
@@ -287,6 +399,77 @@ async function unconfirmedPerHostDenominator() {
   assertCoverageInvariant("three-distinct", many);
 }
 
+// ── (a6) candidate multiplicity cannot multiply network fan-out ──────────────
+// A malformed/adversarial resolver can return many matching CNAME answer rows
+// for one owner. Candidate rows remain useful forensic detail, but all rows for
+// one host target the same HTTPS URL and therefore must share one body probe.
+async function candidateMultiplicityBound() {
+  const matchingAnswers = (count) => ({
+    Answer: Array.from({ length: count }, () => ({ data: "victim.github.io" })),
+  });
+  let fetchCalls = 0;
+  const claimed = async () => {
+    fetchCalls += 1;
+    return { ok: true, status: 200, text: async () => "claimed provider page" };
+  };
+  const boundary = await runTakeoverModule("example.com", ["boundary.example.com"], {
+    dnsQueryImpl: async () => matchingAnswers(100),
+    fetcher: claimed,
+  });
+
+  ok("(a6-boundary) exactly 100 candidates share one host probe and remain complete",
+    fetchCalls === 1 && boundary.incomplete === false &&
+      boundary.totals.candidates_matched === 100 &&
+      boundary.totals.candidates_admitted === 100 &&
+      boundary.totals.candidates_omitted === 0,
+    JSON.stringify({ fetchCalls, incomplete: boundary.incomplete, totals: boundary.totals }));
+
+  fetchCalls = 0;
+  const overBoundary = await runTakeoverModule("example.com", ["boundary.example.com"], {
+    dnsQueryImpl: async () => matchingAnswers(101),
+    fetcher: claimed,
+  });
+  ok("(a6-boundary) candidate 101 is omitted explicitly and makes coverage partial",
+    fetchCalls === 1 && overBoundary.incomplete === true &&
+      overBoundary.totals.candidates_matched === 101 &&
+      overBoundary.totals.candidates_admitted === 100 &&
+      overBoundary.totals.candidates_omitted === 1 &&
+      overBoundary.incomplete_reasons.includes("candidate_cap_truncation") &&
+      overBoundary.candidate_truncated_hosts.includes("boundary.example.com"),
+    JSON.stringify({ fetchCalls, reasons: overBoundary.incomplete_reasons, totals: overBoundary.totals }));
+  const observation = takeoverObservationFor(overBoundary, "boundary.example.com");
+  ok("(a6-observation) a truncated candidate host cannot become no-takeover-surface",
+    observation.complete === false && observation.status === "candidate_truncated",
+    JSON.stringify(observation));
+
+  fetchCalls = 0;
+  const hosts = Array.from({ length: 100 }, (_, i) => `h${i}.example.com`);
+  const adversarial = await runTakeoverModule("example.com", hosts, {
+    dnsQueryImpl: async () => matchingAnswers(100),
+    fetcher: claimed,
+  });
+  ok("(a6-adversarial) 100 hosts x 100 matching answers admit at most 100 HTTP probes",
+    fetchCalls > 0 && fetchCalls <= 100,
+    JSON.stringify({ fetchCalls, potential_risks: adversarial.potential_risks }));
+  ok("(a6-adversarial) 10000 matched candidates report 9900 omitted and fail closed",
+    adversarial.potential_risks === 10_000 && adversarial.incomplete === true &&
+      adversarial.totals.candidates_matched === 10_000 &&
+      adversarial.totals.candidates_admitted === 100 &&
+      adversarial.totals.candidates_omitted === 9_900 &&
+      adversarial.incomplete_reasons.includes("candidate_cap_truncation"),
+    JSON.stringify({ potential_risks: adversarial.potential_risks, reasons: adversarial.incomplete_reasons, totals: adversarial.totals }));
+  const combined = await runTakeoverModule("example.com",
+    Array.from({ length: 101 }, (_, i) => `c${i}.example.com`), {
+      dnsQueryImpl: async () => matchingAnswers(2),
+      fetcher: claimed,
+    });
+  ok("(a6-combined) host-cap and candidate-cap truncation reasons coexist",
+    combined.incomplete_reasons.includes("host_cap_truncation") &&
+      combined.incomplete_reasons.includes("candidate_cap_truncation") &&
+      combined.totals.omitted === 1 && combined.totals.candidates_omitted === 100,
+    JSON.stringify({ reasons: combined.incomplete_reasons, totals: combined.totals }));
+}
+
 // ── (a5) canonical host identity at the PRODUCER boundary (delta R1 #2) ────────
 // Case, surrounding whitespace, and one-OR-MORE trailing dots collapse to ONE DNS
 // host BEFORE the cap and before every door, so requested/checked/lookup_failed/
@@ -351,10 +534,12 @@ async function canonicalHostBoundary() {
 await lookupFailureCompleteness();
 await unconfirmedCompleteness();
 await unconfirmedPerHostDenominator();
+await candidateMultiplicityBound();
 await canonicalHostBoundary();
 await takeoverTruncation();
 scanQualityWithTruncatedTakeover();
 capacityTruth();
+variableOutboundBoundTruth();
 
 console.log(`\nF-026 capacity/completeness truth: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

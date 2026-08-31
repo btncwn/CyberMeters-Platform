@@ -14,11 +14,9 @@ const eng = (f) => pathToFileURL(src("engines", f)).href;
 const EXPECTED_ASSERTIONS = 26;
 const EXPECTED_RUNTIME_CONSUMER_COUNT = 27;
 // RESCUE SUCCESSION: the semantic inventory remains unchanged at 27 consumers;
-// no CE consumer was added, removed or reclassified. Accepted integrations move
-// only these five file:line positions: cyber-mot-domains 321->328; scan-engine
-// 1925->2472 and 2182->2729; index purge-order 1113->1116; index orphan-import
-// 63->66.
-const EXPECTED_RUNTIME_CONSUMER_SHA256 = "7ec4afe6e8f62ea62e7b4203c8e1f8591124ecb37f6638d96ed80861712a8fcd";
+// no CE consumer was added, removed or reclassified. Exact source anchors still
+// have to exist once, but harmless line movement is not part of their identity.
+const EXPECTED_RUNTIME_CONSUMER_SHA256 = "bd064aeff6f722ef6dd48641192ee7bb7d80edd1b528dd791593f51e72fbbb36";
 const ONLY = process.env.CE_CONTAINMENT_ONLY || null;
 
 const readinessMod = await import(eng("ce-readiness.js"));
@@ -214,13 +212,12 @@ function listJsFiles(directory) {
   });
 }
 
-function sourceLineFor(relative, needle) {
+function assertExactConsumerAnchor(relative, needle) {
   const text = fs.readFileSync(path.join(root, relative), "utf8");
   const index = text.indexOf(needle);
   if (index < 0 || text.indexOf(needle, index + needle.length) >= 0) {
     throw new Error(`consumer anchor is not exact: ${relative} :: ${needle}`);
   }
-  return text.slice(0, index).split("\n").length;
 }
 
 function runtimeConsumerInventory() {
@@ -253,8 +250,10 @@ function runtimeConsumerInventory() {
     ["workers/scan-api/src/routes/executive-dashboard.js", "ceSnap = await getCyberEssentialsSnapshot(wsId, env)", "getCyberEssentialsSnapshot", "report-dashboard"],
     ["workers/scan-api/src/routes/workspace-analytics.js", "const readiness = await buildCyberEssentialsReadiness(wsId, env)", "buildCyberEssentialsReadiness", "api-readiness"],
   ];
-  return specs.map(([relative, needle, symbol, kind]) =>
-    `${relative}:${sourceLineFor(relative, needle)}:${symbol}:${kind}`).sort();
+  return specs.map(([relative, needle, symbol, kind]) => {
+    assertExactConsumerAnchor(relative, needle);
+    return `${relative}:${symbol}:${kind}`;
+  }).sort();
 }
 
 function inventorySha(values) {

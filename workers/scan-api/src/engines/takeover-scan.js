@@ -285,6 +285,9 @@ export function takeoverObservationFor(mod, host) {
   if (unconfirmed) {
     return { complete: false, status: "probe_unconfirmed", reason: unconfirmed.reason || "probe_failed" };
   }
+  if ((mod?.candidate_truncated_hosts || []).some((x) => String(x).toLowerCase() === h)) {
+    return { complete: false, status: "candidate_truncated", reason: "candidate_cap_truncation" };
+  }
   if (!(mod?.checked_hosts || []).some((x) => String(x).toLowerCase() === h)) {
     return { complete: false, status: "not_checked", reason: "host_not_in_scope" };
   }
@@ -306,8 +309,10 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
     : (name, type) => dnsQuery(name, type, { accounting, cache });
 
   if (!subdomains || subdomains.length === 0) {
-    return { checked: 0, potential_risks: 0, risks: [], checked_hosts: [], lookup_failed_hosts: [], unconfirmed: [], unconfirmed_hosts: [], source, error: null,
-      totals: { requested: 0, checked: 0, omitted: 0, lookup_failed: 0, unconfirmed: 0 }, incomplete: false, incomplete_reason: null, incomplete_reasons: [] };
+    return { checked: 0, potential_risks: 0, risks: [], checked_hosts: [], lookup_failed_hosts: [], unconfirmed: [], unconfirmed_hosts: [], candidate_truncated_hosts: [], source, error: null,
+      totals: { requested: 0, checked: 0, omitted: 0, lookup_failed: 0, unconfirmed: 0,
+        candidates_matched: 0, candidates_admitted: 0, candidates_omitted: 0 },
+      incomplete: false, incomplete_reason: null, incomplete_reasons: [] };
   }
 
   // Cap at 100 to bound concurrent I/O without sacrificing coverage.
@@ -315,6 +320,10 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
   // checked and flags itself incomplete so a dropped host is never presented as
   // full coverage (unmeasured is never "healthy").
   const HOST_CAP = 100;
+  // A DNS response can be malformed or adversarial and contain many matching
+  // CNAME rows for one owner. Bound candidate processing independently of the
+  // host cap; omitted candidates stay explicit and make coverage incomplete.
+  const CANDIDATE_CAP = HOST_CAP;
   // F-026 R1 #2 (delta): establish ONE canonical DNS host identity at the PRODUCER
   // BOUNDARY — before the cap and before every completeness door — so case,
   // surrounding whitespace, and one-or-more trailing dots collapse consistently and
@@ -331,6 +340,10 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
   const requestedHostCount = requestedHosts.length;
   const targets = requestedHosts.slice(0, HOST_CAP);
   const omittedHostCount = Math.max(0, requestedHostCount - targets.length);
+  let candidateMatchedCount = 0;
+  let candidateAdmittedCount = 0;
+  let candidateOmittedCount = 0;
+  const candidateTruncatedHostSet = new Set();
   // F-026 R1 (F1): a host is UNMEASURED whether it was truncated OR its CNAME
   // lookup failed — both must flag incomplete. Truncation is known now; the
   // lookup-failure count is only known after Step 1, so the completeness verdict
@@ -356,6 +369,7 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
     // serviceability) is retained on the unconfirmed[] rows; this coverage reason
     // is raised per distinct host so the module never reads complete over it.
     if (unconfirmedHostCount > 0) reasons.push("host_probe_unconfirmed");
+    if (candidateOmittedCount > 0) reasons.push("candidate_cap_truncation");
     return {
       totals: {
         requested: requestedHostCount,
@@ -363,6 +377,9 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
         omitted: omittedHostCount,
         lookup_failed: lookupFailedCount,
         unconfirmed: unconfirmedHostCount,
+        candidates_matched: candidateMatchedCount,
+        candidates_admitted: candidateAdmittedCount,
+        candidates_omitted: candidateOmittedCount,
       },
       incomplete: reasons.length > 0,
       // Backward-compatible primary reason (deterministic order); incomplete_reasons
@@ -392,26 +409,46 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
       if (cname) cname_observations.push({ host: targets[i], cname, source: "dns_cname" });
       for (const fp of TAKEOVER_FINGERPRINTS) {
         if (cname === fp.cname_suffix || cname.endsWith("." + fp.cname_suffix)) {
-          candidates.push({ host: targets[i], cname, fingerprint: fp });
+          candidateMatchedCount += 1;
+          if (candidateAdmittedCount < CANDIDATE_CAP) {
+            candidates.push({ host: targets[i], cname, fingerprint: fp });
+            candidateAdmittedCount += 1;
+          } else {
+            candidateOmittedCount += 1;
+            candidateTruncatedHostSet.add(targets[i]);
+          }
           break;
         }
       }
     }
   }
+  const candidate_truncated_hosts = [...candidateTruncatedHostSet];
 
   if (candidates.length === 0) {
     return {
       checked: targets.length, potential_risks: 0, risks: [], cname_observations,
-      checked_hosts: targets, lookup_failed_hosts, unconfirmed: [], unconfirmed_hosts: [], source, error: null,
+      checked_hosts: targets, lookup_failed_hosts, unconfirmed: [], unconfirmed_hosts: [], candidate_truncated_hosts, source, error: null,
       ...resolveCoverage(lookup_failed_hosts.length, 0),
     };
   }
 
-  // Step 3: fetch each candidate to confirm takeover via body fingerprint
+  // Step 3: fetch each HOST once, then evaluate every candidate fingerprint for
+  // that host against the same response body. A malformed/adversarial CNAME
+  // answer set may contain many matching rows; probing per row would multiply
+  // one host into unbounded outbound HTTP calls even though the requested URL is
+  // identical. Candidate rows remain intact as forensic evidence, while network
+  // fan-out stays bounded by HOST_CAP.
+  const candidatesByHost = new Map();
+  for (const candidate of candidates) {
+    const hostCandidates = candidatesByHost.get(candidate.host) || [];
+    hostCandidates.push(candidate);
+    candidatesByHost.set(candidate.host, hostCandidates);
+  }
+  const probeHosts = [...candidatesByHost.keys()];
   const bodyResults = await Promise.allSettled(
-    candidates.map((c) => (fetchImpl
-      ? fetchImpl(`https://${c.host}`)
-      : safeFetch(`https://${c.host}`, { method: "GET", redirect: "follow", accounting })))
+    probeHosts.map((host) => (fetchImpl
+      ? fetchImpl(`https://${host}`)
+      : safeFetch(`https://${host}`, { method: "GET", redirect: "follow", accounting })))
   );
 
   const risks = [];
@@ -419,15 +456,18 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
   // could NOT read. Previously these were silently skipped and became indistinguishable
   // from "provider claimed" — i.e. a refused/failed probe looked exactly like a fix.
   const unconfirmed = [];
-  for (let i = 0; i < candidates.length; i++) {
-    const { host, cname, fingerprint } = candidates[i];
+  for (let i = 0; i < probeHosts.length; i++) {
+    const host = probeHosts[i];
+    const hostCandidates = candidatesByHost.get(host) || [];
     const settled = bodyResults[i];
     // rejected = network/DNS/timeout; null value = SSRF guard refused the target.
     if (settled.status !== "fulfilled" || !settled.value) {
-      unconfirmed.push({
-        host, cname, provider: fingerprint.provider ?? fingerprint.service,
-        reason: settled.status !== "fulfilled" ? "fetch_failed" : "probe_refused",
-      });
+      for (const { cname, fingerprint } of hostCandidates) {
+        unconfirmed.push({
+          host, cname, provider: fingerprint.provider ?? fingerprint.service,
+          reason: settled.status !== "fulfilled" ? "fetch_failed" : "probe_refused",
+        });
+      }
       continue;
     }
     // P1.1: a provider 5xx (or any non-serviceable response) is NOT the provider
@@ -437,31 +477,37 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
     const takeoverServiceability = classifyServiceability(
       classifyFetchObservation({ response: settled.value, executed: true }));
     if (!maySupportHealthyConclusion(takeoverServiceability)) {
-      unconfirmed.push({
-        host, cname, provider: fingerprint.provider ?? fingerprint.service,
-        reason: takeoverServiceability.reason,
-      });
+      for (const { cname, fingerprint } of hostCandidates) {
+        unconfirmed.push({
+          host, cname, provider: fingerprint.provider ?? fingerprint.service,
+          reason: takeoverServiceability.reason,
+        });
+      }
       continue;
     }
     try {
       const text = await settled.value.text();
-      if (text.includes(fingerprint.body_pattern)) {
-        risks.push({
-          host,
-          service:  fingerprint.service,
-          provider: fingerprint.provider ?? fingerprint.service,
-          cname,
-          evidence: fingerprint.body_pattern,
-          severity: fingerprint.risk ?? "high",
-        });
+      for (const { cname, fingerprint } of hostCandidates) {
+        if (text.includes(fingerprint.body_pattern)) {
+          risks.push({
+            host,
+            service:  fingerprint.service,
+            provider: fingerprint.provider ?? fingerprint.service,
+            cname,
+            evidence: fingerprint.body_pattern,
+            severity: fingerprint.risk ?? "high",
+          });
+        }
       }
       // else: body read, fingerprint absent → conclusively claimed. Not unconfirmed.
     } catch {
       // Body read error — we never saw the page, so we cannot claim anything.
-      unconfirmed.push({
-        host, cname, provider: fingerprint.provider ?? fingerprint.service,
-        reason: "body_unreadable",
-      });
+      for (const { cname, fingerprint } of hostCandidates) {
+        unconfirmed.push({
+          host, cname, provider: fingerprint.provider ?? fingerprint.service,
+          reason: "body_unreadable",
+        });
+      }
     }
   }
 
@@ -477,7 +523,7 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
 
   return {
     checked:         targets.length,
-    potential_risks: candidates.length,
+    potential_risks: candidateMatchedCount,
     risks,
     cname_observations,
     // Structured completeness — additive; existing consumers read only the fields above.
@@ -485,6 +531,7 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
     lookup_failed_hosts,
     unconfirmed,
     unconfirmed_hosts,
+    candidate_truncated_hosts,
     source,
     error: null,
     // F-026 explicit coverage truth: truncation + lookup-failure + unconfirmed

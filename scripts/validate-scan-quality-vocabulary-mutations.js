@@ -16,9 +16,9 @@ const validator = path.join(root, "scripts", "validate-scan-quality-vocabulary-i
 const runtimeTargetRel = "workers/scan-api/src/engines/asm-cases.js";
 const commentTargetRel = "frontend/src/pages/Dashboard.jsx";
 const sqlTargetRel = "workers/scan-api/src/engines/business-risk.js";
-const EXPECTED_MUTANTS = 21;
+const EXPECTED_MUTANTS = 22;
 const VALIDATOR_ASSERTIONS = 10;
-const EXPECTED_ASSERTIONS = 70;
+const EXPECTED_ASSERTIONS = 73;
 const SUMMARY_PREFIX = "Scan-quality vocabulary inventory:";
 const RUNTIME_FAILURE = "runtime: semantic scan-quality comparison inventory is exact";
 const SQL_FAILURE = "SQL: runtime scan-quality predicate inventory is exact";
@@ -233,6 +233,12 @@ export const ctR2SymbolRead = (row) => row[ctR2Key];
     mutate: (source) => appendMutation(source, `export const ctR2WriteOnly = (row) => { row.scan_quality = "partial"; };`),
     expectedFailures: [],
   },
+  {
+    name: "P3 line-only source movement remains a negative control",
+    file: runtimeTargetRel,
+    mutate: (source) => `// CT-R2 line-shift negative control.\n${source}`,
+    expectedFailures: [],
+  },
 ];
 
 let assertionsPassed = 0;
@@ -324,15 +330,15 @@ assertion("all target files restored", targetFiles.every((relative) =>
   sha256(fs.readFileSync(path.join(root, relative))) === sha256(originals.get(relative))));
 assertion("complete worktree fingerprint restored", worktreeFingerprint() === beforeTree);
 assertion("killing mutants killed 20/20", killed === 20);
-assertion("negative controls green 1/1", negativeControlsGreen === 1);
-assertion("governed cases validated 21/21", killed + negativeControlsGreen === 21);
-assertion("mutant table count is pinned", mutations.length === 21);
+assertion("negative controls green 2/2", negativeControlsGreen === 2);
+assertion("governed cases validated 22/22", killed + negativeControlsGreen === 22);
+assertion("mutant table count is pinned", mutations.length === EXPECTED_MUTANTS);
 
 const assertionTotal = assertionsPassed + assertionsFailed;
-console.log(`\nScan-quality vocabulary mutations: killing ${killed}/20; negative controls ${negativeControlsGreen}/1; cases ${killed + negativeControlsGreen}/21; assertions ${assertionsPassed}/${assertionTotal}`);
+console.log(`\nScan-quality vocabulary mutations: killing ${killed}/20; negative controls ${negativeControlsGreen}/2; cases ${killed + negativeControlsGreen}/22; assertions ${assertionsPassed}/${assertionTotal}`);
 if (assertionTotal !== EXPECTED_ASSERTIONS) {
   console.error(`FAIL pinned mutation assertion count — got ${assertionTotal}, want ${EXPECTED_ASSERTIONS}`);
   process.exit(1);
 }
-if (assertionsFailed > 0 || killed !== 20 || negativeControlsGreen !== 1) process.exit(1);
+if (assertionsFailed > 0 || killed !== 20 || negativeControlsGreen !== 2) process.exit(1);
 console.log("Scan-quality vocabulary mutation proof passed");

@@ -130,6 +130,7 @@ RUA_INBOUND_DOMAIN = "reports.cybermeters.com"
 # ONLY after both queues above exist in the account.
 SCAN_DISPATCH_MODE = "queue"
 SCAN_CAPACITY_MODE = "legacy"
+SCAN_SUBREQUEST_LIMIT = 200
 
 # Scheduled-scan dispatch mode (PR-B1A, 22 Jul 2026). Producer-side ONLY — the
 # Queue consumer is shared with manual dispatch and is NOT flag-gated, so

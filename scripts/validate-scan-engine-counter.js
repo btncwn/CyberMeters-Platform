@@ -44,11 +44,34 @@ const realFetch = globalThis.fetch;
 }
 
 // ── Faithful engine run with an outbound counter (per mode) ───────────────────
-function respond(url, { dmarcRua = false, authorizeExternal = false } = {}) {
+const VARIABLE_CT_HOSTS = Array.from({ length: 300 }, (_, i) => `ct${i}.example.com`);
+const VARIABLE_KNOWN_HOSTS = Array.from({ length: 50 }, (_, i) => `known${i}.example.com`);
+
+function respond(url, {
+  dmarcRua = false,
+  authorizeExternal = false,
+  variableFanout = false,
+  takeoverAnswerMultiplicity = 1,
+} = {}) {
   const cat = classifyRequest(url);
   if (cat === "doh") {
     let name = "", type = "A";
     try { const u = new URL(url); name = u.searchParams.get("name") || ""; type = u.searchParams.get("type") || "A"; } catch {}
+    if (variableFanout && type === "CNAME" && /^ct\d+\.example\.com$/.test(name)) {
+      return new Response(JSON.stringify({ Answer: Array.from(
+        { length: takeoverAnswerMultiplicity },
+        () => ({ type: 5, data: "candidate.github.io" }),
+      ) }), {
+        status: 200,
+        headers: { "content-type": "application/dns-json" },
+      });
+    }
+    if (variableFanout && /^(?:ct|known)\d+\.example\.com$/.test(name) && (type === "A" || type === "AAAA")) {
+      const Answer = type === "A"
+        ? [{ type: 1, data: "93.184.216.34" }]
+        : [{ type: 28, data: "2606:2800:220:1:248:1893:25c8:1946" }];
+      return new Response(JSON.stringify({ Answer }), { status: 200, headers: { "content-type": "application/dns-json" } });
+    }
     if (type === "A" && name === "example.com") return new Response(JSON.stringify({ Answer: [{ data: "93.184.216.34" }] }), { status: 200, headers: { "content-type": "application/dns-json" } });
     if (dmarcRua && type === "TXT" && name === "_dmarc.example.com") {
       return new Response(JSON.stringify({
@@ -68,14 +91,33 @@ function respond(url, { dmarcRua = false, authorizeExternal = false } = {}) {
     }
     return new Response(JSON.stringify({ Answer: [] }), { status: 200, headers: { "content-type": "application/dns-json" } });
   }
-  if (cat === "ct") return new Response(JSON.stringify([{ name_value: "admin.example.com" }]), { status: 200, headers: { "content-type": "application/json" } });
-  if (cat === "exposure") return new Response("<title>Admin</title>", { status: 200, headers: { "content-type": "text/html", server: "nginx" } });
+  if (cat === "ct") {
+    const rows = variableFanout
+      ? VARIABLE_CT_HOSTS.map((hostname) => ({ name_value: hostname, dns_names: [hostname] }))
+      : [{ name_value: "admin.example.com" }];
+    return new Response(JSON.stringify(rows), { status: 200, headers: { "content-type": "application/json" } });
+  }
+  if (cat === "exposure") {
+    if (variableFanout) {
+      const parsed = new URL(url);
+      const depth = Number(parsed.pathname.match(/^\/cm-bound-hop-(\d+)$/)?.[1] || 0);
+      if (depth < 4) {
+        return new Response("", {
+          status: 302,
+          headers: { location: `/cm-bound-hop-${depth + 1}` },
+        });
+      }
+    }
+    return new Response("<title>Admin</title>", { status: 200, headers: { "content-type": "text/html", server: "nginx" } });
+  }
   return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
 }
 async function runEngineLedger(mode, {
   dmarcRua = false,
   authorizeExternal = false,
   subrequestLimit = null,
+  variableFanout = false,
+  takeoverAnswerMultiplicity = 1,
 } = {}) {
   const counter = { total: 0, byCategory: {}, dnsQuestions: [] };
   globalThis.fetch = async (url) => {
@@ -92,7 +134,7 @@ async function runEngineLedger(mode, {
         dnssec: u.searchParams.get("do") === "1",
       });
     }
-    return respond(s, { dmarcRua, authorizeExternal });
+    return respond(s, { dmarcRua, authorizeExternal, variableFanout, takeoverAnswerMultiplicity });
   };
   let report = null;
   let snapshot = null;
@@ -109,7 +151,11 @@ async function runEngineLedger(mode, {
       },
       success: true,
     }),
-    all: async () => ({ results: [] }),
+    all: async () => ({
+      results: variableFanout && /SELECT DISTINCT wa\.hostname/.test(sql)
+        ? VARIABLE_KNOWN_HOSTS.map((hostname) => ({ hostname }))
+        : [],
+    }),
     first: async () => {
       if (
         /SELECT id FROM workspaces WHERE id = \? AND deleted_at IS NULL/.test(sql)
@@ -265,6 +311,54 @@ async function runEngineLedger(mode, {
         ?.filter((row) => row?.outbound?.outbound_measurement_complete === false),
     }));
   }
+}
+
+// ── Section E: maximum existing host-driven fan-out remains provider-bounded ─
+// This is a behavioral fixture, not a self-imposed physical 200 counter. It drives
+// the real legacy engine with 300 CT hosts, 50 historical recheck hosts, the
+// takeover 100-host cap plus adversarial 100-answer CNAME multiplicity, exposure
+// 50-host cap, and the real redirect-hop guards.
+// The observed call count must exceed the application admission/report value 200
+// while remaining far below the authenticated Workers Paid provider ceiling 10k.
+{
+  const bounded = await runEngineLedger("legacy", {
+    subrequestLimit: 200,
+    variableFanout: true,
+    takeoverAnswerMultiplicity: 100,
+  });
+  console.log(`legacy max-fanout ledger: total=${bounded.counter.total} ${JSON.stringify(bounded.counter.byCategory)}`);
+  eq("max-fanout: real legacy engine completes", bounded.threw, null);
+  eq("max-fanout: report labels 200 as effective admission/report limit",
+    bounded.report?.scan_quality?.subrequest_budget?.effective_limit, 200);
+  eq("max-fanout: report labels provider ceiling 10000",
+    bounded.report?.scan_quality?.subrequest_budget?.platform_ceiling, 10_000);
+  ok("max-fanout: legacy report has no reserved physical-counter snapshot",
+    bounded.report?.modules?.scan_budget?.physical == null,
+    JSON.stringify(bounded.report?.modules?.scan_budget?.physical));
+  ok("max-fanout: actual outbound exceeds 200, proving it is not a physical hard cap",
+    bounded.counter.total > 200, `total ${bounded.counter.total}`);
+  ok("max-fanout: actual outbound remains below Paid provider ceiling 10000",
+    bounded.counter.total < 10_000, `total ${bounded.counter.total}`);
+  eq("max-fanout: takeover executes its existing 100-host bound",
+    bounded.report?.modules?.subdomain_takeover?.totals?.checked, 100);
+  eq("max-fanout: takeover reports all adversarial matching candidates",
+    bounded.report?.modules?.subdomain_takeover?.totals?.candidates_matched, 10_000);
+  eq("max-fanout: takeover admits only the governed candidate cap",
+    bounded.report?.modules?.subdomain_takeover?.totals?.candidates_admitted, 100);
+  eq("max-fanout: takeover exposes every omitted candidate",
+    bounded.report?.modules?.subdomain_takeover?.totals?.candidates_omitted, 9_900);
+  ok("max-fanout: takeover candidate truncation fails coverage closed",
+    bounded.report?.modules?.subdomain_takeover?.incomplete === true &&
+      bounded.report?.modules?.subdomain_takeover?.incomplete_reasons?.includes("candidate_cap_truncation"),
+    JSON.stringify(bounded.report?.modules?.subdomain_takeover?.incomplete_reasons));
+  eq("max-fanout: exposure executes its existing 50-host bound",
+    bounded.report?.modules?.asset_exposure?.probe_coverage?.checked, 50);
+  ok("max-fanout: exposure records bounded truncation rather than unbounded launch",
+    bounded.report?.modules?.asset_exposure?.probe_coverage?.cap_reached === true &&
+      bounded.report?.modules?.asset_exposure?.probe_coverage?.candidate_total > 50,
+    JSON.stringify(bounded.report?.modules?.asset_exposure?.probe_coverage));
+  ok("max-fanout: total equals the observed category ledger",
+    bounded.counter.total === Object.values(bounded.counter.byCategory).reduce((a, b) => a + b, 0));
 }
 
 console.log(`\nscan-engine-counter: ${pass} passed, ${fail} failed`);

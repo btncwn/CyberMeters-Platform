@@ -74,7 +74,11 @@ const EXPECTED = Object.freeze({
     // comparison was added, removed or reclassified.
     // RESCUE SUCCESSION: count remains 47; the report-first customer surface
     // adds one reviewed runtime source and moves existing exact line keys.
-    fingerprint: "e0fe70bf887ddaef5a63bbe65015126042d54845d0e6b9225a0375608bb8dd1a",
+    // PR #468 corrective: the fingerprint is now an exact semantic multiset
+    // (file/kind/operator/status/access/snippet), deliberately excluding line
+    // and AST-offset positions. The count and duplicate multiplicity remain
+    // pinned, so real additions/removals still fail while line-only edits do not.
+    fingerprint: "56ef63b3d5b57edac1e8d790dd11478c770ce951667ef6f1063c6ac90a63eef0",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -115,7 +119,7 @@ const EXPECTED = Object.freeze({
     // P1 EMAIL-SKIP SUCCESSION: counts remain 81/30. The focused customer-path
     // proof adds lines above existing scan-quality assertions in
     // validate-email-deadline-evidence.js; membership and runtime are unchanged.
-    fingerprint: "b3946da6d57148a3ddebf3d0eb15956edc8af6bdf2a917bbdbb3f4601d3c036d",
+    fingerprint: "9ee8ddd1bb00c4dc2068004cd8b8f52d3f95007fc7d966125ba14116ab18f30b",
   },
   runtime_source_file_count: 33,
   direct: {
@@ -151,7 +155,7 @@ const EXPECTED = Object.freeze({
     // --dump-counts run and independently matched the hosted CI values.
     // AS-B2 FINAL-REBASE SUCCESSION: counts remain 91/34; final-tree product
     // line shifts only, with identical canonical-read membership.
-    runtime: { occurrence_count: 98, source_file_count: 36, fingerprint: "d2acc689279302519184281316d4d9de8479033e8a847ec59b4d4b9baea55b7a" },
+    runtime: { occurrence_count: 98, source_file_count: 36, fingerprint: "ffde40e260f63d99e9104217c79ec5641a042a714036b658456dfbef497e1d35" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
@@ -166,7 +170,10 @@ const EXPECTED = Object.freeze({
     // loader-isolation preamble. No read, site, path, count, SQL or comparison changed.
     // P1 EMAIL-SKIP SUCCESSION: 121/39 unchanged; the same focused proof shifts
     // existing validation reads only. Product/runtime membership is unchanged.
-    governance: { occurrence_count: 121, source_file_count: 39, fingerprint: "6ed091ee1d1d2d8eecd175361f94509df85c0da0cf11c0dc262514171207a8ce" },
+    // PR #468 adds two direct scan-quality proof reads in the real-engine
+    // counter validator. Direct-read identity is now the same line-stable exact
+    // semantic multiset used above; additions/removals still move count/digest.
+    governance: { occurrence_count: 123, source_file_count: 40, fingerprint: "08acbd6a398f50e5cdda195d9f660c61417cef978946a49046e8837a4708e555" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
@@ -940,10 +947,12 @@ function analyseSemanticComparisons(sourceFiles, checker) {
     });
   }
 
+  // Fingerprint the exact semantic multiset, not source positions. Counts and
+  // duplicate signatures remain significant, so additions/removals still move
+  // the digest while unrelated line shifts no longer create a false failure.
   const comparisonSignature = (site) => [
-    site.file, site.line, site.kind, site.operator,
-    site.statuses.join("+"), site.access.join("+"),
-    `${site.clusterStart}-${site.clusterEnd}`, site.snippet,
+    site.file, site.kind, site.operator,
+    site.statuses.join("+"), site.access.join("+"), site.snippet,
   ].join(":" );
   const runtime = comparisons.filter((site) => isRuntimeFile(path.join(root, site.file)));
   const governance = comparisons.filter((site) => !isRuntimeFile(path.join(root, site.file)));
@@ -1000,7 +1009,9 @@ function analyseDirectReads(sourceFiles, checker) {
       if (QUALITY_SLOT_NAMES.has(key)) add(sf, node, "destructuring", key);
     }
   });
-  const signature = (site) => `${site.file}:${site.line}:${site.kind}:${site.slot}:${site.snippet}`;
+  // As above, preserve the exact read multiset but exclude incidental line
+  // positions. A duplicated or removed read still changes both count/digest.
+  const signature = (site) => `${site.file}:${site.kind}:${site.slot}:${site.snippet}`;
   return { sites, fingerprint: fingerprint(sites.map(signature)) };
 }
 
@@ -1422,8 +1433,8 @@ const current = {
   },
   runtime_source_file_count: runtimeFiles.size,
   direct: {
-    runtime: { occurrence_count: directRuntime.length, source_file_count: new Set(directRuntime.map((s) => s.file)).size, fingerprint: fingerprint(directRuntime.map((s) => `${s.file}:${s.line}:${s.kind}:${s.slot}:${s.snippet}`)) },
-    governance: { occurrence_count: directGovernance.length, source_file_count: new Set(directGovernance.map((s) => s.file)).size, fingerprint: fingerprint(directGovernance.map((s) => `${s.file}:${s.line}:${s.kind}:${s.slot}:${s.snippet}`)) },
+    runtime: { occurrence_count: directRuntime.length, source_file_count: new Set(directRuntime.map((s) => s.file)).size, fingerprint: fingerprint(directRuntime.map((s) => `${s.file}:${s.kind}:${s.slot}:${s.snippet}`)) },
+    governance: { occurrence_count: directGovernance.length, source_file_count: new Set(directGovernance.map((s) => s.file)).size, fingerprint: fingerprint(directGovernance.map((s) => `${s.file}:${s.kind}:${s.slot}:${s.snippet}`)) },
   },
   sql_reads: { projection_occurrences: sqlProjectionSites.length, fingerprint: sqlReadFingerprint },
 };
