@@ -112,7 +112,10 @@ const EXPECTED = Object.freeze({
     // governed comparisons in their own validators. Nothing was removed.
     // RESCUE SUCCESSION: additive validator coverage plus two exact reviewed
     // child-process comparisons and one canonical quality-parity assertion.
-    fingerprint: "ebc00fd074b9d9554f89d5ce190eb9f62fa395628e286a4e796243d085481905",
+    // P1 EMAIL-SKIP SUCCESSION: counts remain 81/30. The focused customer-path
+    // proof adds lines above existing scan-quality assertions in
+    // validate-email-deadline-evidence.js; membership and runtime are unchanged.
+    fingerprint: "b3946da6d57148a3ddebf3d0eb15956edc8af6bdf2a917bbdbb3f4601d3c036d",
   },
   runtime_source_file_count: 33,
   direct: {
@@ -161,7 +164,9 @@ const EXPECTED = Object.freeze({
     // only the fingerprint moves — the existing destructured scanQuality read in
     // validate-website-security-lifecycle.js shifted 145 -> 161 under the authorised
     // loader-isolation preamble. No read, site, path, count, SQL or comparison changed.
-    governance: { occurrence_count: 121, source_file_count: 39, fingerprint: "e3b21e121a3846fca43f9b761bdd027327668eb6fa570de6181197a02032b0c4" },
+    // P1 EMAIL-SKIP SUCCESSION: 121/39 unchanged; the same focused proof shifts
+    // existing validation reads only. Product/runtime membership is unchanged.
+    governance: { occurrence_count: 121, source_file_count: 39, fingerprint: "6ed091ee1d1d2d8eecd175361f94509df85c0da0cf11c0dc262514171207a8ce" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
