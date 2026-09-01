@@ -1,5 +1,5 @@
 // ── Billing + free-scan routes ──
-// Public free-scan (rate-limited, 4-module quick scan), workspace
+// Public free-scan (rate-limited, bounded six-module snapshot), workspace
 // subscription state, public plans list and workspace Stripe checkout/portal
 // endpoints. Extracted near-verbatim from index.js (router split, Phase 2
 // PR #13). Receives the per-request routeCtx from index.js; returns a
@@ -8,51 +8,67 @@ import { runDnsModule } from "../engines/dns-scan.js";
 import { runEmailModule } from "../engines/email-scan.js";
 import { runHeadersModule } from "../engines/headers-scan.js";
 import { runSslModule } from "../engines/ssl-scan.js";
+import { runSubdomainsModule } from "../engines/subdomains-scan.js";
+import { runTechModule } from "../engines/tech-scan.js";
 import {
   buildFreeScanEvidence,
-  filterFreeScanFindings,
-  FREE_SCAN_MODULE_STATES,
-  resolveFreeScanPreviewState,
 } from "../engines/free-scan-evidence.js";
-import { resolveAssessmentPresentation } from "../engines/assessment-presentation.js";
-import { computeScore } from "../engines/scoring.js";
-import { normalizeFindingSchema } from "../engines/findings.js";
+import {
+  buildFreeScanPreview,
+  FREE_SCAN_DEADLINE_MS,
+  FREE_SCAN_SUBREQUEST_LIMIT,
+} from "../engines/free-scan-preview.js";
+import { createCertificateTransparencyCache } from "../engines/ct-provider-cache.js";
+import { makeDnsCache, PhysicalSubrequestCounter } from "../engines/scan-budget.js";
 import { BILLING_PLAN_METADATA, getEffectiveDomainLimit, getPaymentGraceState, getPlanFeatures, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { applyCheckoutConsentParams, getStripePriceIdForPlan, shouldRoutePlanChangeToPortal, validateStripeSecretConfig, verifyStripePriceMatchesPolicy } from "../engines/stripe.js";
 import { TRIAL_PLAN, auditApiTokenSessionRouteDenied, getPublicBillingPlans, getTrialRemainingDays, getWorkspaceSubscription, isSubscriptionActive, isTrialActive, parseCheckoutPlan } from "../engines/subscription-state.js";
 import { dnsQuery } from "../engines/dns.js";
 import { createAuditEvent } from "../lib/events.js";
-import { resolvesToPrivateIp } from "../lib/ssrf.js";
+import { resolvePublicDnsTarget, STRICT_DNS_STATES } from "../lib/ssrf.js";
 import { createId, isValidDomain } from "../lib/util.js";
+
+// DNS evidence is intentionally stable for one snapshot, but an HTTP safety
+// decision must never reuse a completed answer: the same hostname may rebind
+// between redirect hops. This cache only coalesces identical questions that
+// are concurrently in flight; the next safety check always reaches the
+// resolver again and remains charged to the shared physical counter.
+class InFlightOnlyDnsCache extends Map {
+  get(key) {
+    const existing = super.get(key);
+    if (existing?.settled === false) return existing;
+    if (existing !== undefined) super.delete(key);
+    return undefined;
+  }
+}
 
 export async function billingRoutes(rctx) {
   const { request, env, url, json, serverError,
           requireAuth, requireWorkspaceRole, consumeApiRateLimit, rateLimitScopeId } = rctx;
-  const freeScanModuleRunners = rctx.freeScanModuleRunners ?? {
+  const freeScanModuleRunners = {
     dns: runDnsModule,
     ssl: runSslModule,
     headers: runHeadersModule,
     email_security: runEmailModule,
+    subdomains: runSubdomainsModule,
+    technology_detection: runTechModule,
+    ...(rctx.freeScanModuleRunners || {}),
   };
+  const freeScanDnsQuery = rctx.freeScanDnsQuery || dnsQuery;
 
     // ── POST /api/free-scan ──────────────────────────────────────────────────
     // Public endpoint — no authentication required.
-    // Runs a lightweight 4-module scan (DNS, SSL, headers, email) and returns a
-    // preview payload suitable for the /free-scan landing page.
+    // Runs a bounded six-module public snapshot and returns a deliberately
+    // reduced eight-domain projection suitable for the /free-scan page.
     //
     // Rate limit: 5 free scans per IP per hour (IP stored hashed in api_rate_limits).
     // No D1 persistence — results are returned inline and discarded.
     // No R2 writes — no report is stored.
     //
-    // Response shape:
-    //   { domain, score, risk_level, severity_counts, total_findings,
-    //     preview_findings[5], hidden_count, modules_attempted,
-    //     modules_scanned, module_evidence, monitoring_states,
-    //     evidence_coverage, preview_state, scanned_at }
-    //
-    // Each preview_finding: { id, title, severity, description, academy_slug }
-    // Evidence, confidence, and remediation are intentionally omitted (gated).
+    // Hidden findings, evidence, remediation, PDF and monitoring history are
+    // not returned to anonymous callers. Full access still passes through the
+    // canonical account + ownership-verification flow.
     if (request.method === "POST" && url.pathname === "/api/free-scan") {
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
@@ -68,14 +84,6 @@ export async function billingRoutes(rctx) {
         return json({ error: "That domain cannot be scanned" }, 400);
       }
 
-      // SSRF: the string gate never resolves DNS, so a public-looking domain
-      // whose A/AAAA record points at an internal address would otherwise be
-      // fetched. Resolve first and refuse private/reserved targets. (Redirect-
-      // time SSRF is handled per-hop inside safeFetch.)
-      if (await resolvesToPrivateIp(domain, dnsQuery)) {
-        return json({ error: "That domain cannot be scanned" }, 400);
-      }
-
       // IP-based rate limit: 5 free scans per hour
       const clientIp = request.headers.get("CF-Connecting-IP") ||
                        request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ||
@@ -87,13 +95,30 @@ export async function billingRoutes(rctx) {
         "free_scan",
         5,
         3600,
-        { failClosed: true },
+        { failClosed: true, atomic: true },
       );
       if (rateLimitResult) {
         // Honest copy: a free account raises limits and saves results — it is
         // not unlimited (free plan has monthly caps). Never overpromise here.
         return json({
           error: "Too many checks from this connection. Please wait an hour, or create a free account to save your results and monitor your domain.",
+          code: "rate_limit_exceeded",
+        }, 429);
+      }
+
+      // A botnet can rotate IPs while repeatedly targeting the same domain.
+      // Keep a second fail-closed ceiling on the normalized target itself.
+      const domainLimited = await consumeApiRateLimit(
+        env,
+        [{ scope: "domain", scope_id: await rateLimitScopeId("freescan-domain", domain) }],
+        "free_scan_domain",
+        3,
+        3600,
+        { failClosed: true, atomic: true },
+      );
+      if (domainLimited) {
+        return json({
+          error: "This domain has already been checked recently. Please wait an hour before trying again.",
           code: "rate_limit_exceeded",
         }, 429);
       }
@@ -112,7 +137,7 @@ export async function billingRoutes(rctx) {
         "free_scan_global",
         FREE_SCAN_GLOBAL_HOURLY_CAP,
         3600,
-        { failClosed: true },
+        { failClosed: true, atomic: true },
       );
       if (globalLimited) {
         return json({
@@ -121,66 +146,103 @@ export async function billingRoutes(rctx) {
         }, 429);
       }
 
-      // Run 4 core modules in parallel — no subdomains, no brute-force, no tech, no WHOIS
+      // One invocation owns one physical counter and one wall-clock deadline.
+      // The six modules share DNS/CT caches. Deep fan-out modules are never
+      // launched anonymously; the public projection says so explicitly.
       const scannedAt = new Date().toISOString();
-      const [dnsR, sslR, headersR, emailR] = await Promise.allSettled([
-        freeScanModuleRunners.dns(domain),
-        freeScanModuleRunners.ssl(domain),
-        freeScanModuleRunners.headers(domain),
-        freeScanModuleRunners.email_security(domain),
-      ]);
+      const physicalCounter = new PhysicalSubrequestCounter({
+        limit: FREE_SCAN_SUBREQUEST_LIMIT,
+        safetyMargin: 0,
+      });
+      const deadlineStartedAt = Date.now();
+      const remainingMs = () => Math.max(
+        0,
+        FREE_SCAN_DEADLINE_MS - (Date.now() - deadlineStartedAt),
+      );
+      const deadline = new AbortController();
+      const deadlineTimer = setTimeout(
+        () => deadline.abort("free_scan_deadline_exhausted"),
+        FREE_SCAN_DEADLINE_MS,
+      );
+      const dnsCache = makeDnsCache();
+      const safetyDnsCache = new InFlightOnlyDnsCache();
+      const accountingFor = (module) =>
+        physicalCounter.contextFor(`free_preview_${module}`, { signal: deadline.signal });
 
-      const freeScanEvidence = buildFreeScanEvidence({
-        dns: dnsR,
-        ssl: sslR,
-        headers: headersR,
-        email_security: emailR,
+      // The public route is fail-closed on DNS uncertainty. Evidence consumers
+      // share the stable snapshot cache; target HTTP sinks share only in-flight
+      // safety questions, so every later redirect hop re-resolves the hostname.
+      let targetResolution;
+      try {
+        targetResolution = await resolvePublicDnsTarget(domain, freeScanDnsQuery, {
+          cache: safetyDnsCache,
+          accounting: accountingFor("ssrf"),
+          signal: deadline.signal,
+        });
+      } catch {
+        clearTimeout(deadlineTimer);
+        return json({
+          error: "Public DNS verification could not complete. Please try again shortly.",
+          code: "target_verification_unavailable",
+        }, 503);
+      }
+      if (targetResolution.state !== STRICT_DNS_STATES.PUBLIC) {
+        clearTimeout(deadlineTimer);
+        if (targetResolution.state === STRICT_DNS_STATES.BLOCKED) {
+          return json({ error: "That domain cannot be scanned" }, 400);
+        }
+        return json({
+          error: "Public DNS verification could not complete. Please try again shortly.",
+          code: "target_verification_unavailable",
+        }, 503);
+      }
+
+      const ctCache = createCertificateTransparencyCache({
+        accounting: physicalCounter.contextFor("free_preview_ct", { signal: deadline.signal }),
+        signal: deadline.signal,
+        remainingMs,
       });
 
-      const modules = {
-        ...freeScanEvidence.modules,
-        // Explicit opt-outs keep the existing scoring engine from launching or
-        // inferring modules that the four-module preview never attempted.
-        subdomains:        { count: 0, items: [] },
-        subdomain_takeover:{ risks: [] },
-        asset_exposure:    { assets: [] },
-        technology_detection: {},
-        whois_intelligence:   {},
-        dns_bruteforce:       { items: [] },
-        brand_monitoring:     null, // opt-out: brand findings not applicable to quick domain preview
-      };
-
-      const { findings } = computeScore(modules, domain);
-      // A reliable sibling may still publish a finding when another module
-      // fails. Findings from failed/incomplete/unavailable modules themselves
-      // are suppressed; those outcomes describe missing evidence, not absence.
-      const eligibleFindings = filterFreeScanFindings(
-        findings,
-        freeScanEvidence.module_evidence,
-      );
-      const calculatedScore = Math.max(
-        0,
-        Math.min(
-          100,
-          100 + eligibleFindings.reduce(
-            (total, finding) => total + (Number(finding?.score_impact) || 0),
-            0,
-          ),
-        ),
-      );
-      const normalised = eligibleFindings.map(normalizeFindingSchema);
-
-      // Sort by severity weight — critical first
-      const SEV_WEIGHT = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
-      normalised.sort((a, b) =>
-        (SEV_WEIGHT[a.severity] ?? 5) - (SEV_WEIGHT[b.severity] ?? 5)
-      );
-
-      // Count by severity
-      const severity_counts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
-      for (const f of normalised) {
-        if (severity_counts[f.severity] !== undefined) severity_counts[f.severity]++;
+      let settlements;
+      try {
+        const [dnsR, sslR, headersR, emailR, subdomainsR, technologyR] =
+          await Promise.allSettled([
+            freeScanModuleRunners.dns(domain, {
+              accounting: accountingFor("dns"), signal: deadline.signal, cache: dnsCache,
+            }),
+            freeScanModuleRunners.ssl(domain, {
+              accounting: accountingFor("ssl"), signal: deadline.signal, ctCache,
+              dnsResolver: freeScanDnsQuery, dnsCache: safetyDnsCache,
+            }),
+            freeScanModuleRunners.headers(domain, {
+              accounting: accountingFor("headers"), signal: deadline.signal,
+              remainingMs, dnsResolver: freeScanDnsQuery, dnsCache: safetyDnsCache,
+            }),
+            freeScanModuleRunners.email_security(domain, {
+              accounting: accountingFor("email"), signal: deadline.signal, cache: dnsCache,
+            }),
+            freeScanModuleRunners.subdomains(domain, {
+              accounting: accountingFor("subdomains"), signal: deadline.signal,
+              cache: dnsCache, ctCache,
+            }),
+            freeScanModuleRunners.technology_detection(domain, {
+              accounting: accountingFor("technology"), signal: deadline.signal,
+              dnsResolver: freeScanDnsQuery, dnsCache: safetyDnsCache,
+            }),
+          ]);
+        settlements = {
+          dns: dnsR,
+          ssl: sslR,
+          headers: headersR,
+          email_security: emailR,
+          subdomains: subdomainsR,
+          technology_detection: technologyR,
+        };
+      } finally {
+        clearTimeout(deadlineTimer);
       }
+
+      const freeScanEvidence = buildFreeScanEvidence(settlements);
 
       // Academy slug mapping — same logic as frontend getAcademyArticleForFinding
       // We resolve it server-side so the API response is self-contained.
@@ -223,50 +285,13 @@ export async function billingRoutes(rctx) {
         return null;
       }
 
-      // Build preview_findings — top 5, limited fields, no evidence/remediation
-      const PREVIEW_LIMIT = 5;
-      const preview_findings = normalised.slice(0, PREVIEW_LIMIT).map(f => ({
-        id:          f.id,
-        title:       f.title,
-        severity:    f.severity,
-        description: f.description,
-        academy_slug: resolveAcademySlug(f.id),
-      }));
-
-      const previewState = resolveFreeScanPreviewState({
-        findingsCount: normalised.length,
-        coverage: freeScanEvidence.evidence_coverage,
-        moduleEvidence: freeScanEvidence.module_evidence,
-      });
-      const evidenceComplete =
-        freeScanEvidence.evidence_coverage.complete === true &&
-        freeScanEvidence.module_evidence.every(
-          (entry) => entry.state === FREE_SCAN_MODULE_STATES.COMPLETED,
-        );
-      const scorePresentation = resolveAssessmentPresentation({
-        score: calculatedScore,
-        scanQuality: evidenceComplete ? "complete" : "partial",
-        status: "completed",
-      });
-
-      return json({
+      return json(buildFreeScanPreview({
         domain,
-        // Null on any incomplete coverage: even a numerically clean subset must
-        // not become a public score or risk grade.
-        score:            evidenceComplete ? scorePresentation.display_score : null,
-        risk_level:       evidenceComplete ? scorePresentation.display_rating : null,
-        severity_counts,
-        total_findings:   normalised.length,
-        preview_findings,
-        hidden_count:     Math.max(0, normalised.length - PREVIEW_LIMIT),
-        modules_attempted: freeScanEvidence.modules_attempted,
-        modules_scanned:   freeScanEvidence.modules_scanned,
-        module_evidence:   freeScanEvidence.module_evidence,
-        monitoring_states: freeScanEvidence.monitoring_states,
-        evidence_coverage: freeScanEvidence.evidence_coverage,
-        preview_state:     previewState,
-        scanned_at:       scannedAt,
-      });
+        scannedAt,
+        freeScanEvidence,
+        resolveAcademySlug,
+        execution: physicalCounter.snapshot(),
+      }));
     }
 
     // ── GET /api/workspaces/:id/subscription ─────────────────────────────────

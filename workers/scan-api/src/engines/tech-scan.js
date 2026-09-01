@@ -28,6 +28,9 @@ export async function runTechModule(domain, opts = {}) {
       method:   "GET",
       redirect: "follow",
       accounting,
+      signal: opts.signal,
+      dnsResolver: opts.dnsResolver,
+      dnsCache: opts.dnsCache,
     });
     if (res) {
       // Read first 4 KB of body — enough for <script src> / vite markers in <head>

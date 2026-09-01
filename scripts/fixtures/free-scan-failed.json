@@ -65,6 +65,26 @@
           "selectors_probed": ["selector1"]
         }
       }
+    },
+    "subdomains": {
+      "kind": "fulfilled",
+      "value": {
+        "count": 2,
+        "items": ["app.example.com", "mail.example.com"],
+        "sensitive": [],
+        "sources": {
+          "crt_sh": { "count": 2, "error": null },
+          "certspotter": { "count": 2, "error": null }
+        }
+      }
+    },
+    "technology_detection": {
+      "kind": "fulfilled",
+      "value": {
+        "status_code": 200,
+        "technologies": ["Example CMS"],
+        "external_scripts": []
+      }
     }
   }
 }

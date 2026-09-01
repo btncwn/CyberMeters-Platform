@@ -18,7 +18,7 @@
       "package_version": "1.0.0",
       "package_json_sha256": "71dfe83aeeaa99ff3907bca8f8c7adc2c5df2e3c6a00264e01beaccc48842c86",
       "lockfile_version": 3,
-      "lockfile_sha256": "b2ee51c078762ec82aafe5d59ffb5e41a7d122607f83f44c28de5d8fae44a6df",
+      "lockfile_sha256": "488a49801e2cc1b93d16801e61babaa21b8c6f4d52c24d6d135db09e7f0cb971",
       "install_script_markers": [
         {
           "package_path": "node_modules/esbuild",

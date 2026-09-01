@@ -241,6 +241,12 @@ function inspectDnsPacket(packet, family) {
   }
   const expectedType = family === "AAAA" ? 28 : 1;
   const addresses = [];
+  // A successful empty answer is authoritative NODATA for this family. It is
+  // safe only when the sibling family supplies at least one public terminal;
+  // the caller keeps both-families-empty fail-closed.
+  if (packet.Answer.length === 0) {
+    return { ok: true, reason: null, nodata: true, addresses: [] };
+  }
   for (const answer of packet.Answer) {
     if (!answer || typeof answer !== "object" || !Number.isInteger(answer.type)
         || typeof answer.data !== "string") {
@@ -262,12 +268,13 @@ function inspectDnsPacket(packet, family) {
   if (addresses.length === 0) {
     return { ok: false, reason: "no_terminal_address", addresses: [] };
   }
-  return { ok: true, reason: null, addresses };
+  return { ok: true, reason: null, nodata: false, addresses };
 }
 
 // Resolve both address families and classify the target without ever treating
-// absence or uncertainty as public. A and AAAA each need a successful terminal
-// address, and every terminal address must be globally public.
+// uncertainty as public. Each family needs a valid DNS response; one family may
+// be authoritative NODATA when the sibling has a public terminal. Every terminal
+// address must be globally public, and both-families-NODATA remains unavailable.
 export async function resolvePublicDnsTarget(domain, dnsQuery, opts = {}) {
   const host = String(domain || "").trim().toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
   const literal = parseIp(host);
@@ -315,6 +322,14 @@ export async function resolvePublicDnsTarget(domain, dnsQuery, opts = {}) {
     return {
       state: STRICT_DNS_STATES.UNAVAILABLE,
       reason: !a.ok ? a.reason : aaaa.reason,
+      literal: false,
+      addresses: [],
+    };
+  }
+  if (knownAddresses.length === 0) {
+    return {
+      state: STRICT_DNS_STATES.UNAVAILABLE,
+      reason: "no_terminal_address",
       literal: false,
       addresses: [],
     };

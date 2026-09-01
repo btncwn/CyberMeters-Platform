@@ -120,11 +120,40 @@ const mutants = [
     expected: "F041_RESOLVER_ERROR_WITH_PUBLIC_BLOCKS",
   },
   {
-    id: "M_EMPTY_ALLOW",
+    id: "M_BOTH_NODATA_ALLOW",
     file: "workers/scan-api/src/lib/ssrf.js",
-    before: "  if (addresses.length === 0) {",
-    after: "  if (addresses.length < 0) {",
-    expected: "F041_EMPTY_TERMINAL_BLOCKS",
+    before: "  if (knownAddresses.length === 0) {",
+    after: "  if (knownAddresses.length < 0) {",
+    expected: "F041_BOTH_NODATA_UNAVAILABLE",
+  },
+  {
+    id: "M_SINGLE_FAMILY_NODATA_DENY",
+    file: "workers/scan-api/src/lib/ssrf.js",
+    before: "  if (knownAddresses.length === 0) {",
+    after: "  if (a.nodata || aaaa.nodata) {\n    return { state: STRICT_DNS_STATES.UNAVAILABLE, reason: \"no_terminal_address\", literal: false, addresses: [] };\n  }\n  if (knownAddresses.length === 0) {",
+    expected: "F041_A_NODATA_PUBLIC_AAAA_PUBLIC",
+  },
+  {
+    id: "M_NODATA_DILUTES_PRIVATE",
+    file: "workers/scan-api/src/lib/ssrf.js",
+    before: "  if (knownAddresses.some((address) => !address.public)) {",
+    after: "  if (knownAddresses.some((address) => !address.public) && !a.nodata && !aaaa.nodata) {",
+    expected: "F041_NODATA_PRIVATE_SIBLING_BLOCKED",
+  },
+  {
+    id: "M_NODATA_UNCERTAINTY_ALLOW",
+    file: "workers/scan-api/src/lib/ssrf.js",
+    edits: [
+      {
+        before: "  if (!a.ok || !aaaa.ok) {",
+        after: "  if ((!a.ok && !aaaa.nodata) || (!aaaa.ok && !a.nodata)) {",
+      },
+      {
+        before: "  if (knownAddresses.length === 0) {",
+        after: "  if (knownAddresses.length < 0) {",
+      },
+    ],
+    expected: "F041_NODATA_MALFORMED_SIBLING_UNAVAILABLE",
   },
   {
     id: "M_FIRST_HOP_ONLY",

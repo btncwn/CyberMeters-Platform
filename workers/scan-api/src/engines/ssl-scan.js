@@ -239,6 +239,9 @@ export async function runSslModule(domain, opts = {}) {
     method: "HEAD",
     redirect: "manual",
     accounting,
+    dnsResolver: opts.dnsResolver,
+    dnsCache: opts.dnsCache,
+    signal: opts.signal,
   });
   subOpFinish(bareSubOp, httpsRes);
   // ONE shared classifier decides what this fetch observed (lib/fetch-observation.js).
@@ -261,6 +264,9 @@ export async function runSslModule(domain, opts = {}) {
       method: "HEAD",
       redirect: "manual",
       accounting,
+      dnsResolver: opts.dnsResolver,
+      dnsCache: opts.dnsCache,
+      signal: opts.signal,
     });
     subOpFinish(wwwSubOp, wwwRes);
     wwwObservation = classifyFetchObservation({ response: wwwRes });
@@ -323,7 +329,10 @@ export async function runSslModule(domain, opts = {}) {
   // (e.g. http://google.com → 301 → http://www.google.com → 301 → https://www.google.com).
   const httpOrigUrl = `http://${domain}`;
   const hop1SubOp = subOpBegin("http_redirect_hop_1");
-  const httpRes = await safeFetch(httpOrigUrl, { method: "HEAD", redirect: "manual", accounting });
+  const httpRes = await safeFetch(httpOrigUrl, {
+    method: "HEAD", redirect: "manual", accounting,
+    dnsResolver: opts.dnsResolver, dnsCache: opts.dnsCache, signal: opts.signal,
+  });
   subOpFinish(hop1SubOp, httpRes);
   let httpRedirectsToHttps = false;
 
@@ -396,7 +405,10 @@ export async function runSslModule(domain, opts = {}) {
         // error has not been observed to reach HTTPS, and must not be read as one
         // that has.
         const hop2SubOp = subOpBegin("http_redirect_hop_2");
-        const hop2 = await safeFetch(loc1, { method: "HEAD", redirect: "manual", accounting });
+        const hop2 = await safeFetch(loc1, {
+          method: "HEAD", redirect: "manual", accounting,
+          dnsResolver: opts.dnsResolver, dnsCache: opts.dnsCache, signal: opts.signal,
+        });
         subOpFinish(hop2SubOp, hop2);
         const hop2Observation = classifyFetchObservation({ response: hop2 });
         redirectHops.push({

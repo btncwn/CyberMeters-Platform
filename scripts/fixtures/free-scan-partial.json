@@ -70,6 +70,27 @@
           "selectors_probed": ["selector1"]
         }
       }
+    },
+    "subdomains": {
+      "kind": "fulfilled",
+      "value": {
+        "count": 1,
+        "items": ["app.example.com"],
+        "sensitive": [],
+        "sources": {
+          "crt_sh": { "count": 1, "error": null },
+          "certspotter": { "count": 1, "error": null }
+        }
+      }
+    },
+    "technology_detection": {
+      "kind": "fulfilled",
+      "value": {
+        "status_code": 403,
+        "validation_uncertain": true,
+        "technologies": [],
+        "external_scripts": []
+      }
     }
   }
 }

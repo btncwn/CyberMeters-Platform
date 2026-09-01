@@ -368,6 +368,8 @@ export async function runHeadersModule(domain, opts = {}) {
       redirect: "follow",
       accounting,
       signal: opts.signal,
+      dnsResolver: opts.dnsResolver,
+      dnsCache: opts.dnsCache,
       ...HEADER_PROBE_INIT,
     });
     subOpFinish(getSubOp, getRes);
@@ -492,6 +494,8 @@ export async function runHeadersModule(domain, opts = {}) {
           redirect: "follow",
           accounting,
           signal: opts.signal,
+          dnsResolver: opts.dnsResolver,
+          dnsCache: opts.dnsCache,
           ...HEADER_PROBE_INIT,
         });
         subOpFinish(headSubOp, headRes);
@@ -529,6 +533,8 @@ export async function runHeadersModule(domain, opts = {}) {
           redirect: "follow",
           accounting,
           signal: opts.signal,
+          dnsResolver: opts.dnsResolver,
+          dnsCache: opts.dnsCache,
           ...HEADER_PROBE_INIT,
         });
         subOpFinish(wwwSubOp, wwwRes);

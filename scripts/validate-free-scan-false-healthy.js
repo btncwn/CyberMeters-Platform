@@ -100,7 +100,7 @@ globalThis.fetch = async (input) => {
     Status: 0,
     Answer: type === "A"
       ? [{ name: "example.com", type: 1, data: "93.184.216.34" }]
-      : [],
+      : [{ name: "example.com", type: 28, data: "2606:2800:220:1:248:1893:25c8:1946" }],
   });
 };
 
@@ -146,7 +146,7 @@ try {
   const allProbesFailed = await runRouteFixture(readFixture("all-probes-failed"));
   eq("ALL-PROBES-FAILED fixture: real route returns 200",
     allProbesFailed.status, 200);
-  eq("ALL-PROBES-FAILED fixture: all four modules remain non-complete",
+  eq("ALL-PROBES-FAILED fixture: all six modules remain non-complete",
     allProbesFailed.body.module_evidence.every(
       (entry) => ["failed", "unavailable", "incomplete"].includes(entry.state),
     ), true);
@@ -185,17 +185,81 @@ try {
     },
   };
   const completeRoute = await runRouteFixture(completeFixture);
-  eq("COMPLETE control: all four modules are scanned",
-    completeRoute.body.modules_scanned.length, 4);
+  eq("COMPLETE control: all six bounded modules are scanned",
+    completeRoute.body.modules_scanned.length, 6);
   eq("COMPLETE control: explicit coverage is complete",
     completeRoute.body.evidence_coverage.complete, true);
-  eq("COMPLETE control: zero findings gets the bounded no-issues state",
-    completeRoute.body.preview_state, "no_issues_observed");
+  eq("COMPLETE control: deep opt-outs keep the whole-MOT conclusion incomplete",
+    completeRoute.body.preview_state, "evidence_incomplete");
   const completeUi = deriveFreeScanPresentation(completeRoute.body);
-  eq("COMPLETE route→UI: wording remains limited to completed preview checks",
-    completeUi.headline, "No issues observed in the completed preview checks");
-  ok("COMPLETE route→UI: UI identifies the bounded score as displayable",
-    completeUi.showScore);
+  eq("COMPLETE route→UI: wording remains evidence-incomplete",
+    completeUi.headline, "Evidence incomplete");
+  ok("COMPLETE route→UI: UI suppresses a whole-MOT score",
+    !completeUi.showScore);
+  eq("COMPLETE route: exactly eight canonical cards are projected",
+    completeRoute.body.cyber_mot_domains.length, 8);
+  ok("COMPLETE route: deep cards never fabricate counts",
+    completeRoute.body.cyber_mot_domains
+      .filter((entry) => ["brand_protection", "cyber_essentials_readiness"].includes(entry.domain_key))
+      .every((entry) => entry.headline_count === null));
+  ok("COMPLETE route: non-finding deep domains are input_required in the API contract",
+    completeRoute.body.cyber_mot_domains
+      .filter((entry) => entry.unlock_required && entry.state !== "issue_detected")
+      .every((entry) =>
+        entry.state === "customer_input_required" && entry.display_state === "input_required"
+      ));
+  ok("COMPLETE route: anonymous response omits raw module payloads",
+    !Object.hasOwn(completeRoute.body, "modules"));
+  ok("COMPLETE route: anonymous response omits the full findings collection",
+    !Object.hasOwn(completeRoute.body, "findings"));
+  ok("COMPLETE route: global highlighted findings stay bounded to two",
+    completeRoute.body.shown_findings.length <= 2);
+  const exposedFindingIds = new Set([
+    ...completeRoute.body.shown_findings.map((finding) => finding.id),
+    ...completeRoute.body.cyber_mot_domains.flatMap((domainEntry) =>
+      domainEntry.samples
+        .filter((sample) => sample.kind === "finding")
+        .map((sample) => sample.id)
+    ),
+  ]);
+  eq("COMPLETE route: exposed finding count is derived from actual public detail",
+    completeRoute.body.exposed_finding_count, exposedFindingIds.size);
+  eq("COMPLETE route: locked_count equals actual total minus exposed",
+    completeRoute.body.locked_count,
+    completeRoute.body.total_findings - completeRoute.body.exposed_finding_count);
+  ok("COMPLETE route: per-domain locked counts are exact",
+    completeRoute.body.cyber_mot_domains.every((entry) =>
+      !Number.isFinite(entry.headline_count) ||
+      entry.locked_count === Math.max(0, entry.headline_count - entry.samples.length)
+    ));
+
+  const websiteCard = partial.body.cyber_mot_domains.find(
+    (entry) => entry.domain_key === "website_security",
+  );
+  ok("WAF/edge-uncertain headers never become Website assessed_healthy",
+    websiteCard?.state !== "assessed_healthy" &&
+    websiteCard?.display_state !== "assessed_healthy");
+
+  const skippedEmailFixture = structuredClone(completeFixture);
+  skippedEmailFixture.module_outcomes.email_security = {
+    kind: "fulfilled",
+    value: { skipped: true, incomplete: true, reason: "preview_provider_unavailable" },
+  };
+  const skippedEmail = await runRouteFixture(skippedEmailFixture);
+  eq("SKIPPED-EMAIL fixture: Email remains incomplete",
+    skippedEmail.body.module_evidence.find(
+      (entry) => entry.module === "email_security",
+    )?.state, "incomplete");
+  const skippedEmailFindingIds = [
+    ...skippedEmail.body.shown_findings.map((finding) => finding.id),
+    ...skippedEmail.body.cyber_mot_domains.flatMap((domainEntry) =>
+      domainEntry.samples
+        .filter((sample) => sample.kind === "finding")
+        .map((sample) => sample.id)
+    ),
+  ];
+  ok("SKIPPED-EMAIL fixture: no SPF/DKIM finding is fabricated",
+    skippedEmailFindingIds.every((id) => !/(spf|dkim)/i.test(String(id))));
 
   const distinct = buildFreeScanEvidence({
     dns: { status: "pending" },
@@ -209,6 +273,8 @@ try {
         dmarc_state: { evidence_status: "observed" },
       },
     },
+    subdomains: { status: "fulfilled", value: { count: 0, items: [] } },
+    technology_detection: { status: "fulfilled", value: { technologies: [] } },
   });
   eq("attempted remains distinct", distinct.module_evidence[0].state,
     FREE_SCAN_MODULE_STATES.ATTEMPTED);
@@ -238,6 +304,8 @@ try {
         dmarc_state: { evidence_status: "unavailable" },
       },
     },
+    subdomains: { status: "fulfilled", value: { count: 0, items: [] } },
+    technology_detection: { status: "fulfilled", value: { technologies: [] } },
   });
   eq("fulfilled email wrapper does not hide total probe unavailability",
     emailUnavailable.module_evidence[3].state, "unavailable");
@@ -259,6 +327,8 @@ try {
     ssl: { status: "fulfilled", value: {} },
     headers: { status: "fulfilled", value: {} },
     email_security: { status: "fulfilled", value: mixedEmailValue },
+    subdomains: { status: "fulfilled", value: { count: 0, items: [] } },
+    technology_detection: { status: "fulfilled", value: { technologies: [] } },
   });
   eq("mixed email probe outcomes remain partial",
     emailPartial.module_evidence[3].state, "partial");
@@ -277,8 +347,10 @@ try {
         dmarc_state: { evidence_status: "observed" },
       },
     },
+    subdomains: { status: "fulfilled", value: { count: 0, items: [] } },
+    technology_detection: { status: "fulfilled", value: { technologies: [] } },
   });
-  eq("zero findings becomes no-issues only when all four modules completed",
+  eq("zero findings becomes no-issues only when all six bounded modules completed",
     resolveFreeScanPreviewState({
       findingsCount: 0,
       coverage: complete.evidence_coverage,

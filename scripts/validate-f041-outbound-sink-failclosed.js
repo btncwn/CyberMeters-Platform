@@ -167,8 +167,42 @@ if (typeof ssrf.resolvePublicDnsTarget === "function") {
     : Promise.resolve(dnsPacket(type, [PUBLIC_A])));
   eq("F041_RESOLVER_ERROR_WITH_PUBLIC_BLOCKS", oneError?.state, "unavailable");
 
+  const aNodata = await callStrict("public.example", (name, type) => Promise.resolve(
+    dnsPacket(type, type === "A" ? [] : [PUBLIC_AAAA]),
+  ));
+  eq("F041_A_NODATA_PUBLIC_AAAA_PUBLIC", aNodata?.state, "public");
+
+  const aaaaNodata = await callStrict("public.example", (name, type) => Promise.resolve(
+    dnsPacket(type, type === "AAAA" ? [] : [PUBLIC_A]),
+  ));
+  eq("F041_AAAA_NODATA_PUBLIC_A_PUBLIC", aaaaNodata?.state, "public");
+
+  const nodataAndPrivate = await callStrict("public.example", (name, type) => Promise.resolve(
+    dnsPacket(type, type === "A" ? [] : [PRIVATE_AAAA]),
+  ));
+  eq("F041_NODATA_PRIVATE_SIBLING_BLOCKED", nodataAndPrivate?.state, "blocked");
+
+  const nodataAndError = await callStrict("public.example", (name, type) => type === "AAAA"
+    ? Promise.reject(new TypeError("resolver offline"))
+    : Promise.resolve(dnsPacket(type, [])));
+  eq("F041_NODATA_REJECTED_SIBLING_UNAVAILABLE", nodataAndError?.state, "unavailable");
+
+  const nodataAndMalformed = await callStrict("public.example", (name, type) => Promise.resolve(
+    type === "A"
+      ? dnsPacket(type, [])
+      : { Status: 0, Answer: [{ type: 28, data: "not-an-ip" }] },
+  ));
+  eq("F041_NODATA_MALFORMED_SIBLING_UNAVAILABLE", nodataAndMalformed?.state, "unavailable");
+
+  const nodataAndTruncated = await callStrict("public.example", (name, type) => Promise.resolve(
+    type === "A"
+      ? dnsPacket(type, [])
+      : { ...dnsPacket(type, [PUBLIC_AAAA]), TC: true },
+  ));
+  eq("F041_NODATA_TRUNCATED_SIBLING_UNAVAILABLE", nodataAndTruncated?.state, "unavailable");
+
   const empty = await callStrict("public.example", (name, type) => Promise.resolve(dnsPacket(type, [])));
-  eq("F041_EMPTY_TERMINAL_BLOCKS", empty?.state, "unavailable");
+  eq("F041_BOTH_NODATA_UNAVAILABLE", empty?.state, "unavailable");
 
   const truncated = await callStrict("public.example", (name, type) => Promise.resolve({
     ...dnsPacket(type, [type === "AAAA" ? PUBLIC_AAAA : PUBLIC_A]),

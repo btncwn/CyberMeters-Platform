@@ -43,11 +43,11 @@ describe('PublicLandingPage', () => {
     expect(ctas.length).toBeGreaterThanOrEqual(3) // nav + hero + final CTA
   })
 
-  it('describes the free scan as a four-check preview, not all-eight-domain coverage', () => {
+  it('describes the free scan as a bounded eight-domain snapshot with verified deep access', () => {
     renderLanding()
-    expect(screen.getByText(/This four-check preview is not the full eight-domain Cyber MOT/i)).toBeInTheDocument()
-    expect(screen.getByText(/free four-check website and email preview in under two minutes/i)).toBeInTheDocument()
-    expect(screen.getByText(/This is not the managed eight-domain posture/i)).toBeInTheDocument()
+    expect(screen.getByText(/bounded, honest snapshot of all eight/i)).toBeInTheDocument()
+    expect(screen.getByText(/bounded, non-persistent snapshot across all eight Cyber MOT domains/i)).toBeInTheDocument()
+    expect(screen.getByText(/Deep findings, remediation, PDF and monitoring unlock only after account and domain verification/i)).toBeInTheDocument()
     expect(screen.getByText(/managed Cyber MOT journey builds one posture across eight domains/i)).toBeInTheDocument()
     expect(screen.queryByText(/See your real posture across all eight domains in two minutes/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/run your Cyber MOT.*under two minutes/i)).not.toBeInTheDocument()
