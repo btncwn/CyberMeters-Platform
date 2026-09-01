@@ -148,6 +148,11 @@ export async function billingRoutes(rctx) {
         limit: FREE_SCAN_SUBREQUEST_LIMIT,
         safetyMargin: 0,
       });
+      const deadlineStartedAt = Date.now();
+      const remainingMs = () => Math.max(
+        0,
+        FREE_SCAN_DEADLINE_MS - (Date.now() - deadlineStartedAt),
+      );
       const deadline = new AbortController();
       const deadlineTimer = setTimeout(
         () => deadline.abort("free_scan_deadline_exhausted"),
@@ -157,7 +162,7 @@ export async function billingRoutes(rctx) {
       const ctCache = createCertificateTransparencyCache({
         accounting: physicalCounter.contextFor("free_preview_ct", { signal: deadline.signal }),
         signal: deadline.signal,
-        remainingMs: () => deadline.signal.aborted ? 0 : FREE_SCAN_DEADLINE_MS,
+        remainingMs,
       });
       const accountingFor = (module) =>
         physicalCounter.contextFor(`free_preview_${module}`, { signal: deadline.signal });
@@ -174,7 +179,7 @@ export async function billingRoutes(rctx) {
             }),
             freeScanModuleRunners.headers(domain, {
               accounting: accountingFor("headers"), signal: deadline.signal,
-              remainingMs: FREE_SCAN_DEADLINE_MS,
+              remainingMs,
             }),
             freeScanModuleRunners.email_security(domain, {
               accounting: accountingFor("email"), signal: deadline.signal, cache: dnsCache,

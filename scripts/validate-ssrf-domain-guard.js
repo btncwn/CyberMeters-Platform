@@ -129,6 +129,7 @@ const safeModuleResults = {
 
 async function runDirectPreview({ denyOperation = null, privateAnswer = false } = {}) {
   const rateCalls = [];
+  const moduleOptions = {};
   let moduleCalls = 0;
   let storageTouches = 0;
   const forbiddenStorage = new Proxy({}, {
@@ -170,7 +171,11 @@ async function runDirectPreview({ denyOperation = null, privateAnswer = false } 
     freeScanModuleRunners: Object.fromEntries(
       Object.entries(safeModuleResults).map(([module, value]) => [
         module,
-        async () => { moduleCalls += 1; return structuredClone(value); },
+        async (_domain, options) => {
+          moduleCalls += 1;
+          moduleOptions[module] = options;
+          return structuredClone(value);
+        },
       ]),
     ),
   });
@@ -179,6 +184,7 @@ async function runDirectPreview({ denyOperation = null, privateAnswer = false } 
     body: await response.json(),
     rateCalls,
     moduleCalls,
+    moduleOptions,
     storageTouches,
   };
 }
@@ -210,6 +216,17 @@ eq("allowed preview returns persistence:none", allowedPreview.body.persistence, 
 eq("allowed preview touches no D1/R2 scan/report persistence", allowedPreview.storageTouches, 0);
 eq("allowed preview returns exactly eight domain cards",
   allowedPreview.body.cyber_mot_domains?.length, 8);
+ok("headers receives a live remaining-time carrier",
+  typeof allowedPreview.moduleOptions.headers?.remainingMs === "function");
+const initialRemainingMs = allowedPreview.moduleOptions.headers?.remainingMs?.();
+ok("remaining-time carrier is bounded by the public 20s deadline",
+  Number.isFinite(initialRemainingMs) && initialRemainingMs >= 0 && initialRemainingMs <= 20_000);
+eq("DNS and email share one per-snapshot DNS cache",
+  allowedPreview.moduleOptions.dns?.cache,
+  allowedPreview.moduleOptions.email_security?.cache);
+eq("TLS and subdomains share one per-snapshot CT cache",
+  allowedPreview.moduleOptions.ssl?.ctCache,
+  allowedPreview.moduleOptions.subdomains?.ctCache);
 
 console.log(`\nSSRF domain guard: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("ssrf-domain-guard validation FAILED"); process.exit(1); }
