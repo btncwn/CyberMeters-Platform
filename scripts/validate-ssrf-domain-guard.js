@@ -16,9 +16,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { isValidDomain } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "util.js")).href);
+const { billingRoutes } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "routes", "billing.js")).href);
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAIL " + name); };
+const eq = (name, actual, expected) =>
+  ok(name, actual === expected);
 
 // ── 1. Unit: the domain gate rejects every SSRF target class ─────────────────
 const SSRF_TARGETS = [
@@ -76,6 +79,137 @@ for (const t of ["169.254.169.254", "localhost", "http://127.0.0.1/", "file:///e
   const r = await freeScan(t);
   ok(`free-scan rejects SSRF target ${t} with 4xx (no scan started)`, r.status >= 400 && r.status < 500);
 }
+
+// ── 3. Public preview guardrails: rebinding, fail-closed throttle, no storage ─
+const safeModuleResults = {
+  dns: {
+    resolves: true,
+    resolves_any: true,
+    resolution_assessed: true,
+    has_mx: true,
+    cross_checks: { resolver_agreement_score: 100 },
+    dnssec: {
+      errors: { ds: null, dnskey: null, rrsig: null },
+      ds: { present: true },
+      dnskey: { present: true },
+      rrsig: { present: true },
+    },
+  },
+  ssl: {
+    https_available: true,
+    https_probe_executed: true,
+    http_redirects_to_https: true,
+    http_redirect_chain: { http_redirect_validated: true },
+  },
+  headers: {
+    accessible: true,
+    headers_assessed: true,
+    status_code: 200,
+    final_https: true,
+    values: {
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "content-security-policy": "default-src 'self'",
+      "x-frame-options": "DENY",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "strict-origin",
+      "permissions-policy": "camera=(), microphone=()",
+    },
+  },
+  email_security: {
+    spf_evidence_status: "observed",
+    dkim_evidence_status: "observed",
+    dmarc_state: { evidence_status: "observed" },
+    spf: { present: true },
+    dkim: { present: true, selectors_probed: ["selector1"] },
+    dmarc: { present: true, policy: "reject", record: "v=DMARC1; p=reject" },
+  },
+  subdomains: { count: 0, items: [], sensitive: [], sources: {} },
+  technology_detection: { status_code: 200, technologies: [], external_scripts: [] },
+};
+
+async function runDirectPreview({ denyOperation = null, privateAnswer = false } = {}) {
+  const rateCalls = [];
+  let moduleCalls = 0;
+  let storageTouches = 0;
+  const forbiddenStorage = new Proxy({}, {
+    get() {
+      storageTouches += 1;
+      throw new Error("anonymous preview attempted persistent storage access");
+    },
+  });
+  const directEnv = {
+    cybermeters_db: forbiddenStorage,
+    cybermeters_reports: forbiddenStorage,
+  };
+  const directRequest = new Request("https://app.cybermeters.com/api/free-scan", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "CF-Connecting-IP": "198.51.100.42",
+    },
+    body: JSON.stringify({ domain: "example.com" }),
+  });
+  const response = await billingRoutes({
+    request: directRequest,
+    url: new URL(directRequest.url),
+    env: directEnv,
+    json: (body, status = 200) => Response.json(body, { status }),
+    serverError: (_area, error) => Response.json({ error: error?.message }, { status: 500 }),
+    requireAuth: async () => null,
+    requireWorkspaceRole: async () => null,
+    rateLimitScopeId: async (kind, value) => `${kind}:${value}`,
+    consumeApiRateLimit: async (_env, scopes, operation, limit, windowSeconds, options) => {
+      rateCalls.push({ scopes, operation, limit, windowSeconds, options });
+      return operation === denyOperation ? { limited: true } : null;
+    },
+    freeScanDnsQuery: async (_domain, type) => ({
+      Answer: type === "A"
+        ? [{ data: privateAnswer ? "10.0.0.9" : "8.8.8.8" }]
+        : [],
+    }),
+    freeScanModuleRunners: Object.fromEntries(
+      Object.entries(safeModuleResults).map(([module, value]) => [
+        module,
+        async () => { moduleCalls += 1; return structuredClone(value); },
+      ]),
+    ),
+  });
+  return {
+    status: response.status,
+    body: await response.json(),
+    rateCalls,
+    moduleCalls,
+    storageTouches,
+  };
+}
+
+const rebound = await runDirectPreview({ privateAnswer: true });
+eq("DNS-answer rebinding target is refused", rebound.status, 400);
+eq("DNS-answer rebinding target launches zero modules", rebound.moduleCalls, 0);
+eq("DNS-answer rebinding refusal touches no persistence", rebound.storageTouches, 0);
+
+for (const [operation, expectedCalls] of [
+  ["free_scan", 1],
+  ["free_scan_domain", 2],
+  ["free_scan_global", 3],
+]) {
+  const limited = await runDirectPreview({ denyOperation: operation });
+  eq(`${operation} denial returns 429`, limited.status, 429);
+  eq(`${operation} denial stops before modules`, limited.moduleCalls, 0);
+  eq(`${operation} denial stops at the expected throttle`, limited.rateCalls.length, expectedCalls);
+  ok(`${operation} throttle is explicitly fail-closed`,
+    limited.rateCalls.every((call) => call.options?.failClosed === true));
+  eq(`${operation} denial touches no persistence outside rate-limit adapter`,
+    limited.storageTouches, 0);
+}
+
+const allowedPreview = await runDirectPreview();
+eq("allowed preview runs all six bounded modules", allowedPreview.moduleCalls, 6);
+eq("allowed preview evaluates all three throttles", allowedPreview.rateCalls.length, 3);
+eq("allowed preview returns persistence:none", allowedPreview.body.persistence, "none");
+eq("allowed preview touches no D1/R2 scan/report persistence", allowedPreview.storageTouches, 0);
+eq("allowed preview returns exactly eight domain cards",
+  allowedPreview.body.cyber_mot_domains?.length, 8);
 
 console.log(`\nSSRF domain guard: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("ssrf-domain-guard validation FAILED"); process.exit(1); }

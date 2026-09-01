@@ -1,6 +1,6 @@
 // ── Anonymous free-scan evidence contract ───────────────────────────────────
 //
-// The public preview executes four modules, not the full Cyber MOT. This module
+// The public preview executes six bounded modules, not the full Cyber MOT. This module
 // keeps execution outcome, canonical signal coverage, and customer conclusion
 // separate so a zero-finding response can never become a healthy verdict when a
 // probe failed or returned incomplete evidence.
@@ -32,6 +32,8 @@ export const FREE_SCAN_MODULE_DEFINITIONS = Object.freeze([
   Object.freeze({ module: "ssl", label: "TLS" }),
   Object.freeze({ module: "headers", label: "Headers" }),
   Object.freeze({ module: "email_security", label: "Email" }),
+  Object.freeze({ module: "subdomains", label: "Certificate Transparency" }),
+  Object.freeze({ module: "technology_detection", label: "Technology" }),
 ]);
 
 const FREE_SCAN_SIGNAL_DEFINITIONS = Object.freeze({
@@ -45,6 +47,10 @@ const FREE_SCAN_SIGNAL_DEFINITIONS = Object.freeze({
   }),
   email_protection: Object.freeze({
     modules: Object.freeze(["email_security"]),
+    providers: Object.freeze([]),
+  }),
+  certificate_transparency: Object.freeze({
+    modules: Object.freeze(["ssl", "subdomains"]),
     providers: Object.freeze([]),
   }),
 });

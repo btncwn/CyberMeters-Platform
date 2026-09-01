@@ -1712,7 +1712,7 @@
         "tags": [
           "Public"
         ],
-        "summary": "Public lightweight scan (DNS/SSL/headers/email)",
+        "summary": "Public bounded eight-domain snapshot (six public evidence modules; deep checks gated)",
         "operationId": "freeScan",
         "security": [],
         "responses": {

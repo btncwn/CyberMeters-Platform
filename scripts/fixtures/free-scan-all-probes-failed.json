@@ -29,6 +29,18 @@
           "evidence_status": "unavailable"
         }
       }
+    },
+    "subdomains": {
+      "kind": "rejected",
+      "reason": "fixture CT provider timeout"
+    },
+    "technology_detection": {
+      "kind": "fulfilled",
+      "value": {
+        "incomplete": true,
+        "error": "fixture technology probe incomplete",
+        "technologies": []
+      }
     }
   }
 }

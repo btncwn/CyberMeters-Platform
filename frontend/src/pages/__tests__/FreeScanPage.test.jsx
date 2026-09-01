@@ -10,7 +10,34 @@ function responseFor({ moduleState, coverageState }) {
     { module: 'ssl', label: 'TLS', attempted: true, state: moduleState },
     { module: 'headers', label: 'Headers', attempted: true, state: 'completed' },
     { module: 'email_security', label: 'Email', attempted: true, state: 'completed' },
+    { module: 'subdomains', label: 'Certificate Transparency', attempted: true, state: 'completed' },
+    { module: 'technology_detection', label: 'Technology', attempted: true, state: 'completed' },
   ]
+  const cyberMotDomains = [
+    ['email_protection', 'Email Protection'],
+    ['brand_protection', 'Brand Protection'],
+    ['attack_surface', 'Attack Surface'],
+    ['certificates_trust', 'Certificates & Trust'],
+    ['cyber_essentials_readiness', 'Cyber Essentials Readiness'],
+    ['website_security', 'Website Security'],
+    ['identity_exposure', 'Identity Exposure'],
+    ['shadow_it_unmanaged_technology', 'Shadow IT & Unmanaged Technology'],
+  ].map(([domain_key, display_name]) => ({
+    domain_key,
+    display_name,
+    state: ['brand_protection', 'attack_surface', 'cyber_essentials_readiness', 'identity_exposure']
+      .includes(domain_key) ? 'customer_input_required' : 'evidence_insufficient',
+    display_state: ['brand_protection', 'attack_surface', 'cyber_essentials_readiness', 'identity_exposure']
+      .includes(domain_key) ? 'input_required' : 'evidence_insufficient',
+    coverage: 'partial',
+    severity: null,
+    headline_count: null,
+    count_kind: 'input_required',
+    samples: [],
+    locked_count: 0,
+    unlock_required: true,
+    limitation: `${display_name} bounded-preview limitation.`,
+  }))
   return {
     domain: 'example.com',
     score: null,
@@ -18,7 +45,11 @@ function responseFor({ moduleState, coverageState }) {
     severity_counts: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
     total_findings: 0,
     preview_findings: [],
+    shown_findings: [],
+    exposed_finding_count: 0,
     hidden_count: 0,
+    locked_count: 0,
+    cyber_mot_domains: cyberMotDomains,
     modules_attempted: moduleEvidence.map(entry => entry.module),
     modules_scanned: moduleEvidence
       .filter(entry => entry.state === 'completed')
@@ -38,6 +69,10 @@ function responseFor({ moduleState, coverageState }) {
         email_protection: {
           state: 'monitoring_healthy',
           message: 'Email protection checks completed normally in this run.',
+        },
+        certificate_transparency: {
+          state: 'monitoring_healthy',
+          message: 'Certificate transparency checks completed normally in this run.',
         },
       },
     },
@@ -61,6 +96,8 @@ function allProbesFailedResponse() {
     { module: 'ssl', label: 'TLS', attempted: true, state: 'unavailable' },
     { module: 'headers', label: 'Headers', attempted: true, state: 'incomplete' },
     { module: 'email_security', label: 'Email', attempted: true, state: 'unavailable' },
+    { module: 'subdomains', label: 'Certificate Transparency', attempted: true, state: 'failed' },
+    { module: 'technology_detection', label: 'Technology', attempted: true, state: 'incomplete' },
   ]
   payload.modules_scanned = []
   payload.score = null
@@ -87,7 +124,7 @@ async function renderResult(payload) {
   fireEvent.change(screen.getByPlaceholderText('yourbusiness.co.uk'), {
     target: { value: 'example.com' },
   })
-  fireEvent.click(screen.getByRole('button', { name: /Start free check/i }))
+  fireEvent.click(screen.getByRole('button', { name: /Run my free Cyber MOT/i }))
   await screen.findByRole('heading', { name: 'Evidence incomplete' })
 }
 
@@ -114,11 +151,11 @@ describe('FreeScanPage evidence honesty', () => {
       coverageState: 'evidence_incomplete',
     }))
 
-    expect(screen.getByText('TLS: Failed')).toBeInTheDocument()
-    expect(screen.getByText(/No findings were produced, but some checks did not complete/i)).toBeInTheDocument()
+    expect(screen.getByText('TLS · Failed')).toBeInTheDocument()
+    expect(screen.getByText(/Evidence remains incomplete, so this is not a healthy verdict/i)).toBeInTheDocument()
     expect(screen.queryByText(/Your Cyber MOT looks healthy/i)).not.toBeInTheDocument()
     expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
-    expect(screen.queryByText(/Four-module preview score/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/out of 100/i)).not.toBeInTheDocument()
   })
 
   it('keeps partial distinct through the rendered module list', async () => {
@@ -127,8 +164,8 @@ describe('FreeScanPage evidence honesty', () => {
       coverageState: 'monitoring_degraded',
     }))
 
-    expect(screen.getByText('TLS: Partial')).toBeInTheDocument()
-    expect(screen.queryByText('TLS: Completed')).not.toBeInTheDocument()
+    expect(screen.getByText('TLS · Partial')).toBeInTheDocument()
+    expect(screen.queryByText('TLS · Completed')).not.toBeInTheDocument()
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith(
         'http://localhost/api/free-scan',
@@ -140,14 +177,31 @@ describe('FreeScanPage evidence honesty', () => {
   it('renders the all-probes-failed contract without a score or healthy/no-issues verdict', async () => {
     await renderResult(allProbesFailedResponse())
 
-    expect(screen.getByText('DNS: Failed')).toBeInTheDocument()
-    expect(screen.getByText('TLS: Unavailable')).toBeInTheDocument()
-    expect(screen.getByText('Headers: Incomplete')).toBeInTheDocument()
-    expect(screen.getByText('Email: Unavailable')).toBeInTheDocument()
+    expect(screen.getByText('DNS · Failed')).toBeInTheDocument()
+    expect(screen.getByText('TLS · Unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Headers · Incomplete')).toBeInTheDocument()
+    expect(screen.getByText('Email · Unavailable')).toBeInTheDocument()
     expect(screen.queryByText(/Four-module preview score/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/out of 100/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/healthy/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('Assessed — no issue observed')).not.toBeInTheDocument()
     expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
     expect(screen.queryByText(/No issues observed/i)).not.toBeInTheDocument()
+  })
+
+  it('renders exactly eight honest domain cards and keeps the full report behind ownership verification', async () => {
+    await renderResult(responseFor({
+      moduleState: 'partial',
+      coverageState: 'monitoring_degraded',
+    }))
+
+    expect(screen.getAllByRole('article')).toHaveLength(8)
+    expect(screen.getByRole('heading', { name: 'Email Protection' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Shadow IT & Unmanaged Technology' })).toBeInTheDocument()
+    expect(screen.getAllByText('Unlock to assess').length).toBeGreaterThan(0)
+    expect(screen.getByText(/canonical domain-ownership verification/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Start my 14-day trial/i })).toHaveAttribute(
+      'href',
+      '/signup?domain=example.com',
+    )
   })
 })

@@ -74,14 +74,14 @@ const SERVICES = [
 ]
 
 const STEPS = [
-  { n: 'STEP 01', title: 'Preview', copy: 'Start with a free four-check website and email preview in under two minutes. This is not the managed eight-domain posture.' },
+  { n: 'STEP 01', title: 'Preview', copy: 'Start with one bounded, non-persistent snapshot across all eight Cyber MOT domains. Deep checks unlock only after domain verification.' },
   { n: 'STEP 02', title: 'Understand', copy: 'The managed Cyber MOT journey builds one posture across eight domains. Every finding is written for a business owner, not an engineer.' },
   { n: 'STEP 03', title: 'Fix', copy: 'Guided remediation tells you what to fix first, and exactly which record or setting to change.' },
   { n: 'STEP 04', title: 'Monitor', copy: 'Schedule re-checks and get alerted the moment something changes — a new asset, an expiring cert, a spoof attempt.' },
 ]
 
 const CHECKS = [
-  { icon: SearchCheck,  label: '2-minute website and email preview' },
+  { icon: SearchCheck,  label: 'Bounded eight-domain public snapshot' },
   { icon: Globe,        label: 'Website security signals' },
   { icon: Mail,         label: 'Email protection checks' },
   { icon: ShieldCheck,  label: 'Cyber Essentials readiness gaps' },
@@ -281,7 +281,7 @@ export default function PublicLandingPage() {
                 Know where your business is <span className="relative text-brand-800">exposed<span className="absolute left-0 right-0 -z-10 rounded-sm" style={{ bottom: '0.07em', height: '0.16em', background: '#D6EAE2' }} /></span> — before anyone else does.
               </h1>
               <p className="text-[1.18rem] text-gray-600 mt-5 leading-relaxed max-w-[34ch]">
-                The managed Cyber MOT covers eight domains. The free entry point is a clearly bounded four-check website and email preview.
+                The managed Cyber MOT covers eight domains. The free entry point shows a bounded, honest snapshot of all eight while keeping deep checks behind domain verification.
               </p>
               <div className="flex flex-wrap items-center gap-3.5 mt-8">
                 <Link to="/free-scan" className="btn-primary !rounded-full">Run free preview <ArrowRight className="w-4 h-4" /></Link>
@@ -409,7 +409,7 @@ export default function PublicLandingPage() {
             <div className="relative">
               <h2 className="text-[clamp(1.9rem,4vw,3rem)] font-bold text-white tracking-tight max-w-[20ch] mx-auto sm:mx-0">Try the free security preview.</h2>
               <p className="text-[1.12rem] mt-4 max-w-[44ch] mx-auto sm:mx-0" style={{ color: '#bfe6d8' }}>
-                Preview public DNS, TLS, website-header and email-protection signals in two minutes. This four-check preview is not the full eight-domain Cyber MOT.
+                See one bounded snapshot of public evidence across all eight Cyber MOT domains. Deep findings, remediation, PDF and monitoring unlock only after account and domain verification.
               </p>
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3.5 mt-8">
                 <Link to="/free-scan" className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white text-brand-800 font-semibold hover:bg-emerald-50 transition-colors">
