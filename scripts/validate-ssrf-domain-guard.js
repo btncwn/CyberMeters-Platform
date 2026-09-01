@@ -137,6 +137,7 @@ async function runDirectPreview({
   denyOperation = null,
   privateAnswer = false,
   resolverUnavailable = false,
+  addressMode = "dual",
 } = {}) {
   const rateCalls = [];
   const moduleOptions = {};
@@ -176,12 +177,17 @@ async function runDirectPreview({
     freeScanDnsQuery: async (name, type) => {
       if (resolverUnavailable) throw new Error("resolver unavailable");
       const privateTarget = privateAnswer || name === "rebind.example";
+      const familyEnabled = addressMode === "dual"
+        || (addressMode === "a_only" && type === "A")
+        || (addressMode === "aaaa_only" && type === "AAAA");
       return {
         Status: 0,
         TC: false,
-        Answer: type === "A"
-          ? [{ type: 1, data: privateTarget ? "10.0.0.9" : "8.8.8.8" }]
-          : [{ type: 28, data: "2606:4700:4700::1111" }],
+        Answer: !familyEnabled
+          ? []
+          : type === "A"
+            ? [{ type: 1, data: privateTarget ? "10.0.0.9" : "8.8.8.8" }]
+            : [{ type: 28, data: "2606:4700:4700::1111" }],
       };
     },
     freeScanModuleRunners: Object.fromEntries(
@@ -215,6 +221,16 @@ eq("resolver unavailability fails the public route closed", resolverDown.status,
 eq("resolver unavailability launches zero modules", resolverDown.moduleCalls, 0);
 eq("resolver unavailability returns an explicit verification code",
   resolverDown.body.code, "target_verification_unavailable");
+
+for (const addressMode of ["a_only", "aaaa_only"]) {
+  const singleFamily = await runDirectPreview({ addressMode });
+  eq(`${addressMode} public domain is admitted`, singleFamily.status, 200);
+  eq(`${addressMode} public domain launches the six bounded modules`,
+    singleFamily.moduleCalls, 6);
+}
+const noAddress = await runDirectPreview({ addressMode: "none" });
+eq("both-families NODATA remains fail-closed", noAddress.status, 503);
+eq("both-families NODATA launches zero modules", noAddress.moduleCalls, 0);
 
 for (const [operation, expectedCalls] of [
   ["free_scan", 1],
