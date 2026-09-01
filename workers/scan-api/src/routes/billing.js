@@ -29,6 +29,20 @@ import { createAuditEvent } from "../lib/events.js";
 import { resolvePublicDnsTarget, STRICT_DNS_STATES } from "../lib/ssrf.js";
 import { createId, isValidDomain } from "../lib/util.js";
 
+// DNS evidence is intentionally stable for one snapshot, but an HTTP safety
+// decision must never reuse a completed answer: the same hostname may rebind
+// between redirect hops. This cache only coalesces identical questions that
+// are concurrently in flight; the next safety check always reaches the
+// resolver again and remains charged to the shared physical counter.
+class InFlightOnlyDnsCache extends Map {
+  get(key) {
+    const existing = super.get(key);
+    if (existing?.settled === false) return existing;
+    if (existing !== undefined) super.delete(key);
+    return undefined;
+  }
+}
+
 export async function billingRoutes(rctx) {
   const { request, env, url, json, serverError,
           requireAuth, requireWorkspaceRole, consumeApiRateLimit, rateLimitScopeId } = rctx;
@@ -151,16 +165,17 @@ export async function billingRoutes(rctx) {
         FREE_SCAN_DEADLINE_MS,
       );
       const dnsCache = makeDnsCache();
+      const safetyDnsCache = new InFlightOnlyDnsCache();
       const accountingFor = (module) =>
         physicalCounter.contextFor(`free_preview_${module}`, { signal: deadline.signal });
 
-      // The public route is fail-closed on DNS uncertainty, and the same
-      // invocation-scoped resolver/cache is carried into every customer-target
-      // HTTP sink so redirects and rebinding are revalidated per hop.
+      // The public route is fail-closed on DNS uncertainty. Evidence consumers
+      // share the stable snapshot cache; target HTTP sinks share only in-flight
+      // safety questions, so every later redirect hop re-resolves the hostname.
       let targetResolution;
       try {
         targetResolution = await resolvePublicDnsTarget(domain, freeScanDnsQuery, {
-          cache: dnsCache,
+          cache: safetyDnsCache,
           accounting: accountingFor("ssrf"),
           signal: deadline.signal,
         });
@@ -197,11 +212,11 @@ export async function billingRoutes(rctx) {
             }),
             freeScanModuleRunners.ssl(domain, {
               accounting: accountingFor("ssl"), signal: deadline.signal, ctCache,
-              dnsResolver: freeScanDnsQuery, dnsCache,
+              dnsResolver: freeScanDnsQuery, dnsCache: safetyDnsCache,
             }),
             freeScanModuleRunners.headers(domain, {
               accounting: accountingFor("headers"), signal: deadline.signal,
-              remainingMs, dnsResolver: freeScanDnsQuery, dnsCache,
+              remainingMs, dnsResolver: freeScanDnsQuery, dnsCache: safetyDnsCache,
             }),
             freeScanModuleRunners.email_security(domain, {
               accounting: accountingFor("email"), signal: deadline.signal, cache: dnsCache,
@@ -212,7 +227,7 @@ export async function billingRoutes(rctx) {
             }),
             freeScanModuleRunners.technology_detection(domain, {
               accounting: accountingFor("technology"), signal: deadline.signal,
-              dnsResolver: freeScanDnsQuery, dnsCache,
+              dnsResolver: freeScanDnsQuery, dnsCache: safetyDnsCache,
             }),
           ]);
         settlements = {

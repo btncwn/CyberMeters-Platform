@@ -23,6 +23,9 @@ const { safeFetch } = await import(
 const { consumeApiRateLimit: canonicalConsumeApiRateLimit } = await import(
   pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "rate-limit.js")).href
 );
+const { dnsQuery: productionDnsQuery } = await import(
+  pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "dns.js")).href
+);
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAIL " + name); };
@@ -138,6 +141,8 @@ async function runDirectPreview({
   privateAnswer = false,
   resolverUnavailable = false,
   addressMode = "dual",
+  dnsQueryImpl = null,
+  moduleBehaviors = {},
 } = {}) {
   const rateCalls = [];
   const moduleOptions = {};
@@ -174,7 +179,7 @@ async function runDirectPreview({
       rateCalls.push({ scopes, operation, limit, windowSeconds, options });
       return operation === denyOperation ? { limited: true } : null;
     },
-    freeScanDnsQuery: async (name, type) => {
+    freeScanDnsQuery: dnsQueryImpl || (async (name, type) => {
       if (resolverUnavailable) throw new Error("resolver unavailable");
       const privateTarget = privateAnswer || name === "rebind.example";
       const familyEnabled = addressMode === "dual"
@@ -189,13 +194,16 @@ async function runDirectPreview({
             ? [{ type: 1, data: privateTarget ? "10.0.0.9" : "8.8.8.8" }]
             : [{ type: 28, data: "2606:4700:4700::1111" }],
       };
-    },
+    }),
     freeScanModuleRunners: Object.fromEntries(
       Object.entries(safeModuleResults).map(([module, value]) => [
         module,
         async (_domain, options) => {
           moduleCalls += 1;
           moduleOptions[module] = options;
+          if (typeof moduleBehaviors[module] === "function") {
+            return moduleBehaviors[module](_domain, options);
+          }
           return structuredClone(value);
         },
       ]),
@@ -270,10 +278,12 @@ eq("TLS and subdomains share one per-snapshot CT cache",
 for (const module of ["ssl", "headers", "technology_detection"]) {
   ok(`${module} receives the strict per-hop DNS resolver`,
     typeof allowedPreview.moduleOptions[module]?.dnsResolver === "function");
-  eq(`${module} receives the invocation DNS cache`,
+  eq(`${module} receives the shared in-flight-only safety cache`,
     allowedPreview.moduleOptions[module]?.dnsCache,
-    allowedPreview.moduleOptions.dns?.cache);
+    allowedPreview.moduleOptions.ssl?.dnsCache);
 }
+ok("HTTP safety cache is isolated from the completed evidence cache",
+  allowedPreview.moduleOptions.ssl?.dnsCache !== allowedPreview.moduleOptions.dns?.cache);
 let reboundFetches = 0;
 const reboundFetch = await safeFetch("https://rebind.example", {
   dnsResolver: allowedPreview.moduleOptions.ssl?.dnsResolver,
@@ -285,6 +295,69 @@ const reboundFetch = await safeFetch("https://rebind.example", {
 });
 eq("per-hop strict resolver refuses a private rebinding answer", reboundFetch, null);
 eq("private rebinding answer reaches no HTTP fetch sink", reboundFetches, 0);
+
+async function runSameHostRedirectSafetyProbe({ privateOnRedirect }) {
+  const originalFetch = globalThis.fetch;
+  const dohCalls = { A: 0, AAAA: 0 };
+  let httpFetches = 0;
+  try {
+    globalThis.fetch = async (rawUrl) => {
+      const url = new URL(String(rawUrl));
+      const type = url.searchParams.get("type");
+      if (url.hostname !== "cloudflare-dns.com" || !Object.hasOwn(dohCalls, type)) {
+        throw new Error(`unexpected network request ${url}`);
+      }
+      dohCalls[type] += 1;
+      const redirectResolution = dohCalls[type] >= 3;
+      const data = type === "A"
+        ? (privateOnRedirect && redirectResolution ? "10.0.0.9" : "8.8.8.8")
+        : (privateOnRedirect && redirectResolution ? "fd00::9" : "2606:4700:4700::1111");
+      return Response.json({
+        Status: 0,
+        TC: false,
+        Answer: [{ type: type === "A" ? 1 : 28, data }],
+      });
+    };
+    const result = await runDirectPreview({
+      dnsQueryImpl: productionDnsQuery,
+      moduleBehaviors: {
+        ssl: async (_domain, options) => {
+          const response = await safeFetch("https://example.com/start", {
+            dnsResolver: options.dnsResolver,
+            dnsCache: options.dnsCache,
+            accounting: options.accounting,
+            signal: options.signal,
+            fetchImpl: async () => {
+              httpFetches += 1;
+              return httpFetches === 1
+                ? new Response("", { status: 302, headers: { location: "https://example.com/next" } })
+                : new Response("ok", { status: 200 });
+            },
+          });
+          return {
+            ...safeModuleResults.ssl,
+            https_available: response?.status === 200,
+          };
+        },
+      },
+    });
+    return { result, dohCalls, httpFetches };
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+const sameHostRebind = await runSameHostRedirectSafetyProbe({ privateOnRedirect: true });
+eq("same-host redirect re-resolves A on every safety decision", sameHostRebind.dohCalls.A, 3);
+eq("same-host redirect re-resolves AAAA on every safety decision", sameHostRebind.dohCalls.AAAA, 3);
+eq("same-host private rebound blocks the second HTTP fetch", sameHostRebind.httpFetches, 1);
+eq("same-host private rebound keeps the bounded preview response honest", sameHostRebind.result.status, 200);
+
+const sameHostPublic = await runSameHostRedirectSafetyProbe({ privateOnRedirect: false });
+eq("same-host public redirect re-resolves A on every safety decision", sameHostPublic.dohCalls.A, 3);
+eq("same-host public redirect re-resolves AAAA on every safety decision", sameHostPublic.dohCalls.AAAA, 3);
+eq("same-host public redirect reaches the intended second HTTP fetch", sameHostPublic.httpFetches, 2);
+eq("same-host public redirect remains admitted", sameHostPublic.result.status, 200);
 
 // The route assertion above proves every public-preview guard selects the
 // canonical atomic path. This concurrent claim proves that path admits only
