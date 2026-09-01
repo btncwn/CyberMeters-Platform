@@ -89,7 +89,7 @@ export async function billingRoutes(rctx) {
         "free_scan",
         5,
         3600,
-        { failClosed: true },
+        { failClosed: true, atomic: true },
       );
       if (rateLimitResult) {
         // Honest copy: a free account raises limits and saves results — it is
@@ -108,7 +108,7 @@ export async function billingRoutes(rctx) {
         "free_scan_domain",
         3,
         3600,
-        { failClosed: true },
+        { failClosed: true, atomic: true },
       );
       if (domainLimited) {
         return json({
@@ -131,7 +131,7 @@ export async function billingRoutes(rctx) {
         "free_scan_global",
         FREE_SCAN_GLOBAL_HOURLY_CAP,
         3600,
-        { failClosed: true },
+        { failClosed: true, atomic: true },
       );
       if (globalLimited) {
         return json({

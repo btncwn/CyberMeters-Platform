@@ -17,6 +17,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { isValidDomain } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "util.js")).href);
 const { billingRoutes } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "routes", "billing.js")).href);
+const { consumeApiRateLimit: canonicalConsumeApiRateLimit } = await import(
+  pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "rate-limit.js")).href
+);
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAIL " + name); };
@@ -205,6 +208,8 @@ for (const [operation, expectedCalls] of [
   eq(`${operation} denial stops at the expected throttle`, limited.rateCalls.length, expectedCalls);
   ok(`${operation} throttle is explicitly fail-closed`,
     limited.rateCalls.every((call) => call.options?.failClosed === true));
+  ok(`${operation} throttle is explicitly atomic`,
+    limited.rateCalls.every((call) => call.options?.atomic === true));
   eq(`${operation} denial touches no persistence outside rate-limit adapter`,
     limited.storageTouches, 0);
 }
@@ -227,6 +232,41 @@ eq("DNS and email share one per-snapshot DNS cache",
 eq("TLS and subdomains share one per-snapshot CT cache",
   allowedPreview.moduleOptions.ssl?.ctCache,
   allowedPreview.moduleOptions.subdomains?.ctCache);
+
+// The route assertion above proves every public-preview guard selects the
+// canonical atomic path. This concurrent claim proves that path admits only
+// the configured number of requests even when several callers race the same
+// scope/window; later claims must receive the fail-closed 429 verdict.
+const raceDb = new DatabaseSync(":memory:");
+raceDb.exec(`
+  CREATE TABLE api_rate_limits (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    window_start TEXT NOT NULL,
+    window_seconds INTEGER NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+const raceResults = await Promise.all(
+  Array.from({ length: 8 }, () => canonicalConsumeApiRateLimit(
+    { cybermeters_db: makeD1(raceDb) },
+    [{ scope: "domain", scope_id: "same-public-target" }],
+    "free_scan_domain_atomic_probe",
+    3,
+    3600,
+    { failClosed: true, atomic: true },
+  )),
+);
+eq("atomic concurrency probe admits only the configured three claims",
+  raceResults.filter((result) => result == null).length, 3);
+eq("atomic concurrency probe rejects every over-limit claim",
+  raceResults.filter((result) => result?.status === 429).length, 5);
+eq("atomic concurrency probe records every attempted claim",
+  raceDb.prepare("SELECT request_count FROM api_rate_limits").get()?.request_count, 8);
 
 console.log(`\nSSRF domain guard: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("ssrf-domain-guard validation FAILED"); process.exit(1); }
