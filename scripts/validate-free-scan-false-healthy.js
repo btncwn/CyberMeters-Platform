@@ -100,7 +100,7 @@ globalThis.fetch = async (input) => {
     Status: 0,
     Answer: type === "A"
       ? [{ name: "example.com", type: 1, data: "93.184.216.34" }]
-      : [],
+      : [{ name: "example.com", type: 28, data: "2606:2800:220:1:248:1893:25c8:1946" }],
   });
 };
 

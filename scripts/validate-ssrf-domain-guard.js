@@ -17,6 +17,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { isValidDomain } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "util.js")).href);
 const { billingRoutes } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "routes", "billing.js")).href);
+const { safeFetch } = await import(
+  pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "http.js")).href
+);
 const { consumeApiRateLimit: canonicalConsumeApiRateLimit } = await import(
   pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "rate-limit.js")).href
 );
@@ -130,7 +133,11 @@ const safeModuleResults = {
   technology_detection: { status_code: 200, technologies: [], external_scripts: [] },
 };
 
-async function runDirectPreview({ denyOperation = null, privateAnswer = false } = {}) {
+async function runDirectPreview({
+  denyOperation = null,
+  privateAnswer = false,
+  resolverUnavailable = false,
+} = {}) {
   const rateCalls = [];
   const moduleOptions = {};
   let moduleCalls = 0;
@@ -166,11 +173,17 @@ async function runDirectPreview({ denyOperation = null, privateAnswer = false } 
       rateCalls.push({ scopes, operation, limit, windowSeconds, options });
       return operation === denyOperation ? { limited: true } : null;
     },
-    freeScanDnsQuery: async (_domain, type) => ({
-      Answer: type === "A"
-        ? [{ data: privateAnswer ? "10.0.0.9" : "8.8.8.8" }]
-        : [],
-    }),
+    freeScanDnsQuery: async (name, type) => {
+      if (resolverUnavailable) throw new Error("resolver unavailable");
+      const privateTarget = privateAnswer || name === "rebind.example";
+      return {
+        Status: 0,
+        TC: false,
+        Answer: type === "A"
+          ? [{ type: 1, data: privateTarget ? "10.0.0.9" : "8.8.8.8" }]
+          : [{ type: 28, data: "2606:4700:4700::1111" }],
+      };
+    },
     freeScanModuleRunners: Object.fromEntries(
       Object.entries(safeModuleResults).map(([module, value]) => [
         module,
@@ -196,6 +209,12 @@ const rebound = await runDirectPreview({ privateAnswer: true });
 eq("DNS-answer rebinding target is refused", rebound.status, 400);
 eq("DNS-answer rebinding target launches zero modules", rebound.moduleCalls, 0);
 eq("DNS-answer rebinding refusal touches no persistence", rebound.storageTouches, 0);
+
+const resolverDown = await runDirectPreview({ resolverUnavailable: true });
+eq("resolver unavailability fails the public route closed", resolverDown.status, 503);
+eq("resolver unavailability launches zero modules", resolverDown.moduleCalls, 0);
+eq("resolver unavailability returns an explicit verification code",
+  resolverDown.body.code, "target_verification_unavailable");
 
 for (const [operation, expectedCalls] of [
   ["free_scan", 1],
@@ -232,6 +251,24 @@ eq("DNS and email share one per-snapshot DNS cache",
 eq("TLS and subdomains share one per-snapshot CT cache",
   allowedPreview.moduleOptions.ssl?.ctCache,
   allowedPreview.moduleOptions.subdomains?.ctCache);
+for (const module of ["ssl", "headers", "technology_detection"]) {
+  ok(`${module} receives the strict per-hop DNS resolver`,
+    typeof allowedPreview.moduleOptions[module]?.dnsResolver === "function");
+  eq(`${module} receives the invocation DNS cache`,
+    allowedPreview.moduleOptions[module]?.dnsCache,
+    allowedPreview.moduleOptions.dns?.cache);
+}
+let reboundFetches = 0;
+const reboundFetch = await safeFetch("https://rebind.example", {
+  dnsResolver: allowedPreview.moduleOptions.ssl?.dnsResolver,
+  dnsCache: allowedPreview.moduleOptions.ssl?.dnsCache,
+  fetchImpl: async () => {
+    reboundFetches += 1;
+    return new Response("should not be reached", { status: 200 });
+  },
+});
+eq("per-hop strict resolver refuses a private rebinding answer", reboundFetch, null);
+eq("private rebinding answer reaches no HTTP fetch sink", reboundFetches, 0);
 
 // The route assertion above proves every public-preview guard selects the
 // canonical atomic path. This concurrent claim proves that path admits only

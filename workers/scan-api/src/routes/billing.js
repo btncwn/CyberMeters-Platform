@@ -26,7 +26,7 @@ import { applyCheckoutConsentParams, getStripePriceIdForPlan, shouldRoutePlanCha
 import { TRIAL_PLAN, auditApiTokenSessionRouteDenied, getPublicBillingPlans, getTrialRemainingDays, getWorkspaceSubscription, isSubscriptionActive, isTrialActive, parseCheckoutPlan } from "../engines/subscription-state.js";
 import { dnsQuery } from "../engines/dns.js";
 import { createAuditEvent } from "../lib/events.js";
-import { resolvesToPrivateIp } from "../lib/ssrf.js";
+import { resolvePublicDnsTarget, STRICT_DNS_STATES } from "../lib/ssrf.js";
 import { createId, isValidDomain } from "../lib/util.js";
 
 export async function billingRoutes(rctx) {
@@ -67,14 +67,6 @@ export async function billingRoutes(rctx) {
       // Block obviously internal / reserved domains
       const BLOCKED_DOMAINS = ["localhost", "127.0.0.1", "0.0.0.0", "local"];
       if (BLOCKED_DOMAINS.some(b => domain === b || domain.endsWith("." + b))) {
-        return json({ error: "That domain cannot be scanned" }, 400);
-      }
-
-      // SSRF: the string gate never resolves DNS, so a public-looking domain
-      // whose A/AAAA record points at an internal address would otherwise be
-      // fetched. Resolve first and refuse private/reserved targets. (Redirect-
-      // time SSRF is handled per-hop inside safeFetch.)
-      if (await resolvesToPrivateIp(domain, freeScanDnsQuery)) {
         return json({ error: "That domain cannot be scanned" }, 400);
       }
 
@@ -159,13 +151,42 @@ export async function billingRoutes(rctx) {
         FREE_SCAN_DEADLINE_MS,
       );
       const dnsCache = makeDnsCache();
+      const accountingFor = (module) =>
+        physicalCounter.contextFor(`free_preview_${module}`, { signal: deadline.signal });
+
+      // The public route is fail-closed on DNS uncertainty, and the same
+      // invocation-scoped resolver/cache is carried into every customer-target
+      // HTTP sink so redirects and rebinding are revalidated per hop.
+      let targetResolution;
+      try {
+        targetResolution = await resolvePublicDnsTarget(domain, freeScanDnsQuery, {
+          cache: dnsCache,
+          accounting: accountingFor("ssrf"),
+          signal: deadline.signal,
+        });
+      } catch {
+        clearTimeout(deadlineTimer);
+        return json({
+          error: "Public DNS verification could not complete. Please try again shortly.",
+          code: "target_verification_unavailable",
+        }, 503);
+      }
+      if (targetResolution.state !== STRICT_DNS_STATES.PUBLIC) {
+        clearTimeout(deadlineTimer);
+        if (targetResolution.state === STRICT_DNS_STATES.BLOCKED) {
+          return json({ error: "That domain cannot be scanned" }, 400);
+        }
+        return json({
+          error: "Public DNS verification could not complete. Please try again shortly.",
+          code: "target_verification_unavailable",
+        }, 503);
+      }
+
       const ctCache = createCertificateTransparencyCache({
         accounting: physicalCounter.contextFor("free_preview_ct", { signal: deadline.signal }),
         signal: deadline.signal,
         remainingMs,
       });
-      const accountingFor = (module) =>
-        physicalCounter.contextFor(`free_preview_${module}`, { signal: deadline.signal });
 
       let settlements;
       try {
@@ -176,10 +197,11 @@ export async function billingRoutes(rctx) {
             }),
             freeScanModuleRunners.ssl(domain, {
               accounting: accountingFor("ssl"), signal: deadline.signal, ctCache,
+              dnsResolver: freeScanDnsQuery, dnsCache,
             }),
             freeScanModuleRunners.headers(domain, {
               accounting: accountingFor("headers"), signal: deadline.signal,
-              remainingMs,
+              remainingMs, dnsResolver: freeScanDnsQuery, dnsCache,
             }),
             freeScanModuleRunners.email_security(domain, {
               accounting: accountingFor("email"), signal: deadline.signal, cache: dnsCache,
@@ -190,6 +212,7 @@ export async function billingRoutes(rctx) {
             }),
             freeScanModuleRunners.technology_detection(domain, {
               accounting: accountingFor("technology"), signal: deadline.signal,
+              dnsResolver: freeScanDnsQuery, dnsCache,
             }),
           ]);
         settlements = {
