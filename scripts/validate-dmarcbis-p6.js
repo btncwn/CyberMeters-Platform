@@ -392,12 +392,52 @@ ok("presentation projection has no DNS/parser/resolver calls",
   ));
 ok("frontend component consumes presentation, not raw policy evidence",
   !sources.component.includes("dmarc_policy_evidence"));
-ok("Hosted-DMARC automation stays hidden under suspended read-only state",
-  sources.emailDashboard.includes(
-    "ramp?.interpretation?.automation_status === 'suspended'",
+const managedDmarcStart = sources.emailDashboard.indexOf(
+  "export function ManagedDmarcCard",
+);
+const managedDmarcEnd = sources.emailDashboard.indexOf(
+  "function DmarcSetupWizard",
+  managedDmarcStart,
+);
+const managedDmarcSource = managedDmarcStart >= 0 && managedDmarcEnd > managedDmarcStart
+  ? sources.emailDashboard.slice(managedDmarcStart, managedDmarcEnd)
+  : "";
+const manualGateStart = managedDmarcSource.indexOf(
+  "rec.status === 'connected' && rec.policy_step && (",
+);
+const manualActionStart = managedDmarcSource.indexOf(
+  "api.setHostedDmarcPolicy",
+  manualGateStart,
+);
+const autopilotGuardStart = managedDmarcSource.indexOf(
+  "{!automationSuspended && (",
+  manualActionStart,
+);
+const autopilotActionStart = managedDmarcSource.indexOf(
+  "api.setHostedDmarcAutopilot",
+  autopilotGuardStart,
+);
+ok("Hosted-DMARC suspended state stays explicit and honest",
+  managedDmarcSource.includes(
+    "const automationSuspended = ramp?.interpretation?.automation_status === 'suspended'",
   ) &&
-  sources.emailDashboard.includes(
-    "Suggested DNS change — not applied by CyberMeters.",
+  managedDmarcSource.includes(
+    "Automatic policy advancement and rollback from inbound DMARC (RUA) reports are suspended.",
+  ) &&
+  managedDmarcSource.includes(
+    "Governed manual changes remain available below and require your explicit action.",
+  ));
+ok("Hosted-DMARC governed manual policy path remains available while automation is suspended",
+  manualGateStart >= 0 &&
+  manualActionStart > manualGateStart &&
+  !managedDmarcSource.slice(manualGateStart, manualActionStart).includes(
+    "!automationSuspended",
+  ));
+ok("Hosted-DMARC Self-Driving control remains separately guarded while suspended",
+  autopilotGuardStart > manualActionStart &&
+  autopilotActionStart > autopilotGuardStart &&
+  managedDmarcSource.slice(autopilotGuardStart, autopilotActionStart).includes(
+    "!automationSuspended",
   ));
 ok("OpenAPI exposes additive presentation schema",
   sources.openapi.includes('"DmarcPolicyPresentation"') &&
