@@ -2085,7 +2085,7 @@ function ManagedMtaStsCard({ wsId, domain }) {
   )
 }
 
-function ManagedDmarcCard({ wsId, domain, endpointReady }) {
+export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
   const [rec, setRec]         = useState(undefined) // undefined=loading, null=none
   const [ramp, setRamp]       = useState(null)      // { policyAllowed, compliance, readiness }
   const [busy, setBusy]       = useState(null)      // 'create' | 'verify' | 'remove' | 'policy' | 'rollback' | 'autopilot'
@@ -2118,6 +2118,7 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
 
   if (rec === undefined) return null
   const meta = rec ? (HOSTED_STATUS_META[rec.status] || HOSTED_STATUS_META.pending_dns) : null
+  const automationSuspended = ramp?.interpretation?.automation_status === 'suspended'
 
   return (
     <div className="mx-6 mt-5 rounded-xl border border-brand-200 bg-brand-50/40 p-5">
@@ -2216,20 +2217,18 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
             </div>
           )}
 
-          {rec.status === 'connected' &&
-            ramp?.interpretation?.automation_status === 'suspended' && (
+          {rec.status === 'connected' && automationSuspended && (
             <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
               <p className="text-sm font-bold text-amber-900">Managed policy automation is suspended</p>
               <p className="mt-1 text-xs leading-relaxed text-amber-800">
-                CyberMeters can show snapshot-derived policy evidence and suggested DNS changes, but it will not advance or roll back the DMARC policy automatically. Suggested DNS change — not applied by CyberMeters.
+                Automatic policy advancement and rollback from inbound DMARC (RUA) reports are suspended. Governed manual changes remain available below and require your explicit action.
               </p>
             </div>
           )}
 
-          {/* Legacy hosted-policy controls remain hidden while the approved
-              Item 7 read-only interpretation says automation is suspended. */}
-          {rec.status === 'connected' && rec.policy_step &&
-            ramp?.interpretation?.automation_status !== 'suspended' && (
+          {/* Manual governed changes remain available while external/RUA-driven
+              automation is suspended. Self-Driving DMARC is gated separately. */}
+          {rec.status === 'connected' && rec.policy_step && (
             <div className="pt-5 mt-4 border-t border-brand-100 space-y-5">
               <div className="flex items-end justify-between gap-3 flex-wrap">
                 <div>
@@ -2352,21 +2351,24 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                     </div>
                   )}
 
-                  {/* Self-Driving toggle — a real, legible control row */}
-                  <label className={`flex items-start gap-3 rounded-xl border px-4 py-3.5 cursor-pointer transition-colors ${
-                    rec.autopilot ? 'border-brand-300 bg-brand-50/50' : 'border-gray-200 hover:border-gray-300'}`}>
-                    <input
-                      type="checkbox"
-                      checked={rec.autopilot}
-                      disabled={Boolean(busy)}
-                      onChange={(e) => act('autopilot', () => api.setHostedDmarcAutopilot(wsId, domain, e.target.checked), { reloadAll: true })}
-                      className="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600"
-                    />
-                    <span>
-                      <span className="block text-sm font-bold text-gray-900">Self-Driving DMARC</span>
-                      <span className="block text-sm text-gray-500 mt-0.5">Advance automatically while compliance stays healthy, and roll back on regressions.</span>
-                    </span>
-                  </label>
+                  {/* Self-Driving remains completely unrendered while the
+                      canonical external-automation interpretation is suspended. */}
+                  {!automationSuspended && (
+                    <label className={`flex items-start gap-3 rounded-xl border px-4 py-3.5 cursor-pointer transition-colors ${
+                      rec.autopilot ? 'border-brand-300 bg-brand-50/50' : 'border-gray-200 hover:border-gray-300'}`}>
+                      <input
+                        type="checkbox"
+                        checked={rec.autopilot}
+                        disabled={Boolean(busy)}
+                        onChange={(e) => act('autopilot', () => api.setHostedDmarcAutopilot(wsId, domain, e.target.checked), { reloadAll: true })}
+                        className="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600"
+                      />
+                      <span>
+                        <span className="block text-sm font-bold text-gray-900">Self-Driving DMARC</span>
+                        <span className="block text-sm text-gray-500 mt-0.5">Advance automatically while compliance stays healthy, and roll back on regressions.</span>
+                      </span>
+                    </label>
+                  )}
 
                   {rec.can_rollback && (
                     <button
