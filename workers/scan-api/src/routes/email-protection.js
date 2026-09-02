@@ -10,6 +10,7 @@ import { computeBecExposureScore } from "../engines/bec.js";
 import {
   DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
   buildAggregateReportTrustSemantics,
+  dmarcOperationalSignalSourceSql,
 } from "../lib/dmarc-authority.js";
 import { aggregateReportCompleteSql } from "../lib/aggregate-report-ingest.js";
 import { assessImpactRollback, comparePolicyImpact, forecastPolicyImpact } from "../engines/dmarc-impact.js";
@@ -1286,6 +1287,7 @@ export async function emailProtectionRoutes(rctx) {
                     JOIN dmarc_aggregate_reports rep ON rep.id = r.report_id
                     WHERE r.workspace_id = ? AND r.domain = ? AND (rep.date_range_end IS NULL OR rep.date_range_end >= ?)
                       AND ${aggregateReportCompleteSql("rep", "dmarc")}
+                      AND ${dmarcOperationalSignalSourceSql("rep")}
                     GROUP BY r.disposition`)
           .bind(workspaceId, domain, cutoff).all();
         const disposition = { none: 0, quarantine: 0, reject: 0 };
@@ -1306,7 +1308,8 @@ export async function emailProtectionRoutes(rctx) {
                            MAX(rep.date_range_end) AS maxe
                     FROM dmarc_aggregate_reports rep
                     WHERE rep.workspace_id = ? AND rep.domain = ?
-                      AND ${aggregateReportCompleteSql("rep", "dmarc")}`)
+                      AND ${aggregateReportCompleteSql("rep", "dmarc")}
+                      AND ${dmarcOperationalSignalSourceSql("rep")}`)
           .bind(workspaceId, domain).first();
         const daysWithData = (window?.minb && window?.maxe) ? Math.max(1, Math.round((window.maxe - window.minb) / 86400)) : 0;
         const highVolFailed = senders.filter((s) => (s.total_messages || 0) >= 50 && (typeof s.pass_rate === "number" ? s.pass_rate : 100) < 90).length;

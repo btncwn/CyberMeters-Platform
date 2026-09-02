@@ -6,6 +6,8 @@
 // CF payload/rule helpers and _ingestTokenB64Url are module-internal.
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, normalizeInboundRecipientDomain, sha256Hex } from "../lib/dmarc-ingest.js";
 import { createAuditEvent } from "../lib/events.js";
+import { dmarcOperationalSignalSourceSql } from "../lib/dmarc-authority.js";
+import { aggregateReportCompleteSql } from "../lib/aggregate-report-ingest.js";
 import { resolveEffectiveClassification } from "./sender-classification.js";
 
 // ── DMARC Aggregate Report Ingestion & Sender Intelligence v1 ────────────────
@@ -174,8 +176,52 @@ export async function resolveWorkspaceDomain(env, workspaceId, domain) {
 
 export async function loadEmailSenderSources(env, workspaceId, domain) {
   const rows = await env.cybermeters_db
-    .prepare(`SELECT * FROM email_sender_sources
-              WHERE workspace_id = ? AND domain = ? ORDER BY total_messages DESC`)
+    .prepare(`SELECT s.id, s.workspace_id, s.domain, s.source_ip,
+                     s.provider_guess, s.provider_confidence, s.provider_reason,
+                     eligible.header_from,
+                     eligible.first_seen, eligible.last_seen,
+                     eligible.total_messages, eligible.aligned_messages,
+                     eligible.failed_messages, eligible.quarantined_messages,
+                     eligible.rejected_messages, eligible.pass_rate,
+                     s.classification, s.notes, s.created_at, s.updated_at,
+                     eligible.spf_aligned_messages, eligible.dkim_aligned_messages,
+                     s.auto_classification, s.auto_confidence, s.auto_reasons,
+                     s.classified_at, s.provider_map_version,
+                     s.monitoring_status, s.recurrence_type, s.recurrence_band,
+                     s.evaluated_at
+              FROM (
+                SELECT r.workspace_id, r.domain, r.source_ip,
+                       MIN(r.header_from) AS header_from,
+                       MIN(COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ', rep.date_range_begin, 'unixepoch'), rep.created_at)) AS first_seen,
+                       MAX(COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ', rep.date_range_end, 'unixepoch'), rep.created_at)) AS last_seen,
+                       SUM(r.message_count) AS total_messages,
+                       SUM(CASE WHEN r.spf_aligned_result = 'pass' OR r.dkim_aligned_result = 'pass'
+                                THEN r.message_count ELSE 0 END) AS aligned_messages,
+                       SUM(CASE WHEN r.spf_aligned_result = 'pass' OR r.dkim_aligned_result = 'pass'
+                                THEN 0 ELSE r.message_count END) AS failed_messages,
+                       SUM(CASE WHEN r.disposition = 'quarantine' THEN r.message_count ELSE 0 END) AS quarantined_messages,
+                       SUM(CASE WHEN r.disposition = 'reject' THEN r.message_count ELSE 0 END) AS rejected_messages,
+                       SUM(CASE WHEN r.spf_aligned_result = 'pass' THEN r.message_count ELSE 0 END) AS spf_aligned_messages,
+                       SUM(CASE WHEN r.dkim_aligned_result = 'pass' THEN r.message_count ELSE 0 END) AS dkim_aligned_messages,
+                       CASE WHEN SUM(r.message_count) > 0 THEN
+                         ROUND(1000.0 * SUM(CASE WHEN r.spf_aligned_result = 'pass' OR r.dkim_aligned_result = 'pass'
+                                                THEN r.message_count ELSE 0 END) / SUM(r.message_count)) / 10.0
+                       ELSE 0 END AS pass_rate
+                FROM dmarc_aggregate_records r
+                JOIN dmarc_aggregate_reports rep
+                  ON rep.id = r.report_id
+                 AND rep.workspace_id = r.workspace_id
+                 AND rep.domain = r.domain
+                WHERE r.workspace_id = ? AND r.domain = ?
+                  AND ${aggregateReportCompleteSql("rep", "dmarc")}
+                  AND ${dmarcOperationalSignalSourceSql("rep")}
+                GROUP BY r.workspace_id, r.domain, r.source_ip
+              ) eligible
+              JOIN email_sender_sources s
+                ON s.workspace_id = eligible.workspace_id
+               AND s.domain = eligible.domain
+               AND s.source_ip = eligible.source_ip
+              ORDER BY eligible.total_messages DESC`)
     .bind(workspaceId, domain).all();
   return rows.results || [];
 }

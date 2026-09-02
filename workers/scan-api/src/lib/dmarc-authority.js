@@ -134,6 +134,18 @@ export function dmarcAuthoritySourceSql(alias = "rep") {
   return `${alias}.source IN (${literals})`;
 }
 
+// Non-authoritative product signals may use recognised inbound aggregate
+// reports, while authority and external-automation consumers remain stricter.
+// `sender_domain_claimed_recognised` (and its legacy stored value `verified`)
+// still describes sender-controlled transport metadata: admitting it here does
+// not authenticate the producer or grant DNS/DMARC authority.
+export function dmarcOperationalSignalSourceSql(alias = "rep") {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias)) throw new Error("invalid_sql_alias");
+  return `(${alias}.source IN ('manual_paste', 'signed_upload') OR (` +
+    `${alias}.source = 'inbound_email' AND ` +
+    `${alias}.auth_verdict IN ('sender_domain_claimed_recognised', 'verified')))`;
+}
+
 // Deliberately independent of transport/header-From labels. No current source
 // meets the required corroboration contract, so destructive automation fails
 // closed even for authenticated customer-submission channels.

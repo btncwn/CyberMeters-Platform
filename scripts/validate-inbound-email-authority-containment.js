@@ -23,10 +23,14 @@ const {
 } = await imp("lib/dmarc-ingest.js");
 const { ingestTlsRptReport } = await imp("lib/tlsrpt-ingest.js");
 const {
+  DMARC_AUTHORITY_ELIGIBLE_SOURCES,
   DMARC_AUTHORITY_EVIDENCE_SCOPE,
   DMARC_EXTERNAL_AUTOMATION_EVIDENCE_SCOPE,
   DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
   buildAggregateReportTrustSemantics,
+  dmarcAuthoritySourceSql,
+  dmarcExternalAutomationSourceSql,
+  dmarcOperationalSignalSourceSql,
   isDmarcAuthorityEligibleSource,
   isDmarcExternalAutomationEligibleSource,
 } = await imp("lib/dmarc-authority.js");
@@ -145,11 +149,15 @@ db.prepare(`INSERT INTO managed_cases
           'awaiting_verification','high',datetime('now'),datetime('now'))`).run();
 
 const nowEpoch = Math.floor(Date.now() / 1000);
-function dmarcXml(reportId, domain, records, policy = "reject") {
+function dmarcXml(reportId, domain, records, policy = "reject", {
+  begin = nowEpoch - 3600,
+  end = nowEpoch,
+  orgName = "Attacker Chosen Reporter",
+} = {}) {
   return `<?xml version="1.0"?><feedback>
-    <report_metadata><org_name>Attacker Chosen Reporter</org_name>
+    <report_metadata><org_name>${orgName}</org_name>
       <email>attacker@attacker.example</email><report_id>${reportId}</report_id>
-      <date_range><begin>${nowEpoch - 3600}</begin><end>${nowEpoch}</end></date_range>
+      <date_range><begin>${begin}</begin><end>${end}</end></date_range>
     </report_metadata>
     <policy_published><domain>${domain}</domain><p>${policy}</p><pct>100</pct></policy_published>
     ${records.map((record) => `<record>
@@ -372,7 +380,7 @@ ok("forged inbound report does not create Executive sender evidence",
 ok("mutation proof: the ungated forged totals materially differ from authority inputs",
   mutantRollbackRate.total === 600 && afterBecEvidence.total_messages === 0);
 
-// ── Observational surfaces remain available and explicitly non-authoritative ─
+// ── Forensic history stays visible; operational signals are provenance-filtered
 async function route(pathname) {
   const request = new Request(`https://app.cybermeters.test${pathname}`);
   return emailProtectionRoutes({
@@ -385,13 +393,31 @@ async function route(pathname) {
     requireWorkspaceRole: async () => ({ role: "owner" }),
   });
 }
-const summary = await route("/api/workspaces/ws1/domains/victim.example/dmarc-summary?days=30");
-ok("forged inbound report remains visible in the DMARC observational summary",
-  summary.status === 200 && summary.body.traffic.total_messages === 600 &&
-  summary.body.evidence_scope === DMARC_OBSERVATIONAL_EVIDENCE_SCOPE &&
-  summary.body.authoritative === false &&
-  summary.body.readiness.authoritative === false &&
-  summary.body.business_risk.authoritative === false);
+const forgedOnlySummary = await route("/api/workspaces/ws1/domains/victim.example/dmarc-summary?days=30");
+const forgedOnlySenders = await route("/api/workspaces/ws1/domains/victim.example/email-senders");
+const forgedOnlyActions = JSON.stringify(forgedOnlySummary.body.report_remediation_actions || []);
+ok("forged inbound report contributes zero traffic/disposition/window decision signal",
+  forgedOnlySummary.status === 200 &&
+  forgedOnlySummary.body.traffic.total_messages === 0 &&
+  forgedOnlySummary.body.traffic.aligned_messages === 0 &&
+  forgedOnlySummary.body.traffic.failed_messages === 0 &&
+  forgedOnlySummary.body.traffic.pass_rate === 0 &&
+  forgedOnlySummary.body.disposition.none === 0 &&
+  forgedOnlySummary.body.disposition.quarantine === 0 &&
+  forgedOnlySummary.body.disposition.reject === 0 &&
+  forgedOnlySummary.body.readiness.checks.find((check) => check.id === "reporting_window")?.detail.startsWith("0 day") &&
+  forgedOnlySummary.body.evidence_scope === DMARC_OBSERVATIONAL_EVIDENCE_SCOPE &&
+  forgedOnlySummary.body.authoritative === false &&
+  forgedOnlySummary.body.readiness.authoritative === false &&
+  forgedOnlySummary.body.business_risk.authoritative === false);
+ok("forged inbound report contributes zero sender/classification decision signal",
+  forgedOnlySenders.status === 200 &&
+  forgedOnlySenders.body.senders.length === 0 &&
+  forgedOnlySenders.body.summary.total_senders === 0 &&
+  forgedOnlySenders.body.summary.total_messages === 0 &&
+  forgedOnlySenders.body.summary.unknown_senders === 0 &&
+  !forgedOnlyActions.includes("unknown_sender_detected") &&
+  !forgedOnlyActions.includes("high_volume_alignment_failure"));
 const history = await route("/api/workspaces/ws1/domains/victim.example/dmarc-reports");
 ok("forged report history is honestly labelled claimed/unverified observational evidence",
   history.status === 200 && history.body.reports.length === 1 &&
@@ -405,10 +431,94 @@ ok("forged report history is honestly labelled claimed/unverified observational 
   history.body.reports[0].external_automation_eligible === false &&
   history.body.reports[0].authoritative === false &&
   history.body.reports[0].evidence_scope === DMARC_OBSERVATIONAL_EVIDENCE_SCOPE);
+
+// A recognised inbound report is admitted only to the explicitly
+// non-authoritative operational view. It deliberately reuses the forged
+// report's source IP so cumulative email_sender_sources counters are poisoned;
+// the served metrics must still come solely from eligible parent/child rows.
+const recognisedBegin = nowEpoch - 7200;
+const recognisedEnd = nowEpoch - 3600;
+const recognised = await ingestDmarcReport(env, {
+  workspaceId: "ws1",
+  domain: "victim.example",
+  domainId: "d-victim",
+  source: "inbound_email",
+  enforceDomainMatch: true,
+  provenance: {
+    auth_verdict: "sender_domain_claimed_recognised",
+    reporter_domain: "outlook.com",
+    envelope_from: "reports@outlook.com",
+  },
+  xmlString: dmarcXml("recognised-inbound-1", "victim.example",
+    [{ ip: "198.51.100.10", count: 40, pass: true }], "none", {
+      begin: recognisedBegin,
+      end: recognisedEnd,
+      orgName: "Recognised Reporter",
+    }),
+});
+db.prepare(`UPDATE email_sender_sources
+            SET classification='trusted', notes='customer assertion', classified_at=datetime('now')
+            WHERE id='sender-recover'`).run();
+const recognisedSummary = await route("/api/workspaces/ws1/domains/victim.example/dmarc-summary?days=30");
+const recognisedSenders = await route("/api/workspaces/ws1/domains/victim.example/email-senders");
+const recognisedSender = recognisedSenders.body.senders.find((sender) => sender.source_ip === "198.51.100.10");
+ok("recognised inbound evidence remains an observational operational signal",
+  recognised.ok === true &&
+  recognisedSummary.body.traffic.total_messages === 40 &&
+  recognisedSummary.body.traffic.aligned_messages === 40 &&
+  recognisedSummary.body.traffic.failed_messages === 0 &&
+  recognisedSummary.body.traffic.pass_rate === 100 &&
+  recognisedSummary.body.authoritative === false);
+ok("same-IP forged counters cannot poison eligible sender metrics or customer assertion",
+  recognisedSenders.body.senders.length === 1 &&
+  recognisedSender?.total_messages === 40 &&
+  recognisedSender?.aligned_messages === 40 &&
+  recognisedSender?.failed_messages === 0 &&
+  recognisedSender?.pass_rate === 100 &&
+  recognisedSender?.first_seen === new Date(recognisedBegin * 1000).toISOString() &&
+  recognisedSender?.last_seen === new Date(recognisedEnd * 1000).toISOString() &&
+  recognisedSender?.classification === "trusted" &&
+  recognisedSender?.classification_source === "manual" &&
+  recognisedSender?.notes === "customer assertion");
+ok("recognised inbound label remains non-authoritative and never becomes verified",
+  recognisedSender?.effective_classification === "authorised" &&
+  recognisedSender?.classification === "trusted" &&
+  buildAggregateReportTrustSemantics({
+    source: "inbound_email",
+    storedTransportVerdict: "sender_domain_claimed_recognised",
+    reporterDomain: "outlook.com",
+  }).authoritative_eligible === false);
+
+// A second tenant with the same domain and source IP must never affect ws1.
+db.prepare("INSERT INTO users (id, email, email_verified) VALUES ('u2','other@example.test',1)").run();
+db.prepare("INSERT INTO workspaces (id, name, owner_user_id) VALUES ('ws2','Other tenant','u2')").run();
+db.prepare("INSERT INTO domains (id, user_id, domain, verification_status) VALUES ('d-victim-ws2','u2','victim.example','verified')").run();
+db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws2','d-victim-ws2')").run();
+await ingestDmarcReport(env, {
+  workspaceId: "ws2",
+  domain: "victim.example",
+  domainId: "d-victim-ws2",
+  source: "inbound_email",
+  enforceDomainMatch: true,
+  provenance: { auth_verdict: "sender_domain_claimed_recognised", reporter_domain: "outlook.com" },
+  xmlString: dmarcXml("other-tenant-1", "victim.example",
+    [{ ip: "198.51.100.10", count: 700, pass: false }], "none", {
+      orgName: "Other Tenant Reporter",
+    }),
+});
+const tenantBoundSummary = await route("/api/workspaces/ws1/domains/victim.example/dmarc-summary?days=30");
+const tenantBoundSenders = await route("/api/workspaces/ws1/domains/victim.example/email-senders");
+ok("operational signal aggregation remains workspace/domain tenant-bound",
+  tenantBoundSummary.body.traffic.total_messages === 40 &&
+  tenantBoundSummary.body.traffic.failed_messages === 0 &&
+  tenantBoundSenders.body.senders.length === 1 &&
+  tenantBoundSenders.body.senders[0].total_messages === 40);
+
 db.prepare(`UPDATE dmarc_aggregate_reports
             SET auth_verdict='verified', reporter_domain='outlook.com'
             WHERE external_report_id='forged-victim-1'`).run();
 const legacyHistory = await route("/api/workspaces/ws1/domains/victim.example/dmarc-reports");
+const legacySummary = await route("/api/workspaces/ws1/domains/victim.example/dmarc-summary?days=30");
 ok("legacy consumer-mailbox verified rows are never exposed as verified or authoritative",
   legacyHistory.body.reports[0].auth_verdict === "sender_domain_claimed_recognised" &&
   legacyHistory.body.reports[0].recognised_reporter_domain === true &&
@@ -416,6 +526,19 @@ ok("legacy consumer-mailbox verified rows are never exposed as verified or autho
   legacyHistory.body.reports[0].report_producer_authenticated === false &&
   legacyHistory.body.reports[0].authoritative_eligible === false &&
   legacyHistory.body.reports[0].authoritative === false);
+ok("legacy raw verified label is admitted only to the operational observational view",
+  legacySummary.body.traffic.total_messages === 640 &&
+  legacySummary.body.authoritative === false &&
+  legacySummary.body.readiness.authoritative === false);
+db.prepare(`UPDATE dmarc_aggregate_reports
+            SET auth_verdict='sender_domain_claimed', reporter_domain='attacker.example'
+            WHERE external_report_id='forged-victim-1'`).run();
+const restoredSummary = await route("/api/workspaces/ws1/domains/victim.example/dmarc-summary?days=30");
+ok("restoring forged provenance removes it from every operational signal without deleting history",
+  restoredSummary.body.traffic.total_messages === 40 &&
+  db.prepare("SELECT COUNT(*) AS n FROM dmarc_aggregate_reports WHERE external_report_id='forged-victim-1'").get()?.n === 1 &&
+  db.prepare("SELECT COUNT(*) AS n FROM dmarc_aggregate_records WHERE report_id=?")
+    .get(forged.reportId)?.n === 2);
 
 const tlsBody = JSON.stringify({
   "organization-name": "Attacker Reporter",
@@ -479,6 +602,27 @@ ok("manual-paste aggregate data still cannot drive destructive external automati
   manualRate.total === 0 && manualRate.pass_rate === null &&
   manualRate.external_automation_suspended === true &&
   isDmarcExternalAutomationEligibleSource("manual_paste") === false);
+const signed = await ingestDmarcReport(env, {
+  workspaceId: "ws1",
+  domain: "victim.example",
+  domainId: "d-victim",
+  source: "signed_upload",
+  enforceDomainMatch: true,
+  xmlString: dmarcXml("signed-regression-1", "victim.example",
+    [{ ip: "192.0.2.45", count: 30, pass: true }], "reject", {
+      orgName: "Signed Upload Reporter",
+    }),
+});
+const eligibleSummary = await route("/api/workspaces/ws1/domains/victim.example/dmarc-summary?days=30");
+const eligibleSenders = await route("/api/workspaces/ws1/domains/victim.example/email-senders");
+ok("manual, signed and recognised-inbound evidence feed only the operational observational view",
+  signed.ok === true &&
+  eligibleSummary.body.traffic.total_messages === 90 &&
+  eligibleSummary.body.traffic.aligned_messages === 90 &&
+  eligibleSummary.body.traffic.failed_messages === 0 &&
+  eligibleSummary.body.authoritative === false &&
+  eligibleSenders.body.senders.length === 3 &&
+  eligibleSenders.body.summary.total_messages === 90);
 ok("source allow-list fails closed for inbound, null and unknown markers",
   isDmarcAuthorityEligibleSource("manual_paste") === true &&
   isDmarcAuthorityEligibleSource("signed_upload") === true &&
@@ -501,6 +645,13 @@ const afterUnmarkedRate = await getHostedDmarcPassRate(env, "ws1", "victim.examp
 ok("omitted-source report has zero authority",
   afterUnmarkedRate.total === 0 &&
   afterUnmarkedRate.pass_rate === null);
+const afterUnmarkedSummary = await route("/api/workspaces/ws1/domains/victim.example/dmarc-summary?days=30");
+const afterUnmarkedSenders = await route("/api/workspaces/ws1/domains/victim.example/email-senders");
+ok("unknown/unmarked report contributes zero operational decision signal",
+  afterUnmarkedSummary.body.traffic.total_messages === 90 &&
+  afterUnmarkedSummary.body.traffic.failed_messages === 0 &&
+  afterUnmarkedSenders.body.senders.length === 3 &&
+  afterUnmarkedSenders.body.summary.total_messages === 90);
 
 // ── Gate 2 trust semantics: labels never manufacture producer authority ──────
 const recognisedHeaderFrom = buildAggregateReportTrustSemantics({
@@ -549,6 +700,20 @@ ok("customer-submitted content has bounded internal authority but no external au
   manualSubmission.external_automation_eligible === false &&
   signedSubmission.authoritative_eligible === true &&
   signedSubmission.external_automation_eligible === false);
+ok("authority and external-automation SQL contracts remain byte-semantically unchanged",
+  DMARC_AUTHORITY_ELIGIBLE_SOURCES.join(",") === "manual_paste,signed_upload" &&
+  dmarcAuthoritySourceSql("rep") === "rep.source IN ('manual_paste', 'signed_upload')" &&
+  dmarcExternalAutomationSourceSql("rep") === "0 = 1");
+ok("operational-signal predicate is separate, bounded and excludes claimed/unknown inbound",
+  dmarcOperationalSignalSourceSql("rep") ===
+    "(rep.source IN ('manual_paste', 'signed_upload') OR (rep.source = 'inbound_email' AND rep.auth_verdict IN ('sender_domain_claimed_recognised', 'verified')))" &&
+  !dmarcOperationalSignalSourceSql("rep").includes("sender_identity_unavailable") &&
+  !dmarcOperationalSignalSourceSql("rep").includes("'sender_domain_claimed',"));
+let aliasRejected = false;
+try { dmarcOperationalSignalSourceSql("rep; DROP TABLE workspaces"); } catch (error) {
+  aliasRejected = error?.message === "invalid_sql_alias";
+}
+ok("operational-signal predicate rejects unsafe SQL aliases", aliasRejected);
 
 // ── Mutation guards: deleting any consumer gate is CI-red ────────────────────
 function guard(name, rel, predicate, mutate) {
@@ -592,6 +757,16 @@ guardEveryOccurrence("inbound ingest classifier/lifecycle dispatch gates",
 guard("authority-only sender classifier aggregation", "engines/sender-classification.js",
   (source) => source.includes("AND rep.source IN (${placeholders})"),
   (source) => source.replace("AND rep.source IN (${placeholders})", ""));
+guard("operational predicate excludes unrecognised inbound claims", "lib/dmarc-authority.js",
+  (source) => source.includes("auth_verdict IN ('sender_domain_claimed_recognised', 'verified')"),
+  (source) => source.replace(
+    "auth_verdict IN ('sender_domain_claimed_recognised', 'verified')",
+    "auth_verdict IN ('sender_domain_claimed', 'sender_domain_claimed_recognised', 'verified')",
+  ));
+guardEveryOccurrence("operational sender inventory parent-report gate",
+  "engines/rua-routing.js", 'dmarcOperationalSignalSourceSql("rep")', 1);
+guardEveryOccurrence("operational DMARC summary parent-report gates",
+  "routes/email-protection.js", 'dmarcOperationalSignalSourceSql("rep")', 2);
 guardEveryOccurrence("observational report labels",
   "routes/email-protection.js", "DMARC_OBSERVATIONAL_EVIDENCE_SCOPE", 8);
 
