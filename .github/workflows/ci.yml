@@ -1583,9 +1583,11 @@ jobs:
       - name: Validate BRS downstream completeness load-bearing mutations
         run: node scripts/validate-brs-downstream-mutations.js
 
+      - name: Validate audit exception semantic mutations
+        run: node scripts/validate-audit-exceptions-mutations.js
+
       - name: Audit frontend dependencies
-        working-directory: frontend
-        run: npm audit --audit-level=high
+        run: node scripts/validate-audit-exceptions.js
 
       - name: Frontend type check (tsc — api contract + all .ts/.tsx)
         working-directory: frontend
