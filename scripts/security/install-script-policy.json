@@ -70,9 +70,9 @@
       "root": "workers/scan-api",
       "package_name": "cybermeters-scan-api",
       "package_version": "0.1.0",
-      "package_json_sha256": "960a4c7e68b8f6d6a4fafd9bc5e22147d1e03dff5a548158998cdd0d120ac924",
+      "package_json_sha256": "a05d5a34c8019d65d794429e6863af93d93761ee0789e5bdcc35a46a4c475623",
       "lockfile_version": 3,
-      "lockfile_sha256": "e88e65f56902d1aa592cb9b1d1e295fe1f72fd9e923180788ee59fe191702290",
+      "lockfile_sha256": "7c3ef021b191006241d99786cefdc10be30ba541c88e3feac752efac3aa5da85",
       "install_script_markers": [
         {
           "package_path": "node_modules/esbuild",
