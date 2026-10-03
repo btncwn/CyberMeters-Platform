@@ -328,3 +328,20 @@ Remove at or before the review date. Verify by deleting the entry, confirming `n
 --audit-level=high` stays at **0** with the restored `test-exclude` 7 chain, and that
 coverage tests still pass. The live register entry is deleted while this historical prose
 is preserved.
+
+---
+
+## OV-5 — Miniflare undici pinned to 7.29.1 (dev-transitive)
+
+Reviewed 2026-10-03; review by 2026-12-31; owner: CyberMeters engineering (founder-owned).
+
+`wrangler@4.120.0 → miniflare@5.20260801.1-alpha → undici@7.29.0`
+is changed only under the named Miniflare override to **7.29.1**.
+`npm ls --omit=dev undici` is empty. This fixes the development toolchain;
+it is not an independent production retest or case-closure claim.
+
+Current npm audit advisories cleared: `GHSA-3wwx-pv8p-q78v`, `GHSA-pmjh-fq2x-6v4x`, `GHSA-r53p-7pc4-xj5r`, `GHSA-rfgv-xxqx-mfg5`, `GHSA-3xpg-4rpp-hhhm`, `GHSA-2jfj-6hjv-fm6j`, `GHSA-2gqq-gqf2-x968`, `GHSA-w293-vg96-wgc3`, `GHSA-8436-99hf-9mmv`, `GHSA-rx4f-c7p8-82vq`.
+
+Remove when a supported Wrangler/Miniflare release declares undici >=7.29.1. Delete only this top-level override, regenerate the lock, confirm no undici overridden/invalid marker, a clean worker npm audit --audit-level=high, and a passing Worker dry-run bundle.
+
+The locked graph has one undici path and Miniflare is its only consumer; the top-level pin therefore has the same measured reach as the former selector. Recheck this scope when reviewing the override.

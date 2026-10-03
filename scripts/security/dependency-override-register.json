@@ -32,6 +32,41 @@
       "reviewed_on": "2026-10-03",
       "review_by": "2026-10-31",
       "record": "docs/DEPENDENCY-OVERRIDES.md#ov-1"
+    },
+    {
+      "id": "OV-5",
+      "workspace": "workers/scan-api",
+      "package": "undici",
+      "declared_spec": "7.29.1",
+      "resolved_version": "7.29.1",
+      "dependency_root": "wrangler",
+      "dependency_path": [
+        "wrangler",
+        "miniflare",
+        "undici"
+      ],
+      "reachability": "dev_only",
+      "production_closure_evidence": "npm ls --omit=dev undici",
+      "advisory_basis": "current",
+      "advisories_cleared": [
+        "GHSA-3wwx-pv8p-q78v",
+        "GHSA-pmjh-fq2x-6v4x",
+        "GHSA-r53p-7pc4-xj5r",
+        "GHSA-rfgv-xxqx-mfg5",
+        "GHSA-3xpg-4rpp-hhhm",
+        "GHSA-2jfj-6hjv-fm6j",
+        "GHSA-2gqq-gqf2-x968",
+        "GHSA-w293-vg96-wgc3",
+        "GHSA-8436-99hf-9mmv",
+        "GHSA-rx4f-c7p8-82vq"
+      ],
+      "reason": "Miniflare 5.20260801.1-alpha is the only locked consumer of undici and declares 7.29.0 exact. The top-level override installs 7.29.1 at the single locked undici path, clearing the current npm audit advisories. npm ls --omit=dev undici is empty; the package belongs to the Wrangler development toolchain.",
+      "removal_criterion": "Remove when a supported Wrangler/Miniflare release declares undici >=7.29.1. Delete only this override, regenerate the lock, confirm no undici overridden/invalid marker, a clean worker npm audit --audit-level=high, and a passing Worker dry-run bundle.",
+      "owner": "CyberMeters engineering (founder-owned)",
+      "introduced_on": "2026-10-03",
+      "reviewed_on": "2026-10-03",
+      "review_by": "2026-12-31",
+      "record": "docs/DEPENDENCY-OVERRIDES.md#ov-5"
     }
   ]
 }
