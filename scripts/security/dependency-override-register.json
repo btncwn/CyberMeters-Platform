@@ -1,7 +1,7 @@
 {
   "schema": "cybermeters.dependency-override-register/v1",
-  "note": "Every `overrides` entry in every workspace package.json is a deliberate deviation from a dependency's declared graph, taken to INSTALL a fixed package rather than to suppress or weaken `npm audit`. This register is the machine-readable binding: each record names the exact package, the declared spec, the resolved lockfile version, the dependency ancestry, whether the package is reachable from a production root, the advisories the override clears today, an owner, and a mandatory review deadline. scripts/validate-dependency-overrides.js fails CI when a live override is unregistered, a record is stale, a version drifts, a dev-only claim is contradicted by the locked graph, or a review deadline has passed. `advisory_basis` separates an override that clears a CURRENT advisory from one that has become redundant upstream (HISTORICAL) — a redundant override is a silent permanent fork, so it must carry a near-term review deadline and a removal check. Prose records live in docs/DEPENDENCY-OVERRIDES.md and are referenced by `record`.",
-  "reviewed_on": "2026-08-03",
+  "note": "Every `overrides` entry in every workspace package.json is a deliberate deviation from a dependency's declared graph, taken to INSTALL a fixed package rather than to suppress or weaken `npm audit`. This register is the machine-readable binding: each record names the exact package, the declared spec, the resolved lockfile version, the dependency ancestry, whether the package is reachable from a production root, the advisories the override clears today, an owner, and a mandatory review deadline. scripts/validate-dependency-overrides.js fails CI when a live override is unregistered, a record is stale, a version drifts, a dev-only claim is contradicted by the locked graph, or a review deadline has passed. `advisory_basis` separates an override that clears a CURRENT advisory from one that has become redundant upstream (HISTORICAL) \u2014 a redundant override is a silent permanent fork, so it must carry a near-term review deadline and a removal check. Prose records live in docs/DEPENDENCY-OVERRIDES.md and are referenced by `record`.",
+  "reviewed_on": "2026-10-03",
   "owner_vocabulary": [
     "CyberMeters engineering (founder-owned)"
   ],
@@ -10,19 +10,26 @@
       "id": "OV-1",
       "workspace": "workers/scan-api",
       "package": "sharp",
-      "declared_spec": "0.35.3",
-      "resolved_version": "0.35.3",
+      "declared_spec": "0.35.4",
+      "resolved_version": "0.35.4",
       "dependency_root": "wrangler",
-      "dependency_path": ["wrangler", "miniflare", "sharp"],
+      "dependency_path": [
+        "wrangler",
+        "miniflare",
+        "sharp"
+      ],
       "reachability": "dev_only",
       "production_closure_evidence": "npm ls --omit=dev sharp",
       "advisory_basis": "current",
-      "advisories_cleared": ["GHSA-f88m-g3jw-g9cj"],
-      "reason": "miniflare declares sharp 0.34.5 exact, and sharp < 0.35.0 carries high-severity inherited libvips advisories that fail the `npm audit --audit-level=high` CI gate. sharp is pulled only by the dev toolchain, is never imported by the Worker source, and its only miniflare entry point is the Cloudflare Images binding simulation, which this project does not register.",
-      "removal_criterion": "Remove when a supported wrangler (and its bundled miniflare) declares sharp >= 0.35.0. Verify by deleting the entry, confirming `npm ls sharp` resolves >= 0.35.0 with no `overridden` marker, `npm audit --audit-level=high` stays at 0, and `npx wrangler deploy --dry-run` still builds.",
+      "advisories_cleared": [
+        "GHSA-f88m-g3jw-g9cj",
+        "GHSA-rgj7-g3m4-5g8c"
+      ],
+      "reason": "Miniflare 5.20260801.1-alpha declares sharp 0.35.2 exact. The previous override 0.35.3 is affected by GHSA-rgj7-g3m4-5g8c (sharp <0.35.4); this pin installs 0.35.4. sharp is absent from the production closure (npm ls --omit=dev sharp); it belongs to the Wrangler/Miniflare development toolchain. GHSA-f88m-g3jw-g9cj is retained as the original OV-1 advisory history.",
+      "removal_criterion": "Remove when a supported Wrangler/Miniflare release declares sharp >=0.35.4. Delete the override and confirm npm ls sharp resolves >=0.35.4 without overridden/invalid markers, npm audit --audit-level=high has no sharp advisory, and Wrangler deploy --dry-run plus the native sharp smoke pass.",
       "owner": "CyberMeters engineering (founder-owned)",
       "introduced_on": "2026-07-22",
-      "reviewed_on": "2026-08-03",
+      "reviewed_on": "2026-10-03",
       "review_by": "2026-10-31",
       "record": "docs/DEPENDENCY-OVERRIDES.md#ov-1"
     }

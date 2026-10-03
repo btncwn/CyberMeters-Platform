@@ -40,7 +40,7 @@ versions, paths, owners and dates.
 
 ---
 
-## OV-1 — `sharp` forced to `0.35.3` (dev-transitive, CI security)
+## OV-1 — `sharp` forced to `0.35.4` (dev-transitive, CI security)
 
 | Field | Value |
 | --- | --- |
@@ -50,9 +50,25 @@ versions, paths, owners and dates.
 | **Review date** | 2026-10-31 (re-check upstream at each quarterly dependency sweep) |
 | **Scope** | `workers/scan-api/package.json` `overrides` + `package-lock.json` only. No src/runtime, no `wrangler` version change, no deploy. |
 
+### Review — 2026-10-03
+
+OV-1 now pins **sharp 0.35.4**. Current npm audit identifies
+**GHSA-rgj7-g3m4-5g8c** in sharp `<0.35.4`; the previous 0.35.3 override is affected.
+The machine-readable record retains GHSA-f88m-g3jw-g9cj as the original advisory
+history and adds the current advisory. `npm ls --omit=dev sharp` is empty: the
+package remains in the Wrangler/Miniflare development toolchain only.
+
+The current removal threshold is a supported Wrangler/Miniflare release declaring
+**sharp >=0.35.4**, followed by an override-free resolution, clean sharp audit,
+Worker dry-run bundle and native sharp smoke. The older >=0.35.0 threshold and
+0.35.3 compatibility measurements below are historical; they do not discharge
+this current advisory. Owner remains CyberMeters engineering (founder-owned),
+review deadline **2026-10-31**. This dependency fix is separate from the CT clock
+repair and is not a completed independent security retest.
+
 ### What it does
 ```json
-"overrides": { "sharp": "0.35.3" }
+"overrides": { "sharp": "0.35.4" }
 ```
 Exact pin (not a range) so the resolved dev-tool graph cannot drift silently on future
 installs.
