@@ -438,8 +438,8 @@ try {
   // A registered override must be visibly EXERCISED on the happy path, not
   // silently absent: the baseline must actually evaluate real records.
   ok("baseline exercises every registered override",
-    base.register.overrides.length === 1 &&
-      sameSet(base.register.overrides.map((entry) => entry.id), ["OV-1"]),
+    base.register.overrides.length === 2 &&
+      sameSet(base.register.overrides.map((entry) => entry.id), ["OV-1", "OV-5"]),
     `ids ${base.register.overrides.map((entry) => entry.id).join(",")}`);
 
   // ── PART B ────────────────────────────────────────────────────────────────
