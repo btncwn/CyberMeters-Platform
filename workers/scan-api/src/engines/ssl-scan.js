@@ -33,6 +33,8 @@ export function projectSslCtSource(result) {
 // failure they stay at their explicit unknown/null or measured numeric sentinel
 // (best-effort — the scan still completes).
 export async function resolveCertificateTransparency(domain, opts = {}) {
+  // One evaluation instant for both providers and all certificate age fields.
+  const now = typeof opts.now === "function" ? opts.now() : Date.now();
   const accounting = opts.accounting || null;
   const ctCache = opts.ctCache || createCertificateTransparencyCache({ signal: opts.signal });
   const rootDomain = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
@@ -79,7 +81,6 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
       const certs = crtResult.data.filter((certificate) =>
         coversRootDomain(certificate.name_value || certificate.common_name || domain)
       );
-      const now = Date.now();
       // Keep only certs that are currently valid (not yet expired).
       // Sort by not_after descending so the longest-lived cert comes first —
       // that is the one most likely still active on the server.
@@ -133,7 +134,6 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
             (Array.isArray(issuance.dns_names) ? issuance.dns_names : []).join(" ")
           )
         );
-        const now = Date.now();
         const valid = issuances
           .filter((c) => c.not_after && new Date(c.not_after).getTime() > now)
           .sort((a, b) => new Date(b.not_after).getTime() - new Date(a.not_after).getTime());
@@ -172,9 +172,8 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
 
 export async function runSslModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
-  const observedAt = typeof opts.now === "function"
-    ? new Date(opts.now()).toISOString()
-    : new Date().toISOString();
+  const nowMs = typeof opts.now === "function" ? opts.now() : Date.now();
+  const observedAt = new Date(nowMs).toISOString();
   // Track B sub-operation timing — observational only, guarded at every call so a
   // broken/absent collector can never alter probe behaviour or the module result.
   // NEVER open a row once the module signal is aborted: after the cap fires,
@@ -209,6 +208,7 @@ export async function runSslModule(domain, opts = {}) {
     accounting,
     signal: opts.signal,
     ctCache: opts.ctCache,
+    now: () => nowMs,
   });
   try {
     certPromise.then(

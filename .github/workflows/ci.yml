@@ -722,6 +722,9 @@ jobs:
       - name: Validate bounded scheduled-report generation (batch limit + determinism + idempotency + fairness + entitlement)
         run: node scripts/validate-bounded-scheduled-reports.js
 
+      - name: Validate C4 certificate clock injection and strict expiry boundary
+        run: node scripts/validate-c4-certificate-clock.js
+
       - name: Validate CT-R1 faithful runScanEngine finalization trace
         run: node scripts/validate-ct-r1-provider-telemetry-engine-trace.js
 

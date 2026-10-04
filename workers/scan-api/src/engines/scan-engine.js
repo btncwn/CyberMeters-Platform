@@ -722,7 +722,9 @@ export function cappedModuleCutoffProvenance(value, timedOut) {
 export async function runScanEngine(scanId, domainId, workspaceId, domain, env, opts = {}) {
   // Injectable clock (tests drive it deterministically); production uses Date.now.
   const now = typeof opts.now === "function" ? opts.now : Date.now;
-  const startedAt = new Date(now()).toISOString();
+  // Certificate evidence uses one scan instant; deadline/telemetry clocks keep advancing.
+  const certificateNowMs = now();
+  const startedAt = new Date(certificateNowMs).toISOString();
   // Resolve the invocation owner before creating its deadline. Durable Queue/Cron
   // invocations receive the bounded 120s total safety profile; waitUntil and
   // unknown callers retain the fail-closed 19s cancellation profile.
@@ -1112,7 +1114,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           // which scoring.js reads as positive evidence of absence and turns into the
           // CRITICAL "HTTPS Not Available" finding — a second, independent path to the
           // same false claim the classifier fix closes. Not assessed is not a verdict.
-          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, tls_state: TLS_RUNTIME_STATES.UNAVAILABLE, tls_state_reason: "deadline_deferred", https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), onConsumerRelease: (cause) => ctCache.releaseConsumer?.(domain, "ssl", cause), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache, subOps: subOpTelemetry }) }),
+          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, tls_state: TLS_RUNTIME_STATES.UNAVAILABLE, tls_state_reason: "deadline_deferred", https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), onConsumerRelease: (cause) => ctCache.releaseConsumer?.(domain, "ssl", cause), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache, subOps: subOpTelemetry, now: () => certificateNowMs }) }),
           runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal, remainingMs }) => runHeadersModule(domain, { accounting, signal, remainingMs: durableInvocation ? remainingMs : null, subOps: subOpTelemetry }) }),
           // The email deadline fallback is the CANONICAL unassessed email result
           // owned by email-scan.js. The previous bare shape ({spf:{},dmarc:{},
@@ -2186,7 +2188,8 @@ function buildCanonicalUrlProfile(modules) {
       {
         monitoringStates,
         providerHealth,
-        observedAt: new Date(now()).toISOString(),
+        observedAt: startedAt,
+        nowMs: certificateNowMs,
         engineVersion: env.APP_VERSION ?? "unknown",
       },
     );
@@ -2606,13 +2609,13 @@ function buildCanonicalUrlProfile(modules) {
     // Phase 8d: Certificate Events — fires asset_events for sensitive CT hosts,
     // expiry warnings, and growth signals.
     try {
-      await insertCertificateEvents(scanId, domainId, modules.certificate_intelligence, env, { currentReport: report });
+      await insertCertificateEvents(scanId, domainId, modules.certificate_intelligence, env, { currentReport: report, now: () => certificateNowMs });
     } catch { /* non-fatal */ }
 
     // Phase 8d.1: Certificate Timeline — persists cross-scan certificate
     // observations and emits alerts for new certs, SANs, and issuers.
     try {
-      await upsertCertificateObservation(scanId, domainId, modules.certificate_intelligence, env, { currentReport: report });
+      await upsertCertificateObservation(scanId, domainId, modules.certificate_intelligence, env, { currentReport: report, now: () => certificateNowMs });
     } catch { /* non-fatal */ }
 
     // Phase 8e: Brand Asset Upsert — persists generated typosquat candidates to
@@ -2680,7 +2683,7 @@ function buildCanonicalUrlProfile(modules) {
         .bind(domainId)
         .all();
       for (const { workspace_id } of (clWsRows.results || [])) {
-        await correlateCertificateLifecycle(env, workspace_id);
+        await correlateCertificateLifecycle(env, workspace_id, { now: startedAt });
       }
     } catch { /* non-fatal — lifecycle catches up on the next scan */ }
 
