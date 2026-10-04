@@ -4,8 +4,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import { splitStatements, isToleratedStatement } from "./lib/migration-apply-tolerated.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RealDate = Date;
@@ -115,10 +117,14 @@ try {
   // The established engine-trace D1/R2 fixture pattern: real schema + convergent
   // migrations in :memory:, with no persistent database or real service binding.
   const db = new DatabaseSync(":memory:");
-  const apply = file => { try { db.exec(fs.readFileSync(file, "utf8")); } catch { /* convergent */ } };
-  apply(path.join(root, "database/schema.sql"));
+  db.exec(fs.readFileSync(path.join(root, "database/schema.sql"), "utf8"));
   for (const f of fs.readdirSync(path.join(root, "database/migrations")).filter(f => f.endsWith(".sql")).sort()) {
-    apply(path.join(root, "database/migrations", f));
+    const raw = fs.readFileSync(path.join(root, "database/migrations", f), "utf8");
+    const fileSha = crypto.createHash("sha256").update(raw).digest("hex");
+    for (const stmt of splitStatements(raw)) {
+      try { db.exec(stmt); }
+      catch (e) { if (!isToleratedStatement(f, fileSha, stmt, e.message)) throw e; }
+    }
   }
   db.exec("PRAGMA foreign_keys = OFF");
   const writes = [];
