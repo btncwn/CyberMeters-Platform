@@ -694,7 +694,7 @@ invitations, never a post-launch activity.**
 - **No stale deployment facts in any report:** live/rollback Worker IDs are read from
   `CHANGELOG.md` (or `wrangler deployments list`) at reporting time — never from a
   prior session's summary.
-- Sharp override OV-1 (`docs/DEPENDENCY-OVERRIDES.md`): review 2026-10-31; remove when
+- Sharp override OV-1 (`docs/DEPENDENCY-OVERRIDES.md`): review 2026-11-30; remove when
   wrangler/miniflare ships sharp ≥ 0.35.0; rerun clean install + build + scheduled
   smoke at removal.
 - **No module is assumed correct (founder law, 24 Jul 2026):** every scan module's live

@@ -1,7 +1,7 @@
 {
   "schema": "cybermeters.dependency-override-register/v1",
   "note": "Every `overrides` entry in every workspace package.json is a deliberate deviation from a dependency's declared graph, taken to INSTALL a fixed package rather than to suppress or weaken `npm audit`. This register is the machine-readable binding: each record names the exact package, the declared spec, the resolved lockfile version, the dependency ancestry, whether the package is reachable from a production root, the advisories the override clears today, an owner, and a mandatory review deadline. scripts/validate-dependency-overrides.js fails CI when a live override is unregistered, a record is stale, a version drifts, a dev-only claim is contradicted by the locked graph, or a review deadline has passed. `advisory_basis` separates an override that clears a CURRENT advisory from one that has become redundant upstream (HISTORICAL) \u2014 a redundant override is a silent permanent fork, so it must carry a near-term review deadline and a removal check. Prose records live in docs/DEPENDENCY-OVERRIDES.md and are referenced by `record`.",
-  "reviewed_on": "2026-10-03",
+  "reviewed_on": "2026-10-04",
   "owner_vocabulary": [
     "CyberMeters engineering (founder-owned)"
   ],
@@ -29,8 +29,8 @@
       "removal_criterion": "Remove when a supported Wrangler/Miniflare release declares sharp >=0.35.4. Delete the override and confirm npm ls sharp resolves >=0.35.4 without overridden/invalid markers, npm audit --audit-level=high has no sharp advisory, and Wrangler deploy --dry-run plus the native sharp smoke pass.",
       "owner": "CyberMeters engineering (founder-owned)",
       "introduced_on": "2026-07-22",
-      "reviewed_on": "2026-10-03",
-      "review_by": "2026-10-31",
+      "reviewed_on": "2026-10-04",
+      "review_by": "2026-11-30",
       "record": "docs/DEPENDENCY-OVERRIDES.md#ov-1"
     },
     {
