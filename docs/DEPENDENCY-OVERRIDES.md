@@ -47,8 +47,26 @@ versions, paths, owners and dates.
 | **Status** | ACTIVE — temporary compatibility override |
 | **Introduced** | 2026-07-22 (branch `fix/sharp-cve-override`, PR #268) |
 | **Owner** | CyberMeters engineering (founder-owned) |
-| **Review date** | 2026-10-31 (re-check upstream at each quarterly dependency sweep) |
+| **Review date** | 2026-11-30 (re-check upstream at each quarterly dependency sweep) |
 | **Scope** | `workers/scan-api/package.json` `overrides` + `package-lock.json` only. No src/runtime, no `wrangler` version change, no deploy. |
+
+### Review — 2026-10-04
+
+Measured from the npm registry and the committed lock only (no install, no lock change):
+
+- `npm view wrangler dist-tags`: `latest` is **4.147.0**. Its `miniflare` is
+  `5.20261001.0-alpha`, which declares **sharp 0.35.4** and undici 7.29.1.
+- The smallest Wrangler 4.x whose Miniflare declares sharp ≥ 0.35.4 is **4.131.0**
+  (`miniflare 5.20260910.0-alpha`). Every 4.x release from 4.131.0 to 4.147.0 declares
+  sharp 0.35.4; 4.120.0–4.130.0 declare 0.35.2.
+- The lock still holds Wrangler 4.120.0 / Miniflare `5.20260801.1-alpha` (declares sharp
+  0.35.2); the override resolves sharp 0.35.4.
+- `npm audit --package-lock-only --audit-level=high` in `workers/scan-api`: **0 vulnerabilities**
+  (info 0, low 0, moderate 0, high 0, critical 0), so no new sharp advisory.
+
+The removal criterion below is **met upstream** by a `latest`-tagged Wrangler 4.x release.
+OV-1 stays ACTIVE until the separate dependency update that removes it has run the removal
+checks; that update follows the C4 fix. Review deadline moved to **2026-11-30**.
 
 ### Review — 2026-10-03
 
@@ -133,11 +151,12 @@ declared graph.
 
 ### Removal criterion
 Remove `OV-1` when a supported `wrangler` (and its bundled `miniflare`) declares
-**`sharp ≥ 0.35.0`**. Verify removal safely by:
+**`sharp ≥ 0.35.4`** (the register's `removal_criterion`). Verify removal by:
 1. deleting the `sharp` entry from `overrides`,
-2. `npm install` + `npm ls sharp` shows a resolved sharp **≥ 0.35.0** with no `overridden`,
-3. `npm audit --audit-level=high` stays **0 vulnerabilities**,
-4. `npx wrangler deploy --dry-run` still builds.
+2. `npm ls sharp` resolves sharp **≥ 0.35.4** with no `overridden` / `invalid` marker,
+3. `npm audit --audit-level=high` reports no sharp advisory,
+4. `npx wrangler deploy --dry-run` still builds,
+5. the native sharp smoke passes.
 
 If all four hold, delete this record's ACTIVE status and note the closing wrangler/miniflare
 version.
