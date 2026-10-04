@@ -133,7 +133,9 @@ export async function insertCertificateEvents(scanId, domainId, certMod, env, op
   }
   if (wsRows.length === 0) return;
 
-  const now = new Date().toISOString();
+  const now = typeof opts.now === "function"
+    ? new Date(opts.now()).toISOString()
+    : new Date().toISOString();
 
   // Content baseline for standing-condition dedupe: the previous comparable
   // scan's certificate module, read structurally (never parsed from prose).
@@ -310,7 +312,9 @@ export async function upsertCertificateObservation(scanId, domainId, certMod, en
   }
   if (wsRows.length === 0) return;
 
-  const now          = new Date().toISOString();
+  const now = typeof opts.now === "function"
+    ? new Date(opts.now()).toISOString()
+    : new Date().toISOString();
   const issuer       = certMod.issuer || "unknown";
   const subject      = certMod.subject || null;
   const sanHostnames = Array.isArray(certMod.san_hostnames) ? certMod.san_hostnames : [];

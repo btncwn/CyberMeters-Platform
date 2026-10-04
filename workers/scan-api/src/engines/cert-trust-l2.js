@@ -43,13 +43,13 @@ function uniqueSorted(values) {
     .sort();
 }
 
-function daysUntil(expiresAt, fallback) {
+function daysUntil(expiresAt, fallback, nowMs) {
   if (Number.isFinite(fallback)) return Number(fallback);
   const raw = normaliseString(expiresAt);
   if (!raw) return null;
   const expires = Date.parse(raw);
   if (!Number.isFinite(expires)) return null;
-  return Math.ceil((expires - Date.now()) / 86_400_000);
+  return Math.ceil((expires - nowMs) / 86_400_000);
 }
 
 function addFinding(findings, finding) {
@@ -103,7 +103,7 @@ function previousRowsForCurrent(cert, rows) {
   });
 }
 
-function buildTrustPath(cert) {
+function buildTrustPath(cert, nowMs) {
   const httpsReachable = typeof cert.https_reachable === "boolean"
     ? cert.https_reachable
     : typeof cert.https_available === "boolean"
@@ -115,7 +115,7 @@ function buildTrustPath(cert) {
           : "unknown";
   const redirectToHttps = typeof cert.redirect_to_https === "boolean" ? cert.redirect_to_https : "unknown";
   const hstsPresent = typeof cert.hsts_present === "boolean" ? cert.hsts_present : "unknown";
-  const days = daysUntil(cert.expires_at, cert.days_until_expiry);
+  const days = daysUntil(cert.expires_at, cert.days_until_expiry, nowMs);
   const expiryOk = days === null ? "unknown" : days >= 0;
 
   const reasons = [];
@@ -136,8 +136,8 @@ function buildTrustPath(cert) {
   };
 }
 
-function buildRenewalReadiness(cert, rows) {
-  const days = daysUntil(cert.expires_at, cert.days_until_expiry);
+function buildRenewalReadiness(cert, rows, nowMs) {
+  const days = daysUntil(cert.expires_at, cert.days_until_expiry, nowMs);
   const issuer = cert.issuer || null;
   const ca = mapCertificateAuthorityOwner(normalizeCertificateIssuer(issuer));
   const prior = previousRowsForCurrent(cert, rows);
@@ -273,10 +273,12 @@ function buildAnomalies(cert, rows) {
 }
 
 export function buildCertificateTrustL2(cert, options = {}) {
+  // Compute-on-read: this is the API read instant, not the historical scan clock.
+  const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
   const current = cert || {};
   const rows = historyRows(options.history);
   const findings = [];
-  const days = daysUntil(current.expires_at, current.days_until_expiry);
+  const days = daysUntil(current.expires_at, current.days_until_expiry, nowMs);
   const selfSigned = current.self_signed ?? detectSelfSignedCertificate(current.issuer, current.subject);
 
   if (days !== null && days < 0) {
@@ -368,8 +370,8 @@ export function buildCertificateTrustL2(cert, options = {}) {
 
   return {
     findings,
-    renewal_readiness: buildRenewalReadiness(current, rows),
-    trust_path: buildTrustPath(current),
+    renewal_readiness: buildRenewalReadiness(current, rows, nowMs),
+    trust_path: buildTrustPath(current, nowMs),
     anomalies,
   };
 }
