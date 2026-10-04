@@ -1,0 +1,29 @@
+{
+  "schema": "cybermeters.audit-exception-register/v1",
+  "reviewed_on": "2026-10-03",
+  "exceptions": [
+    {
+      "id": "E-1",
+      "workspace": "frontend",
+      "package": "braces",
+      "advisories": [
+        {
+          "id": "GHSA-vfj7-8cjw-p6xm",
+          "range": "<=3.0.3"
+        }
+      ],
+      "lock_paths": [
+        "node_modules/braces"
+      ],
+      "reachability": "dev_only",
+      "production_closure_evidence": "npm ls --omit=dev braces",
+      "reason": "Founder-authorized, time-limited acceptance of the braces stack-exhaustion advisory in the Tailwind development toolchain. No fixed braces release is available for this advisory. This record is risk acceptance, not a dependency fix or a claim that the advisory is absent.",
+      "removal_criterion": "Install a braces release that fixes GHSA-vfj7-8cjw-p6xm, or complete an authorized Tailwind CSS 4 migration that removes the affected chain. Delete E-1 and prove the complete frontend npm audit --audit-level=high is clean, with frontend typecheck, coverage and build passing. If no supported fix is ready by review_by, CI must fail; a renewal requires a fresh explicit decision.",
+      "owner": "CyberMeters engineering (founder-owned)",
+      "introduced_on": "2026-10-03",
+      "reviewed_on": "2026-10-03",
+      "review_by": "2027-01-01",
+      "record": "docs/AUDIT-EXCEPTIONS.md#e-1"
+    }
+  ]
+}

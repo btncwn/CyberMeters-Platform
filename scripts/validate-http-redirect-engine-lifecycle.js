@@ -123,7 +123,7 @@ async function trace(httpMode, { seed = false, deadlineMs = "115000" } = {}) {
     }
     if (host === "crt.sh") return json([]);
     if (host === "api.certspotter.com") return json([{
-      id: "c1", not_before: "2026-06-27T00:00:00.000Z", not_after: "2026-09-25T00:00:00.000Z",
+      id: "c1", not_before: "2026-06-27T00:00:00.000Z", not_after: "2099-12-31T23:59:59.000Z",
       issuer: { name: "PR-A2 Fixture CA" }, dns_names: ["example.com", "www.example.com"],
     }]);
     if (host === "cloudflare-dns.com" || host === "dns.google") {

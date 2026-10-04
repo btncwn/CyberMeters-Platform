@@ -40,7 +40,7 @@ versions, paths, owners and dates.
 
 ---
 
-## OV-1 — `sharp` forced to `0.35.3` (dev-transitive, CI security)
+## OV-1 — `sharp` forced to `0.35.4` (dev-transitive, CI security)
 
 | Field | Value |
 | --- | --- |
@@ -50,9 +50,25 @@ versions, paths, owners and dates.
 | **Review date** | 2026-10-31 (re-check upstream at each quarterly dependency sweep) |
 | **Scope** | `workers/scan-api/package.json` `overrides` + `package-lock.json` only. No src/runtime, no `wrangler` version change, no deploy. |
 
+### Review — 2026-10-03
+
+OV-1 now pins **sharp 0.35.4**. Current npm audit identifies
+**GHSA-rgj7-g3m4-5g8c** in sharp `<0.35.4`; the previous 0.35.3 override is affected.
+The machine-readable record retains GHSA-f88m-g3jw-g9cj as the original advisory
+history and adds the current advisory. `npm ls --omit=dev sharp` is empty: the
+package remains in the Wrangler/Miniflare development toolchain only.
+
+The current removal threshold is a supported Wrangler/Miniflare release declaring
+**sharp >=0.35.4**, followed by an override-free resolution, clean sharp audit,
+Worker dry-run bundle and native sharp smoke. The older >=0.35.0 threshold and
+0.35.3 compatibility measurements below are historical; they do not discharge
+this current advisory. Owner remains CyberMeters engineering (founder-owned),
+review deadline **2026-10-31**. This dependency fix is separate from the CT clock
+repair and is not a completed independent security retest.
+
 ### What it does
 ```json
-"overrides": { "sharp": "0.35.3" }
+"overrides": { "sharp": "0.35.4" }
 ```
 Exact pin (not a range) so the resolved dev-tool graph cannot drift silently on future
 installs.
@@ -312,3 +328,20 @@ Remove at or before the review date. Verify by deleting the entry, confirming `n
 --audit-level=high` stays at **0** with the restored `test-exclude` 7 chain, and that
 coverage tests still pass. The live register entry is deleted while this historical prose
 is preserved.
+
+---
+
+## OV-5 — Miniflare undici pinned to 7.29.1 (dev-transitive)
+
+Reviewed 2026-10-03; review by 2026-12-31; owner: CyberMeters engineering (founder-owned).
+
+`wrangler@4.120.0 → miniflare@5.20260801.1-alpha → undici@7.29.0`
+is changed only under the named Miniflare override to **7.29.1**.
+`npm ls --omit=dev undici` is empty. This fixes the development toolchain;
+it is not an independent production retest or case-closure claim.
+
+Current npm audit advisories cleared: `GHSA-3wwx-pv8p-q78v`, `GHSA-pmjh-fq2x-6v4x`, `GHSA-r53p-7pc4-xj5r`, `GHSA-rfgv-xxqx-mfg5`, `GHSA-3xpg-4rpp-hhhm`, `GHSA-2jfj-6hjv-fm6j`, `GHSA-2gqq-gqf2-x968`, `GHSA-w293-vg96-wgc3`, `GHSA-8436-99hf-9mmv`, `GHSA-rx4f-c7p8-82vq`.
+
+Remove when a supported Wrangler/Miniflare release declares undici >=7.29.1. Delete only this top-level override, regenerate the lock, confirm no undici overridden/invalid marker, a clean worker npm audit --audit-level=high, and a passing Worker dry-run bundle.
+
+The locked graph has one undici path and Miniflare is its only consumer; the top-level pin therefore has the same measured reach as the former selector. Recheck this scope when reviewing the override.

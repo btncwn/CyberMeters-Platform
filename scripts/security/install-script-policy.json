@@ -18,7 +18,7 @@
       "package_version": "1.0.0",
       "package_json_sha256": "71dfe83aeeaa99ff3907bca8f8c7adc2c5df2e3c6a00264e01beaccc48842c86",
       "lockfile_version": 3,
-      "lockfile_sha256": "488a49801e2cc1b93d16801e61babaa21b8c6f4d52c24d6d135db09e7f0cb971",
+      "lockfile_sha256": "5b58df72f1131280f7919aa990500512f69671ec6e7c593f79c22b3b21b8dadd",
       "install_script_markers": [
         {
           "package_path": "node_modules/esbuild",
@@ -70,9 +70,9 @@
       "root": "workers/scan-api",
       "package_name": "cybermeters-scan-api",
       "package_version": "0.1.0",
-      "package_json_sha256": "960a4c7e68b8f6d6a4fafd9bc5e22147d1e03dff5a548158998cdd0d120ac924",
+      "package_json_sha256": "497c6be139c5bedb1fd241655f6ecadaf65f61ad5f7e1d34ff934bec4dc10c5b",
       "lockfile_version": 3,
-      "lockfile_sha256": "e88e65f56902d1aa592cb9b1d1e295fe1f72fd9e923180788ee59fe191702290",
+      "lockfile_sha256": "e368e18c64f0ee2afe0dbdec6302372695bc8ced6bd852ccb358cf53c239c4c0",
       "install_script_markers": [
         {
           "package_path": "node_modules/esbuild",

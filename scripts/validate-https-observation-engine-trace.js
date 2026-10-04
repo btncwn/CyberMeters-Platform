@@ -89,7 +89,7 @@ function installFetch(httpsMode) {
       // A reliable SIBLING signal: CT is independent of origin reachability and
       // must keep producing evidence whatever the HTTPS probe saw (T4).
       return host === "crt.sh" ? json([]) : json([{
-        id: "trace-cert", not_before: "2026-06-27T00:00:00.000Z", not_after: "2026-09-25T00:00:00.000Z",
+        id: "trace-cert", not_before: "2026-06-27T00:00:00.000Z", not_after: "2099-12-31T23:59:59.000Z",
         issuer: { name: "PR-A Fixture CA" }, dns_names: ["example.com", "www.example.com"],
       }]);
     }
