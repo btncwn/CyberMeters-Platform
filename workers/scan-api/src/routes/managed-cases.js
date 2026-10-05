@@ -283,7 +283,7 @@ export async function managedCasesRoutes(rctx) {
     }
     const next = decision.case;
     try {
-      await env.cybermeters_db
+      const updated = await env.cybermeters_db
         .prepare(`UPDATE managed_cases SET
             status = ?, reason = ?, risk_accepted_until = ?, updated_at = ?,
             approved_at = ?, action_started_at = ?, awaiting_verification_at = ?,
@@ -301,6 +301,11 @@ export async function managedCasesRoutes(rctx) {
           next.owner_type ?? null, next.owner_ref ?? null, next.assigned_by ?? null, next.assigned_user_id ?? null,
           row.id, wsId, row.status, // CAS on the observed status — concurrent change loses
         ).run();
+      if (updated?.meta?.changes !== 1) {
+        return json({ error: "Case changed; reload before retrying.", code: "case_changed" }, 409);
+      }
+      // Only the successful status transition appends history. A losing
+      // concurrent request must not claim success or invent a second event.
       // Append-only history event (never updates/deletes a prior row).
       if (next.owner_ref && next.owner_ref !== row.owner_ref) {
         await env.cybermeters_db

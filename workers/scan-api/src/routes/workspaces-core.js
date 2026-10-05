@@ -188,6 +188,7 @@ export async function workspacesCoreRoutes(rctx) {
         if (!patchAccess) return json({ error: "Forbidden — admin role required to rename workspace" }, 403);
         let body;
         try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+        if (body?.name != null && typeof body.name !== "string") return json({ error: "name must be a string" }, 400);
         const newName = (body?.name ?? "").trim();
         if (!newName) return json({ error: "name is required" }, 400);
         if (newName.length > 100) return json({ error: "name must be 100 characters or fewer" }, 400);
