@@ -178,7 +178,8 @@ const EXPECTED = Object.freeze({
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
   // shifts source positions only. No scan-quality read was added or removed.
-  sql_reads: { projection_occurrences: 23, fingerprint: "65cb9006539613188ba6f99641dd934dff7866e412b82de5cd818b3dbcf1692d" },
+  // Rename type guard moves only workspaces-core.js projection 288 -> 289; all 23 SQL texts and identities are unchanged.
+  sql_reads: { projection_occurrences: 23, fingerprint: "877483dcd6071e3b826ad405cb4ceeb527a6dd4d114d6a24f87c8fb7a9986b9b" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

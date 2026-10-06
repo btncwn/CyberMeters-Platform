@@ -126,5 +126,54 @@ ok("the transition endpoint still routes through canTransitionCase (no bypass)",
 ok("case load is workspace-scoped (tenant isolation preserved)",
    /FROM managed_cases WHERE id = \? AND workspace_id = \?/.test(routeCode));
 
+// Lynceus replay regression: two real requests overlap at the case read.
+{
+  const h = await import('./security/lib/worker-harness.js');
+  const mod = await h.loadWorker(), db = h.buildDb();
+  try {
+    const env = h.makeEnv(db), seed = await h.makeSeeder(db,mod);
+    seed.user('flow-owner','flow-owner@example.invalid');
+    await seed.session('flow-session','flow-owner','synthetic-flow-session');
+    seed.workspace('flow-ws','flow-owner','Workflow fixture');
+    seed.member('flow-member','flow-ws','flow-owner','owner');
+    const call = h.makeCaller(mod.default,env), base='/api/workspaces/flow-ws/cases';
+    const created = await call('POST',base,'synthetic-flow-session',
+      {case_type:'website_case',domain_key:'website_security',source_finding_id:'flow-overlap'});
+    const id=created.data?.case?.case_id;
+    ok('concurrent fixture creates a real case',created.status===201 && typeof id==='string');
+    const prepare=env.cybermeters_db.prepare.bind(env.cybermeters_db);
+    let readers=0,release;
+    const overlap=new Promise(resolve=>{release=resolve;});
+    const timer=setTimeout(release,1000);
+    env.cybermeters_db.prepare=sql=>{
+      const stmt=prepare(sql);
+      if(sql.trim()!=='SELECT * FROM managed_cases WHERE id = ? AND workspace_id = ?') return stmt;
+      const bind=stmt.bind.bind(stmt);
+      stmt.bind=(...args)=>{
+        const bound=bind(...args),first=bound.first.bind(bound);
+        if(args[0]===id) bound.first=async(...cols)=>{
+          const row=await first(...cols);
+          if(++readers===2) release();
+          await overlap; return row;
+        };
+        return bound;
+      };
+      return stmt;
+    };
+    const transition=()=>call('POST',base+'/'+id+'/transition','synthetic-flow-session',{target_status:'triaged'});
+    let results;
+    try { results=await Promise.all([transition(),transition()]); }
+    finally { clearTimeout(timer);env.cybermeters_db.prepare=prepare; }
+    ok('both requests read the same initial state',readers===2);
+    ok('only one overlapping transition succeeds',results.filter(r=>r.status===200).length===1);
+    ok('losing transition returns a conflict',results.filter(r=>r.status===409&&r.data?.code==='case_changed').length===1);
+    ok('one durable transition event',db.prepare("SELECT count(*) AS n FROM managed_case_events WHERE case_id=? AND action='transition_triaged'").get(id).n===1);
+    ok('winning transition state is retained',db.prepare('SELECT status FROM managed_cases WHERE id=?').get(id).status==='triaged');
+    const eventCount=db.prepare('SELECT count(*) AS n FROM managed_case_events WHERE case_id=?').get(id).n;
+    ok('later replay remains rejected',(await transition()).status===409);
+    ok('replay cannot append history',db.prepare('SELECT count(*) AS n FROM managed_case_events WHERE case_id=?').get(id).n===eventCount);
+  } finally { db.close(); }
+}
+
 console.log(`\nvalidate-uc3-case-transitions: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

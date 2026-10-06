@@ -116,6 +116,32 @@ ok("simulation: a NULL-workspace historical scan counts only for the workspace c
 ok("simulation: hostname alone never confers ownership",
    countTotalScans("workspace_nobody", scans, []) === 0);
 
+// Lynceus API regression: execute the real router with a disposable database.
+{
+  const h = await import('./security/lib/worker-harness.js');
+  const mod = await h.loadWorker(), db = h.buildDb();
+  try {
+    const env = h.makeEnv(db), seed = await h.makeSeeder(db, mod);
+    seed.user('api-owner', 'api-owner@example.invalid');
+    await seed.session('api-session','api-owner','synthetic-api-session');
+    seed.workspace('api-ws','api-owner','Original');
+    seed.member('api-member','api-ws','api-owner','owner');
+    const call = h.makeCaller(mod.default,env);
+    const before = JSON.stringify(db.prepare('SELECT * FROM workspaces').all());
+    const auditBefore = db.prepare('SELECT count(*) AS n FROM audit_events').get().n;
+    for (const name of [42, false, {}, [], ['name']]) {
+      let r;
+      try { r = await call('PATCH','/api/workspaces/api-ws','synthetic-api-session',{name}); }
+      catch { r = {status:0,text:''}; }
+      ok(`rename rejects non-string ${JSON.stringify(name)} with 400`, r.status === 400);
+      ok('rejected rename preserves all workspace columns', JSON.stringify(db.prepare('SELECT * FROM workspaces').all()) === before);
+      ok('rejected rename emits no rename event',db.prepare('SELECT count(*) AS n FROM audit_events').get().n === auditBefore);
+    }
+    const r = await call('PATCH','/api/workspaces/api-ws','synthetic-api-session',{name:'  Normal name  '});
+    ok('valid rename still trims and persists',r.status===200 && db.prepare("SELECT name FROM workspaces WHERE id='api-ws'").get().name==='Normal name');
+  } finally { db.close(); }
+}
+
 console.log(`\nworkspace-integrity: ${pass} passed, ${fail} failed`);
 if (fail > 0) { console.error("workspace-integrity validation FAILED"); process.exit(1); }
 console.log("workspace-integrity validation passed");
