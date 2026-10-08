@@ -107,8 +107,8 @@ const EXPECTED = Object.freeze({
     // child-process comparisons and the presentation assertion moved within
     // validate-phase5-evidence-honesty.js; exact line keys were re-derived on
     // the final tree. No governance or product comparison changed membership.
-    comparison_occurrences: 81,
-    source_file_count: 30,
+    comparison_occurrences: 82,
+    source_file_count: 31,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
     // the successor validator. Nothing was added to or removed from the runtime set.
@@ -122,7 +122,9 @@ const EXPECTED = Object.freeze({
     // DNS preflight: the existing Item10 P3 DNS-only engine fixture now asserts
     // partial instead of complete. Counts and all runtime fingerprints remain
     // unchanged; an unissued HTTP probe cannot justify case closure.
-    fingerprint: "0ebaa34cb5a0de1481997a217bd49a867e18b38dde2db87a41a4241613760640",
+    // PR #484 adds the legacy provider-refusal regression's partial-quality
+    // assertion in validate-as-b6b-physical-budget-closure.js; runtime is unchanged.
+    fingerprint: "1ec30a3caa98cdca6c3d419077b7af6ab1f7f1a69d646d3f0bc32c7f33bfe80e",
   },
   runtime_source_file_count: 33,
   direct: {
@@ -176,7 +178,8 @@ const EXPECTED = Object.freeze({
     // PR #468 adds two direct scan-quality proof reads in the real-engine
     // counter validator. Direct-read identity is now the same line-stable exact
     // semantic multiset used above; additions/removals still move count/digest.
-    governance: { occurrence_count: 123, source_file_count: 40, fingerprint: "08acbd6a398f50e5cdda195d9f660c61417cef978946a49046e8837a4708e555" },
+    // PR #484 adds the same regression's one direct scan_quality read.
+    governance: { occurrence_count: 124, source_file_count: 41, fingerprint: "43e5ec576bf71134341e21a11df4145f864f504f01a237077b47c5b41d34299b" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
