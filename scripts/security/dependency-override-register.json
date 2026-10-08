@@ -31,6 +31,31 @@
       "reviewed_on": "2026-10-08",
       "review_by": "2026-11-30",
       "record": "docs/DEPENDENCY-OVERRIDES.md#ov-1"
+    },
+    {
+      "id": "OV-6",
+      "workspace": "frontend",
+      "package": "postcss-selector-parser",
+      "declared_spec": "7.1.6",
+      "resolved_version": "7.1.6",
+      "dependency_root": "tailwindcss",
+      "dependency_path": [
+        "tailwindcss",
+        "postcss-selector-parser"
+      ],
+      "reachability": "dev_only",
+      "production_closure_evidence": "npm ls --omit=dev postcss-selector-parser",
+      "advisory_basis": "current",
+      "advisories_cleared": [
+        "GHSA-rj75-hqrm-r3gf"
+      ],
+      "reason": "Tailwind 3.4.19 and postcss-nested 6.2.0 declare parser 6.x ranges. GHSA-rj75-hqrm-r3gf affects versions <7.1.6; this temporary override installs the fixed parser for both development build paths. It crosses their declared major-version range and does not suppress any audit result.",
+      "removal_criterion": "Remove when supported Tailwind/PostCSS dependencies resolve a parser unaffected by GHSA-rj75-hqrm-r3gf without this override; verify full dependency audit, production build, selector compatibility and frontend tests.",
+      "owner": "CyberMeters engineering (founder-owned)",
+      "introduced_on": "2026-10-08",
+      "reviewed_on": "2026-10-08",
+      "review_by": "2026-11-23",
+      "record": "docs/DEPENDENCY-OVERRIDES.md#ov-6"
     }
   ]
 }

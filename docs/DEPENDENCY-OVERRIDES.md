@@ -38,6 +38,30 @@ and must carry a near-term review date and a removal check.
 The records below are the human-readable half; the register is authoritative for exact
 versions, paths, owners and dates.
 
+## OV-6 — `postcss-selector-parser` forced to `7.1.6` (frontend build only)
+
+Introduced/reviewed **2026-10-08**; owner **CyberMeters engineering (founder-owned)**;
+review by **2026-11-23**. Tailwind 3.4.19 and postcss-nested 6.2.0 declare parser
+6.x ranges, so this temporary pin deliberately crosses their declared major range
+to fix [GHSA-rj75-hqrm-r3gf](https://github.com/advisories/GHSA-rj75-hqrm-r3gf)
+(affected <7.1.6). It changes the installed dependency, not the audit policy or
+its existing braces exception. The parser is absent from the production dependency
+closure; it processes project CSS during the Vite build.
+
+The production build and typecheck pass; generated CSS is byte-identical to the
+pre-update build. Frontend coverage tests pass (677 tests). Independent checks
+pass for 10 Tailwind variants, three nested-selector cases, parser operations and
+Tailwind's private `dist/util/unesc` import (18 checks). The full dependency audit
+under the unchanged exception policy passes 16 checks. The override register,
+its 56 mutation checks and the install policy pass. Tailwind's separately bundled
+CLI peers are not replaced by this override; these checks cover the Vite build
+path used by CyberMeters.
+
+Remove this pin when supported Tailwind/PostCSS dependencies resolve an unaffected
+parser without it, then repeat the full audit, build, selector compatibility and
+frontend tests. This is local build compatibility evidence; CI must pass before
+merge, and this record does not claim a production vulnerability closure.
+
 ---
 
 ## OV-1 — `sharp` forced to `0.35.5` (dev-transitive, CI security)
