@@ -138,7 +138,7 @@ async function run() {
     const before = db.sideEffects();
     const r = await deliver(db, evt({ id: "e6", type: "checkout.session.completed",
       data: { object: { id: "cs", metadata: { user_id: "u1", workspace_id: "w1" } } } }));
-    ok("6 fresh concurrent 'processing' acknowledged, not reprocessed", r.status === 200 && r.data?.deduped === true);
+    ok("6 fresh concurrent processing asks for retry, not an unproven completion", r.status === 503 && r.data?.error === "webhook_processing_retry");
     ok("6 concurrent delivery applied no side effects", db.sideEffects() === before); }
 
   // 7. wrong environment (livemode mismatch) → ignored, no marker, no mutation
@@ -173,7 +173,7 @@ guard("event claimed as 'processing', not pre-completed", gbSrc,
   (s) => s.replace("VALUES (?, ?, 'processing'", "VALUES (?, ?, 'completed'"));
 // side-effect failure must mark 'failed' (retryable)
 guard("side-effect failure marks 'failed'", gbSrc,
-  (s) => /catch \(e\) \{[\s\S]*?UPDATE stripe_processed_events SET status = 'failed'/.test(s),
+  (s) => s.slice(s.indexOf("// Side effects failed"), s.indexOf("// All side effects succeeded")).includes("UPDATE stripe_processed_events SET status = 'failed'"),
   (s) => s.replace("UPDATE stripe_processed_events SET status = 'failed', processed_at = datetime('now') WHERE id = ?", "SELECT 1"));
 // signature verification removed
 guard("signature verified before processing", gbSrc,

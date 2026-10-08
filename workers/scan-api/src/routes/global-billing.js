@@ -5,10 +5,11 @@
 // Extracted near-verbatim from index.js (router split, Phase 2 PR #19).
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
-import { BILLING_PLAN_METADATA, getEffectivePlan, getUserPlan, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
+import { billingRoutes } from "./billing.js";
+import { getEffectivePlan, getUserPlan, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { extractIngestToken, hashIngestToken } from "../engines/rua-routing.js";
-import { findSubscriptionRowId, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripePriceIdForPlan, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripePriceMatchesPolicy, verifyStripeWebhookSignature, writeSubscriptionEvent } from "../engines/stripe.js";
-import { auditApiTokenSessionRouteDenied, getPublicBillingPlans, parseCheckoutPlan } from "../engines/subscription-state.js";
+import { findSubscriptionRowId, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripeWebhookSignature, writeSubscriptionEvent } from "../engines/stripe.js";
+import { auditApiTokenSessionRouteDenied, getPublicBillingPlans } from "../engines/subscription-state.js";
 import { ingestDmarcReport, ingestEndpointIsActive } from "../lib/dmarc-ingest.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
@@ -233,44 +234,44 @@ export async function globalBillingRoutes(rctx) {
       // partial failure permanently suppressed retries. Signature is verified above.
       const eventId = event?.id;
       const CLAIM_LEASE_MS = 2 * 60 * 1000; // a live handler finishes well within 2 min
-      if (eventId) {
+      if (!eventId || typeof eventId !== "string") {
+        return json({ error: "invalid_stripe_event_id" }, 400);
+      }
+      try {
         const claim = await env.cybermeters_db
           .prepare(`INSERT OR IGNORE INTO stripe_processed_events (id, event_type, status, processed_at) VALUES (?, ?, 'processing', datetime('now'))`)
           .bind(eventId, eventType)
-          .run()
-          .catch(() => null);
+          .run();
         const claimed = claim && (claim.meta?.changes ?? 0) === 1;
         if (!claimed) {
           const existing = await env.cybermeters_db
             .prepare(`SELECT status, processed_at FROM stripe_processed_events WHERE id = ? LIMIT 1`)
             .bind(eventId)
-            .first()
-            .catch(() => null);
-          const status = existing?.status ?? "completed";
-          if (status === "completed") {
+            .first();
+          // A storage fault or missing row is never proof of completion.
+          if (existing?.status === "completed") {
             return json({ received: true, deduped: true }, 200);
           }
-          // 'failed', or a 'processing' row past its lease (crashed attempt), may be
-          // re-claimed. A fresh 'processing' row is a live concurrent delivery — leave
-          // it to its owner and just acknowledge (no double-apply).
           const staleBefore = new Date(Date.now() - CLAIM_LEASE_MS)
             .toISOString().replace("T", " ").replace(/\.\d+Z$/, "");
+          const status = existing?.status;
           const reclaimable = status === "failed" ||
             (status === "processing" && String(existing?.processed_at ?? "") <= staleBefore);
           if (!reclaimable) {
-            return json({ received: true, deduped: true }, 200);
+            // Another delivery may still fail or crash. Ask Stripe to retry
+            // until a persisted completed marker exists, without double apply.
+            return json({ error: "webhook_processing_retry" }, 503);
           }
-          // Optimistic CAS on the observed processed_at so two concurrent retries
-          // cannot both win the re-claim.
           const recl = await env.cybermeters_db
             .prepare(`UPDATE stripe_processed_events SET status = 'processing', processed_at = datetime('now') WHERE id = ? AND status = ? AND processed_at = ?`)
             .bind(eventId, status, existing?.processed_at ?? null)
-            .run()
-            .catch(() => null);
+            .run();
           if (!recl || (recl.meta?.changes ?? 0) === 0) {
-            return json({ received: true, deduped: true }, 200);
+            return json({ error: "webhook_processing_retry" }, 503);
           }
         }
+      } catch {
+        return json({ error: "webhook_storage_retry" }, 503);
       }
 
       try {
@@ -549,10 +550,17 @@ export async function globalBillingRoutes(rctx) {
 
       // All side effects succeeded — NOW mark the event completed. Only after this
       // point does a duplicate delivery get safely skipped.
-      if (eventId) {
-        await env.cybermeters_db
+      try {
+        const completed = await env.cybermeters_db
           .prepare(`UPDATE stripe_processed_events SET status = 'completed', processed_at = datetime('now') WHERE id = ?`)
+          .bind(eventId).run();
+        if ((completed?.meta?.changes ?? 0) !== 1) throw new Error("completion marker missing");
+      } catch {
+        // Leave a retryable marker after an unsuccessful completion write.
+        await env.cybermeters_db
+          .prepare(`UPDATE stripe_processed_events SET status = 'failed', processed_at = datetime('now') WHERE id = ?`)
           .bind(eventId).run().catch(() => {});
+        return json({ error: "webhook_storage_retry" }, 503);
       }
       return json({ received: true, event_type: eventType }, 200);
     }
@@ -571,145 +579,44 @@ export async function globalBillingRoutes(rctx) {
 
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
-
-      const parsedPlan = parseCheckoutPlan(body.plan);
-      if (!parsedPlan.ok) {
-        return json({
-          error: "invalid_plan",
-          message: "plan must be one of: starter, professional, business.",
-        }, 400);
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return json({ error: "Invalid JSON body" }, 400);
       }
 
-      const requestedPlan = parsedPlan.plan;
-      const interval = normalizeBillingInterval(body.interval);
-      const metadata = BILLING_PLAN_METADATA[requestedPlan];
-
-      if (!metadata?.checkout_enabled) {
-        return json({
-          error: "plan_not_checkout_eligible",
-          plan: requestedPlan,
-          message: "This plan is not available through self-service checkout.",
-        }, 400);
+      // Legacy pricing-page clients do not send workspace_id. Resolve only an
+      // unambiguous owned workspace; selecting an arbitrary tenant can charge
+      // the wrong account. The workspace handler remains the sole checkout
+      // implementation, including owner permission, consent and plan changes.
+      let workspaceId = body.workspace_id;
+      if (workspaceId !== undefined && (typeof workspaceId !== "string" || !workspaceId.trim())) {
+        return json({ error: "invalid_workspace_id" }, 400);
       }
-
-      const priceResolution = getStripePriceIdForPlan(env, requestedPlan, interval);
-      if (!priceResolution.ok) {
-        return json({
-          error: priceResolution.error,
-          ...(priceResolution.missing?.length ? { missing: priceResolution.missing } : {}),
-          message: "Stripe billing configuration is not ready for checkout.",
-        }, 503);
-      }
-
-      // Lockstep guard: the configured Stripe price must charge exactly what the
-      // canonical pricing policy states for this plan/interval. A stale or wrong
-      // price refuses checkout rather than charging a number the cards never showed.
-      const priceCheck = await verifyStripePriceMatchesPolicy(env, requestedPlan, interval, priceResolution.price_id);
-      if (!priceCheck.ok) {
-        return json({
-          error: priceCheck.error,
-          message: "Checkout is temporarily unavailable while billing configuration is verified.",
-        }, 503);
-      }
-
-      let subscription = null;
-      try {
-        subscription = await env.cybermeters_db
-          .prepare(
-            `SELECT id, stripe_customer_id, stripe_subscription_id, stripe_price_id,
-                    billing_interval, cancel_at_period_end, current_period_end
-             FROM subscriptions
-             WHERE owner_user_id = ?`
-          )
-          .bind(user.id)
-          .first();
-      } catch (e) {
-        return serverError("billing/checkout-subscription", e, "Unable to load billing information.");
-      }
-
-      // Validate redirect URLs
-      const successUrl = validateFrontendRedirectUrl(body.success_url, env);
-      const cancelUrl  = validateFrontendRedirectUrl(body.cancel_url, env);
-      if (!successUrl) {
-        return json({ error: "invalid_success_url", message: "success_url must use the configured CyberMeters frontend origin." }, 400);
-      }
-      if (!cancelUrl) {
-        return json({ error: "invalid_cancel_url", message: "cancel_url must use the configured CyberMeters frontend origin." }, 400);
-      }
-
-      // Build Stripe Checkout Session params (Stripe accepts x-www-form-urlencoded only)
-      const params = new URLSearchParams();
-      params.set("mode",                    "subscription");
-      params.set("line_items[0][price]",    priceResolution.price_id);
-      params.set("line_items[0][quantity]", "1");
-      params.set("success_url",             successUrl);
-      params.set("cancel_url",              cancelUrl);
-      params.set("metadata[user_id]",       String(user.id));
-      params.set("metadata[plan]",          requestedPlan);
-      params.set("metadata[interval]",      interval);
-      params.set("subscription_data[metadata][user_id]",  String(user.id));
-      params.set("subscription_data[metadata][plan]",     requestedPlan);
-      params.set("subscription_data[metadata][interval]", interval);
-      params.set("allow_promotion_codes", "true");
-
-      // Prefer an existing Stripe customer record; fall back to customer_email
-      // so Stripe auto-creates a Customer on checkout completion.
-      if (subscription?.stripe_customer_id) {
-        params.set("customer", subscription.stripe_customer_id);
-      } else {
-        params.set("customer_email", user.email);
-      }
-
-      // Call Stripe Checkout Sessions API via fetch (no SDK — Cloudflare Workers compatible)
-      let stripeSession;
-      try {
-        const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-          method:  "POST",
-          headers: {
-            "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}`,
-            "Content-Type":  "application/x-www-form-urlencoded",
-          },
-          body: params.toString(),
-        });
-
-        const stripeData = await stripeRes.json();
-
-        if (!stripeRes.ok) {
-          console.error("[billing/checkout] Stripe API error", {
-            status: stripeRes.status,
-            type: stripeData?.error?.type ?? null,
-            code: stripeData?.error?.code ?? null,
-          });
-          return json({
-            error:             "stripe_api_error",
-            message:           "Stripe Checkout Session creation failed. Please try again.",
-          }, 502);
+      if (workspaceId === undefined) {
+        let owned;
+        try {
+          owned = await env.cybermeters_db
+            .prepare("SELECT id FROM workspaces WHERE owner_user_id = ? AND deleted_at IS NULL ORDER BY id LIMIT 2")
+            .bind(user.id).all();
+        } catch (e) {
+          return serverError("billing/checkout-workspace", e, "Unable to load billing information.");
         }
-
-        stripeSession = stripeData;
-      } catch (e) {
-        console.error(`[billing/checkout] ${e?.message ?? e}`);
-        return json({
-          error:   "stripe_request_failed",
-          message: "Could not reach Stripe. Please try again.",
-        }, 502);
+        if (owned?.results?.length !== 1) {
+          return json({
+            error: "workspace_selection_required",
+            message: "Open Billing in the workspace you own to choose a plan.",
+          }, 409);
+        }
+        workspaceId = owned.results[0].id;
       }
-
-      // D1 is intentionally NOT updated here.
-      // Plan activation and subscriptions sync happen in the webhook handler
-      // when Stripe fires checkout.session.completed.
-      await createAuditEvent(env, {
-        user_id:     user.id,
-        event_type:  "billing_checkout_session_created",
-        entity_type: "stripe_checkout_session",
-        entity_id:   stripeSession.id,
-        description: `Stripe checkout session created for ${requestedPlan} (${interval})`,
-        metadata:    { plan: requestedPlan, interval, stripe_session_id: stripeSession.id },
+      const checkoutUrl = new URL(request.url);
+      checkoutUrl.pathname = `/api/workspaces/${encodeURIComponent(workspaceId)}/billing/checkout`;
+      const checkoutRequest = new Request(checkoutUrl, {
+        method: "POST", headers: request.headers, body: JSON.stringify(body),
       });
-      return json({
-        checkout_url: stripeSession.url,
-        session_id:   stripeSession.id,
-      }, 200);
+      const response = await billingRoutes({ ...rctx, request: checkoutRequest, url: checkoutUrl });
+      if (!response.ok) return response;
+      const result = await response.json();
+      return json({ ...result, checkout_url: result.url }, response.status);
     }
 
     // ── POST /api/billing/portal ────────────────────────────────────────

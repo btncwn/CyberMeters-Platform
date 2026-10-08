@@ -83,13 +83,14 @@ export function getTrialRemainingDays(sub) {
  *
  * Fetches the full subscription row for a workspace.
  * Resolves via workspace.owner_user_id → subscriptions.owner_user_id.
- * Returns null if no subscription row exists.
+ * Returns null if no subscription row exists. Checkout passes throwOnError so
+ * a storage failure cannot be mistaken for permission to create another subscription.
  *
  * Used by:
  *   - GET /api/workspaces/:id/subscription
  *   - SubscriptionPage.jsx (via the above endpoint)
  */
-export async function getWorkspaceSubscription(workspaceId, env) {
+export async function getWorkspaceSubscription(workspaceId, env, { throwOnError = false } = {}) {
   if (!workspaceId) return null;
   try {
     const ws = await env.cybermeters_db
@@ -129,7 +130,8 @@ export async function getWorkspaceSubscription(workspaceId, env) {
       return String(a.id || "") < String(b.id || "") ? 1 : -1;
     });
     return sorted[0] ?? null;
-  } catch {
+  } catch (error) {
+    if (throwOnError) throw error;
     return null;
   }
 }

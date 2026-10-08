@@ -94,16 +94,28 @@ absences into **durable, externally observable facts**.
   A refusal and a transport throw are recorded as distinct `status` reasons.
 - **/ready extension**: unchanged HTTP contract (200 iff D1 and R2 reachable),
   plus an additive non-sensitive `operational` block (`cron_fresh`,
-  `backup_fresh`, `recent_dlq`, `recent_dlq_events`, `recent_dlq_readable`,
+  `backup_fresh`, `backup_required`, `recent_dlq`, `recent_dlq_events`, `recent_dlq_readable`,
   `stale_queued_scan`). Every freshness check fails closed — an unreadable signal
   reports the unhealthy value. The recent-DLQ read distinguishes a proven-empty
   window (`recent_dlq_events: 0`, `recent_dlq_readable: true`) from an unreadable
   one (`recent_dlq_events: null`, `recent_dlq_readable: false`); an unreadable
   window is operationally **unhealthy**, never a fabricated zero.
+- **Backup monitoring policy (Founder, 8 October 2026):** Cloudflare-only recovery
+  is sufficient for the first customer; an independent provider is optional.
+  `INDEPENDENT_BACKUP_MONITORING = "off"` explicitly returns
+  `backup_required: false`, so missing/stale independent-backup evidence is
+  informational. `backup_fresh` and `backup_age_minutes` still report the actual
+  event evidence; this setting creates no backup and writes no success event.
+  `"on"`, absent or unrecognized configuration retains the freshness requirement.
+  Consumers accept only the literal boolean `false` as an exemption; older
+  responses without `backup_required` retain the original requirement.
+  D1/R2 reachability, cron freshness, stuck scans and DLQ readability are unchanged.
 - **External deadman** (`.github/workflows/ops-deadman.yml`): an hourly
   GitHub-scheduled probe of `/ready` that requires **both** a 200 **and** valid
   JSON with true operational fields. A 200 with garbled JSON or stale booleans is
-  **not healthy** (fail closed). The workflow checks out the repo and computes the
+  **not healthy** (fail closed); backup freshness follows the explicit policy
+  above. A healthy verdict is operational health, not proof of backup or restore.
+  The workflow checks out the repo and computes the
   verdict by invoking the SAME strict `evaluateDeadman` (`scripts/ops-deadman-verdict.mjs`),
   so the shipped decision IS the unit-tested one — it does not re-implement the
   check in shell/jq (jq's `//` collapses a boolean `false` to a default and `jq -r`

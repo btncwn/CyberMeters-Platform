@@ -301,6 +301,7 @@ async function main() {
   section("Billing lifecycle (webhook tail)");
 
   const payFailed = await postWebhook({
+    id: "evt_pipeline_payment_failed",
     type: "invoice.payment_failed",
     data: { object: { id: "in_test_1", customer: "cus_pipeline_test", subscription: "sub_pipeline_test" } },
   });
@@ -313,6 +314,7 @@ async function main() {
   ok("GRACE: paid access is NOT silently removed while past_due (gate still 200)", graceGate.status === 200);
 
   const deleted = await postWebhook({
+    id: "evt_pipeline_deleted",
     type: "customer.subscription.deleted",
     data: { object: { id: "sub_pipeline_test", customer: "cus_pipeline_test", status: "canceled", metadata: { user_id: "userA", workspace_id: "ws1" } } },
   });
@@ -324,6 +326,7 @@ async function main() {
     postCancelGate.status === 403 && postCancelGate.data?.error === "plan_feature_required");
 
   const resub = await postWebhook({
+    id: "evt_pipeline_resubscribed",
     type: "checkout.session.completed",
     data: { object: {
       id: "cs_test_resub", customer: "cus_pipeline_test", subscription: "sub_resub_1",

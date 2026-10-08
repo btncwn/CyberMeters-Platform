@@ -1,5 +1,7 @@
 # Pre-Beta Frozen Execution Backlog
 
+**Current Founder instruction — 8 October 2026:** finish first-customer P0/P1 corrections and release verification. A second backup provider or an off-Cloudflare backup is **not a first-customer requirement**. The selected approach is Cloudflare-only recovery; keep actual D1 and R2 recovery evidence and limitations explicit. Older requirements for independent backup do not block this release. This decision does not mark unrun tests or an unverified backup as successful.
+
 **Status:** ACTIVE CANONICAL EXECUTION ORDER — historical item contracts preserved;
 current rescue queue updated 30 August 2026.
 **Authority:** this document alone ORDERS current and remaining pre-beta work.

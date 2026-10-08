@@ -1,9 +1,35 @@
 # Backup & Restore Drill — CyberMeters (D1 + R2)
 
-> **Status: PROVEN.** A full point-in-time backup of the production D1 database
-> was exported, restored into a fresh database, and verified for schema, data
-> fidelity, and referential integrity. This document is the standing runbook —
-> re-run it on the cadence below and before any risky migration/deploy.
+## Current first-customer policy — 8 October 2026
+
+The Founder selected **Cloudflare-only recovery** for the first customer. An
+independent/off-Cloudflare provider is optional, not a launch prerequisite. The
+F-004 independent-copy tooling below remains available with its existing guards;
+its historical proof does not establish that a Cloudflare recovery copy exists.
+
+D1 Time Travel is automatic for production-storage databases (30 days on Workers
+Paid, 7 days on Free). Inspect the actual database and bookmark with `wrangler d1
+info cybermeters-db` and `wrangler d1 time-travel info cybermeters-db`; a successful
+read is not a restore drill. Time Travel restores overwrite the database in place
+and are not a routine production test. See [Cloudflare's Time Travel documentation](https://developers.cloudflare.com/d1/reference/time-travel/).
+
+R2 report objects need their own recovery copy in Cloudflare; D1 Time Travel does
+not recover them. A completed canonical snapshot with a missing R2 object returns
+`integrity_error/object_missing`; the product does not regenerate that historical
+snapshot from D1. This repository does not establish a configured same-provider
+copy or a completed R2 recovery. Bucket reachability and bucket locks are not
+backup proof. Do not apply a blanket lock to the live reports bucket: normal
+updates and customer-data purges need to work.
+
+The independent-backup deadman monitor is explicitly off for this policy (see
+`MONITORING.md`). Missing evidence remains `backup_fresh: false`; no synthetic
+`backup_completed` event is recorded. This removes the provider requirement,
+without claiming an unperformed backup or restore.
+
+> **Historical measured result — 11 July 2026:** a production D1 SQL export was
+> restored into a fresh **local SQLite database**, then checked for schema, data
+> fidelity and referential integrity. The measured time below is local replay,
+> not a production D1 restore or an R2 restore. No later result is implied.
 
 ## Objectives (RPO / RTO)
 
@@ -13,8 +39,8 @@
 | **RTO** (time to restore) | ≤ 15 min | **1.57 s** to restore 2.7 MB / 59 tables into a fresh DB (D1 import from the same SQL is minutes-scale; see note) |
 
 The RTO measured here is the local SQL replay. A real production restore
-(`wrangler d1 execute --file`) into a new D1 database is network-bound and
-takes minutes for this dataset — still well within the 15-min target.
+(`wrangler d1 execute --file`) into a new D1 database is network-bound; its RTO
+has not been established by this local measurement.
 
 ## Instrumentation (F-004)
 
@@ -96,11 +122,12 @@ fake (`scripts/fixtures/f004-fake-provider.sh`, role `fixture`). An optional
 before the first provider operation and leaves no success record. The measured adapter
 hash and role are recorded in the success evidence.
 
-**The backup announces itself to the F-027 deadman.** Accepted F-027 computes its
+**The optional independent backup announces itself to the F-027 deadman.** F-027 computes its
 operational verdict from `operational_events` where `event_type='backup_completed'`, and its
-own staleness constant is annotated *"F-004 emits the event"* — but no producer existed
-anywhere in product code. `/ready` kept returning 200 while the external deadman could never
-leave `backup_stale`, so a silently dead backup was indistinguishable from a healthy one.
+own staleness constant is annotated *"F-004 emits the event"*. Before this producer
+was added, `/ready` could return 200 while the deadman remained `backup_stale`.
+Freshness is now required only when the independent-backup monitor is enabled;
+the measured event fields remain visible in either mode.
 
 The backup now records exactly one such event, through the **same hash-pinned adapter**, as
 its final act:
@@ -207,12 +234,14 @@ npx wrangler d1 export cybermeters-db --remote \
   --output=backups/cybermeters-$(date +%Y%m%d-%H%M).sql
 ```
 
-* Store the `.sql` off Cloudflare (encrypted bucket / password manager vault).
-* Cadence: **daily** automated (see follow-up) + **on-demand before every
-  migration or medium/high-risk deploy** (this is the cheap insurance).
-* R2 (reports bucket) is content-addressed and regenerable from D1 scan rows;
-  the authoritative state to protect is **D1**. Report objects that matter for
-  audit are also referenced by `workspace_reports.report_key`.
+* The current first-customer policy permits a Cloudflare recovery destination.
+  Off-Cloudflare storage is optional; the F-004 scripts below specifically retain
+  their independent-destination contract.
+* The earlier daily-export cadence was a proposal, not evidence of a running job.
+  Use an on-demand recovery point before a migration or risky data change.
+* Protect both **D1 and the R2 report objects**. Report objects referenced by
+  `workspace_reports.report_key` and completed canonical snapshots cannot be
+  assumed to be reproducible from the restored database alone.
 * **Cloudflare R2 has no object versioning.** There is no per-object "previous
   version" to roll back to, so recovery of the reports bucket is a **separately
   copied object set plus a manifest** (source key + destination identity + `size` +
@@ -267,7 +296,10 @@ sqlite3 restored.db "SELECT COUNT(*) FROM sqlite_master WHERE type='table';"
   audit_events 511 · user_sessions 21 · stripe_processed_events 0 (new table,
   no webhooks processed yet — expected).
 
-## Follow-ups (tracked)
+## Earlier follow-ups — optional independent-copy work
+
+These proposals do not impose a second-provider requirement on the first
+customer. No automation or new credential is requested by this policy update.
 
 * [ ] **Automate daily D1 export** to an encrypted off-Cloudflare store (cron
       worker or scheduled CI job) with 30-day retention. *(Turhan: pick the

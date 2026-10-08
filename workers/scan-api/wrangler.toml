@@ -100,11 +100,16 @@ max_retries = 5
 [vars]
 # Human-readable release version, surfaced by GET /health. Bump on each
 # production release (date-based: YYYY.MM.DD).
-APP_VERSION = "2026.10.08-dns-preflight.efd4e5c0cb31"
+APP_VERSION = "2026.10.08-first-customer.5fdee2cdab74"
 # Planned-maintenance switch. "off" = normal. Set to "on" and redeploy to return
 # a clean 503 for every API route (except /health + /ready); flip back to "off"
 # and redeploy to lift. See docs/07-RELEASE-CHECKLIST.md → Maintenance mode.
 MAINTENANCE_MODE = "off"
+# First-customer recovery stays within Cloudflare (Founder, 2026-10-08).
+# Independent backup monitoring is optional; this does not claim a backup ran.
+# Only exact "off" exempts its freshness from the deadman. "on" enables it;
+# absent/unrecognized values keep the freshness requirement.
+INDEPENDENT_BACKUP_MONITORING = "off"
 ALERT_EMAIL_TO   = "ttrnn47@gmail.com"
 ALERT_EMAIL_FROM = "alerts@cybermeters.com"
 SAFE_EMAIL_FROM = "safe@cybermeters.com"

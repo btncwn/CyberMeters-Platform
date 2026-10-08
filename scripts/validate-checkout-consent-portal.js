@@ -86,7 +86,7 @@ const globalSrc  = fs.readFileSync(GLOBAL_BILLING_SRC, "utf8");
 ok("C1 checkout route applies the consent params", billingSrc.includes("applyCheckoutConsentParams(params);"));
 ok("C2 checkout route guards with shouldRoutePlanChangeToPortal", billingSrc.includes("if (shouldRoutePlanChangeToPortal(currentSub)) {"));
 ok("C3 guard resolves the CANONICAL subscription (not a raw newest-row read)",
-  billingSrc.includes("const currentSub = await getWorkspaceSubscription(wsId, env);"));
+  billingSrc.includes("currentSub = await getWorkspaceSubscription(wsId, env, { throwOnError: true });"));
 ok("C4 portal redirect is audited", billingSrc.includes('"billing_checkout_routed_to_portal"'));
 ok("C5 guard sits BEFORE checkout-session creation",
   billingSrc.indexOf("if (shouldRoutePlanChangeToPortal(currentSub)) {") <

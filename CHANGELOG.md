@@ -7,6 +7,27 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## Production baseline reconciled — recorded 8 October 2026
+
+**RECORDED AFTER THE FACT; no retrospective customer-acceptance credit.**
+Cloudflare deployment/version metadata identifies the current scan-api source as
+`97173e483352095773d63199108dd498be2899fa` (PR #472), deployed on
+2 September 2026 at 17:16:37 UTC. Live Worker Version is
+`00ee624f-930c-4f09-b56c-668a18614c65`, deployment
+`3153aa10-0aab-4f08-8e3a-801cb13e0e6b`, at 100% traffic. The previous
+Worker Version is `898660c1-4ea5-44e5-a779-3801ab5755eb`. The live API
+APP_VERSION is `2026.08.13-provisional-score-labeling.91d442311f9c`; its
+date label is stale and is not the deployment date.
+
+The email Worker remains at Version `f9af5afa-dfc7-43de-a7d0-3ef6e672256c`,
+source `32c54f34dad99ab360595426435245e2f280c8ca` (PR #460), deployed on
+30 August 2026 at 20:54:12 UTC, with APP_VERSION
+`2026.08.13-provisional-score-labeling.fceaad4d8f6a`. Pages production is deployment
+`b40bd7b8-360f-4693-8e2b-4d3283519ed5`, source `56ada7a7` (PR #482).
+These provider identities supersede the older entry below as the current
+baseline; the older entry remains historical. This reconciliation records no
+new deployment, payment, migration or restore.
+
 ## v2026.08.31-1 — reserved scan-capacity allocation — deployed 2026-08-30 23:04Z
 
 **Status:** DEPLOYED — exact merged main

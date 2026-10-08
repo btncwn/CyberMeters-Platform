@@ -1,6 +1,8 @@
 # CyberMeters Official Roadmap
 ## From Final Product Completion to the First Paying Customer
 
+**Current Founder instruction — 8 October 2026:** finish first-customer P0/P1 corrections and release verification. A second backup provider or an off-Cloudflare backup is **not a first-customer requirement**. The selected approach is Cloudflare-only recovery; keep actual D1 and R2 recovery evidence and limitations explicit. Older requirements for independent backup do not block this release. This decision does not mark unrun tests or an unverified backup as successful.
+
 Version: August 2026 (r4 — lean eight-seat operating model)
 
 Canonical location: `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`. This file is the
