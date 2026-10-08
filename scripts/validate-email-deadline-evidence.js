@@ -226,7 +226,7 @@ function mockFetch(variant, { onLateResolve = null } = {}) {
         throw new TypeError("simulated DNS source failure");
       }
       const answer = () => {
-        if (name === "example.com" && type === "A") return json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
+        if (["example.com", "www.example.com"].includes(name) && type === "A") return json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
         if (variant === "b2-admin" && name === "grafana.example.com" && type === "A") {
           return json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.35" }] });
         }

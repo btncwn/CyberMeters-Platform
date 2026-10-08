@@ -14,7 +14,7 @@
 // Design: docs/SCAN-SUBREQUEST-CAPACITY-FIX-BRIEF.md (f226790).
 import { customerSafeFailure } from "../lib/errors.js";
 import { annotateExposureInfrastructure, deduplicateExposureAssets, runExposureModule } from "./asset-intel.js";
-import { dnsResolveACached } from "./dns.js";
+import { dnsQuery, dnsResolveACached } from "./dns.js";
 import { runDnsModule } from "./dns-scan.js";
 import { runEmailModule } from "./email-scan.js";
 import { runDmarcbisCore, unavailableDmarcbisCore } from "./dmarcbis-production.js";
@@ -526,10 +526,10 @@ export async function runReservedScan(domain, {
     signal,
     globalDeadlineProvenance,
     budgetMs: reservedCtBudgets.ssl,
-    run: (consumerSignal) => runSslModule(domain, { accounting, ctCache: sharedCtCache, signal: consumerSignal }),
+    run: (consumerSignal) => runSslModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, ctCache: sharedCtCache, signal: consumerSignal }),
     fallback: reservedSslCtFallback,
   }), {}, signal, reservedSslCtFallback("scan_global_deadline"));
-  const headers              = await gateModule(budget, physicalCounter, "headers", (accounting) => runHeadersModule(domain, { accounting, signal }), {}, signal);
+  const headers              = await gateModule(budget, physicalCounter, "headers", (accounting) => runHeadersModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal }), {}, signal);
   const email_security       = await gateModule(budget, physicalCounter, "email_security", (accounting) => runEmailModule(domain, {
     accounting,
     cache: dnsCache,
@@ -553,7 +553,7 @@ export async function runReservedScan(domain, {
     fallback: reservedSubdomainsCtFallback,
   }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] }, signal,
   reservedSubdomainsCtFallback("scan_global_deadline"));
-  const technology_detection = await gateModule(budget, physicalCounter, "technology_detection", (accounting) => runTechModule(domain, { accounting, signal }), {}, signal);
+  const technology_detection = await gateModule(budget, physicalCounter, "technology_detection", (accounting) => runTechModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal }), {}, signal);
   const whois_intelligence   = await gateModule(budget, physicalCounter, "whois_intelligence", (accounting) => runWhoisModule(domain, { accounting, signal }), {}, signal);
 
   // Takeover + brute-force use the discovered host list.

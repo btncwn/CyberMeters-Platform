@@ -187,11 +187,11 @@ try {
       (scanEngineSource.match(/const ctCache = createCertificateTransparencyCache\(/g) || []).length,
       1);
     ok("default scan passes that cache to SSL and subdomains",
-      /runSslModule\(domain, \{ accounting, signal, ctCache, subOps: subOpTelemetry, now: \(\) => certificateNowMs \}\)/.test(scanEngineSource) &&
+      /runSslModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, ctCache, subOps: subOpTelemetry, now: \(\) => certificateNowMs \}\)/.test(scanEngineSource) &&
         /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(scanEngineSource));
     ok("reserved scan reuses one cache for SSL and subdomains",
       /runReservedScan\(domain, \{\s*capacity,\s*ctCache,\s*ctOverlap: ctProviderOverlap,\s*dnsCache,\s*knownAssetHosts,\s*signal: deadline\.signal,\s*globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\),/.test(scanEngineSource) &&
-        /runSslModule\(domain, \{\s*(?:accounting,\s*)?ctCache: sharedCtCache,\s*signal: consumerSignal\s*\}\)/.test(reservedSource) &&
+        /runSslModule\(domain, \{\s*dnsResolver: dnsQuery, dnsCache, (?:accounting,\s*)?ctCache: sharedCtCache,\s*signal: consumerSignal\s*\}\)/.test(reservedSource) &&
         /run: \(consumerSignal\) => runSubdomainsModule\(domain, \{\s*(?:accounting,\s*)?cache: dnsCache,\s*ctCache: sharedCtCache,\s*ctOverlap,\s*signal: consumerSignal,\s*globalSignal: signal,\s*globalDeadlineProvenance,\s*\}\)/.test(reservedSource));
   }
 

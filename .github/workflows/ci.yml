@@ -167,6 +167,9 @@ jobs:
       - name: Validate reserved prober SSRF (per-hop revalidation + rebinding + redirect matrix)
         run: node scripts/validate-reserved-probe-ssrf.js
 
+      - name: Validate scan DNS preflight (unavailable is unassessed; all core HTTP callers)
+        run: node scripts/validate-scan-dns-preflight.js --mutations
+
       - name: Validate AS-B6 reserved deadline safety (global cancellation + physical accounting)
         run: node scripts/validate-as-b6-reserved-deadline-safety.js
 

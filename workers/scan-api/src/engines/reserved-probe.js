@@ -1,14 +1,14 @@
 // ── Reserved-mode SSRF-safe exposure fetcher ──────────────────────────────────
-// Used ONLY by the reserved path (SCAN_CAPACITY_MODE=reserved). The legacy prober is
-// untouched. This follows redirects MANUALLY with a hard hop cap, and validates every
+// Shared by the reserved path and default exposure prober. This follows redirects
+// MANUALLY with a hard hop cap, and validates every
 // hop with the CANONICAL SSRF validator (lib/ssrf.js) — no re-implemented guard logic:
 //   • urlIsBlockedTarget: http(s) only, no credentials, reject loopback/RFC1918/
 //     link-local/metadata/IPv6-loopback+ULA+link-local LITERALS, reject malformed.
-//   • resolvesToPrivateIp: re-resolves the hostname (A+AAAA) EVERY hop and rejects if
-//     it points at a private/reserved IP — the DNS-rebinding guard.
+//   • resolvePublicDnsTarget: require complete public A+AAAA evidence EVERY hop.
+//     This is a DNS preflight, not connection-time address pinning.
 // A blocked target returns null (the caller skips it). fetch() errors (including the
 // "Too many subrequests" budget throw) propagate so probeAsset can classify them.
-import { resolvesToPrivateIp, urlIsBlockedTarget } from "../lib/ssrf.js";
+import { resolvePublicDnsTarget, STRICT_DNS_STATES, urlIsBlockedTarget } from "../lib/ssrf.js";
 import { dnsQuery } from "./dns.js";
 
 export const RESERVED_MAX_REDIRECT_HOPS = 3;   // follow up to 3 redirects; cap the 4th
@@ -30,37 +30,30 @@ function combineSignals(...signals) {
   return controller.signal;
 }
 
-// Resolver for resolvesToPrivateIp — BOTH A and AAAA go through the shared per-scan
-// cache so a host is resolved at most once per (name,type) across the whole scan (A is
-// often already cached by the critical-prefix pass). Never throws (resolvesToPrivateIp
-// fails open on error). NOTE: the mandatory per-hop rebinding guard resolves AAAA in
-// addition to A, so the true exposure cost exceeds the projected C_h model by ~1 DoH
-// for the first resolution of each new host; the trust-fix runtime guard backstops any
-// real exhaustion (not_executed), and Tier-2's live counter makes `consumed` exact.
+// BOTH A and AAAA use the shared per-scan cache. Physical cache misses are
+// metered once; the strict resolver preserves unavailable and control errors.
 function makeSsrfResolver(cache, onOutbound, accounting = null) {
-  return async (name, type) => {
+  return async (name, type, opts = {}) => {
+    const activeAccounting = opts.accounting || accounting;
     // Meter at the leaf's recordAttempt hook, which runs only for a physical
     // cache miss. Reading the Map directly would expose the cache's in-flight
     // entry wrapper instead of a DNS answer and could falsely bypass the SSRF
     // rebinding guard.
     const meteredAccounting = {
-      signal: accounting?.signal || null,
-      assertCanIssue: () => accounting?.assertCanIssue?.(),
+      signal: activeAccounting?.signal || null,
+      assertCanIssue: () => activeAccounting?.assertCanIssue?.(),
       recordAttempt: () => {
         onOutbound?.();
-        accounting?.recordAttempt?.();
+        activeAccounting?.recordAttempt?.();
       },
-      recordCompleted: () => accounting?.recordCompleted?.(),
-      recordError: (error) => accounting?.recordError?.(error),
+      recordCompleted: () => activeAccounting?.recordCompleted?.(),
+      recordError: (error) => activeAccounting?.recordError?.(error),
     };
-    try {
-      return await dnsQuery(name, type, {
-        accounting: meteredAccounting,
-        cache,
-      });
-    } catch {
-      return null;
-    }
+    return dnsQuery(name, type, {
+      accounting: meteredAccounting,
+      cache,
+      signal: opts.signal,
+    });
   };
 }
 
@@ -71,28 +64,36 @@ function makeSsrfResolver(cache, onOutbound, accounting = null) {
 //   (1) urlIsBlockedTarget — scheme (http/https only), credentials, and private/
 //       reserved LITERAL (loopback/RFC1918/link-local/metadata/multicast/IPv6
 //       loopback+ULA+link-local + IPv4-mapped-private) + malformed URL.
-//   (2) resolvesToPrivateIp — re-resolves the hostname (A+AAAA) via `resolver` on
-//       EVERY hop and rejects if any answer is private/reserved (DNS-rebinding guard).
+//   (2) resolvePublicDnsTarget — require public terminal addresses and complete
+//       A+AAAA evidence via `resolver` before EVERY hop.
 // redirect:"manual" so the next Location is re-validated before it is followed; a hard
 // hop cap bounds redirect loops; a blocked/malformed target returns null (fail closed —
 // probeAsset treats null as a non-exposed negative, never assessed_healthy). fetch()
 // errors (incl. the "Too many subrequests" budget throw) propagate so probeAsset can
 // classify them (timeout/not-executed vs authoritative refusal).
-// resolver(name,type) supplies DNS answers and must never throw (resolvesToPrivateIp
-// fails open on a rejected/empty answer). onOutbound() is invoked once per ACTUAL
+// Unavailable DNS throws a typed error so probeAsset records an unassessed target.
+// Budget/deadline errors remain observable. onOutbound() is invoked once per ACTUAL
 // outbound GET so a caller can meter real subrequest consumption.
 export function makeSsrfSafeProbeFetch({ resolver: baseResolver, maxHops = RESERVED_MAX_REDIRECT_HOPS, timeoutMs = 8_000, onOutbound = null, accounting = null } = {}) {
   return async function ssrfSafeProbeFetch(url, opts = {}) {
     const activeAccounting = opts?.accounting || accounting;
     const resolver = typeof baseResolver === "function"
-      ? (name, type) => baseResolver(name, type, { accounting: activeAccounting })
+      ? (name, type) => baseResolver(name, type, { accounting: activeAccounting, signal: opts?.signal })
       : baseResolver;
     let current = url;
     for (let hop = 0; ; hop++) {
       if (urlIsBlockedTarget(current)) return null;
       let hostname;
       try { hostname = new URL(current).hostname; } catch { return null; }
-      if (await resolvesToPrivateIp(hostname, resolver)) return null;
+      const resolution = await resolvePublicDnsTarget(hostname, resolver, {
+        accounting: activeAccounting, signal: opts?.signal,
+      });
+      if (resolution.state === STRICT_DNS_STATES.BLOCKED) return null;
+      if (resolution.state !== STRICT_DNS_STATES.PUBLIC) {
+        const error = new Error("Target DNS could not be safely assessed");
+        error.code = "dns_resolution_unavailable";
+        throw error;
+      }
       onOutbound?.();
       activeAccounting?.recordAttempt?.();
       let res;
@@ -119,7 +120,7 @@ export function makeSsrfSafeProbeFetch({ resolver: baseResolver, maxHops = RESER
 // onOutbound() is invoked once per ACTUAL outbound call (each SSRF DNS resolution that
 // missed the cache — via makeSsrfResolver — and each hop's GET — via the shared core)
 // so the reserved orchestrator can meter real exposure consumption instead of
-// projecting it. Behaviour is identical to the pre-extraction inline loop.
+// projecting it. Unavailable DNS never permits a target GET.
 export function makeReservedProbeFetch({ cache = null, maxHops = RESERVED_MAX_REDIRECT_HOPS, timeoutMs = 8_000, onOutbound = null, accounting = null } = {}) {
   const resolver = makeSsrfResolver(cache, onOutbound, accounting);
   return makeSsrfSafeProbeFetch({ resolver, maxHops, timeoutMs, onOutbound, accounting });

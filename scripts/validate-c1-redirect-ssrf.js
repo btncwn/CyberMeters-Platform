@@ -38,9 +38,9 @@ globalThis.fetch = async (url) => {
 };
 // Resolver: hostname → list of IPs (defaults public). Never throws.
 let DNS = {};
-const resolver = async (name) => {
-  const ips = DNS[name] ?? ["93.184.216.34"]; // example.com, public
-  return { Answer: ips.map((ip) => ({ data: ip })) };
+const resolver = async (name, type) => {
+  const ips = type === "A" ? (DNS[name] ?? ["93.184.216.34"]) : []; // example.com, public
+  return { Status: 0, Answer: ips.map((ip) => ({ type: type === "AAAA" ? 28 : 1, data: ip })) };
 };
 const fetcher = makeSsrfSafeProbeFetch({ resolver, maxHops: 3, timeoutMs: 1000 });
 
@@ -144,9 +144,9 @@ guard("core validates every hop with urlIsBlockedTarget", rpSrc,
   (s) => /if \(urlIsBlockedTarget\(current\)\) return null;/.test(s),
   (s) => s.replace("if (urlIsBlockedTarget(current)) return null;", ""));
 // per-hop DNS rebinding validation removed
-guard("core validates every hop with resolvesToPrivateIp", rpSrc,
-  (s) => /if \(await resolvesToPrivateIp\(hostname, resolver\)\) return null;/.test(s),
-  (s) => s.replace("if (await resolvesToPrivateIp(hostname, resolver)) return null;", ""));
+guard("core rejects every non-public DNS result", rpSrc,
+  (s) => /resolution.state !== STRICT_DNS_STATES.PUBLIC/.test(s) && /resolution.state === STRICT_DNS_STATES.BLOCKED/.test(s),
+  (s) => s.replace("resolution.state !== STRICT_DNS_STATES.PUBLIC", "false"));
 // redirect limit removed
 guard("core enforces a redirect hop cap", rpSrc,
   (s) => /hop >= maxHops/.test(s),

@@ -28,7 +28,10 @@ const realFetch = globalThis.fetch;
 // ── Section A: legacy probeAsset call + result shape unchanged ─────────────────
 {
   let lastOpts = null;
-  globalThis.fetch = async (_url, opts) => { lastOpts = opts; return new Response("<title>x</title>", { status: 200, headers: { "content-type": "text/html" } }); };
+  globalThis.fetch = async (_url, opts) => {
+    const url = new URL(String(_url));
+    if (url.hostname === "cloudflare-dns.com") return new Response(JSON.stringify({ Status: 0, Answer: url.searchParams.get("type") === "A" ? [{ type: 1, data: "93.184.216.34" }] : [] }));
+    lastOpts = opts; return new Response("<title>x</title>", { status: 200, headers: { "content-type": "text/html" } }); };
   const r = await probeAsset("up.example");
   // C1 (2026-07-19): the default prober is now SSRF-safe — it follows redirects
   // MANUALLY and validates every hop (scheme/credentials/private-reserved literal +
@@ -58,7 +61,7 @@ function respond(url, {
     let name = "", type = "A";
     try { const u = new URL(url); name = u.searchParams.get("name") || ""; type = u.searchParams.get("type") || "A"; } catch {}
     if (variableFanout && type === "CNAME" && /^ct\d+\.example\.com$/.test(name)) {
-      return new Response(JSON.stringify({ Answer: Array.from(
+      return new Response(JSON.stringify({ Status: 0, Answer: Array.from(
         { length: takeoverAnswerMultiplicity },
         () => ({ type: 5, data: "candidate.github.io" }),
       ) }), {
@@ -70,26 +73,26 @@ function respond(url, {
       const Answer = type === "A"
         ? [{ type: 1, data: "93.184.216.34" }]
         : [{ type: 28, data: "2606:2800:220:1:248:1893:25c8:1946" }];
-      return new Response(JSON.stringify({ Answer }), { status: 200, headers: { "content-type": "application/dns-json" } });
+      return new Response(JSON.stringify({ Status: 0, Answer }), { status: 200, headers: { "content-type": "application/dns-json" } });
     }
-    if (type === "A" && name === "example.com") return new Response(JSON.stringify({ Answer: [{ data: "93.184.216.34" }] }), { status: 200, headers: { "content-type": "application/dns-json" } });
+    if (type === "A" && /^(?:example\.com|(?:www|admin)\.example\.com)$/.test(name)) return new Response(JSON.stringify({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] }), { status: 200, headers: { "content-type": "application/dns-json" } });
     if (dmarcRua && type === "TXT" && name === "_dmarc.example.com") {
       return new Response(JSON.stringify({
-        Answer: [{ type: 16, data: "v=DMARC1; p=reject; rua=mailto:agg@reports.vendor.test" }],
+        Status: 0, Answer: [{ type: 16, data: "v=DMARC1; p=reject; rua=mailto:agg@reports.vendor.test" }],
       }), { status: 200, headers: { "content-type": "application/dns-json" } });
     }
     if (dmarcRua && type === "TXT" && name === "_dmarc.vendor.test") {
       return new Response(JSON.stringify({
-        Answer: [{ type: 16, data: "v=DMARC1; p=none; psd=n" }],
+        Status: 0, Answer: [{ type: 16, data: "v=DMARC1; p=none; psd=n" }],
       }), { status: 200, headers: { "content-type": "application/dns-json" } });
     }
     if (authorizeExternal && type === "TXT" &&
         name === "example.com._report._dmarc.reports.vendor.test") {
       return new Response(JSON.stringify({
-        Answer: [{ type: 16, data: "v=DMARC1" }],
+        Status: 0, Answer: [{ type: 16, data: "v=DMARC1" }],
       }), { status: 200, headers: { "content-type": "application/dns-json" } });
     }
-    return new Response(JSON.stringify({ Answer: [] }), { status: 200, headers: { "content-type": "application/dns-json" } });
+    return new Response(JSON.stringify({ Status: 0, Answer: [] }), { status: 200, headers: { "content-type": "application/dns-json" } });
   }
   if (cat === "ct") {
     const rows = variableFanout

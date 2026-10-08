@@ -270,7 +270,7 @@ async function runEngineScenario({ name, domain, commonName, names, expected }) 
     }
     if (url.hostname === "api.certspotter.com") return jsonResponse({}, 403);
     if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
-      return jsonResponse({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
+      return jsonResponse({ Status: 0, Answer: url.searchParams.get("type") === "A" ? [{ type: 1, data: "93.184.216.34" }] : [] });
     }
     return new Response("<html><title>Candidate A</title></html>", {
       status: 200,

@@ -560,7 +560,9 @@ function d1Stub({ fail = false } = {}) {
     const fetcher = makeReservedProbeFetch({ cache: new Map(), accounting: ctx });
     await fetcher("https://example.com");
   }, async (url) => {
-    if (String(url).includes("dns-query")) return jsonResponse({ Status: 0, Answer: [] });
+    if (String(url).includes("dns-query")) return jsonResponse({ Status: 0,
+      Answer: new URL(String(url)).searchParams.get("type") === "A" ? [{ type: 1, data: "93.184.216.34" }] : [],
+    });
     return new Response("ok", { status: 200 });
   });
   ctx.markSettled();
@@ -836,7 +838,7 @@ function d1Stub({ fail = false } = {}) {
     (s) => s.replace("const moduleCapFor = (module) => durableInvocation", "const moduleCapFor = (module) => true"));
   sourceGuard("Lane-A remainingMs is runner-owned and headers-only", engineSrc,
     (s) => /remainingMs: \(\) => Math\.max\(0, allocatedMs - Math\.max\(0, now\(\) - startedMs\)\)/.test(s)
-      && /runHeadersModule\(domain, \{ accounting, signal, remainingMs: durableInvocation \? remainingMs : null, subOps: subOpTelemetry \}\)/.test(s),
+      && /runHeadersModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs: durableInvocation \? remainingMs : null, subOps: subOpTelemetry \}\)/.test(s),
     (s) => s.replace("remainingMs: durableInvocation ? remainingMs : null", "remainingMs"));
   sourceGuard("Lane-A module duration is captured once by the runner", engineSrc,
     (s) => /finally \{\s*finishedMs = now\(\);\s*\}/.test(s)
@@ -882,8 +884,8 @@ function d1Stub({ fail = false } = {}) {
       && /getRes = await safeFetch\(listUrl, \{[\s\S]{0,220}accounting,[\s\S]{0,160}dnsResolver,[\s\S]{0,120}dnsCache: cache/.test(s),
     (s) => s.replace(/(const getRes = await safeFetch\(listUrl, \{[\s\S]{0,180})\s*accounting,\n/, "$1"));
   sourceGuard("C1B scan-engine threads module contexts", engineSrc,
-    (s) => /runSslModule\(domain, \{ accounting, signal, ctCache, subOps: subOpTelemetry, now: \(\) => certificateNowMs \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal, cache: dnsCache \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal, cache: dnsCache \}\)/.test(s),
-    (s) => s.replace('runSslModule(domain, { accounting, signal, ctCache, subOps: subOpTelemetry, now: () => certificateNowMs })', "runSslModule(domain)"));
+    (s) => /runSslModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, ctCache, subOps: subOpTelemetry, now: \(\) => certificateNowMs \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal, cache: dnsCache \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal, cache: dnsCache \}\)/.test(s),
+    (s) => s.replace('runSslModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, ctCache, subOps: subOpTelemetry, now: () => certificateNowMs })', "runSslModule(domain)"));
   sourceGuard("C1B complete-set includes newly covered modules", budgetSrc,
     (s) => ["ssl", "subdomains", "dns_bruteforce", "cloud_storage_discovery"].every((m) => s.includes(`"${m}"`)),
     (s) => s.replace('"cloud_storage_discovery",', ""));

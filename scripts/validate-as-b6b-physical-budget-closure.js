@@ -55,7 +55,7 @@ const html = (title = "Public Site", headers = {}) => new Response(
   { status: 200, headers: { "content-type": "text/html", ...headers } },
 );
 const dnsJson = (answers = []) => new Response(
-  JSON.stringify({ Answer: answers }),
+  JSON.stringify({ Status: 0, Answer: answers }),
   { status: 200, headers: { "content-type": "application/dns-json" } },
 );
 
@@ -118,7 +118,7 @@ function observingAccounting(counter, category) {
   const controlCalls = [];
   const controlFetch = makeSingleHopRedirectFetcher(
     controlCalls,
-    () => dnsJson([{ data: PUBLIC_A }]),
+    () => dnsJson([{ type: 1, data: PUBLIC_A }]),
   );
   const control = await controlFetch("https://provider.example.test/start");
   ok(
@@ -136,7 +136,7 @@ function observingAccounting(counter, category) {
   const cloudflareCalls = [];
   globalThis.fetch = makeSingleHopRedirectFetcher(
     cloudflareCalls,
-    () => dnsJson([{ data: PUBLIC_A }]),
+    () => dnsJson([{ type: 1, data: PUBLIC_A }]),
   );
   let cloudflareResult = null;
   let cloudflareError = null;
@@ -173,7 +173,7 @@ function observingAccounting(counter, category) {
     const calls = [];
     globalThis.fetch = makeSingleHopRedirectFetcher(
       calls,
-      () => dnsJson([{ data: PUBLIC_A }]),
+      () => dnsJson([{ type: 1, data: PUBLIC_A }]),
     );
     let result = null;
     let error = null;
@@ -211,7 +211,7 @@ function observingAccounting(counter, category) {
   const criticalCalls = [];
   globalThis.fetch = makeSingleHopRedirectFetcher(
     criticalCalls,
-    () => dnsJson([{ data: PUBLIC_A }]),
+    () => dnsJson([{ type: 1, data: PUBLIC_A }]),
   );
   let criticalResult;
   try {
@@ -362,8 +362,8 @@ function observingAccounting(counter, category) {
 {
   const host = "fallback.example.com";
   const cache = makeDnsCache();
-  cache.set(dnsCacheKey(host, "A"), { Answer: [{ data: PUBLIC_A }] });
-  cache.set(dnsCacheKey(host, "AAAA"), { Answer: [{ data: PUBLIC_AAAA }] });
+  cache.set(dnsCacheKey(host, "A"), { Status: 0, Answer: [{ type: 1, data: PUBLIC_A }] });
+  cache.set(dnsCacheKey(host, "AAAA"), { Status: 0, Answer: [{ type: 28, data: PUBLIC_AAAA }] });
   const counter = new PhysicalSubrequestCounter({ limit: 50, safetyMargin: 5 });
   const accounting = counter.contextFor("fallback");
   const fetcher = makeReservedProbeFetch({ cache, accounting });
@@ -419,8 +419,8 @@ function nextRedirect(url) {
     const kind = requestKind(url);
     if (kind === "dns") {
       const { type } = dnsQuestion(url);
-      if (type === "A") return dnsJson([{ data: PUBLIC_A }]);
-      if (type === "AAAA") return dnsJson([{ data: PUBLIC_AAAA }]);
+      if (type === "A") return dnsJson([{ type: 1, data: PUBLIC_A }]);
+      if (type === "AAAA") return dnsJson([{ type: 28, data: PUBLIC_AAAA }]);
       return dnsJson([]);
     }
     if (kind === "ct") return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
@@ -541,8 +541,8 @@ async function runEnginePhysicalProvenanceFixture(scanId, counter) {
     const kind = requestKind(url);
     if (kind === "dns") {
       const { type } = dnsQuestion(url);
-      if (type === "A") return dnsJson([{ data: PUBLIC_A }]);
-      if (type === "AAAA") return dnsJson([{ data: PUBLIC_AAAA }]);
+      if (type === "A") return dnsJson([{ type: 1, data: PUBLIC_A }]);
+      if (type === "AAAA") return dnsJson([{ type: 28, data: PUBLIC_AAAA }]);
       return dnsJson([]);
     }
     if (kind === "ct") return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
@@ -628,8 +628,8 @@ async function runEnginePhysicalProvenanceFixture(scanId, counter) {
     const kind = requestKind(url);
     if (kind === "dns") {
       const { type } = dnsQuestion(url);
-      if (type === "A") return dnsJson([{ data: PUBLIC_A }]);
-      if (type === "AAAA") return dnsJson([{ data: PUBLIC_AAAA }]);
+      if (type === "A") return dnsJson([{ type: 1, data: PUBLIC_A }]);
+      if (type === "AAAA") return dnsJson([{ type: 28, data: PUBLIC_AAAA }]);
       return dnsJson([]);
     }
     if (kind === "ct") return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
@@ -702,7 +702,8 @@ async function runEnginePhysicalProvenanceFixture(scanId, counter) {
   );
 }
 
-// The approved SSRF-safe primitive is a fixed input to this work order. Mutation
+// Pin the current SSRF-safe primitive alongside its behavioral tests. Refreshed
+// for the authorized strict DNS preflight change (including unavailable handling). Mutation
 // subprocesses explicitly skip this check because they operate only on an isolated
 // temporary copy; the candidate worktree is always verified here in normal mode.
 if (process.env.ASB6B_MUTANT_MODE !== "1") {
@@ -711,7 +712,7 @@ if (process.env.ASB6B_MUTANT_MODE !== "1") {
   eq(
     "ASB6B_RESERVED_PROBE_IMMUTABLE_HASH",
     digest,
-    "45e19ae3c5720bb2dcf084e1dbb8745c6d730ab1f8693da60ce968c8710db6c1",
+    "9261769771b54774c6a500ccc86d3fe2e69ac93501bd060be0e28190d836ab60",
   );
 }
 

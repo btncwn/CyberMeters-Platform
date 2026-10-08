@@ -4,7 +4,7 @@
 //
 // Proves makeReservedProbeFetch follows redirects safely: http(s) only, no creds,
 // per-hop revalidation with the CANONICAL validator (urlIsBlockedTarget +
-// resolvesToPrivateIp), hard hop cap, and a DNS-rebinding guard. Blocked targets are
+// resolvePublicDnsTarget), hard hop cap, and a DNS preflight. Blocked targets are
 // NEVER fetched. Node 24+. CI-blocking.
 //
 import path from "node:path";
@@ -31,7 +31,7 @@ function scripted({ dohDefaultA = ["93.184.216.34"], dohMap = {}, probe }) {
       const u = new URL(s); const name = u.searchParams.get("name"); const type = u.searchParams.get("type");
       const entry = dohMap[name];
       const ips = entry ? (entry[type] || []) : (type === "A" ? dohDefaultA : []);
-      return new Response(JSON.stringify({ Answer: ips.map((ip) => ({ data: ip })) }), { status: 200, headers: { "content-type": "application/dns-json" } });
+      return new Response(JSON.stringify({ Status: 0, Answer: ips.map((ip) => ({ type: type === "AAAA" ? 28 : 1, data: ip })) }), { status: 200, headers: { "content-type": "application/dns-json" } });
     }
     probeFetches.push(s);
     return probe(s);

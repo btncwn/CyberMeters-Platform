@@ -62,7 +62,17 @@ const ok = (name, cond, detail = "") => {
 
 // ── fetch mocks ──────────────────────────────────────────────────────────────
 const realFetch = globalThis.fetch;
-const setFetch = (fn) => { globalThis.fetch = fn; };
+// HTTP fixtures first provide a valid public DNS preflight. DNS-specific
+// fixtures opt out so resolver failures remain independently exercised.
+const withPublicDns = (fn, dnsFixture = false) => fn === realFetch || dnsFixture ? fn : async (value, ...args) => {
+  const url = new URL(String(value));
+  if (["cloudflare-dns.com", "dns.google"].includes(url.hostname)) {
+    const answer = url.searchParams.get("type") === "A" ? [{ type: 1, data: "93.184.216.34" }] : [];
+    return new Response(JSON.stringify({ Status: 0, Answer: answer }), { status: 200 });
+  }
+  return fn(value, ...args);
+};
+const setFetch = (fn, dnsFixture = false) => { globalThis.fetch = withPublicDns(fn, dnsFixture); };
 const htmlResponse = (status, body = "") =>
   new Response(body, { status, headers: { "content-type": "text/html" } });
 // A Cloudflare-edge-synthesised error page (520–530 always carry `Server: cloudflare`).
@@ -85,6 +95,7 @@ function dohFetch({ a = { Status: 0, Answer: [] }, aaaa = { Status: 0, Answer: [
     return { ok: true, status: 200, json: async () => payload };
   };
 }
+const setDnsFetch = (fn) => setFetch(fn, true);
 const aAnswer = [{ type: 1, data: "203.0.113.10", TTL: 300 }];
 
 // ── SECTION A — probeAsset transport classification ──────────────────────────
@@ -247,18 +258,18 @@ ok("D6 CF-edge-only exposure pass (+clean core) → scan_quality complete (P1 re
   qEdge.status === "complete" && !qEdge.modules_skipped.includes("asset_exposure"));
 
 // ── SECTION E — runDnsModule resolution honesty ──────────────────────────────
-setFetch(dohFetch({ a: { Status: 3, Answer: [] }, aaaa: { Status: 3, Answer: [] } })); // NXDOMAIN
+setDnsFetch(dohFetch({ a: { Status: 3, Answer: [] }, aaaa: { Status: 3, Answer: [] } })); // NXDOMAIN
 let dns = await runDnsModule("nx.example.com");
 ok("E1 NXDOMAIN → resolution_assessed true (authoritative)", dns.resolution_assessed === true);
 ok("E2 NXDOMAIN → resolves_any false, not incomplete", dns.resolves_any === false && dns.incomplete === undefined);
-setFetch(dohFetch({ a: { Status: 2, Answer: [] }, aaaa: { Status: 2, Answer: [] } })); // SERVFAIL
+setDnsFetch(dohFetch({ a: { Status: 2, Answer: [] }, aaaa: { Status: 2, Answer: [] } })); // SERVFAIL
 dns = await runDnsModule("servfail.example.com");
 ok("E3 SERVFAIL → resolution_assessed false (resolver failure, not authoritative)", dns.resolution_assessed === false);
 ok("E4 SERVFAIL → incomplete:true (unavailable, never 'does not resolve')", dns.incomplete === true && dns.incomplete_reason === "dns_resolution_unavailable");
-setFetch(dohFetch({ throwTypes: ["A", "AAAA"] })); // DoH transport failure on A/AAAA
+setDnsFetch(dohFetch({ throwTypes: ["A", "AAAA"] })); // DoH transport failure on A/AAAA
 dns = await quiet(() => runDnsModule("outage.example.com"));
 ok("E5 DoH A/AAAA transport failure → resolution_assessed false → incomplete", dns.resolution_assessed === false && dns.incomplete === true);
-setFetch(dohFetch({ a: { Status: 0, Answer: aAnswer } })); // NOERROR + records
+setDnsFetch(dohFetch({ a: { Status: 0, Answer: aAnswer } })); // NOERROR + records
 dns = await runDnsModule("live.example.com");
 ok("E6 NOERROR+A records → resolves_any true, resolution_assessed true, not incomplete",
   dns.resolves_any === true && dns.resolution_assessed === true && dns.incomplete === undefined);
@@ -330,7 +341,7 @@ async function mutantDep(depPath, entryPath, from, to) {
   finally { fs.rmSync(depFile, { force: true }); fs.rmSync(entryFile, { force: true }); }
   return { anchor: true, mod };
 }
-const mfetch = (fn, run) => { const prev = globalThis.fetch; globalThis.fetch = fn; return run().finally(() => { globalThis.fetch = prev; }); };
+const mfetch = (fn, run, dnsFixture = false) => { const prev = globalThis.fetch; globalThis.fetch = withPublicDns(fn, dnsFixture); return run().finally(() => { globalThis.fetch = prev; }); };
 
 // M1: timeout no longer classified → a timed-out host reads reachable:false (clean).
 {
@@ -380,7 +391,7 @@ const mfetch = (fn, run) => { const prev = globalThis.fetch; globalThis.fetch = 
   const m = await mutant(DNS_SRC,
     "(r) => r.status === \"fulfilled\" && DNS_AUTHORITATIVE_RCODES.has(r.value?.Status)",
     "(r) => r.status === \"fulfilled\"");
-  const r = m.anchor ? await mfetch(dohFetch({ a: { Status: 2, Answer: [] }, aaaa: { Status: 2, Answer: [] } }), () => m.mod.runDnsModule("servfail.example.com")) : null;
+  const r = m.anchor ? await mfetch(dohFetch({ a: { Status: 2, Answer: [] }, aaaa: { Status: 2, Answer: [] } }), () => m.mod.runDnsModule("servfail.example.com"), true) : null;
   ok("mutation M6 (rcode-authority removed) → SERVFAIL falsely 'assessed' (not incomplete) — CAUGHT",
     m.anchor && r.resolution_assessed === true && r.incomplete === undefined);
 }
@@ -389,7 +400,7 @@ const mfetch = (fn, run) => { const prev = globalThis.fetch; globalThis.fetch = 
   const m = await mutant(DNS_SRC,
     "...(resolutionAssessed ? {} : { incomplete: true, incomplete_reason: \"dns_resolution_unavailable\" }),",
     "");
-  const r = m.anchor ? await mfetch(dohFetch({ throwTypes: ["A", "AAAA"] }), () => quiet(() => m.mod.runDnsModule("outage.example.com"))) : null;
+  const r = m.anchor ? await mfetch(dohFetch({ throwTypes: ["A", "AAAA"] }), () => quiet(() => m.mod.runDnsModule("outage.example.com")), true) : null;
   ok("mutation M7 (DNS outage not flagged incomplete) → resolver outage falsely complete — CAUGHT",
     m.anchor && r.incomplete === undefined);
 }

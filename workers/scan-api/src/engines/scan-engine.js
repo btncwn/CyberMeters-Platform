@@ -33,6 +33,7 @@ import { createCtProviderOverlapCollector, persistCtProviderOverlapTelemetry } f
 import { deriveSignalMonitoringStates } from "./signal-monitoring-state.js";
 import { runSaasExposureModule, runThirdPartyDiscoveryModule } from "./discovery-scan.js";
 import { buildDnsOperationalResilience } from "./dns-resilience.js";
+import { dnsQuery } from "./dns.js";
 import { runDnsModule } from "./dns-scan.js";
 import { runDomainSecurityEnrichmentModule } from "./domain-enrichment.js";
 import { buildEmailRemediationActions, buildEmailTransportDetails, isPublishableEmailEvidence, mtaStsAdmission } from "./email-analysis.js";
@@ -1114,8 +1115,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           // which scoring.js reads as positive evidence of absence and turns into the
           // CRITICAL "HTTPS Not Available" finding — a second, independent path to the
           // same false claim the classifier fix closes. Not assessed is not a verdict.
-          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, tls_state: TLS_RUNTIME_STATES.UNAVAILABLE, tls_state_reason: "deadline_deferred", https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), onConsumerRelease: (cause) => ctCache.releaseConsumer?.(domain, "ssl", cause), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache, subOps: subOpTelemetry, now: () => certificateNowMs }) }),
-          runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal, remainingMs }) => runHeadersModule(domain, { accounting, signal, remainingMs: durableInvocation ? remainingMs : null, subOps: subOpTelemetry }) }),
+          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, tls_state: TLS_RUNTIME_STATES.UNAVAILABLE, tls_state_reason: "deadline_deferred", https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), onConsumerRelease: (cause) => ctCache.releaseConsumer?.(domain, "ssl", cause), run: ({ accounting, signal }) => runSslModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, ctCache, subOps: subOpTelemetry, now: () => certificateNowMs }) }),
+          runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal, remainingMs }) => runHeadersModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs: durableInvocation ? remainingMs : null, subOps: subOpTelemetry }) }),
           // The email deadline fallback is the CANONICAL unassessed email result
           // owned by email-scan.js. The previous bare shape ({spf:{},dmarc:{},
           // dkim:{}}) did not match the completed contract: scoring fabricated a
@@ -1134,7 +1135,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
             }),
           }),
           runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: (cause) => { ctCache.releaseConsumer?.(domain, "subdomains", cause); ctProviderOverlap.freeze({ global_deadline: deadline.globalDeadlineProvenance() }); }, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: () => deadline.globalDeadlineProvenance() }) }),
-          runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal }) => runTechModule(domain, { accounting, signal }) }),
+          runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal }) => runTechModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal }) }),
           runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ source: "rdap" }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
           runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal, cache: dnsCache }) }),
         ]);

@@ -129,7 +129,7 @@ async function trace(httpMode, { seed = false, deadlineMs = "115000" } = {}) {
     if (host === "cloudflare-dns.com" || host === "dns.google") {
       const name = String(url.searchParams.get("name") || "").toLowerCase();
       const type = String(url.searchParams.get("type") || "A").toUpperCase();
-      if (name === "example.com" && type === "A") return json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
+      if (["example.com", "www.example.com"].includes(name) && type === "A") return json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
       return json({ Status: 0, Answer: [] });
     }
     if (url.protocol === "http:") {
