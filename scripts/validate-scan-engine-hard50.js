@@ -27,8 +27,8 @@ function respond(url) {
   if (cat === "doh") {
     let name = "", type = "A";
     try { const u = new URL(url); name = u.searchParams.get("name") || ""; type = u.searchParams.get("type") || "A"; } catch {}
-    if (type === "A" && RESOLVES.has(name)) return new Response(JSON.stringify({ Answer: [{ data: "93.184.216.34" }] }), { status: 200, headers: { "content-type": "application/dns-json" } });
-    return new Response(JSON.stringify({ Answer: [] }), { status: 200, headers: { "content-type": "application/dns-json" } }); // AAAA + non-resolving prefixes → empty (public)
+    if (type === "A" && RESOLVES.has(name)) return new Response(JSON.stringify({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] }), { status: 200, headers: { "content-type": "application/dns-json" } });
+    return new Response(JSON.stringify({ Status: 0, Answer: [] }), { status: 200, headers: { "content-type": "application/dns-json" } }); // AAAA + non-resolving prefixes → empty (public)
   }
   if (cat === "ct") return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
   if (cat === "exposure") return new Response("<title>Admin</title>", { status: 200, headers: { "content-type": "text/html", server: "nginx" } });

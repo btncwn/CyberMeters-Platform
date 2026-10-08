@@ -75,8 +75,8 @@ const mutants = [
   {
     id: "ASB6R-M-GET-ACCOUNTING-REMOVED",
     file: "workers/scan-api/src/engines/reserved-probe.js",
-    before: "      activeAccounting?.recordAttempt?.();",
-    after: "      void activeAccounting;",
+    before: "      activeAccounting?.recordAttempt?.();\n      let res;",
+    after: "      void activeAccounting;\n      let res;",
     expected: "ASB6R_ACCOUNTING_REMOVAL_GET_COUNTED",
   },
   {

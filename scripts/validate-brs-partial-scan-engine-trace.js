@@ -137,7 +137,7 @@ globalThis.fetch = async (input) => {
   if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
     const name = String(url.searchParams.get("name") || "").toLowerCase();
     const type = String(url.searchParams.get("type") || "A").toUpperCase();
-    if (name === "example.com" && type === "A") {
+    if (["example.com", "www.example.com"].includes(name) && type === "A") {
       return jsonResponse({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
     }
     return jsonResponse({ Status: 0, Answer: [] });

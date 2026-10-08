@@ -145,6 +145,7 @@ db.prepare(`
 
 let phase = "negative";
 const providerCalls = { crt: 0, certspotter: 0 };
+let goneHostHttpCalls = 0;
 const originalFetch = globalThis.fetch;
 const originalRandom = Math.random;
 globalThis.fetch = async (input) => {
@@ -170,8 +171,8 @@ globalThis.fetch = async (input) => {
     const type = String(url.searchParams.get("type") || "A").toUpperCase();
     if (name === "gone.example.com") {
       if (phase === "unavailable") throw new DOMException("provider timeout", "TimeoutError");
-      if (phase === "observed" && type === "A") {
-        return json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
+      if (phase === "observed") {
+        return json({ Status: 0, Answer: type === "A" ? [{ type: 1, data: "93.184.216.34" }] : [] });
       }
       return json({ Status: 3, Answer: [] });
     }
@@ -181,6 +182,7 @@ globalThis.fetch = async (input) => {
     return json({ Status: 0, Answer: [] });
   }
   if (url.hostname === "gone.example.com") {
+    goneHostHttpCalls += 1;
     if (phase === "unavailable") {
       throw new DOMException("probe timeout", "TimeoutError");
     }
@@ -233,11 +235,12 @@ try {
   ).get();
   eq("real complete fixture records authoritative DNS absence",
     firstObservation?.dns_state, "absent");
-  eq("real complete fixture records HTTP non-observation",
-    firstObservation?.http_state, "not_observed");
-  eq("one real complete active-source negative is only not_observed",
+  eq("DNS preflight without a terminal leaves HTTP unassessed",
+    firstObservation?.http_state, "not_assessed");
+  eq("DNS preflight does not issue a target HTTP request", goneHostHttpCalls, 0);
+  eq("DNS absence alone cannot mark the asset removed",
     db.prepare("SELECT lifecycle_state FROM workspace_assets WHERE id='asset-gone'").get().lifecycle_state,
-    "not_observed");
+    "observed");
   eq("one real scan emits no removal event",
     db.prepare("SELECT COUNT(*) AS n FROM asset_events WHERE event_type='asset_no_longer_seen'").get().n, 0);
 
@@ -247,24 +250,26 @@ try {
     "observation_unavailable");
   eq("provider timeout does not advance real threshold",
     db.prepare("SELECT COUNT(*) AS n FROM asset_lifecycle_observations WHERE asset_id='asset-gone' AND qualifies_removal=1").get().n,
-    1);
+    0);
 
   await run("scan-2", "2026-07-29T00:00:00.000Z", "negative");
   await run("scan-3", "2026-07-30T00:00:00.000Z", "negative");
-  eq("three real spaced active-source negatives confirm removal",
+  eq("three DNS-only negatives cannot confirm removal without HTTP evidence",
     db.prepare("SELECT lifecycle_state FROM workspace_assets WHERE id='asset-gone'").get().lifecycle_state,
-    "confirmed_removed");
-  eq("real confirmation emits one canonical asset event",
+    "observed");
+  eq("unassessed HTTP never emits a removal event",
     db.prepare("SELECT COUNT(*) AS n FROM asset_events WHERE event_type='asset_no_longer_seen' AND asset_id='asset-gone'").get().n,
-    1);
+    0);
+  eq("DNS-only sequence has no target HTTP request", goneHostHttpCalls, 0);
 
   await run("scan-4", "2026-07-31T00:00:00.000Z", "observed");
   eq("real active observation resets confirmation",
     db.prepare("SELECT lifecycle_state FROM workspace_assets WHERE id='asset-gone'").get().lifecycle_state,
     "observed");
-  eq("real reappearance uses the same identity",
-    db.prepare("SELECT asset_id FROM asset_events WHERE event_type='asset_reappeared'").get()?.asset_id,
-    "asset-gone");
+  ok("public DNS permits a real HTTP observation", goneHostHttpCalls > 0);
+  eq("an asset never confirmed removed has no false reappearance event",
+    db.prepare("SELECT COUNT(*) AS n FROM asset_events WHERE event_type='asset_reappeared'").get().n,
+    0);
   eq("real reappearance creates no new asset row",
     db.prepare("SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id='ws' AND hostname='gone.example.com'").get().n,
     1);

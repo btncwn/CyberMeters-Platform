@@ -94,7 +94,7 @@ function isProbeTimeout(err) {
 
 // Default probe fetcher — SSRF-safe by construction (C1). Follows redirects MANUALLY
 // with a bounded hop cap and validates EVERY hop with the canonical ssrf.js guards
-// (scheme/credentials/private-reserved literal + DNS-answer rebinding) via the shared
+// (scheme/credentials/private-reserved literal + strict DNS-answer preflight) via the shared
 // makeSsrfSafeProbeFetch core — the SAME implementation the reserved path uses. 8s
 // timeout preserves the legacy probe budget. A blocked/malformed target returns null →
 // probeAsset treats it as a non-exposed negative (reachable:false), never
@@ -113,7 +113,8 @@ function makeDefaultProbeFetch(cache = null) {
     resolver: (name, type, opts = {}) => dnsQuery(name, type, {
       accounting: opts.accounting || null,
       cache,
-    }).catch(() => null),
+      signal: opts.signal,
+    }),
     timeoutMs: 8_000,
   });
 }
@@ -134,12 +135,13 @@ export { classifyServerErrorStatus, CF_EDGE_STATUS_MIN, CF_EDGE_STATUS_MAX } fro
  *
  * opts.fetcher (optional) overrides the outbound fetch. It must return a Response,
  * or null to signal the target was refused (e.g. reserved SSRF guard). Omit it and
- * behaviour is byte-identical to the legacy native fetch.
+ * the default fetcher uses the same strict DNS preflight and redirect checks.
  */
 export async function probeAsset(host, opts = {}) {
   const accounting = opts.accounting || null;
   const fetcher = typeof opts.fetcher === "function" ? opts.fetcher : defaultProbeFetch;
   let budgetExhausted = false;   // a probe attempt was starved, not genuinely failed
+  let dnsUnavailable = false;   // DNS preflight never established a safe target
   let timedOut = false;          // the probe started but never got an answer (not assessed)
   for (const proto of ["https", "http"]) {
     const url = `${proto}://${host}`;
@@ -152,10 +154,10 @@ export async function probeAsset(host, opts = {}) {
       // "not assessed"; a genuine refusal/reset falls through to reachable:false.
       if (isSubrequestBudgetError(err)) budgetExhausted = true;
       else if (isProbeTimeout(err)) timedOut = true;
+      else if (err?.code === "dns_resolution_unavailable") dnsUnavailable = true;
       continue;
     }
-    // A fetcher may return null to refuse a target (reserved SSRF guard); the legacy
-    // defaultProbeFetch never returns null, so this is a no-op for legacy.
+    // A known blocked target returns null in both default and reserved probers.
     if (!res) continue;
 
     const status      = res.status;
@@ -211,8 +213,8 @@ export async function probeAsset(host, opts = {}) {
   }
 
   // No protocol returned a response.
-  if (budgetExhausted) {
-    // The Worker ran out of subrequest budget before this host could be probed.
+  if (budgetExhausted || dnsUnavailable) {
+    // The target was not probed: budget refusal or unavailable DNS preflight.
     // It was NOT checked — report it honestly as not-executed (reachable:null),
     // never as a confirmed-unreachable / clean result.
     return {
@@ -221,7 +223,7 @@ export async function probeAsset(host, opts = {}) {
       status:       null,
       reachable:    null,
       probe_status: "not_executed",
-      reason:       "subrequest_budget_exhausted",
+      reason:       budgetExhausted ? "subrequest_budget_exhausted" : "dns_resolution_unavailable",
       title:        null,
       server:       null,
       content_type: null,
@@ -611,7 +613,8 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
   const notAssessed = assets.filter((a) => NOT_ASSESSED.has(a.probe_status));
   const incomplete = notAssessed.length > 0;
   const incompleteReason =
-    notAssessed.some((a) => a.probe_status === "not_executed") ? "subrequest_budget_exhausted"
+    notAssessed.some((a) => a.probe_status === "not_executed" && a.reason !== "dns_resolution_unavailable") ? "subrequest_budget_exhausted"
+    : notAssessed.some((a) => a.reason === "dns_resolution_unavailable") ? "dns_resolution_unavailable"
     : notAssessed.some((a) => a.probe_status === "timed_out") ? "probe_timeout"
     : "server_error";
 

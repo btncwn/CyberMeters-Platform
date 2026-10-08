@@ -24,7 +24,7 @@ const eq = (n, g, w) => ok(n, g === w, `got ${JSON.stringify(g)} want ${JSON.str
 
 const realFetch = globalThis.fetch;
 const html200 = () => new Response("<title>Admin</title>", { status: 200, headers: { "content-type": "text/html" } });
-const dohAnswer = (recs) => new Response(JSON.stringify({ Answer: recs.map((d) => ({ data: d })) }), { status: 200, headers: { "content-type": "application/dns-json" } });
+const dohAnswer = (recs) => new Response(JSON.stringify({ Status: 0, Answer: recs.map((d) => ({ type: 1, data: d })) }), { status: 200, headers: { "content-type": "application/dns-json" } });
 function mockFetch(handler) {
   const calls = [];
   globalThis.fetch = async (url, opts) => { calls.push(String(url)); return handler(String(url), opts); };
@@ -54,7 +54,7 @@ eq("default capacity mode is legacy", resolveScanCapacity({}).mode, "legacy");
   const adminBefore = calls.filter((u) => /name=admin\.example\.com/.test(u)).length;
   await dnsResolveACached("admin.example.com", cache);   // must be a cache hit
   eq("no duplicate admin|A lookup", calls.filter((u) => /name=admin\.example\.com/.test(u)).length, adminBefore);
-  cache.set(dnsCacheKey("www.example.com", "A"), { Answer: [{ data: "1.1.1.1" }] });
+  cache.set(dnsCacheKey("www.example.com", "A"), { Status: 0, Answer: [{ type: 1, data: "1.1.1.1" }] });
   const wwwBefore = calls.filter((u) => /name=www\.example\.com/.test(u)).length;
   const reused = await dnsResolveACached("www.example.com", cache);
   eq("no duplicate www|A lookup (core DNS answer reused)", calls.filter((u) => /name=www\.example\.com/.test(u)).length, wwwBefore);
@@ -76,7 +76,8 @@ eq("default capacity mode is legacy", resolveScanCapacity({}).mode, "legacy");
 
 // ── 4. 25 assets → honest deferred_capacity; cap is the final authority ────────
 {
-  mockFetch(() => html200());
+  mockFetch((url) => url.includes("cloudflare-dns.com")
+    ? dohAnswer(new URL(url).searchParams.get("type") === "A" ? ["93.184.216.34"] : []) : html200());
   const ordered = [
     { host: "example.com", src: "root" }, { host: "www.example.com", src: "www" }, { host: "admin.example.com", src: "critical_prefix" },
   ];

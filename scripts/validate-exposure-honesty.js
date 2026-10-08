@@ -29,7 +29,17 @@ let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAIL " + name); };
 
 const realFetch = globalThis.fetch;
-const setFetch = (fn) => { globalThis.fetch = fn; };
+// HTTP fixtures first provide a valid public DNS preflight. DNS-specific
+// fixtures opt out so resolver failures remain independently exercised.
+const withPublicDns = (fn, dnsFixture = false) => fn === realFetch || dnsFixture ? fn : async (value, ...args) => {
+  const url = new URL(String(value));
+  if (["cloudflare-dns.com", "dns.google"].includes(url.hostname)) {
+    const answer = url.searchParams.get("type") === "A" ? [{ type: 1, data: "93.184.216.34" }] : [];
+    return new Response(JSON.stringify({ Status: 0, Answer: answer }), { status: 200 });
+  }
+  return fn(value, ...args);
+};
+const setFetch = (fn, dnsFixture = false) => { globalThis.fetch = withPublicDns(fn, dnsFixture); };
 const html200 = () => new Response("<title>Admin</title>", { status: 200, headers: { "content-type": "text/html" } });
 const budgetError = () => { throw new Error("Too many subrequests by single Worker invocation. To configure this limit, refer to https://developers.cloudflare.com/…"); };
 const networkError = () => { throw new TypeError("network error: connection refused"); };

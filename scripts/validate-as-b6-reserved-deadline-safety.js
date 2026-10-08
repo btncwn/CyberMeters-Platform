@@ -106,7 +106,7 @@ globalThis.fetch = async (_url, init = {}) => {
   });
 };
 const fetcher = makeSsrfSafeProbeFetch({
-  resolver: async () => ({ Answer: [{ data: "93.184.216.34" }] }),
+  resolver: async (_name, type) => ({ Status: 0, Answer: type === "A" ? [{ type: 1, data: "93.184.216.34" }] : [] }),
   accounting,
   timeoutMs: 60_000,
 });

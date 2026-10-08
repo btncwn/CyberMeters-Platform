@@ -86,8 +86,8 @@ const mutants = [
   {
     name: "fallback-uncharged",
     file: path.join("workers", "scan-api", "src", "engines", "reserved-probe.js"),
-    before: "      activeAccounting?.recordAttempt?.();",
-    after: "      if (new URL(current).protocol !== \"http:\") activeAccounting?.recordAttempt?.();",
+    before: "      activeAccounting?.recordAttempt?.();\n      let res;",
+    after: "      if (new URL(current).protocol !== \"http:\") activeAccounting?.recordAttempt?.();\n      let res;",
     expected: "ASB6B_FALLBACK_INTERNAL_EQUALS_PHYSICAL",
   },
   {

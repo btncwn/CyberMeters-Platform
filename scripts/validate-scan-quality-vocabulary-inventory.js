@@ -119,7 +119,10 @@ const EXPECTED = Object.freeze({
     // P1 EMAIL-SKIP SUCCESSION: counts remain 81/30. The focused customer-path
     // proof adds lines above existing scan-quality assertions in
     // validate-email-deadline-evidence.js; membership and runtime are unchanged.
-    fingerprint: "9ee8ddd1bb00c4dc2068004cd8b8f52d3f95007fc7d966125ba14116ab18f30b",
+    // DNS preflight: the existing Item10 P3 DNS-only engine fixture now asserts
+    // partial instead of complete. Counts and all runtime fingerprints remain
+    // unchanged; an unissued HTTP probe cannot justify case closure.
+    fingerprint: "0ebaa34cb5a0de1481997a217bd49a867e18b38dde2db87a41a4241613760640",
   },
   runtime_source_file_count: 33,
   direct: {

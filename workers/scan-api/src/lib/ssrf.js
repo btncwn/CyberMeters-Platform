@@ -70,9 +70,8 @@ export async function resolvesToPrivateIp(domain, dnsQuery) {
   return false;
 }
 
-// Strict outbound resolution is deliberately ADDITIVE. The legacy
-// resolvesToPrivateIp helper above remains fail-open for its existing caller;
-// security-sensitive sinks opt into this tri-state contract instead.
+// The legacy helper remains for compatibility. Security-sensitive sinks use
+// this strict tri-state contract so uncertainty never establishes a safe target.
 export const STRICT_DNS_STATES = Object.freeze({
   PUBLIC: "public",
   BLOCKED: "blocked",
@@ -86,6 +85,7 @@ export function isOutboundControlError(error) {
   const name = String(error?.name || "");
   const code = String(error?.code || "");
   return error?.subrequestLimit === true
+    || /too many subrequests/i.test(String(error?.message || ""))
     || code === "scan_subrequest_budget_exhausted"
     || code === "scan_deadline_exhausted"
     || code === "module_budget_exhausted"
@@ -231,12 +231,46 @@ function validCname(value) {
       && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label));
 }
 
-function inspectDnsPacket(packet, family) {
+// RFC 2308 §2.2: a negative family may omit Answer or contain only CNAMEs.
+// Require a matching question and a relevant SOA before accepting those shapes;
+// a bare missing answer, referral, or incomplete CNAME chain is not NODATA.
+function hasAuthoritativeNodata(packet, family, host, answers) {
+  const normalize = (value) => typeof value === "string" ? value.toLowerCase().replace(/\.$/, "") : "";
+  const expectedType = family === "AAAA" ? 28 : 1;
+  if (packet.TC !== false || !Array.isArray(packet.Question) || packet.Question.length !== 1
+      || packet.Question[0]?.type !== expectedType
+      || normalize(packet.Question[0]?.name) !== normalize(host)) return false;
+  let terminal = normalize(host);
+  const seen = new Set([terminal]);
+  for (const answer of answers) {
+    if (answer?.type !== 5 || normalize(answer.name) !== terminal || !validCname(answer.data)) return false;
+    terminal = normalize(answer.data);
+    if (seen.has(terminal)) return false;
+    seen.add(terminal);
+  }
+  return Array.isArray(packet.Authority) && packet.Authority.some((record) => {
+    if (record?.type !== 6 || !validCname(record.name) || typeof record.data !== "string"
+        || !Number.isInteger(record.TTL) || record.TTL < 0) return false;
+    const zone = normalize(record.name);
+    if (terminal !== zone && !terminal.endsWith(`.${zone}`)) return false;
+    const fields = record.data.trim().split(/\s+/);
+    return fields.length === 7 && validCname(fields[0]) && validCname(fields[1])
+      && fields.slice(2).every((value) => /^\d+$/.test(value) && Number(value) <= 0xffffffff);
+  });
+}
+
+function inspectDnsPacket(packet, family, host) {
   if (!packet || typeof packet !== "object" || Array.isArray(packet)) {
     return { ok: false, reason: "malformed_answer", addresses: [] };
   }
   if (!Number.isInteger(packet.Status) || packet.Status !== 0
-      || packet.TC === true || !Array.isArray(packet.Answer)) {
+      || packet.TC === true) {
+    return { ok: false, reason: "incomplete_answer", addresses: [] };
+  }
+  if (!Array.isArray(packet.Answer)) {
+    if (!Object.hasOwn(packet, "Answer") && hasAuthoritativeNodata(packet, family, host, [])) {
+      return { ok: true, reason: null, nodata: true, addresses: [] };
+    }
     return { ok: false, reason: "incomplete_answer", addresses: [] };
   }
   const expectedType = family === "AAAA" ? 28 : 1;
@@ -266,6 +300,9 @@ function inspectDnsPacket(packet, family) {
     addresses.push({ value: String(answer.data).trim(), public: parsed.public });
   }
   if (addresses.length === 0) {
+    if (hasAuthoritativeNodata(packet, family, host, packet.Answer)) {
+      return { ok: true, reason: null, nodata: true, addresses: [] };
+    }
     return { ok: false, reason: "no_terminal_address", addresses: [] };
   }
   return { ok: true, reason: null, nodata: false, addresses };
@@ -299,10 +336,10 @@ export async function resolvePublicDnsTarget(domain, dnsQuery, opts = {}) {
   // A definitive private/reserved terminal remains a block with provenance in
   // either family order, while typed control errors above still dominate.
   const a = settled[0].status === "fulfilled"
-    ? inspectDnsPacket(settled[0].value, "A")
+    ? inspectDnsPacket(settled[0].value, "A", host)
     : { ok: false, reason: "resolver_error", addresses: [] };
   const aaaa = settled[1].status === "fulfilled"
-    ? inspectDnsPacket(settled[1].value, "AAAA")
+    ? inspectDnsPacket(settled[1].value, "AAAA", host)
     : { ok: false, reason: "resolver_error", addresses: [] };
   const knownAddresses = [...a.addresses, ...aaaa.addresses];
   // A known private/reserved terminal is a definitive block even if the other

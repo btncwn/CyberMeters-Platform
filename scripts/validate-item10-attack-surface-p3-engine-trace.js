@@ -194,6 +194,7 @@ eq("real trace case begins awaiting verification", kase.status, "verification_re
 const originalCaseId = kase.id;
 
 let phase = "negative";
+let goneHostHttpCalls = 0;
 const providerCalls = { crt: 0, certspotter: 0 };
 const originalFetch = globalThis.fetch;
 const originalRandom = Math.random;
@@ -232,8 +233,8 @@ globalThis.fetch = async (input) => {
     const type = String(url.searchParams.get("type") || "A").toUpperCase();
     if (name === "gone.example.com") {
       if (phase === "unavailable") throw new DOMException("provider timeout", "TimeoutError");
-      if (phase === "observed" && type === "A") {
-        return json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
+      if (phase === "observed") {
+        return json({ Status: 0, Answer: type === "A" ? [{ type: 1, data: "93.184.216.34" }] : [] });
       }
       return json({ Status: 3, Answer: [] });
     }
@@ -243,6 +244,7 @@ globalThis.fetch = async (input) => {
     return json({ Status: 0, Answer: [] });
   }
   if (url.hostname === "gone.example.com") {
+    goneHostHttpCalls += 1;
     if (phase === "unavailable") {
       throw new DOMException("probe timeout", "TimeoutError");
     }
@@ -299,9 +301,9 @@ try {
   eq("first real negative leaves the case awaiting verification",
     (await getManagedCase(env, "ws", originalCaseId)).status,
     "verification_requested");
-  eq("first real negative is only not_observed",
+  eq("DNS absence without an HTTP probe leaves the asset observed",
     db.prepare("SELECT lifecycle_state FROM workspace_assets WHERE id='asset-gone'").get().lifecycle_state,
-    "not_observed");
+    "observed");
 
   await run("scan-timeout", "2026-07-28T00:00:00.000Z", "unavailable");
   eq("real provider timeout persists observation_unavailable",
@@ -312,42 +314,36 @@ try {
     "verification_requested");
   eq("real provider timeout cannot advance removal threshold",
     db.prepare("SELECT COUNT(*) AS n FROM asset_lifecycle_observations WHERE asset_id='asset-gone' AND qualifies_removal=1").get().n,
-    1);
+    0);
 
   await run("scan-2", "2026-07-29T00:00:00.000Z", "negative");
   await run("scan-3", "2026-07-30T00:00:00.000Z", "negative");
-  eq("real threshold confirms removal",
+  eq("DNS-only negatives cannot confirm removal",
     db.prepare("SELECT lifecycle_state FROM workspace_assets WHERE id='asset-gone'").get().lifecycle_state,
-    "confirmed_removed");
-  eq("first real confirmed-removal transition still does not close",
+    "observed");
+  eq("DNS-only sequence does not close the case",
     (await getManagedCase(env, "ws", originalCaseId)).status,
     "verification_requested");
-  eq("real confirmation emits exactly one existing lifecycle event",
+  eq("unissued HTTP yields no removal event",
     db.prepare("SELECT COUNT(*) AS n FROM asset_events WHERE event_type='asset_no_longer_seen' AND asset_id='asset-gone'").get().n,
-    1);
+    0);
 
   const later = await run(
     "scan-4", "2026-07-31T00:00:00.000Z", "negative",
   );
-  ok("later re-observation scan is complete and publishable",
-    later.report.scan_quality?.status === "complete",
+  ok("later DNS-only scan remains explicitly incomplete",
+    later.report.scan_quality?.status === "partial" && later.report.modules.asset_exposure.incomplete_reason === "dns_resolution_unavailable",
     JSON.stringify(later.report.scan_quality));
   kase = await getManagedCase(env, "ws", originalCaseId);
-  eq("later real re-observation resolves the same case", kase.status, "resolved");
+  eq("later DNS-only scan keeps the case awaiting verification", kase.status, "verification_requested");
+  eq("DNS-only sequence issued no HTTP to the absent host", goneHostHttpCalls, 0);
   eq("later real re-observation creates no replacement case",
     db.prepare("SELECT COUNT(*) AS n FROM managed_cases WHERE workspace_id='ws'").get().n,
     1);
   const verifiedRow = db.prepare(
     "SELECT detail_json FROM managed_case_events WHERE case_id=? AND action='verified_resolved' ORDER BY rowid DESC LIMIT 1",
   ).get(originalCaseId);
-  ok("resolved case retains structured verification evidence", !!verifiedRow?.detail_json);
-  if (verifiedRow?.detail_json) {
-    const verifiedDetail = JSON.parse(verifiedRow.detail_json);
-    eq("case evidence names the same stable asset",
-      verifiedDetail.lifecycle.asset_ids[0], "asset-gone");
-    eq("case evidence proves later re-observation",
-      verifiedDetail.lifecycle.later_reobservation, true);
-  }
+  eq("incomplete evidence cannot create a verified resolution event", verifiedRow, undefined);
 
   const reappeared = await run(
     "scan-5", "2026-08-01T00:00:00.000Z", "observed",
@@ -364,11 +360,12 @@ try {
       .filter((entry) => entry.id.startsWith("admin_surface_") ||
         entry.id === "asset_exposure_sensitive_tool")));
   kase = await getManagedCase(env, "ws", originalCaseId);
-  eq("real reappearance reopens the same case", kase.status, "remediation_in_progress");
-  eq("real reappearance increments recurrence once", Number(kase.reopened_count), 1);
-  eq("real reappearance uses the same asset identity",
-    db.prepare("SELECT asset_id FROM asset_events WHERE event_type='asset_reappeared'").get()?.asset_id,
-    "asset-gone");
+  eq("public re-observation proves the requested remediation failed", kase.status, "verification_failed");
+  ok("public DNS allows the target HTTP probe", goneHostHttpCalls > 0);
+  eq("a case never resolved has no false recurrence", Number(kase.reopened_count), 0);
+  eq("a host never removed has no false reappearance event",
+    db.prepare("SELECT COUNT(*) AS n FROM asset_events WHERE event_type='asset_reappeared'").get().n,
+    0);
   eq("real reappearance creates no new asset row",
     db.prepare("SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id='ws' AND hostname='gone.example.com'").get().n,
     1);
@@ -381,9 +378,9 @@ try {
   eq("foreign tenant remains isolated",
     db.prepare("SELECT status FROM workspace_assets WHERE id='asset-foreign'").get().status,
     "inactive");
-  eq("real trace opens no duplicate case alert occurrence",
+  eq("case alerts record initial unknown and later observed issue",
     db.prepare("SELECT COUNT(*) AS n FROM managed_case_events WHERE case_id=? AND action='monitoring_changed'").get(originalCaseId).n,
-    3);
+    2);
   ok("real trace reuses each shared CT provider exactly once per scan",
     providerCalls.crt === 6 && providerCalls.certspotter === 6,
     JSON.stringify(providerCalls));

@@ -98,7 +98,7 @@ function mkCase(status) {
 }
 
 // fetch that resolves admin.example.com (A public), returns a scripted GET, throws past 50.
-function installFetch({ getStatus = 200, getTitle = "Admin Login", throwAt = 51, budgetThrowsOnGet = false }) {
+function installFetch({ getStatus = 200, getTitle = "Admin Login", throwAt = 51, budgetThrowsOnGet = false, dnsStatus = 0 }) {
   const calls = [];
   globalThis.fetch = async (url) => {
     const s = String(url); const n = calls.length + 1; const cat = classifyRequest(s);
@@ -106,8 +106,8 @@ function installFetch({ getStatus = 200, getTitle = "Admin Login", throwAt = 51,
     calls.push({ n, url: s, cat });
     if (cat === "doh") {
       const u = new URL(s); const name = u.searchParams.get("name"); const type = u.searchParams.get("type");
-      if (type === "A" && name === "admin.example.com") return new Response(JSON.stringify({ Answer: [{ data: "93.184.216.34" }] }), { status: 200 });
-      return new Response(JSON.stringify({ Answer: [] }), { status: 200 });
+      if (type === "A" && name === "admin.example.com") return new Response(JSON.stringify({ Status: dnsStatus, Answer: [{ type: 1, data: "93.184.216.34" }] }), { status: 200 });
+      return new Response(JSON.stringify({ Status: dnsStatus, Answer: [] }), { status: 200 });
     }
     if (cat === "exposure") {
       if (budgetThrowsOnGet) { throw new Error("Too many subrequests by single Worker invocation."); }
@@ -139,6 +139,17 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
   ok("still_present: case stays open (verification_failed, not resolved)", caseAfter.status === "verification_failed");
   ok("still_present: only affected host resolved/probed", calls.every((c) => c.url.includes("admin.example.com")));
   ok("still_present: no CT/DKIM/CVE/KEV/cloud calls", calls.every((c) => c.cat === "doh" || c.cat === "exposure"));
+}
+
+// DNS SERVFAIL cannot become a successful absence/remediation decision, even
+// when the scripted target page would otherwise look clear.
+{
+  const { result, calls, caseAfter } = await scenario("verification_requested", {
+    getTitle: "Welcome", dnsStatus: 2,
+  });
+  eq("DNS failure: verification defers", result.decision, "deferred");
+  ok("DNS failure: case remains unresolved", caseAfter.status !== "resolved");
+  ok("DNS failure: no target HTTP probe", calls.every((c) => c.cat === "doh"));
 }
 
 // ── 2. conclusively fixed → system resolves ──────────────────────────────────
@@ -306,7 +317,7 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
       if (cat === "doh") {
         const name = new URL(s).searchParams.get("name");
         const type = new URL(s).searchParams.get("type");
-        return new Response(JSON.stringify({ Answer: type === "A" && /\.example\.com$/.test(name || "") ? [{ data: "93.184.216.34" }] : [] }), { status: 200 });
+        return new Response(JSON.stringify({ Status: 0, Answer: type === "A" && /\.example\.com$/.test(name || "") ? [{ type: 1, data: "93.184.216.34" }] : [] }), { status: 200 });
       }
       if (cat === "exposure") {
         const host = new URL(s).hostname;
@@ -413,9 +424,9 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
         // makes the real SSRF guard refuse — that is what "refused" must look like.
         const type = new URL(s).searchParams.get("type");
         if (type === "A") {
-          return new Response(JSON.stringify({ Answer: [{ data: bodyRefused ? "127.0.0.1" : "93.184.216.34" }] }), { status: 200 });
+          return new Response(JSON.stringify({ Status: 0, Answer: [{ type: 1, data: bodyRefused ? "127.0.0.1" : "93.184.216.34" }] }), { status: 200 });
         }
-        return new Response(JSON.stringify({ Answer: [] }), { status: 200 });
+        return new Response(JSON.stringify({ Status: 0, Answer: [] }), { status: 200 });
       }
       if (bodyThrows) throw new Error("network down");
       return new Response(body ?? "", { status: 200 });
@@ -487,7 +498,7 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
       if (classifyRequest(s) === "doh") {
         const name = new URL(s).searchParams.get("name");
         const type = new URL(s).searchParams.get("type");
-        return new Response(JSON.stringify({ Answer: type === "A" && name === HOST ? [{ data: "93.184.216.34" }] : [] }), { status: 200 });
+        return new Response(JSON.stringify({ Status: 0, Answer: type === "A" && name === HOST ? [{ type: 1, data: "93.184.216.34" }] : [] }), { status: 200 });
       }
       if (refused) return new Response("blocked", { status: 403 }); // reachable but not our target shape
       if (throws) throw new Error("network down");
@@ -537,8 +548,9 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
       if (classifyRequest(s) === "doh") {
         const u = new URL(s);
         return new Response(JSON.stringify({
+          Status: 0,
           Answer: u.searchParams.get("type") === "A" && u.searchParams.get("name") === HOST
-            ? [{ data: "93.184.216.34" }] : [],
+            ? [{ type: 1, data: "93.184.216.34" }] : [],
         }), { status: 200 });
       }
       if (throws) throw new Error("network down");
