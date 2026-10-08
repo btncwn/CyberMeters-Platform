@@ -205,8 +205,8 @@ const mutants = [
   {
     id: "WRANGLER_TURNS_200_INTO_PROVIDER_HARD_CAP",
     file: "workers/scan-api/wrangler.toml",
-    from: "SCAN_SUBREQUEST_LIMIT = 200\n",
-    to:   "SCAN_SUBREQUEST_LIMIT = 200\n\n[limits]\nsubrequests = 200\n",
+    from: "subrequests = 10_000\n",
+    to:   "subrequests = 200\n",
     mustContain: "FAIL (b) legacy 200 is not configured as a provider-enforced physical hard cap",
   },
   {
