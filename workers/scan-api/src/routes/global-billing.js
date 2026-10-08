@@ -8,7 +8,7 @@
 import { billingRoutes } from "./billing.js";
 import { getEffectivePlan, getUserPlan, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { extractIngestToken, hashIngestToken } from "../engines/rua-routing.js";
-import { findSubscriptionRowId, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripeWebhookSignature, writeSubscriptionEvent } from "../engines/stripe.js";
+import { findSubscriptionRowId, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripeInvoiceSubscriptionId, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripeWebhookSignature, writeSubscriptionEvent } from "../engines/stripe.js";
 import { auditApiTokenSessionRouteDenied, getPublicBillingPlans } from "../engines/subscription-state.js";
 import { ingestDmarcReport, ingestEndpointIsActive } from "../lib/dmarc-ingest.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
@@ -449,14 +449,14 @@ export async function globalBillingRoutes(rctx) {
               metadata:    {
                 subscription_row_id: rowId,
                 stripe_invoice_id: obj?.id || null,
-                stripe_subscription_id: getStripeObjectId(obj?.subscription),
+                stripe_subscription_id: getStripeInvoiceSubscriptionId(obj),
                 stripe_customer_id: getStripeObjectId(obj?.customer),
                 attempt_count: obj?.attempt_count ?? null,
               },
             });
             await writeSubscriptionEvent(env, rowId, "payment_failed", {
               stripe_invoice_id: obj?.id || null,
-              stripe_subscription_id: getStripeObjectId(obj?.subscription),
+              stripe_subscription_id: getStripeInvoiceSubscriptionId(obj),
               attempt_count: obj?.attempt_count ?? null,
             });
 
@@ -511,7 +511,7 @@ export async function globalBillingRoutes(rctx) {
               metadata:    {
                 subscription_row_id: rowId,
                 stripe_invoice_id: obj?.id || null,
-                stripe_subscription_id: getStripeObjectId(obj?.subscription),
+                stripe_subscription_id: getStripeInvoiceSubscriptionId(obj),
                 stripe_customer_id: getStripeObjectId(obj?.customer),
                 amount_paid: obj?.amount_paid ?? null,
                 currency: obj?.currency ?? null,
@@ -519,7 +519,7 @@ export async function globalBillingRoutes(rctx) {
             });
             await writeSubscriptionEvent(env, rowId, "payment_succeeded", {
               stripe_invoice_id: obj?.id || null,
-              stripe_subscription_id: getStripeObjectId(obj?.subscription),
+              stripe_subscription_id: getStripeInvoiceSubscriptionId(obj),
               amount_paid: obj?.amount_paid ?? null,
               currency: obj?.currency ?? null,
             });

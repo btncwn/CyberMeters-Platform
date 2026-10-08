@@ -13,6 +13,7 @@ import path from "node:path";
 import { webcrypto } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { getStripeInvoiceSubscriptionId } from "../workers/scan-api/src/engines/stripe.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerPath = path.join(root, "workers", "scan-api", "src", "index.js");
@@ -217,6 +218,88 @@ const trialBranch = db.prepare("SELECT id, owner_user_id, subscription_status, s
 ok("trial-branch: one row, upgraded in place", trialBranch.length === 1 && trialBranch[0].id === "sub_row_trial5");
 ok("trial-branch: owner bound and both status columns active", trialBranch[0]?.owner_user_id === UID5 && trialBranch[0]?.subscription_status === "active" && trialBranch[0]?.status === "active");
 ok("trial-branch: current_period_end captured (Basil item)", trialBranch[0]?.current_period_end === isoOf(futureUnix));
+
+// ── Basil/Dahlia invoice parent identifies the exact subscription. A customer
+//    can retain its ID after replacing a subscription, so a late invoice for
+//    the former subscription must not change the current row. Preserve history.
+const priorSubscriptions = db.prepare("SELECT * FROM subscriptions ORDER BY id").all();
+const priorAudit = db.prepare("SELECT * FROM audit_events ORDER BY id").all();
+const priorBillingEvents = db.prepare("SELECT * FROM subscription_events ORDER BY id").all();
+const invoiceRows = [
+  ["row_invoice_old", "ws_invoice_old", "sub_invoice_old", "canceled"],
+  ["row_invoice_current", "ws_invoice_current", "sub_invoice_current", "active"],
+];
+for (const [id, ws, stripeId, status] of invoiceRows) {
+  db.prepare(`INSERT INTO subscriptions
+    (id, workspace_id, owner_user_id, plan, status, subscription_status,
+     stripe_customer_id, stripe_subscription_id, payment_failed_at, payment_retry_count)
+    VALUES (?, ?, 'usr_invoice_parent', 'starter', ?, ?, ?, ?, '2025-01-01', 3)`)
+    .run(id, ws, status, status, id === "row_invoice_current" ? "cus_invoice_current" : "cus_invoice_old", stripeId);
+}
+const invoiceRow = (id) => db.prepare("SELECT * FROM subscriptions WHERE id = ?").get(id);
+const oldInvoiceRow = invoiceRow("row_invoice_old");
+const parentInvoice = (id, subscription) => ({ id, customer: "cus_invoice_current",
+  parent: { type: "subscription_details", subscription_details: { subscription } } });
+ok("invoice extractor preserves expanded legacy subscription",
+  getStripeInvoiceSubscriptionId({ subscription: { id: "sub_legacy" } }) === "sub_legacy");
+ok("invoice extractor checks parent type",
+  getStripeInvoiceSubscriptionId({ parent: { type: "quote_details", subscription_details: { subscription: "sub_wrong_type" } } }) === null);
+const parentFailed = await postWebhook(evt("evt_parent_failed", "invoice.payment_failed",
+  parentInvoice("in_parent_failed", "sub_invoice_current")));
+ok("parent invoice failure accepted", parentFailed.status === 200);
+ok("parent invoice failure changes the explicitly referenced subscription",
+  invoiceRow("row_invoice_current")?.subscription_status === "past_due");
+ok("parent invoice failure leaves the unrelated row byte-equivalent",
+  JSON.stringify(invoiceRow("row_invoice_old")) === JSON.stringify(oldInvoiceRow));
+const parentSucceeded = await postWebhook(evt("evt_parent_succeeded", "invoice.payment_succeeded",
+  parentInvoice("in_parent_succeeded", { id: "sub_invoice_current" })));
+ok("expanded parent invoice success accepted", parentSucceeded.status === 200);
+ok("parent invoice success restores the explicitly referenced subscription",
+  invoiceRow("row_invoice_current")?.subscription_status === "active"
+    && invoiceRow("row_invoice_current")?.payment_retry_count === 0
+    && invoiceRow("row_invoice_current")?.payment_failed_at === null);
+ok("parent invoice success leaves the unrelated row byte-equivalent",
+  JSON.stringify(invoiceRow("row_invoice_old")) === JSON.stringify(oldInvoiceRow));
+for (const invoiceId of ["in_parent_failed", "in_parent_succeeded"]) {
+  const audit = db.prepare("SELECT metadata_json FROM audit_events WHERE entity_id = ?").get(invoiceId);
+  ok(`${invoiceId}: audit preserves exact subscription identity`,
+    JSON.parse(audit?.metadata_json || "{}").stripe_subscription_id === "sub_invoice_current");
+  const history = db.prepare("SELECT subscription_id, payload_json FROM subscription_events WHERE json_extract(payload_json, '$.stripe_invoice_id') = ?").get(invoiceId);
+  ok(`${invoiceId}: billing history preserves exact row and subscription identity`,
+    history?.subscription_id === "row_invoice_current"
+      && JSON.parse(history?.payload_json || "{}").stripe_subscription_id === "sub_invoice_current");
+}
+// A present but unknown subscription cannot silently mutate another subscription
+// belonging to the same customer. Cover both old and current payload shapes.
+for (const type of ["invoice.payment_failed", "invoice.payment_succeeded"]) {
+  for (const shape of ["legacy", "parent"]) {
+    // Give each negative control state that the wrong handler WOULD change.
+    const priorStatus = type === "invoice.payment_succeeded" ? "past_due" : "active";
+    db.prepare("UPDATE subscriptions SET status = ?, subscription_status = ?, payment_failed_at = '2025-01-01', payment_retry_count = 3 WHERE id = 'row_invoice_current'")
+      .run(priorStatus, priorStatus);
+    const before = db.prepare("SELECT * FROM subscriptions ORDER BY id").all();
+    const beforeEvents = db.prepare("SELECT * FROM subscription_events ORDER BY id").all();
+    const beforeNotifications = db.prepare("SELECT * FROM notification_events ORDER BY id").all();
+    const object = shape === "parent"
+      ? parentInvoice(`in_unknown_${type}_${shape}`, "sub_unmapped")
+      : { id: `in_unknown_${type}_${shape}`, customer: "cus_invoice_current", subscription: "sub_unmapped" };
+    const response = await postWebhook(evt(`evt_unknown_${type}_${shape}`, type, object));
+    ok(`${type} ${shape}: unknown explicit subscription acknowledged`, response.status === 200);
+    ok(`${type} ${shape}: unknown explicit subscription never falls back to customer`,
+      JSON.stringify(db.prepare("SELECT * FROM subscriptions ORDER BY id").all()) === JSON.stringify(before));
+    ok(`${type} ${shape}: unknown subscription produces no falsely linked billing event`,
+      JSON.stringify(db.prepare("SELECT * FROM subscription_events ORDER BY id").all()) === JSON.stringify(beforeEvents));
+    ok(`${type} ${shape}: unknown subscription produces no customer notification`,
+      JSON.stringify(db.prepare("SELECT * FROM notification_events ORDER BY id").all()) === JSON.stringify(beforeNotifications));
+    const audit = db.prepare("SELECT metadata_json FROM audit_events WHERE entity_id = ?").get(object.id);
+    ok(`${type} ${shape}: audit honestly records an unresolved row`,
+      JSON.parse(audit?.metadata_json || "{}").subscription_row_id === null);
+  }
+}
+for (const [table, previous] of [["subscriptions", priorSubscriptions], ["audit_events", priorAudit], ["subscription_events", priorBillingEvents]]) {
+  ok(`parent invoices preserve all pre-existing ${table} rows`, previous.every(row =>
+    JSON.stringify(db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(row.id)) === JSON.stringify(row)));
+}
 
 // ── Global lockstep guard: NO row in the whole run diverges ──────────────────
 ok("no subscriptions row has status != subscription_status after any webhook", divergentRows() === 0);
