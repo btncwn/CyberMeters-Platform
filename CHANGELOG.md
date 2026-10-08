@@ -7,6 +7,73 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.10.09-1 — executive briefs and technical evidence reports — 9 October 2026
+
+Executive PDFs now open with a concise workspace brief: included assessments,
+recorded findings, coverage limits and the three highest-priority actions with
+their website origins. Each included website has one eight-area summary page;
+unavailable assessments remain visible and no combined workspace score is invented.
+
+Technical PDFs add a contents page, severity-ordered findings, stable evidence and
+remediation references, recorded assessment dates and explicit retest support.
+Finding cards remain together when possible, with identified continuation pages
+for oversized entries. Repeated detail moves to the full evidence appendix;
+certificate and DMARC evidence, scope limits and historical data remain intact.
+The current own-domain example is two executive pages and sixteen technical pages.
+
+The workspace dashboard uses the same qualified score as the assessment and the
+actual asset timeline; missing measurements are no longer drawn as fabricated data.
+No scanner, billing, authentication, schema or stored snapshot behavior changes.
+Independent source/output review, focused regression checks and rendered-page
+inspection cover both report formats; golden changes were isolated to presentation.
+The coordinated Worker release identities are recorded on this version's annotated
+Git tag. The immediate rollback pair is API `35ba3261-0885-44eb-a732-aa7465a5dc47`
+and email `27d79bd6-56d9-4391-975c-3bd79c35545a`.
+
+## v2026.10.08-5 — DNS absence and honest email coverage — 8 October 2026
+
+**DEPLOYED; bounded controlled scan and report flow verified.** Exact source
+`e2ab1b653376ca99f87d448513b0273ed08d52af` (PR #489; tree-identical to
+reviewed `eb32aae1`) preserves verified negative DNS evidence without sending
+HTTP requests to absent addresses. Those HTTP checks are not assessed; they
+cannot close a managed case. Email Protection now distinguishes received DMARC
+reports from separately assessed messages and shows missing measurements honestly.
+
+- **Paired Workers:** scan-api `35ba3261-0885-44eb-a732-aa7465a5dc47`
+  (deployment `4e7c63ad-db22-4553-b183-89f65a1366bd`) and email
+  `27d79bd6-56d9-4391-975c-3bd79c35545a`
+  (deployment `d7b19fc8-e573-4e9b-a102-5e8523767244`) serve 100% traffic.
+  Both health responses identify the exact versions. Shared APP_VERSION is
+  `2026.10.08-first-customer.b1a33c84d8da`; independent provider module hashes
+  match exact-source builds. Existing bindings and live Stripe are preserved.
+- **Pages:** `de9e969b-6a87-4420-b168-5ce060a6a0a4`, exact source `e2ab1b65`.
+  PR CI `37853963538` and main CI `37855557992` passed. Frontend E2E passed.
+- **Security verification:** 26 local two-tenant/auth/billing/SSRF checks,
+  15 SQL/session/origin handler checks and 5 HTML rendering checks passed.
+  Ten bounded production access/CORS/CSP checks also passed. No P0/P1 was
+  reproduced within these scopes; this is not an exhaustive security claim.
+- **Payment:** the Founder accepted real Stripe sandbox checkout, signed webhook
+  handling and Starter activation as technical payment acceptance. That complete
+  flow passed against the same unchanged billing code and isolated local stores.
+  No real charge occurred. First legitimate live sale and production webhook
+  signing-secret identity remain separate verification items.
+- **Controlled own-domain run:** `scan_3bde42df-c93b-4f7c-b388-0c951ecc12cb`
+  completed at 23:10:29 UTC. All 16 measured modules returned `ok`, none skipped
+  or incomplete; 101 outbound attempts and 100 completed responses were recorded,
+  with no timeout or budget refusal. Six verified DNS-absent names were correctly
+  not HTTP-tested. Overall quality remains `degraded`: CertSpotter succeeded while
+  the excluded crt.sh response did not provide usable evidence. This is not a
+  complete-coverage claim. Snapshot `snap_92d7a06d-7edb-455c-8611-105ac7615e2c`
+  completed about 78 seconds later and was verified in the UI; two findings and
+  five observations remain explicit. Snapshot SHA-256 is
+  `e81f85bccb45e058452764108777ecb1959c05c394f27074139c405c8b876e20`.
+  The approved temporary trial and all three paused schedules were restored at
+  23:12:14 UTC with history preserved. Annotated release tag `v2026.10.08-5`
+  identifies the exact deployed source.
+- **Rollback pair:** API `122f0edc-a3ea-4b0f-9758-96f06f536be8` and email
+  `49ec478f-5c33-4d64-a0df-2188b821b8c3`. This retains live Stripe configuration.
+  No schema migration or historical scan/snapshot rewrite occurred.
+
 ## v2026.10.08-4 — explicit scan capacity and live Stripe configuration — 8 October 2026
 
 **DEPLOYED; complete-scan and real-payment acceptance remain open.** Exact

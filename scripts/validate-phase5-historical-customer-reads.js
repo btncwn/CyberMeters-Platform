@@ -570,7 +570,7 @@ ok("C8 workspace PDF withholds frozen score and clean copy",
   !workspacePdfText.includes("100 / 100") &&
   !workspacePdfText.includes("No material findings were observed in this assessment."));
 ok("C9 workspace PDF retains incomplete disclosure",
-  workspacePdfText.includes("results may be incomplete"));
+  workspacePdfText.toLowerCase().includes("results may be incomplete"));
 
 const incompletePosture = await getCurrentPosturePresentation(
   fx.env, { workspaceId: fx.incomplete.workspaceId },

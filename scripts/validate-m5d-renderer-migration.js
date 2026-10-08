@@ -13,6 +13,7 @@
 // ends with source mutations proven caught (--no-mutate skips in the child).
 //
 import fs from "node:fs";
+import { pdfEsc } from "../workers/scan-api/src/engines/pdf.js";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
@@ -296,12 +297,15 @@ async function main() {
      !customerBody.includes("Evidence confidence:") &&
      !/\bRFC\s+\d+\b/.test(customerBody) &&
      /\bRFC\s+\d+\b/.test(technicalAppendix));
-  ok("DMARC plain-language substitution remains grammatical",
-     customerBody.includes("A complete organisational-domain tree-walk under the DMARC protocol") &&
-     !customerBody.includes("A complete the DMARC protocol organisational-domain tree-walk"));
-  ok("each domain renders one Limits block and no duplicate Limitation row",
-     (domainSection.match(/Limits:/g) || []).length === 8 &&
-     !domainSection.includes("Limitation:"));
+  ok("DMARC limitation remains grammatical in its retained technical evidence",
+     technicalAppendix.includes("A complete organisational-domain tree-walk under RFC 9989") &&
+     !technicalAppendix.includes("A complete RFC 9989 organisational-domain tree-walk"));
+  const appendixText = [...technicalAppendix.matchAll(/\((.*?)\) Tj/g)]
+    .map((match) => match[1]).join(" ").replace(/\s+/g, " ");
+  ok("domain overview avoids duplicate limits while the appendix retains every recorded domain limit",
+     !domainSection.includes("Limits:") && !domainSection.includes("Limitation:") &&
+     truth.domains.every((domain) => (domain.evidence_grade?.limits || [])
+       .every((limit) => appendixText.includes(pdfEsc(limit).replace(/\s+/g, " ")))));
   const scoreBasisIndex = pdfRes.text.indexOf("Score basis:");
   const scoreNumberIndex = pdfRes.text.indexOf(`${score} / 100`);
   ok("score explanation is rendered before the number",
@@ -672,13 +676,13 @@ async function main() {
       {
         name: "RFC-number citations leak back into the SMB-facing body",
         file: srcPath("engines", "pdf.js"),
-        from: "    ? (customerBodyText(assertion.basis) || \"No basis recorded.\")",
-        to:   "    ? (String(assertion.basis) || \"No basis recorded.\")",
+        from: "function customerBodyText(value) {",
+        to:   "function customerBodyText(value) { return String(value || \"\");",
       },
       {
         name: "domain limitations are duplicated below their Evidence-strength block",
         file: srcPath("engines", "pdf.js"),
-        from: "    // The canonical limitations are already included once in the domain's\n    // Evidence-strength block. Do not repeat them as separate \"Limitation:\" rows.",
+        from: "      // Summary rows link to the appendix's full frozen assertion. Historical\n      // rows without a grade retain their fallback limits directly above.",
         to:   "    for (const l of d.limitations || []) w.proseKeep(`Limitation: ${customerBodyText(l)}`, { size: 8, indent: 10, color: \"0.35 0.38 0.44\" });",
       },
       {
@@ -714,7 +718,7 @@ async function main() {
       {
         name: "Evidence-Grade technical appendix dropped",
         file: srcPath("engines", "pdf.js"),
-        from: "  sectionEvidenceGradeAppendix(w, snap);",
+        from: "    section(\"appendix\", () => sectionEvidenceGradeAppendix(w, snap), true);",
         to:   "  ;",
       },
       {

@@ -521,13 +521,14 @@ try {
         generatedAt: NOW,
       }),
     );
-    ok("P5 trace: Executive PDF renders the same CT-only distinction",
-      executivePdfText.includes("Certificate Evidence & Trust") &&
-      executivePdfText.includes("CT issuance observed") &&
-      executivePdfText.includes("Live TLS certificate: incomplete"));
-    ok("P5 trace: Executive PDF retains evidence provenance appendix",
-      executivePdfText.includes("Evidence grade:") &&
-      executivePdfText.includes("Cited authorities:"));
+    const executiveVisible = [...executivePdfText.matchAll(/\(((?:\\.|[^()\\])*)\) Tj/g)]
+      .map((match) => match[1]).join(" ").replace(/\s+/g, " ");
+    ok("P5 trace: Executive brief preserves CT-only evidence without upgrading live trust",
+      executiveVisible.includes("Certificates & Trust") &&
+      executiveVisible.includes("Certificate log evidence only; live certificate and trust are not verified."));
+    ok("P5 trace: Executive brief links to full provenance in the technical PDF",
+      executiveVisible.includes("download the technical PDF") &&
+      !executiveVisible.includes("Cited authorities:"));
     eq("P5 trace: report rendering does not rewrite immutable R2 bytes",
       store.get(snapshotRow?.r2_key), frozenBody);
   }

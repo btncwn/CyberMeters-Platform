@@ -2,18 +2,20 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   BarChart2, Shield, Server, AlertTriangle, ShieldAlert, ScanLine,
-  Package2, Zap, Tag, Terminal, TrendingUp, TrendingDown, Minus,
+  Package2, Zap, Tag, Terminal,
   Globe, Upload, Plus, FileText, Clock, CheckCircle, Activity,
   ShieldCheck, Copy, ExternalLink, ChevronDown, ChevronUp, Wifi,
 } from 'lucide-react'
 import {
-  AreaChart, Area, LineChart, Line,
+  AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import CyberMotDomains from '../../components/CyberMotDomains'
-import { bandMeta, metaForScore } from '../../lib/score-presentation'
+import CanonicalScore from '../../components/CanonicalScore'
+import { bandMeta } from '../../lib/score-presentation'
+import { canonicalScoreView } from '../../lib/canonical-score-presentation'
 import { useAuth } from '../../context/AuthContext'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import StatCard from '../../components/StatCard'
@@ -24,31 +26,10 @@ import { projectedCountDisplay } from '../../lib/assetLifecycleClaimDisplay'
 
 function fmt(str) {
   if (!str) return '—'
-  const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
+  const s = /^\d{4}-\d{2}-\d{2}$/.test(str)
+    ? `${str}T00:00:00Z`
+    : str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
   return new Date(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
-// Maps score-derived posture rating values to display labels (Security Rating system).
-const SECURITY_RATING_LABEL = {
-  excellent: 'Excellent',
-  good:      'Good',
-  moderate:  'Moderate',
-  high:      bandMeta('high').label,
-  critical:  'Critical',
-}
-function securityRatingLabel(r) {
-  return r ? (SECURITY_RATING_LABEL[r.toLowerCase()] ?? r) : null
-}
-
-function ScoreGauge({ score, rating }) {
-  if (score == null) return <span className="text-3xl font-black text-gray-300">—</span>
-  const color = metaForScore(score).text // canonical mirror bands (M5.e)
-  return (
-    <div className="flex items-end gap-2">
-      <span className={`text-5xl font-black leading-none ${color}`}>{score}</span>
-      <span className="text-sm text-gray-400 mb-1">/ 100</span>
-    </div>
-  )
 }
 
 function HealthBadge({ status }) {
@@ -62,7 +43,11 @@ function HealthBadge({ status }) {
       {status === 'healthy' && <CheckCircle className="w-3 h-3" />}
       {status === 'warning' && <Clock className="w-3 h-3" />}
       {status === 'stale'   && <AlertTriangle className="w-3 h-3" />}
-      {status ?? '—'}
+      {({
+        healthy: 'Monitoring: recent',
+        warning: 'Monitoring: scan overdue',
+        stale: 'Monitoring: no recent scan',
+      })[status] ?? 'Monitoring: not available'}
     </span>
   )
 }
@@ -606,6 +591,8 @@ export default function WorkspaceDashboard() {
   if (!wsId) return <NoWorkspaceSelected />
 
   const sc = scorecard
+  const posture = sc?.current_posture
+  const authoritative = canonicalScoreView(posture?.authoritative)
   const noDomains = health?.workspace_status === 'no_domains' || (summary && summary.domains === 0)
 
   // Verification metrics — computed from the domains list already loaded
@@ -638,10 +625,21 @@ export default function WorkspaceDashboard() {
                 )}
               </p>
             </div>
-            <div className="card px-6 py-4 text-center">
+            <div className="card px-6 py-4 text-center" role="region" aria-label="Security score">
               <p className="label mb-1">Security Score</p>
-              <ScoreGauge score={sc?.security_score ?? summary?.latest_score} rating={sc?.risk_rating} />
-              <p className="text-xs font-semibold text-gray-400 mt-1">{securityRatingLabel(sc?.risk_rating) || '—'}</p>
+              {posture?.authoritative?.label && authoritative.state === 'established' && (
+                <p className="text-xs text-gray-500 mb-1">{posture.authoritative.label}</p>
+              )}
+              <CanonicalScore assessment={posture?.authoritative} />
+              {authoritative.state === 'established' && authoritative.rating && (
+                <p className="text-xs font-semibold text-gray-400 mt-1">{bandMeta(authoritative.rating).label}</p>
+              )}
+              {posture?.latest_provisional && (
+                <div className="border-t border-gray-100 mt-3 pt-3" role="region" aria-label="Latest assessment">
+                  <p className="text-xs text-gray-500 mb-1">Latest assessment</p>
+                  <CanonicalScore assessment={posture.latest_provisional} />
+                </div>
+              )}
             </div>
           </div>
 
@@ -758,31 +756,8 @@ export default function WorkspaceDashboard() {
               {hasCharts && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                   <div className="card p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="font-semibold text-gray-900">Risk Score Trend</h2>
-                      {timeline.length > 1 && (() => {
-                        const first = timeline[0]?.score
-                        const last  = timeline[timeline.length - 1]?.score
-                        const diff  = last - first
-                        const Icon  = diff > 0 ? TrendingUp : diff < 0 ? TrendingDown : Minus
-                        const color = diff > 0 ? 'text-brand-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'
-                        return (
-                          <span className={`flex items-center gap-1 text-sm font-semibold ${color}`}>
-                            <Icon className="w-4 h-4" />
-                            {diff > 0 ? '+' : ''}{diff}
-                          </span>
-                        )
-                      })()}
-                    </div>
-                    <ResponsiveContainer width="100%" height={160}>
-                      <LineChart data={timeline}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={fmt} />
-                        <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} width={28} />
-                        <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                        <Line type="monotone" dataKey="score" stroke="#00876A" strokeWidth={2} dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    <h2 className="font-semibold text-gray-900 mb-4">Risk Score Trend</h2>
+                    <p className="text-sm text-gray-500">Score history is not available.</p>
                   </div>
 
                   <div className="card p-6">
@@ -790,10 +765,10 @@ export default function WorkspaceDashboard() {
                     <ResponsiveContainer width="100%" height={160}>
                       <AreaChart data={timeline}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={fmt} />
+                        <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={fmt} />
                         <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={28} />
                         <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                        <Area type="monotone" dataKey="total_assets" stroke="#00876A" fill="#e6f4f1" strokeWidth={2} />
+                        <Area type="monotone" dataKey="asset_count" stroke="#00876A" fill="#e6f4f1" strokeWidth={2} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>

@@ -41,7 +41,11 @@ const EXPECTED = Object.freeze({
     // (f1af6e41 vs this head): every other key delta is a pure line shift.
     // Reintroducing the branch is mutant TRIAGE-M11 and must fail
     // validate-report-copy-live-triage.
-    comparison_occurrences: 47,
+    // PR #490: executiveCoverageIncomplete in pdf.js adds three AST-governed
+    // comparisons: scan_quality !== complete, assessment_quality != null and
+    // assessment_quality !== complete. All previous sites remain; SQL and
+    // governance sets are unchanged (exact e2ab1b65 -> cf27ecb5 multiset diff).
+    comparison_occurrences: 50,
     source_file_count: 23,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -78,7 +82,7 @@ const EXPECTED = Object.freeze({
     // (file/kind/operator/status/access/snippet), deliberately excluding line
     // and AST-offset positions. The count and duplicate multiplicity remain
     // pinned, so real additions/removals still fail while line-only edits do not.
-    fingerprint: "56ef63b3d5b57edac1e8d790dd11478c770ce951667ef6f1063c6ac90a63eef0",
+    fingerprint: "0d59c8f3a0cb24e7c5dca1f21b2de261c2cbe8a83694b470d7b3fd6dde5740ec",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -160,7 +164,10 @@ const EXPECTED = Object.freeze({
     // --dump-counts run and independently matched the hosted CI values.
     // AS-B2 FINAL-REBASE SUCCESSION: counts remain 91/34; final-tree product
     // line shifts only, with identical canonical-read membership.
-    runtime: { occurrence_count: 98, source_file_count: 36, fingerprint: "ffde40e260f63d99e9104217c79ec5641a042a714036b658456dfbef497e1d35" },
+    // PR #490: the same helper adds one scan_quality and two assessment_quality
+    // member reads tracked by the existing canonical-slot propagation. No prior
+    // read is removed; file count and inventory detection semantics are unchanged.
+    runtime: { occurrence_count: 101, source_file_count: 36, fingerprint: "d3ee15667e8812b4723afbe8181a76c873f3f02af05a4066d1aa2a72d0484560" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
