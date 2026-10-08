@@ -182,7 +182,9 @@ try {
 } finally { globalThis.fetch = originalFetch; }
 // Named mutants run only in disposable copies. Syntax/import failures never
 // count as kills: each child must finish and report the intended assertion.
-if (process.argv.includes("--mutations") && failed === 0) {
+// CI uses the standard argument-free validator carrier; include mutation proof
+// by default. Only isolated mutant children select the behavioral-only mode.
+if (!process.argv.includes("--behavior-only") && failed === 0) {
   const worker = path.join(root, "workers/scan-api");
   const mutants = [];
   for (const file of ["scan-engine.js", "reserved-scan.js"]) {
@@ -231,7 +233,7 @@ if (process.argv.includes("--mutations") && failed === 0) {
       if (original.split(mutant.before).length !== 2) { ok(`MUTANT_${mutant.id}_ANCHOR`, false); continue; }
       fs.writeFileSync(file, original.replace(mutant.before, mutant.after));
       try {
-        const child = spawnSync(process.execPath, ["scripts/validate-scan-dns-preflight.js"], {
+        const child = spawnSync(process.execPath, ["scripts/validate-scan-dns-preflight.js", "--behavior-only"], {
           cwd: directory, encoding: "utf8", timeout: 30_000, maxBuffer: 1024 * 1024,
         });
         const output = child.stdout + child.stderr;

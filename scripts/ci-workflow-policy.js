@@ -12,9 +12,10 @@ const { parseDocument, isMap, isSeq } = workerRequire("yaml");
 
 export const CANONICAL_SKIP_CONDITION = "${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}";
 export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d55297df4fd3f90a2f57548697efcf062";
-export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 379;
-export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "fb13a7db5da7fc21c5bf38571740d811505115a0270980838cc3e827a18b43ee";
-export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "c73e0780394c7bef267bcbdd1d4de6c8c252e0d1f83957fc038aa3ff550e70cf";
+// Add the DNS preflight validator to runtime-security; all prior assignments remain.
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 380;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "6a77bfc89076b2ef13d1f3df9ca544525e83256a8fe45c2220c712cdc42c240a";
+export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "02c858b5cafba91ff7a91f7d812880ebfd927fc77ce0df19d642acae4226b5ed";
 
 export const F004_MATRIX_JOB_ID = "validate_f004_recovery_mutations";
 export const F004_MATRIX_VALIDATOR_PATH = "scripts/validate-f004-recovery-instrumentation-mutations.js";
@@ -62,7 +63,7 @@ const EXECUTABLE_VALIDATOR_JOB_IDS = Object.freeze([
 ]);
 
 export const EXPECTED_SHARD_COUNTS = Object.freeze({
-  validate_runtime_security: 89,
+  validate_runtime_security: 90,
   validate_report_cx: 91,
   validate_data_migrations: 90,
   validate_frontend_build: 88,
