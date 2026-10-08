@@ -176,6 +176,15 @@ export function getStripeObjectId(value) {
   return null;
 }
 
+// Basil and later moved the invoice's subscription into a typed parent.
+// Keep older webhook payloads and expanded Stripe objects compatible.
+export function getStripeInvoiceSubscriptionId(invoice) {
+  return getStripeObjectId(invoice?.subscription)
+    || (invoice?.parent?.type === "subscription_details"
+      ? getStripeObjectId(invoice.parent.subscription_details?.subscription)
+      : null);
+}
+
 // Merged forward map — the ONE price-ID authority for both directions.
 // Individual env vars (Option A) overlay the STRIPE_PRICE_MAP JSON (Option B),
 // exactly matching getStripePriceIdForPlan's checkout-time precedence. Before
@@ -731,11 +740,12 @@ export async function handleStripeSubscriptionDeleted(env, subscription) {
 }
 
 export async function handleStripeInvoicePaymentFailed(env, invoice) {
-  const stripeSubscriptionId = getStripeObjectId(invoice?.subscription);
+  const stripeSubscriptionId = getStripeInvoiceSubscriptionId(invoice);
   const stripeCustomerId = getStripeObjectId(invoice?.customer);
   const rowId = await findSubscriptionRowId(env, {
     stripeSubscriptionId,
-    stripeCustomerId,
+    // An explicit subscription must not fall back to another row for this customer.
+    stripeCustomerId: stripeSubscriptionId ? null : stripeCustomerId,
   });
 
   if (!rowId) return null;
@@ -755,11 +765,11 @@ export async function handleStripeInvoicePaymentFailed(env, invoice) {
 }
 
 export async function handleStripeInvoicePaymentSucceeded(env, invoice) {
-  const stripeSubscriptionId = getStripeObjectId(invoice?.subscription);
+  const stripeSubscriptionId = getStripeInvoiceSubscriptionId(invoice);
   const stripeCustomerId = getStripeObjectId(invoice?.customer);
   const rowId = await findSubscriptionRowId(env, {
     stripeSubscriptionId,
-    stripeCustomerId,
+    stripeCustomerId: stripeSubscriptionId ? null : stripeCustomerId,
   });
 
   if (!rowId) return null;
