@@ -690,9 +690,21 @@ export function createInvocationProviderGuard(sourceEnv, deadline) {
 export function markPhysicalBudgetIncomplete(module, value, ctx) {
   const issued = ctx?.physicalAttemptsIssued?.() || 0;
   ctx?.markIncomplete?.("subrequest_budget_exhausted");
+  const evidence = value && typeof value === "object" ? { ...value } : {};
+  // The empty TLS shape is also used for deadline deferral. At this boundary
+  // the cause is known to be capacity, even when no endpoint result survived.
+  for (const field of ["tls_state_reason", "https_observation_reason"]) {
+    if (evidence[field] === "deadline_deferred") evidence[field] = "subrequest_budget_exhausted";
+  }
+  if (evidence.http_redirect_chain?.observation_reason === "deadline_deferred") {
+    evidence.http_redirect_chain = {
+      ...evidence.http_redirect_chain,
+      observation_reason: "subrequest_budget_exhausted",
+    };
+  }
   if (issued === 0) {
     return skippedModuleResult(module, {
-      ...(value && typeof value === "object" ? value : {}),
+      ...evidence,
       executed: false,
       incomplete: true,
       outcome: "not_run",
@@ -703,7 +715,8 @@ export function markPhysicalBudgetIncomplete(module, value, ctx) {
     });
   }
   return {
-    ...(value && typeof value === "object" ? value : {}),
+    ...evidence,
+    executed: true,
     incomplete: true,
     outcome: "subrequest_budget_exhausted",
     reason: "subrequest_budget_exhausted",
@@ -856,7 +869,11 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       recordTelemetryAttempt();
     };
     ctx.physicalBudgetExhausted = () => physical?.budgetExhausted?.() === true;
-    ctx.physicalAttemptsIssued = () => physical?.issuedDuringContext?.() || 0;
+    // Legacy mode has no admission counter, but records every attempted fetch.
+    // Provider refusals must retain those observations instead of claiming zero.
+    // An attempt does not assert that the provider completed the request.
+    ctx.physicalAttemptsIssued = () => physical?.issuedDuringContext?.()
+      ?? ctx.snapshot().outbound_attempts_observed;
     return ctx;
   };
   const moduleCapFor = (module) => durableInvocation

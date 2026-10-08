@@ -25,7 +25,8 @@ both Workers and Pages. Shared APP_VERSION is
   bookmark was read; no restore was performed and no R2 recovery copy was
   verified. This is not a backup/restore success claim.
 - **Validation:** exact candidate CI `37799538066` passed all 15 jobs; frontend
-  E2E `37799538028` passed with its mock API. Focused MFA tests passed 19/19,
+  E2E `37799538028` passed with its mock API. Post-merge main CI
+  `37801927465` also passed all 15 jobs. Focused MFA tests passed 19/19,
   billing 90/90 and pricing UI 7/7. Independent original/fixed and targeted
   mutant checks demonstrated that the MFA and billing regressions are detected.
 - **scan-api:** Version `793b0319-094f-4a7b-a35b-d67ab05ba75c`, uploaded

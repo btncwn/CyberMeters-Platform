@@ -702,6 +702,76 @@ async function runEnginePhysicalProvenanceFixture(scanId, counter) {
   );
 }
 
+// 6) Legacy mode has no local physical counter. A provider refusal still follows
+// real fetch attempts, which must not become a fabricated zero/not-run record.
+// Use the actual engine and a runtime-shaped fetch limit, not its injected meter.
+{
+  const reports = [];
+  try {
+    for (const providerLimit of [50, 200]) {
+      let attempts = 0;
+      let report = null;
+      globalThis.fetch = async (value) => {
+        attempts += 1;
+        if (attempts > providerLimit) {
+          throw new Error("Too many subrequests by single Worker invocation.");
+        }
+        const url = String(value);
+        const kind = requestKind(url);
+        if (kind === "dns") {
+          const { type } = dnsQuestion(url);
+          if (type === "A") return dnsJson([{ type: 1, data: PUBLIC_A }]);
+          if (type === "AAAA") return dnsJson([{ type: 28, data: PUBLIC_AAAA }]);
+          return dnsJson([]);
+        }
+        if (kind === "ct") return Response.json([]);
+        if (/rdap\./.test(url) || kind === "intelligence") return Response.json({});
+        return html("Public Site");
+      };
+      const env = makeWorkerEnv((value) => { report = value; }, "legacy");
+      env.SCAN_SUBREQUEST_LIMIT = 200;
+      await runScanEngine(
+        `scan_asb6b_provider_${providerLimit}`, "domain_provider", "workspace_provider",
+        "example.com", env, { executionContext: "queue" },
+      );
+      reports.push(report);
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  const [limited, sufficient] = reports;
+  for (const module of ["ssl", "headers"]) {
+    const value = limited?.modules?.[module];
+    const row = limited?.execution_diagnostics?.modules?.find((item) => item.module === module);
+    ok(
+      `ASB6B_LEGACY_PROVIDER_ATTEMPTS_${module.toUpperCase()}`,
+      row?.outbound_attempts_observed > 0
+        && value?.physical_attempts_issued === row.outbound_attempts_observed
+        && value?.executed === true
+        && value?.skipped !== true
+        && value?.incomplete === true
+        && value?.outcome === "subrequest_budget_exhausted"
+        && row?.outcome === "subrequest_budget_exhausted"
+        && row?.timeout === false
+        && row?.timeout_source === "subrequest_budget",
+      JSON.stringify({ value, row }),
+    );
+    ok(
+      `ASB6B_LEGACY_PROVIDER_SUFFICIENT_${module.toUpperCase()}`,
+      sufficient?.modules?.[module]?.incomplete_reason !== "subrequest_budget_exhausted"
+        && sufficient?.execution_diagnostics?.modules?.find((item) => item.module === module)?.outcome === "ok",
+    );
+  }
+  ok(
+    "ASB6B_LEGACY_PROVIDER_TLS_REASON_IS_NOT_DEADLINE",
+    limited?.modules?.ssl?.tls_state_reason === "subrequest_budget_exhausted"
+      && limited?.modules?.ssl?.https_observation_reason === "subrequest_budget_exhausted"
+      && limited?.modules?.ssl?.http_redirect_chain?.observation_reason === "subrequest_budget_exhausted"
+      && limited?.modules?.ssl?.https_available === null
+      && limited?.scan_quality?.status === "partial",
+  );
+}
+
 // Pin the current SSRF-safe primitive alongside its behavioral tests. Refreshed
 // for the authorized strict DNS preflight change (including unavailable handling). Mutation
 // subprocesses explicitly skip this check because they operate only on an isolated
