@@ -91,7 +91,10 @@ export function makeSsrfSafeProbeFetch({ resolver: baseResolver, maxHops = RESER
       if (resolution.state === STRICT_DNS_STATES.BLOCKED) return null;
       if (resolution.state !== STRICT_DNS_STATES.PUBLIC) {
         const error = new Error("Target DNS could not be safely assessed");
-        error.code = "dns_resolution_unavailable";
+        error.code = resolution.state === STRICT_DNS_STATES.NO_ADDRESS
+          ? "dns_no_address" : "dns_resolution_unavailable";
+        if (resolution.dns_evidence) error.dns_evidence = resolution.dns_evidence;
+        error.dns_stage = hop === 0 ? "initial" : "redirect";
         throw error;
       }
       onOutbound?.();

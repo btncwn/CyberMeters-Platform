@@ -218,14 +218,16 @@ export function resolveDnsResolution(modules) {
 function resolveHttpHttpsService(modules) {
   const exposure = modules?.asset_exposure;
   const assets = exposure?.assets || [];
+  const noHttp = assets.filter((asset) => asset?.probe_status === "not_applicable").length;
   const reachable = assets.filter((asset) => asset?.reachable === true);
   if (reachable.length > 0) {
     return signal("observed", "http_https_service_observed", {
       evidence_count: reachable.length,
       sources: ["http_probe"],
-      limitations: exposure?.incomplete === true
-        ? [exposure.incomplete_reason || "some_hosts_unassessed"]
-        : [],
+      limitations: [
+        ...(exposure?.incomplete === true ? [exposure.incomplete_reason || "some_hosts_unassessed"] : []),
+        ...(noHttp ? [`${noHttp}_dns_absent_targets_http_not_assessed`] : []),
+      ],
     });
   }
   if (moduleNotAssessed(exposure)) {
@@ -242,6 +244,11 @@ function resolveHttpHttpsService(modules) {
     return signal("incomplete", "http_https_evidence_incomplete", {
       sources: ["http_probe"],
       limitations: [exposure.incomplete_reason],
+    });
+  }
+  if (noHttp > 0) {
+    return signal("not_assessed", "dns_absent_targets_http_not_assessed", {
+      sources: ["http_probe"], limitations: [`${noHttp}_dns_absent_targets_http_not_assessed`],
     });
   }
   if (finiteCount(exposure.checked) === 0) {
@@ -299,6 +306,7 @@ function resolveTechnology(modules) {
 function resolveExposureAdminSurface(modules) {
   const exposure = modules?.asset_exposure;
   const admin = modules?.admin_surface_detection;
+  const noHttp = (exposure?.assets || []).filter((asset) => asset?.probe_status === "not_applicable").length;
   const coverage = exposure?.probe_coverage || null;
   const coverageState = normalizeBoundedCoverageState(coverage?.coverage_state);
   const exposureSignal = (state, reason, detail = {}) => signal(state, reason, {
@@ -314,9 +322,10 @@ function resolveExposureAdminSurface(modules) {
     return exposureSignal("observed", "exposure_or_admin_surface_observed", {
       evidence_count: reachable.length + services.length,
       sources: ["http_probe", "asset_exposure_fingerprint"],
-      limitations: exposure?.incomplete === true
-        ? [exposure.incomplete_reason || "some_hosts_unassessed"]
-        : [],
+      limitations: [
+        ...(exposure?.incomplete === true ? [exposure.incomplete_reason || "some_hosts_unassessed"] : []),
+        ...(noHttp ? [`${noHttp}_dns_absent_targets_http_not_assessed`] : []),
+      ],
     });
   }
   if (moduleNotAssessed(exposure) && moduleNotAssessed(admin)) {
@@ -333,6 +342,12 @@ function resolveExposureAdminSurface(modules) {
     return exposureSignal("incomplete", "exposure_admin_evidence_incomplete", {
       sources: ["http_probe", "asset_exposure_fingerprint"],
       limitations: [exposure?.incomplete_reason],
+    });
+  }
+  if (noHttp > 0) {
+    return exposureSignal("not_assessed", "dns_absent_targets_http_not_assessed", {
+      sources: ["http_probe", "asset_exposure_fingerprint"],
+      limitations: [`${noHttp}_dns_absent_targets_http_not_assessed`],
     });
   }
   if (finiteCount(exposure?.checked) === 0) {

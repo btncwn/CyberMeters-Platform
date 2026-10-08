@@ -608,6 +608,34 @@ eq("migration-102-missing staging path never closes the case",
   legacy.db.prepare("SELECT status FROM managed_cases WHERE id='case-legacy'").get().status,
   "verification_requested");
 
+// Root-host/legacy case has no asset lifecycle row: finding absence alone must
+// not close it when DNS completed but no HTTP target existed.
+legacy.db.prepare(`INSERT INTO managed_cases
+  (id, workspace_id, case_type, domain_key, domain, finding_id,
+   source_finding_type, source_scan_id, asset_ref, severity, status,
+   evidence_json, created_by, created_at, updated_at)
+  VALUES ('case-dns-root','ws-legacy','asm_exposure','attack_surface','legacy.example.com',
+    'asset_exposure_root','asset_exposure_root','scan-seed','legacy.example.com',
+    'high','verification_requested',?,'system',datetime('now'),datetime('now'))`
+).run(JSON.stringify({ finding: { id: "asset_exposure_root", module: "asset_exposure", affected_hosts: ["legacy.example.com"] } }));
+const dnsOnlyOptions = {
+  modules: { asset_exposure: { checked: 1, assets: [{ host: "legacy.example.com", status: null,
+    reachable: null, probe_status: "not_applicable", reason: "authoritative_no_address", http_assessed: false }] } },
+  scanQuality: { status: "complete", modules_skipped: [] }, scanPublished: true,
+};
+const noHttpVerification = await verifyManagedAsmCasesForScan(
+  "scan-dns-root", "dom-legacy", "legacy.example.com", [], legacyEnv, dnsOnlyOptions);
+eq("DNS-only completed scan never closes root case without inventory", noHttpVerification.resolved, 0);
+eq("DNS-only root case remains awaiting verification",
+  legacy.db.prepare("SELECT status FROM managed_cases WHERE id='case-dns-root'").get().status, "verification_requested");
+const measuredHttpVerification = await verifyManagedAsmCasesForScan(
+  "scan-http-root", "dom-legacy", "legacy.example.com", [], legacyEnv, {
+    ...dnsOnlyOptions, modules: { asset_exposure: { checked: 1, assets: [{ host: "legacy.example.com", status: 200, reachable: true }] } },
+  });
+eq("actual HTTP re-observation retains existing root verification path", measuredHttpVerification.resolved, 1);
+eq("actual HTTP re-observation resolves the eligible root case",
+  legacy.db.prepare("SELECT status FROM managed_cases WHERE id='case-dns-root'").get().status, "resolved");
+
 console.log(`\nItem 10 P3 lifecycle/cases: ${passed}/${passed + failed} assertions passed`);
 if (failed) process.exit(1);
 console.log("Item 10 P3 lifecycle/case validation passed");

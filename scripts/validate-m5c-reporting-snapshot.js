@@ -248,9 +248,9 @@ async function main() {
      snap1?.methodology?.ce_question_set_version === CE_QUESTION_SET_VERSION &&
      JSON.stringify(snap1?.methodology?.ce_question_set_versions) === JSON.stringify(["2026-07-16"]) &&
      snap1?.methodology?.remediation_registry_fingerprint === remediationRegistryFingerprint());
-  ok("B3 resolver methodology stamp is independently pinned",
-     CYBER_MOT_RESOLVER_VERSION === "2026-08-30.2" &&
-     snap1?.methodology?.cyber_mot_resolver_version === "2026-08-30.2");
+  ok("current resolver methodology stamp is independently pinned",
+     CYBER_MOT_RESOLVER_VERSION === "2026-10-08.1" &&
+     snap1?.methodology?.cyber_mot_resolver_version === "2026-10-08.1");
   ok("B3 does not move the Cyber Metrics score methodology stamp",
      CYBER_METRICS_SCORE_METHODOLOGY_VERSION === "2026-08-26.1" &&
      snap1?.methodology?.cyber_metrics_score_methodology_version === "2026-08-26.1");
@@ -870,7 +870,7 @@ async function main() {
   ok("new B3 snapshot observation cannot acquire domain issue authority from severity",
      !b3Website?.finding_ids?.includes("csp_weak_policy"));
   ok("new B3 snapshot stamps resolver and score methodologies independently",
-     b3Snapshot.methodology?.cyber_mot_resolver_version === "2026-08-30.2" &&
+     b3Snapshot.methodology?.cyber_mot_resolver_version === "2026-10-08.1" &&
      b3Snapshot.methodology?.cyber_metrics_score_methodology_version === "2026-08-26.1");
 
   // ── Report ──────────────────────────────────────────────────────────────────
