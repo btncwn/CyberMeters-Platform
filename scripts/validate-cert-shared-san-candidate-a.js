@@ -450,11 +450,10 @@ const states = [
   { measurement_state: "unmeasured" },
 ];
 const parity = states.map(parityOutputs);
-// The strict DNS-absence resolver mint (2026-10-08.1) changes the methodology
-// stamp carried by both downstream digests. Reverting only that version in an
-// isolated copy reproduces both prior goldens; score methodology and the raw
-// Certificate Transparency evidence golden above remain byte-identical.
-const GOLDEN_F13 = "e5e044a8a2f35e5bad9c9bcb4c37a55ccfcdc6b39caaca98ebcbb9b145590fec";
+// The executive decision-brief redesign changes only the workspace-PDF input
+// to F13. Injecting the pre-brief workspace renderer alone reproduces the old
+// F13 exactly; F14, scan-PDF bytes and all assessment producers remain unchanged.
+const GOLDEN_F13 = "f2c8b94846fd0c04171a7557e8e21a850c8e61ce0bccee8074bc8f079674f636";
 const GOLDEN_F14 = "137c24a0eb36a372961bb9730f47e1a4abc47e8c3d86e9712216293a952417f4";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));

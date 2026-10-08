@@ -19,6 +19,7 @@ import { composeSnapshot } from "../workers/scan-api/src/engines/report-snapshot
 import { buildExecutiveReportV2 } from "../workers/scan-api/src/engines/executive-report.js";
 import {
   buildScanReportPdf,
+  pdfEsc,
   buildWorkspaceExecutivePdf,
 } from "../workers/scan-api/src/engines/pdf.js";
 
@@ -284,18 +285,13 @@ const executivePdfText = new TextDecoder().decode(
     generatedAt: fixture.built_at,
   }),
 );
-for (const phrase of [
-  "Certificate Evidence & Trust",
-  "CT issuance",
-  "Live TLS certificate",
-  "Declared trust-store validation",
-  "OCSP / revocation assurance",
-  "Certificate relationship",
-  "Cited authorities:",
-]) {
-  ok(`Executive PDF renders certificate semantic: ${phrase}`,
-    executivePdfText.includes(phrase));
-}
+const executiveVisibleText = [...executivePdfText.matchAll(/\(((?:\\.|[^()\\])*)\) Tj/g)]
+  .map((match) => match[1]).join(" ").replace(/\s+/g, " ");
+ok("Executive brief retains the canonical Certificates & Trust conclusion",
+  executivePdfText.includes("Certificates & Trust") &&
+  executiveVisibleText.includes(pdfEsc(snapshot.domains.find((d) => d.domain_key === "certificates_trust").state_reason).replace(/\s+/g, " ")));
+ok("Executive brief points to full technical certificate assurance without duplicating citations",
+  executivePdfText.includes("download the technical PDF") && !executivePdfText.includes("Cited authorities:"));
 
 const legacySnapshot = {
   snapshot: {

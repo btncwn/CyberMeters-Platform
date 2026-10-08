@@ -10,8 +10,8 @@
 //   A  Evidence-honest risk narrative — when the snapshot's own frozen evidence is
 //      incomplete (partial quality / skipped module / domains needing evidence), the
 //      report must NOT print the unqualified "No major gaps detected" and MUST print an
-//      evidence-bounded statement. When coverage is complete, the frozen explanation is
-//      kept verbatim. No score/band recomputation — frozen facts only.
+//      evidence-bounded statement. Frozen conclusions remain in the per-area view;
+//      no score/band recomputation or combined workspace verdict.
 //   B  Controlled page breaks — a domain limitation NEVER splits across a page boundary
 //      (the "No" | "internal-network…" defect); every limitation renders within one page.
 //   D  Branded cover — canonical CyberMeters wordmark + report title + workspace/date block.
@@ -97,9 +97,9 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   ok("A incomplete: valid PDF", t.startsWith("%PDF-1.4") && t.trimEnd().endsWith("%%EOF"));
   ok("A incomplete: unqualified 'No major gaps detected' is NOT printed", !t.includes("No major gaps detected"));
   ok("A incomplete: evidence-bounded narrative is printed",
-     t.includes("No major gaps were identified in the evidence available"));
+     t.includes("A missing check is not a clean result"));
   ok("A incomplete: narrative states coverage is incomplete / not confirmation",
-     t.includes("Coverage is incomplete") && t.includes("material gaps exist"));
+     t.includes("Coverage is incomplete") && t.includes("limited to the evidence available"));
   ok("A incomplete: provisional wording preserved", t.includes("Provisional") || t.includes("provisional"));
   // Missing evidence never healthy: at least one domain reads 'Evidence insufficient', none of the
   // not-fully-assessed domains reads 'no material issue observed'.
@@ -110,36 +110,24 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
 // ── A. Complete coverage keeps the frozen honest explanation verbatim ─────────
 {
   const t = latin1(render(mkSnap({ complete: true })));
-  ok("A complete: frozen 'No major gaps detected' explanation IS shown when coverage is complete",
-     t.includes("No major gaps detected"));
+  ok("A complete: brief describes recorded evidence without claiming risk absence",
+     t.includes("Recorded coverage") && t.includes("does not establish an absence of risk"));
   ok("A complete: does not force the incomplete-coverage caveat",
      !t.includes("No major gaps were identified in the evidence available"));
 }
 
-// ── B. Controlled page breaks — no limitation splits across a page boundary ───
+// ── B. Concise executive scope; full limitations remain in technical PDF ──
 {
-  // Padded fixture spans multiple pages and pushes limitations near boundaries.
-  const bytes = render(mkSnap({ complete: false, pad: 6 }));
-  const pages = pageTexts(bytes).map(norm);
-  ok("B: report spans multiple pages (pagination actually exercised)", pages.length >= 2);
-  // Every domain limitation is carried once inside the Evidence-strength
-  // Limits block and must be fully contained within a single page.
-  const allLimits = [SHADOW_LIMIT];
-  let allWhole = true;
-  for (const lim of allLimits) {
-    const whole = pages.some((p) => p.includes(norm(`Limits: ${lim}`)));
-    if (!whole) allWhole = false;
-  }
-  ok("B: the Shadow IT limitation renders as ONE unsplit block on a single page", allWhole);
-  ok("B: domain limitations are not duplicated as separate Limitation rows",
-     !pages.some((p) => p.includes(norm(`Limitation: ${SHADOW_LIMIT}`))));
-  // Specifically the founder defect: 'No' must not be the last word of a page with
-  // 'internal-network' opening the next.
-  const splitAfterNo = pages.some((p, i) => i + 1 < pages.length && /\bIt has no\s*$/.test(p) && /^internal-network/.test(pages[i + 1]));
-  ok("B: no page ends on 'It has no' with the next page continuing 'internal-network'", !splitAfterNo);
-  // Copy correction: lowercase 'no' mid-sentence (the fixture grammar the founder flagged).
-  ok("B: Shadow IT limitation uses lowercase 'it has no internal-network'",
-     pages.some((p) => p.includes("It has no internal-network")) && !pages.some((p) => p.includes("It has No internal-network")));
+  const snap = mkSnap({ complete: false, pad: 6 });
+  const pages = pageTexts(render(snap)).map(norm);
+  ok("B: ordinary single-website brief has two pages", pages.length === 2);
+  ok("B: brief directs readers to the complete technical evidence",
+     pages.join(" ").includes("download the technical PDF") && pages.join(" ").includes("no internal-network assessment or penetration test"));
+  const technical = pageTexts(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(snap))).map(norm);
+  ok("B: Shadow IT limitation stays whole in the full technical report",
+     technical.some((p) => p.includes(norm(`Limits: ${SHADOW_LIMIT}`))));
+  ok("B: long technical limitations do not inflate the executive brief",
+     !pages.join(" ").includes("Filler limitation"));
 }
 
 // ── D. Branded cover ──────────────────────────────────────────────────────────
@@ -266,7 +254,7 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   const snap = mkSnap({ complete: false });
   snap.domains[2].limitations = [extObs];   // Attack Surface
   snap.domains[5].limitations = [passive];  // Website Security
-  const pages = pageTexts(render(snap, { logoImage: LOGO_IMAGE })).map(norm);
+  const pages = pageTexts(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(snap), null, LOGO_IMAGE)).map(norm);
   const joined = pages.join(" ");
   ok("copy: corrected 'External observation only; no internal-network discovery' in PDF",
      joined.includes("External observation only; no internal-network discovery"));
@@ -280,8 +268,8 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   const t = latin1(render(snap, { logoImage: LOGO_IMAGE }));
   ok("copy: all eight domains still present", DOMAINS.every((d) => t.includes(d)));
   ok("copy: canonical logo image still embedded", t.includes("/Subtype /Image") && t.includes("/Im0 Do"));
-  ok("copy: three-page fixture remains balanced with the page-one explainer",
-     (t.match(/\/Type \/Page \/Parent/g) || []).length === 3);
+  ok("copy: executive brief stays two pages while technical copy remains complete",
+     (t.match(/\/Type \/Page \/Parent/g) || []).length === 2);
 }
 
 // ── Typographic punctuation → ASCII (trust-closure episode) ──────────────────
@@ -305,6 +293,94 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
      pdfEsc("(x) \\ y") === "\\(x\\) \\\\ y");
   ok("pdfEsc: no transliterated sentence produces a double space",
      !/\s{2}/.test(pdfEsc("Required evidence (certificate_chain) could not be collected this scan — not enough to assess.")));
+}
+
+// ── Decision brief: exact technical bytes, projection and adverse inputs ──
+{
+  // Captured from the unchanged pre-brief renderer at e2ab1b65, using these
+  // fixed fixtures. An executive redesign must not rewrite the technical PDF.
+  const technicalGolden = {
+    false: "1299b04f15c1668d06cadd9ce8bb47a49dff883299bbc255e536cf113652a850",
+    true: "7bc20f0bbaa01528bb2538b78ff5822ea95836a436425b7a5478c5c6aabbb045",
+  };
+  for (const complete of [false, true]) {
+    const bytes = buildScanReportPdf({ domain: "cybermeters.com" }, readOf(mkSnap({ complete })), { mode: "cybermeters" });
+    ok(`technical byte golden: complete=${complete}`,
+      crypto.createHash("sha256").update(bytes).digest("hex") === technicalGolden[complete]);
+  }
+  const snap = mkSnap({ complete: false });
+  snap.snapshot.scan_id = "scan-decision-fixture";
+  snap.observed_findings = [
+    { finding_id: "medium", severity: "medium", domain_keys: ["d2"] },
+    { finding_id: "urgent", severity: "critical", domain_keys: ["d0"] },
+  ];
+  snap.observations = [{ finding_id: "observation-only", severity: "critical" }];
+  snap.remediation_actions = [
+    { priority: "low", title: "Low action", action: "Keep this in the full technical report." },
+    { priority: "medium", title: "Medium action" },
+    { priority: "high", title: "High action" },
+    { priority: "critical", title: "Critical action last in input", verification_ceiling: "External verification only." },
+  ];
+  snap.domains[2] = { ...snap.domains[2], state: "issue_detected", finding_count: 1,
+    coverage: "partial", summary: "Verified DNS absence. HTTP was not tested; no healthy web-service conclusion is made." };
+  snap.domains[6].summary = "Identity reachability was not evaluated — no supported reachability producer is implemented. Provider relationships and possible hostnames remain visible for review.";
+  const before = JSON.stringify(snap);
+  const rendered = render(snap), text = latin1(rendered);
+  const visible = pageTexts(rendered).map(norm).join(" ");
+  ok("brief determinism and input immutability", Buffer.from(rendered).equals(Buffer.from(render(snap))) && JSON.stringify(snap) === before);
+  ok("brief urgent priority survives adverse input order", text.indexOf("Critical action last in input") < text.indexOf("High action") && text.indexOf("High action") < text.indexOf("Medium action") && !text.includes("Low action"));
+  ok("brief explicitly declares remaining actions", text.includes("1 further recorded action"));
+  ok("brief finding and observation counts remain separate", visible.includes("2 Recorded findings 1 High / critical findings 1 Observation"));
+  ok("brief retains action verification ceiling", text.includes("External verification only."));
+  ok("brief translates Unicode-dash implementation copy without changing the snapshot",
+    visible.includes("Sign-in endpoint reachability was not assessed; provider relationships and possible hostnames remain visible for review.") &&
+    !visible.includes("producer is implemented") && snap.domains[6].summary.includes("producer is implemented"));
+  ok("brief retains DNS absence and no-HTTP limitation", visible.includes(snap.domains[2].summary));
+  ok("brief medium issue uses amber, not critical red", text.includes("0.60 0.36 0.08 rg"));
+  ok("brief source reference and correct website scope", text.includes("scan-decision-fixture") && text.includes("Latest assessed website") && !text.includes("Workspace risk score"));
+  ok("brief has no technical appendices or internal methodology strings", !text.includes("Technical Appendix") && !text.includes("Cited authorities:") && !text.includes("2026-07-16.2"));
+  const projected = structuredClone(snap);
+  projected.overall.cyber_metrics_score = null;
+  projected.overall.score_band = null;
+  const projectedText = latin1(render(snap, { reads: [{ ...readOf(snap), customerSnapshot: projected }] }));
+  ok("brief uses customer projection, never revives raw score", !projectedText.includes("78 / 100") && projectedText.includes("Coverage is incomplete"));
+  const complete = mkSnap({ complete: true });
+  ok("brief does not invent incomplete coverage from absent legacy per-area coverage", !latin1(render(complete)).includes("Coverage is incomplete"));
+  const missing = structuredClone(complete);
+  delete missing.overall.evidence_completeness;
+  missing.domains.pop();
+  const missingText = latin1(render(missing));
+  ok("brief missing evidence is explicit with all eight areas", missingText.includes("Coverage is incomplete") && missingText.includes("Not assessed - no recorded area evidence") && DOMAINS.every((name) => missingText.includes(name)));
+  const old = structuredClone(snap);old.snapshot.domain = "older.example";old.snapshot.as_of = "2026-07-18T12:00:00Z";
+  const multi = latin1(render(snap, { reads: [readOf(old), { status: "integrity_error", domain_id: "unavailable.example" }, readOf(snap), { status: "building", domain_id: "pending.example" }] }));
+  ok("brief latest assessment selected independently of input order", multi.indexOf("cybermeters.com") < multi.indexOf("older.example"));
+  ok("brief never omits another supplied website or unavailable entry", ["older.example", "unavailable.example", "pending.example", "still being prepared", "not available"].every((name) => multi.includes(name)));
+  ok("brief additional sites retain their own areas without duplicating the workspace summary", (multi.match(/Eight-Domain Cyber MOT/g) || []).length === 2 && (multi.match(/Recorded findings/g) || []).length === 1);
+  const newestQuiet = mkSnap({ complete: true });
+  newestQuiet.snapshot.domain = "latest-quiet.example";
+  newestQuiet.remediation_actions = [{ priority: "low", title: "Routine latest action" }];
+  const olderUrgent = structuredClone(old);
+  olderUrgent.remediation_actions = [{ priority: "critical", title: "Urgent older website action", action: "Protect the exposed service." }];
+  const portfolioPages = pageTexts(render(snap, { reads: [readOf(newestQuiet), readOf(olderUrgent)] })).map(norm);
+  ok("brief non-leading website critical action is on page one with its origin", portfolioPages[0].includes("Urgent older website action") && portfolioPages[0].includes("Website: older.example") && portfolioPages[0].indexOf("Urgent older website action") < portfolioPages[0].indexOf("Routine latest action"));
+  ok("brief two websites use one overview plus two area pages", portfolioPages.length === 3);
+  ok("brief cross-site counts are explicitly limited to included assessments", portfolioPages[0].includes("Recorded across the assessments below") && portfolioPages[0].includes("not a complete asset inventory"));
+  const d1Date = structuredClone(old), isoDate = structuredClone(old);
+  d1Date.snapshot.domain = "actually-later.example";d1Date.snapshot.as_of = "2026-10-08 22:00:00";
+  isoDate.snapshot.domain = "earlier-iso.example";isoDate.snapshot.as_of = "2026-10-08T21:00:00Z";
+  const mixedDates = pageTexts(render(snap, { reads: [readOf(isoDate), readOf(d1Date)] })).map(norm).join(" ");
+  ok("brief latest website compares D1 UTC and ISO dates chronologically", mixedDates.includes("Latest assessed website: actually-later.example") && mixedDates.indexOf("actually-later.example") < mixedDates.indexOf("earlier-iso.example"));
+  const noData = pageTexts(render(snap, { reads: [] })).map(norm).join(" ");
+  ok("brief empty workspace has no security verdict", noData.includes("No security conclusion") && !noData.includes("78 / 100"));
+  const changeText = pageTexts(render(snap, { relatedChanges: { items: [
+    { rule_id: "new_host_with_cert", affected_domain: "elsewhere.example", last_seen: "2026-07-20T10:00:00Z" },
+    { rule_id: "new_host_with_identity", affected_domain: "old-change.example", last_seen: "2026-07-18T10:00:00Z" },
+  ] } })).map(norm).join(" ");
+  ok("brief changes retain workspace scope and most-recent affected website", changeText.includes("2 related changes recorded across the workspace") && changeText.includes("elsewhere.example") && changeText.includes("change is not proof of compromise"));
+  const verbose = mkSnap({ complete: false });
+  verbose.domains[7].summary = "Recorded evidence. ".repeat(180) + "IMPORTANT_FINAL_LIMIT";
+  const verboseText = latin1(render(verbose));
+  ok("brief exceptional long evidence continues without silent clipping", verboseText.includes("IMPORTANT_FINAL_LIMIT") && (verboseText.match(/\/Type \/Page \/Parent/g) || []).length > 2);
 }
 
 console.log(`\nvalidate-a5-executive-report: ${pass} passed, ${fail} failed`);

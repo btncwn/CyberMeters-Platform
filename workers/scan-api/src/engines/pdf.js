@@ -314,8 +314,43 @@ function makeWriter({ accentHex = BRAND_HEX, footerText = DEFAULT_FOOTER } = {})
     buf += `q ${lw} 0 0 ${lh} ${MARGIN} ${y} cm /Im0 Do Q\n`;
     y -= g;
   };
+  // Executive-only layout primitives. Existing technical sections do not call these.
+  const metrics = (items) => {
+    const height = 53, width = (PAGE_W - 2 * MARGIN) / items.length;
+    ensure(height + 8);
+    const top = y, bottom = top - height;
+    buf += `q 0.96 0.97 0.99 rg ${MARGIN} ${bottom} ${PAGE_W - 2 * MARGIN} ${height} re f Q\n`;
+    items.forEach((item, i) => {
+      const x = MARGIN + i * width + 12;
+      buf += `BT /F2 20 Tf 0.08 0.18 0.30 rg ${x} ${top - 25} Td (${pdfEsc(item.value)}) Tj ET\n`;
+      buf += `BT /F1 8 Tf 0.35 0.42 0.50 rg ${x} ${bottom + 10} Td (${pdfEsc(item.label)}) Tj ET\n`;
+    });
+    y = bottom - 8;
+  };
+  const briefRow = (title, status, meaning, color) => {
+    const titleLines = wrapLines(title, 47), statusLines = wrapLines(status, 42);
+    const meaningLines = wrapLines(meaning, 114);
+    const headerHeight = Math.max(titleLines.length * 12, statusLines.length * 11);
+    const height = 9 + headerHeight + (meaningLines.length ? 4 + meaningLines.length * 10 : 0) + 8;
+    if (height > PAGE_H - MARGIN - FOOT - 4) {
+      // An unusually long historical conclusion cannot fit a card. Let the
+      // existing paginated text flow carry every line onto continuation pages.
+      prose(title, { size: 10, bold: true });
+      prose(status, { size: 9, color });
+      prose(meaning, { size: 8, width: 114, gap: 3 });
+      gap(4);
+      return;
+    }
+    ensure(height + 4);
+    const top = y, bottom = top - height;
+    buf += `q 0.97 0.98 0.99 rg ${MARGIN} ${bottom} ${PAGE_W - 2 * MARGIN} ${height} re f Q\n`;
+    titleLines.forEach((line, i) => { buf += `BT /F2 9.5 Tf 0.10 0.16 0.23 rg ${MARGIN + 9} ${top - 17 - i * 12} Td (${pdfEsc(line)}) Tj ET\n`; });
+    statusLines.forEach((line, i) => { buf += `BT /F2 8.5 Tf ${color} rg ${MARGIN + 272} ${top - 17 - i * 11} Td (${pdfEsc(line)}) Tj ET\n`; });
+    meaningLines.forEach((line, i) => { buf += `BT /F1 8 Tf 0.35 0.38 0.44 rg ${MARGIN + 9} ${top - 9 - headerHeight - 12 - i * 10} Td (${pdfEsc(line)}) Tj ET\n`; });
+    y = bottom - 4;
+  };
   const finish = () => { if (buf) { pages.push(buf + footer()); buf = ""; } return pages; };
-  return { text, prose, proseKeep, keepTogether, heading, gap, newPage, finish, raw, rule, callout, display, image, roomLeft, atPageTop };
+  return { text, prose, proseKeep, keepTogether, heading, gap, newPage, finish, raw, rule, callout, display, image, roomLeft, atPageTop, metrics, briefRow };
 }
 
 // Customer-safe state labels for the canonical domain states. Display mapping
@@ -335,8 +370,8 @@ const STATE_LABEL = {
 const stateLabel = (s) => STATE_LABEL[s] || "Unknown";
 
 // ── Shared snapshot sections ─────────────────────────────────────────────────
-// One implementation of each report section, consumed by BOTH PDF builders so
-// the scan PDF and the workspace executive PDF can never disagree on meaning.
+// Full technical report sections. The executive brief below consumes the same
+// frozen customer facts through its own concise presentation.
 
 const HUMAN_EVIDENCE_STRENGTH = Object.freeze({
   L0: "Limited",
@@ -1348,94 +1383,182 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
   return new TextEncoder().encode(assemblePdf(streams));
 }
 
-/**
- * buildWorkspaceExecutivePdf({ workspaceName, reads, branding, generatedAt }) —
- * the workspace executive PDF: a period-framed rendering over the latest
- * completed canonical snapshot per domain (founder package: renderings over
- * canonical snapshots, never separate brains). First-two-pages rule: cover +
- * eight-domain scorecard lead. Domains with no snapshot appear as an HONEST
- * "no canonical assessment" row — never recalculated, never healthy.
- *
- * `reads` = array from readLatestWorkspaceSnapshots (ok + non-ok entries).
- * `generatedAt` is the caller's artefact timestamp (claim time for stored
- * PDFs) — deterministic per artefact, never read from the clock here.
- */
-export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding = null, generatedAt = null, logoImage = null, relatedChanges = null }) {
-  reads = reads.map((read) =>
-    read?.status === "ok" && read.customerSnapshot
-      ? { ...read, snapshot: read.customerSnapshot }
-      : read
-  );
-  const ok = reads.filter((r) => r.status === "ok");
-  const unavailable = reads.filter((r) => r.status !== "ok");
-  // Presentation rule (documented): the cover headlines the most recently
-  // assessed domain's snapshot; every domain is listed beneath it.
-  const lead = ok.slice().sort((a, b) => String(b.snapshot.snapshot.as_of).localeCompare(String(a.snapshot.snapshot.as_of)))[0] || null;
+// Executive-only presentation. The technical scan PDF above deliberately keeps
+// its existing sections and byte output. These helpers read frozen customer facts.
+const EXECUTIVE_AREAS = [
+  "Email Protection", "Brand Protection", "Attack Surface", "Certificates & Trust",
+  "Cyber Essentials Readiness", "Website Security", "Identity Exposure",
+  "Shadow IT & Unmanaged Technology",
+];
+const EXECUTIVE_PRIORITY = { critical: 5, high: 4, medium: 3, low: 2, info: 1, informational: 1 };
+const executiveText = (value) => customerBodyText(value).replace(/\s+/g, " ").trim();
+const executiveTime = (value) => {
+  const raw = String(value || "");
+  const utc = /^\d{4}-\d{2}-\d{2} \d{2}:/.test(raw) ? raw.replace(" ", "T") + "Z" : raw;
+  const time = Date.parse(utc);
+  return Number.isFinite(time) ? time : -Infinity;
+};
 
-  const w = makeWriter({
-    accentHex: branding?.accent || BRAND_HEX,
-    footerText: footerFor(branding),
+function executiveCoverageIncomplete(snap) {
+  const o = snap.overall || {}, ec = o.evidence_completeness || {};
+  return ec.scan_quality !== "complete" ||
+    (ec.assessment_quality != null && ec.assessment_quality !== "complete") ||
+    (ec.monitoring_state != null && ec.monitoring_state !== "monitoring_healthy") ||
+    (ec.modules_skipped || []).length > 0 || (o.not_fully_assessed || []).length > 0 ||
+    (snap.domains || []).length < 8 ||
+    (snap.domains || []).some((d) => d.coverage != null && d.coverage !== "complete");
+}
+
+function executiveIdentity(w, { branding, logoImage, workspaceName, generatedAt }) {
+  if (logoImage?.width && logoImage?.height) {
+    const scale = Math.min(210 / logoImage.width, 42 / logoImage.height, 1);
+    w.image(Math.max(1, Math.round(logoImage.width * scale)), Math.max(1, Math.round(logoImage.height * scale)), 8);
+  } else w.display(primaryName(branding), { size: 24, color: "0.05 0.30 0.62", gap: 6 });
+  w.text("EXTERNAL ATTACK SURFACE | DECISION BRIEF", { size: 8, color: "0.35 0.42 0.50" });
+  w.display("Executive Security Report", { size: 21, gap: 7 });
+  if (workspaceName) w.prose(`Workspace: ${workspaceName}`, { size: 11, bold: true, width: 76 });
+  if (generatedAt) w.text(`Generated ${pdfUtcDate(generatedAt, true)}`, { size: 9, color: "0.35 0.38 0.44" });
+  w.rule();
+}
+
+function executiveActions(w, snap) {
+  const all = (Array.isArray(snap.remediation_actions) ? snap.remediation_actions : [])
+    .map((action, index) => ({ action, index }))
+    .sort((a, b) => (EXECUTIVE_PRIORITY[String(b.action.priority).toLowerCase()] || 0) -
+      (EXECUTIVE_PRIORITY[String(a.action.priority).toLowerCase()] || 0) || a.index - b.index);
+  w.heading("Priority Actions");
+  if (!all.length) {
+    w.prose("No recorded remediation action. Where evidence is incomplete, obtain the missing evidence before drawing a conclusion.", { size: 10 });
+    return;
+  }
+  for (const { action: a } of all.slice(0, 3)) {
+    w.keepTogether(82);
+    w.prose(`${a.priority ? `[${String(a.priority).toUpperCase()}] ` : ""}${a.title || "Recorded action"}`, { size: 11, bold: true, width: 78 });
+    if (a.website) w.prose(`Website: ${a.website}`, { size: 8, bold: true, width: 112, color: "0.35 0.38 0.44" });
+    if (a.action) w.prose(executiveText(a.action), { size: 9, width: 105, color: "0.25 0.28 0.33" });
+    if (a.verification_ceiling) w.prose(`Verification: ${executiveText(a.verification_ceiling)}`, { size: 8, width: 115, color: "0.35 0.38 0.44" });
+    w.gap(5);
+  }
+  if (all.length > 3) w.text(`${all.length - 3} further recorded action(s) are in the technical report.`, { size: 9, color: "0.35 0.38 0.44" });
+}
+
+function executiveSummary(w, reads) {
+  const snapshots = reads.map((read) => read.snapshot);
+  const findings = snapshots.flatMap((snap) => Array.isArray(snap.observed_findings) ? snap.observed_findings : []);
+  const observations = snapshots.flatMap((snap) => Array.isArray(snap.observations) ? snap.observations : []);
+  const urgent = findings.filter((f) => ["critical", "high"].includes(String(f.severity).toLowerCase()));
+  w.heading("Included website assessments");
+  w.prose("Recorded across the assessments below. This is not a complete asset inventory or a combined workspace security verdict.", { size: 9, width: 105, color: "0.35 0.38 0.44" });
+  snapshots.forEach((snap, index) => {
+    const identity = snap.snapshot || {};
+    w.prose(`${index === 0 ? "Latest assessed website: " : ""}${identity.domain || "Website name not recorded"} - ${pdfUtcDate(identity.as_of, true)}${executiveCoverageIncomplete(snap) ? " - incomplete coverage" : ""}`, { size: 9, width: 106 });
   });
+  w.gap(8);
+  w.metrics([
+    { value: findings.length, label: `Recorded finding${findings.length === 1 ? "" : "s"}` },
+    { value: urgent.length, label: "High / critical findings" },
+    { value: observations.length, label: `Observation${observations.length === 1 ? "" : "s"}` },
+  ]);
+  const incomplete = snapshots.some(executiveCoverageIncomplete);
+  w.gap(6);
+  w.callout(incomplete ? "Coverage is incomplete" : "Recorded coverage", incomplete
+    ? "Results may be incomplete. A missing check is not a clean result. Treat provisional conclusions as limited to the evidence available; each website's coverage follows separately."
+    : "These assessments describe the external evidence recorded at the stated times. An absence of findings does not establish an absence of risk.");
+  executiveActions(w, { remediation_actions: snapshots.flatMap((snap) =>
+    (Array.isArray(snap.remediation_actions) ? snap.remediation_actions : [])
+      .map((action) => ({ ...action, website: snap.snapshot?.domain || "Website name not recorded" }))) });
+}
 
-  // ── Page 1: branded cover ────────────────────────────────────────────────
-  // A CUSTOMER white-label/co-brand logo keeps the top-right logo header. The
-  // default CyberMeters report (and any report without a customer logo) uses the
-  // strong cover: the canonical CyberMeters logo embedded prominently, or the
-  // text wordmark if the logo bytes could not be prepared.
-  const customerLogo = (branding?.mode === "white_label" || branding?.mode === "co_brand") && logoImage?.width && logoImage?.height;
-  if (customerLogo) {
-    brandingHeader(w, branding, "Executive Security Report", workspaceName ? `Workspace: ${workspaceName}` : null, logoImage);
-    if (generatedAt) w.text(`Generated ${pdfUtcDate(generatedAt, true)}`, { size: 9, color: "0.35 0.38 0.44" });
-    w.gap(4);
-  } else {
-    coverExec(w, {
-      branding, workspaceName,
-      domain: lead?.snapshot?.snapshot?.domain || null,
-      generatedAt,
-      assessedAt: lead?.snapshot?.snapshot?.as_of || null,
-      logoImage,   // CyberMeters house logo → prominent on the cover
-    });
-  }
+function executiveScore(w, snap) {
+  const o = snap.overall || {};
+  if (!Number.isFinite(o.cyber_metrics_score)) return;
+  w.keepTogether(44);
+  w.text(`${o.assessment?.provisional ? "Provisional score" : "Cyber Metrics Score"}: ${o.cyber_metrics_score} / 100${o.score_band ? ` | recorded band: ${o.score_band}` : ""}`, { size: 10, bold: true });
+  w.prose(executiveCoverageIncomplete(snap)
+    ? "This website only. Incomplete coverage; this score is not an overall assurance of security."
+    : "This website only; not a workspace average or assurance of security.", { size: 8, width: 115 });
+  w.gap(5);
+}
 
-  if (!ok.length) {
-    w.proseKeep("No canonical assessment snapshot is available for this workspace yet. Reports are produced from completed Cyber MOT assessments; run a scan to establish the first one.", { size: 10 });
-  } else {
-    // Executive summary (headline assessment) — flows on the cover page.
-    w.heading("Executive Summary");
-    w.text(`Latest assessment: ${lead.snapshot.snapshot.domain} - ${pdfUtcDate(lead.snapshot.snapshot.as_of, true)}`, { size: 10, bold: true });
-    w.gap(2);
-    sectionOverall(w, lead.snapshot);
-    sectionRelatedChanges(w, relatedChanges);
+function executiveRelatedChanges(w, summary) {
+  const items = Array.isArray(summary?.items) ? summary.items : [];
+  if (!items.length) return;
+  const latest = items.slice().sort((a, b) => executiveTime(b.last_seen) - executiveTime(a.last_seen))[0];
+  w.keepTogether(65);
+  w.heading("Workspace changes");
+  w.prose(`${items.length} related change${items.length === 1 ? "" : "s"} recorded across the workspace. These may concern a different website; change is not proof of compromise.`, { size: 9, width: 105 });
+  w.prose(`Most recent: ${RELATED_CHANGE_LABELS[latest.rule_id] || "related observations"} - affects ${latest.affected_domain || latest.registrable_domain || "a website not recorded"}. Confirm whether planned; review the workspace's Related Changes for details.`, { size: 8, width: 112 });
+}
 
-    // Domain detail — deliberately grouped. Multiple domains each get a clean page
-    // break; a single-domain workspace flows continuously (no forced blank pages).
-    ok.forEach((r, i) => {
-      if (i > 0) w.newPage();
-      else w.keepTogether(140);
-      w.heading(`Domain: ${r.snapshot.snapshot.domain}`);
-      w.text(`Assessed ${pdfUtcDate(r.snapshot.snapshot.as_of, true)}`, { size: 9, color: "0.35 0.38 0.44" });
-      w.gap(2);
-      sectionDomains(w, r.snapshot, { detail: "concise" });
-      sectionAttackSurfaceAssurance(w, r.snapshot, { detail: "concise" });
-      sectionCertificateAssurance(w, r.snapshot, { detail: "concise" });
-      const dmarcPresentation =
-        buildDmarcPolicyPresentation(r.dmarcPolicy);
-      sectionDmarcPolicy(w, dmarcPresentation);
-      sectionRemediation(w, r.snapshot);
-      sectionAssessmentScore(w, r.snapshot);
-      sectionMethodology(w, r.snapshot);
-      sectionEvidenceGradeAppendix(w, r.snapshot);
-      sectionDmarcTechnicalAppendix(w, dmarcPresentation);
-    });
-  }
-  if (unavailable.length) {
-    w.gap(6);
-    w.heading("Not yet available");
-    for (const u of unavailable) {
-      w.text(`A canonical assessment for one domain is ${u.status === "building" ? "still being prepared" : "not available"}.`, { size: 9 });
+function executiveAreaRows(w, snap) {
+  const rows = Array.isArray(snap.domains) ? snap.domains : [];
+  for (const name of EXECUTIVE_AREAS) {
+    const d = rows.find((item) => item.display_name === name);
+    const status = d ? (d.conclusion_label || stateLabel(d.state)) : "Not assessed - no recorded area evidence";
+    const details = [];
+    if (Number.isFinite(d?.finding_count)) details.push(`${d.finding_count} finding${d.finding_count === 1 ? "" : "s"}`);
+    if (d?.coverage && d.coverage !== "complete") details.push(`${d.coverage} coverage`);
+    let reason = executiveText(d?.state_reason || d?.summary);
+    // Translate this implementation explanation only; the technical record is unchanged.
+    reason = reason.replace(/Identity reachability was not evaluated\s*[-–—]\s*no supported reachability producer is implemented\.\s*Provider relationships and possible hostnames remain visible for review\./, "Sign-in endpoint reachability was not assessed; provider relationships and possible hostnames remain visible for review.");
+    if (name === "Certificates & Trust" && certificateAssuranceFromSnapshot(snap).summary?.ct_only === true) {
+      reason += " Certificate log evidence only; live certificate and trust are not verified.";
     }
+    const meaning = [details.length ? `${details.join(" | ")}.` : "", reason].filter(Boolean).join(" ");
+    const severity = highestSev(domainItems(snap, d?.domain_key, "finding"));
+    const color = d?.state === "issue_detected"
+      ? (["high", "critical"].includes(String(severity).toLowerCase()) ? "0.65 0.18 0.12" : "0.60 0.36 0.08")
+      : "0.25 0.32 0.42";
+    // Retain every conclusion reason, including no-HTTP/partial clauses. Exceptional
+    // long evidence continues rather than being clipped to satisfy a page target.
+    w.briefRow(name, status, meaning, color);
   }
-  const streams = w.finish();
+}
+
+function executiveEvidence(w, snap) {
+  const identity = snap.snapshot || {};
+  w.heading("Scope & next evidence");
+  w.prose("External observations only; no internal-network assessment or penetration test. Cyber Essentials readiness is an indicator; it is not a certification.", { size: 8, width: 115 });
+  w.prose("Full findings and evidence: download the technical PDF from this website's scan. Missing checks remain unknown, never low risk.", { size: 8, width: 115 });
+  if (identity.scan_id) w.prose(`Scan reference: ${identity.scan_id}`, { size: 8, width: 115, color: "0.35 0.38 0.44" });
+}
+
+/** A concise decision brief over verified customer snapshots. One workspace brief plus an
+ * eight-area page per ordinary website; continuations preserve long evidence and every
+ * supplied website/unavailable entry. Never recalculates an assessment. */
+export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding = null, generatedAt = null, logoImage = null, relatedChanges = null }) {
+  const ok = reads.filter((r) => r?.status === "ok" && (r.customerSnapshot || r.snapshot))
+    .map((r) => ({ ...r, snapshot: r.customerSnapshot ?? r.snapshot }))
+    .sort((a, b) => executiveTime(b.snapshot.snapshot?.as_of) - executiveTime(a.snapshot.snapshot?.as_of));
+  const unavailable = reads.filter((r) => r?.status !== "ok" || !(r.customerSnapshot || r.snapshot));
+  const w = makeWriter({ accentHex: branding?.accent || BRAND_HEX, footerText: footerFor(branding) });
+  executiveIdentity(w, { branding, logoImage, workspaceName, generatedAt });
+  if (!ok.length) {
+    w.heading("Assessment not available");
+    w.prose("No canonical assessment snapshot is available for this workspace yet. No security conclusion can be drawn from this report.", { size: 11, width: 82 });
+  }
+  if (ok.length) executiveSummary(w, ok);
+  executiveRelatedChanges(w, relatedChanges);
+  ok.forEach((r) => {
+    w.newPage();
+    w.display("Eight-Domain Cyber MOT", { size: 19 });
+    w.prose(r.snapshot.snapshot?.domain || "Website name not recorded", { size: 11, bold: true, width: 84 });
+    w.text(`Assessed ${pdfUtcDate(r.snapshot.snapshot?.as_of, true)}`, { size: 9, color: "0.35 0.38 0.44" });
+    if (r.snapshot.snapshot?.provenance === "reconstructed_on_demand") w.prose("Reconstructed from recorded evidence; historical workflow details may be unavailable.", { size: 8, width: 110 });
+    w.gap(7);
+    executiveScore(w, r.snapshot);
+    executiveAreaRows(w, r.snapshot);
+    executiveEvidence(w, r.snapshot);
+  });
+  if (unavailable.length) {
+    w.heading("Assessments not available");
+    unavailable.forEach((u, i) => {
+      const label = u?.domain || u?.domain_name || u?.domain_id || `Supplied assessment ${i + 1}`;
+      w.prose(`${label}: ${u?.status === "building" ? "still being prepared" : "not available"}. No security conclusion is shown.`, { size: 9, width: 105 });
+    });
+  }
+  const pages = w.finish();
+  const streams = pages.map((page, index) => `${page}BT /F1 8 Tf 0.45 0.5 0.55 rg 510 30 Td (${index + 1} / ${pages.length}) Tj ET\n`);
   if (logoImage) return assemblePdfWithImage(streams, logoImage);
   return new TextEncoder().encode(assemblePdf(streams));
 }

@@ -39,6 +39,7 @@ const { buildExecutiveReportV2 } = await import(executiveUrl);
 const { composeSnapshot } = await import(engine("report-snapshot.js"));
 const {
   buildScanReportPdf,
+  pdfEsc,
   buildWorkspaceExecutivePdf,
 } = await import(engine("pdf.js"));
 const { attackSurfaceRoutes } = await import(routeUrl);
@@ -705,9 +706,12 @@ const executivePdfText = new TextDecoder().decode(
     generatedAt: fixture.built_at,
   }),
 );
-ok("Executive PDF uses the same ASM projection",
-  executivePdfText.includes("Attack Surface Evidence & Lifecycle") &&
-  executivePdfText.includes("Subdomain discovery: Evidence unavailable"));
+const executiveVisibleText = [...executivePdfText.matchAll(/\(((?:\\.|[^()\\])*)\) Tj/g)]
+  .map((match) => match[1]).join(" ").replace(/\s+/g, " ");
+ok("Executive brief retains the canonical ASM conclusion and points to full evidence",
+  executivePdfText.includes("Attack Surface") &&
+  executiveVisibleText.includes(pdfEsc(snapshot.domains.find((d) => d.domain_key === "attack_surface").state_reason).replace(/\s+/g, " ")) &&
+  executivePdfText.includes("download the technical PDF"));
 
 const assetsRouteSource = fs.readFileSync(path.join(
   root, "workers/scan-api/src/routes/attack-surface.js",
