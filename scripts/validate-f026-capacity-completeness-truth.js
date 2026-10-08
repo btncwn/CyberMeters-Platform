@@ -5,8 +5,8 @@
 //       reports checked:100 with NO signal that a host was dropped, so the
 //       customer believes full coverage. Truncation must be EXPLICIT and the
 //       partial-truth must propagate up (unmeasured/partial is never "healthy").
-//   (b) buildScanQuality keeps three different facts separate: the authenticated
-//       Workers Paid provider ceiling is 10,000; the configured legacy
+//   (b) buildScanQuality keeps three different facts separate: the documented
+//       Workers Paid reference ceiling is 10,000; the configured legacy
 //       admission/report effective_limit is 200; and legacy mode does not install
 //       the reserved path's physical whole-scan counter.
 //   (c) source-bounded variable outbound paths remain below the Paid provider
@@ -142,12 +142,12 @@ function capacityTruth() {
     b.remaining_estimate === 105 && b.remaining_estimate === Math.max(0, capacity.limit - (b.estimated ?? 0)),
     JSON.stringify(b));
   ok("(b) legacy 200 is not configured as a provider-enforced physical hard cap",
-    !/^\s*subrequests\s*=/m.test(wrangler) &&
+    /^\[limits\]\s*\nsubrequests\s*=\s*10_000\s*$/m.test(wrangler) &&
       engineSource.includes('const reservedMode = capacity.mode === "reserved";') &&
       reservedBranchStart >= 0 && legacyBranchStart > reservedBranchStart &&
       physicalAssignment > reservedBranchStart && physicalAssignment < legacyBranchStart,
     JSON.stringify({
-      has_provider_subrequests_key: /^\s*subrequests\s*=/m.test(wrangler),
+      provider_subrequests: wrangler.match(/^subrequests\s*=\s*([\d_]+)/m)?.[1],
       reservedBranchStart,
       legacyBranchStart,
       physicalAssignment,

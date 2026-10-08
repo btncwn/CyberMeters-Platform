@@ -27,6 +27,11 @@ compatibility_flags = ["global_fetch_strictly_public"]
 # Adding the custom domain without this line took workers.dev down for 96 seconds.
 workers_dev = true
 
+# Explicit Workers Paid default, separate from the legacy admission estimate.
+# This setting does not grant Paid entitlement; verify actual runtime capacity.
+[limits]
+subrequests = 10_000
+
 [[routes]]
 pattern = "api.cybermeters.com"
 custom_domain = true
