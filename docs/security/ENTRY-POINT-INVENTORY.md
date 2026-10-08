@@ -139,10 +139,10 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | POST | `/api/auth/reset-password` | 1156 | public-or-global | public | — |
 | GET | `/api/auth/mfa/status` | 1277 | public-or-global | ✓ | requireAuth |
 | POST | `/api/auth/mfa/setup` | 1299 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/verify-setup` | 1336 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/challenge` | 1405 | public-or-global | public | — |
-| POST | `/api/auth/mfa/recovery-code` | 1504 | public-or-global | public | — |
-| POST | `/api/auth/mfa/disable` | 1601 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/verify-setup` | 1340 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/challenge` | 1414 | public-or-global | public | — |
+| POST | `/api/auth/mfa/recovery-code` | 1513 | public-or-global | public | — |
+| POST | `/api/auth/mfa/disable` | 1610 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/billing.js`
 
@@ -152,7 +152,7 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `/^\/api\/workspaces\/([^/` | 306 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `/api/plans` | 371 | public-or-global | public | — |
 | POST | `/^\/api\/workspaces\/([^/` | 413 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| POST | `/^\/api\/workspaces\/([^/` | 629 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^/` | 646 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/brand.js`
 
@@ -260,12 +260,12 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `/api/billing/plans` | 23 | public-or-global | public | — |
-| POST | `/api/dmarc-ingest` | 42 | webhook | public | — |
-| GET | `/api/billing/subscription` | 148 | public-or-global | ✓ | requireAuth |
-| POST | `/api/billing/webhook` | 188 | webhook | public | — |
-| POST | `/api/billing/checkout` | 563 | public-or-global | ✓ | requireAuth |
-| POST | `/api/billing/portal` | 719 | public-or-global | ✓ | requireAuth |
+| GET | `/api/billing/plans` | 24 | public-or-global | public | — |
+| POST | `/api/dmarc-ingest` | 43 | webhook | public | — |
+| GET | `/api/billing/subscription` | 149 | public-or-global | ✓ | requireAuth |
+| POST | `/api/billing/webhook` | 189 | webhook | public | — |
+| POST | `/api/billing/checkout` | 571 | public-or-global | ✓ | requireAuth |
+| POST | `/api/billing/portal` | 626 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/identity-exposure.js`
 

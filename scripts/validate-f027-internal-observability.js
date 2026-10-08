@@ -114,6 +114,34 @@ const { computeOperationalHealth, isOperationallyHealthy, evaluateDeadman } = aw
   ok("recent_dlq surfaced as advisory, does not alone flip healthy", h3.recent_dlq === true && isOperationallyHealthy(h3) === true);
 }
 
+// Founder-selected Cloudflare-only recovery does not require an independent
+// backup producer. The optional monitor must never fabricate backup success or
+// bypass any other operational check, and only exact configuration opts out.
+{
+  const env = makeEnv();
+  env.INDEPENDENT_BACKUP_MONITORING = "off";
+  await persistOperationalEvent(env, { eventType: "cron_tick", correlationId: "cron:optional", status: "ok" });
+  const before = env._db.prepare("SELECT COUNT(*) AS n FROM operational_events").get().n;
+  const optional = await computeOperationalHealth(env);
+  ok("optional backup: exact off makes the monitor informational",
+    optional.backup_required === false && isOperationallyHealthy(optional) === true);
+  ok("optional backup: missing evidence stays false/null, never a successful backup",
+    optional.backup_fresh === false && optional.backup_age_minutes === null);
+  ok("optional backup: health read writes no synthetic event",
+    env._db.prepare("SELECT COUNT(*) AS n FROM operational_events").get().n === before &&
+    env._db.prepare("SELECT COUNT(*) AS n FROM operational_events WHERE event_type='backup_completed'").get().n === 0);
+  for (const mode of [undefined, null, false, 0, "", "OFF", "false", "optional", "on"]) {
+    env.INDEPENDENT_BACKUP_MONITORING = mode;
+    const health = await computeOperationalHealth(env);
+    ok(`backup config ${JSON.stringify(mode)} retains required freshness`,
+      health.backup_required === true && isOperationallyHealthy(health) === false &&
+      evaluateDeadman(true, { operational: health }).reason === "backup_stale");
+  }
+  const config = fs.readFileSync(path.join(root, "workers/scan-api/wrangler.toml"), "utf8");
+  ok("first-customer config explicitly selects optional independent-backup monitoring",
+    /^INDEPENDENT_BACKUP_MONITORING = "off"$/m.test(config));
+}
+
 // ── queue dispatch by identity (contract item 1) ──────────────────────────────
 {
   ok("routing: the scan DLQ goes to the observer, never the engine",
@@ -206,7 +234,7 @@ const { computeOperationalHealth, isOperationallyHealthy, evaluateDeadman } = aw
   // ids, raw rows or error prose reach the JSON the deadman consumes.
   const exposedKeys = Object.keys(hFail).sort().join(",");
   ok("R1-02: exposed fields are the safe operational token set only (no prose/correlation)",
-    /^backup_age_minutes,backup_fresh,cron_age_minutes,cron_fresh,recent_dlq,recent_dlq_events,recent_dlq_readable,stale_queued_scan$/.test(exposedKeys),
+    /^backup_age_minutes,backup_fresh,backup_required,cron_age_minutes,cron_fresh,recent_dlq,recent_dlq_events,recent_dlq_readable,stale_queued_scan$/.test(exposedKeys),
     exposedKeys);
 }
 
@@ -232,6 +260,28 @@ const { computeOperationalHealth, isOperationallyHealthy, evaluateDeadman } = aw
   const good = runEntry(200, OP());
   ok("entrypoint(REAL path): correct healthy booleans @200 -> healthy=true reason=ok (RECOVERY branch reachable)",
     good.healthy === "true" && good.reason === "ok", JSON.stringify(good));
+
+  for (const requirement of [false, true, undefined, null, "false", "true", 0, ""]) {
+    const body = OP({ backup_required: requirement, backup_fresh: false });
+    const got = runEntry(200, body);
+    const exempt = requirement === false;
+    ok(`entrypoint: backup_required ${JSON.stringify(requirement)} exempts only literal false`,
+      got.healthy === String(exempt) && got.reason === (exempt ? "ok" : "backup_stale"));
+    ok(`isOperationallyHealthy: backup_required ${JSON.stringify(requirement)} exempts only literal false`,
+      isOperationallyHealthy(body.operational) === exempt);
+  }
+  for (const [label, changes, code, reason] of [
+    ["cron stale", { cron_fresh: false }, 200, "cron_stale"],
+    ["stuck scan", { stale_queued_scan: true }, 200, "stale_queued_scan"],
+    ["DLQ unreadable", { recent_dlq_readable: false }, 200, "recent_dlq_unreadable"],
+    ["dependency unavailable", {}, 503, "http_503"],
+  ]) {
+    const body = OP({ backup_required: false, backup_fresh: false, ...changes });
+    const got = runEntry(code, body);
+    ok(`optional backup cannot hide ${label}`, got.healthy === "false" && got.reason === reason);
+    if (code === 200) ok(`optional backup: local verdict cannot hide ${label}`,
+      isOperationallyHealthy(body.operational) === false);
+  }
 
   const allStr = runEntry(200, { operational: { cron_fresh: "true", backup_fresh: "true", stale_queued_scan: "false", recent_dlq_readable: "true" } });
   ok("entrypoint: all-string-impostor booleans @200 -> fail closed (healthy=false)",

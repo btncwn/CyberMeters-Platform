@@ -1305,11 +1305,15 @@ export async function authRoutes(rctx) {
         const base32Secret  = generateTotpSecret();
         const encryptedSecret = await encryptTotpSecret(base32Secret, env);
 
-        // Store the secret (not yet enabled — pending verify-setup)
-        await env.cybermeters_db
-          .prepare("UPDATE users SET totp_secret = ? WHERE id = ?")
+        // Enrollment must never replace an enabled factor. Keep the condition
+        // in the write so a concurrent verify-setup cannot be overwritten.
+        const enrollment = await env.cybermeters_db
+          .prepare("UPDATE users SET totp_secret = ? WHERE id = ? AND mfa_enabled = 0")
           .bind(encryptedSecret, user.id)
           .run();
+        if (enrollment.meta?.changes !== 1) {
+          return json({ error: "MFA is already enabled or the account is unavailable" }, 409);
+        }
 
         const issuer    = "CyberMeters";
         const label     = encodeURIComponent(`${issuer}:${user.email}`);
@@ -1371,17 +1375,22 @@ export async function authRoutes(rctx) {
         // Generate recovery codes
         const { codes: rawCodes, hashes } = await generateRecoveryCodes();
 
-        await env.cybermeters_db
+        // Enable only the exact pending secret that this code proved. A setup
+        // rotation or another successful verification makes this proof stale.
+        const enrollment = await env.cybermeters_db
           .prepare(
             `UPDATE users
              SET mfa_enabled = 1,
                  mfa_enabled_at = datetime('now'),
                  mfa_last_verified_at = datetime('now'),
                  mfa_recovery_codes_hash_json = ?
-             WHERE id = ?`
+             WHERE id = ? AND mfa_enabled = 0 AND totp_secret = ?`
           )
-          .bind(JSON.stringify(hashes), user.id)
+          .bind(JSON.stringify(hashes), user.id, row.totp_secret)
           .run();
+        if (enrollment.meta?.changes !== 1) {
+          return json({ error: "MFA setup changed or is already enabled. Please check its status and try again." }, 409);
+        }
 
         await createAuditEvent(env, {
           user_id:     user.id,

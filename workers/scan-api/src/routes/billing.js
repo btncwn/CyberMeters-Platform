@@ -45,7 +45,7 @@ class InFlightOnlyDnsCache extends Map {
 
 export async function billingRoutes(rctx) {
   const { request, env, url, json, serverError,
-          requireAuth, requireWorkspaceRole, consumeApiRateLimit, rateLimitScopeId } = rctx;
+          requireAuth, requireWorkspaceRole, consumeApiRateLimit, rateLimitScopeId, validateFrontendRedirectUrl } = rctx;
   const freeScanModuleRunners = {
     dns: runDnsModule,
     ssl: runSslModule,
@@ -407,7 +407,7 @@ export async function billingRoutes(rctx) {
     // ── POST /api/workspaces/:id/billing/checkout ─────────────────────────────
     // Workspace-scoped Stripe Checkout Session. Workspace owner only.
     // Body: { "plan": "starter|professional|business", "interval": "monthly|annual" }
-    // interval defaults to "monthly". success_url and cancel_url are hardcoded.
+    // interval defaults to "monthly". Optional redirects must match the frontend origin.
     // Returns: { "url": "https://checkout.stripe.com/..." }
     const wsCheckoutMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/billing\/checkout$/);
     if (wsCheckoutMatch && request.method === "POST") {
@@ -425,6 +425,18 @@ export async function billingRoutes(rctx) {
 
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return json({ error: "Invalid JSON body" }, 400);
+      }
+      // Optional legacy checkout redirects remain restricted to our frontend.
+      const checkoutRedirects = {};
+      for (const key of ["success_url", "cancel_url"]) {
+        if (body[key] !== undefined) {
+          checkoutRedirects[key] = validateFrontendRedirectUrl(body[key], env);
+          if (!checkoutRedirects[key]) return json({ error: `invalid_${key}` }, 400);
+        }
+      }
 
       // Enterprise plan requires sales contact — never self-serve checkout.
       const rawPlan = String(body.plan || "").trim().toLowerCase();
@@ -467,7 +479,12 @@ export async function billingRoutes(rctx) {
       // instead of a checkout session. Trial / free / manual rows carry no
       // stripe_subscription_id and keep the fresh-checkout path. Returning the
       // portal URL (same { url } shape) also self-heals older cached frontends.
-      const currentSub = await getWorkspaceSubscription(wsId, env);
+      let currentSub;
+      try {
+        currentSub = await getWorkspaceSubscription(wsId, env, { throwOnError: true });
+      } catch (e) {
+        return serverError("billing/checkout-subscription", e, "Unable to load billing information.");
+      }
       if (shouldRoutePlanChangeToPortal(currentSub)) {
         const reqOrigin = new URL(request.url).origin;
         const portalReturnOrigin = env.FRONTEND_URL || reqOrigin.replace("cybermeters-platform.ttrnn47.workers.dev", "cybermeters.com");
@@ -538,12 +555,12 @@ export async function billingRoutes(rctx) {
           .first();
       } catch { /* continue without existing customer */ }
 
-      // Hardcoded success/cancel URLs — prevents open redirect via client-supplied URLs.
+      // Use validated frontend redirects, or the canonical billing-page defaults.
       const origin = new URL(request.url).origin;
       // Use FRONTEND_URL env var if set (Cloudflare Pages URL), else derive from Worker origin.
       const frontendOrigin = env.FRONTEND_URL || origin.replace("cybermeters-platform.ttrnn47.workers.dev", "cybermeters.com");
-      const successUrl = `${frontendOrigin}/billing?success=true`;
-      const cancelUrl  = `${frontendOrigin}/billing?canceled=true`;
+      const successUrl = checkoutRedirects.success_url || `${frontendOrigin}/billing?success=true`;
+      const cancelUrl  = checkoutRedirects.cancel_url || `${frontendOrigin}/billing?canceled=true`;
 
       const params = new URLSearchParams();
       params.set("mode",                    "subscription");

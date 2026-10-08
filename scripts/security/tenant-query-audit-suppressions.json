@@ -221,11 +221,11 @@
       "contract": "Plan input is validated against the server plan catalogue; it grants no cross-tenant access."
     },
     {
-      "fingerprint": "5f54426b1ef9",
+      "fingerprint": "af46ea649594",
       "file": "workers/scan-api/src/routes/global-billing.js",
       "detector": "body_workspace_trust",
-      "reason": "parseCheckoutPlan(body.plan) validates the requested checkout plan against the server catalogue.",
-      "contract": "Plan input validated server-side; not an authz decision."
+      "reason": "Reviewed 2026-10-08: body.workspace_id selects a candidate only. The legacy route delegates to billingRoutes, which rechecks requireAuth, session-only access and requireWorkspaceRole(user, wsId, billing:manage, env) before creating any provider session.",
+      "contract": "Workspace selection grants no authority. validate-first-customer-billing exercises the real delegated router: foreign/deleted workspaces and active viewer/analyst/admin members are refused without Stripe calls; plan validation remains in the canonical workspace route."
     },
     {
       "fingerprint": "489752a27c6c",

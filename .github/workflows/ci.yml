@@ -185,6 +185,12 @@ jobs:
       - name: Validate auth/session hardening (SSO MFA gate, reset token revocation, invite + lifecycle deleted_at)
         run: node scripts/validate-auth-session-hardening.js
 
+      - name: Validate MFA enrollment integrity (enabled-factor and enrollment races)
+        run: node scripts/validate-mfa-enrollment-integrity.js
+
+      - name: Validate first-customer billing (workspace checkout, webhook retry and Starter access)
+        run: node scripts/validate-first-customer-billing.js
+
       - name: Validate identity exposure (login surfaces + impersonation + spoofing + isolation)
         run: node scripts/validate-identity-exposure.js
 

@@ -155,9 +155,11 @@ const DLQ_RECENT_WINDOW_MIN  = 60;
 const STALE_SCAN_AFTER_MIN   = 60;   // a scan stuck 'queued'/'running' > 60m
 
 /**
- * Compute the operational booleans for /ready and the deadman. Every check FAILS
- * CLOSED: an unavailable read yields the UNHEALTHY value, never an optimistic
- * true. Non-sensitive only — no raw content.
+ * Compute the operational booleans for /ready and the deadman. Measurements fail
+ * closed; optional independent-backup monitoring never changes measured freshness.
+ * Only the explicit "off" configuration removes that monitor from the verdict.
+ * Missing or malformed configuration retains its existing required behavior.
+ * Non-sensitive only — no raw content.
  */
 export async function computeOperationalHealth(env, { nowMs = null } = {}) {
   const now = Number.isFinite(nowMs) ? nowMs : Date.parse(new Date().toISOString());
@@ -195,6 +197,7 @@ export async function computeOperationalHealth(env, { nowMs = null } = {}) {
     cron_age_minutes:  cronAge === null ? null : Math.round(cronAge),
     backup_fresh:      backupAge !== null && backupAge <= BACKUP_STALE_AFTER_MIN,
     backup_age_minutes: backupAge === null ? null : Math.round(backupAge),
+    backup_required:   env.INDEPENDENT_BACKUP_MONITORING !== "off",
     // A read failure is NOT a proven zero: events null + readable false carry that
     // distinctly, and recent_dlq_readable is the fail-closed signal the deadman reads.
     recent_dlq_events: recentDlqRead.readable ? recentDlqRead.count : null,
@@ -205,8 +208,10 @@ export async function computeOperationalHealth(env, { nowMs = null } = {}) {
 }
 
 /**
- * Single "operationally healthy" verdict for the deadman: cron fresh, backup
- * fresh, no stuck scan, and the recent-DLQ window PROVEN READABLE. recent-DLQ
+ * Single "operationally healthy" verdict for the deadman: cron fresh, the
+ * configured backup monitor satisfied, no stuck scan, and the recent-DLQ window
+ * PROVEN READABLE. Only literal backup_required:false exempts backup freshness;
+ * older responses without that field retain the original requirement. recent-DLQ
  * readability is held to the SAME typed contract as the other operational fields:
  * only the literal boolean `true` clears it. A string "true"/"false", null, or an
  * absent field (an older/malformed/schema-drifted body) fails closed — an
@@ -216,7 +221,7 @@ export async function computeOperationalHealth(env, { nowMs = null } = {}) {
 export function isOperationallyHealthy(booleans) {
   if (!booleans || typeof booleans !== "object") return false;
   return booleans.cron_fresh === true &&
-    booleans.backup_fresh === true &&
+    (booleans.backup_required === false || booleans.backup_fresh === true) &&
     booleans.stale_queued_scan === false &&
     booleans.recent_dlq_readable === true;
 }
@@ -233,7 +238,7 @@ export function evaluateDeadman(httpOk, parsedBody) {
   const op = parsedBody.operational;
   if (!op || typeof op !== "object") return { healthy: false, reason: "no_operational_fields" };
   if (op.cron_fresh !== true) return { healthy: false, reason: "cron_stale" };
-  if (op.backup_fresh !== true) return { healthy: false, reason: "backup_stale" };
+  if (op.backup_required !== false && op.backup_fresh !== true) return { healthy: false, reason: "backup_stale" };
   if (op.stale_queued_scan !== false) return { healthy: false, reason: "stale_queued_scan" };
   // R1-02 (delta): the recent-DLQ window must be PROVEN readable — the same
   // TYPE-AND-VALUE contract as the fields above (reject unless literal `true`).

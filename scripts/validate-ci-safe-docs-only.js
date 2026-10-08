@@ -14,7 +14,7 @@ import {
   validateManifest,
   verifyEvidenceScopes,
 } from "./ci-safe-docs-only-lib.js";
-import { evaluateWorkflowPolicy } from "./ci-workflow-policy.js";
+import { evaluateWorkflowPolicy, EXPECTED_EXECUTABLE_VALIDATOR_COUNT } from "./ci-workflow-policy.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const self = fileURLToPath(import.meta.url);
@@ -712,7 +712,7 @@ const MUTANTS = [
     }],
     childArgs: ["--policy-child"],
     expectedFailures: [
-      "anti-orphan: six validator jobs are the exact executable 376-validator union",
+      `anti-orphan: six validator jobs are the exact executable ${EXPECTED_EXECUTABLE_VALIDATOR_COUNT}-validator union`,
       "assignment: exact non-overlapping ordinary-shard and F004-matrix counts/fingerprint are pinned",
     ],
   },

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 import fs from 'node:fs'
@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url'
 // policy), and an unreachable API renders an honest unavailable state — never
 // a stale fallback figure the backend would refuse to charge.
 
+const authState = vi.hoisted(() => ({ isAuthenticated: false }))
+
 vi.mock('../../api', () => ({
   api: {
     getBillingPlans: vi.fn(),
@@ -17,7 +19,7 @@ vi.mock('../../api', () => ({
   },
 }))
 vi.mock('../../context/AuthContext', () => ({
-  useAuth: () => ({ isAuthenticated: false }),
+  useAuth: () => authState,
 }))
 
 import { api } from '../../api'
@@ -40,6 +42,7 @@ function renderPage() {
 }
 
 afterEach(() => {
+  authState.isAuthenticated = false
   vi.clearAllMocks()
   localStorage.clear()
 })
@@ -90,5 +93,57 @@ test('no frontend source file carries a hard-coded price ladder', () => {
     expect(content, `${name} defines local monthly_gbp price data`).not.toMatch(/monthly_gbp:\s*\d/)
     // Stale domain-count claims from the pre-policy tiers.
     expect(content, `${name} claims the stale 5/20 domain tiers`).not.toMatch(/Up to (5|20) monitored domains/)
+  }
+})
+
+
+// The payment checkbox is hosted by Stripe, whose required-consent parameters
+// are exercised by validate-first-customer-billing. This page only requests a
+// session; it must never manufacture the customer's acceptance in its payload.
+test.each([
+  ['new checkout', 'https://checkout.stripe.com/test-session', false],
+  ['existing paid subscription portal', 'https://billing.stripe.com/test-portal', true],
+])('pricing button follows the server-selected %s', async (_name, target, portal) => {
+  authState.isAuthenticated = true
+  api.getBillingPlans.mockResolvedValue({ plans: CANONICAL_PLANS })
+  api.startCheckout.mockResolvedValue({ checkout_url: target, portal })
+  const originalLocation = Object.getOwnPropertyDescriptor(window, 'location')
+  const location = { origin: 'https://app.cybermeters.com', href: 'https://app.cybermeters.com/pricing' }
+  Object.defineProperty(window, 'location', { value: location, writable: true, configurable: true })
+  try {
+    renderPage()
+    const starter = (await screen.findByRole('heading', { name: 'Starter' })).closest('section')
+    fireEvent.click(within(starter).getByRole('button', { name: 'Start Checkout' }))
+    await waitFor(() => expect(location.href).toBe(target))
+    expect(api.startCheckout).toHaveBeenCalledTimes(1)
+    expect(api.startCheckout).toHaveBeenCalledWith(
+      'starter', 'monthly',
+      'https://app.cybermeters.com/checkout/success',
+      'https://app.cybermeters.com/checkout/cancel',
+    )
+    expect(screen.queryByText('Checkout URL was not returned')).not.toBeInTheDocument()
+  } finally {
+    Object.defineProperty(window, 'location', originalLocation)
+  }
+})
+
+test('ambiguous workspace refusal stays visible without navigating to payment', async () => {
+  authState.isAuthenticated = true
+  api.getBillingPlans.mockResolvedValue({ plans: CANONICAL_PLANS })
+  api.startCheckout.mockRejectedValue(new Error('Open Billing in the workspace you own to choose a plan.'))
+  const originalLocation = Object.getOwnPropertyDescriptor(window, 'location')
+  const location = { origin: 'https://app.cybermeters.com', href: 'https://app.cybermeters.com/pricing' }
+  Object.defineProperty(window, 'location', { value: location, writable: true, configurable: true })
+  try {
+    renderPage()
+    const starter = (await screen.findByRole('heading', { name: 'Starter' })).closest('section')
+    const button = within(starter).getByRole('button', { name: 'Start Checkout' })
+    fireEvent.click(button)
+    expect(await screen.findByText('Open Billing in the workspace you own to choose a plan.')).toBeInTheDocument()
+    expect(location.href).toBe('https://app.cybermeters.com/pricing')
+    expect(button).toBeEnabled()
+    expect(api.startCheckout).toHaveBeenCalledTimes(1)
+  } finally {
+    Object.defineProperty(window, 'location', originalLocation)
   }
 })

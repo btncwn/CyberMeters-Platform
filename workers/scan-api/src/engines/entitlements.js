@@ -101,6 +101,7 @@ export const PLAN_FEATURES = {
     "team_members",       // can invite workspace members
     // ── Pre-existing gates ────────────────────────────────────────────────
     "business_risk_score",
+    "cyber_essentials", // Every paid plan includes this canonical domain (pricing policy §1).
   ],
   professional: [
     "scheduled_scans",
