@@ -7,6 +7,45 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.10.08-1 — first-customer security and billing corrections — 8 October 2026
+
+**DEPLOYED; live scan acceptance remains incomplete.** Exact source
+`6312cebe0b79b96efd3dc2c7bcccf80e9c9ad0f6` (PR #483) is deployed to
+both Workers and Pages. Shared APP_VERSION is
+`2026.10.08-first-customer.5fdee2cdab74`. No schema migration was required.
+
+- **Corrections:** enabled MFA enrollment cannot be replaced using a session
+  alone; workspace checkout preserves ownership and plan metadata and routes
+  existing subscribers to the billing portal; webhook persistence failures
+  return a retryable failure instead of acknowledging an uncommitted event;
+  Starter includes its documented Cyber Essentials access.
+- **Recovery choice:** the Founder selected Cloudflare-only recovery. An
+  independent provider is optional (`INDEPENDENT_BACKUP_MONITORING=off`).
+  D1/R2 availability, cron and queue checks remain active. A D1 Time Travel
+  bookmark was read; no restore was performed and no R2 recovery copy was
+  verified. This is not a backup/restore success claim.
+- **Validation:** exact candidate CI `37799538066` passed all 15 jobs; frontend
+  E2E `37799538028` passed with its mock API. Focused MFA tests passed 19/19,
+  billing 90/90 and pricing UI 7/7. Independent original/fixed and targeted
+  mutant checks demonstrated that the MFA and billing regressions are detected.
+- **scan-api:** Version `793b0319-094f-4a7b-a35b-d67ab05ba75c`, uploaded
+  15:36:15 UTC. Rollback Version `00ee624f-930c-4f09-b56c-668a18614c65`.
+- **email-ingest:** Version `49ec478f-5c33-4d64-a0df-2188b821b8c3`, uploaded
+  15:37:12 UTC. Rollback Version `f9af5afa-dfc7-43de-a7d0-3ef6e672256c`.
+- **Pages:** production `24506b22-3f9c-4906-9c7b-87f51fa190ff`, source
+  `6312ceb`; rollback `b40bd7b8-360f-4693-8e2b-4d3283519ed5`.
+- **Live proof:** the public status page displayed the new version and healthy
+  API/database/report storage. Operational monitor run `37802461128` received
+  HTTP 200, evaluated recovery and automatically closed issue #464. The owned
+  `cybermeters.com` scan `scan_9e834f7f-b568-4a4f-b358-474b7908362d`
+  completed, persisted its canonical snapshot and rendered in the UI. Its
+  13-page PDF downloaded and retained the partial-evidence warning.
+- **Open acceptance:** that canary hit a subrequest-budget failure affecting
+  TLS and HTTP headers, so the report is correctly partial. First-customer
+  scan acceptance is not claimed. No real Stripe purchase or customer
+  invitation was performed. The annotated release tag targets the exact
+  deployed source above; this record does not turn deployment into acceptance.
+
 ## Production baseline reconciled — recorded 8 October 2026
 
 **RECORDED AFTER THE FACT; no retrospective customer-acceptance credit.**
