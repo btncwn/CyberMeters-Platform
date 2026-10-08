@@ -7,6 +7,30 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.10.08-2 — scan attempt evidence — 8 October 2026
+
+**DEPLOYED; first-customer acceptance remains incomplete.** Exact source
+`6847e1ab66f8e0ee586d6c418d01261fd708274b` (PR #484) is deployed to the
+scan-api Worker. It preserves attempted-check counts after a provider refusal
+and distinguishes a provider-budget refusal from a timeout. It does not raise
+the provider's request limit. No schema, billing or capacity configuration changed.
+
+- **scan-api:** Version `1c12bdd8-73ad-439e-b64f-c66816a41e3e`, uploaded
+  18:20:37 UTC; deployment `2dd9cc91-fbe4-4c9f-99e2-4173a643e812` at 100%
+  traffic. Immediate rollback Version `793b0319-094f-4a7b-a35b-d67ab05ba75c`.
+- **Validation:** exact merge CI `37808401288` passed all 15 jobs. The runtime
+  delta and unchanged configuration received independent review; pinned
+  Wrangler 4.148.0 dry-run passed. Deployment readback confirmed the new version
+  and preserved runtime variables. The public status page then reported API,
+  database and report storage operational at 18:22 UTC.
+- **Other services:** email Worker and Pages were not redeployed. The email
+  closure is unchanged, so shared APP_VERSION remains
+  `2026.10.08-first-customer.5fdee2cdab74`.
+- **Open acceptance:** the paid Workers invoice versus Free enforcement
+  discrepancy remains unresolved. No complete post-correction scan or real
+  Stripe payment is claimed. The Founder requires both before customer
+  meetings, demos, invitations or activation.
+
 ## v2026.10.08-1 — first-customer security and billing corrections — 8 October 2026
 
 **DEPLOYED; live scan acceptance remains incomplete.** Exact source
