@@ -12,6 +12,9 @@ export default defineConfig({
     // webstorage globals win instead.
     environmentOptions: { jsdom: { url: 'http://localhost:3000/' } },
     globals: true,
+    // Backend proof subprocesses share CPU with the browser tests. Keep their
+    // existing deadlines stable without changing assertions or timeouts.
+    maxWorkers: 2,
     setupFiles: ['./src/test/setup.js'],
     include: ['src/**/*.test.{js,jsx}'],
     css: false,

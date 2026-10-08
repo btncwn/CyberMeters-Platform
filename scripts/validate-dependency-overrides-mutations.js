@@ -31,7 +31,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadInputs } from "./validate-dependency-overrides.js";
+import { loadInputs, evaluateOverrideRegister } from "./validate-dependency-overrides.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VALIDATOR = path.join(root, "scripts", "validate-dependency-overrides.js");
@@ -40,7 +40,38 @@ const VALIDATOR = path.join(root, "scripts", "validate-dependency-overrides.js")
 const NOW = "2026-08-03";
 const NOW_FAR_FUTURE = "2027-06-01";
 
-const base = loadInputs(root);
+// Synthetic exceptions keep every guard exercised after real overrides retire.
+// These inputs are test data, not live exception records or audit evidence.
+const versions = { sharp: "0.35.4", undici: "7.29.1" };
+const base = {
+  register: {
+    schema: "cybermeters.dependency-override-register/v1",
+    owner_vocabulary: ["fixture owner"],
+    overrides: Object.entries(versions).map(([name, version]) => ({
+      id: `FIX-${name.toUpperCase()}`, workspace: "workers/scan-api", package: name,
+      declared_spec: version, resolved_version: version,
+      dependency_root: "wrangler", dependency_path: ["wrangler", "miniflare", name],
+      reachability: "dev_only", production_closure_evidence: "synthetic empty production closure",
+      advisory_basis: "current", advisories_cleared: ["GHSA-aaaa-bbbb-cccc"],
+      reason: "synthetic upstream declaration mismatch", removal_criterion: "synthetic upstream adoption",
+      owner: "fixture owner", introduced_on: "2026-07-22", reviewed_on: NOW,
+      review_by: "2026-11-30", record: "synthetic mutation fixture",
+    })),
+  },
+  workspaces: {
+    frontend: { manifest: { dependencies: {} }, lock: { packages: { "": { dependencies: {} } } } },
+    "workers/scan-api": {
+      manifest: { dependencies: {}, devDependencies: { wrangler: "4.120.0" }, overrides: { ...versions } },
+      lock: { packages: {
+        "": { dependencies: {}, devDependencies: { wrangler: "4.120.0" } },
+        "node_modules/wrangler": { version: "4.120.0", dev: true, dependencies: { miniflare: "5.20260801.1-alpha" } },
+        "node_modules/miniflare": { version: "5.20260801.1-alpha", dev: true, dependencies: { sharp: "0.35.2", undici: "7.29.0" } },
+        ...Object.fromEntries(Object.entries(versions).map(([name, version]) =>
+          [`node_modules/${name}`, { version, dev: true }])),
+      } },
+    },
+  },
+};
 const clone = (value) => structuredClone(value);
 const entryOf = (register, id) => register.overrides.find((item) => item.id === id);
 
@@ -75,7 +106,7 @@ export const FIXTURES = {
 
   "package-name-drift": () => {
     const register = clone(base.register);
-    const entry = entryOf(register, "OV-1");
+    const entry = entryOf(register, "FIX-SHARP");
     entry.package = "sharp-image";
     entry.dependency_path = ["wrangler", "miniflare", "sharp-image"];
     return { register, workspaces: clone(base.workspaces), now: NOW };
@@ -83,7 +114,7 @@ export const FIXTURES = {
 
   "dependency-root-drift": () => {
     const register = clone(base.register);
-    const entry = entryOf(register, "OV-1");
+    const entry = entryOf(register, "FIX-SHARP");
     entry.dependency_root = "not-a-declared-dependency";
     entry.dependency_path = ["not-a-declared-dependency", "miniflare", "sharp"];
     return { register, workspaces: clone(base.workspaces), now: NOW };
@@ -91,7 +122,7 @@ export const FIXTURES = {
 
   "dependency-path-drift": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-1").dependency_path = ["wrangler", "miniflare", "some-other-package"];
+    entryOf(register, "FIX-SHARP").dependency_path = ["wrangler", "miniflare", "some-other-package"];
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
@@ -107,7 +138,7 @@ export const FIXTURES = {
   // Runtime reachability claimed where the graph shows none.
   "runtime-claim-without-reachability": () => {
     const register = clone(base.register);
-    const entry = entryOf(register, "OV-1");
+    const entry = entryOf(register, "FIX-SHARP");
     entry.reachability = "production_runtime";
     delete entry.production_closure_evidence;
     entry.production_reachability_reason = "asserted without evidence";
@@ -120,61 +151,61 @@ export const FIXTURES = {
 
   "missing-review-by": () => {
     const register = clone(base.register);
-    delete entryOf(register, "OV-1").review_by;
+    delete entryOf(register, "FIX-SHARP").review_by;
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "malformed-review-by": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-1").review_by = "2026-13-45";
+    entryOf(register, "FIX-SHARP").review_by = "2026-13-45";
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "review-by-not-after-reviewed-on": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-1").review_by = "2026-08-03";
+    entryOf(register, "FIX-SHARP").review_by = "2026-08-03";
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "missing-owner": () => {
     const register = clone(base.register);
-    delete entryOf(register, "OV-1").owner;
+    delete entryOf(register, "FIX-SHARP").owner;
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "empty-owner": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-1").owner = "   ";
+    entryOf(register, "FIX-SHARP").owner = "   ";
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "off-vocabulary-owner": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-1").owner = "somebody else";
+    entryOf(register, "FIX-SHARP").owner = "somebody else";
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "duplicate-record": () => {
     const register = clone(base.register);
-    register.overrides.push(clone(entryOf(register, "OV-1")));
+    register.overrides.push(clone(entryOf(register, "FIX-SHARP")));
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "unknown-field": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-1").permanent = true;
+    entryOf(register, "FIX-SHARP").permanent = true;
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "current-basis-without-advisory": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-1").advisories_cleared = [];
+    entryOf(register, "FIX-SHARP").advisories_cleared = [];
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "historical-basis-still-listing-advisories": () => {
     const register = clone(base.register);
-    const entry = entryOf(register, "OV-1");
+    const entry = entryOf(register, "FIX-SHARP");
     entry.advisory_basis = "historical";
     entry.historical_note = "fixture: historical basis must not retain a cleared advisory";
     return { register, workspaces: clone(base.workspaces), now: NOW };
@@ -182,14 +213,14 @@ export const FIXTURES = {
 
   "malformed-advisory-id": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-1").advisories_cleared = ["CVE-2026-1234"];
+    entryOf(register, "FIX-SHARP").advisories_cleared = ["CVE-2026-1234"];
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "range-spec-without-justification": () => {
     const register = clone(base.register);
     const workspaces = clone(base.workspaces);
-    entryOf(register, "OV-1").declared_spec = "^0.35.3";
+    entryOf(register, "FIX-SHARP").declared_spec = "^0.35.3";
     workspaces["workers/scan-api"].manifest.overrides.sharp = "^0.35.3";
     return { register, workspaces, now: NOW };
   },
@@ -197,7 +228,7 @@ export const FIXTURES = {
   "runtime-record-claiming-closure-evidence": () => {
     const register = clone(base.register);
     const workspaces = clone(base.workspaces);
-    const entry = entryOf(register, "OV-1");
+    const entry = entryOf(register, "FIX-SHARP");
     entry.reachability = "production_runtime";
     entry.production_reachability_reason = "fixture: injected production reachability";
     workspaces["workers/scan-api"].manifest.dependencies.sharp = "0.35.3";
@@ -208,13 +239,13 @@ export const FIXTURES = {
 
   "missing-reason-and-removal-criterion": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-1").removal_criterion = "";
+    entryOf(register, "FIX-SHARP").removal_criterion = "";
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
   "ungoverned-workspace": () => {
     const register = clone(base.register);
-    entryOf(register, "OV-1").workspace = "workers/email-ingest";
+    entryOf(register, "FIX-SHARP").workspace = "workers/email-ingest";
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
@@ -226,7 +257,7 @@ export const FIXTURES = {
 
   "overrides-not-a-list": () => {
     const register = clone(base.register);
-    register.overrides = { "OV-1": {} };
+    register.overrides = { "FIX-SHARP": {} };
     return { register, workspaces: clone(base.workspaces), now: NOW };
   },
 
@@ -435,11 +466,17 @@ try {
       `expected [${expected.join(" | ")}] got [${actual.join(" | ")}]`);
   }
 
-  // A registered override must be visibly EXERCISED on the happy path, not
-  // silently absent: the baseline must actually evaluate real records.
-  ok("baseline exercises every registered override",
+  // The current repository must still pass using the actual clock and inputs.
+  const current = evaluateOverrideRegister({ ...loadInputs(root), now: new Date() });
+  ok("current repository policy passes all 20 assertions",
+    current.length === 20 && current.every((check) => check.passed),
+    current.filter((check) => !check.passed).map((check) => check.name).join(" | "));
+
+  // The fixture baseline must contain both synthetic exceptions; an empty
+  // current register must never make the negative and mutation tests vacuous.
+  ok("baseline exercises both synthetic overrides",
     base.register.overrides.length === 2 &&
-      sameSet(base.register.overrides.map((entry) => entry.id), ["OV-1", "OV-5"]),
+      sameSet(base.register.overrides.map((entry) => entry.id), ["FIX-SHARP", "FIX-UNDICI"]),
     `ids ${base.register.overrides.map((entry) => entry.id).join(",")}`);
 
   // ── PART B ────────────────────────────────────────────────────────────────

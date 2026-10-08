@@ -1,7 +1,7 @@
 {
   "schema": "cybermeters.dependency-override-register/v1",
   "note": "Every `overrides` entry in every workspace package.json is a deliberate deviation from a dependency's declared graph, taken to INSTALL a fixed package rather than to suppress or weaken `npm audit`. This register is the machine-readable binding: each record names the exact package, the declared spec, the resolved lockfile version, the dependency ancestry, whether the package is reachable from a production root, the advisories the override clears today, an owner, and a mandatory review deadline. scripts/validate-dependency-overrides.js fails CI when a live override is unregistered, a record is stale, a version drifts, a dev-only claim is contradicted by the locked graph, or a review deadline has passed. `advisory_basis` separates an override that clears a CURRENT advisory from one that has become redundant upstream (HISTORICAL) \u2014 a redundant override is a silent permanent fork, so it must carry a near-term review deadline and a removal check. Prose records live in docs/DEPENDENCY-OVERRIDES.md and are referenced by `record`.",
-  "reviewed_on": "2026-10-04",
+  "reviewed_on": "2026-10-08",
   "owner_vocabulary": [
     "CyberMeters engineering (founder-owned)"
   ],
@@ -10,8 +10,8 @@
       "id": "OV-1",
       "workspace": "workers/scan-api",
       "package": "sharp",
-      "declared_spec": "0.35.4",
-      "resolved_version": "0.35.4",
+      "declared_spec": "0.35.5",
+      "resolved_version": "0.35.5",
       "dependency_root": "wrangler",
       "dependency_path": [
         "wrangler",
@@ -22,51 +22,40 @@
       "production_closure_evidence": "npm ls --omit=dev sharp",
       "advisory_basis": "current",
       "advisories_cleared": [
-        "GHSA-f88m-g3jw-g9cj",
-        "GHSA-rgj7-g3m4-5g8c"
+        "GHSA-wq5f-xc86-pv6w"
       ],
-      "reason": "Miniflare 5.20260801.1-alpha declares sharp 0.35.2 exact. The previous override 0.35.3 is affected by GHSA-rgj7-g3m4-5g8c (sharp <0.35.4); this pin installs 0.35.4. sharp is absent from the production closure (npm ls --omit=dev sharp); it belongs to the Wrangler/Miniflare development toolchain. GHSA-f88m-g3jw-g9cj is retained as the original OV-1 advisory history.",
-      "removal_criterion": "Remove when a supported Wrangler/Miniflare release declares sharp >=0.35.4. Delete the override and confirm npm ls sharp resolves >=0.35.4 without overridden/invalid markers, npm audit --audit-level=high has no sharp advisory, and Wrangler deploy --dry-run plus the native sharp smoke pass.",
+      "reason": "Wrangler 4.148.0 uses Miniflare 5.20261006.0-alpha, which declares sharp 0.35.4 exact. GHSA-wq5f-xc86-pv6w affects sharp <0.35.5; this override installs 0.35.5. sharp remains absent from the production closure and belongs to the Wrangler/Miniflare development toolchain. Earlier OV-1 advisory history is preserved in docs/DEPENDENCY-OVERRIDES.md.",
+      "removal_criterion": "Remove when a supported Wrangler/Miniflare release declares sharp >=0.35.5. Delete the override and confirm npm ls sharp resolves >=0.35.5 without overridden/invalid markers, npm audit --audit-level=high has no sharp advisory, and Wrangler deploy --dry-run plus the native sharp smoke pass.",
       "owner": "CyberMeters engineering (founder-owned)",
       "introduced_on": "2026-07-22",
-      "reviewed_on": "2026-10-04",
+      "reviewed_on": "2026-10-08",
       "review_by": "2026-11-30",
       "record": "docs/DEPENDENCY-OVERRIDES.md#ov-1"
     },
     {
-      "id": "OV-5",
-      "workspace": "workers/scan-api",
-      "package": "undici",
-      "declared_spec": "7.29.1",
-      "resolved_version": "7.29.1",
-      "dependency_root": "wrangler",
+      "id": "OV-6",
+      "workspace": "frontend",
+      "package": "postcss-selector-parser",
+      "declared_spec": "7.1.6",
+      "resolved_version": "7.1.6",
+      "dependency_root": "tailwindcss",
       "dependency_path": [
-        "wrangler",
-        "miniflare",
-        "undici"
+        "tailwindcss",
+        "postcss-selector-parser"
       ],
       "reachability": "dev_only",
-      "production_closure_evidence": "npm ls --omit=dev undici",
+      "production_closure_evidence": "npm ls --omit=dev postcss-selector-parser",
       "advisory_basis": "current",
       "advisories_cleared": [
-        "GHSA-3wwx-pv8p-q78v",
-        "GHSA-pmjh-fq2x-6v4x",
-        "GHSA-r53p-7pc4-xj5r",
-        "GHSA-rfgv-xxqx-mfg5",
-        "GHSA-3xpg-4rpp-hhhm",
-        "GHSA-2jfj-6hjv-fm6j",
-        "GHSA-2gqq-gqf2-x968",
-        "GHSA-w293-vg96-wgc3",
-        "GHSA-8436-99hf-9mmv",
-        "GHSA-rx4f-c7p8-82vq"
+        "GHSA-rj75-hqrm-r3gf"
       ],
-      "reason": "Miniflare 5.20260801.1-alpha is the only locked consumer of undici and declares 7.29.0 exact. The top-level override installs 7.29.1 at the single locked undici path, clearing the current npm audit advisories. npm ls --omit=dev undici is empty; the package belongs to the Wrangler development toolchain.",
-      "removal_criterion": "Remove when a supported Wrangler/Miniflare release declares undici >=7.29.1. Delete only this override, regenerate the lock, confirm no undici overridden/invalid marker, a clean worker npm audit --audit-level=high, and a passing Worker dry-run bundle.",
+      "reason": "Tailwind 3.4.19 and postcss-nested 6.2.0 declare parser 6.x ranges. GHSA-rj75-hqrm-r3gf affects versions <7.1.6; this temporary override installs the fixed parser for both development build paths. It crosses their declared major-version range and does not suppress any audit result.",
+      "removal_criterion": "Remove when supported Tailwind/PostCSS dependencies resolve a parser unaffected by GHSA-rj75-hqrm-r3gf without this override; verify full dependency audit, production build, selector compatibility and frontend tests.",
       "owner": "CyberMeters engineering (founder-owned)",
-      "introduced_on": "2026-10-03",
-      "reviewed_on": "2026-10-03",
-      "review_by": "2026-12-31",
-      "record": "docs/DEPENDENCY-OVERRIDES.md#ov-5"
+      "introduced_on": "2026-10-08",
+      "reviewed_on": "2026-10-08",
+      "review_by": "2026-11-23",
+      "record": "docs/DEPENDENCY-OVERRIDES.md#ov-6"
     }
   ]
 }

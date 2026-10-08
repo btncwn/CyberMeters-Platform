@@ -35,7 +35,7 @@
 set -euo pipefail
 export LC_ALL=C
 
-F004_PINNED_WRANGLER="4.120.0"
+F004_PINNED_WRANGLER="4.148.0"
 
 # Operation set = the union of the backup and restore protocol allowlists.
 F004_ADAPTER_OPS="now backup_epoch verify_summary src_identity dest_identity r2_list d1_export r2_object store_put store_get dest_list record_backup_completed create_staging replay_d1 restore_r2 verify_d1 verify_r2 target_r2_list check_integrity check_fk check_schema check_tables check_rows check_r2"

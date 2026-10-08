@@ -38,9 +38,33 @@ and must carry a near-term review date and a removal check.
 The records below are the human-readable half; the register is authoritative for exact
 versions, paths, owners and dates.
 
+## OV-6 — `postcss-selector-parser` forced to `7.1.6` (frontend build only)
+
+Introduced/reviewed **2026-10-08**; owner **CyberMeters engineering (founder-owned)**;
+review by **2026-11-23**. Tailwind 3.4.19 and postcss-nested 6.2.0 declare parser
+6.x ranges, so this temporary pin deliberately crosses their declared major range
+to fix [GHSA-rj75-hqrm-r3gf](https://github.com/advisories/GHSA-rj75-hqrm-r3gf)
+(affected <7.1.6). It changes the installed dependency, not the audit policy or
+its existing braces exception. The parser is absent from the production dependency
+closure; it processes project CSS during the Vite build.
+
+The production build and typecheck pass; generated CSS is byte-identical to the
+pre-update build. Frontend coverage tests pass (677 tests). Independent checks
+pass for 10 Tailwind variants, three nested-selector cases, parser operations and
+Tailwind's private `dist/util/unesc` import (18 checks). The full dependency audit
+under the unchanged exception policy passes 16 checks. The override register,
+its 56 mutation checks and the install policy pass. Tailwind's separately bundled
+CLI peers are not replaced by this override; these checks cover the Vite build
+path used by CyberMeters.
+
+Remove this pin when supported Tailwind/PostCSS dependencies resolve an unaffected
+parser without it, then repeat the full audit, build, selector compatibility and
+frontend tests. This is local build compatibility evidence; CI must pass before
+merge, and this record does not claim a production vulnerability closure.
+
 ---
 
-## OV-1 — `sharp` forced to `0.35.4` (dev-transitive, CI security)
+## OV-1 — `sharp` forced to `0.35.5` (dev-transitive, CI security)
 
 | Field | Value |
 | --- | --- |
@@ -48,7 +72,30 @@ versions, paths, owners and dates.
 | **Introduced** | 2026-07-22 (branch `fix/sharp-cve-override`, PR #268) |
 | **Owner** | CyberMeters engineering (founder-owned) |
 | **Review date** | 2026-11-30 (re-check upstream at each quarterly dependency sweep) |
-| **Scope** | `workers/scan-api/package.json` `overrides` + `package-lock.json` only. No src/runtime, no `wrangler` version change, no deploy. |
+| **Scope** | Worker dependency/lockfile and existing install-policy pins. Wrangler 4.148.0; no application source or deployment change. |
+
+### Review — 2026-10-08
+
+Wrangler **4.148.0** → Miniflare **5.20261006.0-alpha** declares sharp **0.35.4**
+and undici **7.29.1**, verified from the installed package manifests and lockfile.
+Removing both overrides exposed [GHSA-wq5f-xc86-pv6w](https://github.com/advisories/GHSA-wq5f-xc86-pv6w)
+(sharp <0.35.5; librsvg CVE-2026-96889), published to the advisory database on
+6 October. The full Worker audit failed with one underlying advisory and its two
+Miniflare/Wrangler propagation entries. OV-1 therefore **remains ACTIVE** and now
+pins **0.35.5**; it is not eligible for retirement at the old 0.35.4 threshold.
+Wrangler 4.148.0 is still npm's latest release and still declares 0.35.4.
+
+With the 0.35.5 override, `npm audit --audit-level=high` reports **0 vulnerabilities**,
+including development dependencies. The native macOS arm64 `create → png → toBuffer`
+smoke produces a valid 2×2 PNG (95 bytes; sharp 0.35.5 / libvips 8.18.7). The main
+Worker, DMARCbis fixture and email Worker dry-run bundles pass. The independent
+production dependency walk contains only `tr46` and `punycode`; sharp and undici
+remain development-only. This is local dependency validation, not a production
+exploit reproduction or independent security closure.
+
+The removal threshold is now **sharp >=0.35.5** with the same audit, graph, bundle
+and native-smoke checks. Owner and **2026-11-30** review deadline remain unchanged.
+The retired OV-5 record is preserved below. Earlier dated reviews are historical.
 
 ### Review — 2026-10-04
 
@@ -86,7 +133,7 @@ repair and is not a completed independent security retest.
 
 ### What it does
 ```json
-"overrides": { "sharp": "0.35.4" }
+"overrides": { "sharp": "0.35.5" }
 ```
 Exact pin (not a range) so the resolved dev-tool graph cannot drift silently on future
 installs.
@@ -151,14 +198,14 @@ declared graph.
 
 ### Removal criterion
 Remove `OV-1` when a supported `wrangler` (and its bundled `miniflare`) declares
-**`sharp ≥ 0.35.4`** (the register's `removal_criterion`). Verify removal by:
+**`sharp ≥ 0.35.5`** (the register's `removal_criterion`). Verify removal by:
 1. deleting the `sharp` entry from `overrides`,
-2. `npm ls sharp` resolves sharp **≥ 0.35.4** with no `overridden` / `invalid` marker,
+2. `npm ls sharp` resolves sharp **≥ 0.35.5** with no `overridden` / `invalid` marker,
 3. `npm audit --audit-level=high` reports no sharp advisory,
 4. `npx wrangler deploy --dry-run` still builds,
 5. the native sharp smoke passes.
 
-If all four hold, delete this record's ACTIVE status and note the closing wrangler/miniflare
+If all five hold, delete this record's ACTIVE status and note the closing wrangler/miniflare
 version.
 
 ---
@@ -350,7 +397,23 @@ is preserved.
 
 ---
 
-## OV-5 — Miniflare undici pinned to 7.29.1 (dev-transitive)
+## OV-5 — Miniflare undici pinned to 7.29.1 (dev-transitive) — CLOSED
+
+### Closure evidence — 2026-10-08
+
+Wrangler **4.148.0** → Miniflare **5.20261006.0-alpha** now declares undici
+**7.29.1** exactly. The manifest override and live OV-5 register entry are removed.
+The installed graph resolves one undici 7.29.1 path without an `overridden` or
+`invalid` marker, and undici remains absent from the independent production
+closure. The full Worker audit reports **0 vulnerabilities** after separately
+updating the still-required OV-1 sharp override. Main Worker, DMARCbis fixture and
+email Worker dry-run bundles pass. No application source or deployment changed.
+
+The exception validator passes all 20 checks with the current clock. Its mutation
+runner uses explicit synthetic exceptions to retain every guard after retirement:
+56 checks pass, including all 20 guard mutants and the current real policy check.
+
+### Historical record — 2026-10-03
 
 Reviewed 2026-10-03; review by 2026-12-31; owner: CyberMeters engineering (founder-owned).
 

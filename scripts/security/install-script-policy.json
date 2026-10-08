@@ -16,9 +16,9 @@
       "root": "frontend",
       "package_name": "cybermeters-frontend",
       "package_version": "1.0.0",
-      "package_json_sha256": "71dfe83aeeaa99ff3907bca8f8c7adc2c5df2e3c6a00264e01beaccc48842c86",
+      "package_json_sha256": "eae7e25139d85d00da0f87f50ac7ae2144fcfbb054a733f1264cd46054e89e35",
       "lockfile_version": 3,
-      "lockfile_sha256": "5b58df72f1131280f7919aa990500512f69671ec6e7c593f79c22b3b21b8dadd",
+      "lockfile_sha256": "b84a8e226dd5da626258a7aa4816535668b11da6644b07b3df809d294a424fa9",
       "install_script_markers": [
         {
           "package_path": "node_modules/esbuild",
@@ -70,9 +70,9 @@
       "root": "workers/scan-api",
       "package_name": "cybermeters-scan-api",
       "package_version": "0.1.0",
-      "package_json_sha256": "497c6be139c5bedb1fd241655f6ecadaf65f61ad5f7e1d34ff934bec4dc10c5b",
+      "package_json_sha256": "6c4dfaab01f49677a16c6be56a4ac4b9ff3b724d0adab50e31af120687e0aa42",
       "lockfile_version": 3,
-      "lockfile_sha256": "e368e18c64f0ee2afe0dbdec6302372695bc8ced6bd852ccb358cf53c239c4c0",
+      "lockfile_sha256": "60cd7b8e4810768ad3fcbaceca1ea28b35ec7b2f252c32cbfe8d0d2273bc9244",
       "install_script_markers": [
         {
           "package_path": "node_modules/esbuild",
@@ -103,19 +103,19 @@
         {
           "package_path": "node_modules/workerd",
           "package_name": "workerd",
-          "version": "1.20260801.1",
-          "resolved": "https://registry.npmjs.org/workerd/-/workerd-1.20260801.1.tgz",
-          "integrity": "sha512-/g9JGTyqnHtoIscpBHqKD8swE2V4StBs2i69PmLiOhH45OP95jCFICl4F1hKlgN57rqfni5LiCitttoX5OOkVA==",
+          "version": "1.20261006.1",
+          "resolved": "https://registry.npmjs.org/workerd/-/workerd-1.20261006.1.tgz",
+          "integrity": "sha512-8MadBuffZ5NdpLwZjUmsqT5QlaKXq4gjgT6wzcKeynZTICNXyePhc+5QVoKiK7+MMhFTLNrRO2KXLlpk8Q6BkA==",
           "disposition": "approved",
-          "package_json_sha256": "458338bb575a82f2ee0e3e0cf9340f0408e5ade82323740d857c7297ee102e07",
+          "package_json_sha256": "71ef84ddbd1302831f904f7db06180b2d9d184f73996ad5d4c16080a8695b1a4",
           "lifecycle_event": "postinstall",
           "lifecycle_command": "node install.js",
           "script_path": "install.js",
-          "script_sha256": "236509d2c737e6bfbf7670a575e80b0348e10581ad4b91b69d35b28bfb8a5495",
+          "script_sha256": "ba1ebba846c67b5dd20f4bbfd7b1249ed5fe5ec54c7199352cef36cca7b19d76",
           "platform_binary_subpath": "bin/workerd",
           "probe_path": "bin/workerd",
           "probe_args": ["--version"],
-          "probe_stdout": "workerd 2026-08-01"
+          "probe_stdout": "workerd 2026-10-06"
         }
       ]
     }
