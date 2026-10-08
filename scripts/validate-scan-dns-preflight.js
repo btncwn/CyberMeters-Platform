@@ -6,11 +6,18 @@ import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { makeSsrfSafeProbeFetch, makeReservedProbeFetch } from "../workers/scan-api/src/engines/reserved-probe.js";
-import { probeAsset, runExposureModule } from "../workers/scan-api/src/engines/asset-intel.js";
+import { probeAsset, runExposureModule, runAdminSurfaceModule } from "../workers/scan-api/src/engines/asset-intel.js";
 import { dnsQuery } from "../workers/scan-api/src/engines/dns.js";
 import { runSslModule } from "../workers/scan-api/src/engines/ssl-scan.js";
 import { runHeadersModule } from "../workers/scan-api/src/engines/headers-scan.js";
 import { runTechModule } from "../workers/scan-api/src/engines/tech-scan.js";
+
+import { deriveAttackSurfaceSignalCompleteness, deriveRemovalObservation } from "../workers/scan-api/src/engines/attack-surface-signal-completeness.js";
+import { computeSecurityPosture } from "../workers/scan-api/src/engines/posture-scoring.js";
+import { buildPostureDiffEvents } from "../workers/scan-api/src/engines/posture-events.js";
+import { buildScanQuality } from "../workers/scan-api/src/engines/scan-engine.js";
+import { moduleCompletionGate } from "../workers/scan-api/src/engines/asm-cases.js";
+import { resolveCyberMotDomainStates } from "../workers/scan-api/src/engines/cyber-mot-domains.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 let passed = 0, failed = 0;
@@ -21,8 +28,10 @@ const ok = (name, condition) => {
 const originalFetch = globalThis.fetch;
 const host = "asset.example.test";
 const target = `https://${host}/`;
-const packet = (type, ips) => ({ Status: 0, Answer: ips.map((data) => ({ type: type === "AAAA" ? 28 : 1, data })) });
-const publicDns = async (_name, type) => packet(type, type === "A" ? ["93.184.216.34"] : []);
+const packet = (type, ips, name = host) => ({ Status: 0, TC: false,
+  Question: [{ name: `${name}.`, type: type === "AAAA" ? 28 : 1 }],
+  Answer: ips.map((data) => ({ name: `${name}.`, type: type === "AAAA" ? 28 : 1, data })) });
+const publicDns = async (name, type) => packet(type, type === "A" ? ["93.184.216.34"] : [], name);
 const privateDns = async (_name, type) => packet(type, type === "A" ? ["127.0.0.1"] : []);
 const errorDns = async () => { throw new Error("synthetic DNS failure"); };
 // DNS-JSON negative answers: RFC 2308 §2.2 / RFC 7129 §2.2. These
@@ -34,7 +43,10 @@ function soaNodata(name, type, cname = false) {
       data: "ns.example.test. hostmaster.example.test. 1 3600 600 86400 60" }] };
 }
 const soaResolver = (cname = false) => async (name, type) => type === "A"
-  ? publicDns(name, type) : soaNodata(name, type, cname);
+  ? (cname ? { ...packet(type, ["93.184.216.34"], name), Answer: [
+    { name: `${name}.`, type: 5, data: "terminal.example.test." },
+    { name: "terminal.example.test.", type: 1, data: "93.184.216.34" },
+  ] } : publicDns(name, type)) : soaNodata(name, type, cname);
 const observed = [];
 function transport(resolver, redirectHost = null) {
   observed.length = 0;
@@ -87,7 +99,83 @@ try {
   }
   transport(publicDns);
   const bothNodata = await caught(() => makeSsrfSafeProbeFetch({ resolver: (name, type) => soaNodata(name, type) })(target));
-  ok("PROBE_SOA_BOTH_NODATA_UNAVAILABLE", observed.length === 0 && bothNodata.error?.code === "dns_resolution_unavailable");
+  ok("PROBE_SOA_BOTH_NODATA_ZERO_HTTP", observed.length === 0 && bothNodata.error?.code === "dns_no_address"
+    && bothNodata.error.dns_stage === "initial" && bothNodata.error.dns_evidence?.families.AAAA.soa.zone === "example.test");
+
+  for (const rcode of [0, 3]) {
+    const negative = (name, type) => ({ ...soaNodata(name, type), Status: rcode });
+    transport(negative);
+    const allAbsent = await runExposureModule(host, [host], { cache: new Map() });
+    const admin = runAdminSurfaceModule({ asset_exposure: allAbsent });
+    const modules = { asset_exposure: allAbsent, admin_surface_detection: admin,
+      dns: { resolution_assessed: true, resolves_any: true }, subdomains: { total: 1, subdomains: [host] } };
+    const signals = deriveAttackSurfaceSignalCompleteness(modules).signals;
+    ok(`NO_ADDRESS_${rcode}_SCAN_MEASUREMENT_COMPLETE`, buildScanQuality(modules).status === "complete");
+    ok(`NO_ADDRESS_${rcode}_MEASUREMENT_COMPLETED`, observed.length === 0 && !allAbsent.incomplete
+      && allAbsent.assets.every(a => a.probe_status === "not_applicable" && a.reachable === null && a.http_assessed === false));
+    ok(`NO_ADDRESS_${rcode}_HTTP_NOT_HEALTHY`, admin.evidence_status === "not_assessed"
+      && signals.http_https_service.state === "not_assessed" && signals.exposure_admin_surface.state === "not_assessed");
+    ok(`NO_ADDRESS_${rcode}_NO_REMOVAL_PROOF`, allAbsent.removal_observations.every(row =>
+      row.signal_states.http_https_service.state === "not_assessed"
+      && deriveRemovalObservation(row.signal_states) === "not_assessed"));
+    ok(`NO_ADDRESS_${rcode}_NO_CASE_VERIFICATION`, !moduleCompletionGate(modules, { status: "complete" }).canVerify("asset_exposure")
+      && !moduleCompletionGate(modules, { status: "complete" }).canVerify("admin_surface_detection"));
+    const previous = { admin_surface_detection: { evidence_status: "issue_detected", services: [
+      { hostname: host, product: "Admin", severity: "high", finding_type: "finding" },
+    ] } };
+    ok(`NO_ADDRESS_${rcode}_NO_RESOLVED_EVENT`, !buildPostureDiffEvents(host, previous, modules)
+      .some(event => event.event_type === "exposed_service_resolved"));
+    const posture = computeSecurityPosture({ brand_risks: {}, vendor_risk: {}, certificate_risks: {} }, { modules });
+    ok(`NO_ADDRESS_${rcode}_NO_ADMIN_SCORE`, posture.admin_exposure.score === null);
+    const mot = resolveCyberMotDomainStates({ modules, findings: [], scan_quality: { status: "complete" } });
+    ok(`NO_ADDRESS_${rcode}_MOT_NOT_HEALTHY`, mot.find(d => d.domain_key === "attack_surface")?.state === "evidence_insufficient");
+  }
+  for (const [label, alter] of [
+    ["question", p => ({ ...p, Question: [{ name: "wrong.example.test.", type: p.Question[0].type }] })],
+    ["truncated", p => ({ ...p, TC: true })],
+    ["weak_empty", p => ({ Status: 0, Answer: [] })],
+    ["refused", p => ({ ...p, Status: 5 })],
+    ["malformed_soa", p => ({ ...p, Authority: [{ ...p.Authority[0], data: "not an SOA" }] })],
+    ["soa_missing", p => ({ ...p, Authority: [] })],
+    ["soa_unrelated", p => ({ ...p, Authority: [{ ...p.Authority[0], name: "unrelated.test." }] })],
+    ["servfail", p => ({ ...p, Status: 2 })],
+    ["mixed_status", (p, type) => ({ ...p, Status: type === "A" ? 0 : 3 })],
+    ["cname_loop", p => ({ ...p, Answer: [{ name: `${host}.`, type: 5, data: `${host}.` }] })],
+  ]) {
+    transport((name, type) => alter(soaNodata(name, type), type));
+    const asset = await probeAsset(host);
+    ok(`NO_ADDRESS_INVALID_${label}_PARTIAL`, observed.length === 0 && asset.probe_status === "not_executed");
+  }
+  for (const [label, resolver] of [
+    ["nxdomain_public", (name, type) => type === "A" ? publicDns(name, type) : { ...soaNodata(name, type), Status: 3 }],
+    ["cname_conflict", (name, type) => type === "A" ? publicDns(name, type) : soaNodata(name, type, true)],
+  ]) {
+    transport(resolver);
+    const asset = await probeAsset(host);
+    ok(`NO_ADDRESS_CONTRADICTION_${label}`, observed.length === 0 && asset.probe_status === "not_executed");
+  }
+  transport((name, type) => soaNodata(name, type, true));
+  const absentAlias = await probeAsset(host);
+  ok("NO_ADDRESS_CNAME_CHAIN_PROVEN", observed.length === 0 && absentAlias.probe_status === "not_applicable"
+    && absentAlias.dns_evidence.families.A.terminal === "terminal.example.test");
+  const redirected = "redirect.example.test";
+  transport((name, type) => name === redirected ? soaNodata(name, type) : publicDns(name, type), redirected);
+  const redirectedAbsent = await probeAsset(host);
+  ok("NO_ADDRESS_REDIRECT_NOT_NA", observed.length > 0 && observed.every(c => c.hostname === host)
+    && redirectedAbsent.probe_status === "not_executed");
+
+  const absentHost = "absent.example.test";
+  transport((name, type) => name === absentHost ? soaNodata(name, type) : publicDns(name, type));
+  const mixed = await runExposureModule(host, [host, absentHost], { cache: new Map() });
+  const mixedAdmin = runAdminSurfaceModule({ asset_exposure: mixed });
+  const mixedSignals = deriveAttackSurfaceSignalCompleteness({ asset_exposure: mixed, admin_surface_detection: mixedAdmin }).signals;
+  ok("NO_ADDRESS_MIXED_REAL_OBSERVATION_RETAINED", !mixed.incomplete && mixed.reachable > 0
+    && mixedSignals.http_https_service.state === "observed" && mixedSignals.http_https_service.limitations.length > 0
+    && mixedAdmin.evidence_status === "not_assessed");
+  mixed.assets.find(a => a.reachable === true).title = "Grafana";
+  const mixedFinding = runAdminSurfaceModule({ asset_exposure: mixed });
+  ok("NO_ADDRESS_MIXED_REAL_FINDING_RETAINED", mixedFinding.evidence_status === "issue_detected" && mixedFinding.total > 0);
+  transport(publicDns);
   const negativeWithPrivate = await makeSsrfSafeProbeFetch({ resolver: async (name, type) =>
     type === "A" ? privateDns(name, type) : soaNodata(name, type) })(target);
   ok("PROBE_SOA_PRIVATE_SIBLING_BLOCKED", negativeWithPrivate === null && observed.length === 0);
@@ -200,11 +288,20 @@ if (!process.argv.includes("--behavior-only") && failed === 0) {
       after: "function hasAuthoritativeNodata(packet, family, host, answers) { return false;",
       expected: "PROBE_SOA_OMITTED_DEFAULT_PUBLIC" },
     { id: "SOA_AUTHORITY_UNCHECKED", file: "lib/ssrf.js",
-      before: "return Array.isArray(packet.Authority) && packet.Authority.some((record) => {",
-      after: "return true || Array.isArray(packet.Authority) && packet.Authority.some((record) => {",
+      before: "if (terminal !== zone && !terminal.endsWith(`.${zone}`)) return false;",
+      after: "if (false) return false;",
       expected: "PROBE_SOA_unrelated_ZERO_HTTP" },
+    { id: "NO_ADDRESS_PROOF_BYPASS", file: "lib/ssrf.js",
+      before: "negativeA.status === negativeAAAA.status", after: "true",
+      expected: "NO_ADDRESS_INVALID_mixed_status_PARTIAL" },
+    { id: "NO_ADDRESS_ADMIN_FALSE_HEALTHY", file: "engines/asset-intel.js",
+      before: 'exposureAssets.some((asset) => asset.probe_status === "not_applicable")', after: 'false',
+      expected: "NO_ADDRESS_0_HTTP_NOT_HEALTHY" },
+    { id: "NO_ADDRESS_CASE_GATE_REMOVED", file: "engines/asm-cases.js",
+      before: 'incomplete.add("asset_exposure");', after: 'void 0;',
+      expected: "NO_ADDRESS_0_NO_CASE_VERIFICATION" },
     { id: "SOA_QUESTION_UNCHECKED", file: "lib/ssrf.js",
-      before: "normalize(packet.Question[0]?.name) !== normalize(host)", after: "false",
+      before: "|| normalize(packet.Question[0]?.name) !== normalize(host)\n      || !Array.isArray(answers)", after: "|| false\n      || !Array.isArray(answers)",
       expected: "PROBE_SOA_wrong_question_ZERO_HTTP" },
     { id: "PROBE_UNAVAILABLE_ALLOWED", file: "engines/reserved-probe.js",
       before: "if (resolution.state !== STRICT_DNS_STATES.PUBLIC) {", after: "if (false) {",

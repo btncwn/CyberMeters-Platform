@@ -1610,7 +1610,7 @@ function certificateCxPositive(name, candidate, expected) {
   ok(`B3e ${name}: score and methodology remain independently frozen`,
     candidate.score === candidate.paired_score_control &&
       candidate.score_methodology === "2026-08-26.1" &&
-      candidate.resolver_version === "2026-08-30.2");
+      candidate.resolver_version === "2026-10-08.1");
 }
 
 certificateCxPositive("13-day", cert13Cx, {
@@ -1951,7 +1951,7 @@ ok("B9 CX: PDF renders exact backend title/severity and canonical action",
 ok("B9 CX: score and score methodology equal the paired no-bucket control",
   b2bVcenterCx.score === b2bVcenterCx.paired_score_control
     && b2bVcenterCx.score_methodology === "2026-08-26.1"
-    && b2bVcenterCx.resolver_version === "2026-08-30.2",
+    && b2bVcenterCx.resolver_version === "2026-10-08.1",
   JSON.stringify({
     score: b2bVcenterCx.score,
     paired: b2bVcenterCx.paired_score_control,

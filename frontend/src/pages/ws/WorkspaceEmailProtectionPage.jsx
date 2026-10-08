@@ -3122,17 +3122,19 @@ function becEvidenceChips(ev) {
   const out = []
   const has = (k) => ev[k] !== undefined && ev[k] !== null
   if (has('dmarc_policy'))   out.push({ label: `DMARC: ${ev.dmarc_policy}`, tone: ev.dmarc_policy === 'none' ? 'warn' : 'neutral' })
-  if (has('pass_rate'))      out.push({ label: `Pass rate ${ev.pass_rate}%`, tone: ev.pass_rate < 90 ? 'warn' : 'neutral' })
+  if (has('pass_rate'))      out.push(Number(ev.total_messages) > 0
+    ? { label: `Pass rate ${ev.pass_rate}%`, tone: ev.pass_rate < 90 ? 'warn' : 'neutral' }
+    : { label: 'Pass rate: Not measured', tone: 'neutral' })
   if (has('failed_messages'))out.push({ label: `${ev.failed_messages} failed`, tone: ev.failed_messages > 0 ? 'warn' : 'neutral' })
   if (has('unknown_senders'))out.push({ label: `${ev.unknown_senders} unknown sender${ev.unknown_senders === 1 ? '' : 's'}`, tone: ev.unknown_senders > 0 ? 'warn' : 'neutral' })
   if (has('suspicious_senders')) out.push({ label: `${ev.suspicious_senders} suspicious`, tone: ev.suspicious_senders > 0 ? 'warn' : 'neutral' })
   if (has('high_volume_failing_senders')) out.push({ label: `${ev.high_volume_failing_senders} high-volume failing`, tone: ev.high_volume_failing_senders > 0 ? 'warn' : 'neutral' })
-  if (has('reports_received')) out.push({ label: ev.reports_received ? 'Reports received' : 'No reports yet', tone: ev.reports_received ? 'ok' : 'neutral' })
+  if (has('reports_received')) out.push({ label: ev.reports_received ? 'Customer-submitted reports available' : 'No customer-submitted reports for this assessment', tone: ev.reports_received ? 'ok' : 'neutral' })
   if (has('cybermeters_rua_verified')) out.push({ label: ev.cybermeters_rua_verified ? 'RUA verified in DNS' : 'RUA not verified in DNS', tone: ev.cybermeters_rua_verified ? 'ok' : 'warn' })
   return out
 }
 
-function BecExposure({ wsId, domain }) {
+export function BecExposure({ wsId, domain }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [errState, setErrState] = useState(null) // 'not_available' | 'forbidden' | 'failed'
@@ -3155,8 +3157,12 @@ function BecExposure({ wsId, domain }) {
 
   const sev = becSev(data?.exposure_level)
   const chips = becEvidenceChips(data?.evidence)
-  const reasons = Array.isArray(data?.reasons) ? data.reasons.slice(0, 4) : []
-  const actions = Array.isArray(data?.recommended_actions) ? data.recommended_actions.slice(0, 3) : []
+  const reasons = (Array.isArray(data?.reasons) ? data.reasons.slice(0, 4) : []).map(reason => reason.code === 'no_dmarc_reports'
+    ? { ...reason, label: 'No customer-submitted reports for this assessment', detail: 'Automatically received reports remain visible in sender activity. This assessment uses reports uploaded through your workspace.' }
+    : reason)
+  const actions = (Array.isArray(data?.recommended_actions) ? data.recommended_actions.slice(0, 3) : []).map(action => action.code === 'enable_dmarc_reporting'
+    ? { ...action, label: 'Add a report to this assessment', detail: 'Upload an existing DMARC report through your workspace to include its sender evidence here.' }
+    : action)
 
   return (
     <section className={`card overflow-hidden ${data ? sev.accent : ''}`}>
@@ -3203,6 +3209,7 @@ function BecExposure({ wsId, domain }) {
             {chips.length > 0 && (
               <div>
                 <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Evidence</p>
+                <p className="text-xs text-gray-500 mb-2">Sender figures here use customer-submitted reports. Automatically received reports appear separately in sender activity and do not establish trust in the sender.</p>
                 <div className="flex flex-wrap gap-1.5">
                   {chips.map((c, i) => (
                     <span key={i} className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${becChipCls(c.tone)}`}>{c.label}</span>
@@ -3253,34 +3260,33 @@ function BecExposure({ wsId, domain }) {
   )
 }
 
-// ── DMARC report ingestion status (BEC-evidence authoritative) ────────────────
-// Preserves the truth distinction: reports_received (backend imported reports)
-// vs cybermeters_rua_verified (live DMARC DNS includes our address). Never says
-// "Connected" unless BOTH hold. Sender summary comes from BEC evidence.
-function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders }) {
+// Receipt comes from completed DMARC history, independently of BEC eligibility.
+// The endpoint timestamp also covers TLS-RPT and cannot prove DMARC receipt.
+export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders }) {
   const [bec, setBec] = useState(null)
-  const [endpoint, setEndpoint] = useState(null)
+  const [history, setHistory] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
     if (!wsId || !domain) { setLoading(false); return }
-    setLoading(true); setBec(null); setEndpoint(null)
-    Promise.allSettled([api.getBecExposureScore(wsId, domain), api.getDmarcIngestEndpoint(wsId, domain)])
-      .then(([b, e]) => {
+    setLoading(true); setBec(null); setHistory(null)
+    Promise.allSettled([api.getBecExposureScore(wsId, domain), api.getDmarcReportHistory(wsId, domain, 1)])
+      .then(([b, h]) => {
         if (cancelled) return
         setBec(b.status === 'fulfilled' ? (b.value || null) : null)
-        setEndpoint(e.status === 'fulfilled' ? (e.value?.endpoint || null) : null)
+        setHistory(h.status === 'fulfilled' ? (h.value || null) : null)
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [wsId, domain])
 
   const ev = bec?.evidence || {}
-  const reportsReceived = ev.reports_received != null ? Boolean(ev.reports_received) : Boolean(endpoint?.last_inbound_at)
+  const reportsReceived = history?.totals?.reports != null ? Number(history.totals.reports) > 0 : null
   const dnsVerified = ev.cybermeters_rua_verified != null ? Boolean(ev.cybermeters_rua_verified) : null // null = unknown
-  const lastReport = ev.last_report_received_at || endpoint?.last_inbound_at || null
-  const passRate = ev.pass_rate
+  const lastReportPeriod = history?.totals?.last_seen
+  const hasMeasuredMessages = Number(ev.total_messages) > 0
+  const passRate = hasMeasuredMessages ? ev.pass_rate : null
   const failed = ev.failed_messages
   const known = ev.known_senders
   const unknown = ev.unknown_senders
@@ -3290,20 +3296,24 @@ function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders }) {
   // States A–D. DNS unknown is treated as "not verified" for labelling so we
   // never overclaim — but the chip shows "Unknown" rather than asserting a fault.
   let state
-  if (!reportsReceived && dnsVerified === true) state = 'D'
+  if (reportsReceived === null) state = 'U'
+  else if (!reportsReceived && dnsVerified === true) state = 'D'
   else if (!reportsReceived) state = 'A'
   else if (dnsVerified === true) state = 'B'
   else state = 'C'
 
   const STATE = {
+    U: { tone: 'na', icon: Info, label: 'Report status unavailable',
+         msg: 'DMARC report history could not be loaded.',
+         next: 'Refresh this page to check report receipt.' },
     A: { tone: 'na',   icon: Inbox,        label: 'No reports received yet',
          msg: 'CyberMeters has not received DMARC aggregate reports for this domain yet.',
          next: 'Add the CyberMeters reporting address to your DMARC record.', cta: 'View setup instructions', act: onGotoSetup },
     B: { tone: 'ok',   icon: CheckCircle,  label: 'Reports received',
-         msg: 'CyberMeters is receiving DMARC aggregate reports and the reporting address is present in DNS.',
+         msg: 'DMARC reports have been received or imported, and the reporting address is present in DNS.',
          next: 'Review who is sending email using this domain.', cta: 'Review sender activity', act: onGotoSenders },
     C: { tone: 'warn', icon: AlertTriangle, label: 'Reports received · DNS not verified',
-         msg: 'CyberMeters is receiving DMARC reports, but the CyberMeters reporting address was not found in the live DMARC DNS record. Reports received do not prove DNS is correctly configured.',
+         msg: 'DMARC reports have been received or imported, but the reporting address is not verified in DNS. Report receipt alone does not verify the setup.',
          next: 'Update your DMARC record to include the CyberMeters reporting address.', cta: 'Finish DNS setup', act: onGotoSetup },
     D: { tone: 'info', icon: Inbox,        label: 'DNS verified · waiting for reports',
          msg: 'Your DMARC record includes the CyberMeters reporting address. Reports may take 24–48 hours to arrive depending on mail volume and receivers.',
@@ -3314,15 +3324,13 @@ function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders }) {
   const dnsLabel = dnsVerified === true ? 'Verified' : dnsVerified === false ? 'Not verified' : 'Unknown'
 
   const tiles = [
-    { label: 'Reports received', value: reportsReceived ? 'Yes' : 'No', tone: reportsReceived ? 'ok' : 'na' },
-    { label: 'Last report',      value: lastReport ? new Date(lastReport).toLocaleDateString() : 'Not yet' },
+    { label: 'Reports received', value: reportsReceived === null ? 'Unknown' : reportsReceived ? 'Yes' : 'No', tone: reportsReceived ? 'ok' : 'na' },
+    { label: 'Latest report period', value: lastReportPeriod ? new Date(Number(lastReportPeriod) * 1000).toLocaleDateString() : reportsReceived === false ? 'Not yet' : 'Not available' },
     { label: 'DNS verification', value: dnsLabel, tone: dnsVerified === false ? 'warn' : dnsVerified ? 'ok' : 'na' },
   ]
-  if (passRate != null)  tiles.push({ label: 'DMARC pass rate',      value: `${passRate}%`, tone: passRate < 90 ? 'warn' : 'ok' })
-  if (suspicious != null) tiles.push({ label: 'Suspicious senders',   value: suspicious, tone: suspicious > 0 ? 'warn' : '' })
-  if (hiVolFail != null)  tiles.push({ label: 'High-volume failures', value: hiVolFail, tone: hiVolFail > 0 ? 'warn' : '' })
+  if (bec) tiles.push({ label: 'BEC assessment pass rate', value: passRate != null ? `${passRate}%` : 'Not measured', tone: passRate == null ? 'na' : passRate < 90 ? 'warn' : 'ok' })
 
-  const hasSenders = known != null || unknown != null || suspicious != null
+  const hasSenders = hasMeasuredMessages && (known != null || unknown != null || suspicious != null)
   const senderSummary = hasSenders ? [
     { label: 'Known', value: known ?? 0 },
     { label: 'Unknown', value: unknown ?? 0, tone: (unknown ?? 0) > 0 ? 'warn' : '' },
@@ -3374,7 +3382,7 @@ function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders }) {
             {senderSummary && (
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Sender activity</p>
+                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Customer-submitted sender activity · BEC assessment</p>
                   <button onClick={onGotoSenders} className="text-xs font-medium text-brand-700 hover:text-brand-800">View full inventory →</button>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -3397,7 +3405,7 @@ function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders }) {
 
             {state === 'C' && (
               <p className="text-xs text-gray-500 leading-relaxed">
-                <b>Why this matters:</b> receiving reports confirms mail receivers are sending DMARC data, but until the CyberMeters address is in your live DMARC record, your setup is not complete and reporting coverage may be partial.
+                <b>Why this matters:</b> received or uploaded reports show available data. They do not authenticate the report producer or confirm that automatic reporting is correctly configured.
               </p>
             )}
           </>

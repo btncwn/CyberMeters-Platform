@@ -71,11 +71,12 @@ export async function resolvesToPrivateIp(domain, dnsQuery) {
 }
 
 // The legacy helper remains for compatibility. Security-sensitive sinks use
-// this strict tri-state contract so uncertainty never establishes a safe target.
+// this strict contract so uncertainty or proven absence never establishes a safe target.
 export const STRICT_DNS_STATES = Object.freeze({
   PUBLIC: "public",
   BLOCKED: "blocked",
   UNAVAILABLE: "unavailable",
+  NO_ADDRESS: "no_address",
 });
 
 // Budget/deadline/cancellation errors are control-flow, not evidence that a
@@ -231,24 +232,28 @@ function validCname(value) {
       && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label));
 }
 
-// RFC 2308 §2.2: a negative family may omit Answer or contain only CNAMEs.
-// Require a matching question and a relevant SOA before accepting those shapes;
-// a bare missing answer, referral, or incomplete CNAME chain is not NODATA.
-function hasAuthoritativeNodata(packet, family, host, answers) {
+// A DNS-negative result is measurement evidence, never permission to fetch.
+// Keep its proof bounded and separate from the legacy empty-sibling shape.
+function authoritativeDnsNegative(packet, family, host, answers) {
   const normalize = (value) => typeof value === "string" ? value.toLowerCase().replace(/\.$/, "") : "";
   const expectedType = family === "AAAA" ? 28 : 1;
-  if (packet.TC !== false || !Array.isArray(packet.Question) || packet.Question.length !== 1
+  if (![0, 3].includes(packet?.Status) || packet.TC !== false
+      || !Array.isArray(packet.Question) || packet.Question.length !== 1
       || packet.Question[0]?.type !== expectedType
-      || normalize(packet.Question[0]?.name) !== normalize(host)) return false;
+      || normalize(packet.Question[0]?.name) !== normalize(host)
+      || !Array.isArray(answers) || answers.length > 8) return null;
   let terminal = normalize(host);
   const seen = new Set([terminal]);
+  const chain = [];
   for (const answer of answers) {
-    if (answer?.type !== 5 || normalize(answer.name) !== terminal || !validCname(answer.data)) return false;
-    terminal = normalize(answer.data);
-    if (seen.has(terminal)) return false;
+    if (answer?.type !== 5 || normalize(answer.name) !== terminal || !validCname(answer.data)) return null;
+    const target = normalize(answer.data);
+    chain.push({ name: terminal, target });
+    terminal = target;
+    if (seen.has(terminal)) return null;
     seen.add(terminal);
   }
-  return Array.isArray(packet.Authority) && packet.Authority.some((record) => {
+  const soa = Array.isArray(packet.Authority) && packet.Authority.find((record) => {
     if (record?.type !== 6 || !validCname(record.name) || typeof record.data !== "string"
         || !Number.isInteger(record.TTL) || record.TTL < 0) return false;
     const zone = normalize(record.name);
@@ -257,6 +262,44 @@ function hasAuthoritativeNodata(packet, family, host, answers) {
     return fields.length === 7 && validCname(fields[0]) && validCname(fields[1])
       && fields.slice(2).every((value) => /^\d+$/.test(value) && Number(value) <= 0xffffffff);
   });
+  if (!soa) return null;
+  const fields = soa.data.trim().split(/\s+/);
+  return { question: { name: normalize(host), type: expectedType }, status: packet.Status,
+    truncated: false, terminal, cname_chain: chain,
+    soa: { zone: normalize(soa.name), ttl: soa.TTL, serial: Number(fields[2]), minimum: Number(fields[6]) } };
+}
+
+function hasAuthoritativeNodata(packet, family, host, answers) {
+  return packet?.Status === 0 && Boolean(authoritativeDnsNegative(packet, family, host, answers));
+}
+
+function negativePacketProof(packet, family, host) {
+  if (!packet || typeof packet !== "object" || Array.isArray(packet)) return null;
+  if (Object.hasOwn(packet, "Answer") && !Array.isArray(packet.Answer)) return null;
+  return authoritativeDnsNegative(packet, family, host, packet.Answer || []);
+}
+
+// A typed negative and its public sibling must describe the same alias target.
+// Bare positive address records retain the existing no-alias producer contract.
+function positiveTerminal(packet, host, family) {
+  const normalize = (name) => String(name || "").toLowerCase().replace(/\.$/, "");
+  if (packet?.TC !== false || packet?.Question?.length !== 1
+      || packet.Question[0]?.type !== (family === "AAAA" ? 28 : 1)
+      || normalize(packet.Question[0]?.name) !== normalize(host)) return null;
+  let terminal = normalize(host);
+  const seen = new Set([terminal]);
+  const aliases = (packet?.Answer || []).filter((answer) => answer?.type === 5);
+  if (aliases.length > 8) return null;
+  for (const alias of aliases) {
+    if (normalize(alias.name) !== terminal || !validCname(alias.data)) return null;
+    terminal = normalize(alias.data);
+    if (seen.has(terminal)) return null;
+    seen.add(terminal);
+  }
+  for (const answer of packet?.Answer || []) {
+    if (answer.type !== 5 && normalize(answer.name) !== terminal) return null;
+  }
+  return terminal;
 }
 
 function inspectDnsPacket(packet, family, host) {
@@ -355,6 +398,16 @@ export async function resolvePublicDnsTarget(domain, dnsQuery, opts = {}) {
   if (settled.some((result) => result.status === "rejected")) {
     return { state: STRICT_DNS_STATES.UNAVAILABLE, reason: "resolver_error", literal: false, addresses: [] };
   }
+  const negativeA = negativePacketProof(settled[0].value, "A", host);
+  const negativeAAAA = negativePacketProof(settled[1].value, "AAAA", host);
+  if (negativeA && negativeAAAA && negativeA.status === negativeAAAA.status
+      && negativeA.terminal === negativeAAAA.terminal
+      && negativeA.soa.zone === negativeAAAA.soa.zone
+      && JSON.stringify(negativeA.cname_chain) === JSON.stringify(negativeAAAA.cname_chain)) {
+    return { state: STRICT_DNS_STATES.NO_ADDRESS, reason: "authoritative_no_address", literal: false, addresses: [],
+      dns_evidence: { host, outcome: negativeA.status === 3 ? "nxdomain" : "nodata",
+        observed_at: new Date().toISOString(), families: { A: negativeA, AAAA: negativeAAAA } } };
+  }
   if (!a.ok || !aaaa.ok) {
     return {
       state: STRICT_DNS_STATES.UNAVAILABLE,
@@ -370,6 +423,11 @@ export async function resolvePublicDnsTarget(domain, dnsQuery, opts = {}) {
       literal: false,
       addresses: [],
     };
+  }
+  for (const [negative, sibling, family] of [[negativeA, settled[1].value, "AAAA"], [negativeAAAA, settled[0].value, "A"]]) {
+    if (negative && (negative.status !== 0 || negative.terminal !== positiveTerminal(sibling, host, family))) {
+      return { state: STRICT_DNS_STATES.UNAVAILABLE, reason: "contradictory_dns_answers", literal: false, addresses: [] };
+    }
   }
   return {
     state: STRICT_DNS_STATES.PUBLIC,

@@ -155,6 +155,14 @@ export async function probeAsset(host, opts = {}) {
       if (isSubrequestBudgetError(err)) budgetExhausted = true;
       else if (isProbeTimeout(err)) timedOut = true;
       else if (err?.code === "dns_resolution_unavailable") dnsUnavailable = true;
+      else if (err?.code === "dns_no_address") {
+        if (proto === "https" && err.dns_stage === "initial" && err.dns_evidence?.host === normalizeHostname(host)) {
+          return { host, url, status: null, reachable: null,
+            probe_status: "not_applicable", reason: "authoritative_no_address", http_assessed: false,
+            dns_evidence: err.dns_evidence, title: null, server: null, content_type: null, tech: [] };
+        }
+        dnsUnavailable = true; // earlier HTTP attempts or redirect absence are not N/A
+      }
       continue;
     }
     // A known blocked target returns null in both default and reserved probers.
@@ -487,6 +495,9 @@ function dnsRemovalSignal(results) {
 
 function httpRemovalSignal(asset) {
   if (!asset) return { state: "unavailable", reason: "http_probe_unavailable", evidence_count: 0 };
+  if (asset.probe_status === "not_applicable") {
+    return { state: "not_assessed", reason: "http_not_applicable_no_address", evidence_count: 0 };
+  }
   if (asset.probe_status === "not_executed") {
     return { state: "not_assessed", reason: asset.reason || "http_probe_not_executed", evidence_count: 0 };
   }
@@ -622,6 +633,10 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
     checked:   targets.length,
     reachable: reachableCount,
     assets,
+    ...(assets.some((asset) => asset.probe_status === "not_applicable") ? {
+      http_not_applicable_count: assets.filter((asset) => asset.probe_status === "not_applicable").length,
+      http_coverage_notice: "Some names have verified DNS absence; HTTP was not tested for those names.",
+    } : {}),
     removal_observations: removalObservations,
     source,
     probe_coverage: probeCoverage,
@@ -840,6 +855,8 @@ export function runAdminSurfaceModule(modules) {
     evidence_status = "unavailable";                  // ran, but probes/evidence incomplete or failed
   } else if (exposureAssets.length === 0) {
     evidence_status = "not_assessed";                 // no hosts were probed — empty ≠ observed-clean
+  } else if (exposureAssets.some((asset) => asset.probe_status === "not_applicable")) {
+    evidence_status = "not_assessed";                 // DNS absence is not an HTTP/admin re-observation
   } else {
     evidence_status = "assessed_healthy";             // completed, hosts probed, zero verified admin surfaces
   }

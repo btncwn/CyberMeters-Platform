@@ -579,6 +579,12 @@ export function moduleCompletionGate(modules, scanQuality) {
     // probes starved by the subrequest budget) did not truly re-check the exposure.
     if (value?.error || value?.incomplete === true) incomplete.add(name);
   }
+  // Completed DNS absence is not a repeated HTTP measurement and cannot close
+  // an exposure case, including root/legacy cases without an asset lifecycle row.
+  if ((modules?.asset_exposure?.assets || []).some((asset) => asset?.probe_status === "not_applicable")) {
+    incomplete.add("asset_exposure");
+    incomplete.add("admin_surface_detection");
+  }
   // ── D1 Option D (FD-006 seq 50) — I11A-C3 DEFECT REVERSED ──────────────
   // This gate previously compared to the literal "partial" only, so a `degraded`
   // scan could still verify and resolve managed cases. FD-006 declares that

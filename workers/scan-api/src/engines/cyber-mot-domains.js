@@ -81,7 +81,9 @@ import {
 // `2026-08-30.2`: explicit finding authority replaces severity as the domain-state
 // admission boundary. Low actionable findings remain visible and observations can
 // never own issue state merely because their presentation severity is high.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-08-30.2";
+// `2026-10-08.1`: verified DNS absence completes its measurement but cannot
+// establish a healthy HTTP attack surface or rewrite an earlier snapshot.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-08.1";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -423,7 +425,9 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     if (domainFindings.length > 0) {
       // A real finding always surfaces as issue_detected; coverage metadata tells the
       // UI whether the evidence behind it was provisional.
-      const caveat = anyRequiredInsufficient || provisional || signalCoverageLimited;
+      const caveat = anyRequiredInsufficient || provisional || signalCoverageLimited
+        || (d.domain_key === "attack_surface" && (report?.modules?.asset_exposure?.assets || [])
+          .some((asset) => asset?.probe_status === "not_applicable"));
       base.state = CYBER_MOT_STATES.ISSUE_DETECTED;
       base.coverage = caveat ? "partial" : (quality || "complete");
       base.summary = `${domainFindings.length} issue${domainFindings.length === 1 ? "" : "s"} detected${caveat ? " (provisional evidence)" : ""}.`;
@@ -467,6 +471,13 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = requiredAssessedAll ? "partial" : quality;
       base.summary = "Identity reachability was not evaluated — no supported reachability producer is implemented. Provider relationships and possible hostnames remain visible for review.";
+      return base;
+    }
+    if (d.domain_key === "attack_surface" && (report?.modules?.asset_exposure?.assets || [])
+      .some((asset) => asset?.probe_status === "not_applicable")) {
+      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+      base.coverage = "partial";
+      base.summary = "Some names have verified DNS absence. HTTP was not tested for those names; no healthy web-service conclusion is made.";
       return base;
     }
     if (relevant.length === 0) {

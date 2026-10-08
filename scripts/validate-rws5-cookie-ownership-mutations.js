@@ -95,9 +95,9 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m7-resolver-version-reused",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-30.2";',
+    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-08.1";',
     replacement: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-30.1";',
-    expectedFailures: ["B3 resolver version is the explicit evidence-admission mint"],
+    expectedFailures: ["current resolver version preserves the evidence-methodology boundary"],
   },
   {
     id: "b1-explicit-type-removed",
@@ -470,10 +470,10 @@ const MUTATIONS = Object.freeze([
   {
     id: "comparable-historical-transition",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-30.2";',
+    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-08.1";',
     replacement: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-07-24.4";',
     expectedFailures: [
-      "B3 resolver version is the explicit evidence-admission mint",
+      "current resolver version preserves the evidence-methodology boundary",
       "historical/new ownership boundary is not_comparable",
       "resolver version is mechanically bumped from 2026-07-24.4",
     ],
