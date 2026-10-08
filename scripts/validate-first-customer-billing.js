@@ -13,7 +13,7 @@ const mod = await loadWorker();
 const db = buildDb();
 const env = makeEnv(db);
 const seed = await makeSeeder(db, mod);
-for (const id of ["buyer", "foreign", "empty", "multiple"]) {
+for (const id of ["buyer", "foreign", "empty", "multiple", "viewer", "analyst", "admin"]) {
   seed.user(id, `${id}@billing.invalid`);
   await seed.session(`session-${id}`, id, `token-${id}`);
 }
@@ -21,10 +21,15 @@ for (const [id, owner] of [["owned", "buyer"], ["other", "foreign"], ["multi-a",
   seed.workspace(id, owner, id);
   seed.member(`member-${id}`, id, owner, "owner");
 }
+for (const role of ["viewer", "analyst", "admin"]) {
+  seed.member(`member-nonowner-${role}`, "owned", role, role);
+}
 seed.workspace("deleted", "buyer", "deleted", true);
 const call = makeCaller(mod.default, env);
 const requests = [];
+const providerRequests = [];
 globalThis.fetch = async (url, opts = {}) => {
+  providerRequests.push(url);
   if (url === "https://api.stripe.com/v1/prices/price_sm") {
     return Response.json({ id: "price_sm", active: true, currency: "gbp", unit_amount: 999, recurring: { interval: "month" } });
   }
@@ -49,6 +54,16 @@ for (const [name, token, extra, status] of [
   const count = requests.length;
   check(`${name} refused`, (await checkout(token, extra)).status, status);
   check(`${name} does not create a provider session`, requests.length, count);
+}
+// These are active workspace members with valid sessions, not merely foreign
+// or logged-out callers. Even admin membership cannot authorize a charge.
+for (const role of ["viewer", "analyst", "admin"]) {
+  check(`${role} has working workspace read access`,
+    (await call("GET", "/api/workspaces/owned/members", `token-${role}`)).status, 200);
+  const before = providerRequests.length;
+  check(`${role} cannot initiate explicit workspace billing`,
+    (await checkout(`token-${role}`, { workspace_id: "owned" })).status, 403);
+  check(`${role} denial makes no Stripe request`, providerRequests.length, before);
 }
 const fresh = await checkout("token-buyer");
 check("unambiguous legacy caller can checkout", fresh.status, 200);

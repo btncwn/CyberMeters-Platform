@@ -407,7 +407,7 @@ export async function billingRoutes(rctx) {
     // ── POST /api/workspaces/:id/billing/checkout ─────────────────────────────
     // Workspace-scoped Stripe Checkout Session. Workspace owner only.
     // Body: { "plan": "starter|professional|business", "interval": "monthly|annual" }
-    // interval defaults to "monthly". success_url and cancel_url are hardcoded.
+    // interval defaults to "monthly". Optional redirects must match the frontend origin.
     // Returns: { "url": "https://checkout.stripe.com/..." }
     const wsCheckoutMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/billing\/checkout$/);
     if (wsCheckoutMatch && request.method === "POST") {
@@ -555,7 +555,7 @@ export async function billingRoutes(rctx) {
           .first();
       } catch { /* continue without existing customer */ }
 
-      // Hardcoded success/cancel URLs — prevents open redirect via client-supplied URLs.
+      // Use validated frontend redirects, or the canonical billing-page defaults.
       const origin = new URL(request.url).origin;
       // Use FRONTEND_URL env var if set (Cloudflare Pages URL), else derive from Worker origin.
       const frontendOrigin = env.FRONTEND_URL || origin.replace("cybermeters-platform.ttrnn47.workers.dev", "cybermeters.com");
