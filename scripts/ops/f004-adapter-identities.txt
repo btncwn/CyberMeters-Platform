@@ -16,5 +16,5 @@
 # Regenerate by re-measuring both files with sha256 and rewriting the two lines below;
 # the focused validator fails if any line drifts from the file it names.
 #
-32586dc74420d0d30b77441703f5ad727afaa477e7b48a18b156789e2e3fabe0  real     scripts/ops/f004-provider-adapter.sh
+7d17efdb1986915e4f56b65f466ce92756b315a59b782605abcc91cfd6b23542  real     scripts/ops/f004-provider-adapter.sh
 8a832f0c43f3ee5ccd3a806e3ea0efcad4923d40788f8534977cccf1b179a74a  fixture  scripts/fixtures/f004-fake-provider.sh
