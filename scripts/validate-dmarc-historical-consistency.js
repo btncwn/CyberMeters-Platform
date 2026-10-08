@@ -957,7 +957,8 @@ globalThis.fetch = async (input) => {
     const name = String(url.searchParams.get("name") || "").toLowerCase();
     const type = String(url.searchParams.get("type") || "A").toUpperCase();
     if (name === "fixture.example" && type === "A") {
-      return jsonResponse({ Status: 0, Answer: [{ type: 1, data: "192.0.2.44" }] });
+      // The complete control needs a public preflight address; all HTTP stays mocked below.
+      return jsonResponse({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
     }
     if (name === "fixture.example" && type === "MX") {
       return jsonResponse({ Status: 0, Answer: [{ type: 15, data: "10 mail.fixture.example." }] });
