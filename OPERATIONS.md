@@ -1,8 +1,8 @@
 # CyberMeters — Operations Runbook
 
-Version: July 2026
+Version: September 2026
 
-Last updated: 14 July 2026
+Last updated: 1 September 2026
 
 Operational runbook for deploying, operating, observing, recovering and securing CyberMeters in production.
 
@@ -13,7 +13,11 @@ This document complements:
 - `CLAUDE.md` — product ownership, implementation authority and release behaviour;
 - `CHANGELOG.md` — deployed release history.
 
-CyberMeters is currently in **pre-public-beta managed-platform completion**.
+CyberMeters is currently in **controlled/closed beta, not public GA**.
+Three-domain acceptance and shortened stability are PASS. F004 off-Cloudflare
+backup is deferred but is a hard gate before cohort expansion, retained-data
+reliance or the first paying customer. Until a real verified backup succeeds,
+`/ready backup_fresh=false` is the correct state and must not be overridden.
 
 ---
 

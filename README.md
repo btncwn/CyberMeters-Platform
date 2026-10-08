@@ -37,9 +37,12 @@ Observe
 
 CyberMeters is in:
 
-> **Pre-public-beta managed-platform completion**
+> **Controlled/closed beta — not public GA**
 
-The platform foundations are live, and the current focus is completing the managed lifecycle across all eight domains before controlled external invitations.
+The platform foundations are live. Three Founder-domain acceptance scans and
+the shortened stability window are PASS. The current focus is a small
+consenting beta cohort plus the non-blocking beta backlog, while preserving
+evidence honesty and verified-domain boundaries.
 
 Current roadmap state (verified against git tags, deployed releases and applied migrations):
 
@@ -60,14 +63,18 @@ Current roadmap state (verified against git tags, deployed releases and applied 
 | M5.e Eight-Domain Parity Reconciliation | Production deployed — engineering closed; authenticated customer acceptance pending. Deployed `v2026.07.17-4` (SHA `a33975f`, Worker `2beda497`, migration `094` applied) |
 | M5.f Maturity Ledger | Production complete — deployed `v2026.07.17-5` (SHA `5d85620`, Worker `9d2f96b1`, migration `095` applied); founder-controlled complete-scan acceptance passed (8 append-only maturity rows across all eight domains) |
 | M5.g Final CI, idempotency, cost & proof-of-production closure | CI-closed — `validate-m5-closure.js` locks the full M5 gate + append-only idempotency (no deploy). Residual tracked: the Phase 8o CE double-build (a deploy-gated scan-finalize cost optimization); a–e authenticated acceptance is the public-beta gate |
-| Authenticated founder/customer acceptance (across all deployed increments) | Later — public-beta gate |
+| Three-domain recovery acceptance + shortened stability | Live-accepted — controlled beta entry evidence |
+| Wider authenticated lifecycle acceptance | In progress — public-beta gate |
 | Final pricing decision (after MSP + M5) | Later — public-beta gate |
 | Security / pentest review | Later — public-beta gate |
-| Invitation / beta-user flow validation | Later — public-beta gate |
-| Restore-tested backup operations | Later — public-beta gate |
+| Invitation / beta-user flow validation | In progress — controlled/closed beta only |
+| Restore-tested off-Cloudflare backup operations (F004) | Deferred, not cancelled — hard gate before cohort expansion, retained-data reliance or first paying customer; `backup_fresh=false` remains honest until real proof |
 | Final public-beta release gate | Later — public-beta gate |
 
-**"Production complete" means deployed and engineering-closed — not authenticated customer acceptance.** Authenticated founder/customer acceptance across every completed increment (including M5.c–M5.e) remains a separate, still-outstanding public-beta gate item.
+**"Production complete" means deployed and engineering-closed — not universal
+customer acceptance, public GA or DR protection.** Controlled beta does not
+waive evidence honesty, domain ownership verification or public free-scan
+guardrails.
 
 ---
 

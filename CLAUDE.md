@@ -22,10 +22,11 @@ top of `docs/PRE-BETA-EXECUTION-BACKLOG.md`.
 This section overrides older role, review and routine-approval wording. It does
 not override platform safety rules or founder-reserved boundaries.
 
-Version: August 2026
+Version: September 2026
 
-Last updated: 23 August 2026. The lean operating-model adoption changes no
-runtime, migration or customer-acceptance fact. Item 11A/11B/11C remains
+Last updated: 1 September 2026. Founder decision has lifted the recovery HOLD
+to a controlled/closed beta after three-domain acceptance and shortened
+stability closure. Item 11A/11B/11C remains
 separately LIVE-ACCEPTED (20–21 August); per-release Worker, rollback, migration
 and proof identities remain authoritative in `CHANGELOG.md`. Current programme
 order lives only in `docs/PRE-BETA-EXECUTION-BACKLOG.md`; the sealed 23-August
@@ -37,7 +38,7 @@ successor package remains historical decision evidence.
 
 CyberMeters is in:
 
-> **Pre-public-beta managed-platform completion — production/customer HOLD.**
+> **Controlled/closed beta — not public GA.**
 
 Read the live sequence only from `docs/PRE-BETA-EXECUTION-BACKLOG.md`. Do not
 copy it here or treat a dated governance package as a second current queue.
@@ -51,12 +52,14 @@ Audit provenance is accepted with bounded exclusions, not globally tainted. The
 Codex matrix is primary, the second Claude rebuttal is the challenge layer, and
 the historical exact exclusions are in
 `docs/governance/2026-08-23-gtr7-competitor-first-successor/05-AUDIT-SOURCE-PROVENANCE-ADJUDICATION.md`.
-This does not lift `HOLD`; recovery must be rebound from the verified
-`/Users/turhanacar/dev` clone. The former 2026-09-01 recovery-candidate target is a
-reforecast checkpoint only.
+The recovery source remains the verified `/Users/turhanacar/dev` clone. The
+former 2026-09-01 recovery-candidate target is closed history.
 
-Do not state that controlled invite-only beta is GO. Do not infer acceptance from
-merge/deploy status; only exact LIVE-ACCEPTED records govern.
+Controlled invite-only beta is GO under the exact Founder decision; public GA
+is not. Do not infer any broader acceptance from merge/deploy status. F004 is
+deferred, not cancelled, and remains a hard gate before cohort expansion,
+retained-data reliance or the first paying customer. Only exact
+LIVE-ACCEPTED records govern product claims.
 
 ---
 
@@ -171,15 +174,15 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
 | M5 Completion Across All Eight Domains | Complete — M5.a–M5.g all CLOSED (deployed through `v2026.07.17-5`, migration `095`; M5.g is a CI-only closure, no deploy). |
-| Current canonical execution order | **ACTIVE; PRODUCTION/CUSTOMER HOLD.** Read the exact queue only from `docs/PRE-BETA-EXECUTION-BACKLOG.md`; dated governance packages are historical evidence. |
+| Current canonical execution order | **ACTIVE; CONTROLLED/CLOSED BETA.** Three-domain acceptance and shortened stability are PASS; F004 is the hard pre-expansion/retained-data/first-customer re-gate. Read the exact queue only from `docs/PRE-BETA-EXECUTION-BACKLOG.md`. |
 | Posture Timeline Trust (M6 rescope) | Phase A production-accepted (18 Jul 2026). Phase B partials (B1 Related Changes, UC3 case surface) shipped; remainder is preserved and scheduled only by the canonical backlog. |
 | Pre-beta execution backlog (19 items) | ACTIVE ORDER. Items 4–11 CLOSED (Item 11 LIVE-ACCEPTED 20–21 Aug). P1 remains public-beta-blocking; Item 12 and later items retain their scope/evidence under the current top-of-file sequence. |
 | M7 Pricing + Billing Alignment | Pricing LOCKED; B2/B3 engineering-complete, PENDING LIVE cutover. |
 | Debugging and Reliability Hardening | Preserved after successor/recovery and remaining lifecycle gates |
 | Pentesting and Security Assurance | Planned after managed lifecycle completion |
-| Controlled End-to-End Acceptance | Planned |
+| Controlled End-to-End Acceptance | Three-domain recovery acceptance PASS; wider lifecycle acceptance in progress |
 | Final Public-Beta Gate | Planned |
-| First Two Controlled Invitations | After final gate |
+| First Controlled Beta Cohort | In progress — small consenting cohort only; F004 hard re-gate applies |
 
 Release facts through 22 August 2026; governance order updated 23 August 2026:
 
@@ -389,10 +392,10 @@ authority from dated governance packages. Strategic gates remain in
 `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`.
 
 Claude Desktop may dispatch, merge, deploy and prove work already permitted by
-the current order without Founder or Governance waiting. A current `HOLD`
-continues to block the consequences it explicitly names; it does not create a
-new approval ceremony for permitted work. Emergency containment may always
-proceed under the operating constitution.
+the current order without Founder or Governance waiting. The controlled-beta
+boundary blocks public GA and the F004 re-gate consequences named above; it does
+not create a new approval ceremony for permitted work. Emergency containment
+may always proceed under the operating constitution.
 
 Do not allow cosmetic, speculative, duplicate or out-of-order work to displace
 the next canonical exit. Item 11 remains closed history; Items 12/13 and their

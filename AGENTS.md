@@ -26,11 +26,11 @@ boundaries.
 
 # CyberMeters Platform — AI Engineering Context
 
-Version: August 2026
+Version: September 2026
 
-Last updated: 23 August 2026. The lean operating-model adoption changes no
-runtime, migration or customer-acceptance fact. Release, production migration
-and rollback identities remain authoritative only in `CHANGELOG.md`.
+Last updated: 1 September 2026. The Founder has lifted the recovery HOLD to a
+controlled/closed beta after three-domain acceptance and stability closure.
+Release, production migration and rollback identities remain authoritative only in `CHANGELOG.md`.
 Frozen-backlog Item 11A/11B/11C is separately LIVE-ACCEPTED (20–21 August).
 Current programme order lives only in `docs/PRE-BETA-EXECUTION-BACKLOG.md`;
 the dated 23-August successor package remains historical decision evidence.
@@ -66,11 +66,11 @@ Customer-facing security domains and internal scan modules are different concept
 
 # 2. Current Product Phase
 
-CyberMeters is in pre-public-beta managed-platform completion.
+CyberMeters is in a controlled/closed beta, not public GA.
 
 The objective is not to add more scanner breadth.
 
-The objective is to complete an honest, evidence-led and operational lifecycle across all eight Cyber MOT domains while preserving:
+The objective is to prove and improve an honest, evidence-led and operational lifecycle across all eight Cyber MOT domains with a small consenting cohort while preserving:
 
 - multi-tenant security;
 - evidence honesty;
@@ -135,7 +135,7 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
 | M5 Completion Across All Eight Domains | Complete — **M5.a–M5.g all CLOSED** (deployed through `v2026.07.17-5`, migration `095`). History: evidence-honesty corrective (`v2026.07.16-6`), alerting repair (`v2026.07.16-7`), occurrence resolver (`-8`), read surfaces (`-9`), and the case verification contract (`-10`) all closed. **M5.a is CLOSED** (`-11` Email, `-12` Website Security + verification vocabulary, `-13` Cyber Essentials): all three domains have creation, linkage, case-level ownership, honest verification and recurrence in production; live-event acceptance outstanding. CE readiness honesty corrective closed (`-14`): access_control/malware_protection no longer scored from email-auth proxies; indicator is 3 of 5 assessable areas. CE Questionnaire Hygiene closed (`-15`, mig 092): one shared build-time question set, ISO-versioned answers, CI drift guard. M5.b shipped (`-16` certificate verification; `-17` remaining reconciliation): certificate_case derives support per finding; CE Security Update Management is no longer scored from certificate/ASM proxies (indicator 2 of 5, methodology-versioned); `external` is not `automated`; blanket drift CI-blocked. M5.b engineering closed; live acceptance outstanding. **M5.c Stage 1 shipped** (`v2026.07.17-1`, mig 093): one completed Cyber MOT → one immutable canonical eight-domain snapshot (R2 JSON + D1 index, 081 atomic claim, R2-durable before completed, append-only supersession, repair-on-read), stamped with every methodology version (first CMS + BRI stamps, registry fingerprint); `verification_support` + fail-closed ceiling wording on every item/action; read endpoints for M5.d live and auth-gated. Renderers NOT migrated at Stage 1; 0 snapshots existed in production at that point (created by future scans; no backfill). M5.d–M5.g subsequently closed (renderer migration, eight-domain parity, maturity ledger, final CI closure). |
-| Current canonical execution order | **ACTIVE; PRODUCTION/CUSTOMER HOLD.** Read the exact queue only from `docs/PRE-BETA-EXECUTION-BACKLOG.md`; dated governance packages are historical evidence. |
+| Current canonical execution order | **ACTIVE; CONTROLLED/CLOSED BETA.** Three-domain acceptance and shortened stability are PASS. F004 is a hard re-gate before expansion, retained-data reliance or the first paying customer. Read the exact queue only from `docs/PRE-BETA-EXECUTION-BACKLOG.md`. |
 | Posture Timeline Trust & Actionability — the RESCOPE of M6 | Historical July episode record. Phase A was deployed and production-accepted on 18 July 2026. This row is not the current source/release gate; use the current canonical-order row and `CHANGELOG.md`. |
 | M7 Pricing + Billing Alignment | Earlier roadmap gate; this corrective does not reclassify its historical product status. |
 | Final Public-Beta Gate | Planned after managed-platform completion |
@@ -153,7 +153,10 @@ Recorded release boundary (23 August 2026; use `CHANGELOG.md` for newer facts):
   canonical execution order;
 - fast-aging deployment IDs and release proof remain in `CHANGELOG.md` and are
   not duplicated here;
-- current production/customer state is `HOLD`.
+- current production/customer/pilot state is `CONTROLLED BETA`, not public GA;
+- F004 remains deferred but mandatory before expansion, retained-data reliance
+  or the first paying customer; `/ready backup_fresh=false` remains honest until
+  a real verified off-Cloudflare backup succeeds.
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier
 six-of-eight closure (`v2026.07.15-2`) was premature and is superseded — it deferred
@@ -960,9 +963,18 @@ A `401` response proves a route is live and auth-gated, but it does not by itsel
 
 ---
 
-# 16. Public-Beta Gate
+# 16. Controlled-Beta and Public-Beta Gates
 
-Do not send the first controlled external invitations until:
+Founder decision on 1 September 2026 permits a small controlled/closed beta of
+consenting users scanning their own canonically verified domains. It does not
+permit public GA. Evidence honesty, ownership verification and public free-scan
+guardrails remain mandatory.
+
+F004 must be genuinely green before the beta expands beyond that small cohort,
+before retained history/reports are relied upon, or before the first paying
+customer — whichever occurs first.
+
+Do not open wider public beta or GA until:
 
 - the required managed-platform roadmap is complete;
 - debugging and hardening are complete;
@@ -985,12 +997,13 @@ Do not send the first controlled external invitations until:
 - tenant isolation is revalidated;
 - production smoke is completed.
 
-The first external cohort should be controlled and small:
+The controlled cohort must remain small:
 
 - one real small business;
 - one small MSP or IT-support provider.
 
-Do not treat the first two invitations as an unrestricted public launch.
+Do not treat controlled-beta participation as an unrestricted public launch,
+DR protection, full acceptance or product completion.
 
 ---
 
@@ -1044,7 +1057,7 @@ Automated tools support engineering judgement and are not proof that the platfor
 
 # 18. Final Directive
 
-CyberMeters is in pre-public-beta managed-platform completion.
+CyberMeters is in controlled/closed beta; public GA remains gated.
 
 The mission is not to maximise the number of scanners or findings.
 

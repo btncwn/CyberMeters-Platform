@@ -1,15 +1,17 @@
 # CyberMeters Official Roadmap
 ## From Final Product Completion to the First Paying Customer
 
-Version: August 2026 (r4 — lean eight-seat operating model)
+Version: September 2026 (r5 — controlled-beta activation)
 
 Canonical location: `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`. This file is the
 single strategic roadmap and customer-gate spine. Current execution order lives
 only in `docs/PRE-BETA-EXECUTION-BACKLOG.md`; do not duplicate or reorder it here.
 
-Current programme priority remains the three-lane join recorded at the top of the
-canonical execution backlog. Production/customer state remains `HOLD`. The
-sealed package at
+Current programme state is **controlled/closed beta** under the Founder decision
+recorded in `claude-desktop-hold-lift-controlled-beta-decision.md`
+(`0f31a7b7…`). Three-domain live acceptance and the shortened stability window
+are PASS. This is not public GA. The current parallel beta queue and its hard
+re-gates live at the top of the canonical execution backlog. The sealed package at
 `docs/governance/2026-08-23-gtr7-competitor-first-successor/` is historical
 decision/provenance evidence, not current operating authority. Roles, autonomy
 and minimum assurance are governed only by
@@ -18,8 +20,14 @@ and minimum assurance are governed only by
 The frozen backlog's item numbers, technical scopes and accepted evidence remain
 unchanged. Item 11A/11B/11C is separately LIVE-ACCEPTED (20–21 August). Items 12
 and 13 and all sunk design/evidence work are preserved and resume after the
-current three-lane join and exact-candidate audit-recovery gate. The former 2026-09-01
-recovery-candidate target is now a reforecast checkpoint, not an RC promise.
+controlled-beta queue permits them under the canonical order. The former
+2026-09-01 recovery-candidate target is closed history, not an RC promise.
+
+F004 off-Cloudflare recovery is deferred, not cancelled: a genuine verified
+backup and real `backup_fresh=true` are mandatory before the beta expands beyond
+a small consenting circle, before retained history/reports are relied upon, or
+before the first paying customer — whichever comes first. Evidence honesty,
+domain-ownership verification and public free-scan guardrails remain permanent.
 
 Historical episode context (recorded 18 July 2026): **Posture Timeline Trust &
 Actionability** was the founder-approved **RESCOPE of M6** — see the
@@ -82,7 +90,10 @@ Record:
 # Master sequence
 
 ```text
-current canonical order (PRE-BETA-EXECUTION-BACKLOG)
+controlled closed beta
+→ parallel F004 + free-preview depth + release-record closure
+→ F004 hard re-gate no later than retained-data reliance / beta expansion /
+  first paying customer
 → preserved P1 / FD-007 / full FD-008 / Items 12–18 + Item 19
 → systematic debugging and reliability hardening
 → security testing, pentesting and retest
@@ -115,8 +126,8 @@ Founder-approved (16 July 2026; **re-sequenced 18 July 2026 to insert M6 before 
 | 12 | Legal & Data-Protection Foundation | Planned |
 | 13 | Formal Release-Candidate Gate (`-rc1`) | Planned |
 | 14 | Final Website Design & Conversion | Planned |
-| 15 | Invitations / Controlled Private Beta | Planned |
-| 16 | Private-Beta Acceptance & Fix Cycle | Planned |
+| 15 | Invitations / Controlled Private Beta | **In progress — Founder-authorised small consenting closed beta; not public GA** |
+| 16 | Private-Beta Acceptance & Fix Cycle | **In progress — F004 remains a hard expansion/retained-data/first-customer re-gate** |
 | 17 | Public Beta Gate & Launch | Planned |
 
 (M5.a is CLOSED and precedes gate 1; M5 as a whole — gates 1–6 plus M5.a — is engineering-complete.)
@@ -856,7 +867,16 @@ Start with a controlled test budget. Define maximum monthly spend, cost per qual
 
 # Phase J — First controlled real users
 
-Entry gate: clean exit of the company-controlled private beta on the two controlled domains (`cybermeters.com` and `blackbullbarbers.co.uk`) — no open P0/P1 arising from private-beta usage. Cohorts 1 and 2 below are the first two controlled external invitations defined by the canonical sequence.
+**Status: IN PROGRESS.** The Founder opened a small controlled/closed beta on
+1 September 2026 after three-domain acceptance and shortened stability PASS.
+Only consenting users scanning their own verified domains are eligible. This
+does not authorise public GA.
+
+F004 must be genuinely green before a user relies on retained history/reports,
+before the first payment, or before the cohort expands beyond the small closed
+set — whichever occurs first. Cohorts 1 and 2 below remain the intended first
+customer-evidence shapes; their participation is not proof of universal product
+acceptance or DR protection.
 
 ## Cohort 1: one real small business
 
@@ -939,6 +959,10 @@ Full application detail lives in a dedicated funding document produced when this
 ```
 
 Before each expansion review error rate, support load, onboarding completion, time to value, false positives, alert reliability, scan duration, D1/Worker/R2 usage, email deliverability, billing failures, churn signals, CAC, and conversion.
+
+No expansion beyond the initial small consenting closed set may begin until
+F004 has produced a genuine verified off-Cloudflare backup and
+`backup_fresh=true`.
 
 The full-scope external independent security review (C4) must be complete, with retests green, before expansion beyond the 5-user cohort.
 

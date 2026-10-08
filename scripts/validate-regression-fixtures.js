@@ -2980,7 +2980,9 @@ results.push(await asyncSecurityContract("lifecycle_failed_email_is_retried", as
       _sql: sql, _b: null, bind(...a) { this._b = a; return this },
       async first() {
         if (this._sql.includes("FROM users")) return { id: "u1", email: "a@b.com", email_verified: 1 };
-        if (this._sql.includes("WHERE dedupe_key")) return { id: "row_failed", status: "failed" };
+        if (this._sql.includes("WHERE dedupe_key")) return {
+          id: "row_failed", workspace_id: null, status: "failed", error: "missing_api_key",
+        };
         return null;
       },
       async run() {
@@ -2990,7 +2992,11 @@ results.push(await asyncSecurityContract("lifecycle_failed_email_is_retried", as
         return { meta: { changes: 1 } };
       },
     } } } };
-  const r = await scanner.sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: "u1" });
+  // A live duplicate is never resend authority. The bounded recovery selector
+  // passes the exact row id and only an explicitly safe failure may be reclaimed.
+  const r = await scanner.sendLifecycleEmail(env, {
+    type: "lifecycle_welcome", user_id: "u1", _recovery_id: "row_failed",
+  });
   const claimed = runs.some(s => s.includes("UPDATE lifecycle_email_events") && s.includes("status = 'pending'"));
   // Not skipped as duplicate; the failed row was reclaimed and delivery re-attempted.
   return r.skipped !== "duplicate" && claimed && r.sent === false;

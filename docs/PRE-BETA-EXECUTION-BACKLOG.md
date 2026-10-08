@@ -1,7 +1,7 @@
 # Pre-Beta Frozen Execution Backlog
 
-**Status:** ACTIVE CANONICAL EXECUTION ORDER — historical item contracts preserved;
-current queue updated 24 August 2026.
+**Status:** ACTIVE CANONICAL EXECUTION ORDER — controlled/closed beta active;
+historical item contracts preserved; current queue updated 1 September 2026.
 **Authority:** this document alone ORDERS current and remaining pre-beta work.
 Roles and decision rights live only in `docs/AI-EXECUTIVE-OPERATING-MODEL.md`.
 Strategic scope and acceptance gates remain in
@@ -14,11 +14,44 @@ Production baseline at freeze: `main @ bfc7c1d` · live Worker `ecd03d0a`
 Labels: **[ACC]** acceptance-only (already built/deployed — needs live acceptance, not
 re-implementation) · **[IMPL]** implementation work · **[DES]** design-first.
 
-## Current canonical order — 24 August 2026
+## Current canonical order — controlled-beta overlay, 1 September 2026
 
-This is the live queue. The dated package under
+Founder decision `claude-desktop-hold-lift-controlled-beta-decision.md`
+(`0f31a7b7…`) lifts the production/customer/pilot `HOLD` to a
+**controlled/closed beta** after three-domain live acceptance PASS and the
+shortened stability window CLOSE/PASS. This is not public GA and does not
+collapse the preserved public-beta gates below.
+
+The active parallel beta queue is:
+
+```text
+[F004 off-Cloudflare DR backup
+ → Founder provider/account/bucket/least-privilege credential/cost selection
+ → focused R1/R2 adapter corrective through exact-head Executive gate
+ → real verified first backup → genuine backup_fresh=true]
+||
+[free-preview depth redesign]
+||
+[email-ingest closure resync + tag/CHANGELOG release record]
+```
+
+F004 is deferred, not cancelled. It is a hard re-gate before whichever happens
+first: the beta expands beyond a small consenting closed set; any user relies
+on retained scan history/reports; or the first paying customer. Until the real
+backup succeeds, `/ready` must continue to report `backup_fresh=false` honestly.
+
+The permanent beta floor is unchanged: evidence honesty, canonical domain-
+ownership verification and the public free-scan guardrails remain mandatory.
+No claim of public GA, DR protection, broad acceptance or product completion is
+authorised by the controlled-beta decision.
+
+### Preserved predecessor order — 24 August 2026
+
+The block below is the predecessor recovery order whose accepted runtime,
+three-domain and stability evidence led to the controlled-beta decision. The
+dated package under
 `docs/governance/2026-08-23-gtr7-competitor-first-successor/` is immutable source
-evidence for how this order was reached; it has no current operating authority.
+evidence for how that order was reached; it has no current operating authority.
 
 ```text
 [GTR-4 = terminal technical HOLD at successor-8
@@ -48,12 +81,12 @@ lane-termination input; it does not authorise a retry, acquisition, installation
 observer activation, GTR-6/GTR-7 work, release, deployment or customer
 activation. Frozen GTR evidence remains unchanged.
 
-Production/customer state is `HOLD`. The former 2026-09-01 recovery-candidate
-target is a reforecast checkpoint. Historical `ACTIVE` labels below mean active
-at their dated freeze/reconciliation point; they are not current queue authority.
-No new governance successor package is required for work already named in this
-order. Claude Desktop dispatches it under R0/R1; Governance adjudicates only the
-named GTR/audit gate or a material authority conflict.
+Production/customer/pilot state is now `CONTROLLED BETA`. The former
+2026-09-01 recovery-candidate target is closed history. Historical `ACTIVE` and
+`HOLD` labels below mean active at their dated freeze/reconciliation point; they
+are not current queue authority. No new governance successor package is
+required for work already named in this order. Claude Desktop dispatches it
+under R0/R1; Governance adjudicates only a material authority or gate conflict.
 
 ---
 
