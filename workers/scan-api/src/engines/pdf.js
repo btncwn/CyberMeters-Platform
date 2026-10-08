@@ -222,6 +222,7 @@ function makeWriter({ accentHex = BRAND_HEX, footerText = DEFAULT_FOOTER } = {})
   const pages = [];
   let buf = "";
   let y = 0;
+  let continuation = null;
 
   const footer = () =>
     `BT /F1 8 Tf 0.45 0.5 0.55 rg ${MARGIN} 30 Td (${pdfEsc(footerText)}) Tj ET\n`;
@@ -229,6 +230,7 @@ function makeWriter({ accentHex = BRAND_HEX, footerText = DEFAULT_FOOTER } = {})
     if (buf) pages.push(buf + footer());
     buf = "";
     y = PAGE_H - MARGIN;
+    if (continuation) continuation();
   };
   newPage();
 
@@ -268,6 +270,28 @@ function makeWriter({ accentHex = BRAND_HEX, footerText = DEFAULT_FOOTER } = {})
     const size = opts.size ?? 10, g = opts.gap ?? 4;
     keepTogether(lines.length * (size + g));
     for (const l of lines) text(l, opts);
+  };
+
+  // Measure a pure render block with this writer's actual wrapping and spacing.
+  // Ordinary finding cards stay whole; oversized cards carry an explicit identity
+  // onto each continuation page. Executive rendering never calls this primitive.
+  const block = (draw, onContinue = null) => {
+    const saved = { buf, y, pages: [...pages], continuation };
+    let fits = false, height = 0;
+    try {
+      pages.length = 0; buf = ""; y = PAGE_H - MARGIN; continuation = null;
+      draw();
+      fits = pages.length === 0;
+      height = PAGE_H - MARGIN - y;
+    } finally {
+      buf = saved.buf; y = saved.y; pages.splice(0, pages.length, ...saved.pages);
+      continuation = saved.continuation;
+    }
+    if (fits) keepTogether(height);
+    else keepTogether(80);
+    const previous = continuation;
+    continuation = onContinue;
+    try { draw(); } finally { continuation = previous; }
   };
 
   const heading = (str) => {
@@ -350,7 +374,7 @@ function makeWriter({ accentHex = BRAND_HEX, footerText = DEFAULT_FOOTER } = {})
     y = bottom - 4;
   };
   const finish = () => { if (buf) { pages.push(buf + footer()); buf = ""; } return pages; };
-  return { text, prose, proseKeep, keepTogether, heading, gap, newPage, finish, raw, rule, callout, display, image, roomLeft, atPageTop, metrics, briefRow };
+  return { text, prose, proseKeep, keepTogether, heading, gap, newPage, finish, raw, rule, callout, display, image, roomLeft, atPageTop, metrics, briefRow, block, pageNumber: () => pages.length + 1 };
 }
 
 // Customer-safe state labels for the canonical domain states. Display mapping
@@ -484,15 +508,16 @@ function overallEvidenceStrength(w, assertions) {
   );
 }
 
-function sectionOverall(w, snap) {
+function sectionOverall(w, snap, { concise = false } = {}) {
   const o = snap.overall || {};
   const bri = o.business_risk_indicator || {};
   w.callout("How to read this report", HOW_TO_READ_REPORT);
-  overallEvidenceStrength(w, [
-    o.evidence_grade,
-    o.assessment_evidence_grade,
-    bri.evidence_grade,
-  ]);
+  const assertions = [o.evidence_grade, o.assessment_evidence_grade, bri.evidence_grade];
+  if (concise) {
+    const primary = assertions.find((assertion) => assertion?.grade);
+    if (primary) w.text(`Evidence strength: ${evidenceStrength(primary)}`, { size: 9, bold: true, color: "0.25 0.32 0.42" });
+    w.prose("Detailed evidence grades, their basis and all recorded limits are retained in the evidence appendix.", { size: 8, color: "0.35 0.38 0.44" });
+  } else overallEvidenceStrength(w, assertions);
   if (o.summary) {
     w.gap(2);
     evidenceBasisLine(w, "Eight-domain summary basis", o.evidence_grade);
@@ -600,10 +625,9 @@ function findingHeading(item, fallbackTitle = "Finding") {
   return `${severity ? `[${severity.toUpperCase()}] ` : ""}${item?.title || fallbackTitle}`;
 }
 
-// Eight-domain section. `detail` = "full" (Assessment PDF: every domain's findings,
-// observations, evidence completeness, managed-case state, verification support) or
-// "concise" (Executive PDF: state + issue count + highest severity + top action —
-// still meaningful for every domain, never a bare card).
+// Eight-domain section: "summary" retains state, count and evidence limits; the
+// technical finding register carries full narratives once. Older "full" and
+// "concise" modes remain available to other callers.
 const SEV_RANK = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 function highestSev(items) {
   let best = null, rank = -1;
@@ -618,51 +642,57 @@ function sectionDomains(w, snap, { detail = "full" } = {}) {
     const wf = d.managed_workflow || {};
     const hs = highestSev(findings);
 
-    // Keep the domain heading with its conclusion + first line of context.
-    w.keepTogether(30);
-    w.text(d.display_name, { size: 11, bold: true });
-    domainEvidenceStrengthBlock(w, d.evidence_grade, {
-      indent: 10,
-      fallbackLimits: d.limitations,
-    });
-    w.text(`Conclusion: ${d.conclusion_label || stateLabel(d.state)}`, { size: 9, bold: true, indent: 10 });
-    if (d.state_reason) w.prose(customerBodyText(d.state_reason), { size: 9, indent: 10, color: "0.25 0.28 0.33" });
+    const drawDomain = () => {
+      // Keep the domain heading with its conclusion + first line of context.
+      w.keepTogether(30);
+      w.text(d.display_name, { size: 11, bold: true });
+      if (detail === "summary" && d.evidence_grade?.grade) {
+        w.text(`Evidence strength: ${evidenceStrength(d.evidence_grade)} (${d.evidence_grade.grade})`, { size: 8, bold: true, indent: 10, color: "0.25 0.32 0.42" });
+      } else domainEvidenceStrengthBlock(w, d.evidence_grade, {
+        indent: 10,
+        fallbackLimits: d.limitations,
+      });
+      w.text(`Conclusion: ${d.conclusion_label || stateLabel(d.state)}`, { size: 9, bold: true, indent: 10 });
+      if (d.state_reason) w.prose(customerBodyText(d.state_reason), { size: 9, indent: 10, color: "0.25 0.28 0.33" });
 
-    // One-line evidence posture per domain (both detail levels).
-    const posture = [];
-    if (findings.length) posture.push(`${findings.length} finding${findings.length === 1 ? "" : "s"}${hs ? ` (highest: ${String(hs).toUpperCase()})` : ""}`);
-    if (observations.length) posture.push(`${observations.length} observation${observations.length === 1 ? "" : "s"}`);
-    if (wf.open_cases) posture.push(`${wf.open_cases} open managed case${wf.open_cases === 1 ? "" : "s"}`);
-    if (posture.length) w.text(posture.join(" · "), { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+      // One-line evidence posture per domain (both detail levels).
+      const posture = [];
+      if (findings.length) posture.push(`${findings.length} finding${findings.length === 1 ? "" : "s"}${hs ? ` (highest: ${String(hs).toUpperCase()})` : ""}`);
+      if (observations.length) posture.push(`${observations.length} observation${observations.length === 1 ? "" : "s"}`);
+      if (wf.open_cases) posture.push(`${wf.open_cases} open managed case${wf.open_cases === 1 ? "" : "s"}`);
+      if (posture.length) w.text(posture.join(" · "), { size: 8, indent: 10, color: "0.35 0.38 0.44" });
 
-    if (detail === "full") {
-      // Per-domain findings with severity, explanation, verification support and
-      // managed-case linkage — honest evidence, never invented detail.
-      for (const f of findings) {
-        w.text(findingHeading(f), { size: 9, bold: true, indent: 10 });
-        if (f.explanation) w.prose(customerBodyText(f.explanation), { size: 8, indent: 18, color: "0.25 0.28 0.33" });
-        const meta = [];
-        if (f.verification_support) meta.push(`Verification: ${f.verification_support}`);
-        if (f.managed_case_id) meta.push(`Managed case: ${f.managed_case_status || "linked"}`);
-        if (f.evidence_ref?.count) meta.push(`${f.evidence_ref.count} evidence item(s)`);
-        if (meta.length) w.text(meta.join(" · "), { size: 7, indent: 18, color: "0.45 0.48 0.54" });
+      if (detail === "full") {
+        // Per-domain findings with severity, explanation, verification support and
+        // managed-case linkage — honest evidence, never invented detail.
+        for (const f of findings) {
+          w.text(findingHeading(f), { size: 9, bold: true, indent: 10 });
+          if (f.explanation) w.prose(customerBodyText(f.explanation), { size: 8, indent: 18, color: "0.25 0.28 0.33" });
+          const meta = [];
+          if (f.verification_support) meta.push(`Verification: ${f.verification_support}`);
+          if (f.managed_case_id) meta.push(`Managed case: ${f.managed_case_status || "linked"}`);
+          if (f.evidence_ref?.count) meta.push(`${f.evidence_ref.count} evidence item(s)`);
+          if (meta.length) w.text(meta.join(" · "), { size: 7, indent: 18, color: "0.45 0.48 0.54" });
+        }
+        for (const o of observations) {
+          w.text(observationHeading(o), { size: 8, indent: 10, color: "0.25 0.28 0.33" });
+          if (o.explanation) w.prose(customerBodyText(o.explanation), { size: 7, indent: 18, color: "0.35 0.38 0.44" });
+        }
+      } else if (detail === "concise") {
+        // Optional concise view: the single most relevant action, if any.
+        const top = findings.find((f) => f.remediation_id) || findings[0];
+        if (top?.title) w.text(`Top item: ${top.title}`, { size: 8, indent: 10, color: "0.25 0.28 0.33" });
       }
-      for (const o of observations) {
-        w.text(observationHeading(o), { size: 8, indent: 10, color: "0.25 0.28 0.33" });
-        if (o.explanation) w.prose(customerBodyText(o.explanation), { size: 7, indent: 18, color: "0.35 0.38 0.44" });
-      }
-    } else {
-      // Concise (Executive): the single most relevant action, if any.
-      const top = findings.find((f) => f.remediation_id) || findings[0];
-      if (top?.title) w.text(`Top item: ${top.title}`, { size: 8, indent: 10, color: "0.25 0.28 0.33" });
-    }
 
-    // The canonical limitations are already included once in the domain's
-    // Evidence-strength block. Do not repeat them as separate "Limitation:" rows.
-    const ceStmt = d.cyber_essentials?.external_coverage_statement;
-    if (ceStmt) w.proseKeep(customerBodyText(ceStmt), { size: 8, indent: 10, color: "0.35 0.38 0.44" });
-    // Clear separation between domains (visual hierarchy).
-    w.gap(6);
+      // Summary rows link to the appendix's full frozen assertion. Historical
+      // rows without a grade retain their fallback limits directly above.
+      const ceStmt = d.cyber_essentials?.external_coverage_statement;
+      if (ceStmt) w.proseKeep(customerBodyText(ceStmt), { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+      // Clear separation between domains (visual hierarchy).
+      w.gap(6);
+    };
+    if (detail === "summary") w.block(drawDomain);
+    else drawDomain();
   }
 }
 
@@ -819,55 +849,60 @@ function sectionAttackSurfaceAssurance(w, snap, { detail = "full" } = {}) {
   );
 }
 
-function sectionFindings(w, snap) {
-  const findings = snap.observed_findings || [];
-  const observations = snap.observations || [];
-  const assessmentComplete = snap.overall?.assessment?.authoritative === true;
-  const incompleteMessage =
-    snap.overall?.assessment?.message ??
-    "Scan coverage was not confirmed for this run; results may be incomplete.";
-  w.heading(`Observed Findings (${findings.length})`);
-  if (!findings.length) {
-    w.text(
-      assessmentComplete
-        ? "No material findings were observed in this assessment."
-        : incompleteMessage,
-      { size: 10 },
-    );
-  }
-  for (const f of findings) {
-    w.text(findingHeading(f), { size: 10, bold: true });
+const TECHNICAL_SEVERITY = { critical: 5, high: 4, medium: 3, low: 2, info: 1, informational: 1 };
+function sortedTechnicalFindings(items) {
+  return items.map((item, index) => ({ item, index })).sort((a, b) =>
+    (TECHNICAL_SEVERITY[String(b.item.severity).trim().toLowerCase()] || 0) -
+    (TECHNICAL_SEVERITY[String(a.item.severity).trim().toLowerCase()] || 0) ||
+    String(a.item.asset || a.item.hostname || "").localeCompare(String(b.item.asset || b.item.hostname || "")) || a.index - b.index
+  ).map(({ item }) => item);
+}
+
+function technicalFinding(w, f, snap, observation = false) {
+  const continuationReference = String(f.finding_id || f.title || "reference not recorded").slice(0, 160);
+  w.block(() => {
+    w.rule();
+    w.prose(observation ? observationHeading(f) : findingHeading(f), { size: 11, bold: true, width: 78 });
+    const identity = [];
+    if (f.finding_id) identity.push(`${observation ? "Observation" : "Finding"} ID: ${f.finding_id}`);
+    if (f.asset || f.hostname) identity.push(`Recorded asset: ${f.asset || f.hostname}`);
+    if (identity.length) w.prose(identity.join(" | "), { size: 8, width: 112, color: "0.35 0.38 0.44" });
+    if (f.observed_at) w.text(`Observed in this assessment: ${pdfUtcDate(f.observed_at, true)}`, { size: 8, color: "0.35 0.38 0.44" });
     if (f.explanation) w.prose(customerBodyText(f.explanation), { size: 9, indent: 10, color: "0.25 0.28 0.33" });
     const evidenceMeta = [];
     if (f.confidence != null) evidenceMeta.push(`Confidence: ${f.confidence}`);
     if (f.evidence_grade?.grade) evidenceMeta.push(`Evidence grade: ${f.evidence_grade.grade}`);
-    if (evidenceMeta.length) {
-      w.text(evidenceMeta.join(" - "), { size: 8, indent: 10, color: "0.35 0.38 0.44" });
-    }
+    if (evidenceMeta.length) w.text(evidenceMeta.join(" - "), { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+    const evidence = f.evidence_ref;
+    if (evidence?.source) w.prose(`Evidence reference: ${evidence.source}${Number.isFinite(evidence.count) ? ` | ${evidence.count} retained ${evidence.count === 1 ? "item" : "items"}` : ""}.`, { size: 8, indent: 10, width: 110 });
+    else w.text("Evidence reference: not recorded in this snapshot.", { size: 8, indent: 10, color: "0.45 0.35 0.10" });
+    if (f.evidence_grade?.basis) w.prose(`Evidence basis: ${customerBodyText(f.evidence_grade.basis)}`, { size: 8, indent: 10, width: 110 });
+    for (const limit of f.evidence_grade?.limits || []) w.prose(`Evidence limit: ${customerBodyText(limit)}`, { size: 8, indent: 10, width: 110, color: "0.35 0.38 0.44" });
     const scoreImpact = Number(f.score_impact);
-    if (Number.isFinite(scoreImpact) && scoreImpact !== 0) {
-      w.text(`Cyber Metrics Score impact: ${scoreImpact} points.`, {
-        size: 8, indent: 10, color: "0.25 0.28 0.33",
-      });
-    }
-  }
+    if (!observation && Number.isFinite(scoreImpact) && scoreImpact !== 0) w.text(`Cyber Metrics Score impact: ${scoreImpact} points.`, { size: 8, indent: 10, color: "0.25 0.28 0.33" });
+    const action = (snap.remediation_actions || []).find((a) => (f.remediation_id && a.remediation_id === f.remediation_id) ||
+      (f.finding_id && Array.isArray(a.finding_ids) && a.finding_ids.includes(f.finding_id)));
+    if (action?.remediation_id) w.prose(`Remediation reference: ${action.remediation_id} - ${action.title || "see Recommended Actions"}. Full steps are in the remediation plan.`, { size: 8, indent: 10, width: 110 });
+    else if (f.remediation_id) w.prose(`Remediation reference: ${f.remediation_id}. No linked action text is recorded in this snapshot.`, { size: 8, indent: 10, width: 110 });
+    else if (!observation) w.text("No canonical remediation is recorded for this finding.", { size: 8, indent: 10, color: "0.45 0.35 0.10" });
+    if (f.verification_support || f.verification_method) w.prose(`Retest support: ${[f.verification_support, f.verification_method].filter(Boolean).join(" | ")}. This describes support, not a passed retest.`, { size: 8, indent: 10, width: 110 });
+    if (f.managed_case_id) w.prose(`Case reference: ${f.managed_case_id}${f.managed_case_status ? ` | recorded status: ${f.managed_case_status}` : ""}. Status is as recorded at assessment time.`, { size: 8, indent: 10, width: 110 });
+    w.gap(7);
+  }, () => w.prose(`${observation ? "Observation" : "Finding"} ${continuationReference} (continued)`, { size: 9, bold: true, width: 100 }));
+}
+
+function sectionFindings(w, snap) {
+  const findings = sortedTechnicalFindings(snap.observed_findings || []);
+  const observations = sortedTechnicalFindings(snap.observations || []);
+  const assessmentComplete = snap.overall?.assessment?.authoritative === true;
+  const incompleteMessage = snap.overall?.assessment?.message ?? "Scan coverage was not confirmed for this run; results may be incomplete.";
+  w.heading(`Observed Findings (${findings.length})`);
+  w.prose("Ordered by recorded severity, then recorded asset when available. Findings and observations remain separate; a reference to a managed case is not proof of a completed fix. Underlying evidence is retained in the scan record; this PDF does not reproduce raw probe output.", { size: 8, width: 112, color: "0.35 0.38 0.44" });
+  if (!findings.length) w.prose(assessmentComplete ? "No material findings were observed in this assessment." : incompleteMessage, { size: 10 });
+  for (const f of findings) technicalFinding(w, f, snap);
   w.heading(`Observations (${observations.length})`);
-  if (!observations.length) {
-    w.text(
-      assessmentComplete ? "No additional observations." : incompleteMessage,
-      { size: 10 },
-    );
-  }
-  for (const f of observations) {
-    w.text(observationHeading(f), { size: 10 });
-    if (f.explanation) w.prose(customerBodyText(f.explanation), { size: 9, indent: 10, color: "0.25 0.28 0.33" });
-    const evidenceMeta = [];
-    if (f.confidence != null) evidenceMeta.push(`Confidence: ${f.confidence}`);
-    if (f.evidence_grade?.grade) evidenceMeta.push(`Evidence grade: ${f.evidence_grade.grade}`);
-    if (evidenceMeta.length) {
-      w.text(evidenceMeta.join(" - "), { size: 8, indent: 10, color: "0.35 0.38 0.44" });
-    }
-  }
+  if (!observations.length) w.prose(assessmentComplete ? "No additional observations." : incompleteMessage, { size: 10 });
+  for (const f of observations) technicalFinding(w, f, snap, true);
 }
 
 function sectionRemediation(w, snap, {
@@ -876,7 +911,10 @@ function sectionRemediation(w, snap, {
   includeUnmapped = true,
   showWhenEmpty = true,
 } = {}) {
-  const allActions = snap.remediation_actions || [];
+  const allActions = (snap.remediation_actions || []).map((action, index) => ({ action, index }))
+    .sort((a, b) => (TECHNICAL_SEVERITY[String(b.action.priority).toLowerCase()] || 0) -
+      (TECHNICAL_SEVERITY[String(a.action.priority).toLowerCase()] || 0) || a.index - b.index)
+    .map(({ action }) => action);
   const actions = Number.isInteger(limit) ? allActions.slice(0, limit) : allActions;
   if (!showWhenEmpty && actions.length === 0) return;
   w.heading(`${title} (${actions.length})`);
@@ -892,7 +930,14 @@ function sectionRemediation(w, snap, {
     // Keep each recommended action's heading with its first line — actions are the
     // report's call to action and must read as a prominent, unbroken block.
     w.keepTogether(28);
-    w.text(`${a.priority ? `[${String(a.priority).toUpperCase()}] ` : ""}${a.title}`, { size: 11, bold: true });
+    w.prose(`${a.priority ? `[${String(a.priority).toUpperCase()}] ` : ""}${a.title}`, { size: 11, bold: true, width: 78 });
+    if (limit != null) {
+      if (a.remediation_id) w.prose(`Action reference: ${a.remediation_id}. Full steps and verification limits are in Recommended Actions.`, { size: 8, indent: 10, width: 110 });
+      w.gap(3);
+      continue;
+    }
+    if (limit == null && a.remediation_id) w.prose(`Action reference: ${a.remediation_id}`, { size: 8, indent: 10, width: 110 });
+    if (limit == null && a.finding_ids?.length) w.prose(`Linked finding IDs: ${a.finding_ids.join(", ")}`, { size: 8, indent: 10, width: 110 });
     if (a.action) w.prose(customerBodyText(a.action), { size: 9, indent: 10 });
     if (a.finding_ids?.length > 1) {
       w.text(`Resolves ${a.finding_ids.length} related findings.`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
@@ -900,6 +945,8 @@ function sectionRemediation(w, snap, {
     if (a.verification_ceiling) {
       w.text(`Verification: ${a.verification_ceiling}`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
     }
+    if (limit == null && a.case_id) w.prose(`Case reference: ${a.case_id}${a.case_status ? ` | recorded status: ${a.case_status}` : ""}`, { size: 8, indent: 10, width: 110 });
+    if (limit == null && (a.verification_method || a.verification_support)) w.prose(`Retest method / support: ${[a.verification_method, a.verification_support].filter(Boolean).join(" | ")}. A later verification result is required to establish closure.`, { size: 8, indent: 10, width: 110 });
     w.gap(3);
   }
   const unmapped = includeUnmapped ? (snap.unmapped_finding_types || []) : [];
@@ -1355,36 +1402,73 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
   const snap = read.customerSnapshot ?? read.snapshot;
   const s = snap.snapshot || {};
   const dmarcPresentation = buildDmarcPolicyPresentation(read.dmarcPolicy);
-  const w = makeWriter({
-    accentHex: branding?.accent || BRAND_HEX,
-    footerText: footerFor(branding),
-  });
-  brandingHeader(w, branding, "External Security Assessment", `${s.domain || scan?.domain || ""} - assessed ${pdfUtcDate(s.as_of, true)}`, logoImage);
-  sectionOverall(w, snap);
-  sectionRemediation(w, snap, {
-    title: "Priority Actions",
-    limit: 3,
-    includeUnmapped: false,
-    showWhenEmpty: false,
-  });
-  sectionDomains(w, snap);
-  sectionAttackSurfaceAssurance(w, snap);
-  sectionCertificateAssurance(w, snap);
-  sectionDmarcPolicy(w, dmarcPresentation);
-  sectionFindings(w, snap);
-  sectionRemediation(w, snap);
-  sectionAssessmentScore(w, snap);
-  sectionRelatedChanges(w, relatedChanges, { reportSubjectDomain: s.domain || scan?.domain || null });
-  sectionMethodology(w, snap);
-  sectionEvidenceGradeAppendix(w, snap);
-  sectionDmarcTechnicalAppendix(w, dmarcPresentation);
-  const streams = w.finish();
+  const entries = [
+    ["overview", "1. Assessment overview & priorities"],
+    ["domains", "2. Eight-area coverage"],
+    ["findings", "3. Findings & observations"],
+    ["actions", "4. Remediation plan"],
+    ["score", "5. Score & qualifications"],
+    ["attack", "6. Attack-surface evidence & lifecycle"],
+    ["certificates", "7. Certificate evidence & trust"],
+    ...(dmarcPresentation ? [["dmarc", "8. Email policy evidence"]] : []),
+    ...(relatedChanges?.items?.length ? [["changes", "Workspace-related changes"]] : []),
+    ["methodology", "Scope, methodology & limitations"],
+    ["appendix", "Appendix: evidence grades & provenance"],
+    ...(dmarcPresentation?.status === "current" && dmarcPresentation.technical_appendix ? [["dmarcAppendix", "Appendix: email policy detail"]] : []),
+  ];
+  const render = (contents = {}) => {
+    const w = makeWriter({ accentHex: branding?.accent || BRAND_HEX, footerText: footerFor(branding) });
+    const pages = {};
+    const section = (key, body, freshPage = false) => {
+      if (freshPage && !w.atPageTop()) w.newPage();
+      w.keepTogether(80); pages[key] = w.pageNumber(); body();
+    };
+    if (logoImage?.width && logoImage?.height) {
+      const scale = Math.min(210 / logoImage.width, 42 / logoImage.height, 1);
+      w.image(Math.max(1, Math.round(logoImage.width * scale)), Math.max(1, Math.round(logoImage.height * scale)), 10);
+    } else w.display(primaryName(branding), { size: 24, color: "0.05 0.30 0.62" });
+    w.text("EXTERNAL SECURITY ASSESSMENT | TECHNICAL REPORT", { size: 8, color: "0.35 0.42 0.50" });
+    w.display("Technical Security Assessment", { size: 22 });
+    w.prose(s.domain || scan?.domain || "Assessment domain not recorded", { size: 16, bold: true, width: 54 });
+    w.text(`Assessed ${pdfUtcDate(s.as_of, true)}`, { size: 10 });
+    if (s.scan_id || scan?.id) w.prose(`Scan reference: ${s.scan_id || scan.id}`, { size: 8, width: 112 });
+    if (s.snapshot_id) w.prose(`Snapshot reference: ${s.snapshot_id}`, { size: 8, width: 112 });
+    w.gap(8);
+    w.prose("Evidence, findings and remediation from the recorded assessment. This report describes externally observed conditions; it is not an internal assessment, penetration test or certification.", { size: 10, width: 90 });
+    w.heading("Contents");
+    for (const [key, title] of entries) w.text(`${title}  .....  ${contents[key] || "-"}`, { size: 10, gap: 8 });
+    w.gap(9);
+    w.prose("Use finding and action references to move from evidence to the remediation plan. Verification support and historical case status do not by themselves prove that a fix passed retesting.", { size: 9, width: 103, color: "0.35 0.38 0.44" });
+    w.newPage();
+    section("overview", () => {
+      w.heading("Assessment Overview");
+      sectionOverall(w, snap, { concise: true });
+      sectionRemediation(w, snap, { title: "Priority Actions", limit: 3, includeUnmapped: false, showWhenEmpty: false });
+    });
+    section("domains", () => sectionDomains(w, snap, { detail: "summary" }));
+    section("findings", () => sectionFindings(w, snap), true);
+    section("actions", () => sectionRemediation(w, snap), true);
+    section("score", () => sectionAssessmentScore(w, snap));
+    section("attack", () => { w.heading("Technical Evidence"); sectionAttackSurfaceAssurance(w, snap); }, true);
+    section("certificates", () => sectionCertificateAssurance(w, snap));
+    if (dmarcPresentation) section("dmarc", () => sectionDmarcPolicy(w, dmarcPresentation));
+    if (relatedChanges?.items?.length) section("changes", () => sectionRelatedChanges(w, relatedChanges, { reportSubjectDomain: s.domain || scan?.domain || null }));
+    section("methodology", () => sectionMethodology(w, snap));
+    section("appendix", () => sectionEvidenceGradeAppendix(w, snap), true);
+    if (dmarcPresentation?.status === "current" && dmarcPresentation.technical_appendix) section("dmarcAppendix", () => sectionDmarcTechnicalAppendix(w, dmarcPresentation));
+    return { pages, streams: w.finish() };
+  };
+  // The contents page occupies the same fixed-height rows on both passes.
+  // Page references come from the actual pagination, not estimated text lengths.
+  const measured = render();
+  const rendered = render(measured.pages);
+  const streams = rendered.streams.map((page, i) => `${page}BT /F1 8 Tf 0.45 0.5 0.55 rg 490 30 Td (Page ${i + 1} / ${rendered.streams.length}) Tj ET\n`);
   if (logoImage) return assemblePdfWithImage(streams, logoImage);
   return new TextEncoder().encode(assemblePdf(streams));
 }
 
-// Executive-only presentation. The technical scan PDF above deliberately keeps
-// its existing sections and byte output. These helpers read frozen customer facts.
+// Executive-only presentation. The technical redesign above does not change
+// this frozen decision-brief layout. These helpers read frozen customer facts.
 const EXECUTIVE_AREAS = [
   "Email Protection", "Brand Protection", "Attack Surface", "Certificates & Trust",
   "Cyber Essentials Readiness", "Website Security", "Identity Exposure",

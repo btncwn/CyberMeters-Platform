@@ -450,10 +450,10 @@ const states = [
   { measurement_state: "unmeasured" },
 ];
 const parity = states.map(parityOutputs);
-// The executive decision-brief redesign changes only the workspace-PDF input
-// to F13. Injecting the pre-brief workspace renderer alone reproduces the old
-// F13 exactly; F14, scan-PDF bytes and all assessment producers remain unchanged.
-const GOLDEN_F13 = "f2c8b94846fd0c04171a7557e8e21a850c8e61ce0bccee8074bc8f079674f636";
+// The technical report redesign changes only the scan-PDF input to F13.
+// Injecting the accepted c32ad27b scan renderer alone reproduces prior F13
+// f2c8b948 exactly; F14, executive PDF and assessment producers stay unchanged.
+const GOLDEN_F13 = "6bccb44657e35166041160920ddc0fec1504578c58f7520225856f92a4e8c5fc";
 const GOLDEN_F14 = "137c24a0eb36a372961bb9730f47e1a4abc47e8c3d86e9712216293a952417f4";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));

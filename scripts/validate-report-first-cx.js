@@ -282,6 +282,70 @@ ok('skipped module identities remain visible',
   plain.includes('Modules skipped: asset_exposure.') && plain.includes('Score-bearing modules skipped: asset_exposure.'))
 ok('score bytes remain a presentation input, not recalculated', plain.includes('Provisional Score: 81 / 100'))
 
+// Technical presentation must stay navigable without changing evidence or scope.
+const pageTexts = (bytes) => [...new TextDecoder('latin1').decode(bytes).matchAll(/stream\n([\s\S]*?)endstream/g)]
+  .map((match) => pdfPlainText(new TextEncoder().encode(match[1])))
+const pages = pageTexts(pdf)
+ok('technical report has a contents page with actual Findings and Remediation page references',
+  ['Findings & observations', 'Remediation plan'].every((label, index) => {
+    const row = pages[0].split('\n').find((line) => line.includes(label))
+    const number = Number(row?.match(/\.\.\.\.\.\s+(\d+)/)?.[1])
+    return number > 1 && pages[number - 1]?.startsWith(index ? 'Recommended Actions (4)' : 'Observed Findings (1)')
+  }))
+ok('technical page numbers describe every actual page',
+  pages.every((page, index) => page.includes(`Page ${index + 1} / ${pages.length}`)))
+ok('observation identifiers are labelled independently from finding identifiers',
+  plain.includes('Observation ID: observation-1') && !plain.includes('Finding ID: observation-1'))
+ok('full evidence limits remain in the appendix while the overview is concise',
+  !plain.slice(plain.indexOf('Assessment Overview'), priorityStart).includes('Limits:') &&
+  plain.slice(plain.indexOf('Technical Appendix - Evidence Grade & Provenance')).includes(grade.limits[0]))
+const boundedCards = structuredClone(snapshot)
+boundedCards.observations = []
+boundedCards.observed_findings = [1, 2].map((n) => ({
+  ...snapshot.observed_findings[0], finding_id: `bounded-finding-${n}`,
+  explanation: 'Bounded retained evidence passage. '.repeat(55),
+  managed_case_id: `bounded-case-${n}`, managed_case_status: 'open',
+}))
+const boundedPages = pageTexts(buildScanReportPdf({}, { snapshot: boundedCards }))
+ok('ordinary finding cards move whole when remaining space cannot fit them',
+  [1, 2].every((n) => boundedPages.some((page) =>
+    page.includes(`Finding ID: bounded-finding-${n}`) && page.includes(`Case reference: bounded-case-${n}`))))
+const boundedDomains = structuredClone(snapshot)
+boundedDomains.domains = Array.from({ length: 8 }, (_, index) => ({
+  ...snapshot.domains[0], domain_key: `domain-row-${index}`, display_name: `Area row ${index + 1}`,
+  evidence_grade: grade, state_reason: 'Recorded area scope remains bounded. '.repeat(30),
+  managed_workflow: { open_cases: index + 11 },
+}))
+const domainPages = pageTexts(buildScanReportPdf({}, { snapshot: boundedDomains }))
+ok('short area rows retain their heading, scope and final managed-case count on the same page',
+  boundedDomains.domains.every((domain) => domainPages.some((page) =>
+    page.includes(domain.display_name) && page.includes(`${domain.managed_workflow.open_cases} open managed cases`))))
+const longSnapshot = structuredClone(snapshot)
+longSnapshot.observed_findings[0].explanation = 'Long retained evidence passage. '.repeat(420)
+const longPages = pageTexts(buildScanReportPdf({}, { snapshot: longSnapshot }))
+ok('oversized findings retain their identity on continuation pages and their final evidence',
+  longPages.some((page) => page.startsWith('Finding finding-1 (continued)')) &&
+  longPages.some((page) => page.startsWith('Finding finding-1 (continued)') && page.includes('No canonical remediation is recorded for this finding.')))
+const longTitleSnapshot = structuredClone(snapshot)
+delete longTitleSnapshot.observed_findings[0].finding_id
+longTitleSnapshot.observed_findings[0].title = 'Long title segment '.repeat(400)
+const longTitlePages = pageTexts(buildScanReportPdf({}, { snapshot: longTitleSnapshot }))
+ok('oversized title uses a bounded continuation heading without losing the evidence body',
+  longTitlePages.some((page) => page.includes('(continued)')) &&
+  longTitlePages.some((page) => page.includes('The signal passed its evidence contract.')))
+const reverseActions = structuredClone(snapshot)
+reverseActions.remediation_actions.reverse()
+const reversedPlain = pdfPlainText(buildScanReportPdf({}, { snapshot: reverseActions }))
+const reversedPriority = reversedPlain.slice(reversedPlain.indexOf('Priority Actions (3)'), reversedPlain.indexOf('Eight-Domain Cyber MOT'))
+ok('priority preview sorts recorded urgency before selecting three actions',
+  reversedPriority.indexOf('First action') < reversedPriority.indexOf('Second action') &&
+  reversedPriority.includes('Third action') && !reversedPriority.includes('Fourth action'))
+const projection = structuredClone(snapshot)
+projection.observed_findings[0].title = 'Customer-safe projected title'
+const projectedPlain = pdfPlainText(buildScanReportPdf({}, { snapshot, customerSnapshot: projection }))
+ok('technical report prefers customer projection over unmasked source',
+  projectedPlain.includes('Customer-safe projected title') && !projectedPlain.includes('Actionable signal'))
+
 const legacySeveritySnapshot = structuredClone(snapshot)
 delete legacySeveritySnapshot.observations[0].severity
 const legacySeverityPdf = buildScanReportPdf(
@@ -310,7 +374,7 @@ for (const [label, mutate] of legacyFindingCases) {
     { snapshot: candidate, row: { id: `snap-report-first-cx-legacy-finding-${label}` }, integrity: { verified: true } },
   ))
   const titleOccurrences = candidatePlain.split(title).length - 1
-  ok(`legacy ${label} finding has a clean heading in domain detail and Observed Findings`,
+  ok(`legacy ${label} finding has a clean heading in Findings with provenance retained`,
     titleOccurrences >= 2 &&
     !candidatePlain.includes(`[] ${title}`) &&
     !candidatePlain.includes(`[INFO] ${title}`))
@@ -323,8 +387,9 @@ const explicitSeverityPlain = pdfPlainText(buildScanReportPdf(
   { id: 'scan-report-first-cx-explicit-finding-severity', domain: 'example.test' },
   { snapshot: explicitSeveritySnapshot, row: { id: 'snap-report-first-cx-explicit-finding-severity' }, integrity: { verified: true } },
 ))
-ok('explicit non-empty finding severity remains visible in domain detail and Observed Findings',
-  explicitSeverityPlain.split('[MEDIUM] Explicit severity finding').length - 1 >= 2)
+ok('explicit finding severity remains visible once in Findings without duplicated domain narrative',
+  explicitSeverityPlain.split('[MEDIUM] Explicit severity finding').length - 1 === 1 &&
+  !explicitSeverityPlain.slice(explicitSeverityPlain.indexOf('Eight-Domain Cyber MOT'), explicitSeverityPlain.indexOf('Observed Findings')).includes('Explicit severity finding'))
 
 const emptySnapshot = structuredClone(snapshot)
 emptySnapshot.remediation_actions = []

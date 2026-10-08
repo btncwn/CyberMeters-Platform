@@ -295,18 +295,18 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
      !/\s{2}/.test(pdfEsc("Required evidence (certificate_chain) could not be collected this scan — not enough to assess.")));
 }
 
-// ── Decision brief: exact technical bytes, projection and adverse inputs ──
+// ── Decision brief: exact executive bytes, projection and adverse inputs ──
 {
-  // Captured from the unchanged pre-brief renderer at e2ab1b65, using these
-  // fixed fixtures. An executive redesign must not rewrite the technical PDF.
-  const technicalGolden = {
-    false: "1299b04f15c1668d06cadd9ce8bb47a49dff883299bbc255e536cf113652a850",
-    true: "7bc20f0bbaa01528bb2538b78ff5822ea95836a436425b7a5478c5c6aabbb045",
+  // Captured from accepted executive commit c32ad27b. The subsequent authorized
+  // technical-report redesign must not rewrite the executive decision brief.
+  const executiveGolden = {
+    false: "ce31f504991d594d67db4db639be159e25b6849cb2fff25f4fe0cf6dde704227",
+    true: "bcc8a0fbe59e47311cdc96e3cace8f889a7f95a529038cfc93b0478e22cf4949",
   };
   for (const complete of [false, true]) {
-    const bytes = buildScanReportPdf({ domain: "cybermeters.com" }, readOf(mkSnap({ complete })), { mode: "cybermeters" });
-    ok(`technical byte golden: complete=${complete}`,
-      crypto.createHash("sha256").update(bytes).digest("hex") === technicalGolden[complete]);
+    const bytes = render(mkSnap({ complete }));
+    ok(`executive byte golden: complete=${complete}`,
+      crypto.createHash("sha256").update(bytes).digest("hex") === executiveGolden[complete]);
   }
   const snap = mkSnap({ complete: false });
   snap.snapshot.scan_id = "scan-decision-fixture";
