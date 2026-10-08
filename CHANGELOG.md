@@ -7,6 +7,65 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.10.08-4 — explicit scan capacity and live Stripe configuration — 8 October 2026
+
+**DEPLOYED; complete-scan and real-payment acceptance remain open.** Exact
+source `b61b70a667746747eb442498bed196408930e4b0` (PR #487; tree matches
+reviewed head `e49a9997ba504e0a7b62ea56c56d353cd1d3a36e`) explicitly sets
+the provider subrequest limit to 10,000. Application legacy mode and its
+200-request admission estimate are unchanged; no runtime code changed.
+
+- **scan-api:** Version `122f0edc-a3ea-4b0f-9758-96f06f536be8`, uploaded
+  20:38:32 UTC; deployment `d0de0720-b52a-4a03-aef4-b2a36dda30cc` at 100%
+  traffic at 20:42:21 UTC. Health returned HTTP 200 with this exact version;
+  provider readback confirmed `limits.subrequests=10000`.
+- **Validation:** PR CI `37839126908` passed all 15 jobs and Pages. Focused
+  capacity checks passed 57/57 and registered mutants 27/27; an independent
+  reviewer separately killed the accidental provider-cap-of-200 mutant.
+  Pinned Wrangler 4.148.0 dry-run passed. Independent provider comparison
+  confirmed identical JavaScript module bytes and all 36 bindings preserved
+  from the approved live-Stripe version; the opaque provider ETag changed.
+- **Stripe cutover:** Founder-approved Version
+  `0767eac4-3fb4-439f-9283-eb8a7b42e97d` activated at 20:30:21 UTC via
+  deployment `3ac78b1c-5165-4fd3-bbbd-a2a3590d530d`. A reviewed atomic D1
+  batch then archived three complete historical rows and retired their
+  confirmed sandbox bindings, preserving trial history, earlier history and
+  unrelated subscriptions. No schema migration or charge was performed.
+- **Rollback:** immediate Worker rollback is `0767eac4-3fb4-439f-9283-eb8a7b42e97d`,
+  retaining live Stripe configuration. Do not roll back to sandbox credentials
+  after live financial activity or overwrite subsequent live bindings.
+- **Acceptance:** the Founder completed a new Workers Paid purchase at
+  21:04 London; the same account then showed one active Workers Paid
+  subscription. The cause of its earlier Free state was not established.
+  Post-deployment full-scan proof remains unrun: the existing owner's retired
+  test subscription has no scan allowance. Live checkout reached the intended
+  GBP 9.99 monthly Starter page and was cancelled before payment; successful
+  signed webhook delivery and a real payment remain unverified.
+- **Other services:** email Worker and Pages were not redeployed. Shared
+  APP_VERSION remains `2026.10.08-first-customer.5fdee2cdab74`. Release tag
+  creation is pending review of this record. Customer launch is not accepted.
+
+## v2026.10.08-3 — Stripe invoice subscription identity — 8 October 2026
+
+**DEPLOYED; payment acceptance not claimed.** Exact source
+`c44b8e380d16dc51216e109f72e5cb0deaa28f68` (PR #486) handles Stripe's
+typed invoice-parent subscription identity as well as legacy and expanded
+references. An invoice naming an unknown subscription cannot fall back to
+another subscription associated with the same customer.
+
+- **scan-api:** Version `9d660dc0-4775-4638-8977-7405ef8c028c`, uploaded
+  18:55:39 UTC; deployment `23f13843-76bc-4db1-a8cf-cc78c2a88b1e` at 100%
+  traffic at 18:55:41 UTC. Immediate rollback at that release was
+  `1c12bdd8-73ad-439e-b64f-c66816a41e3e`.
+- **Validation:** focused billing checks passed 285/285; independent invoice
+  checks passed 74/74 and two targeted mutants were killed. PR CI
+  `37826166839` and post-merge CI `37827922199` passed all 15 jobs. Health
+  returned HTTP 200 with the deployed UUID; readiness confirmed D1/R2 reads.
+- **Scope:** existing bindings, secrets and configuration were preserved.
+  No schema migration, email Worker or Pages deployment was performed; the
+  email closure and shared APP_VERSION remained unchanged. Read readiness
+  did not establish write capacity, complete-scan or real-payment acceptance.
+
 ## v2026.10.08-2 — scan attempt evidence — 8 October 2026
 
 **DEPLOYED; first-customer acceptance remains incomplete.** Exact source
