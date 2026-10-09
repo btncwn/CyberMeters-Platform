@@ -20,6 +20,7 @@ const alerts = await import(moduleUrl("workers", "scan-api", "src", "engines", "
 const domains = await import(moduleUrl("workers", "scan-api", "src", "routes", "domains.js"));
 const cloud = await import(moduleUrl("workers", "scan-api", "src", "engines", "cloud-storage-scan.js"));
 const budget = await import(moduleUrl("workers", "scan-api", "src", "engines", "scan-budget.js"));
+const { buildScanQuality } = await import(moduleUrl("workers", "scan-api", "src", "engines", "scan-engine.js"));
 
 const realFetch = globalThis.fetch;
 const realTimeout = AbortSignal.timeout;
@@ -530,7 +531,7 @@ function cloudModules(hosts) {
   };
 }
 
-function makeCloudTransport({ privateDns = false } = {}) {
+function makeCloudTransport({ privateDns = false, noFinding = false } = {}) {
   const calls = [];
   const fetcher = async (value, init = {}) => {
     const url = String(value);
@@ -546,6 +547,7 @@ function makeCloudTransport({ privateDns = false } = {}) {
         status: 200, headers: { "content-type": "application/dns-json" },
       });
     }
+    if (noFinding) return new Response(null, { status: 403 });
     if ((init.method || "GET") === "HEAD") {
       return new Response(null, { status: 200, headers: { "x-amz-request-id": "req" } });
     }
@@ -622,6 +624,71 @@ if (typeof cloud.validateCloudStorageCandidate === "function") {
       && dnsCalls === 10 && httpCalls === 10 && counter.issued === 20
       && result?.candidates?.length === 5,
     `constant=${cloud.CLOUD_STORAGE_MAX_PHYSICAL_ATTEMPTS}, dns=${dnsCalls}, http=${httpCalls}, issued=${counter.issued}`);
+}
+
+// A bounded validation pass must report every recognised but untested candidate.
+// The sixth bucket is intentionally outside the physical request envelope; no
+// external transport is available to this harness. Input duplicates/non-storage
+// names preserve `checked`'s legacy source-item count, not the new candidate count.
+for (const scenario of [
+  { name: "ZERO", size: 0, noFinding: true },
+  { name: "BOUNDARY", size: 5, noFinding: true },
+  { name: "CAP_ZERO_FINDINGS", size: 6, noFinding: true },
+  { name: "CAP_POSITIVE", size: 6 },
+  { name: "CAP_VALIDATION_FAILURE", size: 6, privateDns: true },
+]) {
+  const hosts = Array.from({ length: scenario.size }, (_, index) => `cap-bucket-${index + 1}.s3.amazonaws.com`);
+  const input = [...hosts, "ordinary.example.com", ...(hosts.length ? [hosts[0]] : [])];
+  const counter = new budget.PhysicalSubrequestCounter({ limit: 50, safetyMargin: 0 });
+  const transport = makeCloudTransport(scenario);
+  const result = await withFetch(transport.fetcher, () => cloud.runCloudStorageModule(
+    "example.com", cloudModules(input), {
+      accounting: counter.contextFor(`cloud-${scenario.name}`), cache: budget.makeDnsCache(), fetchImpl: transport.fetcher,
+    },
+  ));
+  const checked = Math.min(scenario.size, 5);
+  const omitted = Math.max(0, scenario.size - 5);
+  const prefix = `F041_CLOUD_${scenario.name}`;
+  ok(`${prefix}_COUNTS`, result.checked === input.length
+    && result.candidate_total === scenario.size && result.candidates_checked === checked
+    && result.candidates_omitted === omitted && result.candidates.length === checked);
+  ok(`${prefix}_PHYSICAL_BOUND`, counter.issued === checked * (scenario.privateDns ? 2 : 4)
+    && transport.calls.length === counter.issued
+    && !transport.calls.some(call => call.url.includes("cap-bucket-6")));
+  const quality = buildScanQuality({ cloud_storage_discovery: result });
+  if (omitted > 0) {
+    ok(`${prefix}_INCOMPLETE`, result.incomplete === true && quality.status === "partial"
+      && result.incomplete_reasons?.includes("cloud_storage_candidate_cap"));
+    ok(`${prefix}_REASON_PRESERVED`, result.incomplete_reason === (scenario.privateDns
+      ? "cloud_storage_validation_incomplete" : "cloud_storage_candidate_cap")
+      && (scenario.privateDns ? result.incomplete_reasons?.includes("cloud_storage_validation_incomplete")
+        : result.incomplete_reasons?.length === 1));
+  } else {
+    ok(`${prefix}_COMPLETE`, result.incomplete !== true && quality.status === "complete"
+      && !result.incomplete_reason && !result.incomplete_reasons);
+  }
+  if (scenario.name === "CAP_POSITIVE") {
+    ok(`${prefix}_FINDINGS_RETAINED`, result.total === 5 && result.findings.length === 5
+      && result.findings.every(f => f.id === "cloud_storage_public_listing" && f.severity === "high"));
+  } else {
+    ok(`${prefix}_NO_INVENTED_FINDING`, result.total === 0 && result.findings.length === 0);
+  }
+}
+
+{
+  const hosts = Array.from({ length: 6 }, (_, index) => `cap-bucket-${index + 1}.s3.amazonaws.com`);
+  const transport = makeCloudTransport();
+  const options = { fetchImpl: transport.fetcher };
+  Object.defineProperty(options, "signal", { get() { throw new Error("synthetic module failure"); } });
+  const result = await withFetch(transport.fetcher, () => cloud.runCloudStorageModule(
+    "example.com", cloudModules(hosts), options,
+  ));
+  ok("F041_CLOUD_CAP_MODULE_ERROR_COUNTS", result.candidate_total === 6
+    && result.candidates_checked === 0 && result.candidates_omitted === 6 && transport.calls.length === 0);
+  ok("F041_CLOUD_CAP_MODULE_ERROR_BOTH_REASONS", result.incomplete === true
+    && result.incomplete_reason === "cloud_storage_probe_failed"
+    && result.incomplete_reasons?.includes("cloud_storage_probe_failed")
+    && result.incomplete_reasons?.includes("cloud_storage_candidate_cap"));
 }
 
 {

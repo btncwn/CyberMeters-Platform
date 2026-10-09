@@ -7,7 +7,28 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.10.09-2 — explicit cloud candidate coverage — 9 October 2026
+
+**PREPARED; not deployed.** Cloud storage validation still checks at most five
+recognized candidates, but now records total, checked and omitted candidate
+counts. Omitted candidates make coverage incomplete even when no exposure is
+found. Valid findings and primary probe-failure reasons remain intact; the
+existing input count, request limit and outbound protections are unchanged.
+The focused offline validator covers zero/five/six candidates, partial scan
+quality and failure paths; the independently reviewed correction changes no
+schema or historical evidence. Both Workers require coordinated deployment
+because this engine is in their shared import closure. The current production
+baseline and rollback pair are the deployed v2026.10.09-1 versions below.
+
 ## v2026.10.09-1 — executive briefs and technical evidence reports — 9 October 2026
+
+**DEPLOYED from PR #490, source `baa070fc`, at 23:53 UTC.**
+API `c9fbf826-dddd-437c-b377-1438dfa65542` (deployment
+`249b5375-0b78-4d8e-bc80-5da50ae4fc46`) and email
+`7d51eab1-042a-4cd6-aa2f-aa5b66a5d138` (deployment
+`0c20bac8-1f7c-4f50-9c7c-18fcf2c63a3c`) are the coordinated pair.
+Pages deployment is `51a471af-44d8-4199-a14d-67f8662750cf`.
+All ten bounded production access checks passed.
 
 Executive PDFs now open with a concise workspace brief: included assessments,
 recorded findings, coverage limits and the three highest-priority actions with

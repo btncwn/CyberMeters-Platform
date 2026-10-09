@@ -305,6 +305,9 @@ function cloudStorageFindingFromCandidate(candidate) {
 
 export async function runCloudStorageModule(domain, modules, opts = {}) {
   const accounting = opts.accounting || null;
+  let candidateTotal = null; // unknown until discovery has completed
+  let candidatesChecked = 0;
+  const incompleteReasons = new Set();
   try {
     const candidates = [];
     const seenCandidates = new Set();
@@ -345,7 +348,10 @@ export async function runCloudStorageModule(domain, modules, opts = {}) {
 
     const findings = [];
     const validatedCandidates = [];
-    let incomplete = false;
+    candidateTotal = candidates.length;
+    if (candidateTotal > CLOUD_STORAGE_CANDIDATE_LIMIT) {
+      incompleteReasons.add("cloud_storage_candidate_cap");
+    }
     for (const candidate of candidates.slice(0, CLOUD_STORAGE_CANDIDATE_LIMIT)) {
       const validation = await validateCloudStorageCandidate(candidate, {
         accounting,
@@ -354,7 +360,8 @@ export async function runCloudStorageModule(domain, modules, opts = {}) {
         dnsResolver: opts.dnsResolver,
         fetchImpl: opts.fetchImpl,
       });
-      if (validation.incomplete) incomplete = true;
+      if (validation.incomplete) incompleteReasons.add("cloud_storage_validation_incomplete");
+      candidatesChecked += 1;
       const enriched = { ...candidate, validation };
       validatedCandidates.push(enriched);
       const findingBase = cloudStorageFindingFromCandidate(enriched);
@@ -426,21 +433,30 @@ export async function runCloudStorageModule(domain, modules, opts = {}) {
 
     return {
       checked:  subItems.length + exposureAssets.length + (modules?.subdomain_takeover?.cname_observations || []).length,
+      candidate_total: candidateTotal,
+      candidates_checked: candidatesChecked,
+      candidates_omitted: candidateTotal - candidatesChecked,
       candidates: validatedCandidates,
       total:    findings.length,
       findings,
       assets:   findings,
       source:   "evidence_based_cloud_storage_discovery",
       error:    null,
-      ...(incomplete ? {
+      ...(incompleteReasons.size ? {
         incomplete: true,
-        incomplete_reason: "cloud_storage_validation_incomplete",
+        // Preserve the existing validation-failure reason when both causes apply.
+        incomplete_reason: incompleteReasons.has("cloud_storage_validation_incomplete")
+          ? "cloud_storage_validation_incomplete" : "cloud_storage_candidate_cap",
+        incomplete_reasons: [...incompleteReasons],
       } : {}),
     };
   } catch (err) {
     if (isOutboundControlError(err)) throw err;
     return {
       checked:  0,
+      candidate_total: candidateTotal,
+      candidates_checked: candidatesChecked,
+      candidates_omitted: candidateTotal === null ? null : candidateTotal - candidatesChecked,
       total:    0,
       candidates: [],
       findings: [],
@@ -449,6 +465,7 @@ export async function runCloudStorageModule(domain, modules, opts = {}) {
       error:    err?.message ?? "Cloud asset discovery failed",
       incomplete: true,
       incomplete_reason: "cloud_storage_probe_failed",
+      incomplete_reasons: ["cloud_storage_probe_failed", ...incompleteReasons],
     };
   }
 }
