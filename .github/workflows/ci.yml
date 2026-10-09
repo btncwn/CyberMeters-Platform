@@ -134,6 +134,15 @@ jobs:
           node --check workers/scan-api/src/index.js
           node --check workers/email-ingest/src/index.js
 
+      - name: Validate private network collector and live TLS evidence
+        run: node scripts/validate-network-probe.js
+
+      - name: Validate network assets tenant isolation and admission
+        run: node scripts/validate-network-assets.js
+
+      - name: Validate network queue recovery and deletion integration
+        run: node scripts/validate-network-integration.js
+
       - name: Validate provider-infra classification (edge/CDN tech ≠ provider ownership)
         run: node scripts/validate-provider-classification.js
 

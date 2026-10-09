@@ -197,8 +197,11 @@ try {
   check(
     "BLACKOUT_DIAGNOSTIC_UNCHANGED",
     blackoutIntel.suspicious_certificate_signals.some((signal) =>
-      signal.signal === "ct_sources_unavailable" && /could not be assessed/i.test(signal.description)),
+      signal.signal === "ct_sources_unavailable" && signal.severity === "info" &&
+      signal.description === "Both Certificate Transparency sources were unavailable during this scan. No CT inventory evidence was collected; live TLS evidence, when available, is assessed separately."),
   );
+  equal("BLACKOUT_WITHOUT_LIVE_EVIDENCE_IS_NOT_LIVE_VERIFIED", blackoutIntel.live_certificate_verified, false);
+  equal("BLACKOUT_WITHOUT_LIVE_EVIDENCE_RETAINS_NO_LIVE_RECEIPT", blackoutIntel.live_tls, null);
 
   const errorSentinelOwnership = buildCertificateOwnershipAssessment({
     cert_subject: "example.com",

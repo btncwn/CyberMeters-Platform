@@ -251,8 +251,8 @@ const MUTATIONS = Object.freeze([
   {
     id: "b1c-m2-fourteen-enters-critical-window",
     file: "workers/scan-api/src/engines/cert-intel.js",
-    anchor: "    if (expiryEvidenceUsable && days_until_expiry < 14) {",
-    replacement: "    if (expiryEvidenceUsable && days_until_expiry <= 14) {",
+    anchor: "    if (!live && expiryEvidenceUsable && days_until_expiry < 14) {",
+    replacement: "    if (!live && expiryEvidenceUsable && days_until_expiry <= 14) {",
     expectedFailures: [
       "certificate expiry 14-day boundary emits medium soon finding",
       "certificate expiry descriptions stay within returned CT evidence scope",
@@ -273,15 +273,15 @@ const MUTATIONS = Object.freeze([
   {
     id: "b1c-m4-negative-emits-scan-time-expired",
     file: "workers/scan-api/src/engines/cert-intel.js",
-    anchor: "    if (expiryEvidenceUsable && days_until_expiry < 14) {",
-    replacement: `    if (Number.isFinite(days_until_expiry) && days_until_expiry < 0) {
+    anchor: "    if (!live && expiryEvidenceUsable && days_until_expiry < 14) {",
+    replacement: `    if (!live && Number.isFinite(days_until_expiry) && days_until_expiry < 0) {
       suspicious_certificate_signals.push({
         signal: "certificate_expired",
         finding_type: "finding",
         severity: "high",
         score_impact: 0,
       });
-    } else if (expiryEvidenceUsable && days_until_expiry < 14) {`,
+    } else if (!live && expiryEvidenceUsable && days_until_expiry < 14) {`,
     expectedFailures: [
       "certificate intelligence never emits scan-time expired identity",
       "invalid certificate expiry evidence emits no signal and stays not usable",
@@ -654,7 +654,7 @@ const candidateFingerprints = new Map(
 
 function makeSandbox(mutation) {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), `rws5-${mutation.id}-`));
-  for (const relative of ["database", "shared", "workers/scan-api/src"]) {
+  for (const relative of ["database", "shared", "workers/scan-api/src", "workers/network-probe/src"]) {
     fs.cpSync(path.join(root, relative), path.join(sandbox, relative), { recursive: true });
   }
   fs.mkdirSync(path.join(sandbox, "scripts"), { recursive: true });

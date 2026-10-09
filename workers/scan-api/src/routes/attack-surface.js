@@ -1659,6 +1659,9 @@ export async function attackSurfaceRoutes(rctx) {
           ct_sources:                   ci.ct_sources || {},
           suspicious_certificate_signals: ci.suspicious_certificate_signals || [],
           signal_completeness:           ci.signal_completeness || null,
+          live_tls:                      ci.live_tls || null,
+          evidence_source:               ci.evidence_source || null,
+          live_certificate_verified:     ci.live_certificate_verified === true,
           certificate_assurance:         assurance,
           scan_id:                      scanRows[i]?.id || null,
         };

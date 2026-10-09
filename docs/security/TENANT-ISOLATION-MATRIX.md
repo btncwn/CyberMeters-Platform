@@ -11,12 +11,12 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 93
-- **classified:** 93
-- **tenant owned tables:** 89
+- **schema tables:** 96
+- **classified:** 96
+- **tenant owned tables:** 92
 - **infra or identity tables:** 4
 - **unclassified:** 0
-- **resource classes:** 33
+- **resource classes:** 34
 - **classes with dynamic coverage:** 17
 
 ## The 12 invariants
@@ -38,6 +38,7 @@ data cannot be silently omitted.
 
 | Class | Domain | Ownership | Tables | Dynamic harness | Property |
 |---|---|---|---|:---:|:---:|
+| network_assets | attack_surface | direct(workspace_id) | 3 | — | — |
 | workspaces | core | account(owner_user_id) | 1 | ✓ | ✓ |
 | workspace_memberships | core | direct(workspace_id) | 1 | ✓ | ✓ |
 | invitations | core | direct(workspace_id) | 1 | ✓ | ✓ |
@@ -76,6 +77,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 
 ### Coverage notes
 
+- **network_assets:** Explicit attested public IP/CIDR scope; actual route/role, two-tenant denial, immutable receipt and queue identity coverage in validate-network-assets.js; purge and queue wiring in validate-network-integration.js.
 - **asset_events:** written by scan/cron; read via /assets + posture; workspace_id-scoped; isolation proven at the assets read surface + static audit
 - **findings:** scan_id-scoped; reachable only through /scans/:id ownership-gated report surfaces
 - **scheduled_reports:** background report producer; workspace_id-scoped writes; static-audit + background-writer property covered
@@ -145,6 +147,9 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `managed_cases` | direct(workspace_id) | managed_cases |
 | `mfa_challenges` | user(user_id) | auth_sessions |
 | `msp_branding_profiles` | account(owner_user_id) | report_branding |
+| `network_assets` | direct(workspace_id) | network_assets |
+| `network_scans` | direct(workspace_id) | network_assets |
+| `network_targets` | direct(workspace_id) | network_assets |
 | `notification_events` | direct(workspace_id) | notifications |
 | `notification_preferences` | direct(workspace_id) | notifications |
 | `oauth_states` | infra | infrastructure |

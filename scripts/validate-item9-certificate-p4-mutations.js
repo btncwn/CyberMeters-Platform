@@ -129,19 +129,30 @@ const derive = (module, modules, providerHealth = healthyProviders) =>
 
 await withMutant(
   "certificate-signal-completeness.js",
-  (source) => source
-    .replace(
-      "completeness_state: trust.leafCollected\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
-      "completeness_state: trust.leafCollected || selectedCtCertificate\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
-    )
-    .replace(
-      "observation: trust.leafCollected\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
-      "observation: trust.leafCollected || selectedCtCertificate\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
-    )
-    .replace(
-      "value: trust.leafCollected ? { ...trust.leaf } : null,",
-      "value: trust.leafCollected ? { ...trust.leaf } : { certificate_identity: ssl.cert_subject },",
-    ),
+  (source) => {
+    const replacements = [
+      [
+        "completeness_state: trust.leafCollected\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
+        "completeness_state: trust.leafCollected || selectedCtCertificate\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
+      ],
+      [
+        "observation: trust.leafCollected\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
+        "observation: trust.leafCollected || selectedCtCertificate\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
+      ],
+      [
+        '      } : null,\n      observation_scope: "live_tls",',
+        '      } : { certificate_identity: ssl.cert_subject },\n      observation_scope: "live_tls",',
+      ],
+    ];
+    let mutated = source;
+    for (const [before, after] of replacements) {
+      if (mutated.split(before).length !== 2) {
+        throw new Error("CT-as-live-leaf mutation anchor must match exactly once");
+      }
+      mutated = mutated.replace(before, after);
+    }
+    return mutated;
+  },
   async (mutant) => {
     const modules = baseModules();
     modules.ssl.certificate_evidence.live_tls = {};

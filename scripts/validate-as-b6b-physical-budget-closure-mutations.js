@@ -42,6 +42,7 @@ function makeSandbox() {
   fs.mkdirSync(sandboxWorker, { recursive: true });
   fs.mkdirSync(sandboxScripts, { recursive: true });
   fs.cpSync(path.join(workerRoot, "src"), path.join(sandboxWorker, "src"), { recursive: true });
+  fs.cpSync(path.join(root, "workers/network-probe/src"), path.join(sandbox, "workers/network-probe/src"), { recursive: true });
   fs.cpSync(path.join(root, "shared"), path.join(sandbox, "shared"), { recursive: true });
   fs.copyFileSync(path.join(workerRoot, "package.json"), path.join(sandboxWorker, "package.json"));
   fs.copyFileSync(validatorPath, path.join(sandboxScripts, validatorName));

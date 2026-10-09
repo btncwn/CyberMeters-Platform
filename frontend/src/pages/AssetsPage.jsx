@@ -11,6 +11,7 @@ import { api } from '../api'
 import Spinner from '../components/Spinner'
 import StatCard from '../components/StatCard'
 import AttackSurfaceAssurance from '../components/AttackSurfaceAssurance'
+import NetworkAssetsPanel from '../components/NetworkAssetsPanel'
 import { assetLifecycleClaimDisplay, projectedCountDisplay } from '../lib/assetLifecycleClaimDisplay'
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
@@ -602,6 +603,8 @@ export default function AssetsPage() {
             presentations={assurance}
             coverage={assuranceCoverage}
           />
+
+          <NetworkAssetsPanel key={workspaceId} workspaceId={workspaceId} />
 
           {/* TEMPORARY integration mount of the reusable cross-domain CasesQueue.
               The Attack Surface page is NOT the permanent home for all-domain

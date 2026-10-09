@@ -94,19 +94,24 @@ await withMutant(
 
 await withMutant(
   "certificate-signal-completeness.js",
-  (source) => source
-    .replace(
+  (source) => [
+    [
       "completeness_state: trust.leafCollected\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
       "completeness_state: trust.leafCollected || selectedCtCertificate\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
-    )
-    .replace(
+    ],
+    [
       "observation: trust.leafCollected\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
       "observation: trust.leafCollected || selectedCtCertificate\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
-    )
-    .replace(
-      "value: trust.leafCollected ? { ...trust.leaf } : null,",
-      "value: trust.leafCollected ? { ...trust.leaf } : { certificate_identity: ssl.cert_subject },",
-    ),
+    ],
+    [
+      '      } : null,\n      observation_scope: "live_tls",\n      achieved_grade: trust.leafCollected',
+      '      } : { certificate_identity: ssl.cert_subject },\n      observation_scope: "live_tls",\n      achieved_grade: trust.leafCollected',
+    ],
+  ].reduce((text, [from, to], i) => {
+    const count = text.split(from).length - 1;
+    ok(`CT-as-live-leaf submutation ${i + 1} has exactly one source anchor`, count === 1);
+    return count === 1 ? text.replace(from, to) : text;
+  }, source),
   async (mutant) => {
     const result = mutant.deriveCertificateSignalCompletenessFromModules({
       modules: completeModules(),

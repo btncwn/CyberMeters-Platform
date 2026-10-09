@@ -47,6 +47,7 @@ export function createMutationSandbox(root, label = "item10-p5-mutant-") {
     fs.cpSync(path.join(root, "workers/scan-api/src"), workerSource, {
       recursive: true,
     });
+    fs.cpSync(path.join(root, "workers/network-probe/src"), path.join(tempRoot, "workers/network-probe/src"), { recursive: true });
     fs.copyFileSync(
       path.join(root, "workers/scan-api/package.json"),
       path.join(workerRoot, "package.json"),

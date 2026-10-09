@@ -194,6 +194,7 @@ for (const mutant of registry) {
     fs.mkdirSync(path.join(sandbox, "scripts"), { recursive: true });
     fs.mkdirSync(path.join(sandbox, "workers", "scan-api"), { recursive: true });
     fs.cpSync(workerSrc, path.join(sandbox, "workers", "scan-api", "src"), { recursive: true });
+    fs.cpSync(path.join(root, "workers/network-probe/src"), path.join(sandbox, "workers/network-probe/src"), { recursive: true });
     fs.cpSync(path.join(root, "shared"), path.join(sandbox, "shared"), { recursive: true });
     fs.copyFileSync(path.join(root, focusedRelative), path.join(sandbox, focusedRelative));
     fs.copyFileSync(

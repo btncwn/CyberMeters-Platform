@@ -49,6 +49,8 @@ const ACTIONABLE = [
   "dse_hsts_short_maxage",
   "dse_cookie_no_secure", "dse_cookie_no_httponly", "dse_cookie_no_samesite",
   "certificate_expiring_critical", "certificate_expiring_soon",
+  // live TLS — network-probe.js literal add(...) calls
+  "certificate_expired", "certificate_hostname_mismatch", "certificate_untrusted",
   // certificates — cert-trust-l2.js `type:` values
   "expired", "expiring_soon", "self_signed", "unexpected_issuer", "unexpected_san", "unexpected_wildcard",
   // whois — whois-scan.js
@@ -113,8 +115,9 @@ ok("exactly the four B1 remediation identities are version 2",
   JSON.stringify(v2Ids) === JSON.stringify(["cert.expiry.expired", "cert.expiry.expiring", "web.cookie.flags", "web.header.csp"]));
 ok("all other remediation identities remain version 1",
   REMEDIATION_REGISTRY.filter((entry) => !v2Ids.includes(entry.remediation_id)).every((entry) => entry.version === 1));
-ok("registry stays at 67 entries", REMEDIATION_REGISTRY.length === 67);
-ok("B1 registry fingerprint is exact", remediationRegistryFingerprint() === "r67-c98a810a", remediationRegistryFingerprint());
+// The original 67 records are unchanged; live hostname/trust findings add two.
+ok("registry has exactly 69 entries including the two live TLS remediations", REMEDIATION_REGISTRY.length === 69);
+ok("registry fingerprint including live TLS is exact", remediationRegistryFingerprint() === "r69-7eefae14", remediationRegistryFingerprint());
 ok("certificate_expiring_critical maps to expiring, never expired",
   resolveRemediation({ finding_type: "certificate_expiring_critical" }).remediation_id === "cert.expiry.expiring"
   && !byId.get("cert.expiry.expired")?.finding_types.includes("certificate_expiring_critical"));
@@ -136,6 +139,7 @@ ok("cookie remediation names SameSite and preserves zero-cookie inconclusive sem
 const EMITTER_FILES = [
   "scoring.js", "email-intel.js", "email-analysis.js", "cloud-storage-scan.js",
   "asset-intel.js", "tech-scan.js", "whois-scan.js", "cert-trust-l2.js", "scan-engine.js",
+  "network-probe.js",
 ];
 // Literals that appear as id:/type: but are NOT finding types (evidence types,
 // module names, classifications, hosted-service ids, workflow states…).
@@ -145,7 +149,7 @@ const NON_FINDING = new Set([
   "canonical_url_probe", "http_header_probe", "dns_mx_lookup", "dns_txt_lookup",
   "certificate_transparency", "certificate_transparency_observation", "supporting_infrastructure_observation",
   "http_fingerprint_observation", "http_probe", "whois", "self_attestation", "scan_findings",
-  "technology_kev_correlation",
+  "technology_kev_correlation", "live_tls",
   "identity_discovery", "saas_exposure", "supporting_infrastructure_observation",
   // finding_type CLASS values (not ids)
   "finding", "observation",
@@ -158,12 +162,20 @@ const NON_FINDING = new Set([
   "lifecycle_first_scan_completed",
 ]);
 const idRe = /\b(?:id|type)\s*:\s*["'`]([a-z][a-z0-9_]+)["'`]/g;
+function emitterIds(file, src) {
+  const ids = [...src.matchAll(idRe)].map(m => m[1]);
+  // liveCertificateFindings groups observations with a local add(id, ...) helper.
+  // Sweep its literal IDs as well as object literals; future additions still
+  // fail classification until explicitly mapped or declared informational.
+  if (file === "network-probe.js") {
+    for (const m of src.matchAll(/\badd\s*\(\s*["'`]([a-z][a-z0-9_]+)["'`]/g)) ids.push(m[1]);
+  }
+  return ids;
+}
 const discovered = new Map(); // id -> file
 for (const f of EMITTER_FILES) {
   const src = fs.readFileSync(path.join(enginesDir, f), "utf8");
-  let m;
-  while ((m = idRe.exec(src)) !== null) {
-    const id = m[1];
+  for (const id of emitterIds(f, src)) {
     if (!discovered.has(id)) discovered.set(id, f);
   }
 }
@@ -177,6 +189,37 @@ const unclassified = [...discovered.keys()].filter((id) => !classify(id));
 ok("every discovered emitter id literal is classified (actionable / informational / non-finding / dynamic)",
   unclassified.length === 0,
   unclassified.map((id) => `${id} (${discovered.get(id)})`).join(", "));
+
+// Test the real producer too: a declared registry type is not proof of an emitter.
+const { liveCertificateFindings } = await imp("network-probe.js");
+const liveReceipt = { schema_version: "network-probe-receipt-v1", profile: "live_tls",
+  request_id: "coverage-fixture", finished_at: "2026-10-09T00:00:00Z", observations: [{
+    hostname: "example.test", port: 443, state: "open", tls: {
+      leaf_collected: true, observed_at: "2026-10-09T00:00:00Z", endpoint: { hostname: "example.test", port: 443 },
+      leaf_certificate: { collection_complete: true, certificate_identity: "fixture-leaf", not_after: "2099-01-01T00:00:00Z" },
+      hostname_match: { result: "mismatched" }, trust_store_validation: { validation_result: "invalid" },
+      trust_store_context: { name: "fixture roots", sha256: "a".repeat(64) },
+    },
+  }] };
+const emitted = liveCertificateFindings({ network_probe: liveReceipt }, "example.test");
+ok("actual live producer emits both hostname and trust findings",
+  JSON.stringify(emitted.map(f => f.signal).sort()) === JSON.stringify(["certificate_hostname_mismatch", "certificate_untrusted"]));
+for (const [type, remediation] of [["certificate_hostname_mismatch", "cert.hostname.match"], ["certificate_untrusted", "cert.trust.validate"]]) {
+  ok(`${type}: discovered in the production helper and resolves to its exact remediation`,
+    discovered.get(type) === "network-probe.js" && resolveRemediation({ finding_type: type }).remediation_id === remediation);
+  ok(`${type}: emitted finding retains measured live evidence`, emitted.some(f =>
+    f.signal === type && f.finding_type === "finding" && f.evidence_source === "live_tls" && f.evidence[0]?.certificate_identity === "fixture-leaf"));
+}
+const healthyReceipt = structuredClone(liveReceipt);
+healthyReceipt.observations[0].tls.hostname_match.result = "matched";
+healthyReceipt.observations[0].tls.trust_store_validation.validation_result = "valid";
+ok("healthy measured TLS does not fabricate a hostname/trust finding", liveCertificateFindings({ network_probe: healthyReceipt }, "example.test").length === 0);
+const unavailableReceipt = structuredClone(liveReceipt);
+unavailableReceipt.observations[0].tls.leaf_collected = false;
+ok("unmeasured TLS and CT-only input do not fabricate live findings",
+  liveCertificateFindings({ network_probe: unavailableReceipt }, "example.test").length === 0 && liveCertificateFindings({ cert_expiry: "2099-01-01" }, "example.test").length === 0);
+ok("a newly emitted unmapped helper ID is discovered and remains unclassified",
+  emitterIds("network-probe.js", "add('unmapped_live_tls_control', 'title')").some(id => !classify(id)));
 
 // ── 4. Report registry entries not reached by any emitter OR derived ref ─────
 // Resolution-accurate: an entry is "reached" if resolving any emitted scan id,

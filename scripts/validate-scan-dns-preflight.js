@@ -320,6 +320,7 @@ if (!process.argv.includes("--behavior-only") && failed === 0) {
     fs.mkdirSync(path.join(directory, "workers/scan-api"), { recursive: true });
     fs.mkdirSync(path.join(directory, "scripts"));
     fs.cpSync(path.join(worker, "src"), path.join(directory, "workers/scan-api/src"), { recursive: true });
+    fs.cpSync(path.join(root, "workers/network-probe/src"), path.join(directory, "workers/network-probe/src"), { recursive: true });
     fs.cpSync(path.join(root, "shared"), path.join(directory, "shared"), { recursive: true });
     fs.copyFileSync(path.join(worker, "package.json"), path.join(directory, "workers/scan-api/package.json"));
     fs.symlinkSync(path.join(worker, "node_modules"), path.join(directory, "workers/scan-api/node_modules"), "dir");

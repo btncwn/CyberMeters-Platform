@@ -80,6 +80,7 @@ It has no visibility into internal networks, endpoints, employee devices, browse
 - **Alerts & managed workflows:** ASM alerts; managed cases with verification.
 - **Evidence sources:** external discovery and probing of customer-owned domains.
 - **Known limitations:** only what is externally observable; not exhaustive of an org's true asset set.
+- **In progress — external network coverage:** owner/admin-attested public IP or CIDR targets, bounded TCP service observations, immutable receipts and same-scope retests are implemented. Scope is at most 32 addresses and 256 address/port pairs per run, using selected ports. Attestation is not independently verified ownership; an open service is not automatically a vulnerability. Private addresses, blanket ASN discovery, UDP assessment and authenticated service testing are not included. Cloudflare collector runtime is verified on our own domain; integrated API/UI release acceptance is pending.
 - **Explicitly does not do:** internal-network or authenticated scanning; exploitation / penetration testing. See **Hard boundaries**.
 - **Current maturity:** **Live — founder acceptance pending**.
 
@@ -91,6 +92,7 @@ It has no visibility into internal networks, endpoints, employee devices, browse
 - **Alerts & managed workflows:** certificate alerts; managed lifecycle (identity / replacement / coverage).
 - **Evidence sources:** live TLS observation, Certificate Transparency.
 - **Known limitations:** an unexpired certificate is not a verified trust path.
+- **In progress — live certificate measurement:** a private Cloudflare collector captures the peer leaf, Node runtime issuer chain, negotiated TLS protocol/cipher, hostname match and validation against the recorded Node CA store. Every endpoint retains its result; failures remain incomplete. Wire-complete presented chain and revocation remain unknown. New hostname/trust findings require fresh matching live evidence for closure. Cloudflare collector runtime is verified on our own domain; integrated API/UI release acceptance is pending.
 - **Explicitly does not do:** confirm private-key security, internal keystore state, or full chain / trusted-root / OCSP / revocation unless supported by observed evidence — otherwise these remain `unknown`.
 - **Current maturity:** **Live — founder acceptance pending**.
 

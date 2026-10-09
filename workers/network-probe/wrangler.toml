@@ -1,0 +1,20 @@
+name = "cybermeters-network-probe"
+main = "src/index.js"
+compatibility_date = "2026-10-09"
+compatibility_flags = ["enable_request_signal"]
+workers_dev = false
+preview_urls = false
+
+# Private service only; two fixed Durable Object slots bound concurrency.
+# Cloudflare's managed Linux image avoids a separate VPS or image registry.
+[[containers]]
+class_name = "NetworkProbeContainer"
+scheduling_policy = "durable_object"
+
+[[durable_objects.bindings]]
+name = "PROBE_CONTAINERS"
+class_name = "NetworkProbeContainer"
+
+[exports.NetworkProbeContainer]
+type = "durable-object"
+storage = "sqlite"

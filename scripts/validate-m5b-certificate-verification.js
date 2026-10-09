@@ -63,6 +63,8 @@ const caseFor = (remediation_id) => ({
     "cert.expiry.expired":      { method: "certificate_recheck", support: "automated" },
     "cert.expiry.expiring":     { method: "certificate_recheck", support: "automated" },
     "cert.tls.install":         { method: "https_recheck",       support: "automated" },
+    "cert.hostname.match":      { method: "certificate_recheck", support: "automated" },
+    "cert.trust.validate":      { method: "certificate_recheck", support: "automated" },
     "cert.self_signed":         { method: "certificate_recheck", support: "automated" },
     "cert.coverage_gap":        { method: "rescan",              support: "automated" },
     "cert.intelligence.review": { method: "rescan",              support: "automated" },
@@ -94,7 +96,8 @@ const caseFor = (remediation_id) => ({
 // ════ 2. A CUSTOMER CANNOT SELF-CERTIFY WHAT WE RE-OBSERVE ══════════════════
 {
   for (const id of ["cert.expiry.expired", "cert.expiry.expiring", "cert.tls.install",
-                    "cert.self_signed", "cert.coverage_gap", "cert.intelligence.review", "cert.caa.configure"]) {
+                    "cert.hostname.match", "cert.trust.validate", "cert.self_signed",
+                    "cert.coverage_gap", "cert.intelligence.review", "cert.caa.configure"]) {
     const d = model.canTransitionCase({
       case: caseFor(id), target_status: "verified",
       actor: { actor_type: "customer", actor_id: "u1" },
@@ -325,6 +328,60 @@ function seedReplacement(db, { remediation_id = "cert.expiry.expired", distinct 
   db.prepare("UPDATE certificate_lifecycle SET linked_case_id=NULL WHERE id='cl-1'").run();
   const res = await certLifecycle.certificateLifecycleAction(env, "ws1", "cl-1", "request_verification", { actor_id: "u1" });
   ok("a record with no linked case still verifies", res.ok && h.cert().verification_status === "verified_replaced");
+}
+
+// 5h. Name/trust findings need their own later, complete live TLS proof. A
+// replacement-only observation is not evidence that either defect was corrected.
+for (const [id, findingType] of [
+  ["cert.hostname.match", "certificate_hostname_mismatch"],
+  ["cert.trust.validate", "certificate_untrusted"],
+]) {
+  eq(`${id}: only live TLS supports verification`, registry.getRemediationById(id).supporting_evidence_types, ["live_tls"]);
+  const db = buildDb(); const env = { cybermeters_db: makeD1(db) };
+  const h = seedReplacement(db, { remediation_id: id });
+  db.prepare("UPDATE managed_cases SET source_finding_type=? WHERE id='mc-cert'").run(findingType);
+  await certLifecycle.certificateLifecycleAction(env, "ws1", "cl-1", "request_verification", { actor_id: "u1" });
+  eq(`${id}: replacement alone cannot verify the linked case`, h.kase().status, "awaiting_verification");
+  eq(`${id}: replacement alone writes no verified case event`, h.events().filter(e => e.to_status === "verified").length, 0);
+  db.close();
+
+  const hostname = "acme.example.com", after = "2026-10-09T00:00:00Z";
+  const NOW = "2026-10-09T00:05:00Z";
+  const signal = value => ({
+    completeness_state: "monitoring_healthy", observation: "present", value,
+    observation_scope: "live_tls", achieved_grade: "L3", publishable: true,
+    source_type: "normative_protocol", provenance: [{ source: "m5b-live-fixture" }],
+  });
+  const endpoint = { address: "93.184.216.34", hostname, port: 443, certificate_identity: "KEY-NEW",
+    hostname_match: "matched", trust_validation: "valid", not_after: "2027-10-09T00:00:00Z" };
+  const observed = { last_seen: "2026-10-09T00:04:30Z", signals: {
+    leaf: signal({ certificate_identity: "KEY-NEW", all_planned_endpoints_observed: true, endpoint_checks: [endpoint] }),
+    hostname_match: signal({ result: "matched" }), trust_store_validation: signal({ validation_result: "valid" }),
+  } };
+  const verify = (change = () => {}) => {
+    const input = structuredClone(observed); change(input);
+    return certLifecycle.buildLiveTlsCaseVerificationEvidence(findingType, {
+      current: { last_seen: input.last_seen, evidence_json: JSON.stringify({ signal_completeness: { signals: input.signals } }) },
+      after, hostname, now: NOW,
+    });
+  };
+  const healthy = verify();
+  eq(`${id}: a fresh later complete live observation verifies`, healthy.verification_result, "verified");
+  eq(`${id}: verification retains measured endpoint evidence`, healthy.endpoint_checks, [endpoint]);
+  ok(`${id}: live verification does not claim revocation or exact wire-chain proof`,
+    healthy.unknown_signals.includes("revocation") && healthy.unknown_signals.includes("exact_wire_presented_chain"));
+  eq(`${id}: CT-only evidence remains inconclusive`, verify(i => {
+    for (const s of Object.values(i.signals)) s.observation_scope = "certificate_transparency";
+  }).verification_result, "inconclusive");
+  eq(`${id}: HTTP success without TLS signals remains inconclusive`, verify(i => { i.signals = {}; }).verification_result, "inconclusive");
+  eq(`${id}: skipped endpoints prevent verification`, verify(i => { i.signals.leaf.value.all_planned_endpoints_observed = false; }).verification_result, "inconclusive");
+  eq(`${id}: an observation preceding the case action cannot verify`, verify(i => { i.last_seen = after; }).verification_result, "inconclusive");
+  eq(`${id}: a stale observation cannot verify`, verify(i => { i.last_seen = "2026-10-09T00:01:00Z"; }).verification_result, "inconclusive");
+  for (const [field, value] of [["hostname_match", "mismatched"], ["trust_validation", "invalid"]]) {
+    eq(`${id}: any endpoint's ${field} failure remains failed`, verify(i => {
+      i.signals.leaf.value.endpoint_checks.push({ ...endpoint, address: "93.184.216.35", [field]: value });
+    }).verification_result, "failed");
+  }
 }
 
 // ════ 6. THE OTHER DEFERRED CASE TYPES — checked, not assumed ═══════════════

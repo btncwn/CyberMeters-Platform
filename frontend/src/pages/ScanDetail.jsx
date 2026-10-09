@@ -18,6 +18,7 @@ import ErrorAlert from '../components/ErrorAlert'
 import ExecutiveReportV2 from '../components/ExecutiveReportV2'
 import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
 import CyberMotDomains from '../components/CyberMotDomains'
+import LiveTlsEvidence from '../components/LiveTlsEvidence'
 import { assessmentBandLabel, bandMeta } from '../lib/score-presentation'
 import {
   isReportPreparing,
@@ -1276,6 +1277,7 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
       <div className="card overflow-hidden">
         <SectionHeader icon={Lock} title="SSL / HTTPS" />
         <SslPanel ssl={modules?.ssl} />
+        {modules?.ssl?.certificate_evidence?.live_tls && <div className="p-4"><LiveTlsEvidence evidence={modules.ssl.certificate_evidence.live_tls} /></div>}
       </div>
 
       {/* Security Headers */}

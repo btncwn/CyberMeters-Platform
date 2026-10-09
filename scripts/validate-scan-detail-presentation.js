@@ -19,8 +19,8 @@ const scanDetailFile = path.join(frontend, "src", "pages", "ScanDetail.jsx");
 const frontendRequire = createRequire(path.join(frontend, "package.json"));
 const ts = frontendRequire("typescript");
 
-// 24 -> 25: the D2 not-reobserved DMARC render case joins the pinned set.
-const EXPECTED_ASSERTIONS = 25;
+// 25 -> 26: the live TLS receipt survives a separate HTTP failure in the pinned set.
+const EXPECTED_ASSERTIONS = 26;
 const UI_TEST_TITLES = Object.freeze([
   "A: partial canonical score and null rating override divergent raw scan presentation",
   "reason A: canonical assessment message outranks skipped modules and warnings",
@@ -38,6 +38,7 @@ const UI_TEST_TITLES = Object.freeze([
   // R1 P1-2: the real render assertion for the atomic historical invalidation.
   "F2: a withheld historical redirect conclusion renders no stale score, band or BRI",
   "G: observed partial finding stays visible without becoming a new-change claim",
+  "retains a live leaf receipt even when the separate HTTPS module could not complete",
 ]);
 
 let passed = 0;

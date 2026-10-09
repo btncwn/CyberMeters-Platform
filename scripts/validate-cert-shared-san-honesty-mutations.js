@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers/scan-api/src/engines");
 const validator = path.join(root, "scripts/validate-cert-shared-san-honesty.js");
-const ASSERTION_TOTAL = 39;
+const ASSERTION_TOTAL = 41;
 const targets = Object.freeze({
   ssl: {
     sourcePath: path.join(engines, "ssl-scan.js"),

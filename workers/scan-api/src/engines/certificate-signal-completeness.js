@@ -1319,7 +1319,10 @@ export function deriveCertificateSignalCompletenessFromModules({
       observation: trust.leafCollected
         ? CERTIFICATE_OBSERVATION_STATES.PRESENT
         : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
-      value: trust.leafCollected ? { ...trust.leaf } : null,
+      value: trust.leafCollected ? { ...trust.leaf,
+        all_planned_endpoints_observed: trust.liveTls.all_planned_endpoints_observed === true,
+        endpoint_checks: (trust.liveTls.endpoint_observations || []).filter(row => row.tls?.leaf_collected).map(row => ({address:row.address,hostname:row.hostname,port:row.port,certificate_identity:row.tls.leaf_certificate.certificate_identity,hostname_match:row.tls.hostname_match.result,trust_validation:row.tls.trust_store_validation.validation_result,not_after:row.tls.leaf_certificate.not_after})),
+      } : null,
       observation_scope: "live_tls",
       achieved_grade: trust.leafCollected ? "L3" : "L0",
       source_type: "normative_protocol",
@@ -1355,46 +1358,34 @@ export function deriveCertificateSignalCompletenessFromModules({
         : ["The current scan modules did not capture a live presented chain."],
     }),
     san: evidence({
-      completeness_state: Array.isArray(ssl.cert_san_names)
-        ? ctPositiveState
-        : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
-      observation: Array.isArray(ssl.cert_san_names) && selectedCtCertificate
-        ? CERTIFICATE_OBSERVATION_STATES.PRESENT
-        : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
-      value: Array.isArray(ssl.cert_san_names) ? [...ssl.cert_san_names] : null,
-      observation_scope: "ct_issuance",
-      achieved_grade: "L1",
+      completeness_state: trust.leafCollected ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY : (Array.isArray(ssl.cert_san_names) && selectedCtCertificate ? ctPositiveState : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE),
+      observation: trust.leafCollected || (Array.isArray(ssl.cert_san_names) && selectedCtCertificate) ? CERTIFICATE_OBSERVATION_STATES.PRESENT : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      value: trust.leafCollected ? (Array.isArray(trust.leaf.dns_names) ? [...trust.leaf.dns_names] : []) : (Array.isArray(ssl.cert_san_names) ? [...ssl.cert_san_names] : null),
+      observation_scope: trust.leafCollected ? "live_tls" : "ct_issuance",
+      achieved_grade: trust.leafCollected ? "L3" : "L1",
       source_type: "normative_protocol",
-      source: ctSource,
-      method: `${ctMethod}_san`,
+      source: trust.leafCollected ? "cloudflare_container_node_tls" : ctSource,
+      method: trust.leafCollected ? "peer_x509_san" : `${ctMethod}_san`,
     }),
     issuer: evidence({
-      completeness_state: cleanString(ssl.cert_issuer)
-        ? ctPositiveState
-        : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
-      observation: cleanString(ssl.cert_issuer)
-        ? CERTIFICATE_OBSERVATION_STATES.PRESENT
-        : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
-      value: cleanString(ssl.cert_issuer) || null,
-      observation_scope: "ct_issuance",
-      achieved_grade: "L1",
+      completeness_state: trust.leafCollected ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY : (cleanString(ssl.cert_issuer) ? ctPositiveState : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE),
+      observation: trust.leafCollected || (cleanString(ssl.cert_issuer)) ? CERTIFICATE_OBSERVATION_STATES.PRESENT : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      value: trust.leafCollected ? (trust.leaf.issuer) : (cleanString(ssl.cert_issuer) || null),
+      observation_scope: trust.leafCollected ? "live_tls" : "ct_issuance",
+      achieved_grade: trust.leafCollected ? "L3" : "L1",
       source_type: "normative_protocol",
-      source: ctSource,
-      method: `${ctMethod}_issuer`,
+      source: trust.leafCollected ? "cloudflare_container_node_tls" : ctSource,
+      method: trust.leafCollected ? "peer_x509_issuer" : `${ctMethod}_issuer`,
     }),
     expiry: evidence({
-      completeness_state: cleanString(ssl.cert_not_after)
-        ? ctPositiveState
-        : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
-      observation: cleanString(ssl.cert_not_after)
-        ? CERTIFICATE_OBSERVATION_STATES.PRESENT
-        : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
-      value: cleanString(ssl.cert_not_after) || null,
-      observation_scope: "ct_issuance",
-      achieved_grade: "L1",
+      completeness_state: trust.leafCollected ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY : (cleanString(ssl.cert_not_after) ? ctPositiveState : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE),
+      observation: trust.leafCollected || (cleanString(ssl.cert_not_after)) ? CERTIFICATE_OBSERVATION_STATES.PRESENT : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      value: trust.leafCollected ? (trust.leaf.not_after) : (cleanString(ssl.cert_not_after) || null),
+      observation_scope: trust.leafCollected ? "live_tls" : "ct_issuance",
+      achieved_grade: trust.leafCollected ? "L3" : "L1",
       source_type: "normative_protocol",
-      source: ctSource,
-      method: `${ctMethod}_validity`,
+      source: trust.leafCollected ? "cloudflare_container_node_tls" : ctSource,
+      method: trust.leafCollected ? "peer_x509_validity" : `${ctMethod}_validity`,
     }),
     certificate_transparency: evidence({
       completeness_state: ctState,
