@@ -26,6 +26,8 @@ const providerCalls = [];
 let mode = 'positive', duringProvider = null;
 const positive = { success: true, found: 5, fields: ['email','password'], sources: [{ name: 'Synthetic source <img src=x onerror=alert(1)>', date: '2020-01' }], password: 'DISCARD-NOT-REAL' };
 const zero = { success: true, found: 0, fields: [], sources: [] };
+// Exact response observed from the Public API on 2026-10-09.
+const notFound = { success: false, error: 'Not found' };
 const outbound = async request => {
   const url = new URL(request.url);
   assert.equal(url.origin + url.pathname, 'https://leakcheck.io/api/public');
@@ -36,6 +38,7 @@ const outbound = async request => {
   if (duringProvider) await duringProvider();
   if (mode === 'positive') return Response.json(positive);
   if (mode === 'zero') return Response.json(zero);
+  if (mode === 'not_found') return Response.json(notFound);
   if (mode === '429') return new Response('', { status: 429 });
   if (mode === '500') return new Response('', { status: 500 });
   if (mode === 'redirect') return new Response('', { status: 302, headers: { Location: 'https://forbidden.invalid/' } });
@@ -154,13 +157,32 @@ try {
   for(let i=1;i<providerCalls.length;i++) pass('no fixed-window boundary burst '+i,()=>assert(providerCalls[i].at-providerCalls[i-1].at>=1000));
   equal('invalid direct hash no query',(await stub2.lookup('person@example.test')).status,'unavailable');
 
-  for (const [selected,status] of [['zero','no_matches'],['429','rate_limited'],['500','unavailable'],['redirect','unavailable'],['malformed','unavailable'],['oversized','unavailable']]) {
+  for (const [selected,status] of [['zero','no_matches'],['not_found','no_matches'],['429','rate_limited'],['500','unavailable'],['redirect','unavailable'],['malformed','unavailable'],['oversized','unavailable']]) {
     await waitCooldown(); await clearRates(); mode=selected;
     const result=await call({user:'admin',method:'POST'});
     equal(selected+' honest saved result',result.body.item?.status,status);
     if(status!=='no_matches') equal(selected+' never numeric zero',result.body.item.found_count,null);
+    else equal(selected+' saved absence has no leaked fields or sources',[result.body.item.found_count,result.body.item.fields,result.body.item.sources],[0,[],[]]);
   }
   for(const body of [{}, {success:false,found:0,fields:[],sources:[]}, {...zero,found:-1}, {...zero,found:'0'}, {...zero,sources:positive.sources}, {...zero,fields:['password']}, {...positive,sources:[]}, {...positive,sources:[{name:'x',date:4}]}, {...positive,fields:Array(101).fill('x')}]) equal('malformed response never clean',parseLeakCheckResult(body).status,'unavailable');
+  equal('exact Public API not-found response is a scoped no-match',parseLeakCheckResult(notFound),{status:'no_matches',reason:null,found_count:0,fields:[],sources:[]});
+  for (const [name,body] of [
+    ['provider failure',{success:false,error:'Internal server error'}],
+    ['rate limit',{success:false,error:'Rate limit exceeded'}],
+    ['invalid query',{success:false,error:'Invalid email'}],
+    ['missing success',{error:'Not found'}],
+    ['string success',{success:'false',error:'Not found'}],
+    ['contradictory count',{...notFound,found:1}],
+    ['contradictory sources',{...notFound,sources:positive.sources}],
+    ['unexpected fields',{...notFound,fields:[]}],
+    ['extra error details',{...notFound,details:'upstream unavailable'}],
+    ['changed error wording',{success:false,error:'not found'}],
+  ]) equal(name+' is not the exact no-match envelope',parseLeakCheckResult(body).status,'unavailable');
+  for (const status of [302,404,429,500]) {
+    const result=await queryLeakCheck('a'.repeat(24),async()=>Response.json(notFound,{status}));
+    pass('HTTP '+status+' with not-found body never becomes no-match',()=>assert.notEqual(result.status,'no_matches'));
+    equal('HTTP '+status+' preserves unknown count',result.found_count,null);
+  }
   let requested=null;
   await queryLeakCheck('a'.repeat(24),async(url,options)=>{requested={url,options};return Response.json(zero);});
   equal('adapter never follows redirects',requested.options.redirect,'manual');
