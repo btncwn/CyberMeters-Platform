@@ -807,20 +807,29 @@ function d1Stub({ fail = false } = {}) {
   // STRENGTHENED (F-027, Integration-granted allowed-path extension — THIS
   // assertion ONLY). Property is UNCHANGED: the SCHEDULED (non-DLQ) queue path
   // still routes through the SHARED scan-dispatch consumer, not a private fork.
-  // The former `=> handleScanDispatchBatch` shape regex could not survive the
-  // F-027 queue-identity dispatch; it is replaced by EXECUTING the extracted
-  // handler body (routeQueueBatch) plus a form-independent wiring check.
+  // Execute the actual Worker queue expression with recording dependencies so
+  // the network/domain splitter must still delegate scheduled messages to the
+  // shared domain consumer, including its settlement dependency.
   {
-    let sharedDispatchCalled = false, dlqCalled = false;
-    const handlers = {
-      dispatch: () => { sharedDispatchCalled = true; },
-      dlq:      () => { dlqCalled = true; },
-      settle:   () => {},
-    };
-    routeQueueBatch({ queue: "cybermeters-scan-dispatch" }, {}, {}, handlers);
+    let sharedDispatch = null, wrongHandlerCalled = false;
+    const settle = () => {};
+    const scheduledMessage = { body: { scan_id: "scheduled-telemetry", trigger: "scheduled" } };
+    const qStart = indexSrc.indexOf("queue: (batch, env, ctx) => routeQueueBatch");
+    const qEnd = qStart >= 0 ? indexSrc.indexOf("\n  }),", qStart) : -1;
+    if (qStart >= 0 && qEnd >= 0) {
+      const expression = indexSrc.slice(qStart + "queue: ".length, qEnd + "\n  })".length);
+      const workerQueue = new Function("routeQueueBatch", "handleScanDispatchBatch", "handleNetworkScanBatch", "handleScanDlqBatch", "settleScheduledQueueScan", `return (${expression});`)(
+        routeQueueBatch,
+        (batch, env, ctx, deps) => { sharedDispatch = { batch, deps }; },
+        () => { wrongHandlerCalled = true; },
+        () => { wrongHandlerCalled = true; },
+        settle,
+      );
+      await workerQueue({ queue: "cybermeters-scan-dispatch", messages: [scheduledMessage] }, {}, {});
+    }
     ok("C1A scheduled queue consumer remains shared (routes through the shared dispatch handler, not a private fork)",
-      sharedDispatchCalled === true && dlqCalled === false &&
-      /dispatch:\s*handleScanDispatchBatch/.test(indexSrc));
+      sharedDispatch?.batch.messages.length === 1 && sharedDispatch.batch.messages[0] === scheduledMessage &&
+      sharedDispatch.deps?.onScheduledScanSettled === settle && wrongHandlerCalled === false);
   }
   const headersSrc = src("workers", "scan-api", "src", "engines", "headers-scan.js");
   function sourceGuard(name, source, predicate, mutate) {

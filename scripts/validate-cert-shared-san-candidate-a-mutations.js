@@ -117,8 +117,8 @@ const mutants = [
   {
     id: "SAN_A_M08", target: "certIntel", expected: ["F18"],
     mutate: (s) => replaceExactly(s,
-      `\t      san_count:             ssl.cert_san_count ?? 0,\n\t      raw_san_count:         ssl.cert_raw_san_count ?? ssl.cert_san_count ?? 0,\n\t      wildcard_san_count:    ssl.cert_wildcard_san_count ?? 0,`,
-      `\t      san_count:             ssl.cert_san_count ?? null,\n\t      raw_san_count:         ssl.cert_raw_san_count ?? ssl.cert_san_count ?? null,\n\t      wildcard_san_count:    ssl.cert_wildcard_san_count ?? null,`, "M08"),
+      `\t      san_count:             live?.dns_names?.length ?? ssl.cert_san_count ?? 0,\n\t      raw_san_count:         live?.dns_names?.length ?? ssl.cert_raw_san_count ?? ssl.cert_san_count ?? 0,\n\t      wildcard_san_count:    live ? (live.dns_names || []).filter(name => name.startsWith("*.")).length : ssl.cert_wildcard_san_count ?? 0,`,
+      `\t      san_count:             live?.dns_names?.length ?? ssl.cert_san_count ?? null,\n\t      raw_san_count:         live?.dns_names?.length ?? ssl.cert_raw_san_count ?? ssl.cert_san_count ?? null,\n\t      wildcard_san_count:    live ? (live.dns_names || []).filter(name => name.startsWith("*.")).length : ssl.cert_wildcard_san_count ?? null,`, "M08"),
   },
   {
     id: "SAN_A_M09", target: "phase5", expected: ["F12"],

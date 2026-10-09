@@ -17,8 +17,8 @@ const targetFile = path.join(root, targetRel);
 const validator = path.join(root, "scripts", "validate-scan-detail-presentation.js");
 
 const EXPECTED_MUTANTS = 8;
-// 24 -> 25: the D2 not-reobserved DMARC render case joined the plain validator.
-const VALIDATOR_ASSERTIONS = 25;
+// 25 -> 26: the live TLS receipt render case joined the plain validator.
+const VALIDATOR_ASSERTIONS = 26;
 const SUMMARY_PREFIX = "ScanDetail presentation:";
 
 const AST_RAW = "AST: raw scan.rating cannot feed ScanDetail presentation";

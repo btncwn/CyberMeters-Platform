@@ -1534,6 +1534,7 @@ export const api = {
   getNetworkScans: (wsId, options = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-scans`, options),
   getNetworkScan: (wsId, scanId, options = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-scans/${encodeURIComponent(scanId)}`, options),
   retestNetworkScan: (wsId, scanId) => request(`/workspaces/${encodeURIComponent(wsId)}/network-scans/${encodeURIComponent(scanId)}/retest`, { method: 'POST', body: '{}' }),
+  /** @param {string} wsId @param {RequestInit & { cursor?: string | null }} [options] */
   getNetworkAssets: (wsId, { cursor, ...options } = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-assets${cursor != null ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, options),
 
   // ── Public Free Scan (no auth required) ──────────────────────────────────

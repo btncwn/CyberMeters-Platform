@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
+import { splitStatements, isToleratedStatement } from './lib/migration-apply-tolerated.js';
 
 let externalCalls=0;
 globalThis.fetch=async()=>{externalCalls++;throw new Error('external transport disabled');};
@@ -19,10 +21,12 @@ function fixture(){
  const db=new DatabaseSync(':memory:');
  db.exec(fs.readFileSync(path.join(root,'database/schema.sql'),'utf8'));
  for(const name of fs.readdirSync(path.join(root,'database/migrations')).filter(n=>n.endsWith('.sql')).sort()){
-  if(name==='109-network-assets.sql')continue;
-  try{db.exec(fs.readFileSync(path.join(root,'database/migrations',name),'utf8'));}catch{/* Existing additive migration convergence. */}
+  const sql=fs.readFileSync(path.join(root,'database/migrations',name),'utf8');
+  const hash=createHash('sha256').update(sql).digest('hex');
+  for(const statement of splitStatements(sql)){
+   try{db.exec(statement);}catch(error){if(!isToleratedStatement(name,hash,statement,error.message))throw error;}
+  }
  }
- db.exec(fs.readFileSync(path.join(root,'database/migrations/109-network-assets.sql'),'utf8'));
  db.exec('PRAGMA foreign_keys=ON');
  const queries=[],objects=new Map();let failure=null,probeCalls=0,deleteFailure=false,keepDeleted=false;
  const statement=(sql,args=[])=>({sql,args,bind:(...values)=>statement(sql,values),

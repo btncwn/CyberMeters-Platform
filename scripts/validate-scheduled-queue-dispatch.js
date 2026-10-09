@@ -669,15 +669,33 @@ ok("E2 SCAN_DISPATCH_MODE remains \"queue\" (manual path untouched)",
   ok("E3b the DLQ batch runs the observer and NEVER the scan-dispatch engine",
     dlqCalled === true && dispatchCalled === false);
 
-  // (B) WIRING (form-independent — no single-line assumption): the real Worker
-  // queue handler binds settleScheduledQueueScan and BOTH real handlers to
-  // routeQueueBatch. Catches the injection being dropped from the real handler.
+  // (B) WIRING: execute the actual Worker queue expression with recording
+  // dispatch handlers. The network/domain splitter must pass the real scheduled
+  // settlement hook through to the domain handler, not merely mention its name.
   const qStart = indexSrc.indexOf("queue: (batch, env, ctx) => routeQueueBatch");
-  const qhBlock = qStart >= 0 ? indexSrc.slice(qStart, qStart + 400) : "";
+  const qEnd = qStart >= 0 ? indexSrc.indexOf("\n  }),", qStart) : -1;
+  let workerDomain = null, workerNetwork = null, workerDlq = false;
+  let workerDomainCalls = 0, workerNetworkCalls = 0;
+  if (qStart >= 0 && qEnd >= 0) {
+    const expression = indexSrc.slice(qStart + "queue: ".length, qEnd + "\n  })".length);
+    const workerQueue = new Function("routeQueueBatch", "handleScanDispatchBatch", "handleNetworkScanBatch", "handleScanDlqBatch", "settleScheduledQueueScan", `return (${expression});`)(
+      routeQueueBatch,
+      (batch, env, ctx, deps) => { workerDomain = { batch, deps }; workerDomainCalls++; },
+      batch => { workerNetwork = batch; workerNetworkCalls++; },
+      () => { workerDlq = true; },
+      settleScheduledQueueScan,
+    );
+    await workerQueue({ queue: "cybermeters-scan-dispatch", messages: [
+      { body: { scan_id: "scheduled-wiring", trigger: "scheduled" } },
+      { body: { kind: "network_probe", v: 1, scan_id: "network-wiring" } },
+    ] }, {}, {});
+    await workerQueue({ queue: "cybermeters-scan-dlq", messages: [] }, {}, {});
+  }
   ok("E3c the Worker queue handler binds the real hook and both handlers to routeQueueBatch",
-    /settle:\s*settleScheduledQueueScan/.test(qhBlock) &&
-    /dispatch:\s*handleScanDispatchBatch/.test(qhBlock) &&
-    /dlq:\s*handleScanDlqBatch/.test(qhBlock));
+    workerDomain?.deps?.onScheduledScanSettled === settleScheduledQueueScan &&
+    workerDomain.batch.messages.length === 1 && workerDomain.batch.messages[0].body.scan_id === "scheduled-wiring" &&
+    workerNetwork?.messages.length === 1 && workerNetwork.messages[0].body.scan_id === "network-wiring" &&
+    workerDomainCalls === 1 && workerNetworkCalls === 1 && workerDlq === true);
 }
 
 // E4 — inside triggerScheduledScan, the queue branch returns via dispatch and
