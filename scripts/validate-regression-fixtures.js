@@ -2352,7 +2352,7 @@ results.push(securityContract("alert_channel_payloads_provider_shapes", () => {
     hook.severity === "high" && hook.domain === "example.com" &&
     /^\d{4}-\d{2}-\d{2}T/.test(hook.sent_at) &&
     // Control characters are stripped from all rendered text
-    scanner.buildAlertChannelPayload("slack", { title: "a bc" }).text.includes("*a b c*");
+    scanner.buildAlertChannelPayload("slack", { title: "a\u0000b\u001fc" }).text.includes("*a b c*");
 }));
 results.push(await asyncSecurityContract("alert_webhook_signature_hmac_sha256", async () => {
   // Cross-check the Workers-crypto implementation against Node's crypto.
