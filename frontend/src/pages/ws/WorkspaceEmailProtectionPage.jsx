@@ -2975,7 +2975,7 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPresentatio
   )
 }
 
-function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, senderData, onGotoSetup, onGotoSenders }) {
+export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, senderData, onGotoSetup, onGotoSenders }) {
   const [endpoint, setEndpoint] = useState(null)
   const [liveStatus, setLiveStatus] = useState(null)
   const [checking, setChecking] = useState(false)
@@ -3005,9 +3005,12 @@ function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, senderData,
   const dnsVerified    = liveStatus ? liveStatus === 'verified' : dnsHasRua
   const reportsRcvd    = Boolean(endpoint?.last_inbound_at)
   const sendersCount   = senderData?.senders?.length ?? senderData?.summary?.total_senders ?? null
-  const messages       = dmarc?.traffic?.total_messages ?? senderData?.summary?.total_messages ?? null
-  const aligned        = senderData?.summary?.aligned_messages ?? null
-  const unaligned      = senderData?.summary?.failed_messages ?? null
+  // Keep all three message counts in one reporting window and evidence scope.
+  // Sender inventory counters can cover different reports; never fill gaps from them.
+  const messages       = dmarc?.traffic?.total_messages ?? null
+  const aligned        = dmarc?.traffic?.aligned_messages ?? null
+  const unaligned      = dmarc?.traffic?.failed_messages ?? null
+  const trafficPeriod  = dmarc?.period_days ? `Last ${dmarc.period_days} days` : 'Selected reporting window'
   const hasData        = (messages || 0) > 0 || (sendersCount || 0) > 0
 
   let state
@@ -3090,9 +3093,9 @@ function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, senderData,
 
       {/* Metric cards (label-led, numbers below & smaller) */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <EpMetric label="Messages observed" explanation="Across received DMARC reports" value={messages} />
-        <EpMetric label="Aligned messages"  explanation="Passed DMARC alignment"        value={aligned} />
-        <EpMetric label="Unaligned messages" explanation="Failed alignment — review"    value={unaligned} />
+        <EpMetric label="Messages observed" explanation={`${trafficPeriod} · DMARC reports`} value={messages} />
+        <EpMetric label="Aligned messages"  explanation={`${trafficPeriod} · passed alignment`} value={aligned} />
+        <EpMetric label="Unaligned messages" explanation={`${trafficPeriod} · failed alignment`} value={unaligned} />
         <EpMetric label="Known senders"      explanation="Sources seen in reports"       value={hasData ? (sendersCount || 0) : null} />
         <EpMetric label="Last report received" explanation="Most recent inbound report"  value={epFmt(endpoint?.last_inbound_at)} />
       </div>

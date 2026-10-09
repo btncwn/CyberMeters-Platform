@@ -78,6 +78,15 @@ const notReadyLegacy = buildDmarcEnforcementReadiness({ days_with_data: 2, total
 ok("unhealthy domain is legacy-not-ready AND v2-not-ready (engines agree)",
    notReadyLegacy.ready_for_quarantine === false && notReadyLegacy.status === "not_ready");
 
+// A high weighted score must not contradict the actual milestone blockers.
+const unknownSender = buildDmarcEnforcementReadiness({ ...healthy, unknown_senders: 1 });
+ok("unclassified sender retains high score but never a ready verdict",
+   unknownSender.score >= 85 && unknownSender.status !== "ready" && !unknownSender.ready_for_quarantine && !unknownSender.ready_for_reject);
+ok("unclassified sender remains an explicit blocker", unknownSender.blockers.some(b => b.includes("unknown sender")));
+const emptyWindow = buildDmarcEnforcementReadiness({ ...healthy, total_messages: 0 });
+ok("no reporting volume cannot be reject-ready even with a stale high pass rate",
+   !emptyWindow.ready_for_quarantine && !emptyWindow.ready_for_reject && emptyWindow.status !== "ready");
+
 console.log(`\nEnforcement readiness v2: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("enforcement-readiness-v2 validation FAILED"); process.exit(1); }
 console.log("enforcement-readiness-v2 validation passed");

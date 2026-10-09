@@ -137,7 +137,7 @@ export function buildDmarcEnforcementReadiness(summary = {}) {
   if (highVolFailed > 0) rBlockers.push(`${highVolFailed} high-volume sender(s) are failing alignment.`);
 
   const readyQuarantine = qBlockers.length === 0;
-  const readyReject     = rBlockers.length === 0;
+  const readyReject     = readyQuarantine && rBlockers.length === 0;
   const blockers = readyQuarantine ? rBlockers : qBlockers; // surface the nearer milestone's blockers
 
   let confidence = "low";
@@ -156,8 +156,11 @@ export function buildDmarcEnforcementReadiness(summary = {}) {
     explanation = "The domain is not ready for enforcement yet. Resolve the blockers below, then re-evaluate.";
   }
   const v2 = buildEnforcementReadinessChecks(summary);
+  // The weighted score cannot overrule a milestone blocker (e.g. one unknown
+  // sender). Keep the score, but do not label blocked evidence as ready.
+  const status = v2.status === "ready" && !readyQuarantine ? "approaching" : v2.status;
   return { ready_for_quarantine: readyQuarantine, ready_for_reject: readyReject, confidence, blockers, next_step, explanation,
-           status: v2.status, score: v2.score, checks: v2.checks };
+           status, score: v2.score, checks: v2.checks };
 }
 
 
