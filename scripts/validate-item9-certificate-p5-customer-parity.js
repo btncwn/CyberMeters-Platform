@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runCertificateIntelligenceModule } from "../workers/scan-api/src/engines/cert-intel.js";
+import { attachLiveTlsToSsl, liveCertificateFindings } from "../workers/scan-api/src/engines/network-probe.js";
 import {
   buildCertificateCustomerPresentation,
   buildCertificateRelationshipPresentation,
@@ -47,10 +48,14 @@ const eq = (name, actual, expected) =>
   ok(name, actual === expected,
     `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 const clone = (value) => structuredClone(value);
+// Freeze both expiry decisions and retained observation/receipt time. Mixed
+// endpoint validity must never change when the validator runs on a later date.
+const NOW = "2026-07-26T15:00:00.000Z";
 const run = (modules) =>
   runCertificateIntelligenceModule(modules, trustFixture.domain, {
     providerHealth: trustFixture.provider_health,
-    observedAt: trustFixture.observed_at,
+    observedAt: NOW,
+    nowMs: Date.parse(NOW),
     engineVersion: trustFixture.engine_version,
   });
 
@@ -238,6 +243,132 @@ eq("snapshot freezes relationship precedence",
   fixture.relationship.expected_precedence);
 eq("snapshot lifecycle is recorded", snapshot.certificate_assurance.lifecycle.status,
   "recorded");
+
+// New snapshots describe admitted live measurements without regrading CT
+// coverage or turning a scoped trust-store result into universal verification.
+const liveModules = clone(trustFixture.base_modules);
+const liveCarrier = liveModules.ssl.certificate_evidence.live_tls;
+delete liveCarrier.presented_chain;
+delete liveCarrier.chain;
+delete liveCarrier.revocation_assurance;
+liveCarrier.runtime_chain = { observation_scope: "node_tls_issuer_chain", collection_complete: false, certificates: [] };
+liveCarrier.all_planned_endpoints_observed = true;
+liveCarrier.endpoint_observations = ["93.184.216.34", "93.184.216.35"].map(address => ({
+  address, hostname: trustFixture.domain, port: 443,
+  tls: { ...clone(liveCarrier), leaf_collected: true },
+}));
+const snapshotForModules = (modules, findings = []) => composeSnapshot({
+  snapshotId: "snap-live-basis", workspaceId: "ws-fixture", domainId: "dom-fixture",
+  scanId: "scan-live-basis", domain: trustFixture.domain,
+  report: { ...clone(report), modules: { ...clone(modules), certificate_intelligence: run(modules) }, findings },
+  cyberEssentials: { status: "not_assessed" }, ceReadiness: null, caseRows: [],
+  questionSetVersions: [], builtAt: fixture.built_at,
+});
+const certificateDomain = value => value.domains.find(d => d.domain_key === "certificates_trust");
+const liveSnapshot = snapshotForModules(liveModules);
+const liveDomain = certificateDomain(liveSnapshot);
+ok("live domain basis names captured leaf, hostname match and declared store result",
+  liveDomain.evidence_grade.basis.includes("leaf certificate was captured") &&
+  liveDomain.evidence_grade.basis.includes("Hostname matching was performed: matched") &&
+  liveDomain.evidence_grade.basis.includes("fixture-public-root-store") &&
+  liveDomain.evidence_grade.basis.includes("was performed: valid"));
+ok("live domain no longer claims all trust measurements were unperformed",
+  !liveDomain.limitations.some(x => x.includes("Chain validity, root trust, OCSP and revocation status are not checked")));
+ok("live domain retains exact-wire-chain and unmeasured revocation limits",
+  liveDomain.limitations.some(x => x.includes("not proof of the exact certificate chain")) &&
+  liveDomain.limitations.includes("OCSP and revocation status were not assessed."));
+eq("scoped live measurements never set a blanket domain verified flag", liveDomain.live_certificate_verified, false);
+
+const invalidTrust = clone(liveModules);
+invalidTrust.ssl.certificate_evidence.live_tls.trust_store_validation.validation_result = "invalid";
+ok("failed declared-store validation is described as invalid, not a trust pass",
+  certificateDomain(snapshotForModules(invalidTrust)).evidence_grade.basis.includes("was performed: invalid."));
+const unknownTrust = clone(liveModules);
+delete unknownTrust.ssl.certificate_evidence.live_tls.trust_store_validation;
+ok("missing trust measurement remains explicitly unrecorded",
+  certificateDomain(snapshotForModules(unknownTrust)).evidence_grade.basis.includes("Validation against a declared trust store was not recorded."));
+const incompleteEndpoints = clone(liveModules);
+incompleteEndpoints.ssl.certificate_evidence.live_tls.all_planned_endpoints_observed = false;
+ok("partial endpoint coverage stays explicit alongside an observed live leaf",
+  certificateDomain(snapshotForModules(incompleteEndpoints)).limitations.includes("Not all planned live TLS endpoints were observed."));
+
+const ctOnlySnapshotModules = clone(liveModules);
+delete ctOnlySnapshotModules.ssl.certificate_evidence.live_tls;
+const ctOnlySnapshot = snapshotForModules(ctOnlySnapshotModules);
+const ctOnlyBefore = JSON.stringify(ctOnlySnapshot);
+const ctOnlyDomain = certificateDomain(ctOnlySnapshot);
+eq("CT-only domain preserves its original evidence basis", ctOnlyDomain.evidence_grade.basis,
+  "Certificate Transparency (RFC 9162) records that a certificate or precertificate was logged; it does not establish which certificate a server currently presents.");
+ok("CT-only domain retains its original unmeasured trust caveat",
+  ctOnlyDomain.limitations.includes("Analysis is based on Certificate Transparency logs. Chain validity, root trust, OCSP and revocation status are not checked and remain unknown."));
+const unadmittedReport = clone(report);
+unadmittedReport.modules.certificate_intelligence.signal_completeness.signals.leaf.publishable = false;
+const unadmitted = composeSnapshot({ snapshotId: "unadmitted", workspaceId: "ws-fixture", domainId: "dom-fixture", scanId: "unadmitted", domain: fixture.domain, report: unadmittedReport, caseRows: [], questionSetVersions: [] });
+ok("an unpublished live signal cannot authorize live summary wording",
+  !certificateDomain(unadmitted).evidence_grade.basis.includes("leaf certificate was captured"));
+
+const blackoutModules = clone(liveModules);
+blackoutModules.ssl.ct_sources = {};
+blackoutModules.subdomains = { ...(blackoutModules.subdomains || {}), sources: {} };
+for (const provider of ["crt_sh", "certspotter"]) {
+  blackoutModules.ssl.ct_sources[provider] = { error: "provider unavailable", count: 0 };
+  blackoutModules.subdomains.sources[provider] = { error: "provider unavailable", count: 0 };
+}
+const blackoutIntelligence = runCertificateIntelligenceModule(blackoutModules, trustFixture.domain, {
+  observedAt: NOW, nowMs: Date.parse(NOW), engineVersion: trustFixture.engine_version,
+});
+const blackoutReport = { ...clone(report), scan_quality: { status: "degraded", modules_skipped: [] },
+  modules: { ...blackoutModules, certificate_intelligence: blackoutIntelligence } };
+const blackout = composeSnapshot({ snapshotId: "blackout-live", workspaceId: "ws-fixture", domainId: "dom-fixture", scanId: "blackout-live", domain: fixture.domain, report: blackoutReport, caseRows: [], questionSetVersions: [] });
+eq("CT provider blackout still caps live-summary domain grade at L0", certificateDomain(blackout).evidence_grade.grade, "L0");
+ok("CT provider blackout cannot become assessed healthy from a live leaf", certificateDomain(blackout).state !== "assessed_healthy");
+ok("CT blackout still describes the separately admitted live measurement", certificateDomain(blackout).evidence_grade.basis.includes("was performed: valid"));
+
+const liveFinding = { id: "certificate_untrusted", title: "Measured trust failure", module: "certificate_intelligence", severity: "high", finding_type: "finding",
+  evidence: [{ type: "live_tls", certificate_identity: liveCarrier.leaf_certificate.certificate_identity }] };
+const findingSnapshot = snapshotForModules(invalidTrust, [liveFinding]);
+ok("a retained matching live finding uses live rather than CT evidence provenance",
+  findingSnapshot.observed_findings[0]?.evidence_grade.basis.includes("endpoint evidence retained with this finding") &&
+  !findingSnapshot.observed_findings[0]?.evidence_grade.limits.some(x => x.includes("root trust, OCSP and revocation were not verified")));
+const foreignFinding = { ...liveFinding, evidence: [{ type: "live_tls", certificate_identity: "unbound-leaf" }] };
+ok("a finding with an unrelated leaf cannot borrow live summary provenance",
+  !snapshotForModules(invalidTrust, [foreignFinding]).observed_findings[0]?.evidence_grade.basis.includes("leaf certificate was captured"));
+
+// Exercise the real multi-endpoint producer: the selected summary leaf is
+// expired/matched; the different, current leaf supplies a hostname mismatch.
+const mixedEndpointRow = (address, identity, notAfter, name, trust) => {
+  const tls = clone(liveCarrier);
+  tls.leaf_collected = true;
+  tls.endpoint = { address, hostname: trustFixture.domain, port: 443 };
+  tls.observed_at = NOW;
+  tls.leaf_certificate.certificate_identity = identity;
+  tls.leaf_certificate.not_after = notAfter;
+  tls.hostname_match.result = name;
+  tls.hostname_match.certificate_identity = identity;
+  tls.trust_store_validation.validation_result = trust;
+  tls.trust_store_validation.certificate_identity = identity;
+  return { address, hostname: trustFixture.domain, port: 443, state: "open", tls };
+};
+const mixedModules = clone(liveModules);
+mixedModules.ssl = attachLiveTlsToSsl(mixedModules.ssl, { receipt: {
+  schema_version: "network-probe-receipt-v1", profile: "live_tls", request_id: "mixed-endpoint-fixture",
+  quality: "complete", finished_at: NOW,
+  observations: [
+    mixedEndpointRow("93.184.216.34", "sha256:expired-selected", "2026-07-25T00:00:00.000Z", "matched", "invalid"),
+    mixedEndpointRow("93.184.216.35", "sha256:current-mismatch", "2026-11-30T00:00:00.000Z", "mismatched", "invalid"),
+  ],
+} });
+const mixedFindings = liveCertificateFindings(mixedModules.ssl, trustFixture.domain)
+  .map(finding => ({ ...finding, id: finding.signal, module: "certificate_intelligence" }));
+const mixedSnapshot = snapshotForModules(mixedModules, mixedFindings);
+const mismatchSource = mixedFindings.find(finding => finding.id === "certificate_hostname_mismatch");
+const mismatchFinding = mixedSnapshot.observed_findings.find(finding => finding.finding_id === "certificate_hostname_mismatch");
+eq("real mixed endpoint producer selects the expired matched leaf", mixedModules.ssl.live_certificate.certificate_identity, "sha256:expired-selected");
+ok("mixed endpoint domain summary still describes only its selected matched leaf", certificateDomain(mixedSnapshot).evidence_grade.basis.includes("Hostname matching was performed: matched"));
+ok("real mismatch finding references its different endpoint identity and result", mismatchFinding?.evidence_ref.count === 1 && mismatchSource?.evidence.some(item => item.certificate_identity === "sha256:current-mismatch" && item.hostname_match === "mismatched"));
+ok("mixed endpoint finding cannot borrow the selected leaf hostname outcome", mismatchFinding?.evidence_grade.basis.includes("endpoint evidence retained with this finding") && !mismatchFinding.evidence_grade.basis.includes("Hostname matching was performed: matched"));
+ok("mixed endpoint finding cannot borrow a selected trust-store verdict", mismatchFinding?.evidence_grade.basis.includes("not inferred from the selected summary leaf") && !mismatchFinding.evidence_grade.basis.includes("was performed: invalid"));
+eq("new live compositions do not mutate a previously composed CT-only snapshot", JSON.stringify(ctOnlySnapshot), ctOnlyBefore);
 
 const apiProjection = certificateAssuranceApiProjection(snapshot);
 const read = {
