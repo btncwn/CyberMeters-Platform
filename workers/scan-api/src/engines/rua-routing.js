@@ -122,6 +122,7 @@ export function buildDmarcEnforcementReadiness(summary = {}) {
   const pass    = typeof summary.pass_rate === "number" ? summary.pass_rate : 0;
   const unknown = summary.unknown_senders || 0;
   const highVolFailed = summary.high_volume_failed_senders || 0;
+  const threat = summary.threat_senders || 0;
 
   const qBlockers = [];
   if (days < 7) qBlockers.push("Fewer than 7 days of DMARC reports have been imported.");
@@ -129,6 +130,7 @@ export function buildDmarcEnforcementReadiness(summary = {}) {
   if (pass < 95) qBlockers.push(`DMARC pass rate is ${pass}% (95% recommended before quarantine).`);
   if (unknown > 0) qBlockers.push(`${unknown} unknown sender${unknown === 1 ? "" : "s"} remain unclassified.`);
   if (highVolFailed > 0) qBlockers.push(`${highVolFailed} high-volume sender(s) are failing alignment.`);
+  if (threat > 0) qBlockers.push(`${threat} sender(s) are classified as impersonation threats.`);
 
   const rBlockers = [];
   if (days < 14) rBlockers.push("Fewer than 14 days of DMARC reports have been imported.");

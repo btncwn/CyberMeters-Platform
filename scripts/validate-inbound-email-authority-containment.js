@@ -17,6 +17,11 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerRoot = path.join(root, "workers", "scan-api", "src");
 const imp = (rel) => import(pathToFileURL(path.join(workerRoot, rel)).href);
 const read = (rel) => fs.readFileSync(path.join(workerRoot, rel), "utf8");
+let unexpectedFetches = 0;
+globalThis.fetch = async () => {
+  unexpectedFetches += 1;
+  throw new Error("Live network is unavailable in this offline validator");
+};
 
 const {
   ingestDmarcReport,
@@ -401,7 +406,7 @@ ok("forged inbound report contributes zero traffic/disposition/window decision s
   forgedOnlySummary.body.traffic.total_messages === 0 &&
   forgedOnlySummary.body.traffic.aligned_messages === 0 &&
   forgedOnlySummary.body.traffic.failed_messages === 0 &&
-  forgedOnlySummary.body.traffic.pass_rate === 0 &&
+  forgedOnlySummary.body.traffic.pass_rate === null &&
   forgedOnlySummary.body.disposition.none === 0 &&
   forgedOnlySummary.body.disposition.quarantine === 0 &&
   forgedOnlySummary.body.disposition.reject === 0 &&
@@ -513,6 +518,49 @@ ok("operational signal aggregation remains workspace/domain tenant-bound",
   tenantBoundSummary.body.traffic.failed_messages === 0 &&
   tenantBoundSenders.body.senders.length === 1 &&
   tenantBoundSenders.body.senders[0].total_messages === 40);
+
+// Exercise the served summary, not just the readiness helper: an all-time
+// inventory must never substitute for the requested report window.
+seedDomain("d-window", "window.example");
+async function ingestWindowReport(id, count, begin, end) {
+  const result = await ingestDmarcReport(env, {
+    workspaceId: "ws1", domain: "window.example", domainId: "d-window",
+    source: "inbound_email", enforceDomainMatch: true,
+    provenance: { auth_verdict: "sender_domain_claimed_recognised", reporter_domain: "outlook.com" },
+    xmlString: dmarcXml(id, "window.example", [{ ip: "198.51.100.42", count, pass: true }], "none", { begin, end }),
+  });
+  ok(`${id} fixture was imported`, result.ok === true);
+  db.prepare(`UPDATE email_sender_sources SET classification='trusted', classified_at=datetime('now')
+              WHERE workspace_id='ws1' AND domain='window.example'`).run();
+}
+const windowCheck = (summary, id) => summary.body.readiness.checks.find((check) => check.id === id);
+await ingestWindowReport("window-old", 120, nowEpoch - 60 * 86400, nowEpoch - 45 * 86400);
+const emptyWindow = await route("/api/workspaces/ws1/domains/window.example/dmarc-summary?days=30");
+ok("empty requested window has zero traffic and no measured pass rate despite healthy inventory",
+  emptyWindow.status === 200 && emptyWindow.body.traffic.total_messages === 0 &&
+  emptyWindow.body.traffic.pass_rate === null);
+ok("empty requested window cannot borrow old volume or recommend enforcement",
+  windowCheck(emptyWindow, "message_volume")?.status === "fail" &&
+  !emptyWindow.body.readiness.ready_for_quarantine && !emptyWindow.body.readiness.ready_for_reject &&
+  emptyWindow.body.readiness.status !== "ready");
+ok("empty requested window cannot borrow historical reporting days",
+  windowCheck(emptyWindow, "reporting_window")?.detail.startsWith("0 day"));
+const widerWindow = await route("/api/workspaces/ws1/domains/window.example/dmarc-summary?days=90");
+ok("wider requested window retains eligible historical traffic and readiness",
+  widerWindow.body.traffic.total_messages === 120 && widerWindow.body.traffic.pass_rate === 100 &&
+  windowCheck(widerWindow, "reporting_window")?.detail.startsWith("15 day") &&
+  widerWindow.body.readiness.ready_for_reject && widerWindow.body.readiness.status === "ready");
+await ingestWindowReport("window-recent", 31, nowEpoch - 2 * 86400, nowEpoch);
+const recentWindow = await route("/api/workspaces/ws1/domains/window.example/dmarc-summary?days=30");
+ok("recent traffic uses only the requested period for both volume and reporting days",
+  recentWindow.body.traffic.total_messages === 31 && recentWindow.body.traffic.pass_rate === 100 &&
+  windowCheck(recentWindow, "message_volume")?.detail.startsWith("31 message") &&
+  windowCheck(recentWindow, "reporting_window")?.detail.startsWith("2 day") &&
+  !recentWindow.body.readiness.ready_for_quarantine && !recentWindow.body.readiness.ready_for_reject);
+const oneDayWindow = await route("/api/workspaces/ws1/domains/window.example/dmarc-summary?days=1");
+ok("an overlapping report cannot claim more reporting days than the requested period",
+  oneDayWindow.body.traffic.total_messages === 31 &&
+  windowCheck(oneDayWindow, "reporting_window")?.detail.startsWith("1 day"));
 
 db.prepare(`UPDATE dmarc_aggregate_reports
             SET auth_verdict='verified', reporter_domain='outlook.com'
@@ -770,6 +818,7 @@ guardEveryOccurrence("operational DMARC summary parent-report gates",
 guardEveryOccurrence("observational report labels",
   "routes/email-protection.js", "DMARC_OBSERVATIONAL_EVIDENCE_SCOPE", 8);
 
+ok("offline validator makes no live fetch calls", unexpectedFetches === 0);
 console.log(`\nInbound-email authority containment: ${pass}/${pass + fail} passed`);
 if (fail) {
   for (const name of failures) console.log(`  FAIL ${name}`);
