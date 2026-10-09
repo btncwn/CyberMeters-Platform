@@ -131,6 +131,8 @@ async function main() {
   db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('ws1','admin','Alpha-SECRET')").run();
   db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('ws2','foreign','Bravo')").run();
   db.prepare("INSERT INTO workspaces (id, owner_user_id, name, deleted_at) VALUES ('wsDead','admin','Dead-SECRET', datetime('now'))").run();
+  // The owner rendering positive control needs an actual entitlement, not users.plan.
+  db.prepare("INSERT INTO subscriptions (id,owner_user_id,workspace_id,plan,status,subscription_status,stripe_subscription_id) VALUES ('pdf-owner-plan','admin','ws1','professional','active','active','sub_pdf_owner')").run();
   db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('mm1','ws1','admin','admin')").run();
   db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('mm2','ws1','viewer','viewer')").run();
   db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('mm3','ws2','foreign','owner')").run();
