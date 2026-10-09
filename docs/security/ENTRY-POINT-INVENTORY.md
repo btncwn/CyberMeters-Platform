@@ -13,8 +13,8 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 249
-- **Auth-guarded:** 226
+- **Total entry points:** 252
+- **Auth-guarded:** 229
 - **Unauthenticated (public by design):** 23
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
@@ -28,7 +28,7 @@ guard without an explicit, documented public-allowlist reason.
 | public-or-global | 37 | 19 |
 | unknown | 54 | 52 |
 | webhook | 2 | 0 |
-| workspace | 119 | 119 |
+| workspace | 122 | 122 |
 
 ## Public allowlist (unauthenticated by design)
 
@@ -71,9 +71,9 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2433 | preflight | public | — |
-| GET | `/health` | 2438 | public-or-global | public | — |
-| GET | `/ready` | 2454 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2436 | preflight | public | — |
+| GET | `/health` | 2441 | public-or-global | public | — |
+| GET | `/ready` | 2457 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -266,6 +266,14 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | POST | `/api/billing/webhook` | 189 | webhook | public | — |
 | POST | `/api/billing/checkout` | 571 | public-or-global | ✓ | requireAuth |
 | POST | `/api/billing/portal` | 626 | public-or-global | ✓ | requireAuth |
+
+### `workers/scan-api/src/routes/identity-breach-checks.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| GET | `/^\/api\/workspaces\/([^\/]+)\/identity-breach-checks$/` | 21 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `/^\/api\/workspaces\/([^\/]+)\/identity-breach-checks\/([^\/` | 29 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-breach-checks$/` | 33 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/identity-exposure.js`
 

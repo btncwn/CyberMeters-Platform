@@ -65,6 +65,36 @@ if (JSON.stringify(committed) !== JSON.stringify(fresh)) {
 // displays those locations, so its complete canonical rendering is checked
 // independently. This preserves the semantic gate and closes the stale-line gap.
 const all = extractAll();
+
+// This router has three distinct protected entry points. Regeneration alone
+// must not bless an omitted negative-guard POST or an unresolved optional path.
+const breachFile = "workers/scan-api/src/routes/identity-breach-checks.js";
+const breachPaths = {
+  GET: String(/^\/api\/workspaces\/([^\/]+)\/identity-breach-checks$/),
+  POST: String(/^\/api\/workspaces\/([^\/]+)\/identity-breach-checks$/),
+  DELETE: String(/^\/api\/workspaces\/([^\/]+)\/identity-breach-checks\/([^\/]+)$/),
+};
+const breachEntriesComplete = (entries) => entries.length === 3 &&
+  Object.entries(breachPaths).every(([method, routePath]) => {
+    const matches = entries.filter((entry) => entry.method === method);
+    return matches.length === 1 && matches[0].path === routePath &&
+      matches[0].path_kind === "regex" && matches[0].scope === "workspace" &&
+      matches[0].authed && ["requireAuth", "requireWorkspaceRole"]
+        .every((guard) => matches[0].auth_guards.includes(guard));
+  });
+const breachEntries = all.filter((entry) => entry.file === breachFile);
+if (!breachEntriesComplete(breachEntries)) {
+  fail("Identity breach routes must enumerate exact GET/POST collection and DELETE item paths with workspace scope and both auth guards");
+}
+for (const [name, changed] of [
+  ["missing POST", breachEntries.filter((entry) => entry.method !== "POST")],
+  ["unresolved path", breachEntries.map((entry) => ({ ...entry, path: null }))],
+  ["unknown scope", breachEntries.map((entry) => ({ ...entry, scope: "unknown" }))],
+  ["missing workspace guard", breachEntries.map((entry) => ({ ...entry, auth_guards: ["requireAuth"] }))],
+]) {
+  if (breachEntriesComplete(changed)) fail(`Identity breach inventory negative control accepted ${name}`);
+}
+
 const expectedMarkdown = renderMarkdown(fresh, all);
 const committedMarkdown = fs.readFileSync(markdownPath, "utf8");
 const markdownMatches = (candidate) => candidate === expectedMarkdown;
