@@ -169,6 +169,45 @@ const DOMAIN_EVIDENCE_BASIS = Object.freeze({
     "Single external technology observations; approval, ownership and authorisation remain customer classifications rather than CyberMeters observations.",
 });
 
+function liveCertificateSnapshotEvidence(report) {
+  const signals = report?.modules?.certificate_intelligence?.signal_completeness?.signals;
+  const admitted = (signal) => signal?.publishable === true &&
+    signal.observation_scope === "live_tls" &&
+    signal.completeness_state === "monitoring_healthy" && signal.observation === "present";
+  const leaf = signals?.leaf;
+  if (!admitted(leaf) || typeof leaf.value?.certificate_identity !== "string" || !leaf.value.certificate_identity.trim()) return null;
+  const name = signals?.hostname_match;
+  const trust = signals?.trust_store_validation;
+  const nameResult = admitted(name) && ["matched", "mismatched"].includes(name.value?.result)
+    ? name.value.result : null;
+  const store = trust?.value?.trust_store_context;
+  const trustResult = admitted(trust) && store?.name && store?.version &&
+    ["valid", "invalid"].includes(trust.value?.validation_result)
+    ? trust.value.validation_result : null;
+  const limits = [
+    "Live TLS results apply only to the endpoints and observation time recorded in this scan; Certificate Transparency coverage is assessed separately.",
+    "Runtime issuer-chain metadata is not proof of the exact certificate chain sent on the wire.",
+  ];
+  if (!admitted(signals?.revocation_assurance)) {
+    limits.push("OCSP and revocation status were not assessed.");
+  }
+  if (leaf.value.all_planned_endpoints_observed !== true) {
+    limits.push("Not all planned live TLS endpoints were observed.");
+  }
+  const basis = [
+    "A leaf certificate was captured from a tested live TLS endpoint.",
+    nameResult ? `Hostname matching was performed: ${nameResult}.` : "Hostname matching was not recorded.",
+    trustResult
+      ? `Validation against the declared trust store ${String(store.name).slice(0, 160)} (${String(store.version).slice(0, 80)}) was performed: ${trustResult}.`
+      : "Validation against a declared trust store was not recorded.",
+    "This is scoped evidence, not a general certificate-trust verdict.",
+  ].join(" ");
+  return { basis, limits, identities: new Set([
+    leaf.value.certificate_identity,
+    ...(Array.isArray(leaf.value.endpoint_checks) ? leaf.value.endpoint_checks : []).map((row) => row.certificate_identity),
+  ].filter(Boolean)) };
+}
+
 function findingEvidenceGrade(finding, report) {
   const id = String(finding?.id || "").toLowerCase();
   const moduleName = String(finding?.module || "").toLowerCase();
@@ -206,12 +245,22 @@ function findingEvidenceGrade(finding, report) {
     basis = "RFC 8460 TLS reporting DNS observation.";
   } else if (/^(cert_|certificate_)/.test(id) || moduleName === "certificate_intelligence") {
     sourceType = /expir|soon|risk|anomal|weak/.test(id) ? "product_policy" : "normative_protocol";
-    basis = sourceType === "product_policy"
-      ? "CyberMeters product-policy threshold applied to a Certificate Transparency observation under RFC 9162."
-      : "Certificate Transparency observation under RFC 9162.";
-    limits.push(
-      "Certificate Transparency proves logging, not which certificate is live; chain validity, root trust, OCSP and revocation were not verified."
-    );
+    const live = liveCertificateSnapshotEvidence(report);
+    const retainedLiveEvidence = live && retainedEvidence && finding.evidence.some((item) =>
+      item?.type === "live_tls" && live.identities.has(item.certificate_identity));
+    if (retainedLiveEvidence) {
+      // A finding can concern a different endpoint from the selected summary
+      // leaf. Its retained evidence carries its own name/trust outcomes.
+      basis = `${sourceType === "product_policy" ? "CyberMeters product-policy threshold applied to retained live TLS evidence. " : ""}A leaf certificate was captured from the live TLS endpoint evidence retained with this finding. Hostname and declared trust-store outcomes are scoped to that retained endpoint evidence, not inferred from the selected summary leaf.`;
+      limits.push(...live.limits);
+    } else {
+      basis = sourceType === "product_policy"
+        ? "CyberMeters product-policy threshold applied to a Certificate Transparency observation under RFC 9162."
+        : "Certificate Transparency observation under RFC 9162.";
+      limits.push(
+        "Certificate Transparency proves logging, not which certificate is live; chain validity, root trust, OCSP and revocation were not verified."
+      );
+    }
   } else if (/^(header_|https_|redirect_|canonical_|ssl_|tech_)/.test(id)) {
     sourceType = /weak|risk|score|grade|expir/.test(id) ? "product_policy" : "normative_protocol";
     basis = sourceType === "product_policy"
@@ -244,6 +293,11 @@ function domainEvidenceGrade(entry, report) {
   let grade = "L1";
   let basis = DOMAIN_EVIDENCE_BASIS[entry?.domain_key] ||
     "Single external observations evaluated under CyberMeters product policy.";
+
+  if (entry?.domain_key === "certificates_trust") {
+    const live = liveCertificateSnapshotEvidence(report);
+    if (live) basis = live.basis;
+  }
 
   if (entry?.domain_key === "email_protection") {
     const spf = report?.modules?.email_security?.spf;
@@ -809,12 +863,14 @@ export function composeSnapshot({
       }
     }
     if (d.domain_key === "certificates_trust") {
-      // RFC 9162 establishes that a certificate/precertificate was logged. The
-      // scan did not capture the certificate actively presented by the live
-      // service, so this hard false prevents a CT observation being rendered as
-      // a live-certificate verification claim.
+      const live = liveCertificateSnapshotEvidence(reportForCustomer);
+      // Per-signal observations never become a blanket domain-level verified
+      // claim. CT-only snapshots retain their existing wording and bytes.
       entry.live_certificate_verified = false;
-      if (entry.state === "assessed_healthy") {
+      if (live) {
+        const ctOnlyLimits = CYBER_MOT_DOMAINS.find((definition) => definition.domain_key === "certificates_trust").limitations;
+        entry.limitations = [...entry.limitations.filter((limit) => !ctOnlyLimits.includes(limit)), ...live.limits];
+      } else if (entry.state === "assessed_healthy") {
         entry.summary = "No material issue in the observed Certificate Transparency evidence.";
         entry.state_reason = entry.summary;
         entry.conclusion_label = "No material issue in observed CT evidence";

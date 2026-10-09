@@ -7,9 +7,31 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
-## Network and live TLS coverage — prepared 9 October 2026
+## Live TLS report explanation — prepared 9 October 2026
 
-**API/UI PREPARED; private collector runtime verified.** Attack Surface adds explicitly
+New report snapshots describe admitted live certificate, hostname and declared
+trust-store observations instead of retaining the old CT-only explanation.
+Each finding keeps its own endpoint evidence; a different endpoint's summary
+cannot supply its hostname or trust verdict. CT gaps, incomplete endpoints,
+unknown revocation and exact-wire-chain limits remain explicit. No score,
+quality grade or stored historical snapshot changes. Focused checks passed:
+194 certificate customer-parity, 95 snapshot and 64 renderer assertions;
+independent review passed, including the mixed-endpoint regression.
+Coordinated API/email staging and deployment remain pending.
+
+## v2026.10.09-3 — network and live TLS coverage — 9 October 2026
+
+**DEPLOYED from PR #492, source `800d178d`, at 01:32 UTC.** API
+`c9d81182-7fcf-4cf2-bfb5-73fca1232db6` (deployment
+`76988457-4940-4d48-9229-73e6235e149a`) and email
+`9f59c381-ba73-4eb2-a828-5f04f9fae546` (deployment
+`ed6a5672-44cc-4629-897c-020610d5e8b3`) are the coordinated pair.
+Pages `98ac72fd-3604-4558-a1dd-c2242d548cce` deployed the same source.
+All 17 PR checks passed at `11c02fa8`; the merged runtime has the same bytes.
+Migration 109 added its three empty tables and two indexes after capturing the
+native D1 recovery bookmark; no full database restore or export was performed.
+
+Attack Surface adds explicitly
 attested public IP/CIDR scopes, selected TCP ports, immutable observations and
 same-scope retests. Open ports remain observations; timeout and missing evidence
 never close a service. Existing account scan quotas and workspace roles apply.
@@ -29,9 +51,21 @@ and focused frontend tests passed. Private collector version
 TLS endpoints for our own cybermeters.com on Cloudflare: TLS 1.3, matching
 hostname and valid Node CA-store evaluation. The measurement ended at
 00:31:30 UTC and no Container instance remained active afterward. This is
-collector acceptance, not a full production scan. Required CI and integrated
-production workflow acceptance remain pending. Rollback is the v2026.10.09-2
-API/email pair below; additive tables can remain after code rollback.
+collector acceptance. A subsequent UI-started cybermeters.com scan
+`scan_134452bb-82e7-4abc-815b-25bedb6d00bd` completed all 16 modules;
+its live leaf, hostname match and declared trust-store validation appeared in
+the canonical report. CT-source incompleteness retained a degraded assessment.
+Snapshot `snap_94230fc6-3b99-4428-abad-f11b39de8374` completed at 01:36 UTC;
+the technical PDF was downloaded from production. Seventeen bounded live access
+checks passed after rollout propagation. The temporary Founder test entitlement
+and all three schedules were restored at 01:35:52 UTC.
+
+The integrated report revealed legacy CT-only summary wording alongside the
+correct live TLS signals; a focused explanatory-text correction follows this
+release. Independent public-IP/non-web targets have not been exercised in
+production: their controlled real-socket and tenant/queue tests passed locally.
+Rollback is the v2026.10.09-2 API/email pair below; additive tables can remain
+after code rollback.
 
 ## v2026.10.09-2 — explicit cloud candidate coverage — 9 October 2026
 
