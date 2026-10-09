@@ -66,6 +66,7 @@ import { runReservedScan } from "./reserved-scan.js";
 import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, durableCoreModuleBudget, isPublishableModuleEvidence, isSubrequestBudgetExhaustedError, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_DURABLE_PHASE5_MODULE_BUDGETS, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
+import { collectLiveTls, attachLiveTlsToSsl, liveCertificateFindings } from "./network-probe.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
 import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply-chain.js";
@@ -1067,6 +1068,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     const reservedMode = capacity.mode === "reserved";
     if (!durableInvocation && reservedMode) deadline.arm();
 
+    // Private Cloudflare collector runs alongside the existing HTTP/CT modules.
+    // No binding means the historical capability set; a configured failed probe
+    // remains explicit incomplete evidence and cannot make the report clean.
+    const liveTlsPromise = env.NETWORK_PROBE?.fetch
+      ? collectLiveTls(env, { domain, scanId, workspaceId, requestId: createId("probe"), signal: deadline.signal })
+      : null;
+
     // Network module results — set by whichever path runs; both produce the same shape
     // so the modules object and everything downstream are identical.
     let dnsResult, sslResult, headersResult, emailResult, subdomainsResult,
@@ -1331,6 +1339,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         outbound_calls: exposureOutboundSnapshot?.outbound_measurement_complete ? exposureOutboundSnapshot.outbound_attempts_observed : null,
       });
     }
+
+    if (liveTlsPromise) sslResult = attachLiveTlsToSsl(sslResult, await liveTlsPromise);
 
     emailResult = applyDmarcbisEmailCompatibilityProjection(
       domain,
@@ -2284,6 +2294,13 @@ function buildCanonicalUrlProfile(modules) {
           }],
         });
       }
+    }
+
+    // Live findings retain exact endpoint/certificate evidence. No HTTP-only or
+    // CT-only signal may enter this admission path or claim peer validation.
+    for (const signal of liveCertificateFindings(modules.ssl, domain)) {
+      if (findings.some(finding => finding.id === signal.signal)) continue;
+      findings.push({ ...signal, id: signal.signal, module: 'certificate_intelligence' });
     }
 
     if (modules.historical_changes) {

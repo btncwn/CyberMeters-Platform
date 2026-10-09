@@ -387,6 +387,7 @@ export async function correlateCertificateLifecycle(env, workspaceId, { now = ne
     );
     const current = obs[0];
     const primaryHostname = current.hostname || domainId;
+    await reconcileLiveTlsFindingCases(env, workspaceId, primaryHostname, current, now);
     const currentIssuerSignal = signalFromObservation(current, "issuer");
     const currentSanSignal = signalFromObservation(current, "san");
     const currentExpirySignal = signalFromObservation(current, "expiry");
@@ -628,6 +629,43 @@ function verificationSignal(observation, name) {
   };
 }
 
+const LIVE_TLS_FINDING_TYPES = new Set(['certificate_hostname_mismatch', 'certificate_untrusted']);
+
+export function buildLiveTlsCaseVerificationEvidence(findingType, { current, after, hostname, now = new Date().toISOString() }) {
+  const leaf = verificationSignal(current, 'leaf');
+  const name = verificationSignal(current, 'hostname_match');
+  const trust = verificationSignal(current, 'trust_store_validation');
+  const checks = leaf.value?.endpoint_checks;
+  const later = isoMs(current?.last_seen) !== null && isoMs(after) !== null && isoMs(current.last_seen) > isoMs(after);
+  const fresh = isoMs(current?.last_seen) !== null && isoMs(now) - isoMs(current.last_seen) >= 0 && isoMs(now) - isoMs(current.last_seen) <= 120_000;
+  const complete = LIVE_TLS_FINDING_TYPES.has(findingType) && leaf.method_appropriate && name.method_appropriate && trust.method_appropriate && leaf.value?.all_planned_endpoints_observed === true && Array.isArray(checks) && checks.length > 0 && checks.every(row => row.hostname === hostname && row.port === 443 && row.certificate_identity && ['matched','mismatched'].includes(row.hostname_match) && ['valid','invalid'].includes(row.trust_validation));
+  const healthy = complete && checks.every(row => row.hostname_match === 'matched' && row.trust_validation === 'valid' && isoMs(row.not_after) > isoMs(current.last_seen));
+  return { verification_method:'external_observation', evidence_type:'live_tls_reobservation', finding_type:findingType,
+    verification_result: !complete || !later || !fresh ? 'inconclusive' : healthy ? 'verified' : 'failed',
+    later_reobservation:later, method_appropriate_evidence:complete, live_serving_evidence:complete,
+    observed_at:current?.last_seen || null, reobserved_at:current?.last_seen || null, new_identity:leafIdentity(leaf),
+    endpoint_checks:checks || [], unknown_signals:['exact_wire_presented_chain','revocation','private_key_security'] };
+}
+
+// New name/trust cases use the existing case machine and freshly persisted TLS
+// signals. A changed CT row or a successful HTTP response cannot close them.
+async function reconcileLiveTlsFindingCases(env, workspaceId, hostname, current, now) {
+  const cases = (await env.cybermeters_db.prepare(`SELECT * FROM managed_cases WHERE workspace_id = ? AND domain = ? AND case_type = 'certificate_case' AND source_finding_type IN ('certificate_hostname_mismatch', 'certificate_untrusted')`).bind(workspaceId, hostname).all().catch(() => ({results:[]}))).results || [];
+  for (const kase of cases) {
+    const evidence = buildLiveTlsCaseVerificationEvidence(kase.source_finding_type, {current, after:kase.updated_at || kase.created_at, hostname, now});
+    const phase = canonicalPhaseFor(kase.case_type, kase.status);
+    if (phase === 'awaiting_verification' && evidence.verification_result === 'verified') {
+      await verifyCertificateCaseFromObservation(env, {workspace_id:workspaceId,linked_case_id:kase.id,primary_hostname:hostname,current_certificate_observation_id:current.id}, evidence, now);
+    } else if (['verified','monitoring'].includes(phase) && evidence.verification_result === 'failed') {
+      const decision = canTransitionCase({case:kase,target_status:'reopened',actor:{actor_type:'system',actor_id:null},reason:'Live TLS validation failed again',now});
+      if (!decision.ok) continue;
+      const next = decision.case;
+      await env.cybermeters_db.prepare(`UPDATE managed_cases SET status = ?, reopened_at = ?, reopened_count = ?, updated_at = ? WHERE id = ? AND workspace_id = ?`).bind(next.status,next.reopened_at || now,Number(next.reopened_count || 0),next.updated_at,kase.id,workspaceId).run();
+      await appendManagedCaseEvent(env,kase,{from_status:kase.status,to_status:next.status,action:decision.event.action,detail:evidence,dedupe_key:`${current.id}:${current.last_seen}:live_tls_failed`});
+    }
+  }
+}
+
 export function buildVerificationEvidence(rec, { current, previous, now = new Date().toISOString() }) {
   const previousLeaf = verificationSignal(previous, "leaf");
   const currentLeaf = verificationSignal(current, "leaf");
@@ -651,7 +689,9 @@ export function buildVerificationEvidence(rec, { current, previous, now = new Da
     currentLeaf.method_appropriate &&
     previousExpiry.method_appropriate &&
     currentExpiry.method_appropriate &&
-    currentSan.method_appropriate;
+    currentSan.method_appropriate &&
+    (currentLeaf.value?.all_planned_endpoints_observed === undefined ||
+      (currentLeaf.value.all_planned_endpoints_observed === true && Array.isArray(currentLeaf.value.endpoint_checks) && currentLeaf.value.endpoint_checks.length > 0 && currentLeaf.value.endpoint_checks.every(row => row.hostname_match === 'matched' && row.trust_validation === 'valid' && isoMs(row.not_after) > isoMs(now))));
   const expected = parseJson(rec.expected_hostnames_json, []) || [];
   const observedSans = currentSan.method_appropriate && Array.isArray(currentSan.value)
     ? stringSet(currentSan.value)
@@ -1280,6 +1320,7 @@ async function verifyCertificateCaseFromObservation(env, rec, evidence, now) {
     .prepare(`SELECT * FROM managed_cases WHERE id = ? AND workspace_id = ?`)
     .bind(rec.linked_case_id, rec.workspace_id).first().catch(() => null);
   if (!kase) return { skipped: "no_linked_case" };
+  if (LIVE_TLS_FINDING_TYPES.has(kase.source_finding_type) && evidence.finding_type !== kase.source_finding_type) return { skipped: "different_tls_finding_evidence" };
 
   const evidenceKey = `${rec.current_certificate_observation_id || evidence.new_identity}:${evidence.reobserved_at || evidence.observed_at}`;
   const noteOnCase = async (action, detail) => {

@@ -332,6 +332,7 @@ export default function CertificatesPage() {
                 <CertificateAssuranceSummary
                   key={`${cert.domain || 'certificate'}-${index}`}
                   presentation={cert.certificate_assurance}
+                  liveTls={cert.live_tls}
                   title={`Certificate evidence · ${cert.domain || 'hostname not recorded'}`}
                   showEvidence
                 />

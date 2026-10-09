@@ -275,6 +275,13 @@
       "detector": "r2_key_not_workspace_bound",
       "reason": "R2.head(key) inside deleteR2ObjectVerified \u2014 the absence proof that must run BEFORE the D1 pointer row is deleted (F-009), so a failed delete can no longer orphan an object.",
       "contract": "Same key provenance as the delete above: workspace-derived, never caller-supplied. It is a read used solely to confirm the object it just deleted is gone."
+    },
+    {
+      "fingerprint": "775efd053e4a",
+      "file": "workers/scan-api/src/engines/network-scan-dispatch.js",
+      "detector": "body_workspace_trust",
+      "reason": "Rejects an optional forged queue workspace identity; it never selects the execution workspace.",
+      "contract": "Workspace and authorized target come from persisted scan/target/workspace JOIN by scan_id. validate-network-assets.js proves mismatched advisory identity acknowledges without probe, row or R2 mutation."
     }
   ]
 }

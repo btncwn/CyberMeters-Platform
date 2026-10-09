@@ -7,9 +7,44 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## Network and live TLS coverage — prepared 9 October 2026
+
+**API/UI PREPARED; private collector runtime verified.** Attack Surface adds explicitly
+attested public IP/CIDR scopes, selected TCP ports, immutable observations and
+same-scope retests. Open ports remain observations; timeout and missing evidence
+never close a service. Existing account scan quotas and workspace roles apply.
+Migration 109 adds three workspace-scoped tables; deletion drains R2 receipts
+before their rows and retains cross-workspace actor constraints.
+
+Certificates & Trust adds a private Cloudflare-managed Linux collector, live
+leaf identity, endpoint-specific hostname/trust results and fresh-evidence case
+verification. The runtime issuer chain is distinguished from an unmeasured
+wire-complete chain; OCSP/revocation remain unknown. Existing CT observations
+and historical reports are preserved. Two private execution slots and bounded
+deadlines limit collector work; no public collector URL or separate VPS.
+
+Local TLS fixtures, tenant/role/quota tests, queue/recovery/purge integration
+and focused frontend tests passed. Private collector version
+`108b7685-00f4-45d8-8f2f-d00090692793` measured all four public IPv4/IPv6
+TLS endpoints for our own cybermeters.com on Cloudflare: TLS 1.3, matching
+hostname and valid Node CA-store evaluation. The measurement ended at
+00:31:30 UTC and no Container instance remained active afterward. This is
+collector acceptance, not a full production scan. Required CI and integrated
+production workflow acceptance remain pending. Rollback is the v2026.10.09-2
+API/email pair below; additive tables can remain after code rollback.
+
 ## v2026.10.09-2 — explicit cloud candidate coverage — 9 October 2026
 
-**PREPARED; not deployed.** Cloud storage validation still checks at most five
+**DEPLOYED from PR #491, source `29128fdc`, at 00:19 UTC.**
+API `52dff57a-7bc4-4e13-a4e3-1ea4f9ab7df1` (deployment
+`4cef0d5f-0ffa-48b2-ae6d-802c24fc75f0`) and email
+`c8210982-ad3a-494c-9c3a-8ecd675c85c4` (deployment
+`3e0ea5cb-d5d3-4cf0-ab47-13d5d71fc7c6`) are the coordinated pair.
+Pages `fea4c70a-78ad-41dc-95d2-68f410232957` deployed the same source.
+All ten bounded production access checks passed; exact uploaded modules match
+isolated builds of reviewed `072d1cbf`, whose tree equals the merged source.
+
+Cloud storage validation still checks at most five
 recognized candidates, but now records total, checked and omitted candidate
 counts. Omitted candidates make coverage incomplete even when no exposure is
 found. Valid findings and primary probe-failure reasons remain intact; the
@@ -18,7 +53,7 @@ The focused offline validator covers zero/five/six candidates, partial scan
 quality and failure paths; the independently reviewed correction changes no
 schema or historical evidence. Both Workers require coordinated deployment
 because this engine is in their shared import closure. The current production
-baseline and rollback pair are the deployed v2026.10.09-1 versions below.
+rollback pair is the deployed v2026.10.09-1 pair below.
 
 ## v2026.10.09-1 — executive briefs and technical evidence reports — 9 October 2026
 

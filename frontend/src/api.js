@@ -1526,6 +1526,16 @@ export const api = {
     return res.blob()
   },
 
+  // Network targets and observations stay workspace-scoped. The server supplies
+  // capabilities and enforces authorization, limits and collector availability.
+  getNetworkTargets: (wsId, options = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets`, options),
+  addNetworkTarget: (wsId, body) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets`, { method: 'POST', body: JSON.stringify(body) }),
+  startNetworkScan: (wsId, targetId, ports) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets/${encodeURIComponent(targetId)}/scans`, { method: 'POST', body: JSON.stringify({ ports }) }),
+  getNetworkScans: (wsId, options = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-scans`, options),
+  getNetworkScan: (wsId, scanId, options = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-scans/${encodeURIComponent(scanId)}`, options),
+  retestNetworkScan: (wsId, scanId) => request(`/workspaces/${encodeURIComponent(wsId)}/network-scans/${encodeURIComponent(scanId)}/retest`, { method: 'POST', body: '{}' }),
+  getNetworkAssets: (wsId, { cursor, ...options } = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-assets${cursor != null ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, options),
+
   // ── Public Free Scan (no auth required) ──────────────────────────────────
 
 }

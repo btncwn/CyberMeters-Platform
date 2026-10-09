@@ -148,6 +148,17 @@ beforeEach(() => {
 })
 
 describe('ScanDetail evidence honesty', () => {
+  it('retains a live leaf receipt even when the separate HTTPS module could not complete', async () => {
+    await renderFixture({ report: reportFixture({ modules: { ssl: { error: 'HTTP measurement incomplete', certificate_evidence: { live_tls: {
+      leaf_collected: true, leaf_certificate: { collection_performed: true, collection_complete: true, certificate_identity: 'sha256:synthetic-leaf', subject: 'CN=Recorded leaf', not_after: '2026-11-01T00:00:00Z' }, endpoint: { address: '8.8.8.8', port: 443 }, all_planned_endpoints_observed: false,
+    } } } } }) })
+    const ssl = cardForHeading('SSL / HTTPS')
+    expect(within(ssl).getByText('HTTP measurement incomplete')).toBeInTheDocument()
+    expect(within(ssl).getByText('sha256:synthetic-leaf')).toBeInTheDocument()
+    expect(within(ssl).getByText(/Endpoint coverage is incomplete/)).toBeInTheDocument()
+    expect(within(ssl).queryByText('Valid against the recorded trust store')).not.toBeInTheDocument()
+  })
+
   it('A: partial canonical score and null rating override divergent raw scan presentation', async () => {
     await renderFixture({ scan: scanFixture({ score: 99 }) })
 

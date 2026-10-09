@@ -688,21 +688,29 @@ export function getMonthStart() {
  * Uses workspace ownership to scope correctly across multi-workspace accounts.
  */
 export async function countScansThisMonth(ownerUserId, env) {
+  const row = await env.cybermeters_db
+    .prepare(`SELECT COUNT(s.id) AS cnt FROM scans s
+      JOIN workspaces w ON w.id = s.workspace_id
+      WHERE w.owner_user_id = ? AND s.created_at >= ?`)
+    .bind(ownerUserId, getMonthStart()).first();
+  const domainCount = Number(row?.cnt);
+  if (!Number.isSafeInteger(domainCount) || domainCount < 0) throw new Error("scan_usage_unavailable");
+  let network;
   try {
-    const row = await env.cybermeters_db
-      .prepare(
-        `SELECT COUNT(s.id) AS cnt
-         FROM scans s
-         JOIN workspaces w ON w.id = s.workspace_id
-         WHERE w.owner_user_id = ?
-           AND s.created_at >= ?`
-      )
-      .bind(ownerUserId, getMonthStart())
-      .first();
-    return row?.cnt ?? 0;
-  } catch {
-    return 0;
+    network = await env.cybermeters_db
+      .prepare(`SELECT COUNT(n.id) AS cnt FROM network_scans n
+        JOIN workspaces w ON w.id = n.workspace_id
+        WHERE w.owner_user_id = ? AND n.created_at >= ?`)
+      .bind(ownerUserId, getMonthStart()).first();
+  } catch (error) {
+    // Before additive migration 109 there cannot be network scan usage.
+    // Other storage faults must not grant a second or unmetered scan allowance.
+    if (/no such table: (?:main\.)?network_scans(?:\b|$)/i.test(String(error?.message || ""))) return domainCount;
+    throw error;
   }
+  const networkCount = Number(network?.cnt);
+  if (!Number.isSafeInteger(networkCount) || networkCount < 0) throw new Error("scan_usage_unavailable");
+  return domainCount + networkCount;
 }
 
 /**
@@ -763,7 +771,7 @@ export function getMonthResetAt() {
 /**
  * Check scan monthly quota for the billing owner of workspaceId.
  * Returns null when quota is available, or { status, body } when blocked.
- * Fails open — quota check errors never block scans.
+ * Usage-read failure is unavailable, never an unmetered scan allowance.
  */
 export async function checkScanLimit(user, workspaceId, env) {
   try {
@@ -783,7 +791,7 @@ export async function checkScanLimit(user, workspaceId, env) {
     }
     return null;
   } catch {
-    return null; // fail-open: counting errors must never block legitimate scans
+    return { status: 503, body: { error: "scan_usage_unavailable", message: "Scan usage could not be checked. Please try again." } };
   }
 }
 

@@ -281,6 +281,15 @@ export async function insertCertificateEvents(scanId, domainId, certMod, env, op
  *
  * All writes are non-fatal so an unapplied v2 migration cannot break scans.
  */
+export async function certificateObservationKey(certMod) {
+  const leaf = certMod?.live_tls?.leaf_certificate;
+  if (certMod?.evidence_source === 'live_tls' && certMod.live_certificate_verified === true && leaf?.collection_complete === true && /^sha256:[a-f0-9]{64}$/.test(leaf.certificate_identity || '')) {
+    return hashToken(`live_tls|${leaf.certificate_identity}`);
+  }
+  // Historical CT keys remain byte-for-byte the same.
+  return hashToken([certMod.issuer || 'unknown', certMod.subject ?? '', certMod.expires_at ?? '', (Array.isArray(certMod.san_hostnames) ? certMod.san_hostnames : []).slice().sort().join(',')].join('|'));
+}
+
 export async function upsertCertificateObservation(scanId, domainId, certMod, env, opts = {}) {
   if (!certMod || certMod.error) return;
   // The table is certificate-identity history, not a scan-level CT health log.
@@ -337,14 +346,12 @@ export async function upsertCertificateObservation(scanId, domainId, certMod, en
 	    certificate_status: certMod.certificate_status ?? null,
 	    source: certMod.source ?? "ssl_ct_correlation",
 	    signal_completeness: certMod.signal_completeness ?? null,
+        live_tls: certMod.live_tls ?? null,
+        evidence_source: certMod.evidence_source ?? 'certificate_transparency',
+        live_certificate_verified: certMod.live_certificate_verified === true,
 	  });
 
-  const certificateKey = await hashToken([
-    issuer,
-    subject ?? "",
-    certMod.expires_at ?? "",
-    sanHostnames.slice().sort().join(","),
-  ].join("|"));
+  const certificateKey = await certificateObservationKey(certMod);
   const caVendor = normalizeCertificateAuthorityVendor(issuer);
 
   for (const { workspace_id } of wsRows) {

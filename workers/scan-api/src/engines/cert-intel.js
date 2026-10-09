@@ -1,3 +1,4 @@
+import { liveCertificateFindings } from './network-probe.js';
 // ── Certificate intelligence module ──
 // Sensitive-host classification, certificate ownership assessment, and the certificate
 // intelligence scan roll-up (expiry, CA concentration, self-signed, lifecycle). Extracted
@@ -149,8 +150,11 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
     const brute    = modules?.dns_bruteforce || {};
 
     // ── Certificate expiry data ───────────────────────────────────────────
-    const days_until_expiry = ssl.cert_expiry_days ?? null;
-    const expires_at        = ssl.cert_not_after   ?? null;
+    const live = ssl.network_probe?.profile === 'live_tls' && ssl.live_certificate?.collection_complete === true ? ssl.live_certificate : null;
+    const liveIncomplete = ssl.certificate_evidence?.schema_version === 'external-certificate-observation-v4' && ssl.certificate_evidence.live_tls?.all_planned_endpoints_observed !== true;
+    const liveObservedMs = Date.parse(ssl.network_probe?.finished_at);
+    const days_until_expiry = live ? Math.floor((Date.parse(live.not_after)-liveObservedMs)/86_400_000) : ssl.cert_expiry_days ?? null;
+    const expires_at = live?.not_after ?? ssl.cert_not_after ?? null;
     const tls = resolveTlsRuntimeState(ssl);
     const https_available = tls.state === TLS_RUNTIME_STATES.OBSERVED_PRESENT
       ? true
@@ -230,7 +234,7 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
     const expiryWindowDescription = (renewalInstruction) =>
       `The latest-expiring currently valid certificate record returned by the available Certificate Transparency source for ${domain} ends on ${expires_at} (${days_until_expiry} day${days_until_expiry === 1 ? "" : "s"}). This is Certificate Transparency evidence; the certificate served by the live site was not inspected. ${renewalInstruction}`;
 
-    if (expiryEvidenceUsable && days_until_expiry < 14) {
+    if (!live && expiryEvidenceUsable && days_until_expiry < 14) {
       suspicious_certificate_signals.push({
         signal:      "certificate_expiring_critical",
         finding_type: "finding",
@@ -244,7 +248,7 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
           "Renew and deploy a replacement before that date, or confirm that a newer certificate is already in service.",
         ),
       });
-    } else if (expiryEvidenceUsable && days_until_expiry < 30) {
+    } else if (!live && expiryEvidenceUsable && days_until_expiry < 30) {
       suspicious_certificate_signals.push({
         signal:      "certificate_expiring_soon",
         finding_type: "finding",
@@ -259,6 +263,8 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
         ),
       });
     }
+
+    suspicious_certificate_signals.push(...liveCertificateFindings(ssl, domain));
 
     if (subMod.wildcard_dns) {
       suspicious_certificate_signals.push({
@@ -307,7 +313,7 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
       suspicious_certificate_signals.push({
         signal:      "ct_sources_unavailable",
         severity:    "info",
-        description: "Both Certificate Transparency sources were unavailable during this scan. No certificate evidence was collected, so this domain could not be assessed.",
+        description: "Both Certificate Transparency sources were unavailable during this scan. No CT inventory evidence was collected; live TLS evidence, when available, is assessed separately.",
       });
     }
 
@@ -320,23 +326,23 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
     // "unknown", never "low" — a security product must not imply health it has
     // not verified. (In the real flow issuer/not_after/expiry_days are set
     // together, so any one being present means we have data.)
-    const hasCertificateDetail = ssl.cert_issuer != null
+    const hasCertificateDetail = !!live || ssl.cert_issuer != null
       || ssl.cert_not_after != null || ssl.cert_expiry_days != null;
 
     if (hasCritical || https_available === false) certificate_risk_level = "critical";
     else if (hasHigh)                    certificate_risk_level = "high";
     else if (hasMedium)                  certificate_risk_level = "medium";
-    else if (!hasCertificateDetail)      certificate_risk_level = "unknown";
+    else if (!hasCertificateDetail || liveIncomplete) certificate_risk_level = "unknown";
 
 	    // ── Newly observed hosts (all CT hosts are "newly observed" relative to
 	    //    baseline — true delta tracking requires historical DB rows which are
 	    //    captured in asset_events via upsertAssetInventory) ─────────────────
 	    const newly_observed_hosts = allSensitive;   // surface the sensitive subset
-	    const issuer = ssl.cert_issuer ?? null;
-	    const subject = ssl.cert_subject ?? domain;
+	    const issuer = live?.issuer ?? ssl.cert_issuer ?? null;
+	    const subject = live?.subject ?? ssl.cert_subject ?? domain;
 	    const issuer_normalized = normalizeCertificateIssuer(issuer);
 	    const ca_owner = mapCertificateAuthorityOwner(issuer_normalized);
-	    const crypto_metadata = extractCertificateCryptoMetadata(ssl);
+	    const crypto_metadata = live ? {key_algorithm:live.public_key_algorithm || 'unknown',key_size_bits:live.public_key_size_bits ?? 'unknown',signature_algorithm:live.signature_algorithm || 'unknown',source:'live_tls'} : extractCertificateCryptoMetadata(ssl);
 	    const self_signed = detectSelfSignedCertificate(issuer, subject);
 	    const lifecycle = buildCertificateLifecycleIntelligence({
 	      days_until_expiry,
@@ -348,7 +354,7 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
 	      total_certificates_seen,
 	      tls_state: tls.state,
 	      certificate_status:
-          https_available === true
+          live ? (live.hostname_match === "matched" && live.trust_validation === "valid" ? (liveIncomplete ? "unknown" : "valid") : "invalid") : liveIncomplete ? "unknown" : https_available === true
             ? "valid"
             : https_available === false
               ? "unavailable"
@@ -357,18 +363,19 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
 	      issuer_normalized,
 	      ca_owner,
 	      subject,
-	      san_count:             ssl.cert_san_count ?? 0,
-	      raw_san_count:         ssl.cert_raw_san_count ?? ssl.cert_san_count ?? 0,
-	      wildcard_san_count:    ssl.cert_wildcard_san_count ?? 0,
+	      san_count:             live?.dns_names?.length ?? ssl.cert_san_count ?? 0,
+	      raw_san_count:         live?.dns_names?.length ?? ssl.cert_raw_san_count ?? ssl.cert_san_count ?? 0,
+	      wildcard_san_count:    live ? (live.dns_names || []).filter(name => name.startsWith("*.")).length : ssl.cert_wildcard_san_count ?? 0,
 	      shared_san_count:      certificate_ownership.shared_san_count,
-	      san_hostnames:         ssl.cert_san_names ?? [],
+	      san_hostnames:         live?.dns_names ?? ssl.cert_san_names ?? [],
 	      ownership:             certificate_ownership,
 	      reuse_status:          "not_assessed",
-	      evidence_source:       "certificate_transparency",
-	      live_certificate_verified: false,
-	      expiry_evidence:       expiryEvidenceUsable ? "usable" : "not_usable",
-	      issued_at:             ssl.cert_not_before ?? null,
-	      certificate_age_days:  ssl.cert_age_days ?? null,
+	      evidence_source:       live ? "live_tls" : "certificate_transparency",
+	      live_certificate_verified: !!live,
+          live_tls: ssl.certificate_evidence?.live_tls ?? null,
+	      expiry_evidence:       live || expiryEvidenceUsable ? "usable" : "not_usable",
+	      issued_at:             live?.not_before ?? ssl.cert_not_before ?? null,
+	      certificate_age_days:  live ? Math.floor((liveObservedMs-Date.parse(live.not_before))/86_400_000) : ssl.cert_age_days ?? null,
 	      expires_at,
 	      days_until_expiry,
 	      lifecycle,
@@ -385,10 +392,11 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
       wildcard_warning:      subMod.wildcard_warning ?? null,
       suspicious_certificate_signals,
       certificate_risk_level,
-      source:                "ssl_ct_correlation",
+      source:                live ? "live_tls_and_ct" : "ssl_ct_correlation",
       // Absence of CT evidence is not evidence of a healthy certificate estate. See
       // ctBlackout above: this defers the domain instead of letting it read clean.
       ...(ctBlackout ? { incomplete: true, incomplete_reason: "ct_sources_unavailable" } : {}),
+      ...(liveIncomplete ? { incomplete: true, incomplete_reason: "live_tls_not_fully_observed" } : {}),
       error:                 null,
     }, modules, opts);
   } catch (err) {

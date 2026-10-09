@@ -133,7 +133,12 @@ const EXPECTED_NOT_PURGED = {
 // Seed two workspaces with a row in every purge table + reports + a scan (+child).
 const seeded = [];
 // A few tables have CHECK constraints on a column — give them a valid value.
-const EXTRA = { workspace_alert_channels: { channel_type: "webhook" } };
+const EXTRA = {
+  workspace_alert_channels: { channel_type: "webhook" },
+  network_targets: { target_type: "ip", authorization_status: "attested", address_count: 1 },
+  network_scans: { status: "queued" },
+  network_assets: { port: 443, transport: "tcp", state: "open" },
+};
 for (const t of WORKSPACE_PURGE_TABLES) { const e = EXTRA[t] || {}; if (seedRow(t, "wsPurge", e)) seeded.push(t); seedRow(t, "wsKeep", e); }
 seedRow("workspace_reports", "wsPurge", { report_key: "reports/exec-wsPurge.pdf" });
 seedRow("workspace_reports", "wsKeep",  { report_key: "reports/exec-wsKeep.pdf" });
@@ -144,6 +149,9 @@ seedRow("scans", "wsKeep",  { id: "scan_wsKeep" });
 for (const c of SCAN_CHILD_TABLES) { seedRow(c, "wsPurge", { scan_id: "scan_wsPurge" }); }
 
 ok("seeded a meaningful number of purge tables (>= 20)", seeded.length >= 20);
+for (const table of ["network_targets", "network_scans", "network_assets"]) {
+  ok(`${table} seeded for both tenants`, seeded.includes(table) && countWs(table, "wsKeep") === 1);
+}
 
 // Run the purge to completion (it is batched: returns {done:false} until reports
 // and scans are drained, then {done:true} after clearing the purge tables).

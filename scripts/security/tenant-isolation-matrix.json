@@ -73,6 +73,35 @@
   ],
   "resource_classes": [
     {
+      "class": "network_assets",
+      "domain": "attack_surface",
+      "tables": [
+        "network_targets",
+        "network_scans",
+        "network_assets"
+      ],
+      "ownership": {
+        "network_targets": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "network_scans": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "network_assets": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "Explicit attested public IP/CIDR scope; actual route/role, two-tenant denial, immutable receipt and queue identity coverage in validate-network-assets.js; purge and queue wiring in validate-network-integration.js."
+      }
+    },
+    {
       "class": "workspaces",
       "domain": "core",
       "tables": [
@@ -1047,6 +1076,9 @@
     "managed_cases": "managed_cases",
     "mfa_challenges": "auth_sessions",
     "msp_branding_profiles": "report_branding",
+    "network_assets": "network_assets",
+    "network_scans": "network_assets",
+    "network_targets": "network_assets",
     "notification_events": "notifications",
     "notification_preferences": "notifications",
     "oauth_states": "infrastructure",
@@ -1096,12 +1128,12 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 93,
-    "classified": 93,
-    "tenant_owned_tables": 89,
+    "schema_tables": 96,
+    "classified": 96,
+    "tenant_owned_tables": 92,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
-    "resource_classes": 33,
+    "resource_classes": 34,
     "classes_with_dynamic_coverage": 17
   }
 }

@@ -1,4 +1,5 @@
 import { Info, LockKeyhole } from 'lucide-react'
+import LiveTlsEvidence from './LiveTlsEvidence'
 
 const STATE_STYLE = {
   observed: 'border-blue-200 bg-blue-50 text-blue-800',
@@ -50,6 +51,7 @@ function SignalRow({ signal, showEvidence }) {
 
 export default function CertificateAssuranceSummary({
   presentation,
+  liveTls = null,
   title = 'Certificate Evidence & Trust',
   compact = false,
   showEvidence = false,
@@ -87,6 +89,8 @@ export default function CertificateAssuranceSummary({
       <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
         {keys.map((key) => <SignalRow key={key} signal={signals[key]} showEvidence={showEvidence} />)}
       </div>
+
+      {liveTls && <div className="mt-3"><LiveTlsEvidence evidence={liveTls} /></div>}
 
       {presentation.relationship?.customer_message && (
         <div className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2">

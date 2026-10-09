@@ -1,6 +1,8 @@
 import { handleInboundEmail } from "./email/inbound.js";
 import { runScheduled } from "./cron/scheduled.js";
 import { handleScanDispatchBatch, dispatchAdmittedScan, isScheduledQueueDispatchMode } from "./engines/scan-dispatch.js";
+import { handleNetworkScanBatch, recoverNetworkScans } from "./engines/network-scan-dispatch.js";
+import { networkAssetRoutes } from "./routes/network-assets.js";
 import { handleScanDlqBatch } from "./queues/scan-dlq-observer.js";
 import { recordAlertDeliveryOutcome, routeQueueBatch } from "./lib/operational-events.js";
 import { computeOperationalHealth } from "./lib/ops-health.js";
@@ -1092,6 +1094,7 @@ const SCAN_CHILD_TABLES = [
 // as long as the table has existed. A comment asserting a guard nobody wrote is worse
 // than no comment: it stops the next person looking.
 const WORKSPACE_PURGE_TABLES = [
+  "network_assets", "network_scans", "network_targets",
   // email_protection_events holds no FK to either record family it describes
   // (hosted_dns_entries is hard-deleted on removal, and one column carries ids
   // from both), so it is purged on its own workspace_id ahead of them.
@@ -1180,6 +1183,27 @@ async function deleteR2ObjectVerified(env, key) {
 }
 
 async function purgeWorkspaceData(env, workspaceId) {
+  // Drain immutable network receipts before deleting their inventory/scan rows.
+  // Prefix listing also catches a receipt stored before interrupted finalization.
+  if (typeof env.cybermeters_reports.list === "function") {
+    const objects = await env.cybermeters_reports.list({
+      prefix: `network-reports/${workspaceId}/`, limit: PURGE_R2_BATCH,
+    });
+    if (!Array.isArray(objects?.objects)) throw new Error("Network receipt listing unavailable");
+    if (objects.objects.length) {
+      for (const object of objects.objects) await deleteR2ObjectVerified(env, object.key);
+      return { done: false };
+    }
+  } else {
+    // Older stores without the additive network tables still support deletion.
+    let count;
+    try {
+      count = await env.cybermeters_db.prepare("SELECT COUNT(*) AS c FROM network_scans WHERE workspace_id = ?").bind(workspaceId).first();
+    } catch (error) {
+      if (!/no such table: network_scans/i.test(String(error?.message ?? error))) throw error;
+    }
+    if (Number(count?.c || 0) > 0) throw new Error("Network receipt absence unverifiable");
+  }
   // 1. Executive/PDF reports stored in R2 (workspace_reports.report_key)
   const reports = await env.cybermeters_db
     .prepare("SELECT id, report_key FROM workspace_reports WHERE workspace_id = ? LIMIT ?")
@@ -1281,6 +1305,8 @@ const ACCOUNT_PURGE_TABLES = [
 // Whether these should be ERASED or ANONYMISED is a founder/legal decision and
 // is deliberately NOT decided in code — see the audit event emitted below.
 const ACCOUNT_RESIDUAL_FK_EDGES = [
+  { table: "network_targets",             column: "authorized_by" },
+  { table: "network_scans",               column: "requested_by" },
   { table: "domains",                     column: "user_id" },
   { table: "workspace_members",           column: "user_id" },
   { table: "subscription_accounts",       column: "owner_user_id" },
@@ -2678,6 +2704,8 @@ export default {
     // position — MUST stay after the domains dispatcher so /domains/import
     // keeps precedence over the :domainId pattern in this block.
     {
+      const networkResponse = await networkAssetRoutes(routeCtx);
+      if (networkResponse) return networkResponse;
       const wsCoreResponse = await workspacesCoreRoutes(routeCtx);
       if (wsCoreResponse) return wsCoreResponse;
     }
@@ -2722,7 +2750,9 @@ export default {
     runBrandPassiveDiscoverySweep,
     runBrandHttpEnrichmentSweep,
     triggerScheduledScan,
-    recoverInterruptedScans,
+    recoverInterruptedScans: async (env) => {
+      await Promise.all([recoverInterruptedScans(env), recoverNetworkScans(env)]);
+    },
   }),
 
   // ── Durable scan-dispatch Queue consumer (PR-3A; PR-B1A settlement) ───────
@@ -2740,7 +2770,12 @@ export default {
   // not work to retry through the engine).
   queue: (batch, env, ctx) => routeQueueBatch(batch, env, ctx, {
     dlq:      handleScanDlqBatch,
-    dispatch: handleScanDispatchBatch,
+    dispatch: async (batch, env, ctx, deps) => {
+      const network = batch.messages.filter(message => message.body?.kind === "network_probe");
+      const domain = batch.messages.filter(message => message.body?.kind !== "network_probe");
+      if (network.length) await handleNetworkScanBatch({ ...batch, messages: network }, env, ctx);
+      if (domain.length) await handleScanDispatchBatch({ ...batch, messages: domain }, env, ctx, deps);
+    },
     settle:   settleScheduledQueueScan,
   }),
 
