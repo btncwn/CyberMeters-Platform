@@ -453,7 +453,10 @@ const parity = states.map(parityOutputs);
 // The two live TLS remediation entries change the frozen registry fingerprint
 // from r67-c98a810a to r69-7eefae14. Replacing only that snapshot methodology
 // value with r67-c98a810a reproduces both previous output hashes exactly.
-const GOLDEN_F13 = "dd50c395269b00a8eddfc8b305947f55aff0fa02b84be39071663b91a7eb2302";
+// Customer PDF ordering changes only F13's rendered PDF bytes. The previous
+// F13 golden was reproduced with the prior renderer; non-PDF facts and F14
+// remain byte-identical. Visible text changes only the two reordered TOC labels.
+const GOLDEN_F13 = "d42583c7dce520dde9c06ed95b4b4a9bfac8d3646bebf1c65e3046ec50982994";
 const GOLDEN_F14 = "857e489c4f9b2510f07cede7ced64c05d5fe7fae33fc2a45695efc28765a5415";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
