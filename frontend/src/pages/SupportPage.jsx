@@ -12,14 +12,14 @@ export default function SupportPage() {
           </div>
           <h1 className="text-3xl font-bold text-gray-900">Support</h1>
           <p className="text-gray-500 mt-3">
-            For account, billing, or security report questions, contact the CyberMeters team.
+            Need help getting started or understanding a report? Email us about setup, account access or billing for your business or agency workspace.
           </p>
           <a href="mailto:support@cybermeters.com" className="mt-6 inline-flex items-center gap-2 btn-primary">
             <Mail className="w-4 h-4" />
             support@cybermeters.com
           </a>
           <p className="text-xs text-gray-400 mt-5">
-            v1 support is email-based. Enterprise support terms should be confirmed in the customer agreement.
+            Support is by email. Tell us what you were trying to do and what happened so we can help with the next step.
           </p>
         </section>
       </main>

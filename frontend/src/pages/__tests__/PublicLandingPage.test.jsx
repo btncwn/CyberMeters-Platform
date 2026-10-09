@@ -48,7 +48,7 @@ describe('PublicLandingPage', () => {
     expect(screen.getByText(/bounded, honest snapshot of all eight/i)).toBeInTheDocument()
     expect(screen.getByText(/bounded, non-persistent snapshot across all eight Cyber MOT domains/i)).toBeInTheDocument()
     expect(screen.getByText(/Deep findings, remediation, PDF and monitoring unlock only after account and domain verification/i)).toBeInTheDocument()
-    expect(screen.getByText(/managed Cyber MOT journey builds one posture across eight domains/i)).toBeInTheDocument()
+    expect(screen.getByText(/what could not be assessed/i)).toBeInTheDocument()
     expect(screen.queryByText(/See your real posture across all eight domains in two minutes/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/run your Cyber MOT.*under two minutes/i)).not.toBeInTheDocument()
   })
@@ -67,10 +67,12 @@ describe('PublicLandingPage', () => {
     expect(brandQuestion).toHaveStyle({ color: SERVICE_COLORS.brand.text })
   })
 
-  it('shows the live Cyber MOT result card with a posture readout', () => {
+  it('labels the example scorecard as illustrative, not a live assessment', () => {
     renderLanding()
     expect(screen.getByText(/Cyber MOT · Result/i)).toBeInTheDocument()
-    expect(screen.getByText('Posture')).toBeInTheDocument() // exact: the gauge label, not the "Live posture" eyebrow
+    expect(screen.getByText('Posture')).toBeInTheDocument()
     expect(screen.getByText(/Overall verdict/i)).toBeInTheDocument()
+    expect(screen.getByText(/example.com — illustrative sample/i)).toBeInTheDocument()
+    expect(screen.getByText(/Example score and findings.*Not a live assessment/i)).toBeInTheDocument()
   })
 })

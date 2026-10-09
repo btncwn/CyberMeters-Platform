@@ -18,28 +18,28 @@ const SERVICES = [
   {
     icon: Mail, name: 'Email Protection',
     q: '“Can attackers send email as me?”',
-    copy: 'DMARC, SPF and DKIM in plain English. See who is sending as your domain, get a BEC exposure score, and move safely toward enforcement.',
-    tags: ['DMARC setup', 'Sender inventory', 'BEC score'],
+    copy: 'Review SPF, DKIM and DMARC in plain English. Connect email reports to see sending sources and plan your next policy change.',
+    tags: ['DMARC setup', 'Sender inventory', 'Email reports'],
     key: 'email',
   },
   {
     icon: ShieldCheck, name: 'Brand Protection',
     q: '“Is anyone impersonating my brand?”',
-    copy: 'Lookalike domains, typosquats and homoglyphs — scored by real registration risk, not string guesswork. A queue you can actually work through.',
+    copy: 'Review lookalike domain candidates and the evidence behind them. Decide which need attention and track the next action.',
     tags: ['Lookalike domains', 'Impersonation', 'Classification'],
     key: 'brand',
   },
   {
     icon: Search, name: 'Attack Surface',
     q: '“What of mine is exposed to the internet?”',
-    copy: 'Subdomains, forgotten admin panels, exposed services and takeover risks — the assets you own but stopped watching. Findings, not noise.',
+    copy: 'See discovered subdomains and exposed services. Review the evidence, track changes and recheck after a fix.',
     tags: ['Asset inventory', 'Subdomains', 'Takeover risk'],
     key: 'surface',
   },
   {
     icon: Lock, name: 'Certificates & Trust',
     q: '“Will my site quietly break trust?”',
-    copy: 'Certificate expiry, TLS posture and HTTPS trust signals — so a lapsed certificate never turns customers away at the door.',
+    copy: 'Track certificate expiry and review live TLS evidence, including hostname matching and checks against the recorded trust store.',
     tags: ['Expiry alerts', 'TLS posture', 'HTTPS trust'],
     key: 'certs',
   },
@@ -74,10 +74,10 @@ const SERVICES = [
 ]
 
 const STEPS = [
-  { n: 'STEP 01', title: 'Preview', copy: 'Start with one bounded, non-persistent snapshot across all eight Cyber MOT domains. Deep checks unlock only after domain verification.' },
-  { n: 'STEP 02', title: 'Understand', copy: 'The managed Cyber MOT journey builds one posture across eight domains. Every finding is written for a business owner, not an engineer.' },
-  { n: 'STEP 03', title: 'Fix', copy: 'Guided remediation tells you what to fix first, and exactly which record or setting to change.' },
-  { n: 'STEP 04', title: 'Monitor', copy: 'Schedule re-checks and get alerted the moment something changes — a new asset, an expiring cert, a spoof attempt.' },
+  { n: 'STEP 01', title: 'Preview', copy: 'Enter a domain for a bounded, non-persistent snapshot across all eight Cyber MOT domains. Verify ownership before accessing deeper checks.' },
+  { n: 'STEP 02', title: 'Understand', copy: 'See what was observed, what needs attention and what could not be assessed. Share the report with your team or IT provider.' },
+  { n: 'STEP 03', title: 'Take action', copy: 'Use the recommended steps to prioritise work, assign an owner and record progress. Recheck supported fixes when the work is done.' },
+  { n: 'STEP 04', title: 'Monitor', copy: 'Schedule rechecks and review alerts for recorded changes. Keep the evidence and follow-up work together in your workspace.' },
 ]
 
 const CHECKS = [
@@ -89,10 +89,10 @@ const CHECKS = [
   { icon: History,      label: 'Historical change tracking' },
   { icon: ClipboardList, label: 'Prioritised fix list' },
   { icon: FileBarChart2, label: 'Executive reporting' },
-  { icon: Cloud,        label: 'Cloud-native SaaS' },
+  { icon: Cloud,        label: 'Browser-based workspace' },
 ]
 
-const CAPABILITIES = ['AI-analysed findings', 'Continuous monitoring', 'Prioritised, not noisy', 'Executive-ready reports']
+const CAPABILITIES = ['Clear next steps', 'Scheduled rechecks', 'Shared workspaces', 'Reports for your team']
 
 // ── Reveal-on-scroll (respects reduced motion) ──
 function useReveal() {
@@ -139,7 +139,7 @@ function Nav() {
   )
 }
 
-// ── Live Cyber MOT result card (generic example domain only — no customer data) ──
+// ── Illustrative result card — not a live measurement or customer data ──
 function MotCard() {
   const ref = useRef(null)
   const [score, setScore] = useState(0)
@@ -188,7 +188,7 @@ function MotCard() {
         style={{ background: 'linear-gradient(180deg, #E7F2EE 0%, transparent 120%)' }}>
         <div>
           <p className="font-semibold text-[15px] text-gray-900 leading-tight">Cyber MOT · Result</p>
-          <p className="mono text-[11px] text-gray-400 tracking-wide">example.com — sample report</p>
+          <p className="mono text-[11px] text-gray-400 tracking-wide">example.com — illustrative sample</p>
         </div>
         <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-emerald-700 border-[1.5px] border-emerald-600/70 rounded-md px-2.5 py-1.5 -rotate-3 opacity-90">
           Pass · Advisories
@@ -212,7 +212,7 @@ function MotCard() {
           <div>
             <div className="text-[11px] uppercase tracking-[0.12em] text-gray-400">Overall verdict</div>
             <div className="text-[1.25rem] font-semibold tracking-tight mt-1 text-gray-900"><b className="text-emerald-600 font-semibold">Good</b> — two things to fix</div>
-            <p className="text-sm text-gray-500 mt-2 max-w-[26ch]">Solid foundations. Close the two advisories below to reach enforcement-ready.</p>
+            <p className="text-sm text-gray-500 mt-2 max-w-[26ch]">Example score and findings to show the report layout. Not a live assessment.</p>
           </div>
         </div>
         <div className="flex flex-col">
@@ -275,13 +275,13 @@ export default function PublicLandingPage() {
             <div>
               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-brand-100 mono text-[11px] font-semibold uppercase tracking-[0.13em] text-brand-800"
                 style={{ background: 'rgba(231,242,238,0.7)' }}>
-                <span className="w-[7px] h-[7px] rounded-full bg-brand-600 cm-pulse" /> Cyber MOT · Live posture
+                <span className="w-[7px] h-[7px] rounded-full bg-brand-600 cm-pulse" /> Cyber MOT · Security for small teams
               </span>
               <h1 className="text-[clamp(2.4rem,5.6vw,4.2rem)] font-bold tracking-[-0.028em] leading-[1.06] mt-5" style={{ textWrap: 'balance' }}>
-                Know where your business is <span className="relative text-brand-800">exposed<span className="absolute left-0 right-0 -z-10 rounded-sm" style={{ bottom: '0.07em', height: '0.16em', background: '#D6EAE2' }} /></span> — before anyone else does.
+                Know where your business is <span className="relative text-brand-800">exposed<span className="absolute left-0 right-0 -z-10 rounded-sm" style={{ bottom: '0.07em', height: '0.16em', background: '#D6EAE2' }} /></span> and what to do next.
               </h1>
               <p className="text-[1.18rem] text-gray-600 mt-5 leading-relaxed max-w-[34ch]">
-                The managed Cyber MOT covers eight domains. The free entry point shows a bounded, honest snapshot of all eight while keeping deep checks behind domain verification.
+                External security checks for small businesses, startups and digital agencies. Get a clear view across eight areas, prioritise fixes and share useful reports — from your browser.
               </p>
               <div className="flex flex-wrap items-center gap-3.5 mt-8">
                 <Link to="/free-scan" className="btn-primary !rounded-full">Run free preview <ArrowRight className="w-4 h-4" /></Link>
@@ -289,7 +289,7 @@ export default function PublicLandingPage() {
               </div>
               <p className="text-sm text-gray-400 mt-4 flex items-center gap-2">
                 <span className="w-[7px] h-[7px] rounded-full bg-emerald-500" style={{ boxShadow: '0 0 0 3px #E4F3EB' }} />
-                No agent to install · first scan in under two minutes · nothing to configure
+                No agent to install · free public preview · verify your domain for deeper checks
               </p>
             </div>
             <div className="lg:pl-2"><MotCard /></div>
@@ -297,7 +297,7 @@ export default function PublicLandingPage() {
 
           {/* capability strip */}
           <div className="mt-10 pt-8 border-t border-gray-200/70">
-            <p className="text-center text-[12px] uppercase tracking-[0.1em] text-gray-400">AI-powered security intelligence — enterprise-grade, in plain English</p>
+            <p className="text-center text-[12px] uppercase tracking-[0.1em] text-gray-400">Practical security checks for your business and the clients you support</p>
             <div className="flex flex-wrap gap-x-10 gap-y-3 justify-center mt-4 opacity-70">
               {CAPABILITIES.map(c => <span key={c} className="font-semibold text-gray-600 tracking-tight">{c}</span>)}
             </div>
@@ -307,11 +307,11 @@ export default function PublicLandingPage() {
         {/* ── Eight domains ── */}
         <section id="services" className="max-w-6xl mx-auto px-6 py-20">
           <div className="max-w-[60ch]">
-            <span className="eyebrow">Eight domains, one posture</span>
+            <span className="eyebrow">Eight areas in one workspace</span>
             <h2 className="text-[clamp(1.8rem,3.3vw,2.6rem)] font-bold tracking-tight mt-3" style={{ textWrap: 'balance' }}>
-              Everything that carries your name — checked, explained, and prioritised.
+              Understand the security signals visible outside your business.
             </h2>
-            <p className="text-lg text-gray-600 mt-4">Most tools hand you a wall of findings. CyberMeters answers the security questions a business owner actually asks across all eight domains.</p>
+            <p className="text-lg text-gray-600 mt-4">Start with a bounded, honest snapshot of all eight Cyber MOT domains. The report separates observed issues from missing evidence, so you can decide what needs attention.</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-[18px] mt-11">
             {SERVICES.map(s => {
@@ -345,7 +345,7 @@ export default function PublicLandingPage() {
         <section id="how" className="max-w-6xl mx-auto px-6 pb-20">
           <div className="max-w-[60ch]">
             <span className="eyebrow">How it works</span>
-            <h2 className="text-[clamp(1.8rem,3.3vw,2.6rem)] font-bold tracking-tight mt-3">Scan, understand, fix, then stay ahead.</h2>
+            <h2 className="text-[clamp(1.8rem,3.3vw,2.6rem)] font-bold tracking-tight mt-3">Check, understand, take action and recheck.</h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 mt-11 rounded-[14px] border border-gray-100 bg-white overflow-hidden shadow-card">
             {STEPS.map((s, i) => (
@@ -363,7 +363,7 @@ export default function PublicLandingPage() {
         <section className="max-w-6xl mx-auto px-6 pb-20">
           <div className="max-w-[60ch] mb-9">
             <span className="eyebrow">What we check</span>
-            <h2 className="text-[clamp(1.8rem,3.3vw,2.6rem)] font-bold tracking-tight mt-3">The visible signals your stakeholders care about.</h2>
+            <h2 className="text-[clamp(1.8rem,3.3vw,2.6rem)] font-bold tracking-tight mt-3">Useful checks for your website, email and public services.</h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
             {CHECKS.map(c => {
@@ -417,7 +417,7 @@ export default function PublicLandingPage() {
                 </Link>
                 <a href={CONTACT} className="inline-flex items-center gap-2 px-6 py-3 rounded-full border font-semibold transition-colors"
                   style={{ borderColor: 'rgba(234,250,244,.35)', color: '#eafaf4' }}>
-                  Book a walkthrough
+                  Ask a question
                 </a>
               </div>
             </div>
@@ -429,7 +429,7 @@ export default function PublicLandingPage() {
           <div className="max-w-6xl mx-auto px-6 py-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
             <div>
               <CyberMetersLogo className="h-6 mb-3" />
-              <p className="text-sm text-gray-500">Eight Cyber MOT domains — one posture.</p>
+              <p className="text-sm text-gray-500">Practical external security for small teams.</p>
               <p className="text-sm text-gray-500 mt-1">
                 <a href={CONTACT} className="hover:text-gray-800">hello@cybermeters.com</a>
                 {' · '}
