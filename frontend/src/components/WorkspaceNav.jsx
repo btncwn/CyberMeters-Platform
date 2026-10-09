@@ -24,22 +24,10 @@ const THEME = Object.fromEntries(
 // ── Canonical Cyber MOT domains — the primary sections in the sidebar ─────────
 const SERVICES = [
   {
-    key: 'email', title: 'Email Protection', icon: Mail, to: '/ws/email-protection',
-    match: p => p.startsWith('/ws/email-protection'),
+    key: 'identity', title: 'Identity Exposure', icon: KeyRound, to: '/ws/identity-exposure',
+    match: p => p.startsWith('/ws/identity-exposure'),
     items: [
-      { to: '/ws/email-protection', label: 'Overview', end: true },
-      { hash: '#dmarc-setup',       label: 'DMARC Setup' },
-      { hash: '#sender-inventory',  label: 'Sender Inventory' },
-      { hash: '#auth-detail',       label: 'Authentication Detail' },
-    ],
-  },
-  {
-    key: 'brand', title: 'Brand Protection', icon: Tag, to: '/ws/brand-monitoring',
-    match: p => p.startsWith('/ws/brand-monitoring'),
-    items: [
-      { to: '/ws/brand-monitoring', label: 'Overview', end: true },
-      { hash: '#typosquats',        label: 'Typosquat Candidates' },
-      { hash: '#brand-summary',     label: 'Brand Findings' },
+      { to: '/ws/identity-exposure', label: 'Overview', end: true },
     ],
   },
   {
@@ -57,6 +45,32 @@ const SERVICES = [
     ],
   },
   {
+    key: 'email', title: 'Email Protection', icon: Mail, to: '/ws/email-protection',
+    match: p => p.startsWith('/ws/email-protection'),
+    items: [
+      { to: '/ws/email-protection', label: 'Overview', end: true },
+      { hash: '#dmarc-setup',       label: 'DMARC Setup' },
+      { hash: '#sender-inventory',  label: 'Sender Inventory' },
+      { hash: '#auth-detail',       label: 'Authentication Detail' },
+    ],
+  },
+  {
+    key: 'website', title: 'Website Security', icon: MonitorCheck, to: '/ws/website-security',
+    match: p => p.startsWith('/ws/website-security'),
+    items: [
+      { to: '/ws/website-security', label: 'Overview', end: true },
+    ],
+  },
+  {
+    key: 'shadow_it', title: 'Shadow IT & Unmanaged Technology', icon: Boxes, to: '/ws/shadow-it',
+    match: p => p.startsWith('/ws/shadow-it') || p.startsWith('/ws/saas-exposure') || p.startsWith('/ws/third-party'),
+    items: [
+      { to: '/ws/shadow-it',       label: 'Overview', end: true },
+      { to: '/ws/saas-exposure',   label: 'SaaS Exposure' },
+      { to: '/ws/third-party',     label: 'Third-Party' },
+    ],
+  },
+  {
     key: 'certs', title: 'Certificates & Trust', icon: Lock, to: '/ws/certificates',
     match: p => p.startsWith('/ws/certificates'),
     items: [
@@ -69,33 +83,19 @@ const SERVICES = [
     ],
   },
   {
+    key: 'brand', title: 'Brand Protection', icon: Tag, to: '/ws/brand-monitoring',
+    match: p => p.startsWith('/ws/brand-monitoring'),
+    items: [
+      { to: '/ws/brand-monitoring', label: 'Overview', end: true },
+      { hash: '#typosquats',        label: 'Typosquat Candidates' },
+      { hash: '#brand-summary',     label: 'Brand Findings' },
+    ],
+  },
+  {
     key: 'cyber_essentials', title: 'Cyber Essentials Readiness', icon: ClipboardCheck, to: '/ws/cyber-essentials',
     match: p => p.startsWith('/ws/cyber-essentials'),
     items: [
       { to: '/ws/cyber-essentials', label: 'Overview', end: true },
-    ],
-  },
-  {
-    key: 'website', title: 'Website Security', icon: MonitorCheck, to: '/ws/website-security',
-    match: p => p.startsWith('/ws/website-security'),
-    items: [
-      { to: '/ws/website-security', label: 'Overview', end: true },
-    ],
-  },
-  {
-    key: 'identity', title: 'Identity Exposure', icon: KeyRound, to: '/ws/identity-exposure',
-    match: p => p.startsWith('/ws/identity-exposure'),
-    items: [
-      { to: '/ws/identity-exposure', label: 'Overview', end: true },
-    ],
-  },
-  {
-    key: 'shadow_it', title: 'Shadow IT & Unmanaged Technology', icon: Boxes, to: '/ws/shadow-it',
-    match: p => p.startsWith('/ws/shadow-it') || p.startsWith('/ws/saas-exposure') || p.startsWith('/ws/third-party'),
-    items: [
-      { to: '/ws/shadow-it',       label: 'Overview', end: true },
-      { to: '/ws/saas-exposure',   label: 'SaaS Exposure' },
-      { to: '/ws/third-party',     label: 'Third-Party' },
     ],
   },
 ]

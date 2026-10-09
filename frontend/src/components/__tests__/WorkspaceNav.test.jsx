@@ -37,14 +37,11 @@ describe('WorkspaceNav (eight-domain sidebar)', () => {
   })
   it('shows the eight canonical domains in order', () => {
     renderNav()
-    expect(screen.getByText('Email Protection')).toBeInTheDocument()
-    expect(screen.getByText('Brand Protection')).toBeInTheDocument()
-    expect(screen.getByText('Attack Surface')).toBeInTheDocument()
-    expect(screen.getByText('Certificates & Trust')).toBeInTheDocument()
-    expect(screen.getByText('Cyber Essentials Readiness')).toBeInTheDocument()
-    expect(screen.getByText('Website Security')).toBeInTheDocument()
-    expect(screen.getByText('Identity Exposure')).toBeInTheDocument()
-    expect(screen.getByText('Shadow IT & Unmanaged Technology')).toBeInTheDocument()
+    const names = ['Identity Exposure', 'Attack Surface', 'Email Protection', 'Website Security', 'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness']
+    const elements = names.map(name => screen.getByText(name))
+    for (let i = 1; i < elements.length; i++) {
+      expect(elements[i - 1].compareDocumentPosition(elements[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
   })
 
   it('expands only the active domain — no cross-domain sub-item mixing', () => {

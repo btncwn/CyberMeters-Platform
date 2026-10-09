@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, Clock, FolderOpen, Shield } from 'lucide-react'
 import { api } from '../api'
+import { sortDisplayDomains } from '../lib/cyberMotDisplay'
 import { PlanGate } from '../components/PlanUsageCard'
 import {
   domainStateMeta, freshnessMeta, hasScore, priorityMeta, toneClass, trendMeta,
@@ -87,7 +88,7 @@ function DomainRow({ row }) {
 
       {/* The eight, always. Never averaged into the number above. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-1.5 mt-3">
-        {row.cyber_mot_domains.map((d) => <DomainCell key={d.domain_key} d={d} />)}
+        {sortDisplayDomains(row.cyber_mot_domains).map((d) => <DomainCell key={d.domain_key} d={d} />)}
       </div>
 
       {row.attention_reasons.length > 0 && (
@@ -314,7 +315,7 @@ export default function PortfolioDomainsPage() {
                 </tr>
               </thead>
               <tbody>
-                {summary.by_domain.map((d) => (
+                {sortDisplayDomains(summary.by_domain).map((d) => (
                   <tr key={d.domain_key}>
                     <td className="font-medium text-gray-800">{d.display_name}</td>
                     <td className={d.issue_detected ? 'text-red-600 font-semibold' : 'text-gray-400'}>{d.issue_detected}</td>

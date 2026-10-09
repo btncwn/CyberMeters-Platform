@@ -254,8 +254,8 @@ export default function FreeScanPage() {
                 </div>
                 <div className="fm-mini-grid">
                   {[
-                    'Email Protection', 'Brand Protection', 'Attack Surface', 'Certificates & Trust',
-                    'Cyber Essentials', 'Website Security', 'Identity Exposure', 'Shadow IT',
+                    'Identity Exposure', 'Attack Surface', 'Email Protection', 'Website Security',
+                    'Shadow IT', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials',
                   ].map((label, index) => (
                     <div key={label}><span>{String(index + 1).padStart(2, '0')}</span>{label}</div>
                   ))}

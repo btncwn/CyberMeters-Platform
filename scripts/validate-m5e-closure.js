@@ -211,8 +211,9 @@ async function checkEightDomainCompleteness() {
     ok(`A/G: PublicLandingPage exposes ${label}`, landing.includes(label));
     ok(`A/G: Dashboard exposes ${label}`, dashboard.includes(label));
   }
-  ok("A/G: WorkspaceNav primary domains are in canonical order",
-    CANONICAL_LABELS.every((label, i) => nav.indexOf(`title: '${label}'`) >= 0 && (i === 0 || nav.indexOf(`title: '${CANONICAL_LABELS[i - 1]}'`) < nav.indexOf(`title: '${label}'`))));
+  const displayLabels = ['Identity Exposure', 'Attack Surface', 'Email Protection', 'Website Security', 'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness'];
+  ok("A/G: WorkspaceNav primary domains follow customer presentation order",
+    displayLabels.every((label, i) => nav.indexOf(`title: '${label}'`) >= 0 && (i === 0 || nav.indexOf(`title: '${displayLabels[i - 1]}'`) < nav.indexOf(`title: '${label}'`))));
   ok("A/E: workspace analytics chart uses canonical cyber_mot_domains adapter", /scorecard\.cyber_mot_domains/.test(getSource("workers/scan-api/src/routes/workspace-analytics.js")));
 }
 

@@ -22,14 +22,14 @@ const EXPECTED_MODULES = Object.freeze([
 ])
 
 export const EXPECTED_CYBER_MOT_DOMAINS = Object.freeze([
-  Object.freeze({ domain_key: 'email_protection', display_name: 'Email Protection' }),
-  Object.freeze({ domain_key: 'brand_protection', display_name: 'Brand Protection' }),
-  Object.freeze({ domain_key: 'attack_surface', display_name: 'Attack Surface' }),
-  Object.freeze({ domain_key: 'certificates_trust', display_name: 'Certificates & Trust' }),
-  Object.freeze({ domain_key: 'cyber_essentials_readiness', display_name: 'Cyber Essentials Readiness' }),
-  Object.freeze({ domain_key: 'website_security', display_name: 'Website Security' }),
   Object.freeze({ domain_key: 'identity_exposure', display_name: 'Identity Exposure' }),
+  Object.freeze({ domain_key: 'attack_surface', display_name: 'Attack Surface' }),
+  Object.freeze({ domain_key: 'email_protection', display_name: 'Email Protection' }),
+  Object.freeze({ domain_key: 'website_security', display_name: 'Website Security' }),
   Object.freeze({ domain_key: 'shadow_it_unmanaged_technology', display_name: 'Shadow IT & Unmanaged Technology' }),
+  Object.freeze({ domain_key: 'certificates_trust', display_name: 'Certificates & Trust' }),
+  Object.freeze({ domain_key: 'brand_protection', display_name: 'Brand Protection' }),
+  Object.freeze({ domain_key: 'cyber_essentials_readiness', display_name: 'Cyber Essentials Readiness' }),
 ])
 
 const DOMAIN_STATES = new Set([

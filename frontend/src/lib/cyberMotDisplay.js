@@ -5,17 +5,24 @@
 // with a fixed, honest, NON-healthy "unavailable" state. It never derives a state
 // from evidence and never invents a healthy verdict.
 
-// Canonical domain names + order (display copy only — no evidence, no derived state).
+// Canonical domain names in customer presentation order (display copy only — no evidence, no derived state).
 export const CYBER_MOT_DISPLAY_ORDER = [
-  { domain_key: 'email_protection',               display_name: 'Email Protection' },
-  { domain_key: 'brand_protection',               display_name: 'Brand Protection' },
-  { domain_key: 'attack_surface',                 display_name: 'Attack Surface' },
-  { domain_key: 'certificates_trust',             display_name: 'Certificates & Trust' },
-  { domain_key: 'cyber_essentials_readiness',     display_name: 'Cyber Essentials Readiness' },
-  { domain_key: 'website_security',               display_name: 'Website Security' },
   { domain_key: 'identity_exposure',              display_name: 'Identity Exposure' },
+  { domain_key: 'attack_surface',                 display_name: 'Attack Surface' },
+  { domain_key: 'email_protection',               display_name: 'Email Protection' },
+  { domain_key: 'website_security',               display_name: 'Website Security' },
   { domain_key: 'shadow_it_unmanaged_technology', display_name: 'Shadow IT & Unmanaged Technology' },
+  { domain_key: 'certificates_trust',             display_name: 'Certificates & Trust' },
+  { domain_key: 'brand_protection',               display_name: 'Brand Protection' },
+  { domain_key: 'cyber_essentials_readiness',     display_name: 'Cyber Essentials Readiness' },
 ]
+
+// Presentation order never mutates the API array or any evidence/state field.
+const DISPLAY_RANK = new Map(CYBER_MOT_DISPLAY_ORDER.map((d, index) => [d.domain_key, index]))
+export function sortDisplayDomains(domains) {
+  return [...domains].sort((a, b) =>
+    (DISPLAY_RANK.get(a.domain_key) ?? Infinity) - (DISPLAY_RANK.get(b.domain_key) ?? Infinity))
+}
 
 const isValidDomainEntry = (d) => d && typeof d === 'object' && typeof d.domain_key === 'string' && typeof d.state === 'string'
 
@@ -25,7 +32,7 @@ const isValidDomainEntry = (d) => d && typeof d === 'object' && typeof d.domain_
 // never fewer than eight).
 export function resolveDisplayDomains(domains) {
   if (Array.isArray(domains) && domains.length === 8 && domains.every(isValidDomainEntry)) {
-    return domains
+    return sortDisplayDomains(domains)
   }
   return CYBER_MOT_DISPLAY_ORDER.map((d) => ({
     ...d,
