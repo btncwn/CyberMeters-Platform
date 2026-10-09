@@ -65,7 +65,7 @@ describe('Agency branding profiles', () => {
     expect(api.updateBrandingProfile.mock.calls[1][1]).toEqual({ name: 'Renamed', accent: '#123456', mode: 'white_label', is_default: true, logo: null })
   })
   it('does not display another returned profile or allow edit after a fresh downgrade', async () => {
-    api.getBrandingProfile.mockResolvedValue({ profile: profile('foreign'), logo_data_uri: PNG, white_label_available: false }); mountAgency(); await screen.findByText('Agency profile-a'); click('Edit Agency profile-a')
+    api.getBrandingProfile.mockResolvedValue({ profile: profile('foreign'), logo_data_uri: PNG, white_label_available: false }); await act(async () => { mountAgency() }); await screen.findByText('Agency profile-a'); click('Edit Agency profile-a')
     expect(await screen.findByRole('alert')).toHaveTextContent('cannot currently be edited'); expect(screen.queryByLabelText('Agency name')).not.toBeInTheDocument(); expect(screen.queryByText('Agency foreign')).not.toBeInTheDocument()
   })
   it('rejects unsupported image types/oversize before reading and accepts explicit PNG only on save', async () => {

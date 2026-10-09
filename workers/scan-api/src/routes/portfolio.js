@@ -1,3 +1,4 @@
+import { generateTrialWorkspacePdf } from "../engines/plan-usage.js";
 // ── Portfolio + workspace list routes ──
 // Workspace scan-report PDF, the portfolio risk APIs (overview / workspaces /
 // alerts / trends / risk) and workspace list/create endpoints. Extracted
@@ -98,15 +99,17 @@ export async function portfolioRoutes(rctx) {
           .prepare(`SELECT id, name FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
           .bind(wsId).first();
         if (!ws) return json({ error: "Workspace not found" }, 404);
-        const reads = await readLatestWorkspaceSnapshots(env, wsId);
-        let branding = null, logoImage = null;
-        try {
-          branding = await resolveReportBrandingV2(env, { workspaceId: wsId });
-          const dataUri = await loadBrandingLogoDataUri(env, branding);
-          if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent);
-        } catch { branding = null; logoImage = null; }
         const generatedAt = new Date().toISOString();
-        const pdfBytes = buildWorkspaceExecutivePdf({ workspaceName: ws.name, reads, branding, generatedAt, logoImage });
+        const pdfBytes = await generateTrialWorkspacePdf(env, wsId, user.id, async () => {
+          const reads = await readLatestWorkspaceSnapshots(env, wsId);
+          let branding = null, logoImage = null;
+          try {
+            branding = await resolveReportBrandingV2(env, { workspaceId: wsId });
+            const dataUri = await loadBrandingLogoDataUri(env, branding);
+            if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent);
+          } catch { branding = null; logoImage = null; }
+          return buildWorkspaceExecutivePdf({ workspaceName: ws.name, reads, branding, generatedAt, logoImage });
+        });
         const safeName = (ws.name || "workspace").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
         return new Response(pdfBytes, {
           status: 200,
@@ -118,6 +121,7 @@ export async function portfolioRoutes(rctx) {
           },
         });
       } catch (e) {
+        if (e.quota) return json(e.quota.body, e.quota.status);
         return serverError("portfolio/report-pdf", e, "PDF generation failed. Please try again.");
       }
     }

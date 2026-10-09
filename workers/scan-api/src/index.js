@@ -743,7 +743,11 @@ async function triggerScheduledScan(schedule, env) {
     // the conflict semantics are identical in both modes.
     try {
       const rejected = await admitDomainScan(env, { scanId, domainId, workspaceId: schedule.workspace_id, domain: schedule.domain, status: scheduledQueueMode ? "queued" : "running", userId });
-      if (rejected) return;
+      if (rejected) {
+        console.log("[scheduled-scan] skipped", JSON.stringify({ schedule_id: schedule.id ?? null,
+          workspace_id: schedule.workspace_id, reason: rejected.body?.reason || rejected.body?.error }));
+        return;
+      }
     } catch (insertErr) {
       if (!isUniqueConstraintError(insertErr)) throw insertErr;
       console.log("[scheduled-scan] skipped", JSON.stringify({

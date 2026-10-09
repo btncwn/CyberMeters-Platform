@@ -14,6 +14,8 @@ const { trialUsage, trialDay, getTrialAllowance } = await import('../workers/sca
 const { getEffectivePlanState, getEffectiveDomainLimit } = await import('../workers/scan-api/src/engines/entitlements.js');
 const { networkAssetRoutes } = await import('../workers/scan-api/src/routes/network-assets.js');
 const { scanRoutes } = await import('../workers/scan-api/src/routes/scans.js');
+const { portfolioRoutes } = await import('../workers/scan-api/src/routes/portfolio.js');
+const { workspaceAnalyticsRoutes } = await import('../workers/scan-api/src/routes/workspace-analytics.js');
 const { workspaceReportsRoutes } = await import('../workers/scan-api/src/routes/workspace-reports.js');
 const { requireWorkspaceRole, requireScanReadAccess } = await import('../workers/scan-api/src/index.js');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -178,6 +180,55 @@ await test('report completion storage failures refund the reserved slot',async()
   const result=await generateWorkspaceExecutiveReport('wa',f.env);
   assert.equal(result.status,'completed');
   assert.equal(await trialUsage(f.env,'reports','owner'),1);
+});
+await test('both legacy PDF routes share admission, enforce expiry and preserve downloads', async()=>{
+  const f=setup();
+  const calls = [
+    () => portfolioRoutes(f.context('/api/workspaces/wa/report')),
+    () => workspaceAnalyticsRoutes(f.context('/api/workspaces/wb/scorecard/pdf',{user:'owner'})),
+    () => portfolioRoutes(f.context('/api/workspaces/wa/report',{user:'member'})),
+  ];
+  const results=await Promise.all([...calls,...calls].map(call=>call()));
+  assert.equal(results.filter(r=>r.status===200).length,3);
+  assert.equal(results.filter(r=>r.status===403).length,3);
+  for(const r of results) {
+    if(r.status===200) assert.equal(r.headers.get('content-type'),'application/pdf');
+    else assert.equal((await r.json()).reason,'trial_daily_allowance');
+  }
+  assert.equal(await trialUsage(f.env,'reports','owner'),3);
+  assert.equal(f.objects.size,3);
+  assert.equal((await portfolioRoutes(f.context('/api/workspaces/wa/report',{user:'other'}))).status,403);
+  assert.equal((await workspaceAnalyticsRoutes(f.context('/api/workspaces/wa/scorecard/pdf',{user:'other'}))).status,403);
+  f.db.prepare("UPDATE subscriptions SET trial_end=?").run(new Date(Date.now()-60000).toISOString());
+  for(const call of calls) { const r=await call(); assert.equal(r.status,403);assert.equal((await r.json()).reason,'trial_expired'); }
+  const row=f.db.prepare("SELECT id FROM workspace_reports WHERE workspace_id='wa' AND status='completed'").get();
+  assert.equal((await workspaceReportsRoutes(f.context(`/api/workspaces/wa/reports/${row.id}/download`))).status,200);
+});
+await test('legacy PDF storage failure refunds the reservation and paid behaviour stays unchanged',async()=>{
+  const f=setup();
+  f.env.cybermeters_reports.put=async()=>{throw new Error('R2 unavailable');};
+  assert.equal((await portfolioRoutes(f.context('/api/workspaces/wa/report'))).status,500);
+  assert.equal(await trialUsage(f.env,'reports','owner'),0);
+  f.db.exec("UPDATE subscriptions SET status='active',subscription_status='active',stripe_subscription_id='sub_paid'");
+  for(let i=0;i<4;i++) assert.equal((await workspaceAnalyticsRoutes(f.context('/api/workspaces/wa/scorecard/pdf'))).status,200);
+  assert.equal(await trialUsage(f.env,'reports','owner'),0);
+});
+await test('stale same-period claim does not hide a full allowance behind preparing',async()=>{
+  const f=setup(), scan={id:'stale-scan',workspace_id:'wa'};
+  const createdAt=new Date(Date.now()-31*60000).toISOString();
+  await claimReportOccurrence(f.env,{reportId:'stale',workspaceId:'wa',report_type:'technical',report_period:'scan-stale-scan',r2Key:'stale',retentionPolicy:'standard',createdAt});
+  for(let i=0;i<3;i++) await claimReportOccurrence(f.env,{reportId:`fresh${i}`,workspaceId:'wa',report_type:'manual',report_period:`fresh${i}`,r2Key:`fresh${i}`,retentionPolicy:'standard',createdAt:new Date().toISOString()});
+  await assert.rejects(()=>readOrGenerateTrialTechnicalPdf(f.env,scan,'owner',async()=>{throw new Error('must not render');}),e=>e.quota?.status===403 && e.quota?.body.reason==='trial_daily_allowance');
+});
+await test('subscription storage failure is unavailable, not an upgrade request',async()=>{
+  const f=setup(); f.setFault(sql=>sql.includes('FROM subscriptions'));
+  assert.equal((await checkReportLimit({id:'owner'},'wa',f.env)).status,503);
+  assert.equal((await checkScanLimit({id:'owner'},'wa',f.env)).status,503);
+  for(const [route,handler] of [['/api/workspaces/wa/report',portfolioRoutes],['/api/workspaces/wa/scorecard/pdf',workspaceAnalyticsRoutes]]) {
+    const r=await handler(f.context(route)); assert.equal(r.status,503); assert.equal((await r.json()).error,'plan_state_unavailable');
+  }
+  assert.equal(f.objects.size,0);
+  await assert.rejects(()=>readOrGenerateTrialTechnicalPdf(f.env,{id:'new',workspace_id:'wa'},'owner',async()=>new Uint8Array()),e=>e.quota?.status===503);
 });
 await test('billing precedence, expiry, daily display and storage errors',async()=>{
   const f=setup(); f.seedScan('one');

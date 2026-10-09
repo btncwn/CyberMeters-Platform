@@ -2994,9 +2994,7 @@
         "requireAuth",
         "requireWorkspaceRole"
       ],
-      "scope_helpers": [
-        "getWorkspaceBillingUserId"
-      ],
+      "scope_helpers": [],
       "authed": true,
       "public_reason": null
     },

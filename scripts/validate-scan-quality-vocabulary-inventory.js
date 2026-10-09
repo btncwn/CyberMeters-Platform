@@ -89,9 +89,9 @@ const EXPECTED = Object.freeze({
     predicate_occurrences: 35,
     unique_query_sites: 26,
     source_file_count: 15,
-    fingerprint: "9d722f9d0b41c62b01ab8ce5693ffdbff2f38872e5fb5e60a1428309e5376fe2",
+    fingerprint: "f297fd5927d8976f240e4d34c1eaac813e15e894729495b659067bcf7fa20a55",
     resolved_query_sink_count: 19,
-    resolved_query_sink_fingerprint: "92158e1dd0bc4eaa9083967dd0915c7921b993e94bfb56759388c4438653744f",
+    resolved_query_sink_fingerprint: "95ca195f7b3b591a88829e11416e1f18ce62353191ddc7807bdd87f688d1b64d",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1

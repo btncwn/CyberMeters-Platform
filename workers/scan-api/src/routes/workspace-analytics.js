@@ -1,3 +1,4 @@
+import { generateTrialWorkspacePdf } from "../engines/plan-usage.js";
 // ── Workspace analytics routes ──
 // Read-only scorecard / Cyber Essentials readiness / business-risk endpoints.
 // Extracted near-verbatim from index.js (router split, Phase 2 PR #1).
@@ -33,37 +34,32 @@ export async function workspaceAnalyticsRoutes(rctx) {
       if (!user) return json({ error: "Unauthorized" }, 401);
       const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
       if (!access) return json({ error: "Forbidden" }, 403);
-      {
-        const ownerId = await getWorkspaceBillingUserId(wsId, user.id, env);
-        const plan = await getEffectivePlan(ownerId, env);
-        if (!hasFeatureEntitlement(plan, 'business_risk_score')) {
-          return json({ error: 'plan_feature_required', feature: 'business_risk_score', required_plan: 'starter', upgrade_url: '/billing' }, 403);
-        }
-      }
       try {
         const ws = await env.cybermeters_db
           .prepare(`SELECT id, name FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
           .bind(wsId).first();
         if (!ws) return json({ error: 'Workspace not found' }, 404);
-        const reads = await readLatestWorkspaceSnapshots(env, wsId);
-        let branding = null, logoImage = null;
-        try {
-          // Executive scorecard is a current-state report (not a per-scan
-          // artefact), so branding is resolved live via v2 precedence — never
-          // frozen, never from the request body.
-          branding = await resolveReportBrandingV2(env, { workspaceId: wsId });
-          let dataUri = await loadBrandingLogoDataUri(env, branding);
-          // Default (non-white-label) Executive report embeds the canonical
-          // CyberMeters house logo (Worker-embedded); white-label keeps its own.
-          if (!dataUri && branding?.mode === "cybermeters") dataUri = CYBERMETERS_LOGO_DATA_URI;
-          // Transparent-PNG alpha flattens over this background — the house logo
-          // (accent null) flattens over WHITE, never a tint.
-          if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent || "#FFFFFF");
-        } catch { branding = null; logoImage = null; }
-        // Live render: the artefact timestamp is the request time by design
-        // (this endpoint is the on-demand variant of the stored report).
         const generatedAt = new Date().toISOString();
-        const bytes = buildWorkspaceExecutivePdf({ workspaceName: ws.name, reads, branding, generatedAt, logoImage });
+        const bytes = await generateTrialWorkspacePdf(env, wsId, user.id, async () => {
+          const reads = await readLatestWorkspaceSnapshots(env, wsId);
+          let branding = null, logoImage = null;
+          try {
+            // Executive scorecard is a current-state report (not a per-scan
+            // artefact), so branding is resolved live via v2 precedence — never
+            // frozen, never from the request body.
+            branding = await resolveReportBrandingV2(env, { workspaceId: wsId });
+            let dataUri = await loadBrandingLogoDataUri(env, branding);
+            // Default (non-white-label) Executive report embeds the canonical
+            // CyberMeters house logo (Worker-embedded); white-label keeps its own.
+            if (!dataUri && branding?.mode === "cybermeters") dataUri = CYBERMETERS_LOGO_DATA_URI;
+            // Transparent-PNG alpha flattens over this background — the house logo
+            // (accent null) flattens over WHITE, never a tint.
+            if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent || "#FFFFFF");
+          } catch { branding = null; logoImage = null; }
+          // Live render: the artefact timestamp is the request time by design
+          // (this endpoint is the on-demand variant of the stored report).
+          return buildWorkspaceExecutivePdf({ workspaceName: ws.name, reads, branding, generatedAt, logoImage });
+        });
         const wsSlug = String(ws.name ?? 'report')
           .toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
         const filename = `cybermeters-executive-report-${wsSlug}-${generatedAt.slice(0, 10)}.pdf`;
@@ -77,6 +73,7 @@ export async function workspaceAnalyticsRoutes(rctx) {
           },
         });
       } catch (err) {
+        if (err.quota) return json(err.quota.body, err.quota.status);
         // Customer-safe: never echo internal error detail (the previous body
         // leaked err.message + endpoint + timestamp).
         return serverError("scorecard/pdf", err, "PDF generation failed.");

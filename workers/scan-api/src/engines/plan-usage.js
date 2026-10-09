@@ -118,7 +118,7 @@ export async function claimReportOccurrence(env, { reportId, workspaceId, report
   let res = await insertClaim();
   if ((res?.meta?.changes ?? 0) === 1) return { won: true };
 
-  const existing = await env.cybermeters_db.prepare(
+  let existing = await env.cybermeters_db.prepare(
     `SELECT id, status, created_at FROM workspace_reports
      WHERE workspace_id = ? AND report_type = ? AND report_period = ?
        AND deleted_at IS NULL AND status != 'failed'
@@ -132,6 +132,12 @@ export async function claimReportOccurrence(env, { reportId, workspaceId, report
     ).bind(new Date().toISOString(), JSON.stringify({ reason: "stale_claim_reclaimed" }), existing.id).run().catch(() => {});
     res = await insertClaim();
     if ((res?.meta?.changes ?? 0) === 1) return { won: true };
+    existing = await env.cybermeters_db.prepare(
+      `SELECT id, status, created_at FROM workspace_reports
+       WHERE workspace_id = ? AND report_type = ? AND report_period = ?
+         AND deleted_at IS NULL AND status != 'failed'
+       ORDER BY created_at DESC, id DESC LIMIT 1`
+    ).bind(workspaceId, report_type, report_period).first();
   }
   if (!existing && admission) {
     const rejection = await admission.rejection();
@@ -796,6 +802,7 @@ export async function checkScanLimit(user, workspaceId, env) {
   try {
     const ownerUserId = await getWorkspaceBillingUserId(workspaceId, user.id, env);
     const state = await getEffectivePlanState(ownerUserId, env);
+    if (state.source === "error") throw new Error("plan_state_unavailable");
     if (state.plan === "free") return inactivePlanError(state);
     if (state.is_trial) {
       const used = await trialUsage(env, "scans", ownerUserId);
@@ -828,6 +835,7 @@ export async function checkReportLimit(user, workspaceId, env) {
   try {
     const ownerUserId = await getWorkspaceBillingUserId(workspaceId, user.id, env);
     const state = await getEffectivePlanState(ownerUserId, env);
+    if (state.source === "error") throw new Error("plan_state_unavailable");
     if (state.plan === "free") return inactivePlanError(state);
     if (state.is_trial) {
       const used = await trialUsage(env, "reports", ownerUserId);
@@ -935,6 +943,9 @@ export async function evaluateScheduledScanEligibility(env, { workspaceId, domai
 export async function getOperationAdmission(env, workspaceId, fallbackUserId, resource) {
   const ownerId = await getWorkspaceBillingUserId(workspaceId, fallbackUserId, env);
   const state = await getEffectivePlanState(ownerId, env);
+  if (state.source === "error") throw Object.assign(new Error("plan_state_unavailable"), {
+    quota: { status: 503, body: { error: "plan_state_unavailable", message: "Your plan could not be checked. Please try again." } },
+  });
   if (state.plan === "free") return { sql: "0", args: [], state, rejection: async () => inactivePlanError(state) };
   if (!state.is_trial) return { sql: "1", args: [], state, rejection: async () => ({ status: 503, body: { error: "operation_unavailable" } }) };
   const query = trialUsageSql(resource, ownerId, null);
@@ -969,12 +980,26 @@ export async function readOrGenerateTrialTechnicalPdf(env, scan, userId, render,
   }
   const admission = await getOperationAdmission(env, scan.workspace_id, userId, "reports");
   if (!admission.state.is_trial && admission.state.plan !== "free") return render();
+  return persistAdmittedPdf(env, { workspaceId: scan.workspace_id, report_type: "technical", period, admission, render,
+    metadata: () => ({ scan_id: scan.id, snapshot_id: evidence.snapshot_id || null }) });
+}
+
+// Both legacy workspace PDF downloads create new artefacts. Trial requests must
+// reserve the same account-wide allowance before rendering and retain the result
+// for ordinary, unmetered re-download through the existing reports route.
+export async function generateTrialWorkspacePdf(env, workspaceId, userId, render) {
+  const admission = await getOperationAdmission(env, workspaceId, userId, "reports");
+  if (!admission.state.is_trial && admission.state.plan !== "free") return render();
+  return persistAdmittedPdf(env, { workspaceId, report_type: "manual", period: `download-${crypto.randomUUID()}`, admission, render });
+}
+
+async function persistAdmittedPdf(env, { workspaceId, report_type, period, admission, render, metadata = () => ({}) }) {
   const reportId = createId("rpt");
-  const r2Key = `reports/technical/${scan.workspace_id}/${scan.id}/${reportId}.pdf`;
+  const r2Key = `reports/${report_type}/${workspaceId}/${reportId}.pdf`;
   const createdAt = new Date().toISOString();
-  const retentionPolicy = await getReportRetentionPolicyForWorkspace(scan.workspace_id, env);
-  const claim = await claimReportOccurrence(env, { reportId, workspaceId: scan.workspace_id,
-    report_type: "technical", report_period: period, r2Key, createdAt, retentionPolicy, admission });
+  const retentionPolicy = await getReportRetentionPolicyForWorkspace(workspaceId, env);
+  const claim = await claimReportOccurrence(env, { reportId, workspaceId,
+    report_type, report_period: period, r2Key, createdAt, retentionPolicy, admission });
   if (!claim.won) {
     // A completed concurrent winner can be downloaded on the next request.
     throw Object.assign(new Error("pdf_generation_in_progress"), { quota: { status: 409,
@@ -986,7 +1011,7 @@ export async function readOrGenerateTrialTechnicalPdf(env, scan, userId, render,
     const result = await env.cybermeters_db.prepare(
       `UPDATE workspace_reports SET status = 'completed', generated_at = ?, report_size_bytes = ?, metadata_json = ?
        WHERE id = ? AND status = 'pending'`
-    ).bind(new Date().toISOString(), bytes.byteLength, JSON.stringify({ scan_id: scan.id, snapshot_id: evidence.snapshot_id || null }), reportId).run();
+    ).bind(new Date().toISOString(), bytes.byteLength, JSON.stringify(metadata()), reportId).run();
     if (result?.meta?.changes !== 1) throw new Error("report_claim_lost");
     return bytes;
   } catch (error) {

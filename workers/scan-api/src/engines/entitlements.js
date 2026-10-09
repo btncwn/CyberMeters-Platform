@@ -316,7 +316,7 @@ export async function getEffectivePlanState(userId, env) {
       .all();
     const resolved = resolveCanonicalSubscriptionRow(res?.results || []);
     if (!resolved) {
-      const expired = (res?.results || []).some(row => row.trial_end && Date.parse(row.trial_end) <= Date.now());
+      const expired = (res?.results || []).some(row => (row.subscription_status || row.status) === "trialing" && Date.parse(row.trial_end || row.current_period_end) <= Date.now());
       return { plan: "free", is_trial: false, source: "none", ...(expired ? { trial_expired: true } : {}) };
     }
     return {
@@ -326,7 +326,7 @@ export async function getEffectivePlanState(userId, env) {
       ...(resolved.source === "trial" ? { trial_end: resolved.row.trial_end || resolved.row.current_period_end } : {}),
     };
   } catch {
-    return { plan: "free", is_trial: false, source: "none" };
+    return { plan: "free", is_trial: false, source: "error" };
   }
 }
 
