@@ -570,7 +570,11 @@ const MUTATIONS = [
   {
     name: "restore four-service output",
     file: "frontend/src/pages/PublicLandingPage.jsx",
-    mutate: (s) => s.replace("Eight domains, one posture", "Four services, one posture"),
+    mutate: (s) => {
+      const anchor = "Eight areas in one workspace";
+      if (s.split(anchor).length !== 2) throw new Error("four-service mutation needs exactly one visible eight-area heading");
+      return s.replace(anchor, "Four services in one workspace");
+    },
     expect: () => /Four services|four services/i.test(getSource("frontend/src/pages/PublicLandingPage.jsx")) ? "four-service customer output returned" : null,
   },
   {
