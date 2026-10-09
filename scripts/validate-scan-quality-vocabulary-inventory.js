@@ -195,7 +195,9 @@ const EXPECTED = Object.freeze({
   // workspace aggregate scan selectors into one direct-attribution helper
   // shifts source positions only. No scan-quality read was added or removed.
   // Rename type guard moves only workspaces-core.js projection 288 -> 289; all 23 SQL texts and identities are unchanged.
-  sql_reads: { projection_occurrences: 23, fingerprint: "877483dcd6071e3b826ad405cb4ceeb527a6dd4d114d6a24f87c8fb7a9986b9b" },
+  // Trial allowance: two-tree comparison preserves all 23 exact SQL texts and
+  // multiplicities; scans.js and workspace-reports.js source lines move only.
+  sql_reads: { projection_occurrences: 23, fingerprint: "a9a0bc90321efe33520a34ab1ae060f13735a7e379e4d457d6c17a8a836c03bf" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
