@@ -25,9 +25,9 @@ export default function DpaPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Data Processing Addendum</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: 9 October 2026 — Version 1.1</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 9 October 2026 — Version 1.2</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
-            This Data Processing Addendum ("<strong>DPA</strong>") supplements and forms part of the CyberMeters Terms of Service between CyberMeters ("<strong>Processor</strong>") and the customer ("<strong>Controller</strong>"). It governs the processing of personal data by CyberMeters on behalf of the Controller in connection with the provision of the Services.
+            This Data Processing Addendum ("<strong>DPA</strong>") supplements and forms part of the CyberMeters Terms of Service between Turhan Acar, a sole trader trading as CyberMeters ("<strong>Processor</strong>") and the customer ("<strong>Controller</strong>"). It governs the processing of personal data by CyberMeters on behalf of the Controller in connection with the provision of the Services.
           </p>
           <p className="text-sm text-gray-500 mt-3 leading-relaxed">
             This DPA is entered into to satisfy the requirements of Article 28 of the UK GDPR and, where applicable, the EU GDPR. In the event of a conflict between this DPA and the Terms of Service, this DPA shall prevail with respect to data protection matters.

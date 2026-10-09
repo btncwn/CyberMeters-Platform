@@ -25,16 +25,16 @@ export default function TermsPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Terms of Service</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: June 2026 — Version 1.0</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 9 October 2026 — Version 1.1</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
-            These Terms of Service ("<strong>Terms</strong>") govern your access to and use of the CyberMeters platform and related services ("<strong>Services</strong>") provided by CyberMeters ("<strong>we</strong>", "<strong>us</strong>", "<strong>our</strong>").
+            These Terms of Service ("<strong>Terms</strong>") govern your access to and use of the CyberMeters platform and related services ("<strong>Services</strong>") provided by Turhan Acar, a sole trader trading as CyberMeters ("<strong>we</strong>", "<strong>us</strong>", "<strong>our</strong>").
           </p>
           <p className="text-sm text-gray-500 mt-3 leading-relaxed">
             By creating an account or using the Services, you agree to be bound by these Terms. If you are accepting on behalf of an organisation, you represent that you have authority to bind that organisation.
           </p>
 
           <div className="mt-6 bg-amber-50 border border-amber-100 rounded-xl p-4 text-sm text-amber-800">
-            <strong>Beta Notice.</strong> CyberMeters is currently in public beta. The Services are provided on an "as available" basis. Features, pricing, and terms may change. We will provide advance notice of material changes.
+            <strong>Service scope.</strong> CyberMeters reports externally observable evidence within the scope and limits of each check. A score or completed scan is not a guarantee that a system is free of vulnerabilities. The Services are provided on an "as available" basis. Features, pricing, and terms may change. We will provide advance notice of material changes.
           </div>
 
           <Section title="1. Service Description">

@@ -388,16 +388,11 @@ export default function PublicLandingPage() {
           </div>
         </section>
 
-        {/* ── Founder note ── */}
-        <section className="max-w-6xl mx-auto px-6 pb-20">
-          <div className="card p-6 flex items-start gap-4 max-w-3xl">
-            <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center flex-shrink-0">
-              <Users className="w-5 h-5 text-brand-600" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-gray-900">About CyberMeters</p>
-              <p className="text-sm text-gray-600 mt-1 leading-relaxed">Designed and developed by Turhan Acar as a cloud-native cyber security SaaS project.</p>
-            </div>
+        <section className="max-w-6xl mx-auto px-6 pb-16">
+          <div className="rounded-xl border border-brand-100 bg-brand-50 p-6 sm:p-8">
+            <h2 className="text-xl font-bold text-gray-900">We use CyberMeters on our own domain.</h2>
+            <p className="mt-2 text-sm text-gray-600 max-w-2xl">See our dated cybermeters.com self-check, the evidence behind it and the checks that remain incomplete.</p>
+            <Link to="/trust" className="mt-4 inline-flex items-center gap-2 font-semibold text-brand-700">View our own-domain check <ArrowRight className="w-4 h-4" /></Link>
           </div>
         </section>
 
@@ -437,6 +432,7 @@ export default function PublicLandingPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <FooterLink to="/about">About</FooterLink>
               <FooterLink to="/trust">Trust &amp; Security</FooterLink>
               <FooterLink to="/status">Status</FooterLink>
               <FooterLink to="/privacy">Privacy</FooterLink>
