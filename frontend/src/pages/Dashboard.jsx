@@ -698,30 +698,30 @@ export default function Dashboard() {
             <div>
               <h2 className="section-title mb-3">Your Cyber MOT domains</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <ServiceKpiCard icon={Mail} title="Email Protection" to="/ws/email-protection" cta="Open Email Protection"
-                  theme={SERVICE_THEME.email} status="Not measured"
-                  fallback="Connect DMARC reporting to measure impersonation exposure." />
-                <ServiceKpiCard icon={Tag} title="Brand Protection" to="/ws/brand-monitoring" cta="Review Brand Protection"
-                  theme={SERVICE_THEME.brand} kpis={brandKpis} accentTone={brand && (brand.high ?? 0) > 0 ? 'bad' : ''}
-                  fallback="Add a protected brand profile to monitor lookalike domains." />
-                <ServiceKpiCard icon={Globe} title="Attack Surface" to="/assets" cta="Review Attack Surface"
-                  theme={SERVICE_THEME.surface} kpis={surfaceKpis} accentTone={critical > 0 ? 'bad' : high > 0 ? 'warn' : ''}
-                  fallback="Run your first external scan to discover exposed assets." />
-                <ServiceKpiCard icon={Lock} title="Certificates & Trust" to="/ws/certificates" cta="Review Certificates"
-                  theme={SERVICE_THEME.certs} kpis={certKpis} accentTone={cr && ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : ''}
-                  fallback="Review certificate expiry and HTTPS trust posture." />
-                <ServiceKpiCard icon={ClipboardCheck} title="Cyber Essentials Readiness" to="/ws/cyber-essentials" cta="Review Readiness"
-                  theme={SERVICE_THEME.cyber_essentials} status="Evidence-led"
-                  fallback="Review readiness evidence and saved questionnaire answers." />
-                <ServiceKpiCard icon={MonitorCheck} title="Website Security" to="/ws/website-security" cta="Review Website Security"
-                  theme={SERVICE_THEME.website} status="Externally observed"
-                  fallback="Review HTTPS, redirects, headers and cookie flag evidence." />
                 <ServiceKpiCard icon={KeyRound} title="Identity Exposure" to="/ws/identity-exposure" cta="Review Identity Exposure"
                   theme={SERVICE_THEME.identity} status="Externally observed"
                   fallback="Review observed identity-provider relationships and identity-facing hostnames. Endpoint reachability is not measured." />
+                <ServiceKpiCard icon={Globe} title="Attack Surface" to="/assets" cta="Review Attack Surface"
+                  theme={SERVICE_THEME.surface} kpis={surfaceKpis} accentTone={critical > 0 ? 'bad' : high > 0 ? 'warn' : ''}
+                  fallback="Run your first external scan to discover exposed assets." />
+                <ServiceKpiCard icon={Mail} title="Email Protection" to="/ws/email-protection" cta="Open Email Protection"
+                  theme={SERVICE_THEME.email} status="Not measured"
+                  fallback="Connect DMARC reporting to measure impersonation exposure." />
+                <ServiceKpiCard icon={MonitorCheck} title="Website Security" to="/ws/website-security" cta="Review Website Security"
+                  theme={SERVICE_THEME.website} status="Externally observed"
+                  fallback="Review HTTPS, redirects, headers and cookie flag evidence." />
                 <ServiceKpiCard icon={Boxes} title="Shadow IT & Unmanaged Technology" to="/ws/shadow-it" cta="Review Shadow IT"
                   theme={SERVICE_THEME.shadow_it} status="Externally observed"
                   fallback="Review SaaS, vendor, script and unmanaged technology observations." />
+                <ServiceKpiCard icon={Lock} title="Certificates & Trust" to="/ws/certificates" cta="Review Certificates"
+                  theme={SERVICE_THEME.certs} kpis={certKpis} accentTone={cr && ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : ''}
+                  fallback="Review certificate expiry and HTTPS trust posture." />
+                <ServiceKpiCard icon={Tag} title="Brand Protection" to="/ws/brand-monitoring" cta="Review Brand Protection"
+                  theme={SERVICE_THEME.brand} kpis={brandKpis} accentTone={brand && (brand.high ?? 0) > 0 ? 'bad' : ''}
+                  fallback="Add a protected brand profile to monitor lookalike domains." />
+                <ServiceKpiCard icon={ClipboardCheck} title="Cyber Essentials Readiness" to="/ws/cyber-essentials" cta="Review Readiness"
+                  theme={SERVICE_THEME.cyber_essentials} status="Evidence-led"
+                  fallback="Review readiness evidence and saved questionnaire answers." />
               </div>
             </div>
 

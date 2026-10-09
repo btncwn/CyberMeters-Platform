@@ -15,14 +15,9 @@ import { useWorkspace } from '../hooks/useWorkspace'
 
 const SERVICES = [
   {
-    key: 'email', icon: Mail, title: 'Email Protection',
-    copy: 'Protect against spoofing, invoice fraud and supplier impersonation using DMARC, sender intelligence and BEC Exposure.',
-    cta: 'Open Email Protection', to: '/ws/email-protection',
-  },
-  {
-    key: 'brand', icon: Radar, title: 'Brand Protection',
-    copy: 'Find lookalike domains and classify impersonation candidates before they are used for fraud.',
-    cta: 'Open Brand Protection', to: '/ws/brand-monitoring',
+    key: 'identity', icon: KeyRound, title: 'Identity Exposure',
+    copy: 'Review provider relationships and possible identity-facing hostnames; endpoint reachability is not currently evaluated.',
+    cta: 'Open Identity Exposure', to: '/ws/identity-exposure',
   },
   {
     key: 'surface', icon: Globe, title: 'Attack Surface',
@@ -30,14 +25,9 @@ const SERVICES = [
     cta: 'Open Attack Surface', to: '/assets',
   },
   {
-    key: 'certs', icon: Lock, title: 'Certificates & Trust',
-    copy: 'Track HTTPS, TLS and certificate expiry so trust failures do not surprise the business.',
-    cta: 'Open Certificates & Trust', to: '/ws/certificates',
-  },
-  {
-    key: 'cyber_essentials', icon: ClipboardCheck, title: 'Cyber Essentials Readiness',
-    copy: 'Review externally observable evidence and saved answers against the readiness workflow.',
-    cta: 'Open Cyber Essentials', to: '/ws/cyber-essentials',
+    key: 'email', icon: Mail, title: 'Email Protection',
+    copy: 'Protect against spoofing, invoice fraud and supplier impersonation using DMARC, sender intelligence and BEC Exposure.',
+    cta: 'Open Email Protection', to: '/ws/email-protection',
   },
   {
     key: 'website', icon: MonitorCheck, title: 'Website Security',
@@ -45,14 +35,24 @@ const SERVICES = [
     cta: 'Open Website Security', to: '/ws/website-security',
   },
   {
-    key: 'identity', icon: KeyRound, title: 'Identity Exposure',
-    copy: 'Review provider relationships and possible identity-facing hostnames; endpoint reachability is not currently evaluated.',
-    cta: 'Open Identity Exposure', to: '/ws/identity-exposure',
-  },
-  {
     key: 'shadow_it', icon: Boxes, title: 'Shadow IT & Unmanaged Technology',
     copy: 'Track externally observed SaaS, vendors, scripts and unmanaged technology signals.',
     cta: 'Open Shadow IT', to: '/ws/shadow-it',
+  },
+  {
+    key: 'certs', icon: Lock, title: 'Certificates & Trust',
+    copy: 'Track HTTPS, TLS and certificate expiry so trust failures do not surprise the business.',
+    cta: 'Open Certificates & Trust', to: '/ws/certificates',
+  },
+  {
+    key: 'brand', icon: Radar, title: 'Brand Protection',
+    copy: 'Find lookalike domains and classify impersonation candidates before they are used for fraud.',
+    cta: 'Open Brand Protection', to: '/ws/brand-monitoring',
+  },
+  {
+    key: 'cyber_essentials', icon: ClipboardCheck, title: 'Cyber Essentials Readiness',
+    copy: 'Review externally observable evidence and saved answers against the readiness workflow.',
+    cta: 'Open Cyber Essentials', to: '/ws/cyber-essentials',
   },
 ]
 

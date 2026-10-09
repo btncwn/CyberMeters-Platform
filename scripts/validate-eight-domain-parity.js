@@ -316,20 +316,26 @@ for (const key of SCAN_DOMAINS) {
   const { resolveDisplayDomains, CYBER_MOT_DISPLAY_ORDER } =
     await import(pathToFileURL(path.join(root, "frontend", "src", "lib", "cyberMotDisplay.js")).href);
 
+  const displayKeys = ['identity_exposure', 'attack_surface', 'email_protection', 'website_security', 'shadow_it_unmanaged_technology', 'certificates_trust', 'brand_protection', 'cyber_essentials_readiness'];
   ok("D: display order has all eight canonical domain keys",
-    CYBER_MOT_DISPLAY_ORDER.length === 8 && CYBER_MOT_DISPLAY_ORDER.map((d) => d.domain_key).join(",") === KEYS.join(","));
+    CYBER_MOT_DISPLAY_ORDER.length === 8 && [...CYBER_MOT_DISPLAY_ORDER.map((d) => d.domain_key)].sort().join(",") === [...KEYS].sort().join(","));
+  ok("D: display order follows customer navigation priority",
+    CYBER_MOT_DISPLAY_ORDER.map((d) => d.domain_key).join(",") === displayKeys.join(","));
 
   for (const [label, input] of [["null", null], ["undefined", undefined], ["empty array", []], ["malformed (missing state)", [{ domain_key: "email_protection" }]], ["short array", [{ domain_key: "email_protection", state: "assessed_healthy" }]]]) {
     const out = resolveDisplayDomains(input);
     ok(`D: endpoint failure (${label}) → exactly eight domains`, Array.isArray(out) && out.length === 8);
     ok(`D: endpoint failure (${label}) → no domain is assessed_healthy`, out.every((d) => d.state !== HEALTHY));
-    ok(`D: endpoint failure (${label}) → canonical order + every key present`, out.map((d) => d.domain_key).join(",") === KEYS.join(","));
+    ok(`D: endpoint failure (${label}) → presentation order + every key present`, out.map((d) => d.domain_key).join(",") === displayKeys.join(","));
   }
 
-  // A valid server-resolved eight-entry set passes straight through unchanged.
+  // Reorder the view only: every server object and the original array remain unchanged.
   const valid = resolveCyberMotDomainStates(cleanComplete());
+  const original = JSON.stringify(valid);
   const passthrough = resolveDisplayDomains(valid);
-  ok("D: a valid eight-entry server set passes through unchanged", passthrough === valid && passthrough.length === 8);
+  ok("D: a valid eight-entry server set follows presentation order", passthrough.map((d) => d.domain_key).join(",") === displayKeys.join(","));
+  ok("D: reordering preserves every server object and leaves input untouched",
+    JSON.stringify(valid) === original && passthrough.every((d) => d === valid.find((entry) => entry.domain_key === d.domain_key)));
 }
 
 console.log(`\neight-domain-parity: ${pass} passed, ${fail} failed`);

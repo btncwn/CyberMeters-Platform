@@ -350,10 +350,10 @@ function checkFrontendPurityAndParity() {
   ok("H: frontend maturity component does not import the backend engine", !/from\s+['"][^'"]*domain-maturity/.test(comp) && !/computeDomainMaturity\s*\(/.test(comp));
   ok("H: frontend does not derive a stage from evidence", !/scanQuality|verification_support|reopened_count|OWNED_STATES/.test(comp) && !/scanQuality|verification_support/.test(disp));
   ok("H: frontend renders the server maturity_stage verbatim", /d\.maturity_stage/.test(comp) && /maturity_stage/.test(disp));
-  // 21: frontend labels mirror backend stage vocabulary; 8-order constant matches.
+  // 21: frontend labels mirror backend stages; all eight domain identities remain.
   for (const l of E_labels) ok(`H: frontend exposes stage label "${l}"`, disp.includes(l) || comp.includes(l));
   const order = [...disp.matchAll(/domain_key:\s*'([^']+)'/g)].map((m) => m[1]);
-  ok("H: frontend maturity order mirrors canonical eight", order.join(",") === CANONICAL_KEYS.join(","), order.join(","));
+  ok("H: frontend maturity keeps exactly the canonical eight identities", order.length === 8 && [...order].sort().join(",") === [...CANONICAL_KEYS].sort().join(","), order.join(","));
   // Presentation safety: the fallback maps every domain to not_established, never a mature stage.
   const fallback = disp.slice(disp.indexOf("export function resolveDisplayMaturity"));
   ok("H: frontend fallback is not_established (never mature)", /maturity_stage:\s*'not_established'/.test(fallback) && !/maturity_stage:\s*'(observed|managed|verified|monitored)'/.test(fallback));

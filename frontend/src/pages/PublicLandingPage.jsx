@@ -16,18 +16,11 @@ const CONTACT = 'mailto:hello@cybermeters.com'
 // shared domain palette.
 const SERVICES = [
   {
-    icon: Mail, name: 'Email Protection',
-    q: '“Can attackers send email as me?”',
-    copy: 'Review SPF, DKIM and DMARC in plain English. Connect email reports to see sending sources and plan your next policy change.',
-    tags: ['DMARC setup', 'Sender inventory', 'Email reports'],
-    key: 'email',
-  },
-  {
-    icon: ShieldCheck, name: 'Brand Protection',
-    q: '“Is anyone impersonating my brand?”',
-    copy: 'Review lookalike domain candidates and the evidence behind them. Decide which need attention and track the next action.',
-    tags: ['Lookalike domains', 'Impersonation', 'Classification'],
-    key: 'brand',
+    icon: KeyRound, name: 'Identity Exposure',
+    q: '“What is visible about our business identities?”',
+    copy: 'Review identity-provider relationships and identity-facing hostnames. Owners and admins can also check a known work email address against LeakCheck breach sources after verifying its domain and confirming permission. This is not domain-wide, password or dark-web monitoring. Endpoint reachability testing is on the roadmap and is not performed today.',
+    tags: ['Provider relationships', 'Identity-facing hostnames', 'Reachability: roadmap'],
+    key: 'identity',
   },
   {
     icon: Search, name: 'Attack Surface',
@@ -37,18 +30,11 @@ const SERVICES = [
     key: 'surface',
   },
   {
-    icon: Lock, name: 'Certificates & Trust',
-    q: '“Will my site quietly break trust?”',
-    copy: 'Track certificate expiry and review live TLS evidence, including hostname matching and checks against the recorded trust store.',
-    tags: ['Expiry alerts', 'TLS posture', 'HTTPS trust'],
-    key: 'certs',
-  },
-  {
-    icon: ClipboardList, name: 'Cyber Essentials Readiness',
-    q: '“How ready are we for Cyber Essentials?”',
-    copy: 'Evidence-led readiness support that combines externally observable signals with saved questionnaire answers.',
-    tags: ['Readiness gaps', 'Evidence', 'Actions'],
-    key: 'cyber_essentials',
+    icon: Mail, name: 'Email Protection',
+    q: '“Can attackers send email as me?”',
+    copy: 'Review SPF, DKIM and DMARC in plain English. Connect email reports to see sending sources and plan your next policy change.',
+    tags: ['DMARC setup', 'Sender inventory', 'Email reports'],
+    key: 'email',
   },
   {
     icon: MonitorCheck, name: 'Website Security',
@@ -58,18 +44,32 @@ const SERVICES = [
     key: 'website',
   },
   {
-    icon: KeyRound, name: 'Identity Exposure',
-    q: '“What is visible about our business identities?”',
-    copy: 'Review identity-provider relationships and identity-facing hostnames. Owners and admins can also check a known work email address against LeakCheck breach sources after verifying its domain and confirming permission. This is not domain-wide, password or dark-web monitoring. Endpoint reachability testing is on the roadmap and is not performed today.',
-    tags: ['Provider relationships', 'Identity-facing hostnames', 'Reachability: roadmap'],
-    key: 'identity',
-  },
-  {
     icon: Boxes, name: 'Shadow IT & Unmanaged Technology',
     q: '“Which outside tools are visible?”',
     copy: 'Externally observed SaaS, vendors, third-party scripts and unmanaged technology signals for review.',
     tags: ['SaaS signals', 'Vendors', 'Scripts'],
     key: 'shadow_it',
+  },
+  {
+    icon: Lock, name: 'Certificates & Trust',
+    q: '“Will my site quietly break trust?”',
+    copy: 'Track certificate expiry and review live TLS evidence, including hostname matching and checks against the recorded trust store.',
+    tags: ['Expiry alerts', 'TLS posture', 'HTTPS trust'],
+    key: 'certs',
+  },
+  {
+    icon: ShieldCheck, name: 'Brand Protection',
+    q: '“Is anyone impersonating my brand?”',
+    copy: 'Review lookalike domain candidates and the evidence behind them. Decide which need attention and track the next action.',
+    tags: ['Lookalike domains', 'Impersonation', 'Classification'],
+    key: 'brand',
+  },
+  {
+    icon: ClipboardList, name: 'Cyber Essentials Readiness',
+    q: '“How ready are we for Cyber Essentials?”',
+    copy: 'Evidence-led readiness support that combines externally observable signals with saved questionnaire answers.',
+    tags: ['Readiness gaps', 'Evidence', 'Actions'],
+    key: 'cyber_essentials',
   },
 ]
 
@@ -168,14 +168,14 @@ function MotCard() {
   }, [])
 
   const rows = [
-    { icon: Mail, name: 'Email Protection', val: 'SPF ✓ · DKIM ✗', tag: 'Advisory', tone: 'adv', chip: SERVICE_COLORS.email.chip, ic: SERVICE_COLORS.email.icon },
-    { icon: ShieldCheck, name: 'Brand Protection', val: '0 lookalikes', tag: 'Clear', tone: 'pass', chip: SERVICE_COLORS.brand.chip, ic: SERVICE_COLORS.brand.icon },
-    { icon: Search, name: 'Attack Surface', val: '3 assets · 0 risks', tag: 'Clear', tone: 'pass', chip: SERVICE_COLORS.surface.chip, ic: SERVICE_COLORS.surface.icon },
-    { icon: Lock, name: 'Certificates & Trust', val: 'valid · 74 days', tag: 'Renew soon', tone: 'adv', chip: SERVICE_COLORS.certs.chip, ic: SERVICE_COLORS.certs.icon },
-    { icon: ClipboardList, name: 'Cyber Essentials Readiness', val: 'evidence-led', tag: 'Review', tone: 'adv', chip: SERVICE_COLORS.cyber_essentials.chip, ic: SERVICE_COLORS.cyber_essentials.icon },
-    { icon: MonitorCheck, name: 'Website Security', val: 'HTTPS · headers', tag: 'Advisory', tone: 'adv', chip: SERVICE_COLORS.website.chip, ic: SERVICE_COLORS.website.icon },
     { icon: KeyRound, name: 'Identity Exposure', val: '2 identity-facing hostnames', tag: 'Review', tone: 'adv', chip: SERVICE_COLORS.identity.chip, ic: SERVICE_COLORS.identity.icon },
+    { icon: Search, name: 'Attack Surface', val: '3 assets · 0 risks', tag: 'Clear', tone: 'pass', chip: SERVICE_COLORS.surface.chip, ic: SERVICE_COLORS.surface.icon },
+    { icon: Mail, name: 'Email Protection', val: 'SPF ✓ · DKIM ✗', tag: 'Advisory', tone: 'adv', chip: SERVICE_COLORS.email.chip, ic: SERVICE_COLORS.email.icon },
+    { icon: MonitorCheck, name: 'Website Security', val: 'HTTPS · headers', tag: 'Advisory', tone: 'adv', chip: SERVICE_COLORS.website.chip, ic: SERVICE_COLORS.website.icon },
     { icon: Boxes, name: 'Shadow IT & Unmanaged Technology', val: '5 SaaS signals', tag: 'Review', tone: 'adv', chip: SERVICE_COLORS.shadow_it.chip, ic: SERVICE_COLORS.shadow_it.icon },
+    { icon: Lock, name: 'Certificates & Trust', val: 'valid · 74 days', tag: 'Renew soon', tone: 'adv', chip: SERVICE_COLORS.certs.chip, ic: SERVICE_COLORS.certs.icon },
+    { icon: ShieldCheck, name: 'Brand Protection', val: '0 lookalikes', tag: 'Clear', tone: 'pass', chip: SERVICE_COLORS.brand.chip, ic: SERVICE_COLORS.brand.icon },
+    { icon: ClipboardList, name: 'Cyber Essentials Readiness', val: 'evidence-led', tag: 'Review', tone: 'adv', chip: SERVICE_COLORS.cyber_essentials.chip, ic: SERVICE_COLORS.cyber_essentials.icon },
   ]
   const toneCls = {
     pass: 'bg-emerald-50 text-emerald-700',

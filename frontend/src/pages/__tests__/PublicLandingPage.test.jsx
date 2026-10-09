@@ -11,18 +11,9 @@ function renderLanding() {
 describe('PublicLandingPage', () => {
   it('presents the eight canonical domains by name', () => {
     renderLanding()
-    for (const name of [
-      'Email Protection',
-      'Brand Protection',
-      'Attack Surface',
-      'Certificates & Trust',
-      'Cyber Essentials Readiness',
-      'Website Security',
-      'Identity Exposure',
-      'Shadow IT & Unmanaged Technology',
-    ]) {
-      expect(screen.getAllByText(name).length).toBeGreaterThan(0)
-    }
+    const names = ['Identity Exposure', 'Attack Surface', 'Email Protection', 'Website Security', 'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness']
+    expect(screen.getAllByRole('heading', { level: 3 })
+      .map(heading => heading.textContent).filter(name => names.includes(name))).toEqual(names)
   })
 
   it('keeps the Cyber Essentials legal disclaimer verbatim (trust requirement)', () => {
