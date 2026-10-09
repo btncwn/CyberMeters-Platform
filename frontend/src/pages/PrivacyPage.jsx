@@ -25,7 +25,7 @@ export default function PrivacyPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Privacy Policy</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: June 2026 — Version 1.0</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 9 October 2026 — Version 1.1</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             CyberMeters ("<strong>we</strong>", "<strong>us</strong>", "<strong>our</strong>") is committed to protecting the personal data of our customers and the individuals associated with them. This Privacy Policy explains what data we collect, how we use it, and your rights in relation to it.
           </p>
@@ -42,6 +42,7 @@ export default function PrivacyPage() {
             <p><strong className="text-gray-800">Account data.</strong> When you create an account, we collect your name, email address, and hashed password. We do not store passwords in plaintext.</p>
             <p><strong className="text-gray-800">Workspace and domain data.</strong> We store the domain names and workspace configurations you add to the platform. This includes any metadata you provide when setting up workspaces, such as workspace names and assigned members.</p>
             <p><strong className="text-gray-800">Scan data.</strong> When you initiate a scan, we collect and store the results produced by our external assessment engine. This includes DNS records, SSL certificate data, security header analysis, subdomain discovery results, and related technical findings. Scan targets are domains you own or are authorised to assess.</p>
+            <p><strong className="text-gray-800">Optional known-address breach checks.</strong> When an authorised workspace owner or administrator requests a check, we process the corporate email address and send the first 24 characters of its SHA-256 hash to LeakCheck. A hash is pseudonymous data, not anonymous data. We do not retain the submitted address or provider lookup hash in the saved check. The saved result contains a masked address, a workspace-specific identifier, the requester and permission notice, source names and dates, exposed-data categories and the outcome. We do not retrieve passwords or the exposed data values.</p>
             <p><strong className="text-gray-800">Audit log data.</strong> We maintain an audit trail of actions performed within the platform, including authentication events, workspace changes, report generation, and API access. Audit events are associated with your user account and workspace.</p>
             <p><strong className="text-gray-800">Authentication session data.</strong> We issue session tokens to authenticate your access. Session tokens are stored server-side and expire on logout or after a configurable period of inactivity.</p>
             <p><strong className="text-gray-800">Billing data.</strong> Subscription and payment processing is handled by Stripe, Inc. CyberMeters receives subscription status, plan tier, and billing cycle metadata from Stripe. We do not store payment card numbers or bank account details.</p>
@@ -76,6 +77,7 @@ export default function PrivacyPage() {
             <ul className="list-disc pl-5 space-y-2">
               <li><strong className="text-gray-800">Account data</strong> — retained for the life of your account plus 30 days following account deletion.</li>
               <li><strong className="text-gray-800">Scan data and reports</strong> — retained for the duration of your subscription plus 90 days, unless you request earlier deletion.</li>
+              <li><strong className="text-gray-800">Known-address breach results</strong> — subject to the workspace's automatic retention setting, with the expiry shown alongside the result. If automatic cleanup is disabled or retention is unlimited, there is no automatic expiry. An authorised workspace owner or administrator can delete a saved result earlier. Deleting our result does not remove data from the original breach or LeakCheck.</li>
               <li><strong className="text-gray-800">Audit logs</strong> — retained for 12 months from the date of the event.</li>
               <li><strong className="text-gray-800">Billing metadata</strong> — retained for 7 years to meet financial record-keeping obligations.</li>
               <li><strong className="text-gray-800">Session tokens</strong> — expired and deleted on logout or after inactivity. All sessions are invalidated on password reset.</li>
@@ -120,7 +122,8 @@ export default function PrivacyPage() {
                 </tbody>
               </table>
             </div>
-            <p className="mt-3">We do not share your personal data with any other third parties for commercial or marketing purposes.</p>
+            <p className="mt-3"><strong className="text-gray-800">LeakCheck (optional breach lookup).</strong> A lookup hash is sent only when you explicitly request a known-address check. LeakCheck returns source names, dates and exposed-data categories, rather than the exposed values. Its operator is a UK-registered company (number 12101959); see its <a href="https://leakcheck.io/privacy" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">privacy policy</a> and <a href="https://leakcheck.io/dpa" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">data processing terms</a> for its processing and transfer arrangements.</p>
+            <p>We do not share your personal data for advertising or marketing by these providers.</p>
           </Section>
 
           <Section title="8. International Data Transfers">

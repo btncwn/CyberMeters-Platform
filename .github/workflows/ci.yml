@@ -140,6 +140,9 @@ jobs:
       - name: Validate network assets tenant isolation and admission
         run: node scripts/validate-network-assets.js
 
+      - name: Validate known-email checks tenant isolation and private provider quota
+        run: node scripts/validate-identity-breach-checks.js
+
       - name: Validate network queue recovery and deletion integration
         run: node scripts/validate-network-integration.js
 

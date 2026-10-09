@@ -1,5 +1,5 @@
 name = "cybermeters-platform"
-main = "src/index.js"
+main = "src/worker.js"
 compatibility_date = "2026-06-18"
 compatibility_flags = ["global_fetch_strictly_public"]
 
@@ -105,7 +105,7 @@ max_retries = 5
 [vars]
 # Human-readable release version, surfaced by GET /health. Bump on each
 # production release (date-based: YYYY.MM.DD).
-APP_VERSION = "2026.10.09-tls-summary.b4b06df799d8"
+APP_VERSION = "2026.10.09-breach-checks.b4b06df799d8"
 # Planned-maintenance switch. "off" = normal. Set to "on" and redeploy to return
 # a clean 503 for every API route (except /health + /ready); flip back to "off"
 # and redeploy to lift. See docs/07-RELEASE-CHECKLIST.md → Maintenance mode.
@@ -158,3 +158,12 @@ MICROSOFT_REDIRECT_URI = "https://cybermeters-platform.ttrnn47.workers.dev/api/a
 [[services]]
 binding = "NETWORK_PROBE"
 service = "cybermeters-network-probe"
+
+# One private coordinator for the public provider's shared 1 request/second quota.
+[[durable_objects.bindings]]
+name = "LEAKCHECK_PUBLIC"
+class_name = "LeakCheckPublic"
+
+[[migrations]]
+tag = "leakcheck-public-v1"
+new_sqlite_classes = ["LeakCheckPublic"]
