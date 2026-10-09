@@ -3,11 +3,26 @@
   "target": "url",
   "base_url": "http://127.0.0.1:8787",
   "allow_remote": false,
-  "openapi": {"file": "docs/openapi.json"},
+  "openapi": {
+    "file": "docs/openapi.json"
+  },
   "max_examples": 30,
-  "auth": {"header": "Authorization", "value_env": "LYNCEUS_API_AUTH_VALUE"},
+  "auth": {
+    "header": "Authorization",
+    "value_env": "LYNCEUS_API_AUTH_VALUE"
+  },
   "exclude": [
-    {"method": "POST", "path": "/api/account/api-tokens"},
-    {"method": "DELETE", "path": "/api/account/api-tokens/{id}"}
+    {
+      "method": "GET",
+      "path": "/api/account/api-tokens"
+    },
+    {
+      "method": "POST",
+      "path": "/api/account/api-tokens"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/account/api-tokens/{id}"
+    }
   ]
 }
