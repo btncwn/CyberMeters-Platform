@@ -111,8 +111,8 @@ const EXPECTED = Object.freeze({
     // child-process comparisons and the presentation assertion moved within
     // validate-phase5-evidence-honesty.js; exact line keys were re-derived on
     // the final tree. No governance or product comparison changed membership.
-    comparison_occurrences: 82,
-    source_file_count: 31,
+    comparison_occurrences: 84,
+    source_file_count: 32,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
     // the successor validator. Nothing was added to or removed from the runtime set.
@@ -128,7 +128,10 @@ const EXPECTED = Object.freeze({
     // unchanged; an unissued HTTP probe cannot justify case closure.
     // PR #484 adds the legacy provider-refusal regression's partial-quality
     // assertion in validate-as-b6b-physical-budget-closure.js; runtime is unchanged.
-    fingerprint: "1ec30a3caa98cdca6c3d419077b7af6ab1f7f1a69d646d3f0bc32c7f33bfe80e",
+    // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
+    // Subtracting these two sites reproduces the preceding exact fingerprint;
+    // runtime, SQL and direct-read inventories are unchanged.
+    fingerprint: "26350e3027e318b45bf24d478ce14c2f82c55725e6958a31f048b108c566d2db",
   },
   runtime_source_file_count: 33,
   direct: {
