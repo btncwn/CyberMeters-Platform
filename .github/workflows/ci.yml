@@ -143,6 +143,9 @@ jobs:
       - name: Validate known-email checks tenant isolation and private provider quota
         run: node scripts/validate-identity-breach-checks.js
 
+      - name: Validate Entra session adapter without live directory access
+        run: node scripts/validate-entra-sessions.js
+
       - name: Validate scoped DNS connections and reversible changes
         run: node scripts/validate-dns-remediation.js
 

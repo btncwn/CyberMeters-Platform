@@ -12,10 +12,10 @@ const { parseDocument, isMap, isSeq } = workerRequire("yaml");
 
 export const CANONICAL_SKIP_CONDITION = "${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}";
 export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d55297df4fd3f90a2f57548697efcf062";
-// Add the scoped DNS provider validator to runtime-security; all prior assignments remain.
-export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 387;
-export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "a87ab9cd833b2737fa7baf886362e13d0df1b9a8df2991f5b840575af6ceb027";
-export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "3594c417e505becbc5793b4196849afd9153b2a1e7865201da173949d557e11c";
+// Add the offline Entra adapter validator; all prior assignments remain.
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 388;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "80d551cbec05688714c54641eb64812856976adecd1312ae1d47cbcde7da3b18";
+export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "92ecafd72ad0724c83cea25a2105d1c539e42743a2767b5b5419ba6f42c20fa7";
 
 export const F004_MATRIX_JOB_ID = "validate_f004_recovery_mutations";
 export const F004_MATRIX_VALIDATOR_PATH = "scripts/validate-f004-recovery-instrumentation-mutations.js";
@@ -63,7 +63,7 @@ const EXECUTABLE_VALIDATOR_JOB_IDS = Object.freeze([
 ]);
 
 export const EXPECTED_SHARD_COUNTS = Object.freeze({
-  validate_runtime_security: 97,
+  validate_runtime_security: 98,
   validate_report_cx: 91,
   validate_data_migrations: 90,
   validate_frontend_build: 88,
