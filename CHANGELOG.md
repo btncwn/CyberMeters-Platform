@@ -7,6 +7,42 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.10.09-10 — identity lookup contract and customer module order — 9 October 2026
+
+PR #500 merged as `e816f037` after the reviewed head `6e99c4ff` passed all
+16 checks. An exact HTTP 200 `{"success":false,"error":"Not found"}` response
+now means no matches for that submitted address in that provider response.
+Malformed, additional-field and failed responses remain inconclusive. It does
+not establish that an address is safe or that domain-wide coverage was achieved.
+Claude's targeted review passed; 107 actual-entry local checks passed. A live
+known-positive provider lookup remains unrun.
+
+API version `433f449a-c622-4652-8f4b-2b9374cf9b70` was activated at 15:34 UTC
+(deployment `e20dad21-a992-4f21-9638-799325d07b7f`) and returned healthy with
+that version ID. Bindings and runtime settings were preserved, including all
+eight Stripe bindings. API rollback is `f59ea958-f75f-4a1b-93b9-072542bf1e62`.
+The email Worker remained at `1f08ce0b-d356-4bd1-b6ee-555fec5d957f`; its shared
+source closure and coordinated APP_VERSION were unchanged by this correction.
+
+PR #501 merged as `132120f4` after all 17 checks passed at `3f83da2d`.
+Navigation, dashboard, landing-page cards, free preview and domain summaries
+now follow the founder's presentation order: Identity Exposure, Attack Surface,
+Email Protection, Website Security, Shadow IT, Certificates & Trust, Brand
+Protection, Cyber Essentials. Scores, findings and stored snapshots were not
+changed. All 800 frontend tests passed. Production Pages deployment
+`5a4d03b7-aa25-46bc-8e9a-e7abb186d0b0` serves this source; the public www
+page's eight service headings and sample rows were verified in order. Pages
+rollback is `cfa91cc8-1dca-42e0-b6f0-8f275a82062b`. PDF ordering is separate
+follow-up work, not part of these two releases.
+
+Own-account acceptance also completed: preview, apply, public-DNS verification
+and undo of the temporary TLS-RPT record passed; existing SPF and DMARC records
+were unchanged. Agency branding was verified in an exported two-page report
+without changing its evidence or incomplete-coverage status. The temporary
+profile was removed, and the test entitlement and three schedules were restored
+at 14:39 UTC. This supersedes the open DNS/agency acceptance notes below; it
+does not claim acceptance of unrelated customer accounts or workflows.
+
 ## v2026.10.09-9 — founder and factual trust pages — 9 October 2026
 
 The public About page identifies Turhan Acar as the founder and sole-trader
