@@ -297,11 +297,11 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
 
 // ── Decision brief: exact executive bytes, projection and adverse inputs ──
 {
-  // Captured from accepted executive commit c32ad27b. The subsequent authorized
-  // technical-report redesign must not rewrite the executive decision brief.
+  // Refreshed for the founder-requested domain presentation order (9 October).
+  // Both prior goldens were reproduced; visible text is identical apart from order.
   const executiveGolden = {
-    false: "ce31f504991d594d67db4db639be159e25b6849cb2fff25f4fe0cf6dde704227",
-    true: "bcc8a0fbe59e47311cdc96e3cace8f889a7f95a529038cfc93b0478e22cf4949",
+    false: "9d0cffaad57027fcd014d0aa2999cb6d2c0ccf2623ccef4f5f10cd7619e34a68",
+    true: "aa004a0888283b1d14e6e74c7419204cb06f9bb0d87ea9670d525f5d5beba657",
   };
   for (const complete of [false, true]) {
     const bytes = render(mkSnap({ complete }));

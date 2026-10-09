@@ -628,6 +628,17 @@ function findingHeading(item, fallbackTitle = "Finding") {
 // Eight-domain section: "summary" retains state, count and evidence limits; the
 // technical finding register carries full narratives once. Older "full" and
 // "concise" modes remain available to other callers.
+// Customer presentation priority only; immutable snapshots retain their own order.
+const REPORT_DOMAIN_ORDER = [
+  "identity_exposure", "attack_surface", "email_protection", "website_security",
+  "shadow_it_unmanaged_technology", "certificates_trust", "brand_protection",
+  "cyber_essentials_readiness",
+];
+const REPORT_DOMAIN_RANK = new Map(REPORT_DOMAIN_ORDER.map((key, index) => [key, index]));
+function reportDomains(domains) {
+  return [...(domains || [])].sort((a, b) =>
+    (REPORT_DOMAIN_RANK.get(a.domain_key) ?? Infinity) - (REPORT_DOMAIN_RANK.get(b.domain_key) ?? Infinity));
+}
 const SEV_RANK = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 function highestSev(items) {
   let best = null, rank = -1;
@@ -636,7 +647,7 @@ function highestSev(items) {
 }
 function sectionDomains(w, snap, { detail = "full" } = {}) {
   w.heading("Eight-Domain Cyber MOT");
-  for (const d of snap.domains || []) {
+  for (const d of reportDomains(snap.domains)) {
     const findings = domainItems(snap, d.domain_key, "finding");
     const observations = domainItems(snap, d.domain_key, "observation");
     const wf = d.managed_workflow || {};
@@ -1247,7 +1258,7 @@ function sectionEvidenceGradeAppendix(w, snap) {
   appendixEvidenceAssertion(w, "Business Risk Indicator", overall.business_risk_indicator?.evidence_grade);
   appendixEvidenceAssertion(w, "Eight-domain summary", overall.evidence_grade);
 
-  for (const domain of snap.domains || []) {
+  for (const domain of reportDomains(snap.domains)) {
     appendixEvidenceAssertion(w, `Domain - ${domain.display_name}`, domain.evidence_grade);
     appendixEvidenceAssertion(w, `${domain.display_name} - external indicator`, domain.cyber_essentials?.evidence_grade);
     appendixEvidenceAssertion(w, `${domain.display_name} - questionnaire`, domain.questionnaire?.evidence_grade);
@@ -1409,8 +1420,8 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
     ["actions", "4. Remediation plan"],
     ["score", "5. Score & qualifications"],
     ["attack", "6. Attack-surface evidence & lifecycle"],
-    ["certificates", "7. Certificate evidence & trust"],
-    ...(dmarcPresentation ? [["dmarc", "8. Email policy evidence"]] : []),
+    ...(dmarcPresentation ? [["dmarc", "7. Email policy evidence"]] : []),
+    ["certificates", `${dmarcPresentation ? "8" : "7"}. Certificate evidence & trust`],
     ...(relatedChanges?.items?.length ? [["changes", "Workspace-related changes"]] : []),
     ["methodology", "Scope, methodology & limitations"],
     ["appendix", "Appendix: evidence grades & provenance"],
@@ -1450,8 +1461,8 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
     section("actions", () => sectionRemediation(w, snap), true);
     section("score", () => sectionAssessmentScore(w, snap));
     section("attack", () => { w.heading("Technical Evidence"); sectionAttackSurfaceAssurance(w, snap); }, true);
-    section("certificates", () => sectionCertificateAssurance(w, snap));
     if (dmarcPresentation) section("dmarc", () => sectionDmarcPolicy(w, dmarcPresentation));
+    section("certificates", () => sectionCertificateAssurance(w, snap));
     if (relatedChanges?.items?.length) section("changes", () => sectionRelatedChanges(w, relatedChanges, { reportSubjectDomain: s.domain || scan?.domain || null }));
     section("methodology", () => sectionMethodology(w, snap));
     section("appendix", () => sectionEvidenceGradeAppendix(w, snap), true);
@@ -1467,12 +1478,12 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
   return new TextEncoder().encode(assemblePdf(streams));
 }
 
-// Executive-only presentation. The technical redesign above does not change
-// this frozen decision-brief layout. These helpers read frozen customer facts.
+// Executive-only presentation. The domain order follows the customer UI;
+// these helpers read frozen customer facts without recomputing conclusions.
 const EXECUTIVE_AREAS = [
-  "Email Protection", "Brand Protection", "Attack Surface", "Certificates & Trust",
-  "Cyber Essentials Readiness", "Website Security", "Identity Exposure",
-  "Shadow IT & Unmanaged Technology",
+  "Identity Exposure", "Attack Surface", "Email Protection", "Website Security",
+  "Shadow IT & Unmanaged Technology", "Certificates & Trust", "Brand Protection",
+  "Cyber Essentials Readiness",
 ];
 const EXECUTIVE_PRIORITY = { critical: 5, high: 4, medium: 3, low: 2, info: 1, informational: 1 };
 const executiveText = (value) => customerBodyText(value).replace(/\s+/g, " ").trim();
