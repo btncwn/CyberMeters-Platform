@@ -48,10 +48,14 @@ const eq = (name, actual, expected) =>
   ok(name, actual === expected,
     `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 const clone = (value) => structuredClone(value);
+// Freeze both expiry decisions and retained observation/receipt time. Mixed
+// endpoint validity must never change when the validator runs on a later date.
+const NOW = "2026-07-26T15:00:00.000Z";
 const run = (modules) =>
   runCertificateIntelligenceModule(modules, trustFixture.domain, {
     providerHealth: trustFixture.provider_health,
-    observedAt: trustFixture.observed_at,
+    observedAt: NOW,
+    nowMs: Date.parse(NOW),
     engineVersion: trustFixture.engine_version,
   });
 
@@ -311,7 +315,7 @@ for (const provider of ["crt_sh", "certspotter"]) {
   blackoutModules.subdomains.sources[provider] = { error: "provider unavailable", count: 0 };
 }
 const blackoutIntelligence = runCertificateIntelligenceModule(blackoutModules, trustFixture.domain, {
-  observedAt: trustFixture.observed_at, engineVersion: trustFixture.engine_version,
+  observedAt: NOW, nowMs: Date.parse(NOW), engineVersion: trustFixture.engine_version,
 });
 const blackoutReport = { ...clone(report), scan_quality: { status: "degraded", modules_skipped: [] },
   modules: { ...blackoutModules, certificate_intelligence: blackoutIntelligence } };
@@ -336,7 +340,7 @@ const mixedEndpointRow = (address, identity, notAfter, name, trust) => {
   const tls = clone(liveCarrier);
   tls.leaf_collected = true;
   tls.endpoint = { address, hostname: trustFixture.domain, port: 443 };
-  tls.observed_at = trustFixture.observed_at;
+  tls.observed_at = NOW;
   tls.leaf_certificate.certificate_identity = identity;
   tls.leaf_certificate.not_after = notAfter;
   tls.hostname_match.result = name;
@@ -348,7 +352,7 @@ const mixedEndpointRow = (address, identity, notAfter, name, trust) => {
 const mixedModules = clone(liveModules);
 mixedModules.ssl = attachLiveTlsToSsl(mixedModules.ssl, { receipt: {
   schema_version: "network-probe-receipt-v1", profile: "live_tls", request_id: "mixed-endpoint-fixture",
-  quality: "complete", finished_at: trustFixture.observed_at,
+  quality: "complete", finished_at: NOW,
   observations: [
     mixedEndpointRow("93.184.216.34", "sha256:expired-selected", "2026-07-25T00:00:00.000Z", "matched", "invalid"),
     mixedEndpointRow("93.184.216.35", "sha256:current-mismatch", "2026-11-30T00:00:00.000Z", "mismatched", "invalid"),
