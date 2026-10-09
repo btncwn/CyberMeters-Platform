@@ -728,6 +728,7 @@ async function traceOpenvpnCleanControl() {
   try {
     fs.mkdirSync(workerRoot, { recursive: true });
     fs.cpSync(path.join(root, "workers/scan-api/src"), workerSource, { recursive: true });
+    fs.cpSync(path.join(root, "workers/network-probe/src"), path.join(tempRoot, "workers/network-probe/src"), { recursive: true });
     fs.copyFileSync(
       path.join(root, "workers/scan-api/package.json"),
       path.join(workerRoot, "package.json"),

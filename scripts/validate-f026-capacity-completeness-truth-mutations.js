@@ -46,6 +46,7 @@ function prepareSandbox() {
     { recursive: true },
   );
   fs.cpSync(path.join(sourceRoot, "shared"), f("shared"), { recursive: true });
+  fs.cpSync(path.join(sourceRoot, "workers/network-probe/src"), f("workers/network-probe/src"), { recursive: true });
   const dependencies = path.join(sourceRoot, "workers", "scan-api", "node_modules");
   if (fs.existsSync(dependencies)) {
     fs.symlinkSync(dependencies, f("workers/scan-api/node_modules"), "dir");

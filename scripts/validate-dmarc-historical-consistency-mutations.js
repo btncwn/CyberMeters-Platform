@@ -42,6 +42,7 @@ function prepareCopy() {
     path.join(copy, "workers", "scan-api", "src"),
     { recursive: true },
   );
+  fs.cpSync(path.join(ROOT, "workers/network-probe/src"), path.join(copy, "workers/network-probe/src"), { recursive: true });
   const workerNodeModules = path.join(ROOT, "workers", "scan-api", "node_modules");
   if (fs.existsSync(workerNodeModules)) {
     fs.symlinkSync(
