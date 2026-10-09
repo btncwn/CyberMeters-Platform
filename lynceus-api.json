@@ -81,6 +81,22 @@
       "path": "/api/portfolio/workspaces"
     },
     {
+      "method": "POST",
+      "path": "/api/billing/checkout"
+    },
+    {
+      "method": "POST",
+      "path": "/api/billing/portal"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/workspaces/{workspaceId}"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/workspaces/{workspaceId}/reports/{reportId}"
+    },
+    {
       "method": "GET",
       "path": "/api/scans/{scanId}/executive-report-v2"
     },
@@ -102,6 +118,10 @@
     },
     {
       "method": "GET",
+      "path": "/api/workspaces/{workspaceId}/analytics"
+    },
+    {
+      "method": "GET",
       "path": "/api/workspaces/{workspaceId}/domains"
     },
     {
@@ -110,11 +130,39 @@
     },
     {
       "method": "GET",
+      "path": "/api/workspaces/{workspaceId}/domains/{domain}/hosted-dmarc"
+    },
+    {
+      "method": "GET",
       "path": "/api/workspaces/{workspaceId}/exposure/feed"
     },
     {
       "method": "GET",
+      "path": "/api/workspaces/{workspaceId}/hosted-dmarc"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/{workspaceId}/members"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/{workspaceId}/notifications"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/{workspaceId}/report-snapshots"
+    },
+    {
+      "method": "GET",
       "path": "/api/workspaces/{workspaceId}/reports"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces/{workspaceId}/reports/{reportId}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/workspaces/{workspaceId}"
     },
     {
       "method": "POST",
@@ -122,11 +170,35 @@
     },
     {
       "method": "POST",
-      "path": "/api/billing/checkout"
+      "path": "/api/workspaces/{workspaceId}/domains"
     },
     {
       "method": "POST",
-      "path": "/api/billing/portal"
+      "path": "/api/workspaces/{workspaceId}/domains/import"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/{workspaceId}/hosted-dmarc"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/{workspaceId}/invitations"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/{workspaceId}/members"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/{workspaceId}/notifications/{notifId}/read"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/{workspaceId}/reports"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces/{workspaceId}/restore"
     }
   ]
 }
