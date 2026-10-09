@@ -75,4 +75,11 @@ describe('PublicLandingPage', () => {
     expect(screen.getByText(/example.com — illustrative sample/i)).toBeInTheDocument()
     expect(screen.getByText(/Example score and findings.*Not a live assessment/i)).toBeInTheDocument()
   })
+  it('links to the founder story without putting biography into the product pitch', () => {
+    renderLanding()
+    expect(screen.getByRole('link', { name: 'About' })).toHaveAttribute('href', '/about')
+    expect(screen.queryByText(/Designed and developed by Turhan Acar/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Trust & Security' })).toHaveAttribute('href', '/trust')
+  })
+
 })

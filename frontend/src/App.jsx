@@ -30,6 +30,7 @@ const DpaPage                   = lazy(() => import('./pages/DpaPage'))
 const CookiePolicyPage          = lazy(() => import('./pages/CookiePolicyPage'))
 const SupportPage               = lazy(() => import('./pages/SupportPage'))
 const TrustPage                 = lazy(() => import('./pages/TrustPage'))
+const AboutPage                 = lazy(() => import('./pages/AboutPage'))
 const StatusPage                = lazy(() => import('./pages/StatusPage'))
 const InvitationLandingPage     = lazy(() => import('./pages/InvitationLandingPage'))
 const FreeScanPage              = lazy(() => import('./pages/FreeScanPage'))
@@ -135,6 +136,7 @@ function AppRoutes() {
           <Route path="/cookies" element={<CookiePolicyPage />} />
           <Route path="/support" element={<SupportPage />} />
           <Route path="/trust"   element={<TrustPage />} />
+          <Route path="/about"   element={<AboutPage />} />
           <Route path="/status"  element={<StatusPage />} />
           <Route path="/cyber-essentials-readiness" element={<CyberEssentialsReadinessPage />} />
           {APP_HOST_PATHS.map(p => (
@@ -167,6 +169,7 @@ function AppRoutes() {
         <Route path="/cookies"                element={<CookiePolicyPage />} />
         <Route path="/support"                element={<SupportPage />} />
         <Route path="/trust"                  element={<TrustPage />} />
+        <Route path="/about"                  element={<AboutPage />} />
         <Route path="/status"                 element={<StatusPage />} />
         <Route path="/invitations/:token"     element={<InvitationLandingPage />} />
         <Route path="/free-scan"              element={<FreeScanPage />} />

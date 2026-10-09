@@ -7,7 +7,17 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
-## Unreleased — agency and client report branding — 9 October 2026
+## Unreleased — founder and factual trust pages — 9 October 2026
+
+The public About page identifies Turhan Acar as the founder and sole-trader
+operator. The landing page links to the real dated cybermeters.com self-check;
+the Trust page publishes its provisional 90 score, 16 modules, four TLS endpoints
+and incomplete CT coverage. Exact wire-chain and revocation limits remain visible.
+Internal AI-assisted review is not presented as a third-party penetration test.
+Privacy, Terms and DPA name the actual operator; existing notice and responsible
+research commitments remain. No change to pricing, authentication or scan scores.
+
+## v2026.10.09-8 — agency and client report branding — 9 October 2026
 
 The existing multi-workspace portfolio now exposes its agency profiles in
 Settings and client report identity in Workspace Detail. Owners can maintain
@@ -28,9 +38,21 @@ navigation tests; existing report-content and legacy-branding checks passed
 no horizontal overflow in the agency form or DNS panel and that navigation
 closes on route change. Visual data was local and synthetic. The shared email
 import closure changed; both Workers require the coordinated release stamp.
-Production acceptance is pending deployment.
+PR #497 merged as `16aced48`; all 17 checks passed at reviewed head
+`2d852602`. API `f59ea958-f75f-4a1b-93b9-072542bf1e62` (deployment
+`d3141e8a-a02f-46f6-86cb-89dc3f956d55`) and email
+`1f08ce0b-d356-4bd1-b6ee-555fec5d957f` (deployment
+`aed0d3a0-6111-444f-a141-fea00db964f0`) passed live health checks with the
+coordinated agency-branding release stamp. Pages
+`57ce027f-9295-48d3-8953-b682ad3e7d00` serves the merged source.
+Existing bindings were preserved; no schema, customer profile or entitlement
+was changed. Production branding-write acceptance remains unrun.
 
-## Unreleased — scoped Cloudflare DNS corrections — 9 October 2026
+Rollback is API `ba9724f2-26d2-4475-bcc3-6507c15dc665`, email
+`116dae25-9b08-47b6-8ead-0696d1655762` and Pages
+`9e90e4de-9159-4a53-b467-3a909a5d19a3`.
+
+## v2026.10.09-7 — scoped Cloudflare DNS corrections — 9 October 2026
 
 Workspace owners and administrators can connect one verified Cloudflare zone,
 review an exact TXT-record change, explicitly apply it, observe public DNS and
@@ -47,7 +69,9 @@ offer atomic conditional DNS writes; this release does not claim that guarantee.
 Independent review passed with 121 actual-entry local backend assertions and
 31 frontend/API tests. Two targeted backend mutants failed their named
 assertions. All provider traffic in these checks was synthetic. Production
-DNS execution and deployment are not yet accepted.
+DNS execution is not yet accepted. PR #496 merged as `19cdd2f2`; all 17 PR checks passed at `a1218a72`. Migration 111 was applied as two additive tables and two indexes (10 schema/index rows written; no customer records changed). API `ba9724f2-26d2-4475-bcc3-6507c15dc665` (deployment `e8f95510-914f-48bd-a6d2-8f6271dc50fc`) and email `116dae25-9b08-47b6-8ead-0696d1655762` (deployment `ea7c8a7f-66e0-419f-bdd3-d681aac5efa3`) passed live health checks. Pages `9e90e4de-9159-4a53-b467-3a909a5d19a3` serves merged source. No customer Cloudflare credential or DNS record was changed.
+
+Compatible API rollback is `609afa18-43ba-411c-839f-69f7f399448a`: item-2 handlers plus only migration-111 purge inventory, with the same dedicated encrypted-key binding. Independent source parity and 9 local purge assertions passed. Email rollback is `63dadaae-d8c3-48b0-8f4c-46d7884222d3`; Pages rollback is `569001cc-b4e4-4d42-bb89-dca29a1f4449`. Retain additive tables on code rollback.
 
 ## v2026.10.09-6 — optional known-address breach checks — 9 October 2026
 
