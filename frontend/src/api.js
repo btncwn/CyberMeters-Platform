@@ -1248,6 +1248,17 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  getBrandingProfiles: (options = {}) => request('/account/branding/profiles', options),
+  getBrandingProfile: (id, options = {}) => request(`/account/branding/profiles/${encodeURIComponent(id)}`, options),
+  createBrandingProfile: (body, options = {}) => request('/account/branding/profiles', { ...options, method: 'POST', body: JSON.stringify(body) }),
+  updateBrandingProfile: (id, body, options = {}) => request(`/account/branding/profiles/${encodeURIComponent(id)}`, { ...options, method: 'PUT', body: JSON.stringify(body) }),
+  deleteBrandingProfile: (id, options = {}) => request(`/account/branding/profiles/${encodeURIComponent(id)}`, { ...options, method: 'DELETE' }),
+  getWorkspaceBranding: (id, options = {}) => request(`/workspaces/${encodeURIComponent(id)}/branding`, options),
+  updateWorkspaceBranding: (id, body, options = {}) => request(`/workspaces/${encodeURIComponent(id)}/branding`, { ...options, method: 'PUT', body: JSON.stringify(body) }),
+  getWorkspaceBrandingLogo: (id, options = {}) => request(`/workspaces/${encodeURIComponent(id)}/branding/logo`, options),
+  updateWorkspaceBrandingLogo: (id, body, options = {}) => request(`/workspaces/${encodeURIComponent(id)}/branding/logo`, { ...options, method: 'PUT', body: JSON.stringify(body) }),
+  deleteWorkspaceBrandingLogo: (id, options = {}) => request(`/workspaces/${encodeURIComponent(id)}/branding/logo`, { ...options, method: 'DELETE' }),
+
   /** GET /api/account/report-branding — white-label brand + plan availability */
   getReportBranding: () => request('/account/report-branding'),
 

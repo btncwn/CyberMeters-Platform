@@ -13,7 +13,7 @@
 // resolveReportBrandingV2 NEVER returns null — there is always a brand. The
 // descriptor it returns is frozen into scan_report_snapshots.branding_json at
 // build time, so a later logo change affects FUTURE reports only.
-import { hasFeatureEntitlement } from "./entitlements.js";
+import { getEffectivePlan, hasFeatureEntitlement } from "./entitlements.js";
 
 export const RENDERER_IDENTITY = "cybermeters-report-renderer";
 export const MAX_LOGO_BYTES = 512 * 1024; // 512 KB ceiling for an R2-stored logo
@@ -96,15 +96,15 @@ export async function resolveReportBrandingV2(env, { workspaceId }) {
     // Owner + plan + MSP white-label entitlement for this workspace's account.
     const acct = await env.cybermeters_db
       .prepare(
-        `SELECT w.owner_user_id, u.plan
-         FROM workspaces w JOIN users u ON u.id = w.owner_user_id
+        `SELECT w.owner_user_id
+         FROM workspaces w
          WHERE w.id = ? AND w.deleted_at IS NULL LIMIT 1`
       )
       .bind(workspaceId)
       .first();
     if (!acct) return cyberMetersDescriptor();
 
-    const plan = acct.plan || "free";
+    const plan = await getEffectivePlan(acct.owner_user_id, env);
     const whiteLabelEntitled = hasFeatureEntitlement(plan, "white_label");
 
     // Per-workspace customer logo (co-brand). Tenant boundary = workspace_id.
@@ -120,7 +120,7 @@ export async function resolveReportBrandingV2(env, { workspaceId }) {
           `SELECT id, logo_r2_key, logo_sha256, logo_mime, accent, name, mode
            FROM msp_branding_profiles
            WHERE owner_user_id = ? AND mode = 'white_label'
-           ORDER BY is_default DESC, updated_at DESC LIMIT 1`
+           ORDER BY is_default DESC, updated_at DESC, id DESC LIMIT 1`
         )
         .bind(acct.owner_user_id)
         .first();
@@ -144,7 +144,7 @@ export async function resolveReportBrandingV2(env, { workspaceId }) {
     }
 
     // 2. Per-workspace customer logo (co-brand — full CyberMeters attribution).
-    if (wb && wb.logo_r2_key) {
+    if (wb && (wb.logo_r2_key || wb.display_name)) {
       return {
         mode: "co_brand", source: "workspace",
         logo_r2_key: wb.logo_r2_key, logo_sha256: wb.logo_sha256, logo_mime: wb.logo_mime,
@@ -188,13 +188,14 @@ export async function loadBrandingLogoDataUri(env, descriptor) {
   try {
     if (!descriptor) return null;
     // Legacy account branding (mig 070) stores the logo as a data: URI in D1.
-    if (descriptor.logo_data_uri && /^data:image\/(png|jpeg);base64,/.test(descriptor.logo_data_uri)) {
+    if (descriptor.logo_data_uri && descriptor.logo_data_uri.length <= Math.ceil(MAX_LOGO_BYTES / 3) * 4 + 32 && /^data:image\/(png|jpeg);base64,/.test(descriptor.logo_data_uri)) {
       return descriptor.logo_data_uri;
     }
-    if (!descriptor.logo_r2_key || !descriptor.logo_mime) return null;
+    if (!descriptor.logo_r2_key || !["image/png","image/jpeg"].includes(descriptor.logo_mime)) return null;
     const obj = await env.cybermeters_reports.get(descriptor.logo_r2_key);
-    if (!obj) return null;
+    if (!obj || (Number.isFinite(obj.size) && obj.size > MAX_LOGO_BYTES)) return null;
     const bytes = new Uint8Array(await obj.arrayBuffer());
+    if (!bytes.length || bytes.length > MAX_LOGO_BYTES || sniffImageType(bytes) !== descriptor.logo_mime) return null;
     // Integrity: the bytes must match the frozen content hash (immutability check).
     if (descriptor.logo_sha256) {
       const digest = await crypto.subtle.digest("SHA-256", bytes);

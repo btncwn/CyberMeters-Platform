@@ -23,6 +23,18 @@ function renderNav(path = '/ws/email-protection') {
 }
 
 describe('WorkspaceNav (eight-domain sidebar)', () => {
+  it('opens mobile navigation and closes it after changing route or pressing Escape', () => {
+    renderNav()
+    const toggle = screen.getByRole('button', { name: 'Workspace navigation' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(screen.getByText('Brand Protection'))
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(toggle)
+    fireEvent.keyDown(toggle, { key: 'Escape' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
   it('shows the eight canonical domains in order', () => {
     renderNav()
     expect(screen.getByText('Email Protection')).toBeInTheDocument()

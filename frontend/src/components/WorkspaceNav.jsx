@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Shield, Lock, Tag, Briefcase, ChevronLeft, ChevronDown,
@@ -128,6 +128,9 @@ export default function WorkspaceNav({ wsName }) {
   const activeKey = detectServiceKey(pathname)
   const [toolsOpen, setToolsOpen] = useState(false)
   const [hoverKey, setHoverKey] = useState(null)
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const mobileToggle = useRef(null)
+  useEffect(() => { setMobileOpen(false) }, [pathname])
   // Sub-items behave as a manual accordion: the active service opens by default,
   // but a click toggles it closed (and open again) without waiting for a route change.
   const [expandedKey, setExpandedKey] = useState(activeKey)
@@ -141,7 +144,12 @@ export default function WorkspaceNav({ wsName }) {
   const activeTheme = activeKey ? THEME[activeKey] : null
 
   return (
-    <aside className="w-56 lg:w-[20%] lg:max-w-[280px] lg:min-w-[236px] flex-shrink-0 bg-white border-r border-gray-200 sticky top-16 h-[calc(100vh-64px)] overflow-y-auto flex flex-col">
+    <aside className="w-full lg:w-[20%] lg:max-w-[280px] lg:min-w-[236px] flex-shrink-0 bg-white border-b lg:border-b-0 lg:border-r border-gray-200 xl:sticky xl:top-[68px] xl:h-[calc(100vh-68px)] xl:overflow-y-auto flex flex-col" onKeyDown={event => { if (event.key === 'Escape' && mobileOpen) { setMobileOpen(false); mobileToggle.current?.focus() } }}>
+      <button ref={mobileToggle} type="button" aria-label="Workspace navigation" aria-expanded={mobileOpen} aria-controls="workspace-service-navigation" onClick={() => setMobileOpen(value => !value)} className="lg:hidden flex items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-gray-800">
+        <span className="min-w-0 truncate">{wsName || 'Workspace'} · Services</span>
+        <ChevronDown className={`w-4 h-4 flex-shrink-0 transition-transform ${mobileOpen ? 'rotate-180' : ''}`} />
+      </button>
+      <div id="workspace-service-navigation" className={`${mobileOpen ? 'flex' : 'hidden'} lg:flex flex-col flex-1`}>
 
       {/* Workspace identity */}
       <div className="px-4 pt-5 pb-4 border-b border-gray-100">
@@ -263,6 +271,7 @@ export default function WorkspaceNav({ wsName }) {
             ))}
           </div>
         )}
+      </div>
       </div>
     </aside>
   )

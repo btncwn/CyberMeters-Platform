@@ -103,7 +103,7 @@ function WorkspaceSelector() {
       </button>
 
       {open && (
-        <div className="absolute top-full mt-2 right-0 w-56 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
+        <div className="absolute top-full mt-2 left-0 sm:left-auto sm:right-0 w-56 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
           <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
             Switch workspace
           </div>
@@ -405,7 +405,7 @@ export default function Layout() {
 
       {/* Top nav */}
       <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 shadow-header sticky top-0 z-50">
-        <div className="max-w-screen-xl mx-auto px-6 h-[68px] flex items-center gap-4">
+        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-3 xl:py-0 xl:min-h-[68px] flex flex-wrap items-center gap-3 xl:gap-4">
 
           {/* Logo */}
           <button
@@ -416,10 +416,10 @@ export default function Layout() {
           </button>
 
           {/* Divider separating brand from navigation — a small commercial-app cue */}
-          <div className="hidden md:block h-7 w-px bg-gray-200 mx-1 flex-shrink-0" />
+          <div className="hidden xl:block h-7 w-px bg-gray-200 mx-1 flex-shrink-0" />
 
           {/* Nav */}
-          <nav className="flex items-center gap-1.5 lg:gap-2.5">
+          <nav aria-label="Main navigation" className="order-3 xl:order-none w-full xl:w-auto min-w-0 flex flex-wrap items-center gap-1 xl:gap-2.5">
             {NAV.map(({ to, icon: Icon, label }) => (
               <NavLink
                 key={to}
@@ -433,7 +433,7 @@ export default function Layout() {
           </nav>
 
           {/* Right */}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="sm:ml-auto w-full sm:w-auto min-w-0 flex items-center justify-between gap-2">
             <WorkspaceSelector />
 
             <NotificationBell />
@@ -446,9 +446,10 @@ export default function Layout() {
                 window.dispatchEvent(new CustomEvent('cybermeters:new-scan-reset'))
               }}
               className="btn-primary"
+              aria-label="New Scan"
             >
               <Plus className="w-4 h-4" />
-              New Scan
+              <span className="hidden sm:inline">New Scan</span>
             </button>
 
             <UserMenu />
@@ -458,7 +459,7 @@ export default function Layout() {
 
       {/* Content — persistent workspace service rail + routed page */}
       <main className="flex-1">
-        <div className="flex">
+        <div className="flex flex-col lg:flex-row">
           {wsId && (
             <SafeBoundary>
               <WorkspaceNav wsName={wsName} />
@@ -488,7 +489,7 @@ export default function Layout() {
       <footer className="border-t border-gray-100 bg-white">
         <div className="max-w-screen-xl mx-auto px-6 py-3 flex flex-wrap items-center justify-between gap-3">
           <span className="text-xs text-gray-400">© {new Date().getFullYear()} CyberMeters — External Security Monitoring</span>
-          <div className="flex items-center gap-4 text-xs text-gray-400">
+          <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400">
             <NavLink to="/pricing"  className="hover:text-gray-700">Pricing</NavLink>
             <NavLink to="/terms"    className="hover:text-gray-700">Terms</NavLink>
             <NavLink to="/privacy"  className="hover:text-gray-700">Privacy</NavLink>

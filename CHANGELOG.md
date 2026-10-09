@@ -7,6 +7,29 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## Unreleased — agency and client report branding — 9 October 2026
+
+The existing multi-workspace portfolio now exposes its agency profiles in
+Settings and client report identity in Workspace Detail. Owners can maintain
+the name, PNG/JPEG logo, accent and default agency profile. Client logos retain
+precedence; historical PDF descriptors and content-addressed images remain
+unchanged. Effective billing-owner entitlement now governs new report branding
+instead of the stale users.plan field. Default-profile changes use a D1 batch
+transaction so a failed save cannot erase the previous default.
+
+The navigation and notifications fit narrow screens; workspace services open
+in a collapsible mobile menu. Settings links to the working billing page instead
+of claiming that payments are unavailable. This does not introduce a custom
+domain client portal, brand-free reports, new pricing or a new tenancy model.
+
+Independent review passed: 73 actual-entry branding checks and 49 frontend/API/
+navigation tests; existing report-content and legacy-branding checks passed
+22/22 and 42/42. Browser inspection at a measured 390 CSS-pixel width confirmed
+no horizontal overflow in the agency form or DNS panel and that navigation
+closes on route change. Visual data was local and synthetic. The shared email
+import closure changed; both Workers require the coordinated release stamp.
+Production acceptance is pending deployment.
+
 ## Unreleased — scoped Cloudflare DNS corrections — 9 October 2026
 
 Workspace owners and administrators can connect one verified Cloudflare zone,
