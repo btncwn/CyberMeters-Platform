@@ -40,6 +40,7 @@ export async function workspaceReportsRoutes(rctx) {
         });
         return json({ report: row }, 201);
       } catch (err) {
+        if (err.quota) return json(err.quota.body, err.quota.status);
         return serverError("api", err);
       }
     }

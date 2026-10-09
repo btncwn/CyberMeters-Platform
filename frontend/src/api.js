@@ -191,7 +191,7 @@ async function request(path, options = {}) {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', { detail: err }))
       }
-      const limitError = /** @type {ApiError} */ (new Error('Plan limit reached'))
+      const limitError = /** @type {ApiError} */ (new Error(err.upgrade_message || 'Plan limit reached'))
       limitError.code     = 'plan_limit_exceeded'
       limitError.resource = err.resource
       limitError.limit    = err.limit
@@ -281,7 +281,7 @@ async function requestBlob(path, options = {}) {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', { detail: err }))
       }
-      const limitError = /** @type {ApiError} */ (new Error('Plan limit reached'))
+      const limitError = /** @type {ApiError} */ (new Error(err.upgrade_message || 'Plan limit reached'))
       limitError.code     = 'plan_limit_exceeded'
       limitError.resource = err.resource
       limitError.limit    = err.limit

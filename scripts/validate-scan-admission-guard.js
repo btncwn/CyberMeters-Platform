@@ -242,8 +242,9 @@ const workerInsertCount = (dir) => {
   walk(dir);
   return n;
 };
-ok("D6 exactly two scan-creation paths exist in the Worker",
-  workerInsertCount(path.join(root, "workers", "scan-api", "src")) === 2);
+ok("D6 both scan paths share the only admission INSERT",
+  workerInsertCount(path.join(root, "workers", "scan-api", "src")) === 1 &&
+  scansSrc.includes("await admitDomainScan(env,") && indexSrc.includes("await admitDomainScan(env,"));
 
 
 // ── Layer E: real-route behaviour (PR-2b audit ordering) ─────────────────────
@@ -398,13 +399,13 @@ ok("E8 different domain, same workspace → independently admitted (202)",
 // intended semantics).
 {
   const srcNow = fs.readFileSync(routesPath, "utf8");
-  const insertIdx = srcNow.indexOf("INSERT INTO scans");
+  const insertIdx = srcNow.indexOf("await admitDomainScan(env,");
   const conflictIdx = srcNow.indexOf("activeScanConflictBody(), 409");
   const requestedIdx = srcNow.indexOf('"scan_requested"');
   ok("E9 manual: scan_requested is written only after the admission decision",
     insertIdx > -1 && conflictIdx > insertIdx && requestedIdx > conflictIdx);
   const idxSrcNow = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "index.js"), "utf8");
-  const schedInsert = idxSrcNow.indexOf("INSERT INTO scans");
+  const schedInsert = idxSrcNow.indexOf("await admitDomainScan(env,");
   const schedAudit = idxSrcNow.indexOf('"scheduled_scan_triggered"');
   ok("E9b scheduled: scheduled_scan_triggered audit remains after its guarded INSERT",
     schedInsert > -1 && schedAudit > schedInsert);

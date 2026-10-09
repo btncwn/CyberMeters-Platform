@@ -85,7 +85,7 @@ import { runBrandTakedownFollowupSweep } from "./engines/brand-cases.js";
 import { runBrandDnsEnrichmentSweep } from "./engines/brand-dns-enrichment.js";
 import { runBrandPassiveDiscoverySweep } from "./engines/brand-passive-discovery.js";
 import { runBrandHttpEnrichmentSweep } from "./engines/brand-http-enrichment.js";
-import { calculateNextRun, checkReportLimit, checkScanLimit, checkScheduledScanLimit, computeScheduledReportNextRunAt, countEnabledScheduledScans, countReportsThisMonth, countScansThisMonth, evaluateScheduledScanEligibility, generateWorkspaceExecutiveReport, getAccountUsage, getEntitlementUsage, getMonthResetAt, getMonthStart, getOwnedWorkspaceIds, getPlanContext, getPlanLimits, getPlanRetentionDays, getReportExpiresAt, getReportRetentionPolicyForWorkspace, getRetentionCutoff, getRetentionCutoffForDays, getUpgradeRecommendation, getWorkspaceBillingUserId, getWorkspaceOwnerId, getWorkspaceReportStorageMetrics, getWorkspaceRetentionSettings, normalizeReportScheduleFrequency, normalizeReportScheduleRecipients, planLimitExceeded, retentionDaysToPolicy, retentionPolicyToDays } from "./engines/plan-usage.js";
+import { admitDomainScan, calculateNextRun, checkReportLimit, checkScanLimit, checkScheduledScanLimit, computeScheduledReportNextRunAt, countEnabledScheduledScans, countReportsThisMonth, countScansThisMonth, evaluateScheduledScanEligibility, generateWorkspaceExecutiveReport, getAccountUsage, getEntitlementUsage, getMonthResetAt, getMonthStart, getOwnedWorkspaceIds, getPlanContext, getPlanLimits, getPlanRetentionDays, getReportExpiresAt, getReportRetentionPolicyForWorkspace, getRetentionCutoff, getRetentionCutoffForDays, getUpgradeRecommendation, getWorkspaceBillingUserId, getWorkspaceOwnerId, getWorkspaceReportStorageMetrics, getWorkspaceRetentionSettings, normalizeReportScheduleFrequency, normalizeReportScheduleRecipients, planLimitExceeded, retentionDaysToPolicy, retentionPolicyToDays } from "./engines/plan-usage.js";
 import { TRIAL_PLAN, TRIAL_DURATION_DAYS, auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription, getPublicBillingPlans, getTrialRemainingDays, getWorkspaceSubscription, isSubscriptionActive, isTrialActive, parseCheckoutPlan } from "./engines/subscription-state.js";
 import { workspaceAnalyticsRoutes } from "./routes/workspace-analytics.js";
 import { workspaceIntelRoutes } from "./routes/workspace-intel.js";
@@ -742,10 +742,8 @@ async function triggerScheduledScan(schedule, env) {
     // admitted as 'queued' (the consumer's claim CAS flips it to 'running');
     // the conflict semantics are identical in both modes.
     try {
-      await env.cybermeters_db
-        .prepare(`INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES (?, ?, ?, ?, ?)`)
-        .bind(scanId, domainId, schedule.workspace_id ?? null, schedule.domain, scheduledQueueMode ? "queued" : "running")
-        .run();
+      const rejected = await admitDomainScan(env, { scanId, domainId, workspaceId: schedule.workspace_id, domain: schedule.domain, status: scheduledQueueMode ? "queued" : "running", userId });
+      if (rejected) return;
     } catch (insertErr) {
       if (!isUniqueConstraintError(insertErr)) throw insertErr;
       console.log("[scheduled-scan] skipped", JSON.stringify({
@@ -2124,7 +2122,7 @@ async function requireDomainRole(user, domainId, permission, env) {
   }
 }
 
-async function requireScanReadAccess(user, scanId, env) {
+export async function requireScanReadAccess(user, scanId, env) {
   if (!user || !scanId) return null;
   try {
     const scan = await env.cybermeters_db

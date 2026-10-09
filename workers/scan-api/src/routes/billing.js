@@ -21,6 +21,8 @@ import {
 import { createCertificateTransparencyCache } from "../engines/ct-provider-cache.js";
 import { makeDnsCache, PhysicalSubrequestCounter } from "../engines/scan-budget.js";
 import { BILLING_PLAN_METADATA, getEffectiveDomainLimit, getPaymentGraceState, getPlanFeatures, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
+import { getTrialAllowance } from "../engines/trial-allowance.js";
+import { getEffectivePlanState } from "../engines/entitlements.js";
 import { getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { applyCheckoutConsentParams, getStripePriceIdForPlan, shouldRoutePlanChangeToPortal, validateStripeSecretConfig, verifyStripePriceMatchesPolicy } from "../engines/stripe.js";
 import { TRIAL_PLAN, auditApiTokenSessionRouteDenied, getPublicBillingPlans, getTrialRemainingDays, getWorkspaceSubscription, isSubscriptionActive, isTrialActive, parseCheckoutPlan } from "../engines/subscription-state.js";
@@ -339,8 +341,11 @@ export async function billingRoutes(rctx) {
           ? { ...baseLimits, domains: trialDomains, domains_per_workspace: trialDomains }
           : baseLimits;
         const features = getPlanFeatures(effectivePlan);
+        const ownerId = await getWorkspaceBillingUserId(wsId, user.id, env);
+        const trial = await getTrialAllowance(env, ownerId, await getEffectivePlanState(ownerId, env));
 
         return json({
+          trial,
           plan:                 effectivePlan,
           status:               sub?.subscription_status ?? (sub ? sub.status : "free"),
           subscription_active:  trialActive || subscriptionActive || grace.active,

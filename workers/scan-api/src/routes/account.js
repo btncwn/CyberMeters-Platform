@@ -594,6 +594,7 @@ export async function accountRoutes(rctx) {
         const entitlementUsage = await getEntitlementUsage(user, env);
         return json({
           plan: context.plan,
+          trial: context.trial,
           limits: context.limits,
           usage: {
             ...context.usage,
