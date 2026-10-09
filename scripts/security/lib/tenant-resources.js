@@ -163,6 +163,7 @@ export const INVARIANTS = [
 // / validate-tenant-isolation-extended). `property` = exercised by the property-based
 // authz suite. Classes with neither carry a `coverage_note` explaining why.
 export const RESOURCE_CLASSES = [
+  { class: "dns_provider_remediation", domain: "email", tables: ["dns_provider_connections", "dns_provider_changes"], harness: false, property: false, coverage_note: "Workspace/domain-owned encrypted connections and saved DNS changes. Dedicated production-entry coverage lives in scripts/validate-dns-remediation.js; not part of the general two-tenant/property harness." },
   { class: "network_assets", domain: "attack_surface", tables: ["network_targets", "network_scans", "network_assets"], harness: false, property: false, coverage_note: "Explicit attested public IP/CIDR scope; actual route/role, two-tenant denial, immutable receipt and queue identity coverage in validate-network-assets.js; purge and queue wiring in validate-network-integration.js." },
   { class: "workspaces",            domain: "core",     tables: ["workspaces"], harness: true, property: true },
   { class: "workspace_memberships", domain: "core",     tables: ["workspace_members"], harness: true, property: true },

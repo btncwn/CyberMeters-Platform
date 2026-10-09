@@ -11,12 +11,12 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 98
-- **classified:** 98
-- **tenant owned tables:** 93
+- **schema tables:** 100
+- **classified:** 100
+- **tenant owned tables:** 95
 - **infra or identity tables:** 5
 - **unclassified:** 0
-- **resource classes:** 36
+- **resource classes:** 37
 - **classes with dynamic coverage:** 17
 
 ## The 12 invariants
@@ -38,6 +38,7 @@ data cannot be silently omitted.
 
 | Class | Domain | Ownership | Tables | Dynamic harness | Property |
 |---|---|---|---|:---:|:---:|
+| dns_provider_remediation | email | direct(workspace_id) | 2 | — | — |
 | network_assets | attack_surface | direct(workspace_id) | 3 | — | — |
 | workspaces | core | account(owner_user_id) | 1 | ✓ | ✓ |
 | workspace_memberships | core | direct(workspace_id) | 1 | ✓ | ✓ |
@@ -79,6 +80,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 
 ### Coverage notes
 
+- **dns_provider_remediation:** Workspace/domain-owned encrypted connections and saved DNS changes. Dedicated production-entry coverage lives in scripts/validate-dns-remediation.js; not part of the general two-tenant/property harness.
 - **network_assets:** Explicit attested public IP/CIDR scope; actual route/role, two-tenant denial, immutable receipt and queue identity coverage in validate-network-assets.js; purge and queue wiring in validate-network-integration.js.
 - **asset_events:** written by scan/cron; read via /assets + posture; workspace_id-scoped; isolation proven at the assets read surface + static audit
 - **findings:** scan_id-scoped; reachable only through /scans/:id ownership-gated report surfaces
@@ -132,6 +134,8 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `dmarc_aggregate_reports` | direct(workspace_id) | email_protection |
 | `dmarc_change_requests` | direct(workspace_id) | email_protection |
 | `dmarc_ingest_endpoints` | direct(workspace_id) | email_protection |
+| `dns_provider_changes` | direct(workspace_id) | dns_provider_remediation |
+| `dns_provider_connections` | direct(workspace_id) | dns_provider_remediation |
 | `domain_maturity_ledger` | direct(workspace_id) | posture_state |
 | `domains` | user(user_id) | domains |
 | `email_protection_events` | direct(workspace_id) | email_protection |

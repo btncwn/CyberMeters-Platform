@@ -1006,6 +1006,25 @@ export const api = {
   getSpfAnalysis: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/spf-analysis`),
 
+  getDnsConnections: (workspaceId, options = {}) =>
+    request(`/workspaces/${encodeURIComponent(workspaceId)}/dns-connections`, options),
+  getDnsConnection: (workspaceId, domain, options = {}) =>
+    request(`/workspaces/${encodeURIComponent(workspaceId)}/domains/${encodeURIComponent(domain)}/dns-connection`, options),
+  connectDns: (workspaceId, domain, body, options = {}) =>
+    request(`/workspaces/${encodeURIComponent(workspaceId)}/domains/${encodeURIComponent(domain)}/dns-connection`, { ...options, method: 'PUT', body: JSON.stringify(body) }),
+  disconnectDns: (workspaceId, domain, options = {}) =>
+    request(`/workspaces/${encodeURIComponent(workspaceId)}/domains/${encodeURIComponent(domain)}/dns-connection`, { ...options, method: 'DELETE' }),
+  previewDnsChange: (workspaceId, domain, body, options = {}) =>
+    request(`/workspaces/${encodeURIComponent(workspaceId)}/domains/${encodeURIComponent(domain)}/dns-changes/preview`, { ...options, method: 'POST', body: JSON.stringify(body) }),
+  getDnsChange: (workspaceId, domain, changeId, options = {}) =>
+    request(`/workspaces/${encodeURIComponent(workspaceId)}/domains/${encodeURIComponent(domain)}/dns-changes/${encodeURIComponent(changeId)}`, options),
+  applyDnsChange: (workspaceId, domain, changeId, body, options = {}) =>
+    request(`/workspaces/${encodeURIComponent(workspaceId)}/domains/${encodeURIComponent(domain)}/dns-changes/${encodeURIComponent(changeId)}/apply`, { ...options, method: 'POST', body: JSON.stringify(body) }),
+  verifyDnsChange: (workspaceId, domain, changeId, body, options = {}) =>
+    request(`/workspaces/${encodeURIComponent(workspaceId)}/domains/${encodeURIComponent(domain)}/dns-changes/${encodeURIComponent(changeId)}/verify`, { ...options, method: 'POST', body: JSON.stringify(body) }),
+  rollbackDnsChange: (workspaceId, domain, changeId, body, options = {}) =>
+    request(`/workspaces/${encodeURIComponent(workspaceId)}/domains/${encodeURIComponent(domain)}/dns-changes/${encodeURIComponent(changeId)}/rollback`, { ...options, method: 'POST', body: JSON.stringify(body) }),
+
   /** Remediation Registry — every gap + live detection, and the exact generated fix */
   getRemediations: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/remediations`),

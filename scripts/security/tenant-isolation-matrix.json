@@ -73,6 +73,30 @@
   ],
   "resource_classes": [
     {
+      "class": "dns_provider_remediation",
+      "domain": "email",
+      "tables": [
+        "dns_provider_connections",
+        "dns_provider_changes"
+      ],
+      "ownership": {
+        "dns_provider_connections": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "dns_provider_changes": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "Workspace/domain-owned encrypted connections and saved DNS changes. Dedicated production-entry coverage lives in scripts/validate-dns-remediation.js; not part of the general two-tenant/property harness."
+      }
+    },
+    {
       "class": "network_assets",
       "domain": "attack_surface",
       "tables": [
@@ -1095,6 +1119,8 @@
     "dmarc_aggregate_reports": "email_protection",
     "dmarc_change_requests": "email_protection",
     "dmarc_ingest_endpoints": "email_protection",
+    "dns_provider_changes": "dns_provider_remediation",
+    "dns_provider_connections": "dns_provider_remediation",
     "domain_maturity_ledger": "posture_state",
     "domains": "domains",
     "email_protection_events": "email_protection",
@@ -1168,12 +1194,12 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 98,
-    "classified": 98,
-    "tenant_owned_tables": 93,
+    "schema_tables": 100,
+    "classified": 100,
+    "tenant_owned_tables": 95,
     "infra_or_identity_tables": 5,
     "unclassified": 0,
-    "resource_classes": 36,
+    "resource_classes": 37,
     "classes_with_dynamic_coverage": 17
   }
 }

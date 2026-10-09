@@ -7,6 +7,7 @@ import {
   ArrowRight, Megaphone, Upload, Users, Filter, Gauge, X, Inbox,
 } from 'lucide-react'
 import DmarcPolicyEvidenceCard from '../../components/DmarcPolicyEvidenceCard'
+import CloudflareDnsChanges from '../../components/CloudflareDnsChanges'
 import { api, BASE } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -3662,6 +3663,7 @@ export default function WorkspaceEmailProtectionPage() {
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={loadScans}>
       {header}
+      <CloudflareDnsChanges workspaceId={wsId} onDomainChange={setSelectedDomain} />
 
       {/* No completed scans at all */}
       {domainScans.length === 0 ? (

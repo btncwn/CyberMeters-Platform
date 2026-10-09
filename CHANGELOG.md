@@ -7,7 +7,26 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
-## Unreleased — optional known-address breach checks — 9 October 2026
+## Unreleased — scoped Cloudflare DNS corrections — 9 October 2026
+
+Workspace owners and administrators can connect one verified Cloudflare zone,
+review an exact TXT-record change, explicitly apply it, observe public DNS and
+undo the recorded change. Supported actions are missing SPF from confirmed
+sender inputs, adding the active reporting address to an existing DMARC record,
+and missing TLS reporting. Existing guided remediation remains available.
+Credentials use a dedicated encrypted keyring; migration 111 adds connections
+and change receipts to the workspace purge order. Existing effective-plan rules
+apply to writes; verification and undo remain available after downgrade.
+Provider acceptance, DNS observation and case closure remain separate. Drift
+and uncertain writes do not trigger automatic retries. Cloudflare does not
+offer atomic conditional DNS writes; this release does not claim that guarantee.
+
+Independent review passed with 121 actual-entry local backend assertions and
+31 frontend/API tests. Two targeted backend mutants failed their named
+assertions. All provider traffic in these checks was synthetic. Production
+DNS execution and deployment are not yet accepted.
+
+## v2026.10.09-6 — optional known-address breach checks — 9 October 2026
 
 Workspace owners and administrators can explicitly check a known corporate
 address on a currently verified workspace domain against LeakCheck Public.
@@ -24,9 +43,23 @@ The production entry now re-exports the existing default Worker and the new
 private class. The email import closure is unchanged. Focused checks passed:
 85 production-entry/tenant/provider assertions, 24 frontend/API tests,
 25 purge checks and 37 frontend-environment checks. This source entry does not
-claim production acceptance. The new DO class requires a compatible rollback
-baseline retaining that class before the feature is activated; additive D1
-tables remain on code rollback.
+claim complete production acceptance. PR #495 merged as `8f887696`; all 17 PR
+checks passed at exact head `67147731`. Migration 110 was applied without a
+database export or restore. API `03054290-7ce1-4929-a92c-47dbe12f4c24`
+(deployment `7bcc7222-6e58-4137-adc6-cbb260b61d3e`) and email
+`63dadaae-d8c3-48b0-8f4c-46d7884222d3` (deployment
+`5d4d5d73-087d-47f3-82d2-5b1f56ca4a3d`) passed live health checks.
+Pages `569001cc-b4e4-4d42-bb89-dca29a1f4449` serves the same merged source.
+The first own-address production probe at 03:47 UTC produced an honest
+inconclusive result (`invalid_provider_response`); source-contract investigation
+is pending, so this is not a successful lookup acceptance claim.
+
+Compatible API rollback is `ba7b63ca-c115-4aa0-9fe2-7c9e10adf9d0`: prior HTTP
+handlers plus the private quota class and migration-110 retention/purge hooks,
+independently checked with nine lifecycle assertions. Email rollback is
+`0c56ba00-692e-45d1-9481-c0447cafb251`; Pages rollback is
+`28447545-0903-4347-b409-e50a73a9d8bc`. Leave additive tables and the class in
+place on code rollback.
 
 ## v2026.10.09-5 — small-business and agency positioning — 9 October 2026
 
