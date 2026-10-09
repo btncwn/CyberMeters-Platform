@@ -345,7 +345,8 @@ for (const [id, findingType] of [
   eq(`${id}: replacement alone writes no verified case event`, h.events().filter(e => e.to_status === "verified").length, 0);
   db.close();
 
-  const hostname = "acme.example.com", after = "2026-10-09T00:00:00Z", now = "2026-10-09T00:05:00Z";
+  const hostname = "acme.example.com", after = "2026-10-09T00:00:00Z";
+  const NOW = "2026-10-09T00:05:00Z";
   const signal = value => ({
     completeness_state: "monitoring_healthy", observation: "present", value,
     observation_scope: "live_tls", achieved_grade: "L3", publishable: true,
@@ -361,7 +362,7 @@ for (const [id, findingType] of [
     const input = structuredClone(observed); change(input);
     return certLifecycle.buildLiveTlsCaseVerificationEvidence(findingType, {
       current: { last_seen: input.last_seen, evidence_json: JSON.stringify({ signal_completeness: { signals: input.signals } }) },
-      after, hostname, now,
+      after, hostname, now: NOW,
     });
   };
   const healthy = verify();

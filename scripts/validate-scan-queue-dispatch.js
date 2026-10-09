@@ -19,9 +19,9 @@
 //      BOTH dispatch modes.
 //   D. Recovery integration — recoverInterruptedScans over queued rows.
 //   E. Static/config contracts — wrangler queue config, workers_dev survives,
-//      every SCAN_QUEUE send flows through the ONE dispatch boundary
-//      (engines/scan-dispatch.js — PR-B1A routes scheduled sends through it
-//      too), no third scan-creation path.
+//      SCAN_QUEUE has exactly two declared producers: the domain dispatch
+//      boundary (manual + scheduled) and the admitted network-scan route.
+//      No undeclared producer may reference the binding.
 //
 // Mutation directions (reverting the guard reddens the named assertion):
 //   - consumer executes without the claim CAS guard   → B2 (exactly-one) fails
@@ -659,11 +659,11 @@ const STALE = RECOVERY_MIN_AGE_MS + 60 * 60 * 1000;
 const wranglerSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "wrangler.toml"), "utf8");
 const stripToml = wranglerSrc.replace(/#[^\n]*/g, "");
 
-// E1 — every send flows through the ONE dispatch boundary: the SCAN_QUEUE
-// binding is consumed by engines/scan-dispatch.js and NOWHERE else in the
-// Worker source. (PR-B1A: the scheduled producer sends via the SAME
-// dispatchAdmittedScan compensation boundary — never via a direct binding
-// reference of its own.)
+// E1 — exact producer allowlist. Manual/scheduled domain scans share
+// dispatchAdmittedScan; the network route sends only an admitted network_probe
+// v1 scan ID. Its consumer re-reads the authorized scope from D1 (covered by
+// validate-network-assets/integration), never from arbitrary message targets.
+// Any third binding consumer, or either expected producer disappearing, fails.
 {
   const files = [];
   const walk = (d) => {
@@ -674,8 +674,12 @@ const stripToml = wranglerSrc.replace(/#[^\n]*/g, "");
     }
   };
   walk(srcPath());
-  ok("E1 SCAN_QUEUE is referenced ONLY by engines/scan-dispatch.js (the one dispatch boundary)",
-    JSON.stringify(files) === JSON.stringify(["workers/scan-api/src/engines/scan-dispatch.js"]),
+  const expectedProducers = [
+    "workers/scan-api/src/engines/scan-dispatch.js",
+    "workers/scan-api/src/routes/network-assets.js",
+  ];
+  ok("E1 SCAN_QUEUE is referenced ONLY by the domain dispatch and admitted network route",
+    JSON.stringify(files.sort()) === JSON.stringify(expectedProducers),
     JSON.stringify(files));
 }
 

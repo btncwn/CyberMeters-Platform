@@ -450,11 +450,11 @@ const states = [
   { measurement_state: "unmeasured" },
 ];
 const parity = states.map(parityOutputs);
-// The technical report redesign changes only the scan-PDF input to F13.
-// Injecting the accepted c32ad27b scan renderer alone reproduces prior F13
-// f2c8b948 exactly; F14, executive PDF and assessment producers stay unchanged.
-const GOLDEN_F13 = "6bccb44657e35166041160920ddc0fec1504578c58f7520225856f92a4e8c5fc";
-const GOLDEN_F14 = "137c24a0eb36a372961bb9730f47e1a4abc47e8c3d86e9712216293a952417f4";
+// The two live TLS remediation entries change the frozen registry fingerprint
+// from r67-c98a810a to r69-7eefae14. Replacing only that snapshot methodology
+// value with r67-c98a810a reproduces both previous output hashes exactly.
+const GOLDEN_F13 = "dd50c395269b00a8eddfc8b305947f55aff0fa02b84be39071663b91a7eb2302";
+const GOLDEN_F14 = "857e489c4f9b2510f07cede7ced64c05d5fe7fae33fc2a45695efc28765a5415";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
