@@ -32,6 +32,18 @@ First run the read-only preview:
 node scripts/entra-session-pilot.mjs --tenant TENANT_ID --client APPLICATION_ID
 ```
 
+On failure, the pilot prints a provider step (`token_exchange`, `user_lookup` or
+`session_revocation`) and HTTP status without exposing credentials or response
+bodies. Share those diagnostic lines, never the secret. A token-exchange denial
+and a Graph user-read denial have different causes; do not repeat the same run or
+grant broader permissions without identifying which step failed. Enter the
+client secret **Value**, not its Secret ID.
+
+The current user query includes `accountEnabled`. Microsoft's user-read
+documentation lists additional permissions for that property; the live preview
+must establish whether this selection works with the two approved permissions.
+Do not add account-enable/disable permissions just to make the pilot pass.
+
 Keep the test user's existing private-browser session open. After reviewing the
 preview and authorizing this target's session revocation, use a new receipt path
 in a private folder outside the repository:

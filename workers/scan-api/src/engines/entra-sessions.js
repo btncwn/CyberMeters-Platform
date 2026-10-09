@@ -64,11 +64,12 @@ export function createEntraSessionClient(credentials, { fetchImpl = fetch, timeo
   // Request-local token only. Never a module/global cache shared by tenants.
   let token, tokenExpires = 0;
   const previews = new WeakMap();
-  async function request(url, options, writing = false) {
+  async function request(stage, url, options, writing = false) {
     const controller = new AbortController();
-    let timer;
+    let timer, httpStatus = null;
     const operation = (async () => {
       const response = await fetchImpl(url, { ...options, redirect: 'manual', signal: controller.signal });
+      httpStatus = response.status;
       if (response.status === 401 || response.status === 403) fail('provider_access_denied');
       if (response.status === 404 && !writing) fail('user_not_found');
       if (response.status === 429) fail('provider_rate_limited', writing);
@@ -83,18 +84,20 @@ export function createEntraSessionClient(credentials, { fetchImpl = fetch, timeo
         timer = setTimeout(() => { controller.abort(); reject(new EntraSessionError('provider_timeout', writing)); }, timeoutMs);
       })]);
     } catch (error) {
-      if (error instanceof EntraSessionError) {
-        if (writing && error.code === 'invalid_provider_response') error.uncertain = true;
-        throw error;
-      }
-      fail('provider_unavailable', writing);
+      const failure = error instanceof EntraSessionError ? error : new EntraSessionError('provider_unavailable', writing);
+      if (writing && failure.code === 'invalid_provider_response') failure.uncertain = true;
+      // Only a code-owned phase and HTTP status leave the provider boundary.
+      // Never include request URLs, headers, credentials or provider error bodies.
+      failure.stage = stage;
+      failure.httpStatus = httpStatus;
+      throw failure;
     } finally { clearTimeout(timer); controller.abort(); }
   }
   async function accessToken() {
     if (token && now() < tokenExpires) return token;
     const started = now();
     const body = new URLSearchParams({ client_id: clientId, client_secret: secret, scope: 'https://graph.microsoft.com/.default', grant_type: 'client_credentials' });
-    const data = await request(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+    const data = await request('token_exchange', `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
       method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString(),
     });
     if (data.token_type?.toLowerCase() !== 'bearer' || typeof data.access_token !== 'string' ||
@@ -105,7 +108,7 @@ export function createEntraSessionClient(credentials, { fetchImpl = fetch, timeo
   }
   async function readUser(identifier, expectedUpn, expectedId) {
     const bearer = await accessToken();
-    const user = await request(`${GRAPH}/users/${encodeURIComponent(identifier)}?${new URLSearchParams({ '$select': SELECT })}`, {
+    const user = await request('user_lookup', `${GRAPH}/users/${encodeURIComponent(identifier)}?${new URLSearchParams({ '$select': SELECT })}`, {
       method: 'GET', headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json' },
     });
     let id, upn;
@@ -142,7 +145,7 @@ export function createEntraSessionClient(credentials, { fetchImpl = fetch, timeo
       if (await authorize() !== true) fail('authorization_changed');
       if (now() >= state.expires) fail('preview_expired_or_used');
       const requestedAt = new Date(now()).toISOString();
-      const data = await request(`${GRAPH}/users/${state.user.id}/revokeSignInSessions`, {
+      const data = await request('session_revocation', `${GRAPH}/users/${state.user.id}/revokeSignInSessions`, {
         method: 'POST', headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
       }, true);
       if (data.value !== true) fail('invalid_provider_response', true);

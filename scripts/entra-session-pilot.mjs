@@ -71,6 +71,15 @@ try {
     try { saveReceipt(attempt); } catch { /* The durable attempt_reserved receipt remains evidence of uncertainty. */ }
   }
   console.error('Not completed: ' + code + '. No logout verification is claimed.');
+  if (error instanceof EntraSessionError && error.stage) {
+    console.error('Provider step: ' + error.stage + '; HTTP status: ' + (error.httpStatus ?? 'no response') + '.');
+    if (error.stage === 'token_exchange' && error.code === 'provider_access_denied') {
+      console.error('Check the client secret Value (not Secret ID), tenant ID and application/client ID for this pilot app. Do not share the secret.');
+    }
+    if (error.stage === 'user_lookup' && error.code === 'provider_access_denied') {
+      console.error('The token grant succeeded, but Graph refused the user read. Review the granted application permissions and selected user fields before changing permissions.');
+    }
+  }
   if (attempt) console.error('An attempt receipt exists. Inspect it before any further action; do not rerun automatically.');
   process.exitCode = 1;
 } finally {

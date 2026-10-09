@@ -128,6 +128,24 @@ for (const status of [301, 401, 403, 404, 429, 500]) await test('user lookup HTT
   const s = setup({ user: () => new Response('', { status }) });
   await assert.rejects(() => s.client.preview(upn), EntraSessionError); assert.equal(s.posts().length, 0);
 });
+for (const stage of ['token_exchange', 'user_lookup', 'session_revocation']) {
+  for (const status of [401, 403]) await test(stage + ' denial identifies the exact step without provider secrets: ' + status, async () => {
+    const privateBody = JSON.stringify({ error_description: credentials.clientSecret, access_token: 'SYNTHETIC-access-token' });
+    const override = { token_exchange: 'token', user_lookup: 'user', session_revocation: 'revoke' }[stage];
+    const s = setup({ [override]: () => new Response(privateBody, { status, headers: { 'Content-Type': 'application/json' } }) });
+    const preview = stage === 'session_revocation' ? await s.client.preview(upn) : null;
+    await assert.rejects(() => preview ? s.client.revoke(preview, confirm) : s.client.preview(upn), error => {
+      assert(error instanceof EntraSessionError);
+      assert.equal(error.code, 'provider_access_denied');
+      assert.equal(error.stage, stage); assert.equal(error.httpStatus, status); assert.equal(error.uncertain, false);
+      assert(!JSON.stringify(error).includes('SYNTHETIC')); assert(!error.message.includes('SYNTHETIC'));
+      assert.deepEqual(Object.keys(error).sort(), ['code', 'httpStatus', 'name', 'stage', 'uncertain']);
+      return true;
+    });
+    assert.equal(s.calls.length, { token_exchange: 1, user_lookup: 2, session_revocation: 4 }[stage]);
+    assert.equal(s.posts().length, stage === 'session_revocation' ? 1 : 0);
+  });
+}
 for (const [name, response] of [
   ['oversized header', () => new Response('{}', { headers: { 'Content-Type': 'application/json', 'Content-Length': '32769' } })],
   ['oversized stream', () => new Response('x'.repeat(32769), { headers: { 'Content-Type': 'application/json' } })],
@@ -152,7 +170,11 @@ await test('empty HTTP204 is provider acceptance, not logout proof', async () =>
 });
 await test('stalled lookup has bounded deadline', async () => {
   const s = setup({ user: () => new Promise(() => {}) });
-  await rejects(() => s.client.preview(upn), 'provider_timeout'); assert.equal(s.posts().length, 0);
+  await assert.rejects(() => s.client.preview(upn), error => {
+    assert.equal(error.code, 'provider_timeout'); assert.equal(error.stage, 'user_lookup');
+    assert.equal(error.httpStatus, null); assert.equal(error.uncertain, false); return true;
+  });
+  assert.equal(s.posts().length, 0);
 });
 await test('stalled response body has the same deadline', async () => {
   const s = setup({ user: () => new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'application/json' } }) });
