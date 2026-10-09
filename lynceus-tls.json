@@ -1,0 +1,7 @@
+{
+  "schema": "lynceus-tls-config/1",
+  "target": "host",
+  "host": "api.cybermeters.com",
+  "port": 443,
+  "allow_remote": true
+}
