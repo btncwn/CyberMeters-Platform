@@ -12,10 +12,10 @@ const { parseDocument, isMap, isSeq } = workerRequire("yaml");
 
 export const CANONICAL_SKIP_CONDITION = "${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}";
 export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d55297df4fd3f90a2f57548697efcf062";
-// Add MFA enrollment and first-customer billing to runtime-security; all prior assignments remain.
-export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 385;
-export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "702b68263e995bd5a22adf0517c495218ab512db32f28ffef7a035a788151266";
-export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "ae3cd1b727f64e3f3eee4a879ab2ca431776fed9933b35d36db90a4ff5891bf1";
+// Add the known-address provider validator to runtime-security; all prior assignments remain.
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 386;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "f31bc04e0e2a910396810b0b4fbd1eaec78ca47ad7e959f02d7637b4d488d2ca";
+export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "e8a376255919dfbf03dbb165ace85f4041a3df64f58143fc9aef7fc70344f27a";
 
 export const F004_MATRIX_JOB_ID = "validate_f004_recovery_mutations";
 export const F004_MATRIX_VALIDATOR_PATH = "scripts/validate-f004-recovery-instrumentation-mutations.js";
@@ -63,7 +63,7 @@ const EXECUTABLE_VALIDATOR_JOB_IDS = Object.freeze([
 ]);
 
 export const EXPECTED_SHARD_COUNTS = Object.freeze({
-  validate_runtime_security: 95,
+  validate_runtime_security: 96,
   validate_report_cx: 91,
   validate_data_migrations: 90,
   validate_frontend_build: 88,

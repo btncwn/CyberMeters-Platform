@@ -7,6 +7,37 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## Unreleased — optional known-address breach checks — 9 October 2026
+
+Workspace owners and administrators can explicitly check a known corporate
+address on a currently verified workspace domain against LeakCheck Public.
+Only a truncated email hash leaves CyberMeters; saved results contain a masked
+address, workspace-specific identifier, permission record, source metadata and
+field categories. Provider failures and throttling remain inconclusive. This
+does not enumerate a domain, retrieve passwords, monitor the dark web or alter
+existing identity scores, cases or historical reports.
+
+Migration 110 adds workspace results and a rotating retention cursor. The
+private SQLite Durable Object serialises the provider's shared quota. Current
+workspace retention and purge apply; repeat request identities are idempotent.
+The production entry now re-exports the existing default Worker and the new
+private class. The email import closure is unchanged. Focused checks passed:
+85 production-entry/tenant/provider assertions, 24 frontend/API tests,
+25 purge checks and 37 frontend-environment checks. This source entry does not
+claim production acceptance. The new DO class requires a compatible rollback
+baseline retaining that class before the feature is activated; additive D1
+tables remain on code rollback.
+
+## v2026.10.09-5 — small-business and agency positioning — 9 October 2026
+
+**Pages deployed from PR #494, source `6fcae419`, at 02:54 UTC:**
+`28447545-0903-4347-b409-e50a73a9d8bc`. The public page now addresses small
+businesses, startups and digital agencies, removes unsupported enterprise and
+instant-protection promises, and explicitly labels its illustrative scorecard.
+All 17 PR checks passed. The live page was inspected in Chrome. No Worker,
+database, pricing or entitlement change. Pages rollback is
+`f1eb1051-73eb-459f-ab9a-68b353bd26a4` from source `6dcc309c`.
+
 ## v2026.10.09-4 — scoped live TLS report explanation — 9 October 2026
 
 New report snapshots describe admitted live certificate, hostname and declared

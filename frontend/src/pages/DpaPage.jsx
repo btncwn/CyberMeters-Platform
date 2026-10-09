@@ -25,7 +25,7 @@ export default function DpaPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Data Processing Addendum</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: June 2026 — Version 1.0</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 9 October 2026 — Version 1.1</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             This Data Processing Addendum ("<strong>DPA</strong>") supplements and forms part of the CyberMeters Terms of Service between CyberMeters ("<strong>Processor</strong>") and the customer ("<strong>Controller</strong>"). It governs the processing of personal data by CyberMeters on behalf of the Controller in connection with the provision of the Services.
           </p>
@@ -88,6 +88,11 @@ export default function DpaPage() {
                     <td className="px-4 py-2.5 font-medium text-gray-800">Stripe, Inc.</td>
                     <td className="px-4 py-2.5 text-gray-600">Payment processing and subscription management</td>
                     <td className="px-4 py-2.5 text-gray-500">US / EU</td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-2.5 font-medium text-gray-800">LeakCheck (company number 12101959)</td>
+                    <td className="px-4 py-2.5 text-gray-600">Optional, explicitly requested known-address breach lookup using a truncated email hash; source metadata and field categories only</td>
+                    <td className="px-4 py-2.5 text-gray-500">UK operator; processing and transfer details in its <a href="https://leakcheck.io/dpa" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">DPA</a></td>
                   </tr>
                 </tbody>
               </table>

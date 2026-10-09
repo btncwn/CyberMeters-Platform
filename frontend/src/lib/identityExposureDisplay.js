@@ -106,4 +106,4 @@ export function isAwaitingVerification(item) {
 }
 
 export const IDENTITY_SCOPE_NOTE =
-  'CyberMeters currently identifies provider relationships and possible identity-facing hostnames. It does not measure endpoint reachability, leaked or breached credentials, dark-web data, MFA enrolment, Conditional Access or internal identity policy. Your classification is a decision, not a CyberMeters verification.'
+  'This login-surface review identifies provider relationships and possible identity-facing hostnames. It does not measure endpoint reachability, leaked or breached credentials, dark-web data, MFA enrolment, Conditional Access or internal identity policy. Your classification is a decision, not a CyberMeters verification.'
