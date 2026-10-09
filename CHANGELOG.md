@@ -17,7 +17,7 @@ Internal AI-assisted review is not presented as a third-party penetration test.
 Privacy, Terms and DPA name the actual operator; existing notice and responsible
 research commitments remain. No change to pricing, authentication or scan scores.
 
-## Unreleased — agency and client report branding — 9 October 2026
+## v2026.10.09-8 — agency and client report branding — 9 October 2026
 
 The existing multi-workspace portfolio now exposes its agency profiles in
 Settings and client report identity in Workspace Detail. Owners can maintain
@@ -38,7 +38,19 @@ navigation tests; existing report-content and legacy-branding checks passed
 no horizontal overflow in the agency form or DNS panel and that navigation
 closes on route change. Visual data was local and synthetic. The shared email
 import closure changed; both Workers require the coordinated release stamp.
-Production acceptance is pending deployment.
+PR #497 merged as `16aced48`; all 17 checks passed at reviewed head
+`2d852602`. API `f59ea958-f75f-4a1b-93b9-072542bf1e62` (deployment
+`d3141e8a-a02f-46f6-86cb-89dc3f956d55`) and email
+`1f08ce0b-d356-4bd1-b6ee-555fec5d957f` (deployment
+`aed0d3a0-6111-444f-a141-fea00db964f0`) passed live health checks with the
+coordinated agency-branding release stamp. Pages
+`57ce027f-9295-48d3-8953-b682ad3e7d00` serves the merged source.
+Existing bindings were preserved; no schema, customer profile or entitlement
+was changed. Production branding-write acceptance remains unrun.
+
+Rollback is API `ba9724f2-26d2-4475-bcc3-6507c15dc665`, email
+`116dae25-9b08-47b6-8ead-0696d1655762` and Pages
+`9e90e4de-9159-4a53-b467-3a909a5d19a3`.
 
 ## v2026.10.09-7 — scoped Cloudflare DNS corrections — 9 October 2026
 
