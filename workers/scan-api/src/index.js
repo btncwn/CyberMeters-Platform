@@ -95,6 +95,7 @@ import { workspaceActivityRoutes } from "./routes/workspace-activity.js";
 import { workspaceMembersRoutes } from "./routes/workspace-members.js";
 import { executiveDashboardRoutes } from "./routes/executive-dashboard.js";
 import { emailProtectionRoutes } from "./routes/email-protection.js";
+import { dnsConnectionRoutes } from "./routes/dns-connections.js";
 import { domainRoutes } from "./routes/domains.js";
 import { workspacesCoreRoutes } from "./routes/workspaces-core.js";
 import { billingRoutes } from "./routes/billing.js";
@@ -1096,6 +1097,7 @@ const SCAN_CHILD_TABLES = [
 // as long as the table has existed. A comment asserting a guard nobody wrote is worse
 // than no comment: it stops the next person looking.
 const WORKSPACE_PURGE_TABLES = [
+  "dns_provider_changes", "dns_provider_connections",
   "identity_breach_checks",
   "network_assets", "network_scans", "network_targets",
   // email_protection_events holds no FK to either record family it describes
@@ -2700,6 +2702,8 @@ export default {
     // Extracted to src/routes/email-protection.js; dispatched at the original
     // position, patterns unchanged and mutually disjoint.
     {
+      const dnsConnectionResponse = await dnsConnectionRoutes(routeCtx);
+      if (dnsConnectionResponse) return dnsConnectionResponse;
       const emailProtResponse = await emailProtectionRoutes(routeCtx);
       if (emailProtResponse) return emailProtResponse;
     }
