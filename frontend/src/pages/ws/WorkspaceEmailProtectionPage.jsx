@@ -1605,7 +1605,7 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
   // The fallback stands in for BASE, so it carries BASE's trailing /api — the route
   // is /api/dmarc-ingest. Without it the customer copies a curl that 404s.
   const curl = `curl -X POST ${BASE || 'https://api.cybermeters.com/api'}/dmarc-ingest \\
-  -H "Authorization: Bearer YOUR_UPLOAD_TOKEN" \\
+  -H "Authorization: Bearer <your-upload-token>" \\
   -H "Content-Type: application/xml" \\
   --data-binary @report.xml`
 

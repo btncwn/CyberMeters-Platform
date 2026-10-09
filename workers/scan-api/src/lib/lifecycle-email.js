@@ -610,6 +610,11 @@ function buildJsonHeaders(_corsHeaders = buildCorsHeaders(null)) {
     'X-Frame-Options': 'DENY',
     'Content-Security-Policy': "default-src 'none'",
     'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Resource-Policy': 'same-site',
+    'Cross-Origin-Embedder-Policy': 'require-corp',
+    'Permissions-Policy': 'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()',
+    'X-Permitted-Cross-Domain-Policies': 'none',
   };
 }
 

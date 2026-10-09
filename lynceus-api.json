@@ -23,6 +23,10 @@
     {
       "method": "DELETE",
       "path": "/api/account/api-tokens/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/dmarc-ingest"
     }
   ]
 }
