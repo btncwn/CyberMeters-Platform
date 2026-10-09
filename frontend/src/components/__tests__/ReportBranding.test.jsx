@@ -33,7 +33,10 @@ describe('Agency branding profiles', () => {
     expect(api.createBrandingProfile).not.toHaveBeenCalled(); expect(api.updateBrandingProfile).not.toHaveBeenCalled(); expect(api.getBrandingProfile).not.toHaveBeenCalled()
   })
   it.each([false, undefined, 'true'])('does not invent entitled edits from truthy or missing plan capability (%s)', async white_label_available => {
-    api.getBrandingProfiles.mockResolvedValue(meta({ white_label_available })); mountAgency(); await screen.findByText('Agency profile-a')
+    api.getBrandingProfiles.mockResolvedValue(meta({ white_label_available }))
+    // Finish the initial read and its revision-reset effect before interacting.
+    // A DOM-only wait can see the profile before React has flushed that effect.
+    await act(async () => { mountAgency() }); await screen.findByText('Agency profile-a')
     expect(screen.queryByRole('button', { name: 'Add agency profile' })).not.toBeInTheDocument(); expect(screen.queryByRole('button', { name: /Edit Agency/ })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'View billing' })).toHaveAttribute('href', '/billing')
     click('Delete Agency profile-a'); expect(api.deleteBrandingProfile).not.toHaveBeenCalled(); click('Confirm profile deletion')

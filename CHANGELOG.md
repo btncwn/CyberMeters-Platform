@@ -7,7 +7,7 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
-## Unreleased — founder and factual trust pages — 9 October 2026
+## v2026.10.09-9 — founder and factual trust pages — 9 October 2026
 
 The public About page identifies Turhan Acar as the founder and sole-trader
 operator. The landing page links to the real dated cybermeters.com self-check;
@@ -16,6 +16,22 @@ and incomplete CT coverage. Exact wire-chain and revocation limits remain visibl
 Internal AI-assisted review is not presented as a third-party penetration test.
 Privacy, Terms and DPA name the actual operator; existing notice and responsible
 research commitments remain. No change to pricing, authentication or scan scores.
+
+PR #498 merged as `8aba4392` after all 17 checks passed at `b5cb0f46`.
+Pages deployment `e29a9910-da21-423c-a48d-63eea8374722` successfully published
+that source to `www.cybermeters.com`, `cybermeters.com` and
+`app.cybermeters.com`. The new own-domain-check link and About page were
+verified through the public www address. The two Workers, database, scripts
+and workflows are byte-identical to the deployed agency release below; API
+and email health remain successful at their recorded versions. No Worker
+redeployment or migration was needed. Pages rollback is
+`57ce027f-9295-48d3-8953-b682ad3e7d00`.
+
+The approved one-request LeakCheck diagnostic returned HTTP 200 with
+`success: false, error: "Not found"`. The current adapter keeps this response
+inconclusive (`invalid_provider_response`); successful live lookup acceptance
+remains open. This release does not assert a clean breach result or complete
+DNS/agency write acceptance.
 
 ## v2026.10.09-8 — agency and client report branding — 9 October 2026
 
