@@ -13,14 +13,14 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 261
-- **Auth-guarded:** 238
+- **Total entry points:** 264
+- **Auth-guarded:** 241
 - **Unauthenticated (public by design):** 23
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
 | Scope | Handlers | Auth-guarded |
 |---|---:|---:|
-| account | 24 | 24 |
+| account | 26 | 26 |
 | admin | 2 | 2 |
 | email | 1 | 1 |
 | portfolio | 9 | 9 |
@@ -28,7 +28,7 @@ guard without an explicit, documented public-allowlist reason.
 | public-or-global | 37 | 19 |
 | unknown | 54 | 52 |
 | webhook | 2 | 0 |
-| workspace | 131 | 131 |
+| workspace | 132 | 132 |
 
 ## Public allowlist (unauthenticated by design)
 
@@ -401,13 +401,16 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `/^\/api\/workspaces\/([^/` | 42 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| DELETE | `/^\/api\/workspaces\/([^/` | 59 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| PUT | `/^\/api\/workspaces\/([^/` | 59 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| DELETE | `/^\/api\/workspaces\/([^/` | 63 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/api/account/branding/profiles` | 117 | account | ✓ | requireAuth |
-| POST | `/api/account/branding/profiles` | 126 | account | ✓ | requireAuth |
-| DELETE | `/^\/api\/account\/branding\/profiles\/([^/` | 154 | account | ✓ | requireAuth |
+| GET | `/^\/api\/workspaces\/([^\/]+)\/branding$/` | 67 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/^\/api\/workspaces\/([^\/]+)\/branding\/logo$/` | 76 | workspace | ✓ | requireAuth |
+| PUT | `/^\/api\/workspaces\/([^\/]+)\/branding$/` | 79 | workspace | ✓ | requireAuth |
+| DELETE | `/^\/api\/workspaces\/([^\/]+)\/branding\/logo$/` | 87 | workspace | ✓ | requireAuth |
+| PUT | `/^\/api\/workspaces\/([^\/]+)\/branding\/logo$/` | 93 | workspace | ✓ | requireAuth |
+| GET | `/api/account/branding/profiles` | 121 | account | ✓ | requireAuth |
+| GET | `/^\/api\/account\/branding\/profiles\/([^\/]+)$/` | 125 | account | ✓ | requireAuth |
+| POST | `/api/account/branding/profiles` | 163 | account | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| PUT | `/^\/api\/account\/branding\/profiles\/([^\/]+)$/` | 164 | account | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| DELETE | `/^\/api\/account\/branding\/profiles\/([^\/]+)$/` | 165 | account | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/workspace-insights.js`
 

@@ -39,8 +39,8 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 261,
-    "authed": 238,
+    "total": 264,
+    "authed": 241,
     "public_unauthed": 23,
     "sensitive_scope_gaps": 0,
     "by_scope": {
@@ -57,16 +57,16 @@
         "authed": 19
       },
       "account": {
-        "total": 24,
-        "authed": 24
+        "total": 26,
+        "authed": 26
       },
       "admin": {
         "total": 2,
         "authed": 2
       },
       "workspace": {
-        "total": 131,
-        "authed": 131
+        "total": 132,
+        "authed": 132
       },
       "unknown": {
         "total": 54,
@@ -3108,7 +3108,7 @@
     },
     {
       "method": "DELETE",
-      "path": "/^\\/api\\/account\\/branding\\/profiles\\/([^/",
+      "path": "/^\\/api\\/account\\/branding\\/profiles\\/([^\\/]+)$/",
       "path_kind": "regex",
       "file": "workers/scan-api/src/routes/workspace-branding.js",
       "scope": "account",
@@ -3120,42 +3120,13 @@
       "public_reason": null
     },
     {
-      "method": "DELETE",
-      "path": "/^\\/api\\/workspaces\\/([^/",
-      "path_kind": "regex",
-      "file": "workers/scan-api/src/routes/workspace-branding.js",
-      "scope": "workspace",
-      "auth_guards": [
-        "requireAuth",
-        "requireWorkspaceRole"
-      ],
-      "scope_helpers": [],
-      "authed": true,
-      "public_reason": null
-    },
-    {
-      "method": "DELETE",
-      "path": "/^\\/api\\/workspaces\\/([^/",
-      "path_kind": "regex",
-      "file": "workers/scan-api/src/routes/workspace-branding.js",
-      "scope": "workspace",
-      "auth_guards": [
-        "requireAuth",
-        "requireWorkspaceRole"
-      ],
-      "scope_helpers": [],
-      "authed": true,
-      "public_reason": null
-    },
-    {
       "method": "GET",
-      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path": "/^\\/api\\/account\\/branding\\/profiles\\/([^\\/]+)$/",
       "path_kind": "regex",
       "file": "workers/scan-api/src/routes/workspace-branding.js",
-      "scope": "workspace",
+      "scope": "account",
       "auth_guards": [
-        "requireAuth",
-        "requireWorkspaceRole"
+        "requireAuth"
       ],
       "scope_helpers": [],
       "authed": true,
@@ -3163,13 +3134,83 @@
     },
     {
       "method": "PUT",
-      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path": "/^\\/api\\/account\\/branding\\/profiles\\/([^\\/]+)$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/branding\\/logo$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/branding\\/logo$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PUT",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/branding\\/logo$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/branding$/",
       "path_kind": "regex",
       "file": "workers/scan-api/src/routes/workspace-branding.js",
       "scope": "workspace",
       "auth_guards": [
         "requireAuth",
         "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PUT",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/branding$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth"
       ],
       "scope_helpers": [],
       "authed": true,
@@ -3195,9 +3236,12 @@
       "file": "workers/scan-api/src/routes/workspace-branding.js",
       "scope": "account",
       "auth_guards": [
-        "requireAuth"
+        "requireAuth",
+        "requireWorkspaceRole"
       ],
-      "scope_helpers": [],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
       "authed": true,
       "public_reason": null
     },

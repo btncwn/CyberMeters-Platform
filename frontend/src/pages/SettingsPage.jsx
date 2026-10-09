@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   AlertTriangle, Building2, CheckCircle, CreditCard,
-  Save, Settings, User, Bell, Palette, Image as ImageIcon, Lock, Upload,
+  Save, Settings, User, Bell,
 } from 'lucide-react'
 import { api } from '../api'
+import { Link } from 'react-router-dom'
+import { AgencyReportBranding } from '../components/ReportBranding'
 import { useAuth } from '../context/AuthContext'
 
 const COMPANY_SIZES = ['', '1-10', '11-50', '51-200', '201-1000', '1000+']
@@ -41,7 +43,7 @@ function Status({ error, ok }) {
 function PlanBadge({ plan }) {
   return (
     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-brand-50 text-brand-700 border border-brand-100 capitalize">
-      {plan || 'free'}
+      {['free', 'starter', 'professional', 'business', 'enterprise'].includes(plan) ? plan : 'Unavailable'}
     </span>
   )
 }
@@ -199,158 +201,6 @@ function NotificationPreferencesCard() {
       >
         <Save className="w-4 h-4" />
         {saving ? 'Saving…' : 'Save Preferences'}
-      </button>
-    </div>
-  )
-}
-
-// ── Report branding (white-label) ─────────────────────────────────────────────
-// MSPs on Business+ can put their own logo, name, and accent on customer reports.
-const MAX_LOGO_BYTES = 96 * 1024
-
-function ReportBrandingCard() {
-  const [state, setState]     = useState({ company_name: null, brand_logo: null, brand_accent: '', report_white_label: false })
-  const [available, setAvail] = useState(false)
-  const [hasProfile, setHasProfile] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving]   = useState(false)
-  const [status, setStatus]   = useState({})
-
-  useEffect(() => {
-    let alive = true
-    api.getReportBranding()
-      .then(res => {
-        if (!alive) return
-        setState({
-          company_name:       res.branding?.company_name ?? null,
-          brand_logo:         res.branding?.brand_logo ?? null,
-          brand_accent:       res.branding?.brand_accent ?? '',
-          report_white_label: !!res.branding?.report_white_label,
-        })
-        setAvail(!!res.white_label_available)
-        setHasProfile(!!res.has_company_profile)
-      })
-      .catch(() => {})
-      .finally(() => { if (alive) setLoading(false) })
-    return () => { alive = false }
-  }, [])
-
-  function onLogo(e) {
-    setStatus({})
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > MAX_LOGO_BYTES) { setStatus({ error: 'Logo must be under 96 KB.' }); return }
-    if (!/^image\/(png|jpeg|svg\+xml|webp)$/.test(file.type)) { setStatus({ error: 'Use a PNG, JPEG, SVG, or WebP image.' }); return }
-    const reader = new FileReader()
-    reader.onload = () => setState(s => ({ ...s, brand_logo: String(reader.result) }))
-    reader.onerror = () => setStatus({ error: 'Could not read that file.' })
-    reader.readAsDataURL(file)
-  }
-
-  async function save() {
-    setSaving(true); setStatus({})
-    try {
-      const res = await api.updateReportBranding({
-        brand_logo:         state.brand_logo,
-        brand_accent:       state.brand_accent || null,
-        report_white_label: state.report_white_label,
-      })
-      setState(s => ({
-        ...s,
-        company_name:       res.branding?.company_name ?? s.company_name,
-        brand_logo:         res.branding?.brand_logo ?? null,
-        brand_accent:       res.branding?.brand_accent ?? '',
-        report_white_label: !!res.branding?.report_white_label,
-      }))
-      setStatus({ ok: true })
-    } catch (err) {
-      setStatus({ error: err.message })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  if (loading) return null
-
-  return (
-    <div className="card p-6 space-y-4 lg:col-span-2">
-      <div className="flex items-center gap-2">
-        <Palette className="w-4 h-4 text-brand-600" />
-        <h2 className="text-sm font-bold text-gray-900">Report Branding</h2>
-        {!available && (
-          <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2 py-0.5">
-            <Lock className="w-3 h-3" /> Business plan
-          </span>
-        )}
-      </div>
-      <p className="text-xs text-gray-500 leading-relaxed">
-        Put your own logo and colour on the reports you share with clients. Your brand leads the
-        shareable report and the PDF header; every report still notes “Powered by CyberMeters”.
-      </p>
-
-      {!hasProfile && (
-        <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-100 text-xs text-amber-700">
-          Set your Company Name above and save the company profile first — the report leads with it.
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="Logo" hint="PNG, JPEG, SVG or WebP · max 96 KB">
-          <div className="flex items-center gap-3">
-            <div className="w-16 h-16 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden flex-shrink-0">
-              {state.brand_logo
-                ? <img src={state.brand_logo} alt="Logo preview" className="max-w-full max-h-full object-contain" />
-                : <ImageIcon className="w-6 h-6 text-gray-300" />}
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="btn-secondary text-xs cursor-pointer inline-flex items-center gap-1.5">
-                <Upload className="w-3.5 h-3.5" /> Choose image
-                <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden" onChange={onLogo} />
-              </label>
-              {state.brand_logo && (
-                <button type="button" onClick={() => setState(s => ({ ...s, brand_logo: null }))}
-                        className="text-xs text-gray-400 hover:text-red-500 text-left">Remove logo</button>
-              )}
-            </div>
-          </div>
-        </Field>
-        <Field label="Accent colour" hint="Used for the report header band">
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={/^#[0-9a-fA-F]{6}$/.test(state.brand_accent) ? state.brand_accent : '#00876A'}
-              onChange={e => { setStatus({}); setState(s => ({ ...s, brand_accent: e.target.value })) }}
-              className="w-10 h-9 rounded border border-gray-200 cursor-pointer p-0.5"
-            />
-            <input
-              className="input mono text-xs flex-1"
-              value={state.brand_accent}
-              onChange={e => { setStatus({}); setState(s => ({ ...s, brand_accent: e.target.value })) }}
-              placeholder="#00876A"
-              maxLength={7}
-            />
-          </div>
-        </Field>
-      </div>
-
-      <label className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border ${available ? 'border-gray-200' : 'border-gray-100 opacity-60'}`}>
-        <input
-          type="checkbox"
-          checked={state.report_white_label}
-          disabled={!available}
-          onChange={e => { setStatus({}); setState(s => ({ ...s, report_white_label: e.target.checked })) }}
-          className="w-4 h-4 accent-brand-600"
-        />
-        <span className="text-sm text-gray-700">
-          Use my brand on shared reports
-          {!available && <span className="text-gray-400"> — upgrade to Business to enable</span>}
-        </span>
-      </label>
-
-      <Status {...status} />
-      <button type="button" onClick={save} disabled={saving} className="btn-primary disabled:opacity-50">
-        <Save className="w-4 h-4" />
-        {saving ? 'Saving...' : 'Save Branding'}
       </button>
     </div>
   )
@@ -589,14 +439,14 @@ export default function SettingsPage() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-gray-400">Status</span>
-              <span className="font-medium text-gray-700 capitalize">{subscription?.status || 'active'}</span>
+              <span className="font-medium text-gray-700 capitalize">{subscription?.status || 'Unavailable'}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-gray-400">Billing Provider</span>
-              <span className="font-medium text-gray-700 capitalize">{subscription?.billing_provider || 'manual'}</span>
+              <span className="font-medium text-gray-700 capitalize">{subscription?.billing_provider || 'Unavailable'}</span>
             </div>
             <p className="text-xs text-gray-400 pt-2 border-t border-gray-100">
-              Payment integration is not enabled in v1. Subscription changes are managed manually.
+              View your current plan, invoices and payment settings on the billing page.
             </p>
           </div>
           {usage && (
@@ -630,11 +480,9 @@ export default function SettingsPage() {
                   </span>
                 </div>
               </div>
-              <button type="button" disabled className="btn-primary w-full opacity-60 cursor-not-allowed">
-                Upgrade coming soon
-              </button>
             </div>
           )}
+          <Link to="/billing" className="btn-primary w-full justify-center">Manage billing</Link>
         </div>
 
         <div className="card p-6 space-y-4 lg:col-span-2">
@@ -657,7 +505,7 @@ export default function SettingsPage() {
           </Field>
         </div>
 
-        <ReportBrandingCard />
+        <AgencyReportBranding accountId={user?.id} />
 
         <NotificationPreferencesCard />
       </div>

@@ -12,6 +12,7 @@ import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import StatusBadge from '../components/StatusBadge'
 import CanonicalScore from '../components/CanonicalScore'
+import { WorkspaceReportBranding } from '../components/ReportBranding'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -693,6 +694,8 @@ export default function WorkspaceDetailPage() {
           </table>
         )}
       </div>
+
+      <WorkspaceReportBranding workspaceId={id} />
 
       {/* Danger Zone — owner only. Server enforces owner-only on the delete route too. */}
       {workspace?.role === 'owner' && (
