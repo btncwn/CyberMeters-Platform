@@ -39,9 +39,9 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 264,
+    "total": 270,
     "authed": 241,
-    "public_unauthed": 23,
+    "public_unauthed": 29,
     "sensitive_scope_gaps": 0,
     "by_scope": {
       "email": {
@@ -51,6 +51,10 @@
       "preflight": {
         "total": 1,
         "authed": 0
+      },
+      "unknown": {
+        "total": 60,
+        "authed": 52
       },
       "public-or-global": {
         "total": 37,
@@ -67,10 +71,6 @@
       "workspace": {
         "total": 132,
         "authed": 132
-      },
-      "unknown": {
-        "total": 54,
-        "authed": 52
       },
       "webhook": {
         "total": 2,
@@ -206,6 +206,39 @@
       "public_reason": "readiness probe — no tenant data"
     },
     {
+      "method": "DELETE",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/index.js",
+      "scope": "unknown",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/index.js",
+      "scope": "unknown",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": null
+    },
+    {
+      "method": "HEAD",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/index.js",
+      "scope": "unknown",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": null
+    },
+    {
       "method": "OPTIONS",
       "path": null,
       "path_kind": null,
@@ -215,6 +248,39 @@
       "scope_helpers": [],
       "authed": false,
       "public_reason": "CORS preflight — no body, no tenant data"
+    },
+    {
+      "method": "PATCH",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/index.js",
+      "scope": "unknown",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/index.js",
+      "scope": "unknown",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": null
+    },
+    {
+      "method": "PUT",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/index.js",
+      "scope": "unknown",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": null
     },
     {
       "method": "DELETE",
