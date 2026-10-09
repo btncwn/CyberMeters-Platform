@@ -29,6 +29,13 @@ export async function boundedJson(request, maxBytes) {
 // Fixed public API contract; extra provider fields (including any values) are
 // discarded. An incomplete response can never become a negative observation.
 export function parseLeakCheckResult(body) {
+  // The Public API also uses this exact legacy envelope for an absent result.
+  // Extra fields or any other error stay unknown; HTTP errors are rejected by
+  // queryLeakCheck before this parser is called.
+  if (body && !Array.isArray(body) && body.success === false && body.error === 'Not found'
+      && Object.keys(body).sort().join(',') === 'error,success') {
+    return { status: 'no_matches', reason: null, found_count: 0, fields: [], sources: [] };
+  }
   const text = (s, max) => typeof s === 'string' && s.length > 0 && s.length <= max && !/[\u0000-\u001f\u007f]/.test(s);
   if (!body || body.success !== true || !Number.isSafeInteger(body.found) || body.found < 0
       || !Array.isArray(body.fields) || body.fields.length > 100 || !body.fields.every(s => text(s, 80))
