@@ -7,7 +7,7 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
-## Live TLS report explanation — prepared 9 October 2026
+## v2026.10.09-4 — scoped live TLS report explanation — 9 October 2026
 
 New report snapshots describe admitted live certificate, hostname and declared
 trust-store observations instead of retaining the old CT-only explanation.
@@ -17,7 +17,26 @@ unknown revocation and exact-wire-chain limits remain explicit. No score,
 quality grade or stored historical snapshot changes. Focused checks passed:
 194 certificate customer-parity, 95 snapshot and 64 renderer assertions;
 independent review passed, including the mixed-endpoint regression.
-Coordinated API/email staging and deployment remain pending.
+**DEPLOYED from PR #493, source `6dcc309c`, at 02:12 UTC.** API
+`daf11018-1737-4abb-ad52-871c2c0c6f49` (deployment
+`5d46380b-e231-4799-88bb-b5e8f2e78ece`) and email
+`0c56ba00-692e-45d1-9481-c0447cafb251` (deployment
+`c2f36974-95b1-4e21-a4e6-e93d603db502`) are the coordinated pair.
+Pages `f1eb1051-73eb-459f-ab9a-68b353bd26a4` deployed the same source.
+All 16 PR checks and all 15 main CI jobs passed. No migration or binding change
+apart from the coordinated APP_VERSION traceability stamp.
+
+UI-started cybermeters.com scan `scan_c9131368-e5e1-4b13-8a82-cd75c38b351a`
+completed all 16 modules at 02:15:48 UTC, including four of four live TLS
+endpoints. Its new snapshot and downloaded 16-page technical PDF retain the
+partial CT coverage, provisional score and unmeasured revocation/wire-chain
+limits alongside the observed leaf, hostname and named trust-store results.
+The PDF passed visual inspection on all pages. Ten bounded live access/session
+checks passed. The temporary Founder test entitlement and all three schedules
+were restored at 02:16:56 UTC; the collector instance stopped normally.
+
+Rollback is the v2026.10.09-3 API/email pair below. Independent public-IP/non-web
+production acceptance remains unrun; this release does not add that claim.
 
 ## v2026.10.09-3 — network and live TLS coverage — 9 October 2026
 
