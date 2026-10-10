@@ -122,6 +122,7 @@ export function buildDmarcEnforcementReadiness(summary = {}) {
   const pass    = typeof summary.pass_rate === "number" ? summary.pass_rate : 0;
   const unknown = summary.unknown_senders || 0;
   const highVolFailed = summary.high_volume_failed_senders || 0;
+  const threat = summary.threat_senders || 0;
 
   const qBlockers = [];
   if (days < 7) qBlockers.push("Fewer than 7 days of DMARC reports have been imported.");
@@ -129,6 +130,7 @@ export function buildDmarcEnforcementReadiness(summary = {}) {
   if (pass < 95) qBlockers.push(`DMARC pass rate is ${pass}% (95% recommended before quarantine).`);
   if (unknown > 0) qBlockers.push(`${unknown} unknown sender${unknown === 1 ? "" : "s"} remain unclassified.`);
   if (highVolFailed > 0) qBlockers.push(`${highVolFailed} high-volume sender(s) are failing alignment.`);
+  if (threat > 0) qBlockers.push(`${threat} sender(s) are classified as impersonation threats.`);
 
   const rBlockers = [];
   if (days < 14) rBlockers.push("Fewer than 14 days of DMARC reports have been imported.");
@@ -137,7 +139,7 @@ export function buildDmarcEnforcementReadiness(summary = {}) {
   if (highVolFailed > 0) rBlockers.push(`${highVolFailed} high-volume sender(s) are failing alignment.`);
 
   const readyQuarantine = qBlockers.length === 0;
-  const readyReject     = rBlockers.length === 0;
+  const readyReject     = readyQuarantine && rBlockers.length === 0;
   const blockers = readyQuarantine ? rBlockers : qBlockers; // surface the nearer milestone's blockers
 
   let confidence = "low";
@@ -156,8 +158,11 @@ export function buildDmarcEnforcementReadiness(summary = {}) {
     explanation = "The domain is not ready for enforcement yet. Resolve the blockers below, then re-evaluate.";
   }
   const v2 = buildEnforcementReadinessChecks(summary);
+  // The weighted score cannot overrule a milestone blocker (e.g. one unknown
+  // sender). Keep the score, but do not label blocked evidence as ready.
+  const status = v2.status === "ready" && !readyQuarantine ? "approaching" : v2.status;
   return { ready_for_quarantine: readyQuarantine, ready_for_reject: readyReject, confidence, blockers, next_step, explanation,
-           status: v2.status, score: v2.score, checks: v2.checks };
+           status, score: v2.score, checks: v2.checks };
 }
 
 
