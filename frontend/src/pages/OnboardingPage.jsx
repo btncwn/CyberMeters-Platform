@@ -8,6 +8,8 @@ import { api } from '../api'
 import Spinner from '../components/Spinner'
 import { PENDING_SIGNUP_DOMAIN_KEY } from '../utils/signupDomainHandoff'
 import { canonicalDomainInput } from '../lib/newScanVerification'
+import OneClickDnsButton from '../components/OneClickDnsButton'
+import { useDomainConnectOffer } from '../hooks/useDomainConnectOffer'
 
 function domainIdOf(domain) {
   return domain?.domain_id || domain?.id
@@ -96,6 +98,11 @@ export default function OnboardingPage() {
   const [firstScan, setFirstScan] = useState(null)
   const [successMessage, setSuccessMessage] = useState('')
   const [actionLoading, setActionLoading] = useState(null)
+  // One-click verification for the current token (re-fetched when a new one is issued).
+  const oneClick = useDomainConnectOffer(
+    domainIdOf(selectedDomain), workspace?.id,
+    verificationInstructions?.dns?.value || verificationInstructions?.token || selectedDomain?.verification_token,
+  )
 
   async function load() {
     setLoading(true)
@@ -350,6 +357,9 @@ export default function OnboardingPage() {
             <p className="text-sm text-gray-500">
               Add the CyberMeters TXT record to your DNS, then verify ownership.
             </p>
+            {(verificationInstructions || selectedDomain?.verification_token) && (
+              <OneClickDnsButton offer={oneClick} />
+            )}
             {(verificationInstructions || selectedDomain?.verification_token) && (
               <div className="grid gap-3">
                 <div className="bg-gray-50 rounded-xl p-4">

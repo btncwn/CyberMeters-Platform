@@ -6,6 +6,8 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 import VerificationStatusBadge from '../components/VerificationStatusBadge'
+import OneClickDnsButton from '../components/OneClickDnsButton'
+import { useDomainConnectOffer } from '../hooks/useDomainConnectOffer'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -116,6 +118,12 @@ export default function DomainVerifyPage() {
   // Verify state
   const [verifying,    setVerifying]    = useState(false)
   const [verifyResult, setVerifyResult] = useState(null)
+
+  // One-click verification for the current token, when the DNS provider supports it.
+  const oneClick = useDomainConnectOffer(
+    domainId, location.state?.workspaceId ?? domain?.workspace_id,
+    instructions?.dns?.value || instructions?.token,
+  )
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
@@ -339,6 +347,7 @@ export default function DomainVerifyPage() {
           <div className="p-6 space-y-3">
             {tab === 'dns' ? (
               <>
+                <OneClickDnsButton offer={oneClick} />
                 <p className="text-xs text-gray-500">
                   Add the following TXT record to your domain's DNS. DNS changes typically propagate within 1–48 hours.
                 </p>

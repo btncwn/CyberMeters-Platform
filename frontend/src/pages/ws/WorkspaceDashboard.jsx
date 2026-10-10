@@ -21,6 +21,8 @@ import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import StatCard from '../../components/StatCard'
 import WorkspaceMembersPanel from '../../components/WorkspaceMembersPanel'
 import VerificationStatusBadge from '../../components/VerificationStatusBadge'
+import OneClickDnsButton from '../../components/OneClickDnsButton'
+import { useDomainConnectOffer } from '../../hooks/useDomainConnectOffer'
 import ActivityTimeline from '../../components/ActivityTimeline'
 import { projectedCountDisplay } from '../../lib/assetLifecycleClaimDisplay'
 
@@ -122,6 +124,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
   const [verifyResult, setVerifyResult] = useState(null)
 
   const [expanded, setExpanded] = useState(true)
+  const oneClick = useDomainConnectOffer(activeDomain?.domain_id, wsId, instructions?.dns?.value)
 
   if (actionable.length === 0) return null
 
@@ -310,6 +313,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                     </div>
                   ) : tab === 'dns' ? (
                     <div className="space-y-3">
+                      <OneClickDnsButton offer={oneClick} />
                       <p className="text-xs text-gray-500">Add this TXT record to your DNS. Changes may take up to 48 hours.</p>
                       {[
                         { label: 'Host / Name', value: instructions.dns?.host },

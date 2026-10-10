@@ -354,6 +354,96 @@ const resetLink = () => db.exec(`UPDATE workspace_domains SET verification_statu
   ok("cross-tenant: ws_b has no verified_at", !b.verified_at);
 }
 
+// ── 14. Domain Connect one-click offer ───────────────────────────────────────
+// The offer only writes the same `_cybermeters` TXT record; ownership is still
+// proven by /verify reading DNS. What must hold: customer DNS can never steer a
+// fetch or a browser redirect, every failure is "not available" (manual flow
+// stays), and the signed apply URL is exactly what the provider will verify.
+{
+  const dc = await import(modUrl("workers", "scan-api", "src", "lib", "domain-connect.js"));
+  const pair = await crypto.subtle.generateKey(
+    { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+    true, ["sign", "verify"]);
+  const pkcs8 = Buffer.from(await crypto.subtle.exportKey("pkcs8", pair.privateKey)).toString("base64");
+  const PEM = `-----BEGIN PRIVATE KEY-----\n${pkcs8.match(/.{1,64}/g).join("\n")}\n-----END PRIVATE KEY-----\n`;
+  const CF = dc.DOMAIN_CONNECT_PROVIDERS.find((p) => p.id === "cloudflare.com");
+  const base = { domain: "shop.alpha.example", token: TOKEN, frontendOrigin: "https://app.cybermeters.com",
+    domainId: "d1", workspaceId: "ws_a", privateKeyPem: PEM };
+  const fetched = [];
+  const deps = ({ txt = {}, settings = 200, settingsId = "cloudflare.com", template = 200, throwOnFetch = false } = {}) => ({
+    txtLookup: async (name) => txt[name] || [],
+    fetchImpl: async (u) => {
+      fetched.push(u);
+      if (throwOnFetch) throw new Error("network down");
+      if (u.endsWith("/settings")) return new Response(JSON.stringify({ providerId: settingsId }), { status: settings });
+      return new Response(JSON.stringify({}), { status: template });
+    },
+  });
+  const cfTxt = { "_domainconnect.alpha.example": ['"api.cloudflare.com/client/v4/dns/domainconnect"'] };
+
+  eq("domain-connect: no key → not_configured",
+    (await dc.resolveDomainConnectOffer({ ...base, privateKeyPem: "" }, deps({ txt: cfTxt }))).reason, "not_configured");
+  eq("domain-connect: no pending token → no_pending_token",
+    (await dc.resolveDomainConnectOffer({ ...base, token: null }, deps({ txt: cfTxt }))).reason, "no_pending_token");
+  eq("domain-connect: non-https frontend → not_configured",
+    (await dc.resolveDomainConnectOffer({ ...base, frontendOrigin: "http://app.cybermeters.com" }, deps({ txt: cfTxt }))).reason, "not_configured");
+  eq("domain-connect: no _domainconnect anywhere → provider_not_discoverable",
+    (await dc.resolveDomainConnectOffer(base, deps())).reason, "provider_not_discoverable");
+
+  fetched.length = 0;
+  const evil = await dc.resolveDomainConnectOffer(base,
+    deps({ txt: { "_domainconnect.alpha.example": ["attacker.example/dc"] } }));
+  eq("domain-connect: unknown provider → provider_not_supported", evil.reason, "provider_not_supported");
+  eq("domain-connect: unknown provider → zero outbound fetches", fetched.length, 0);
+
+  eq("domain-connect: settings for another provider → provider_settings_unavailable",
+    (await dc.resolveDomainConnectOffer(base, deps({ txt: cfTxt, settingsId: "evil.example" }))).reason, "provider_settings_unavailable");
+  eq("domain-connect: template 404 → template_not_onboarded",
+    (await dc.resolveDomainConnectOffer(base, deps({ txt: cfTxt, template: 404 }))).reason, "template_not_onboarded");
+  eq("domain-connect: provider unreachable → provider_unreachable",
+    (await dc.resolveDomainConnectOffer(base, deps({ txt: cfTxt, throwOnFetch: true }))).reason, "provider_unreachable");
+
+  fetched.length = 0;
+  const offer = await dc.resolveDomainConnectOffer(base, deps({ txt: cfTxt }));
+  eq("domain-connect: supported → available", offer.available, true);
+  eq("domain-connect: provider name comes from the allowlist", offer.provider?.name, "Cloudflare");
+  ok("domain-connect: every fetch targets the pinned provider API base",
+    fetched.length === 2 && fetched.every((u) => u.startsWith(`${CF.apiBase}/v2/`)));
+  const applied = new URL(offer.apply_url);
+  ok("domain-connect: apply URL is on the pinned consent origin",
+    offer.apply_url.startsWith(`${CF.syncUxBase}/v2/domainTemplates/providers/cybermeters.com/services/domain-verification/apply?`));
+  eq("domain-connect: zone found by walking up from the subdomain", applied.searchParams.get("domain"), "alpha.example");
+  eq("domain-connect: subdomain passed as host", applied.searchParams.get("host"), "shop");
+  eq("domain-connect: token passed as template variable", applied.searchParams.get("verificationToken"), TOKEN);
+  eq("domain-connect: redirect back to the app return page",
+    applied.searchParams.get("redirect_uri"), "https://app.cybermeters.com/domains/verify-return");
+  eq("domain-connect: state carries the exact domain + workspace",
+    JSON.stringify(JSON.parse(Buffer.from(applied.searchParams.get("state"), "base64url").toString())), '{"d":"d1","w":"ws_a"}');
+  eq("domain-connect: key host", applied.searchParams.get("key"), "_dck1");
+  ok("domain-connect: sig is the last parameter", /&sig=[^&]+$/.test(offer.apply_url));
+  const signedPart = offer.apply_url.split("?")[1].replace(/&key=[^&]*&sig=[^&]*$/, "");
+  const sigBytes = Buffer.from(decodeURIComponent(offer.apply_url.match(/&sig=([^&]+)$/)[1]), "base64");
+  ok("domain-connect: signature verifies over the exact sent query string",
+    await crypto.subtle.verify({ name: "RSASSA-PKCS1-v1_5" }, pair.publicKey, sigBytes, new TextEncoder().encode(signedPart)));
+  ok("domain-connect: tampered query string does not verify",
+    !(await crypto.subtle.verify({ name: "RSASSA-PKCS1-v1_5" }, pair.publicKey, sigBytes,
+      new TextEncoder().encode(signedPart.replace("shop", "evil")))));
+
+  const apex = await dc.resolveDomainConnectOffer({ ...base, domain: "alpha.example" }, deps({ txt: cfTxt }));
+  eq("domain-connect: apex domain sends no host parameter", new URL(apex.apply_url).searchParams.has("host"), false);
+
+  // Route contract: authenticated, workspace-scoped, reads the workspace link's
+  // token, and lives outside the /verify handler slice used above.
+  const dcRouteSrc = ROUTE_SRC.slice(ROUTE_SRC.indexOf("const domConnectMatch"), ROUTE_SRC.indexOf("const domVerCheckMatch"));
+  ok("domain-connect route: slice is substantial", dcRouteSrc.length > 1500);
+  ok("domain-connect route: auth before any lookup",
+    dcRouteSrc.indexOf("requireAuth(") > 0 && dcRouteSrc.indexOf("requireAuth(") < dcRouteSrc.indexOf("FROM domains"));
+  ok("domain-connect route: workspace resolved with domain:verify role", /resolveVerificationWorkspace\(/.test(dcRouteSrc));
+  ok("domain-connect route: token read from the exact workspace link",
+    /FROM workspace_domains WHERE workspace_id = \? AND domain_id = \?/.test(dcRouteSrc));
+  ok("domain-connect route: never writes verification state", !/UPDATE\s+workspace_domains/.test(dcRouteSrc));
+}
+
 restoreLog();
 report(`\nDomain-verification integrity: ${pass}/${pass + fail} passed`);
 if (fail > 0) process.exit(1);

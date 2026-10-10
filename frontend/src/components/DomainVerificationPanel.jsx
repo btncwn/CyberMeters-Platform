@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ShieldCheck, Copy, Check, Info } from 'lucide-react'
 import Spinner from './Spinner'
 import { shouldKeepInstructions } from '../lib/newScanVerification'
+import OneClickDnsButton from './OneClickDnsButton'
 
 // ── Domain-ownership setup, shown inline in New Scan ─────────────────────────
 // Presentational only. Every value on screen comes from the backend's verification
@@ -44,7 +45,7 @@ function Field({ label, value, copyLabel }) {
   )
 }
 
-export default function DomainVerificationPanel({ domain, dns, state, note, onVerify }) {
+export default function DomainVerificationPanel({ domain, dns, state, note, onVerify, oneClick = null }) {
   const checking = state === 'checking'
 
   if (state === 'verified') {
@@ -76,6 +77,7 @@ export default function DomainVerificationPanel({ domain, dns, state, note, onVe
           would leave the customer with no route back to the record. */}
       {dns && shouldKeepInstructions(state) && (
         <>
+          <OneClickDnsButton offer={oneClick} />
           <div className="rounded-md border border-gray-200 bg-white px-3.5">
             <Field label="Type" value={dns.record_type} />
             <Field label="Name / Host" value={dns.host} copyLabel="host" />

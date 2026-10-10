@@ -1194,6 +1194,18 @@ export const api = {
       ...(workspaceId ? { body: JSON.stringify({ workspace_id: workspaceId }) } : {}),
     }),
 
+  /**
+   * POST /api/domains/:id/verification/domain-connect
+   * One-click verification offer: { available, provider:{id,name}, apply_url }
+   * when the domain's DNS provider can add the TXT record for the customer,
+   * otherwise { available:false, reason }. Requires a pending token.
+   */
+  getDomainConnectOffer: (domainId, workspaceId) =>
+    request(`/domains/${domainId}/verification/domain-connect`, {
+      method: 'POST',
+      ...(workspaceId ? { body: JSON.stringify({ workspace_id: workspaceId }) } : {}),
+    }),
+
   /** GET /api/domains/:id — domain details including verification fields */
   getDomain: (domainId) =>
     request(`/domains/${domainId}`),

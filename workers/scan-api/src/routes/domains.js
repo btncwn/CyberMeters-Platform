@@ -5,7 +5,7 @@
 // from index.js; returns a Response when a route matches, or null so the main
 // router continues. Dispatched BEFORE the workspaces-core wsMatch block so
 // /domains/import keeps winning over the :domainId pattern, as before.
-import { dnsQuery } from "../engines/dns.js";
+import { dnsAnswerValues, dnsQuery } from "../engines/dns.js";
 import { normalizeHostname } from "../engines/hostnames.js";
 import { domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEntitlementUsage, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { hashToken } from "../lib/auth-crypto.js";
@@ -13,6 +13,7 @@ import { checkDnsTxtProof, outcomeForDnsCategory, persistVerification, recordVer
          resolveVerificationWorkspace, VERIFICATION_OUTCOMES, VERIFICATION_RECHECK_INTERVAL,
          VERIFICATION_WINDOW_HOURS } from "../lib/domain-verification.js";
 import { customerSafeFailure } from "../lib/errors.js";
+import { resolveDomainConnectOffer } from "../lib/domain-connect.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { safeFetch } from "../lib/http.js";
 import { canonicalDomainInput, createId, isValidDomain } from "../lib/util.js";
@@ -282,6 +283,57 @@ export async function domainRoutes(rctx) {
             ],
           },
         });
+      } catch (e) {
+        return serverError("api", e);
+      }
+    }
+
+    // ── POST /api/domains/:id/verification/domain-connect ────────────────────
+    // Offer one-click verification: when the domain's DNS provider supports
+    // Domain Connect and has onboarded the CyberMeters template, return a signed
+    // URL to the provider's consent screen that adds the SAME `_cybermeters` TXT
+    // record the manual instructions show. Ownership is still proven only by
+    // POST /verify reading DNS. Never an error for "not available" — the manual
+    // instructions remain the fallback, so this answers 200 { available:false }.
+    const domConnectMatch = url.pathname.match(/^\/api\/domains\/([^/]+)\/verification\/domain-connect$/);
+    if (domConnectMatch && request.method === "POST") {
+      const domainId = domConnectMatch[1];
+      try {
+        // Auth BEFORE any lookup — same existence-oracle rule as the routes above.
+        const dcUser = await requireAuth(request, env);
+        if (!dcUser) return json({ error: "Unauthorized" }, 401);
+
+        const domRow = await env.cybermeters_db
+          .prepare("SELECT id, domain FROM domains WHERE id = ?")
+          .bind(domainId)
+          .first();
+        if (!domRow) return json({ error: "Domain not found" }, 404);
+
+        let dcBody = {};
+        try { dcBody = await request.json(); } catch { /* optional body */ }
+        const dcWs = await resolveVerificationWorkspace(dcUser, domainId, dcBody?.workspace_id, requireWorkspaceRole, env);
+        if (dcWs.error) return json({ error: dcWs.error, ...(dcWs.code ? { code: dcWs.code } : {}) }, dcWs.status);
+
+        const dcLink = await env.cybermeters_db
+          .prepare("SELECT verification_status, verification_token FROM workspace_domains WHERE workspace_id = ? AND domain_id = ?")
+          .bind(dcWs.workspace_id, domainId)
+          .first();
+        if (dcLink?.verification_status === "verified") {
+          return json({ available: false, reason: "already_verified" });
+        }
+
+        const offer = await resolveDomainConnectOffer({
+          domain: domRow.domain,
+          token: dcLink?.verification_token,
+          frontendOrigin: env.FRONTEND_URL,
+          domainId,
+          workspaceId: dcWs.workspace_id,
+          privateKeyPem: env.DOMAIN_CONNECT_PRIVATE_KEY,
+        }, {
+          txtLookup: async (name) => dnsAnswerValues(await dnsQuery(name, "TXT")),
+          fetchImpl: (target, init) => fetch(target, { ...init, signal: AbortSignal.timeout(5_000) }),
+        });
+        return json(offer);
       } catch (e) {
         return serverError("api", e);
       }
