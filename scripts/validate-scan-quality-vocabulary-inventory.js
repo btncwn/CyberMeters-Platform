@@ -196,7 +196,7 @@ const EXPECTED = Object.freeze({
   // workspace aggregate scan selectors into one direct-attribution helper
   // shifts source positions only. No scan-quality read was added or removed.
   // Trial PDF admission shifts source locations; all 23 existing projection SQL texts and multiplicities are unchanged.
-  sql_reads: { projection_occurrences: 23, fingerprint: "a9a0bc90321efe33520a34ab1ae060f13735a7e379e4d457d6c17a8a836c03bf" },
+  sql_reads: { projection_occurrences: 23, fingerprint: "cabf99a08e0652bbce6c1a25c7e924ffbe90b28e73799ab7a8151af1dbcc4222" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
