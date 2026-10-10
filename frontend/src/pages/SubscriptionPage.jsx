@@ -255,7 +255,7 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
       )}
       {upgradeTo === 'enterprise' && (
         <a
-          href="mailto:sales@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry"
+          href="mailto:hello@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry"
           className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors"
         >
           <Mail className="w-4 h-4" />
@@ -374,7 +374,7 @@ function UpgradePrompt({ plan, onUpgrade, checkoutLoading, livePlans }) {
           </button>
         ) : (
           <a
-            href="mailto:sales@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry"
+            href="mailto:hello@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry"
             className="flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-brand-600 hover:bg-brand-500 rounded-xl transition-colors"
           >
             <Mail className="w-4 h-4" />
@@ -467,7 +467,7 @@ export default function SubscriptionPage() {
     if (!workspaceId) return
     // Enterprise → contact sales, never self-serve
     if (targetPlan === 'enterprise') {
-      window.location.href = 'mailto:sales@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry'
+      window.location.href = 'mailto:hello@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry'
       return
     }
     if (paidPlanChangeViaPortal) {

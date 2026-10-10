@@ -25,7 +25,7 @@ export default function CookiePolicyPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Cookie Policy</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: June 2026 — Version 1.0</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 10 October 2026 — Version 1.1</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             This Cookie Policy explains how CyberMeters ("<strong>we</strong>", "<strong>us</strong>") uses cookies and similar technologies when you access the CyberMeters platform at <strong>app.cybermeters.com</strong>.
           </p>
@@ -100,7 +100,7 @@ export default function CookiePolicyPage() {
           </Section>
 
           <Section title="7. Contact">
-            <p>For questions about this Cookie Policy, contact us at: <a href="mailto:privacy@cybermeters.com" className="text-brand-600 hover:underline font-medium">privacy@cybermeters.com</a></p>
+            <p>For questions about this Cookie Policy, contact us at: <a href="mailto:hello@cybermeters.com" className="text-brand-600 hover:underline font-medium">hello@cybermeters.com</a></p>
           </Section>
         </article>
 

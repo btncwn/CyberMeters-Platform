@@ -448,8 +448,8 @@ export async function billingRoutes(rctx) {
       if (rawPlan === "enterprise") {
         return json({
           error: "contact_sales",
-          message: "Enterprise plans require a sales conversation. Contact us at sales@cybermeters.com.",
-          contact_url: "mailto:sales@cybermeters.com",
+          message: "Enterprise plans require a sales conversation. Contact us at hello@cybermeters.com.",
+          contact_url: "mailto:hello@cybermeters.com",
         }, 400);
       }
 
