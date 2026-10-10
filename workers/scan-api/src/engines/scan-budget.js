@@ -286,6 +286,7 @@ export const SCAN_MODULE_BUDGETS = Object.freeze({
 // envelope. Legacy waitUntil/unknown callers retain the compact caps above.
 export const SCAN_DURABLE_CORE_MODULE_BUDGETS = Object.freeze({
   dns:                    6_000,
+  dns_bruteforce:        11_999,
   ssl:                   39_997,
   headers:               99_991,
   email_security:       113_982,

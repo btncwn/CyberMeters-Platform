@@ -117,5 +117,63 @@ const gateComplete = moduleCompletionGate(
 ok("gate → CAN verify on a genuine complete scan (happy path unchanged)",
    gateComplete.canVerify("asset_exposure") === true);
 
+// ── 9. Discovery reaches the high-risk names ──────────────────────────────────
+// The production (legacy-capacity) path brute-forces a curated wordlist and
+// probes only the first 50 exposure targets. A discovered admin/VPN host must
+// never be cut off by ordinary CT names, and the wordlist must cover every
+// critical prefix the reserved path treats as mandatory or optional.
+{
+  const {
+    BRUTE_FORCE_WORDLIST, BRUTEFORCE_MAX_NAMES, HIGH_VALUE_EXPOSURE_LABELS,
+    HIGH_VALUE_PRIORITY_SLOTS, prioritizeExposureTargets,
+  } = await eng("subdomains-scan.js");
+  const { CRITICAL_PREFIXES_MANDATORY, CRITICAL_PREFIXES_OPTIONAL } = await eng("scan-budget.js");
+  const fs = await import("node:fs");
+
+  ok("wordlist: exactly BRUTEFORCE_MAX_NAMES unique names",
+    BRUTE_FORCE_WORDLIST.length === BRUTEFORCE_MAX_NAMES && new Set(BRUTE_FORCE_WORDLIST).size === BRUTEFORCE_MAX_NAMES);
+  ok("wordlist: covers every mandatory and optional critical prefix",
+    [...CRITICAL_PREFIXES_MANDATORY, ...CRITICAL_PREFIXES_OPTIONAL].every((p) => BRUTE_FORCE_WORDLIST.includes(p)));
+  ok("high-value labels: every critical prefix is prioritised",
+    [...CRITICAL_PREFIXES_MANDATORY, ...CRITICAL_PREFIXES_OPTIONAL].every((p) => HIGH_VALUE_EXPOSURE_LABELS.includes(p)));
+
+  const ct = Array.from({ length: 60 }, (_, i) => `h${i}.example.com`);
+  const known = ["h59.example.com", "legacy.example.com"];
+  const discovered = [...ct, "ADMIN.example.com", "vpn.example.com", "admin.example.com", "api.eu.example.com", "admin.other.org"];
+  const ordered = prioritizeExposureTargets("example.com", { knownHosts: known, discoveredHosts: discovered });
+  ok("priority: high-value hosts first (admin, vpn, nested api)",
+    JSON.stringify(ordered.slice(0, 3)) === JSON.stringify(["admin.example.com", "vpn.example.com", "api.eu.example.com"]));
+  ok("priority: known assets follow the high-value block",
+    JSON.stringify(ordered.slice(3, 5)) === JSON.stringify(["h59.example.com", "legacy.example.com"]));
+  ok("priority: a host outside the scanned domain is never treated as high-value",
+    ordered.indexOf("admin.other.org") > 4);
+  const expectedSet = new Set([...known, ...discovered].map((h) => h.toLowerCase()));
+  ok("priority: nothing added, dropped or duplicated — order only",
+    ordered.length === expectedSet.size && ordered.every((h) => expectedSet.has(h)));
+  ok("priority: admin and vpn land inside the 50-target probe cap even with 60 CT names first",
+    ordered.slice(0, 50).includes("admin.example.com") && ordered.slice(0, 50).includes("vpn.example.com"));
+
+  const many = Array.from({ length: 40 }, (_, i) => `api.r${i}.example.com`);
+  const capped = prioritizeExposureTargets("example.com", { knownHosts: ["keep.example.com"], discoveredHosts: many });
+  ok("priority: high-value block is bounded so known assets keep slots",
+    capped.indexOf("keep.example.com") === HIGH_VALUE_PRIORITY_SLOTS);
+
+  // End to end through the real exposure module: the admin host is probed.
+  const plain = [...ct, "admin.example.com"];
+  globalThis.fetch = withPublicDns(async () => new Response("<title>ok</title>", { status: 200, headers: { "content-type": "text/html" } }));
+  const before = await runExposureModule("example.com", [...new Set(plain)]);
+  const after = await runExposureModule("example.com", prioritizeExposureTargets("example.com", { discoveredHosts: plain }));
+  globalThis.fetch = realFetch;
+  ok("module: discovery order alone used to leave admin unprobed (fixture is meaningful)",
+    !before.assets.some((a) => a.host === "admin.example.com"));
+  ok("module: prioritised order probes the admin host within the cap",
+    after.assets.some((a) => a.host === "admin.example.com") && after.checked === 50);
+
+  const engineSrc = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/scan-engine.js"), "utf8");
+  ok("wiring: production exposure targets come from prioritizeExposureTargets",
+    /const exposureTargets = prioritizeExposureTargets\(domain, \{\s*knownHosts: knownAssetHosts,\s*discoveredHosts: mergedSubdomainItems,\s*\}\);/.test(engineSrc)
+      && /runExposureModule\(domain, exposureTargets,/.test(engineSrc));
+}
+
 console.log(`\nexposure-honesty: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

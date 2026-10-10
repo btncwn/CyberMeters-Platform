@@ -56,6 +56,7 @@ const { runEmailModule } = await eng("email-scan.js");
 const { runHeadersModule } = await eng("headers-scan.js");
 const { runSslModule } = await eng("ssl-scan.js");
 const { runTechModule } = await eng("tech-scan.js");
+const { runBruteforceModule } = await eng("subdomains-scan.js");
 const {
   buildScanQuality,
   createFinalizeLatch,
@@ -604,6 +605,21 @@ const boundaryFixtures = {
       };
     })(),
     run: ({ signal }) => runTechModule("example.com", { signal }),
+  },
+  // Slowest evidence-returning path: every A lookup answers just inside the
+  // module's own 6s race (one name resolves, so the MX pass runs), then every
+  // MX lookup does the same. The durable cap must let this complete.
+  dns_bruteforce: {
+    fetcher: (scheduler, input, init) => {
+      const url = new URL(String(input));
+      const name = url.searchParams.get("name");
+      const type = url.searchParams.get("type");
+      const answer = type === "A" && name === "admin.example.com"
+        ? [{ name, type: 1, TTL: 300, data: "203.0.113.10" }]
+        : [];
+      return delayedJson(scheduler, { Status: 0, Answer: answer }, 5_999, init.signal);
+    },
+    run: () => runBruteforceModule("example.com", { cache: new Map() }),
   },
 };
 
