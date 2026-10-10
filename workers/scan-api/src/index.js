@@ -110,8 +110,6 @@ import { relatedChangesRoutes } from "./routes/related-changes.js";
 import { shadowItRoutes } from "./routes/shadow-it.js";
 import { certificatesLifecycleRoutes } from "./routes/certificates-lifecycle.js";
 import { identityExposureRoutes } from "./routes/identity-exposure.js";
-import { identityBreachCheckRoutes } from "./routes/identity-breach-checks.js";
-import { cleanupIdentityBreachChecks } from "./engines/identity-breach-checks.js";
 import { websiteSecurityRoutes } from "./routes/website-security.js";
 import { cyberEssentialsControlsRoutes } from "./routes/cyber-essentials-controls.js";
 import { emailProtectionLifecycleRoutes } from "./routes/email-protection-lifecycle.js";
@@ -1098,7 +1096,6 @@ const SCAN_CHILD_TABLES = [
 // than no comment: it stops the next person looking.
 const WORKSPACE_PURGE_TABLES = [
   "dns_provider_changes", "dns_provider_connections",
-  "identity_breach_checks",
   "network_assets", "network_scans", "network_targets",
   // email_protection_events holds no FK to either record family it describes
   // (hosted_dns_entries is hard-deleted on removal, and one column carries ids
@@ -2599,8 +2596,6 @@ export default {
     {
       const identityExposureResponse = await identityExposureRoutes(routeCtx);
       if (identityExposureResponse) return identityExposureResponse;
-      const breachResponse = await identityBreachCheckRoutes(routeCtx);
-      if (breachResponse) return breachResponse;
     }
 
     // ── Website Security lifecycle read routes (mig 089) ────────────────────
@@ -2744,7 +2739,6 @@ export default {
   // bodies stay here and are injected so the module needs no cycle.
   scheduled: (event, env, ctx) => runScheduled(event, env, ctx, {
     cleanupExpiredReports,
-    cleanupIdentityBreachChecks,
     generateScheduledReports,
     opsHealthHeartbeat,
     sendWeeklyDigests,

@@ -834,18 +834,6 @@ export const api = {
       method: 'POST', body: JSON.stringify({}),
     }),
 
-  /** Manual known-address checks; never put an address in a URL. */
-  getIdentityBreachChecks: (id, options = {}) =>
-    request(`/workspaces/${encodeURIComponent(id)}/identity-breach-checks`, options),
-  createIdentityBreachCheck: (id, body, options = {}) =>
-    request(`/workspaces/${encodeURIComponent(id)}/identity-breach-checks`, {
-      ...options, method: 'POST', body: JSON.stringify(body),
-    }),
-  deleteIdentityBreachCheck: (id, checkId, options = {}) =>
-    request(`/workspaces/${encodeURIComponent(id)}/identity-breach-checks/${encodeURIComponent(checkId)}`, {
-      ...options, method: 'DELETE',
-    }),
-
   /** GET /api/workspaces/:id/vendor-relationships */
   // DELIBERATELY RETAINED despite currently having no frontend call site:
   // Vendor Risk / Supply Chain is protected evidence-pipeline substrate

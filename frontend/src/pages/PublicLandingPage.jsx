@@ -18,7 +18,7 @@ const SERVICES = [
   {
     icon: KeyRound, name: 'Identity Exposure',
     q: '“What is visible about our business identities?”',
-    copy: 'Review identity-provider relationships and identity-facing hostnames. Owners and admins can also check a known work email address against LeakCheck breach sources after verifying its domain and confirming permission. This is not domain-wide, password or dark-web monitoring. Endpoint reachability testing is on the roadmap and is not performed today.',
+    copy: 'Review identity-provider relationships and identity-facing hostnames. This is not domain-wide, password or dark-web monitoring. Endpoint reachability testing is on the roadmap and is not performed today.',
     tags: ['Provider relationships', 'Identity-facing hostnames', 'Reachability: roadmap'],
     key: 'identity',
   },

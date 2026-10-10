@@ -10,7 +10,6 @@ import { Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
-import IdentityBreachChecks from '../../components/IdentityBreachChecks'
 import {
   classificationMeta, riskMeta, ownershipMeta, verificationMeta, surfaceLabel, toneClass,
   isAwaitingVerification, IDENTITY_SCOPE_NOTE, identityClaimMeta, confidenceDetailLabel,
@@ -95,7 +94,6 @@ export default function IdentityExposurePage() {
         </p>
       </div>
 
-      <IdentityBreachChecks workspaceId={wsLoading ? null : workspaceId} />
 
       <h2 className="font-semibold text-slate-800 mt-6">Login-surface review</h2>
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 my-3">

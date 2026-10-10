@@ -13,7 +13,7 @@ import { api } from '../../../api'
 import { useWorkspace } from '../../../hooks/useWorkspace'
 
 vi.mock('../../../api', () => ({
-  api: { getIdentitySurfaces: vi.fn(), identitySurfaceVerify: vi.fn(), identitySurfaceAction: vi.fn(), getIdentityBreachChecks: vi.fn() },
+  api: { getIdentitySurfaces: vi.fn(), identitySurfaceVerify: vi.fn(), identitySurfaceAction: vi.fn() },
 }))
 vi.mock('../../../hooks/useWorkspace', () => ({ useWorkspace: vi.fn() }))
 
@@ -30,7 +30,6 @@ function mount() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  api.getIdentityBreachChecks.mockResolvedValue({ can_check: false })
 })
 
 describe('IdentityExposurePage — workspace resolution', () => {
@@ -41,8 +40,8 @@ describe('IdentityExposurePage — workspace resolution', () => {
     await waitFor(() => expect(api.getIdentitySurfaces).toHaveBeenCalled())
     expect(api.getIdentitySurfaces).toHaveBeenCalledWith(WS_ID, {})
     for (const call of api.getIdentitySurfaces.mock.calls) expect(call[0]).toBe(WS_ID)
-    expect(api.getIdentityBreachChecks).toHaveBeenCalledWith(WS_ID, expect.objectContaining({ signal: expect.any(AbortSignal) }))
     expect(screen.getByRole('heading', { name: 'Login-surface review' })).toBeInTheDocument()
+    expect(screen.queryByText(/known.address breach|saved address.check|LeakCheck/i)).not.toBeInTheDocument()
   })
 
   it('renders an empty state (not an error) for an empty 200 response', async () => {
@@ -65,7 +64,6 @@ describe('IdentityExposurePage — workspace resolution', () => {
     mount()
     await Promise.resolve()
     expect(api.getIdentitySurfaces).not.toHaveBeenCalled()
-    expect(api.getIdentityBreachChecks).not.toHaveBeenCalled()
   })
 
   it('shows "No workspace selected" (no API call) when resolution finishes with no workspace', async () => {
@@ -73,6 +71,5 @@ describe('IdentityExposurePage — workspace resolution', () => {
     mount()
     expect(await screen.findByText(/No workspace selected/i)).toBeInTheDocument()
     expect(api.getIdentitySurfaces).not.toHaveBeenCalled()
-    expect(api.getIdentityBreachChecks).not.toHaveBeenCalled()
   })
 })

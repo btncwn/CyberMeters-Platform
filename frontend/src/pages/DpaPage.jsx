@@ -89,11 +89,6 @@ export default function DpaPage() {
                     <td className="px-4 py-2.5 text-gray-600">Payment processing and subscription management</td>
                     <td className="px-4 py-2.5 text-gray-500">US / EU</td>
                   </tr>
-                  <tr>
-                    <td className="px-4 py-2.5 font-medium text-gray-800">LeakCheck (company number 12101959)</td>
-                    <td className="px-4 py-2.5 text-gray-600">Optional, explicitly requested known-address breach lookup using a truncated email hash; source metadata and field categories only</td>
-                    <td className="px-4 py-2.5 text-gray-500">UK operator; processing and transfer details in its <a href="https://leakcheck.io/dpa" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">DPA</a></td>
-                  </tr>
                 </tbody>
               </table>
             </div>

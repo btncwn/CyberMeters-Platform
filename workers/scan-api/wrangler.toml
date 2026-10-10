@@ -161,11 +161,12 @@ MICROSOFT_REDIRECT_URI = "https://cybermeters-platform.ttrnn47.workers.dev/api/a
 binding = "NETWORK_PROBE"
 service = "cybermeters-network-probe"
 
-# One private coordinator for the public provider's shared 1 request/second quota.
-[[durable_objects.bindings]]
-name = "LEAKCHECK_PUBLIC"
-class_name = "LeakCheckPublic"
-
+# Preserve applied lifecycle history; retire the unused provider quota namespace.
+# Only rate-limit timestamps were stored here. Migration 112 removes test results.
 [[migrations]]
 tag = "leakcheck-public-v1"
 new_sqlite_classes = ["LeakCheckPublic"]
+
+[[migrations]]
+tag = "leakcheck-public-removed-v2"
+deleted_classes = ["LeakCheckPublic"]
