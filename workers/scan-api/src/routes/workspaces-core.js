@@ -9,7 +9,7 @@ import { resolveAssessmentPresentation } from "../engines/assessment-presentatio
 import { domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEntitlementUsage, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, sendCustomerEmail, sendLifecycleEmail } from "../lib/lifecycle-email.js";
-import { createId, isValidDomain, isValidEmail } from "../lib/util.js";
+import { canonicalDomainInput, createId, isValidDomain, isValidEmail } from "../lib/util.js";
 import {
   phase5EvidenceReadCoverage,
   projectPhase5ScanRowsForCustomer,
@@ -372,8 +372,11 @@ export async function workspacesCoreRoutes(rctx) {
         if (!addDomAccess) return json({ error: "Forbidden — admin role required to add domains" }, 403);
         let body;
         try { body = await request.json(); } catch { body = {}; }
-        const raw = (body.domain || "").trim().toLowerCase();
-        if (!isValidDomain(raw)) {
+        // Canonical monitored domain: scheme/path/port stripped and a leading
+        // "www." reduced to the apex, so a pasted URL or www-host can never
+        // lock a one-domain trial onto the wrong name.
+        const raw = canonicalDomainInput(body.domain, { stripWww: true });
+        if (!raw || !isValidDomain(raw)) {
           return json({ error: "domain is required and must be a valid domain" }, 400);
         }
         try {

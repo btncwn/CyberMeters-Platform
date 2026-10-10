@@ -13,13 +13,12 @@ import ErrorAlert from '../components/ErrorAlert'
 import StatusBadge from '../components/StatusBadge'
 import CanonicalScore from '../components/CanonicalScore'
 import { WorkspaceReportBranding } from '../components/ReportBranding'
+import { canonicalDomainInput, isValidDomainSyntax } from '../lib/newScanVerification'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function isValidDomain(v) {
-  return /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(
-    (v || '').trim()
-  )
+  return isValidDomainSyntax(canonicalDomainInput(v))
 }
 
 function formatDate(str) {
@@ -65,7 +64,7 @@ function AddDomainModal({ workspaceId, onAdded, onClose }) {
     setLoading(true)
     setError(null)
     try {
-      const data = await api.addDomainToWorkspace(workspaceId, domain.trim().toLowerCase())
+      const data = await api.addDomainToWorkspace(workspaceId, canonicalDomainInput(domain))
       onAdded(data.domain)
     } catch (err) {
       setError(err.message)

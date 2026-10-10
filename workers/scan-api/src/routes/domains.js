@@ -15,7 +15,7 @@ import { checkDnsTxtProof, outcomeForDnsCategory, persistVerification, recordVer
 import { customerSafeFailure } from "../lib/errors.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { safeFetch } from "../lib/http.js";
-import { createId, isValidDomain } from "../lib/util.js";
+import { canonicalDomainInput, createId, isValidDomain } from "../lib/util.js";
 
 // HTML ownership proof is tri-state: only an exact token from a guarded public
 // 2xx response is verified. A block, resolver/transport uncertainty, non-2xx or
@@ -81,7 +81,7 @@ export async function domainRoutes(rctx) {
         const seen     = new Set();
         for (const raw of rawList) {
           if (typeof raw !== "string") { invalid.push(String(raw)); continue; }
-          const d = normalizeHostname(raw.trim().toLowerCase());
+          const d = canonicalDomainInput(raw, { stripWww: true });
           if (!d || !isValidDomain(d)) { invalid.push(raw.trim()); continue; }
           if (seen.has(d)) continue; // input-level dup
           seen.add(d);
