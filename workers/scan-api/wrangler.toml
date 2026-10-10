@@ -18,14 +18,14 @@ compatibility_flags = ["global_fetch_strictly_public"]
 # `custom_domain = true` makes Cloudflare own the DNS record and the certificate
 # for this hostname — no CNAME chain, no second proxy hop, no manual TLS.
 #
-# workers.dev MUST stay enabled, and this line is what keeps it. Declaring any
-# route flips wrangler's `workers_dev` default to FALSE, which silently 404s
-# `cybermeters-platform.ttrnn47.workers.dev` on the next deploy. That hostname is
-# the rollback path and the only way to tell a hostname fault from a bad
-# deployment. (Microsoft SSO no longer depends on it: MICROSOFT_REDIRECT_URI
-# below is registered against the canonical api.cybermeters.com host.)
-# Adding the custom domain without this line took workers.dev down for 96 seconds.
-workers_dev = true
+# The workers.dev developer hostname is RETIRED for production (10 Oct 2026).
+# `api.cybermeters.com` is the only host that serves this Worker: the frontend,
+# Microsoft SSO redirect, Stripe webhook and ops health checks all use it, and
+# rollback is `wrangler versions deploy <id>` on that same custom domain. The
+# value is written explicitly (never left to wrangler's default) so a future
+# deploy cannot silently flip the hostname either way; the env-contract and
+# queue-dispatch validators assert this exact line.
+workers_dev = false
 
 # Explicit Workers Paid default, separate from the legacy admission estimate.
 # This setting does not grant Paid entitlement; verify actual runtime capacity.
