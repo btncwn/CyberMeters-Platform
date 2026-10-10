@@ -18,7 +18,11 @@ const mountAgency = id => render(wrap(<AgencyReportBranding accountId={id || 'ac
 const mountWorkspace = id => render(wrap(<WorkspaceReportBranding workspaceId={id || 'workspace-a'} />))
 const click = name => fireEvent.click(screen.getByRole('button', { name }))
 const fill = (name, value) => fireEvent.change(screen.getByLabelText(name), { target: { value } })
-async function newProfile() { click('Add agency profile'); fill('Agency name', 'New Agency') }
+async function newProfile() {
+  // Finish the initial revision-reset effect before opening the editor.
+  await act(async () => {})
+  click('Add agency profile'); fill('Agency name', 'New Agency')
+}
 beforeEach(() => {
   vi.resetAllMocks()
   api.getBrandingProfiles.mockResolvedValue(meta())
