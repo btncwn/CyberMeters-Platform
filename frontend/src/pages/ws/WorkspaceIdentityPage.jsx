@@ -247,7 +247,7 @@ export default function WorkspaceIdentityPage() {
       {/* Evidence boundary */}
       <div className="mt-6 card p-4">
         <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-widest">Evidence boundary</p>
-        <p className="text-xs text-gray-500">Provider identification, hostname classification, name resolution and endpoint reachability are separate propositions. Current discovery does not perform an endpoint reachability check.</p>
+        <p className="text-xs text-gray-500">Provider relationships, possible hostnames and measured HTTP responses are shown separately. A public login page alone is not a vulnerability; account compromise and sign-in controls remain unassessed.</p>
       </div>
     </WsPage>
   )
