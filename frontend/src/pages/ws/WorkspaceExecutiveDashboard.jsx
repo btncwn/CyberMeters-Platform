@@ -13,6 +13,7 @@ import {
 import { useWorkspace }           from '../../hooks/useWorkspace'
 import { api }                    from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
+import { PlanGate } from '../../components/PlanUsageCard'
 import { bandMeta, metaForScore } from '../../lib/score-presentation'
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
@@ -313,7 +314,7 @@ export default function WorkspaceExecutiveDashboard() {
       const res = await api.getExecutiveDashboard(wsId)
       setData(res)
     } catch (e) {
-      setError(e.message ?? 'Failed to load dashboard')
+      setError(e)
     } finally {
       setLoading(false)
     }
@@ -325,9 +326,11 @@ export default function WorkspaceExecutiveDashboard() {
 
   const s   = data?.summary          ?? {}
   const gen = data?.generated_at
+  const planRequired = (error?.error ?? error?.code) === 'plan_feature_required'
 
   return (
-    <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={load}>
+    <WsPage wsId={wsId} wsName={wsName} loading={loading} error={planRequired ? null : error && (error.message ?? 'Failed to load dashboard')} onRetry={load}>
+      <PlanGate error={error}>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -440,6 +443,7 @@ export default function WorkspaceExecutiveDashboard() {
           <RemBucket label="Monitor"  items={data?.remediation?.monitor}  accent="blue"  />
         </div>
       </div>
+      </PlanGate>
     </WsPage>
   )
 }
