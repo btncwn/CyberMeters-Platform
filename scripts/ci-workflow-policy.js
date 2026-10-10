@@ -13,9 +13,10 @@ const { parseDocument, isMap, isSeq } = workerRequire("yaml");
 export const CANONICAL_SKIP_CONDITION = "${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}";
 export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d55297df4fd3f90a2f57548697efcf062";
 // Add the scoped DNS provider validator to runtime-security; all prior assignments remain.
-export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 387;
-export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "a87ab9cd833b2737fa7baf886362e13d0df1b9a8df2991f5b840575af6ceb027";
-export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "3594c417e505becbc5793b4196849afd9153b2a1e7865201da173949d557e11c";
+// Add the SBOM drift gate (validate-sbom-drift.js) to integration-assurance; all prior assignments remain.
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 388;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "b3148c6852f9d23951b2955e904f1498a8a325a9cde2c28a2273ec482dbc4766";
+export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "3aecd8859a42a3682f8e10b016c120b00e443994a486df5d30fe0126685ebff4";
 
 export const F004_MATRIX_JOB_ID = "validate_f004_recovery_mutations";
 export const F004_MATRIX_VALIDATOR_PATH = "scripts/validate-f004-recovery-instrumentation-mutations.js";
@@ -67,7 +68,7 @@ export const EXPECTED_SHARD_COUNTS = Object.freeze({
   validate_report_cx: 91,
   validate_data_migrations: 90,
   validate_frontend_build: 88,
-  validate_integration_assurance: 20,
+  validate_integration_assurance: 21,
   validate_f004_recovery_mutations: 1,
 });
 

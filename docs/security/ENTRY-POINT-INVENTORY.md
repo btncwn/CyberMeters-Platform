@@ -13,9 +13,9 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 264
+- **Total entry points:** 270
 - **Auth-guarded:** 241
-- **Unauthenticated (public by design):** 23
+- **Unauthenticated (public by design):** 29
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
 | Scope | Handlers | Auth-guarded |
@@ -26,7 +26,7 @@ guard without an explicit, documented public-allowlist reason.
 | portfolio | 9 | 9 |
 | preflight | 1 | 0 |
 | public-or-global | 37 | 19 |
-| unknown | 54 | 52 |
+| unknown | 60 | 52 |
 | webhook | 2 | 0 |
 | workspace | 132 | 132 |
 
@@ -72,8 +72,14 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
 | OPTIONS | `(none)` | 2438 | preflight | public | — |
-| GET | `/health` | 2443 | public-or-global | public | — |
-| GET | `/ready` | 2459 | public-or-global | public | — |
+| DELETE | `(none)` | 2444 | unknown | **GAP** | — |
+| GET | `(none)` | 2444 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2444 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2444 | unknown | **GAP** | — |
+| POST | `(none)` | 2444 | unknown | **GAP** | — |
+| PUT | `(none)` | 2444 | unknown | **GAP** | — |
+| GET | `/health` | 2449 | public-or-global | public | — |
+| GET | `/ready` | 2465 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 

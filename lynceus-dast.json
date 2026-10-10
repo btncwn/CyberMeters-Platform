@@ -1,0 +1,29 @@
+{
+  "schema": "lynceus-dast-config/1",
+  "target": "url",
+  "base_url": "http://127.0.0.1:8787",
+  "allow_remote": false,
+  "requests": [
+    {"method": "GET", "path": "/health", "query": ""},
+    {"method": "GET", "path": "/ready", "query": ""},
+    {"method": "GET", "path": "/api/billing/plans", "query": ""},
+    {"method": "GET", "path": "/api/invitations/lynceus-not-a-real-token", "query": ""},
+    {"method": "GET", "path": "/api/auth/me", "query": ""},
+    {"method": "GET", "path": "/api/auth/mfa/status", "query": ""},
+    {"method": "GET", "path": "/api/account/profile", "query": ""},
+    {"method": "GET", "path": "/api/account/sessions", "query": ""},
+    {"method": "GET", "path": "/api/account/api-tokens", "query": ""},
+    {"method": "GET", "path": "/api/account/usage", "query": ""},
+    {"method": "GET", "path": "/api/account/subscription", "query": ""},
+    {"method": "GET", "path": "/api/account/login-history", "query": ""},
+    {"method": "GET", "path": "/api/workspaces", "query": ""},
+    {"method": "GET", "path": "/api/scans", "query": ""},
+    {"method": "GET", "path": "/api/schedules", "query": ""},
+    {"method": "GET", "path": "/api/billing/subscription", "query": ""},
+    {"method": "GET", "path": "/api/portfolio/overview", "query": ""},
+    {"method": "GET", "path": "/api/portfolio/trends", "query": ""},
+    {"method": "GET", "path": "/api/portfolio/alerts", "query": ""},
+    {"method": "GET", "path": "/api/portfolio/workspaces", "query": ""}
+  ],
+  "auth": {"header": "Authorization", "value_env": "LYNCEUS_DAST_AUTH_VALUE"}
+}

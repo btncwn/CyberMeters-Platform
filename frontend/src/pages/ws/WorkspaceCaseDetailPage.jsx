@@ -367,7 +367,7 @@ export default function WorkspaceCaseDetailPage() {
           <div className={CARD}>
             <div className="flex items-center gap-2 mb-3">
               <ShieldCheck className="w-4 h-4 text-slate-400" />
-              <h2 className="text-sm font-semibold text-slate-800">Remediation & verification</h2>
+              <h2 className="text-sm font-semibold text-slate-800">Remediation &amp; verification</h2>
             </div>
             <p className="text-sm text-slate-600 mb-3">
               Current state: <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${phaseClass(c.canonical_phase, c.verification_support)}`}>{meta.label}</span>
