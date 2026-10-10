@@ -239,7 +239,13 @@ function ScheduledReportsCard({ wsId }) {
 
 export default function WorkspaceReportsPage() {
   const { wsId, wsName } = useWorkspace()
+  if (!wsId) return <NoWorkspaceSelected />
 
+  // Keep the archive, schedules and action state owned by one workspace.
+  return <WorkspaceReports key={wsId} wsId={wsId} wsName={wsName} />
+}
+
+function WorkspaceReports({ wsId, wsName }) {
   const [reports,      setReports]      = useState([])
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState(null)
@@ -250,6 +256,9 @@ export default function WorkspaceReportsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting,     setDeleting]     = useState(false)
   const typeMenuRef = useRef(null)
+  const mounted = useRef(false)
+  const requestId = useRef(0)
+  const requestPending = useRef(false)
 
   // Close type menu on outside click
   useEffect(() => {
@@ -261,25 +270,43 @@ export default function WorkspaceReportsPage() {
   }, [])
 
   const load = useCallback(async (silent = false) => {
-    if (!wsId) { setLoading(false); return }
+    if (!mounted.current) return
+    const id = ++requestId.current
+    requestPending.current = true
+    const isCurrent = () => mounted.current && id === requestId.current
     if (!silent) { setLoading(true); setError(null) }
     try {
       const data = await api.getWorkspaceReports(wsId)
+      if (!isCurrent()) return
       setReports(data.reports || [])
+      setError(null)
     } catch (e) {
-      setError(e.message)
+      if (isCurrent()) setError(e.message)
     } finally {
-      setLoading(false)
+      if (isCurrent()) {
+        requestPending.current = false
+        setLoading(false)
+      }
     }
   }, [wsId])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    mounted.current = true
+    load()
+    return () => {
+      mounted.current = false
+      requestId.current += 1
+    }
+  }, [load])
 
   // Poll while any report is pending/running
   useEffect(() => {
     const hasPending = reports.some(r => r.status === 'pending' || r.status === 'running')
     if (!hasPending) return
-    const id = setInterval(() => load(true), 5000)
+    const id = setInterval(() => {
+      // A slow response must finish before another poll can supersede it.
+      if (!requestPending.current) load(true)
+    }, 5000)
     return () => clearInterval(id)
   }, [reports, load])
 
@@ -334,13 +361,11 @@ export default function WorkspaceReportsPage() {
     }
   }
 
-  if (!wsId) return <NoWorkspaceSelected />
-
   const pendingCount = reports.filter(r => r.status === 'pending' || r.status === 'running').length
   const completedCount = reports.filter(r => r.status === 'completed').length
 
   return (
-    <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={load}>
+    <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={() => load(false)}>
 
       {/* Header */}
       <div className="flex items-start justify-between mb-8">
