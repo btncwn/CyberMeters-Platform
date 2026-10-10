@@ -285,6 +285,39 @@ ok('score bytes remain a presentation input, not recalculated', plain.includes('
 // Technical presentation must stay navigable without changing evidence or scope.
 const pageTexts = (bytes) => [...new TextDecoder('latin1').decode(bytes).matchAll(/stream\n([\s\S]*?)endstream/g)]
   .map((match) => pdfPlainText(new TextEncoder().encode(match[1])))
+// Synthetic certificate evidence exercises the actual PDF drawing coordinates
+// and a near-footer appendix boundary without using any customer snapshot.
+const certificateLayout = structuredClone(snapshot)
+certificateLayout.certificate_assurance = {
+  schema: 'certificate-customer-presentation-v1', status: 'current',
+  scope_note: 'Frozen certificate evidence.', signal_order: ['leaf'],
+  signals: { leaf: {
+    label: 'First retained certificate signal', state: 'observed',
+    source_type: 'product_policy', provenance: 'Frozen fixture source.',
+    evidence_grade: { achieved: 'L1' }, cited_authorities: [], required_corroboration: [],
+  } },
+  summary: {
+    revocation_assurance: { state: 'incomplete', message: 'Unmeasured revocation remains unknown SPACING_SENTINEL.' },
+    trust_ceiling: 'Retained fixture scope.',
+  },
+}
+certificateLayout.methodology = Object.fromEntries(Array.from({ length: 23 }, (_, i) =>
+  [`padding_${i}`, 'Frozen fixture metadata.']))
+const certificateLayoutPdf = buildScanReportPdf({}, { snapshot: certificateLayout })
+const certificateStreams = [...new TextDecoder('latin1').decode(certificateLayoutPdf)
+  .matchAll(/stream\n([\s\S]*?)endstream/g)].map((match) => match[1])
+const trustStream = certificateStreams.find((stream) => stream.includes('(Trust evidence ceiling)')) || ''
+const precedingLine = [...trustStream.matchAll(/BT \/F[12] ([\d.]+) Tf [\d. ]+ rg ([\d.]+) ([\d.]+) Td \(((?:\\.|[^()\\])*)\) Tj ET/g)]
+  .find((match) => match[4].includes('SPACING_SENTINEL'))
+const trustBox = [...trustStream.slice(0, trustStream.indexOf('(Trust evidence ceiling)'))
+  .matchAll(/q 0\.96 0\.98 1 rg 54 ([\d.]+) 504 ([\d.]+) re f/g)].at(-1)
+ok('trust callout clears the preceding evidence baseline and descenders',
+  Boolean(precedingLine && trustBox) &&
+  Number(precedingLine[3]) - (Number(trustBox[1]) + Number(trustBox[2])) >= 4)
+const certificatePages = pageTexts(certificateLayoutPdf)
+const contractsPage = certificatePages.find((page) => page.includes('Certificate signal evidence contracts')) || ''
+ok('certificate contracts heading stays with the first retained signal at a footer boundary',
+  contractsPage.includes('First retained certificate signal') && contractsPage.includes('Evidence grade: L1'))
 const pages = pageTexts(pdf)
 ok('technical report has a contents page with actual Findings and Remediation page references',
   ['Findings & observations', 'Remediation plan'].every((label, index) => {
