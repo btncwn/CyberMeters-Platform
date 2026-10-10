@@ -58,6 +58,38 @@ function ChangeList({ changes = [] }) {
   </li>)}</ul>
 }
 
+const SHARED_EVIDENCE = { published_edge_range: 'its published edge address range', dns_cname: 'a DNS alias to the provider' }
+
+function Suggestions({ state, canManage, onUse }) {
+  if (state?.loading) return <p className="text-sm text-gray-500" role="status">Looking at hosts found by your Cyber MOT…</p>
+  if (state?.error) return <p role="alert" className="text-sm text-red-700 bg-red-50 rounded p-3">{state.error}</p>
+  const result = state?.data
+  if (!result) return null
+  const rows = Array.isArray(result.suggestions) ? result.suggestions : []
+  const cover = result.coverage || {}
+  const own = count(cover.likely_own_servers)
+  const covered = count(cover.covered)
+  const shared = count(cover.shared_infrastructure)
+  return <div className="space-y-3">
+    <p className="text-sm text-gray-600">Public addresses behind hosts your Cyber MOT found under verified domains. Nothing is tested until you add an address and declare that you are authorized to test it.</p>
+    {own !== null && covered !== null && <p className="text-sm font-medium text-gray-800">{covered} of {own} likely server{own === 1 ? '' : 's'} {covered === 1 ? 'has' : 'have'} a network target.{shared ? ` ${shared} address${shared === 1 ? ' belongs' : 'es belong'} to shared provider infrastructure and ${shared === 1 ? 'is' : 'are'} not suggested for testing.` : ''}</p>}
+    {!rows.length ? <p className="text-sm text-gray-500">No discovered hosts with public addresses yet. They appear after a Cyber MOT discovers hosts under a verified domain.</p> : <ul className="space-y-2">{rows.map(row => <li key={row.address} className="border border-gray-200 rounded p-3 space-y-1" data-testid="network-suggestion">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-mono text-sm">{row.address}</span>
+        <span className="flex flex-wrap gap-1">
+          {row.priority === 'high' && <span className="rounded bg-amber-50 text-amber-800 px-2 py-0.5 text-xs font-medium">Sensitive name: {row.high_value_labels.join(', ')}</span>}
+          {row.recommendation === 'covered' && <span className="rounded bg-gray-100 text-gray-700 px-2 py-0.5 text-xs font-medium">Already a network target</span>}
+          {row.recommendation === 'provider_infrastructure' && <span className="rounded bg-gray-100 text-gray-700 px-2 py-0.5 text-xs font-medium">Shared infrastructure: {row.provider}</span>}
+        </span>
+      </div>
+      <p className="text-xs text-gray-600 break-all">{row.hostnames.join(', ')}{row.hostname_count > row.hostnames.length ? ` and ${row.hostname_count - row.hostnames.length} more` : ''}</p>
+      {row.recommendation === 'provider_infrastructure' && <p className="text-xs text-gray-500">Identified as {row.provider} by {SHARED_EVIDENCE[row.provider_evidence] || 'provider evidence'}. A service check here would test {row.provider}’s shared infrastructure, not a server you control.</p>}
+      {row.recommendation === 'candidate' && canManage && <button type="button" className="btn-secondary text-sm" onClick={() => onUse(row)}>Use this address</button>}
+    </li>)}</ul>}
+    {result.truncated && <p className="text-xs text-gray-500">Showing the highest-priority addresses first; more are available after you act on these.</p>}
+  </div>
+}
+
 export default function NetworkAssetsPanel({ workspaceId }) {
   const workspaceRef = useRef(workspaceId)
   workspaceRef.current = workspaceId
@@ -77,6 +109,7 @@ export default function NetworkAssetsPanel({ workspaceId }) {
   const [detail, setDetail] = useState(null)
   const detailRequest = useRef(0)
   const loadRequest = useRef(0)
+  const [suggestions, setSuggestions] = useState(null)
 
   const refresh = useCallback(async (signal) => {
     if (!workspaceId) return
@@ -109,12 +142,22 @@ export default function NetworkAssetsPanel({ workspaceId }) {
   useEffect(() => {
     const controller = new AbortController()
     detailRequest.current += 1
-    setDetail(null); setMessage(null); setError(null); setTarget(''); setLabel(''); setAuthorized(false); setTab('targets'); setBusy(false); setLoadingMore(false)
+    setDetail(null); setMessage(null); setError(null); setTarget(''); setLabel(''); setAuthorized(false); setTab('targets'); setBusy(false); setLoadingMore(false); setSuggestions(null)
     refresh(controller.signal)
     return () => { controller.abort(); loadRequest.current += 1 }
   }, [refresh])
 
   const current = data?.workspaceId === workspaceId ? data : null
+  useEffect(() => {
+    if (tab !== 'suggested' || !workspaceId) return
+    const controller = new AbortController()
+    const scope = workspaceId
+    setSuggestions({ workspaceId: scope, loading: true })
+    api.getNetworkSuggestions(scope, { signal: controller.signal })
+      .then(result => { if (!controller.signal.aborted && workspaceRef.current === scope) setSuggestions({ workspaceId: scope, data: result }) })
+      .catch(failure => { if (failure?.name !== 'AbortError' && workspaceRef.current === scope) setSuggestions({ workspaceId: scope, error: failure.message || 'Suggestions could not be loaded.' }) })
+    return () => controller.abort()
+  }, [tab, workspaceId, current?.targets?.length])
   const hasPendingRun = current?.scans.some(pending) === true
   useEffect(() => {
     if (!hasPendingRun) return
@@ -148,6 +191,14 @@ export default function NetworkAssetsPanel({ workspaceId }) {
     } finally {
       if (workspaceRef.current === scope) setBusy(false)
     }
+  }
+
+  function applySuggestion(row) {
+    setTarget(row.address)
+    setLabel(row.hostnames.join(', ').slice(0, 120))
+    setAuthorized(false)
+    setTab('targets')
+    setMessage('Address filled in. Confirm that you own it or have permission to test it, then add it.')
   }
 
   async function addTarget(event) {
@@ -203,7 +254,7 @@ export default function NetworkAssetsPanel({ workspaceId }) {
     {!current && !error && <p className="text-sm text-gray-500" role="status">Loading network inventory…</p>}
     {current && <>
       {capabilities.collector_available !== true && <p className="text-sm text-amber-800 bg-amber-50 p-3 rounded">Network scanning is currently unavailable. Recorded targets and observations remain available.</p>}
-      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Network asset views">{[['targets', 'Targets'], ['services', 'Services'], ['scans', 'Recent scans']].map(([value, title]) => <button role="tab" aria-selected={tab === value} key={value} className={tab === value ? 'btn-primary text-sm' : 'btn-secondary text-sm'} onClick={() => setTab(value)}>{title}</button>)}</div>
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Network asset views">{[['targets', 'Targets'], ['suggested', 'Suggested'], ['services', 'Services'], ['scans', 'Recent scans']].map(([value, title]) => <button role="tab" aria-selected={tab === value} key={value} className={tab === value ? 'btn-primary text-sm' : 'btn-secondary text-sm'} onClick={() => setTab(value)}>{title}</button>)}</div>
 
       {tab === 'targets' && <div className="space-y-4" role="tabpanel" aria-label="Targets">
         {capabilities.can_manage === true && <form onSubmit={addTarget} className="rounded border border-gray-200 bg-gray-50 p-4 space-y-3">
@@ -221,6 +272,8 @@ export default function NetworkAssetsPanel({ workspaceId }) {
           <td>{capabilities.can_scan === true && <><button className="btn-secondary text-sm" disabled={busy || !canScan || !validPorts || !withinPairs(row) || hasPendingRun || row.authorization_status !== 'attested'} onClick={() => act(() => api.startNetworkScan(workspaceId, row.id, selectedPorts), 'Network scan queued. Results will appear when the selected checks finish.')}><Activity className="w-4 h-4" />{hasPendingRun ? 'Scan in progress' : 'Run scan'}</button>{validPorts && !withinPairs(row) && <p className="text-xs text-amber-800 mt-1">Reduce the selected ports to fit this target’s scan limit.</p>}</>}</td>
         </tr>)}</tbody></table></div>}
       </div>}
+
+      {tab === 'suggested' && <div role="tabpanel" aria-label="Suggested"><Suggestions state={suggestions?.workspaceId === workspaceId ? suggestions : { loading: true }} canManage={capabilities.can_manage === true} onUse={applySuggestion} /></div>}
 
       {tab === 'services' && <div role="tabpanel" aria-label="Services" className="space-y-4">
         <p className="text-sm text-gray-500">Service names require observed protocol evidence. Unanswered checks do not establish that a service disappeared.</p>

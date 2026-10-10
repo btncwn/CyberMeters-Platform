@@ -7,6 +7,7 @@ import { TOKEN_KEY } from '../../context/authKeys'
 vi.mock('../../api', () => ({ api: {
   getNetworkTargets: vi.fn(), getNetworkAssets: vi.fn(), getNetworkScans: vi.fn(),
   addNetworkTarget: vi.fn(), startNetworkScan: vi.fn(), getNetworkScan: vi.fn(), retestNetworkScan: vi.fn(),
+  getNetworkSuggestions: vi.fn(),
 } }))
 
 const capabilities = {
@@ -254,5 +255,64 @@ describe('Network assets customer workflow', () => {
     await act(async () => { finishOld({ targets: [target], capabilities }) })
     expect(screen.queryByText(target.target)).not.toBeInTheDocument()
     expect(api.getNetworkAssets).toHaveBeenCalledWith('workspace-b', expect.objectContaining({ signal: expect.any(AbortSignal) }))
+  })
+})
+
+describe('Suggested network targets', () => {
+  const suggestions = {
+    version: 'network-suggestions-v1',
+    truncated: false,
+    coverage: { likely_own_servers: 2, covered: 1, shared_infrastructure: 1 },
+    suggestions: [
+      { address: '93.184.216.40', hostnames: ['admin.example.com', 'vpn.example.com'], hostname_count: 2, high_value_labels: ['admin', 'vpn'], priority: 'high', recommendation: 'candidate', provider: null, provider_evidence: null },
+      { address: '93.184.216.34', hostnames: ['www.example.com'], hostname_count: 1, high_value_labels: [], priority: 'normal', recommendation: 'covered', provider: null, provider_evidence: null },
+      { address: '104.18.1.1', hostnames: ['shop.example.com'], hostname_count: 1, high_value_labels: [], priority: 'normal', recommendation: 'provider_infrastructure', provider: 'Cloudflare', provider_evidence: 'published_edge_range' },
+    ],
+  }
+
+  it('loads only when the tab is opened', async () => {
+    api.getNetworkSuggestions.mockResolvedValue(suggestions)
+    await ready()
+    expect(api.getNetworkSuggestions).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('tab', { name: 'Suggested' }))
+    expect(await screen.findByText('1 of 2 likely servers has a network target. 1 address belongs to shared provider infrastructure and is not suggested for testing.')).toBeInTheDocument()
+    expect(api.getNetworkSuggestions).toHaveBeenCalledTimes(1)
+  })
+
+  it('only fills the form: the authorization declaration is still required to add', async () => {
+    api.getNetworkSuggestions.mockResolvedValue(suggestions)
+    await ready()
+    fireEvent.click(screen.getByRole('tab', { name: 'Suggested' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Use this address' }))
+    expect(screen.getByLabelText('IP address or CIDR')).toHaveValue('93.184.216.40')
+    expect(screen.getByLabelText('Label (optional)')).toHaveValue('admin.example.com, vpn.example.com')
+    expect(screen.getByLabelText('I own this address range or have permission to test it.')).not.toBeChecked()
+    expect(screen.getByRole('button', { name: 'Add network target' })).toBeDisabled()
+    expect(api.addNetworkTarget).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByLabelText('I own this address range or have permission to test it.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add network target' }))
+    await waitFor(() => expect(api.addNetworkTarget).toHaveBeenCalledWith('workspace-a', { target: '93.184.216.40', label: 'admin.example.com, vpn.example.com', authorization_confirmed: true }))
+  })
+
+  it('never offers shared provider infrastructure or covered addresses for testing', async () => {
+    api.getNetworkSuggestions.mockResolvedValue(suggestions)
+    await ready()
+    fireEvent.click(screen.getByRole('tab', { name: 'Suggested' }))
+    const rows = await screen.findAllByTestId('network-suggestion')
+    expect(rows).toHaveLength(3)
+    expect(within(rows[0]).getByText('Sensitive name: admin, vpn')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('Already a network target')).toBeInTheDocument()
+    expect(within(rows[1]).queryByRole('button')).toBeNull()
+    expect(within(rows[2]).getByText('Shared infrastructure: Cloudflare')).toBeInTheDocument()
+    expect(within(rows[2]).getByText(/would test Cloudflare’s shared infrastructure, not a server you control/)).toBeInTheDocument()
+    expect(within(rows[2]).queryByRole('button')).toBeNull()
+  })
+
+  it('shows a calm error and no invented suggestions when loading fails', async () => {
+    api.getNetworkSuggestions.mockRejectedValue(new Error('Suggestions unavailable'))
+    await ready()
+    fireEvent.click(screen.getByRole('tab', { name: 'Suggested' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Suggestions unavailable')
+    expect(screen.queryByTestId('network-suggestion')).toBeNull()
   })
 })
