@@ -17,7 +17,7 @@ import { buildScanReportPdf } from "../engines/pdf.js";
 import { buildRelatedChangesSummary } from "../engines/related-changes.js";
 import { resolveReportBrandingV2, loadBrandingLogoDataUri } from "../engines/report-branding-v2.js";
 import { prepareLogoXObject } from "../engines/pdf-image.js";
-import { checkScanLimit, checkScheduledScanLimit, domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
+import { readOrGenerateTrialTechnicalPdf, admitDomainScan, checkScanLimit, checkScheduledScanLimit, domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
 import { findingRemediation } from "../engines/remediation-registry.js";
 import {
@@ -274,12 +274,8 @@ export async function scanRoutes(rctx) {
       const queueDispatch = isQueueDispatchMode(env);
       const initialScanStatus = queueDispatch ? "queued" : "running";
       try {
-        await env.cybermeters_db
-          .prepare(
-            `INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES (?, ?, ?, ?, ?)`
-          )
-          .bind(scanId, resolvedDomainId, workspaceId, domain, initialScanStatus)
-          .run();
+        const rejected = await admitDomainScan(env, { scanId, domainId: resolvedDomainId, workspaceId, domain, status: initialScanStatus, userId });
+        if (rejected) return json(rejected.body, rejected.status);
       } catch (insertErr) {
         if (!isUniqueConstraintError(insertErr)) throw insertErr;
         // Customer-safe conflict contract: a constant { error, code } body —
@@ -532,60 +528,64 @@ export async function scanRoutes(rctx) {
       }
 
       try {
-        const resolved = await resolveScanReportAvailability(env, scan);
-        if (resolved.availability.status !== "report_ready") {
-          const mapped = reportAvailabilityError(resolved.availability);
-          return json(mapped.body, mapped.status);
-        }
-        const read = resolved.read;
-
-        // Deterministic branding (branding v2). The branding used the FIRST time
-        // this report is generated is frozen into the snapshot's branding_json, so
-        // a later logo change never rewrites this historical PDF. If a frozen
-        // descriptor exists we use it verbatim; otherwise resolve once (server-side
-        // precedence, never the request body) and persist it if still unset.
-        let branding = null, logoImage = null;
-        try {
-          const frozen = read.row?.branding_json ? JSON.parse(read.row.branding_json) : null;
-          if (frozen) {
-            branding = frozen;
-          } else {
-            branding = await resolveReportBrandingV2(env, { workspaceId: scan.workspace_id });
-            if (read.row?.id) {
-              await env.cybermeters_db
-                .prepare("UPDATE scan_report_snapshots SET branding_json = ? WHERE id = ? AND branding_json IS NULL")
-                .bind(JSON.stringify(branding), read.row.id).run();
-            }
+        const evidence = {};
+        const pdfBytes = await readOrGenerateTrialTechnicalPdf(env, scan, user.id, async () => {
+          const resolved = await resolveScanReportAvailability(env, scan);
+          if (resolved.availability.status !== "report_ready") {
+            const mapped = reportAvailabilityError(resolved.availability);
+            throw Object.assign(new Error("report_not_ready"), { quota: mapped });
           }
-          const dataUri = await loadBrandingLogoDataUri(env, branding);
-          if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent);
-        } catch { branding = null; logoImage = null; }
+          const read = resolved.read;
+          evidence.snapshot_id = read.row.id;
 
-        // Freeze the Related Changes summary (M6 B1) into the snapshot the first time
-        // this report is generated (the branding_json precedent), so a later
-        // correlation never rewrites this historical PDF.
-        let relatedChanges = null;
-        try {
-          const frozenRc = read.row?.related_changes_json ? JSON.parse(read.row.related_changes_json) : null;
-          if (frozenRc) {
-            relatedChanges = frozenRc;
-          } else {
-            relatedChanges = await buildRelatedChangesSummary(env, scan.workspace_id);
-            if (read.row?.id) {
-              await env.cybermeters_db
-                .prepare("UPDATE scan_report_snapshots SET related_changes_json = ? WHERE id = ? AND related_changes_json IS NULL")
-                .bind(JSON.stringify(relatedChanges), read.row.id).run();
+          // Deterministic branding (branding v2). The branding used the FIRST time
+          // this report is generated is frozen into the snapshot's branding_json, so
+          // a later logo change never rewrites this historical PDF. If a frozen
+          // descriptor exists we use it verbatim; otherwise resolve once (server-side
+          // precedence, never the request body) and persist it if still unset.
+          let branding = null, logoImage = null;
+          try {
+            const frozen = read.row?.branding_json ? JSON.parse(read.row.branding_json) : null;
+            if (frozen) {
+              branding = frozen;
+            } else {
+              branding = await resolveReportBrandingV2(env, { workspaceId: scan.workspace_id });
+              if (read.row?.id) {
+                await env.cybermeters_db
+                  .prepare("UPDATE scan_report_snapshots SET branding_json = ? WHERE id = ? AND branding_json IS NULL")
+                  .bind(JSON.stringify(branding), read.row.id).run();
+              }
             }
-          }
-        } catch { relatedChanges = null; }
+            const dataUri = await loadBrandingLogoDataUri(env, branding);
+            if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent);
+          } catch { branding = null; logoImage = null; }
 
-        const pdfBytes = buildScanReportPdf(scan, read, branding, logoImage, relatedChanges);
+          // Freeze the Related Changes summary (M6 B1) into the snapshot the first time
+          // this report is generated (the branding_json precedent), so a later
+          // correlation never rewrites this historical PDF.
+          let relatedChanges = null;
+          try {
+            const frozenRc = read.row?.related_changes_json ? JSON.parse(read.row.related_changes_json) : null;
+            if (frozenRc) {
+              relatedChanges = frozenRc;
+            } else {
+              relatedChanges = await buildRelatedChangesSummary(env, scan.workspace_id);
+              if (read.row?.id) {
+                await env.cybermeters_db
+                  .prepare("UPDATE scan_report_snapshots SET related_changes_json = ? WHERE id = ? AND related_changes_json IS NULL")
+                  .bind(JSON.stringify(relatedChanges), read.row.id).run();
+              }
+            }
+          } catch { relatedChanges = null; }
+
+          return buildScanReportPdf(scan, read, branding, logoImage, relatedChanges);
+        }, evidence);
         const safeName = String(scan.domain || "scan").replace(/[^a-z0-9.-]/gi, "_");
         await createAuditEvent(env, {
           workspace_id: scan.workspace_id, user_id: user.id,
           event_type: "scan_report_downloaded", entity_type: "scan", entity_id: scanId,
           description: `Scan report PDF downloaded for ${scan.domain}`,
-          metadata: { scan_id: scanId, snapshot_id: read.row.id },
+          metadata: { scan_id: scanId, snapshot_id: evidence.snapshot_id },
         }).catch(() => {});
         return new Response(pdfBytes, {
           headers: {
@@ -596,6 +596,7 @@ export async function scanRoutes(rctx) {
           },
         });
       } catch (err) {
+        if (err.quota) return json(err.quota.body, err.quota.status);
         return serverError("api", err);
       }
     }

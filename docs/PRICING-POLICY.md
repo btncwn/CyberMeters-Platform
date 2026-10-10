@@ -97,6 +97,8 @@ drift on rounding:
 
 - Full product for **14 days**, **1 monitored domain**, all 8 categories, alerts/cases/reports/
   remediation — **no card required**.
+- Founder-approved 2026-10-09: **3 full scans and 3 newly generated PDFs per UTC day**, shared across the billing account. Manual and scheduled operations use the same allowance; executive and technical PDFs share the PDF allowance. Existing PDF downloads do not consume it. System-failed operations release their reservation; in-progress operations reserve a slot. Unused daily allowance does not roll over.
+- Keep the existing interface simple: no persistent quota panels or restriction lists. If the daily allowance is used, show a brief message with the **00:00 UTC** reset. At expiry, explain that the trial has ended; previously stored results and PDFs remain readable under the existing retention policy. Domain ownership verification remains visible and mandatory.
 - **No automatic charge.** Conversion to a paid plan requires **explicit customer consent**.
 - **Monitoring stops at expiry (fail-closed).** Read-only access to prior evidence may remain only if
   the existing lifecycle already supports it safely.

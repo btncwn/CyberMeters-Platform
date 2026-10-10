@@ -12,7 +12,8 @@ import { CYBERMETERS_LOGO_DATA_URI } from "./brand-logo.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
 import { getEffectiveDomainLimit, getEffectivePlan, getEffectivePlanState, hasFeatureEntitlement, normalizePlan, PLAN_LIMITS } from "./entitlements.js";
-import { CANONICAL_PLANS, penceToGbp } from "./pricing-registry.js";
+import { CANONICAL_PLANS, TRIAL_SPEC, penceToGbp } from "./pricing-registry.js";
+import { getTrialAllowance, inactivePlanError, trialQuotaError, trialUsage, trialUsageSql, REPORT_RESERVATION_MINUTES } from "./trial-allowance.js";
 import { isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 
 /**
@@ -84,7 +85,7 @@ export function normalizeReportScheduleRecipients(value) {
 // A pending report claim older than this is treated as abandoned (the owning
 // invocation died before completing) and may be reclaimed. Report generation takes
 // seconds; 30 minutes is far beyond any real run, so a live claim is never stolen.
-export const STALE_REPORT_CLAIM_MINUTES = 30;
+export const STALE_REPORT_CLAIM_MINUTES = REPORT_RESERVATION_MINUTES;
 
 function isStaleReportClaim(createdAt) {
   if (!createdAt) return false;
@@ -104,17 +105,20 @@ function isStaleReportClaim(createdAt) {
 // A stale 'pending' blocker (owning invocation died) is transitioned to 'failed'
 // (guarded) and the claim retried ONCE, so a crash can never block the occurrence
 // forever. A fresh (< timeout) pending is never stolen.
-export async function claimReportOccurrence(env, { reportId, workspaceId, report_type, report_period, r2Key, retentionPolicy, createdAt }) {
+export async function claimReportOccurrence(env, { reportId, workspaceId, report_type, report_period, r2Key, retentionPolicy, createdAt, admission = null }) {
+  const guard = admission || { sql: "1", args: [] };
+  const stamp = admission?.state?.is_trial ? "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')" : "?";
+  const stampArgs = admission?.state?.is_trial ? [] : [createdAt];
   const insertClaim = () => env.cybermeters_db.prepare(
     `INSERT OR IGNORE INTO workspace_reports
        (id, workspace_id, report_type, report_period, report_key, status, created_at, retention_policy)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`
-  ).bind(reportId, workspaceId, report_type, report_period, r2Key, createdAt, retentionPolicy).run();
+     SELECT ?, ?, ?, ?, ?, 'pending', ${stamp}, ? WHERE ${guard.sql}`
+  ).bind(reportId, workspaceId, report_type, report_period, r2Key, ...stampArgs, retentionPolicy, ...guard.args).run();
 
   let res = await insertClaim();
   if ((res?.meta?.changes ?? 0) === 1) return { won: true };
 
-  const existing = await env.cybermeters_db.prepare(
+  let existing = await env.cybermeters_db.prepare(
     `SELECT id, status, created_at FROM workspace_reports
      WHERE workspace_id = ? AND report_type = ? AND report_period = ?
        AND deleted_at IS NULL AND status != 'failed'
@@ -128,6 +132,16 @@ export async function claimReportOccurrence(env, { reportId, workspaceId, report
     ).bind(new Date().toISOString(), JSON.stringify({ reason: "stale_claim_reclaimed" }), existing.id).run().catch(() => {});
     res = await insertClaim();
     if ((res?.meta?.changes ?? 0) === 1) return { won: true };
+    existing = await env.cybermeters_db.prepare(
+      `SELECT id, status, created_at FROM workspace_reports
+       WHERE workspace_id = ? AND report_type = ? AND report_period = ?
+         AND deleted_at IS NULL AND status != 'failed'
+       ORDER BY created_at DESC, id DESC LIMIT 1`
+    ).bind(workspaceId, report_type, report_period).first();
+  }
+  if (!existing && admission) {
+    const rejection = await admission.rejection();
+    throw Object.assign(new Error(rejection.body.reason || "report_limit"), { quota: rejection });
   }
   return { won: false, existing: existing || null };
 }
@@ -183,6 +197,7 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
   // effect (usage = COUNT of completed rows, so a single row = single count).
   const claim = await claimReportOccurrence(env, {
     reportId, workspaceId, report_type, report_period: period, r2Key, retentionPolicy, createdAt,
+    admission: await getOperationAdmission(env, workspaceId, null, "reports"),
   });
   if (!claim.won) {
     const existingRow = claim.existing?.id
@@ -267,11 +282,18 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
     ? bytes.byteLength
     : (typeof bytes?.length === "number" ? bytes.length : null);
 
-  await env.cybermeters_db.prepare(
-    `UPDATE workspace_reports
-     SET status = 'completed', generated_at = ?, report_size_bytes = ?, metadata_json = ?
-     WHERE id = ?`
-  ).bind(generatedAt, reportSizeBytes, JSON.stringify({ snapshots: snapshotBinding }), reportId).run();
+  try {
+    const completed = await env.cybermeters_db.prepare(
+      `UPDATE workspace_reports
+       SET status = 'completed', generated_at = ?, report_size_bytes = ?, metadata_json = ?
+       WHERE id = ? AND status = 'pending'`
+    ).bind(generatedAt, reportSizeBytes, JSON.stringify({ snapshots: snapshotBinding }), reportId).run();
+    if (completed?.meta?.changes !== 1) throw new Error("report_claim_lost");
+  } catch (error) {
+    await env.cybermeters_db.prepare("UPDATE workspace_reports SET status = 'failed' WHERE id = ? AND status = 'pending'")
+      .bind(reportId).run().catch(() => {});
+    throw error;
+  }
 
   // Notification + audit — report generated. Non-fatal: report generation must not fail
   // if notification or audit persistence is unavailable.
@@ -597,10 +619,13 @@ export async function getEntitlementUsage(user, env, workspaceId = null) {
 }
 
 export async function getPlanContext(user, env) {
-  const plan = await getEffectivePlan(user.id, env);
-  const limits = getPlanLimits(plan);
+  const state = await getEffectivePlanState(user.id, env);
+  const plan = state.plan;
+  const baseLimits = getPlanLimits(plan);
+  const limits = state.is_trial ? { ...baseLimits, domains: TRIAL_SPEC.domains, domains_per_workspace: TRIAL_SPEC.domains } : baseLimits;
   const usage = await getAccountUsage(user.id, env);
-  return { plan, limits, usage };
+  const trial = await getTrialAllowance(env, user.id, state);
+  return { plan, limits, usage, trial };
 }
 
 // ── Upgrade Recommendation Engine ────────────────────────────────────────────
@@ -776,8 +801,14 @@ export function getMonthResetAt() {
 export async function checkScanLimit(user, workspaceId, env) {
   try {
     const ownerUserId = await getWorkspaceBillingUserId(workspaceId, user.id, env);
-    const plan   = await getEffectivePlan(ownerUserId, env);
-    const limits = getPlanLimits(plan);
+    const state = await getEffectivePlanState(ownerUserId, env);
+    if (state.source === "error") throw new Error("plan_state_unavailable");
+    if (state.plan === "free") return inactivePlanError(state);
+    if (state.is_trial) {
+      const used = await trialUsage(env, "scans", ownerUserId);
+      return used >= TRIAL_SPEC.scans_per_day ? trialQuotaError("scans", used) : null;
+    }
+    const limits = getPlanLimits(state.plan);
     const used   = await countScansThisMonth(ownerUserId, env);
     if (used >= limits.scans_per_month) {
       return {
@@ -796,15 +827,21 @@ export async function checkScanLimit(user, workspaceId, env) {
 }
 
 /**
- * Check report generation monthly quota for workspaceId.
+ * Check daily trial or monthly paid report quota for workspaceId.
  * Returns null when quota is available, or { status, body } when blocked.
- * Fails open.
+ * Usage failures do not grant an unmetered allowance.
  */
 export async function checkReportLimit(user, workspaceId, env) {
   try {
     const ownerUserId = await getWorkspaceBillingUserId(workspaceId, user.id, env);
-    const plan   = await getEffectivePlan(ownerUserId, env);
-    const limits = getPlanLimits(plan);
+    const state = await getEffectivePlanState(ownerUserId, env);
+    if (state.source === "error") throw new Error("plan_state_unavailable");
+    if (state.plan === "free") return inactivePlanError(state);
+    if (state.is_trial) {
+      const used = await trialUsage(env, "reports", ownerUserId);
+      return used >= TRIAL_SPEC.reports_per_day ? trialQuotaError("reports", used) : null;
+    }
+    const limits = getPlanLimits(state.plan);
     const used   = await countReportsThisMonth(workspaceId, env);
     if (used >= limits.reports_per_month) {
       return {
@@ -818,7 +855,7 @@ export async function checkReportLimit(user, workspaceId, env) {
     }
     return null;
   } catch {
-    return null; // fail-open
+    return { status: 503, body: { error: "report_usage_unavailable", message: "Report allowance could not be checked. Please try again." } };
   }
 }
 
@@ -886,8 +923,8 @@ export async function evaluateScheduledScanEligibility(env, { workspaceId, domai
   // 4. Scheduled-scans feature must be entitled on the CURRENT effective plan.
   if (!hasFeatureEntitlement(plan, "scheduled_scans")) return { ok: false, reason: "feature_not_entitled" };
 
-  // 5. Monthly scan quota must allow another scan (canonical checker; fail-open on
-  // counting errors, exactly like the manual path).
+  // 5. Account scan allowance must permit another scan (daily for trials,
+  // monthly for paid plans; counting errors fail closed).
   const quota = await checkScanLimit({ id: ownerUserId }, workspaceId, env);
   if (quota) return { ok: false, reason: "scan_limit_exceeded" };
 
@@ -900,3 +937,86 @@ export async function evaluateScheduledScanEligibility(env, { workspaceId, domai
   return { ok: true };
 }
 
+
+// This predicate is executed inside the admission INSERT, so simultaneous
+// manual/scheduled/network requests share one account allowance without a race.
+export async function getOperationAdmission(env, workspaceId, fallbackUserId, resource) {
+  const ownerId = await getWorkspaceBillingUserId(workspaceId, fallbackUserId, env);
+  const state = await getEffectivePlanState(ownerId, env);
+  if (state.source === "error") throw Object.assign(new Error("plan_state_unavailable"), {
+    quota: { status: 503, body: { error: "plan_state_unavailable", message: "Your plan could not be checked. Please try again." } },
+  });
+  if (state.plan === "free") return { sql: "0", args: [], state, rejection: async () => inactivePlanError(state) };
+  if (!state.is_trial) return { sql: "1", args: [], state, rejection: async () => ({ status: 503, body: { error: "operation_unavailable" } }) };
+  const query = trialUsageSql(resource, ownerId, null);
+  return { sql: `${query.sql} < ? AND julianday('now') < julianday(?)`, args: [...query.args, TRIAL_SPEC[`${resource}_per_day`], state.trial_end], state,
+    rejection: async () => Date.parse(state.trial_end) <= Date.now()
+      ? inactivePlanError({ trial_expired: true })
+      : trialQuotaError(resource, await trialUsage(env, resource, ownerId)),
+  };
+}
+
+export async function admitDomainScan(env, { scanId, domainId, workspaceId, domain, status, userId }) {
+  const guard = await getOperationAdmission(env, workspaceId, userId, "scans");
+  const result = await env.cybermeters_db.prepare(
+    `INSERT INTO scans (id, domain_id, workspace_id, domain, status) SELECT ?, ?, ?, ?, ? WHERE ${guard.sql}`
+  ).bind(scanId, domainId, workspaceId, domain, status, ...guard.args).run();
+  return result?.meta?.changes === 1 ? null : guard.rejection();
+}
+
+// Technical PDFs generated during a trial are stored once. The existing scan
+// authorization must run before this helper, including on the cached path.
+export async function readOrGenerateTrialTechnicalPdf(env, scan, userId, render, evidence = {}) {
+  const period = `scan-${scan.id}`;
+  const existing = await env.cybermeters_db.prepare(
+    `SELECT report_key, metadata_json FROM workspace_reports WHERE workspace_id = ? AND report_type = 'technical'
+     AND report_period = ? AND status = 'completed' AND deleted_at IS NULL LIMIT 1`
+  ).bind(scan.workspace_id, period).first();
+  if (existing) {
+    evidence.snapshot_id = JSON.parse(existing.metadata_json || '{}').snapshot_id || null;
+    const stored = await env.cybermeters_reports.get(existing.report_key);
+    if (!stored) throw new Error("stored_pdf_unavailable");
+    return new Uint8Array(await stored.arrayBuffer());
+  }
+  const admission = await getOperationAdmission(env, scan.workspace_id, userId, "reports");
+  if (!admission.state.is_trial && admission.state.plan !== "free") return render();
+  return persistAdmittedPdf(env, { workspaceId: scan.workspace_id, report_type: "technical", period, admission, render,
+    metadata: () => ({ scan_id: scan.id, snapshot_id: evidence.snapshot_id || null }) });
+}
+
+// Both legacy workspace PDF downloads create new artefacts. Trial requests must
+// reserve the same account-wide allowance before rendering and retain the result
+// for ordinary, unmetered re-download through the existing reports route.
+export async function generateTrialWorkspacePdf(env, workspaceId, userId, render) {
+  const admission = await getOperationAdmission(env, workspaceId, userId, "reports");
+  if (!admission.state.is_trial && admission.state.plan !== "free") return render();
+  return persistAdmittedPdf(env, { workspaceId, report_type: "manual", period: `download-${crypto.randomUUID()}`, admission, render });
+}
+
+async function persistAdmittedPdf(env, { workspaceId, report_type, period, admission, render, metadata = () => ({}) }) {
+  const reportId = createId("rpt");
+  const r2Key = `reports/${report_type}/${workspaceId}/${reportId}.pdf`;
+  const createdAt = new Date().toISOString();
+  const retentionPolicy = await getReportRetentionPolicyForWorkspace(workspaceId, env);
+  const claim = await claimReportOccurrence(env, { reportId, workspaceId,
+    report_type, report_period: period, r2Key, createdAt, retentionPolicy, admission });
+  if (!claim.won) {
+    // A completed concurrent winner can be downloaded on the next request.
+    throw Object.assign(new Error("pdf_generation_in_progress"), { quota: { status: 409,
+      body: { error: "pdf_generation_in_progress", message: "Your PDF is being prepared. Please try again shortly." } } });
+  }
+  try {
+    const bytes = await render();
+    await env.cybermeters_reports.put(r2Key, bytes, { httpMetadata: { contentType: "application/pdf" } });
+    const result = await env.cybermeters_db.prepare(
+      `UPDATE workspace_reports SET status = 'completed', generated_at = ?, report_size_bytes = ?, metadata_json = ?
+       WHERE id = ? AND status = 'pending'`
+    ).bind(new Date().toISOString(), bytes.byteLength, JSON.stringify(metadata()), reportId).run();
+    if (result?.meta?.changes !== 1) throw new Error("report_claim_lost");
+    return bytes;
+  } catch (error) {
+    await env.cybermeters_db.prepare("UPDATE workspace_reports SET status = 'failed' WHERE id = ? AND status = 'pending'")
+      .bind(reportId).run().catch(() => {});
+    throw error;
+  }
+}

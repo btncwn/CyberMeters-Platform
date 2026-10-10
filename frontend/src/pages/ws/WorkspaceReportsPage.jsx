@@ -347,7 +347,7 @@ export default function WorkspaceReportsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <FileText className="w-6 h-6 text-brand-600" />
-            Executive Reports
+            PDF Reports
           </h1>
           <p className="text-sm text-gray-400 mt-1">
             Generate, archive and download executive security reports.

@@ -26,6 +26,7 @@ function buildDb() {
   for (const f of fs.readdirSync(path.join(root, "database", "migrations")).filter((f) => f.endsWith(".sql")).sort()) {
     apply(path.join(root, "database", "migrations", f));
   }
+  db.exec("INSERT INTO subscriptions(id, owner_user_id, plan, status, subscription_status) VALUES('paid-owner', 'owner', 'professional', 'active', 'active')");
   return db;
 }
 function makeD1(db) {

@@ -88,6 +88,9 @@ export const CANONICAL_PLANS = {
 export const TRIAL_SPEC = {
   duration_days: 14,
   domains: 1,
+  scans_per_day: 3,
+  reports_per_day: 3,
+  reset_timezone: "UTC",
   features_plan: "professional",
   card_required: false,
 };

@@ -1505,6 +1505,9 @@ jobs:
       - name: Validate frontend is not a remediation source (semantics from backend, steps keyed by canonical id)
         run: node scripts/validate-frontend-remediation-source.js
 
+      - name: Validate trial daily allowances and PDF reuse
+        run: node scripts/validate-trial-daily-allowance.js
+
       - name: Validate scheduled-report occurrence claim atomicity (concurrent overlap → one generation)
         run: node scripts/validate-report-occurrence-claim.js
 

@@ -315,7 +315,7 @@ function UpgradePromptModal() {
   if (limit.reset_at) {
     try {
       const d = parseServerDate(limit.reset_at)
-      resetNote = `Your quota resets on ${d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}.`
+      resetNote = limit.reason === 'trial_daily_allowance' ? `Renews ${d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric', timeZone: 'UTC' })}, 00:00 UTC.` : `Your quota resets on ${d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}.`
     } catch { /* ignore */ }
   }
 
@@ -337,7 +337,7 @@ function UpgradePromptModal() {
             <AlertTriangle className="w-5 h-5 text-amber-600" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-bold text-gray-900">You've reached your plan limit</h2>
+            <h2 className="text-sm font-bold text-gray-900">{limit.title || "You've reached your plan limit"}</h2>
             <p className="text-sm text-gray-500 mt-1">{body}</p>
             {resetNote && (
               <p className="text-xs text-gray-400 mt-1">{resetNote}</p>

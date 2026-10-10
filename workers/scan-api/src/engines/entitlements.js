@@ -185,6 +185,9 @@ function buildBillingPlanMetadata() {
           trial: {
             duration_days: TRIAL_SPEC.duration_days,
             domains: TRIAL_SPEC.domains,
+            scans_per_day: TRIAL_SPEC.scans_per_day,
+            reports_per_day: TRIAL_SPEC.reports_per_day,
+            reset_timezone: TRIAL_SPEC.reset_timezone,
             card_required: TRIAL_SPEC.card_required,
           },
         } : {}),
@@ -312,14 +315,18 @@ export async function getEffectivePlanState(userId, env) {
       .bind(userId)
       .all();
     const resolved = resolveCanonicalSubscriptionRow(res?.results || []);
-    if (!resolved) return { plan: "free", is_trial: false, source: "none" };
+    if (!resolved) {
+      const expired = (res?.results || []).some(row => (row.subscription_status || row.status) === "trialing" && Date.parse(row.trial_end || row.current_period_end) <= Date.now());
+      return { plan: "free", is_trial: false, source: "none", ...(expired ? { trial_expired: true } : {}) };
+    }
     return {
       plan: normalizePlan(resolved.row.plan),
       is_trial: resolved.source === "trial",
       source: resolved.source,
+      ...(resolved.source === "trial" ? { trial_end: resolved.row.trial_end || resolved.row.current_period_end } : {}),
     };
   } catch {
-    return { plan: "free", is_trial: false, source: "none" };
+    return { plan: "free", is_trial: false, source: "error" };
   }
 }
 

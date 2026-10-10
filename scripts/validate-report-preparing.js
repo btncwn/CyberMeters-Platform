@@ -466,6 +466,9 @@ async function main() {
       .run(ws, domainId);
   }
 
+  // Exercise report readiness with an entitled owner; users.plan is not authority.
+  db.prepare("INSERT INTO subscriptions (id,owner_user_id,workspace_id,plan,status,subscription_status,stripe_subscription_id) VALUES ('report-owner-plan','u1','ws1','professional','active','active','sub_report_owner')").run();
+
   const seedScan = (id, workspaceId, status, createdAt = "2026-07-30 10:00:00") => {
     db.prepare(
       `INSERT INTO scans

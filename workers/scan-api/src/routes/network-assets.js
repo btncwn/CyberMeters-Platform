@@ -1,5 +1,5 @@
 import { getEffectivePlan } from '../engines/entitlements.js';
-import { getMonthStart, getMonthResetAt, getPlanLimits, getWorkspaceBillingUserId } from '../engines/plan-usage.js';
+import { checkScanLimit, getOperationAdmission, getMonthStart, getMonthResetAt, getPlanLimits, getWorkspaceBillingUserId } from '../engines/plan-usage.js';
 import { NETWORK_LIMITS, NETWORK_PORTS, normalizeNetworkTarget, normalizeNetworkPorts } from '../engines/network-targets.js';
 import { createId } from '../lib/util.js';
 import { networkReceiptHash } from '../engines/network-scan-dispatch.js';
@@ -107,16 +107,23 @@ export async function networkAssetRoutes(rctx) {
       if(target.authorization_status!=='attested'||JSON.stringify(normalized.addresses)!==target.addresses_json)throw new Error('network_scope_mismatch');
       ports=normalizeNetworkPorts(ports,normalized.address_count);
       const owner=await getWorkspaceBillingUserId(workspaceId,user.id,env),limits=getPlanLimits(await getEffectivePlan(owner,env));
-      const used=await monthlyUsage(db,owner);
-      if(used>=limits.scans_per_month)return json({error:'plan_limit_exceeded',resource:'scans_per_month',limit:limits.scans_per_month,usage:used,reset_at:getMonthResetAt()},403);
+      const rejected=await checkScanLimit(user,workspaceId,env);
+      if(rejected)return json(rejected.body,rejected.status);
       const rate=await consumeApiRateLimit(env,[{scope:'user',scope_id:user.id},{scope:'workspace',scope_id:workspaceId},{scope:'account',scope_id:owner}],'scan_start',limits.scan_starts_per_hour,3600,{failClosed:true});
       if(rate)return json(rate.body,rate.status);
       const scanId=createId('netscan'),now=new Date().toISOString(),key=`network-reports/${workspaceId}/${scanId}.json`;
       // The quota predicate executes in the same D1 statement as admission.
-      const insert=db.prepare(`INSERT INTO network_scans (id,workspace_id,target_id,requested_by,retest_of,ports_json,status,receipt_key,created_at) SELECT ?,?,?,?,?,?,'queued',?,? WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL) AND ((SELECT COUNT(*) FROM scans s JOIN workspaces w ON w.id=s.workspace_id WHERE w.owner_user_id=? AND s.created_at>=?) + (SELECT COUNT(*) FROM network_scans n JOIN workspaces w ON w.id=n.workspace_id WHERE w.owner_user_id=? AND n.created_at>=?))<?`)
-        .bind(scanId,workspaceId,targetId,user.id,retestOf,JSON.stringify(ports),key,now,workspaceId,owner,getMonthStart(),owner,getMonthStart(),limits.scans_per_month);
+      const admission=await getOperationAdmission(env,workspaceId,user.id,'scans');
+      const quota=admission.state.is_trial||admission.state.plan==='free' ? admission : {
+        sql:`((SELECT COUNT(*) FROM scans s JOIN workspaces w ON w.id=s.workspace_id WHERE w.owner_user_id=? AND s.created_at>=?) + (SELECT COUNT(*) FROM network_scans n JOIN workspaces w ON w.id=n.workspace_id WHERE w.owner_user_id=? AND n.created_at>=?))<?`,
+        args:[owner,getMonthStart(),owner,getMonthStart(),limits.scans_per_month],
+        rejection:async()=>({status:403,body:{error:'plan_limit_exceeded',resource:'scans_per_month',limit:limits.scans_per_month,usage:await monthlyUsage(db,owner),reset_at:getMonthResetAt()}})
+      };
+      const stamp=admission.state.is_trial ? "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')" : '?';
+      const insert=db.prepare(`INSERT INTO network_scans (id,workspace_id,target_id,requested_by,retest_of,ports_json,status,receipt_key,created_at) SELECT ?,?,?,?,?,?,'queued',?,${stamp} WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL) AND ${quota.sql}`)
+        .bind(scanId,workspaceId,targetId,user.id,retestOf,JSON.stringify(ports),key,...(admission.state.is_trial?[]:[now]),workspaceId,...quota.args);
       let admitted;try{admitted=await insert.run();}catch(e){if(/unique/i.test(String(e?.message)))return json({error:'network_scan_active'},409);throw e;}
-      if(admitted.meta?.changes!==1)return json({error:'plan_limit_exceeded'},403);
+      if(admitted.meta?.changes!==1){const rejected=await quota.rejection();return json(rejected.body,rejected.status);}
       try{await env.SCAN_QUEUE.send({kind:'network_probe',v:1,scan_id:scanId,workspace_id:workspaceId});}
       catch{await db.prepare("UPDATE network_scans SET status='failed',reason='dispatch_failed',completed_at=? WHERE id=? AND status='queued'").bind(new Date().toISOString(),scanId).run();return json({error:'network_dispatch_failed'},503);}
       return json({scan:networkScanProjection({...await readScan(db,workspaceId,scanId)})},202);
