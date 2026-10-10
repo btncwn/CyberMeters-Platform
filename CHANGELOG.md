@@ -7,6 +7,13 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## Unreleased — workspace report recovery
+
+The PDF Reports archive now recovers after a successful retry or background
+refresh. Delayed responses from an older request or a previous workspace cannot
+replace the current archive or hide its downloads behind an obsolete error.
+Workspace changes also reset report actions and schedules to the selected scope.
+
 ## v2026.10.10-2 — identity evidence and confirmed response — 10 October 2026
 
 PR #514 merged as `ae51bdf0` after full CI and E2E passed at `daa59d9b`.
