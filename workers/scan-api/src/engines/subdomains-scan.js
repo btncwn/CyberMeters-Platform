@@ -501,21 +501,73 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
 }
 
 // ── DNS Brute-Force Discovery ─────────────────────────────────────────────────
-// High-value curated wordlist capped at BRUTEFORCE_MAX_NAMES to stay within
-// the Cloudflare Worker free-plan 50-subrequest budget.
-// Runs in parallel with Phase 1 modules; bounded by BRUTEFORCE_TIMEOUT_MS.
-// Results are merged into modules.subdomains.items so takeover + exposure
-// detection automatically benefit from the expanded list.
+// Curated wordlist of the names that carry most small-business external risk
+// (admin and login surfaces, remote access, mail portals, dev/staging copies,
+// self-hosted tooling). One DoH A lookup per name, all in parallel, bounded by
+// BRUTEFORCE_TIMEOUT_MS. The Worker's provider ceiling is 10,000 subrequests;
+// the named-variable envelope in validate-f026-capacity-completeness-truth.js
+// pins the total. Results are merged into the discovered set so takeover and
+// exposure detection benefit, and wildcard answers are filtered downstream.
 
-export const BRUTEFORCE_MAX_NAMES  = 15;
+export const BRUTEFORCE_MAX_NAMES  = 40;
 const BRUTEFORCE_TIMEOUT_MS = 6_000;
 
-// High-value names only — exactly BRUTEFORCE_MAX_NAMES entries.
-const BRUTE_FORCE_WORDLIST = [
+// Exactly BRUTEFORCE_MAX_NAMES entries. Must contain every critical prefix in
+// scan-budget.js (mandatory and optional) so the production path never misses
+// a name the reserved path treats as critical.
+export const BRUTE_FORCE_WORDLIST = Object.freeze([
   "www", "mail", "email", "webmail", "portal",
   "admin", "api", "app", "dev", "staging",
   "test", "vpn", "remote", "login", "dashboard",
-];
+  "manage", "management", "sso", "auth", "owa",
+  "exchange", "autodiscover", "intranet", "cpanel", "citrix",
+  "gateway", "rdp", "ftp", "sftp", "files",
+  "backup", "git", "gitlab", "jenkins", "jira",
+  "grafana", "uat", "beta", "old", "shop",
+]);
+
+// First labels whose exposure matters most: administration, authentication,
+// remote access, pre-production copies and self-hosted tooling. Exposure
+// probing is capped (asset-intel probes the first 50 targets), so these are
+// ordered first and can never be crowded out by ordinary CT names.
+export const HIGH_VALUE_EXPOSURE_LABELS = Object.freeze([
+  "admin", "login", "portal", "dashboard", "manage", "management",
+  "vpn", "remote", "rdp", "citrix", "gateway", "sso", "auth",
+  "owa", "exchange", "webmail", "intranet", "cpanel",
+  "api", "dev", "staging", "test", "uat", "beta", "old", "backup",
+  "ftp", "sftp", "files", "git", "gitlab", "jenkins", "jira", "grafana",
+]);
+// High-value hosts take at most this many of the 50 exposure slots, so known
+// assets that lifecycle re-checks keep the rest.
+export const HIGH_VALUE_PRIORITY_SLOTS = 25;
+const HIGH_VALUE_LABEL_SET = new Set(HIGH_VALUE_EXPOSURE_LABELS);
+
+function firstLabelUnder(host, root) {
+  if (!root || !host.endsWith(`.${root}`)) return null;
+  return host.slice(0, -(root.length + 1)).split(".")[0] || null;
+}
+
+// Exposure candidate order: high-value names (bounded), then known assets the
+// lifecycle re-checks, then everything else in discovery order. Hosts are
+// lower-cased and de-duplicated exactly as before; nothing is added or dropped
+// here — only the order changes, so the probe cap removes the least risky names.
+export function prioritizeExposureTargets(domain, { knownHosts = [], discoveredHosts = [] } = {}) {
+  const root = String(domain || "").toLowerCase();
+  const all = [...new Set([...knownHosts, ...discoveredHosts]
+    .map((host) => String(host || "").toLowerCase())
+    .filter(Boolean))];
+  const known = new Set(knownHosts.map((host) => String(host || "").toLowerCase()));
+  const high = all
+    .filter((host) => HIGH_VALUE_LABEL_SET.has(firstLabelUnder(host, root)))
+    .slice(0, HIGH_VALUE_PRIORITY_SLOTS);
+  const highSet = new Set(high);
+  const rest = all.filter((host) => !highSet.has(host));
+  return [
+    ...high,
+    ...rest.filter((host) => known.has(host)),
+    ...rest.filter((host) => !known.has(host)),
+  ];
+}
 
 // Mail-infrastructure subdomains often publish MX/TXT but no A record, so the
 // A-only sweep above misses them (e.g. reports. for DMARC RUA ingestion, send.
