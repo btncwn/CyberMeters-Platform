@@ -744,6 +744,7 @@ function sectionCertificateAssurance(w, snap, { detail = "full" } = {}) {
     }
   }
   if (summary.trust_ceiling) {
+    w.gap(6);
     w.callout("Trust evidence ceiling", customerBodyText(summary.trust_ceiling));
   }
   if (assurance.relationship?.customer_message) {
@@ -1274,6 +1275,7 @@ function sectionEvidenceGradeAppendix(w, snap) {
   }
 
   const certificateAssurance = certificateAssuranceFromSnapshot(snap);
+  w.keepTogether(13 + 72);
   w.text("Certificate signal evidence contracts", { size: 9, bold: true });
   if (certificateAssurance.status !== "current") {
     w.proseKeep(
