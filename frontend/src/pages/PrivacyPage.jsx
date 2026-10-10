@@ -121,6 +121,7 @@ export default function PrivacyPage() {
               </table>
             </div>
             <p>We do not share your personal data for advertising or marketing by these providers.</p>
+            <p>When you choose a new CyberMeters password, we check it using Have I Been Pwned's free Pwned Passwords service. Only the first five characters of a password hash are sent; your email address, full password and full hash are not sent. This check does not monitor employees' email addresses or passwords used on other services.</p>
           </Section>
 
           <Section title="8. International Data Transfers">

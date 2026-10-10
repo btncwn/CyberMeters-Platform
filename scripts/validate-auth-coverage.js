@@ -58,6 +58,11 @@ async function computeTotp(base32Secret, timeStep) {
 
 async function main() {
   const mod = await loadWorker();
+  // Synthetic range data only; unexpected network calls remain blocked.
+  globalThis.fetch = async (url, options) => {
+    if (!/^https:\/\/api\.pwnedpasswords\.com\/range\/[A-F0-9]{5}$/.test(String(url)) || options?.headers?.['Add-Padding'] !== 'true') throw new Error('network disabled');
+    return new Response(`${'A'.repeat(35)}:0\r\n`, { headers: { 'Content-Type': 'text/plain' } });
+  };
   const worker = mod.default;
   const { hashToken, verifyTotp, generateRecoveryCodes, verifyRecoveryCode, encryptTotpSecret } = mod;
 
