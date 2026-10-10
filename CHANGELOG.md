@@ -7,6 +7,50 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.10.10-1 — security-posture batches and Lynceus wiring — 10 October 2026
+
+PR #505 merged as `35a7971` after all 17 checks passed at `a478b52`. Every
+JSON response now carries `Cross-Origin-Opener-Policy: same-origin`,
+`Cross-Origin-Resource-Policy: same-site`, `Cross-Origin-Embedder-Policy:
+require-corp`, a restrictive `Permissions-Policy` and
+`X-Permitted-Cross-Domain-Policies: none`; a request method outside
+GET/HEAD/POST/PUT/PATCH/DELETE is answered 405 before routing; the alert-email
+retry path escapes scan-derived text as the first send already did; logout is
+declared idempotent in the OpenAPI document; both SBOMs were regenerated and a
+CI drift gate (`scripts/validate-sbom-drift.js`) now compares the portable
+component set. The Lynceus scan targets (`lynceus-assessment.json`,
+`lynceus-dast.json`, `lynceus-api.json`, `lynceus-tls.json`) are committed; they
+point at a local `wrangler dev` Worker and read the live TLS posture only. No
+database migration, pricing, entitlement, scoring or customer-capability change.
+
+API version `07b21c0f-e69f-4fc5-b0d9-522f01866a11` was activated at 00:59 UTC
+and `/health` reports that id as `deployment_id` with APP_VERSION
+`2026.10.10-lynceus-posture.a34a2471a6bf` and `maintenance: false`. The email
+Worker was deployed in the same session as version
+`538b0344-8c43-4300-a4ab-52bcee0d1ef2` (shared source closure
+`a34a2471a6bf…`, coordinated APP_VERSION). Live smoke on `api.cybermeters.com`:
+`/ready` 200 with D1 and R2 true, anonymous `/api/workspaces` 401, TRACE 405,
+all eleven response-security headers present (17/17 checks). API rollback is
+`433f449a-c622-4652-8f4b-2b9374cf9b70`; email rollback is
+`1f08ce0b-d356-4bd1-b6ee-555fec5d957f`.
+
+This deployment also carries PR #502 (`d4aa580`, customer module order in the
+PDF renderer, `engines/pdf.js`, APP_VERSION `2026.10.09-report-order`), which
+merged after the v2026.10.09-10 API activation and has no Worker deployment
+record of its own; this is its first recorded live deployment.
+
+Lynceus evidence for this branch: five assessment runs over the local Worker
+(19 profiles). At `a478b52` all 19 profiles were authoritative with 0 critical
+candidates; ZAP baseline and active, nuclei, nuclei-cve, TLS posture, trivy,
+the override gate and the six application scenarios (authn, authz, api,
+workflow, ssrf-file, injection) reported nothing. The 8 gitleaks matches are
+adjudicated false positive (test, fixture and documentation literals, each read
+at its line); `braces@3.0.3` is an accepted build-only devDependency risk until
+2027-01-10; the remaining 141 medium/low candidates are reviewed rule noise and
+OpenAPI contract gaps, not vulnerabilities. Independent (non-author) retest
+verification of the two fixes remains open. The production/customer HOLD in
+`docs/PRE-BETA-EXECUTION-BACKLOG.md` is not consumed by this release.
+
 ## v2026.10.09-10 — identity lookup contract and customer module order — 9 October 2026
 
 PR #500 merged as `e816f037` after the reviewed head `6e99c4ff` passed all
