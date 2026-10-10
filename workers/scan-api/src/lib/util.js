@@ -34,6 +34,38 @@ function isValidDomain(domain) {
   );
 }
 
+// Second-level labels under a two-letter ccTLD that act as public suffixes
+// (co.uk, com.au, org.nz …). `www.co.uk` must never collapse to `co.uk`.
+const CC_SECOND_LEVEL_SUFFIXES = new Set([
+  "co", "com", "org", "net", "ac", "gov", "edu", "ltd", "plc", "me", "sch", "nhs", "police", "mod", "nic",
+]);
+
+// Customer-typed domain → the canonical monitored domain.
+// Accepts what people actually paste ("https://www.example.co.uk/shop?x=1",
+// "Example.com.", "example.com:443") and returns a bare lowercase hostname.
+// When `stripWww` is set, a leading "www." is removed so the apex is monitored:
+// email authentication (SPF/DMARC) lives on the apex, and subdomain discovery
+// starts there and still covers www. Returns null for anything that is not a
+// valid public domain after normalisation.
+function canonicalDomainInput(raw, { stripWww = false } = {}) {
+  if (typeof raw !== "string") return null;
+  let s = raw.trim().toLowerCase();
+  if (!s) return null;
+  s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//, "");   // scheme
+  s = s.replace(/^\/\//, "");                      // scheme-relative
+  s = s.split(/[/?#]/)[0];                         // path, query, fragment
+  s = s.replace(/^[^@]*@/, "");                    // userinfo
+  s = s.replace(/:\d+$/, "");                      // port
+  s = s.replace(/\.+$/, "");                       // trailing dot(s)
+  if (stripWww && s.startsWith("www.")) {
+    const rest = s.slice(4);
+    const labels = rest.split(".");
+    const isPublicSuffix = labels.length === 2 && labels[1].length === 2 && CC_SECOND_LEVEL_SUFFIXES.has(labels[0]);
+    if (labels.length >= 2 && !isPublicSuffix && isValidDomain(rest)) s = rest;
+  }
+  return isValidDomain(s) ? s : null;
+}
+
 function parseBoundedInteger(value, fallback, min, max) {
   const parsed = Number.parseInt(value ?? "", 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -141,6 +173,7 @@ function pageMeta({ items, limit, offset, total = null }) {
 }
 
 export {
+  canonicalDomainInput,
   createId,
   isValidDomain,
   isValidEmail,

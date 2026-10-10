@@ -69,11 +69,54 @@ export function isValidDomainSyntax(value) {
   return /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(String(value || '').trim());
 }
 
+// Second-level labels under a two-letter ccTLD that behave as public suffixes.
+// Mirrors workers/scan-api/src/lib/util.js — the server stays the authority.
+const CC_SECOND_LEVEL_SUFFIXES = new Set([
+  'co', 'com', 'org', 'net', 'ac', 'gov', 'edu', 'ltd', 'plc', 'me', 'sch', 'nhs', 'police', 'mod', 'nic',
+]);
+
+// What people paste → the domain CyberMeters will monitor. Strips scheme, path,
+// query, port and trailing dots; reduces a leading "www." to the apex (email
+// authentication lives on the apex, and subdomain discovery still covers www).
+// Returns '' when nothing usable remains.
+export function canonicalDomainInput(raw, { stripWww = true } = {}) {
+  let s = String(raw || '').trim().toLowerCase();
+  if (!s) return '';
+  s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//, '').replace(/^\/\//, '');
+  s = s.split(/[/?#]/)[0].replace(/^[^@]*@/, '').replace(/:\d+$/, '').replace(/\.+$/, '');
+  if (stripWww && s.startsWith('www.')) {
+    const rest = s.slice(4);
+    const labels = rest.split('.');
+    const isPublicSuffix = labels.length === 2 && labels[1].length === 2 && CC_SECOND_LEVEL_SUFFIXES.has(labels[0]);
+    if (labels.length >= 2 && !isPublicSuffix && isValidDomainSyntax(rest)) s = rest;
+  }
+  return s;
+}
+
+// The workspace-domain record the typed value refers to. An exact existing link
+// wins (older workspaces may already monitor a www host as its own record);
+// otherwise the canonical apex. Matching never crosses workspaces — the caller
+// passes THIS workspace's list.
+export function matchWorkspaceDomain(domains, raw) {
+  const list = Array.isArray(domains) ? domains : [];
+  const exact = canonicalDomainInput(raw, { stripWww: false });
+  const canonical = canonicalDomainInput(raw);
+  const byName = (name) => list.find((d) => String(d?.domain || '').toLowerCase() === name);
+  return (exact && byName(exact)) || (canonical && byName(canonical)) || null;
+}
+
 // What the field says under the input. It may describe the FORMAT and nothing more
 // until the backend has confirmed ownership.
-export function domainHintFor(state, value) {
+export function domainHintFor(state, value, resolvedDomain = null) {
   if (!String(value || '').trim()) return null;
-  if (!isValidDomainSyntax(value)) return { tone: 'error', text: 'Enter a domain like example.com' };
+  // `resolvedDomain` is the existing workspace record the value matched, when one
+  // did; the hint must name what will actually be scanned.
+  const canonical = resolvedDomain ? String(resolvedDomain).toLowerCase() : canonicalDomainInput(value);
+  if (!isValidDomainSyntax(canonical)) return { tone: 'error', text: 'Enter a domain like example.com' };
+  if (canonical !== String(value).trim().toLowerCase()) {
+    if (VERIFIED_STATES.has(state)) return { tone: 'success', text: `Domain ownership verified for ${canonical} — ready to scan` };
+    return { tone: 'neutral', text: `We'll monitor ${canonical} — www and other subdomains are covered from there.` };
+  }
   if (VERIFIED_STATES.has(state)) return { tone: 'success', text: 'Domain ownership verified — ready to scan' };
   if (state === 'resolving') return { tone: 'neutral', text: 'Checking domain ownership…' };
   // Deliberately not "ready to scan": we do not know that yet. The verification CTA

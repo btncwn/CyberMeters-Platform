@@ -10,7 +10,7 @@ import Spinner from '../components/Spinner'
 import DomainVerificationPanel from '../components/DomainVerificationPanel'
 import { useWorkspace } from '../hooks/useWorkspace'
 import {
-  canStartScan, isValidDomainSyntax, domainHintFor, safeErrorMessage,
+  canStartScan, isValidDomainSyntax, canonicalDomainInput, matchWorkspaceDomain, domainHintFor, safeErrorMessage,
   isVerificationRequired, dnsInstructionFrom, checkFailureMessage,
   requiresVerificationCta, verifyFailureNote,
   isAuthoritativeVerified, verifyResponseClaimsSuccess, VERIFY_UNCONFIRMED_MESSAGE,
@@ -53,8 +53,8 @@ export default function NewScan() {
     return () => window.removeEventListener('cybermeters:new-scan-reset', reset)
   }, [])
 
-  const valid = isValidDomainSyntax(domain)
-  const hint  = domainHintFor(state, domain)
+  const valid = isValidDomainSyntax(canonicalDomainInput(domain))
+  const hint  = domainHintFor(state, domain, gated?.domain)
 
   // Typing a different domain invalidates ownership proven for the previous one —
   // otherwise a verified domain would silently authorise scanning a different,
@@ -64,7 +64,7 @@ export default function NewScan() {
   // unverified one.
   function onDomainChange(next) {
     setDomain(next)
-    setState(isValidDomainSyntax(next) ? 'valid_unverified' : 'idle')
+    setState(isValidDomainSyntax(canonicalDomainInput(next)) ? 'valid_unverified' : 'idle')
     setGated(null); setDns(null); setCheckNote(null); setError(null)
   }
 
@@ -75,20 +75,19 @@ export default function NewScan() {
   // request that would have revealed it could never be sent. Resolution now happens
   // before any scan action, through the existing workspace-scoped lookup.
   useEffect(() => {
-    if (!wsId || !isValidDomainSyntax(domain)) return
+    if (!wsId || !isValidDomainSyntax(canonicalDomainInput(domain))) return
     let cancelled = false
     const t = setTimeout(async () => {
       setState('resolving')
       try {
         const res = await api.getWorkspaceDomains(wsId)
         if (cancelled) return
-        const wanted = domain.trim().toLowerCase()
         // The EXACT link in THIS workspace. Never matched on hostname alone across
         // workspaces: the same domain can exist under several ids, and the scan gate
         // honours one specific (workspace_id, domain_id) link.
-        const record = (res?.domains || []).find((d) => String(d.domain || '').toLowerCase() === wanted)
+        const record = matchWorkspaceDomain(res?.domains, domain)
         if (!record) { setGated(null); setState('valid_unverified'); return }
-        setGated({ domain_id: record.domain_id, workspace_id: wsId })
+        setGated({ domain_id: record.domain_id, workspace_id: wsId, domain: record.domain })
         // verification_status is the authoritative workspace-scoped link status.
         // Same contract as every other path: status alone is not proof. A row
         // marked verified with no verified_at, or for a different record, must not
@@ -113,20 +112,19 @@ export default function NewScan() {
       // synchronously before falling back to linking — otherwise we would add a
       // domain that is already linked, purely because we raced our own lookup.
       if (!record?.domain_id) {
-        const wanted = domain.trim().toLowerCase()
         const res = await api.getWorkspaceDomains(wsId).catch(() => null)
-        const existing = (res?.domains || []).find((d) => String(d.domain || '').toLowerCase() === wanted)
+        const existing = matchWorkspaceDomain(res?.domains, domain)
         // setGated on EVERY resolution path, not just the add-domain branch below.
         // Assigning only the local `record` left component state null for an
         // already-linked domain, so initiation worked (it uses `record`) while the
         // later Verify click had no record to act on — an inert button.
-        if (existing) { record = { domain_id: existing.domain_id, workspace_id: wsId }; setGated(record) }
+        if (existing) { record = { domain_id: existing.domain_id, workspace_id: wsId, domain: existing.domain }; setGated(record) }
       }
       if (!record?.domain_id) {
-        const added = await api.addDomainToWorkspace(wsId, domain.trim().toLowerCase())
+        const added = await api.addDomainToWorkspace(wsId, canonicalDomainInput(domain))
         const id = added?.domain?.id || added?.domain_id || added?.id
         if (!id) { setError(safeErrorMessage({})); setState('valid_unverified'); return }
-        record = { domain_id: id, workspace_id: wsId }
+        record = { domain_id: id, workspace_id: wsId, domain: added?.domain?.domain || canonicalDomainInput(domain) }
         setGated(record)
       }
       const res = await api.generateDomainVerification(record.domain_id, record.workspace_id)
@@ -187,11 +185,10 @@ export default function NewScan() {
   async function resolveGatedRecord() {
     if (gated?.domain_id) return gated
     if (!wsId) return null
-    const wanted = domain.trim().toLowerCase()
     const res = await api.getWorkspaceDomains(wsId).catch(() => null)
-    const existing = (res?.domains || []).find((d) => String(d.domain || '').toLowerCase() === wanted)
+    const existing = matchWorkspaceDomain(res?.domains, domain)
     if (!existing) return null
-    const record = { domain_id: existing.domain_id, workspace_id: wsId }
+    const record = { domain_id: existing.domain_id, workspace_id: wsId, domain: existing.domain }
     setGated(record)
     return record
   }
@@ -241,7 +238,7 @@ export default function NewScan() {
     setError(null)
     setState((prev) => (prev === 'verified' ? 'scanning' : 'starting'))
     try {
-      const data = await api.createScan(domain.trim().toLowerCase())
+      const data = await api.createScan(gated?.domain || canonicalDomainInput(domain))
       setSuccess(data)
       setTimeout(() => {
         const id = data?.scan?.id || data?.id
@@ -359,7 +356,7 @@ export default function NewScan() {
                   // confirmation — not the CTA card asking to verify again.
                   (dns || state === 'verified')
                     ? <DomainVerificationPanel
-                        domain={domain.trim().toLowerCase()}
+                        domain={gated?.domain || canonicalDomainInput(domain)}
                         dns={dns}
                         state={state}
                         note={checkNote}
@@ -369,7 +366,7 @@ export default function NewScan() {
                         <div className="flex items-start gap-2.5">
                           <ShieldCheck className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
                           <div>
-                            <p className="text-sm font-semibold text-gray-900">Verify ownership of {domain.trim().toLowerCase()}</p>
+                            <p className="text-sm font-semibold text-gray-900">Verify ownership of {gated?.domain || canonicalDomainInput(domain)}</p>
                             <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
                               Before scanning, prove you control this domain by adding a DNS record.
                               This is a one-time step for this workspace.
