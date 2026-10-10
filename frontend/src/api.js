@@ -787,6 +787,8 @@ export const api = {
   /** GET /api/workspaces/:id/identity-exposure — consolidated Identity Exposure
    *  (exposed login surfaces + active impersonation infra + email spoofing) */
   getIdentityExposure: (id) => request(`/workspaces/${id}/identity-exposure`),
+  getIdentityPublicSources: (id) => request(`/workspaces/${id}/identity-public-sources`),
+  checkIdentityPublicSources: (id, body) => request(`/workspaces/${id}/identity-public-sources`, { method: 'POST', body: JSON.stringify(body) }),
 
   // ── Identity Exposure Managed Workflow (managed identity surfaces) ─────────
   /** GET /api/workspaces/:id/identity-surfaces  optional: ?customer_classification=&risk_status=&monitoring_status=&surface_type= */

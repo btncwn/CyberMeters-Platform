@@ -149,6 +149,9 @@ jobs:
       - name: Validate scoped DNS connections and reversible changes
         run: node scripts/validate-dns-remediation.js
 
+      - name: Validate public source secret evidence and workspace isolation
+        run: node scripts/validate-identity-public-secrets.js
+
       - name: Validate network queue recovery and deletion integration
         run: node scripts/validate-network-integration.js
 

@@ -122,12 +122,13 @@ It has no visibility into internal networks, endpoints, employee devices, browse
 - **Observes:** identity-provider relationships and identity-facing hostname candidates, derived from public DNS, certificate transparency and HTTP response metadata.
 - **Detects:** changes in observed provider relationships and hostname candidates. A registered HTTP probe measures same-host endpoint reachability and positively observed password-field markup; the UI preserves the endpoint, status and observation time. A password field is not proof of a working sign-in flow or a vulnerability.
 - **Verifies (Observed):** hostname/provider observations and HTTP reachability where this scan captured supporting evidence. Unmeasured candidates remain **not evaluated**.
-- **Customer-declared inputs:** the domain in scope.
-- **Alerts & managed workflows:** identity-exposure alerts; managed workflow.
+- **Customer-declared inputs:** the domain in scope; an explicit public page/JavaScript URL within a customer-verified domain.
+- **Public source checks:** an owner/admin can check one page and up to three directly linked same-origin scripts for supported secret-key/private-key patterns. Only masked candidates, fingerprints and source locations are saved. Publishable keys are excluded. Keys are never used or validated with their provider; no match is not proof of absence.
+- **Alerts & managed workflows:** identity-exposure alerts; managed workflow. Public source checks are saved separately and require customer review; they do not automatically create a confirmed incident or alter scan scores.
 - **Evidence sources:** external observation.
 - **Known limitations:** bounded external observations only. The first 8 KiB of HTML may omit JavaScript-rendered sign-in forms. Absence of a password field is not evidence that authentication is absent.
 - **Explicitly does not do:** credential / breach / stealer-log / dark-web monitoring; see internal identity events. See **Hard boundaries**.
-- **Current maturity:** HTTP measurement implementation added to the release candidate; production deployment and Founder acceptance pending.
+- **Current maturity:** HTTP measurement and bounded public-source checks added to the release candidate; production deployment and Founder acceptance pending.
 
 ### 8. Shadow IT & Unmanaged Technology
 - **Observes:** externally observed SaaS, vendors, third-party scripts and unmanaged-technology signals (this is where **third-party / vendor technology** lives — not a separate domain).

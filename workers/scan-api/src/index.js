@@ -110,6 +110,7 @@ import { relatedChangesRoutes } from "./routes/related-changes.js";
 import { shadowItRoutes } from "./routes/shadow-it.js";
 import { certificatesLifecycleRoutes } from "./routes/certificates-lifecycle.js";
 import { identityExposureRoutes } from "./routes/identity-exposure.js";
+import { identityPublicSecretsRoutes } from "./routes/identity-public-secrets.js";
 import { websiteSecurityRoutes } from "./routes/website-security.js";
 import { cyberEssentialsControlsRoutes } from "./routes/cyber-essentials-controls.js";
 import { emailProtectionLifecycleRoutes } from "./routes/email-protection-lifecycle.js";
@@ -1095,6 +1096,7 @@ const SCAN_CHILD_TABLES = [
 // as long as the table has existed. A comment asserting a guard nobody wrote is worse
 // than no comment: it stops the next person looking.
 const WORKSPACE_PURGE_TABLES = [
+  "identity_public_source_checks",
   "dns_provider_changes", "dns_provider_connections",
   "network_assets", "network_scans", "network_targets",
   // email_protection_events holds no FK to either record family it describes
@@ -2594,6 +2596,8 @@ export default {
 
     // ── Identity Exposure Managed Workflow routes ───────────────────────────
     {
+      const publicSourcesResponse = await identityPublicSecretsRoutes(routeCtx);
+      if (publicSourcesResponse) return publicSourcesResponse;
       const identityExposureResponse = await identityExposureRoutes(routeCtx);
       if (identityExposureResponse) return identityExposureResponse;
     }

@@ -13,8 +13,8 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 261
-- **Auth-guarded:** 238
+- **Total entry points:** 263
+- **Auth-guarded:** 240
 - **Unauthenticated (public by design):** 23
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
@@ -28,7 +28,7 @@ guard without an explicit, documented public-allowlist reason.
 | public-or-global | 37 | 19 |
 | unknown | 54 | 52 |
 | webhook | 2 | 0 |
-| workspace | 129 | 129 |
+| workspace | 131 | 131 |
 
 ## Public allowlist (unauthenticated by design)
 
@@ -71,9 +71,9 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2435 | preflight | public | — |
-| GET | `/health` | 2440 | public-or-global | public | — |
-| GET | `/ready` | 2456 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2437 | preflight | public | — |
+| GET | `/health` | 2442 | public-or-global | public | — |
+| GET | `/ready` | 2458 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -288,6 +288,13 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `(none)` | 46 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `(none)` | 75 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | POST | `(none)` | 88 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+
+### `workers/scan-api/src/routes/identity-public-secrets.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| GET | `/^\/api\/workspaces\/([^\/]+)\/identity-public-sources$/` | 21 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-public-sources$/` | 26 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/managed-cases.js`
 
