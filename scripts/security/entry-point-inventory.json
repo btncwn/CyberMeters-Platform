@@ -18,8 +18,9 @@
     "workers/scan-api/src/routes/email-protection.js",
     "workers/scan-api/src/routes/executive-dashboard.js",
     "workers/scan-api/src/routes/global-billing.js",
-    "workers/scan-api/src/routes/identity-breach-checks.js",
     "workers/scan-api/src/routes/identity-exposure.js",
+    "workers/scan-api/src/routes/identity-public-secrets.js",
+    "workers/scan-api/src/routes/identity-workforce.js",
     "workers/scan-api/src/routes/managed-cases.js",
     "workers/scan-api/src/routes/network-assets.js",
     "workers/scan-api/src/routes/portfolio.js",
@@ -39,8 +40,8 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 270,
-    "authed": 241,
+    "total": 278,
+    "authed": 249,
     "public_unauthed": 29,
     "sensitive_scope_gaps": 0,
     "by_scope": {
@@ -53,8 +54,8 @@
         "authed": 0
       },
       "unknown": {
-        "total": 60,
-        "authed": 52
+        "total": 62,
+        "authed": 54
       },
       "public-or-global": {
         "total": 37,
@@ -69,8 +70,8 @@
         "authed": 2
       },
       "workspace": {
-        "total": 132,
-        "authed": 132
+        "total": 138,
+        "authed": 138
       },
       "webhook": {
         "total": 2,
@@ -2266,48 +2267,6 @@
       "public_reason": "report ingestion — endpoint-key / DMARC-trust gated (key binds the workspace)"
     },
     {
-      "method": "DELETE",
-      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/identity-breach-checks\\/([^\\/]+)$/",
-      "path_kind": "regex",
-      "file": "workers/scan-api/src/routes/identity-breach-checks.js",
-      "scope": "workspace",
-      "auth_guards": [
-        "requireAuth",
-        "requireWorkspaceRole"
-      ],
-      "scope_helpers": [],
-      "authed": true,
-      "public_reason": null
-    },
-    {
-      "method": "GET",
-      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/identity-breach-checks$/",
-      "path_kind": "regex",
-      "file": "workers/scan-api/src/routes/identity-breach-checks.js",
-      "scope": "workspace",
-      "auth_guards": [
-        "requireAuth",
-        "requireWorkspaceRole"
-      ],
-      "scope_helpers": [],
-      "authed": true,
-      "public_reason": null
-    },
-    {
-      "method": "POST",
-      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/identity-breach-checks$/",
-      "path_kind": "regex",
-      "file": "workers/scan-api/src/routes/identity-breach-checks.js",
-      "scope": "workspace",
-      "auth_guards": [
-        "requireAuth",
-        "requireWorkspaceRole"
-      ],
-      "scope_helpers": [],
-      "authed": true,
-      "public_reason": null
-    },
-    {
       "method": "GET",
       "path": null,
       "path_kind": null,
@@ -2340,6 +2299,174 @@
       "path": null,
       "path_kind": null,
       "file": "workers/scan-api/src/routes/identity-exposure.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/identity-public-sources$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/identity-public-secrets.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/identity-public-sources$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/identity-public-secrets.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/identity-response\\/([^\\/]+)\\/(apply|verify)$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/identity-workforce.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/identity-response\\/([^\\/]+)\\/(apply|verify)$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/identity-workforce.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/identity-response\\/preview$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/identity-workforce.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PATCH",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/identity-workforce\\/([^\\/]+)$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/identity-workforce.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/identity-workforce\\/([^\\/]+)$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/identity-workforce.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/identity-workforce$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/identity-workforce.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/identity-workforce$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/identity-workforce.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PATCH",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/identity-workforce.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/identity-workforce.js",
       "scope": "unknown",
       "auth_guards": [
         "requireAuth",

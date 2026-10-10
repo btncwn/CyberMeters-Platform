@@ -27,6 +27,10 @@ const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAI
 // not data-destroying and are allowed.
 const DESTRUCTIVE = /\b(DROP\s+TABLE|DROP\s+COLUMN|DELETE\s+FROM|TRUNCATE)\b/i;
 const APPROVED_DESTRUCTIVE_MIGRATIONS = new Map([
+  ["112-remove-external-breach-provider.sql", {
+    sha256: "f52da71bd7e34586bbcc3eea29dae961ee96a78771b6c71e61ae225df59c42f3",
+    reason: "Founder explicitly requested complete LeakCheck removal, including test records, before onboarding customers (2026-10-10)",
+  }],
   ["105-ct-platform-deadline-provenance.sql", {
     sha256: "f3a95b2ec0af4246b09a88c7d4e4e1326cbd0892d01614a45c2df26569632d0d",
     reason: "founder-gated, copy-guarded SQLite table rebuild; remote carrier rollback proven at six injected boundaries",
@@ -60,6 +64,11 @@ ok("governed rebuild approval rejects an appended destructive statement",
   !approvedDestructiveMigration(governedFilename, `${governedRaw}\nDROP TABLE unrelated_customer_history;\n`));
 ok("governed rebuild approval does not transfer to another migration identity",
   !approvedDestructiveMigration("106-unrelated.sql", governedRaw));
+
+const removalName = "112-remove-external-breach-provider.sql";
+const removalRaw = fs.readFileSync(path.join(migDir, removalName), "utf8");
+ok("provider removal approval is restricted to exact migration bytes", approvedDestructiveMigration(removalName, removalRaw));
+ok("provider removal approval rejects unrelated deletion", !approvedDestructiveMigration(removalName, removalRaw + "\nDROP TABLE users;"));
 
 // ── 2. Fresh-apply convergence ──
 // schema.sql + every migration in order must apply so the resulting database has

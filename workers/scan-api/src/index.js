@@ -110,8 +110,8 @@ import { relatedChangesRoutes } from "./routes/related-changes.js";
 import { shadowItRoutes } from "./routes/shadow-it.js";
 import { certificatesLifecycleRoutes } from "./routes/certificates-lifecycle.js";
 import { identityExposureRoutes } from "./routes/identity-exposure.js";
-import { identityBreachCheckRoutes } from "./routes/identity-breach-checks.js";
-import { cleanupIdentityBreachChecks } from "./engines/identity-breach-checks.js";
+import { identityWorkforceRoutes } from "./routes/identity-workforce.js";
+import { identityPublicSecretsRoutes } from "./routes/identity-public-secrets.js";
 import { websiteSecurityRoutes } from "./routes/website-security.js";
 import { cyberEssentialsControlsRoutes } from "./routes/cyber-essentials-controls.js";
 import { emailProtectionLifecycleRoutes } from "./routes/email-protection-lifecycle.js";
@@ -1097,8 +1097,9 @@ const SCAN_CHILD_TABLES = [
 // as long as the table has existed. A comment asserting a guard nobody wrote is worse
 // than no comment: it stops the next person looking.
 const WORKSPACE_PURGE_TABLES = [
+  "identity_response_actions", "identity_workforce_accounts",
+  "identity_public_source_checks",
   "dns_provider_changes", "dns_provider_connections",
-  "identity_breach_checks",
   "network_assets", "network_scans", "network_targets",
   // email_protection_events holds no FK to either record family it describes
   // (hosted_dns_entries is hard-deleted on removal, and one column carries ids
@@ -2603,10 +2604,12 @@ export default {
 
     // ── Identity Exposure Managed Workflow routes ───────────────────────────
     {
+      const workforceResponse = await identityWorkforceRoutes(routeCtx);
+      if (workforceResponse) return workforceResponse;
+      const publicSourcesResponse = await identityPublicSecretsRoutes(routeCtx);
+      if (publicSourcesResponse) return publicSourcesResponse;
       const identityExposureResponse = await identityExposureRoutes(routeCtx);
       if (identityExposureResponse) return identityExposureResponse;
-      const breachResponse = await identityBreachCheckRoutes(routeCtx);
-      if (breachResponse) return breachResponse;
     }
 
     // ── Website Security lifecycle read routes (mig 089) ────────────────────
@@ -2750,7 +2753,6 @@ export default {
   // bodies stay here and are injected so the module needs no cycle.
   scheduled: (event, env, ctx) => runScheduled(event, env, ctx, {
     cleanupExpiredReports,
-    cleanupIdentityBreachChecks,
     generateScheduledReports,
     opsHealthHeartbeat,
     sendWeeklyDigests,

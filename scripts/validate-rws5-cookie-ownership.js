@@ -471,7 +471,7 @@ for (const [label, row, domainKey] of [
   ok(`B3 ${label} observation owns no domain issue/count/identity`,
     state?.state !== "issue_detected" && state?.finding_count === 0 && JSON.stringify(state?.finding_ids) === "[]");
 }
-eq("current resolver version preserves the evidence-methodology boundary", domains.CYBER_MOT_RESOLVER_VERSION, "2026-10-08.1");
+eq("current resolver version preserves the evidence-methodology boundary", domains.CYBER_MOT_RESOLVER_VERSION, "2026-10-10.1");
 
 // 3. One canonical remediation identity, already Website-owned.
 const cookieEntries = remediation.REMEDIATION_REGISTRY.filter((entry) =>

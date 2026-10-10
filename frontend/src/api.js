@@ -787,6 +787,15 @@ export const api = {
   /** GET /api/workspaces/:id/identity-exposure — consolidated Identity Exposure
    *  (exposed login surfaces + active impersonation infra + email spoofing) */
   getIdentityExposure: (id) => request(`/workspaces/${id}/identity-exposure`),
+  getIdentityWorkforce: (id) => request(`/workspaces/${id}/identity-workforce`),
+  addIdentityAccount: (id, body) => request(`/workspaces/${id}/identity-workforce`, { method: 'POST', body: JSON.stringify(body) }),
+  updateIdentityAccount: (id, accountId, body) => request(`/workspaces/${id}/identity-workforce/${encodeURIComponent(accountId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  observeIdentityAccount: (id, body) => request(`/workspaces/${id}/identity-workforce/observe`, { method: 'POST', body: JSON.stringify(body) }),
+  previewIdentityResponse: (id, body) => request(`/workspaces/${id}/identity-response/preview`, { method: 'POST', body: JSON.stringify(body) }),
+  applyIdentityResponse: (id, actionId, body) => request(`/workspaces/${id}/identity-response/${encodeURIComponent(actionId)}/apply`, { method: 'POST', body: JSON.stringify(body) }),
+  verifyIdentityResponse: (id, actionId, body) => request(`/workspaces/${id}/identity-response/${encodeURIComponent(actionId)}/verify`, { method: 'POST', body: JSON.stringify(body) }),
+  getIdentityPublicSources: (id) => request(`/workspaces/${id}/identity-public-sources`),
+  checkIdentityPublicSources: (id, body) => request(`/workspaces/${id}/identity-public-sources`, { method: 'POST', body: JSON.stringify(body) }),
 
   // ── Identity Exposure Managed Workflow (managed identity surfaces) ─────────
   /** GET /api/workspaces/:id/identity-surfaces  optional: ?customer_classification=&risk_status=&monitoring_status=&surface_type= */
@@ -832,18 +841,6 @@ export const api = {
   identitySurfaceVerify: (id, recId) =>
     request(`/workspaces/${id}/identity-surfaces/${encodeURIComponent(recId)}/verify`, {
       method: 'POST', body: JSON.stringify({}),
-    }),
-
-  /** Manual known-address checks; never put an address in a URL. */
-  getIdentityBreachChecks: (id, options = {}) =>
-    request(`/workspaces/${encodeURIComponent(id)}/identity-breach-checks`, options),
-  createIdentityBreachCheck: (id, body, options = {}) =>
-    request(`/workspaces/${encodeURIComponent(id)}/identity-breach-checks`, {
-      ...options, method: 'POST', body: JSON.stringify(body),
-    }),
-  deleteIdentityBreachCheck: (id, checkId, options = {}) =>
-    request(`/workspaces/${encodeURIComponent(id)}/identity-breach-checks/${encodeURIComponent(checkId)}`, {
-      ...options, method: 'DELETE',
     }),
 
   /** GET /api/workspaces/:id/vendor-relationships */

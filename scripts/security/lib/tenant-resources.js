@@ -88,8 +88,9 @@ export function extractSchemaResourcesFromSources(sources) {
             target: null,
           });
           createdInSource.delete(operation.table);
-          delete tables[operation.table];
         }
+        // A later migration can also retire a table created in an earlier file.
+        delete tables[operation.table];
       }
     }
   }
@@ -135,7 +136,6 @@ export const INFRA_TABLES = new Set([
   "api_rate_limits",        // rate-limit counters keyed by scope/ip
   "oauth_states",           // OAuth CSRF state token, pre-auth
   "stripe_processed_events",// Stripe webhook idempotency ledger (global)
-  "identity_breach_cleanup_state", // global cleanup cursor; no subject observations
 ]);
 
 // The 12 canonical tenant-isolation invariants (mission Phase 2).
@@ -163,6 +163,8 @@ export const INVARIANTS = [
 // / validate-tenant-isolation-extended). `property` = exercised by the property-based
 // authz suite. Classes with neither carry a `coverage_note` explaining why.
 export const RESOURCE_CLASSES = [
+  { class: "identity_workforce_response", domain: "identity", tables: ["identity_workforce_accounts", "identity_response_actions"], harness: false, property: false, coverage_note: "Dedicated production-router controls in validate-identity-workforce.js cover tenant and role boundaries, immutable targets, one-attempt claims, uncertain outcomes, secret exclusion and purge; provider contracts are tested separately without live calls." },
+  { class: "identity_public_sources", domain: "identity", tables: ["identity_public_source_checks"], harness: false, property: false, coverage_note: "Masked evidence only. Dedicated production-router coverage in validate-identity-public-secrets.js verifies roles, domain authority, SSRF denial, post-fetch revocation, storage and tenant isolation." },
   { class: "dns_provider_remediation", domain: "email", tables: ["dns_provider_connections", "dns_provider_changes"], harness: false, property: false, coverage_note: "Workspace/domain-owned encrypted connections and saved DNS changes. Dedicated production-entry coverage lives in scripts/validate-dns-remediation.js; not part of the general two-tenant/property harness." },
   { class: "network_assets", domain: "attack_surface", tables: ["network_targets", "network_scans", "network_assets"], harness: false, property: false, coverage_note: "Explicit attested public IP/CIDR scope; actual route/role, two-tenant denial, immutable receipt and queue identity coverage in validate-network-assets.js; purge and queue wiring in validate-network-integration.js." },
   { class: "workspaces",            domain: "core",     tables: ["workspaces"], harness: true, property: true },
@@ -181,8 +183,6 @@ export const RESOURCE_CLASSES = [
   { class: "remediation_waivers",   domain: "reporting", tables: ["finding_waivers"], harness: false, property: false, coverage_note: "workspace_id-scoped; static audit + matrix ownership-consistency" },
   { class: "certificates",          domain: "certificates", tables: ["certificate_lifecycle", "certificate_lifecycle_events", "certificate_observations"], harness: true, property: false },
   { class: "identity_exposure",     domain: "identity", tables: ["identity_exposure", "identity_exposure_events", "identity_assets"], harness: true, property: false, coverage_note: "foreign/anon denial on /identity-surfaces with owner positive control in validate-tenant-isolation-extended.js; plus the dedicated validate-identity-exposure.js" },
-  { class: "identity_breach_checks", domain: "identity", tables: ["identity_breach_checks"], harness: false, property: false, coverage_note: "Direct workspace_id ownership; owner/admin-only observations. Dedicated actual-entry Miniflare/D1 coverage in scripts/validate-identity-breach-checks.js proves foreign workspace/domain and role denial, foreign-delete indistinguishability, denied-row preservation, workspace-scoped subject hashes, revocation, retention and selected-workspace purge. Not part of the general two-tenant/property harness." },
-  { class: "identity_breach_cleanup", domain: "infra", tables: ["identity_breach_cleanup_state"], harness: false, property: false, non_tenant: true, coverage_note: "Singleton background-cleanup progress, not a tenant-owned result: stores only the lexical workspace cursor. scripts/validate-identity-breach-checks.js exercises persisted rotation beyond 100 workspaces and preserves observations where cleanup is disabled; no public read/write route." },
   { class: "brand",                 domain: "brand",    tables: ["brand_abuse_campaigns", "brand_evidence_bundles", "workspace_brand_assets", "workspace_brand_profiles"], harness: true, property: true },
   { class: "email_protection",      domain: "email",    tables: ["aggregate_report_ingest_claims", "email_protection_events", "email_sender_sources", "dmarc_aggregate_records", "dmarc_aggregate_reports", "dmarc_change_requests", "dmarc_ingest_endpoints", "hosted_dns_entries", "hosted_dns_records", "tlsrpt_aggregate_reports", "tlsrpt_failure_details"], harness: false, property: false, coverage_note: "workspace_id-scoped; ingest is endpoint-key gated (key binds workspace); read surfaces harness-covered via /maturity + email-protection routes" },
   { class: "cyber_essentials",      domain: "cyber_essentials", tables: ["cyber_essentials_answers", "cyber_essentials_control_records", "cyber_essentials_events"], harness: false, property: false, coverage_note: "workspace_id-scoped; read surfaces exist; write is answer-versioned (validate-ce-answer-versioning)" },

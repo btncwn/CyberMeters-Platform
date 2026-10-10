@@ -25,7 +25,7 @@ export default function PrivacyPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Privacy Policy</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: 10 October 2026 — Version 1.3</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 10 October 2026 — Version 1.4</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             Turhan Acar, a sole trader trading as CyberMeters ("<strong>we</strong>", "<strong>us</strong>", "<strong>our</strong>") is committed to protecting the personal data of our customers and the individuals associated with them. This Privacy Policy explains what data we collect, how we use it, and your rights in relation to it.
           </p>
@@ -42,7 +42,8 @@ export default function PrivacyPage() {
             <p><strong className="text-gray-800">Account data.</strong> When you create an account, we collect your name, email address, and hashed password. We do not store passwords in plaintext.</p>
             <p><strong className="text-gray-800">Workspace and domain data.</strong> We store the domain names and workspace configurations you add to the platform. This includes any metadata you provide when setting up workspaces, such as workspace names and assigned members.</p>
             <p><strong className="text-gray-800">Scan data.</strong> When you initiate a scan, we collect and store the results produced by our external assessment engine. This includes DNS records, SSL certificate data, security header analysis, subdomain discovery results, and related technical findings. Scan targets are domains you own or are authorised to assess.</p>
-            <p><strong className="text-gray-800">Optional known-address breach checks.</strong> When an authorised workspace owner or administrator requests a check, we process the corporate email address and send the first 24 characters of its SHA-256 hash to LeakCheck. A hash is pseudonymous data, not anonymous data. We do not retain the submitted address or provider lookup hash in the saved check. The saved result contains a masked address, a workspace-specific identifier, the requester and permission notice, source names and dates, exposed-data categories and the outcome. We do not retrieve passwords or the exposed data values.</p>
+            <p><strong className="text-gray-800">Workforce and identity response data.</strong> An authorised workspace owner or administrator may add employee names, work email addresses and VIP labels. If they connect their own Microsoft Entra application for an exact account, we also store directory and account identifiers, enabled-member status, available direct-role and MFA-registration observations, and observation times. For an explicitly confirmed session-revocation request, we retain the requesting administrator, target account, stated concern, preview, provider outcome and later verification observations. A reported concern is not proof of a breach, and provider acceptance is not proof of logout from every application.</p>
+            <p><strong className="text-gray-800">Public-source checks.</strong> When an owner or administrator requests a check on a verified domain, we temporarily read the selected public page and a limited number of its same-origin scripts. We retain the source location, line number, detection type, masked candidate, hash fingerprint and check time. We do not retain the page or script bodies or complete candidate credentials, and we do not use candidate credentials to access any service. A masked value or fingerprint may still be linkable information; it is not treated as anonymous.</p>
             <p><strong className="text-gray-800">Audit log data.</strong> We maintain an audit trail of actions performed within the platform, including authentication events, workspace changes, report generation, and API access. Audit events are associated with your user account and workspace.</p>
             <p><strong className="text-gray-800">Authentication session data.</strong> We issue session tokens to authenticate your access. Session tokens are stored server-side and expire on logout or after a configurable period of inactivity.</p>
             <p><strong className="text-gray-800">Billing data.</strong> Subscription and payment processing is handled by Stripe, Inc. CyberMeters receives subscription status, plan tier, and billing cycle metadata from Stripe. We do not store payment card numbers or bank account details.</p>
@@ -59,6 +60,7 @@ export default function PrivacyPage() {
               <li>To maintain audit logs for security and compliance purposes.</li>
               <li>To enforce acceptable use policies and platform limits.</li>
               <li>To investigate and respond to security incidents.</li>
+              <li>On an authorised administrator's request, to maintain a workforce inventory, obtain specified Entra observations, check public source files and send a confirmed session-revocation request to that customer's Microsoft tenant.</li>
             </ul>
             <p>We do not sell your personal data. We do not use your scan data for advertising purposes.</p>
           </Section>
@@ -77,10 +79,12 @@ export default function PrivacyPage() {
             <ul className="list-disc pl-5 space-y-2">
               <li><strong className="text-gray-800">Account data</strong> — retained for the life of your account plus 30 days following account deletion.</li>
               <li><strong className="text-gray-800">Scan data and reports</strong> — retained for the duration of your subscription plus 90 days, unless you request earlier deletion.</li>
-              <li><strong className="text-gray-800">Known-address breach results</strong> — subject to the workspace's automatic retention setting, with the expiry shown alongside the result. If automatic cleanup is disabled or retention is unlimited, there is no automatic expiry. An authorised workspace owner or administrator can delete a saved result earlier. Deleting our result does not remove data from the original breach or LeakCheck.</li>
               <li><strong className="text-gray-800">Audit logs</strong> — retained for 12 months from the date of the event.</li>
               <li><strong className="text-gray-800">Billing metadata</strong> — retained for 7 years to meet financial record-keeping obligations.</li>
               <li><strong className="text-gray-800">Session tokens</strong> — expired and deleted on logout or after inactivity. All sessions are invalidated on password reset.</li>
+              <li><strong className="text-gray-800">Workforce and identity-response records</strong> — retained in the workspace until its data is purged or an earlier deletion request is handled through the privacy contact below. The current interface does not provide individual account deletion or rebinding. Response preview expiry does not delete the action history.</li>
+              <li><strong className="text-gray-800">Public-source check records</strong> — the latest 20 checks per domain are retained; older checks are removed when a newer check is saved. These records are also included in workspace data purging.</li>
+              <li><strong className="text-gray-800">Entra application secrets and access tokens</strong> — used only while handling the requested operation, not saved in our database, browser storage or action history. The form clears the entered secret after each operation.</li>
             </ul>
           </Section>
 
@@ -93,7 +97,7 @@ export default function PrivacyPage() {
               <li>Data is stored on Cloudflare D1 (SQLite) and Cloudflare R2 (object storage), both of which provide encryption at rest.</li>
               <li>Access to workspaces and audit logs is controlled by role-based access control (RBAC). Workspace data is tenant-isolated by design.</li>
               <li>API tokens are scoped and expire according to customer configuration.</li>
-              <li>All authentication events and workspace actions are recorded in an immutable audit log.</li>
+              <li>Security-relevant actions are recorded in audit logs. Identity-response actions also have a dedicated record of their requester, target, outcome and verification observations.</li>
             </ul>
           </Section>
 
@@ -127,9 +131,9 @@ export default function PrivacyPage() {
                 </tbody>
               </table>
             </div>
-            <p className="mt-3"><strong className="text-gray-800">Microsoft (sign in with Microsoft).</strong> If you choose to sign in with a Microsoft work or school account, Microsoft Entra ID authenticates you under Microsoft's own terms and your organisation's tenant settings; we receive only your name, email address and tenant identifier from that sign-in. Microsoft is not engaged by us as a sub-processor and we do not send your workspace data to Microsoft.</p>
-            <p className="mt-3"><strong className="text-gray-800">LeakCheck (optional breach lookup).</strong> A lookup hash is sent only when you explicitly request a known-address check. LeakCheck returns source names, dates and exposed-data categories, rather than the exposed values. Its operator is a UK-registered company (number 12101959); see its <a href="https://leakcheck.io/privacy" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">privacy policy</a> and <a href="https://leakcheck.io/dpa" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">data processing terms</a> for its processing and transfer arrangements.</p>
+            <p className="mt-3"><strong className="text-gray-800">Microsoft (customer-selected identity provider).</strong> If you choose Microsoft sign-in, Microsoft Entra ID authenticates you under Microsoft's terms and your organisation's tenant settings; we receive your name, email address and tenant identifier. Separately, when an administrator uses their own Entra application for identity observations or session response, we send that application's credentials to Microsoft's token endpoint and the target account identifier and requested operation to Microsoft Graph. We receive the requested account observations or operation result. The stated concern, VIP label, public-source findings and other workspace records are not sent to Microsoft. These optional operations use the customer's Microsoft service and permissions.</p>
             <p>We do not share your personal data for advertising or marketing by these providers.</p>
+            <p>When you choose a new CyberMeters password, we check it using Have I Been Pwned's free Pwned Passwords service. Only the first five characters of a password hash are sent; your email address, full password and full hash are not sent. This check does not monitor employees' email addresses or passwords used on other services.</p>
           </Section>
 
           <Section title="8. International Data Transfers">

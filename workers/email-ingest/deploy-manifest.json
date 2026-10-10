@@ -1,8 +1,8 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.10.10-lynceus-posture.a34a2471a6bf",
-  "closure_sha256": "a34a2471a6bfd9dcca7d8c815edb43658b5f30c98b98157cab6e8039e680b545",
+  "app_version": "2026.10.10-identity-evidence.9594a759f308",
+  "closure_sha256": "9594a759f3082182dfad25b0ff19014975e4d40a4ccba02bc9d6b85263f41cec",
   "closure_file_count": 92,
   "scan_api_file_count": 90,
   "files": [

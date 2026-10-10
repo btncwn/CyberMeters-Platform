@@ -143,8 +143,20 @@ jobs:
       - name: Validate known-email checks tenant isolation and private provider quota
         run: node scripts/validate-identity-breach-checks.js
 
+      - name: Validate private breached-password checks and reset isolation
+        run: node scripts/validate-pwned-passwords.js
+
       - name: Validate scoped DNS connections and reversible changes
         run: node scripts/validate-dns-remediation.js
+
+      - name: Validate Entra provider session contracts
+        run: node scripts/validate-entra-sessions.js
+
+      - name: Validate scoped workforce and identity response
+        run: node scripts/validate-identity-workforce.js
+
+      - name: Validate public source secret evidence and workspace isolation
+        run: node scripts/validate-identity-public-secrets.js
 
       - name: Validate network queue recovery and deletion integration
         run: node scripts/validate-network-integration.js
