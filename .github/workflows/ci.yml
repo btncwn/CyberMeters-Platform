@@ -149,10 +149,11 @@ jobs:
       - name: Validate scoped DNS connections and reversible changes
         run: node scripts/validate-dns-remediation.js
 
-      - name: Validate Entra provider contracts and scoped workforce responses
-        run: |
-          node scripts/validate-entra-sessions.js
-          node scripts/validate-identity-workforce.js
+      - name: Validate Entra provider session contracts
+        run: node scripts/validate-entra-sessions.js
+
+      - name: Validate scoped workforce and identity response
+        run: node scripts/validate-identity-workforce.js
 
       - name: Validate public source secret evidence and workspace isolation
         run: node scripts/validate-identity-public-secrets.js
