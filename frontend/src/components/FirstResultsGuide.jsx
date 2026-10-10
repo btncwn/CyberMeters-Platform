@@ -2,7 +2,7 @@
  * FirstResultsGuide — shown after a user's first completed scan.
  *
  * Explains the five core CyberMeters concepts:
- *   Cyber Score · Findings · Assets · Historical Tracking · Vendor Risk
+ *   Cyber Score · Findings · Assets · Historical Tracking · Shadow IT
  *
  * Dismissible (localStorage: cybermeters_results_guide_dismissed).
  * Pass `compact` prop to render a condensed inline version.
@@ -11,7 +11,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  X, Shield, AlertTriangle, Server, TrendingUp, Package2, ChevronRight,
+  X, Shield, AlertTriangle, Server, TrendingUp, Boxes, ChevronRight,
 } from 'lucide-react'
 
 const DISMISS_KEY = 'cybermeters_results_guide_dismissed'
@@ -50,12 +50,12 @@ const FEATURES = [
     cta:   'See history',
   },
   {
-    icon:  Package2,
+    icon:  Boxes,
     color: 'bg-orange-50 text-orange-500',
-    title: 'Vendor Risk',
-    desc:  'Third-party tools and services detected across your visible external posture, each assessed for risk level.',
-    href:  '/ws/vendors',
-    cta:   'Explore vendors',
+    title: 'Shadow IT & Unmanaged Technology',
+    desc:  'SaaS portals, third-party scripts and providers observed on your external footprint — classify what is approved and track the rest.',
+    href:  '/ws/shadow-it',
+    cta:   'Review technology',
   },
 ]
 

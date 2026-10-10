@@ -23,7 +23,7 @@ import { parseServerDate } from '../utils/dates'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
-  Shield, Users, BarChart2, Server, TrendingUp, Package2,
+  Shield, Users, BarChart2, Server, TrendingUp, Boxes,
   CheckCircle, AlertTriangle, Clock, LogIn, UserPlus, RefreshCw,
   Briefcase, ArrowRight, X,
 } from 'lucide-react'
@@ -55,7 +55,7 @@ const BENEFITS = [
     icon: BarChart2,
     color: 'bg-brand-50 text-brand-600',
     title: 'Shared Security Monitoring',
-    desc: 'Real-time visibility across all domains in your workspace — shared with the whole team.',
+    desc: 'Scheduled, continuous monitoring across all domains in your workspace — shared with the whole team.',
   },
   {
     icon: Shield,
@@ -76,10 +76,10 @@ const BENEFITS = [
     desc: 'Score trends over time so you can demonstrate improvement to stakeholders.',
   },
   {
-    icon: Package2,
+    icon: Boxes,
     color: 'bg-purple-50 text-purple-600',
-    title: 'Vendor Risk Visibility',
-    desc: "Understand your organisation's third-party exposure and supply chain risk.",
+    title: 'Shadow IT Visibility',
+    desc: 'See the SaaS portals, third-party scripts and providers observed on your domains, and keep an approved inventory.',
   },
   {
     icon: Users,
