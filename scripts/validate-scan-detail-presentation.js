@@ -19,8 +19,8 @@ const scanDetailFile = path.join(frontend, "src", "pages", "ScanDetail.jsx");
 const frontendRequire = createRequire(path.join(frontend, "package.json"));
 const ts = frontendRequire("typescript");
 
-// 25 -> 26: the live TLS receipt survives a separate HTTP failure in the pinned set.
-const EXPECTED_ASSERTIONS = 26;
+// The pinned set includes the direct Website Security evidence-link render.
+const EXPECTED_ASSERTIONS = 27;
 const UI_TEST_TITLES = Object.freeze([
   "A: partial canonical score and null rating override divergent raw scan presentation",
   "reason A: canonical assessment message outranks skipped modules and warnings",
@@ -39,6 +39,7 @@ const UI_TEST_TITLES = Object.freeze([
   "F2: a withheld historical redirect conclusion renders no stale score, band or BRI",
   "G: observed partial finding stays visible without becoming a new-change claim",
   "retains a live leaf receipt even when the separate HTTPS module could not complete",
+  "opens the recorded website evidence directly from the condition link",
 ]);
 
 let passed = 0;

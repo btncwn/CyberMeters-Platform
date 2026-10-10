@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { readFileSync } from 'node:fs'
@@ -18,8 +18,9 @@ import { api } from '../../api'
 // The unit suite passed throughout, because it tested the state helpers in
 // isolation and nobody drove the real page. This test drives the page.
 
+const workspace = vi.hoisted(() => ({ id: 'ws_turhan' }))
 vi.mock('../../hooks/useWorkspace', () => ({
-  useWorkspace: () => ({ wsId: 'ws_turhan', wsName: 'Turhan Workspace', workspaces: [], loading: false, setWorkspace: () => {} }),
+  useWorkspace: () => ({ wsId: workspace.id, wsName: 'Turhan Workspace', workspaces: [], loading: false, setWorkspace: () => {} }),
 }))
 
 const DOMAIN = 'cybermeters.com'
@@ -46,6 +47,7 @@ const startScanBtn = () => screen.getByRole('button', { name: /Start Scan/i })
 
 beforeEach(() => {
   vi.restoreAllMocks()
+  workspace.id = 'ws_turhan'
   const unverifiedRow = { domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'unverified', verified_at: null }
   const verifiedRow   = { domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'verified', verified_at: '2026-07-15T10:50:00Z' }
 
@@ -485,4 +487,45 @@ describe('STRUCTURAL: no optimistic verified state may exist', () => {
     expect(handler).not.toMatch(/setState\('verified'\)/)
     expect(handler).toMatch(/confirmVerifiedOrExplain\(/)
   })
+})
+
+
+it('prefills a recheck link without starting a scan or bypassing ownership verification', async () => {
+  render(<MemoryRouter initialEntries={['/scans/new?domain=cybermeters.com']}><NewScan /></MemoryRouter>)
+  expect(screen.getByRole('textbox')).toHaveValue(DOMAIN)
+  await waitFor(() => expect(api.getWorkspaceDomains).toHaveBeenCalledWith('ws_turhan'))
+  expect(startScanBtn()).toBeDisabled()
+  expect(api.createScan).not.toHaveBeenCalled()
+  expect(api.generateDomainVerification).not.toHaveBeenCalled()
+  expect(api.addDomainToWorkspace).not.toHaveBeenCalled()
+})
+
+
+it('rechecks the exact www record in the selected workspace, never the apex or another workspace', async () => {
+  const u = userEvent.setup()
+  api.getWorkspaceDomains.mockResolvedValue({ domains: [
+    { domain_id: 'apex', domain: 'example.com', verification_status: 'verified', verified_at: '2026-10-10T00:00:00Z' },
+    { domain_id: 'www', domain: 'www.example.com', verification_status: 'verified', verified_at: '2026-10-10T00:00:00Z' },
+  ] })
+  render(<MemoryRouter initialEntries={['/scans/new?domain=www.example.com']}><NewScan /></MemoryRouter>)
+  expect(screen.getByRole('textbox')).toHaveValue('www.example.com')
+  await waitFor(() => expect(startScanBtn()).toBeEnabled())
+  expect(api.createScan).not.toHaveBeenCalled()
+  await u.click(startScanBtn())
+  expect(api.createScan).toHaveBeenCalledWith('www.example.com', 'ws_turhan')
+})
+
+it('rejects a recheck after the workspace changes before its domain lookup finishes', async () => {
+  api.getWorkspaceDomains.mockResolvedValue({ domains: [
+    { domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'verified', verified_at: '2026-10-10T00:00:00Z' },
+  ] })
+  const view = render(<MemoryRouter initialEntries={['/scans/new?domain=cybermeters.com']}><NewScan /></MemoryRouter>)
+  await waitFor(() => expect(startScanBtn()).toBeEnabled())
+  api.getWorkspaceDomains.mockImplementation(() => new Promise(() => {}))
+  workspace.id = 'ws_other'
+  view.rerender(<MemoryRouter><NewScan /></MemoryRouter>)
+  fireEvent.submit(startScanBtn().closest('form'))
+  expect(api.createScan).not.toHaveBeenCalled()
+  expect(screen.getByText(/workspace or domain has changed/i)).toBeInTheDocument()
+  expect(startScanBtn()).toBeDisabled()
 })

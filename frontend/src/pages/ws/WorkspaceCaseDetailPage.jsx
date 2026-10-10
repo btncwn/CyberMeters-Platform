@@ -363,6 +363,16 @@ export default function WorkspaceCaseDetailPage() {
             </dl>
           </div>
 
+          {c.verification_support === 'automated' && c.domain && (
+            <div className="flex flex-wrap items-center gap-3">
+              <Link className="rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
+                    to={`/scans/new?domain=${encodeURIComponent(c.domain)}`}>
+                Recheck domain
+              </Link>
+              <p className="text-sm text-slate-600">Review and start a new scan. The case updates only when its evidence supports verification.</p>
+            </div>
+          )}
+
           {/* ── Remediation state & verification honesty ───────────────── */}
           <div className={CARD}>
             <div className="flex items-center gap-2 mb-3">

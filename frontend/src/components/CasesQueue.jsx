@@ -9,12 +9,14 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { phaseMeta, phaseClass, domainKeyLabel, DOMAIN_KEY_LABELS } from '../lib/caseDisplay'
 
-export default function CasesQueue({ workspaceId }) {
+export default function CasesQueue({ workspaceId, domainKey, onDomainChange }) {
   const navigate = useNavigate()
   const [cases, setCases] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [domainFilter, setDomainFilter] = useState('')
+  const [selectedDomain, setSelectedDomain] = useState('')
+  const requestedDomain = domainKey === undefined ? selectedDomain : domainKey
+  const domainFilter = Object.hasOwn(DOMAIN_KEY_LABELS, requestedDomain) ? requestedDomain : ''
 
   useEffect(() => {
     let cancelled = false
@@ -33,32 +35,33 @@ export default function CasesQueue({ workspaceId }) {
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5">
-      <div className="flex items-center justify-between gap-3 mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
           <h3 className="text-sm font-semibold text-slate-800">Managed cases — all services</h3>
-          <p className="text-xs text-slate-500">One queue across every Cyber MOT domain. Verification is performed by CyberMeters.</p>
+          <p className="text-sm text-slate-500">Review evidence, assign a fix and check its outcome.</p>
         </div>
         <select
-          className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-600"
+          className="max-w-full text-sm border border-slate-200 rounded-md px-2 py-1 text-slate-600"
           value={domainFilter}
-          onChange={(e) => setDomainFilter(e.target.value)}
+          aria-label="Filter cases by service"
+          onChange={(e) => onDomainChange ? onDomainChange(e.target.value) : setSelectedDomain(e.target.value)}
         >
           <option value="">All services</option>
           {domainKeys.map((k) => <option key={k} value={k}>{domainKeyLabel(k)}</option>)}
         </select>
       </div>
 
-      {loading && <p className="text-xs text-slate-400">Loading…</p>}
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {loading && <p className="text-sm text-slate-400">Loading…</p>}
+      {error && <p className="text-sm text-red-600">{error}</p>}
       {!loading && !error && cases.length === 0 && (
-        <p className="text-xs text-slate-400">No managed cases yet. Cases open automatically when a service detects an issue that needs remediation.</p>
+        <p className="text-sm text-slate-400">No managed cases yet. Cases open automatically when a service detects an issue that needs remediation.</p>
       )}
 
       {!loading && !error && cases.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
+              <tr className="text-left text-sm text-slate-400 border-b border-slate-100">
                 <th className="py-2 pr-3 font-medium">Service</th>
                 <th className="py-2 pr-3 font-medium">Case</th>
                 <th className="py-2 pr-3 font-medium">Owner</th>
@@ -86,12 +89,12 @@ export default function CasesQueue({ workspaceId }) {
                     </td>
                     <td className="py-2 pr-3 text-slate-600">{c.owner_ref || <span className="text-slate-400">Unassigned</span>}</td>
                     <td className="py-2 pr-3">
-                      <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${phaseClass(c.canonical_phase, c.verification_support)}`}>
+                      <span className={`inline-block rounded-full border px-2 py-0.5 text-sm ${phaseClass(c.canonical_phase, c.verification_support)}`}>
                         {meta.label}
                       </span>
                     </td>
                     <td className="py-2 pr-3 text-slate-500 capitalize">{c.severity || '—'}</td>
-                    <td className="py-2 pr-3 text-slate-400 text-xs">{c.updated_at ? c.updated_at.slice(0, 10) : '—'}</td>
+                    <td className="py-2 pr-3 text-slate-400 text-sm">{c.updated_at ? c.updated_at.slice(0, 10) : '—'}</td>
                   </tr>
                 )
               })}

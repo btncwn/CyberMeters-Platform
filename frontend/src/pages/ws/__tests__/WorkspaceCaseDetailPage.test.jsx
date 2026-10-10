@@ -127,3 +127,16 @@ describe('WorkspaceCaseDetailPage — verification honesty', () => {
     expect(link).toHaveAttribute('href', '/ws/identity-exposure')
   })
 })
+
+
+it.each(['email_protection', 'website_security', 'attack_surface', 'certificates_trust', 'identity_exposure', 'shadow_it_unmanaged_technology', 'brand_protection', 'cyber_essentials_readiness'])('offers the shared scan form for backend-supported automated verification: %s', async (domain_key) => {
+  api.getCase.mockResolvedValue({ case: { ...baseCase, domain_key, domain: 'example.com', verification_support: 'automated' }, events: [] })
+  renderCase()
+  expect(await screen.findByRole('link', { name: 'Recheck domain' })).toHaveAttribute('href', '/scans/new?domain=example.com')
+})
+it.each(['manual', 'external', 'unsupported'])('does not offer an automated recheck for %s verification', async (verification_support) => {
+  api.getCase.mockResolvedValue({ case: { ...baseCase, domain: 'example.com', verification_support }, events: [] })
+  renderCase()
+  await screen.findByText('Exposed admin login')
+  expect(screen.queryByRole('link', { name: 'Recheck domain' })).toBeNull()
+})

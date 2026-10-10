@@ -118,3 +118,14 @@ describe('detectServiceKey → domain surface wash', () => {
     }
   })
 })
+
+
+it.each([
+  ['/ws/identity-exposure', 'identity_exposure'], ['/assets', 'attack_surface'],
+  ['/ws/email-protection', 'email_protection'], ['/ws/website-security', 'website_security'],
+  ['/ws/shadow-it', 'shadow_it_unmanaged_technology'], ['/ws/certificates', 'certificates_trust'],
+  ['/ws/brand-monitoring', 'brand_protection'], ['/ws/cyber-essentials', 'cyber_essentials_readiness'],
+])('links %s to its existing managed-case queue', (path, domain) => {
+  renderNav(path)
+  expect(screen.getByRole('link', { name: 'Managed cases' })).toHaveAttribute('href', `/ws/cases?domain_key=${domain}`)
+})

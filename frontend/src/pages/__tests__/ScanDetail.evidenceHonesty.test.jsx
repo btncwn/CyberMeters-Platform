@@ -453,3 +453,15 @@ describe('ScanDetail evidence honesty', () => {
     expect(within(changes).queryByText(observed.title)).not.toBeInTheDocument()
   })
 })
+
+
+it('opens the recorded website evidence directly from the condition link', async () => {
+  api.getScan.mockResolvedValue({ scan: scanFixture(), report_availability: REPORT_READY })
+  api.getScanReport.mockResolvedValue(reportFixture({ modules: { headers: { accessible: true, values: {}, present: [], checked_paths: [{ requested_url: 'https://example.com', status: 'ok', status_code: 200, headers_observed: { 'strict-transport-security': 'max-age=1000' } }] } } }))
+  api.getExecutiveReportV2.mockResolvedValue({})
+  Element.prototype.scrollIntoView = vi.fn()
+  render(<MemoryRouter initialEntries={['/scans/scan_4f100e6d?view=technical#website-evidence']}><Routes><Route path="/scans/:id" element={<ScanDetail />} /></Routes></MemoryRouter>)
+  expect(await screen.findByText('Recorded website responses')).toBeInTheDocument()
+  expect(screen.getByText('max-age=1000')).toBeInTheDocument()
+  expect(screen.queryByText('Executive report')).toBeNull()
+})
