@@ -56,8 +56,12 @@ describe('Agency branding profiles', () => {
     await act(async () => pending.resolve({ ok: true })); await screen.findByText('Agency profile saved.')
   })
   it('edits the scoped saved logo and changes default with only the intended body', async () => {
-    api.getBrandingProfiles.mockResolvedValue(meta({ profiles: [{ ...profile(), is_default: 0 }] })); mountAgency(); await screen.findByText('Agency profile-a')
+    api.getBrandingProfiles.mockResolvedValue(meta({ profiles: [{ ...profile(), is_default: 0 }] })); await act(async () => { mountAgency() }); await screen.findByText('Agency profile-a')
     click('Make Agency profile-a default'); await screen.findByText('Default agency profile saved.')
+    // The save reload bumps `revision`, and a passive effect then closes any open
+    // editor. The notice can be in the DOM before that effect has flushed, so an
+    // immediate Edit click could be wiped by it. Flush effects before interacting.
+    await act(async () => {})
     expect(api.updateBrandingProfile.mock.calls[0][0]).toBe('profile-a'); expect(api.updateBrandingProfile.mock.calls[0][1]).toEqual({ is_default: true })
     click('Edit Agency profile-a'); await screen.findByDisplayValue('Agency profile-a')
     expect(api.getBrandingProfile).toHaveBeenCalledWith('profile-a', expect.objectContaining({ signal: expect.any(AbortSignal) })); expect(screen.getByAltText('Report logo preview')).toHaveAttribute('src', PNG)
