@@ -1273,7 +1273,8 @@ export async function emailProtectionRoutes(rctx) {
           );
 
         const days = Math.min(365, Math.max(1, parseInt(url.searchParams.get("days") || "30", 10) || 30));
-        const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+        const windowEnd = Math.floor(Date.now() / 1000);
+        const cutoff = windowEnd - days * 86400;
 
         const senders = await loadEmailSenderSources(env, workspaceId, domain);
         const sSummary = summarizeEmailSenders(senders);
@@ -1299,19 +1300,25 @@ export async function emailProtectionRoutes(rctx) {
           else disposition.none += msgs;
         }
         const failedMsgs = Math.max(0, totalMsgs - alignedMsgs);
-        const passRate = totalMsgs > 0 ? Math.round((alignedMsgs / totalMsgs) * 1000) / 10 : sSummary.overall_pass_rate;
+        const passRate = totalMsgs > 0 ? Math.round((alignedMsgs / totalMsgs) * 1000) / 10 : null;
 
         const window = await env.cybermeters_db
           .prepare(`SELECT COUNT(*) AS c, MIN(rep.date_range_begin) AS minb,
                            MAX(rep.date_range_end) AS maxe
                     FROM dmarc_aggregate_reports rep
                     WHERE rep.workspace_id = ? AND rep.domain = ?
+                      AND (rep.date_range_end IS NULL OR rep.date_range_end >= ?)
                       AND ${aggregateReportCompleteSql("rep", "dmarc")} AND ${dmarcOperationalSignalSourceSql("rep")}`)
-          .bind(workspaceId, domain).first();
-        const daysWithData = (window?.minb && window?.maxe) ? Math.max(1, Math.round((window.maxe - window.minb) / 86400)) : 0;
+          .bind(workspaceId, domain, cutoff).first();
+        // Readiness uses the same report window as the traffic tiles. A report
+        // that overlaps the cutoff cannot supply days outside that window.
+        const observedStart = Math.max(cutoff, window?.minb ?? windowEnd);
+        const observedEnd = Math.min(windowEnd, window?.maxe ?? cutoff);
+        const daysWithData = totalMsgs > 0 && observedEnd > observedStart
+          ? Math.max(1, Math.round((observedEnd - observedStart) / 86400)) : 0;
         const highVolFailed = senders.filter((s) => (s.total_messages || 0) >= 50 && (typeof s.pass_rate === "number" ? s.pass_rate : 100) < 90).length;
         const readiness = buildDmarcEnforcementReadiness({
-          days_with_data: daysWithData, total_messages: totalMsgs || sSummary.total_messages,
+          days_with_data: daysWithData, total_messages: totalMsgs,
           pass_rate: passRate, unknown_senders: sSummary.unknown_senders, high_volume_failed_senders: highVolFailed,
           threat_senders: sSummary.threat_senders, suspicious_senders: sSummary.suspicious_senders,
         });
