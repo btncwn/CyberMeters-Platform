@@ -151,6 +151,11 @@ ok('scan aggregate counts actual measurements', discovery.reachable_surface_coun
 for (const html of [
   '<!-- <input type="password"> -->',
   '<script>const example = \'<input type="password">\';</script>',
+  '<input data-type="password">',
+  '<input title="type=password">',
+  '<div title=\'<input type="password">\'>example</div>',
+  '<textarea><input type="password"></textarea>',
+  '<input type="text" type="password">',
   ' '.repeat(8_192) + '<input type="password">',
 ]) {
   const asset = await probeAsset('login.acme.co.uk', { fetcher: async () => new Response(html, { headers: { 'content-type': 'text/html' } }) });

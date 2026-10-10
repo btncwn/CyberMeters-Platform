@@ -68,10 +68,18 @@ function IdentityAssetCard({ asset }) {
       <div className="flex flex-wrap gap-3 text-[11px] text-gray-400">
         <span>Reachability: <span className="font-medium text-gray-600">{claim?.reachability?.status?.replace(/_/g, ' ') || 'not evaluated'}</span></span>
         <span>{confidenceDetailLabel(asset.confidence_detail)}</span>
-        {claim?.reachability?.password_form_observed === true && <span>Password field observed (sign-in behavior not tested)</span>}
+        {claim?.reachability?.password_form_observed === true && <span>Password-field markup observed (sign-in behavior not tested)</span>}
         {asset.name_resolution?.status && <span>Name resolution: <span className="font-medium text-gray-600">{asset.name_resolution.status.replace(/_/g, ' ')}</span></span>}
         {asset.source && <span>Source: <span className="capitalize font-medium text-gray-600">{asset.source.replace(/_/g, ' ')}</span></span>}
       </div>
+
+      {claim?.claim_kind === 'measured_identity_surface' && claim.reachability?.endpoint && (
+        <p className="mt-2 break-all text-xs text-gray-500">
+          {claim.reachability.endpoint}
+          {claim.reachability.http_status != null && ` · HTTP ${claim.reachability.http_status}`}
+          {claim.reachability.measured_at && ` · ${parseServerDate(claim.reachability.measured_at).toLocaleString()}`}
+        </p>
+      )}
 
       <div className="mt-3 pt-3 border-t border-gray-50 flex justify-between text-[10px] text-gray-400">
         <span>First seen: {asset.first_seen ? parseServerDate(asset.first_seen).toLocaleDateString() : '—'}</span>

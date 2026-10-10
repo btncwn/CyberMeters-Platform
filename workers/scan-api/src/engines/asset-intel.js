@@ -144,6 +144,24 @@ async function readProbeSnippet(response) {
   }
 }
 
+// Inspect complete input tags only; quoted examples, comments and inert/raw-text
+// elements are not sign-in fields. This is a positive markup hint, not a DOM or
+// authentication test. Unsupported/malformed markup stays unknown.
+function observesPasswordField(snippet) {
+  const markup = snippet.replace(/<!--[\s\S]*?(?:-->|$)/g, "")
+    .replace(/<(script|style|textarea|title|xmp|template|noscript)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, "");
+  for (const tag of markup.matchAll(/<([a-z][a-z0-9:-]*)\b((?:"[^"]*"|'[^']*'|[^'">])*)>/gi)) {
+    if (tag[1].toLowerCase() !== "input") continue;
+    for (const attribute of tag[2].matchAll(/([^\s=/'"><]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s'"=<>`]+)))?/g)) {
+      if (attribute[1].toLowerCase() !== "type") continue;
+      // HTML keeps the first occurrence of a duplicate attribute.
+      if (String(attribute[2] ?? attribute[3] ?? attribute[4] ?? "").toLowerCase() === "password") return true;
+      break;
+    }
+  }
+  return null;
+}
+
 // The Cloudflare-edge rule (520–527 / 530 WITH the `Server: cloudflare` signature)
 // now lives in ONE place — lib/fetch-observation.js — and is shared with the SSL
 // module's HTTPS observation classifier, so the two can never drift. Imported at
@@ -210,9 +228,7 @@ export async function probeAsset(host, opts = {}) {
         tech  = detectTech(res.headers, snippet);
         // Positive observation only. An absent field in this bounded snippet
         // does not rule out a form rendered later by JavaScript.
-        const visibleMarkup = snippet.replace(/<!--[\s\S]*?(?:-->|$)/g, "")
-          .replace(/<(script|style)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, "");
-        passwordFormObserved = /<input\b[^>]*\btype\s*=\s*(?:["']password["']|password(?=[\s/>]))/i.test(visibleMarkup) ? true : null;
+        passwordFormObserved = observesPasswordField(snippet);
       } catch {
         tech = detectTech(res.headers, "");
       }
