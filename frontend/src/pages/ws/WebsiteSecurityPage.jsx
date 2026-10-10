@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, FolderOpen, RefreshCw, ScanLine } from 'lucide-react'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
-import { NoWorkspaceSelected } from '../../components/WsPage'
+import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
+import WebsiteScanOverview from '../../components/WebsiteScanOverview'
+import { SERVICE_COLORS } from '../../theme/serviceColors'
 import {
   monitoringMeta, severityMeta, scanQualityMeta, unknownReasonText,
   toneClass, conditionLabel,
@@ -73,7 +75,7 @@ function ConditionRow({ item, expanded, onToggle, detail, detailError }) {
   )
 }
 
-function WebsiteSecurityContent({ workspaceId }) {
+function WebsiteSecurityContent({ workspaceId, workspaceName }) {
   const [params, setParams] = useSearchParams()
   const expanded = params.get('condition')
   const [status, setStatus] = useState('')
@@ -83,6 +85,7 @@ function WebsiteSecurityContent({ workspaceId }) {
   const [error, setError] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailError, setDetailError] = useState(null)
+  const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -92,7 +95,7 @@ function WebsiteSecurityContent({ workspaceId }) {
       .catch((err) => { if (!cancelled) setError(err?.status === 401 ? 'Your session has expired. Sign in again to view website security.' : 'Could not load website security conditions.') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [workspaceId, offset, status])
+  }, [workspaceId, offset, status, refresh])
 
   useEffect(() => {
     let cancelled = false
@@ -101,7 +104,7 @@ function WebsiteSecurityContent({ workspaceId }) {
       .then((res) => { if (!cancelled) setDetail({ ...res, requestedId: expanded }) })
       .catch(() => { if (!cancelled) setDetailError('Could not load this condition’s history or linked case.') })
     return () => { cancelled = true }
-  }, [workspaceId, expanded])
+  }, [workspaceId, expanded, refresh])
 
   // A notification may point beyond the first page. Resolve it directly through
   // the tenant-scoped detail endpoint instead of treating it as a missing record.
@@ -122,11 +125,22 @@ function WebsiteSecurityContent({ workspaceId }) {
   const row = (item) => <ConditionRow key={item.id} item={item} expanded={expanded === item.id} onToggle={() => toggle(item.id)} detail={expanded === item.id ? currentDetail : null} detailError={expanded === item.id ? detailError : null} />
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
-      <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
-        <div><h1 className="text-2xl font-semibold text-gray-900">Website Security</h1><p className="mt-2 text-base text-gray-600">Review a finding, see its evidence and follow the fix.</p></div>
-        <Link className={ACTION} to={CASES}>Managed cases</Link>
+    <WsPage wsId={workspaceId} wsName={workspaceName}>
+      <header className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <span className="eyebrow" style={{ color: SERVICE_COLORS.website.text }}>Website Security</span>
+          <h1 className="page-title">Website Security</h1>
+          <p className="page-subtitle text-base">Review HTTPS, browser protections and cookie evidence. Track findings through to verification.</p>
+          <p className="mt-1 text-sm text-gray-500">{workspaceName || 'Workspace'}</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Link className="btn-primary" to="/scans/new"><ScanLine className="h-4 w-4" />Run a scan</Link>
+          <Link className="btn-secondary" to={CASES}><FolderOpen className="h-4 w-4" />Managed cases</Link>
+          <button type="button" className="btn-ghost" aria-label="Refresh website security" onClick={() => setRefresh((value) => value + 1)}><RefreshCw className="h-5 w-5" /></button>
+        </div>
       </header>
+      <WebsiteScanOverview workspaceId={workspaceId} refresh={refresh} />
+      <div className="mb-4"><h2 className="section-title">Tracked findings</h2><p className="mt-1 text-base text-gray-600">Across this workspace. Open a finding for its evidence, managed case and recheck.</p></div>
       {data?.scope_note && <details className="mb-5 text-sm text-gray-600"><summary className="cursor-pointer font-medium">What this checks</summary><p className="mt-2 max-w-3xl leading-relaxed">{data.scope_note}</p></details>}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <label htmlFor="ws-status" className="text-sm text-gray-700">State</label>
@@ -137,24 +151,24 @@ function WebsiteSecurityContent({ workspaceId }) {
       </div>
       {!loading && !error && linkedItem && <section className="mb-4 rounded-xl border border-gray-200 bg-white"><h2 className="px-5 pt-4 text-sm font-medium text-gray-600">Linked finding · outside this page</h2>{row(linkedItem)}</section>}
       {expanded && detailError && !items.some((item) => item.id === expanded) && <p role="alert" className="mb-4 text-sm text-red-700">{detailError}</p>}
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className="card overflow-hidden">
         {loading && <p className="p-8 text-center text-base text-gray-500">Loading…</p>}
         {!loading && error && <p role="alert" className="p-8 text-base text-red-700">{error}</p>}
-        {!loading && !error && !items.length && <p className="p-8 text-base text-gray-600">{status ? 'No conditions in this state.' : 'No website security conditions recorded yet. They appear here after a scan observes one.'}</p>}
+        {!loading && !error && !items.length && <p className="p-6 text-base text-gray-600">{status ? 'No conditions in this state.' : 'No website security conditions recorded yet. Check the scan overview above for the available evidence; an empty list does not prove the website is secure.'}</p>}
         {!loading && !error && items.map(row)}
       </div>
       {(total > PAGE_SIZE || offset > 0) && <nav aria-label="Findings pages" className="mt-4 flex justify-between gap-3">
         <button className={`${ACTION} disabled:opacity-40`} disabled={loading || offset === 0} onClick={() => changePage(Math.max(0, offset - PAGE_SIZE))}>Previous</button>
         <button className={`${ACTION} disabled:opacity-40`} disabled={loading || Boolean(error) || offset + PAGE_SIZE >= total} onClick={() => changePage(offset + PAGE_SIZE)}>Next</button>
       </nav>}
-    </div>
+    </WsPage>
   )
 }
 
 export default function WebsiteSecurityPage() {
-  const { wsId, loading } = useWorkspace()
+  const { wsId, wsName, loading } = useWorkspace()
   if (loading) return <p className="p-6 text-base text-gray-500">Loading workspace…</p>
   if (!wsId) return <NoWorkspaceSelected />
   // Workspace changes discard prior rows and any in-flight detail presentation.
-  return <WebsiteSecurityContent key={wsId} workspaceId={wsId} />
+  return <WebsiteSecurityContent key={wsId} workspaceId={wsId} workspaceName={wsName} />
 }

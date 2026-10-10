@@ -12,7 +12,7 @@ import { api } from '../../../api'
 import { useWorkspace } from '../../../hooks/useWorkspace'
 
 vi.mock('../../../api', () => ({
-  api: { getWebsiteSecurityConditions: vi.fn(), getWebsiteSecurityCondition: vi.fn() },
+  api: { getWebsiteSecurityConditions: vi.fn(), getWebsiteSecurityCondition: vi.fn(), getWorkspaceScans: vi.fn(), getScanReport: vi.fn() },
 }))
 vi.mock('../../../hooks/useWorkspace', () => ({ useWorkspace: vi.fn() }))
 
@@ -34,6 +34,7 @@ function mount(entry = '/ws/website-security') {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  api.getWorkspaceScans.mockResolvedValue({ scans: [] })
   // jsdom does not implement scrollIntoView; the deep-link effect calls it.
   if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {}
 })
@@ -53,6 +54,17 @@ describe('WebsiteSecurityPage — workspace resolution', () => {
     api.getWebsiteSecurityConditions.mockResolvedValue({ items: [], pagination: { total: 0 } })
     mount()
     expect(await screen.findByText(/No website security conditions recorded yet/i)).toBeInTheDocument()
+  })
+
+  it('keeps recorded checks visible when this workspace has no tracked findings', async () => {
+    useWorkspace.mockReturnValue({ wsId: WS_ID, wsName: 'CyberMeters', loading: false })
+    api.getWebsiteSecurityConditions.mockResolvedValue({ items: [], pagination: { total: 0 } })
+    api.getWorkspaceScans.mockResolvedValue({ scans: [{ id: 'latest', domain: 'example.com', status: 'completed', created_at: '2026-10-10T10:00:00Z' }] })
+    api.getScanReport.mockResolvedValue({ scan_id: 'latest', modules: { ssl: { https_available: true, https_probe_executed: true } } })
+    mount()
+    expect(await screen.findByText(/No website security conditions recorded yet/i)).toBeInTheDocument()
+    expect(await screen.findByText('Response observed')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View latest scan evidence' })).toHaveAttribute('href', '/scans/latest?view=technical#website-evidence')
   })
 
   it('renders the generic failure state on a backend 403', async () => {

@@ -45,7 +45,8 @@ const EXPECTED = Object.freeze({
     // comparisons: scan_quality !== complete, assessment_quality != null and
     // assessment_quality !== complete. All previous sites remain; SQL and
     // governance sets are unchanged (exact e2ab1b65 -> cf27ecb5 multiset diff).
-    comparison_occurrences: 50,
+    // Website workflow: one additional non-complete evidence presentation guard.
+    comparison_occurrences: 51,
     source_file_count: 23,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -82,7 +83,7 @@ const EXPECTED = Object.freeze({
     // (file/kind/operator/status/access/snippet), deliberately excluding line
     // and AST-offset positions. The count and duplicate multiplicity remain
     // pinned, so real additions/removals still fail while line-only edits do not.
-    fingerprint: "0d59c8f3a0cb24e7c5dca1f21b2de261c2cbe8a83694b470d7b3fd6dde5740ec",
+    fingerprint: "ec965f68217184e961090be056e0c559cd599bb6c06b2ed4abf4ba5411554202",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -171,7 +172,10 @@ const EXPECTED = Object.freeze({
     // PR #490: the same helper adds one scan_quality and two assessment_quality
     // member reads tracked by the existing canonical-slot propagation. No prior
     // read is removed; file count and inventory detection semantics are unchanged.
-    runtime: { occurrence_count: 101, source_file_count: 36, fingerprint: "d3ee15667e8812b4723afbe8181a76c873f3f02af05a4066d1aa2a72d0484560" },
+    // Website workflow adds five reads: one condition-quality guard and four
+    // overview reads for module admission and recorded-quality presentation.
+    // Two-tree inventory comparison confirms no removed sites or SQL changes.
+    runtime: { occurrence_count: 106, source_file_count: 37, fingerprint: "19cb14c066f79169e3a55b27991b66b3086c0cfd3eebd3e8d6d951d315a4859b" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

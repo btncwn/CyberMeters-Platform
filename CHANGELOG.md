@@ -7,6 +7,16 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## Unreleased — website evidence and shared case navigation
+
+Website Security uses the shared module layout and shows recorded HTTPS,
+redirect, header and cookie checks even when no findings are tracked. Findings
+have paging, last-seen context and links to evidence, managed cases and recheck.
+Uncertain evidence keeps historical severity separate from current status.
+All eight service menus link to their existing case queue; automated case
+verification can open a workspace-bound recheck form. No crawler or authenticated
+application testing is added. Frontend-only; no migration or Worker deployment.
+
 ## Unreleased — workspace report recovery
 
 Scan Snapshot now requires a selected completed scan and renders only its verified
