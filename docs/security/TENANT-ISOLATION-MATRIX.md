@@ -11,12 +11,12 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 99
-- **classified:** 99
-- **tenant owned tables:** 95
+- **schema tables:** 101
+- **classified:** 101
+- **tenant owned tables:** 97
 - **infra or identity tables:** 4
 - **unclassified:** 0
-- **resource classes:** 36
+- **resource classes:** 37
 - **classes with dynamic coverage:** 17
 
 ## The 12 invariants
@@ -38,6 +38,7 @@ data cannot be silently omitted.
 
 | Class | Domain | Ownership | Tables | Dynamic harness | Property |
 |---|---|---|---|:---:|:---:|
+| identity_workforce_response | identity | direct(workspace_id) | 2 | — | — |
 | identity_public_sources | identity | direct(workspace_id) | 1 | — | — |
 | dns_provider_remediation | email | direct(workspace_id) | 2 | — | — |
 | network_assets | attack_surface | direct(workspace_id) | 3 | — | — |
@@ -79,6 +80,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 
 ### Coverage notes
 
+- **identity_workforce_response:** Dedicated production-router controls in validate-identity-workforce.js cover tenant and role boundaries, immutable targets, one-attempt claims, uncertain outcomes, secret exclusion and purge; provider contracts are tested separately without live calls.
 - **identity_public_sources:** Masked evidence only. Dedicated production-router coverage in validate-identity-public-secrets.js verifies roles, domain authority, SSRF denial, post-fetch revocation, storage and tenant isolation.
 - **dns_provider_remediation:** Workspace/domain-owned encrypted connections and saved DNS changes. Dedicated production-entry coverage lives in scripts/validate-dns-remediation.js; not part of the general two-tenant/property harness.
 - **network_assets:** Explicit attested public IP/CIDR scope; actual route/role, two-tenant denial, immutable receipt and queue identity coverage in validate-network-assets.js; purge and queue wiring in validate-network-integration.js.
@@ -148,6 +150,8 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `identity_exposure` | direct(workspace_id) | identity_exposure |
 | `identity_exposure_events` | direct(workspace_id) | identity_exposure |
 | `identity_public_source_checks` | direct(workspace_id) | identity_public_sources |
+| `identity_response_actions` | direct(workspace_id) | identity_workforce_response |
+| `identity_workforce_accounts` | direct(workspace_id) | identity_workforce_response |
 | `kev_matches` | via_scan(scan_id) | findings |
 | `lifecycle_email_events` | direct(workspace_id) | deletion_lifecycle |
 | `managed_case_events` | direct(workspace_id) | managed_cases |

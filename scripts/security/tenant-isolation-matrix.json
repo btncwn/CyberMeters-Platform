@@ -73,6 +73,30 @@
   ],
   "resource_classes": [
     {
+      "class": "identity_workforce_response",
+      "domain": "identity",
+      "tables": [
+        "identity_workforce_accounts",
+        "identity_response_actions"
+      ],
+      "ownership": {
+        "identity_workforce_accounts": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "identity_response_actions": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "Dedicated production-router controls in validate-identity-workforce.js cover tenant and role boundaries, immutable targets, one-attempt claims, uncertain outcomes, secret exclusion and purge; provider contracts are tested separately without live calls."
+      }
+    },
+    {
       "class": "identity_public_sources",
       "domain": "identity",
       "tables": [
@@ -1116,6 +1140,8 @@
     "identity_exposure": "identity_exposure",
     "identity_exposure_events": "identity_exposure",
     "identity_public_source_checks": "identity_public_sources",
+    "identity_response_actions": "identity_workforce_response",
+    "identity_workforce_accounts": "identity_workforce_response",
     "kev_matches": "findings",
     "lifecycle_email_events": "deletion_lifecycle",
     "managed_case_events": "managed_cases",
@@ -1174,12 +1200,12 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 99,
-    "classified": 99,
-    "tenant_owned_tables": 95,
+    "schema_tables": 101,
+    "classified": 101,
+    "tenant_owned_tables": 97,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
-    "resource_classes": 36,
+    "resource_classes": 37,
     "classes_with_dynamic_coverage": 17
   }
 }

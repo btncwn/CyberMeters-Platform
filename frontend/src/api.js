@@ -787,6 +787,13 @@ export const api = {
   /** GET /api/workspaces/:id/identity-exposure — consolidated Identity Exposure
    *  (exposed login surfaces + active impersonation infra + email spoofing) */
   getIdentityExposure: (id) => request(`/workspaces/${id}/identity-exposure`),
+  getIdentityWorkforce: (id) => request(`/workspaces/${id}/identity-workforce`),
+  addIdentityAccount: (id, body) => request(`/workspaces/${id}/identity-workforce`, { method: 'POST', body: JSON.stringify(body) }),
+  updateIdentityAccount: (id, accountId, body) => request(`/workspaces/${id}/identity-workforce/${encodeURIComponent(accountId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  observeIdentityAccount: (id, body) => request(`/workspaces/${id}/identity-workforce/observe`, { method: 'POST', body: JSON.stringify(body) }),
+  previewIdentityResponse: (id, body) => request(`/workspaces/${id}/identity-response/preview`, { method: 'POST', body: JSON.stringify(body) }),
+  applyIdentityResponse: (id, actionId, body) => request(`/workspaces/${id}/identity-response/${encodeURIComponent(actionId)}/apply`, { method: 'POST', body: JSON.stringify(body) }),
+  verifyIdentityResponse: (id, actionId, body) => request(`/workspaces/${id}/identity-response/${encodeURIComponent(actionId)}/verify`, { method: 'POST', body: JSON.stringify(body) }),
   getIdentityPublicSources: (id) => request(`/workspaces/${id}/identity-public-sources`),
   checkIdentityPublicSources: (id, body) => request(`/workspaces/${id}/identity-public-sources`, { method: 'POST', body: JSON.stringify(body) }),
 

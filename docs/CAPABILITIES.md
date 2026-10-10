@@ -40,7 +40,7 @@ CyberMeters is external-observation, evidence-led. It is **not**, and does not c
 - a substitute for an independent penetration test;
 - a claim to cover **all** phishing or **all** supply-chain risk.
 
-It has no visibility into internal networks, endpoints, employee devices, browser history, internal software inventory, internal identity events, full SaaS-licence data, or internal CASB data. Domain sections reference this section rather than repeating it.
+It has no visibility into internal networks, endpoints, employee devices, browser history, internal software inventory, internal sign-in event streams, full SaaS-licence data, or internal CASB data. An explicitly authorized Entra operation can read the exact selected cloud member and available direct-role/MFA-registration information; this is not internal identity-event monitoring. Domain sections reference this section rather than repeating it.
 
 ---
 
@@ -122,13 +122,14 @@ It has no visibility into internal networks, endpoints, employee devices, browse
 - **Observes:** identity-provider relationships and identity-facing hostname candidates, derived from public DNS, certificate transparency and HTTP response metadata.
 - **Detects:** changes in observed provider relationships and hostname candidates. A registered HTTP probe measures same-host endpoint reachability and positively observed password-field markup; the UI preserves the endpoint, status and observation time. A password field is not proof of a working sign-in flow or a vulnerability.
 - **Verifies (Observed):** hostname/provider observations and HTTP reachability where this scan captured supporting evidence. Unmeasured candidates remain **not evaluated**.
-- **Customer-declared inputs:** the domain in scope; an explicit public page/JavaScript URL within a customer-verified domain.
+- **Customer-declared inputs:** the domain in scope; an explicit public page/JavaScript URL within a customer-verified domain; employee/VIP inventory and a stated concern for an exact account. VIP is a customer priority, not proof of exposure.
 - **Public source checks:** an owner/admin can check one page and up to three directly linked same-origin scripts for supported secret-key/private-key patterns. Only masked candidates, fingerprints and source locations are saved. Publishable keys are excluded. Keys are never used or validated with their provider; no match is not proof of absence.
 - **Alerts & managed workflows:** identity-exposure alerts; managed workflow. Public source checks are saved separately and require customer review; they do not automatically create a confirmed incident or alter scan scores.
-- **Evidence sources:** external observation.
+- **Workforce and response:** owner/admin sessions can add accounts on a verified domain or read an exact enabled Entra member through a customer-approved application. Available direct roles and MFA registration remain distinct from full privilege coverage and MFA enforcement. A fresh, confirmed exact-account session request is recorded with its outcome; a later Microsoft session timestamp check does not prove logout from every application. Provider credentials are request-local and not saved. No automatic intervention.
+- **Evidence sources:** external observation, customer-declared inventory/concerns, explicitly authorized Microsoft observations.
 - **Known limitations:** bounded external observations only. The first 8 KiB of HTML may omit JavaScript-rendered sign-in forms. Absence of a password field is not evidence that authentication is absent.
 - **Explicitly does not do:** credential / breach / stealer-log / dark-web monitoring; see internal identity events. See **Hard boundaries**.
-- **Current maturity:** HTTP measurement and bounded public-source checks added to the release candidate; production deployment and Founder acceptance pending.
+- **Current maturity:** **Partial / bounded coverage** — HTTP measurement, bounded public-source checks and the employee/VIP → explicit Entra response → provider verification flow are implemented in the release candidate. Production deployment and acceptance of the product integration are pending; a provider pilot alone does not prove the complete product workflow.
 
 ### 8. Shadow IT & Unmanaged Technology
 - **Observes:** externally observed SaaS, vendors, third-party scripts and unmanaged-technology signals (this is where **third-party / vendor technology** lives — not a separate domain).

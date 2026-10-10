@@ -10,6 +10,7 @@ import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import StatCard from '../../components/StatCard'
 import IdentityExposureCard from '../../components/IdentityExposureCard'
 import { confidenceDetailLabel, identityClaimMeta, toneClass } from '../../lib/identityExposureDisplay'
+import IdentityWorkforceCard from '../../components/IdentityWorkforceCard'
 import IdentityPublicSourcesCard from '../../components/IdentityPublicSourcesCard'
 
 // ── Identity type configuration ───────────────────────────────────────────────
@@ -175,6 +176,7 @@ export default function WorkspaceIdentityPage() {
       </div>
 
       {/* Stats */}
+      <IdentityWorkforceCard key={"workforce-" + wsId} workspaceId={wsId} />
       <IdentityPublicSourcesCard key={wsId} workspaceId={wsId} />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard icon={ShieldAlert} label="Identity Evidence" value={assets.length} />

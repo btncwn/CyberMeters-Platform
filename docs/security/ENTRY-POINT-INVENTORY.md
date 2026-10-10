@@ -13,8 +13,8 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 263
-- **Auth-guarded:** 240
+- **Total entry points:** 272
+- **Auth-guarded:** 249
 - **Unauthenticated (public by design):** 23
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
@@ -26,9 +26,9 @@ guard without an explicit, documented public-allowlist reason.
 | portfolio | 9 | 9 |
 | preflight | 1 | 0 |
 | public-or-global | 37 | 19 |
-| unknown | 54 | 52 |
+| unknown | 56 | 54 |
 | webhook | 2 | 0 |
-| workspace | 131 | 131 |
+| workspace | 138 | 138 |
 
 ## Public allowlist (unauthenticated by design)
 
@@ -71,9 +71,9 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2437 | preflight | public | — |
-| GET | `/health` | 2442 | public-or-global | public | — |
-| GET | `/ready` | 2458 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2439 | preflight | public | — |
+| GET | `/health` | 2444 | public-or-global | public | — |
+| GET | `/ready` | 2460 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -295,6 +295,20 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 |---|---|---:|---|---|---|
 | GET | `/^\/api\/workspaces\/([^\/]+)\/identity-public-sources$/` | 21 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | POST | `/^\/api\/workspaces\/([^\/]+)\/identity-public-sources$/` | 26 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+
+### `workers/scan-api/src/routes/identity-workforce.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| GET | `/^\/api\/workspaces\/([^\/]+)\/identity-workforce$/` | 50 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| PATCH | `(none)` | 55 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 55 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-response\/([^\/]+)\/` | 61 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-workforce$/` | 75 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| PATCH | `/^\/api\/workspaces\/([^\/]+)\/identity-workforce\/([^\/]+)$` | 90 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-workforce\/([^\/]+)$` | 101 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-response\/preview$/` | 122 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-response\/([^\/]+)\/` | 138 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/managed-cases.js`
 
