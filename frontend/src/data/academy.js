@@ -716,7 +716,7 @@ export const ARTICLES = [
             'Provider relationship: observed, possible or unknown',
             'Hostname classification: possible or unknown',
             'Name resolution: resolved, MX-only, not evaluated or legacy unknown',
-            'Endpoint reachability: not evaluated by the current Identity producer',
+            'Endpoint reachability: shown only where the scan collected HTTP evidence',
           ]),
         ],
       },
@@ -757,7 +757,7 @@ export const ARTICLES = [
         heading: 'Verification',
         blocks: [
           code('# Check if MX record indicates M365\ndig MX example.com +short\n# If result ends in mail.protection.outlook.com = M365 confirmed\n\n# Check autodiscover\ncurl -I https://autodiscover.example.com/autodiscover/autodiscover.xml\n# Should return 401 with HTTPS only, not HTTP redirect', 'bash'),
-          p('Provider configuration and sign-in controls must be verified in the Microsoft administration tools. A later CyberMeters scan may refresh provider or hostname evidence, but it cannot verify tenant policy or endpoint reachability.'),
+          p('Provider configuration and sign-in controls must be verified in the Microsoft administration tools. A later CyberMeters scan may refresh provider, hostname or measured HTTP evidence, but it cannot verify tenant policy or successful sign-in.'),
         ],
       },
     ],

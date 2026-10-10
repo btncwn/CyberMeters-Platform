@@ -61,13 +61,14 @@ function IdentityAssetCard({ asset }) {
 
       {asset.hostname && (
         <div className="mb-3 text-xs text-gray-600 truncate">
-          Possible hostname: {asset.hostname}
+          {claim?.claim_kind === 'measured_identity_surface' ? 'Measured hostname' : 'Possible hostname'}: {asset.hostname}
         </div>
       )}
 
       <div className="flex flex-wrap gap-3 text-[11px] text-gray-400">
         <span>Reachability: <span className="font-medium text-gray-600">{claim?.reachability?.status?.replace(/_/g, ' ') || 'not evaluated'}</span></span>
         <span>{confidenceDetailLabel(asset.confidence_detail)}</span>
+        {claim?.reachability?.password_form_observed === true && <span>Password field observed (sign-in behavior not tested)</span>}
         {asset.name_resolution?.status && <span>Name resolution: <span className="font-medium text-gray-600">{asset.name_resolution.status.replace(/_/g, ' ')}</span></span>}
         {asset.source && <span>Source: <span className="capitalize font-medium text-gray-600">{asset.source.replace(/_/g, ' ')}</span></span>}
       </div>

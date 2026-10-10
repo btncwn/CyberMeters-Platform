@@ -62,7 +62,7 @@ export async function identityExposureRoutes(rctx) {
         actions: IDENTITY_WORKFLOW_ACTIONS,
         actions_deprecated: true,
         items,
-        scope_note: "Current evidence identifies provider relationships and possible identity-facing hostnames. Endpoint reachability is not evaluated. No leaked-credential, breached-password, dark-web, MFA, Conditional Access or internal-policy visibility.",
+        scope_note: "Current evidence identifies provider relationships and possible identity-facing hostnames. Endpoint reachability and password forms are reported only where this scan obtained supporting HTTP evidence. No leaked-credential, breached-password, dark-web, MFA, Conditional Access or internal-policy visibility.",
       });
     } catch { return json({ error: "Database error" }, 500); }
   }

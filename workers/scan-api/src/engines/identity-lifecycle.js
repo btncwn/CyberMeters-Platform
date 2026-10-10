@@ -785,7 +785,7 @@ export function identityExposureToApi(row) {
     created_at: row.created_at,
     updated_at: row.updated_at,
     unknown_signals: [...IDENTITY_UNKNOWN_SIGNALS],
-    scope_note: "Provider relationships and possible identity-facing hostnames are externally observed review evidence; endpoint reachability is not measured. No leaked-credential, breached-password, dark-web, MFA, Conditional Access or internal-policy visibility. Your classification is a decision, not CyberMeters verification.",
+    scope_note: "Provider relationships and possible identity-facing hostnames are externally observed review evidence; endpoint reachability and password forms are reported only with supporting HTTP evidence. No leaked-credential, breached-password, dark-web, MFA, Conditional Access or internal-policy visibility. Your classification is a decision, not CyberMeters verification.",
   };
 }
 

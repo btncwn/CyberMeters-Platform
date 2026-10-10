@@ -9,6 +9,7 @@ import {
   identityConfidenceForPrecision,
   normalizeIdentityObservedAt,
   strongestIdentityConfidence,
+  summarizeIdentityClaims,
 } from "./identity-evidence-contract.js";
 
 export function canonicalSignalHostname(value) {
@@ -345,6 +346,30 @@ export function runIdentityDiscoveryModule(modules, domain, { observedAt = null 
       }
     }
 
+    // Add actual measurements from this scan only. Ignore incomplete probe
+    // modules, off-domain candidates, redirects to another host and edge errors.
+    if (modules.asset_exposure?.source === "http_probe" && !modules.asset_exposure.error && !modules.asset_exposure.incomplete) {
+      const root = canonicalSignalHostname(domain);
+      for (const portal of portals) {
+        const host = canonicalSignalHostname(portal.hostname);
+        if (host !== root && !host.endsWith(`.${root}`)) continue;
+        const asset = (modules.asset_exposure.assets || []).find(a => canonicalSignalHostname(a.host) === host);
+        const observation = asset?.authentication_observation;
+        if (!asset?.reachable || asset.probe_status || observation?.schema_version !== "identity_http.v1" ||
+            !normalizeIdentityObservedAt(observation.measured_at) || !Number.isInteger(asset.status) || asset.status < 200 || asset.status >= 500) continue;
+        let endpoint;
+        try { endpoint = new URL(asset.url); } catch { continue; }
+        if (endpoint.hostname !== host || !["http:", "https:"].includes(endpoint.protocol) || endpoint.username || endpoint.password) continue;
+        // Query/fragment values can contain credentials. They are never retained.
+        endpoint.search = ""; endpoint.hash = "";
+        portal.evidence.push({ ...createIdentityEvidenceDatum({
+          source: "http_response", value: endpoint.href,
+          provenance: { producer: "identity_discovery", module: "asset_exposure", path: "assets[].authentication_observation" },
+          matchPrecision: "exact_host", nameResolution: "resolved", validationState: "observed",
+          confidenceSubject: "hostname_classification", observedAt: observation.measured_at,
+        }), http_observation: { ...observation, producer: "asset_exposure_http.v1", endpoint: endpoint.href, http_status: asset.status } });
+      }
+    }
     const all = [...providers, ...portals];
     const highRisk = all.filter(a => a.risk_score >= 15).length;
 
@@ -353,6 +378,7 @@ export function runIdentityDiscoveryModule(modules, domain, { observedAt = null 
       total:            all.length,
       provider_count:   providers.length,
       portal_count:     portals.length,
+      ...summarizeIdentityClaims(all),
       high_risk_count:  highRisk,
       providers,
       portals,

@@ -120,14 +120,14 @@ It has no visibility into internal networks, endpoints, employee devices, browse
 
 ### 7. Identity Exposure
 - **Observes:** identity-provider relationships and identity-facing hostname candidates, derived from public DNS, certificate transparency and HTTP response metadata.
-- **Detects:** changes in those observed provider relationships and hostname candidates. It does **not** detect endpoint exposure: no reachability producer is registered, so CyberMeters does not probe identity endpoints and cannot state that a login surface is reachable.
-- **Verifies (Observed):** only the hostname/provider observation itself. Reachability, and therefore exposure, is **not evaluated** and is roadmap work.
+- **Detects:** changes in observed provider relationships and hostname candidates. A registered HTTP probe measures same-host endpoint reachability and positively observed password-field markup; the UI preserves the endpoint, status and observation time. A password field is not proof of a working sign-in flow or a vulnerability.
+- **Verifies (Observed):** hostname/provider observations and HTTP reachability where this scan captured supporting evidence. Unmeasured candidates remain **not evaluated**.
 - **Customer-declared inputs:** the domain in scope.
 - **Alerts & managed workflows:** identity-exposure alerts; managed workflow.
 - **Evidence sources:** external observation.
-- **Known limitations:** external surface only, and **observation only** — endpoint reachability is not measured, so no exposure conclusion is available. Absence of an observation is not evidence of absence.
+- **Known limitations:** bounded external observations only. The first 8 KiB of HTML may omit JavaScript-rendered sign-in forms. Absence of a password field is not evidence that authentication is absent.
 - **Explicitly does not do:** credential / breach / stealer-log / dark-web monitoring; see internal identity events. See **Hard boundaries**.
-- **Current maturity:** **Observation live; exposure detection not implemented** — the reachability producer registry is empty, so reachability-dependent claims are roadmap, not live. Founder acceptance pending.
+- **Current maturity:** HTTP measurement implementation added to the release candidate; production deployment and Founder acceptance pending.
 
 ### 8. Shadow IT & Unmanaged Technology
 - **Observes:** externally observed SaaS, vendors, third-party scripts and unmanaged-technology signals (this is where **third-party / vendor technology** lives — not a separate domain).

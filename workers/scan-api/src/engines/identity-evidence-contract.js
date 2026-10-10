@@ -8,10 +8,9 @@ export const IDENTITY_EVIDENCE_SCHEMA_VERSION = "identity_evidence.v2";
 export const IDENTITY_CONFIDENCE_SCHEMA_VERSION = "identity_confidence.v1";
 export const IDENTITY_CLAIM_SCHEMA_VERSION = "identity_claim.v2";
 
-// Item 11B is deliberately absent. This registry is the authoritative answer
-// to "can the current runtime measure an Identity endpoint?" and remains empty
-// until a separately approved producer performs a real bounded measurement.
-export const IDENTITY_REACHABILITY_PRODUCERS = Object.freeze([]);
+// Reuses the real, SSRF-guarded asset HTTP probe; DNS/CT records never establish
+// reachability. Only same-host, positive HTTP measurements are admitted.
+export const IDENTITY_REACHABILITY_PRODUCERS = Object.freeze(["asset_exposure_http.v1"]);
 export function hasIdentityReachabilityProducer() {
   return IDENTITY_REACHABILITY_PRODUCERS.length > 0;
 }
@@ -170,7 +169,7 @@ export function projectRelatedChangeRecurrence(row = {}) {
 
 export const IDENTITY_EVIDENCE_SOURCES = Object.freeze([
   "cname", "spf", "mx", "csp", "server",
-  "certificate_transparency", "dns_bruteforce", "dns_mx", "unknown",
+  "certificate_transparency", "dns_bruteforce", "dns_mx", "http_response", "unknown",
 ]);
 export const IDENTITY_PROVENANCE_MODULES = Object.freeze([
   "subdomain_takeover", "asset_exposure", "dns_bruteforce", "email_security",
@@ -484,6 +483,25 @@ function supportedSyntheticReachability(row) {
   };
 }
 
+function supportedHttpReachability(row, items) {
+  const host = String(row.hostname || "").toLowerCase().replace(/\.$/, "");
+  for (const item of items) {
+    const measurement = item?.http_observation;
+    if (item.source !== "http_response" || item.provenance?.module !== "asset_exposure" ||
+        measurement?.producer !== "asset_exposure_http.v1" || measurement.schema_version !== "identity_http.v1" ||
+        !normalizeIdentityObservedAt(measurement.measured_at) ||
+        !Number.isInteger(measurement.http_status) || measurement.http_status < 200 || measurement.http_status >= 500) continue;
+    let endpoint;
+    try { endpoint = new URL(measurement.endpoint); } catch { continue; }
+    if (!["https:", "http:"].includes(endpoint.protocol) || endpoint.hostname !== host || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) continue;
+    return { status: "reachable", endpoint: endpoint.href, method: "GET", measured_at: measurement.measured_at,
+      http_status: measurement.http_status,
+      password_form_observed: measurement.password_form_observed === true && measurement.http_status < 300 ? true : null,
+      confidence_detail: { schema_version: IDENTITY_CONFIDENCE_SCHEMA_VERSION, subject: "endpoint_reachability", level: "high", score: 90, quality: "good", basis: "http_response" } };
+  }
+  return null;
+}
+
 export function buildIdentityClaim(row = {}) {
   const evidence = readIdentityEvidence(row.evidence);
   const validItems = evidence.items.filter((item) => item?.schema_version === IDENTITY_EVIDENCE_SCHEMA_VERSION);
@@ -496,7 +514,7 @@ export function buildIdentityClaim(row = {}) {
     ? classificationItems.length > 0 ? "possible" : "unknown"
     : "not_applicable";
   const resolution = aggregateIdentityNameResolution(evidence.items, evidence.status);
-  const measuredReachability = supportedSyntheticReachability(row);
+  const measuredReachability = supportedHttpReachability(row, validItems) ?? supportedSyntheticReachability(row);
   return {
     schema_version: IDENTITY_CLAIM_SCHEMA_VERSION,
     claim_kind: measuredReachability ? "measured_identity_surface" : provider ? "provider_relationship" : "surface_candidate",
@@ -584,6 +602,7 @@ export function summarizeIdentityClaims(rows = []) {
     surface_candidate_count: claims.filter((value) => value?.claim_kind === "surface_candidate").length,
     reachability_evaluated_count: claims.filter(isMeasuredIdentityClaim).length,
     reachable_surface_count: claims.filter((value) => isMeasuredIdentityClaim(value) && value.reachability.status === "reachable").length,
+    password_form_count: claims.filter((value) => isMeasuredIdentityClaim(value) && value.reachability.password_form_observed === true).length,
   };
 }
 

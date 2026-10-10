@@ -1,7 +1,6 @@
 import { DMARC_MOT_CONTRIBUTION } from "./dmarc-canonical-consumers.js";
 import { resolveSignalMonitoringCoverage } from "./signal-monitoring-state.js";
 import { isCookieFindingType } from "./cookie-observation.js";
-import { hasIdentityReachabilityProducer } from "./identity-evidence-contract.js";
 import { isActionableFinding } from "./findings.js";
 import {
   projectTlsFindingsForCustomer,
@@ -467,10 +466,10 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
         return base;
       }
     }
-    if (d.domain_key === "identity_exposure" && !hasIdentityReachabilityProducer()) {
+    if (d.domain_key === "identity_exposure") {
       base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = requiredAssessedAll ? "partial" : quality;
-      base.summary = "Identity reachability was not evaluated — no supported reachability producer is implemented. Provider relationships and possible hostnames remain visible for review.";
+      base.summary = "Provider relationships, possible hostnames and measured endpoints are inventory evidence. Account compromise and sign-in controls were not evaluated.";
       return base;
     }
     if (d.domain_key === "attack_surface" && (report?.modules?.asset_exposure?.assets || [])

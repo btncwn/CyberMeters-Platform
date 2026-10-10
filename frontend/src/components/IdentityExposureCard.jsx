@@ -68,14 +68,14 @@ export default function IdentityExposureCard({ workspaceId }) {
         <Signal
           icon={Mail}
           label="Email spoofing"
-          value={email.spoofable_domains > 0 ? `${email.spoofable_domains} of ${email.checked_domains} spoofable` : notObserved ? '—' : email.checked_domains ? 'Protected' : '—'}
-          sub={email.spoofable_domains > 0 ? 'Attackers can send email as you' : notObserved ? 'Could not assess' : email.checked_domains ? 'SPF & DMARC in place' : 'No scan data yet'}
+          value={email.policy_gap_domains > 0 ? `${email.policy_gap_domains} DMARC policy gap${email.policy_gap_domains === 1 ? '' : 's'}` : email.policy_observed_domains > 0 ? `${email.policy_observed_domains} enforcing polic${email.policy_observed_domains === 1 ? 'y' : 'ies'} observed` : 'Not evaluated'}
+          sub={email.policy_gap_domains > 0 ? 'Missing or monitoring-only policy' : email.policy_observed_domains > 0 ? 'Message authentication is not tested here' : 'No usable DMARC evidence'}
         />
         <Signal
           icon={Users}
           label="Impersonation"
           value={imp.active > 0 ? `${imp.active} active lookalike${imp.active === 1 ? '' : 's'}` : notObserved ? 'Not evaluated' : 'No active lookalike observed'}
-          sub={imp.can_send_mail > 0 ? `${imp.can_send_mail} can send mail as you` : imp.active > 0 ? 'Resolving lookalike domains' : notObserved ? 'Evidence unavailable' : 'Observed brand evidence only'}
+          sub={imp.mail_receiving_domains > 0 ? `${imp.mail_receiving_domains} with mail-receiving MX records` : imp.active > 0 ? 'Needs review; abuse is not established' : notObserved ? 'Evidence unavailable' : 'Observed brand evidence only'}
         />
         <Signal
           icon={KeyRound}

@@ -60,10 +60,10 @@ const get = async (p, token) => { const res = await worker.default.fetch(new Req
 
 // ── 1. Unit: deriveLevel ─────────────────────────────────────────────────────
 ok("no reachability producer → Not Assessed", deriveLevel({ internet_facing: 0, reachability_evaluated_count: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 }).identity_exposure_level === "Not Assessed");
-ok("measured reachable identity surface → Medium", deriveLevel({ internet_facing: 1, reachable_surface_count: 1, reachability_evaluated_count: 1 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 }).identity_exposure_level === "Medium");
+ok("public identity surface alone is not a vulnerability", deriveLevel({ internet_facing: 1, reachable_surface_count: 1, reachability_evaluated_count: 1 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 }).identity_exposure_level === "Low");
 ok("deprecated internet_facing primitive cannot manufacture reachability", deriveLevel({ internet_facing: 1, reachable_surface_count: 0, reachability_evaluated_count: 0 }, { active: 0, total: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 0 }).identity_exposure_level === "Not Assessed");
 ok("spoofable domain → High", deriveLevel({ internet_facing: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 1, checked_domains: 1 }).identity_exposure_level === "High");
-ok("mail-capable lookalike → High", deriveLevel({ internet_facing: 0 }, { active: 1, can_send_mail: 1, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 0 }).identity_exposure_level === "High");
+ok("MX observation alone → review, not confirmed abuse", deriveLevel({ internet_facing: 0 }, { active: 1, can_send_mail: 1, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 0 }).identity_exposure_level === "Medium");
 // A2: a reassuring "clean" verdict is honest ONLY when evidence was actually
 // assessed (checked_domains>0). With nothing assessed it must read Not Assessed.
 ok("assessed non-identity evidence cannot imply identity reachability health", (() => {
@@ -94,6 +94,76 @@ ok("non-member is denied another workspace's identity exposure (403)", (await ge
 ok("unauthenticated is rejected (401)", (await get("/api/workspaces/ws_a/identity-exposure")).status === 401);
 // ws_a's response must not contain ws_b's host.
 ok("no cross-workspace bleed (ws_b host absent from ws_a response)", !JSON.stringify(resp.body).includes("other.co.uk"));
+
+// Customer dispositions and DNS records must not manufacture compromise claims.
+reports["reports/sc_a.json"].modules.email_security = { spf: { present: false }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } };
+for (const classification of ["owned", "ignored", "benign", "false_positive", "dismissed"]) {
+  db.prepare("UPDATE workspace_brand_assets SET classification = ? WHERE id = 'b1'").run(classification);
+  const result = (await get("/api/workspaces/ws_a/identity-exposure", TOKEN)).body;
+  ok(`${classification} is not an active impersonation risk`, result.signals?.impersonation_infrastructure?.active === 0 && result.identity_exposure_level !== "High");
+  ok(`SPF absence with DMARC reject is not a policy gap (${classification})`, result.signals?.email_spoofing?.policy_gap_domains === 0 && !/weak or missing DMARC|can be spoofed|able to send/i.test(result.summary));
+}
+db.prepare("UPDATE workspace_brand_assets SET classification = 'unreviewed' WHERE id = 'b1'").run();
+let result = (await get("/api/workspaces/ws_a/identity-exposure", TOKEN)).body;
+ok("MX record reports receiving capability only", result.identity_exposure_level === "Medium" && result.signals.impersonation_infrastructure.mail_receiving_domains === 1 && !/send mail as you/.test(result.summary));
+db.prepare("UPDATE workspace_brand_assets SET classification = 'confirmed_abuse' WHERE id = 'b1'").run();
+result = (await get("/api/workspaces/ws_a/identity-exposure", TOKEN)).body;
+ok("confirmed abuse still raises High", result.identity_exposure_level === "High" && result.signals.impersonation_infrastructure.confirmed_abuse_domains === 1);
+db.prepare("UPDATE workspace_brand_assets SET classification = 'owned' WHERE id = 'b1'").run();
+reports["reports/sc_a.json"].modules.email_security.dmarc = { present: true, policy: null };
+result = (await get("/api/workspaces/ws_a/identity-exposure", TOKEN)).body;
+ok("unparsed DMARC is unavailable rather than a fabricated gap", result.identity_exposure_level === "Unavailable" && result.signals.email_spoofing.details[0].policy_gap === null);
+reports["reports/sc_a.json"].modules.email_security.dmarc = { present: true, policy: "reject" };
+reports["reports/sc_a.json"].modules.email_security.dmarc_detail = { valid: false };
+result = (await get("/api/workspaces/ws_a/identity-exposure", TOKEN)).body;
+ok("invalid DMARC reject is not promoted to an enforcing policy", result.identity_exposure_level === "Unavailable" && result.signals.email_spoofing.policy_observed_domains === 0);
+delete reports["reports/sc_a.json"].modules.email_security.dmarc_detail;
+db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws_a','d_unreadable')").run();
+db.prepare("INSERT INTO scans (id, domain_id, domain, status, created_at) VALUES ('sc_unreadable','d_unreadable','unreadable.example','completed', datetime('now'))").run();
+result = (await get("/api/workspaces/ws_a/identity-exposure", TOKEN)).body;
+ok("partial report failure preserves evidence gap", result.identity_exposure_level === "Unavailable" && result.signals.email_spoofing.checked_domains === 1);
+
+// Actual probe -> discovery -> persisted TEXT evidence -> customer claim.
+const { probeAsset } = await import('../workers/scan-api/src/engines/asset-intel.js');
+const { runIdentityDiscoveryModule } = await import('../workers/scan-api/src/engines/identity-scan.js');
+const { buildIdentityClaim } = await import('../workers/scan-api/src/engines/identity-evidence-contract.js');
+const response = new Response('<html><title>Sign in</title><input type="password"></html>', { headers: { 'content-type': 'text/html' } });
+Object.defineProperty(response, 'url', { value: 'https://login.acme.co.uk/' });
+const probed = await probeAsset('login.acme.co.uk', { fetcher: async () => response });
+const modules = { subdomains: { items: ['login.acme.co.uk'] }, asset_exposure: { source: 'http_probe', assets: [probed] } };
+const discovery = runIdentityDiscoveryModule(modules, 'acme.co.uk', { observedAt: new Date().toISOString() });
+const portal = discovery.portals[0];
+const measuredClaim = buildIdentityClaim({ ...portal, evidence: JSON.stringify(portal.evidence) });
+ok('real HTTP response is retained through serialized evidence', measuredClaim.reachability.status === 'reachable' && measuredClaim.reachability.endpoint === 'https://login.acme.co.uk/');
+ok('actual password field observed, without claiming compromise', measuredClaim.reachability.password_form_observed === true);
+for (const [name, asset, incomplete] of [
+  ['off-host redirect', { ...probed, url: 'https://other.example/' }, false],
+  ['edge failure', { ...probed, status: 530, reachable: false }, false],
+  ['no real observation', { ...probed, authentication_observation: null }, false],
+  ['incomplete scan evidence', probed, true],
+]) {
+ const r = runIdentityDiscoveryModule({ ...modules, asset_exposure: { source: 'http_probe', assets: [asset], incomplete } }, 'acme.co.uk');
+ ok(`${name} cannot manufacture a measured endpoint`, buildIdentityClaim(r.portals[0]).reachability.status === 'not_evaluated');
+}
+const outOfScope = runIdentityDiscoveryModule(modules, 'different.example');
+ok('out-of-scope hostname cannot become measured evidence', buildIdentityClaim(outOfScope.portals[0]).reachability.status === 'not_evaluated');
+ok('scan aggregate counts actual measurements', discovery.reachable_surface_count === 1 && discovery.password_form_count === 1);
+for (const html of [
+  '<!-- <input type="password"> -->',
+  '<script>const example = \'<input type="password">\';</script>',
+  ' '.repeat(8_192) + '<input type="password">',
+]) {
+  const asset = await probeAsset('login.acme.co.uk', { fetcher: async () => new Response(html, { headers: { 'content-type': 'text/html' } }) });
+  ok('non-observed or executable-string markup is not a password-field observation', asset.authentication_observation.password_form_observed === null);
+}
+let cancelled = false;
+let produced = 0;
+const endless = new ReadableStream({
+  pull(controller) { produced++; controller.enqueue(new Uint8Array(4_096).fill(32)); },
+  cancel() { cancelled = true; },
+});
+await probeAsset('login.acme.co.uk', { fetcher: async () => new Response(endless, { headers: { 'content-type': 'text/html' } }) });
+ok('large HTML is cancelled at a bounded prefix', cancelled && produced <= 4);
 
 console.log(`\nIdentity exposure: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("identity-exposure validation FAILED"); process.exit(1); }

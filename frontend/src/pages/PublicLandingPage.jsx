@@ -18,8 +18,8 @@ const SERVICES = [
   {
     icon: KeyRound, name: 'Identity Exposure',
     q: '“What is visible about our business identities?”',
-    copy: 'Review identity-provider relationships and identity-facing hostnames. This is not domain-wide, password or dark-web monitoring. Endpoint reachability testing is on the roadmap and is not performed today.',
-    tags: ['Provider relationships', 'Identity-facing hostnames', 'Reachability: roadmap'],
+    copy: 'Review identity-provider relationships, identity-facing hostnames and measured endpoints. HTTP evidence is shown where collected. This is not employee breach or dark-web monitoring.',
+    tags: ['Provider relationships', 'Identity-facing hostnames', 'Measured endpoints'],
     key: 'identity',
   },
   {

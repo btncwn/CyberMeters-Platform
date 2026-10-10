@@ -120,6 +120,30 @@ function makeDefaultProbeFetch(cache = null) {
 }
 const defaultProbeFetch = makeDefaultProbeFetch();
 
+async function readProbeSnippet(response) {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const buffer = new Uint8Array(8_192);
+  let length = 0;
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("probe_body_timeout")), 2_000);
+  });
+  try {
+    while (length < buffer.length) {
+      const { value, done } = await Promise.race([reader.read(), deadline]);
+      if (done) break;
+      const chunk = value.subarray(0, buffer.length - length);
+      buffer.set(chunk, length);
+      length += chunk.length;
+    }
+    return new TextDecoder().decode(buffer.subarray(0, length));
+  } finally {
+    clearTimeout(timer);
+    void reader.cancel().catch(() => {});
+  }
+}
+
 // The Cloudflare-edge rule (520–527 / 530 WITH the `Server: cloudflare` signature)
 // now lives in ONE place — lib/fetch-observation.js — and is shared with the SSL
 // module's HTTPS observation classifier, so the two can never drift. Imported at
@@ -176,19 +200,25 @@ export async function probeAsset(host, opts = {}) {
 
     let title = null;
     let tech  = [];
+    let passwordFormObserved = null;
 
     if (rawCT?.includes("text/html")) {
       try {
-        const body    = await res.text();
-        const snippet = body.slice(0, 8_192);
+        const snippet = await readProbeSnippet(res);
         const m       = snippet.match(/<title[^>]*>([^<]{1,200})<\/title>/i);
         title = m ? m[1].trim() : null;
         tech  = detectTech(res.headers, snippet);
+        // Positive observation only. An absent field in this bounded snippet
+        // does not rule out a form rendered later by JavaScript.
+        const visibleMarkup = snippet.replace(/<!--[\s\S]*?(?:-->|$)/g, "")
+          .replace(/<(script|style)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, "");
+        passwordFormObserved = /<input\b[^>]*\btype\s*=\s*(?:["']password["']|password(?=[\s/>]))/i.test(visibleMarkup) ? true : null;
       } catch {
         tech = detectTech(res.headers, "");
       }
     } else {
       tech = detectTech(res.headers, "");
+      void res.body?.cancel().catch(() => {});
     }
 
     return {
@@ -217,6 +247,11 @@ export async function probeAsset(host, opts = {}) {
       server,
       content_type: contentType,
       tech,
+      authentication_observation: {
+        schema_version: "identity_http.v1",
+        measured_at: new Date().toISOString(),
+        password_form_observed: status >= 200 && status < 300 ? passwordFormObserved : null,
+      },
     };
   }
 

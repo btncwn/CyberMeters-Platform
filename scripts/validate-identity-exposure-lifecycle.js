@@ -135,7 +135,7 @@ eq("fresh record is unreviewed", d1.customer_classification, "unreviewed");
 eq("externally_observed is always true", d1.externally_observed, true);
 ok("unknown signals carried (no MFA/breach/dark-web claim)",
   ["mfa_enrolment", "conditional_access", "leaked_credentials", "dark_web"].every((s) => d1.unknown_signals.includes(s)));
-ok("scope note states endpoint reachability is not measured", /endpoint reachability is not measured/i.test(d1.scope_note));
+ok("scope note requires supporting HTTP evidence", /supporting HTTP evidence/i.test(d1.scope_note));
 
 // classify expected + assign owners → calm (ok, no recurrence)
 await identityExposureAction(env, "ws1", d1.identity_exposure_id, "classify_expected", { actor_id: "admin" });

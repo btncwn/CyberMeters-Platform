@@ -388,10 +388,8 @@ export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   } else {
     attackDed += 10; // No vendor visibility signal
   }
-  // Identity deduction requires a supported typed endpoint measurement. Current
-  // runtime producers register none; the explicit input remains for the
-  // contract-only positive control and a future separately approved producer.
-  attackDed += Math.min(20, identityReachableSurfaceCount * 7);
+  // Public identity reachability is inventory evidence, not a vulnerability.
+  // Neither hostname heuristics nor a working login page deduct risk points.
   // Supply chain signal: confirmed payment/identity vendors detected via CSP increase
   // exposure risk (each confirmed relationship is a potential breach vector).
   // Cap at 10 — vendor_risk high count already carries the heavier penalty above.
