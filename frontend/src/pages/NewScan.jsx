@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import {
   ScanLine, Globe, ArrowLeft, CheckCircle,
   Shield, Mail, FileText, Info, ShieldCheck,
@@ -27,7 +27,8 @@ const CHECKS = [
 
 
 export default function NewScan() {
-  const [domain, setDomain]   = useState('')
+  const [params] = useSearchParams()
+  const [domain, setDomain]   = useState(() => canonicalDomainInput(params.get('domain') || '', { stripWww: false }))
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState(null)
   const [success, setSuccess] = useState(null)
@@ -168,6 +169,7 @@ export default function NewScan() {
   async function confirmVerifiedOrExplain(record) {
     const { ok, row } = await rereadAuthoritativeRow(record)
     if (ok && isAuthoritativeVerified(row, record)) {
+      setGated({ ...record, domain: row.domain })
       setState('verified'); setCheckNote(null)
       return true
     }
@@ -236,12 +238,19 @@ export default function NewScan() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!valid) return
+    if (!valid || !canStartScan(state) || loading) return
+    const exact = canonicalDomainInput(domain, { stripWww: false })
+    if (!wsId || gated?.workspace_id !== wsId || !gated?.domain_id
+        || !gated?.domain || ![exact, canonicalDomainInput(domain)].includes(gated.domain)) {
+      setError('The workspace or domain has changed. Check domain ownership again before scanning.')
+      setState('valid_unverified')
+      return
+    }
     setLoading(true)
     setError(null)
     setState((prev) => (prev === 'verified' ? 'scanning' : 'starting'))
     try {
-      const data = await api.createScan(gated?.domain || canonicalDomainInput(domain))
+      const data = await api.createScan(gated.domain, gated.workspace_id)
       setSuccess(data)
       setTimeout(() => {
         const id = data?.scan?.id || data?.id

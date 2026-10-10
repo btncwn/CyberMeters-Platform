@@ -1,6 +1,6 @@
 import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, RefreshCw, Globe, Hash, AlertCircle, ScanLine, Download,
   ChevronRight, Shield, FileText, CheckCircle, XCircle, Mail,
@@ -19,6 +19,7 @@ import ExecutiveReportV2 from '../components/ExecutiveReportV2'
 import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
 import CyberMotDomains from '../components/CyberMotDomains'
 import LiveTlsEvidence from '../components/LiveTlsEvidence'
+import WebsiteResponseEvidence from '../components/WebsiteResponseEvidence'
 import { assessmentBandLabel, bandMeta } from '../lib/score-presentation'
 import {
   isReportPreparing,
@@ -1274,7 +1275,7 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
       </div>
 
       {/* SSL */}
-      <div className="card overflow-hidden">
+      <div id="website-evidence" className="card overflow-hidden scroll-mt-24">
         <SectionHeader icon={Lock} title="SSL / HTTPS" />
         <SslPanel ssl={modules?.ssl} />
         {modules?.ssl?.certificate_evidence?.live_tls && <div className="p-4"><LiveTlsEvidence evidence={modules.ssl.certificate_evidence.live_tls} /></div>}
@@ -1284,6 +1285,7 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
       <div className="card overflow-hidden">
         <SectionHeader icon={FileText} title="Security Headers" />
         <HeadersPanel headers={modules?.headers} httpsAvailable={modules?.ssl?.https_available === true} />
+        <WebsiteResponseEvidence headers={modules?.headers} />
       </div>
 
       {/* Email Security */}
@@ -1302,6 +1304,8 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
 
 export default function ScanDetail() {
   const { id }  = useParams()
+  const [params] = useSearchParams()
+  const requestedView = params.get('view')
   const navigate = useNavigate()
 
   const [scan,          setScan]          = useState(null)
@@ -1314,7 +1318,7 @@ export default function ScanDetail() {
   const [reportV2,      setReportV2]      = useState(null)
   const [reportAvailability, setReportAvailability] = useState(null)
   const [preparationExhausted, setPreparationExhausted] = useState(false)
-  const [reportTab,     setReportTab]     = useState('executive') // 'executive' | 'technical'
+  const [reportTab,     setReportTab]     = useState(() => requestedView === 'technical' ? 'technical' : 'executive') // 'executive' | 'technical'
   const [waivers,       setWaivers]       = useState({}) // finding_id → waiver row
   const [downloadingPdf, setDownloadingPdf] = useState(false)
   const [pdfError,      setPdfError]      = useState(null)
@@ -1327,6 +1331,16 @@ export default function ScanDetail() {
   const reportRequestInFlightRef = useRef(false)
   const reportPollAttemptRef = useRef(0)
   activeScanIdRef.current = id
+
+  useEffect(() => {
+    setReportTab(requestedView === 'technical' ? 'technical' : 'executive')
+  }, [id, requestedView])
+
+  useEffect(() => {
+    if (requestedView === 'technical' && reportTab === 'technical' && report) {
+      document.getElementById('website-evidence')?.scrollIntoView({ block: 'start' })
+    }
+  }, [requestedView, reportTab, report])
 
   const handleDownloadPdf = useCallback(async () => {
     setPdfError(null)

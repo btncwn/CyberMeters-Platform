@@ -24,14 +24,14 @@ const THEME = Object.fromEntries(
 // ── Canonical Cyber MOT domains — the primary sections in the sidebar ─────────
 const SERVICES = [
   {
-    key: 'identity', title: 'Identity Exposure', icon: KeyRound, to: '/ws/identity-exposure',
+    key: 'identity', domainKey: 'identity_exposure', title: 'Identity Exposure', icon: KeyRound, to: '/ws/identity-exposure',
     match: p => p.startsWith('/ws/identity-exposure'),
     items: [
       { to: '/ws/identity-exposure', label: 'Overview', end: true },
     ],
   },
   {
-    key: 'surface', title: 'Attack Surface', icon: Server, to: '/assets',
+    key: 'surface', domainKey: 'attack_surface', title: 'Attack Surface', icon: Server, to: '/assets',
     match: p => p.startsWith('/assets') || p.startsWith('/exposure') || p.startsWith('/ws/admin-surfaces')
       || p.startsWith('/ws/cloud-assets') || p.startsWith('/scans') || p.startsWith('/schedules'),
     items: [
@@ -45,7 +45,7 @@ const SERVICES = [
     ],
   },
   {
-    key: 'email', title: 'Email Protection', icon: Mail, to: '/ws/email-protection',
+    key: 'email', domainKey: 'email_protection', title: 'Email Protection', icon: Mail, to: '/ws/email-protection',
     match: p => p.startsWith('/ws/email-protection'),
     items: [
       { to: '/ws/email-protection', label: 'Overview', end: true },
@@ -55,14 +55,14 @@ const SERVICES = [
     ],
   },
   {
-    key: 'website', title: 'Website Security', icon: MonitorCheck, to: '/ws/website-security',
+    key: 'website', domainKey: 'website_security', title: 'Website Security', icon: MonitorCheck, to: '/ws/website-security',
     match: p => p.startsWith('/ws/website-security'),
     items: [
       { to: '/ws/website-security', label: 'Overview', end: true },
     ],
   },
   {
-    key: 'shadow_it', title: 'Shadow IT & Unmanaged Technology', icon: Boxes, to: '/ws/shadow-it',
+    key: 'shadow_it', domainKey: 'shadow_it_unmanaged_technology', title: 'Shadow IT & Unmanaged Technology', icon: Boxes, to: '/ws/shadow-it',
     match: p => p.startsWith('/ws/shadow-it') || p.startsWith('/ws/saas-exposure') || p.startsWith('/ws/third-party'),
     items: [
       { to: '/ws/shadow-it',       label: 'Overview', end: true },
@@ -71,7 +71,7 @@ const SERVICES = [
     ],
   },
   {
-    key: 'certs', title: 'Certificates & Trust', icon: Lock, to: '/ws/certificates',
+    key: 'certs', domainKey: 'certificates_trust', title: 'Certificates & Trust', icon: Lock, to: '/ws/certificates',
     match: p => p.startsWith('/ws/certificates'),
     items: [
       { to: '/ws/certificates',  label: 'Overview', end: true },
@@ -83,7 +83,7 @@ const SERVICES = [
     ],
   },
   {
-    key: 'brand', title: 'Brand Protection', icon: Tag, to: '/ws/brand-monitoring',
+    key: 'brand', domainKey: 'brand_protection', title: 'Brand Protection', icon: Tag, to: '/ws/brand-monitoring',
     match: p => p.startsWith('/ws/brand-monitoring'),
     items: [
       { to: '/ws/brand-monitoring', label: 'Overview', end: true },
@@ -92,7 +92,7 @@ const SERVICES = [
     ],
   },
   {
-    key: 'cyber_essentials', title: 'Cyber Essentials Readiness', icon: ClipboardCheck, to: '/ws/cyber-essentials',
+    key: 'cyber_essentials', domainKey: 'cyber_essentials_readiness', title: 'Cyber Essentials Readiness', icon: ClipboardCheck, to: '/ws/cyber-essentials',
     match: p => p.startsWith('/ws/cyber-essentials'),
     items: [
       { to: '/ws/cyber-essentials', label: 'Overview', end: true },
@@ -216,7 +216,7 @@ export default function WorkspaceNav({ wsName }) {
                   className="ml-[26px] mt-1 mb-1.5 pl-3.5 space-y-0.5 border-l-2"
                   style={{ borderColor: t.bg }}
                 >
-                  {svc.items.map((item, i) => item.hash ? (
+                  {[...svc.items, { to: `/ws/cases?domain_key=${svc.domainKey}`, label: 'Managed cases' }].map((item, i) => item.hash ? (
                     <a key={i} href={item.hash}
                       style={{ color: t.text }}
                       className="block px-2.5 py-1.5 rounded-lg text-sm font-medium opacity-80 hover:opacity-100 transition-opacity">
