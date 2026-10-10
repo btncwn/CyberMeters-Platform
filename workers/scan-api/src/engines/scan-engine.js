@@ -68,7 +68,7 @@ import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { collectLiveTls, attachLiveTlsToSsl, liveCertificateFindings } from "./network-probe.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
-import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
+import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, prioritizeExposureTargets, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
 import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply-chain.js";
 import { correlateShadowItInventory } from "./shadow-it-inventory.js";
 import { correlateCertificateLifecycle } from "./certificate-lifecycle.js";
@@ -1233,10 +1233,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         .map((i) => i.hostname)
         .filter((h) => h && !ctHostnames.has(h));
       const mergedSubdomainItems = [...subdomainsResult.items, ...bruteNewItems];
-      const exposureTargets = [...new Set([
-        ...knownAssetHosts,
-        ...mergedSubdomainItems,
-      ].map((host) => String(host || "").toLowerCase()).filter(Boolean))];
+      // Exposure probes the first 50 targets: high-value names (admin, VPN,
+      // login, dev…) go first so a discovered admin host is never cut off by
+      // ordinary CT names, then known assets for lifecycle re-checks.
+      const exposureTargets = prioritizeExposureTargets(domain, {
+        knownHosts: knownAssetHosts,
+        discoveredHosts: mergedSubdomainItems,
+      });
 
       // Takeover: canRun() gates the launch; raceModuleDeadline BOUNDS the run so an
       // overrun cannot cross the ~30s cliff. On the bound it defers honestly.

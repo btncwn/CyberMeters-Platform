@@ -351,7 +351,7 @@ function evaluateRegressionFixtures(fixtures = SCANNER_REGRESSION_FIXTURES) {
 //                         the legacy exact _dmarc lookup (23) until separately budgeted
 //   dmarc_core      — 10 logical questions, independently capped at 750 ms
 //   ct_discovery    — 4  (wildcard A + AAAA DoH + crt.sh + CertSpotter)
-//   dns_bruteforce  — actual checked count (capped at BRUTEFORCE_MAX_NAMES = 15)
+//   dns_bruteforce  — actual checked count (capped at BRUTEFORCE_MAX_NAMES = 40)
 //   asset_exposure  — 0  (variable; up to 50×2 HTTP probes; tracked separately from exposure result)
 //   admin_surface   — 0  (pure computation, zero I/O)
 //   cve_kev         — 2  (NVD + CISA KEV)

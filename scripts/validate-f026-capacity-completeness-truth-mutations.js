@@ -213,7 +213,7 @@ const mutants = [
   {
     id: "VARIABLE_BRUTEFORCE_CAP_ESCAPES_PROVIDER",
     file: "workers/scan-api/src/engines/subdomains-scan.js",
-    from: "export const BRUTEFORCE_MAX_NAMES  = 15;",
+    from: "export const BRUTEFORCE_MAX_NAMES  = 40;",
     to:   "export const BRUTEFORCE_MAX_NAMES  = 9_000;",
     mustContain: "FAIL (c) discovered and historical candidates are source-bounded before variable probes",
   },

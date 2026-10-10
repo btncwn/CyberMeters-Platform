@@ -206,7 +206,7 @@ function variableOutboundBoundTruth() {
     engineSource.includes("modules.admin_surface_detection = runAdminSurfaceModule(modules);");
 
   ok("(c) discovered and historical candidates are source-bounded before variable probes",
-    ctMergeCap === 300 && bruteHostCap === 23 && knownAssetCap === 50 &&
+    ctMergeCap === 300 && bruteHostCap === 48 && knownAssetCap === 50 &&
       exposureHostCap === 50 && takeoverHostCap === 100,
     JSON.stringify({ ctMergeCap, bruteHostCap, knownAssetCap, exposureHostCap, takeoverHostCap }));
   ok("(c) exposure redirect/DNS fan-out is source-bounded",
@@ -222,7 +222,7 @@ function variableOutboundBoundTruth() {
   ok("(c) admin_surface is derived from completed exposure evidence with zero new network I/O",
     adminIsPure, JSON.stringify({ adminStart, adminEnd }));
   ok("(c) conservative named-variable envelope stays below provider 10000 but above admission 200",
-    conservativeProfileEnvelope === 1995 &&
+    conservativeProfileEnvelope === 2020 &&
       conservativeProfileEnvelope > 200 && conservativeProfileEnvelope < providerCeiling,
     JSON.stringify({ fixedModeledEstimate, namedVariableOutboundBound, conservativeProfileEnvelope, providerCeiling }));
 }
