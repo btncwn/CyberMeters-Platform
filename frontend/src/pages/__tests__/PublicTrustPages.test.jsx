@@ -36,9 +36,9 @@ describe('Founder and public assurance pages', () => {
     expect(screen.getByText(/controlled Cloudflare recovery exercise/)).toHaveTextContent('does not establish an off-provider backup or guarantee a recovery time')
     expect(screen.queryByText(/planned before commercial general availability/)).not.toBeInTheDocument()
   })
-  it('keeps optional breach lookup scope and privacy links consistent with existing provider flow', () => {
+  it('keeps privacy links without advertising the disconnected provider', () => {
     mount(TrustPage)
-    expect(screen.getByText(/Optional known-address breach checks use LeakCheck/)).toHaveTextContent('pseudonymous, not anonymous')
+    expect(screen.queryByText(/LeakCheck/)).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy')
     expect(screen.getByRole('link', { name: 'Data Processing Addendum' })).toHaveAttribute('href', '/dpa')
   })

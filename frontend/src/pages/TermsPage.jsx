@@ -25,7 +25,7 @@ export default function TermsPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Terms of Service</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: 9 October 2026 — Version 1.1</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 10 October 2026 — Version 1.2</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             These Terms of Service ("<strong>Terms</strong>") govern your access to and use of the CyberMeters platform and related services ("<strong>Services</strong>") provided by Turhan Acar, a sole trader trading as CyberMeters ("<strong>we</strong>", "<strong>us</strong>", "<strong>our</strong>").
           </p>
@@ -121,7 +121,7 @@ export default function TermsPage() {
           </Section>
 
           <Section title="12. Governing Law and Disputes">
-            <p>These Terms are governed by and construed in accordance with the laws of England and Wales. Any disputes arising out of or in connection with these Terms shall be subject to the exclusive jurisdiction of the courts of England and Wales.</p>
+            <p>These Terms are governed by and construed in accordance with the law of Scotland. Subject to the next sentence, the Scottish courts have exclusive jurisdiction over any dispute arising out of or in connection with these Terms. If you are a consumer resident in England, Wales or Northern Ireland, you may also bring proceedings in the courts of the part of the United Kingdom in which you live, and nothing in these Terms affects your statutory rights.</p>
           </Section>
 
           <Section title="13. Contact">

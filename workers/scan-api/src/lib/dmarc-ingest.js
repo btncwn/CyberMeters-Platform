@@ -258,7 +258,7 @@ const DMARC_CRITICAL_ELEMENT_PARENTS = new Map([
 // resolve entities or namespaces; it only prevents a critical lookalike/nested
 // field from being accepted out of its DMARC schema position.
 function _validateDmarcElementStructure(xml) {
-  if (/<!--|<!\[CDATA\[|<\?(?!xml(?:\s|[?]))/i.test(xml)) {
+  if (/<!-{2}|<!\[CDATA\[|<\?(?!xml(?:\s|[?]))/i.test(xml)) {
     _schemaFailure("invalid_structure", "Unsupported XML markup is present.");
   }
   const stack = [];

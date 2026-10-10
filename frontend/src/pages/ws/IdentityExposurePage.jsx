@@ -10,7 +10,6 @@ import { Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
-import IdentityBreachChecks from '../../components/IdentityBreachChecks'
 import {
   classificationMeta, riskMeta, ownershipMeta, verificationMeta, surfaceLabel, toneClass,
   isAwaitingVerification, IDENTITY_SCOPE_NOTE, identityClaimMeta, confidenceDetailLabel,
@@ -93,9 +92,11 @@ export default function IdentityExposurePage() {
         <p className="text-sm text-slate-500 mt-1">
           Review and own provider relationships and possible identity-facing hostnames for your domains.
         </p>
+        <Link to="/ws/identity-assets" className="btn-secondary inline-flex mt-3 text-sm">
+          People &amp; evidence →
+        </Link>
       </div>
 
-      <IdentityBreachChecks workspaceId={wsLoading ? null : workspaceId} />
 
       <h2 className="font-semibold text-slate-800 mt-6">Login-surface review</h2>
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 my-3">

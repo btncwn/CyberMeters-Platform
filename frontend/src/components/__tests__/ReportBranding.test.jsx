@@ -92,7 +92,7 @@ describe('Agency branding profiles', () => {
     expect(screen.getByText(/Legacy co-brand profile/)).toBeInTheDocument(); expect(screen.queryByText('Default')).not.toBeInTheDocument(); expect(screen.queryByRole('button', { name: /Make .* default/ })).not.toBeInTheDocument()
   })
   it('refuses an invalid colour before a write', async () => {
-    mountAgency(); await screen.findByText('Agency profile-a'); await newProfile(); fill('Accent colour', 'red')
+    await act(async () => { mountAgency() }); await screen.findByText('Agency profile-a'); await newProfile(); fill('Accent colour', 'red')
     expect(screen.getByRole('button', { name: 'Save agency profile' })).toBeDisabled(); fireEvent.submit(screen.getByLabelText('Agency name').closest('form')); expect(api.createBrandingProfile).not.toHaveBeenCalled()
   })
   it('locks writes after lost response, never claims save or echoes errors, and reconciles by refresh', async () => {

@@ -10,6 +10,8 @@ import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import StatCard from '../../components/StatCard'
 import IdentityExposureCard from '../../components/IdentityExposureCard'
 import { confidenceDetailLabel, identityClaimMeta, toneClass } from '../../lib/identityExposureDisplay'
+import IdentityWorkforceCard from '../../components/IdentityWorkforceCard'
+import IdentityPublicSourcesCard from '../../components/IdentityPublicSourcesCard'
 
 // ── Identity type configuration ───────────────────────────────────────────────
 
@@ -61,16 +63,25 @@ function IdentityAssetCard({ asset }) {
 
       {asset.hostname && (
         <div className="mb-3 text-xs text-gray-600 truncate">
-          Possible hostname: {asset.hostname}
+          {claim?.claim_kind === 'measured_identity_surface' ? 'Measured hostname' : 'Possible hostname'}: {asset.hostname}
         </div>
       )}
 
       <div className="flex flex-wrap gap-3 text-[11px] text-gray-400">
         <span>Reachability: <span className="font-medium text-gray-600">{claim?.reachability?.status?.replace(/_/g, ' ') || 'not evaluated'}</span></span>
         <span>{confidenceDetailLabel(asset.confidence_detail)}</span>
+        {claim?.reachability?.password_form_observed === true && <span>Password-field markup observed (sign-in behavior not tested)</span>}
         {asset.name_resolution?.status && <span>Name resolution: <span className="font-medium text-gray-600">{asset.name_resolution.status.replace(/_/g, ' ')}</span></span>}
         {asset.source && <span>Source: <span className="capitalize font-medium text-gray-600">{asset.source.replace(/_/g, ' ')}</span></span>}
       </div>
+
+      {claim?.claim_kind === 'measured_identity_surface' && claim.reachability?.endpoint && (
+        <p className="mt-2 break-all text-xs text-gray-500">
+          {claim.reachability.endpoint}
+          {claim.reachability.http_status != null && ` · HTTP ${claim.reachability.http_status}`}
+          {claim.reachability.measured_at && ` · ${parseServerDate(claim.reachability.measured_at).toLocaleString()}`}
+        </p>
+      )}
 
       <div className="mt-3 pt-3 border-t border-gray-50 flex justify-between text-[10px] text-gray-400">
         <span>First seen: {asset.first_seen ? parseServerDate(asset.first_seen).toLocaleDateString() : '—'}</span>
@@ -165,6 +176,8 @@ export default function WorkspaceIdentityPage() {
       </div>
 
       {/* Stats */}
+      <IdentityWorkforceCard key={"workforce-" + wsId} workspaceId={wsId} />
+      <IdentityPublicSourcesCard key={wsId} workspaceId={wsId} />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard icon={ShieldAlert} label="Identity Evidence" value={assets.length} />
         <StatCard icon={Building2} label="Provider Relationships" value={summary?.provider_relationship_count ?? 0} />
@@ -238,7 +251,7 @@ export default function WorkspaceIdentityPage() {
       {/* Evidence boundary */}
       <div className="mt-6 card p-4">
         <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-widest">Evidence boundary</p>
-        <p className="text-xs text-gray-500">Provider identification, hostname classification, name resolution and endpoint reachability are separate propositions. Current discovery does not perform an endpoint reachability check.</p>
+        <p className="text-xs text-gray-500">Provider relationships, possible hostnames and measured HTTP responses are shown separately. A public login page alone is not a vulnerability; account compromise and sign-in controls remain unassessed.</p>
       </div>
     </WsPage>
   )

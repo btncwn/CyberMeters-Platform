@@ -218,8 +218,8 @@ eq("Shadow IT keeps its bounded monitoring-only posture",
   CYBER_MOT_STATES.MONITORING_ONLY);
 eq("Shadow IT records degraded CT-dependent coverage",
   byKey(domains, "shadow_it_unmanaged_technology").coverage, "degraded");
-ok("Identity explains absent reachability measurement without leaking CT-provider wording",
-  /Identity reachability was not evaluated.*no supported reachability producer/i.test(
+ok("Identity separates inventory from unassessed account security without leaking CT-provider wording",
+  /inventory evidence\. Account compromise and sign-in controls were not evaluated/i.test(
     byKey(domains, "identity_exposure").summary
   ) &&
   !/certificate transparency/i.test(byKey(domains, "identity_exposure").summary));

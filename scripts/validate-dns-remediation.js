@@ -81,7 +81,7 @@ async function act(change,verb,body=action()){await clearRates();return call({me
 async function connect(){await clearRates();return call({method:'PUT',body:{zone_id:zone,token}});}
 try{
   await build({entryPoints:[path.join(root,'workers/scan-api/src/worker.js')],outfile:path.join(scratch,'worker.mjs'),bundle:true,format:'esm',platform:'browser',target:'es2022',external:['cloudflare:*'],logLevel:'silent'});
-  mf=new Miniflare(convertV4MiniflareOptions({cf:false,modules:true,resourcePersistencePath:path.join(scratch,'state'),script:fs.readFileSync(path.join(scratch,'worker.mjs'),'utf8'),compatibilityDate:'2026-06-18',compatibilityFlags:['global_fetch_strictly_public'],bindings:{ALLOWED_ORIGIN:'https://app.cybermeters.test',MAINTENANCE_MODE:'off',DNS_PROVIDER_KEY:key,RUA_INBOUND_DOMAIN:'reports.cybermeters.test'},d1Databases:{cybermeters_db:'synthetic-dns'},r2Buckets:{cybermeters_reports:'synthetic-reports'},durableObjects:{LEAKCHECK_PUBLIC:{className:'LeakCheckPublic',useSQLite:true}},outboundService:outbound}));
+  mf=new Miniflare(convertV4MiniflareOptions({cf:false,modules:true,resourcePersistencePath:path.join(scratch,'state'),script:fs.readFileSync(path.join(scratch,'worker.mjs'),'utf8'),compatibilityDate:'2026-06-18',compatibilityFlags:['global_fetch_strictly_public'],bindings:{ALLOWED_ORIGIN:'https://app.cybermeters.test',MAINTENANCE_MODE:'off',DNS_PROVIDER_KEY:key,RUA_INBOUND_DOMAIN:'reports.cybermeters.test'},d1Databases:{cybermeters_db:'synthetic-dns'},r2Buckets:{cybermeters_reports:'synthetic-reports'},outboundService:outbound}));
   db=await mf.getD1Database('cybermeters_db');
   // Build the actual migration-composed schema first; deploy only its schema to
   // disposable local D1. No production backup or customer records are loaded.
@@ -94,7 +94,6 @@ try{
   }
   const schema = sqlite.prepare("SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END").all(); sqlite.close();
   await db.batch(schema.map(row => db.prepare(row.sql)));
-  await db.prepare('INSERT INTO identity_breach_cleanup_state(id) VALUES(1)').run();
   for (const user of ['owner','admin','analyst','viewer','other','actor']) {
     await db.prepare('INSERT INTO users(id,email,email_verified) VALUES(?,?,1)').bind(user, `${user}@example.test`).run();
     await db.prepare("INSERT INTO user_sessions(id,user_id,token_hash,expires_at) VALUES(?,?,?,datetime('now','+1 day'))").bind('s_'+user,user,createHash('sha256').update('test-'+user).digest('hex')).run();

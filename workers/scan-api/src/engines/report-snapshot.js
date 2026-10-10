@@ -164,7 +164,7 @@ const DOMAIN_EVIDENCE_BASIS = Object.freeze({
   website_security:
     "Single external HTTP observations evaluated against RFC 9110, HSTS RFC 6797 and Content Security Policy Level 3 under CyberMeters product policy.",
   identity_exposure:
-    "Single external observations of provider relationships and possible identity-facing hostnames under CyberMeters product policy; endpoint reachability is not currently measured.",
+    "External observations of provider relationships, possible identity-facing hostnames and measured endpoints supported by HTTP evidence; account compromise and sign-in controls are not evaluated.",
   shadow_it_unmanaged_technology:
     "Single external technology observations; approval, ownership and authorisation remain customer classifications rather than CyberMeters observations.",
 });

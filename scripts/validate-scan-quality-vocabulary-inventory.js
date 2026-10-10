@@ -89,9 +89,10 @@ const EXPECTED = Object.freeze({
     predicate_occurrences: 35,
     unique_query_sites: 26,
     source_file_count: 15,
-    fingerprint: "f297fd5927d8976f240e4d34c1eaac813e15e894729495b659067bcf7fa20a55",
+    // Identity and trial-report edits shift source lines; all 35 predicate snippets remain unchanged.
+    fingerprint: "20e041672a8df038dc2b37c1944ec9fd5819f320a013b9e0faeaff88852f9310",
     resolved_query_sink_count: 19,
-    resolved_query_sink_fingerprint: "95ca195f7b3b591a88829e11416e1f18ce62353191ddc7807bdd87f688d1b64d",
+    resolved_query_sink_fingerprint: "85fa77bec33106c4a73321ff59ace7cd23bf51f0467108ab95ac79672f7584d1",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -194,9 +195,7 @@ const EXPECTED = Object.freeze({
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
   // shifts source positions only. No scan-quality read was added or removed.
-  // Rename type guard moves only workspaces-core.js projection 288 -> 289; all 23 SQL texts and identities are unchanged.
-  // Trial allowance: two-tree comparison preserves all 23 exact SQL texts and
-  // multiplicities; scans.js and workspace-reports.js source lines move only.
+  // Trial PDF admission shifts source locations; all 23 existing projection SQL texts and multiplicities are unchanged.
   sql_reads: { projection_occurrences: 23, fingerprint: "a9a0bc90321efe33520a34ab1ae060f13735a7e379e4d457d6c17a8a836c03bf" },
 });
 

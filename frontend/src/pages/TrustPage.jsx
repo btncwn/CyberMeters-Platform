@@ -57,7 +57,7 @@ export default function TrustPage() {
         </Section>
         <Section icon={Database} title="Data and service providers">
           <p>Turhan Acar, trading as CyberMeters, operates the service. Our <Link to="/privacy" className="text-brand-700 underline">Privacy Policy</Link>, <Link to="/dpa" className="text-brand-700 underline">Data Processing Addendum</Link> and <Link to="/cookies" className="text-brand-700 underline">Cookie Policy</Link> explain data handling and your available controls.</p>
-          <p>Providers include Cloudflare for infrastructure, Stripe for payments, Resend for transactional email and Microsoft for optional sign-in. Optional known-address breach checks use LeakCheck: a shortened hash of the address is sent only after an authorised user requests the check. The hash is pseudonymous, not anonymous; a match does not establish current account compromise.</p>
+          <p>Providers include Cloudflare for infrastructure, Stripe for payments, Resend for transactional email and Microsoft for optional sign-in.</p>
         </Section>
         <Section icon={Mail} title="Report a security concern">
           <p>Contact <a href="mailto:security@cybermeters.com" className="text-brand-700 underline">security@cybermeters.com</a> about a suspected issue. Read the published <a href="/.well-known/security.txt" className="text-brand-700 underline">security reporting information</a> before testing. We welcome good-faith research and will not pursue researchers who act responsibly. Only assess systems and activity for which you have permission.</p>

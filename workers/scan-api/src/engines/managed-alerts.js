@@ -40,7 +40,7 @@
 //     Pricing Lockstep can rename or re-tier plans without touching alert logic.
 import { createId } from "../lib/util.js";
 import { deliverWorkspaceAlert, formatAlertEmail, sendTenantAlertEmail } from "./alerts.js";
-import { getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
+import { escapeEmailHtml, getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
 import { isInCooldown, normalizeProviderOutcome, PROVIDER_OUTCOMES } from "./alert-outcomes.js";
 import { ALERTS_FEATURE_KEY, channelEnabledForWorkspace, GATED_CHANNELS, workspaceAlertsEntitled } from "./alert-gate.js";
 // alert-occurrence.js has no imports of its own, so this cannot cycle.
@@ -772,7 +772,7 @@ export async function retryFailedAlertDeliveries(env, { now = new Date().toISOSt
       }
 
       const sent = await sendTenantAlertEmail(env, row.workspace_id, {
-        subject: notif.title, text: notif.message, html: `<p>${String(notif.message || "")}</p>`,
+        subject: notif.title, text: notif.message, html: `<p>${escapeEmailHtml(String(notif.message || ""))}</p>`,
         fromKey: "ALERT_EMAIL_FROM",
         // From the ledger row, so a retry is filtered by the same severity rule
         // the original send was. Omitting it would make every retry look

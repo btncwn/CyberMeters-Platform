@@ -508,7 +508,7 @@ function OnboardingWidget({ wsId, onDone }) {
           >
             {importing
               ? <><Activity className="w-4 h-4 animate-spin" /> Importing…</>
-              : <><Upload className="w-4 h-4" /> Import & Start Monitoring</>
+              : <><Upload className="w-4 h-4" /> Import &amp; Start Monitoring</>
             }
           </button>
         </div>

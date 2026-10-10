@@ -1,7 +1,6 @@
 import { DMARC_MOT_CONTRIBUTION } from "./dmarc-canonical-consumers.js";
 import { resolveSignalMonitoringCoverage } from "./signal-monitoring-state.js";
 import { isCookieFindingType } from "./cookie-observation.js";
-import { hasIdentityReachabilityProducer } from "./identity-evidence-contract.js";
 import { isActionableFinding } from "./findings.js";
 import {
   projectTlsFindingsForCustomer,
@@ -83,7 +82,9 @@ import {
 // never own issue state merely because their presentation severity is high.
 // `2026-10-08.1`: verified DNS absence completes its measurement but cannot
 // establish a healthy HTTP attack surface or rewrite an earlier snapshot.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-08.1";
+// `2026-10-10.1`: HTTP identity inventory does not establish healthy account
+// security. Compromise and sign-in controls remain explicitly unassessed.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-10.1";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -214,7 +215,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     monitoring_degradation_message: "Identity-surface enumeration was incomplete this run.",
     match: (f) => /^identity_/.test(f.id || "") || f.module === "identity_discovery",
     maturity: "M1", managed_status: "monitoring",
-    limitations: ["Current Identity discovery identifies provider relationships and possible identity-facing hostnames; it does not measure endpoint reachability or include leaked-credential, breached-password or dark-web monitoring."],
+    limitations: ["Identity discovery identifies provider relationships, possible identity-facing hostnames and measured endpoints where HTTP evidence is available; it does not include leaked-credential, breached-password or dark-web monitoring."],
   },
   {
     domain_key: "shadow_it_unmanaged_technology",
@@ -467,10 +468,10 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
         return base;
       }
     }
-    if (d.domain_key === "identity_exposure" && !hasIdentityReachabilityProducer()) {
+    if (d.domain_key === "identity_exposure") {
       base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
-      base.coverage = requiredAssessedAll ? "partial" : quality;
-      base.summary = "Identity reachability was not evaluated — no supported reachability producer is implemented. Provider relationships and possible hostnames remain visible for review.";
+      base.coverage = anyRequiredInsufficient || signalCoverageLimited ? "degraded" : "partial";
+      base.summary = "Provider relationships, possible hostnames and measured endpoints are inventory evidence. Account compromise and sign-in controls were not evaluated.";
       return base;
     }
     if (d.domain_key === "attack_surface" && (report?.modules?.asset_exposure?.assets || [])

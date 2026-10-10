@@ -34,7 +34,8 @@ import { visibleFindingSql } from "./finding-identity.js";
 // change so a persisted snapshot can refuse cross-methodology comparison. Customer
 // presentation of this value is "Business Risk Indicator" — a band plus explanation,
 // never a second competing score (founder package, 2026-07-16).
-export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-08-11.1";
+// Public endpoint reachability is now inventory-only, without a risk deduction.
+export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-10-10.1";
 
 function getBusinessRiskBand(score) {
   if (score <= 30) return "critical";
@@ -388,10 +389,8 @@ export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   } else {
     attackDed += 10; // No vendor visibility signal
   }
-  // Identity deduction requires a supported typed endpoint measurement. Current
-  // runtime producers register none; the explicit input remains for the
-  // contract-only positive control and a future separately approved producer.
-  attackDed += Math.min(20, identityReachableSurfaceCount * 7);
+  // Public identity reachability is inventory evidence, not a vulnerability.
+  // Neither hostname heuristics nor a working login page deduct risk points.
   // Supply chain signal: confirmed payment/identity vendors detected via CSP increase
   // exposure risk (each confirmed relationship is a potential breach vector).
   // Cap at 10 — vendor_risk high count already carries the heavier penalty above.

@@ -6,13 +6,13 @@
 // bottleneck or confirm the global rate limiter bites, without pulling in k6.
 //
 // Usage:
-//   TARGET=https://cybermeters-platform.ttrnn47.workers.dev/health \
+//   TARGET=https://api.cybermeters.com/health \
 //   CONCURRENCY=50 DURATION_S=15 node scripts/load/concurrent-requests.js
 //
 // To exercise an authenticated / write path, set METHOD, PATH_BODY, and TOKEN.
 // Default target is /health (safe, unauthenticated) so an accidental run is inert.
 //
-const TARGET = process.env.TARGET || "https://cybermeters-platform.ttrnn47.workers.dev/health";
+const TARGET = process.env.TARGET || "https://api.cybermeters.com/health";
 const CONCURRENCY = Number(process.env.CONCURRENCY || 50);
 const DURATION_S = Number(process.env.DURATION_S || 15);
 const METHOD = process.env.METHOD || "GET";

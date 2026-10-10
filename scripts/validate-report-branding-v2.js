@@ -143,7 +143,7 @@ async function actualEntryTests() {
   const eq=(name,actual,expected)=>{assert.deepEqual(actual,expected,name);passed++;console.log('  PASS '+name);};
   try {
     await build({entryPoints:[path.join(root,'workers/scan-api/src/worker.js')],outfile:path.join(scratch,'worker.mjs'),bundle:true,format:'esm',platform:'browser',target:'es2022',external:['cloudflare:*'],logLevel:'silent'});
-    mf=new Miniflare(convertV4MiniflareOptions({cf:false,modules:true,resourcePersistencePath:path.join(scratch,'state'),script:fs.readFileSync(path.join(scratch,'worker.mjs'),'utf8'),compatibilityDate:'2026-06-18',compatibilityFlags:['global_fetch_strictly_public'],bindings:{ALLOWED_ORIGIN:'https://app.cybermeters.test',MAINTENANCE_MODE:'off'},d1Databases:{cybermeters_db:'synthetic-branding'},r2Buckets:{cybermeters_reports:'synthetic-brand-logos'},durableObjects:{LEAKCHECK_PUBLIC:{className:'LeakCheckPublic',useSQLite:true}},outboundService:async()=>{throw new Error('External network prohibited in branding validator');}}));
+    mf=new Miniflare(convertV4MiniflareOptions({cf:false,modules:true,resourcePersistencePath:path.join(scratch,'state'),script:fs.readFileSync(path.join(scratch,'worker.mjs'),'utf8'),compatibilityDate:'2026-06-18',compatibilityFlags:['global_fetch_strictly_public'],bindings:{ALLOWED_ORIGIN:'https://app.cybermeters.test',MAINTENANCE_MODE:'off'},d1Databases:{cybermeters_db:'synthetic-branding'},r2Buckets:{cybermeters_reports:'synthetic-brand-logos'},outboundService:async()=>{throw new Error('External network prohibited in branding validator');}}));
     const d1=await mf.getD1Database('cybermeters_db'),r2=await mf.getR2Bucket('cybermeters_reports');
     const sqlite=buildDb(),schema=sqlite.prepare("SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END").all();sqlite.close();
     await d1.batch(schema.map(row=>d1.prepare(row.sql)));
@@ -157,7 +157,9 @@ async function actualEntryTests() {
     await d1.prepare("INSERT INTO subscriptions(id,owner_user_id,workspace_id,plan,status,subscription_status,trial_end,current_period_end) VALUES('trial','owner','owned','business','active','trialing',?,?)").bind(future,future).run();
     await d1.prepare("INSERT INTO api_tokens(id,user_id,workspace_id,name,token_hash,scope,status) VALUES('tok','owner','owned','synthetic',?,'write','active')").bind(createHash('sha256').update('cm_synthetic').digest('hex')).run();
     const call=async(method,url,user='owner',body,raw)=>{
-      const result=await mf.dispatchFetch('https://local.invalid/api'+url,{method,headers:{...(user?{Authorization:'Bearer '+(user==='token'?'cm_synthetic':'t-'+user)}:{}),Origin:'https://app.cybermeters.test','Content-Type':'application/json'},...(['POST','PUT'].includes(method)?{body:raw??JSON.stringify(body||{})}:{})});
+      // The oversized-body negative control closes its unread local request.
+      // Do not reuse that transport connection for the following assertion.
+      const result=await mf.dispatchFetch('https://local.invalid/api'+url,{method,headers:{...(raw?{Connection:'close'}:{}),...(user?{Authorization:'Bearer '+(user==='token'?'cm_synthetic':'t-'+user)}:{}),Origin:'https://app.cybermeters.test','Content-Type':'application/json'},...(['POST','PUT'].includes(method)?{body:raw??JSON.stringify(body||{})}:{})});
       return {status:result.status,body:await result.json()};
     };
     const list='/account/branding/profiles',workspace='/workspaces/owned/branding';

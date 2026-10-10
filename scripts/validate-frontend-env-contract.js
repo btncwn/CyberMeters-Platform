@@ -212,27 +212,28 @@ ok("wrangler.toml declares exactly one canonical API host",
    customDomains.length <= 1,
    `multiple custom domains: ${customDomains.join(", ")} — which one do the docs mean?`);
 
-// Declaring ANY route flips wrangler's `workers_dev` default to false, so adding the
-// custom domain silently 404'd workers.dev on the next deploy — for 96 seconds, until
-// the smoke test caught it. That is not a spare URL: MICROSOFT_REDIRECT_URI is
-// registered against that exact hostname in Azure AD, so losing it breaks Microsoft
-// SSO sign-in outright; it is also the rollback path and the only way to distinguish
-// a hostname fault from a bad deployment. The default is the trap — being explicit is
-// the fix, and this asserts nobody quietly removes the line.
-const workersDevExplicit = /^\s*workers_dev\s*=\s*true/m.test(wranglerToml);
+// The workers.dev developer hostname is retired for production (10 Oct 2026): the
+// canonical custom domain is the only host, and rollback is `wrangler versions deploy`
+// on that same domain. Wrangler's default for `workers_dev` depends on whether a route
+// is declared, and the dashboard toggle is overwritten by every deploy, so the value
+// must be written explicitly — `false` — or a deploy could silently re-publish the
+// hostname. This asserts the exact line is present and nobody quietly flips it.
+const workersDevExplicitlyOff = /^\s*workers_dev\s*=\s*false\s*$/m.test(wranglerToml);
+const workersDevExplicitlyOn  = /^\s*workers_dev\s*=\s*true\s*$/m.test(wranglerToml);
 if (customDomains.length > 0) {
-  ok("wrangler.toml sets workers_dev = true explicitly (declaring a route disables it by default)",
-     workersDevExplicit,
-     "workers.dev would 404 on the next deploy — that breaks Microsoft SSO (its Azure-registered " +
-     "redirect_uri lives there) and removes the rollback path");
+  ok("wrangler.toml sets workers_dev = false explicitly (single canonical host; developer hostname retired)",
+     workersDevExplicitlyOff,
+     "workers_dev must be written explicitly as false — a missing line follows wrangler's default " +
+     "and a `true` republishes cybermeters-platform.ttrnn47.workers.dev on the next deploy");
 }
 
-// The two are coupled: if any config value points at workers.dev, workers.dev must serve.
+// Coupled: if any config value still points at workers.dev, the hostname must serve it.
+// With the hostname retired this must be vacuously true — no value may reference it.
 const wranglerRefsWorkersDev = /workers\.dev/.test(
   wranglerToml.replace(/^\s*#.*$/gm, "").replace(/^\s*workers_dev.*$/gm, ""));
-ok("if any wrangler.toml value points at workers.dev, workers.dev is kept enabled",
-   !wranglerRefsWorkersDev || workersDevExplicit,
-   "a config value (e.g. MICROSOFT_REDIRECT_URI) targets a hostname this deploy would disable");
+ok("no wrangler.toml value points at the retired workers.dev hostname",
+   !wranglerRefsWorkersDev || workersDevExplicitlyOn,
+   "a config value (e.g. MICROSOFT_REDIRECT_URI) targets a hostname that no longer serves");
 
 if (customDomains.length === 1) {
   const CANONICAL = customDomains[0];

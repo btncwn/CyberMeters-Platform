@@ -700,7 +700,7 @@ export default function Dashboard() {
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                 <ServiceKpiCard icon={KeyRound} title="Identity Exposure" to="/ws/identity-exposure" cta="Review Identity Exposure"
                   theme={SERVICE_THEME.identity} status="Externally observed"
-                  fallback="Review observed identity-provider relationships and identity-facing hostnames. Endpoint reachability is not measured." />
+                  fallback="Review observed identity-provider relationships and identity-facing hostnames. Endpoint reachability is shown only with HTTP evidence." />
                 <ServiceKpiCard icon={Globe} title="Attack Surface" to="/assets" cta="Review Attack Surface"
                   theme={SERVICE_THEME.surface} kpis={surfaceKpis} accentTone={critical > 0 ? 'bad' : high > 0 ? 'warn' : ''}
                   fallback="Run your first external scan to discover exposed assets." />
