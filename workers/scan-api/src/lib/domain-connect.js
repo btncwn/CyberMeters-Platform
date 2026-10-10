@@ -76,6 +76,7 @@ function bytesToBase64(bytes) {
 
 function pemToDer(pem) {
   const body = String(pem || "")
+    // Next line is an exact-line secret-scan exception (scripts/security/secret-scan.js).
     .replace(/-----BEGIN PRIVATE KEY-----/, "")
     .replace(/-----END PRIVATE KEY-----/, "")
     .replace(/\s+/g, "");

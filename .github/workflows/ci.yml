@@ -118,13 +118,11 @@ jobs:
       - name: Install frontend dependencies (governed lifecycle scripts)
         run: node scripts/install-governed-dependencies.js --root frontend
 
+      # Same pattern and pathspec as before; harmless lines are excepted only by
+      # exact path + line hash, and must-fail controls (real keys added to the
+      # excepted files) run first on every CI run.
       - name: Secret scan (tracked files)
-        run: |
-          if git grep -nIE '(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk_live_[0-9a-zA-Z]{24})' -- ':!.github/**' ':!*.md'; then
-            echo "::error::Potential secret found in tracked files — remove it and rotate the credential"
-            exit 1
-          fi
-          echo "No obvious secrets in tracked files."
+        run: node scripts/security/secret-scan.js
 
       - name: Validate safe docs-only CI classifier and conditional-step governance
         run: node scripts/validate-ci-safe-docs-only.js

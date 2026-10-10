@@ -365,6 +365,8 @@ const resetLink = () => db.exec(`UPDATE workspace_domains SET verification_statu
     { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
     true, ["sign", "verify"]);
   const pkcs8 = Buffer.from(await crypto.subtle.exportKey("pkcs8", pair.privateKey)).toString("base64");
+  // Next line is an exact-line secret-scan exception (scripts/security/secret-scan.js);
+  // the key inside it is generated in memory above.
   const PEM = `-----BEGIN PRIVATE KEY-----\n${pkcs8.match(/.{1,64}/g).join("\n")}\n-----END PRIVATE KEY-----\n`;
   const CF = dc.DOMAIN_CONNECT_PROVIDERS.find((p) => p.id === "cloudflare.com");
   const base = { domain: "shop.alpha.example", token: TOKEN, frontendOrigin: "https://app.cybermeters.com",
