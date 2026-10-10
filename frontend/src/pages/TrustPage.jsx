@@ -60,7 +60,7 @@ export default function TrustPage() {
           <p>Providers include Cloudflare for infrastructure, Stripe for payments, Resend for transactional email and Microsoft for optional sign-in.</p>
         </Section>
         <Section icon={Mail} title="Report a security concern">
-          <p>Contact <a href="mailto:security@cybermeters.com" className="text-brand-700 underline">security@cybermeters.com</a> about a suspected issue. Read the published <a href="/.well-known/security.txt" className="text-brand-700 underline">security reporting information</a> before testing. We welcome good-faith research and will not pursue researchers who act responsibly. Only assess systems and activity for which you have permission.</p>
+          <p>Contact <a href="mailto:hello@cybermeters.com" className="text-brand-700 underline">hello@cybermeters.com</a> about a suspected issue. Read the published <a href="/.well-known/security.txt" className="text-brand-700 underline">security reporting information</a> before testing. We welcome good-faith research and will not pursue researchers who act responsibly. Only assess systems and activity for which you have permission.</p>
         </Section>
         <nav aria-label="Trust page links" className="mt-10 pt-6 border-t border-gray-100 flex flex-wrap gap-x-5 gap-y-2 text-xs text-gray-500"><Link to="/about">About CyberMeters</Link><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><Link to="/dpa">DPA</Link><Link to="/support">Support</Link></nav>
       </article>

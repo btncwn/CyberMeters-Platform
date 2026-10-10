@@ -118,8 +118,10 @@ MAINTENANCE_MODE = "off"
 # absent/unrecognized values keep the freshness requirement.
 INDEPENDENT_BACKUP_MONITORING = "off"
 ALERT_EMAIL_TO   = "ttrnn47@gmail.com"
-ALERT_EMAIL_FROM = "alerts@cybermeters.com"
-SAFE_EMAIL_FROM = "safe@cybermeters.com"
+# One customer address for everything: customers write to hello@ and every
+# CyberMeters email is sent from hello@, so a reply always reaches a person.
+ALERT_EMAIL_FROM = "hello@cybermeters.com"
+SAFE_EMAIL_FROM = "hello@cybermeters.com"
 HELLO_EMAIL_FROM = "hello@cybermeters.com"
 ALLOWED_ORIGIN = "https://app.cybermeters.com"
 
