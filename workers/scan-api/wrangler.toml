@@ -105,7 +105,7 @@ max_retries = 5
 [vars]
 # Human-readable release version, surfaced by GET /health. Bump on each
 # production release (date-based: YYYY.MM.DD).
-APP_VERSION = "2026.10.10-trial-daily.cceb94017db9"
+APP_VERSION = "2026.10.10-sender-name.f479fa70c0d5"
 # DNS_PROVIDER_KEY is a dedicated versioned encryption key ring, staged as a
 # Worker secret. Never put its value here or reuse an authentication key.
 # Planned-maintenance switch. "off" = normal. Set to "on" and redeploy to return
