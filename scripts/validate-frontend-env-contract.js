@@ -214,17 +214,18 @@ ok("wrangler.toml declares exactly one canonical API host",
 
 // Declaring ANY route flips wrangler's `workers_dev` default to false, so adding the
 // custom domain silently 404'd workers.dev on the next deploy — for 96 seconds, until
-// the smoke test caught it. That is not a spare URL: MICROSOFT_REDIRECT_URI is
-// registered against that exact hostname in Azure AD, so losing it breaks Microsoft
-// SSO sign-in outright; it is also the rollback path and the only way to distinguish
-// a hostname fault from a bad deployment. The default is the trap — being explicit is
-// the fix, and this asserts nobody quietly removes the line.
+// the smoke test caught it. That is not a spare URL: it is the rollback path and the
+// only way to distinguish a hostname fault from a bad deployment. (Microsoft SSO's
+// redirect_uri now lives on the canonical custom domain, so SSO no longer depends on
+// workers.dev — the coupled check below still guards any value that does.) The
+// default is the trap — being explicit is the fix, and this asserts nobody quietly
+// removes the line.
 const workersDevExplicit = /^\s*workers_dev\s*=\s*true/m.test(wranglerToml);
 if (customDomains.length > 0) {
   ok("wrangler.toml sets workers_dev = true explicitly (declaring a route disables it by default)",
      workersDevExplicit,
-     "workers.dev would 404 on the next deploy — that breaks Microsoft SSO (its Azure-registered " +
-     "redirect_uri lives there) and removes the rollback path");
+     "workers.dev would 404 on the next deploy — that removes the rollback path and the " +
+     "hostname-fault diagnostic");
 }
 
 // The two are coupled: if any config value points at workers.dev, workers.dev must serve.

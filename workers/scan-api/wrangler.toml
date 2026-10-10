@@ -20,10 +20,10 @@ compatibility_flags = ["global_fetch_strictly_public"]
 #
 # workers.dev MUST stay enabled, and this line is what keeps it. Declaring any
 # route flips wrangler's `workers_dev` default to FALSE, which silently 404s
-# `cybermeters-platform.ttrnn47.workers.dev` on the next deploy. That is not
-# cosmetic: MICROSOFT_REDIRECT_URI below is registered against that hostname in
-# Azure AD, so losing it breaks Microsoft SSO sign-in outright, and it is also the
-# rollback path and the only way to tell a hostname fault from a bad deployment.
+# `cybermeters-platform.ttrnn47.workers.dev` on the next deploy. That hostname is
+# the rollback path and the only way to tell a hostname fault from a bad
+# deployment. (Microsoft SSO no longer depends on it: MICROSOFT_REDIRECT_URI
+# below is registered against the canonical api.cybermeters.com host.)
 # Adding the custom domain without this line took workers.dev down for 96 seconds.
 workers_dev = true
 
@@ -155,7 +155,10 @@ SCAN_SUBREQUEST_LIMIT = 200
 SCHEDULED_DISPATCH_MODE = "queue"
 
 FRONTEND_URL = "https://app.cybermeters.com"
-MICROSOFT_REDIRECT_URI = "https://cybermeters-platform.ttrnn47.workers.dev/api/auth/microsoft/callback"
+# Must match a redirect URI registered on the Entra app registration exactly.
+# The canonical API host is used so the Microsoft consent screen shows
+# api.cybermeters.com, never the workers.dev developer hostname.
+MICROSOFT_REDIRECT_URI = "https://api.cybermeters.com/api/auth/microsoft/callback"
 
 [[services]]
 binding = "NETWORK_PROBE"
