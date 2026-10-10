@@ -350,16 +350,29 @@ export function runIdentityDiscoveryModule(modules, domain, { observedAt = null 
     // modules, off-domain candidates, redirects to another host and edge errors.
     if (modules.asset_exposure?.source === "http_probe" && !modules.asset_exposure.error && !modules.asset_exposure.incomplete) {
       const root = canonicalSignalHostname(domain);
-      for (const portal of portals) {
-        const host = canonicalSignalHostname(portal.hostname);
+      for (const asset of (modules.asset_exposure.assets || [])) {
+        const host = canonicalSignalHostname(asset.host);
         if (host !== root && !host.endsWith(`.${root}`)) continue;
-        const asset = (modules.asset_exposure.assets || []).find(a => canonicalSignalHostname(a.host) === host);
         const observation = asset?.authentication_observation;
         if (!asset?.reachable || asset.probe_status || observation?.schema_version !== "identity_http.v1" ||
             !normalizeIdentityObservedAt(observation.measured_at) || !Number.isInteger(asset.status) || asset.status < 200 || asset.status >= 500) continue;
         let endpoint;
         try { endpoint = new URL(asset.url); } catch { continue; }
         if (endpoint.hostname !== host || !["http:", "https:"].includes(endpoint.protocol) || endpoint.username || endpoint.password) continue;
+        let portal = portals.find(row => canonicalSignalHostname(row.hostname) === host);
+        if (!portal) {
+          // An actual password-field observation can discover an entry point on
+          // an ordinary hostname too. A generic HTTP response alone cannot.
+          if (observation.password_form_observed !== true || asset.status >= 300) continue;
+          portal = {
+            asset_type: "portal", identity_type: "login_portal", provider: null,
+            hostname: host, internet_exposed: true, risk_score: 0, source: "http_probe",
+            evidence: [], confidence: 90,
+            confidence_detail: identityConfidenceForPrecision("exact_host", "hostname_classification"),
+            validation_quality: "partial", validation_state: "observed",
+          };
+          portals.push(portal);
+        }
         // Query/fragment values can contain credentials. They are never retained.
         endpoint.search = ""; endpoint.hash = "";
         portal.evidence.push({ ...createIdentityEvidenceDatum({
@@ -368,6 +381,7 @@ export function runIdentityDiscoveryModule(modules, domain, { observedAt = null 
           matchPrecision: "exact_host", nameResolution: "resolved", validationState: "observed",
           confidenceSubject: "hostname_classification", observedAt: observation.measured_at,
         }), http_observation: { ...observation, producer: "asset_exposure_http.v1", endpoint: endpoint.href, http_status: asset.status } });
+        portal.name_resolution = aggregateIdentityNameResolution(portal.evidence, "valid_v2");
       }
     }
     const all = [...providers, ...portals];

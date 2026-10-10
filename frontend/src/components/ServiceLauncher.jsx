@@ -16,7 +16,7 @@ import { useWorkspace } from '../hooks/useWorkspace'
 const SERVICES = [
   {
     key: 'identity', icon: KeyRound, title: 'Identity Exposure',
-    copy: 'Review provider relationships and possible identity-facing hostnames; endpoint reachability is not currently evaluated.',
+    copy: 'Review provider relationships, possible identity-facing hostnames and measured endpoints supported by HTTP evidence.',
     cta: 'Open Identity Exposure', to: '/ws/identity-exposure',
   },
   {

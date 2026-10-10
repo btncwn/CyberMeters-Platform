@@ -213,7 +213,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     monitoring_degradation_message: "Identity-surface enumeration was incomplete this run.",
     match: (f) => /^identity_/.test(f.id || "") || f.module === "identity_discovery",
     maturity: "M1", managed_status: "monitoring",
-    limitations: ["Current Identity discovery identifies provider relationships and possible identity-facing hostnames; it does not measure endpoint reachability or include leaked-credential, breached-password or dark-web monitoring."],
+    limitations: ["Identity discovery identifies provider relationships, possible identity-facing hostnames and measured endpoints where HTTP evidence is available; it does not include leaked-credential, breached-password or dark-web monitoring."],
   },
   {
     domain_key: "shadow_it_unmanaged_technology",

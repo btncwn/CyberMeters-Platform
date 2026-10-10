@@ -148,6 +148,11 @@ for (const [name, asset, incomplete] of [
 const outOfScope = runIdentityDiscoveryModule(modules, 'different.example');
 ok('out-of-scope hostname cannot become measured evidence', buildIdentityClaim(outOfScope.portals[0]).reachability.status === 'not_evaluated');
 ok('scan aggregate counts actual measurements', discovery.reachable_surface_count === 1 && discovery.password_form_count === 1);
+const rootAsset = { ...probed, host: 'acme.co.uk', url: 'https://acme.co.uk/' };
+const rootDiscovery = runIdentityDiscoveryModule({ asset_exposure: { source: 'http_probe', assets: [rootAsset] } }, 'acme.co.uk');
+ok('observed password field discovers an entry point without a hostname guess', rootDiscovery.portals.length === 1 && rootDiscovery.portals[0].hostname === 'acme.co.uk' && rootDiscovery.reachable_surface_count === 1);
+const genericDiscovery = runIdentityDiscoveryModule({ asset_exposure: { source: 'http_probe', assets: [{ ...rootAsset, authentication_observation: { ...rootAsset.authentication_observation, password_form_observed: null } }] } }, 'acme.co.uk');
+ok('ordinary public web page is not automatically an identity surface', genericDiscovery.portals.length === 0);
 for (const html of [
   '<!-- <input type="password"> -->',
   '<script>const example = \'<input type="password">\';</script>',
