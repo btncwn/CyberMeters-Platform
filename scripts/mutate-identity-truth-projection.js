@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // U3 semantic mutation harness. Every mutant edits exact production bytes,
-// launches the 45-fixture validator in a fresh process, requires the exact FAIL
+// launches the 46-fixture validator in a fresh process, requires the exact FAIL
 // set, and restores both target bytes and the candidate-worktree fingerprint.
 
 import crypto from "node:crypto";
@@ -74,7 +74,7 @@ function runValidator() {
   const controls = String(child.stdout || "").match(/U3 controls: (\d+)\/(\d+) passed/);
   const loaded = String(child.stdout || "").includes("LOADED identity truth contract=true lifecycle=true");
   const normal = child.error == null && child.signal == null && child.status === 1 && loaded &&
-    summary != null && Number(summary[2]) === 45 && Number(summary[1]) + failures.length === 45 &&
+    summary != null && Number(summary[2]) === 46 && Number(summary[1]) + failures.length === 46 &&
     controls != null;
   return { child, output, failures, normal };
 }
@@ -88,7 +88,7 @@ const MUTANTS = [
   { id: "U3-M06", target: "lifecycle", expected: ["U3-API-03"], controls: ["U3-API-02"], replacements: [{ from: '  if (!allowedActions.includes(action)) return { ok: false, code: "action_not_allowed", allowed_actions: allowedActions };', to: '  if (!IDENTITY_WORKFLOW_ACTIONS.includes(action)) return { ok: false, code: "invalid_action" };' }] },
   // Reintroducing a penalty for inventory reachability must fail the risk guard.
   { id: "U3-M07", target: "business", expected: ["U3-BRI-02", "U3-CS-06"], controls: ["U3-BRI-01"], replacements: [{ from: '  // Public identity reachability is inventory evidence, not a vulnerability.', to: '  attackDed += Math.min(20, identityReachableSurfaceCount * 7);' }] },
-  { id: "U3-M08", target: "domains", expected: ["U3-DOM-01"], controls: ["U3-DOM-02"], replacements: [{ from: '      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;\n      base.coverage = requiredAssessedAll ? "partial" : quality;\n      base.summary = "Provider relationships, possible hostnames and measured endpoints are inventory evidence. Account compromise and sign-in controls were not evaluated.";', to: '      base.state = CYBER_MOT_STATES.ASSESSED_HEALTHY;\n      base.coverage = "complete";\n      base.summary = "Assessed — no material issue observed.";' }] },
+  { id: "U3-M08", target: "domains", expected: ["U3-DOM-01", "U3-DOM-DEGRADED"], controls: ["U3-DOM-02"], replacements: [{ from: '      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;\n      base.coverage = anyRequiredInsufficient || signalCoverageLimited ? "degraded" : "partial";\n      base.summary = "Provider relationships, possible hostnames and measured endpoints are inventory evidence. Account compromise and sign-in controls were not evaluated.";', to: '      base.state = CYBER_MOT_STATES.ASSESSED_HEALTHY;\n      base.coverage = "complete";\n      base.summary = "Assessed — no material issue observed.";' }] },
   { id: "U3-M09", target: "shadow", expected: ["U3-XD-01"], controls: ["U3-XD-02"], replacements: [{ from: '    confidence: detail?.level && detail.level !== "unknown" ? detail.level : "low",', to: '    confidence: (row.risk_score || 0) >= 20 ? "high" : "medium",' }] },
   { id: "U3-M10", target: "vendor", expected: ["U3-VR-01"], controls: ["U3-VR-02"], replacements: [{ from: '  return identityOnly ? "relationship_only" : "independent_risk_evidence";', to: '  return "independent_risk_evidence";' }] },
   { id: "U3-M11", target: "scorecard", expected: ["U3-VR-01"], controls: ["U3-VR-02"], replacements: [{ from: "           AND COALESCE(source_module, '') != 'identity_discovery'\n", to: "" }] },
