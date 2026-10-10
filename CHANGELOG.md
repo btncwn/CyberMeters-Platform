@@ -9,6 +9,12 @@ surfaced at `GET /health`.
 
 ## Unreleased — workspace report recovery
 
+Scan Snapshot now requires a selected completed scan and renders only its verified
+immutable assessment. Invalid or unavailable selections create no report or usage
+record; existing PDFs remain unchanged. The archive exposes the returned PDF
+directly and distinguishes an existing period's saved report from a new one.
+Scan details label their separate download as **Download Technical PDF**.
+
 The PDF Reports archive now recovers after a successful retry or background
 refresh. Delayed responses from an older request or a previous workspace cannot
 replace the current archive or hide its downloads behind an obsolete error.

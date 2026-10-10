@@ -1615,7 +1615,7 @@ export default function ScanDetail() {
               {scan.status === 'completed' && isReportReady(reportAvailability) && (
                 <button onClick={handleDownloadPdf} disabled={downloadingPdf} className="btn-secondary">
                   <Download className={`w-4 h-4 ${downloadingPdf ? 'animate-pulse' : ''}`} />
-                  {downloadingPdf ? 'Preparing…' : 'Download PDF'}
+                  {downloadingPdf ? 'Preparing…' : 'Download Technical PDF'}
                 </button>
               )}
               <button onClick={() => load(true)} disabled={refreshing} className="btn-secondary">

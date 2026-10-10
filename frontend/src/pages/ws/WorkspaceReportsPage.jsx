@@ -251,7 +251,13 @@ function WorkspaceReports({ wsId, wsName }) {
   const [error,        setError]        = useState(null)
   const [generating,   setGenerating]   = useState(false)
   const [genError,     setGenError]     = useState(null)
+  const [generatedReport, setGeneratedReport] = useState(null)
   const [reportType,   setReportType]   = useState('manual')
+  const [scans,        setScans]        = useState([])
+  const [scanId,       setScanId]       = useState('')
+  const [scansLoading, setScansLoading] = useState(false)
+  const [scansError,   setScansError]   = useState(null)
+  const [scanRetry,    setScanRetry]    = useState(0)
   const [showTypeMenu, setShowTypeMenu] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting,     setDeleting]     = useState(false)
@@ -268,6 +274,20 @@ function WorkspaceReports({ wsId, wsName }) {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
+
+  useEffect(() => {
+    if (reportType !== 'scan_snapshot') return
+    let active = true
+    setScansLoading(true); setScansError(null); setScans([]); setScanId('')
+    api.getWorkspaceScans(wsId).then(data => {
+      if (active) setScans((data.scans || []).filter(scan => scan.status === 'completed'))
+    }).catch(e => {
+      if (active) setScansError(e.message)
+    }).finally(() => {
+      if (active) setScansLoading(false)
+    })
+    return () => { active = false }
+  }, [wsId, reportType, scanRetry])
 
   const load = useCallback(async (silent = false) => {
     if (!mounted.current) return
@@ -312,14 +332,19 @@ function WorkspaceReports({ wsId, wsName }) {
 
   async function handleGenerate() {
     if (!wsId || generating) return
-    setGenerating(true); setGenError(null)
+    if (reportType === 'scan_snapshot' && !scans.some(scan => scan.id === scanId)) return
+    setGenerating(true); setGenError(null); setGeneratedReport(null)
     try {
-      await api.generateWorkspaceReport(wsId, reportType)
+      const data = reportType === 'scan_snapshot'
+        ? await api.generateWorkspaceReport(wsId, reportType, scanId)
+        : await api.generateWorkspaceReport(wsId, reportType)
+      if (!mounted.current) return
+      setGeneratedReport(data.report?.status === 'completed' ? data.report : null)
       await load(true)
     } catch (e) {
-      setGenError(e.message)
+      if (mounted.current) setGenError(e.message)
     } finally {
-      setGenerating(false)
+      if (mounted.current) setGenerating(false)
     }
   }
 
@@ -330,7 +355,7 @@ function WorkspaceReports({ wsId, wsName }) {
       // Programmatic anchor download — saves file to disk rather than opening
       // inline in a new tab. Content-Disposition is lost once we have the blob,
       // so the filename is reconstructed here from the report metadata.
-      const period   = report.report_period || report.id
+      const period   = report.report_type === 'scan_snapshot' ? report.id : (report.report_period || report.id)
       const filename = `cybermeters-${report.report_type || 'report'}-${period}.pdf`
       const a = document.createElement('a')
       a.href     = url
@@ -368,25 +393,26 @@ function WorkspaceReports({ wsId, wsName }) {
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={() => load(false)}>
 
       {/* Header */}
-      <div className="flex items-start justify-between mb-8">
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <FileText className="w-6 h-6 text-brand-600" />
             PDF Reports
           </h1>
           <p className="text-sm text-gray-400 mt-1">
-            Generate, archive and download executive security reports.
+            Generate executive reports and download your saved PDFs.
             {completedCount > 0 && ` · ${completedCount} report${completedCount !== 1 ? 's' : ''} ready`}
             {pendingCount > 0 && ` · ${pendingCount} generating…`}
           </p>
         </div>
 
         {/* Generate button + type picker */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Type selector */}
           <div className="relative" ref={typeMenuRef}>
             <button
               onClick={() => setShowTypeMenu(v => !v)}
+              disabled={generating}
               className="btn-secondary text-xs py-2 px-3"
             >
               {REPORT_TYPES.find(t => t.value === reportType)?.label ?? 'Manual Snapshot'}
@@ -397,7 +423,7 @@ function WorkspaceReports({ wsId, wsName }) {
                 {REPORT_TYPES.map(t => (
                   <button
                     key={t.value}
-                    onClick={() => { setReportType(t.value); setShowTypeMenu(false) }}
+                    onClick={() => { setReportType(t.value); setShowTypeMenu(false); setGeneratedReport(null); setGenError(null) }}
                     className={`w-full text-left px-3 py-2 text-sm transition-colors ${
                       t.value === reportType
                         ? 'text-brand-700 bg-brand-50 font-semibold'
@@ -413,7 +439,7 @@ function WorkspaceReports({ wsId, wsName }) {
 
           <button
             onClick={handleGenerate}
-            disabled={generating}
+            disabled={generating || (reportType === 'scan_snapshot' && (scansLoading || !scanId))}
             className="btn-primary"
           >
             {generating
@@ -423,6 +449,29 @@ function WorkspaceReports({ wsId, wsName }) {
           </button>
         </div>
       </div>
+
+      {reportType === 'scan_snapshot' ? (
+        <div className="mb-6 max-w-xl">
+          <label htmlFor="report-scan" className="block text-sm font-medium text-gray-700 mb-2">Recent completed scan</label>
+          <select id="report-scan" value={scanId} onChange={e => { setScanId(e.target.value); setGeneratedReport(null) }}
+            disabled={scansLoading || generating} className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
+            <option value="">{scansLoading ? 'Loading scans…' : 'Choose a scan'}</option>
+            {scans.map(scan => <option key={scan.id} value={scan.id}>{scan.domain} · {fmtDateTime(scan.created_at)} · {scan.id.slice(-8)}</option>)}
+          </select>
+          <p className="text-sm text-gray-500 mt-2">Executive summary of this scan only. Download its technical PDF from the scan details.</p>
+          {scansError && <p role="alert" className="text-sm text-red-600 mt-2">{scansError} <button onClick={() => setScanRetry(v => v + 1)} className="underline">Retry scan list</button></p>}
+          {!scansLoading && !scansError && scans.length === 0 && <p className="text-sm text-gray-500 mt-2">No completed scans are available in the recent scan history.</p>}
+        </div>
+      ) : (
+        <p className="text-sm text-gray-500 mb-6">Latest available assessment for each domain in this workspace. Reporting periods label the saved summary; they are not historical totals.</p>
+      )}
+
+      {generatedReport && (
+        <div role="status" className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-800">
+          <span>{generatedReport.claimed === false ? 'This report already exists. Its saved PDF is ready.' : 'Your report is ready.'}</span>
+          <button onClick={() => handleDownload(generatedReport)} className="btn-secondary text-xs">Download generated PDF</button>
+        </div>
+      )}
 
       {/* Generation error */}
       {genError && (
@@ -445,7 +494,7 @@ function WorkspaceReports({ wsId, wsName }) {
             </Link>
             <button
               onClick={handleGenerate}
-              disabled={generating}
+              disabled={generating || (reportType === 'scan_snapshot' && (scansLoading || !scanId))}
               className="btn-secondary"
             >
               {generating
@@ -488,7 +537,7 @@ function WorkspaceReports({ wsId, wsName }) {
                       </span>
                     </td>
                     <td>
-                      <span className="text-sm text-gray-500 font-mono">
+                      <span className="block max-w-56 truncate text-sm text-gray-500 font-mono" title={report.report_period || undefined}>
                         {report.report_period || '—'}
                       </span>
                     </td>
@@ -554,7 +603,7 @@ function WorkspaceReports({ wsId, wsName }) {
               <div className="min-w-0">
                 <h2 className="text-sm font-bold text-gray-900">Delete this report permanently?</h2>
                 <div className="mt-3 space-y-1 text-sm">
-                  <p><span className="text-gray-400">Report:</span> <span className="font-medium text-gray-800">{deleteTarget.report_period || deleteTarget.id}</span></p>
+                  <p className="break-all"><span className="text-gray-400">Report:</span> <span className="font-medium text-gray-800">{deleteTarget.report_period || deleteTarget.id}</span></p>
                   <p><span className="text-gray-400">Created:</span> <span className="font-medium text-gray-800">{fmtDateTime(deleteTarget.created_at)}</span></p>
                   <p><span className="text-gray-400">Type:</span> <span className="font-medium text-gray-800">{fmtType(deleteTarget.report_type)}</span></p>
                 </div>

@@ -4,7 +4,7 @@
 // executive report generator that consumes them. Extracted verbatim from
 // index.js (router split, Phase 2 PR #4).
 import { buildWorkspaceExecutivePdf } from "./pdf.js";
-import { readLatestWorkspaceSnapshots } from "./report-snapshot.js";
+import { readLatestWorkspaceSnapshots, readScanReportSnapshot } from "./report-snapshot.js";
 import { buildRelatedChangesSummary } from "./related-changes.js";
 import { resolveReportBrandingV2, loadBrandingLogoDataUri } from "./report-branding-v2.js";
 import { prepareLogoXObject } from "./pdf-image.js";
@@ -152,6 +152,45 @@ export async function claimReportOccurrence(env, { reportId, workspaceId, report
 // with claimed:false and performs ZERO generation side effects (dedup).
 // Throws on fatal error (the row is marked failed before throwing).
 
+function selectedScanReportError(status, error, message) {
+  return Object.assign(new Error(message), { reportRequestError: { status, body: { error, message } } });
+}
+
+// Validate before reserving a report occurrence. This path never repairs or
+// reconstructs snapshots: a selected scan must already have its own immutable
+// report, and no other scan is an acceptable substitute.
+async function readSelectedScanReportSnapshot(workspaceId, scanId, env) {
+  if (typeof scanId !== "string" || !scanId.trim() || scanId.length > 256) {
+    throw selectedScanReportError(400, "scan_id_required", "Select a completed scan for this report.");
+  }
+  const scan = await env.cybermeters_db.prepare(
+    `SELECT id, domain_id, status FROM scans WHERE id = ? AND workspace_id = ?`
+  ).bind(scanId.trim(), workspaceId).first();
+  if (!scan) throw selectedScanReportError(404, "scan_not_found", "The selected scan was not found in this workspace.");
+  if (scan.status !== "completed") {
+    throw selectedScanReportError(409, "scan_not_completed", "The selected scan has not completed yet.");
+  }
+  const unavailable = () => selectedScanReportError(409, "scan_report_not_ready", "The selected scan's report is not ready. Try again when its report is available.");
+  const row = await env.cybermeters_db.prepare(
+    `SELECT id, workspace_id, domain_id, status, checksum_sha256 FROM scan_report_snapshots
+     WHERE scan_id = ? AND status != 'failed'`
+  ).bind(scan.id).first();
+  if (!row || row.workspace_id !== workspaceId || row.domain_id !== scan.domain_id ||
+      row.status !== "completed" || !row.checksum_sha256) throw unavailable();
+  const read = await readScanReportSnapshot(env, scan.id, {
+    repair: false, allowReconstruction: false, includeSuccessor: false,
+  });
+  const identity = read.snapshot?.snapshot;
+  if (read.status !== "ok" || !read.integrity?.verified || read.row.id !== row.id ||
+      read.row.checksum_sha256 !== row.checksum_sha256 || read.row.workspace_id !== workspaceId ||
+      read.row.domain_id !== scan.domain_id || read.row.scan_id !== scan.id ||
+      identity?.snapshot_id !== row.id || identity.workspace_id !== workspaceId ||
+      identity.domain_id !== scan.domain_id || identity.scan_id !== scan.id || identity.status !== "completed") {
+    throw unavailable();
+  }
+  return read;
+}
+
 export async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) {
   const {
     report_type   = 'manual',
@@ -159,10 +198,17 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
     scan_id       = null,
   } = options;
 
+  const selectedRead = report_type === 'scan_snapshot'
+    ? await readSelectedScanReportSnapshot(workspaceId, scan_id, env)
+    : null;
   const now = new Date();
 
-  // ── Derive report_period when not supplied ────────────────────────────────
-  const period = report_period ?? (() => {
+  // Selected-scan occurrences are bound to the immutable snapshot, never a
+  // caller's period. The v2 namespace cannot reuse legacy scan-{id} PDFs, which
+  // were workspace aggregates despite their Scan Snapshot label.
+  const period = selectedRead
+    ? `scan-v2-${selectedRead.row.scan_id}-${selectedRead.row.id}-${selectedRead.row.checksum_sha256}`
+    : report_period ?? (() => {
     if (report_type === 'weekly_executive') {
       // ISO 8601 week: YYYY-Www (Thursday-anchored)
       const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -177,9 +223,6 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
     if (report_type === 'quarterly_executive') {
       const q = Math.floor(now.getUTCMonth() / 3) + 1;
       return `${now.getUTCFullYear()}-Q${q}`;
-    }
-    if (report_type === 'scan_snapshot' && scan_id) {
-      return `scan-${scan_id}`;
     }
     // manual: timestamp-based period so re-runs don't collide
     const ts = now.toISOString().replace(/[-:T]/g, '').slice(0, 14);
@@ -211,9 +254,9 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
       : { id: null, workspace_id: workspaceId, report_type, report_period: period, report_key: r2Key, status: "skipped", claimed: false, deduplicated: true };
   }
 
-  // Snapshot-native (M5.d): the stored executive PDF is a period-framed
-  // rendering over the latest completed canonical snapshot per domain — never a
-  // separate calculation brain. Repair/reconstruction is OFF on this batch path
+  // Snapshot-native (M5.d): selected-scan reports render only their validated
+  // snapshot; other types render the latest completed snapshot per domain.
+  // Neither path has a separate calculation brain. Repair/reconstruction is OFF
   // (cron subrequest budget); domains without snapshots render an honest
   // "not yet available" state and the interactive per-scan paths build them.
   const generatedAt = new Date().toISOString();
@@ -223,7 +266,7 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
       .prepare(`SELECT id, name FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
       .bind(workspaceId).first();
     if (!ws) throw new Error('Workspace not found');
-    const reads = await readLatestWorkspaceSnapshots(env, workspaceId);
+    const reads = selectedRead ? [selectedRead] : await readLatestWorkspaceSnapshots(env, workspaceId);
     let branding = null, logoImage = null;
     try {
       branding = await resolveReportBrandingV2(env, { workspaceId });
@@ -238,7 +281,9 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
       if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent || "#FFFFFF");
     } catch { branding = null; logoImage = null; }
     let relatedChanges = null;
-    try { relatedChanges = await buildRelatedChangesSummary(env, workspaceId); } catch { relatedChanges = null; }
+    if (!selectedRead) {
+      try { relatedChanges = await buildRelatedChangesSummary(env, workspaceId); } catch { relatedChanges = null; }
+    }
     bytes = buildWorkspaceExecutivePdf({ workspaceName: ws.name, reads, branding, generatedAt, logoImage, relatedChanges });
     // The artefact is bound to the exact immutable snapshots it rendered.
     snapshotBinding = reads
