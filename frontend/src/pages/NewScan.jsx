@@ -19,7 +19,7 @@ import {
 // Framed as Intelligence Engines (business capabilities), not internal detectors.
 const CHECKS = [
   { icon: Globe,    label: 'Attack Surface Intelligence',  desc: 'Exposed assets, DNS, certificates and website security'   },
-  { icon: Mail,     label: 'Business Email Intelligence',  desc: 'Protection against email spoofing and phishing'           },
+  { icon: Mail,     label: 'Business Email Intelligence',  desc: 'SPF, DKIM and DMARC checks for spoofing and phishing exposure' },
   { icon: Shield,   label: 'Brand Intelligence',           desc: 'Lookalike and typosquatting domains impersonating you'    },
   { icon: FileText, label: 'Executive Intelligence',       desc: 'A scored Executive Report with prioritized next steps'    },
 ]

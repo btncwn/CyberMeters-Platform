@@ -8,7 +8,7 @@
  */
 import { useState } from 'react'
 import {
-  X, Users, LayoutDashboard, Server, AlertTriangle, FileText, Package2,
+  X, Users, LayoutDashboard, Server, AlertTriangle, FileText, Boxes,
 } from 'lucide-react'
 
 const DISMISSED_KEY = 'cybermeters_team_onboarding_dismissed'
@@ -39,10 +39,10 @@ const FEATURES = [
     desc: 'Executive PDF reports you can share with clients, management, or auditors.',
   },
   {
-    icon: Package2,
+    icon: Boxes,
     color: 'bg-green-50 text-green-600',
-    title: 'Vendor Risk',
-    desc: 'Third-party services detected on your domains — SaaS tools, CDNs, analytics, and more.',
+    title: 'Shadow IT & Unmanaged Technology',
+    desc: 'SaaS portals, third-party scripts and providers observed on your domains — classified as approved, under review or unmanaged.',
   },
 ]
 

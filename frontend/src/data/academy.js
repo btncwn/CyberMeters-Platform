@@ -828,7 +828,7 @@ export const ARTICLES = [
         heading: 'Verification',
         blocks: [
           p('For each critical vendor, verify the following annually: current SOC 2 Type II report, evidence of penetration test completion, MFA enforcement on vendor systems with access to your data, and incident response contact details.'),
-          p('In CyberMeters, review the Vendor Risk dashboard for your workspace. Set risk ratings for identified vendors and track posture changes over time. Configure alerts for critical vendor domain changes — a new IP address or certificate for a vendor\'s API endpoint can indicate infrastructure changes that require security review.'),
+          p('In CyberMeters, review Shadow IT & Unmanaged Technology for your workspace. Third-party providers, SaaS portals and scripts observed on your domains are listed there so you can classify each one as approved, under review or unmanaged, assign an owner and keep the inventory current as your external footprint changes.'),
         ],
       },
     ],
@@ -907,7 +907,7 @@ export const ARTICLES = [
       {
         heading: 'Verification',
         blocks: [
-          p('In CyberMeters, review the Supply Chain Intelligence dashboard for your workspace. Identified vendor relationships are listed with associated risk indicators. For each critical vendor, verify you are subscribed to their security advisories and have an incident response runbook for a vendor compromise scenario.'),
+          p('In CyberMeters, the providers and third-party scripts observed on your domains appear under Shadow IT & Unmanaged Technology, and externally visible technologies appear in Attack Surface. For each critical provider, verify you are subscribed to its security advisories and have an incident response runbook for a provider compromise scenario.'),
           p('Conduct an annual tabletop exercise simulating a supply chain breach scenario — specifically a scenario where one of your critical SaaS providers or software dependencies is compromised. This tests whether your organisation can detect, scope, and respond effectively when the attack vector is outside your direct control.'),
         ],
       },

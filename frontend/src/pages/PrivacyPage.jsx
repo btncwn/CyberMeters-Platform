@@ -25,7 +25,7 @@ export default function PrivacyPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Privacy Policy</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: 9 October 2026 — Version 1.2</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 10 October 2026 — Version 1.3</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             Turhan Acar, a sole trader trading as CyberMeters ("<strong>we</strong>", "<strong>us</strong>", "<strong>our</strong>") is committed to protecting the personal data of our customers and the individuals associated with them. This Privacy Policy explains what data we collect, how we use it, and your rights in relation to it.
           </p>
@@ -119,9 +119,15 @@ export default function PrivacyPage() {
                     <td className="px-4 py-2.5 text-gray-600">Payment processing, subscription management</td>
                     <td className="px-4 py-2.5 text-gray-500">US / EU</td>
                   </tr>
+                  <tr>
+                    <td className="px-4 py-2.5 font-medium text-gray-800">Resend (Plus Five Five, Inc.)</td>
+                    <td className="px-4 py-2.5 text-gray-600">Transactional email delivery — account verification, password reset, invitations, alerts, scheduled reports and lifecycle notices (recipient address, name and message content)</td>
+                    <td className="px-4 py-2.5 text-gray-500">US</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
+            <p className="mt-3"><strong className="text-gray-800">Microsoft (sign in with Microsoft).</strong> If you choose to sign in with a Microsoft work or school account, Microsoft Entra ID authenticates you under Microsoft's own terms and your organisation's tenant settings; we receive only your name, email address and tenant identifier from that sign-in. Microsoft is not engaged by us as a sub-processor and we do not send your workspace data to Microsoft.</p>
             <p className="mt-3"><strong className="text-gray-800">LeakCheck (optional breach lookup).</strong> A lookup hash is sent only when you explicitly request a known-address check. LeakCheck returns source names, dates and exposed-data categories, rather than the exposed values. Its operator is a UK-registered company (number 12101959); see its <a href="https://leakcheck.io/privacy" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">privacy policy</a> and <a href="https://leakcheck.io/dpa" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">data processing terms</a> for its processing and transfer arrangements.</p>
             <p>We do not share your personal data for advertising or marketing by these providers.</p>
           </Section>
