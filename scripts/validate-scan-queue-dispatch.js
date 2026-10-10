@@ -18,7 +18,7 @@
 //      099 index), a recording R2 stub and a recording SCAN_QUEUE stub, in
 //      BOTH dispatch modes.
 //   D. Recovery integration — recoverInterruptedScans over queued rows.
-//   E. Static/config contracts — wrangler queue config, workers_dev survives,
+//   E. Static/config contracts — wrangler queue config, workers_dev explicitly off,
 //      SCAN_QUEUE has exactly two declared producers: the domain dispatch
 //      boundary (manual + scheduled) and the admitted network-scan route.
 //      No undeclared producer may reference the binding.
@@ -32,7 +32,7 @@
 //   - Queue.send / R2 failure without compensation    → C4/C5 fail
 //   - broad DB errors converted to 409                → C7 fails
 //   - waitUntil-mode behaviour changed                → C1 fails
-//   - workers_dev changed or removed                  → E2 fails
+//   - workers_dev flipped to true or removed          → E2 fails
 //
 // Node 24+ (node:sqlite). No network.
 
@@ -684,8 +684,8 @@ const stripToml = wranglerSrc.replace(/#[^\n]*/g, "");
 }
 
 // E2 — wrangler config invariants (the release invariant + the approved queue shape).
-ok("E2 workers_dev = true survives the config change (SSO redirect + rollback path)",
-  /^workers_dev = true$/m.test(stripToml.replace(/\r/g, "")) || /^workers_dev = true\s*$/m.test(wranglerSrc));
+ok("E2 workers_dev = false is written explicitly (single canonical host; developer hostname retired)",
+  /^workers_dev = false$/m.test(stripToml.replace(/\r/g, "")) || /^workers_dev = false\s*$/m.test(wranglerSrc));
 ok("E2b producer binding SCAN_QUEUE → cybermeters-scan-dispatch",
   /\[\[queues\.producers\]\]\s*binding = "SCAN_QUEUE"\s*queue = "cybermeters-scan-dispatch"/.test(stripToml.replace(/\n+/g, "\n")));
 ok("E2c consumer: batch 1, retries 3, concurrency 2, DLQ cybermeters-scan-dlq",

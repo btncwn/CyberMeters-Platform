@@ -95,7 +95,7 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m7-resolver-version-reused",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-08.1";',
+    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-10.1";',
     replacement: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-30.1";',
     expectedFailures: ["current resolver version preserves the evidence-methodology boundary"],
   },
@@ -470,7 +470,7 @@ const MUTATIONS = Object.freeze([
   {
     id: "comparable-historical-transition",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-08.1";',
+    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-10.1";',
     replacement: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-07-24.4";',
     expectedFailures: [
       "current resolver version preserves the evidence-methodology boundary",

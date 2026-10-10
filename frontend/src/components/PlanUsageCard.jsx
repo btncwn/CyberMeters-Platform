@@ -49,6 +49,7 @@ const PLAN_ORDER = ['free', 'starter', 'professional', 'business', 'enterprise']
 // Human-readable feature names for the upgrade wall
 const FEATURE_LABELS = {
   business_risk_score: 'Business Risk Score',
+  executive_dashboard:'Executive Dashboard',
   cyber_essentials:    'Cyber Essentials Readiness',
   // Honest external-observation label — the retired vendor-risk marketing
   // claim must not be advertised on billing/upgrade surfaces.

@@ -13,9 +13,9 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 264
-- **Auth-guarded:** 241
-- **Unauthenticated (public by design):** 23
+- **Total entry points:** 278
+- **Auth-guarded:** 249
+- **Unauthenticated (public by design):** 29
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
 | Scope | Handlers | Auth-guarded |
@@ -26,9 +26,9 @@ guard without an explicit, documented public-allowlist reason.
 | portfolio | 9 | 9 |
 | preflight | 1 | 0 |
 | public-or-global | 37 | 19 |
-| unknown | 54 | 52 |
+| unknown | 62 | 54 |
 | webhook | 2 | 0 |
-| workspace | 132 | 132 |
+| workspace | 138 | 138 |
 
 ## Public allowlist (unauthenticated by design)
 
@@ -71,9 +71,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2438 | preflight | public | — |
-| GET | `/health` | 2443 | public-or-global | public | — |
-| GET | `/ready` | 2459 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2439 | preflight | public | — |
+| DELETE | `(none)` | 2445 | unknown | **GAP** | — |
+| GET | `(none)` | 2445 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2445 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2445 | unknown | **GAP** | — |
+| POST | `(none)` | 2445 | unknown | **GAP** | — |
+| PUT | `(none)` | 2445 | unknown | **GAP** | — |
+| GET | `/health` | 2450 | public-or-global | public | — |
+| GET | `/ready` | 2466 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -126,23 +132,23 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| POST | `/api/auth/signup` | 24 | public-or-global | public | — |
-| POST | `/api/auth/login` | 166 | public-or-global | public | — |
-| GET | `/api/auth/me` | 330 | account | ✓ | requireAuth |
-| POST | `/api/auth/logout` | 343 | public-or-global | public | — |
-| GET | `/api/auth/verify-email` | 380 | public-or-global | public | — |
-| POST | `/api/auth/resend-verification` | 471 | public-or-global | public | — |
-| GET | `/api/auth/microsoft/login` | 587 | public-or-global | public | — |
-| GET | `/api/auth/microsoft/callback` | 648 | public-or-global | public | — |
-| POST | `/api/auth/exchange` | 983 | public-or-global | public | — |
-| POST | `/api/auth/forgot-password` | 1054 | public-or-global | public | — |
-| POST | `/api/auth/reset-password` | 1156 | public-or-global | public | — |
-| GET | `/api/auth/mfa/status` | 1277 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/setup` | 1299 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/verify-setup` | 1340 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/challenge` | 1414 | public-or-global | public | — |
-| POST | `/api/auth/mfa/recovery-code` | 1513 | public-or-global | public | — |
-| POST | `/api/auth/mfa/disable` | 1610 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/signup` | 25 | public-or-global | public | — |
+| POST | `/api/auth/login` | 171 | public-or-global | public | — |
+| GET | `/api/auth/me` | 335 | account | ✓ | requireAuth |
+| POST | `/api/auth/logout` | 348 | public-or-global | public | — |
+| GET | `/api/auth/verify-email` | 385 | public-or-global | public | — |
+| POST | `/api/auth/resend-verification` | 476 | public-or-global | public | — |
+| GET | `/api/auth/microsoft/login` | 592 | public-or-global | public | — |
+| GET | `/api/auth/microsoft/callback` | 653 | public-or-global | public | — |
+| POST | `/api/auth/exchange` | 988 | public-or-global | public | — |
+| POST | `/api/auth/forgot-password` | 1059 | public-or-global | public | — |
+| POST | `/api/auth/reset-password` | 1161 | public-or-global | public | — |
+| GET | `/api/auth/mfa/status` | 1301 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/setup` | 1323 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/verify-setup` | 1364 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/challenge` | 1438 | public-or-global | public | — |
+| POST | `/api/auth/mfa/recovery-code` | 1537 | public-or-global | public | — |
+| POST | `/api/auth/mfa/disable` | 1634 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/billing.js`
 
@@ -281,14 +287,6 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | POST | `/api/billing/checkout` | 571 | public-or-global | ✓ | requireAuth |
 | POST | `/api/billing/portal` | 626 | public-or-global | ✓ | requireAuth |
 
-### `workers/scan-api/src/routes/identity-breach-checks.js`
-
-| Method | Path | Line | Scope | Auth | Guards |
-|---|---|---:|---|---|---|
-| GET | `/^\/api\/workspaces\/([^\/]+)\/identity-breach-checks$/` | 21 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| DELETE | `/^\/api\/workspaces\/([^\/]+)\/identity-breach-checks\/([^\/` | 29 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-breach-checks$/` | 33 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-
 ### `workers/scan-api/src/routes/identity-exposure.js`
 
 | Method | Path | Line | Scope | Auth | Guards |
@@ -296,6 +294,27 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `(none)` | 46 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `(none)` | 75 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | POST | `(none)` | 88 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+
+### `workers/scan-api/src/routes/identity-public-secrets.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| GET | `/^\/api\/workspaces\/([^\/]+)\/identity-public-sources$/` | 22 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-public-sources$/` | 27 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+
+### `workers/scan-api/src/routes/identity-workforce.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| GET | `/^\/api\/workspaces\/([^\/]+)\/identity-workforce$/` | 60 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| PATCH | `(none)` | 65 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 65 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-response\/([^\/]+)\/` | 71 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-workforce$/` | 85 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| PATCH | `/^\/api\/workspaces\/([^\/]+)\/identity-workforce\/([^\/]+)$` | 101 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-workforce\/([^\/]+)$` | 113 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-response\/preview$/` | 135 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^\/]+)\/identity-response\/([^\/]+)\/` | 154 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/managed-cases.js`
 

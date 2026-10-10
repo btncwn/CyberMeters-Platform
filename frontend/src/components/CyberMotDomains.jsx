@@ -95,7 +95,7 @@ export default function CyberMotDomains({ domains, title = 'Cyber MOT — Eight-
       </div>
       <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">
         Every domain is always shown with one honest state — a domain with no evidence is never marked healthy.
-        Identity Exposure shows provider relationships and possible identity-facing hostnames; endpoint reachability is not currently evaluated (and credential/breach monitoring is not provided);
+        Identity Exposure shows provider relationships, possible hostnames and measured endpoints where HTTP evidence is available; credential/breach monitoring is not provided;
         Shadow IT shows externally observed technology (approved-inventory comparison is not yet configured).
       </p>
     </div>

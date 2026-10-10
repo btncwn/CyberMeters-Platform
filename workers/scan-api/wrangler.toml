@@ -18,14 +18,14 @@ compatibility_flags = ["global_fetch_strictly_public"]
 # `custom_domain = true` makes Cloudflare own the DNS record and the certificate
 # for this hostname — no CNAME chain, no second proxy hop, no manual TLS.
 #
-# workers.dev MUST stay enabled, and this line is what keeps it. Declaring any
-# route flips wrangler's `workers_dev` default to FALSE, which silently 404s
-# `cybermeters-platform.ttrnn47.workers.dev` on the next deploy. That is not
-# cosmetic: MICROSOFT_REDIRECT_URI below is registered against that hostname in
-# Azure AD, so losing it breaks Microsoft SSO sign-in outright, and it is also the
-# rollback path and the only way to tell a hostname fault from a bad deployment.
-# Adding the custom domain without this line took workers.dev down for 96 seconds.
-workers_dev = true
+# The workers.dev developer hostname is RETIRED for production (10 Oct 2026).
+# `api.cybermeters.com` is the only host that serves this Worker: the frontend,
+# Microsoft SSO redirect, Stripe webhook and ops health checks all use it, and
+# rollback is `wrangler versions deploy <id>` on that same custom domain. The
+# value is written explicitly (never left to wrangler's default) so a future
+# deploy cannot silently flip the hostname either way; the env-contract and
+# queue-dispatch validators assert this exact line.
+workers_dev = false
 
 # Explicit Workers Paid default, separate from the legacy admission estimate.
 # This setting does not grant Paid entitlement; verify actual runtime capacity.
@@ -105,7 +105,7 @@ max_retries = 5
 [vars]
 # Human-readable release version, surfaced by GET /health. Bump on each
 # production release (date-based: YYYY.MM.DD).
-APP_VERSION = "2026.10.09-report-order.c6056df1f6cb"
+APP_VERSION = "2026.10.10-identity-evidence.9594a759f308"
 # DNS_PROVIDER_KEY is a dedicated versioned encryption key ring, staged as a
 # Worker secret. Never put its value here or reuse an authentication key.
 # Planned-maintenance switch. "off" = normal. Set to "on" and redeploy to return
@@ -155,17 +155,21 @@ SCAN_SUBREQUEST_LIMIT = 200
 SCHEDULED_DISPATCH_MODE = "queue"
 
 FRONTEND_URL = "https://app.cybermeters.com"
-MICROSOFT_REDIRECT_URI = "https://cybermeters-platform.ttrnn47.workers.dev/api/auth/microsoft/callback"
+# Must match a redirect URI registered on the Entra app registration exactly.
+# The canonical API host is used so the Microsoft consent screen shows
+# api.cybermeters.com, never the workers.dev developer hostname.
+MICROSOFT_REDIRECT_URI = "https://api.cybermeters.com/api/auth/microsoft/callback"
 
 [[services]]
 binding = "NETWORK_PROBE"
 service = "cybermeters-network-probe"
 
-# One private coordinator for the public provider's shared 1 request/second quota.
-[[durable_objects.bindings]]
-name = "LEAKCHECK_PUBLIC"
-class_name = "LeakCheckPublic"
-
+# Preserve applied lifecycle history; retire the unused provider quota namespace.
+# Only rate-limit timestamps were stored here. Migration 112 removes test results.
 [[migrations]]
 tag = "leakcheck-public-v1"
 new_sqlite_classes = ["LeakCheckPublic"]
+
+[[migrations]]
+tag = "leakcheck-public-removed-v2"
+deleted_classes = ["LeakCheckPublic"]

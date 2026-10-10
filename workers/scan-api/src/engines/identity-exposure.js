@@ -3,10 +3,8 @@
 // Consolidates three REAL, free, outside-in signals we already produce — no HIBP,
 // no fake placeholder:
 //   1. Exposed login / credential surfaces (identity_assets: OWA/VPN/RDP/SSO/…)
-//   2. Active impersonation infrastructure (lookalike domains that resolve and can
-//      send mail / host a login page — brand_assets)
-//   3. Email spoofing exposure (SPF/DMARC weakness → attackers can send email as
-//      you — the #1 SMB / BEC threat), read from the latest scan report.
+//   2. Unresolved lookalike observations, respecting customer classification.
+//   3. Observed DMARC policy gaps, not a demonstration of successful spoofing.
 // Read-only; never throws. Breached-credential monitoring (HIBP Pro) is a genuine
 // future signal, not represented here until it's real.
 
@@ -17,6 +15,7 @@ import {
 } from "./identity-evidence-contract.js";
 
 const MAX_DOMAINS_FOR_EMAIL = 20;
+const CLOSED_BRAND_CLASSES = new Set(["owned", "ignored", "benign", "false_positive", "dismissed"]);
 
 export async function computeIdentityExposure(env, workspaceId) {
   const db = env.cybermeters_db;
@@ -55,14 +54,20 @@ export async function computeIdentityExposure(env, workspaceId) {
   const brandRows = (await db
     .prepare(`SELECT candidate_domain, classification, risk_level, dns_resolves, mx_present, https_available
               FROM workspace_brand_assets WHERE workspace_id = ? AND status = 'active'
+                AND COALESCE(classification, 'unreviewed') NOT IN ('owned', 'ignored', 'benign', 'false_positive', 'dismissed')
               ORDER BY (COALESCE(dns_resolves,0)+COALESCE(mx_present,0)+COALESCE(https_available,0)) DESC LIMIT 200`)
     .bind(workspaceId).all().catch(() => { brandUnavailable = true; return { results: [] }; })).results ?? [];
-  const active = brandRows.filter((r) => r.dns_resolves);
+  const unresolved = brandRows.filter((r) => !CLOSED_BRAND_CLASSES.has(r.classification));
+  const active = unresolved.filter((r) => r.dns_resolves);
   const impersonation = {
-    total: brandRows.length,
+    total: unresolved.length,
     active: active.length,                                   // resolving lookalikes
-    can_send_mail: active.filter((r) => r.mx_present).length,     // MX → can spoof/receive as you
-    can_host_login: active.filter((r) => r.https_available).length, // HTTPS → can host a phishing login
+    mail_receiving_domains: active.filter((r) => r.mx_present).length,
+    https_responding_domains: active.filter((r) => r.https_available).length,
+    confirmed_abuse_domains: active.filter((r) => r.classification === "confirmed_abuse").length,
+    // Retained API aliases describe observations only; neither proves abuse.
+    can_send_mail: active.filter((r) => r.mx_present).length,
+    can_host_login: active.filter((r) => r.https_available).length,
     top: active.slice(0, 5).map((r) => ({ domain: r.candidate_domain, mx: !!r.mx_present, https: !!r.https_available, classification: r.classification })),
   };
 
@@ -78,27 +83,33 @@ export async function computeIdentityExposure(env, workspaceId) {
   for (const row of scanRows) {
     try {
       const obj = await env.cybermeters_reports.get(`reports/${row.scan_id}.json`);
-      if (!obj) continue;                                    // fail-open: no report → skip
+      if (!obj) { scansUnavailable = true; continue; }
       const rep = await obj.json();
       const es = rep?.modules?.email_security;
-      if (!es || es.error) continue;
+      if (!es || es.error || es.incomplete || es.executed === false || typeof es.dmarc?.present !== "boolean") { scansUnavailable = true; continue; }
       const spf = !!es.spf?.present;
       const dmarcPresent = !!es.dmarc?.present;
       const dmarcPolicy = (es.dmarc?.policy || "").toLowerCase() || null;
-      // Spoofable if there is no SPF, or no DMARC, or DMARC is monitor-only (p=none).
-      const spoofable = !spf || !dmarcPresent || dmarcPolicy === "none" || dmarcPolicy === null;
-      emailDetails.push({ domain: row.domain, spf, dmarc: dmarcPresent, dmarc_policy: dmarcPolicy, spoofable });
-    } catch { /* fail-open per domain */ }
+      // DMARC may pass via aligned DKIM even without SPF. Missing/unparsed
+      // policy is unknown; a published policy does not prove mail alignment.
+      const policyGap = !dmarcPresent || dmarcPolicy === "none";
+      const usableRecord = es.dmarc_detail?.valid !== false && !(es.dmarc?.record_count > 1);
+      const policyKnown = !dmarcPresent || (usableRecord && ["none", "quarantine", "reject"].includes(dmarcPolicy));
+      if (!policyKnown) scansUnavailable = true;
+      emailDetails.push({ domain: row.domain, spf, dmarc: dmarcPresent, dmarc_policy: dmarcPolicy,
+        policy_gap: policyKnown ? policyGap : null, spoofable: policyKnown ? policyGap : null });
+    } catch { scansUnavailable = true; }
   }
   const email = {
     checked_domains: emailDetails.length,
     spoofable_domains: emailDetails.filter((d) => d.spoofable).length,
+    policy_gap_domains: emailDetails.filter((d) => d.policy_gap === true).length,
+    policy_observed_domains: emailDetails.filter((d) => d.policy_gap === false).length,
     details: emailDetails,
   };
 
   // A2 evidence status. Unavailable = a source query failed, OR we had completed
-  // scans to read but could read NONE of their reports (total R2 failure). A
-  // partial R2 read (some reports readable) proceeds on the observed evidence.
+  // scans whose reports could not be evaluated. Partial evidence stays partial.
   const emailUnavailable = scansUnavailable || (scanRows.length > 0 && emailDetails.length === 0);
   const evidence = {
     unavailable: loginUnavailable || brandUnavailable || emailUnavailable,
@@ -115,18 +126,16 @@ export async function computeIdentityExposure(env, workspaceId) {
 // clean Low. Real exposure always surfaces first and is never hidden by a gap.
 export function deriveLevel(login, impersonation, email, evidence = {}) {
   const highSignals = [
-    email.spoofable_domains > 0,                             // attackers can send email as you (BEC)
-    impersonation.can_send_mail > 0,                         // a lookalike can spoof mail as you
-    impersonation.can_host_login > 0,                        // a lookalike can host a phishing login
+    email.spoofable_domains > 0,
+    impersonation.confirmed_abuse_domains > 0,
   ].filter(Boolean).length;
   const mediumSignals = [
-    login.reachable_surface_count > 0,                     // measured reachable identity surfaces
     impersonation.active > 0,                               // resolving lookalikes (even without mail/login)
   ].filter(Boolean).length;
 
   const parts = [];
-  if (email.spoofable_domains > 0) parts.push(`${email.spoofable_domains} of your ${email.checked_domains} domain${email.checked_domains === 1 ? "" : "s"} can be spoofed in email (weak or missing DMARC)`);
-  if (impersonation.active > 0) parts.push(`${impersonation.active} active lookalike domain${impersonation.active === 1 ? "" : "s"}${impersonation.can_send_mail ? ` (${impersonation.can_send_mail} able to send mail as you)` : ""}`);
+  if (email.spoofable_domains > 0) parts.push(`${email.spoofable_domains} of ${email.checked_domains} domain${email.checked_domains === 1 ? "" : "s"} have no enforcing DMARC policy observed; successful impersonation is not established`);
+  if (impersonation.active > 0) parts.push(`${impersonation.active} unresolved, resolving lookalike domain${impersonation.active === 1 ? "" : "s"}${impersonation.mail_receiving_domains ? ` (${impersonation.mail_receiving_domains} with mail-receiving MX records)` : ""}${impersonation.confirmed_abuse_domains ? `; ${impersonation.confirmed_abuse_domains} classified as confirmed abuse` : ""}`);
   if (login.reachable_surface_count > 0) parts.push(`${login.reachable_surface_count} identity surface${login.reachable_surface_count === 1 ? "" : "s"} measured reachable`);
 
   // Real exposure ALWAYS surfaces first — an evidence gap never hides a finding.

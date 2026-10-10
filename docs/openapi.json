@@ -236,7 +236,9 @@
           "200": {
             "$ref": "#/components/responses/Ok"
           }
-        }
+        },
+        "security": [],
+        "description": "Idempotent. Revokes the session named by the Bearer token when it exists; without a token, or with an unknown one, nothing is revoked and the call still succeeds."
       }
     },
     "/api/auth/me": {

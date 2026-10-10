@@ -176,9 +176,6 @@ export async function runScheduled(event, env, ctx, tasks) {
   // and run retention once daily at 02:00 UTC.
   if (new Date(now).getUTCHours() === 2) {
     ctx.waitUntil(runCronTask(env, "report_retention", () => tasks.cleanupExpiredReports(now, env)));
-    if (tasks.cleanupIdentityBreachChecks) {
-      ctx.waitUntil(runCronTask(env, "identity_breach_retention", () => tasks.cleanupIdentityBreachChecks(now, env)));
-    }
   }
 
   // ── Ops-health heartbeat ─────────────────────────────────────────────

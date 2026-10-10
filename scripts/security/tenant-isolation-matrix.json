@@ -73,6 +73,49 @@
   ],
   "resource_classes": [
     {
+      "class": "identity_workforce_response",
+      "domain": "identity",
+      "tables": [
+        "identity_workforce_accounts",
+        "identity_response_actions"
+      ],
+      "ownership": {
+        "identity_workforce_accounts": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "identity_response_actions": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "Dedicated production-router controls in validate-identity-workforce.js cover tenant and role boundaries, immutable targets, one-attempt claims, uncertain outcomes, secret exclusion and purge; provider contracts are tested separately without live calls."
+      }
+    },
+    {
+      "class": "identity_public_sources",
+      "domain": "identity",
+      "tables": [
+        "identity_public_source_checks"
+      ],
+      "ownership": {
+        "identity_public_source_checks": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "Masked evidence only. Dedicated production-router coverage in validate-identity-public-secrets.js verifies roles, domain authority, SSRF denial, post-fetch revocation, storage and tenant isolation."
+      }
+    },
+    {
       "class": "dns_provider_remediation",
       "domain": "email",
       "tables": [
@@ -547,44 +590,6 @@
         "dynamic_harness": true,
         "property_based": false,
         "note": "foreign/anon denial on /identity-surfaces with owner positive control in validate-tenant-isolation-extended.js; plus the dedicated validate-identity-exposure.js"
-      }
-    },
-    {
-      "class": "identity_breach_checks",
-      "domain": "identity",
-      "tables": [
-        "identity_breach_checks"
-      ],
-      "ownership": {
-        "identity_breach_checks": {
-          "model": "direct",
-          "column": "workspace_id"
-        }
-      },
-      "non_tenant": false,
-      "coverage": {
-        "dynamic_harness": false,
-        "property_based": false,
-        "note": "Direct workspace_id ownership; owner/admin-only observations. Dedicated actual-entry Miniflare/D1 coverage in scripts/validate-identity-breach-checks.js proves foreign workspace/domain and role denial, foreign-delete indistinguishability, denied-row preservation, workspace-scoped subject hashes, revocation, retention and selected-workspace purge. Not part of the general two-tenant/property harness."
-      }
-    },
-    {
-      "class": "identity_breach_cleanup",
-      "domain": "infra",
-      "tables": [
-        "identity_breach_cleanup_state"
-      ],
-      "ownership": {
-        "identity_breach_cleanup_state": {
-          "model": "infra",
-          "column": null
-        }
-      },
-      "non_tenant": true,
-      "coverage": {
-        "dynamic_harness": false,
-        "property_based": false,
-        "note": "Singleton background-cleanup progress, not a tenant-owned result: stores only the lexical workspace cursor. scripts/validate-identity-breach-checks.js exercises persisted rotation beyond 100 workspaces and preserves observations where cleanup is disabled; no public read/write route."
       }
     },
     {
@@ -1132,10 +1137,11 @@
     "hosted_dns_entries": "email_protection",
     "hosted_dns_records": "email_protection",
     "identity_assets": "identity_exposure",
-    "identity_breach_checks": "identity_breach_checks",
-    "identity_breach_cleanup_state": "identity_breach_cleanup",
     "identity_exposure": "identity_exposure",
     "identity_exposure_events": "identity_exposure",
+    "identity_public_source_checks": "identity_public_sources",
+    "identity_response_actions": "identity_workforce_response",
+    "identity_workforce_accounts": "identity_workforce_response",
     "kev_matches": "findings",
     "lifecycle_email_events": "deletion_lifecycle",
     "managed_case_events": "managed_cases",
@@ -1194,10 +1200,10 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 100,
-    "classified": 100,
-    "tenant_owned_tables": 95,
-    "infra_or_identity_tables": 5,
+    "schema_tables": 101,
+    "classified": 101,
+    "tenant_owned_tables": 97,
+    "infra_or_identity_tables": 4,
     "unclassified": 0,
     "resource_classes": 37,
     "classes_with_dynamic_coverage": 17

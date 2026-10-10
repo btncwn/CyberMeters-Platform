@@ -456,8 +456,11 @@ const parity = states.map(parityOutputs);
 // Customer PDF ordering changes only F13's rendered PDF bytes. The previous
 // F13 golden was reproduced with the prior renderer; non-PDF facts and F14
 // remain byte-identical. Visible text changes only the two reordered TOC labels.
-const GOLDEN_F13 = "d42583c7dce520dde9c06ed95b4b4a9bfac8d3646bebf1c65e3046ec50982994";
-const GOLDEN_F14 = "857e489c4f9b2510f07cede7ced64c05d5fe7fae33fc2a45695efc28765a5415";
+// Identity HTTP inventory updates the frozen scope text and 2026-10-10.1
+// methodology stamps. Explicit object comparison retained all finding/scoring
+// facts; all five SAN projection states must still produce identical outputs.
+const GOLDEN_F13 = "2392bfcf0b5fae972669da7887ee4baaa8c79931bfc8c895b253ecd075f0f363";
+const GOLDEN_F14 = "702bd157651a4055eceaeddcf02540e5e7f88f2f3a7a06c2427a1198a6806e93";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

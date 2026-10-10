@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { webcrypto } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { buildDb } from "./security/lib/worker-harness.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -2352,7 +2353,7 @@ results.push(securityContract("alert_channel_payloads_provider_shapes", () => {
     hook.severity === "high" && hook.domain === "example.com" &&
     /^\d{4}-\d{2}-\d{2}T/.test(hook.sent_at) &&
     // Control characters are stripped from all rendered text
-    scanner.buildAlertChannelPayload("slack", { title: "a bc" }).text.includes("*a b c*");
+    scanner.buildAlertChannelPayload("slack", { title: "a\u0000b\u001fc" }).text.includes("*a b c*");
 }));
 results.push(await asyncSecurityContract("alert_webhook_signature_hmac_sha256", async () => {
   // Cross-check the Workers-crypto implementation against Node's crypto.
@@ -3022,39 +3023,19 @@ results.push(await asyncSecurityContract("lifecycle_sent_email_not_resent", asyn
 // scan-child tables (findings, hidden_assets, kev_matches, remediation_items,
 // reports) that left scans un-purgeable.
 function fkTablesReferencing(target) {
-  // Read the base schema AND every migration — scan-child tables (findings,
-  // reports, …) live in database/schema.sql, not the migrations dir.
-  const files = [];
-  const base = path.join(repoRoot, "database", "schema.sql");
-  if (fs.existsSync(base)) files.push(base);
-  const dir = path.join(repoRoot, "database", "migrations");
-  for (const f of fs.readdirSync(dir).filter(n => n.endsWith(".sql"))) files.push(path.join(dir, f));
-  const found = new Set();
-  for (const file of files) {
-    const sql = fs.readFileSync(file, "utf8");
-    for (const stmt of sql.split(";")) {
-      if (!new RegExp(`REFERENCES\\s+${target}\\s*\\(`, "i").test(stmt)) continue;
-      const m = stmt.match(/(?:CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|ALTER\s+TABLE)\s+([a-z_][a-z0-9_]*)/i);
-      if (m) found.add(m[1].toLowerCase());
+  // Read the final migrated schema: retired tables are not purge targets, and
+  // rebuild/rename migrations must resolve to their actual final identity.
+  const db = buildDb();
+  try {
+    const found = new Set();
+    for (const { name } of db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()) {
+      const quoted = '"' + name.replaceAll('"', '""') + '"';
+      if (name !== target && db.prepare(`PRAGMA foreign_key_list(${quoted})`).all().some(fk => fk.table === target)) found.add(name);
     }
-    // Rebuild migrations create an FK-bearing shadow table and then rename it
-    // to the authoritative table in the same governed file. The shadow name
-    // never exists after a successful migration and must not be registered as
-    // a permanent purge target. Do not use a suffix allowlist: require the
-    // explicit rename that proves the transient table's final identity.
-    for (const match of sql.matchAll(
-      /ALTER\s+TABLE\s+([a-z_][a-z0-9_]*)\s+RENAME\s+TO\s+([a-z_][a-z0-9_]*)/gi
-    )) {
-      const [, transient, authoritative] = match.map((value) => value.toLowerCase());
-      if (found.has(transient)) {
-        found.delete(transient);
-        found.add(authoritative);
-      }
-    }
-  }
-  found.delete(target); // a self-reference is not a child table
-  return found;
+    return found;
+  } finally { db.close(); }
 }
+
 results.push(securityContract("purge_covers_all_scan_fk_tables", () => {
   const covered = new Set(scanner.SCAN_CHILD_TABLES);
   const missing = [...fkTablesReferencing("scans")].filter(t => !covered.has(t));
@@ -3065,7 +3046,9 @@ results.push(securityContract("purge_covers_all_workspace_fk_tables", () => {
   // Intentionally retained (not purged): deletion_requests is the purge's own
   // tracking table and does not block workspace deletion.
   const EXCEPTIONS = new Set(["deletion_requests"]);
-  const covered = new Set(scanner.WORKSPACE_PURGE_TABLES);
+  // Snapshots are purged directly, after their R2 object is deleted; the
+  // real purge-completeness suite exercises that separate path.
+  const covered = new Set([...scanner.WORKSPACE_PURGE_TABLES, "scan_report_snapshots"]);
   const missing = [...fkTablesReferencing("workspaces")].filter(t => !covered.has(t) && !EXCEPTIONS.has(t));
   if (missing.length) console.error("  workspace-FK tables missing from WORKSPACE_PURGE_TABLES:", missing.join(", "));
   return missing.length === 0;

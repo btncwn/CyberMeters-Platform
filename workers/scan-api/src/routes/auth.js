@@ -13,6 +13,7 @@ import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { isSingleTenantConfig, validateMicrosoftIdToken } from "../lib/microsoft-jwt.js";
 import { hashPassword, verifyPassword } from "../lib/password.js";
+import { newPasswordRejection } from "../lib/pwned-passwords.js";
 import { generateTotpSecret, verifyTotp } from "../lib/totp.js";
 import { createId, isValidEmail } from "../lib/util.js";
 
@@ -52,6 +53,10 @@ export async function authRoutes(rctx) {
       }
 
       try {
+        // Check before account lookup so the response cannot reveal an existing email.
+        const passwordRejection = await newPasswordRejection(password);
+        if (passwordRejection) return json(passwordRejection.body, passwordRejection.status);
+
         // Check for duplicate email. Anti-enumeration: an existing account must
         // NOT be revealed via a distinct 409 — that lets an attacker probe which
         // emails are registered. Instead respond exactly as a fresh signup would
@@ -1214,29 +1219,48 @@ export async function authRoutes(rctx) {
           .first();
         if (!user) return json({ error: "Account not found" }, 404);
 
+        const passwordRateLimit = await consumeApiRateLimit(
+          env, [{ scope: "user", scope_id: user.id }], "new_password_check", 10, 900,
+          { atomic: true, failClosed: true },
+        );
+        if (passwordRateLimit) return json({ error: "Please wait before trying again." }, passwordRateLimit.status);
+        const passwordRejection = await newPasswordRejection(newPassword);
+        if (passwordRejection) return json(passwordRejection.body, passwordRejection.status);
+
         const newHash = await hashPassword(newPassword);
 
-        // Update password + mark token used in a batch
-        await env.cybermeters_db.batch([
+        // The provider lookup can take seconds. Recheck token eligibility in the
+        // same atomic batch as every change, then consume it last. Concurrent
+        // resets cannot reuse the token or sign out a newly recovered session.
+        const checkedAt = new Date().toISOString();
+        const eligible = `EXISTS (SELECT 1 FROM password_reset_tokens
+          WHERE id = ? AND user_id = ? AND used_at IS NULL
+          AND julianday(expires_at) > julianday(?))`;
+        const guard = [tokenRow.id, user.id, checkedAt];
+        const resetResults = await env.cybermeters_db.batch([
           env.cybermeters_db
-            .prepare("UPDATE users SET password_hash = ? WHERE id = ?")
-            .bind(newHash, user.id),
-          env.cybermeters_db
-            .prepare("UPDATE password_reset_tokens SET used_at = datetime('now') WHERE id = ?")
-            .bind(tokenRow.id),
+            .prepare(`UPDATE users SET password_hash = ? WHERE id = ? AND ${eligible}`)
+            .bind(newHash, user.id, ...guard),
           // Invalidate all existing sessions — security best practice after password change
           env.cybermeters_db
-            .prepare("DELETE FROM user_sessions WHERE user_id = ?")
-            .bind(user.id),
+            .prepare(`DELETE FROM user_sessions WHERE user_id = ? AND ${eligible}`)
+            .bind(user.id, ...guard),
           // Revoke all active API tokens too. Password reset is the primary account-
           // recovery action after a suspected compromise; leaving long-lived `cm_`
           // bearer tokens valid would let an attacker who minted one retain access
           // through the exact flow meant to cut them off. Append-only status flip
           // (mirrors DELETE /api/account/api-tokens/:id) — history is preserved.
           env.cybermeters_db
-            .prepare("UPDATE api_tokens SET status = 'revoked' WHERE user_id = ? AND status = 'active'")
-            .bind(user.id),
+            .prepare(`UPDATE api_tokens SET status = 'revoked' WHERE user_id = ? AND status = 'active' AND ${eligible}`)
+            .bind(user.id, ...guard),
+          env.cybermeters_db
+            .prepare(`UPDATE password_reset_tokens SET used_at = ?
+              WHERE id = ? AND user_id = ? AND used_at IS NULL AND julianday(expires_at) > julianday(?)`)
+            .bind(checkedAt, ...guard),
         ]);
+        if (resetResults[3]?.meta?.changes !== 1) {
+          return json({ error: "Reset link is invalid, expired, or has already been used." }, 400);
+        }
 
         await createAuditEvent(env, {
           user_id:     user.id,

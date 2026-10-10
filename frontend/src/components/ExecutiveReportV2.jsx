@@ -413,7 +413,7 @@ export default function ExecutiveReportV2({ report }) {
 
       {/* Methodology + limitations — honesty footer */}
       <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
-        <p className="text-[11px] text-gray-400 font-semibold uppercase tracking-wide mb-2">Methodology & Limitations</p>
+        <p className="text-[11px] text-gray-400 font-semibold uppercase tracking-wide mb-2">Methodology &amp; Limitations</p>
         <p className="text-[11px] text-gray-400">
           Resolver {methodology.cyber_mot_resolver_version || '—'} · Score methodology {methodology.cyber_metrics_score_methodology_version || '—'} · Risk indicator methodology {methodology.business_risk_methodology_version || '—'}
         </p>

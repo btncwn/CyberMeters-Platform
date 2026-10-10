@@ -11,10 +11,10 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 100
-- **classified:** 100
-- **tenant owned tables:** 95
-- **infra or identity tables:** 5
+- **schema tables:** 101
+- **classified:** 101
+- **tenant owned tables:** 97
+- **infra or identity tables:** 4
 - **unclassified:** 0
 - **resource classes:** 37
 - **classes with dynamic coverage:** 17
@@ -38,6 +38,8 @@ data cannot be silently omitted.
 
 | Class | Domain | Ownership | Tables | Dynamic harness | Property |
 |---|---|---|---|:---:|:---:|
+| identity_workforce_response | identity | direct(workspace_id) | 2 | — | — |
+| identity_public_sources | identity | direct(workspace_id) | 1 | — | — |
 | dns_provider_remediation | email | direct(workspace_id) | 2 | — | — |
 | network_assets | attack_surface | direct(workspace_id) | 3 | — | — |
 | workspaces | core | account(owner_user_id) | 1 | ✓ | ✓ |
@@ -56,8 +58,6 @@ data cannot be silently omitted.
 | remediation_waivers | reporting | direct(workspace_id) | 1 | — | — |
 | certificates | certificates | direct(workspace_id) | 3 | ✓ | — |
 | identity_exposure | identity | direct(workspace_id) | 3 | ✓ | — |
-| identity_breach_checks | identity | direct(workspace_id) | 1 | — | — |
-| identity_breach_cleanup ⁿᵗ | infra | infra | 1 | — | — |
 | brand | brand | direct(workspace_id) | 4 | ✓ | ✓ |
 | email_protection | email | direct(workspace_id) | 11 | — | — |
 | cyber_essentials | cyber_essentials | direct(workspace_id) | 3 | — | — |
@@ -80,6 +80,8 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 
 ### Coverage notes
 
+- **identity_workforce_response:** Dedicated production-router controls in validate-identity-workforce.js cover tenant and role boundaries, immutable targets, one-attempt claims, uncertain outcomes, secret exclusion and purge; provider contracts are tested separately without live calls.
+- **identity_public_sources:** Masked evidence only. Dedicated production-router coverage in validate-identity-public-secrets.js verifies roles, domain authority, SSRF denial, post-fetch revocation, storage and tenant isolation.
 - **dns_provider_remediation:** Workspace/domain-owned encrypted connections and saved DNS changes. Dedicated production-entry coverage lives in scripts/validate-dns-remediation.js; not part of the general two-tenant/property harness.
 - **network_assets:** Explicit attested public IP/CIDR scope; actual route/role, two-tenant denial, immutable receipt and queue identity coverage in validate-network-assets.js; purge and queue wiring in validate-network-integration.js.
 - **asset_events:** written by scan/cron; read via /assets + posture; workspace_id-scoped; isolation proven at the assets read surface + static audit
@@ -88,8 +90,6 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 - **alerts:** workspace_id-scoped; delivery recipients proven by validate-alert-recipients (no operator fallback / soft-delete)
 - **remediation_waivers:** workspace_id-scoped; static audit + matrix ownership-consistency
 - **identity_exposure:** foreign/anon denial on /identity-surfaces with owner positive control in validate-tenant-isolation-extended.js; plus the dedicated validate-identity-exposure.js
-- **identity_breach_checks:** Direct workspace_id ownership; owner/admin-only observations. Dedicated actual-entry Miniflare/D1 coverage in scripts/validate-identity-breach-checks.js proves foreign workspace/domain and role denial, foreign-delete indistinguishability, denied-row preservation, workspace-scoped subject hashes, revocation, retention and selected-workspace purge. Not part of the general two-tenant/property harness.
-- **identity_breach_cleanup:** Singleton background-cleanup progress, not a tenant-owned result: stores only the lexical workspace cursor. scripts/validate-identity-breach-checks.js exercises persisted rotation beyond 100 workspaces and preserves observations where cleanup is disabled; no public read/write route.
 - **email_protection:** workspace_id-scoped; ingest is endpoint-key gated (key binds workspace); read surfaces harness-covered via /maturity + email-protection routes
 - **cyber_essentials:** workspace_id-scoped; read surfaces exist; write is answer-versioned (validate-ce-answer-versioning)
 - **website_security:** workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle)
@@ -147,10 +147,11 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `hosted_dns_entries` | direct(workspace_id) | email_protection |
 | `hosted_dns_records` | direct(workspace_id) | email_protection |
 | `identity_assets` | direct(workspace_id) | identity_exposure |
-| `identity_breach_checks` | direct(workspace_id) | identity_breach_checks |
-| `identity_breach_cleanup_state` | infra | identity_breach_cleanup |
 | `identity_exposure` | direct(workspace_id) | identity_exposure |
 | `identity_exposure_events` | direct(workspace_id) | identity_exposure |
+| `identity_public_source_checks` | direct(workspace_id) | identity_public_sources |
+| `identity_response_actions` | direct(workspace_id) | identity_workforce_response |
+| `identity_workforce_accounts` | direct(workspace_id) | identity_workforce_response |
 | `kev_matches` | via_scan(scan_id) | findings |
 | `lifecycle_email_events` | direct(workspace_id) | deletion_lifecycle |
 | `managed_case_events` | direct(workspace_id) | managed_cases |
