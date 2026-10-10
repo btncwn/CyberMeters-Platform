@@ -216,7 +216,7 @@ After setting all secrets, verify with:
 # Test checkout endpoint (replace with a real workspace ID)
 curl -s -X POST https://cybermeters-platform.ttrnn47.workers.dev/api/workspaces/WORKSPACE_ID/billing/checkout \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer SESSION_TOKEN" \
+  -H "Authorization: Bearer <your-session-token>" \
   -d '{"plan":"starter"}' | jq .
 
 # Expected: { "url": "https://checkout.stripe.com/..." }

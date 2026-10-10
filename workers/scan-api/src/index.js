@@ -2440,6 +2440,12 @@ export default {
       return new Response(null, { status: 204, headers: { ...corsHeaders, "X-Request-ID": requestId } });
     }
 
+    // ── Non-standard methods (TRACE, CONNECT, PROPFIND, ...) ─────────────
+    // No route serves them; answer 405 before any routing or body handling.
+    if (!["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].includes(request.method)) {
+      return json({ error: "Method not allowed" }, 405);
+    }
+
     // ── GET /health ─────────────────────────────────────────────────────
     if (request.method === "GET" && url.pathname === "/health") {
       return json({
