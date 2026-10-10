@@ -122,7 +122,7 @@ describe('ScanDetail canonical report availability', () => {
     expect(await screen.findByText('Executive report ready')).toBeInTheDocument()
     expect(api.getScanReport).toHaveBeenCalledTimes(1)
     expect(api.getExecutiveReportV2).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('button', { name: /Download PDF/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Download Technical PDF/i })).toBeInTheDocument()
   })
 
   it('keeps rolling-deploy compatibility by accepting a successful real renderer response', async () => {
@@ -133,7 +133,7 @@ describe('ScanDetail canonical report availability', () => {
     expect(await screen.findByText('Executive report ready')).toBeInTheDocument()
     expect(api.getScanReport).toHaveBeenCalledTimes(1)
     expect(api.getExecutiveReportV2).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('button', { name: /Download PDF/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Download Technical PDF/i })).toBeInTheDocument()
   })
 
   it('shows preparation, polls once at a time, then transitions to ready', async () => {

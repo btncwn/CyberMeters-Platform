@@ -917,11 +917,11 @@ export const api = {
     return request(`/workspaces/${workspaceId}/reports${q ? `?${q}` : ''}`)
   },
 
-  /** POST /api/workspaces/:id/reports/generate  body: { report_type } */
-  generateWorkspaceReport: (workspaceId, reportType = 'manual') =>
+  /** POST /api/workspaces/:id/reports/generate  body: { report_type, scan_id? } */
+  generateWorkspaceReport: (workspaceId, reportType = 'manual', scanId = null) =>
     request(`/workspaces/${workspaceId}/reports/generate`, {
       method: 'POST',
-      body: JSON.stringify({ report_type: reportType }),
+      body: JSON.stringify({ report_type: reportType, ...(reportType === 'scan_snapshot' ? { scan_id: scanId } : {}) }),
     }),
 
   // ── DMARC Sender Intelligence ─────────────────────────────────────────────

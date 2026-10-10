@@ -15,7 +15,8 @@ export async function workspaceReportsRoutes(rctx) {
     // ── POST /api/workspaces/:id/reports/generate ────────────────────────────
 	    // Generates a new executive PDF report and stores it in R2 + workspace_reports.
     // Body: { "report_type": "manual" | "weekly_executive" | "monthly_executive" | "scan_snapshot" }
-    //       Optional: { "report_period": "...", "scan_id": "..." }
+    //       scan_snapshot requires scan_id and derives its own immutable period.
+    //       Other types may optionally supply report_period.
     const rptGenMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/reports\/generate$/);
     if (rptGenMatch && request.method === 'POST') {
       const wsId = rptGenMatch[1];
@@ -30,7 +31,7 @@ export async function workspaceReportsRoutes(rctx) {
         if (reportLimitError) return json(reportLimitError.body, reportLimitError.status);
 
         let body = {};
-        try { body = await request.json(); } catch { /* body is optional */ }
+        try { body = (await request.json()) ?? {}; } catch { /* body is optional */ }
         const VALID_TYPES = ['manual', 'scan_snapshot', 'weekly_executive', 'monthly_executive', 'quarterly_executive'];
         const report_type = VALID_TYPES.includes(body.report_type) ? body.report_type : 'manual';
         const row = await generateWorkspaceExecutiveReport(wsId, env, {
@@ -40,6 +41,7 @@ export async function workspaceReportsRoutes(rctx) {
         });
         return json({ report: row }, 201);
       } catch (err) {
+        if (err.reportRequestError) return json(err.reportRequestError.body, err.reportRequestError.status);
         if (err.quota) return json(err.quota.body, err.quota.status);
         return serverError("api", err);
       }

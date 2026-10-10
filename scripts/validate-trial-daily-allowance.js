@@ -17,6 +17,7 @@ const { scanRoutes } = await import('../workers/scan-api/src/routes/scans.js');
 const { portfolioRoutes } = await import('../workers/scan-api/src/routes/portfolio.js');
 const { workspaceAnalyticsRoutes } = await import('../workers/scan-api/src/routes/workspace-analytics.js');
 const { workspaceReportsRoutes } = await import('../workers/scan-api/src/routes/workspace-reports.js');
+const { composeSnapshot } = await import('../workers/scan-api/src/engines/report-snapshot.js');
 const { requireWorkspaceRole, requireScanReadAccess } = await import('../workers/scan-api/src/index.js');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let passed = 0;
@@ -48,15 +49,37 @@ function setup() {
   db.prepare("INSERT INTO subscriptions(id,owner_user_id,workspace_id,plan,status,subscription_status,trial_end) VALUES('trial','owner','wa','professional','trialing','trialing',?)").run(future);
   db.prepare("INSERT INTO domains(id,user_id,domain) VALUES('domain','owner','example.com')").run();
   db.prepare("INSERT INTO workspace_domains(workspace_id,domain_id,verification_status,verified_at) VALUES('wa','domain','verified',datetime('now'))").run();
-  const objects = new Map(), queued = [];
+  const objects = new Map(), queued = [], readKeys = [];
   const env = { cybermeters_db: { prepare: sql => stmt(sql) },
     SCAN_QUEUE: { send: async value => { queued.push(value); } }, SCAN_DISPATCH_MODE: 'queue', NETWORK_PROBE: { fetch: async () => { throw new Error('not run'); } },
     cybermeters_reports: {
       put: async (key, bytes) => { objects.set(key, bytes); },
-      get: async key => objects.has(key) ? { body: objects.get(key), arrayBuffer: async () => objects.get(key) } : null,
+      get: async key => {
+        readKeys.push(key);
+        if (!objects.has(key)) return null;
+        const value = objects.get(key);
+        const text = () => typeof value === 'string' ? value : new TextDecoder().decode(value);
+        return { body: value, arrayBuffer: async () => value, text: async () => text(), json: async () => JSON.parse(text()) };
+      },
     },
   };
-  const seedScan = (id, { workspace = 'wa', status = 'completed', at = new Date().toISOString() } = {}) => db.prepare('INSERT INTO scans(id,domain_id,workspace_id,domain,status,created_at) VALUES(?,?,?,?,?,?)').run(id,'domain',workspace,'example.com',status,at);
+  const seedScan = (id, { workspace = 'wa', status = 'completed', at = new Date().toISOString(), domainId = 'domain', domain = 'example.com' } = {}) => db.prepare('INSERT INTO scans(id,domain_id,workspace_id,domain,status,created_at) VALUES(?,?,?,?,?,?)').run(id,domainId,workspace,domain,status,at);
+  const seedSnapshot = (scanId, { workspace = 'wa', domainId = 'domain', domain = 'example.com', at = new Date().toISOString() } = {}) => {
+    db.prepare('INSERT OR IGNORE INTO domains(id,user_id,domain) VALUES(?,?,?)').run(domainId,'owner',domain);
+    seedScan(scanId, { workspace, domainId, domain, at });
+    const report = { scan_id: scanId, domain_id: domainId, domain, status: 'completed', started_at: at, completed_at: at,
+      cyber_metrics_score: 80, scan_quality: { status: 'partial' }, findings: [], modules: {} };
+    const snapshot = composeSnapshot({ snapshotId: `snap_${scanId}`, workspaceId: workspace, domainId, scanId, domain,
+      report, cyberEssentials: null, ceReadiness: null, caseRows: [], questionSetVersions: [], builtAt: at });
+    const raw = JSON.stringify(snapshot), identity = snapshot.snapshot;
+    const key = `reports/snapshots/${workspace}/${scanId}/${identity.snapshot_id}.json`;
+    objects.set(key, raw); objects.set(`reports/${scanId}.json`, JSON.stringify(report));
+    db.prepare(`INSERT INTO scan_report_snapshots
+      (id,workspace_id,domain_id,scan_id,status,r2_key,checksum_sha256,snapshot_schema_version,resolver_version,assessed_at)
+      VALUES(?,?,?,?,'completed',?,?,?,?,?)`).run(identity.snapshot_id,workspace,domainId,scanId,key,
+      createHash('sha256').update(raw).digest('hex'),String(identity.snapshot_schema_version),'test',at);
+    return { key, snapshot };
+  };
   const context = (route, { user = 'owner', method = 'GET', body } = {}) => ({ env, url: new URL(`https://test.invalid${route}`),
     request: new Request(`https://test.invalid${route}`, { method, ...(body ? { body: JSON.stringify(body) } : {}) }),
     requireAuth: async () => user ? { id: user } : null, requireWorkspaceRole, requireScanReadAccess,
@@ -65,7 +88,7 @@ function setup() {
     ctx: { waitUntil: () => { throw new Error('engine should use queue'); } },
     serverError: (_scope, error) => Response.json({error: error.message},{status:500}),
   });
-  return { db, env, objects, queued, seedScan, context, setFault: value => { fault = value; } };
+  return { db, env, objects, queued, readKeys, seedScan, seedSnapshot, context, setFault: value => { fault = value; } };
 }
 await test('one account admits exactly three overlapping scans across workspaces', async () => {
   const f=setup();
@@ -249,4 +272,89 @@ await test('billing precedence, expiry, daily display and storage errors',async(
   assert.equal((await checkReportLimit({id:'owner'},'wa',f.env)).body.reason,'trial_expired');
   assert.equal((await checkScanLimit({id:'owner'},'wa',f.env)).body.reason,'trial_expired');
 });
+function storedState(f) {
+  const tables = f.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+  return JSON.stringify({
+    tables: tables.map(({name}) => [name, f.db.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all()]),
+    objects: [...f.objects].map(([key,value]) => [key, createHash('sha256').update(value).digest('hex')]),
+  });
+}
+const generate = (f, body) => workspaceReportsRoutes(f.context('/api/workspaces/wa/reports/generate', { method: 'POST', body }));
+const pdfText = (f, report) => new TextDecoder().decode(f.objects.get(report.report_key));
+function seedReportScope(f) {
+  f.seedSnapshot('selected_older', { at: '2026-06-01T12:00:00Z' });
+  f.seedSnapshot('newer_same_domain', { at: '2026-06-02T12:00:00Z' });
+  f.seedSnapshot('other_domain', { domainId: 'second_domain', domain: 'second.example.com', at: '2026-06-03T12:00:00Z' });
+}
+await test('Scan Snapshot renders only the selected older scan, not latest or other domains', async()=>{
+  const f=setup(); seedReportScope(f);
+  const immutableBefore = [...f.objects].map(([key,value]) => [key,value]);
+  const res=await generate(f,{report_type:'scan_snapshot',scan_id:'selected_older'});
+  assert.equal(res.status,201,await res.clone().text());
+  const {report}=await res.json(), text=pdfText(f,report);
+  assert(text.startsWith('%PDF-'));
+  assert(text.includes('Scan reference: selected_older'));
+  assert(!text.includes('newer_same_domain')); assert(!text.includes('second.example.com'));
+  assert(!f.readKeys.some(key=>key.includes('newer_same_domain') || key.includes('other_domain')));
+  const binding=JSON.parse(f.db.prepare('SELECT metadata_json FROM workspace_reports WHERE id=?').get(report.id).metadata_json);
+  assert.deepEqual(binding.snapshots.map(s=>s.scan_id),['selected_older']);
+  assert.equal(await trialUsage(f.env,'reports','owner'),1);
+  for(const [key,value] of immutableBefore) assert.equal(f.objects.get(key),value);
+});
+await test('Scan Snapshot ignores period overrides, deduplicates selected evidence, and preserves legacy aggregate PDFs',async()=>{
+  const f=setup(); seedReportScope(f);
+  f.db.prepare(`INSERT INTO workspace_reports(id,workspace_id,report_type,report_period,report_key,status,created_at)
+    VALUES('legacy','wa','scan_snapshot','scan-selected_older','legacy.pdf','completed',?)`).run(new Date().toISOString());
+  f.objects.set('legacy.pdf',new TextEncoder().encode('%PDF-legacy workspace aggregate'));
+  const oldRow=f.db.prepare("SELECT * FROM workspace_reports WHERE id='legacy'").get();
+  const body={report_type:'scan_snapshot',scan_id:'selected_older',report_period:'scan-selected_older'};
+  let res=await generate(f,body); assert.equal(res.status,201,await res.clone().text());
+  const first=(await res.json()).report;
+  assert.notEqual(first.id,'legacy'); assert.match(first.report_period,/^scan-v2-selected_older-snap_selected_older-/);
+  assert(!pdfText(f,first).includes('second.example.com'));
+  res=await generate(f,{...body,report_period:'arbitrary-alias'}); assert.equal(res.status,201);
+  const repeat=(await res.json()).report;
+  assert.equal(repeat.id,first.id); assert.equal(repeat.deduplicated,true);
+  assert.equal(await trialUsage(f.env,'reports','owner'),2);
+  assert.deepEqual(f.db.prepare("SELECT * FROM workspace_reports WHERE id='legacy'").get(),oldRow);
+  const download=await workspaceReportsRoutes(f.context('/api/workspaces/wa/reports/legacy/download'));
+  assert.equal(download.status,200); assert.equal(await download.text(),'%PDF-legacy workspace aggregate');
+});
+for (const [name,body,prepare,status,error] of [
+  ['missing scan',{report_type:'scan_snapshot'},()=>{},400,'scan_id_required'],
+  ['blank scan',{report_type:'scan_snapshot',scan_id:'  '},()=>{},400,'scan_id_required'],
+  ['non-string scan',{report_type:'scan_snapshot',scan_id:['selected']},()=>{},400,'scan_id_required'],
+  ['unknown scan',{report_type:'scan_snapshot',scan_id:'missing'},()=>{},404,'scan_not_found'],
+  ['foreign workspace scan',{report_type:'scan_snapshot',scan_id:'selected'},f=>f.seedSnapshot('selected',{workspace:'foreign'}),404,'scan_not_found'],
+  ['unfinished scan',{report_type:'scan_snapshot',scan_id:'selected'},f=>f.seedScan('selected',{status:'running'}),409,'scan_not_completed'],
+  ['no immutable snapshot',{report_type:'scan_snapshot',scan_id:'selected'},f=>f.seedScan('selected'),409,'scan_report_not_ready'],
+  ['building immutable snapshot',{report_type:'scan_snapshot',scan_id:'selected'},f=>{f.seedSnapshot('selected');f.db.exec("UPDATE scan_report_snapshots SET status='building'");},409,'scan_report_not_ready'],
+  ['missing snapshot object',{report_type:'scan_snapshot',scan_id:'selected'},f=>{const s=f.seedSnapshot('selected');f.objects.delete(s.key);},409,'scan_report_not_ready'],
+  ['missing checksum',{report_type:'scan_snapshot',scan_id:'selected'},f=>{f.seedSnapshot('selected');f.db.exec('UPDATE scan_report_snapshots SET checksum_sha256=NULL');},409,'scan_report_not_ready'],
+  ['corrupt immutable snapshot',{report_type:'scan_snapshot',scan_id:'selected'},f=>{const s=f.seedSnapshot('selected');f.objects.set(s.key,'{}');},409,'scan_report_not_ready'],
+  ['foreign snapshot row',{report_type:'scan_snapshot',scan_id:'selected'},f=>{f.seedSnapshot('selected');f.db.exec("UPDATE scan_report_snapshots SET workspace_id='foreign'");},409,'scan_report_not_ready'],
+  ['wrong snapshot body identity',{report_type:'scan_snapshot',scan_id:'selected'},f=>{const s=f.seedSnapshot('selected');s.snapshot.snapshot.scan_id='different';const raw=JSON.stringify(s.snapshot);f.objects.set(s.key,raw);f.db.prepare('UPDATE scan_report_snapshots SET checksum_sha256=?').run(createHash('sha256').update(raw).digest('hex'));},409,'scan_report_not_ready'],
+]) {
+  await test(`Scan Snapshot refuses ${name} before any database or object changes`,async()=>{
+    const f=setup(); prepare(f); const before=storedState(f);
+    const res=await generate(f,body); assert.equal(res.status,status,await res.clone().text());
+    assert.equal((await res.json()).error,error);
+    assert.equal(storedState(f),before); assert.equal(await trialUsage(f.env,'reports','owner'),0);
+    if(name==='foreign workspace scan' || name==='foreign snapshot row') assert.deepEqual(f.readKeys,[]);
+  });
+}
+for(const report_type of ['manual','weekly_executive','monthly_executive','quarterly_executive']) {
+  await test(`${report_type} still renders latest workspace snapshots and preserves its requested period`,async()=>{
+    const f=setup(); seedReportScope(f);
+    const res=await generate(f,{report_type,report_period:'existing-period',scan_id:'selected_older'});
+    assert.equal(res.status,201,await res.clone().text());
+    const {report}=await res.json(), text=pdfText(f,report);
+    assert.equal(report.report_period,'existing-period');
+    assert(text.includes('Scan reference: newer_same_domain')); assert(text.includes('second.example.com'));
+    assert(!text.includes('Scan reference: selected_older'));
+    const binding=JSON.parse(f.db.prepare('SELECT metadata_json FROM workspace_reports WHERE id=?').get(report.id).metadata_json);
+    assert.deepEqual(binding.snapshots.map(s=>s.scan_id).sort(),['newer_same_domain','other_domain']);
+    assert.equal(await trialUsage(f.env,'reports','owner'),1);
+  });
+}
 console.log(`Trial daily allowance: ${passed} scenarios passed`);

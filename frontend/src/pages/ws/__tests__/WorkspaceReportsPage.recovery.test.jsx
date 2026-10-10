@@ -10,6 +10,8 @@ vi.mock('../../../api', () => ({ api: {
   getWorkspaceReports: vi.fn(),
   getScheduledReports: vi.fn(),
   downloadWorkspaceReport: vi.fn(),
+  getWorkspaceScans: vi.fn(),
+  generateWorkspaceReport: vi.fn(),
 } }))
 
 function deferred() {
@@ -30,6 +32,7 @@ beforeEach(() => {
   workspace.wsName = 'Workspace A'
   api.getScheduledReports.mockResolvedValue({ scheduled_reports: [] })
   api.downloadWorkspaceReport.mockReturnValue(new Promise(() => {}))
+  api.getWorkspaceScans.mockResolvedValue({ scans: [] })
 })
 afterEach(() => {
   cleanup()
@@ -153,4 +156,79 @@ it('lets a slow automatic refresh finish instead of superseding it every five se
   expect(screen.getByRole('button', { name: 'PDF' })).toBeInTheDocument()
   await act(async () => vi.advanceTimersByTimeAsync(10000))
   expect(api.getWorkspaceReports).toHaveBeenCalledTimes(2)
+})
+
+const completedScan = (id, domain = 'example.com') => ({ id, domain, status: 'completed', created_at: '2026-10-10T10:00:00Z' })
+async function chooseReport(label) {
+  fireEvent.click(screen.getByRole('button', { name: /Snapshot ▾|Executive ▾/ }))
+  fireEvent.click(screen.getByRole('button', { name: label, exact: true }))
+  await act(async () => {})
+}
+
+it('requires an explicit completed scan and generates its executive snapshot', async () => {
+  api.getWorkspaceReports.mockResolvedValue({ reports: [] })
+  api.getWorkspaceScans.mockResolvedValue({ scans: [completedScan('older-scan'), { ...completedScan('running-scan'), status: 'running' }, completedScan('latest-scan')] })
+  api.generateWorkspaceReport.mockResolvedValue({ report: report('selected-pdf') })
+  render(page())
+  await act(async () => {})
+  await chooseReport('Scan Snapshot')
+  expect(api.getWorkspaceScans).toHaveBeenCalledWith('workspace-a')
+  expect(screen.getByRole('button', { name: 'Generate Report', exact: true })).toBeDisabled()
+  expect(screen.getAllByRole('option').map(option => option.value)).not.toContain('running-scan')
+  fireEvent.change(screen.getByLabelText('Recent completed scan'), { target: { value: 'older-scan' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate Report', exact: true }))
+  await act(async () => {})
+  expect(api.generateWorkspaceReport).toHaveBeenCalledWith('workspace-a', 'scan_snapshot', 'older-scan')
+  fireEvent.click(screen.getByRole('button', { name: 'Download generated PDF' }))
+  expect(api.downloadWorkspaceReport).toHaveBeenCalledWith('workspace-a', 'selected-pdf')
+})
+
+it.each([
+  ['Manual Snapshot', 'manual'], ['Weekly Executive', 'weekly_executive'],
+  ['Monthly Executive', 'monthly_executive'], ['Quarterly Executive', 'quarterly_executive'],
+])('generates %s without an unrelated scan selection and exposes a deduplicated PDF', async (label, type) => {
+  api.getWorkspaceReports.mockResolvedValue({ reports: [] })
+  api.generateWorkspaceReport.mockResolvedValue({ report: { ...report('existing-period-pdf'), claimed: false } })
+  render(page())
+  await act(async () => {})
+  await chooseReport(label)
+  fireEvent.click(screen.getByRole('button', { name: 'Generate Report', exact: true }))
+  await act(async () => {})
+  expect(api.generateWorkspaceReport).toHaveBeenCalledWith('workspace-a', type)
+  expect(api.getWorkspaceScans).not.toHaveBeenCalled()
+  expect(screen.getByRole('status')).toHaveTextContent('already exists')
+  fireEvent.click(screen.getByRole('button', { name: 'Download generated PDF' }))
+  expect(api.downloadWorkspaceReport).toHaveBeenCalledWith('workspace-a', 'existing-period-pdf')
+})
+
+it('lets the customer retry a failed scan list without enabling generation prematurely', async () => {
+  api.getWorkspaceReports.mockResolvedValue({ reports: [] })
+  api.getWorkspaceScans.mockRejectedValueOnce(new Error('Scan list unavailable')).mockResolvedValue({ scans: [completedScan('ready-scan')] })
+  render(page())
+  await act(async () => {})
+  await chooseReport('Scan Snapshot')
+  expect(screen.getByRole('alert')).toHaveTextContent('Scan list unavailable')
+  expect(screen.getByRole('button', { name: 'Generate Report', exact: true })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Retry scan list' }))
+  await act(async () => {})
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(screen.getAllByRole('option').map(option => option.value)).toContain('ready-scan')
+  expect(screen.getByRole('button', { name: 'Generate Report', exact: true })).toBeDisabled()
+})
+
+it('cannot reuse scans from a workspace left while the scan list was loading', async () => {
+  const oldScans = deferred()
+  api.getWorkspaceReports.mockResolvedValue({ reports: [] })
+  api.getWorkspaceScans.mockReturnValueOnce(oldScans.promise).mockResolvedValue({ scans: [completedScan('new-scan')] })
+  const view = render(page())
+  await act(async () => {})
+  await chooseReport('Scan Snapshot')
+  workspace.wsId = 'workspace-b'; workspace.wsName = 'Workspace B'
+  view.rerender(page())
+  await act(async () => {})
+  await chooseReport('Scan Snapshot')
+  await act(async () => oldScans.resolve({ scans: [completedScan('old-scan')] }))
+  expect(screen.queryByRole('option', { name: /old-scan/ })).not.toBeInTheDocument()
+  expect(screen.getByRole('option', { name: /new-scan/ })).toBeInTheDocument()
+  expect(screen.getByLabelText('Recent completed scan')).toHaveValue('')
 })
