@@ -5,6 +5,7 @@ import { scanCompletionQualityDisclosure } from "../engines/assessment-presentat
 import { createId, isValidEmail, normalizeApiResponseData, pageMeta, paginationParams } from "./util.js";
 
 const EMAIL_SENDER_KEYS = new Set(["ALERT_EMAIL_FROM", "SAFE_EMAIL_FROM", "HELLO_EMAIL_FROM"]);
+const EMAIL_SENDER_DISPLAY_NAME = "CyberMeters";
 
 function normalizeEmailRecipients(toEmails) {
   const values = Array.isArray(toEmails) ? toEmails : typeof toEmails === "string" ? [toEmails] : [];
@@ -57,7 +58,9 @@ function prepareEmailDelivery(subject, text, html, env, fromKey, toEmails) {
   if (!safeSubject || !String(text || "").trim() || !String(html || "").trim()) {
     return { ok: false, reason: "invalid_content", context };
   }
-  const body = JSON.stringify({ from, to, subject: safeSubject, text, html });
+  // Display name so the inbox shows "CyberMeters", not the bare local part
+  // ("hello", "alerts"). The address itself stays the validated sender above.
+  const body = JSON.stringify({ from: `${EMAIL_SENDER_DISPLAY_NAME} <${from}>`, to, subject: safeSubject, text, html });
   return { ok: true, from, to, subject: safeSubject, text, html, body, context };
 }
 

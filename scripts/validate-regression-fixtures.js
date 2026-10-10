@@ -1142,7 +1142,7 @@ results.push(await asyncSecurityContract("email_delivery_provider_acceptance", a
   return delivery.sent === true && delivery.provider_id === "email_test_1" &&
     acceptedRequests[0]?.requestUrl === "https://api.resend.com/emails" &&
     payload.subject === "Security alert Injected" &&
-    payload.from === "alerts@cybermeters.com" &&
+    payload.from === "CyberMeters <alerts@cybermeters.com>" &&
     payload.to?.[0] === "owner@example.com";
 }));
 
