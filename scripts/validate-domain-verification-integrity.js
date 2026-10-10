@@ -417,10 +417,12 @@ const resetLink = () => db.exec(`UPDATE workspace_domains SET verification_statu
   eq("domain-connect: zone found by walking up from the subdomain", applied.searchParams.get("domain"), "alpha.example");
   eq("domain-connect: subdomain passed as host", applied.searchParams.get("host"), "shop");
   eq("domain-connect: token passed as template variable", applied.searchParams.get("verificationToken"), TOKEN);
-  eq("domain-connect: redirect back to the app return page",
-    applied.searchParams.get("redirect_uri"), "https://app.cybermeters.com/domains/verify-return");
-  eq("domain-connect: state carries the exact domain + workspace",
-    JSON.stringify(JSON.parse(Buffer.from(applied.searchParams.get("state"), "base64url").toString())), '{"d":"d1","w":"ws_a"}');
+  eq("domain-connect: redirect back to the app return page, carrying the exact domain + workspace",
+    applied.searchParams.get("redirect_uri"), "https://app.cybermeters.com/domains/verify-return?domain=d1&workspace=ws_a");
+  // Cloudflare ignores `state`; the return page must not depend on it.
+  eq("domain-connect: no state parameter is sent", applied.searchParams.has("state"), false);
+  ok("domain-connect: redirect_uri is inside the signed part",
+    offer.apply_url.split("?")[1].replace(/&key=[^&]*&sig=[^&]*$/, "").includes("redirect_uri="));
   eq("domain-connect: key host", applied.searchParams.get("key"), "_dck1");
   ok("domain-connect: sig is the last parameter", /&sig=[^&]+$/.test(offer.apply_url));
   const signedPart = offer.apply_url.split("?")[1].replace(/&key=[^&]*&sig=[^&]*$/, "");

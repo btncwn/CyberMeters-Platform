@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import DomainConnectReturnPage, { decodeDomainConnectState } from '../DomainConnectReturnPage'
+import DomainConnectReturnPage, { readDomainConnectTarget } from '../DomainConnectReturnPage'
 import { api } from '../../api'
 
-const state = (d, w) => btoa(JSON.stringify({ d, w })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+// The query string the provider lands on: our signed redirect_uri, plus whatever
+// the provider appends (Cloudflare drops `state`, so the page must not need it).
+const returnQuery = (extra = '') => `domain=d1&workspace=ws_a${extra}`
 const renderAt = (query) => render(
   <MemoryRouter initialEntries={[`/domains/verify-return?${query}`]}>
     <DomainConnectReturnPage intervalMs={0} />
@@ -15,12 +17,12 @@ const pendingRow = { domain_id: 'd1', verification_status: 'pending', verified_a
 
 beforeEach(() => { vi.restoreAllMocks() })
 
-describe('decodeDomainConnectState', () => {
-  it('accepts the server-issued shape only', () => {
-    expect(decodeDomainConnectState(state('d1', 'ws_a'))).toEqual({ domainId: 'd1', workspaceId: 'ws_a' })
-    expect(decodeDomainConnectState('not-base64!')).toBeNull()
-    expect(decodeDomainConnectState(state('../x', 'ws_a'))).toBeNull()
-    expect(decodeDomainConnectState(null)).toBeNull()
+describe('readDomainConnectTarget', () => {
+  it('accepts plain ids only', () => {
+    expect(readDomainConnectTarget(new URLSearchParams('domain=d1&workspace=ws_a'))).toEqual({ domainId: 'd1', workspaceId: 'ws_a' })
+    expect(readDomainConnectTarget(new URLSearchParams('domain=../x&workspace=ws_a'))).toBeNull()
+    expect(readDomainConnectTarget(new URLSearchParams('domain=d1'))).toBeNull()
+    expect(readDomainConnectTarget(new URLSearchParams(''))).toBeNull()
   })
 })
 
@@ -28,15 +30,22 @@ describe('DomainConnectReturnPage', () => {
   it('verified only from the authoritative re-read of the exact record', async () => {
     vi.spyOn(api, 'verifyDomain').mockResolvedValue({ success: true })
     vi.spyOn(api, 'getWorkspaceDomains').mockResolvedValue({ domains: [verifiedRow] })
-    renderAt(`state=${state('d1', 'ws_a')}`)
+    renderAt(returnQuery())
     await waitFor(() => expect(screen.getByText('Domain ownership verified')).toBeInTheDocument())
     expect(api.verifyDomain).toHaveBeenCalledWith('d1', 'ws_a')
+  })
+
+  it('works when the provider appends its own parameters', async () => {
+    vi.spyOn(api, 'verifyDomain').mockResolvedValue({ success: true })
+    vi.spyOn(api, 'getWorkspaceDomains').mockResolvedValue({ domains: [verifiedRow] })
+    renderAt(returnQuery('&state=ignored-by-cloudflare'))
+    await waitFor(() => expect(screen.getByText('Domain ownership verified')).toBeInTheDocument())
   })
 
   it('a success claim without a persisted record never shows verified', async () => {
     vi.spyOn(api, 'verifyDomain').mockResolvedValue({ success: true, verification_status: 'verified' })
     vi.spyOn(api, 'getWorkspaceDomains').mockResolvedValue({ domains: [pendingRow] })
-    renderAt(`state=${state('d1', 'ws_a')}`)
+    renderAt(returnQuery())
     await waitFor(() => expect(screen.getByText('Your record is still being published')).toBeInTheDocument())
     expect(screen.queryByText('Domain ownership verified')).toBeNull()
     expect(api.verifyDomain).toHaveBeenCalledTimes(8)
@@ -44,13 +53,13 @@ describe('DomainConnectReturnPage', () => {
 
   it('a cancelled consent changes nothing and offers the way back', async () => {
     const verify = vi.spyOn(api, 'verifyDomain').mockResolvedValue({})
-    renderAt(`error=access_denied&error_description=user_cancel&state=${state('d1', 'ws_a')}`)
+    renderAt(returnQuery('&error=access_denied&error_description=user_cancel'))
     expect(screen.getByText('No changes were made')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Back to verification' })).toHaveAttribute('href', '/domains/d1/verify')
     expect(verify).not.toHaveBeenCalled()
   })
 
-  it('an unrecognised state never calls the API', () => {
+  it('a link without a recognisable domain never calls the API', () => {
     const verify = vi.spyOn(api, 'verifyDomain').mockResolvedValue({})
     renderAt('state=garbage')
     expect(screen.getByText(/couldn.t match this link/)).toBeInTheDocument()

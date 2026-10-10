@@ -94,20 +94,24 @@ export async function importSigningKey(pem) {
   );
 }
 
-export function encodeState(domainId, workspaceId) {
-  const json = JSON.stringify({ d: String(domainId), w: String(workspaceId) });
-  return btoa(json).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+// Where the provider sends the customer back. The domain + workspace travel in
+// the redirect_uri itself rather than in `state`, because Cloudflare ignores
+// `state`. The redirect_uri is part of the signed query, so it cannot be
+// swapped; and the return page only triggers the normal authenticated,
+// workspace-scoped verify check, so a hand-edited link proves nothing.
+export function buildReturnUrl(origin, domainId, workspaceId) {
+  const q = new URLSearchParams({ domain: String(domainId), workspace: String(workspaceId) });
+  return `${origin}${DC_REDIRECT_PATH}?${q.toString()}`;
 }
 
 // The signed query string is exactly what is sent (minus key/sig), in a fixed
 // order. `key` and `sig` are appended last — Cloudflare requires `sig` last.
-export async function buildSignedApplyUrl({ provider, zone, host, token, redirectUri, state, signingKey }) {
+export async function buildSignedApplyUrl({ provider, zone, host, token, redirectUri, signingKey }) {
   const params = new URLSearchParams();
   params.set("domain", zone);
   if (host) params.set("host", host);
   params.set("verificationToken", token);
   params.set("redirect_uri", redirectUri);
-  params.set("state", state);
   const query = params.toString();
   const signature = await crypto.subtle.sign(
     { name: "RSASSA-PKCS1-v1_5" }, signingKey, new TextEncoder().encode(query),
@@ -169,8 +173,7 @@ export async function resolveDomainConnectOffer({ domain, token, frontendOrigin,
   const host = fqdn === zone ? "" : fqdn.slice(0, -(zone.length + 1));
   const apply_url = await buildSignedApplyUrl({
     provider, zone, host, token,
-    redirectUri: `${origin.origin}${DC_REDIRECT_PATH}`,
-    state: encodeState(domainId, workspaceId),
+    redirectUri: buildReturnUrl(origin.origin, domainId, workspaceId),
     signingKey,
   });
   return { available: true, provider: { id: provider.id, name: provider.name }, apply_url };

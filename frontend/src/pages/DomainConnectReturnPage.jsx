@@ -13,15 +13,15 @@ import { isAuthoritativeVerified } from '../lib/newScanVerification'
 const ATTEMPTS = 8
 const INTERVAL_MS = 5000
 
-export function decodeDomainConnectState(raw) {
-  try {
-    const b64 = String(raw || '').replace(/-/g, '+').replace(/_/g, '/')
-    const parsed = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)))
-    const ok = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(v)
-    return ok(parsed?.d) && ok(parsed?.w) ? { domainId: parsed.d, workspaceId: parsed.w } : null
-  } catch {
-    return null
-  }
+// The domain + workspace come from our own signed redirect_uri (Cloudflare drops
+// `state`). They only select which authenticated verify check to run; the API
+// enforces workspace access, so an edited link cannot verify anything.
+const ID_RE = /^[A-Za-z0-9_-]{1,80}$/
+
+export function readDomainConnectTarget(params) {
+  const domainId = params.get('domain')
+  const workspaceId = params.get('workspace')
+  return ID_RE.test(domainId || '') && ID_RE.test(workspaceId || '') ? { domainId, workspaceId } : null
 }
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -29,7 +29,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 export default function DomainConnectReturnPage({ intervalMs = INTERVAL_MS }) {
   const { search } = useLocation()
   const params = new URLSearchParams(search)
-  const target = decodeDomainConnectState(params.get('state'))
+  const target = readDomainConnectTarget(params)
   const providerError = params.get('error')
   const [status, setStatus] = useState(providerError ? 'cancelled' : target ? 'checking' : 'invalid')
   const [attempt, setAttempt] = useState(0)
