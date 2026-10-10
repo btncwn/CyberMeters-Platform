@@ -398,7 +398,7 @@ async function main() {
   // name-set match fails whenever CI happens to run in the relevant window
   // (retention 02:00 UTC; ops-health 08:00 UTC; weekly digest Mon 08:00 UTC).
   const nowD = new Date();
-  if (nowD.getUTCHours() === 2) expectedTasks.push("report_retention");
+  if (nowD.getUTCHours() === 2) expectedTasks.push("report_retention", "identity_breach_retention");
   if (nowD.getUTCHours() === 3) expectedTasks.push("brand_passive_discovery");
   if (nowD.getUTCHours() === 4) expectedTasks.push("brand_http_enrichment");
   if (nowD.getUTCHours() === 8) expectedTasks.push("ops_health_heartbeat");
