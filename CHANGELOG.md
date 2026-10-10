@@ -51,6 +51,35 @@ OpenAPI contract gaps, not vulnerabilities. Independent (non-author) retest
 verification of the two fixes remains open. The production/customer HOLD in
 `docs/PRE-BETA-EXECUTION-BACKLOG.md` is not consumed by this release.
 
+**Correction (10 October, recorded after the fact).** The paragraph above about
+PR #502 is wrong: the Cloudflare deployment history shows #502 was deployed on
+9 October at 16:37 UTC as API version `564e3c62-77ad-4e9e-baf3-c324a5983ae1`
+and email version `462ab4a9-ac30-4a7c-93dd-31d5409920d3` (see v2026.10.09-11
+below); it was unrecorded, not undeployed. The rollback targets for this release
+are therefore API `564e3c62-77ad-4e9e-baf3-c324a5983ae1` and email
+`462ab4a9-ac30-4a7c-93dd-31d5409920d3`, not the `433f449a…` / `1f08ce0b…`
+versions named above. The original text is kept as written.
+
+## v2026.10.09-11 — customer module order in the PDF renderer — 9 October 2026 (RECORDED AFTER THE FACT on 10 October)
+
+PR #502 merged as `d4aa580` after all CI checks passed at `f67b368`. The PDF
+renderer (`engines/pdf.js`) presents the eight customer modules in the founder's
+order; coordinated APP_VERSION `2026.10.09-report-order.c6056df1f6cb`. No
+database migration, pricing, entitlement or scoring change.
+
+API version `564e3c62-77ad-4e9e-baf3-c324a5983ae1` was activated at 16:37 UTC
+and the email Worker was deployed in the same minute as version
+`462ab4a9-ac30-4a7c-93dd-31d5409920d3` (both carry the deployment message
+"PR502 f67b368f merged d4aa580d; all CI checks passed; runtime and bindings
+parity confirmed; coordinated PDF module order only", version tag
+`pr502-6c12304e`). API rollback is `433f449a-c622-4652-8f4b-2b9374cf9b70`; email
+rollback is `1f08ce0b-d356-4bd1-b6ee-555fec5d957f`.
+
+This release had no CHANGELOG entry and no tag at the time. It is recorded here
+from the Cloudflare deployment history (`wrangler deployments list` for both
+Workers, read on 10 October) and is not backdated; the tag `v2026.10.09-11` is
+an annotated tag created on 10 October against the exact deployed commit.
+
 ## v2026.10.09-10 — identity lookup contract and customer module order — 9 October 2026
 
 PR #500 merged as `e816f037` after the reviewed head `6e99c4ff` passed all
