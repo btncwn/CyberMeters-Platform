@@ -1,0 +1,23 @@
+# CyberMeters — public marketing and legal pages are indexable;
+# the authenticated application is not.
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /ws/
+Disallow: /scans
+Disallow: /workspaces
+Disallow: /reports
+Disallow: /settings
+Disallow: /account
+Disallow: /billing
+Disallow: /checkout
+Disallow: /onboarding
+Disallow: /portfolio
+Disallow: /invitations
+Disallow: /verify-email
+Disallow: /reset-password
+Disallow: /forgot-password
+Disallow: /auth/
+Disallow: /accuracy
+
+Sitemap: https://cybermeters.com/sitemap.xml
