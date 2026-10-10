@@ -13,8 +13,8 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 278
-- **Auth-guarded:** 249
+- **Total entry points:** 279
+- **Auth-guarded:** 250
 - **Unauthenticated (public by design):** 29
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
@@ -25,7 +25,7 @@ guard without an explicit, documented public-allowlist reason.
 | email | 1 | 1 |
 | portfolio | 9 | 9 |
 | preflight | 1 | 0 |
-| public-or-global | 37 | 19 |
+| public-or-global | 38 | 20 |
 | unknown | 62 | 54 |
 | webhook | 2 | 0 |
 | workspace | 138 | 138 |
@@ -215,11 +215,12 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| POST | `/^\/api\/workspaces\/([^/` | 57 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| POST | `/^\/api\/domains\/([^/` | 191 | public-or-global | ✓ | requireAuth |
-| POST | `/^\/api\/domains\/([^/` | 294 | public-or-global | ✓ | requireAuth |
-| GET | `/^\/api\/domains\/([^/` | 667 | public-or-global | ✓ | requireAuth, requireDomainRole |
-| POST | `/^\/api\/domains\/([^/` | 707 | public-or-global | ✓ | requireAuth, requireDomainRole |
+| POST | `/^\/api\/workspaces\/([^/` | 58 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/domains\/([^/` | 192 | public-or-global | ✓ | requireAuth |
+| POST | `/^\/api\/domains\/([^/` | 299 | public-or-global | ✓ | requireAuth |
+| POST | `/^\/api\/domains\/([^/` | 346 | public-or-global | ✓ | requireAuth |
+| GET | `/^\/api\/domains\/([^/` | 719 | public-or-global | ✓ | requireAuth, requireDomainRole |
+| POST | `/^\/api\/domains\/([^/` | 759 | public-or-global | ✓ | requireAuth, requireDomainRole |
 
 ### `workers/scan-api/src/routes/email-protection.js`
 

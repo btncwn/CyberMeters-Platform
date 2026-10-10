@@ -8,6 +8,7 @@ import { api } from '../api'
 import ErrorAlert from '../components/ErrorAlert'
 import Spinner from '../components/Spinner'
 import DomainVerificationPanel from '../components/DomainVerificationPanel'
+import { useDomainConnectOffer } from '../hooks/useDomainConnectOffer'
 import { useWorkspace } from '../hooks/useWorkspace'
 import {
   canStartScan, isValidDomainSyntax, canonicalDomainInput, matchWorkspaceDomain, domainHintFor, safeErrorMessage,
@@ -54,6 +55,8 @@ export default function NewScan() {
   }, [])
 
   const valid = isValidDomainSyntax(canonicalDomainInput(domain))
+  // One-click verification, offered only once a token exists for this record.
+  const oneClick = useDomainConnectOffer(gated?.domain_id, gated?.workspace_id, dns?.value)
   const hint  = domainHintFor(state, domain, gated?.domain)
 
   // Typing a different domain invalidates ownership proven for the previous one —
@@ -361,6 +364,7 @@ export default function NewScan() {
                         state={state}
                         note={checkNote}
                         onVerify={handleVerify}
+                        oneClick={oneClick}
                       />
                     : <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
                         <div className="flex items-start gap-2.5">

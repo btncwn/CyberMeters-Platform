@@ -61,6 +61,7 @@ const AccountPrivacyPage        = lazy(() => import('./pages/AccountPrivacyPage'
 const SecurityPage              = lazy(() => import('./pages/SecurityPage'))
 const SubscriptionPage          = lazy(() => import('./pages/SubscriptionPage'))
 const DomainVerifyPage          = lazy(() => import('./pages/DomainVerifyPage'))
+const DomainConnectReturnPage   = lazy(() => import('./pages/DomainConnectReturnPage'))
 const AcademyPage               = lazy(() => import('./pages/AcademyPage'))
 const AcademyArticlePage        = lazy(() => import('./pages/AcademyArticlePage'))
 const NotificationsPage         = lazy(() => import('./pages/NotificationsPage'))
@@ -202,6 +203,7 @@ function AppRoutes() {
           <Route path="account/privacy"         element={<AccountPrivacyPage />} />
           <Route path="billing"                 element={<SubscriptionPage />} />
           <Route path="domains/:id/verify"      element={<DomainVerifyPage />} />
+          <Route path="domains/verify-return"   element={<DomainConnectReturnPage />} />
 
           {/* Workspace intelligence subpages */}
           <Route path="ws/dashboard"        element={<WorkspaceDashboard />} />
