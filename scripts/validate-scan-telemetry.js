@@ -630,7 +630,7 @@ function d1Stub({ fail = false } = {}) {
     await runBruteforceModule("example.com", { accounting: ctx });
   }, async () => jsonResponse({ Status: 0, Answer: [] }));
   ctx.markSettled();
-  eq("C1B DNS brute-force A + MX calls counted", acct.snapshot("dns_bruteforce").outbound_attempts_observed, 48);
+  eq("C1B DNS brute-force A + MX + SRV calls counted", acct.snapshot("dns_bruteforce").outbound_attempts_observed, 56);
 }
 
 {

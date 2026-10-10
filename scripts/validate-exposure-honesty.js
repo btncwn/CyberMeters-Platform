@@ -175,5 +175,161 @@ ok("gate → CAN verify on a genuine complete scan (happy path unchanged)",
       && /runExposureModule\(domain, exposureTargets,/.test(engineSrc));
 }
 
+// ── 10. First-party references reach discovery ───────────────────────────────
+// A wildcard certificate keeps hosts out of CT and a word list only guesses
+// common names. SRV records and the site's own links name the rest — without
+// any third-party data source and without asserting anything about third
+// parties: only names under the scanned domain are kept.
+{
+  const {
+    SRV_DISCOVERY_LABELS, srvTargetsUnder, runBruteforceModule, withReferencedHostnames,
+    BRUTEFORCE_MAX_NAMES,
+  } = await eng("subdomains-scan.js");
+  const { LINKED_HOST_LIMITS, linkedHostnamesUnder, runTechModule } = await eng("tech-scan.js");
+  const fs = await import("node:fs");
+  const doh = (answers) => new Response(JSON.stringify({ Status: 0, Answer: answers }), { status: 200 });
+
+  // SRV parsing
+  const srv = (data) => ({ type: 33, data });
+  ok("srv: keeps targets under the domain, normalised and deduplicated",
+    JSON.stringify(srvTargetsUnder("example.com", [
+      srv("0 0 443 Mail.Example.com."), srv("10 5 443 mail.example.com"), srv("0 0 5061 sip.eu.example.com."),
+    ])) === JSON.stringify(["mail.example.com", "sip.eu.example.com"]));
+  ok("srv: third-party targets, the root itself, look-alikes and non-SRV answers are dropped",
+    srvTargetsUnder("example.com", [
+      srv("100 1 443 sipdir.online.lync.com."), srv("0 0 443 example.com."), srv("0 0 443 badexample.com."),
+      { type: 5, data: "x.example.com." }, srv("garbage"), { type: 33, data: 7 },
+    ]).length === 0);
+
+  // SRV pass through the real module
+  const queried = [];
+  globalThis.fetch = async (value) => {
+    const url = new URL(String(value));
+    const name = url.searchParams.get("name"), type = url.searchParams.get("type");
+    queried.push(`${type} ${name}`);
+    if (type === "SRV" && name === "_autodiscover._tcp.example.com") return doh([srv("0 0 443 autodiscover.example.com.")]);
+    if (type === "SRV" && name === "_sip._tls.example.com") return doh([srv("100 1 443 sipdir.online.lync.com.")]);
+    return doh([]);
+  };
+  const brute = await runBruteforceModule("example.com", { cache: new Map() });
+  globalThis.fetch = realFetch;
+  ok("srv: every SRV label is queried once",
+    SRV_DISCOVERY_LABELS.every((label) => queried.filter((q) => q === `SRV ${label}.example.com`).length === 1));
+  ok("srv: an in-domain target becomes a discovered name with its record",
+    JSON.stringify(brute.srv_items) === JSON.stringify([{ hostname: "autodiscover.example.com", source: "dns_srv", record: "_autodiscover._tcp.example.com" }]));
+  ok("srv: answered counts records, not queries (2 of 8)", brute.srv_answered === 2 && brute.srv_checked === SRV_DISCOVERY_LABELS.length);
+  ok("srv: names stay out of brute-force items, whose sources consumers classify",
+    brute.items.every((item) => item.source !== "dns_srv") && brute.error === null);
+  ok("srv: lookups are counted in the module's checked total",
+    brute.checked === BRUTEFORCE_MAX_NAMES + 8 + SRV_DISCOVERY_LABELS.length);
+
+  globalThis.fetch = async (value) => {
+    const url = new URL(String(value));
+    if (url.searchParams.get("type") === "SRV") throw new Error("resolver down");
+    return doh(url.searchParams.get("name") === "www.example.com" ? [{ type: 1, data: "203.0.113.5" }] : []);
+  };
+  const srvDown = await runBruteforceModule("example.com", { cache: new Map() });
+  globalThis.fetch = realFetch;
+  ok("srv: a failing SRV lookup never fails the module or its A results",
+    srvDown.error === null && srvDown.items.some((item) => item.hostname === "www.example.com") && srvDown.srv_items.length === 0);
+
+  // Link extraction
+  const html = `
+    <a href="https://Portal.Example.com/login">x</a> <a href='//status.example.com'>s</a>
+    <img src="https://cdn.eu.example.com/a.png"> <form action="https://forms.example.com/f"></form>
+    <a href="/relative">r</a> <a href="https://example.com/">root</a> <a href="mailto:hi@example.com">m</a>
+    <a href="javascript:void(0)">j</a> <a href="https://badexample.com/">l</a> <a href="https://shop.vendor.net/">v</a>
+    <a href="ftp://files.example.com/">f</a> <a href="https://portal.example.com/again">dup</a>`;
+  ok("links: absolute, protocol-relative, src and form targets under the domain",
+    JSON.stringify(linkedHostnamesUnder("example.com", html, "https://www.example.com/"))
+      === JSON.stringify(["portal.example.com", "status.example.com", "cdn.eu.example.com", "forms.example.com"]));
+  ok("links: a redirect to another domain contributes no names from relative links",
+    linkedHostnamesUnder("example.com", '<a href="/x">', "https://example.co.uk/").length === 0);
+  const manyLinks = Array.from({ length: 40 }, (_, i) => `<a href="https://h${i}.example.com/">`).join("");
+  ok("links: bounded to maxHosts", linkedHostnamesUnder("example.com", manyLinks, "https://example.com/").length === LINKED_HOST_LIMITS.maxHosts);
+
+  // Link window through the real module
+  const streamOf = (parts, { close = true } = {}) => new ReadableStream({
+    start(controller) {
+      for (const part of parts) controller.enqueue(new TextEncoder().encode(part));
+      if (close) controller.close();
+    },
+  });
+  const head = `<html><head><script src="/assets/index-abc.js"></script>${" ".repeat(5000)}</head><body>`;
+  // The footer carries a CMS marker beyond the 4 KB snippet: technology
+  // detection must not start reading it just because the link window did.
+  const tail = `<footer><a href="https://careers.example.com/">Careers</a><link href="/wp-content/site.css"></footer></body></html>`;
+  const htmlResponse = (body, type = "text/html; charset=utf-8") => async (value) => {
+    const url = new URL(String(value));
+    if (["cloudflare-dns.com", "dns.google"].includes(url.hostname)) return doh(url.searchParams.get("type") === "A" ? [{ type: 1, data: "93.184.216.34" }] : []);
+    return new Response(body(), { status: 200, headers: { "content-type": type, server: "nginx" } });
+  };
+
+  globalThis.fetch = htmlResponse(() => streamOf([head, tail]));
+  const without = await runTechModule("example.com", {});
+  globalThis.fetch = htmlResponse(() => streamOf([head, tail]));
+  const withWindow = await runTechModule("example.com", { remainingMs: () => 40_000 });
+  globalThis.fetch = realFetch;
+  ok("links: absent without runner time — not examined is never 'links to nothing'",
+    !("linked_hostnames" in without) && !("linked_hostnames_bytes_read" in without));
+  ok("links: a host linked beyond the 4 KB snippet is found when the window is admitted",
+    JSON.stringify(withWindow.linked_hostnames) === JSON.stringify(["careers.example.com"]));
+  ok("links: technology detection is byte-identical with and without the window",
+    !without.technologies.includes("WordPress") && without.technologies.includes("React/Vite")
+      && JSON.stringify(without.technologies) === JSON.stringify(withWindow.technologies)
+      && JSON.stringify(without.technology_fingerprints) === JSON.stringify(withWindow.technology_fingerprints)
+      && JSON.stringify(without.external_scripts) === JSON.stringify(withWindow.external_scripts));
+
+  globalThis.fetch = htmlResponse(() => streamOf([head, tail]));
+  const tight = await runTechModule("example.com", { remainingMs: () => LINKED_HOST_LIMITS.readMs + LINKED_HOST_LIMITS.marginMs - 1 });
+  globalThis.fetch = htmlResponse(() => streamOf([head, tail]), "application/json");
+  const notHtml = await runTechModule("example.com", { remainingMs: () => 40_000 });
+  globalThis.fetch = realFetch;
+  ok("links: not read when remaining time cannot cover window plus margin", !("linked_hostnames" in tight));
+  ok("links: not read for a non-HTML response", !("linked_hostnames" in notHtml));
+
+  globalThis.fetch = htmlResponse(() => streamOf([head, '<a href="https://early.example.com/">'], { close: false }));
+  const stallStart = Date.now();
+  const stalled = await runTechModule("example.com", { remainingMs: () => 40_000 });
+  const stallMs = Date.now() - stallStart;
+  globalThis.fetch = realFetch;
+  ok("links: a body that never ends is cut at the read window",
+    stallMs >= LINKED_HOST_LIMITS.readMs - 50 && stallMs < LINKED_HOST_LIMITS.readMs + 1_000);
+  ok("links: what arrived before the cut is still used",
+    JSON.stringify(stalled.linked_hostnames) === JSON.stringify(["early.example.com"]) && stalled.technologies.includes("nginx"));
+
+  const big = "x".repeat(LINKED_HOST_LIMITS.maxBytes);
+  globalThis.fetch = htmlResponse(() => streamOf([head, big, '<a href="https://beyond.example.com/">']));
+  const capped = await runTechModule("example.com", { remainingMs: () => 40_000 });
+  globalThis.fetch = realFetch;
+  ok("links: never reads past maxBytes",
+    capped.linked_hostnames_bytes_read === LINKED_HOST_LIMITS.maxBytes && !capped.linked_hostnames.includes("beyond.example.com"));
+
+  let pulls = 0;
+  const chunk16k = new TextEncoder().encode("y".repeat(16_384));
+  globalThis.fetch = htmlResponse(() => new ReadableStream({
+    pull(controller) { pulls += 1; controller.enqueue(chunk16k); },
+  }, { highWaterMark: 0 }));
+  await runTechModule("example.com", { remainingMs: () => 40_000 });
+  globalThis.fetch = realFetch;
+  ok("links: stops pulling an endless body once maxBytes have arrived",
+    pulls > 0 && pulls <= Math.ceil(LINKED_HOST_LIMITS.maxBytes / chunk16k.byteLength) + 2);
+
+  // Merge into discovery
+  ok("merge: SRV then linked names follow CT/brute-force names, without duplicates",
+    JSON.stringify(withReferencedHostnames(["a.example.com", "b.example.com"], {
+      srvItems: [{ hostname: "c.example.com" }, { hostname: "a.example.com" }, null, { hostname: 5 }],
+      linkedHostnames: ["d.example.com", "c.example.com", ""],
+    })) === JSON.stringify(["a.example.com", "b.example.com", "c.example.com", "d.example.com"]));
+  ok("merge: absent references leave discovery unchanged",
+    JSON.stringify(withReferencedHostnames(["a.example.com"], { srvItems: undefined, linkedHostnames: undefined })) === JSON.stringify(["a.example.com"]));
+
+  const engineSrc = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/scan-engine.js"), "utf8");
+  ok("wiring: production discovery appends SRV targets and home-page links",
+    /const mergedSubdomainItems = withReferencedHostnames\(\[\.\.\.subdomainsResult\.items, \.\.\.bruteNewItems\], \{\s*srvItems: bruteforceResult\.srv_items,\s*linkedHostnames: techResult\?\.linked_hostnames,\s*\}\);/.test(engineSrc));
+  ok("wiring: only durable runs give the technology module remaining time",
+    /runTechModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs: durableInvocation \? remainingMs : null \}\)/.test(engineSrc));
+}
+
 console.log(`\nexposure-honesty: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

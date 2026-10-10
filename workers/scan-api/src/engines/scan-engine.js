@@ -68,7 +68,7 @@ import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { collectLiveTls, attachLiveTlsToSsl, liveCertificateFindings } from "./network-probe.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
-import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, prioritizeExposureTargets, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
+import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, prioritizeExposureTargets, runBruteforceModule, runSubdomainsModule, withReferencedHostnames } from "./subdomains-scan.js";
 import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply-chain.js";
 import { correlateShadowItInventory } from "./shadow-it-inventory.js";
 import { correlateCertificateLifecycle } from "./certificate-lifecycle.js";
@@ -1160,7 +1160,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
             }),
           }),
           runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: (cause) => { ctCache.releaseConsumer?.(domain, "subdomains", cause); ctProviderOverlap.freeze({ global_deadline: deadline.globalDeadlineProvenance() }); }, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: () => deadline.globalDeadlineProvenance() }) }),
-          runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal }) => runTechModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal }) }),
+          runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal, remainingMs }) => runTechModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs: durableInvocation ? remainingMs : null }) }),
           runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ source: "rdap" }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
           runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal, cache: dnsCache }) }),
         ]);
@@ -1232,7 +1232,12 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         .filter((item) => item.wildcard_match !== true)
         .map((i) => i.hostname)
         .filter((h) => h && !ctHostnames.has(h));
-      const mergedSubdomainItems = [...subdomainsResult.items, ...bruteNewItems];
+      // First-party references the word list cannot guess (SRV targets, hosts
+      // the home page links to) join discovery after CT and brute-force names.
+      const mergedSubdomainItems = withReferencedHostnames([...subdomainsResult.items, ...bruteNewItems], {
+        srvItems: bruteforceResult.srv_items,
+        linkedHostnames: techResult?.linked_hostnames,
+      });
       // Exposure probes the first 50 targets: high-value names (admin, VPN,
       // login, dev…) go first so a discovered admin host is never cut off by
       // ordinary CT names, then known assets for lifecycle re-checks.

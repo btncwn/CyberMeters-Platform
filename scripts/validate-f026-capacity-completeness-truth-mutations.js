@@ -218,6 +218,13 @@ const mutants = [
     mustContain: "FAIL (c) discovered and historical candidates are source-bounded before variable probes",
   },
   {
+    id: "SRV_PASS_GROWS_UNCOUNTED",
+    file: "workers/scan-api/src/engines/subdomains-scan.js",
+    from: "  \"_caldavs._tcp\", \"_carddavs._tcp\", \"_imaps._tcp\", \"_submission._tcp\",\n]);",
+    to:   "  \"_caldavs._tcp\", \"_carddavs._tcp\", \"_imaps._tcp\", \"_submission._tcp\", \"_ldap._tcp\",\n]);",
+    mustContain: "FAIL (c) discovered and historical candidates are source-bounded before variable probes",
+  },
+  {
     id: "VARIABLE_EXPOSURE_CAP_ESCAPES_PROVIDER",
     file: "workers/scan-api/src/engines/asset-intel.js",
     from: "  const targets = candidates.slice(0, 50);",

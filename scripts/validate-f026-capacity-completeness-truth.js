@@ -177,7 +177,9 @@ function variableOutboundBoundTruth() {
   const ctMergeCap = integerLiteral(subdomainsSource, /const MERGE_CAP\s*=\s*([\d_]+)/, "CT MERGE_CAP");
   const mailLabelsBlock = subdomainsSource.match(/const MAIL_SUBDOMAIN_LABELS\s*=\s*\[([\s\S]*?)\];/)?.[1] || "";
   const mailLabelCount = (mailLabelsBlock.match(/"[^"]+"/g) || []).length;
-  const bruteHostCap = BRUTEFORCE_MAX_NAMES + mailLabelCount;
+  const srvLabelsBlock = subdomainsSource.match(/export const SRV_DISCOVERY_LABELS\s*=\s*Object\.freeze\(\[([\s\S]*?)\]\);/)?.[1] || "";
+  const srvLabelCount = (srvLabelsBlock.match(/"[^"]+"/g) || []).length;
+  const bruteHostCap = BRUTEFORCE_MAX_NAMES + mailLabelCount + srvLabelCount;
   const knownAssetCap = integerLiteral(attackLifecycleSource, /const MAX_RECHECK_HOSTS\s*=\s*([\d_]+)/, "MAX_RECHECK_HOSTS");
   const exposureHostCap = integerLiteral(assetSource, /const targets\s*=\s*candidates\.slice\(0,\s*([\d_]+)\)/, "exposure host cap");
   const takeoverHostCap = integerLiteral(takeoverSource, /const HOST_CAP\s*=\s*([\d_]+)/, "takeover HOST_CAP");
@@ -206,7 +208,7 @@ function variableOutboundBoundTruth() {
     engineSource.includes("modules.admin_surface_detection = runAdminSurfaceModule(modules);");
 
   ok("(c) discovered and historical candidates are source-bounded before variable probes",
-    ctMergeCap === 300 && bruteHostCap === 48 && knownAssetCap === 50 &&
+    ctMergeCap === 300 && bruteHostCap === 56 && knownAssetCap === 50 &&
       exposureHostCap === 50 && takeoverHostCap === 100,
     JSON.stringify({ ctMergeCap, bruteHostCap, knownAssetCap, exposureHostCap, takeoverHostCap }));
   ok("(c) exposure redirect/DNS fan-out is source-bounded",
@@ -222,7 +224,7 @@ function variableOutboundBoundTruth() {
   ok("(c) admin_surface is derived from completed exposure evidence with zero new network I/O",
     adminIsPure, JSON.stringify({ adminStart, adminEnd }));
   ok("(c) conservative named-variable envelope stays below provider 10000 but above admission 200",
-    conservativeProfileEnvelope === 2020 &&
+    conservativeProfileEnvelope === 2028 &&
       conservativeProfileEnvelope > 200 && conservativeProfileEnvelope < providerCeiling,
     JSON.stringify({ fixedModeledEstimate, namedVariableOutboundBound, conservativeProfileEnvelope, providerCeiling }));
 }

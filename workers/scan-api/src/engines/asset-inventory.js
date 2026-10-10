@@ -128,6 +128,33 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
     });
   }
 
+  // First-party references: SRV record targets and hosts the home page links
+  // to. A name already found above keeps its earlier source (dedupe below).
+  for (const item of modules?.dns_bruteforce?.srv_items || []) {
+    const h = normalizeHostname(item?.hostname);
+    if (!h) continue;
+    allAssets.push({
+      hostname:   h,
+      asset_type: "subdomain",
+      source:     "dns_srv",
+      wildcard:   0,
+      risk_level: null,
+      cloud:      null,
+    });
+  }
+  for (const hostname of modules?.technology_detection?.linked_hostnames || []) {
+    const h = normalizeHostname(hostname);
+    if (!h) continue;
+    allAssets.push({
+      hostname:   h,
+      asset_type: "subdomain",
+      source:     "html_link",
+      wildcard:   0,
+      risk_level: null,
+      cloud:      null,
+    });
+  }
+
   // Cloud storage findings
   for (const finding of modules?.cloud_storage_discovery?.findings || []) {
     const h = normalizeHostname(finding.asset);

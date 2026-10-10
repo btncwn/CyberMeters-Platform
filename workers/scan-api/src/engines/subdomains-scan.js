@@ -577,6 +577,45 @@ const MAIL_SUBDOMAIN_LABELS = [
   "reports", "send", "mx", "smtp", "mta", "mg", "bounce", "dmarc",
 ];
 
+// Standard service-location records (RFC 2782 SRV). Their targets name real
+// hosts — often ones a wildcard certificate keeps out of CT. Only targets
+// under the scanned domain are kept; third-party targets (e.g. a hosted mail
+// provider) are not the customer's surface. Queried in parallel with the MX
+// pass, so the module's slowest path is unchanged.
+export const SRV_DISCOVERY_LABELS = Object.freeze([
+  "_autodiscover._tcp", "_sip._tls", "_sipfederationtls._tcp", "_xmpp-server._tcp",
+  "_caldavs._tcp", "_carddavs._tcp", "_imaps._tcp", "_submission._tcp",
+]);
+
+export function srvTargetsUnder(domain, answers = []) {
+  const root = String(domain || "").toLowerCase();
+  const targets = new Set();
+  for (const answer of answers) {
+    if (answer?.type !== 33 || typeof answer.data !== "string") continue;
+    const target = answer.data.trim().split(/\s+/)[3]?.toLowerCase().replace(/\.$/, "");
+    if (target && target !== root && target.endsWith(`.${root}`) && /^[a-z0-9.-]+$/.test(target)) targets.add(target);
+  }
+  return [...targets];
+}
+
+// SRV targets and hosts the home page links to, appended after the names CT
+// and the word list found. Discovery order is kept; nothing is duplicated.
+export function withReferencedHostnames(discovered = [], { srvItems = [], linkedHostnames = [] } = {}) {
+  const base = Array.isArray(discovered) ? discovered : [];
+  const seen = new Set(base);
+  const added = [];
+  const referenced = [
+    ...(Array.isArray(srvItems) ? srvItems : []).map((item) => item?.hostname),
+    ...(Array.isArray(linkedHostnames) ? linkedHostnames : []),
+  ];
+  for (const host of referenced) {
+    if (typeof host !== "string" || !host || seen.has(host)) continue;
+    seen.add(host);
+    added.push(host);
+  }
+  return [...base, ...added];
+}
+
 /**
  * Probe the wordlist against `domain` via DoH A-record lookups.
  * Returns any names that resolve, with source = "dns_bruteforce".
@@ -630,30 +669,51 @@ export async function runBruteforceModule(domain, opts = {}) {
     const mailCandidates = MAIL_SUBDOMAIN_LABELS
       .map((label) => `${label}.${domain}`)
       .filter((host) => !foundHosts.has(host));
+    const srvNames = SRV_DISCOVERY_LABELS.map((label) => `${label}.${domain}`);
+    const srvItems = [];
+    let srvAnswered = 0;
     try {
-      const mxSettled = await Promise.race([
-        Promise.allSettled(
-          mailCandidates.map((host) =>
-            dnsQuery(host, "MX", { accounting, cache }).then((r) => ({ host, answers: r.Answer || [] }))
-          )
-        ),
+      const secondPass = await Promise.race([
+        Promise.allSettled([
+          ...mailCandidates.map((host) =>
+            dnsQuery(host, "MX", { accounting, cache }).then((r) => ({ kind: "mx", host, answers: r.Answer || [] }))
+          ),
+          ...srvNames.map((name) =>
+            dnsQuery(name, "SRV", { accounting, cache }).then((r) => ({ kind: "srv", host: name, answers: r.Answer || [] }))
+          ),
+        ]),
         new Promise((resolve) => setTimeout(() => resolve([]), HARD_CAP_MS)),
       ]);
-      if (Array.isArray(mxSettled)) {
-        for (const s of mxSettled) {
+      if (Array.isArray(secondPass)) {
+        const srvHosts = new Set();
+        for (const s of secondPass) {
           if (s.status !== "fulfilled") continue;
-          const { host, answers } = s.value;
-          if (answers && answers.length > 0) {
-            found.push({ hostname: host, ip_addresses: [], source: "dns_mx", mail_only: true });
+          const { kind, host, answers } = s.value;
+          if (kind === "mx") {
+            if (answers && answers.length > 0) {
+              found.push({ hostname: host, ip_addresses: [], source: "dns_mx", mail_only: true });
+            }
+            continue;
+          }
+          if ((answers || []).some((answer) => answer?.type === 33)) srvAnswered++;
+          for (const target of srvTargetsUnder(domain, answers)) {
+            if (srvHosts.has(target)) continue;
+            srvHosts.add(target);
+            srvItems.push({ hostname: target, source: "dns_srv", record: host });
           }
         }
       }
-    } catch { /* mail probe is best-effort */ }
+    } catch { /* second pass is best-effort */ }
 
     return {
-      checked: candidates.length + mailCandidates.length,
+      checked: candidates.length + mailCandidates.length + srvNames.length,
       found:   found.length,
       items:   found,
+      // SRV targets are kept apart from `items` (whose sources downstream
+      // consumers already classify); the engine merges them into discovery.
+      srv_items: srvItems,
+      srv_checked: srvNames.length,
+      srv_answered: srvAnswered,
       source:  "dns_bruteforce",
       error:   null,
     };
