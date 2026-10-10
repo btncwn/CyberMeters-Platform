@@ -1081,6 +1081,60 @@ export function runRiskModule(findings, modules) {
     categories["Data Security"].push(cveNote);
   }
 
+  // Reported-version CVE evidence. The version comes from a response header
+  // and is matched to NVD applicability statements; KEV and EPSS order it.
+  // Observation-only (score 0) until a score-methodology revision admits it:
+  // distributions backport fixes without changing the reported version.
+  const versionResults = phase5Evidence.publishable.cve ? (cveIntel.version_results || {}) : {};
+  const versionRows = Object.entries(versionResults)
+    .filter(([, list]) => Array.isArray(list) && list.length > 0)
+    .map(([tech, list]) => ({ tech, list, evidence: cveIntel.version_evidence?.[tech] || {} }));
+  if (versionRows.length > 0) {
+    const PRODUCT_LABELS = { nginx: "nginx", openresty: "OpenResty", apache: "Apache HTTP Server", iis: "Microsoft IIS", php: "PHP", lighttpd: "lighttpd" };
+    const SOURCE_LABELS = { server_header: "Server header", x_powered_by_header: "X-Powered-By header" };
+    const productText = (row) => `${PRODUCT_LABELS[row.tech] || row.tech} ${row.evidence.version}`;
+    const matchedTotal = versionRows.reduce((sum, row) => sum + (Number(row.evidence.matched) || row.list.length), 0);
+    const kevTotal = versionRows.reduce((sum, row) => sum + row.list.filter((c) => c.kev === true).length, 0);
+    const ranked = versionRows.flatMap((row) => row.list.map((c) => ({ ...c, product: productText(row) })))
+      .sort((a, b) => Number(b.kev === true) - Number(a.kev === true) || (b.epss ?? -1) - (a.epss ?? -1) || (b.cvss_score ?? -1) - (a.cvss_score ?? -1));
+    const describe = (c) => `${c.cve_id} (${c.product}${c.cvss_score != null ? `, CVSS ${c.cvss_score}` : ""}${c.kev === true ? ", known to be exploited" : ""}${c.epss_percentile != null ? `, exploitation likelihood in the top ${Math.max(1, Math.round((1 - c.epss_percentile) * 100))}%` : ""})`;
+    const platforms = versionRows.map((row) => row.evidence.platform_hint).filter(Boolean);
+    const vulnWord = (n) => `published vulnerabilit${n === 1 ? "y" : "ies"}`;
+    const versionNote = {
+      id:             "known_vulnerable_component",
+      module:         "cve_intelligence",
+      finding_type:   "observation",
+      severity:       "informational",
+      title:          versionRows.length === 1
+        ? `${productText(versionRows[0])} (reported) is listed as affected by ${matchedTotal} ${vulnWord(matchedTotal)}${kevTotal ? `, ${kevTotal} known to be exploited` : ""}`
+        : `${versionRows.length} reported software versions are listed as affected by ${matchedTotal} ${vulnWord(matchedTotal)}${kevTotal ? `, ${kevTotal} known to be exploited` : ""}`,
+      description:    `${versionRows.map((row) => `The ${SOURCE_LABELS[row.evidence.source] || "response"} reports ${productText(row)}`).join("; ")}. NVD lists these versions inside the affected range of ${matchedTotal} ${vulnWord(matchedTotal)}. Highest priority: ${ranked.slice(0, 3).map(describe).join("; ")}. The version is what the server reports: Linux distributions often backport security fixes without changing it${platforms.length ? ` (reported platform: ${[...new Set(platforms)].join(", ")})` : ""}, so confirm the installed patch level with whoever manages this server before treating these as open.`,
+      business_impact: kevTotal
+        ? "At least one listed vulnerability is on CISA's Known Exploited Vulnerabilities list, meaning attackers are using it now. Confirm the patch level of this software first."
+        : "Publicly listed vulnerabilities in reported software versions are a common entry point. Confirm the patch level and update where it is behind.",
+      risk_category:  "Data Security",
+      score_impact:   0,
+      reported_versions: versionRows.map((row) => ({ technology: row.tech, version: row.evidence.version, source: row.evidence.source, cpe: row.evidence.cpe, matched: Number(row.evidence.matched) || row.list.length })),
+      matched_cves:   ranked.slice(0, 10).map((c) => ({ cve_id: c.cve_id, product: c.product, cvss_score: c.cvss_score ?? null, severity: c.severity, kev: c.kev ?? null, epss: c.epss ?? null, epss_percentile: c.epss_percentile ?? null })),
+      evidence:       versionRows.map((row) => ({
+        type: "reported_version_cpe_match",
+        value: row.evidence.cpe,
+        source: `${row.evidence.source || "response_header"}+nvd_cpe`,
+        version_confirmed: false,
+      })),
+      ...(cveIntel.epss_status && cveIntel.epss_status !== "complete" || cveIntel.kev_status && cveIntel.kev_status !== "complete" ? {
+        coverage_limitation: {
+          state: "partial",
+          epss: cveIntel.epss_status || null,
+          kev: cveIntel.kev_status || null,
+        },
+      } : {}),
+    };
+    enrichedFindings.push(versionNote);
+    customerFindings.push(versionNote);
+    categories["Data Security"].push(versionNote);
+  }
+
   // Build overall risk narrative
   let overallRisk, narrative;
   if (!phase5Evidence.complete) {
