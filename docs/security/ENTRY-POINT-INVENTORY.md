@@ -496,7 +496,7 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | DELETE | `(none)` | 218 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `(none)` | 285 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | POST | `(none)` | 368 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| POST | `/^\/api\/workspaces\/([^/` | 454 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 539 | workspace | ✓ | requireAuth |
+| POST | `/^\/api\/workspaces\/([^/` | 457 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^/` | 542 | workspace | ✓ | requireAuth |
 
 _`*` = workspace-scoping helper (getAccessibleWorkspaceIds / getWorkspaceBillingUserId)._

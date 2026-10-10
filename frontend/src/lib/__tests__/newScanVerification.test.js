@@ -3,8 +3,7 @@ import {
   canStartScan, isValidDomainSyntax, domainHintFor, safeErrorMessage,
   isVerificationRequired, dnsInstructionFrom, checkFailureMessage,
   shouldKeepInstructions, SCAN_STATES, DNS_TTL_GUIDANCE,
-  requiresVerificationCta, isDeadEnd,
-} from '../newScanVerification'
+  requiresVerificationCta, isDeadEnd, canonicalDomainInput, matchWorkspaceDomain } from '../newScanVerification'
 
 // ── The production deadlock (P1) ────────────────────────────────────────────
 // Observed live: a valid domain showed "Valid domain format…", Start Scan was
@@ -160,5 +159,49 @@ describe('a failed DNS check keeps the instructions actionable', () => {
     expect(shouldKeepInstructions('instructions')).toBe(true)
     expect(shouldKeepInstructions('checking')).toBe(true)
     expect(shouldKeepInstructions('check_failed')).toBe(true)   // must not strand the customer
+  })
+})
+
+describe('canonicalDomainInput: what people paste becomes the monitored domain', () => {
+  it('reduces www to the apex so a one-domain trial is not spent on the wrong name', () => {
+    expect(canonicalDomainInput('www.sheshire.co.uk')).toBe('sheshire.co.uk')
+    expect(canonicalDomainInput('WWW.Example.com')).toBe('example.com')
+  })
+  it('strips scheme, path, query, port and trailing dots', () => {
+    expect(canonicalDomainInput('https://sheshire.co.uk/')).toBe('sheshire.co.uk')
+    expect(canonicalDomainInput('https://www.example.com/shop?x=1#top')).toBe('example.com')
+    expect(canonicalDomainInput('example.com:443')).toBe('example.com')
+    expect(canonicalDomainInput('example.com.')).toBe('example.com')
+  })
+  it('never collapses onto a public suffix', () => {
+    expect(canonicalDomainInput('www.co.uk')).toBe('www.co.uk')
+    expect(canonicalDomainInput('www.com.au')).toBe('www.com.au')
+  })
+  it('keeps other subdomains as typed', () => {
+    expect(canonicalDomainInput('shop.example.com')).toBe('shop.example.com')
+    expect(canonicalDomainInput('wwwexample.com')).toBe('wwwexample.com')
+  })
+  it('a pasted URL is valid syntax after canonicalisation and the hint names the apex', () => {
+    expect(domainHintFor('valid_unverified', 'https://www.example.com/')).toEqual({
+      tone: 'neutral', text: "We'll monitor example.com — www and other subdomains are covered from there.",
+    })
+    expect(domainHintFor('idle', 'not a domain').tone).toBe('error')
+  })
+})
+
+describe('matchWorkspaceDomain: an existing exact record wins, otherwise the apex', () => {
+  const both = [{ domain_id: 'apex', domain: 'x.com' }, { domain_id: 'www', domain: 'www.x.com' }]
+  it('an older workspace that already monitors www keeps that record', () => {
+    expect(matchWorkspaceDomain(both, 'www.x.com').domain_id).toBe('www')
+  })
+  it('www resolves to the apex when only the apex exists', () => {
+    expect(matchWorkspaceDomain([{ domain_id: 'apex', domain: 'x.com' }], 'www.x.com').domain_id).toBe('apex')
+  })
+  it('a pasted URL resolves to its record and an unknown domain to nothing', () => {
+    expect(matchWorkspaceDomain(both, 'https://x.com/').domain_id).toBe('apex')
+    expect(matchWorkspaceDomain(both, 'y.com')).toBeNull()
+  })
+  it('the hint names the record that will actually be scanned', () => {
+    expect(domainHintFor('verified', 'www.x.com', 'x.com').text).toMatch(/verified for x\.com/)
   })
 })

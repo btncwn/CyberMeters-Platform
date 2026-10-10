@@ -7,6 +7,7 @@ import {
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import { PENDING_SIGNUP_DOMAIN_KEY } from '../utils/signupDomainHandoff'
+import { canonicalDomainInput } from '../lib/newScanVerification'
 
 function domainIdOf(domain) {
   return domain?.domain_id || domain?.id
@@ -177,12 +178,12 @@ export default function OnboardingPage() {
     setActionLoading('domain')
     setError(null)
     try {
-      const data = await api.addDomainToWorkspace(workspace.id, domainName.trim())
+      const data = await api.addDomainToWorkspace(workspace.id, canonicalDomainInput(domainName))
       const created = data.domain || data
       const refreshed = await api.getWorkspaceDomains(workspace.id).catch(() => ({ domains: [created] }))
       const list = refreshed.domains || [created]
       setDomains(list)
-      setSelectedDomain(list.find(item => domainNameOf(item) === domainName.trim()) || created || list[0])
+      setSelectedDomain(list.find(item => domainNameOf(item) === canonicalDomainInput(domainName)) || created || list[0])
       setDomainName('')
       try { localStorage.removeItem(PENDING_SIGNUP_DOMAIN_KEY) } catch { /* ignore */ } // handoff consumed
     } catch (e) {
