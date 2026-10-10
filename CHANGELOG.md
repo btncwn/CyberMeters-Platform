@@ -7,6 +7,51 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.10.10-2 — identity evidence and confirmed response — 10 October 2026
+
+PR #514 merged as `ae51bdf0` after full CI and E2E passed at `daa59d9b`.
+Claude independently passed the corrective identity changes at `639ddbc2`;
+the final integration also preserves #515's canonical Microsoft callback.
+Identity now includes customer-supplied workforce/VIP accounts, explicit Entra
+observations and a preview/confirm/session-request/result-check workflow, plus
+bounded public-source checks with masked secret candidates. Signup and password
+reset use HIBP Pwned Passwords; existing login remains independent. LeakCheck
+runtime, binding, quota namespace and provider-specific tables were removed.
+There is no employee breach feed or automatic account intervention.
+
+Additive migrations 113/114 preceded the new Workers; removal migration 112 ran
+only after the API was healthy. A private D1 export and Time Travel bookmark
+were captured before changes; no remote restore drill ran. API version
+`f20c2909-ee20-4944-b355-b5a14dd49786` and email version
+`99c22f2b-2424-469b-a27c-2939f548773f` serve coordinated APP_VERSION
+`2026.10.10-identity-evidence.9594a759f308`. Pages deployment
+`702ac18f-d6e5-44be-b61a-9cbf7e1c2cfb` successfully serves `ae51bdf0` on
+app, apex and www. Both health endpoints identify the new versions; API readiness
+reports D1/R2 healthy and anonymous workspace access returns 401. The live signup
+route rejected a known synthetic compromised password with `password_compromised`
+before account creation. Own-workspace workforce/public-source reads rendered.
+The public-source operation was correctly refused because the founder account's
+trial had expired; live public-source execution and product-UI Entra intervention
+are not claimed as accepted. Entitlements and Microsoft sessions were unchanged.
+The release follow-up adds a direct People & evidence link from Identity Exposure.
+
+Pre-release API was `602d164d-c180-4da2-8462-7e7a9feae3b1`, email was
+`538b0344-8c43-4300-a4ab-52bcee0d1ef2`, and Pages was
+`abece0b6-b935-4206-9be6-da5e22874b5b`. The removed Durable Object class
+prevents direct rollback to the old API version; use compatible recovery code
+and schema, not blind version reactivation. The private export is recovery data,
+not an active provider integration. Unresolved Entra actions still require
+operator investigation; individual roster deletion/rebinding has no UI yet.
+
+### RECORDED AFTER THE FACT — Microsoft callback correction (#515)
+
+Before this release, #515 (`ea6d4669`) deployed API version
+`602d164d-c180-4da2-8462-7e7a9feae3b1` at 09:41 UTC and Pages deployment
+`abece0b6-b935-4206-9be6-da5e22874b5b`. It changed the Microsoft callback
+to `https://api.cybermeters.com/api/auth/microsoft/callback`; the previous
+APP_VERSION remained unchanged. This entry records the observed deployment
+after the fact and grants no retrospective live acceptance.
+
 ## v2026.10.10-1 — security-posture batches and Lynceus wiring — 10 October 2026
 
 PR #505 merged as `35a7971` after all 17 checks passed at `a478b52`. Every
