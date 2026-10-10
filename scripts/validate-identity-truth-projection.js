@@ -223,6 +223,7 @@ const FIXTURES = [
         && /measured reachable surfaces/.test(source.methodology());
     } },
   { id: "U3-DOM-01", run: () => { const d = resolveCyberMotDomainStates(cleanComplete()); const i = d.find((x) => x.domain_key === "identity_exposure"); return d.length === 8 && i?.state === "evidence_insufficient" && /not evaluated|producer/i.test(i?.summary || ""); } },
+  { id: "U3-DOM-DEGRADED", run: () => { const report = cleanComplete(); report.scan_quality = { status: "partial", modules_skipped: ["identity_discovery"] }; const domain = resolveCyberMotDomainStates(report).find(x => x.domain_key === "identity_exposure"); return domain?.state === "evidence_insufficient" && domain.coverage === "degraded"; } },
   { id: "U3-DOM-02", control: true, run: () => { const d = resolveCyberMotDomainStates(cleanComplete()).filter((x) => x.domain_key !== "identity_exposure"); return d.length === 7 && d.every((x) => x?.state); } },
   { id: "U3-XD-01", run: () => { const row = { ...providerRow("token_substring"), risk_score: 20 }; const value = inventory.projectIdentityProviderObservation?.(row); return value?.confidence === "low" && value?.confidence_detail?.subject === "provider_identification" && !/row\.risk_score/.test(source.shadow()); } },
   { id: "U3-XD-02", control: true, run: () => inventory.strongerObservationConfidence?.("high", "medium") === "high" || /strongerConfidence/.test(source.shadow()) },

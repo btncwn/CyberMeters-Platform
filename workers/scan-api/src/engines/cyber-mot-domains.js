@@ -82,7 +82,9 @@ import {
 // never own issue state merely because their presentation severity is high.
 // `2026-10-08.1`: verified DNS absence completes its measurement but cannot
 // establish a healthy HTTP attack surface or rewrite an earlier snapshot.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-08.1";
+// `2026-10-10.1`: HTTP identity inventory does not establish healthy account
+// security. Compromise and sign-in controls remain explicitly unassessed.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-10.1";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -468,7 +470,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     }
     if (d.domain_key === "identity_exposure") {
       base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
-      base.coverage = requiredAssessedAll ? "partial" : quality;
+      base.coverage = anyRequiredInsufficient || signalCoverageLimited ? "degraded" : "partial";
       base.summary = "Provider relationships, possible hostnames and measured endpoints are inventory evidence. Account compromise and sign-in controls were not evaluated.";
       return base;
     }

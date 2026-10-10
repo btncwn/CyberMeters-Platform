@@ -34,7 +34,8 @@ import { visibleFindingSql } from "./finding-identity.js";
 // change so a persisted snapshot can refuse cross-methodology comparison. Customer
 // presentation of this value is "Business Risk Indicator" — a band plus explanation,
 // never a second competing score (founder package, 2026-07-16).
-export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-08-11.1";
+// Public endpoint reachability is now inventory-only, without a risk deduction.
+export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-10-10.1";
 
 function getBusinessRiskBand(score) {
   if (score <= 30) return "critical";

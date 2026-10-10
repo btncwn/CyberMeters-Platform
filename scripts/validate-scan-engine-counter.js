@@ -41,8 +41,10 @@ const realFetch = globalThis.fetch;
   eq("legacy probeAsset method GET", lastOpts.method, "GET");
   ok("legacy probeAsset keeps AbortSignal timeout", !!lastOpts.signal);
   ok("legacy probeAsset sets redirect:\"manual\" for per-hop SSRF validation (C1)", lastOpts.redirect === "manual");
-  eq("legacy probeAsset success result shape unchanged",
-     Object.keys(r).sort().join(","), "content_type,host,reachable,server,status,tech,title,url");
+  eq("probeAsset retains legacy fields and adds bounded authentication evidence",
+     Object.keys(r).sort().join(","), "authentication_observation,content_type,host,reachable,server,status,tech,title,url");
+  eq("an absent field remains unknown", r.authentication_observation.password_form_observed, null);
+  ok("authentication observation is dated", Number.isFinite(Date.parse(r.authentication_observation.measured_at)));
   globalThis.fetch = realFetch;
 }
 
