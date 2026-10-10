@@ -92,6 +92,9 @@ export default function IdentityExposurePage() {
         <p className="text-sm text-slate-500 mt-1">
           Review and own provider relationships and possible identity-facing hostnames for your domains.
         </p>
+        <Link to="/ws/identity-assets" className="btn-secondary inline-flex mt-3 text-sm">
+          People &amp; evidence →
+        </Link>
       </div>
 
 
