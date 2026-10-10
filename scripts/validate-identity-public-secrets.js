@@ -82,6 +82,9 @@ eq('authorization and input negatives make zero outgoing calls', outbound.length
 const positive = await call('POST', path, 'owner', body);
 eq('production check accepted', positive.status, 201);
 eq('real route saves masked evidence', positive.data.check.result.findings.length, 1);
+const audit = db.prepare("SELECT * FROM audit_events WHERE event_type='identity_public_sources_checked' AND entity_id=?").get(positive.data.check.id);
+eq('public-source check has a scoped audit index',[audit?.workspace_id,audit?.user_id],['wa','owner']);
+eq('public-source audit does not copy fetched candidates or bodies',JSON.stringify(audit).includes(candidate),false);
 eq('no secret in API or database', JSON.stringify(positive.data).includes(candidate) || JSON.stringify(db.prepare('SELECT * FROM identity_public_source_checks').all()).includes(candidate), false);
 eq('other workspace cannot read the check', (await call('GET', path, 'other')).status, 403);
 eq('workspace member can read masked evidence', (await call('GET', path, 'viewer')).data.checks.length, 1);

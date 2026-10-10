@@ -3,11 +3,14 @@ import { createEntraSessionClient, EntraSessionError, normalizeEntraUpn } from '
 import { getEffectivePlan } from '../engines/entitlements.js';
 import { getWorkspaceBillingUserId } from '../engines/plan-usage.js';
 import { planAllowsHostedPolicyManagement } from '../engines/hosted-dmarc.js';
+import { createAuditEvent } from '../lib/events.js';
 
 const SCOPE = 'Customer-supplied accounts and explicitly requested Microsoft observations. No employee breach feed or automatic account intervention.';
 const GUARD = `EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL) AND
  (EXISTS(SELECT 1 FROM workspace_members WHERE workspace_id=? AND user_id=? AND role IN ('owner','admin')) OR
  EXISTS(SELECT 1 FROM workspaces w WHERE w.id=? AND w.owner_user_id=? AND NOT EXISTS(SELECT 1 FROM workspace_members m WHERE m.workspace_id=w.id)))`;
+const ACCOUNT_AVAILABLE = `NOT EXISTS(SELECT 1 FROM identity_response_actions
+ WHERE workspace_id=? AND account_id=? AND status IN ('applying','uncertain'))`;
 const bad = (code = 'invalid_input') => { throw new EntraSessionError(code); };
 const text = (value, max) => typeof value === 'string' && value.trim().length <= max && !/[\x00-\x1f\x7f]/.test(value) ? value.trim() : bad();
 const keys = (body, allowed) => { if (!body || Array.isArray(body) || Object.keys(body).some(k => !allowed.includes(k))) bad(); };
@@ -30,7 +33,7 @@ export async function identityWorkforceRoutes(rctx) {
   const action = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/identity-response\/([^\/]+)\/(apply|verify)$/);
   if (!roster && !member && !preview && !action) return null;
   const workspaceId = (roster || member || preview || action)[1], db = env.cybermeters_db;
-  let claimedId = null;
+  let claimedId = null, claimedActor = null;
   try {
     const user = await requireAuth(request, env);
     if (!user) return json({ error: 'Unauthorized' }, 401);
@@ -47,6 +50,13 @@ export async function identityWorkforceRoutes(rctx) {
     };
     const account = id => db.prepare('SELECT * FROM identity_workforce_accounts WHERE workspace_id=? AND id=?').bind(workspaceId, id).first();
     const getAction = id => db.prepare('SELECT * FROM identity_response_actions WHERE workspace_id=? AND id=?').bind(workspaceId, id).first();
+    const accountAvailable = id => db.prepare(`SELECT 1 AS ok WHERE ${ACCOUNT_AVAILABLE}`).bind(workspaceId, id).first();
+    // Minimal audit index; the action row remains the authoritative outcome.
+    // Never copy credentials, UPNs, concern text or provider bodies to metadata.
+    const audit = (event_type, entity_type, entity_id) => createAuditEvent(env, {
+      workspace_id: workspaceId, user_id: user.id, event_type, entity_type, entity_id,
+      active_workspace_required: true,
+    });
     if (roster && request.method === 'GET') {
       const accounts = await db.prepare('SELECT * FROM identity_workforce_accounts WHERE workspace_id=? ORDER BY vip DESC,upn LIMIT 200').bind(workspaceId).all();
       const actions = await db.prepare('SELECT * FROM identity_response_actions WHERE workspace_id=? ORDER BY created_at DESC,id DESC LIMIT 50').bind(workspaceId).all();
@@ -85,6 +95,7 @@ export async function identityWorkforceRoutes(rctx) {
         AND EXISTS(SELECT 1 FROM workspace_domains WHERE workspace_id=? AND domain_id=? AND verification_status='verified' AND verified_at IS NOT NULL)
         ON CONFLICT(workspace_id,upn) DO NOTHING`).bind(id, workspaceId, upn, name, body.vip ? 1 : 0, domain.id, user.id, at, at, ...guardArgs, workspaceId, workspaceId, domain.id).run();
       if (saved.meta?.changes !== 1) return json({ error: 'Account already exists, inventory is full, or authorization changed.' }, 409);
+      await audit('identity_account_added', 'identity_account', id);
       return json({ account: accountView(await account(id)) }, 201);
     }
     if (member && request.method === 'PATCH') {
@@ -96,6 +107,7 @@ export async function identityWorkforceRoutes(rctx) {
       const saved = await db.prepare(`UPDATE identity_workforce_accounts SET vip=?,display_name=?,updated_at=? WHERE workspace_id=? AND id=? AND ${GUARD}`)
         .bind(body.vip === undefined ? record.vip : body.vip ? 1 : 0, name, at, workspaceId, record.id, ...guardArgs).run();
       if (saved.meta?.changes !== 1) bad('authorization_changed');
+      await audit('identity_account_updated', 'identity_account', record.id);
       return json({ account: accountView(await account(record.id)) });
     }
     if (member && request.method === 'POST' && member[2] === 'observe') {
@@ -117,12 +129,14 @@ export async function identityWorkforceRoutes(rctx) {
             ON CONFLICT(workspace_id,upn) DO NOTHING`)
           .bind(id, workspaceId, upn, observation.displayName, observation.tenantId, observation.clientId, observation.id, JSON.stringify(observation), user.id, at, at, ...guardArgs, workspaceId).run();
       if (saved.meta?.changes !== 1) return json({ error: 'Account changed or could not be saved. Refresh and check again.' }, 409);
+      await audit('identity_account_observed', 'identity_account', id);
       return json({ account: accountView(await account(id)) }, existing ? 200 : 201);
     }
     if (preview && request.method === 'POST') {
       keys(body, ['account_id', 'concern', 'credentials']);
       const record = await account(text(body.account_id, 100));
       if (!record) return json({ error: 'Account not found' }, 404);
+      if (!await accountAvailable(record.id)) bad('account_response_unresolved');
       const concern = text(body.concern, 500); if (!concern) bad();
       const client = boundClient(record), target = await client.preview(record.upn);
       if (!bindingMatches(record, target)) bad('target_changed');
@@ -130,9 +144,11 @@ export async function identityWorkforceRoutes(rctx) {
       const id = 'ira-' + crypto.randomUUID();
       const saved = await db.prepare(`INSERT INTO identity_response_actions(id,workspace_id,account_id,requested_by,concern,preview_json,status,created_at,expires_at,updated_at)
         SELECT ?,?,?,?,?,?,'previewed',?,?,? WHERE ${GUARD}
-        AND EXISTS(SELECT 1 FROM identity_workforce_accounts WHERE id=? AND workspace_id=? AND upn=? AND provider_user_id=? AND tenant_id=? AND client_id=?)`)
-        .bind(id, workspaceId, record.id, user.id, concern, JSON.stringify(target), at, target.expiresAt, at, ...guardArgs, record.id, workspaceId, target.upn, target.id, target.tenantId, target.clientId).run();
-      if (saved.meta?.changes !== 1) bad('authorization_changed');
+        AND EXISTS(SELECT 1 FROM identity_workforce_accounts WHERE id=? AND workspace_id=? AND upn=? AND provider_user_id=? AND tenant_id=? AND client_id=?)
+        AND ${ACCOUNT_AVAILABLE}`)
+        .bind(id, workspaceId, record.id, user.id, concern, JSON.stringify(target), at, target.expiresAt, at, ...guardArgs, record.id, workspaceId, target.upn, target.id, target.tenantId, target.clientId, workspaceId, record.id).run();
+      if (saved.meta?.changes !== 1) bad(!await accountAvailable(record.id) ? 'account_response_unresolved' : 'authorization_changed');
+      await audit('identity_response_previewed', 'identity_response', id);
       return json({ action: actionView(await getAction(id)) }, 201);
     }
     if (action && request.method === 'POST') {
@@ -153,16 +169,22 @@ export async function identityWorkforceRoutes(rctx) {
         const saved = await db.prepare(`UPDATE identity_response_actions SET verification_json=?,updated_at=? WHERE id=? AND workspace_id=? AND ${GUARD}`)
           .bind(JSON.stringify(verification), verification.checkedAt, record.id, workspaceId, ...guardArgs).run();
         if (saved.meta?.changes !== 1) bad('authorization_changed');
+        await audit('identity_response_checked', 'identity_response', record.id);
         return json({ action: actionView(await getAction(record.id)) });
       }
       if (record.requested_by !== user.id || record.status !== 'previewed' || Date.now() >= Date.parse(record.expires_at)) return json({ error: 'Preview expired or already used. An uncertain attempt must be investigated before any new request.' }, 409);
       if (normalizeEntraUpn(body.confirmed_upn) !== original.upn) bad('confirmation_required');
-      // Atomic durable claim precedes all provider calls. Concurrent/repeated
-      // requests cannot send a second revoke, including a lost HTTP response.
-      const claimed = await db.prepare(`UPDATE identity_response_actions SET status='applying',updated_at=? WHERE id=? AND workspace_id=? AND requested_by=? AND status='previewed' AND expires_at>? AND ${GUARD}`)
-        .bind(at, record.id, workspaceId, user.id, at, ...guardArgs).run();
-      if (claimed.meta?.changes !== 1) return json({ error: 'Action already used or authorization changed.' }, 409);
+      // Claim both this action and the account atomically. A different preview
+      // cannot bypass an in-flight request or an unresolved provider outcome.
+      const claimed = await db.prepare(`UPDATE identity_response_actions SET status='applying',updated_at=? WHERE id=? AND workspace_id=? AND requested_by=? AND status='previewed' AND expires_at>? AND ${GUARD} AND ${ACCOUNT_AVAILABLE}`)
+        .bind(at, record.id, workspaceId, user.id, at, ...guardArgs, workspaceId, person.id).run();
+      if (claimed.meta?.changes !== 1) {
+        if (!await accountAvailable(person.id)) bad('account_response_unresolved');
+        return json({ error: 'Action already used or authorization changed.' }, 409);
+      }
       claimedId = record.id;
+      claimedActor = user.id;
+      await audit('identity_response_requested', 'identity_response', record.id);
       const fresh = await client.preview(original.upn);
       if (fresh.id !== original.id || fresh.sessionsValidFrom !== original.sessionsValidFrom || !bindingMatches(person, fresh)) bad('target_changed');
       const outcome = await client.revoke(fresh, { confirmedUpn: original.upn, authorize: async () => {
@@ -175,6 +197,7 @@ export async function identityWorkforceRoutes(rctx) {
       const saved = await db.prepare("UPDATE identity_response_actions SET status='provider_accepted',outcome_json=?,updated_at=? WHERE id=? AND workspace_id=? AND status='applying'")
         .bind(JSON.stringify(outcome), new Date().toISOString(), record.id, workspaceId).run();
       if (saved.meta?.changes !== 1) throw new EntraSessionError('outcome_not_saved', true);
+      await audit('identity_response_provider_accepted', 'identity_response', record.id);
       claimedId = null;
       if (!await authorize()) return json({ error: 'Authorization changed. Check the action with a workspace administrator.' }, 403);
       return json({ action: actionView(await getAction(record.id)) });
@@ -188,7 +211,14 @@ export async function identityWorkforceRoutes(rctx) {
     if (claimedId) {
       try { await db.prepare("UPDATE identity_response_actions SET status=?,outcome_json=?,updated_at=? WHERE id=? AND workspace_id=? AND status='applying'")
         .bind(uncertain ? 'uncertain' : 'not_completed', JSON.stringify({ code, logoutVerified: false }), new Date().toISOString(), claimedId, workspaceId).run(); } catch { /* applying remains visibly unresolved, never auto-retried */ }
+      await createAuditEvent(env, { workspace_id: workspaceId, user_id: claimedActor,
+        event_type: uncertain ? 'identity_response_uncertain' : 'identity_response_not_completed',
+        entity_type: 'identity_response', entity_id: claimedId, active_workspace_required: true });
     }
-    return json({ error: uncertain ? 'The provider outcome is uncertain. Check this action before trying again.' : 'The identity operation could not be completed.', code, logout_verified: false }, code === 'invalid_input' || code === 'confirmation_required' ? 400 : code === 'authorization_changed' ? 403 : code === 'target_changed' ? 409 : 503);
+    const message = code === 'account_response_unresolved'
+      ? 'This account already has an in-progress or uncertain session request. Check that action before any new request.'
+      : code === 'entra_observation_required' ? 'Observe this account in Microsoft Entra before preparing a session request.'
+      : uncertain ? 'The provider outcome is uncertain. Check this action before trying again.' : 'The identity operation could not be completed.';
+    return json({ error: message, code, logout_verified: false }, code === 'invalid_input' || code === 'confirmation_required' ? 400 : code === 'authorization_changed' ? 403 : ['target_changed', 'account_response_unresolved', 'entra_observation_required'].includes(code) ? 409 : 503);
   }
 }

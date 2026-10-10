@@ -25,7 +25,7 @@ export default function DpaPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Data Processing Addendum</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: 9 October 2026 — Version 1.2</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 10 October 2026 — Version 1.4</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             This Data Processing Addendum ("<strong>DPA</strong>") supplements and forms part of the CyberMeters Terms of Service between Turhan Acar, a sole trader trading as CyberMeters ("<strong>Processor</strong>") and the customer ("<strong>Controller</strong>"). It governs the processing of personal data by CyberMeters on behalf of the Controller in connection with the provision of the Services.
           </p>
@@ -49,7 +49,9 @@ export default function DpaPage() {
             <p><strong className="text-gray-800">Duration.</strong> Personal data is processed for the duration of the customer's subscription and for such additional periods as required by applicable law or as agreed in writing.</p>
             <p><strong className="text-gray-800">Nature and purpose.</strong> The Processor processes personal data to: operate user accounts and workspace access; run security assessments; generate reports; deliver notifications; maintain audit logs; and fulfil billing obligations.</p>
             <p><strong className="text-gray-800">Types of personal data.</strong> Name, email address, authentication credentials (hashed), usage activity, IP addresses, audit event records, and any personal data contained within scan targets or metadata provided by the Controller.</p>
-            <p><strong className="text-gray-800">Categories of data subjects.</strong> Employees, administrators, and other authorised users of the Controller's CyberMeters account.</p>
+            <p><strong className="text-gray-800">Categories of data subjects.</strong> Employees, administrators and other authorised users of the Controller, including people whose work accounts the Controller adds to its identity inventory even if they do not have a CyberMeters login.</p>
+            <p><strong className="text-gray-800">Optional identity processing.</strong> On the Controller's authorised administrator's instructions, the Processor stores workforce names, work email addresses, VIP labels, directory/application/account identifiers and available direct-role, MFA-registration and account-status observations. A confirmed Entra session-revocation workflow records the requester, exact target, stated concern, preview, provider outcome and later verification observations. The Controller determines which accounts it is authorised to include and supplies the required permissions through its own Microsoft tenant. The Processor does not conduct automatic account interventions or infer a confirmed breach from these observations.</p>
+            <p><strong className="text-gray-800">Public-source processing.</strong> An authorised administrator may request a bounded check of a verified domain's public page and same-origin scripts. Response bodies are processed transiently. Stored evidence consists of source locations, line numbers, detection types, masked candidates, hash fingerprints and timestamps. Complete candidate credentials are neither retained nor used. Masking or hashing is not a guarantee of anonymity.</p>
           </Section>
 
           <Section title="3. Processor Obligations">
@@ -89,10 +91,16 @@ export default function DpaPage() {
                     <td className="px-4 py-2.5 text-gray-600">Payment processing and subscription management</td>
                     <td className="px-4 py-2.5 text-gray-500">US / EU</td>
                   </tr>
+                  <tr>
+                    <td className="px-4 py-2.5 font-medium text-gray-800">Resend (Plus Five Five, Inc.)</td>
+                    <td className="px-4 py-2.5 text-gray-600">Transactional email delivery on the Processor's behalf — verification, password reset, invitation, alert, scheduled-report and lifecycle emails (recipient address, name and message content)</td>
+                    <td className="px-4 py-2.5 text-gray-500">US</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
             <p className="mt-3">The Processor shall notify the Controller of any intended changes to Sub-Processors (additions or replacements) with at least 14 days' notice, giving the Controller the opportunity to object. Objections must be raised within 14 days of notification and must be based on reasonable grounds related to data protection. If the parties cannot resolve an objection, either party may terminate the affected portion of the Services.</p>
+            <p><strong className="text-gray-800">Customer-directed Microsoft connection.</strong> Optional Entra observations and session requests use the Controller's own Microsoft application and permissions. The application secret is sent to Microsoft's token endpoint, and the target account identifier and requested operation are sent to Microsoft Graph. The Processor does not send the concern text, VIP label or public-source findings. Microsoft processes these operations under the Controller's Microsoft arrangements. Entra application secrets and access tokens are used for the requested operation only and are not retained in the Processor's database or action history.</p>
           </Section>
 
           <Section title="5. Security Measures">
@@ -115,6 +123,7 @@ export default function DpaPage() {
           </Section>
 
           <Section title="8. Data Retention and Deletion">
+            <p>During use of the Services, workforce inventory and identity-response histories are retained in the workspace and included in workspace data purging. Individual removal or correction requests are handled through the contact below; the current interface does not offer account deletion or rebinding. Expiry of a response preview does not delete its history. Public-source history is limited to the latest 20 checks per domain, with older checks removed when another check is saved. Transient Entra credentials and fetched page/script bodies are not retained.</p>
             <p>On termination or expiry of the customer's subscription:</p>
             <ul className="list-disc pl-5 space-y-2">
               <li>Personal data will be retained for 30 days to enable the Controller to request a data export.</li>

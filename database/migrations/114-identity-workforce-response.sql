@@ -1,6 +1,6 @@
 -- Customer-supplied workforce inventory and explicitly requested Entra actions.
 -- No provider credentials, passwords, tokens or raw leaked material are stored.
-CREATE TABLE identity_workforce_accounts (
+CREATE TABLE IF NOT EXISTS identity_workforce_accounts (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   upn TEXT NOT NULL,
@@ -17,8 +17,8 @@ CREATE TABLE identity_workforce_accounts (
   updated_at TEXT NOT NULL,
   UNIQUE(workspace_id, upn)
 );
-CREATE INDEX idx_identity_workforce_workspace ON identity_workforce_accounts(workspace_id, vip, updated_at);
-CREATE TABLE identity_response_actions (
+CREATE INDEX IF NOT EXISTS idx_identity_workforce_workspace ON identity_workforce_accounts(workspace_id, vip, updated_at);
+CREATE TABLE IF NOT EXISTS identity_response_actions (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES identity_workforce_accounts(id) ON DELETE CASCADE,
@@ -32,4 +32,4 @@ CREATE TABLE identity_response_actions (
   expires_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
-CREATE INDEX idx_identity_response_workspace ON identity_response_actions(workspace_id, account_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_identity_response_workspace ON identity_response_actions(workspace_id, account_id, created_at);

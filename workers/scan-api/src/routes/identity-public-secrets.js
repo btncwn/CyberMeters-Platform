@@ -3,6 +3,7 @@ import { checkPublicSecretSources, validateSecretCheckUrl, secretSourceUrl, SECR
 import { getEffectivePlan } from '../engines/entitlements.js';
 import { getWorkspaceBillingUserId } from '../engines/plan-usage.js';
 import { planAllowsHostedPolicyManagement } from '../engines/hosted-dmarc.js';
+import { createAuditEvent } from '../lib/events.js';
 
 export async function identityPublicSecretsRoutes(rctx) {
   const { request, env, url, json, requireAuth, requireWorkspaceRole, consumeApiRateLimit } = rctx;
@@ -49,6 +50,9 @@ export async function identityPublicSecretsRoutes(rctx) {
     const trim = db.prepare('DELETE FROM identity_public_source_checks WHERE workspace_id=? AND domain_id=? AND id NOT IN (SELECT id FROM identity_public_source_checks WHERE workspace_id=? AND domain_id=? ORDER BY created_at DESC,id DESC LIMIT 20)').bind(workspaceId, owned.id, workspaceId, owned.id);
     const stored = await db.batch([insert, trim]);
     if (stored[0]?.meta?.changes !== 1) return json({ error: 'Authorization changed. No result was saved.' }, 403);
+    await createAuditEvent(env, { workspace_id: workspaceId, user_id: user.id,
+      event_type: 'identity_public_sources_checked', entity_type: 'identity_public_source_check',
+      entity_id: id, active_workspace_required: true });
     return json({ check: { id, domain_id: owned.id, created_at: at, result } }, 201);
     }
     return json({ error: 'Method not allowed' }, 405);

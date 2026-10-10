@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { buildDb, makeEnv, makeCaller } from './security/lib/worker-harness.js';
 // All network is replaced before importing the production router. No real
 // credentials, directory accounts or provider calls are involved.
@@ -54,7 +55,8 @@ eq('manual account is not provider or breach evidence', [added.data.account.sour
 eq('duplicate account not silently overwritten',(await call('POST',workforce,'owner',{upn:'employee@example.test',vip:false})).status,409);
 eq('VIP is user priority',(await call('PATCH',workforce+'/'+manualId,'owner',{vip:false})).data.account.vip,false);
 eq('UPN cannot be rebound by editing',(await call('PATCH',workforce+'/'+manualId,'owner',{upn:'other@example.test'})).status,400);
-eq('manual account cannot trigger revocation',(await call('POST',response+'/preview','owner',{account_id:manualId,concern:'Synthetic concern',credentials})).status,503);
+let manualPreview=await call('POST',response+'/preview','owner',{account_id:manualId,concern:'Synthetic concern',credentials});
+eq('manual account requires observation rather than provider availability', [manualPreview.status,manualPreview.data.code],[409,'entra_observation_required']);
 eq('manual operations make no provider calls',calls.length,0);
 let observation=await observe();
 eq('exact Entra account imported',observation.status,201);const accountId=observation.data.account.id;
@@ -86,10 +88,40 @@ db.prepare("UPDATE identity_response_actions SET expires_at='2000-01-01T00:00:00
 eq('expired preview refused',(await apply(id)).status,409);eq('expired preview no provider call',posts(),0);
 p=await preview();id=p.data.action.id;mode='changed';
 eq('recreated account cannot be targeted',(await apply(id)).data.code,'target_changed');eq('target drift no revoke',posts(),0);mode='';
-p=await preview();id=p.data.action.id;mode='uncertain';
+p=await preview();id=p.data.action.id;const spare=(await preview()).data.action.id;mode='uncertain';
 eq('lost response stays uncertain',(await apply(id)).status,503);
 eq('uncertainty is durable',db.prepare('SELECT status FROM identity_response_actions WHERE id=?').get(id).status,'uncertain');
 eq('uncertain attempt not retried',(await apply(id)).status,409);eq('uncertain exactly one attempt',posts(),1);mode='';
+const beforeBlocked=calls.length;
+let blocked=await preview();
+eq('uncertain account cannot create another preview',[blocked.status,blocked.data.code],[409,'account_response_unresolved']);
+blocked=await apply(spare);
+eq('uncertain account cannot use an older second preview',[blocked.status,blocked.data.code],[409,'account_response_unresolved']);
+eq('account-level uncertainty never makes another provider call',calls.length,beforeBlocked);
+eq('account-level uncertainty retains one physical revoke',posts(),1);
+await verify(id);
+eq('timestamp verification does not silently unlock uncertainty',(await preview()).data.code,'account_response_unresolved');
+// End this isolated synthetic scenario; no product endpoint clears uncertainty.
+db.prepare('DELETE FROM identity_response_actions WHERE id=?').run(id);
+clear();
+const separateA=(await preview()).data.action.id, separateB=(await preview('admin')).data.action.id;
+const separatePair=await Promise.all([apply(separateA),apply(separateB,{},'admin')]);
+eq('two different previews and actors cannot intervene concurrently',separatePair.map(r=>r.status).sort(),[200,409]);
+eq('two different previews send one physical revoke',posts(),1);
+eq('losing account claim is reported explicitly',separatePair.find(r=>r.status===409).data.code,'account_response_unresolved');
+clear();
+const stuck=(await preview()).data.action.id, pending=(await preview()).data.action.id;
+db.prepare("UPDATE identity_response_actions SET status='applying',expires_at='2000-01-01T00:00:00Z' WHERE id=?").run(stuck);
+const beforeStuck=calls.length;
+eq('even an expired applying action blocks a new preview',(await preview()).data.code,'account_response_unresolved');
+eq('stuck applying action blocks another prepared request',(await apply(pending)).data.code,'account_response_unresolved');
+eq('stuck action does not send another provider request',calls.length,beforeStuck);
+db.prepare("UPDATE identity_response_actions SET status='not_completed' WHERE id=?").run(stuck);
+const countBeforeRace=db.prepare('SELECT COUNT(*) AS n FROM identity_response_actions').get().n;
+hook=()=>db.prepare("UPDATE identity_response_actions SET status='applying' WHERE id=?").run(stuck);
+eq('newly applying action defeats a preview already doing provider reads',(await preview()).data.code,'account_response_unresolved');
+eq('atomic preview guard persists no competing action',db.prepare('SELECT COUNT(*) AS n FROM identity_response_actions').get().n,countBeforeRace);
+db.prepare('DELETE FROM identity_response_actions WHERE id=?').run(stuck);
 clear();p=await preview();id=p.data.action.id;
 hook=()=>db.prepare("UPDATE workspace_members SET role='viewer' WHERE workspace_id='wa' AND user_id='owner'").run();
 eq('permission revoked during provider lookup',(await apply(id)).data.code,'authorization_changed');eq('revoked permission makes no revoke call',posts(),0);
@@ -112,7 +144,9 @@ env.cybermeters_db.prepare=function(sql){
 eq('provider acceptance lost from storage is not reported success',(await apply(id)).status,503);
 eq('storage uncertainty remains visible',db.prepare('SELECT status FROM identity_response_actions WHERE id=?').get(id).status,'uncertain');
 eq('storage uncertainty cannot trigger duplicate',(await apply(id)).status,409);eq('storage failure has exactly one provider request',posts(),1);
+eq('storage uncertainty also blocks a different preview',(await preview()).data.code,'account_response_unresolved');
 env.cybermeters_db.prepare=normalPrepare;
+db.prepare('DELETE FROM identity_response_actions WHERE id=?').run(id); // next isolated fixture
 // Atomic write guards must still hold after every earlier role check succeeded.
 function revokeAtWrite(fragment) {
  env.cybermeters_db.prepare=function(sql){
@@ -145,9 +179,18 @@ for(let i=0;i<60;i++)assert.equal((await call('PATCH',workforce+'/'+manualId,'ow
 eq('hourly bound stops additional identity operations',(await observe()).status,429);
 eq('quota rejection makes no provider call',calls.length,0);
 clear();
-const snapshot=JSON.stringify(db.prepare('SELECT * FROM identity_workforce_accounts').all())+JSON.stringify(db.prepare('SELECT * FROM identity_response_actions').all())+JSON.stringify((await call('GET',workforce,'owner')).data);
+const audits=db.prepare("SELECT * FROM audit_events WHERE event_type LIKE 'identity_%'").all();
+eq('identity operations have workspace-bound audit summaries',audits.length>0 && audits.every(row=>row.workspace_id==='wa' && ['owner','admin'].includes(row.user_id)),true);
+for(const event of ['identity_account_added','identity_account_updated','identity_account_observed','identity_response_previewed','identity_response_requested','identity_response_provider_accepted','identity_response_checked','identity_response_uncertain','identity_response_not_completed'])
+ eq('audit event recorded: '+event,audits.some(row=>row.event_type===event),true);
+eq('audit index does not copy account details or freeform concern',JSON.stringify(audits).includes(upn)||JSON.stringify(audits).includes('Suspicious sign-in reported'),false);
+const snapshot=JSON.stringify(db.prepare('SELECT * FROM identity_workforce_accounts').all())+JSON.stringify(db.prepare('SELECT * FROM identity_response_actions').all())+JSON.stringify((await call('GET',workforce,'owner')).data)+JSON.stringify(audits);
 eq('credential and bearer token not persisted or returned',snapshot.includes(credentials.clientSecret)||snapshot.includes('SYNTHETIC-token'),false);
 eq('both tables participate in purge',WORKSPACE_PURGE_TABLES.includes('identity_workforce_accounts')&&WORKSPACE_PURGE_TABLES.includes('identity_response_actions'),true);
+const rosterBeforeMigration=db.prepare('SELECT COUNT(*) AS n FROM identity_workforce_accounts').get().n;
+const actionsBeforeMigration=db.prepare('SELECT COUNT(*) AS n FROM identity_response_actions').get().n;
+db.exec(readFileSync(new URL('../database/migrations/114-identity-workforce-response.sql',import.meta.url),'utf8'));
+eq('migration retry preserves existing workforce and actions',[db.prepare('SELECT COUNT(*) AS n FROM identity_workforce_accounts').get().n,db.prepare('SELECT COUNT(*) AS n FROM identity_response_actions').get().n],[rosterBeforeMigration,actionsBeforeMigration]);
 db.prepare("UPDATE workspaces SET deleted_at=datetime('now') WHERE id='wa'").run();clear();
 eq('deleted workspace cannot observe',[403,404].includes((await observe()).status),true);eq('deleted workspace no network',calls.length,0);
 db.close();console.log(`${n}/${n} workforce and identity response controls passed. Live provider calls: 0.`);
