@@ -127,7 +127,7 @@ eq("CertSpotter named attempt budget", CT_PROVIDER_POLICIES.certspotter.maxAttem
 {
   const fixture = [{
     not_before: "2026-01-01T00:00:00.000Z",
-    not_after: "2027-01-01T00:00:00.000Z",
+    not_after: "2099-01-01T00:00:00.000Z",
     issuer: { name: "Fixture CA" },
     dns_names: ["example.com", "www.example.com"],
   }];
@@ -294,7 +294,7 @@ eq("CertSpotter named attempt budget", CT_PROVIDER_POLICIES.certspotter.maxAttem
   const cache = createCertificateTransparencyCache({
     fetcher: async () => jsonResponse([{
       not_before: "2026-01-01T00:00:00.000Z",
-      not_after: "2027-01-01T00:00:00.000Z",
+      not_after: "2099-01-01T00:00:00.000Z",
       issuer: { name: "Healthy CA" },
       dns_names: ["example.com"],
     }]),

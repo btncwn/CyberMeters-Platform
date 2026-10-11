@@ -74,7 +74,12 @@ const registry = Object.freeze([
     file: "workers/scan-api/src/engines/bounded-coverage.js",
     anchor: 'return truncated === true ? "bounded" : "complete";',
     replacement: 'return "bounded";',
-    expected: ["F10_UNBOUNDED_EXECUTION_IS_COMPLETE_NOT_ALWAYS_BOUNDED"],
+    // The below-cap CT discovery fixture (F4) also catches an always-bounded
+    // classifier, alongside the unbounded exposure control (F10).
+    expected: [
+      "F4_CT_BELOW_CAP_IS_COMPLETE_NOT_BOUNDED",
+      "F10_UNBOUNDED_EXECUTION_IS_COMPLETE_NOT_ALWAYS_BOUNDED",
+    ],
   },
   {
     id: "M4",
