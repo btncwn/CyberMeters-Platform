@@ -748,6 +748,28 @@ export const api = {
   /** POST /api/workspaces/:id/brand/profile  body: { brand_name, primary_domain, keywords[], protected_domains[] } */
   updateBrandProfile: (id, payload) =>
     request(`/workspaces/${id}/brand/profile`, { method: 'POST', body: JSON.stringify(payload) }),
+  /**
+   * POST /api/workspaces/:id/brand/discovery — run the bounded passive
+   * Certificate Transparency lookup now (the same function the daily cron uses).
+   * Returns { status, ok, body } WITHOUT throwing on 4xx/5xx, so the caller can
+   * explain profile/verification/rate-limit outcomes itself: this route's rate
+   * limit is abuse protection, not a plan limit, so it must not open the global
+   * upgrade modal that request() raises for rate_limit_exceeded.
+   */
+  runBrandDiscovery: async (id) => {
+    const res = await safeFetch(`${BASE}/workspaces/${encodeURIComponent(id)}/brand/discovery`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({}),
+    })
+    if (res.status === 401 && localStorage.getItem(TOKEN_KEY)) {
+      handleUnauthorized()
+      throw Object.assign(new Error('Session expired. Please sign in again.'), { status: 401 })
+    }
+    const body = await res.json().catch(() => ({}))
+    return { status: res.status, ok: res.ok, body }
+  },
   /** GET /api/workspaces/:id/brand/summary */
   getBrandSummary: (id) => request(`/workspaces/${id}/brand/summary`),
   /** GET /api/workspaces/:id/brand/candidates  optional params */
