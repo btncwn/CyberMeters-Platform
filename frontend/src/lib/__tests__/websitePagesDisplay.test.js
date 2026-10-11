@@ -39,6 +39,12 @@ describe('websitePagesDisplay', () => {
     expect(facts.join(' ')).not.toMatch(/critical|high|vulnerab|attack|phishing|compromis|secure site|safe/i)
   })
 
+  it('a Set-Cookie that only removes a cookie is not listed as a cookie without Secure', () => {
+    const facts = pageFacts({ observation: { https: true, cookies: [{ name: 'old_sid', secure: false, deletes: true }, { name: 'sid', secure: false }] } })
+    expect(facts).toEqual(['Cookie without Secure: sid'])
+    expect(pageFacts({ observation: { https: true, cookies: [{ name: 'old_sid', secure: false, deletes: true }] } })).toEqual([])
+  })
+
   it('a page with no observation has no facts', () => {
     expect(pageFacts({ observation: null })).toEqual([])
   })

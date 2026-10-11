@@ -40,6 +40,8 @@ export function signInPages(discovery) {
 function homepage(discovery) {
   return (discovery?.pages || []).find((p) => p?.source === "homepage" && p.outcome === "observed") || null;
 }
+// A Set-Cookie that only removes a cookie stores nothing — its flags prove nothing either way.
+const storedCookies = (p) => (p?.cookies || []).filter((c) => c && c.deletes !== true);
 const hasHsts = (p) => Array.isArray(p?.security_headers?.present) && p.security_headers.present.includes(HSTS);
 const lacksHsts = (p) => Array.isArray(p?.security_headers?.missing) && p.security_headers.missing.includes(HSTS);
 
@@ -49,7 +51,7 @@ const PREDICATES = Object.freeze({
   // Only meaningful when the homepage DOES send HSTS (otherwise the site-wide
   // header_missing_strict_transport_security condition already says it).
   https_signin_no_hsts: (p, ctx) => ctx.homeHsts && p.https === true && lacksHsts(p),
-  https_signin_cookie_no_secure: (p) => p.https === true && (p.cookies || []).some((c) => c && c.secure === false),
+  https_signin_cookie_no_secure: (p) => p.https === true && storedCookies(p).some((c) => c.secure === false),
 });
 
 /**
@@ -70,8 +72,8 @@ export function evaluateSignInCondition(key, discovery) {
   const blocking = (discovery.partial_reasons || []).filter((r) => !NON_BLOCKING_PARTIAL.has(r));
   if (discovery.coverage !== "complete" && blocking.length) return { state: "deferred", reason: "page_check_partial" };
   if (key === "https_signin_no_hsts" && !ctx.homeHsts) return { state: "deferred", reason: "homepage_hsts_not_observed" };
-  // Zero cookies proves nothing about cookie flags (the same rule as the homepage cookie checks).
-  if (key === "https_signin_cookie_no_secure" && !pages.some((p) => p.https === true && (p.cookies || []).length > 0)) return { state: "deferred", reason: "no_cookie_observed" };
+  // Zero stored cookies proves nothing about cookie flags (the same rule as the homepage cookie checks).
+  if (key === "https_signin_cookie_no_secure" && !pages.some((p) => p.https === true && storedCookies(p).length > 0)) return { state: "deferred", reason: "no_cookie_observed" };
   return { state: "clear", reason: "sign_in_pages_observed_and_clear" };
 }
 
@@ -97,7 +99,7 @@ function describe(key, pages, ctx) {
   }
   if (key === "https_signin_form_insecure") return { text: `The password form on ${list} is served or sent over plain HTTP, so passwords can travel unencrypted.`, observed: {} };
   if (key === "https_signin_no_hsts") return { text: `The homepage sends Strict-Transport-Security but ${list} does not, so browsers are not told to keep the sign-in page on HTTPS.`, observed: { homepage_hsts: ctx.homeHsts } };
-  const names = [...new Set(pages.flatMap((p) => (p.cookies || []).filter((c) => c && c.secure === false).map((c) => c.name)))].slice(0, 5);
+  const names = [...new Set(pages.flatMap((p) => storedCookies(p).filter((c) => c.secure === false).map((c) => c.name)))].slice(0, 5);
   return { text: `${list} sets ${names.join(", ") || "a cookie"} without the Secure attribute, so the cookie can also be sent over plain HTTP.`, observed: { cookie_names: names } };
 }
 

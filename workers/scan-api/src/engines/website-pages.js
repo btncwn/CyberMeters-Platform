@@ -48,6 +48,7 @@ export function projectObservation(page) {
       secure: c?.secure === true,
       httponly: c?.httponly === true,
       samesite: typeof c?.samesite === "string" ? c.samesite.slice(0, 10) : null,
+      ...(c?.deletes === true ? { deletes: true } : {}),
     })),
     forms: (Array.isArray(page.forms) ? page.forms : []).slice(0, 10).map((f) => ({
       method: f?.method === "post" ? "post" : "get",

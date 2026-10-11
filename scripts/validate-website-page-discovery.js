@@ -66,6 +66,21 @@ eq("cookie flags", cookies, [
   { name: "pref", secure: true, httponly: false, samesite: "lax" },
 ]);
 ok("cookie values are never retained", !JSON.stringify(cookies).includes("SECRETVALUE") && !JSON.stringify(cookies).includes("dark"));
+{
+  // A Set-Cookie that only removes a cookie stores nothing; it is marked, never counted as a live cookie.
+  const NOW = Date.parse("2026-10-11T00:00:00Z");
+  const del = parseCookieFlags([
+    "a=; Path=/; Max-Age=0", "b=; max-age=-1", "c=; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    "d=1; Expires=Wed, 21 Oct 2099 07:28:00 GMT", "e=1; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    "f=1; Expires=0", "g=1; Max-Age=abc; Expires=Thu, 01-Jan-1970 00:00:01 GMT", "h=1",
+    "i=1; Expires=1 Jan 2000", "j=1; Expires=2000-01-01 00:00:00",
+  ], 20, NOW);
+  eq("cookie removal marked only for Max-Age<=0 or a past cookie-date (Max-Age wins; no month name or no hh:mm:ss is not a cookie-date)",
+    del.map((c) => [c.name, c.deletes === true]),
+    [["a", true], ["b", true], ["c", true], ["d", false], ["e", false], ["f", false], ["g", true], ["h", false], ["i", false], ["j", false]]);
+  ok("ordinary cookies keep their shape (no deletes key)", del.filter((c) => !c.deletes).every((c) => !("deletes" in c)));
+  eq("projection keeps the removal mark (and only when true)", projectObservation({ path: "/x", outcome: "observed", cookies: [del[0], del[3]] }).cookies.map((c) => c.deletes === true), [true, false]);
+}
 const forms = extractForms(
   `<form method="post" action="https://collector.example/x"><input type="password" name=p></form>
    <form action="http://acme.test/subscribe"><input name=e></form><form method=POST><input type='password'></form>`,

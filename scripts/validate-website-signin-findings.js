@@ -76,6 +76,13 @@ const BADCOOKIE = { cookies: [{ name: "sid", secure: false, httponly: true, same
   eq("HSTS: homepage stopped sending HSTS → deferred (site-wide condition owns it)", st("https_signin_no_hsts", disc([home(false), login()])), "deferred");
   eq("cookie: zero cookies proves nothing → deferred", st("https_signin_cookie_no_secure", disc([home(), login({ cookies: [] })])), "deferred");
   eq("cookie: secure cookies observed → clear", st("https_signin_cookie_no_secure", disc([home(), login()])), "clear");
+  // A Set-Cookie that only removes a cookie (deletes: true) stores nothing.
+  const REMOVAL = { name: "old_sid", secure: false, httponly: false, samesite: null, deletes: true };
+  eq("cookie: a removal without Secure is not a finding", S.signInPageFindings(disc([home(), login({ cookies: [REMOVAL] })])).map((f) => f.id), []);
+  eq("cookie: removals alone prove nothing → deferred", st("https_signin_cookie_no_secure", disc([home(), login({ cookies: [REMOVAL] })])), "deferred");
+  eq("cookie: a removal beside a stored Secure cookie → clear", st("https_signin_cookie_no_secure", disc([home(), login({ cookies: [REMOVAL, { name: "sid", secure: true }] })])), "clear");
+  eq("cookie: a stored insecure cookie still counts beside a removal (names exclude the removal)",
+    S.signInPageFindings(disc([home(), login({ cookies: [REMOVAL, { name: "sid", secure: false }] })])).find((f) => f.id === "https_signin_cookie_no_secure")?.evidence.observed_value.cookie_names, ["sid"]);
 }
 
 // ── 3. Registry, cases, alerts ──────────────────────────────────────────────
