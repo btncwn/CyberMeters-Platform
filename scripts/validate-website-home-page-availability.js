@@ -85,8 +85,10 @@ const run = (h, domain = DOMAIN) => W.homePageAvailabilityFindings({ headers: h 
     headers({ checked_paths: [path404("/"), path404("www_variant", 200, `https://www.${DOMAIN}/`, "HEAD")] }));
   none("access-restricted 403 is not a conclusive answer", headers({ status_code: 403, checked_paths: [path404("/", 403)] }));
   none("429 is not a conclusive answer", headers({ status_code: 429, checked_paths: [path404("/", 429)] }));
-  none("an origin 5xx is not a conclusive answer",
-    headers({ accessible: false, headers_assessed: false, status_code: 503, checked_paths: [{ ...path404("/", 503), label: "origin_error_response", status: "origin_error" }] }));
+  {
+    const fiveXx = run(headers({ accessible: false, headers_assessed: false, status_code: 503, checked_paths: [{ ...path404("/", 503), label: "origin_error_response", status: "origin_error" }] }));
+    ok("an origin 5xx is never read as 'not found'", !fiveXx.some((f) => f.id === W.HOME_PAGE_NOT_FOUND_ID));
+  }
   none("a bot challenge never raises it", headers({ validation_uncertain: true, bot_protection_signals: ["cf-mitigated"] }));
   none("an unassessed headers module never raises it", headers({ headers_assessed: false }));
   none("a redirect to another site is never blamed on this domain",
@@ -98,6 +100,41 @@ const run = (h, domain = DOMAIN) => W.homePageAvailabilityFindings({ headers: h 
   none("a missing domain raises nothing", headers(), "");
 }
 
+// ── 2b. Website DOWN: every home-page answer was an edge error or origin 5xx ─
+{
+  const edge = (proto, code) => ({ label: "origin_not_observed", requested_url: `${proto}://${DOMAIN}`, method: "GET",
+    status: "cloudflare_edge_error", final_url: `${proto}://${DOMAIN}`, status_code: code, redirect_chain: [], headers_observed: {} });
+  const originError = (proto, code) => ({ label: "origin_error_response", requested_url: `${proto}://${DOMAIN}`, method: "GET",
+    status: "origin_error", final_url: `${proto}://${DOMAIN}`, status_code: code, redirect_chain: [], headers_observed: {} });
+  const down = (paths, over = {}) => run(headers({ accessible: false, headers_assessed: false, status_code: paths[0]?.status_code ?? null,
+    validation_uncertain: false, bot_protection_signals: [], checked_paths: paths, ...over }));
+
+  const [finding, ...rest] = down([edge("https", 525), edge("http", 525)]);
+  ok("HTTPS and HTTP both answered by Cloudflare 525 raises one 'website returned an error' observation",
+    finding?.id === W.HOME_PAGE_UNAVAILABLE_ID && rest.length === 0);
+  ok("unavailable observation is score-neutral", finding?.finding_type === "observation" && finding?.score_impact === 0);
+  ok("the edge code is explained in plain words",
+    /HTTP 525: the secure \(SSL\) connection between Cloudflare and the website's server failed/.test(finding?.description || ""));
+  ok("wording reports this scan, never a permanent conclusion",
+    /In this scan/.test(finding?.description || "") && /short outage/.test(finding?.description || "")
+      && !/takeover|hijack|attack|malicious|compromis|phish|removed|gone/i.test(`${finding?.title} ${finding?.description}`));
+  ok("evidence keeps every checked request and its answer",
+    JSON.stringify(finding?.evidence?.checked_paths?.map((p) => [p.requested_url, p.status_code]))
+      === JSON.stringify([[`https://${DOMAIN}`, 525], [`http://${DOMAIN}`, 525]]));
+  ok("an origin 5xx on every request is also reported",
+    down([originError("https", 503), originError("http", 503)])[0]?.id === W.HOME_PAGE_UNAVAILABLE_ID);
+
+  const none = (name, result) => eq(name, result, []);
+  none("one served answer means the site is not down",
+    down([edge("https", 525), { ...path404("/", 200, `http://${DOMAIN}/`), requested_url: `http://${DOMAIN}` }]));
+  none("a probe that never produced an answer raises nothing", down([]));
+  none("HTTP-only failures without an HTTPS answer raise nothing", down([edge("http", 521)]));
+  none("an answer from another site is never blamed on this domain",
+    down([{ ...edge("https", 525), requested_url: "https://elsewhere.example" }]));
+  none("a 4xx edge answer is not 'down'", down([{ ...edge("https", 403), status_code: 403 }]));
+  none("an assessed origin is never 'down'", down([edge("https", 525)], { accessible: true, headers_assessed: true }));
+}
+
 // ── 3. Canonical remediation and eight-domain attribution ───────────────────
 {
   const r = resolveRemediation({ finding_type: W.HOME_PAGE_NOT_FOUND_ID });
@@ -106,6 +143,10 @@ const run = (h, domain = DOMAIN) => W.homePageAvailabilityFindings({ headers: h 
   ok("remediation is verifiable by CyberMeters re-observation", r.verification_method === "https_recheck");
   ok("remediation offers both outcomes: restore the site or retire its records",
     /reconnect it to your hosting provider/.test(r.recommended_action) && /remove the root and www records/.test(r.recommended_action));
+  const down = resolveRemediation({ finding_type: W.HOME_PAGE_UNAVAILABLE_ID });
+  ok("the down observation resolves to its own canonical remediation",
+    down.status === "resolved" && down.remediation_id === "web.homepage.unavailable" && down.domain_key === "website_security"
+      && down.verification_method === "https_recheck");
   const website = CYBER_MOT_DOMAINS.find((d) => d.domain_key === "website_security");
   ok("observation belongs to the Website Security domain", website.match({ id: W.HOME_PAGE_NOT_FOUND_ID }) === true);
 }
@@ -172,6 +213,15 @@ const run = (h, domain = DOMAIN) => W.homePageAvailabilityFindings({ headers: h 
   ok("MUTANT 403 admitted as not-found is killed",
     accessRestricted.homePageAvailabilityFindings({ headers: headers({ status_code: 403, checked_paths: [path404("/", 403)] }) }, { domain: DOMAIN }).length === 1);
   const offSite = await mutate("if (!sameSite(finalUrl, root)) return [];", "");
+  const mixed = await mutate(
+    "const failing = paths.every((path) =>",
+    "const failing = paths.some((path) =>",
+  );
+  ok("MUTANT one-error-is-enough is killed",
+    mixed.homePageAvailabilityFindings({ headers: headers({ accessible: false, headers_assessed: false, checked_paths: [
+      { label: "origin_not_observed", requested_url: `https://${DOMAIN}`, status: "cloudflare_edge_error", status_code: 525 },
+      { label: "/", requested_url: `http://${DOMAIN}`, status: "ok", status_code: 200 },
+    ] }) }, { domain: DOMAIN }).length === 1);
   ok("MUTANT off-site redirect guard removed is killed",
     offSite.homePageAvailabilityFindings({ headers: headers({ response_url: "https://elsewhere.example/", checked_paths: [path404("/", 404)] }) }, { domain: DOMAIN }).length === 1);
 }
