@@ -40,8 +40,8 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 280,
-    "authed": 250,
+    "total": 279,
+    "authed": 249,
     "public_unauthed": 30,
     "sensitive_scope_gaps": 0,
     "by_scope": {
@@ -62,8 +62,8 @@
         "authed": 20
       },
       "account": {
-        "total": 26,
-        "authed": 26
+        "total": 25,
+        "authed": 25
       },
       "admin": {
         "total": 2,
@@ -499,19 +499,6 @@
     {
       "method": "GET",
       "path": "/api/account/subscription",
-      "path_kind": "exact",
-      "file": "workers/scan-api/src/routes/account.js",
-      "scope": "account",
-      "auth_guards": [
-        "requireAuth"
-      ],
-      "scope_helpers": [],
-      "authed": true,
-      "public_reason": null
-    },
-    {
-      "method": "GET",
-      "path": "/api/account/subscription/features",
       "path_kind": "exact",
       "file": "workers/scan-api/src/routes/account.js",
       "scope": "account",

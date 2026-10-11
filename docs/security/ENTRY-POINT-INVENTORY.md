@@ -13,14 +13,14 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 280
-- **Auth-guarded:** 250
+- **Total entry points:** 279
+- **Auth-guarded:** 249
 - **Unauthenticated (public by design):** 30
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
 | Scope | Handlers | Auth-guarded |
 |---|---:|---:|
-| account | 26 | 26 |
+| account | 25 | 25 |
 | admin | 2 | 2 |
 | email | 1 | 1 |
 | portfolio | 9 | 9 |
@@ -94,19 +94,18 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `/api/account/report-branding` | 399 | account | ✓ | requireAuth |
 | PUT | `/api/account/report-branding` | 429 | account | ✓ | requireAuth |
 | GET | `/api/account/subscription` | 514 | account | ✓ | requireAuth |
-| GET | `/api/account/subscription/features` | 545 | account | ✓ | requireAuth |
-| GET | `/api/account/usage` | 563 | account | ✓ | requireAuth |
-| GET | `/api/account/subscription/limits` | 584 | account | ✓ | requireAuth |
-| GET | `/api/admin/subscriptions` | 609 | admin | ✓ | isPlatformAdmin, requireAuth |
-| GET | `/api/account/api-tokens` | 656 | account | ✓ | requireAuth |
-| POST | `/api/account/api-tokens` | 678 | account | ✓ | requireAuth, requireWorkspaceAccess |
-| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 740 | account | ✓ | requireAuth |
-| GET | `/api/account/login-history` | 778 | account | ✓ | requireAuth |
-| GET | `/api/account/sessions` | 837 | account | ✓ | requireAuth |
-| POST | `/^\/api\/account\/sessions\/([^/` | 887 | account | ✓ | requireAuth |
-| GET | `/api/account/export` | 933 | account | ✓ | requireAuth |
-| POST | `/api/account/delete-request` | 1029 | account | ✓ | requireAuth |
-| GET | `/api/platform/accuracy` | 1065 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/account/usage` | 546 | account | ✓ | requireAuth |
+| GET | `/api/account/subscription/limits` | 567 | account | ✓ | requireAuth |
+| GET | `/api/admin/subscriptions` | 592 | admin | ✓ | isPlatformAdmin, requireAuth |
+| GET | `/api/account/api-tokens` | 639 | account | ✓ | requireAuth |
+| POST | `/api/account/api-tokens` | 661 | account | ✓ | requireAuth, requireWorkspaceAccess |
+| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 723 | account | ✓ | requireAuth |
+| GET | `/api/account/login-history` | 761 | account | ✓ | requireAuth |
+| GET | `/api/account/sessions` | 820 | account | ✓ | requireAuth |
+| POST | `/^\/api\/account\/sessions\/([^/` | 870 | account | ✓ | requireAuth |
+| GET | `/api/account/export` | 916 | account | ✓ | requireAuth |
+| POST | `/api/account/delete-request` | 1012 | account | ✓ | requireAuth |
+| GET | `/api/platform/accuracy` | 1048 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
 
 ### `workers/scan-api/src/routes/attack-surface.js`
 
