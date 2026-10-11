@@ -329,6 +329,46 @@ export function shouldRoutePlanChangeToPortal(sub) {
   return isSubscriptionActive(sub) || getPaymentGraceState(sub).active;
 }
 
+// Our own row normally knows a customer is already billed (see
+// shouldRoutePlanChangeToPortal). When a webhook has not been applied yet it
+// cannot, so the checkout also asks Stripe before creating another
+// subscription. `incomplete` (first payment still pending or declined) is not
+// a billed subscription and must not block a retry with another card.
+const BILLED_STRIPE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "past_due", "unpaid"]);
+
+// Looks up by the stored Stripe customer, or — when no webhook has stored one
+// yet — by the account email the checkout gave Stripe. Returns the billed
+// subscription and its customer so the caller can open that customer's portal.
+export async function findBilledStripeSubscription(env, { customerId = null, email = null } = {}) {
+  const auth = { headers: { "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}` } };
+  const billedIn = (list) => (Array.isArray(list) ? list : [])
+    .find((sub) => BILLED_STRIPE_SUBSCRIPTION_STATUSES.has(String(sub?.status || "")));
+  try {
+    if (customerId) {
+      const res = await fetch(
+        `https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(customerId)}&status=all&limit=20`, auth);
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !Array.isArray(body?.data)) return { ok: false, subscription: null };
+      const billed = billedIn(body.data);
+      return { ok: true, subscription: billed ? { id: billed.id, status: billed.status, customer: customerId } : null };
+    }
+    if (email) {
+      const res = await fetch(
+        `https://api.stripe.com/v1/customers?email=${encodeURIComponent(email)}&limit=10&expand[]=data.subscriptions`, auth);
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !Array.isArray(body?.data)) return { ok: false, subscription: null };
+      for (const customer of body.data) {
+        const billed = billedIn(customer?.subscriptions?.data);
+        if (billed && customer?.id) return { ok: true, subscription: { id: billed.id, status: billed.status, customer: customer.id } };
+      }
+      return { ok: true, subscription: null };
+    }
+    return { ok: true, subscription: null };
+  } catch {
+    return { ok: false, subscription: null };
+  }
+}
+
 export function getBillingIntervalFromStripeSubscription(subscription, fallbackInterval = "monthly") {
   const price = getStripeSubscriptionPrice(subscription);
   const interval = price?.recurring?.interval;
@@ -342,15 +382,14 @@ export function normalizeStripeSubscriptionStatus(status) {
   return value || "incomplete";
 }
 
-export async function findSubscriptionRowId(env, { ownerUserId = null, stripeSubscriptionId = null, stripeCustomerId = null } = {}) {
-  if (ownerUserId) {
-    const row = await env.cybermeters_db
-      .prepare("SELECT id FROM subscriptions WHERE owner_user_id = ? LIMIT 1")
-      .bind(ownerUserId)
-      .first();
-    if (row?.id) return row.id;
-  }
-
+// Most specific identity first. A Stripe subscription id names exactly one
+// billing lineage and a Stripe customer id is UNIQUE across rows, so either
+// identifies the row Stripe is describing. The owner is only a fallback: an
+// owner can hold several historical rows, and picking an arbitrary one of them
+// made a returning customer's checkout copy their customer id onto a second
+// row, hit the unique index and fail — payment taken, plan never activated.
+// Within an owner the row for the event's workspace wins, then the newest.
+export async function findSubscriptionRowId(env, { ownerUserId = null, stripeSubscriptionId = null, stripeCustomerId = null, workspaceId = null } = {}) {
   if (stripeSubscriptionId) {
     const row = await env.cybermeters_db
       .prepare("SELECT id FROM subscriptions WHERE stripe_subscription_id = ? LIMIT 1")
@@ -367,6 +406,21 @@ export async function findSubscriptionRowId(env, { ownerUserId = null, stripeSub
     if (row?.id) return row.id;
   }
 
+  if (ownerUserId) {
+    const row = await env.cybermeters_db
+      .prepare(
+        `SELECT id FROM subscriptions
+         WHERE owner_user_id = ?
+         ORDER BY CASE WHEN workspace_id = ? THEN 0 ELSE 1 END,
+                  COALESCE(updated_at, created_at) DESC,
+                  id DESC
+         LIMIT 1`
+      )
+      .bind(ownerUserId, workspaceId)
+      .first();
+    if (row?.id) return row.id;
+  }
+
   return null;
 }
 
@@ -379,6 +433,7 @@ async function upsertStripeSubscriptionState(env, state) {
     ownerUserId,
     stripeSubscriptionId,
     stripeCustomerId,
+    workspaceId,
   });
 
   if (rowId) {
@@ -420,7 +475,11 @@ async function upsertStripeSubscriptionState(env, state) {
                WHEN ? IS NOT NULL AND (current_period_end IS NULL OR ? >= current_period_end) THEN ?
                ELSE current_period_end END,
              cancel_at_period_end = COALESCE(?, cancel_at_period_end),
-             workspace_id = COALESCE(?, workspace_id),
+             workspace_id = CASE
+               WHEN ? IS NOT NULL AND NOT EXISTS (
+                 SELECT 1 FROM subscriptions other WHERE other.workspace_id = ? AND other.id <> subscriptions.id
+               ) THEN ?
+               ELSE workspace_id END,
              updated_at = datetime('now')
          WHERE id = ?`
       )
@@ -435,7 +494,13 @@ async function upsertStripeSubscriptionState(env, state) {
         state.current_period_start || null,
         cpEnd, cpEnd, cpEnd,
         cancelAtPeriodEnd,
-        workspaceId,
+        // The hand-made production table can enforce one row per workspace
+        // (it predates the migrations that describe it). A row is moved to
+        // the event's workspace only when that workspace has no other row;
+        // otherwise the move would break that rule and fail every retry.
+        // Entitlement is resolved per owner, so the row's workspace never
+        // changes what the customer gets.
+        workspaceId, workspaceId, workspaceId,
         rowId
       )
       .run();

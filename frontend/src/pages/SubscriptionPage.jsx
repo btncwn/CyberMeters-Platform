@@ -406,6 +406,9 @@ function UpgradePrompt({ plan, onUpgrade, checkoutLoading, livePlans }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+const ACTIVATION_CHECKS = 10
+const ACTIVATION_INTERVAL_MS = 3000
+
 export default function SubscriptionPage() {
   const [sub,            setSub]            = useState(null)
   const [livePlans,      setLivePlans]      = useState(null)
@@ -424,6 +427,13 @@ export default function SubscriptionPage() {
   // Read success/canceled URL params set by Stripe redirect
   const stripeSuccess  = searchParams.get('success')  === 'true'
   const stripeCanceled = searchParams.get('canceled')  === 'true'
+
+  // Stripe's redirect only says the customer finished checkout. The plan is
+  // active only once our billing record says so (the Stripe webhook writes
+  // it), so the return banner confirms against the subscription itself:
+  // activating → active, or pending if it has not landed after ~30s. Kept in
+  // state, not the URL, so clearing the query string never drops it.
+  const [activation, setActivation] = useState(() => (stripeSuccess ? 'activating' : null))
 
   // Clear URL params after 5s so they don't persist on reload
   useEffect(() => {
@@ -448,6 +458,31 @@ export default function SubscriptionPage() {
     load()
     return () => { cancelled = true }
   }, [workspaceId])
+
+  useEffect(() => {
+    if (activation !== 'activating' || !workspaceId) return
+    let cancelled = false
+    let attempts = 0
+    let timer = null
+    const isPaidActive = (data) => Boolean(data?.subscription_active) && !data?.trial_active
+    async function check() {
+      attempts += 1
+      try {
+        const data = await api.getWorkspaceSubscription(workspaceId)
+        if (cancelled) return
+        if (isPaidActive(data)) {
+          setSub(data)
+          setActivation('active')
+          return
+        }
+      } catch { /* keep checking; a read failure is not a confirmation */ }
+      if (cancelled) return
+      if (attempts >= ACTIVATION_CHECKS) { setActivation('pending'); return }
+      timer = setTimeout(check, ACTIVATION_INTERVAL_MS)
+    }
+    check()
+    return () => { cancelled = true; if (timer) clearTimeout(timer) }
+  }, [activation, workspaceId])
 
   // Live canonical plan metadata (prices). Optional: when unavailable the page
   // simply shows no prices rather than any local figure.
@@ -484,6 +519,9 @@ export default function SubscriptionPage() {
       await handleManageBilling()
       return
     }
+    // A checkout that just finished is still being confirmed; starting
+    // another would ask the customer to pay twice.
+    if (activation === 'activating') return
     setCheckoutError(null)
     setCheckoutLoading(true)
     try {
@@ -615,12 +653,34 @@ export default function SubscriptionPage() {
       </div>
 
       {/* ── Stripe return banners ── */}
-      {stripeSuccess && (
-        <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-2xl px-4 py-3">
+      {activation === 'activating' && (
+        <div className="flex items-center gap-3 bg-brand-50 border border-brand-100 rounded-2xl px-4 py-3" role="status">
+          <RefreshCw className="w-5 h-5 text-brand-600 flex-shrink-0 animate-spin" />
+          <div>
+            <p className="text-sm font-bold text-gray-900">Checkout complete — activating your plan…</p>
+            <p className="text-xs text-gray-600 mt-0.5">This usually takes a few seconds. Please don't pay again.</p>
+          </div>
+        </div>
+      )}
+      {activation === 'active' && (
+        <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-2xl px-4 py-3" role="status">
           <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
           <div>
-            <p className="text-sm font-bold text-green-800">Payment successful — plan upgraded!</p>
-            <p className="text-xs text-green-600 mt-0.5">Your new plan features are now active.</p>
+            <p className="text-sm font-bold text-green-800">Payment received — your {meta.label} plan is active.</p>
+            <p className="text-xs text-green-600 mt-0.5">Your plan features are available now.</p>
+          </div>
+        </div>
+      )}
+      {activation === 'pending' && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3" role="alert">
+          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-bold text-amber-900">Your checkout finished, but your plan isn't active yet.</p>
+            <p className="text-xs text-amber-800 mt-0.5">
+              Please don't pay again. If this page still doesn't show your plan in a few minutes, email{' '}
+              <a href="mailto:hello@cybermeters.com" className="underline font-semibold">hello@cybermeters.com</a>{' '}
+              and we'll activate it.
+            </p>
           </div>
         </div>
       )}
@@ -736,7 +796,7 @@ export default function SubscriptionPage() {
         onUpgrade={handleUpgrade}
         subscriptionActive={subscriptionActive}
         trialActive={trialActive}
-        checkoutLoading={checkoutLoading || (paidPlanChangeViaPortal && portalLoading)}
+        checkoutLoading={checkoutLoading || activation === 'activating' || (paidPlanChangeViaPortal && portalLoading)}
         portalPlanChange={paidPlanChangeViaPortal}
       />
 
@@ -758,7 +818,7 @@ export default function SubscriptionPage() {
 
       {/* ── Upgrade prompt (free + post-trial) ── */}
       {!subscriptionActive && !trialActive && (
-        <UpgradePrompt plan={plan} onUpgrade={handleUpgrade} checkoutLoading={checkoutLoading} livePlans={livePlans} />
+        <UpgradePrompt plan={plan} onUpgrade={handleUpgrade} checkoutLoading={checkoutLoading || activation === 'activating'} livePlans={livePlans} />
       )}
 
       {/* ── Trial tip (when still in trial) ── */}

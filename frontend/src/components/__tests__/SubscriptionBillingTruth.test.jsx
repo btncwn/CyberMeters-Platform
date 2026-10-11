@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 import fs from 'node:fs'
@@ -58,9 +58,9 @@ function subFixture(overrides = {}) {
   }
 }
 
-function renderPage() {
+function renderPage(path = '/billing') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <SubscriptionPage />
     </MemoryRouter>,
   )
@@ -205,4 +205,49 @@ test('no billing-surface source file carries a retired Vendor Risk claim', () =>
     expect(content, `${name} advertises a retired claim`).not.toMatch(/Supply Chain Intelligence/)
     expect(content, `${name} advertises a retired claim`).not.toMatch(/Vendor & Supply Chain Risk/)
   }
+})
+
+// ── Checkout return truth (11 Oct 2026 live payment) ─────────────────────────
+// Stripe's redirect only says checkout finished. A live payment whose webhook
+// failed showed "Payment successful — plan upgraded!" over a lapsed plan and
+// invited a second payment. The banner must follow the subscription itself.
+
+const lapsedFixture = () => subFixture({
+  plan: 'free', status: 'canceled', subscription_active: false, trial_active: false,
+  stripe_subscription_id: null, current_period_end: null, limits: { domains: 1, users: 1, history_days: 30 }, features: [],
+})
+
+test('checkout return confirms the plan only once the subscription is active', async () => {
+  api.getWorkspaceSubscription.mockResolvedValue(subFixture({ plan: 'starter', limits: { domains: 1, users: 1, history_days: 30 } }))
+  api.getBillingPlans.mockResolvedValue({ plans: CANONICAL_PLANS })
+  renderPage('/billing?success=true')
+  expect(await screen.findByText('Payment received — your Starter plan is active.')).toBeInTheDocument()
+  expect(screen.queryByText(/Payment successful — plan upgraded/)).toBeNull()
+})
+
+test('checkout return that never activates says so and never claims success', async () => {
+  vi.useFakeTimers()
+  try {
+    api.getWorkspaceSubscription.mockResolvedValue(lapsedFixture())
+    api.getBillingPlans.mockResolvedValue({ plans: CANONICAL_PLANS })
+    renderPage('/billing?success=true')
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText('Checkout complete — activating your plan…')).toBeInTheDocument()
+    expect(screen.queryByText(/plan is active/)).toBeNull()
+    await act(async () => { await vi.advanceTimersByTimeAsync(31_000) })
+    expect(screen.getByText("Your checkout finished, but your plan isn't active yet.")).toBeInTheDocument()
+    expect(screen.queryByText(/Payment successful — plan upgraded/)).toBeNull()
+    expect(screen.queryByText('Checkout complete — activating your plan…')).toBeNull()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('no checkout return banner appears on an ordinary visit', async () => {
+  api.getWorkspaceSubscription.mockResolvedValue(lapsedFixture())
+  api.getBillingPlans.mockResolvedValue({ plans: CANONICAL_PLANS })
+  renderPage('/billing')
+  await waitFor(() => expect(api.getWorkspaceSubscription).toHaveBeenCalledTimes(1))
+  expect(screen.queryByText(/activating your plan/)).toBeNull()
+  expect(screen.queryByText(/isn't active yet/)).toBeNull()
 })

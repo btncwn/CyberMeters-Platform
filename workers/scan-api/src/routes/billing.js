@@ -24,7 +24,7 @@ import { BILLING_PLAN_METADATA, getEffectiveDomainLimit, getPaymentGraceState, g
 import { getTrialAllowance } from "../engines/trial-allowance.js";
 import { getEffectivePlanState } from "../engines/entitlements.js";
 import { getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
-import { applyCheckoutConsentParams, getStripePriceIdForPlan, shouldRoutePlanChangeToPortal, validateStripeSecretConfig, verifyStripePriceMatchesPolicy } from "../engines/stripe.js";
+import { applyCheckoutConsentParams, findBilledStripeSubscription, getStripePriceIdForPlan, shouldRoutePlanChangeToPortal, validateStripeSecretConfig, verifyStripePriceMatchesPolicy } from "../engines/stripe.js";
 import { TRIAL_PLAN, auditApiTokenSessionRouteDenied, getPublicBillingPlans, getTrialRemainingDays, getWorkspaceSubscription, isSubscriptionActive, isTrialActive, parseCheckoutPlan } from "../engines/subscription-state.js";
 import { dnsQuery } from "../engines/dns.js";
 import { createAuditEvent } from "../lib/events.js";
@@ -591,6 +591,54 @@ export async function billingRoutes(rctx) {
       // Terms of Service URL to be set in the Stripe account's public business
       // settings (founder dashboard action; session creation fails without it).
       applyCheckoutConsentParams(params);
+
+      // Stripe is the authority on whether this account is already billed; our
+      // row may not know yet if a webhook is delayed or failed (and then holds
+      // no customer id either, so the lookup falls back to the account email
+      // the checkout gives Stripe). A second checkout would create a second
+      // subscription and charge twice, so a billed account goes to its portal
+      // and a failed lookup refuses rather than risk it.
+      const billed = await findBilledStripeSubscription(env, {
+        customerId: existingSub?.stripe_customer_id || null,
+        email: existingSub?.stripe_customer_id ? null : user.email,
+      });
+      if (!billed.ok) {
+        return json({
+          error:   "stripe_subscription_lookup_failed",
+          message: "Checkout is temporarily unavailable. Please try again in a moment.",
+        }, 503);
+      }
+      if (billed.subscription) {
+        const portal = await createStripeBillingPortalSession(billed.subscription.customer, `${frontendOrigin}/billing`);
+        if (!portal.ok) {
+          return json({ error: portal.error, message: portal.message }, 502);
+        }
+        await createAuditEvent(env, {
+          user_id:      user.id,
+          workspace_id: wsId,
+          event_type:   "billing_checkout_routed_to_portal",
+          entity_type:  "stripe_billing_portal_session",
+          entity_id:    portal.session.id,
+          description:  `Checkout request for ${requestedPlan} (${interval}) routed to the billing portal — Stripe already bills this account, so a second subscription was not created`,
+          metadata:     {
+            requested_plan:             requestedPlan,
+            requested_interval:         interval,
+            subscription_row_id:        existingSub?.id ?? null,
+            stripe_subscription_id:     billed.subscription.id,
+            stripe_subscription_status: billed.subscription.status,
+            stripe_session_id:          portal.session.id,
+            workspace_id:               wsId,
+            source:                     "stripe_lookup",
+          },
+        });
+        return json({
+          url:        portal.session.url,
+          session_id: portal.session.id,
+          portal:     true,
+          reason:     "existing_stripe_subscription",
+          message:    "You already have a CyberMeters subscription, so we've opened your billing portal instead of taking another payment.",
+        }, 200);
+      }
 
       if (existingSub?.stripe_customer_id) {
         params.set("customer", existingSub.stripe_customer_id);
