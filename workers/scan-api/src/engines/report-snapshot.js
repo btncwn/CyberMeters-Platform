@@ -379,7 +379,7 @@ function domainEvidenceGrade(entry, report) {
 function assessmentEvidenceGrade({ assessment, domainEntries, methodologyVersion, label }) {
   const degradedDomains = domainEntries.filter((entry) => entry?.evidence_grade?.grade === "L0");
   const limits = [
-    `${label} is a CyberMeters product-policy indicator, not an external standard, certification or assurance opinion.`,
+    `${label} is a CyberMeters indicator, not an external standard, certification or assurance opinion.`,
   ];
   // Score/band and BRI are composite conclusions. Their ceiling is therefore
   // the lowest decisive constituent-domain grade, never the average or the
@@ -387,17 +387,17 @@ function assessmentEvidenceGrade({ assessment, domainEntries, methodologyVersion
   let grade = lowestEvidenceGrade(domainEntries.map((entry) => entry.evidence_grade));
   if (assessment?.authoritative !== true) {
     grade = lowerGrade(grade, "L0");
-    limits.push("Scan coverage or monitoring/provider evidence was incomplete, so the conclusion is provisional.");
+    limits.push("Some scan coverage or provider evidence was incomplete, so this result is provisional.");
   }
   if (degradedDomains.length) {
     limits.push(
-      `Lower-grade domain conclusions remain visible: ${degradedDomains.map((entry) => entry.display_name).join(", ")}.`
+      `Domains with limited evidence are shown separately: ${degradedDomains.map((entry) => entry.display_name).join(", ")}.`
     );
   }
   return evidenceGrade({
     grade,
     source_type: "product_policy",
-    basis: `${label} applies CyberMeters methodology ${methodologyVersion || "unversioned"} to frozen scan-time evidence.`,
+    basis: `Calculated with CyberMeters method ${methodologyVersion || "(version not recorded)"} from the evidence captured when this scan ran.`,
     limits,
   });
 }
@@ -911,7 +911,7 @@ export function composeSnapshot({
     grade: lowestEvidenceGrade(domainEntries.map((entry) => entry.evidence_grade)),
     source_type: "product_policy",
     basis:
-      "The eight-domain conclusion uses the lowest decisive constituent-domain Evidence Grade; a lower-grade or insufficient domain cannot be hidden by higher-grade domains.",
+      "Overall evidence strength is the weakest of the eight domains, so a domain with limited evidence is never hidden by stronger ones.",
     limits: domainEntries
       .filter((entry) => entry.evidence_grade?.grade === "L0")
       .map((entry) => `${entry.display_name}: ${entry.state_reason}`),

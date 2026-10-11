@@ -417,8 +417,24 @@ const HOW_TO_READ_REPORT =
 // Backend vocabulary is rendered one-to-one, only without the underscores of a
 // machine identifier: "monitoring_degraded" reads "monitoring degraded".
 function readableCode(value) {
-  return String(value ?? "").replace(/_/g, " ").trim();
+  return MODULE_TEXT[value] || String(value ?? "").replace(/_/g, " ").trim();
 }
+
+// Scanner module identifiers read as the check a customer recognises; any other
+// backend code keeps its own words without underscores.
+const MODULE_TEXT = Object.freeze({
+  technology_detection: "technology detection",
+  cve_intelligence: "vulnerability (CVE) checks",
+  known_exploited_vulnerabilities: "known exploited vulnerability (KEV) checks",
+  risk_intelligence: "risk summary",
+  remediation_plan: "remediation plan",
+  subdomain_takeover: "subdomain takeover checks",
+  email_security_intelligence: "email security detail",
+  dns_bruteforce: "subdomain name checks",
+  cloud_storage_discovery: "cloud storage checks",
+  certificate_intelligence: "certificate checks",
+  admin_surface_detection: "admin page checks",
+});
 
 const RETEST_SUPPORT_TEXT = Object.freeze({
   automated: "CyberMeters can re-check this from outside",
@@ -1263,7 +1279,7 @@ function appendixEvidenceAssertion(w, label, assertion) {
     (Math.max(1, Math.ceil(String(assertion.basis || "").length / 80)) * 11) +
     (limitsText ? Math.max(1, Math.ceil(limitsText.length / 80)) * 11 : 0);
   w.keepTogether(estimatedHeight);
-  w.text(`${label}: ${assertion.grade}`, { size: 8, bold: true });
+  w.text(`${label} - evidence grade ${assertion.grade}`, { size: 8, bold: true });
   w.text(
     `Evidence source: ${sourceLabel} · Repeated observation: ${assertion.repeat_confirmed === true ? "Yes" : "No"}`,
     { size: 7, indent: 10, color: "0.35 0.38 0.44" }

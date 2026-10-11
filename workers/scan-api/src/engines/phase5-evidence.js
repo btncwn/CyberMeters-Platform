@@ -171,6 +171,11 @@ export function skippedScoreBearingModules(modules = {}) {
   return skipped;
 }
 
+const PHASE5_MODULE_LABELS = Object.freeze({
+  cve_intelligence: "vulnerability (CVE) checks",
+  known_exploited_vulnerabilities: "known exploited vulnerability (KEV) checks",
+  email_security_intelligence: "email security detail",
+});
 const SCORE_BEARING_MODULE_LABELS = Object.freeze({
   dns: "DNS", ssl: "TLS/SSL", headers: "security headers",
   email_security: "email security", asset_exposure: "attack surface",
@@ -181,7 +186,8 @@ function suppressionCause(skippedScored, evidence) {
     const names = skippedScored.map((k) => SCORE_BEARING_MODULE_LABELS[k] || k);
     return `The Cyber Metrics Score is withheld because these assessed areas did not complete this scan: ${names.join(", ")}. The results may be incomplete; a score over an incomplete assessment would overstate coverage.`;
   }
-  const gaps = evidence?.incomplete_modules || [];
+  const gaps = (evidence?.incomplete_modules || [])
+    .map((k) => PHASE5_MODULE_LABELS[k] || String(k).replace(/_/g, " "));
   return `The Cyber Metrics Score is withheld because required evidence did not complete this scan${gaps.length ? ` (${gaps.join(", ")})` : ""}. The results may be incomplete; a score over an incomplete assessment would overstate coverage.`;
 }
 

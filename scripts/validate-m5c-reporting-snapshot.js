@@ -996,8 +996,8 @@ async function main() {
       {
         name: "score/band dressed as normative protocol rather than product policy",
         file: srcPath("engines", "report-snapshot.js"),
-        from: "    source_type: \"product_policy\",\n    basis: `${label} applies CyberMeters methodology",
-        to:   "    source_type: \"normative_protocol\",\n    basis: `${label} applies CyberMeters methodology",
+        from: "    source_type: \"product_policy\",\n    basis: `Calculated with CyberMeters method",
+        to:   "    source_type: \"normative_protocol\",\n    basis: `Calculated with CyberMeters method",
       },
       {
         name: "customer attestation relabelled as Verified",

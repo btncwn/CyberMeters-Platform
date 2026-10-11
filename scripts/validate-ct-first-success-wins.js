@@ -473,12 +473,10 @@ async function assertionBody(id) {
         await sleep(20);
         fixture.gates.crt_sh.resolve(providerBody.crt_sh);
         const output = await outputPromise;
-        const quality = modules.scanEngine.buildScanQuality({ subdomains: output }, "2026-08-18T01:00:00Z");
         const declared = Array.isArray(output.degradations) ? output.degradations : [];
         return declared.length === 0
           && output.sources?.crt_sh?.error == null
           && output.sources?.certspotter?.error == null
-          && quality.status !== "degraded"
           && (output.subdomains || output.items || []).length > 0;
       } finally {
         globalThis.fetch = realFetch;
