@@ -467,8 +467,11 @@ const parity = states.map(parityOutputs);
 // title/action. A field-by-field diff against main shows only those strings and
 // the two additive fields; no score, state, finding or methodology fact moved,
 // and all five SAN projection states still produce identical outputs.
-const GOLDEN_F13 = "de98a124197761e76ddcdfd6c9f49ca6d183310d3efe260fd507c3767f5c2935";
-const GOLDEN_F14 = "a7a23eee5904e087e024105202fc7e2110cc6a292ad8ec7369e65a45d2a86b53";
+// The home-page availability remediation (web.homepage.not_served) moves the
+// registry fingerprint r72-31ea0a7c -> r73-133d04b1; with only that entry
+// removed both previous hashes reproduce exactly.
+const GOLDEN_F13 = "8f88a2de6b81dd04f76c91a20a971f10e7a31470adbe5bd890ad5245f95450ee";
+const GOLDEN_F14 = "75b94ae8db8d69f1e9becf29a3b727dbe316670474672f104e5ac5cc11974db6";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
