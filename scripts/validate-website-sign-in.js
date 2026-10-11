@@ -304,11 +304,11 @@ const noLeak = (name, result, values) => {
   eq("307 re-POST to another origin refused", (await run(a)).outcome, "sign_in_redirects_offsite");
   eq("307: only one POST made", a.log.filter((x) => x.method === "POST").length, 1);
   const b = fakeApp({ route: (u, init, { respond, redirect, url }) => {
-    if (u.pathname === "/login" && init.method === "POST" && !u.search) return redirect(url, "/login?step=2", 307);
+    if (u.pathname === "/login" && init.method === "POST") return redirect(url, "/session?step=2", 307);
     return null;
   } });
   await run(b);
-  eq("307 to the same origin re-POSTs there", b.log.filter((x) => x.method === "POST").map((x) => x.url), ["https://acme.test/login", "https://acme.test/login?step=2"]);
+  eq("307 to the same origin re-POSTs there", b.log.filter((x) => x.method === "POST").map((x) => x.url), ["https://acme.test/login", "https://acme.test/session?step=2"]);
 }
 {
   const a = fakeApp({ formMethod: "get" });
@@ -466,8 +466,18 @@ const SAVE = { method: "form", login_url: "https://acme.test/login", start_url: 
   for (let i = 0; i < 3; i++) await h.call("POST", "/acme.test/test");
   const paused = db.prepare("SELECT status, paused_reason, consecutive_failures FROM website_sign_in_profiles").get();
   eq("lock-out protection: paused after 3 rejected sign-ins", [paused.status, paused.paused_reason, paused.consecutive_failures], ["paused", "repeated_sign_in_failures", 3]);
+  await h.call("PUT", "/acme.test", { body: { method: "form", login_url: "https://acme.test/login", start_url: "https://acme.test/account", signed_in_text: "x y z", authorization_confirmed: true } });
+  eq("settings-only re-save does NOT resume", db.prepare("SELECT status FROM website_sign_in_profiles").get().status, "paused");
   await h.call("PUT", "/acme.test", { body: SAVE });
-  eq("re-saving resumes", db.prepare("SELECT status, consecutive_failures FROM website_sign_in_profiles").get(), { status: "active", consecutive_failures: 0 });
+  eq("saving new credentials resumes", db.prepare("SELECT status, consecutive_failures FROM website_sign_in_profiles").get(), { status: "active", consecutive_failures: 0 });
+  // Any unproven outcome after submission counts toward the pause.
+  const p0 = db.prepare("SELECT * FROM website_sign_in_profiles").get();
+  for (let i = 0; i < 3; i++) await store.recordSignInAttempt(h.env, { workspaceId: "ws_a", domainId: "d1", profile: p0, source: "scan", scanId: `sx${i}`, outcome: "login_error_status", detail: { submitted: true } });
+  eq("post-submission errors pause too", db.prepare("SELECT status FROM website_sign_in_profiles").get().status, "paused");
+  await store.recordSignInAttempt(h.env, { workspaceId: "ws_a", domainId: "d1", profile: p0, source: "test", outcome: "signed_in" });
+  eq("a successful test resumes", db.prepare("SELECT status, consecutive_failures FROM website_sign_in_profiles").get(), { status: "active", consecutive_failures: 0 });
+  await store.recordSignInAttempt(h.env, { workspaceId: "ws_a", domainId: "d1", profile: p0, source: "scan", scanId: "net1", outcome: "login_page_unavailable", detail: {} });
+  eq("failures before submitting anything do not count", db.prepare("SELECT consecutive_failures FROM website_sign_in_profiles").get().consecutive_failures, 0);
   // Stale credentials: an attempt for an old revision never updates health.
   const profileOld = { ...db.prepare("SELECT * FROM website_sign_in_profiles").get(), credential_revision: "old" };
   await store.recordSignInAttempt(h.env, { workspaceId: "ws_a", domainId: "d1", profile: profileOld, source: "scan", scanId: "s1", outcome: "credentials_rejected" });
@@ -637,6 +647,54 @@ function richApp(extra = {}) {
   db.prepare("UPDATE workspace_domains SET verification_status = 'verified' WHERE workspace_id = 'ws_a' AND domain_id = 'd1'").run();
   db.prepare("UPDATE workspaces SET deleted_at = 'x' WHERE id = 'ws_a'").run();
   eq("scan profile: deleted workspace → not used", await store.loadSignedInScanProfile(env, { workspaceId: "ws_a", domainId: "d1" }), null);
+}
+
+// ── 5b. Non-author review hardening ─────────────────────────────────────────
+{
+  // A start page that sends EVERYONE to the same public page proves nothing.
+  const everyone = (path, to) => ({ route: (u, i, { redirect, url }) => (u.pathname === path && SITE.has(u.hostname) ? redirect(url, to) : null) });
+  const H = { method: "header", login_url: null, start_url: "https://acme.test/dashboard", signed_in_text: null };
+  const a = fakeApp({ route: (u, i, { redirect, respond, url }) => (u.pathname === "/dashboard" ? redirect(url, "/app") : u.pathname === "/app" ? respond(url, 200, "<html>public app shell</html>") : null) });
+  eq("universal redirect + bogus header: not signed in", (await si.signIn("acme.test", H, { header_name: "Authorization", header_value: "Bearer bogus" }, { fetchImpl: a.fetchImpl })).outcome, "start_page_public");
+  eq("universal redirect + wrong password: not signed in", (await run(fakeApp(everyone("/home", "/")), { ...FORM, start_url: "https://acme.test/home" }, { ...GOOD, password: "wrong" })).outcome, "start_page_public");
+  // 422 (Devise/Turbo) is a refusal, and every unproven submission counts.
+  const r422 = await run(fakeApp({ afterPost: () => null, route: (u, i, { respond, url }) => (u.pathname === "/login" && i.method === "POST" ? respond(url, 422, "") : null) }), { ...FORM, start_url: null });
+  eq("422 after the form is a refusal", [r422.outcome, r422.detail.submitted], ["credentials_rejected", true]);
+  // A registration form before the sign-in form is never the one submitted.
+  const reg = fakeApp({ loginHtml: (csrf) => `<form method=post action="/my-account/register" id="register"><input type=email name=email><input type=password name=password autocomplete="new-password"><button name=register>Register</button></form>
+    <form method=post action="/login" class="woocommerce-form-login"><input type=hidden name=csrf value="${csrf}"><input type=email name=email><input type=password name=password autocomplete="current-password"><button>Log in</button></form>` });
+  eq("register form skipped, sign-in form used", (await run(reg)).outcome, "signed_in");
+  ok("register form never submitted", reg.log.every((x) => !/register/.test(x.path)));
+  eq("signup-only page: no sign-in form", si.pickLoginForm(si.extractFormsWithFields(`<form method=post action="/signup"><input name=email><input type=password name=pw></form>`)).error, "login_form_not_found");
+  eq("Devise form ids are not mistaken for registration", si.pickLoginForm(si.extractFormsWithFields(`<form id="new_user" class="new_user" action="/users/sign_in" method="post"><input type=email name="user[email]"><input type=password name="user[password]" autocomplete="current-password"></form>`)).passwordName, "user[password]");
+  // Redirects into action addresses are never followed with the session.
+  for (const target of ["/account/export", "/billing/upgrade?plan=pro&confirm=1", "/keys/rotate", "/account?action=delete"]) {
+    const app = fakeApp({ afterLogin: target });
+    const r = await run(app, { ...FORM, start_url: null });
+    ok(`post-sign-in redirect into ${target} not followed`, r.outcome === "sign_in_redirect_not_followed" && app.log.every((x) => `${x.path}${new URL(x.url).search}` !== target), r.outcome);
+  }
+  const crawlApp = richApp({ route2: true });
+  const crawl = await runSignedInScan("acme.test", FORM, GOOD, { fetchImpl: (url, init) => {
+    const u = new URL(url);
+    if (u.pathname === "/account" && (init.headers || {}).Cookie) {
+      const r = new Response(`<html><p>Signed in as Jane Tester</p><a href="/billing">Billing</a><a href="/admin/login">Admin sign-in</a><a href="/Login">L</a><a href="/auth/google">G</a></html>`, { status: 200, headers: { "content-type": "text/html" } });
+      Object.defineProperty(r, "url", { value: url }); crawlApp.log.push({ url, path: u.pathname, host: u.hostname, protocol: u.protocol, method: "GET", headers: init.headers || {} });
+      return r;
+    }
+    if (u.pathname === "/billing") { const r = new Response(null, { status: 302, headers: { location: "/billing/upgrade?plan=pro&confirm=1" } }); Object.defineProperty(r, "url", { value: url }); crawlApp.log.push({ url, path: u.pathname, host: u.hostname, protocol: u.protocol, method: "GET", headers: init.headers || {} }); return r; }
+    return crawlApp.fetchImpl(url, init);
+  } });
+  ok("crawl: redirect into an upgrade/confirm address not followed", crawlApp.log.every((x) => x.path !== "/billing/upgrade") && crawl.pages.some((p) => p.path === "/billing" && p.outcome === "redirect_not_followed"), JSON.stringify(crawl.pages.map((p) => [p.path, p.outcome])));
+  ok("crawl: other sign-in pages never requested with the session", crawlApp.log.filter((x) => /\/admin\/login|\/Login|\/auth\/google/.test(x.path)).length === 0);
+  // Signed-in text with an unreadable anonymous answer proves nothing.
+  const flaky = fakeApp({ route: (u, i, { respond, url, cookiesOf }) => (u.pathname === "/account" && !cookiesOf(i.headers || {}).sid ? respond(url, 503, "busy") : null) });
+  eq("anonymous answer unavailable: not confirmed", (await run(flaky, { ...FORM, signed_in_text: "Signed in as Jane" })).outcome, "anonymous_check_unavailable");
+  // Renewal is only judged when unambiguous.
+  const remember = fakeApp({ afterPost: (url, { redirect, sess }) => { sess.authed = true; return redirect(url, "/account", 302, ["remember_token=RT1; Path=/; Secure; HttpOnly"]); } });
+  eq("kept session cookie + new remember cookie: renewal unknown", (await run(remember)).detail.session_cookie_renewed, "unknown");
+  for (const name of ["X-HTTP-Method-Override", "X-HTTP-Method", "X-Method-Override", "X-Original-URL"]) {
+    throwsCode(`input: ${name} refused`, () => si.normalizeSignInInput({ method: "header", start_url: "https://acme.test/account", header_name: name, header_value: "DELETE", authorization_confirmed: true }, { domain: "acme.test" }), "header_name_invalid");
+  }
 }
 
 // ── 9. End-to-end: queue scan → sign-in → workspace-private attempt row ────

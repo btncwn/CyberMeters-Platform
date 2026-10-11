@@ -80,7 +80,7 @@ export function pathWords(path) {
   return words;
 }
 
-function hasUnsafeWords(words) {
+export function hasUnsafeWords(words) {
   if (words.some((w) => UNSAFE_WORDS.has(w))) return true;
   for (let i = 0; i + 1 < words.length; i++) {
     if (UNSAFE_PAIRS.some(([a, b]) => words[i] === a && words[i + 1] === b)) return true;

@@ -21,7 +21,7 @@ import { safeFetch } from "../lib/http.js";
 import { isOutboundControlError } from "../lib/ssrf.js";
 import {
   PROBE_HEADERS, siteHosts, normalizePath, forEachTag, attrOf, readBoundedText,
-  setCookiesOf, hasPasswordField, isRequestablePath, isApiPath, classifySensitivePath,
+  setCookiesOf, hasPasswordField, isRequestablePath, isApiPath, classifySensitivePath, pathWords, hasUnsafeWords, ACTION_WORDS,
 } from "./page-discovery.js";
 
 export const WEBSITE_SIGN_IN_VERSION = "2026-10-11.1";
@@ -50,6 +50,7 @@ export const SIGN_IN_OUTCOMES = Object.freeze([
   "credentials_rejected", "session_rejected", "mfa_required", "captcha_present", "bot_protection", "rate_limited",
   // we could not confirm
   "signed_in_text_not_found", "signed_in_text_not_distinctive", "start_page_public", "start_page_unavailable",
+  "anonymous_check_unavailable",
   // the sign-in page is not something we can use safely
   "login_page_unavailable", "login_form_not_found", "username_field_not_found", "login_form_uses_get",
   "login_form_posts_offsite", "login_not_https", "sign_in_redirects_offsite", "sign_in_redirect_not_followed", "login_error_status",
@@ -66,6 +67,8 @@ const FORBIDDEN_HEADERS = new Set([
   "host", "cookie", "set-cookie", "content-length", "content-type", "transfer-encoding", "connection",
   "keep-alive", "upgrade", "te", "trailer", "expect", "origin", "referer", "user-agent", "accept",
   "accept-encoding", "accept-language", "forwarded", "via", "x-real-ip", "true-client-ip", "range",
+  // Method/path overrides would turn a read-only GET into something else.
+  "x-http-method-override", "x-http-method", "x-method-override", "x-original-method", "x-original-url", "x-rewrite-url",
 ]);
 const HEADER_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/;
 const HEADER_VALUE_RE = /^[\x20-\x7E]{1,4096}$/;
@@ -78,6 +81,35 @@ export function allowedHeaderName(name) {
   const n = name.toLowerCase();
   if (FORBIDDEN_HEADERS.has(n)) return false;
   return !/^(?:proxy-|sec-|x-forwarded-|cf-|x-cybermeters)/.test(n);
+}
+
+// ── Addresses that are never requested behind a sign-in ─────────────────────
+// Stricter than public discovery: ANY action word (even on a page that looks
+// like an account page — "/account/export"), any API endpoint, any sign-in
+// page, and redirect targets whose query carries such words.
+const SIGNED_IN_EXTRA_ACTIONS = new Set(["download", "print", "generate", "resend", "retry", "renew", "upgrade", "downgrade",
+  "subscribe", "pay", "purchase", "buy", "checkout", "transfer", "withdraw", "reset", "regenerate", "rotate", "leave", "switch",
+  "impersonate", "verify", "activate", "accept", "decline", "grant", "authorize", "authorise", "unlink", "link", "connect", "disconnect"]);
+function queryCarriesAction(search) {
+  if (!search || search === "?") return false;
+  const parts = [];
+  try { for (const [k, v] of new URLSearchParams(search)) parts.push(k, v); } catch { return true; }
+  const words = pathWords(`/${parts.join("/")}`);
+  return hasUnsafeWords(words) || words.some((w) => ACTION_WORDS.has(w) || SIGNED_IN_EXTRA_ACTIONS.has(w));
+}
+/** True when requesting this URL with a session could change something. */
+export function addressCarriesAction(url) {
+  const path = normalizePath(url.pathname);
+  return isApiPath(path) || !isRequestablePath(path, { strict: true })
+    || pathWords(path).some((w) => ACTION_WORDS.has(w) || SIGNED_IN_EXTRA_ACTIONS.has(w))
+    || queryCarriesAction(url.search);
+}
+/** A path the signed-in crawl may request: no action, no API, not a sign-in page. */
+export function signedInRequestable(path) {
+  if (classifySensitivePath(path) === "login") return false;
+  let u;
+  try { u = new URL(path, "https://site.invalid/"); } catch { return false; }
+  return !addressCarriesAction(u);
 }
 
 class InputError extends Error {
@@ -304,6 +336,7 @@ export function extractFormsWithFields(html, { maxForms = SIGN_IN_LIMITS.maxForm
       current = {
         method: (attrOf(tag, "method") || "get").trim().toLowerCase() === "post" ? "post" : "get",
         action: attrOf(tag, "action") != null ? decodeEntities(attrOf(tag, "action")).trim() : null,
+        label: `${attrOf(tag, "id") || ""} ${attrOf(tag, "name") || ""} ${attrOf(tag, "class") || ""}`.slice(0, 300),
         fields: [],
         submits: [],
       };
@@ -332,10 +365,27 @@ export function extractFormsWithFields(html, { maxForms = SIGN_IN_LIMITS.maxForm
 const USERNAME_HINT_RE = /user|e-?mail|login|account|ident|member|customer|uname/i;
 const TEXTLIKE = new Set(["text", "email", "tel", ""]);
 
+// A form for creating an account, resetting a password or subscribing is
+// never a sign-in form, even with a single password field.
+const NOT_SIGN_IN_WORDS = new Set(["register", "registration", "signup", "join", "enroll", "enrol", "reset", "forgot", "recover",
+  "recovery", "invite", "subscribe", "newsletter", "unsubscribe", "delete", "remove", "cancel", "logout", "signout"]);
+function looksLikeOtherForm(form) {
+  let actionPath = "";
+  try { actionPath = new URL(form.action || "/", "https://site.invalid/").pathname; } catch { /* keep empty */ }
+  const words = pathWords(`/${actionPath}/${form.label || ""}`.replace(/\s+/g, "/"));
+  for (let i = 0; i + 1 < words.length; i++) if (words[i] === "sign" && words[i + 1] === "up") return true;
+  return words.some((w) => NOT_SIGN_IN_WORDS.has(w));
+}
+
 /** Choose the sign-in form and its username/password fields. */
 export function pickLoginForm(forms, { usernameField = null, passwordField = null } = {}) {
-  const candidates = forms.filter((f) => f.fields.filter((x) => x.type === "password").length === 1);
+  const candidates = forms
+    .filter((f) => f.fields.filter((x) => x.type === "password").length === 1)
+    .filter((f) => !f.fields.some((x) => x.type === "password" && x.autocomplete === "new-password"))
+    .filter((f) => !looksLikeOtherForm(f));
   if (!candidates.length) return { error: "login_form_not_found" };
+  // A field marked current-password is the strongest sign of a sign-in form.
+  candidates.sort((a, b) => Number(b.fields.some((x) => x.autocomplete === "current-password")) - Number(a.fields.some((x) => x.autocomplete === "current-password")));
   let form = candidates[0];
   if (passwordField) {
     form = candidates.find((f) => f.fields.some((x) => x.type === "password" && x.name === passwordField));
@@ -558,15 +608,33 @@ export function createSiteSession(domain, { staticAuth = null, opts = {}, limits
   return { hosts, jar, navigate, page, state, canFetch, limits: L };
 }
 
-/** Never follow a signed-in redirect into a sign-in page or an address that could change something. */
+/** A sign-in page: the configured one, or one recognised by its address. */
+const isSignInPath = (path, loginPath) => path === loginPath || classifySensitivePath(path) === "login";
+/**
+ * With a session, never follow a redirect into a sign-in page (that is a
+ * refusal — the caller tells which) or an address that could change something.
+ */
 export function signedInStopAt(loginPath) {
-  return (next) => {
-    const p = normalizePath(next.pathname);
-    return p === loginPath || classifySensitivePath(p) === "login" || !isRequestablePath(p, { strict: true });
-  };
+  return (next) => isSignInPath(normalizePath(next.pathname), loginPath) || addressCarriesAction(next);
 }
-/** Anonymous contrast: any redirect to a different path is already the answer ("refused"). */
-export const anonymousStopAt = (next, current) => normalizePath(next.pathname) !== normalizePath(current.pathname);
+/** Without a session: still never request a sign-in page or an action address. */
+export const anonymousStopAt = (loginPath) => (next) => isSignInPath(normalizePath(next.pathname), loginPath) || addressCarriesAction(next);
+/** Where a navigation that was stopped would have gone. */
+const stoppedAtSignIn = (nav, loginPath) => nav?.outcome === "stopped" && isSignInPath(normalizePath(new URL(nav.url).pathname), loginPath);
+
+/**
+ * How an anonymous request for the same address ended, relative to where the
+ * session ended. "refused": an error, a sign-in page, or anywhere other than
+ * where the session landed. "served": the same destination as the session.
+ */
+export function anonymousAnswer(anon, sessionFinalPath) {
+  if (anon.outcome === "offsite" || anon.outcome === "stopped" || [401, 403, 404, 410].includes(anon.status)) return "refused";
+  if (anon.outcome === "ok" && anon.status >= 200 && anon.status < 300 && anon.html) {
+    if (looksLikeLoginPage(anon.html)) return "refused";
+    return normalizePath(new URL(anon.url).pathname) === sessionFinalPath ? "served" : "refused";
+  }
+  return "unavailable";
+}
 
 const isChallenge = (nav) => {
   const h = nav?.res?.headers;
@@ -578,43 +646,41 @@ const isChallenge = (nav) => {
 
 /**
  * Proves the session is signed in on the start page. Two independent ways:
- *   1. the customer's signed-in text appears with the session and NOT
- *      without it; or
- *   2. without signed-in text: the start page serves the session a normal
- *      page while an anonymous request is refused (401/403, redirected
- *      elsewhere, or shown a password form).
+ *   1. the customer's signed-in text appears with the session and NOT on the
+ *      anonymous answer for the same address; or
+ *   2. without signed-in text: the session gets a normal page while an
+ *      anonymous request for the same address is refused (an error, a sign-in
+ *      page, or sent somewhere other than where the session landed).
+ * A start page that sends everyone to the same public page proves nothing.
  */
 export async function verifySignedIn(session, { startUrl, signedInText = null, loginUrl = null }) {
-  const startPath = normalizePath(new URL(startUrl).pathname);
   const loginPath = loginUrl ? normalizePath(new URL(loginUrl).pathname) : null;
   const authed = await session.page(startUrl, { authed: true, stopAt: signedInStopAt(loginPath) });
   if (authed.outcome === "exhausted") return { outcome: "budget_exhausted" };
   if (isChallenge(authed)) return { outcome: "bot_protection" };
-  const authedPath = authed.outcome === "ok" ? normalizePath(new URL(authed.url).pathname) : null;
   const detail = { start_status: authed.status ?? null };
-  const refused = authed.outcome === "offsite" || authed.outcome === "stopped" || [401, 403].includes(authed.status)
-    || (authedPath && authedPath !== startPath && (authedPath === loginPath || classifySensitivePath(authedPath) === "login"))
+  if (authed.outcome === "stopped" && !stoppedAtSignIn(authed, loginPath)) return { outcome: "sign_in_redirect_not_followed", detail };
+  const authedPath = authed.outcome === "ok" ? normalizePath(new URL(authed.url).pathname) : null;
+  const refused = authed.outcome === "offsite" || stoppedAtSignIn(authed, loginPath) || [401, 403].includes(authed.status)
     || (authed.status >= 200 && authed.status < 300 && looksLikeLoginPage(authed.html) && !containsSignedInText(authed.html, signedInText));
   if (refused) return { outcome: "session_refused", detail };
   if (authed.status === 429) return { outcome: "rate_limited", detail };
   if (authed.outcome !== "ok" || !(authed.status >= 200 && authed.status < 300) || !authed.html) return { outcome: "start_page_unavailable", detail };
 
-  const anon = await session.page(startUrl, { authed: false, stopAt: anonymousStopAt });
-  const anonPath = anon.outcome === "ok" ? normalizePath(new URL(anon.url).pathname) : null;
-  let anonymous = "unavailable";
-  if (anon.outcome === "offsite" || anon.outcome === "stopped" || [401, 403, 404, 410].includes(anon.status) || (anonPath && anonPath !== startPath)
-      || (anon.status >= 200 && anon.status < 300 && looksLikeLoginPage(anon.html))) anonymous = "refused";
-  else if (anon.outcome === "ok" && anon.status >= 200 && anon.status < 300 && anon.html) anonymous = "served";
+  const anon = await session.page(startUrl, { authed: false, stopAt: anonymousStopAt(loginPath) });
+  if (anon.outcome === "exhausted") return { outcome: "budget_exhausted", detail };
+  const anonymous = anonymousAnswer(anon, authedPath);
   detail.anonymous_access = anonymous;
+  if (anonymous === "unavailable") return { outcome: "anonymous_check_unavailable", detail };
+  const startPage = { url: authed.url, html: authed.html, res: authed.res };
 
   if (signedInText) {
     if (!containsSignedInText(authed.html, signedInText)) return { outcome: "signed_in_text_not_found", detail };
     if (anonymous === "served" && containsSignedInText(anon.html, signedInText)) return { outcome: "signed_in_text_not_distinctive", detail };
-    return { outcome: "signed_in", detail: { ...detail, basis: "signed_in_text" }, startPage: { url: authed.url, html: authed.html, res: authed.res } };
+    return { outcome: "signed_in", detail: { ...detail, basis: "signed_in_text" }, startPage };
   }
-  if (anonymous === "refused") return { outcome: "signed_in", detail: { ...detail, basis: "anonymous_refused" }, startPage: { url: authed.url, html: authed.html, res: authed.res } };
-  if (anonymous === "served") return { outcome: "start_page_public", detail };
-  return { outcome: "start_page_unavailable", detail };
+  if (anonymous === "refused") return { outcome: "signed_in", detail: { ...detail, basis: "anonymous_refused" }, startPage };
+  return { outcome: "start_page_public", detail };
 }
 
 /**
@@ -662,13 +728,18 @@ export async function signIn(domain, profile, secret, opts = {}) {
     // 3. Submit once. Cookies before/after are compared IN MEMORY only.
     const before = session.jar.snapshot();
     const loginPageUrl = new URL(login.url);
+    const loginPath = normalizePath(new URL(profile.login_url).pathname);
+    // From here on the credentials have been submitted: whatever happens next
+    // counts toward the lock-out protection unless the sign-in is proven.
+    detail.submitted = true;
     const posted = await session.page(action.toString(), {
       method: "POST",
       body: buildLoginBody(form, usernameName, passwordName, secret),
       referer: `${loginPageUrl.origin}${loginPageUrl.pathname}`,
       authed: true,
-      // After the form, never follow a redirect into an address that could change something.
-      stopAt: (next) => !isRequestablePath(normalizePath(next.pathname), { strict: true }),
+      // The site's own post-sign-in redirects are followed (a browser would),
+      // except back to the sign-in page (a refusal) or into an action address.
+      stopAt: (next) => normalizePath(next.pathname) === loginPath || addressCarriesAction(next),
     });
     const cookiesAtSignIn = describeSetCookies(posted.set_cookies, { now: typeof opts.now === "function" ? opts.now() : Date.now() });
     const landing = { status: posted.status ?? null, path: posted.outcome === "ok" || posted.outcome === "stopped" ? normalizePath(new URL(posted.url).pathname) : null };
@@ -678,13 +749,16 @@ export async function signIn(domain, profile, secret, opts = {}) {
     if (posted.outcome === "insecure") return finish("login_not_https", extra);
     if (isChallenge(posted)) return finish("bot_protection", extra);
     if (posted.status === 429) return finish("rate_limited", extra);
-    // Not following a redirect into an unsafe address is fine when a start
+    // Sent straight back to the sign-in page: the site did not accept them.
+    if (posted.outcome === "stopped" && normalizePath(new URL(posted.url).pathname) === loginPath) return finish("credentials_rejected", extra);
+    // Not following a redirect into an action address is fine when a start
     // page can prove the sign-in; without one there is nothing to prove it on.
     if (posted.outcome === "stopped" && !profile.start_url) return finish("sign_in_redirect_not_followed", extra);
     if ((posted.outcome !== "ok" && posted.outcome !== "stopped") || posted.status >= 500) return finish("login_error_status", extra);
     if (posted.html && detectOneTimeCode(posted.html)) return finish("mfa_required", extra);
     if (posted.html && detectCaptcha(posted.html)) return finish("captcha_present", extra);
-    if ([401, 403].includes(posted.status)) return finish("credentials_rejected", extra);
+    // 400/401/403/422 are how frameworks answer a wrong username or password.
+    if ([400, 401, 403, 422].includes(posted.status)) return finish("credentials_rejected", extra);
 
     // 4. Prove it on the start page (or where the site landed us).
     if (!profile.start_url && posted.html && looksLikeLoginPage(posted.html)) return finish("credentials_rejected", extra);
@@ -693,10 +767,17 @@ export async function signIn(domain, profile, secret, opts = {}) {
     const v = await verifySignedIn(session, { startUrl, signedInText: profile.signed_in_text, loginUrl: profile.login_url });
     // Sent back to a sign-in page: the site did not accept these credentials.
     if (v.outcome !== "signed_in") return finish(v.outcome === "session_refused" ? "credentials_rejected" : v.outcome, { ...extra, ...v.detail });
+    // Session renewal, judged only where it is unambiguous:
+    //   renewed      — every cookie held before sign-in changed or went away;
+    //   not_renewed  — nothing changed at all, so the pre-sign-in cookies now
+    //                  carry the signed-in session (session fixation pattern);
+    //   unknown      — some kept, some new: cannot tell which is the session.
     const after = session.jar.snapshot();
     let renewed = "no_cookie_before_sign_in";
     if (before.size) {
-      renewed = [...after].some(([k, val]) => before.get(k) !== val) ? "renewed" : "not_renewed";
+      const kept = [...before].filter(([k, val]) => after.get(k) === val).length;
+      const added = [...after].filter(([k, val]) => before.get(k) !== val).length;
+      renewed = kept === 0 ? "renewed" : added === 0 ? "not_renewed" : "unknown";
     }
     return { ...finish("signed_in", { ...extra, ...v.detail, session_cookie_renewed: renewed, start_path: normalizePath(new URL(startUrl).pathname) }), session, startPage: v.startPage };
   } catch (err) {

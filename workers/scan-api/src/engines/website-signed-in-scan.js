@@ -23,24 +23,16 @@
 // sign-in attempt row and never placed in the domain's shared scan report.
 import { isOutboundControlError } from "../lib/ssrf.js";
 import {
-  normalizePath, extractLinks, toSameSitePageUrl, isRequestablePath, isApiPath, classifySensitivePath, pathWords, ACTION_WORDS,
+  normalizePath, extractLinks, toSameSitePageUrl, classifySensitivePath,
   extractForms, findMixedContent, thirdPartyScriptHosts, headerPresence, setCookiesOf, structureFingerprint,
 } from "./page-discovery.js";
 import {
   signIn, WEBSITE_SIGN_IN_VERSION, containsSignedInText, looksLikeLoginPage, describeSetCookies, signedInStopAt, anonymousStopAt,
+  anonymousAnswer, signedInRequestable,
 } from "./website-sign-in.js";
 
 export const SIGNED_IN_SCAN_VERSION = "2026-10-11.1";
 export const SIGNED_IN_SCAN_LIMITS = Object.freeze({ maxPages: 10, maxDepth: 2, anonymousChecks: 4, maxLinksPerPage: 200 });
-
-// Behind a sign-in, an address carrying ANY action word is never requested —
-// even one that also looks like an account page ("/account/export").
-const SIGNED_IN_EXTRA_ACTIONS = new Set(["download", "print", "generate", "resend", "retry", "renew", "upgrade", "downgrade",
-  "subscribe", "pay", "purchase", "buy", "checkout", "transfer", "withdraw", "reset", "regenerate", "rotate", "leave", "switch", "impersonate"]);
-export function signedInRequestable(path) {
-  if (isApiPath(path) || !isRequestablePath(path, { strict: true })) return false;
-  return !pathWords(path).some((w) => ACTION_WORDS.has(w) || SIGNED_IN_EXTRA_ACTIONS.has(w));
-}
 
 const CACHE_TOKENS = /^(?:public|private|no-cache|no-store|must-revalidate|proxy-revalidate|immutable|(?:s-)?max-age=\d{1,10})$/;
 /** How a cache may keep this response. Only known directive tokens are kept. */
@@ -108,6 +100,7 @@ export async function runSignedInScan(domain, profile, secret, opts = {}) {
   start.anonymous_access = signed.detail.anonymous_access === "refused" ? "refused" : signed.detail.anonymous_access === "served" ? "served_different_page" : "not_checked";
   pages.push(start);
   const htmlByPath = new Map([[startPath, startPage.html]]);
+  const finalPathByPath = new Map([[startPath, normalizePath(new URL(startPage.url).pathname)]]);
 
   // Breadth-first by depth; within a depth, sensitive-looking pages first.
   let frontier = [{ url: startUrl, html: startPage.html, depth: 0 }];
@@ -157,7 +150,7 @@ export async function runSignedInScan(domain, profile, secret, opts = {}) {
             // Two refusals in a row: is the session itself gone?
             const check = await session.page(startUrl, { authed: true, stopAt: signedInStopAt(loginPath) });
             const lost = check.outcome !== "ok" || [401, 403].includes(check.status) || (check.html && looksLikeLoginPage(check.html))
-              || normalizePath(new URL(check.url).pathname) !== startPath;
+              || normalizePath(new URL(check.url).pathname) !== finalPathByPath.get(startPath);
             if (lost) { partial.add("session_ended"); break crawl; }
             refusedInRow = 0;
           }
@@ -177,6 +170,7 @@ export async function runSignedInScan(domain, profile, secret, opts = {}) {
         page.path = c.path;
         pages.push(page);
         htmlByPath.set(c.path, nav.html);
+        finalPathByPath.set(c.path, finalPath);
         fetched.push({ url: nav.url, html: nav.html, depth });
       }
       frontier = depth < L.maxDepth ? fetched : [];
@@ -189,19 +183,17 @@ export async function runSignedInScan(domain, profile, secret, opts = {}) {
     for (const p of toCheck) {
       if (!session.canFetch()) { stopFor(); break; }
       const url = new URL(p.path, startUrl).toString();
-      const anon = await session.page(url, { authed: false, stopAt: anonymousStopAt });
+      const anon = await session.page(url, { authed: false, stopAt: anonymousStopAt(loginPath) });
       if (anon.outcome === "exhausted") { stopFor(); break; }
       counts.anonymous_checked++;
-      const anonPath = anon.outcome === "ok" ? normalizePath(new URL(anon.url).pathname) : null;
-      if (anon.outcome === "offsite" || anon.outcome === "stopped" || [401, 403, 404, 410].includes(anon.status) || (anonPath && anonPath !== p.path)
-          || (anon.status >= 200 && anon.status < 300 && looksLikeLoginPage(anon.html))) p.anonymous_access = "refused";
-      else if (anon.outcome === "ok" && anon.status >= 200 && anon.status < 300 && anon.html) {
+      const answer = anonymousAnswer(anon, finalPathByPath.get(p.path));
+      if (answer === "served") {
         if (profile.signed_in_text && containsSignedInText(anon.html, profile.signed_in_text)) p.anonymous_access = "served_with_signed_in_text";
         else {
           const same = structureFingerprint(anon.html, { baseUrl: url }) === structureFingerprint(htmlByPath.get(p.path) || "", { baseUrl: url });
           p.anonymous_access = same ? "served_same_page" : "served_different_page";
         }
-      } else p.anonymous_access = "unavailable";
+      } else p.anonymous_access = answer;
     }
   } catch (err) {
     if (session.state.exhausted || isOutboundControlError(err) || opts.signal?.aborted) partial.add(session.state.exhausted || "aborted");

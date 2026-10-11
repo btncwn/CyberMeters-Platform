@@ -59,7 +59,7 @@ describe('WebsiteSignInSettings', () => {
     api.getWebsiteSignIn.mockResolvedValue(listing({ domains: [{ domain_id: 'd1', domain: 'acme.test', profile: { ...profile, status: 'paused', paused_reason: 'repeated_sign_in_failures' },
       recent_attempts: [{ id: 'a1', source: 'scan', outcome: 'sign_in_redirects_offsite', detail: {}, created_at: '2026-10-11T00:00:00Z' }] }] }))
     render(<WebsiteSignInSettings workspaceId="ws1" />)
-    expect(await screen.findByText(/Paused after 3 refused sign-ins/)).toBeInTheDocument()
+    expect(await screen.findByText(/Paused after 3 unsuccessful sign-ins/)).toBeInTheDocument()
     expect(screen.getByText('Sign-in continues on another site')).toBeInTheDocument()
     expect(screen.getByText(/use the header or cookie method/)).toBeInTheDocument()
   })

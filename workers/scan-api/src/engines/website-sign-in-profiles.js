@@ -123,7 +123,11 @@ export async function saveSignInProfile(env, { workspaceId, domainId, domain, us
        signed_in_text = excluded.signed_in_text, username_field = excluded.username_field,
        password_field = excluded.password_field, credential_hint = excluded.credential_hint,
        secret_ciphertext = excluded.secret_ciphertext, credential_revision = excluded.credential_revision,
-       status = 'active', paused_reason = NULL, consecutive_failures = 0,
+       -- Only NEW credentials resume a paused profile (a successful test also does);
+       -- editing other settings never buys the old password more attempts.
+       status = CASE WHEN website_sign_in_profiles.credential_revision = excluded.credential_revision THEN website_sign_in_profiles.status ELSE 'active' END,
+       paused_reason = CASE WHEN website_sign_in_profiles.credential_revision = excluded.credential_revision THEN website_sign_in_profiles.paused_reason ELSE NULL END,
+       consecutive_failures = CASE WHEN website_sign_in_profiles.credential_revision = excluded.credential_revision THEN website_sign_in_profiles.consecutive_failures ELSE 0 END,
        authorization_attested_by = excluded.authorization_attested_by,
        authorization_attested_at = excluded.authorization_attested_at, updated_at = excluded.updated_at
      WHERE website_sign_in_profiles.credential_revision IS ?`)
@@ -167,7 +171,10 @@ export async function deleteSignInProfile(env, { workspaceId, domainId, domain, 
 export async function recordSignInAttempt(env, { workspaceId, domainId, profile, source, scanId = null, actorUserId = null, outcome, detail = {}, coverage = null, summary = null }) {
   const db = env.cybermeters_db;
   const now = new Date().toISOString();
-  const credentialFailure = CREDENTIAL_FAILURE_OUTCOMES.includes(outcome) ? 1 : 0;
+  // Any unproven outcome after the credentials were submitted counts too: a
+  // site answering a wrong password with 422, an error or a timeout must not
+  // be retried forever against the real account.
+  const credentialFailure = outcome !== "signed_in" && (CREDENTIAL_FAILURE_OUTCOMES.includes(outcome) || detail?.submitted === true) ? 1 : 0;
   const success = outcome === "signed_in" ? 1 : 0;
   const insert = db.prepare(
     `INSERT INTO website_sign_in_attempts

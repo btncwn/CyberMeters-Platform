@@ -19,6 +19,7 @@ export const SIGN_IN_OUTCOME_META = Object.freeze({
   signed_in_text_not_found: { label: 'Signed-in text not found', tone: 'warn', help: 'The start page did not show your signed-in text. Check the spelling, or pick text that is in the page itself rather than added later by JavaScript.' },
   signed_in_text_not_distinctive: { label: 'Signed-in text also shown when signed out', tone: 'warn', help: 'That text appears without signing in too, so it cannot prove sign-in. Use something only a signed-in user sees, such as the test account’s name.' },
   start_page_public: { label: 'Could not confirm sign-in', tone: 'warn', help: 'The start page is also shown without signing in, so it cannot prove sign-in. Choose a page that needs sign-in (such as /account) or add signed-in text.' },
+  anonymous_check_unavailable: { label: 'Could not confirm sign-in', tone: 'warn', help: 'The start page did not answer a request without the session, so the sign-in could not be confirmed. Try again later.' },
   start_page_unavailable: { label: 'Start page unavailable', tone: 'warn', help: 'The start page did not answer with a normal page. Check its address.' },
   login_page_unavailable: { label: 'Sign-in page unavailable', tone: 'warn', help: 'The sign-in page did not answer with a normal page. Check its address.' },
   login_form_not_found: { label: 'No sign-in form found', tone: 'warn', help: 'No form with a password field is in the sign-in page’s HTML. If the form is built by JavaScript, use the header or cookie method.' },
@@ -40,7 +41,7 @@ export function signInOutcomeMeta(code) {
 }
 
 export const PAUSED_REASON_TEXT = Object.freeze({
-  repeated_sign_in_failures: 'Paused after 3 refused sign-ins in a row so the test account is not locked out. Fix the details and test again, or save them again, to resume.',
+  repeated_sign_in_failures: 'Paused after 3 unsuccessful sign-ins in a row so the test account is not locked out. Fix the details, then use “Test sign-in” (or save a new password) to resume.',
 })
 
 const INPUT_ERROR_TEXT = {
