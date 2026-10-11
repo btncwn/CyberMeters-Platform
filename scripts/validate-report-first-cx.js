@@ -276,10 +276,24 @@ ok('finding confidence and evidence grade are rendered verbatim',
   plain.includes('Confidence: 91 - Evidence grade: L1'))
 ok('observation confidence and evidence grade are rendered verbatim',
   plain.includes('Confidence: 70 - Evidence grade: L0'))
-ok('backend-owned coverage values are rendered verbatim',
-  normalizedPlain.includes('Assessment coverage - scan quality: partial; assessment quality: incomplete; monitoring state: monitoring_degraded.'))
-ok('skipped module identities remain visible',
-  plain.includes('Modules skipped: asset_exposure.') && plain.includes('Score-bearing modules skipped: asset_exposure.'))
+ok('backend-owned coverage values are rendered as readable words',
+  normalizedPlain.includes('Assessment coverage - scan quality: partial; assessment quality: incomplete; monitoring state: monitoring degraded.'))
+ok('skipped module identities remain visible in readable form',
+  plain.includes('Modules skipped: asset exposure.') && plain.includes('Score-bearing modules skipped: asset exposure.'))
+ok('coverage and skipped-module lines never print raw internal codes',
+  !plain.includes('monitoring_degraded') && !plain.includes('asset_exposure'))
+{
+  const labelled = structuredClone(snapshot)
+  labelled.overall.evidence_completeness.modules_skipped =
+    ['technology_detection', 'cve_intelligence', 'known_exploited_vulnerabilities']
+  const labelledPlain = pdfPlainText(buildScanReportPdf(
+    { id: 'scan-report-first-cx', domain: 'example.test' },
+    { snapshot: labelled, row: { id: 'snap-report-first-cx' }, integrity: { verified: true } },
+  )).replace(/\s+/g, ' ')
+  ok('skipped scanner modules read as the checks a customer recognises',
+    labelledPlain.includes('Modules skipped: technology detection, vulnerability (CVE) checks, known exploited vulnerability (KEV) checks.') &&
+    !labelledPlain.includes('cve intelligence') && !labelledPlain.includes('cve_intelligence'))
+}
 ok('score bytes remain a presentation input, not recalculated', plain.includes('Provisional Score: 81 / 100'))
 
 // Technical presentation must stay navigable without changing evidence or scope.

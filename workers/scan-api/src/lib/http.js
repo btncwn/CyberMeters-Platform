@@ -5,6 +5,37 @@ import { isOutboundControlError, resolvePublicDnsTarget, STRICT_DNS_STATES, urlI
 
 const MAX_REDIRECT_HOPS = 4;
 
+// Honest scanner identification for every request to a customer origin. A request
+// with no User-Agent is refused by common edge bot rules (Shopify answers 403
+// "Access denied"), which read as an unassessable website even when the origin
+// serves normally. This is the same identity the headers module always sent.
+export const SCANNER_USER_AGENT =
+  "Mozilla/5.0 (compatible; CyberMeters-Scanner/1.0; +https://cybermeters.com/scanner)";
+
+// Page probes (website, technology, TLS, asset exposure) ask for a page the way
+// the headers module does, so every module observes the same origin answer.
+export const SCANNER_PAGE_HEADERS = Object.freeze({
+  "User-Agent": SCANNER_USER_AGENT,
+  "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.5",
+});
+
+// Adds the scanner User-Agent unless the caller set its own. Every other header
+// the caller supplied is kept exactly as given.
+export function withScannerUserAgent(headers) {
+  if (headers instanceof Headers) {
+    const copy = new Headers(headers);
+    if (!copy.has("user-agent")) copy.set("User-Agent", SCANNER_USER_AGENT);
+    return copy;
+  }
+  const entries = Array.isArray(headers)
+    ? headers
+    : Object.entries(headers && typeof headers === "object" ? headers : {});
+  const hasUserAgent = entries.some(([name]) => String(name).toLowerCase() === "user-agent");
+  const plain = Object.fromEntries(entries);
+  return hasUserAgent ? plain : { ...plain, "User-Agent": SCANNER_USER_AGENT };
+}
+
 function combineSignals(...signals) {
   const active = signals.filter(Boolean);
   if (active.length === 0) return undefined;
@@ -46,6 +77,7 @@ export async function safeFetch(url, options = {}) {
   delete fetchOptions.dnsResolver;
   delete fetchOptions.dnsCache;
   delete fetchOptions.fetchImpl;
+  fetchOptions.headers = withScannerUserAgent(fetchOptions.headers);
   let attemptInFlight = false;
   try {
     let current = url;

@@ -773,7 +773,8 @@ async function runEnginePhysicalProvenanceFixture(scanId, counter) {
 }
 
 // Pin the current SSRF-safe primitive alongside its behavioral tests. Refreshed
-// for typed DNS absence and initial/redirect evidence (non-public still cannot fetch). Mutation
+// for typed DNS absence and initial/redirect evidence (non-public still cannot fetch), then
+// for honest scanner request headers on every probe GET (no guard change). Mutation
 // subprocesses explicitly skip this check because they operate only on an isolated
 // temporary copy; the candidate worktree is always verified here in normal mode.
 if (process.env.ASB6B_MUTANT_MODE !== "1") {
@@ -782,7 +783,7 @@ if (process.env.ASB6B_MUTANT_MODE !== "1") {
   eq(
     "ASB6B_RESERVED_PROBE_IMMUTABLE_HASH",
     digest,
-    "740c2bc00a021ee7f25095a1d7258a83640e86a7b2ecbb23b07d946bbc8a8642",
+    "efb635d140f269d4e7c2d200f0fd0a5273d5589f2af12e8c35c5625bd39e2aeb",
   );
 }
 

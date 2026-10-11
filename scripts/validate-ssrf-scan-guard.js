@@ -81,6 +81,45 @@ ok("manual mode returns the raw 3xx without following", manual?.status === 301 &
 stubFetch({ "https://ok.example.com/": resp(200) });
 ok("normal public fetch returns the response", (await safeFetch("https://ok.example.com/", { redirect: "follow" }))?.status === 200);
 
+// 6. Every origin request identifies the scanner honestly. A request with no
+//    User-Agent is refused by common edge bot rules (Shopify answers 403
+//    "Access denied"), which made a serving website read as unassessable.
+const { SCANNER_USER_AGENT, SCANNER_PAGE_HEADERS } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "http.js")).href);
+let lastInit = null;
+const headerValue = (init, name) => {
+  const headers = init?.headers;
+  if (!headers) return null;
+  if (typeof headers.get === "function") return headers.get(name);
+  const match = Object.entries(headers).find(([key]) => key.toLowerCase() === name.toLowerCase());
+  return match ? match[1] : null;
+};
+globalThis.fetch = async (_u, init) => { lastInit = init; return resp(200); };
+await safeFetch("https://ua.example.com/", { redirect: "follow" });
+ok("safeFetch sends the scanner User-Agent when the caller sets none", headerValue(lastInit, "user-agent") === SCANNER_USER_AGENT);
+await safeFetch("https://ua.example.com/", { redirect: "follow", headers: { "user-agent": "CyberMeters-Verification/1.0", Accept: "application/json" } });
+ok("safeFetch keeps a caller's own User-Agent", headerValue(lastInit, "user-agent") === "CyberMeters-Verification/1.0");
+ok("safeFetch keeps every other caller header", headerValue(lastInit, "accept") === "application/json");
+await safeFetch("https://ua.example.com/", { redirect: "follow", headers: new Headers({ "X-Probe": "1" }) });
+ok("safeFetch adds the User-Agent to a Headers instance without dropping its headers",
+  headerValue(lastInit, "user-agent") === SCANNER_USER_AGENT && headerValue(lastInit, "x-probe") === "1");
+
+const { makeSsrfSafeProbeFetch } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "reserved-probe.js")).href);
+globalThis.fetch = async (_u, init) => { lastInit = init; return resp(200); };
+await makeSsrfSafeProbeFetch({ resolver: async () => ({ Status: 0, Answer: [] }) })("https://93.184.216.34/");
+ok("asset probe GET sends the scanner page headers",
+  headerValue(lastInit, "user-agent") === SCANNER_USER_AGENT
+    && headerValue(lastInit, "accept") === SCANNER_PAGE_HEADERS.Accept);
+
+const { runTechModule } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "tech-scan.js")).href);
+globalThis.fetch = async (_u, init) => {
+  lastInit = init;
+  return new Response("<html><head><title>t</title></head></html>", { status: 200, headers: { "content-type": "text/html" } });
+};
+await runTechModule("tech.example.com");
+ok("technology probe sends the scanner page headers",
+  headerValue(lastInit, "user-agent") === SCANNER_USER_AGENT
+    && headerValue(lastInit, "accept") === SCANNER_PAGE_HEADERS.Accept);
+
 console.log(`\nSSRF scan guard: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("ssrf-scan-guard validation FAILED"); process.exit(1); }
 console.log("ssrf-scan-guard validation passed");

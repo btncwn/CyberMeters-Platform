@@ -2,12 +2,12 @@
 // External-scan HTTPS/TLS phase: HTTPS reachability, certificate expiry via Certificate
 // Transparency (crt.sh + certspotter fallback), SAN discovery. Extracted verbatim from
 // index.js (monolith decomposition, Phase 1c) — no logic change.
-import { safeFetch } from "../lib/http.js";
+import { safeFetch, SCANNER_PAGE_HEADERS } from "../lib/http.js";
 import { customerSafeFailure } from "../lib/errors.js";
 import { aggregateFetchObservations, classifyFetchObservation } from "../lib/fetch-observation.js";
 import { classifyServiceability, mayGroundAbsence } from "../lib/serviceability.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
-import { raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
+import { CT_SIBLING_GRACE_MS, raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
 import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertificateSanNames } from "./hostnames.js";
 import { TLS_RUNTIME_STATES } from "./tls-evidence.js";
 
@@ -66,6 +66,7 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
       module: "ssl",
       accounting,
       signal: opts.signal,
+      siblingGraceMs: CT_SIBLING_GRACE_MS,
     })).providers;
   } catch (err) {
     const error = customerSafeFailure("scan/ct/first-success", err, "CT orchestration failed");
@@ -238,6 +239,7 @@ export async function runSslModule(domain, opts = {}) {
   const httpsRes = await safeFetch(`https://${domain}`, {
     method: "HEAD",
     redirect: "manual",
+    headers: SCANNER_PAGE_HEADERS,
     accounting,
     dnsResolver: opts.dnsResolver,
     dnsCache: opts.dnsCache,
@@ -263,6 +265,7 @@ export async function runSslModule(domain, opts = {}) {
     wwwRes = await safeFetch(`https://www.${domain}`, {
       method: "HEAD",
       redirect: "manual",
+      headers: SCANNER_PAGE_HEADERS,
       accounting,
       dnsResolver: opts.dnsResolver,
       dnsCache: opts.dnsCache,
@@ -330,7 +333,7 @@ export async function runSslModule(domain, opts = {}) {
   const httpOrigUrl = `http://${domain}`;
   const hop1SubOp = subOpBegin("http_redirect_hop_1");
   const httpRes = await safeFetch(httpOrigUrl, {
-    method: "HEAD", redirect: "manual", accounting,
+    method: "HEAD", redirect: "manual", headers: SCANNER_PAGE_HEADERS, accounting,
     dnsResolver: opts.dnsResolver, dnsCache: opts.dnsCache, signal: opts.signal,
   });
   subOpFinish(hop1SubOp, httpRes);
@@ -406,7 +409,7 @@ export async function runSslModule(domain, opts = {}) {
         // that has.
         const hop2SubOp = subOpBegin("http_redirect_hop_2");
         const hop2 = await safeFetch(loc1, {
-          method: "HEAD", redirect: "manual", accounting,
+          method: "HEAD", redirect: "manual", headers: SCANNER_PAGE_HEADERS, accounting,
           dnsResolver: opts.dnsResolver, dnsCache: opts.dnsCache, signal: opts.signal,
         });
         subOpFinish(hop2SubOp, hop2);

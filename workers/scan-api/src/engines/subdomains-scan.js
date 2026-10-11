@@ -8,7 +8,7 @@ import { dnsQuery } from "./dns.js";
 import { normalizeDiscoveredHostname } from "./hostnames.js";
 import { customerSafeFailure } from "../lib/errors.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
-import { raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
+import { CT_SIBLING_GRACE_MS, raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
 import { coverageStateFromTruncation } from "./bounded-coverage.js";
 
 /**
@@ -238,6 +238,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
       } catch { /* observational only */ }
     },
     wrapProviderWait: (provider, promise) => timedSubOp(`ct_wait_${provider}`, promise),
+    siblingGraceMs: CT_SIBLING_GRACE_MS,
   });
 
   // ── Fire all 4 network calls in parallel ────────────────────────────────

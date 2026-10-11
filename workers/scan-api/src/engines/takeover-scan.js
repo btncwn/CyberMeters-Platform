@@ -6,7 +6,7 @@
 import { dnsQuery } from "./dns.js";
 import { classifyFetchObservation } from "../lib/fetch-observation.js";
 import { classifyServiceability, maySupportHealthyConclusion } from "../lib/serviceability.js";
-import { safeFetch } from "../lib/http.js";
+import { safeFetch, SCANNER_PAGE_HEADERS } from "../lib/http.js";
 
 // ── Module 6: Subdomain Takeover Detection ────────────────────────────────────
 
@@ -448,7 +448,7 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
   const bodyResults = await Promise.allSettled(
     probeHosts.map((host) => (fetchImpl
       ? fetchImpl(`https://${host}`)
-      : safeFetch(`https://${host}`, { method: "GET", redirect: "follow", accounting })))
+      : safeFetch(`https://${host}`, { method: "GET", redirect: "follow", headers: SCANNER_PAGE_HEADERS, accounting })))
   );
 
   const risks = [];

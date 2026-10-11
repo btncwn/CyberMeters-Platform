@@ -407,8 +407,20 @@ for (const phrase of [
   ok(`PDF renders certificate semantic: ${phrase}`, pdfText.includes(phrase));
 }
 ok("PDF retains RFC 5280 authority", pdfText.includes("RFC 5280"));
-ok("PDF retains product-policy distinction",
-  pdfText.includes("product_policy"));
+ok("PDF retains product-policy distinction in customer words",
+  pdfText.includes("CyberMeters product policy"));
+for (const internal of [
+  "product_policy",
+  "beta target",
+  "minimum publishable",
+  "Degrade behaviour",
+  "engine_version",
+  "item9-",
+  "Node.js",
+]) {
+  ok(`PDF certificate appendix never prints internal identifier: ${internal}`,
+    !pdfText.includes(internal));
+}
 const executivePdfText = new TextDecoder().decode(
   buildWorkspaceExecutivePdf({
     workspaceName: "Fixture Workspace",
