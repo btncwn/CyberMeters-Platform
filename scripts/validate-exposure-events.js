@@ -165,6 +165,29 @@ const rows = (db, eventType) => db.prepare("SELECT event_type, hostname, severit
   ok("second IP change within 24h is deduped", rows(db, "dns_ip_changed").length === 1);
 }
 
+// 7. First-party references persist with their own source; a name another
+//    source already found keeps that source, and a third party is never added.
+{
+  const { db, env } = harness();
+  await runInventory(env, {
+    subdomains: { items: ["portal.example.co.uk"], wildcard_dns: false },
+    dns_bruteforce: {
+      items: [],
+      srv_items: [
+        { hostname: "autodiscover.example.co.uk", source: "dns_srv", record: "_autodiscover._tcp.example.co.uk" },
+        { hostname: "portal.example.co.uk", source: "dns_srv", record: "_sip._tls.example.co.uk" },
+      ],
+    },
+    technology_detection: { linked_hostnames: ["status.example.co.uk", "portal.example.co.uk"] },
+  });
+  const sourceOf = (hostname) => db.prepare("SELECT source FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = ?").get(hostname)?.source ?? null;
+  ok("SRV target persists as dns_srv", sourceOf("autodiscover.example.co.uk") === "dns_srv");
+  ok("home-page link persists as html_link", sourceOf("status.example.co.uk") === "html_link");
+  ok("a CT-discovered name keeps its CT source", sourceOf("portal.example.co.uk") === "certificate_transparency");
+  ok("each referenced host is stored once",
+    db.prepare("SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = 'portal.example.co.uk'").get().n === 1);
+}
+
 console.log(`\nExposure events: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("exposure-events validation FAILED"); process.exit(1); }
 console.log("exposure-events validation passed");

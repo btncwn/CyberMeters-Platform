@@ -604,7 +604,9 @@ const boundaryFixtures = {
           9_999, init.signal);
       };
     })(),
-    run: ({ signal }) => runTechModule("example.com", { signal }),
+    // remainingMs is supplied exactly as the Queue/Cron runner does: the
+    // optional home-page link window must not move this boundary.
+    run: ({ signal, remainingMs }) => runTechModule("example.com", { signal, remainingMs }),
   },
   // Slowest evidence-returning path: every A lookup answers just inside the
   // module's own 6s race (one name resolves, so the MX pass runs), then every
@@ -667,6 +669,21 @@ for (const [module, capMs] of Object.entries(SCAN_DURABLE_CORE_MODULE_BUDGETS)) 
     run: passFixture.run,
   });
   eq(`${module}: cap-minus-one is a semantic module race`, failResult?.outcome, "deadline_exceeded");
+}
+{
+  // A fast origin leaves time for the bounded link window: it is read, and the
+  // module still completes far inside its durable cap.
+  const fast = await runVirtualModuleBoundary({
+    capMs: SCAN_DURABLE_CORE_MODULE_BUDGETS.technology_detection,
+    fetcher: (scheduler, input, init) => scheduler.delayed(
+      () => new Response('<a href="https://portal.example.com/">Portal</a>', { status: 200, headers: { server: "origin", "content-type": "text/html" } }),
+      120, init.signal,
+    ),
+    run: boundaryFixtures.technology_detection.run,
+  });
+  ok("technology_detection: link window read on a fast durable run",
+    JSON.stringify(fast?.linked_hostnames) === JSON.stringify(["portal.example.com"]) && fast?.outcome !== "deadline_exceeded",
+    JSON.stringify(fast));
 }
 eq("headers durable boundary is exact", SCAN_DURABLE_CORE_MODULE_BUDGETS.headers, 99_991);
 eq("durable core lookup selects an explicit own key", durableCoreModuleBudget("headers"), 99_991);

@@ -18,10 +18,81 @@ function looksVersioned(s) {
   return /[\/\s][0-9]+\.[0-9]/.test(s) || /[\/\s][0-9]{1,3}$/.test(s.trim());
 }
 
+// ── Hosts the home page links to ──────────────────────────────────────────
+// A wildcard certificate keeps a host out of Certificate Transparency and a
+// word list only finds common names; the site's own links name the rest
+// (portal., status., careers.…). Read only when the runner supplies remaining
+// time (Queue/Cron) and that time comfortably covers the window, bounded in
+// bytes and time, and never alters the 4 KB snippet the technology markers
+// below are read from. Only hosts under the scanned domain are kept: a link
+// is a reference, not proof the customer operates a third party's host.
+export const LINKED_HOST_LIMITS = Object.freeze({
+  maxBytes:    65_536,
+  readMs:       1_500,
+  marginMs:     1_000,
+  maxHosts:        25,
+});
+
+export function linkedHostnamesUnder(domain, html, baseUrl) {
+  const root = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!root || typeof html !== "string" || html.length === 0) return [];
+  // The page's own host is already the probed origin; links name the others.
+  let pageHost = "";
+  try { pageHost = new URL(baseUrl).hostname.toLowerCase().replace(/\.$/, ""); } catch { /* no base */ }
+  const hosts = new Set();
+  for (const match of html.matchAll(/\b(?:href|src|action)\s*=\s*["']([^"'\s<>]{1,2048})["']/gi)) {
+    let url;
+    try { url = new URL(match[1], baseUrl); } catch { continue; }
+    if (url.protocol !== "https:" && url.protocol !== "http:") continue;
+    const host = url.hostname.toLowerCase().replace(/\.$/, "");
+    if (host === root || host === pageHost || !host.endsWith(`.${root}`) || host.length > 253 || !/^[a-z0-9.-]+$/.test(host)) continue;
+    hosts.add(host);
+    if (hosts.size >= LINKED_HOST_LIMITS.maxHosts) break;
+  }
+  return [...hosts];
+}
+
+function linkReadWindowMs(opts) {
+  if (typeof opts.remainingMs !== "function") return 0;
+  const spare = Number(opts.remainingMs()) - LINKED_HOST_LIMITS.marginMs;
+  return spare >= LINKED_HOST_LIMITS.readMs ? LINKED_HOST_LIMITS.readMs : 0;
+}
+
+function isHtmlResponse(res) {
+  return res.status >= 200 && res.status < 300
+    && /\btext\/html\b/i.test(res.headers.get("content-type") || "");
+}
+
+async function readLinkWindow(reader, firstChunk, windowMs, signal) {
+  const chunks = [firstChunk];
+  let bytes = firstChunk.byteLength;
+  let timer = null;
+  const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(null), windowMs); });
+  try {
+    while (bytes < LINKED_HOST_LIMITS.maxBytes && signal?.aborted !== true) {
+      const next = await Promise.race([reader.read(), timeout]);
+      if (!next || next.done || !next.value) break;
+      chunks.push(next.value);
+      bytes += next.value.byteLength;
+    }
+  } catch { /* a partial window is still a real observation */ }
+  finally { clearTimeout(timer); }
+  const out = new Uint8Array(Math.min(bytes, LINKED_HOST_LIMITS.maxBytes));
+  let offset = 0;
+  for (const chunk of chunks) {
+    const take = Math.min(chunk.byteLength, out.length - offset);
+    if (take <= 0) break;
+    out.set(chunk.subarray(0, take), offset);
+    offset += take;
+  }
+  return { text: new TextDecoder().decode(out), bytes: out.length };
+}
+
 export async function runTechModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
   let res = null;
   let bodySnippet = "";
+  let linkWindow = null;
 
   try {
     res = await safeFetch(`https://${domain}`, {
@@ -37,8 +108,10 @@ export async function runTechModule(domain, opts = {}) {
       const reader = res.body?.getReader();
       if (reader) {
         const { value } = await reader.read();
-        reader.cancel();
         if (value) bodySnippet = new TextDecoder().decode(value.slice(0, 4096));
+        const windowMs = value && isHtmlResponse(res) ? linkReadWindowMs(opts) : 0;
+        if (windowMs > 0) linkWindow = await readLinkWindow(reader, value, windowMs, opts.signal);
+        reader.cancel();
       }
     }
   } catch {
@@ -201,5 +274,11 @@ export async function runTechModule(domain, opts = {}) {
     technology_fingerprints:   [...technologyFingerprints.values()],
     serviceability_contract:   serviceability,
     info_findings:             infoFindings,
+    // Present only when the bounded link window was read; absent means the
+    // home page links were not examined, never that it links to nothing.
+    ...(linkWindow === null ? {} : {
+      linked_hostnames: linkedHostnamesUnder(domain, linkWindow.text, finalUrl),
+      linked_hostnames_bytes_read: linkWindow.bytes,
+    }),
   };
 }

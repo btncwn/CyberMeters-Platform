@@ -67,7 +67,7 @@ export const MODULE_SUBREQUEST_COST = Object.freeze({
   technology_detection: 4,
   whois_intelligence:   4,
   subdomain_takeover:   12,
-  dns_bruteforce:       24,
+  dns_bruteforce:       56,   // 40 A + 8 MX + 8 SRV lookups
   cve:                  4,
   kev:                  4,
   cloud_storage:        12,

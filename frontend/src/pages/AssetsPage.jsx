@@ -13,6 +13,7 @@ import StatCard from '../components/StatCard'
 import AttackSurfaceAssurance from '../components/AttackSurfaceAssurance'
 import NetworkAssetsPanel from '../components/NetworkAssetsPanel'
 import { assetLifecycleClaimDisplay, projectedCountDisplay } from '../lib/assetLifecycleClaimDisplay'
+import { assetSourceLabel } from '../lib/assetSourceLabel'
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 
@@ -321,7 +322,7 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
                 </div>
                 <div>
                   <div className="label mb-1">Source</div>
-                  <span className="text-xs text-gray-600">{data.asset.source || '—'}</span>
+                  <span className="text-xs text-gray-600">{assetSourceLabel(data.asset.source)}</span>
                 </div>
                 <div>
                   <div className="label mb-1">Risk</div>
@@ -695,7 +696,7 @@ export default function AssetsPage() {
                         </td>
                         <td><TypeBadge type={asset.asset_type} /></td>
                         <td><StatusPill status={asset.status} /></td>
-                        <td className="text-xs text-gray-500">{asset.source || '—'}</td>
+                        <td className="text-xs text-gray-500">{assetSourceLabel(asset.source)}</td>
                         <td><RiskBadge level={asset.risk_level} /></td>
                         <td className="text-xs text-gray-500">{fmtDate(asset.last_seen)}</td>
                         <td className="pr-4">
