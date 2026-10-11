@@ -1565,6 +1565,12 @@ export const api = {
   /** GET /api/portfolio/trends */
   getPortfolioTrends: () => request('/portfolio/trends'),
 
+  /** GET /api/portfolio/executive-summary — backend-written summary + customers needing attention */
+  getPortfolioExecutiveSummary: () => request('/portfolio/executive-summary'),
+
+  /** GET /api/portfolio/maturity — eight-domain worst-case maturity across customers */
+  getPortfolioMaturity: () => request('/portfolio/maturity'),
+
   /** GET /api/portfolio/risk — MSP portfolio risk intelligence */
   getPortfolioRisk: () => request('/portfolio/risk'),
 

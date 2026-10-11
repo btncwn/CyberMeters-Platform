@@ -15,6 +15,7 @@ import StatCard from '../components/StatCard'
 import RiskBadge from '../components/RiskBadge'
 import { bandMeta, metaForScore } from '../lib/score-presentation'
 import { assetLifecycleClaimDisplay } from '../lib/assetLifecycleClaimDisplay'
+import { PortfolioExecutiveSummary, PortfolioMaturity } from '../components/PortfolioSummaryCards'
 
 // RatingBadge renders the CANONICAL Cyber Metrics Score band vocabulary via the
 // mirror module (M5.e) — one label/tone source, unknown stays neutral.
@@ -502,6 +503,10 @@ export default function PortfolioPage() {
           api.getPortfolioOverview().then(setOverview).catch(e => setOverviewErr(e.message)).finally(() => setOverviewLoading(false))
         }}
       />
+
+      {/* Backend-written summary + who needs attention, then maturity across customers */}
+      <PortfolioExecutiveSummary />
+      <PortfolioMaturity />
 
       {/* Workspace risk table */}
       <WorkspaceTable
