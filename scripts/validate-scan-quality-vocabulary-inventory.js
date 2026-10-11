@@ -176,7 +176,9 @@ const EXPECTED = Object.freeze({
     // Website workflow adds five reads: one condition-quality guard and four
     // overview reads for module admission and recorded-quality presentation.
     // Two-tree inventory comparison confirms no removed sites or SQL changes.
-    runtime: { occurrence_count: 106, source_file_count: 37, fingerprint: "19cb14c066f79169e3a55b27991b66b3086c0cfd3eebd3e8d6d951d315a4859b" },
+    // Report snapshot history adds one read (frontend/src/lib/reportSnapshotDisplay.js):
+    // a snapshot's recorded scan_quality shown as text, unknown values → "not recorded".
+    runtime: { occurrence_count: 107, source_file_count: 38, fingerprint: "f7db5f99ee0e2152f1a83d58db2634afb58fd7d73a4e1daa08a284d0cbf5ad82" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
