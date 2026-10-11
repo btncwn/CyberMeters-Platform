@@ -239,7 +239,7 @@ export default function InvitationLandingPage() {
             <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
               <X className="w-7 h-7 text-red-500" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900 mb-2">Invitation not found</h1>
+            <h1 className="text-[28px] font-semibold leading-[1.1] tracking-[-0.02em] stretch-112 text-ink mb-2">Invitation not found</h1>
             <p className="text-sm text-gray-400 mb-6">
               This invitation link is invalid or has already been removed. Ask the workspace owner to send a new invitation.
             </p>
@@ -262,7 +262,7 @@ export default function InvitationLandingPage() {
             <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-4">
               <Clock className="w-7 h-7 text-amber-500" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900 mb-2">Invitation expired</h1>
+            <h1 className="text-[28px] font-semibold leading-[1.1] tracking-[-0.02em] stretch-112 text-ink mb-2">Invitation expired</h1>
             <p className="text-sm text-gray-400 mb-6">
               This invitation to <strong className="text-gray-700">{preview.workspace_name}</strong> expired
               on {formatDate(preview.expires_at)}. Ask a workspace admin or owner to send a fresh invitation.
@@ -286,7 +286,7 @@ export default function InvitationLandingPage() {
             <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="w-7 h-7 text-green-500" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900 mb-2">Invitation already used</h1>
+            <h1 className="text-[28px] font-semibold leading-[1.1] tracking-[-0.02em] stretch-112 text-ink mb-2">Invitation already used</h1>
             <p className="text-sm text-gray-400 mb-6">
               This invitation has already been accepted. If you're trying to access{' '}
               <strong className="text-gray-700">{preview.workspace_name}</strong>, sign in to your account.
@@ -310,7 +310,7 @@ export default function InvitationLandingPage() {
             <div className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4">
               <X className="w-7 h-7 text-gray-400" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900 mb-2">Invitation cancelled</h1>
+            <h1 className="text-[28px] font-semibold leading-[1.1] tracking-[-0.02em] stretch-112 text-ink mb-2">Invitation cancelled</h1>
             <p className="text-sm text-gray-400 mb-6">
               This invitation to <strong className="text-gray-700">{preview.workspace_name}</strong> was cancelled
               by the workspace admin. Ask them to send a new invitation.
@@ -334,7 +334,7 @@ export default function InvitationLandingPage() {
             <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="w-7 h-7 text-green-500" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900 mb-2">Successfully joined workspace</h1>
+            <h1 className="text-[28px] font-semibold leading-[1.1] tracking-[-0.02em] stretch-112 text-ink mb-2">Successfully joined workspace</h1>
             <p className="text-sm text-gray-400 mb-6">
               You're now a <strong className="text-gray-700">{ROLE_LABELS[preview?.role] || preview?.role}</strong> in{' '}
               <strong className="text-gray-700">{preview?.workspace_name}</strong>.

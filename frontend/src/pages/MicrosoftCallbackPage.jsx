@@ -84,8 +84,8 @@ export default function MicrosoftCallbackPage() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-      <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
+    <div className="min-h-screen auth-bg flex flex-col items-center justify-center px-4 py-12">
+      <CyberMetersLogo size={48} showWordmark animated darkMode className="mb-8" />
 
       <div className="card auth-card text-center">
         {error ? (

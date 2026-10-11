@@ -26,10 +26,10 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+    <div className="min-h-screen auth-bg flex flex-col items-center justify-center px-4 py-12">
 
       {/* Brand */}
-      <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
+      <CyberMetersLogo size={48} showWordmark animated darkMode className="mb-8" />
 
       {/*
         Both the form and the "Check your email" success state share the ONE
@@ -43,7 +43,7 @@ export default function ForgotPasswordPage() {
             <div className="w-16 h-16 rounded-full bg-brand-50 flex items-center justify-center mx-auto mb-5">
               <CheckCircle2 className="w-8 h-8 text-brand-600" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-3">Check your email</h1>
+            <h1 className="text-[28px] font-semibold leading-[1.1] tracking-[-0.02em] stretch-112 text-ink mb-3">Check your email</h1>
             <p className="text-base text-gray-500 leading-relaxed mb-6">
               If <span className="font-medium text-gray-700">{email}</span> is registered,
               you'll receive a reset link within a few minutes. The link expires in 1 hour.
@@ -64,7 +64,7 @@ export default function ForgotPasswordPage() {
         ) : (
           /* ── Form state ── */
           <>
-            <h1 className="text-xl font-bold text-gray-900 mb-1">Forgot your password?</h1>
+            <h1 className="text-[28px] font-semibold leading-[1.1] tracking-[-0.02em] stretch-112 text-ink mb-1">Forgot your password?</h1>
             <p className="text-sm text-gray-400 mb-6">
               Enter your email and we'll send you a reset link.
             </p>

@@ -72,10 +72,10 @@ export default function EmailVerificationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+    <div className="min-h-screen auth-bg flex flex-col items-center justify-center px-4 py-12">
 
       {/* Brand */}
-      <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
+      <CyberMetersLogo size={48} showWordmark animated darkMode className="mb-8" />
 
       <div className="card auth-card text-center">
 
@@ -87,7 +87,7 @@ export default function EmailVerificationPage() {
                 <CheckCircle className="w-6 h-6 text-green-500" />
               </div>
             </div>
-            <h1 className="text-xl font-bold text-gray-900 mb-2">Email verified</h1>
+            <h1 className="text-[28px] font-semibold leading-[1.1] tracking-[-0.02em] stretch-112 text-ink mb-2">Email verified</h1>
             <p className="text-sm text-gray-500 mb-6">
               Your email address has been verified. You can now sign in to CyberMeters.
             </p>
@@ -108,7 +108,7 @@ export default function EmailVerificationPage() {
                 <AlertTriangle className="w-6 h-6 text-red-400" />
               </div>
             </div>
-            <h1 className="text-xl font-bold text-gray-900 mb-2">Verification failed</h1>
+            <h1 className="text-[28px] font-semibold leading-[1.1] tracking-[-0.02em] stretch-112 text-ink mb-2">Verification failed</h1>
             <p className="text-sm text-gray-500 mb-6">
               {error || 'This verification link is invalid or has expired.'}
             </p>

@@ -65,6 +65,8 @@
     width: 100%;
     max-width: 34rem;            /* 544px — tablet cap; phones fill the gutter */
     padding: 2rem;               /* 32px */
+    border-radius: 20px;
+    box-shadow: 0 40px 80px -40px rgba(12,61,52,.45), 0 2px 6px rgba(12,61,52,.06);
   }
   .auth-card-col {               /* width-only variant for container columns */
     width: 100%;
@@ -119,13 +121,10 @@
   /* Premium glacier-light atmosphere — a soft, full-viewport field that gives
      auth screens and the app shell the same calm depth as the landing hero.
      Content sits above it via the z-indexed child rule. */
-  .auth-bg { background-color: #F6F8F7; position: relative; }
+  .auth-bg { background-color: #F2F5F3; position: relative; }
   .auth-bg::before {
-    content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background:
-      radial-gradient(900px 520px at 82% -10%, #D6EAE2 0%, transparent 60%),
-      radial-gradient(760px 480px at 8% 108%, #E7F2EE 0%, transparent 58%),
-      linear-gradient(180deg, #EDF2F0 0%, #F6F8F7 55%);
+    content: ""; position: fixed; inset: 0 0 auto 0; height: 38vh; z-index: 0; pointer-events: none;
+    background: #0C3D34;
   }
   .auth-bg > * { position: relative; z-index: 1; }
 

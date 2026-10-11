@@ -20,11 +20,11 @@ export default function ResetPasswordPage() {
   // lands on an unbranded page.
   if (!token) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-        <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
+      <div className="min-h-screen auth-bg flex flex-col items-center justify-center px-4 py-12">
+        <CyberMetersLogo size={48} showWordmark animated darkMode className="mb-8" />
         <div className="card auth-card text-center">
           <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-3" />
-          <h1 className="text-lg font-bold text-gray-900 mb-2">This reset link is invalid or has expired</h1>
+          <h1 className="text-[28px] font-semibold leading-[1.1] tracking-[-0.02em] stretch-112 text-ink mb-2">This reset link is invalid or has expired</h1>
           <p className="text-sm text-gray-400 mb-6">
             The link is missing its reset token, or it may already have been used or expired.
             Password reset links only work once. Please request a new one.
@@ -74,10 +74,10 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+    <div className="min-h-screen auth-bg flex flex-col items-center justify-center px-4 py-12">
 
       {/* Brand */}
-      <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
+      <CyberMetersLogo size={48} showWordmark animated darkMode className="mb-8" />
 
       <div className="card auth-card">
         {done ? (
@@ -86,7 +86,7 @@ export default function ResetPasswordPage() {
             <div className="w-12 h-12 rounded-full bg-brand-50 flex items-center justify-center mx-auto mb-4">
               <CheckCircle2 className="w-6 h-6 text-brand-600" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900 mb-2">Password updated</h1>
+            <h1 className="text-[28px] font-semibold leading-[1.1] tracking-[-0.02em] stretch-112 text-ink mb-2">Password updated</h1>
             <p className="text-sm text-gray-500 mb-6">
               Your password has been changed. All existing sessions have been signed out.
               Redirecting you to sign in…
@@ -98,7 +98,7 @@ export default function ResetPasswordPage() {
         ) : (
           /* ── Form state ── */
           <>
-            <h1 className="text-xl font-bold text-gray-900 mb-1">Set a new password</h1>
+            <h1 className="text-[28px] font-semibold leading-[1.1] tracking-[-0.02em] stretch-112 text-ink mb-1">Set a new password</h1>
             <p className="text-sm text-gray-400 mb-6">
               Choose a strong password for your account.
             </p>
