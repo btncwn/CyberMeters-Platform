@@ -376,7 +376,7 @@ function BrandDiscoveryNow({ profile, running, outcome, onRun }) {
           type="button"
           onClick={onRun}
           disabled={!configured || running}
-          className="btn-secondary text-sm self-start sm:self-auto"
+          className="btn-secondary text-sm self-start sm:self-auto disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Search className={`w-4 h-4 ${running ? 'animate-pulse' : ''}`} />
           {running ? 'Checking certificate logs…' : 'Check now'}
