@@ -216,8 +216,12 @@ function findingEvidenceGrade(finding, report) {
   let sourceType = "product_policy";
   let basis = "CyberMeters product-policy interpretation of an externally observed scan signal.";
   const limits = [];
+  // These families embed a hostname, cookie or candidate name in the ID
+  // (subdomain_sensitive_dmarc-test_example_com). A protocol word inside such a
+  // name says nothing about the evidence, so they never take a protocol basis.
+  const protocolId = !/^(asset_|subdomain_|admin_|takeover_|exposure_|dse_|cve_|kev_|cloud_|dns_|brand_|identity_)/.test(id);
 
-  if (/spf/.test(id)) {
+  if (protocolId && /spf/.test(id)) {
     sourceType = "normative_protocol";
     const spf = report?.modules?.email_security?.spf;
     const effectiveResolved =
@@ -229,18 +233,18 @@ function findingEvidenceGrade(finding, report) {
       ? "RFC 7208 SPF observation with the include/redirect/a/mx PASS-authorisation chain resolved and retained."
       : "RFC 7208 SPF DNS observation; an unresolved or absent effective chain cannot exceed a single observation.";
     if (!effectiveResolved) limits.push("The complete effective SPF authorisation chain was not resolved for this assertion.");
-  } else if (/dmarc/.test(id)) {
+  } else if (protocolId && /dmarc/.test(id)) {
     sourceType = "normative_protocol";
     basis = "RFC 9989 DMARC DNS-policy observation.";
     limits.push("This snapshot does not prove a complete RFC 9989 organisational-domain policy tree-walk or receiver enforcement.");
-  } else if (/dkim/.test(id)) {
+  } else if (protocolId && /dkim/.test(id)) {
     sourceType = "normative_protocol";
     basis = "RFC 6376 DKIM selector observation.";
     limits.push("Only the selectors recorded by the scan were checked; a non-match is not proof that DKIM is absent.");
-  } else if (/mta[_-]?sts/.test(id)) {
+  } else if (protocolId && /mta[_-]?sts/.test(id)) {
     sourceType = "normative_protocol";
     basis = "RFC 8461 MTA-STS DNS and policy observation.";
-  } else if (/tlsrpt|tls[_-]?rpt/.test(id)) {
+  } else if (protocolId && /tlsrpt|tls[_-]?rpt/.test(id)) {
     sourceType = "normative_protocol";
     basis = "RFC 8460 TLS reporting DNS observation.";
   } else if (/^(cert_|certificate_)/.test(id) || moduleName === "certificate_intelligence") {
@@ -701,6 +705,11 @@ export function composeSnapshot({
       },
       observed_at: assessedAt,
       remediation_id: rem?.remediation_id ?? null,
+      // Canonical registry guidance frozen with the item, so an observation
+      // (which never enters the remediation plan) can still say what would
+      // improve it without a renderer consulting the live registry.
+      remediation_title: rem?.customer_title ?? null,
+      remediation_action: rem?.recommended_action ?? null,
       verification_method: method,
       verification_support: support,
       managed_case_id: linkedCase?.id ?? null,

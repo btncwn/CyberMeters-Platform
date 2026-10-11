@@ -414,9 +414,56 @@ const HOW_TO_READ_REPORT =
 // RFC identifiers remain intact in the technical appendix. The SMB-facing body
 // uses protocol names so the conclusion stays readable without losing meaning.
 // This is presentation-only: the canonical snapshot strings are not changed.
+// Backend vocabulary is rendered one-to-one, only without the underscores of a
+// machine identifier: "monitoring_degraded" reads "monitoring degraded".
+function readableCode(value) {
+  return String(value ?? "").replace(/_/g, " ").trim();
+}
+
+const RETEST_SUPPORT_TEXT = Object.freeze({
+  automated: "CyberMeters can re-check this from outside",
+  manual: "needs your confirmation; it cannot be observed from outside",
+  external: "needs confirmation from an independent third party",
+  unsupported: "cannot currently be re-checked",
+});
+const RETEST_METHOD_TEXT = Object.freeze({
+  https_recheck: "HTTPS re-check",
+  dns_recheck: "DNS re-check",
+  certificate_recheck: "certificate re-check",
+  rescan: "next scan",
+  receiver_reports: "receiver reports",
+  manual_attestation: "your attestation",
+  external: "third-party confirmation",
+});
+
+function retestText(support, method) {
+  const supportText = RETEST_SUPPORT_TEXT[support] || (support ? readableCode(support) : null);
+  const methodText = RETEST_METHOD_TEXT[method] || (method ? readableCode(method) : null);
+  if (!supportText && !methodText) return null;
+  return `Retest: ${[supportText, methodText ? `(${methodText})` : null].filter(Boolean).join(" ")}. This describes how it can be re-checked, not a passed retest.`;
+}
+
+// The declared trust store is a fact; the runtime that bundles it (and its
+// version) is an implementation detail no customer needs to read.
+const RUNTIME_TRUST_STORE = /\bNode\.js bundled Mozilla CA roots(?:\s*\(?v\d+(?:\.\d+)*\)?)?/g;
+function withoutRuntimeNames(value) {
+  return String(value ?? "").replace(RUNTIME_TRUST_STORE, "the Mozilla CA root store");
+}
+
+const RFC_PROTOCOL_NAMES = Object.freeze({
+  7208: "SPF", 6376: "DKIM", 9989: "DMARC", 8461: "MTA-STS", 8460: "TLS reporting",
+  9162: "Certificate Transparency", 1035: "DNS", 9110: "HTTP", 6797: "HSTS",
+});
+
 function customerBodyText(value) {
   return String(value || "")
     .replace(/\s*\(RFC\s+\d+\)/gi, "")
+    // After an article the RFC is an adjective ("a complete RFC 9989 tree-walk",
+    // "the RFC 7208 limit"): the protocol name reads correctly there, while
+    // "the DMARC protocol" would produce "a complete the DMARC protocol ...".
+    .replace(/\b(a|an|the)\s+(complete\s+)?RFC\s+(\d+)\b/gi, (match, article, adjective, number) =>
+      RFC_PROTOCOL_NAMES[number] ? `${article} ${adjective || ""}${RFC_PROTOCOL_NAMES[number]}` : match)
+    .replace(RUNTIME_TRUST_STORE, "the Mozilla CA root store")
     .replace(/\bRFC 7208 SPF\b/gi, "SPF")
     .replace(/\bRFC 9989 DMARC\b/gi, "DMARC")
     .replace(/\bRFC 6376 DKIM\b/gi, "DKIM")
@@ -525,9 +572,9 @@ function sectionOverall(w, snap, { concise = false } = {}) {
   }
   const ec = o.evidence_completeness || {};
   const coverageFacts = [
-    ec.scan_quality ? `scan quality: ${ec.scan_quality}` : null,
-    ec.assessment_quality ? `assessment quality: ${ec.assessment_quality}` : null,
-    ec.monitoring_state ? `monitoring state: ${ec.monitoring_state}` : null,
+    ec.scan_quality ? `scan quality: ${readableCode(ec.scan_quality)}` : null,
+    ec.assessment_quality ? `assessment quality: ${readableCode(ec.assessment_quality)}` : null,
+    ec.monitoring_state ? `monitoring state: ${readableCode(ec.monitoring_state)}` : null,
   ].filter(Boolean);
   if (coverageFacts.length) {
     w.prose(`Assessment coverage - ${coverageFacts.join("; ")}.`, {
@@ -536,7 +583,7 @@ function sectionOverall(w, snap, { concise = false } = {}) {
     });
   }
   if (Array.isArray(ec.modules_skipped) && ec.modules_skipped.length > 0) {
-    w.prose(`Modules skipped: ${ec.modules_skipped.join(", ")}.`, {
+    w.prose(`Modules skipped: ${ec.modules_skipped.map(readableCode).join(", ")}.`, {
       size: 9,
       color: "0.45 0.35 0.10",
     });
@@ -546,7 +593,7 @@ function sectionOverall(w, snap, { concise = false } = {}) {
     ec.skipped_score_bearing_modules.length > 0
   ) {
     w.prose(
-      `Score-bearing modules skipped: ${ec.skipped_score_bearing_modules.join(", ")}.`,
+      `Score-bearing modules skipped: ${ec.skipped_score_bearing_modules.map(readableCode).join(", ")}.`,
       { size: 9, color: "0.45 0.35 0.10" },
     );
   }
@@ -680,7 +727,7 @@ function sectionDomains(w, snap, { detail = "full" } = {}) {
           w.text(findingHeading(f), { size: 9, bold: true, indent: 10 });
           if (f.explanation) w.prose(customerBodyText(f.explanation), { size: 8, indent: 18, color: "0.25 0.28 0.33" });
           const meta = [];
-          if (f.verification_support) meta.push(`Verification: ${f.verification_support}`);
+          if (f.verification_support) meta.push(`Retest: ${RETEST_SUPPORT_TEXT[f.verification_support] || readableCode(f.verification_support)}`);
           if (f.managed_case_id) meta.push(`Managed case: ${f.managed_case_status || "linked"}`);
           if (f.evidence_ref?.count) meta.push(`${f.evidence_ref.count} evidence item(s)`);
           if (meta.length) w.text(meta.join(" · "), { size: 7, indent: 18, color: "0.45 0.48 0.54" });
@@ -886,18 +933,24 @@ function technicalFinding(w, f, snap, observation = false) {
     if (f.evidence_grade?.grade) evidenceMeta.push(`Evidence grade: ${f.evidence_grade.grade}`);
     if (evidenceMeta.length) w.text(evidenceMeta.join(" - "), { size: 8, indent: 10, color: "0.35 0.38 0.44" });
     const evidence = f.evidence_ref;
-    if (evidence?.source) w.prose(`Evidence reference: ${evidence.source}${Number.isFinite(evidence.count) ? ` | ${evidence.count} retained ${evidence.count === 1 ? "item" : "items"}` : ""}.`, { size: 8, indent: 10, width: 110 });
-    else w.text("Evidence reference: not recorded in this snapshot.", { size: 8, indent: 10, color: "0.45 0.35 0.10" });
+    if (evidence?.source) w.prose(Number.isFinite(evidence.count)
+      ? `Evidence: ${evidence.count} ${evidence.count === 1 ? "item" : "items"} retained in the scan record.`
+      : "Evidence: retained in the scan record.", { size: 8, indent: 10, width: 110 });
+    else w.text("Evidence: not recorded in this snapshot.", { size: 8, indent: 10, color: "0.45 0.35 0.10" });
     if (f.evidence_grade?.basis) w.prose(`Evidence basis: ${customerBodyText(f.evidence_grade.basis)}`, { size: 8, indent: 10, width: 110 });
     for (const limit of f.evidence_grade?.limits || []) w.prose(`Evidence limit: ${customerBodyText(limit)}`, { size: 8, indent: 10, width: 110, color: "0.35 0.38 0.44" });
     const scoreImpact = Number(f.score_impact);
     if (!observation && Number.isFinite(scoreImpact) && scoreImpact !== 0) w.text(`Cyber Metrics Score impact: ${scoreImpact} points.`, { size: 8, indent: 10, color: "0.25 0.28 0.33" });
     const action = (snap.remediation_actions || []).find((a) => (f.remediation_id && a.remediation_id === f.remediation_id) ||
       (f.finding_id && Array.isArray(a.finding_ids) && a.finding_ids.includes(f.finding_id)));
-    if (action?.remediation_id) w.prose(`Remediation reference: ${action.remediation_id} - ${action.title || "see Recommended Actions"}. Full steps are in the remediation plan.`, { size: 8, indent: 10, width: 110 });
-    else if (f.remediation_id) w.prose(`Remediation reference: ${f.remediation_id}. No linked action text is recorded in this snapshot.`, { size: 8, indent: 10, width: 110 });
-    else if (!observation) w.text("No canonical remediation is recorded for this finding.", { size: 8, indent: 10, color: "0.45 0.35 0.10" });
-    if (f.verification_support || f.verification_method) w.prose(`Retest support: ${[f.verification_support, f.verification_method].filter(Boolean).join(" | ")}. This describes support, not a passed retest.`, { size: 8, indent: 10, width: 110 });
+    if (action?.remediation_id) w.prose(`Recommended action: ${action.title || "see Recommended Actions"}. Full steps are in the remediation plan.`, { size: 8, indent: 10, width: 110 });
+    else if (f.remediation_title) {
+      // Observations carry the canonical registry guidance frozen at scan time;
+      // they are optional improvements, not entries in the remediation plan.
+      w.prose(`Suggested improvement: ${f.remediation_title}.${f.remediation_action ? ` ${customerBodyText(f.remediation_action)}` : ""}`, { size: 8, indent: 10, width: 110 });
+    } else if (!observation) w.text("No canonical remediation is recorded for this finding.", { size: 8, indent: 10, color: "0.45 0.35 0.10" });
+    const retest = retestText(f.verification_support, f.verification_method);
+    if (retest) w.prose(retest, { size: 8, indent: 10, width: 110 });
     if (f.managed_case_id) w.prose(`Case reference: ${f.managed_case_id}${f.managed_case_status ? ` | recorded status: ${f.managed_case_status}` : ""}. Status is as recorded at assessment time.`, { size: 8, indent: 10, width: 110 });
     w.gap(7);
   }, () => w.prose(`${observation ? "Observation" : "Finding"} ${continuationReference} (continued)`, { size: 9, bold: true, width: 100 }));
@@ -944,12 +997,15 @@ function sectionRemediation(w, snap, {
     w.keepTogether(28);
     w.prose(`${a.priority ? `[${String(a.priority).toUpperCase()}] ` : ""}${a.title}`, { size: 11, bold: true, width: 78 });
     if (limit != null) {
-      if (a.remediation_id) w.prose(`Action reference: ${a.remediation_id}. Full steps and verification limits are in Recommended Actions.`, { size: 8, indent: 10, width: 110 });
+      if (a.remediation_id) w.prose("Full steps and verification limits are in Recommended Actions.", { size: 8, indent: 10, width: 110 });
       w.gap(3);
       continue;
     }
-    if (limit == null && a.remediation_id) w.prose(`Action reference: ${a.remediation_id}`, { size: 8, indent: 10, width: 110 });
-    if (limit == null && a.finding_ids?.length) w.prose(`Linked finding IDs: ${a.finding_ids.join(", ")}`, { size: 8, indent: 10, width: 110 });
+    if (limit == null && a.finding_ids?.length) {
+      const titleById = new Map([...(snap.observed_findings || []), ...(snap.observations || [])]
+        .filter((item) => item?.finding_id).map((item) => [item.finding_id, item.title || item.finding_id]));
+      w.prose(`Addresses: ${a.finding_ids.map((id) => titleById.get(id) || id).join("; ")}`, { size: 8, indent: 10, width: 110 });
+    }
     if (a.action) w.prose(customerBodyText(a.action), { size: 9, indent: 10 });
     if (a.finding_ids?.length > 1) {
       w.text(`Resolves ${a.finding_ids.length} related findings.`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
@@ -958,7 +1014,8 @@ function sectionRemediation(w, snap, {
       w.text(`Verification: ${a.verification_ceiling}`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
     }
     if (limit == null && a.case_id) w.prose(`Case reference: ${a.case_id}${a.case_status ? ` | recorded status: ${a.case_status}` : ""}`, { size: 8, indent: 10, width: 110 });
-    if (limit == null && (a.verification_method || a.verification_support)) w.prose(`Retest method / support: ${[a.verification_method, a.verification_support].filter(Boolean).join(" | ")}. A later verification result is required to establish closure.`, { size: 8, indent: 10, width: 110 });
+    const actionRetest = limit == null ? retestText(a.verification_support, a.verification_method) : null;
+    if (actionRetest) w.prose(`${actionRetest} A later verification result is required to establish closure.`, { size: 8, indent: 10, width: 110 });
     w.gap(3);
   }
   const unmapped = includeUnmapped ? (snap.unmapped_finding_types || []) : [];
@@ -1211,13 +1268,13 @@ function appendixEvidenceAssertion(w, label, assertion) {
     `Evidence source: ${sourceLabel} · Repeated observation: ${assertion.repeat_confirmed === true ? "Yes" : "No"}`,
     { size: 7, indent: 10, color: "0.35 0.38 0.44" }
   );
-  w.proseKeep(`Basis: ${assertion.basis || "No basis recorded."}`, {
+  w.proseKeep(`Basis: ${withoutRuntimeNames(assertion.basis) || "No basis recorded."}`, {
     size: 7,
     indent: 10,
     color: "0.35 0.38 0.44",
   });
   if (limits.length) {
-    w.proseKeep(`Limits: ${limitsText}`, {
+    w.proseKeep(`Limits: ${withoutRuntimeNames(limitsText)}`, {
       size: 7,
       indent: 10,
       color: "0.35 0.38 0.44",
@@ -1291,35 +1348,36 @@ function sectionEvidenceGradeAppendix(w, snap) {
     const signal = certificateAssurance.signals?.[key];
     if (!signal) continue;
     const grade = signal.evidence_grade || {};
+    // Only published standards are cited by name; internal policy identifiers
+    // collapse to one honest "CyberMeters product policy" mention.
     const authorities = (signal.cited_authorities || [])
-      .map((authority) => [
-        authority.standard_id || authority.id || authority.authority,
-        authority.standard_version || authority.version,
-        authority.section,
-        authority.requirement_type,
-      ].filter(Boolean).join(" / "))
+      .filter((authority) => authority?.requirement_type !== "product_policy")
+      .map((authority) => {
+        const name = authority.standard_id || authority.id || authority.authority;
+        const version = authority.standard_version || authority.version;
+        const section = authority.section ? String(authority.section) : "";
+        const versionText = version ? (/[()]/.test(String(version)) ? String(version) : `(${version})`) : null;
+        return [name, versionText, /^\d/.test(section) ? `section ${section}` : null]
+          .filter(Boolean).join(" ");
+      })
       .filter(Boolean);
-    const provenance = signal.provenance && typeof signal.provenance === "object"
-      ? Object.entries(signal.provenance)
-          .filter(([, value]) => value != null && value !== "")
-          .map(([name, value]) => `${name}: ${typeof value === "object" ? JSON.stringify(value) : value}`)
-          .join("; ")
-      : (signal.provenance || "Not recorded");
-    w.keepTogether(72);
+    if ((signal.cited_authorities || []).some((authority) => authority?.requirement_type === "product_policy")) {
+      authorities.push("CyberMeters product policy");
+    }
+    const observedAt = signal.provenance && typeof signal.provenance === "object" ? signal.provenance.observed_at : null;
+    const corroboration = (signal.required_corroboration || []).map((value) => CORROBORATION_TEXT[value] || readableCode(value));
+    w.keepTogether(60);
     w.text(`${signal.label}: ${signal.state_label || signal.state || "Not observed"}`, {
       size: 8,
       bold: true,
     });
-    w.text(
-      `Evidence grade: ${grade.achieved || "L0"} (ceiling ${grade.observable_ceiling || "not recorded"}; beta target ${grade.beta_target || "not recorded"}; minimum publishable ${grade.minimum_publishable || "not recorded"})`,
+    w.text(`Evidence grade: ${grade.achieved || "L0"}`, { size: 7, indent: 10, color: "0.35 0.38 0.44" });
+    w.proseKeep(
+      `Source type: ${SOURCE_TYPE_TEXT[signal.source_type] || readableCode(signal.source_type) || "Not recorded"}.${observedAt ? ` Observed: ${pdfUtcDate(observedAt, true)}.` : ""}`,
       { size: 7, indent: 10, color: "0.35 0.38 0.44" },
     );
     w.proseKeep(
-      `Source type: ${signal.source_type || "Not recorded"}. Provenance: ${provenance}.`,
-      { size: 7, indent: 10, color: "0.35 0.38 0.44" },
-    );
-    w.proseKeep(
-      `Required corroboration: ${(signal.required_corroboration || []).join(", ") || "None recorded"}. Degrade behaviour: ${grade.degrade_behavior || "Not recorded"}.`,
+      `Required corroboration: ${corroboration.join(", ") || "none recorded"}.`,
       { size: 7, indent: 10, color: "0.35 0.38 0.44" },
     );
     w.proseKeep(
@@ -1328,6 +1386,18 @@ function sectionEvidenceGradeAppendix(w, snap) {
     );
   }
 }
+
+const SOURCE_TYPE_TEXT = Object.freeze({
+  normative_protocol: "standards-based protocol observation",
+  product_policy: "CyberMeters product policy",
+  configuration_baseline: "configuration baseline",
+  customer_attestation: "customer attestation",
+});
+const CORROBORATION_TEXT = Object.freeze({
+  "independent-source": "an independent source",
+  "independent-path": "an independent validation path",
+  repeated: "a repeated observation",
+});
 
 // Branding footer. Accepts either the v2 descriptor ({ mode, display_name }) or
 // the legacy v1 shape ({ company_name }). Co-brand and the CyberMeters fallback

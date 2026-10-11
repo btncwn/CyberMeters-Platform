@@ -492,6 +492,35 @@ async function main() {
      gradedEmailDomain?.evidence_grade?.grade === "L1" &&
      /lowest decisive input/.test(gradedEmailDomain.evidence_grade.basis));
 
+  // A protocol word inside an embedded hostname is not protocol evidence: the
+  // 11 Oct live report described "dmarc-test.<domain>" (a CT name) as a DMARC
+  // DNS-policy observation with a DMARC tree-walk limit.
+  const hostNameReport = makeReport("scan_hostname_words", "dom1", "shared.example");
+  hostNameReport.findings = ["dmarc-test", "spf", "dkim-old", "mta-sts", "tls-rpt"].map((label) => ({
+    id: `subdomain_sensitive_${label}_shared_example`,
+    title: "Potentially Sensitive Subdomain Name Observed",
+    description: `The name ${label}.shared.example was observed only in Certificate Transparency logs.`,
+    severity: "info",
+    module: "subdomains",
+    finding_type: "observation",
+    evidence: [{ type: "ct_name" }],
+  }));
+  const hostNameSnapshot = composeSnapshot({
+    snapshotId: "snap-hostname-words", workspaceId: "ws1", domainId: "dom1",
+    scanId: "scan_hostname_words", domain: "shared.example", report: hostNameReport,
+    cyberEssentials: ceSnap1, ceReadiness: null, caseRows: [],
+    questionSetVersions: [], supersedesSnapshotId: null,
+    builtAt: "2026-07-16T12:00:00.000Z",
+  });
+  const hostNameGrades = hostNameSnapshot.observations
+    .filter((finding) => finding.finding_id.startsWith("subdomain_sensitive_"))
+    .map((finding) => finding.evidence_grade);
+  ok("signal audit: protocol words inside an embedded hostname never select a protocol basis",
+     hostNameGrades.length === 5 &&
+     hostNameGrades.every((grade) => grade?.source_type === "product_policy" &&
+       !/RFC (7208|9989|6376|8461|8460)|DMARC|DKIM|SPF|MTA-STS|TLS reporting/.test(`${grade.basis} ${(grade.limits || []).join(" ")}`)),
+     JSON.stringify(hostNameGrades.map((grade) => grade?.basis)));
+
   // ═══ E. Remediation ════════════════════════════════════════════════════════
   const spfAction = snap1?.remediation_actions?.find((a) => a.finding_ids.includes("email_missing_spf"));
   ok("actions resolve through the canonical registry (title + action present)",

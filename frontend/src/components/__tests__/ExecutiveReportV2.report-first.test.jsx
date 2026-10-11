@@ -270,9 +270,10 @@ describe('ExecutiveReportV2 report-first corrective', () => {
     const coverage = screen.getByRole('region', { name: 'Assessment coverage' })
     expect(coverage).toHaveTextContent('partial')
     expect(coverage).toHaveTextContent('incomplete')
-    expect(coverage).toHaveTextContent('monitoring_degraded')
-    expect(coverage).toHaveTextContent('asset_exposure')
-    expect(coverage).toHaveTextContent('signal_unavailable')
+    expect(coverage).toHaveTextContent('monitoring degraded')
+    expect(coverage).toHaveTextContent('asset exposure')
+    expect(coverage).toHaveTextContent('signal unavailable')
+    expect(coverage.textContent).not.toMatch(/monitoring_degraded|asset_exposure|signal_unavailable/)
 
     const findingSection = screen.getByText('Observed Findings').closest('section')
     expect(within(findingSection).getByText('Confidence: 91')).toBeInTheDocument()

@@ -10,6 +10,12 @@ import {
   evidenceStrengthLabel,
 } from '../lib/evidenceStrengthDisplay'
 
+// Backend vocabulary rendered one-to-one, without a machine identifier's
+// underscores: "monitoring_degraded" reads "monitoring degraded".
+function readableCode(value) {
+  return String(value ?? '').replace(/_/g, ' ').trim()
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Executive Report — snapshot-native (M5.d).
 //
@@ -248,25 +254,25 @@ function AssessmentCoverage({ coverage }) {
           {facts.map(([label, value]) => (
             <div key={label}>
               <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
-              <dd className="mt-0.5 text-xs font-semibold text-slate-700">{String(value)}</dd>
+              <dd className="mt-0.5 text-xs font-semibold text-slate-700">{readableCode(value)}</dd>
             </div>
           ))}
         </dl>
       )}
       {skipped.length > 0 && (
         <p className="mt-2 text-xs leading-relaxed text-amber-700">
-          <span className="font-semibold">Modules skipped:</span> {skipped.join(', ')}
+          <span className="font-semibold">Modules skipped:</span> {skipped.map(readableCode).join(', ')}
         </p>
       )}
       {skippedScoreBearing.length > 0 && (
         <p className="mt-1 text-xs leading-relaxed text-amber-700">
-          <span className="font-semibold">Score-bearing modules skipped:</span> {skippedScoreBearing.join(', ')}
+          <span className="font-semibold">Score-bearing modules skipped:</span> {skippedScoreBearing.map(readableCode).join(', ')}
         </p>
       )}
       {degradedSignals.map((entry, index) => (
         <p key={`${entry?.signal || 'signal'}-${index}`} className="mt-1 text-xs leading-relaxed text-slate-500">
-          <span className="font-semibold text-slate-700">{entry?.signal || 'Monitoring signal'}:</span>
-          {' '}{entry?.state || 'not_recorded'}{entry?.message ? ` — ${customerEvidenceText(entry.message)}` : ''}
+          <span className="font-semibold text-slate-700">{entry?.signal ? readableCode(entry.signal) : 'Monitoring signal'}:</span>
+          {' '}{readableCode(entry?.state || 'not_recorded')}{entry?.message ? ` — ${customerEvidenceText(entry.message)}` : ''}
         </p>
       ))}
     </section>
