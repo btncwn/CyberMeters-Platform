@@ -12,7 +12,7 @@ import { api } from '../../../api'
 import { useWorkspace } from '../../../hooks/useWorkspace'
 
 vi.mock('../../../api', () => ({
-  api: { getWebsiteSecurityConditions: vi.fn(), getWebsiteSecurityCondition: vi.fn(), getWorkspaceScans: vi.fn(), getScanReport: vi.fn() },
+  api: { getWebsiteSecurityConditions: vi.fn(), getWebsiteSecurityCondition: vi.fn(), getWorkspaceScans: vi.fn(), getScanReport: vi.fn(), getWebsiteSecurityPages: vi.fn(async () => ({ domains: [] })) },
 }))
 vi.mock('../../../hooks/useWorkspace', () => ({ useWorkspace: vi.fn() }))
 

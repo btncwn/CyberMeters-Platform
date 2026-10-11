@@ -71,15 +71,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2441 | preflight | public | — |
-| DELETE | `(none)` | 2447 | unknown | **GAP** | — |
-| GET | `(none)` | 2447 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2447 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2447 | unknown | **GAP** | — |
-| POST | `(none)` | 2447 | unknown | **GAP** | — |
-| PUT | `(none)` | 2447 | unknown | **GAP** | — |
-| GET | `/health` | 2452 | public-or-global | public | — |
-| GET | `/ready` | 2468 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2444 | preflight | public | — |
+| DELETE | `(none)` | 2450 | unknown | **GAP** | — |
+| GET | `(none)` | 2450 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2450 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2450 | unknown | **GAP** | — |
+| POST | `(none)` | 2450 | unknown | **GAP** | — |
+| PUT | `(none)` | 2450 | unknown | **GAP** | — |
+| GET | `/health` | 2455 | public-or-global | public | — |
+| GET | `/ready` | 2471 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -391,8 +391,8 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `(none)` | 59 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 111 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 98 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 150 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/workspace-activity.js`
 
