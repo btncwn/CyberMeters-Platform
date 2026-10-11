@@ -626,7 +626,8 @@ async function catchAllRun({ echo, realPages = {} }) {
   const NOW_MS = Date.parse(NOW);
   const buildDb = () => {
     const db = new DatabaseSync(":memory:");
-    const apply = (f) => { try { db.exec(fs.readFileSync(f, "utf8")); } catch { /* overlap intended */ } };
+    // schema.sql already contains most migrations: only that overlap is tolerated.
+    const apply = (f) => { try { db.exec(fs.readFileSync(f, "utf8")); } catch (e) { if (!/^(?:duplicate column name|no such table|table \S+ already exists|index \S+ already exists)/.test(e.message)) throw e; } };
     apply(path.join(root, "database/schema.sql"));
     for (const f of fs.readdirSync(path.join(root, "database/migrations")).filter((n) => n.endsWith(".sql")).sort()) apply(path.join(root, "database/migrations", f));
     db.exec("PRAGMA foreign_keys = OFF");
