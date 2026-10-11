@@ -1310,6 +1310,9 @@ jobs:
       - name: Validate integration flows (tenant isolation / access control)
         run: node scripts/validate-integration.js
 
+      - name: Validate route wiring (every Worker route reaches a screen or is classified)
+        run: node scripts/validate-route-wiring.js
+
       - name: Validate F-021 scan-read tenant isolation (shared domain / NULL-owner / zero-R2)
         run: node scripts/validate-f021-scan-read-tenant-isolation.js
 
