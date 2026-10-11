@@ -73,7 +73,7 @@ const SERVICES = [
 ]
 
 const FACTS = [
-  { icon: Layers, big: '8 areas', small: 'checked from the outside, in one report' },
+  { icon: Layers, big: 'External', small: 'checks only what is publicly visible' },
   { icon: PackageX, big: 'No agent', small: 'nothing is installed on your systems' },
   { icon: FileKey2, big: '1 DNS record', small: 'proves that you own the domain' },
   { icon: EyeOff, big: 'Gaps named', small: 'every result says what could not be checked' },
@@ -86,7 +86,7 @@ const PRINCIPLES = [
 ]
 
 const STEPS = [
-  { title: 'Check', copy: 'Enter a domain for a bounded, non-persistent snapshot across all eight areas. Verify ownership before accessing deeper checks.' },
+  { title: 'Check', copy: 'Enter a domain for a bounded, non-persistent external snapshot. Verify ownership before accessing deeper checks.' },
   { title: 'Understand', copy: 'See what was observed, what needs attention and what could not be assessed. Share the report with your team or IT provider.' },
   { title: 'Act', copy: 'Use the recommended steps to prioritise work, assign an owner and record progress.' },
   { title: 'Check again', copy: 'Recheck supported fixes when the work is done, schedule rechecks and review alerts for recorded changes.' },
@@ -231,13 +231,13 @@ function HeroStage() {
       <div className="cm-legibility absolute inset-0 z-0 pointer-events-none" aria-hidden="true" />
 
       {/* Hero */}
-      <section className={`${CONTAINER} relative z-10 pt-[148px] lg:pt-[190px] lg:min-h-[800px]`}>
-        <div className="max-w-[640px]">
+      <section className={`${CONTAINER} relative z-10 pt-[148px] lg:pt-[168px] lg:min-h-[800px]`}>
+        <div className="max-w-[700px]">
           <h1 className="font-cm font-normal text-[46px] sm:text-[60px] lg:text-[72px] leading-[1.04] tracking-[-0.01em] text-balance">
-            Know what your business exposes to the internet.
+            Know where your business is exposed and what to do next.
           </h1>
-          <p className="font-cm mt-7 text-[21px] lg:text-[24px] leading-[1.5] text-white/85 max-w-[34ch] text-pretty">
-            CyberMeters checks your domain from the outside across eight areas, from email and website to certificates and lookalike domains, and says plainly what it could not check.
+          <p className="font-cm mt-7 text-[21px] lg:text-[24px] leading-[1.5] text-white/85 max-w-[40ch] text-pretty">
+            CyberMeters runs external security checks on your domain, from email and website to certificates and lookalike domains, and says plainly what it could not check.
           </p>
           <div className="mt-10"><DomainForm id="hero-domain" /></div>
           <ul className="mt-6 flex flex-wrap gap-x-7 gap-y-2 text-[15px] text-white/85">
@@ -342,7 +342,7 @@ export default function PublicLandingPage() {
       {/* Eight areas */}
       <section id="areas" aria-labelledby="areas-title" className="scroll-mt-24 py-24 lg:py-[120px]">
         <div className={CONTAINER}>
-          <SectionHeading id="areas-title" center title="Eight areas in one workspace" lead="Start with a bounded, honest snapshot of all eight areas. The report separates observed issues from missing evidence, so you can decide what needs attention." />
+          <SectionHeading id="areas-title" center title="Eight areas in one workspace" lead="Start with a bounded, honest external snapshot. The report separates observed issues from missing evidence, so you can decide what needs attention." />
           <div className="mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             {SERVICES.map(s => {
               const Icon = s.icon
@@ -423,7 +423,7 @@ export default function PublicLandingPage() {
               <h3 className="font-cm font-normal text-[30px] leading-[1.15]">Free check</h3>
               <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">A one-off snapshot of public evidence: nothing is stored or monitored until you create an account.</p>
               <ul className="mt-6 space-y-3 text-[16px] text-[#2B3448]">
-                {['All eight areas, checked from the outside', 'Shows what could not be assessed', 'No sign-up needed'].map(t => (
+                {['External checks, nothing installed', 'Shows what could not be assessed', 'No sign-up needed'].map(t => (
                   <li key={t} className="flex gap-3"><Check className="w-5 h-5 mt-0.5 text-[#2550B6] flex-shrink-0" aria-hidden="true" />{t}</li>
                 ))}
               </ul>
@@ -447,7 +447,7 @@ export default function PublicLandingPage() {
         <div className={`${CONTAINER} relative z-10 py-24 lg:py-[120px]`}>
           <h2 id="cta-title" className="font-cm font-normal text-[40px] sm:text-[48px] lg:text-[56px] leading-[1.06] max-w-[16ch] text-balance">Run a free check on your domain.</h2>
           <p className="font-cm mt-5 text-[21px] lg:text-[22px] leading-[1.5] text-white/85 max-w-[46ch]">
-            See one bounded snapshot of public evidence across all eight areas, including what could not be assessed.
+            See one bounded, external snapshot of public evidence, including what could not be assessed.
           </p>
           <div className="mt-10"><DomainForm id="cta-domain" /></div>
         </div>
@@ -457,7 +457,7 @@ export default function PublicLandingPage() {
         <div className={`${CONTAINER} py-12 flex flex-col lg:flex-row lg:items-start lg:justify-between gap-8`}>
           <div>
             <CyberMetersLogo size={28} showWordmark />
-            <p className="mt-4 text-[15px] text-[#5A6378]">External security checks for small teams.</p>
+            <p className="mt-4 text-[15px] text-[#5A6378]">External security checks for your business.</p>
             <p className="mt-1 text-[15px] text-[#5A6378]">
               <a href={CONTACT} className="hover:text-[#121A2E]">hello@cybermeters.com</a>
             </p>

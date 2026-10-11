@@ -27,7 +27,7 @@ describe('PublicLandingPage', () => {
 
   it('leads with the exposure headline', () => {
     renderLanding()
-    expect(screen.getByRole('heading', { level: 1, name: 'Know what your business exposes to the internet.' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Know where your business is exposed and what to do next.' })).toBeInTheDocument()
   })
 
   it('sends every free-check call to action to the free scan, with the domain when typed', () => {
@@ -48,7 +48,7 @@ describe('PublicLandingPage', () => {
     expect(screen.getByText(/one-off snapshot of public evidence: nothing is stored or monitored until you create an account/i)).toBeInTheDocument()
     expect(screen.getByText(/Full findings, fix steps, PDF reports and monitoring unlock once you verify that you own the domain/i)).toBeInTheDocument()
     expect(screen.getByText(/Scheduled checks, alerts and PDF reports come with paid plans and the 14-day trial/i)).toBeInTheDocument()
-    expect(screen.getByText(/bounded, non-persistent snapshot across all eight areas/i)).toBeInTheDocument()
+    expect(screen.getByText(/bounded, non-persistent external snapshot/i)).toBeInTheDocument()
     expect(screen.getAllByText(/what could not be assessed/i).length).toBeGreaterThan(0)
     expect(screen.getByText(/Nothing is marked as passed on silence/i)).toBeInTheDocument()
     expect(screen.queryByText(/two minutes/i)).not.toBeInTheDocument()
@@ -74,6 +74,12 @@ describe('PublicLandingPage', () => {
     renderLanding()
     expect(screen.getByText('Can attackers send email as me?')).toHaveStyle({ color: SERVICE_COLORS.email.text })
     expect(screen.getByText('Is anyone impersonating my brand?')).toHaveStyle({ color: SERVICE_COLORS.brand.text })
+  })
+
+  it('never narrows the audience or counts areas in its pitch', () => {
+    renderLanding()
+    expect(screen.queryByText(/small businesses, startups|digital agencies|small teams/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/across (all )?(eight|8) areas/i)).not.toBeInTheDocument()
   })
 
   it('does not advertise the MSP portfolio view, which is not customer-accepted', () => {
