@@ -572,7 +572,7 @@ const MUTATIONS = [
     name: "restore four-service output",
     file: "frontend/src/pages/PublicLandingPage.jsx",
     mutate: (s) => {
-      const anchor = "Eight areas in one workspace";
+      const anchor = "Eight areas, tested from the outside";
       if (s.split(anchor).length !== 2) throw new Error("four-service mutation needs exactly one visible eight-area heading");
       return s.replace(anchor, "Four services in one workspace");
     },

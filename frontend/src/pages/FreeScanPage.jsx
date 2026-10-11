@@ -3,7 +3,7 @@
  * Backend owns every verdict/count. This page only presents the bounded,
  * non-persistent eight-domain projection and the verified-domain handoff.
  */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -51,6 +51,14 @@ const MODULE_LABELS = {
 
 function signupPath(domain) {
   return `/signup${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`
+}
+
+// A domain handed over by the landing page form (/free-scan?domain=…).
+// Only a syntactically valid hostname is accepted; anything else is ignored.
+export function domainFromQuery(search) {
+  const raw = new URLSearchParams(search || '').get('domain') || ''
+  const d = raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/[/?#].*$/, '').replace(/\.$/, '')
+  return /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(d) ? d : ''
 }
 
 function initialTheme() {
@@ -124,7 +132,7 @@ function LoadingState({ domain, step }) {
 }
 
 export default function FreeScanPage() {
-  const [domain, setDomain] = useState('')
+  const [domain, setDomain] = useState(() => (typeof window === 'undefined' ? '' : domainFromQuery(window.location.search)))
   const [scanning, setScanning] = useState(false)
   const [step, setStep] = useState(0)
   const [result, setResult] = useState(null)
@@ -177,6 +185,17 @@ export default function FreeScanPage() {
       setScanning(false)
     }
   }
+
+  // The visitor already pressed "Run a free check" on the landing page: run it
+  // once, then drop the parameter so a refresh does not start another snapshot.
+  const handedOver = useRef(false)
+  useEffect(() => {
+    if (handedOver.current || !domainFromQuery(window.location.search)) return
+    handedOver.current = true
+    window.history.replaceState(window.history.state, '', window.location.pathname)
+    handleScan()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function reset() {
     setResult(null)

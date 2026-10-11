@@ -174,8 +174,8 @@ export default function CyberMetersLogo({
       {mark}
       <span className="leading-none select-none">
         <span
-          className="font-semibold text-gray-900 tracking-tight block"
-          style={{ fontSize: wordmarkSize }}
+          className={`font-semibold tracking-tight block ${darkMode ? 'text-white' : 'text-ink'}`}
+          style={{ fontSize: wordmarkSize, fontStretch: '112%' }}
         >
           CyberMeters
         </span>

@@ -5,12 +5,12 @@
 @layer base {
   html { scroll-behavior: smooth; }
   body {
-    /* Cooler, slightly deeper canvas so white cards read as deliberate surfaces
-       (Linear/Vanta-style layering) instead of floating on flat white. */
-    @apply text-gray-900 antialiased;
-    background-color: #EEF1F6;
-    font-family: 'Inter', system-ui, sans-serif;
-    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    /* Bay: a cool green-grey canvas so white surfaces read as deliberate panels. */
+    @apply text-ink antialiased;
+    background-color: #F2F5F3;
+    font-family: 'Archivo', system-ui, sans-serif;
+    font-stretch: 100%;
+    font-feature-settings: 'tnum' 0;
   }
   ::selection { background-color: rgba(0,135,106,.18); }
   * { -webkit-font-smoothing: antialiased; }
@@ -83,14 +83,18 @@
   }
 
   .mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
-  .label { @apply text-[11px] font-bold text-gray-500 uppercase tracking-[0.12em]; }
+  .label { @apply text-[12px] font-semibold text-graphite; }
 
-  /* Premium typographic system — headings lead, numbers support. Section titles
-     are deliberately stronger so product meaning reads before raw figures. */
-  .eyebrow { @apply text-[11px] font-bold text-brand-600 uppercase tracking-[0.14em]; }
-  .page-title { @apply text-[28px] font-bold text-gray-900 tracking-tight leading-tight; }
-  .page-subtitle { @apply text-sm text-gray-500 mt-1.5 leading-relaxed; }
-  .section-title { @apply text-lg font-bold text-gray-900 tracking-tight; }
+  /* Type system — headings lead, numbers support. Display sizes are set in
+     Archivo's expanded width; labels stay sentence case (no shouting caps). */
+  .eyebrow { @apply text-[13px] font-semibold text-brand-700; }
+  .page-title { @apply text-[30px] font-semibold text-ink leading-[1.1] tracking-[-0.015em]; font-stretch: 110%; }
+  .page-subtitle { @apply text-[15px] text-graphite mt-2 leading-relaxed; }
+  .section-title { @apply text-[19px] font-semibold text-ink tracking-[-0.01em]; font-stretch: 106%; }
+  .display-1 { @apply font-semibold text-ink tracking-[-0.03em]; font-size: clamp(2.75rem, 6vw, 4.85rem); line-height: 0.98; font-stretch: 118%; }
+  .display-2 { @apply font-semibold tracking-[-0.025em]; font-size: clamp(2rem, 3.6vw, 3.1rem); line-height: 1.04; font-stretch: 114%; }
+  .display-3 { @apply font-semibold tracking-[-0.012em]; font-size: 1.375rem; line-height: 1.22; font-stretch: 106%; }
+  .lead { @apply text-graphite; font-size: clamp(1.125rem, 1.6vw, 1.3rem); line-height: 1.5; }
 
   /* KPI tile — a confident standalone statistic surface (vs cramped hairline grids). */
   .stat-tile {
@@ -133,20 +137,22 @@
   }
   .pill-eyebrow .pill-dot { @apply w-[7px] h-[7px] rounded-full bg-brand-600; }
 
-  /* Buttons */
+  /* Buttons — 44px tall by default; .btn-lg (52px) for marketing and onboarding. */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5
+    @apply inline-flex items-center justify-center gap-2 px-5 py-[11px]
            bg-brand-600 hover:bg-brand-700 active:bg-brand-800
-           text-white font-semibold text-sm rounded-xl
-           shadow-btn-brand hover:-translate-y-px active:translate-y-0
-           transition-all duration-150 select-none;
+           text-white font-semibold text-[15px] leading-[22px] rounded-[10px]
+           shadow-btn-brand transition-colors duration-150 select-none
+           disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5
-           bg-white hover:bg-gray-50 active:bg-gray-100
-           text-gray-800 font-semibold text-sm rounded-xl
-           border border-gray-300 shadow-btn transition-all duration-150 select-none;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-[10px]
+           bg-white hover:bg-bay active:bg-gray-100
+           text-ink font-semibold text-[15px] leading-[22px] rounded-[10px]
+           border border-rule shadow-btn transition-colors duration-150 select-none
+           disabled:opacity-50 disabled:cursor-not-allowed;
   }
+  .btn-lg { @apply px-7 py-[15px] text-[16px] rounded-[12px]; }
   .btn-ghost {
     @apply inline-flex items-center gap-1.5 px-3 py-1.5
            text-gray-600 hover:text-brand-700 hover:bg-brand-50
@@ -155,8 +161,8 @@
 
   /* Inputs */
   .input {
-    @apply w-full bg-white border border-gray-300 text-gray-900
-           rounded-xl px-4 py-3 text-sm placeholder-gray-400
+    @apply w-full bg-white border border-rule text-ink
+           rounded-[10px] px-4 py-3 text-[15px] placeholder-gray-400
            focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500
            transition-all shadow-btn;
   }
@@ -201,11 +207,22 @@
 
   /* Table */
   .data-table th {
-    @apply text-left text-[11px] font-bold text-gray-500 uppercase tracking-wider
-           px-5 py-3 bg-gray-50 border-b border-gray-200;
+    @apply text-left text-[12px] font-semibold text-graphite
+           px-5 py-3 bg-bay border-b border-rule;
   }
   .data-table td { @apply px-5 py-3.5 text-sm; }
   .data-table tr:not(:last-child) td { @apply border-b border-gray-100; }
+}
+
+@layer utilities {
+  /* Archivo width axis (font-stretch maps to 'wdth'). */
+  .stretch-100 { font-stretch: 100%; }
+  .stretch-106 { font-stretch: 106%; }
+  .stretch-112 { font-stretch: 112%; }
+  .stretch-118 { font-stretch: 118%; }
+  .stretch-125 { font-stretch: 125%; }
+  .text-balance { text-wrap: balance; }
+  .text-pretty { text-wrap: pretty; }
 }
 
 /* ─── CyberMeters logo — animated needle ────────────────────────────────────
