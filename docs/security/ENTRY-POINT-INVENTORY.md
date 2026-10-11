@@ -284,9 +284,9 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `/api/billing/plans` | 24 | public-or-global | public | — |
 | POST | `/api/dmarc-ingest` | 43 | webhook | public | — |
 | GET | `/api/billing/subscription` | 150 | public-or-global | ✓ | requireAuth |
-| POST | `/api/billing/webhook` | 174 | webhook | public | — |
-| POST | `/api/billing/checkout` | 556 | public-or-global | ✓ | requireAuth |
-| POST | `/api/billing/portal` | 611 | public-or-global | ✓ | requireAuth |
+| POST | `/api/billing/webhook` | 178 | webhook | public | — |
+| POST | `/api/billing/checkout` | 560 | public-or-global | ✓ | requireAuth |
+| POST | `/api/billing/portal` | 615 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/identity-exposure.js`
 

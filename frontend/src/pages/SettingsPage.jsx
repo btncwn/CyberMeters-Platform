@@ -448,7 +448,7 @@ export default function SettingsPage() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-gray-400">Billing Provider</span>
-              <span className="font-medium text-gray-700 capitalize">{subscription?.billing_provider || 'Unavailable'}</span>
+              <span className="font-medium text-gray-700 capitalize">{subscription?.billing_provider || (subscription?.status === 'none' ? 'None' : 'Unavailable')}</span>
             </div>
             <p className="text-xs text-gray-400 pt-2 border-t border-gray-100">
               View your current plan, invoices and payment settings on the billing page.

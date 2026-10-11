@@ -59,6 +59,24 @@ for (const [label, rows, status, plan, entitled] of cases) {
   eq(`${label}: plan agrees with planStateFromRows`, d.plan, planStateFromRows(rows).plan);
 }
 eq("read error → unavailable", describeAccountSubscription([], { error: true }).status, "unavailable");
+eq("read error → plan unknown (null), never free", describeAccountSubscription([], { error: true }).plan, null);
+{
+  // Unmapped Stripe price stored fail-closed as plan "free" on an active row.
+  const d = describeAccountSubscription([row({ plan: null })]);
+  eq("active row with free plan → inactive, not entitled", [d.status, d.entitled, d.plan], ["inactive", false, "free"]);
+}
+{
+  // Exact updated_at tie inside one lineage: latest row uses the resolver's
+  // code-unit id ordering, so the cancelled successor wins over the old row.
+  const t = iso(-2);
+  const d = describeAccountSubscription([
+    row({ id: "sub_B", subscription_status: "canceled", current_period_end: iso(10), updated_at: t, stripe_subscription_id: "same" }),
+    row({ id: "sub_a", subscription_status: "active", current_period_end: iso(-1), updated_at: t, stripe_subscription_id: "same" }),
+  ]);
+  ok("tie-break follows resolver ordering", ["canceled", "expired"].includes(d.status), d.status);
+  const ids = ["sub_B", "sub_a"].sort(); // code-unit: "sub_B" < "sub_a"
+  eq("tie-break: latest is the code-unit-greatest id", d.row?.id, ids[1]);
+}
 ok("only canonical paid source reads active",
   cases.every(([, rows]) => (describeAccountSubscription(rows).status === "active") === (planStateFromRows(rows).source === "paid")));
 
@@ -133,7 +151,7 @@ async function billing(db, opts) { const r = await globalBillingRoutes(rctx("/ap
 }
 {
   const [st, body] = await account(null, { failing: true });
-  eq("account: unreadable → 200 unavailable (never active/free)", [st, body.subscription.status], [200, "unavailable"]);
+  eq("account: unreadable → 200 unavailable with unknown plan", [st, body.subscription.status, body.subscription.plan], [200, "unavailable", null]);
 }
 {
   const r = await accountRoutes(rctx("/api/account/subscription", createDb([]), { user: null }));
@@ -146,14 +164,26 @@ async function billing(db, opts) { const r = await globalBillingRoutes(rctx("/ap
   eq("billing: paid annual", [paid.status, paid.billing_cycle, paid.plan], ["active", "annual", "professional"]);
   const [, lapsed] = await billing(createDb([row({ subscription_status: "past_due", payment_failed_at: iso(-30), current_period_end: iso(-20) })]));
   eq("billing: lapsed past due is not active", [lapsed.status, lapsed.plan], ["past_due_lapsed", "free"]);
-  const [, err] = await billing(null, { failing: true });
-  eq("billing: unreadable → unavailable", err.status, "unavailable");
+  const [errSt, err] = await billing(null, { failing: true });
+  eq("billing (published API): unreadable → 503, plan null", [errSt, err.status, err.plan], [503, "unavailable", null]);
   // Both surfaces agree for every matrix case.
   for (const [label, rows] of cases) {
     const [, a] = await account(createDb(rows.map((r) => ({ ...r, owner_user_id: "u1" }))));
     const [, b] = await billing(createDb(rows.map((r) => ({ ...r, owner_user_id: "u1" }))));
     eq(`surfaces agree (${label})`, [a.subscription.status, a.subscription.plan], [b.status, b.plan]);
   }
+}
+{
+  // /api/account/profile no longer invents an active manual subscription.
+  const db = createDb([]);
+  db.exec("CREATE TABLE customer_profiles (id TEXT, owner_user_id TEXT, company_name TEXT, website TEXT, industry TEXT, company_size TEXT, contact_email TEXT, contact_name TEXT, created_at TEXT, updated_at TEXT)");
+  const r = await accountRoutes(rctx("/api/account/profile", db));
+  const body = await r.json();
+  eq("profile: no row → status none, no invented provider/email", [r.status, body.subscription.status, body.subscription.billing_provider, body.subscription.billing_email], [200, "none", null, null]);
+  const db2 = createDb([row({ subscription_status: "trialing", trial_end: iso(3), current_period_end: null, stripe_subscription_id: null })]);
+  db2.exec("CREATE TABLE customer_profiles (id TEXT, owner_user_id TEXT, company_name TEXT, website TEXT, industry TEXT, company_size TEXT, contact_email TEXT, contact_name TEXT, created_at TEXT, updated_at TEXT)");
+  const body2 = await (await accountRoutes(rctx("/api/account/profile", db2))).json();
+  eq("profile: trial row → trialing (canonical)", body2.subscription.status, "trialing");
 }
 {
   // Tenant isolation: another owner's paid row never reaches this account.

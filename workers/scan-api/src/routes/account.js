@@ -231,6 +231,9 @@ export async function accountRoutes(rctx) {
             .first(),
         ]);
         const plan = await getEffectivePlan(user.id, env);
+        // Status from the same canonical description as /api/account/subscription;
+        // no row reads `none`, never an invented "active"/"manual".
+        const described = await loadAccountSubscription(user.id, env);
         return json({
           user: {
             id:    user.id,
@@ -239,12 +242,9 @@ export async function accountRoutes(rctx) {
             plan,
           },
           company: profile ?? null,
-          subscription: sub ? { ...sub, plan } : {
-            plan,
-            status:           "active",
-            billing_provider: "manual",
-            billing_email:    user.email,
-          },
+          subscription: sub
+            ? { ...sub, plan, status: described.status, entitled: described.entitled }
+            : { plan, status: described.status, entitled: described.entitled, billing_provider: null, billing_email: null },
         });
       } catch (e) {
         return serverError("api", e);

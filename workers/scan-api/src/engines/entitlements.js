@@ -364,25 +364,37 @@ export function planStateFromRows(rows) {
 //   expired       paid period ended without renewal
 //   inactive      any other non-entitling row (incomplete, unpaid, paused…)
 //   none          no subscription row at all (free plan)
-//   unavailable   subscription state could not be read
+//   unavailable   subscription state could not be read (plan: null)
 export const ACCOUNT_SUBSCRIPTION_STATUSES = Object.freeze([
   "active", "trialing", "past_due", "trial_expired", "past_due_lapsed",
   "canceled", "expired", "inactive", "none", "unavailable",
 ]);
 
 export function describeAccountSubscription(rows, { error = false } = {}) {
-  if (error) return { plan: "free", status: "unavailable", row: null, entitled: false };
+  // Unreadable state has NO known plan: plan is null, never a silent "free".
+  if (error) return { plan: null, status: "unavailable", row: null, entitled: false };
   const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
   const state = planStateFromRows(list);
-  if (state.source === "error") return { plan: "free", status: "unavailable", row: null, entitled: false };
+  if (state.source === "error") return { plan: null, status: "unavailable", row: null, entitled: false };
+  // An entitling row whose plan normalises to free (e.g. an unmapped Stripe
+  // price, stored fail-closed as "free") grants nothing: enforcement treats
+  // plan "free" as inactive, so the account view must too.
+  if (state.plan === "free" && ["paid", "trial", "grace"].includes(state.source)) {
+    return { plan: "free", status: "inactive", row: state.row, entitled: false };
+  }
   if (state.source === "paid") return { plan: state.plan, status: "active", row: state.row, entitled: true };
   if (state.source === "trial") return { plan: state.plan, status: "trialing", row: state.row, entitled: true, trial_end: state.trial_end ?? null };
   if (state.source === "grace") return { plan: state.plan, status: "past_due", row: state.row, entitled: true, in_grace: true };
   if (!list.length) return { plan: "free", status: "none", row: null, entitled: false };
+  // Latest row by the SAME ordering resolveCanonicalSubscriptionRow uses
+  // (updated_at/created_at, then id by plain code-unit comparison).
   const recency = (r) => String(r.updated_at || r.created_at || "");
-  const latest = [...list].sort((a, b) => (recency(a) === recency(b)
-    ? String(b.id || "").localeCompare(String(a.id || ""))
-    : (recency(a) < recency(b) ? 1 : -1)))[0];
+  const newer = (a, b) => {
+    const aT = recency(a), bT = recency(b);
+    if (aT !== bT) return aT > bT;
+    return String(a.id || "") > String(b.id || "");
+  };
+  const latest = list.reduce((best, r) => (newer(r, best) ? r : best), list[0]);
   const raw = String(latest.subscription_status || latest.status || "").trim().toLowerCase();
   let status;
   if (state.trial_expired && raw === "trialing") status = "trial_expired";

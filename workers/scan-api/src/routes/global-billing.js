@@ -152,6 +152,10 @@ export async function globalBillingRoutes(rctx) {
       if (!user) return json({ error: "Unauthorized" }, 401);
       try {
         const described = await loadAccountSubscription(user.id, env);
+        if (described.status === "unavailable") {
+          // API clients must not read an unknown plan as "free".
+          return json({ error: "Subscription state is temporarily unavailable", status: "unavailable", plan: null }, 503);
+        }
         const row = described.row;
         return json({
           plan: described.plan,

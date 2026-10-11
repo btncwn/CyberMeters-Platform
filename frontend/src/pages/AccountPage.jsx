@@ -591,9 +591,9 @@ export default function AccountPage() {
                         <span className="text-xs font-medium text-gray-700 capitalize">{subscription.billing_provider}</span>
                       </div>
                     )}
-                    {subscription.current_period_end ? (
+                    {subscription.current_period_end && ['active', 'past_due', 'canceled', 'expired', 'past_due_lapsed', 'inactive'].includes(subscription.status) ? (
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-500">Renews</span>
+                        <span className="text-xs text-gray-500">{['active', 'past_due'].includes(subscription.status) ? 'Renews' : 'Ended'}</span>
                         <span className="text-xs text-gray-400">
                           {parseServerDate(subscription.current_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                         </span>
