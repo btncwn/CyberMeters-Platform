@@ -18,8 +18,15 @@ export function evidenceStrengthLabel(assertion) {
 
 // Keep formal RFC identifiers in the PDF technical appendix. The in-app report
 // body uses protocol names for readable customer-facing explanations.
+// The declared trust store is a fact; the runtime that bundled it is not a
+// customer concept. Historical snapshots still carry the runtime name.
+const RUNTIME_TRUST_STORE = /\b(context|store)\s+Node\.js bundled Mozilla CA roots(?:\s*\(?v\d+(?:\.\d+)*\)?)?/gi
+const BARE_RUNTIME_TRUST_STORE = /\bNode\.js bundled Mozilla CA roots(?:\s*\(?v\d+(?:\.\d+)*\)?)?/gi
+
 export function customerEvidenceText(value) {
   return String(value || '')
+    .replace(RUNTIME_TRUST_STORE, '$1 (the Mozilla CA root store)')
+    .replace(BARE_RUNTIME_TRUST_STORE, 'the Mozilla CA root store')
     .replace(/\s*\(RFC\s+\d+\)/gi, '')
     .replace(/\bRFC 7208 SPF\b/gi, 'SPF')
     .replace(/\bRFC 9989 DMARC\b/gi, 'DMARC')

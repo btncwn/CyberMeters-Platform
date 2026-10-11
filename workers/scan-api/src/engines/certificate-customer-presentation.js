@@ -80,10 +80,18 @@ function signalState(signal, presentInModel) {
   return "unknown";
 }
 
-function trustStoreName(value) {
-  const context = asObject(value)?.trust_store_context;
+// Customer name for a declared trust store. The exact store identity (runtime
+// bundle name, version and fingerprint) stays in the evidence; customers read
+// which root store it is, not which runtime shipped it.
+export function customerTrustStoreName(context) {
   if (!context?.name || !context?.version) return null;
-  return `${context.name} ${context.version}`;
+  return /mozilla ca roots/i.test(String(context.name))
+    ? "the Mozilla CA root store"
+    : `${context.name} ${context.version}`;
+}
+
+function trustStoreName(value) {
+  return customerTrustStoreName(asObject(value)?.trust_store_context);
 }
 
 function observedMessage(key, signal) {
@@ -123,8 +131,8 @@ function observedMessage(key, signal) {
   if (key === "trust_store_validation") {
     const context = trustStoreName(value);
     return asObject(value)?.validation_result === "invalid"
-      ? `Certificate-path validation failed for the declared trust-store context${context ? ` ${context}` : ""}.`
-      : `Certificate-path validation succeeded for the declared trust-store context${context ? ` ${context}` : ""}. This result does not establish universal client trust.`;
+      ? `Certificate-path validation failed for the declared trust-store context${context ? ` (${context})` : ""}.`
+      : `Certificate-path validation succeeded for the declared trust-store context${context ? ` (${context})` : ""}. This result does not establish universal client trust.`;
   }
   if (key === "revocation_assurance") {
     const status = asObject(value)?.status;

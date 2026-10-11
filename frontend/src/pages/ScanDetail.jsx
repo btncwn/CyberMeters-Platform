@@ -1788,7 +1788,8 @@ export default function ScanDetail() {
                     scanQuality: scan.scan_quality,
                   })} value={
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${assessmentBand.pill}`}>
-                      {assessmentBand.label}
+                      {/* A provisional assessment withholds its band; say so instead of "Not assessed". */}
+                      {assessmentRating == null && assessmentScore !== null ? 'Withheld until a complete scan' : assessmentBand.label}
                     </span>
                   } />
                   {assessmentScore === null && assessmentReason && (

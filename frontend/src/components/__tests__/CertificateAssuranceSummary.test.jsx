@@ -60,10 +60,16 @@ describe('CertificateAssuranceSummary', () => {
       expect(screen.getByText(state)).toBeInTheDocument()
     }
     expect(container).toHaveTextContent('Evidence grade L0')
-    expect(container).toHaveTextContent('source product_policy')
-    expect(container).toHaveTextContent('Provenance:')
+    expect(container).toHaveTextContent('CyberMeters product policy')
     expect(container).toHaveTextContent('Required corroboration: independent observation')
-    expect(container).toHaveTextContent('RFC 5280 May 2008 §6 protocol_profile')
+    expect(container).toHaveTextContent('Cited standards: RFC 5280 (May 2008) §6')
+    // Evidence detail is customer-readable: no internal identifiers, thresholds
+    // or raw provenance records.
+    expect(container).not.toHaveTextContent('Provenance:')
+    expect(container).not.toHaveTextContent('product_policy')
+    expect(container).not.toHaveTextContent('protocol_profile')
+    expect(container).not.toHaveTextContent(/minimum publishable|beta target|Ceiling/i)
+    expect(container).not.toHaveTextContent('injected')
     expect(container).not.toHaveTextContent(/\bhealthy\b/i)
     expect(container).not.toHaveTextContent(/\bpassed\b/i)
   })
