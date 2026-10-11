@@ -315,7 +315,9 @@ export function buildCertificateTrustL2(cert, options = {}) {
     });
   }
 
-  if (current.ct_sources?.crt_sh === 0 && current.ct_sources?.certspotter === 0) {
+  // Every CT source this scan used returned no hostnames (one or two providers).
+  const ctCounts = Object.values(current.ct_sources || {});
+  if (ctCounts.length > 0 && ctCounts.every((value) => value === 0)) {
     addFinding(findings, {
       type: "ct_source_incomplete",
       severity: "low",

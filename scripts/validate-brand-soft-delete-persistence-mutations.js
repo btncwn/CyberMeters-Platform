@@ -12,8 +12,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const validator = "scripts/validate-brand-soft-delete-persistence.js";
-const EXPECTED_MUTANTS = 27;
-const EXPECTED_ASSERTIONS = 31;
+const EXPECTED_MUTANTS = 25;
+const EXPECTED_ASSERTIONS = 29;
 
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 const replaceOnce = (source, from, to) => {
@@ -34,7 +34,6 @@ const replaceInSection = (source, startMarker, endMarker, from, to) => {
 
 const M = (name, file, expectedFailures, mutate) => ({ name, file, expectedFailures, mutate });
 const asset = "workers/scan-api/src/engines/asset-persistence.js";
-const passive = "workers/scan-api/src/engines/brand-passive-discovery.js";
 const dns = "workers/scan-api/src/engines/brand-dns-enrichment.js";
 const http = "workers/scan-api/src/engines/brand-http-enrichment.js";
 const protection = "workers/scan-api/src/engines/brand-protection.js";
@@ -54,7 +53,7 @@ const MUTANTS = Object.freeze([
     ["H01-SOURCE-CANONICAL-VERIFY-READ"],
     (s) => replaceInSection(s, "const verified =", "if (verified &&", "AND w.deleted_at IS NULL", "AND 1 = 1")),
   M("canonical insert accepts deleted workspace", asset,
-    ["H01-DELETED-DIRECT", "H01-RACE-PASSIVE-CT", "H01-SOURCE-CANONICAL-PERSIST-INSERT"],
+    ["H01-DELETED-DIRECT", "H01-RACE-SCAN-PRODUCER-INSERT", "H01-SOURCE-CANONICAL-PERSIST-INSERT"],
     (s) => replaceInSection(s, "`WITH candidate", "const winner =", "AND w.deleted_at IS NULL", "AND 1 = 1")),
   M("canonical update accepts delete-between-read-and-write", asset,
     ["H01-RACE-DIRECT-UPDATE", "H01-SOURCE-CANONICAL-PERSIST-UPDATE"],
@@ -72,12 +71,6 @@ const MUTANTS = Object.freeze([
         "WHERE w.id = workspace_brand_assets.workspace_id\n                             AND w.deleted_at IS NULL",
         "WHERE w.id = workspace_brand_assets.workspace_id");
     }),
-  M("passive direct discovery reads deleted workspace_domains", passive,
-    ["H01-DELETED-PASSIVE-DIRECT", "H01-SOURCE-PASSIVE-PRODUCER"],
-    (s) => replaceInSection(s, "export async function discoverBrandCandidatesForWorkspace", "// Bounded CT queries", "AND w.deleted_at IS NULL", "AND 1 = 1")),
-  M("passive scheduler selects deleted workspace", passive,
-    ["H01-DELETED-PASSIVE-SCHEDULE"],
-    (s) => replaceInSection(s, "export async function runBrandPassiveDiscoverySweep", "const all =", "AND w.deleted_at IS NULL", "AND 1 = 1")),
   M("DNS candidate selection probes deleted workspace", dns,
     ["H01-DELETED-DNS-MANUAL", "H01-SOURCE-DNS-SELECT"],
     (s) => replaceInSection(s, "export function selectBrandCandidatesSql", "async function fireResolvingAssetEvent", "AND w.deleted_at IS NULL", "AND 1 = 1")),

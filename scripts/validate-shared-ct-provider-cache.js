@@ -3,6 +3,7 @@
 // Item 5 / PR-5.2: SSL and subdomain discovery must share one parsed CT provider
 // result per scan. Provider failure is an explicit unavailable result, never an
 // available empty array. Includes executable sharing and false-empty mutations.
+// CertSpotter is the only CT provider: its failure is a total CT loss.
 // CI-blocking. Requires Node 24+.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -21,8 +22,8 @@ const reservedDistinctCaches = process.argv.includes("--mutate-reserved-distinct
 
 const RESERVED_DISTINCT_CACHE_MUTANT = Object.freeze({
   id: "CTCACHE-M3-reserved-distinct-caches",
-  before: "      ctCache: sharedCtCache,\n      ctOverlap,",
-  after: "      ctCache: createCertificateTransparencyCache(),\n      ctOverlap,",
+  before: "      ctCache: sharedCtCache,\n      signal: consumerSignal,",
+  after: "      ctCache: createCertificateTransparencyCache(),\n      signal: consumerSignal,",
 });
 
 function replaceExactlyOnce(source, before, after, id) {
@@ -72,30 +73,23 @@ globalThis.fetch = async (url) => {
   return new Response("", { status: 200 });
 };
 
-const crtBody = [
+// CertSpotter issuances. SSL must select the longest-lived unexpired issuance
+// that covers the root domain (not the longer-lived subdomain-only one), and
+// measure its shared SANs from its own DNS names; subdomain discovery merges
+// every issuance's in-scope names.
+const certSpotterBody = [
   {
     not_after: "2026-10-01T12:00:00.000Z",
     not_before: "2026-06-01T12:00:00.000Z",
-    issuer_name: "Example Root CA",
-    common_name: "example.com",
-    name_value: "example.com\nwww.example.com\napi.example.com",
+    issuer: { name: "Example Root CA" },
+    dns_names: ["example.com", "www.example.com", "api.example.com", "shared.example.net"],
   },
   {
     not_after: "2026-08-01T12:00:00.000Z",
     not_before: "2026-05-01T12:00:00.000Z",
-    issuer_name: "Older CA",
-    common_name: "example.com",
-    name_value: "example.com",
+    issuer: { name: "Older CA" },
+    dns_names: ["example.com"],
   },
-  {
-    not_after: "2027-01-01T12:00:00.000Z",
-    not_before: "2026-07-01T12:00:00.000Z",
-    issuer_name: "Subdomain-only CA",
-    common_name: "api.example.com",
-    name_value: "api.example.com",
-  },
-];
-const certSpotterBody = [
   {
     not_after: "2026-09-01T12:00:00.000Z",
     not_before: "2026-06-15T12:00:00.000Z",
@@ -103,23 +97,18 @@ const certSpotterBody = [
     dns_names: ["example.com", "app.example.com", "admin.example.com"],
   },
   {
-    not_after: "2027-02-01T12:00:00.000Z",
+    not_after: "2027-01-01T12:00:00.000Z",
     not_before: "2026-07-01T12:00:00.000Z",
-    issuer: { name: "Subdomain-only Spot CA" },
+    issuer: { name: "Subdomain-only CA" },
     dns_names: ["api.example.com"],
   },
 ];
 
-function providerFetcher({ crt = crtBody, certspotter = certSpotterBody, calls, urls = [] }) {
+function providerFetcher({ certspotter = certSpotterBody, calls, urls = [] }) {
   return async (url) => {
     const value = String(url);
     urls.push(value);
-    if (value.includes("crt.sh")) {
-      calls.crt_sh++;
-      if (crt instanceof Error) throw crt;
-      return jsonResponse(crt);
-    }
-    if (value.includes("certspotter")) {
+    if (value.startsWith("https://api.certspotter.com/")) {
       calls.certspotter++;
       if (certspotter instanceof Error) throw certspotter;
       return jsonResponse(certspotter);
@@ -185,33 +174,36 @@ try {
       1);
     ok("default scan passes that cache to SSL and subdomains",
       /runSslModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, ctCache, subOps: subOpTelemetry, now: \(\) => certificateNowMs \}\)/.test(scanEngineSource) &&
-        /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(scanEngineSource));
+        /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(scanEngineSource));
     ok("reserved scan reuses one cache for SSL and subdomains",
-      /runReservedScan\(domain, \{\s*capacity,\s*ctCache,\s*ctOverlap: ctProviderOverlap,\s*dnsCache,\s*knownAssetHosts,\s*signal: deadline\.signal,\s*globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\),/.test(scanEngineSource) &&
+      /runReservedScan\(domain, \{\s*capacity,\s*ctCache,\s*dnsCache,\s*knownAssetHosts,\s*signal: deadline\.signal,\s*globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\),/.test(scanEngineSource) &&
         /runSslModule\(domain, \{\s*dnsResolver: dnsQuery, dnsCache, (?:accounting,\s*)?ctCache: sharedCtCache,\s*signal: consumerSignal\s*\}\)/.test(reservedSource) &&
-        /run: \(consumerSignal\) => runSubdomainsModule\(domain, \{\s*(?:accounting,\s*)?cache: dnsCache,\s*ctCache: sharedCtCache,\s*ctOverlap,\s*signal: consumerSignal,\s*globalSignal: signal,\s*globalDeadlineProvenance,\s*\}\)/.test(reservedSource));
+        /run: \(consumerSignal\) => runSubdomainsModule\(domain, \{\s*(?:accounting,\s*)?cache: dnsCache,\s*ctCache: sharedCtCache,\s*signal: consumerSignal,\s*globalSignal: signal,\s*globalDeadlineProvenance,\s*\}\)/.test(reservedSource));
   }
 
   // ── Successful provider results: one lookup and byte-stable consumers ─────
-  const sharedCalls = { crt_sh: 0, certspotter: 0 };
+  const sharedCalls = { certspotter: 0 };
   const sharedUrls = [];
   const shared = await runPair(providerFetcher({ calls: sharedCalls, urls: sharedUrls }));
 
-  eq("shared scan performs one crt.sh fetch", sharedCalls.crt_sh, 1);
   eq("shared scan performs one CertSpotter fetch", sharedCalls.certspotter, 1);
-  eq("shared crt.sh request is suffix-wide for both consumers",
-    new URL(sharedUrls.find((url) => url.includes("crt.sh"))).searchParams.get("q"),
-    "%example.com");
-  ok("shared CertSpotter request includes subdomains and issuer data",
-    /include_subdomains=true/.test(sharedUrls.find((url) => url.includes("certspotter"))) &&
-      /expand=issuer/.test(sharedUrls.find((url) => url.includes("certspotter"))));
-  eq("SSL selects the same longest-lived crt.sh certificate", shared.ssl.cert_not_after, crtBody[0].not_after);
+  eq("shared scan contacts no other CT source", sharedUrls.length, 1);
+  eq("shared CertSpotter request is domain-wide for both consumers",
+    new URL(sharedUrls[0]).searchParams.get("domain"), "example.com");
+  ok("shared CertSpotter request includes subdomains, DNS names and issuer data",
+    /include_subdomains=true/.test(sharedUrls[0]) &&
+      /expand=dns_names/.test(sharedUrls[0]) &&
+      /expand=issuer/.test(sharedUrls[0]));
+  eq("SSL selects the longest-lived root-covering certificate", shared.ssl.cert_not_after, certSpotterBody[0].not_after);
   eq("SSL preserves the issuer", shared.ssl.cert_issuer, "Example Root CA");
+  eq("SSL claims no certificate subject from CertSpotter", shared.ssl.cert_subject, null);
   same("SSL preserves normalized SANs", shared.ssl.cert_san_names,
     ["example.com", "www.example.com", "api.example.com"]);
-  eq("SSL preserves raw SAN count", shared.ssl.cert_raw_san_count, 3);
+  eq("SSL preserves raw SAN count", shared.ssl.cert_raw_san_count, 4);
   eq("SSL preserves wildcard SAN count", shared.ssl.cert_wildcard_san_count, 0);
-  eq("SSL preserves shared SAN count", shared.ssl.cert_shared_san_count, 0);
+  eq("SSL measures shared SANs from the issuance DNS names", shared.ssl.cert_shared_san_count, 1);
+  same("SSL records exactly the CertSpotter source", shared.ssl.ct_sources,
+    { certspotter: { count: 4, error: null } });
   eq("subdomains preserve merged count", shared.subdomains.count, 5);
   same("subdomains preserve sorted merged names", shared.subdomains.items,
     ["admin.example.com", "api.example.com", "app.example.com", "example.com", "www.example.com"]);
@@ -219,34 +211,52 @@ try {
   same("subdomains preserve sensitive classification", shared.subdomains.sensitive,
     ["admin.example.com"]);
   same("subdomains preserve per-source success shape", shared.subdomains.sources, {
-    crt_sh: { count: 3, error: null },
-    certspotter: { count: 2, error: null },
+    certspotter: { count: 5, error: null },
   });
+  same("subdomains declare exactly the CertSpotter provider", shared.subdomains.ct_providers, ["certspotter"]);
+  ok("CertSpotter success leaves subdomain discovery complete",
+    shared.subdomains.incomplete !== true && !shared.subdomains.ct_error &&
+      subdomainDiscoveryComplete({
+        subdomains: shared.subdomains,
+        dns_bruteforce: { items: [], error: null },
+      }) === true);
 
-  const separateCalls = { crt_sh: 0, certspotter: 0 };
+  const separateCalls = { certspotter: 0 };
   const separate = await runPair(providerFetcher({ calls: separateCalls }), { shared: false });
   same("certificate fields are byte-identical to separate pre-cache consumption",
     certificateFields(shared.ssl), certificateFields(separate.ssl));
   same("subdomain result is byte-identical to separate pre-cache consumption",
     shared.subdomains, separate.subdomains);
-  eq("separate pre-cache consumption demonstrates duplicate crt.sh calls",
-    separateCalls.crt_sh, 2);
-  eq("first-success orchestration launches CertSpotter for both separate consumers",
+  eq("separate pre-cache consumption demonstrates duplicate CertSpotter calls",
     separateCalls.certspotter, 2);
 
   // ── Cache key and in-flight promise contract ──────────────────────────────
   {
-    const calls = { crt_sh: 0, certspotter: 0 };
+    const calls = { certspotter: 0 };
     const cache = cacheFor(providerFetcher({ calls }));
-    const first = cache.get("Example.COM.", "crt_sh");
-    const second = cache.get("example.com", "crt_sh");
+    const first = cache.get("Example.COM.", "certspotter");
+    const second = cache.get("example.com", "certspotter");
     ok("same normalized provider key reuses the in-flight promise", first === second);
     const [a, b] = await Promise.all([first, second]);
     ok("shared callers receive the same cached result object", a === b);
-    eq("normalized key performs one provider fetch", calls.crt_sh, 1);
+    eq("normalized key performs one provider fetch", calls.certspotter, 1);
     eq("available provider status is explicit", a.status, "available");
     ok("available provider returns an array", Array.isArray(a.data));
     eq("available provider has no error", a.error, null);
+  }
+
+  // The cache declares its provider set; a provider it does not declare is
+  // refused explicitly and never reaches the network.
+  {
+    const calls = { certspotter: 0 };
+    const urls = [];
+    const cache = createCertificateTransparencyCache({ fetcher: providerFetcher({ calls, urls }) });
+    same("cache declares exactly the CertSpotter provider", cache.providers, ["certspotter"]);
+    const undeclared = await cache.get("example.com", "provider_b");
+    eq("undeclared provider is explicit unavailable", undeclared.status, "unavailable");
+    eq("undeclared provider never returns false-empty data", undeclared.data, null);
+    eq("undeclared provider carries a safe reason", undeclared.error, "unsupported provider");
+    eq("undeclared provider issues no outbound request", urls.length, 0);
   }
 
   {
@@ -255,7 +265,7 @@ try {
       fetchCalls++;
       throw new DOMException("provider timed out", "TimeoutError");
     });
-    const timedOut = await cache.get("example.com", "crt_sh");
+    const timedOut = await cache.get("example.com", "certspotter");
     eq("provider timeout is explicit unavailable", timedOut.status, "unavailable");
     eq("provider timeout never returns false-empty data", timedOut.data, null);
     eq("provider timeout retains a safe error", timedOut.error, "fetch failed");
@@ -268,7 +278,7 @@ try {
       fetchCalls++;
       return jsonResponse([]);
     });
-    const blocked = await cache.get("example.com", "crt_sh", {
+    const blocked = await cache.get("example.com", "certspotter", {
       accounting: {
         assertCanIssue() { throw new DOMException("module budget exhausted", "AbortError"); },
       },
@@ -278,50 +288,29 @@ try {
     eq("pre-fetch cancellation issues no outbound request", fetchCalls, 0);
   }
 
-  // ── crt.sh unavailable: explicit in both modules, shared fallback ─────────
-  const fallbackCalls = { crt_sh: 0, certspotter: 0 };
-  const fallback = await runPair(providerFetcher({
-    calls: fallbackCalls,
-    crt: new Error("crt.sh down"),
-  }));
-
-  // The bounded sibling grace lets crt.sh finish its own bounded retry, so the
-  // module records the provider's real terminal failure instead of an in-flight
-  // exclusion. The failure still reads as reduced coverage below.
-  eq("fast CertSpotter success waits for the bounded crt.sh retry inside the sibling grace", fallbackCalls.crt_sh, 2);
-  eq("crt.sh-down scan performs one shared CertSpotter fallback", fallbackCalls.certspotter, 1);
-  eq("SSL records the terminal crt.sh failure explicitly",
-    fallback.ssl.ct_sources.crt_sh?.error, "fetch failed");
-  eq("SSL observes CertSpotter fallback as available", fallback.ssl.ct_sources.certspotter?.error, null);
-  eq("SSL fallback preserves certificate evidence", fallback.ssl.cert_issuer, "Spot CA");
-  eq("subdomains record the terminal crt.sh failure explicitly",
-    fallback.subdomains.sources.crt_sh.error, "fetch failed");
-  eq("subdomains observe CertSpotter as available", fallback.subdomains.sources.certspotter.error, null);
-  ok("subdomains retain fallback findings", fallback.subdomains.items.includes("app.example.com"));
-  ok("one unavailable provider cannot certify discovery complete",
-    subdomainDiscoveryComplete({
-      subdomains: fallback.subdomains,
-      dns_bruteforce: { items: [], error: null },
-    }) === false);
-  await new Promise((resolve) => setTimeout(resolve, 175));
-  eq("released crt.sh physical request continues its unchanged bounded retry",
-    fallbackCalls.crt_sh, 2);
-
-  // ── Total blackout: unavailable is not successful empty or healthy ────────
-  const blackoutCalls = { crt_sh: 0, certspotter: 0 };
+  // ── CertSpotter unavailable: total CT loss, never healthy ─────────────────
+  // With one CT provider there is no fallback: its failure leaves both
+  // consumers without CT evidence, and that must read as incomplete/unknown.
+  // (The former two-provider fallback section has no remaining meaning and was
+  // removed.)
+  const blackoutCalls = { certspotter: 0 };
   const blackout = await runPair(providerFetcher({
     calls: blackoutCalls,
-    crt: new Error("crt.sh down"),
     certspotter: new Error("CertSpotter down"),
   }));
-  eq("blackout bounds shared crt.sh attempts", blackoutCalls.crt_sh, 2);
   eq("blackout bounds shared CertSpotter attempts", blackoutCalls.certspotter, 2);
   eq("blackout leaves SSL certificate unknown", blackout.ssl.cert_not_after, null);
-  eq("blackout exposes SSL crt.sh failure", blackout.ssl.ct_sources.crt_sh?.error, "fetch failed");
-  eq("blackout exposes SSL CertSpotter failure", blackout.ssl.ct_sources.certspotter?.error, "fetch failed");
-  eq("blackout exposes subdomain crt.sh failure", blackout.subdomains.sources.crt_sh.error, "fetch failed");
-  eq("blackout exposes subdomain CertSpotter failure", blackout.subdomains.sources.certspotter.error, "fetch failed");
-  ok("blackout carries the existing CT diagnostic", blackout.subdomains.ct_error?.startsWith("Both CT sources failed"));
+  eq("blackout leaves SSL issuer unknown", blackout.ssl.cert_issuer, null);
+  same("blackout exposes SSL CertSpotter failure", blackout.ssl.ct_sources,
+    { certspotter: { count: 0, error: "fetch failed" } });
+  same("blackout exposes subdomain CertSpotter failure", blackout.subdomains.sources,
+    { certspotter: { count: 0, error: "fetch failed" } });
+  eq("blackout carries the CT diagnostic", blackout.subdomains.ct_error,
+    "CT source failed — certspotter: fetch failed");
+  ok("blackout marks subdomain discovery incomplete",
+    blackout.subdomains.incomplete === true &&
+      blackout.subdomains.incomplete_reason === "ct_sources_unavailable" &&
+      blackout.subdomains.count === 0);
   ok("blackout is not disappearance-complete",
     subdomainDiscoveryComplete({
       subdomains: blackout.subdomains,
@@ -336,18 +325,20 @@ try {
   eq("blackout retains the existing incomplete reason", intelligence.incomplete_reason, "ct_sources_unavailable");
 
   // ── Successful empty is distinct from provider unavailable ────────────────
-  const emptyCalls = { crt_sh: 0, certspotter: 0 };
+  const emptyCalls = { certspotter: 0 };
   const empty = await runPair(providerFetcher({
     calls: emptyCalls,
-    crt: [],
     certspotter: [],
   }));
-  eq("successful-empty crt.sh has no SSL provider error", empty.ssl.ct_sources.crt_sh?.error, null);
   eq("successful-empty CertSpotter has no SSL provider error", empty.ssl.ct_sources.certspotter?.error, null);
-  eq("successful-empty crt.sh has no subdomain provider error", empty.subdomains.sources.crt_sh.error, null);
   eq("successful-empty CertSpotter has no subdomain provider error", empty.subdomains.sources.certspotter.error, null);
   ok("successful-empty result does not claim a provider blackout", !empty.subdomains.ct_error);
-  eq("successful-empty still performs one crt.sh fetch", emptyCalls.crt_sh, 1);
+  ok("successful-empty result is measured, not incomplete",
+    empty.subdomains.incomplete !== true &&
+      subdomainDiscoveryComplete({
+        subdomains: empty.subdomains,
+        dns_bruteforce: { items: [], error: null },
+      }) === true);
   eq("successful-empty still performs one CertSpotter fetch", emptyCalls.certspotter, 1);
 
   // Execute all three defect-class mutations. Each nested validator must turn red.
@@ -358,7 +349,7 @@ try {
     });
     ok("mutation: breaking cache sharing makes the validator RED",
       sharingMutation.status !== 0 &&
-        sharingMutation.stdout.includes("FAIL shared scan performs one crt.sh fetch"));
+        sharingMutation.stdout.includes("FAIL shared scan performs one CertSpotter fetch"));
 
     const failureMutation = spawnSync(process.execPath, [scriptPath, "--mutate-failure-to-empty"], {
       cwd: root,
@@ -382,7 +373,10 @@ try {
         "FAIL reserved scan reuses one cache for SSL and subdomains",
       ) &&
       reservedDistinctMutation.stdout.includes(
-        "shared-ct-provider-cache: 61 passed, 1 failed",
+        // 57 assertions run in a nested (mutation) process: the three mutation
+        // checks below only run in the parent. CertSpotter-only CT removed the
+        // two-provider fallback section and added provider-set/blackout checks.
+        "shared-ct-provider-cache: 56 passed, 1 failed",
       ) &&
       !/SyntaxError|ERR_MODULE_NOT_FOUND|uncaught exception/i.test(reservedDistinctOutput);
     ok(

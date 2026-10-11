@@ -86,18 +86,20 @@ const mutants = [
     after: "      recordAttempt: () => this.recordAttempt(key),",
     expected: "ASB6R_LATE_WORK_AFTER_DEADLINE_REFUSED",
   },
+  // Re-anchored: the reserved CT fallbacks now build their per-provider rows
+  // from the declared provider set (ctFailedSources) instead of literal keys.
   {
     id: "ASB6R-M-SSL-PREABORT-CT-SHAPE-REMOVED",
     file: "workers/scan-api/src/engines/reserved-scan.js",
-    before: "    ct_sources: {\n      crt_sh: { count: 0, error },",
-    after: "    ct_sources_removed: {\n      crt_sh: { count: 0, error },",
+    before: "    ct_sources: ctFailedSources(error),",
+    after: "    ct_sources_removed: ctFailedSources(error),",
     expected: "ASB6R_PREABORT_CT_PLATFORM_WORDING_PRESERVED",
   },
   {
     id: "ASB6R-M-SUBDOMAINS-PREABORT-CT-SHAPE-REMOVED",
     file: "workers/scan-api/src/engines/reserved-scan.js",
-    before: "    sensitive: [],\n    sources: {\n      crt_sh: { count: 0, error },",
-    after: "    sensitive: [],\n    sources_removed: {\n      crt_sh: { count: 0, error },",
+    before: "    sensitive: [],\n    sources: ctFailedSources(error),",
+    after: "    sensitive: [],\n    sources_removed: ctFailedSources(error),",
     expected: "ASB6R_PREABORT_CT_PLATFORM_WORDING_PRESERVED",
   },
 ];

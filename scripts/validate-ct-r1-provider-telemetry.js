@@ -60,14 +60,6 @@ const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), 
   status,
   headers: { "content-type": "application/json" },
 });
-const CRT_OK = [{
-  id: "crt-1",
-  name_value: "example.com\na.example.com",
-  common_name: "example.com",
-  issuer_name: "Fixture CRT CA",
-  not_before: "2026-01-01T00:00:00.000Z",
-  not_after: "2027-01-01T00:00:00.000Z",
-}];
 const CERTSPOTTER_OK = [{
   id: "certspotter-1",
   dns_names: ["example.com", "b.example.com"],
@@ -78,10 +70,13 @@ const CERTSPOTTER_OK = [{
 
 function providerFetcher(spec) {
   return async (input) => {
-    const provider = String(input).includes("crt.sh") ? "crt_sh" : "certspotter";
+    if (!String(input).startsWith("https://api.certspotter.com/")) {
+      throw new Error(`unexpected CT fetch ${input}`);
+    }
+    const provider = "certspotter";
     const outcome = spec[provider];
     if (outcome === "ok") {
-      return jsonResponse(provider === "crt_sh" ? CRT_OK : CERTSPOTTER_OK);
+      return jsonResponse(CERTSPOTTER_OK);
     }
     if (outcome === "timeout") {
       throw new DOMException(`${provider} fixture timeout`, "TimeoutError");
@@ -137,48 +132,53 @@ async function executeModules(spec, captureTelemetry) {
   };
 }
 
+// CertSpotter is the only CT provider. Its success is complete CT coverage; any
+// failure is a total CT loss, which FD-006 keeps `partial` and which can never
+// carry a structured (surviving-fallback) deficiency. The former one-of-two
+// provider fixtures, and the governed `degraded` grade they produced, have no
+// remaining meaning and were replaced by one fixture per failure outcome.
 const fixtures = [
   {
-    name: "both ok",
-    spec: { crt_sh: "ok", certspotter: "ok" },
-    outcomes: { crt_sh: ["ok"], certspotter: ["ok"] },
+    name: "CertSpotter ok",
+    spec: { certspotter: "ok" },
+    outcomes: { certspotter: ["ok"] },
     quality: "complete",
+    requiresStructuredDeficiency: false,
   },
   {
-    name: "crt.sh timeout / CertSpotter ok",
-    spec: { crt_sh: "timeout", certspotter: "ok" },
-    outcomes: { crt_sh: ["timeout"], certspotter: ["ok"] },
-    // SUCCESSION (FD-006/seq50 + seq126 §3.1): one provider lost, the other
-    // returned a usable positive result -> governed `degraded`, and ONLY with the
-    // structured deficiency asserted below.
-    quality: "degraded",
-    requiresStructuredDeficiency: true,
-  },
-  {
-    name: "CertSpotter parse error / crt.sh ok",
-    spec: { crt_sh: "ok", certspotter: "parse_error" },
-    outcomes: { crt_sh: ["ok"], certspotter: ["parse_error"] },
-    // SUCCESSION (FD-006/seq50 + seq126 §3.1) — see above.
-    quality: "degraded",
-    requiresStructuredDeficiency: true,
-  },
-  {
-    name: "both fail",
-    spec: { crt_sh: "timeout", certspotter: "network_error" },
-    outcomes: { crt_sh: ["timeout"], certspotter: ["network_error"] },
-    // UNCHANGED and explicitly pinned: BOTH providers lost, so there is no
-    // surviving positive evidence to publish. FD-006 keeps this `partial`, and it
-    // must never acquire a structured deficiency.
+    name: "CertSpotter timeout",
+    spec: { certspotter: "timeout" },
+    outcomes: { certspotter: ["timeout"] },
     quality: "partial",
     requiresStructuredDeficiency: false,
   },
   {
-    name: "rate-limited",
-    spec: { crt_sh: "rate_limited", certspotter: "ok" },
-    outcomes: { crt_sh: ["rate_limited"], certspotter: ["ok"] },
-    // SUCCESSION (FD-006/seq50 + seq126 §3.1) — see above.
-    quality: "degraded",
-    requiresStructuredDeficiency: true,
+    name: "CertSpotter parse error",
+    spec: { certspotter: "parse_error" },
+    outcomes: { certspotter: ["parse_error"] },
+    quality: "partial",
+    requiresStructuredDeficiency: false,
+  },
+  {
+    name: "CertSpotter network error",
+    spec: { certspotter: "network_error" },
+    outcomes: { certspotter: ["network_error"] },
+    quality: "partial",
+    requiresStructuredDeficiency: false,
+  },
+  {
+    name: "CertSpotter rate-limited",
+    spec: { certspotter: "rate_limited" },
+    outcomes: { certspotter: ["rate_limited"] },
+    quality: "partial",
+    requiresStructuredDeficiency: false,
+  },
+  {
+    name: "CertSpotter HTTP error",
+    spec: { certspotter: "http_error" },
+    outcomes: { certspotter: ["http_error"] },
+    quality: "partial",
+    requiresStructuredDeficiency: false,
   },
 ];
 
@@ -278,10 +278,15 @@ try {
       [...new Set(impactRows.map((row) => row.provider))].sort().join(","),
       [...failedProviders].sort().join(","));
     ok(`${fixture.name}: expected discovered subdomains survive telemetry`,
-      fixture.spec.crt_sh === "ok"
-        ? observed.modules.subdomains.items.includes("a.example.com")
-        : observed.modules.subdomains.items.includes("b.example.com") ||
-          fixture.spec.certspotter !== "ok");
+      fixture.spec.certspotter === "ok"
+        ? observed.modules.subdomains.items.includes("b.example.com")
+        : observed.modules.subdomains.items.length === 0);
+    // A CertSpotter failure is a total CT loss: the module says so explicitly
+    // instead of presenting an empty discovery as a clean result.
+    eq(`${fixture.name}: CT loss marks subdomain discovery incomplete`,
+      observed.modules.subdomains.incomplete === true &&
+        observed.modules.subdomains.incomplete_reason === "ct_sources_unavailable",
+      fixture.spec.certspotter !== "ok");
     capturedFixtureRows.set(fixture.name, observed.rows);
   }
 } finally {
@@ -318,7 +323,7 @@ eq("runtime hard row bound", CT_PROVIDER_TELEMETRY_ROW_LIMIT, 8);
   try {
     await persistCtProviderTelemetry(
       "scan-fixture",
-      capturedFixtureRows.get("crt.sh timeout / CertSpotter ok"),
+      capturedFixtureRows.get("CertSpotter timeout"),
       env
     );
   } catch (error) {
@@ -373,18 +378,20 @@ eq("runtime hard row bound", CT_PROVIDER_TELEMETRY_ROW_LIMIT, 8);
             '2026-07-27T00:00:00.000Z', '2026-07-27T00:00:00.001Z',
             0, NULL, 'miss')
   `);
+  // The ceiling is per scan, independent of provider; current writes carry
+  // only the CertSpotter provider.
   for (let index = 0; index < 8; index += 1) {
     insert.run(
       `row-${index}`,
       index % 2 === 0 ? "ssl" : "subdomains",
-      index % 4 < 2 ? "crt_sh" : "certspotter"
+      "certspotter"
     );
   }
   eq("migration permits exactly eight rows",
     db.prepare("SELECT COUNT(*) AS n FROM ct_provider_telemetry").get().n, 8);
   let ninthRejected = false;
   try {
-    insert.run("row-9", "ssl", "crt_sh");
+    insert.run("row-9", "ssl", "certspotter");
   } catch {
     ninthRejected = true;
   }
@@ -392,6 +399,11 @@ eq("runtime hard row bound", CT_PROVIDER_TELEMETRY_ROW_LIMIT, 8);
 }
 
 // Analyzer: full coverage — one complete plus two completion losses, one co-failure.
+// These rows model STORED telemetry written while two CT providers were queried.
+// They keep the stored provider value "crt_sh" deliberately: migration 103's
+// CHECK constraint admits only ('crt_sh', 'certspotter'), so no other value can
+// exist in the table, and the read-only analyzer (scripts/, not product code)
+// computes co-failure and per-provider latency over exactly that stored pair.
 {
   const rows = [];
   const addAttempt = ({
@@ -536,7 +548,7 @@ eq("runtime hard row bound", CT_PROVIDER_TELEMETRY_ROW_LIMIT, 8);
       scan_quality: "complete",
       scan_created_at: "2026-07-26T12:00:00.000Z",
       module: "ssl",
-      provider: "crt_sh",
+      provider: "certspotter",
       outcome: "ok",
       http_status: 200,
       latency_ms: 10,
@@ -550,7 +562,7 @@ eq("runtime hard row bound", CT_PROVIDER_TELEMETRY_ROW_LIMIT, 8);
       scan_quality: "partial",
       scan_created_at: "2026-07-26T12:01:00.000Z",
       module: "subdomains",
-      provider: "crt_sh",
+      provider: "certspotter",
       outcome: "timeout",
       http_status: null,
       latency_ms: 30,

@@ -5,9 +5,10 @@
 // Reproduces the original false-healthy shape (complete scan, present/empty
 // subdomains module, no top-level error) and proves that canonical monitoring
 // provenance, rather than scan failure, prevents unsupported healthy conclusions.
-// Also drives the real subdomain module through a deterministic two-provider
-// blackout, freezes the state in a canonical snapshot, and verifies the PDF path
-// renders the limitation. Node 24+. CI-blocking and mutation-backed.
+// Also drives the real subdomain module through a deterministic CertSpotter
+// blackout (its sole CT provider), freezes the state in a canonical snapshot, and
+// verifies the PDF path renders the limitation. Stored two-provider records keep
+// their original partial-outage meaning. Node 24+. CI-blocking and mutation-backed.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -124,7 +125,6 @@ const modules = {
   whois_intelligence: {},
 };
 const providerHealth = {
-  crt_sh: { outcome: "unavailable", attempts: 2, final_error: "fixture timeout" },
   certspotter: { outcome: "unavailable", attempts: 2, final_error: "fixture 503" },
 };
 const monitoringStates = deriveSignalMonitoringStates({
@@ -180,12 +180,17 @@ eq("real subdomain module keeps a total CT outage non-fatal", actualBlackout.err
 eq("real subdomain module marks total-CT evidence incomplete", actualBlackout.incomplete, true);
 eq("real subdomain module records the explicit outage reason",
   actualBlackout.incomplete_reason, "ct_sources_unavailable");
-ok("real subdomain module preserves both provider errors",
-  !!actualBlackout.sources?.crt_sh?.error &&
-  !!actualBlackout.sources?.certspotter?.error);
+ok("real subdomain module preserves the CertSpotter error as its only CT source",
+  JSON.stringify(Object.keys(actualBlackout.sources || {})) === JSON.stringify(["certspotter"]) &&
+  !!actualBlackout.sources?.certspotter?.error &&
+  JSON.stringify(actualBlackout.ct_providers) === JSON.stringify(["certspotter"]),
+  JSON.stringify({ sources: actualBlackout.sources, ct_providers: actualBlackout.ct_providers }));
+ok("real subdomain module names the failed provider in its diagnostic",
+  String(actualBlackout.ct_error || "").startsWith("CT source failed — certspotter: "),
+  JSON.stringify(actualBlackout.ct_error));
 
 // ── Canonical monitoring + domain resolution ───────────────────────────────
-eq("both providers unavailable → canonical CT signal_unavailable",
+eq("CertSpotter unavailable → canonical CT signal_unavailable",
   monitoringStates.signals.certificate_transparency.state, "signal_unavailable");
 const ctCoverage = resolveSignalMonitoringCoverage(
   monitoringStates,
@@ -259,25 +264,74 @@ eq("unrecognised provider state fails toward evidence_incomplete",
 ok("unrecognised state cannot retain optimistic healthy wording",
   !/completed normally/i.test(malformedProvenance.messages.join(" ")));
 
+// A stored two-provider record (undeclared providers; the retired provider under
+// a neutral key) is read with the providers it recorded: one provider down and
+// CertSpotter available keeps its original partial-outage meaning.
+const historicalModules = {
+  ...modules,
+  subdomains: {
+    count: 0,
+    items: [],
+    error: null,
+    sources: {
+      retired_provider: { count: 0, error: "fixture timeout" },
+      certspotter: { count: 0, error: null },
+    },
+  },
+};
 const partialCt = deriveSignalMonitoringStates({
-  modules,
+  modules: historicalModules,
   scanQuality: report.scan_quality,
   providerHealth: {
-    crt_sh: providerHealth.crt_sh,
+    retired_provider: { outcome: "unavailable", attempts: 2, final_error: "fixture timeout" },
     certspotter: { outcome: "available", attempts: 1, final_error: null },
   },
 });
-eq("crt.sh down with CertSpotter available → monitoring_degraded",
+eq("historical record: one recorded provider down with CertSpotter available → monitoring_degraded",
   partialCt.signals.certificate_transparency.state, "monitoring_degraded");
-eq("partial CT degradation still cannot support a healthy negative conclusion",
+eq("historical partial CT degradation still cannot support a healthy negative conclusion",
   byKey(
     resolveCyberMotDomainStates(
-      { ...report, monitoring_states: partialCt },
+      { ...report, modules: historicalModules, monitoring_states: partialCt },
       { cyberEssentials: ceReady }
     ),
     "attack_surface"
   ).state,
   CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT);
+
+// A current record declares CertSpotter as its only provider. When CertSpotter
+// answered, no second provider is expected: a provider the scan never queried
+// (even one with a stale health row) is not missing evidence, so the healthy
+// negative conclusion is available.
+const currentModules = {
+  ...modules,
+  subdomains: {
+    count: 0,
+    items: [],
+    error: null,
+    sources: { certspotter: { count: 0, error: null } },
+    ct_providers: ["certspotter"],
+  },
+};
+const currentCt = deriveSignalMonitoringStates({
+  modules: currentModules,
+  scanQuality: report.scan_quality,
+  providerHealth: {
+    retired_provider: { outcome: "unavailable", attempts: 2, final_error: "fixture timeout" },
+    certspotter: { outcome: "available", attempts: 1, final_error: null },
+  },
+});
+eq("current record: CertSpotter available → monitoring_healthy",
+  currentCt.signals.certificate_transparency.state, "monitoring_healthy");
+eq("current record: CertSpotter's answer supports a healthy Attack Surface conclusion",
+  byKey(
+    resolveCyberMotDomainStates(
+      { ...report, modules: currentModules, monitoring_states: currentCt },
+      { cyberEssentials: ceReady }
+    ),
+    "attack_surface"
+  ).state,
+  CYBER_MOT_STATES.ASSESSED_HEALTHY);
 
 // ── Immutable snapshot + assessment/BRI/PDF consumer contract ──────────────
 const snapshot = composeSnapshot({

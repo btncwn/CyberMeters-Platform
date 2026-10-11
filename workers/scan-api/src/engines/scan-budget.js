@@ -63,7 +63,7 @@ export const MODULE_SUBREQUEST_COST = Object.freeze({
   email_security:       24,   // SPF/BIMI + DKIM selector sweep (conservative pre-DMARCbis estimate retained)
   dmarc_core:           10,   // RFC 9989: <=8 tree + <=1 existence + <=1 corroboration
   dmarc_external_rua:   11,   // one fully admitted RFC 9990 destination host
-  subdomains:           6,    // CT: crt.sh + CertSpotter + wildcard
+  subdomains:           6,    // CT: CertSpotter (with one retry) + wildcard A/AAAA
   technology_detection: 4,
   whois_intelligence:   4,
   subdomain_takeover:   12,

@@ -57,7 +57,7 @@ test('wrong hostname and expired certificate are distinct actual TLS failures',a
 test('live leaf wins over a conflicting CT projection without deleting CT evidence',async()=>{
  const {receipt}=await tlsFixture('expired',{trusted:true});const ssl=attachLiveTlsToSsl({tls_state:'observed_present',cert_not_after:'2045-01-01T00:00:00.000Z',cert_expiry_days:7000,cert_issuer:'CT issuer'}, {receipt});
  assert.equal(ssl.cert_not_after,'2045-01-01T00:00:00.000Z');
- const ci=runCertificateIntelligenceModule({ssl,subdomains:{sources:{crt_sh:{count:1},certspotter:{count:1}}}},'owned.example.com');
+ const ci=runCertificateIntelligenceModule({ssl,subdomains:{sources:{certspotter:{count:1}}}},'owned.example.com');
  assert.equal(ci.evidence_source,'live_tls');assert.equal(ci.expires_at,'2021-01-01T00:00:00.000Z');assert.equal(ci.certificate_status,'invalid');assert.ok(ci.suspicious_certificate_signals.some(x=>x.signal==='certificate_expired'));
  assert.equal(ci.signal_completeness.signals.hostname_match.provenance.method,'node_tls_check_server_identity');assert.equal(ci.signal_completeness.signals.expiry.observation_scope,'live_tls');assert.equal(ci.signal_completeness.signals.chain.observation,'unknown');
 });
@@ -146,6 +146,6 @@ test('live leaf fingerprint changes persistent identity while historical CT keys
 
 test('configured collector failure preserves CT but cannot present a valid live certificate',()=>{
  const ssl=attachLiveTlsToSsl({tls_state:'observed_present',https_available:true,cert_not_after:'2040-01-01T00:00:00.000Z',cert_expiry_days:4800,cert_issuer:'CT issuer'}, {error:'live_tls_unavailable',receipt:null});
- const ci=runCertificateIntelligenceModule({ssl,subdomains:{sources:{crt_sh:{count:1},certspotter:{count:1}}}},'owned.example.com');
+ const ci=runCertificateIntelligenceModule({ssl,subdomains:{sources:{certspotter:{count:1}}}},'owned.example.com');
  assert.equal(ci.evidence_source,'certificate_transparency');assert.equal(ci.issuer,'CT issuer');assert.equal(ci.certificate_status,'unknown');assert.equal(ci.incomplete,true);assert.equal(ci.live_certificate_verified,false);assert.equal(liveCertificateFindings(ssl,'owned.example.com').length,0);
 });

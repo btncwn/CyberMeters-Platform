@@ -20,15 +20,17 @@ const targets = Object.freeze({
   scanEngine: [path.join(engines, "scan-engine.js"), "CT_PR3_SCAN_ENGINE_MODULE_URL"],
 });
 
+// M1/M2/M3/M8 were re-specified for CertSpotter-only CT (see the successor
+// notes in validate-ct-first-success-wins.js); the case keys are unchanged.
 const EXPECTED = Object.freeze([
-  ["M1", ["M1_ONE_SUCCESS_RETAINS_STRUCTURED_DEGRADATION"]],
-  ["M2", ["M2_ONE_SUCCESS_NOT_TWO_PROVIDER_COMPLETE"]],
-  ["M3", ["M3_SCAN_QUALITY_IS_GOVERNED_DEGRADED"]],
+  ["M1", ["M1_CT_LOSS_IS_INCOMPLETE_NOT_DEGRADED"]],
+  ["M2", ["M2_PROVIDER_LOSS_NEVER_DISCOVERY_COMPLETE"]],
+  ["M3", ["M3_CT_LOSS_SCAN_QUALITY_IS_PARTIAL"]],
   ["M4", ["M4_FIRST_FAILURE_CANNOT_WIN"]],
   ["M5", ["M5_RELEASE_DOES_NOT_CANCEL_PHYSICAL"]],
   ["M6", ["M6_LATE_SETTLEMENT_CANNOT_MUTATE_OUTPUT"]],
   ["M7", ["M7_UNAVAILABLE_NEVER_COLLAPSES_TO_EMPTY"]],
-  ["M8", ["M8_CERTSPOTTER_SHARED_SAN_STAYS_NULL"]],
+  ["M8", ["M8_SHARED_SAN_NULL_UNTIL_MEASURED"]],
   ["M9", ["M9_DEGRADATION_WORDING_REMAINS_EXPLICIT"]],
   ["M10", ["M10_SUCCESSFUL_EMPTY_STAYS_MEASURED"]],
   ["M11", ["M11_BOTH_PRE_RELEASE_SUCCESSES_RETAINED"]],
@@ -42,27 +44,25 @@ const once = (source, from, to, label) => {
 };
 const target = (name, mutate) => ({ name, mutate });
 const mutationTargets = Object.freeze({
-  // RE-ANCHORED under FD-006/seq50 + seq126 §3.3. The old anchor (the blanket
-  // `incomplete` flag) is unreachable for the governed one-provider case after the
-  // D1 refactor, so it can no longer exercise M1's gate. The successor mutant
-  // deletes the STRUCTURED declaration itself — the post-D1 expression of the same
-  // defect ("one surviving provider read as full coverage") — and must die on the
-  // named successor assertion.
+  // RE-ANCHORED for CertSpotter-only CT. The structured one-provider degradation
+  // no longer exists (there is no surviving fallback), so the defect "a CT loss
+  // read as full coverage" is now reintroduced by dropping the total-loss
+  // incomplete flag itself.
   M1: [target("subdomains", (source) => once(source,
-    "  const ctDegradation = (ctLostProvider && items.length > 0 && ctSurvivingCount > 0)",
-    "  const ctDegradation = (false && ctLostProvider && items.length > 0 && ctSurvivingCount > 0)", "M1"))],
+    '      incomplete: true,\n      incomplete_reason: "ct_sources_unavailable",',
+    '      incomplete: false,\n      incomplete_reason: "ct_sources_unavailable",', "M1"))],
+  // RE-ANCHORED: the reader is provider-generic. The mutant lets a record count
+  // as complete unless EVERY recorded source failed — the old "one surviving
+  // provider is enough" defect, now caught on a stored two-provider record.
   M2: [target("asset", (source) => once(source,
-    `  if (sources.crt_sh?.error) return false;       // a CT source errored → partial coverage
-  if (sources.certspotter?.error) return false;`,
-    `  if (sources.crt_sh?.error && sources.certspotter?.error) return false;`, "M2"))],
-  // RE-ANCHORED under FD-006/seq50 + seq126 §3.3. The old anchor excluded
-  // subdomains from the `incomplete` sweep, which no longer drives the governed
-  // case at all. The successor mutant attacks the post-D1 semantic gate directly:
-  // it makes the governed degraded grade collapse back to `partial`, which is
-  // exactly the outcome M3's successor now forbids.
+    "  if (Object.values(sources).some((source) => source?.error)) return false;",
+    "  if (Object.values(sources).length > 0 && Object.values(sources).every((source) => source?.error)) return false;", "M2"))],
+  // RE-ANCHORED: with no governed one-provider case, the defect is a total CT
+  // loss escaping the `partial` drivers (as subdomains already escapes the
+  // timed-out sweep) and grading merely `degraded`.
   M3: [target("scanEngine", (source) => once(source,
-    '    : (governedDegraded\n      ? "degraded"',
-    '    : (governedDegraded\n      ? "partial"', "M3"))],
+    "  const partialDrivers = coreIncomplete.length + incompleteModules.length\n",
+    '  const partialDrivers = coreIncomplete.length + incompleteModules.filter((name) => name !== "subdomains").length\n', "M3"))],
   M4: [target("orchestrator", (source) => once(source,
     '      if (result?.status === "available") {',
     '      if (result?.status === "available" || settledCount === 1) {', "M4"))],
@@ -103,8 +103,8 @@ const mutationTargets = Object.freeze({
     '      if (result?.status === "available") {',
     '      if (result?.status === "available" && result.data.length > 0) {', "M10"))],
   M11: [target("orchestrator", (source) => once(source,
-    "    const includedTerminalProviders = PROVIDERS.filter((provider) => terminalResults.has(provider));",
-    "    const includedTerminalProviders = winner ? [winner] : PROVIDERS.filter((provider) => terminalResults.has(provider));", "M11"))],
+    "    const includedTerminalProviders = racedProviders.filter((provider) => terminalResults.has(provider));",
+    "    const includedTerminalProviders = winner ? [winner] : racedProviders.filter((provider) => terminalResults.has(provider));", "M11"))],
 });
 
 let sequence = 0;
@@ -214,7 +214,7 @@ execute("SYNTAX_FAILURE_REJECTED", [target("orchestrator", (source) => `${source
   ["M4_FIRST_FAILURE_CANNOT_WIN"], { control: true, wrongCase: "M4" });
 execute("LOAD_FAILURE_REJECTED", [target("ssl", (source) => once(source,
   'from "./ct-first-success.js";', 'from "./missing-ct-first-success.js";', "load control"))],
-  ["M8_CERTSPOTTER_SHARED_SAN_STAYS_NULL"], { control: true, wrongCase: "M8" });
+  ["M8_SHARED_SAN_NULL_UNTIL_MEASURED"], { control: true, wrongCase: "M8" });
 execute("WRONG_REASON_REJECTED", [target("orchestrator", mutationTargets.M4[0].mutate)],
   ["M10_SUCCESSFUL_EMPTY_STAYS_MEASURED"], { control: true, wrongCase: "M4" });
 

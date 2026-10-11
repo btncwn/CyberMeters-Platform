@@ -158,6 +158,8 @@ const originalFetch = globalThis.fetch;
 const originalRandom = Math.random;
 globalThis.fetch = async (input) => {
   const url = new URL(String(input));
+  // Production scans query CertSpotter as their sole CT source; any crt.sh
+  // request is counted and asserted to be zero.
   if (url.hostname === "crt.sh") {
     providerCalls.crt_sh += 1;
     return jsonResponse({}, 403);
@@ -279,8 +281,8 @@ try {
   eq("real engine finalizes completed",
     db.prepare("SELECT status FROM scans WHERE id = 'scan-ct-r1'").get()?.status,
     "completed");
-  eq("pre-existing single shared crt.sh request remains unchanged",
-    providerCalls.crt_sh, 1);
+  eq("real engine never contacts crt.sh",
+    providerCalls.crt_sh, 0);
   eq("pre-existing single shared CertSpotter request remains unchanged",
     providerCalls.certspotter, 1);
 
@@ -307,21 +309,19 @@ try {
      WHERE scan_id = 'scan-ct-r1'
      ORDER BY provider, module`
   ).all();
-  eq("real engine writes four consumer-attributed rows", rows.length, 4);
+  eq("real engine writes one consumer-attributed row per CT consumer", rows.length, 2);
   ok("real engine respects eight-row hard bound", rows.length <= 8);
-  eq("crt.sh classified as HTTP error",
-    rows.filter((row) => row.provider === "crt_sh")
-      .every((row) => row.outcome === "http_error" && row.http_status === 403),
-    true);
+  eq("no telemetry row names a provider the scan did not query",
+    rows.filter((row) => row.provider === "crt_sh").length, 0);
   eq("CertSpotter classified ok with count",
     rows.filter((row) => row.provider === "certspotter")
       .every((row) => row.outcome === "ok" && row.result_count === 1),
     true);
-  eq("only subdomain crt.sh row carries completeness impact",
+  eq("no row carries completeness impact when the sole CT source answered",
     rows.filter((row) => row.completeness_impact === 1)
       .map((row) => `${row.module}:${row.provider}:${row.affected_signal}`)
       .join(","),
-    "subdomains:crt_sh:subdomain_discovery");
+    "");
   eq("R1 cache columns remain inert",
     rows.every((row) => row.cache_state === "miss" && row.cache_age_s === null),
     true);
@@ -359,7 +359,7 @@ try {
   const failedRows = failedTrace.db.prepare(
     "SELECT * FROM ct_provider_telemetry WHERE scan_id = 'scan-ct-r1'"
   ).all();
-  eq("failed-terminal trace persists CT provider rows", failedRows.length, 4);
+  eq("failed-terminal trace persists CT provider rows", failedRows.length, 2);
   ok("failed-terminal trace respects eight-row bound", failedRows.length <= 8);
   ok("failed-terminal trace does not leave scan running",
     failedTrace.db.prepare(

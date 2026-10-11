@@ -203,6 +203,7 @@ export async function billingRoutes(rctx) {
         accounting: physicalCounter.contextFor("free_preview_ct", { signal: deadline.signal }),
         signal: deadline.signal,
         remainingMs,
+        certspotterApiKey: env?.CERTSPOTTER_API_KEY || null,
       });
 
       let settlements;

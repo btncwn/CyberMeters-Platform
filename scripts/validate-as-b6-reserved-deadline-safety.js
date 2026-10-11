@@ -185,10 +185,10 @@ ok(
 );
 ok(
   "ASB6R_PREABORT_CT_PLATFORM_WORDING_PRESERVED",
+  JSON.stringify(Object.keys(m.ssl?.ct_sources || {})) === JSON.stringify(["certspotter"]) &&
+  JSON.stringify(Object.keys(m.subdomains?.sources || {})) === JSON.stringify(["certspotter"]) &&
   [
-    m.ssl?.ct_sources?.crt_sh,
     m.ssl?.ct_sources?.certspotter,
-    m.subdomains?.sources?.crt_sh,
     m.subdomains?.sources?.certspotter,
   ].every((source) => source?.count === 0 && source?.error === platformAbortWording),
   JSON.stringify({ ssl: m.ssl?.ct_sources, subdomains: m.subdomains?.sources }),

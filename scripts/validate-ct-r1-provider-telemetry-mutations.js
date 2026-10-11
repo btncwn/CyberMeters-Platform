@@ -106,8 +106,11 @@ runMutant({
   },
 });
 
+// With a single CT provider there is no second provider to swap with; the
+// attribution defect is now a physical attempt recorded under the wrong
+// provider name.
 runMutant({
-  name: "swap crt.sh and CertSpotter attribution",
+  name: "misattribute the provider of a physical attempt",
   sourceName: "ct-provider-cache.js",
   validator: fixtureValidator,
   moduleEnv: "CT_R1_CACHE_MODULE_URL",
@@ -116,7 +119,7 @@ runMutant({
     "    providerAttempts.push({ ...row, outcome });",
     `    providerAttempts.push({
       ...row,
-      provider: row.provider === "crt_sh" ? "certspotter" : "crt_sh",
+      provider: \`misattributed:\${row.provider}\`,
       outcome,
     });`,
     "provider-attempt attribution"
@@ -178,14 +181,14 @@ runMutant({
   sourceName: "scan-engine.js",
   validator: engineValidator,
   moduleEnv: "CT_R1_SCAN_ENGINE_MODULE_URL",
+  // Re-anchored: the CT overlap persistence that followed this call was
+  // removed with the overlap telemetry module.
   mutate: (source) => replaceRequired(
     source,
     `    const runFailurePostTerminalWork = async () => {
       await persistCtTelemetryAfterTerminal();
-      await persistCtOverlapAfterTerminal();
 `,
     `    const runFailurePostTerminalWork = async () => {
-      await persistCtOverlapAfterTerminal();
 `,
     "failed terminal CT persistence"
   ),

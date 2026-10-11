@@ -29,7 +29,7 @@ import { insertCertificateEvents, upsertCertificateObservation } from "./cert-ev
 import { runCertificateIntelligenceModule } from "./cert-intel.js";
 import { CLOUD_STORAGE_MAX_PHYSICAL_ATTEMPTS, runCloudStorageModule } from "./cloud-storage-scan.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
-import { createCtProviderOverlapCollector, persistCtProviderOverlapTelemetry } from "./ct-provider-overlap.js";
+import { CT_PROVIDERS, ctFailedSources } from "./ct-providers.js";
 import { deriveSignalMonitoringStates } from "./signal-monitoring-state.js";
 import { runSaasExposureModule, runThirdPartyDiscoveryModule } from "./discovery-scan.js";
 import { buildDnsOperationalResilience } from "./dns-resilience.js";
@@ -176,7 +176,7 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
   const modulesSkipped = [];
 
   // Sprint 10C: "subdomains" is NOT a core module.
-  // CT log lookup (crt.sh + CertSpotter) is an external enrichment query against
+  // CT log lookup (CertSpotter) is an external enrichment query against
   // third-party services. When those services are rate-limited (CertSpotter HTTP 429
   // on shared Worker IPs) or slow, it is an external service failure — not a domain
   // security failure. DNS, SSL, Headers, Email directly assess the domain's own config.
@@ -791,13 +791,15 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     reservedPhysicalCounter = opts.testOnlyPhysicalSubrequestCounter;
   }
   const dnsCache = makeDnsCache();
+  // CT policy (ct-providers.js): CertSpotter, authenticated with the SSLMate
+  // key when the Worker secret is set.
   const ctCache = createCertificateTransparencyCache({
     signal: deadline.signal,
     globalDeadlineProvenance: () => deadline.globalDeadlineProvenance(),
     remainingMs: () => deadline.remainingMs(),
     now,
+    certspotterApiKey: env?.CERTSPOTTER_API_KEY || null,
   });
-  const ctProviderOverlap = createCtProviderOverlapCollector({ now });
   // CT-R1: terminal-only, once-only provider telemetry persistence. Set the
   // guard before snapshotting/writing so a partial non-fatal D1 failure cannot
   // be retried into duplicate attribution. The helper refuses to run until the
@@ -831,32 +833,6 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // Telemetry is observational: snapshot or persistence failures must never
       // change a scan's already-durable terminal state.
       return false;
-    }
-  };
-  // CT-R2 PR-2A: a separate, once-only post-terminal write. A missing snapshot
-  // means the subdomains provider consumer never started; the persistence helper
-  // reports that explicitly and never manufactures a comparison row.
-  let ctOverlapPersistenceStarted = false;
-  const persistCtOverlapAfterTerminal = async () => {
-    if (
-      ctOverlapPersistenceStarted
-      || latch.d1Written !== true
-      || (latch.status !== "completed" && latch.status !== "failed")
-    ) return { status: "not_attempted_empty" };
-
-    ctOverlapPersistenceStarted = true;
-    try {
-      return await persistCtProviderOverlapTelemetry(
-        scanId,
-        ctProviderOverlap.snapshot(),
-        env,
-      );
-    } catch {
-      return {
-        status: "persistence_failed",
-        error_class: "unknown",
-        durability: "unknown",
-      };
     }
   };
   const createChildSignal = () => {
@@ -1106,7 +1082,6 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       const reserved = await runReservedScan(domain, {
         capacity,
         ctCache,
-        ctOverlap: ctProviderOverlap,
         dnsCache,
         knownAssetHosts,
         signal: deadline.signal,
@@ -1131,7 +1106,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // (CT + brute-force) subdomain list. ──
       const subdomainsFallback = () => markDeadlineDeferred({
         count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
-        sources: { crt_sh: { count: 0, error: "module deadline exceeded" }, certspotter: { count: 0, error: "module deadline exceeded" } },
+        sources: ctFailedSources("module deadline exceeded"),
+        ct_providers: [...CT_PROVIDERS],
         wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
       });
       const [dnsSettled, sslSettled, headersSettled, emailSettled, dmarcSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
@@ -1174,7 +1150,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
               now,
             }),
           }),
-          runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: (cause) => { ctCache.releaseConsumer?.(domain, "subdomains", cause); ctProviderOverlap.freeze({ global_deadline: deadline.globalDeadlineProvenance() }); }, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: () => deadline.globalDeadlineProvenance() }) }),
+          runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: (cause) => { ctCache.releaseConsumer?.(domain, "subdomains", cause); }, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, globalDeadlineProvenance: () => deadline.globalDeadlineProvenance() }) }),
           runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal, remainingMs }) => runTechModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs: durableInvocation ? remainingMs : null }) }),
           runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ source: "rdap" }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
           runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal, cache: dnsCache }) }),
@@ -1230,7 +1206,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       subdomainsResult = subdomainsSettled.status === "fulfilled" && !subdomainsSettled.value.thrown
         ? subdomainsSettled.value.value
         : { count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
-            sources: { crt_sh: { count: 0, error: "module rejected" }, certspotter: { count: 0, error: "module rejected" } },
+            sources: ctFailedSources("module rejected"),
+            ct_providers: [...CT_PROVIDERS],
             wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
             error: customerSafeFailure("scan/subdomains", subdomainsSettled.value?.thrown || subdomainsSettled.reason, "Subdomain module failed") };
       techResult = techSettled.status === "fulfilled" && !techSettled.value.thrown ? techSettled.value.value : { error: customerSafeFailure("scan/technology", techSettled.value?.thrown || techSettled.reason, "Technology module failed") };
@@ -2392,8 +2369,8 @@ function buildCanonicalUrlProfile(modules) {
     const certificateSignals = Array.isArray(certificateIntel?.suspicious_certificate_signals)
       ? certificateIntel.suspicious_certificate_signals
       : [];
-    const certificateEvidenceProviders = ["crt_sh", "certspotter"].filter((provider) =>
-      Number(certificateIntel?.ct_sources?.[provider]) > 0);
+    const certificateEvidenceProviders = Object.keys(certificateIntel?.ct_sources || {})
+      .filter((provider) => Number(certificateIntel.ct_sources[provider]) > 0);
     if (
       modules.ssl?.tls_state === TLS_RUNTIME_STATES.OBSERVED_PRESENT &&
       certificateIntel && certificateIntel.error == null &&
@@ -2599,7 +2576,6 @@ function buildCanonicalUrlProfile(modules) {
     // race-abandoned module reads honestly as `aborted`.
     await persistSubOperationTelemetry(scanId, subOpTelemetry.snapshotRows(), env);
     await persistCtTelemetryAfterTerminal();
-    await persistCtOverlapAfterTerminal();
 
     // Shared by the 091 state persistence below AND the M5.c snapshot build
     // (Phase 8o): both must resolve the eight domains from the SAME Cyber
@@ -3129,7 +3105,6 @@ function buildCanonicalUrlProfile(modules) {
     if (latch.state === "finalized") {
       const persistFinalizedDiagnostics = async () => {
         await persistCtTelemetryAfterTerminal();
-        await persistCtOverlapAfterTerminal();
         return { completed: true, ceiling_exceeded: false };
       };
       if (durableInvocation) {
@@ -3183,7 +3158,6 @@ function buildCanonicalUrlProfile(modules) {
     }
     const runFailurePostTerminalWork = async () => {
       await persistCtTelemetryAfterTerminal();
-      await persistCtOverlapAfterTerminal();
 
       // Clean outcome: durably finalized as completed (original or recovered) → no
       // failure audit needed. Otherwise emit an auditable event for the terminal state:

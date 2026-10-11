@@ -5,6 +5,8 @@
 // one state per signal. It does not probe, score, compare with an earlier scan,
 // or change scan_quality. Missing or unrecognised evidence fails closed.
 
+import { CT_PROVIDERS, ctProvidersUsed } from "./ct-providers.js";
+
 export const SIGNAL_MONITORING_STATE_VERSION = "signal-monitoring-state-v1";
 
 export const SIGNAL_MONITORING_STATES = Object.freeze({
@@ -23,7 +25,9 @@ export const SIGNAL_MONITORING_DEFINITIONS = Object.freeze({
   }),
   certificate_transparency: Object.freeze({
     modules: Object.freeze(["subdomains"]),
-    providers: Object.freeze(["crt_sh", "certspotter"]),
+    providers: CT_PROVIDERS,
+    // A recorded result names the providers it actually used (ct-providers.js).
+    providers_recorded_by: "subdomains",
   }),
   website_security: Object.freeze({
     modules: Object.freeze(["ssl", "headers"]),
@@ -287,12 +291,21 @@ function providerEvidenceState(providerNames, providerHealth) {
   return SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
 }
 
-function resolveSignalState(definition, modules, skipped, providerHealth) {
+// The providers a signal depends on in THIS scan. A provider-backed signal whose
+// owning module records its providers uses that record, so a stored result is
+// read with the providers it actually queried; a provider it did not query is
+// not missing evidence.
+function signalProviders(definition, modules) {
+  if (definition.providers.length === 0 || !definition.providers_recorded_by) return definition.providers;
+  return ctProvidersUsed(modules?.[definition.providers_recorded_by]);
+}
+
+function resolveSignalState(definition, modules, skipped, providerHealth, providers = definition.providers) {
   const moduleStates = definition.modules.map((moduleName) =>
     moduleEvidenceState(modules, moduleName, skipped)
   );
   const combinedModules = combineModuleStates(moduleStates);
-  const providerState = providerEvidenceState(definition.providers, providerHealth);
+  const providerState = providerEvidenceState(providers, providerHealth);
   // For an explicitly provider-backed signal, preserve the provider-specific
   // cause even when its owning module is also (correctly) marked incomplete.
   // Otherwise a total provider blackout would be flattened to the less useful
@@ -319,7 +332,8 @@ export function deriveSignalMonitoringStates({
   const signals = {};
 
   for (const [signal, definition] of Object.entries(SIGNAL_MONITORING_DEFINITIONS)) {
-    const state = resolveSignalState(definition, modules || {}, skipped, providerHealth || {});
+    const providers = signalProviders(definition, modules || {});
+    const state = resolveSignalState(definition, modules || {}, skipped, providerHealth || {}, providers);
     const incompleteModules = definition.modules.filter((moduleName) =>
       moduleEvidenceState(modules || {}, moduleName, skipped) ===
         SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE
@@ -332,7 +346,7 @@ export function deriveSignalMonitoringStates({
         modules: [...definition.modules],
         incomplete_modules: incompleteModules,
         providers: Object.fromEntries(
-          definition.providers.map((provider) => [
+          providers.map((provider) => [
             provider,
             providerHealth?.[provider]?.outcome ?? "unknown",
           ])

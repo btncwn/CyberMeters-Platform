@@ -9,7 +9,6 @@ import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
 import RiskBadge from '../../components/RiskBadge'
 import StatCard from '../../components/StatCard'
-import { BRAND_DISCOVERY_BOUNDARY, brandDiscoveryOutcome } from '../../lib/brandDiscoveryDisplay'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function asList(v) {
@@ -350,48 +349,6 @@ const CASE_CHIP = {
   reappeared: 'bg-red-50 text-red-700 border-red-200',
 }
 
-// ── Check certificate logs now ───────────────────────────────────────────────
-// Runs the same bounded passive Certificate Transparency lookup the daily cron
-// runs. Only meaningful for a configured (not inferred) brand profile; the
-// backend still enforces profile, domain verification, permission and limits.
-const OUTCOME_TONE = {
-  success: 'bg-green-50 border-green-100 text-green-800',
-  warning: 'bg-amber-50 border-amber-100 text-amber-900',
-  error:   'bg-red-50 border-red-100 text-red-800',
-}
-
-function BrandDiscoveryNow({ profile, running, outcome, onRun }) {
-  const configured = !!profile && !profile.inferred
-  return (
-    <div className="card p-5 mb-6" aria-label="Check certificate logs now">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="flex-1 min-w-0">
-          <h2 className="text-sm font-bold text-gray-900">Check for new lookalike domains now</h2>
-          <p className="text-xs text-gray-500 mt-0.5">{BRAND_DISCOVERY_BOUNDARY} This also runs automatically every day.</p>
-          {!configured && (
-            <p className="text-xs text-gray-500 mt-1">Save a brand profile above to enable an on-demand check.</p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={onRun}
-          disabled={!configured || running}
-          className="btn-secondary text-sm self-start sm:self-auto disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Search className={`w-4 h-4 ${running ? 'animate-pulse' : ''}`} />
-          {running ? 'Checking certificate logs…' : 'Check now'}
-        </button>
-      </div>
-      {outcome && (
-        <div role="status" className={`mt-3 rounded-xl border p-3 text-sm ${OUTCOME_TONE[outcome.tone] || OUTCOME_TONE.error}`}>
-          <p className="font-semibold">{outcome.title}</p>
-          {outcome.detail && <p className="mt-0.5">{outcome.detail}</p>}
-        </div>
-      )}
-    </div>
-  )
-}
-
 function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit }) {
   if (!cases?.length) return null
   return (
@@ -486,8 +443,6 @@ export default function BrandMonitoringPage() {
   const [busyId, setBusyId]         = useState(null)
   const [filter, setFilter]         = useState('')
   const [toast, setToast]           = useState(null)
-  const [discovering, setDiscovering] = useState(false)
-  const [discoveryOutcome, setDiscoveryOutcome] = useState(null)
   const queueRef = useRef(null)
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(() => setToast(null), 3500) }
@@ -530,18 +485,6 @@ export default function BrandMonitoringPage() {
     })
   }, [cases])
 
-  async function handleDiscoverNow() {
-    if (discovering) return
-    setDiscovering(true)
-    setDiscoveryOutcome(null)
-    try {
-      const outcome = brandDiscoveryOutcome(await api.runBrandDiscovery(wsId))
-      setDiscoveryOutcome(outcome)
-      if (outcome.refresh) await load()
-    } catch (e) {
-      setDiscoveryOutcome(brandDiscoveryOutcome({ status: e?.status ?? 0, body: {} }))
-    } finally { setDiscovering(false) }
-  }
 
   async function handleSave(payload) {
     setSaving(true)
@@ -680,8 +623,6 @@ export default function BrandMonitoringPage() {
 
       {/* 2 · Protected brand */}
       <ProtectedBrand profile={profile} editing={editing} setEditing={setEditing} onSave={handleSave} saving={saving} />
-
-      <BrandDiscoveryNow profile={profile} running={discovering} outcome={discoveryOutcome} onRun={handleDiscoverNow} />
 
       {/* 3 · Risk overview (label-led, numbers below & smaller) */}
       <div id="brand-summary" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-6 scroll-mt-20">

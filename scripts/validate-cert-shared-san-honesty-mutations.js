@@ -15,7 +15,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers/scan-api/src/engines");
 const validator = path.join(root, "scripts/validate-cert-shared-san-honesty.js");
-const ASSERTION_TOTAL = 41;
+// CertSpotter-only CT: the fallback-only case (CertSpotter never measured) no
+// longer exists. The contract now proves CertSpotter measures the shared SAN,
+// claims no subject, and leaves the count unmeasured when no certificate was
+// selected; 41 -> 51 assertions.
+const ASSERTION_TOTAL = 51;
 const targets = Object.freeze({
   ssl: {
     sourcePath: path.join(engines, "ssl-scan.js"),
@@ -29,43 +33,71 @@ const targets = Object.freeze({
 
 const semanticMutants = Object.freeze([
   {
+    // An eager producer zero beside a provider that answered with issuances is
+    // indistinguishable from a measurement downstream, so the producer-level
+    // null is the guard: the unselected case's ownership flips with it.
     id: "FABRICATE_SHARED_SAN_INITIAL_ZERO",
     target: "ssl",
     from: "  let cert_shared_san_count = null;",
     to: "  let cert_shared_san_count = 0;",
     expectedFailures: [
-      "CS_ONLY_SSL_SHARED_SAN_NULL",
+      "UNSELECTED_SSL_SHARED_SAN_NULL",
+      "UNSELECTED_MODULE_SHARED_SAN_NULL",
+      "UNSELECTED_OWNERSHIP_UNKNOWN",
+      "UNSELECTED_OWNERSHIP_NOT_ASSESSED",
+      "UNSELECTED_OWNERSHIP_REASON",
+      "UNSELECTED_CUSTOMER_OWNED_NULL",
+      "UNSELECTED_CONFIDENCE_NULL",
+      "UNSELECTED_BRITISH_NOT_ASSESSED_WORDING",
       "BLACKOUT_SSL_SHARED_SAN_NULL",
     ],
   },
   {
     id: "DERIVE_OWNERSHIP_FROM_UNMEASURED_COUNT",
     target: "certIntel",
-    from: `  const sharedSanMeasured = Boolean(
-    crtShSource &&
-    crtShSource.error == null &&
-    Number.isInteger(crtShSource.count) &&
-    crtShSource.count > 0 &&
-    Number.isInteger(rawSharedSanCount) &&
-    rawSharedSanCount >= 0
-  );
-  const sharedSanCount = sharedSanMeasured ? rawSharedSanCount : null;`,
-    to: `  const sharedSanMeasured = true;
-  const sharedSanCount = Number(rawSharedSanCount || 0);`,
+    from: `  const measured = sharedSanMeasured(ssl);
+  const sharedSanCount = measured ? ssl.cert_shared_san_count : null;`,
+    to: `  const measured = true;
+  const sharedSanCount = Number(ssl?.cert_shared_san_count || 0);`,
     expectedFailures: [
-      "CS_ONLY_MODULE_SHARED_SAN_NULL",
-      "CS_ONLY_OWNERSHIP_UNKNOWN",
-      "CS_ONLY_OWNERSHIP_NOT_ASSESSED",
-      "CS_ONLY_OWNERSHIP_REASON",
-      "CS_ONLY_CUSTOMER_OWNED_NULL",
-      "CS_ONLY_CONFIDENCE_NULL",
-      "CS_ONLY_BRITISH_NOT_ASSESSED_WORDING",
+      "UNSELECTED_MODULE_SHARED_SAN_NULL",
+      "UNSELECTED_OWNERSHIP_UNKNOWN",
+      "UNSELECTED_OWNERSHIP_NOT_ASSESSED",
+      "UNSELECTED_OWNERSHIP_REASON",
+      "UNSELECTED_CUSTOMER_OWNED_NULL",
+      "UNSELECTED_CONFIDENCE_NULL",
+      "UNSELECTED_BRITISH_NOT_ASSESSED_WORDING",
       "BLACKOUT_MODULE_SHARED_SAN_NULL",
       "BLACKOUT_OWNERSHIP_UNKNOWN",
       "SENTINEL_ERROR_DOMINATES_ZERO",
       "SENTINEL_ERROR_BLOCKS_CUSTOMER_OWNED",
       "SENTINEL_ERROR_BLOCKS_CONFIDENCE",
+      "SENTINEL_EMPTY_ANSWER_DOMINATES_ZERO",
       "MISSING_SOURCE_DOMINATES_ZERO",
+    ],
+  },
+  {
+    // A CertSpotter issuance has no subject. Recording the scanned domain in its
+    // place would let ownership rest on a placeholder instead of the
+    // certificate's own names.
+    id: "PLACEHOLDER_SUBJECT_CLAIMED",
+    target: "ssl",
+    from: "        cert_subject   = null;",
+    to: "        cert_subject   = domain;",
+    expectedFailures: [
+      "CS_NO_SUBJECT_CLAIMED",
+      "CS_OWNERSHIP_RESTS_ON_CUSTOMER_SAN",
+      "WILDCARD_ONLY_STATUS_UNCERTAIN",
+      "WILDCARD_ONLY_NOT_CUSTOMER_OWNED",
+    ],
+  },
+  {
+    id: "ACCEPT_EMPTY_ANSWER_AS_MEASUREMENT",
+    target: "certIntel",
+    from: "source && source.error == null && Number.isInteger(source.count) && source.count > 0,",
+    to: "source && source.error == null && Number.isInteger(source.count) && source.count >= 0,",
+    expectedFailures: [
+      "SENTINEL_EMPTY_ANSWER_DOMINATES_ZERO",
     ],
   },
 ]);
@@ -325,8 +357,8 @@ try {
     target: "ssl",
     mutate: (source) => replaceExactly(
       source,
-      "          cert_subject   = domain;",
-      "          cert_subject   = \"wrong-reason.example\";",
+      "        cert_subject   = null;",
+      "        cert_subject   = \"wrong-reason.example\";",
       "WRONG_REASON_FAILURE_REJECTED",
     ),
   });

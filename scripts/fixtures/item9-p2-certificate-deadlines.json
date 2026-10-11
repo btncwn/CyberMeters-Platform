@@ -5,7 +5,6 @@
   "scenarios": [
     {
       "name": "complete",
-      "crt_sh": "available",
       "certspotter": "available",
       "expected_ct_state": "monitoring_healthy",
       "expected_issuer_state": "monitoring_healthy",
@@ -13,17 +12,15 @@
       "expected_active_service_observation": "present"
     },
     {
-      "name": "degraded",
-      "crt_sh": "unavailable",
-      "certspotter": "available",
-      "expected_ct_state": "monitoring_degraded",
-      "expected_issuer_state": "monitoring_degraded",
+      "name": "provider-unavailable",
+      "certspotter": "unavailable",
+      "expected_ct_state": "signal_unavailable",
+      "expected_issuer_state": "evidence_incomplete",
       "expected_active_service_state": "monitoring_healthy",
       "expected_active_service_observation": "present"
     },
     {
       "name": "provider-timeout",
-      "crt_sh": "timeout",
       "certspotter": "timeout",
       "expected_ct_state": "signal_unavailable",
       "expected_issuer_state": "evidence_incomplete",

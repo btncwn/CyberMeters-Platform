@@ -6,7 +6,7 @@
 // sees ONE consistent renewal story. Deterministic, pure, side-effect free.
 //
 // Honesty: `days_remaining` is computed from the externally-OBSERVED expiry
-// (crt.sh / CT `not_after`). It says nothing about chain, root, OCSP, revocation
+// (Certificate Transparency `not_after`). It says nothing about chain, root, OCSP, revocation
 // or private-key state — those remain unknown without live TLS.
 
 // Canonical renewal bands, widest-remaining first. A certificate falls in the

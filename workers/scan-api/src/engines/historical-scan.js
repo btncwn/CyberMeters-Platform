@@ -44,13 +44,11 @@ function currentProducerWasReobserved(finding, currentModules) {
       module.signal_completeness?.signals?.expiry?.provenance?.observed_at || "",
     );
     const days = module.days_until_expiry;
-    const crtShCount = module.ct_sources?.crt_sh;
-    const certspotterCount = module.ct_sources?.certspotter;
+    const ctCounts = Object.values(module.ct_sources || {});
     return Number.isFinite(observedAtMs) && Number.isFinite(expiresAtMs) &&
       expiresAtMs > observedAtMs && Number.isFinite(days) && Number.isInteger(days) && days >= 0 &&
       Math.abs(Math.floor((expiresAtMs - observedAtMs) / 86_400_000) - days) <= 1 &&
-      ((typeof crtShCount === "number" && crtShCount > 0) ||
-       (typeof certspotterCount === "number" && certspotterCount > 0));
+      ctCounts.some((count) => typeof count === "number" && count > 0);
   }
   const module = currentModules?.[finding?.module];
   if (!module || typeof module !== "object") return false;

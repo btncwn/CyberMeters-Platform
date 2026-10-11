@@ -16,9 +16,11 @@ function readJson(file, label) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
+// CertSpotter is the only Certificate Transparency source, so the one blackout
+// scenario is CertSpotter unavailable for the whole scan.
 const scenario = arg("scenario");
-if (!["crt-sh-down", "both-ct-down"].includes(scenario)) {
-  throw new Error("--scenario must be crt-sh-down or both-ct-down");
+if (scenario !== "ct-down") {
+  throw new Error("--scenario must be ct-down");
 }
 const reportFile = arg("report");
 const snapshotFile = arg("snapshot");
@@ -35,9 +37,7 @@ const providerHealth = report?.execution_diagnostics?.provider_health ?? {};
 const reportCt = report?.monitoring_states?.signals?.certificate_transparency ?? null;
 const snapshotCt = snapshot?.monitoring_states?.signals?.certificate_transparency ?? null;
 const attack = (snapshot?.domains ?? []).find((entry) => entry.domain_key === "attack_surface");
-const expectedState = scenario === "both-ct-down"
-  ? "signal_unavailable"
-  : "monitoring_degraded";
+const expectedState = "signal_unavailable";
 
 const checks = [
   ["report is a completed scan", report?.status === "completed"],
@@ -47,11 +47,10 @@ const checks = [
     snapshot?.snapshot?.scan_id === report?.scan_id],
   ["snapshot bytes match the completed D1 checksum",
     actualChecksum === expectedChecksum],
-  ["crt.sh is explicitly unavailable",
-    providerHealth?.crt_sh?.outcome === "unavailable"],
-  ["CertSpotter outcome matches the scenario",
-    providerHealth?.certspotter?.outcome ===
-      (scenario === "both-ct-down" ? "unavailable" : "available")],
+  ["CertSpotter is explicitly unavailable",
+    providerHealth?.certspotter?.outcome === "unavailable"],
+  ["no other CT provider was queried",
+    Object.keys(providerHealth).every((provider) => provider === "certspotter")],
   ["report CT monitoring state is canonical",
     reportCt?.state === expectedState],
   ["snapshot preserves the identical CT monitoring state",

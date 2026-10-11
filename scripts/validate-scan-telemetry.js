@@ -296,7 +296,7 @@ function d1Stub({ fail = false } = {}) {
   telem.record("cve_intelligence", { outcome: "ok", duration_ms: 400, outbound_calls: 2 });
 
   const providerHealth = {
-    crt_sh: {
+    certspotter: {
       outcome: "available",
       attempts: 2,
       latency_ms: 225,
@@ -325,10 +325,10 @@ function d1Stub({ fail = false } = {}) {
   eq("allocated_ms surfaced", diag.modules[2].allocated_ms, 950);
   eq("outbound_calls surfaced", diag.modules[3].outbound_calls, 2);
   eq("no timeout → timeout_source null", diag.modules[0].timeout_source, null);
-  eq("provider health outcome surfaced", diag.provider_health.crt_sh.outcome, "available");
-  eq("provider health attempts surfaced", diag.provider_health.crt_sh.attempts, 2);
-  eq("provider health latency surfaced", diag.provider_health.crt_sh.latency_ms, 225);
-  eq("provider health final error surfaced", diag.provider_health.crt_sh.final_error, null);
+  eq("provider health outcome surfaced", diag.provider_health.certspotter.outcome, "available");
+  eq("provider health attempts surfaced", diag.provider_health.certspotter.attempts, 2);
+  eq("provider health latency surfaced", diag.provider_health.certspotter.latency_ms, 225);
+  eq("provider health final error surfaced", diag.provider_health.certspotter.final_error, null);
 
   // PR-B1A: advisory trigger origin — additive, passthrough, fail-safe null.
   const trigDiag = buildExecutionDiagnostics({ executionContext: "queue", trigger: "scheduled", deadline: dl, telemetry: telem });
@@ -576,15 +576,16 @@ function d1Stub({ fail = false } = {}) {
     await runSslModule("example.com", { accounting: ctx });
   }, async (url) => {
     const u = String(url);
-    if (u.startsWith("https://crt.sh/")) {
-      return jsonResponse([{ not_after: "2999-01-01T00:00:00Z", not_before: "2026-01-01T00:00:00Z", common_name: "example.com", name_value: "example.com" }]);
+    if (u.startsWith("https://api.certspotter.com/")) {
+      return jsonResponse([{ not_after: "2999-01-01T00:00:00Z", not_before: "2026-01-01T00:00:00Z", issuer: { name: "Test CA" }, dns_names: ["example.com"] }]);
     }
     if (u === "https://example.com") return new Response("", { status: 200 });
     if (u === "http://example.com") return new Response("", { status: 301, headers: { location: "https://example.com" } });
     return new Response("", { status: 200 });
   });
   ctx.markSettled();
-  eq("C1B SSL both CT providers + HTTPS + HTTP attempts counted", acct.snapshot("ssl").outbound_attempts_observed, 4);
+  // CertSpotter is the only CT provider: one CT attempt + HTTPS + HTTP.
+  eq("C1B SSL CertSpotter + HTTPS + HTTP attempts counted", acct.snapshot("ssl").outbound_attempts_observed, 3);
 }
 
 {
@@ -594,7 +595,6 @@ function d1Stub({ fail = false } = {}) {
     await runSslModule("example.com", { accounting: ctx });
   }, async (url) => {
     const u = String(url);
-    if (u.startsWith("https://crt.sh/")) return jsonResponse([]);
     if (u.startsWith("https://api.certspotter.com/")) {
       return jsonResponse([{ not_after: "2999-01-01T00:00:00Z", not_before: "2026-01-01T00:00:00Z", dns_names: ["example.com"], issuer: { name: "Test CA" } }]);
     }
@@ -604,7 +604,8 @@ function d1Stub({ fail = false } = {}) {
     return new Response("", { status: 200 });
   });
   ctx.markSettled();
-  eq("C1B SSL CT fallback and explicit redirect hop counted", acct.snapshot("ssl").outbound_attempts_observed, 5);
+  // One CertSpotter attempt + HTTPS + HTTP hop 1 + explicit HTTP hop 2.
+  eq("C1B SSL CertSpotter evidence and explicit redirect hop counted", acct.snapshot("ssl").outbound_attempts_observed, 4);
 }
 
 {
@@ -615,12 +616,14 @@ function d1Stub({ fail = false } = {}) {
   }, async (url) => {
     const u = String(url);
     if (u.includes("dns-query")) return jsonResponse({ Status: 0, Answer: [] });
-    if (u.startsWith("https://crt.sh/")) return jsonResponse([{ name_value: "www.example.com\napi.example.com", common_name: "www.example.com" }]);
-    if (u.startsWith("https://api.certspotter.com/")) return jsonResponse([{ dns_names: ["app.example.com"] }]);
+    if (u.startsWith("https://api.certspotter.com/")) {
+      return jsonResponse([{ not_after: "2999-01-01T00:00:00Z", not_before: "2026-01-01T00:00:00Z", issuer: { name: "Test CA" }, dns_names: ["www.example.com", "api.example.com", "app.example.com"] }]);
+    }
     return jsonResponse([]);
   });
   ctx.markSettled();
-  eq("C1B subdomain wildcard DNS + both CT providers counted", acct.snapshot("subdomains").outbound_attempts_observed, 4);
+  // Wildcard A + AAAA + the one CertSpotter attempt.
+  eq("C1B subdomain wildcard DNS + CertSpotter counted", acct.snapshot("subdomains").outbound_attempts_observed, 3);
 }
 
 {
@@ -893,7 +896,7 @@ function d1Stub({ fail = false } = {}) {
       && /getRes = await safeFetch\(listUrl, \{[\s\S]{0,220}accounting,[\s\S]{0,160}dnsResolver,[\s\S]{0,120}dnsCache: cache/.test(s),
     (s) => s.replace(/(const getRes = await safeFetch\(listUrl, \{[\s\S]{0,180})\s*accounting,\n/, "$1"));
   sourceGuard("C1B scan-engine threads module contexts", engineSrc,
-    (s) => /runSslModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, ctCache, subOps: subOpTelemetry, now: \(\) => certificateNowMs \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, ctOverlap: ctProviderOverlap, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal, cache: dnsCache \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal, cache: dnsCache \}\)/.test(s),
+    (s) => /runSslModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, ctCache, subOps: subOpTelemetry, now: \(\) => certificateNowMs \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal, cache: dnsCache \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal, cache: dnsCache \}\)/.test(s),
     (s) => s.replace('runSslModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, ctCache, subOps: subOpTelemetry, now: () => certificateNowMs })', "runSslModule(domain)"));
   sourceGuard("C1B complete-set includes newly covered modules", budgetSrc,
     (s) => ["ssl", "subdomains", "dns_bruteforce", "cloud_storage_discovery"].every((m) => s.includes(`"${m}"`)),

@@ -8,16 +8,12 @@
 import {
   CT_PROVIDER_FIRST_SUCCESS_RELEASE_CUSTOMER_WORDING,
 } from "./ct-provider-cache.js";
+import { CT_PROVIDERS } from "./ct-providers.js";
 
-const PROVIDERS = Object.freeze(["crt_sh", "certspotter"]);
-
-// Bounded wait for the sibling provider after the first success. CertSpotter
-// returns only unexpired issuances and usually answers first; crt.sh adds the
-// historical names and usually answers within one attempt. Releasing at the first
-// success excluded crt.sh from almost every scan and marked it degraded. Waiting
-// up to one crt.sh attempt lets a healthy sibling be included; a sibling still in
-// flight when the wait ends (or when the module is aborted) is excluded exactly
-// as before, so a slow or failing provider still reads as reduced coverage.
+// Bounded wait for any sibling provider after the first success. A sibling
+// still in flight when the wait ends (or when the module is aborted) is
+// excluded, so a slow or failing provider reads as reduced coverage. With a
+// single provider the first settlement is final and no wait occurs.
 export const CT_SIBLING_GRACE_MS = 6_000;
 
 function freezeProviderResult(result) {
@@ -54,6 +50,11 @@ export async function raceCertificateTransparencyFirstSuccess({
     throw new TypeError("First-success CT orchestration requires a CT provider cache");
   }
   if (!module) throw new TypeError("First-success CT orchestration requires a consumer module");
+  // The cache declares its providers; a cache that does not uses the current
+  // provider set (ct-providers.js).
+  const racedProviders = Array.isArray(ctCache.providers) && ctCache.providers.length > 0
+    ? Object.freeze([...ctCache.providers])
+    : CT_PROVIDERS;
 
   const terminalResults = new Map();
   const consumerResults = new Map();
@@ -92,10 +93,10 @@ export async function raceCertificateTransparencyFirstSuccess({
     }
     await Promise.all(waits);
 
-    const includedTerminalProviders = PROVIDERS.filter((provider) => terminalResults.has(provider));
+    const includedTerminalProviders = racedProviders.filter((provider) => terminalResults.has(provider));
     const included = new Set(includedTerminalProviders);
     const providers = {};
-    for (const provider of PROVIDERS) {
+    for (const provider of racedProviders) {
       const terminal = terminalResults.get(provider);
       const consumed = consumerResults.get(provider);
       // `included` is authoritative. This keeps the slower provider when it was
@@ -118,7 +119,7 @@ export async function raceCertificateTransparencyFirstSuccess({
     }));
   };
 
-  waits = PROVIDERS.map((provider) => {
+  waits = racedProviders.map((provider) => {
     const consumerWait = ctCache.get(domain, provider, {
       accounting,
       module,
@@ -148,7 +149,7 @@ export async function raceCertificateTransparencyFirstSuccess({
           // this release boundary without waiting for genuinely slower work.
           queueMicrotask(() => queueMicrotask(() => {
             if (finalized) return;
-            if (graceMs > 0 && settledCount < PROVIDERS.length && signal?.aborted !== true) {
+            if (graceMs > 0 && settledCount < racedProviders.length && signal?.aborted !== true) {
               // Give the in-flight sibling one bounded chance to finish. Its own
               // settlement, the grace timer or a module abort ends the wait.
               graceWaiting = true;
@@ -158,7 +159,7 @@ export async function raceCertificateTransparencyFirstSuccess({
                 signal.addEventListener("abort", onGraceAbort, { once: true });
               }
             } else if (typeof ctCache.releaseConsumer === "function"
-              || settledCount === PROVIDERS.length) {
+              || settledCount === racedProviders.length) {
               finalize("first_success").catch(rejectOutput);
             } else {
               // Minimal all-terminal test doubles have no consumer-release API.
@@ -169,11 +170,11 @@ export async function raceCertificateTransparencyFirstSuccess({
           }));
         }
       }
-      if (settledCount === PROVIDERS.length && !finalized && graceWaiting) {
+      if (settledCount === racedProviders.length && !finalized && graceWaiting) {
         finalize("first_success").catch(rejectOutput);
-      } else if (settledCount === PROVIDERS.length && !finalized
+      } else if (settledCount === racedProviders.length && !finalized
         && (!releaseQueued || typeof ctCache.releaseConsumer !== "function")) {
-        const allPhysicalTerminal = terminalResults.size === PROVIDERS.length;
+        const allPhysicalTerminal = terminalResults.size === racedProviders.length;
         const reason = winner != null
           ? "first_success"
           : (allPhysicalTerminal ? "all_terminal_failure" : "consumer_released");

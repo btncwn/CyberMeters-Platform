@@ -4,6 +4,7 @@
 // Each signal resolves independently so a failed sibling cannot erase reliable
 // evidence. The state vocabulary is closed and non-overlapping.
 import { normalizeBoundedCoverageState } from "./bounded-coverage.js";
+import { ctProvidersUsed } from "./ct-providers.js";
 
 export const ATTACK_SURFACE_SIGNAL_COMPLETENESS_VERSION =
   "attack-surface-signal-completeness-v2";
@@ -43,7 +44,6 @@ export const ASSET_REMOVAL_CONFIRMATION_POLICY = Object.freeze({
   minimum_confirmation_window_ms: 48 * 60 * 60 * 1000,
   relevant_active_sources: ACTIVE_REMOVAL_SOURCES,
   passive_sources_excluded: Object.freeze([
-    "crt_sh",
     "certspotter",
     "certificate_transparency",
   ]),
@@ -107,8 +107,10 @@ function resolveSubdomainDiscovery(modules) {
     ...bruteItems.map((item) => item?.hostname).filter(Boolean),
   ]).size;
   const failedSources = sourceErrors(ct);
+  // The CT providers this result recorded (ct-providers.js).
+  const ctProviders = ctProvidersUsed(ct);
   const sources = [
-    ...(ct ? ["crt_sh", "certspotter"] : []),
+    ...(ct ? ctProviders : []),
     ...(brute ? ["dns_bruteforce"] : []),
   ];
   const limitations = [
@@ -130,7 +132,7 @@ function resolveSubdomainDiscovery(modules) {
   }
 
   const ctUnavailable = Boolean(ct?.error || ct?.ct_error) &&
-    failedSources.length >= 2;
+    failedSources.length >= ctProviders.length;
   const bruteUnavailable = Boolean(brute?.error);
   if ((moduleNotAssessed(ct) || ctUnavailable) &&
       (moduleNotAssessed(brute) || bruteUnavailable)) {
@@ -145,10 +147,7 @@ function resolveSubdomainDiscovery(modules) {
     !ct.error &&
     !ct.ct_error &&
     ct.incomplete !== true &&
-    ct.sources?.crt_sh &&
-    ct.sources?.certspotter &&
-    !ct.sources.crt_sh.error &&
-    !ct.sources.certspotter.error
+    ctProviders.every((provider) => ct.sources?.[provider] && !ct.sources[provider].error)
   );
   const bruteComplete = Boolean(
     brute &&

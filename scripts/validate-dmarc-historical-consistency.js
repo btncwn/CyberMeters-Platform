@@ -932,19 +932,10 @@ globalThis.fetch = async (input) => {
       vulnerabilities: [],
     });
   }
-  if (url.hostname === "crt.sh") {
-    if (a2bProviderMode === "partial") return jsonResponse({}, 403);
-    return jsonResponse([{
-      id: 1,
-      name_value: "fixture.example\nwww.fixture.example",
-      common_name: "fixture.example",
-      issuer_name: "A2b Fixture CA",
-      entry_timestamp: "2026-08-30T07:00:00.000Z",
-      not_before: "2026-08-01T00:00:00.000Z",
-      not_after: "2027-08-01T00:00:00.000Z",
-    }]);
-  }
+  // Production scans query CertSpotter as their sole CT source; losing it is
+  // total CT loss, which makes the later scan honestly non-complete.
   if (url.hostname === "api.certspotter.com") {
+    if (a2bProviderMode === "partial") return jsonResponse({}, 403);
     return jsonResponse([{
       id: "a2b-cert",
       not_before: "2026-08-01T00:00:00.000Z",

@@ -92,9 +92,13 @@ const EXPECTED = Object.freeze({
     source_file_count: 15,
     // The QA-benchmark admin gate shifts workspace-insights.js source lines;
     // all 35 predicate snippets and 26 query sites remain unchanged.
-    fingerprint: "5148873db302b47363e104b373f253d469f33a6b05f50dc64ae8d57521c8d0f8",
+    // CertSpotter-only CT: historical-scan.js reads CT counts provider-generically
+    // (two lines shorter), moving its one static/query-sink site 200 -> 198. A
+    // two-tree --dump-current diff (05214f78 vs this tree) shows no SQL site,
+    // predicate or sink added or removed; only these two digests move.
+    fingerprint: "d3ad621db04b641e8943e02756e33f920b68d37ef6bb793ca1df36ebead0d73d",
     resolved_query_sink_count: 19,
-    resolved_query_sink_fingerprint: "c704df5c4e2638595e2b0cf0e544ea0e5b2a35e00493bad8e253e8fe41c77e4d",
+    resolved_query_sink_fingerprint: "69ed004ef2d48c978551db9d81602d90b92b254fc5885e58275ef100471c937c",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -114,7 +118,12 @@ const EXPECTED = Object.freeze({
     // child-process comparisons and the presentation assertion moved within
     // validate-phase5-evidence-honesty.js; exact line keys were re-derived on
     // the final tree. No governance or product comparison changed membership.
-    comparison_occurrences: 84,
+    // CertSpotter-only CT: 84 -> 85 (same 32 files). The first-success
+    // validator's single "degraded" assertion became two: a lost CertSpotter
+    // grades partial and an answered one complete. Every other delta in the
+    // two-tree --dump-current diff is a line shift (scan-deadline,
+    // verify-live-ct-blackout-acceptance); runtime comparisons are unchanged.
+    comparison_occurrences: 85,
     source_file_count: 32,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
@@ -134,7 +143,7 @@ const EXPECTED = Object.freeze({
     // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
     // Subtracting these two sites reproduces the preceding exact fingerprint;
     // runtime, SQL and direct-read inventories are unchanged.
-    fingerprint: "26350e3027e318b45bf24d478ce14c2f82c55725e6958a31f048b108c566d2db",
+    fingerprint: "c52a0751eec5ead3302d8a4018516137a2b67b6e2aa359736f840f72fe6b0c1a",
   },
   runtime_source_file_count: 33,
   direct: {
@@ -197,7 +206,14 @@ const EXPECTED = Object.freeze({
     // counter validator. Direct-read identity is now the same line-stable exact
     // semantic multiset used above; additions/removals still move count/digest.
     // PR #484 adds the same regression's one direct scan_quality read.
-    governance: { occurrence_count: 124, source_file_count: 41, fingerprint: "43e5ec576bf71134341e21a11df4145f864f504f01a237077b47c5b41d34299b" },
+    // CertSpotter-only CT: 124 -> 125 (same 41 files), additive only. The CT
+    // blackout validator's partial-outage fixture became two fixtures (a stored
+    // two-provider record and a current CertSpotter-only record), each passing
+    // report.scan_quality; no read was removed and runtime reads are unchanged.
+    // The overlap telemetry module and its engine-trace validator were removed
+    // with the retired CT provider: 125 -> 123 across 41 -> 40 files, exactly that validator's two
+    // reads. The remaining deltas are line shifts (ct-r1 telemetry, scan-deadline).
+    governance: { occurrence_count: 123, source_file_count: 40, fingerprint: "ccd42d64b8c3976c9c6b24dbea7a3b72dd9b1fe35611aab9d45ac2acf7362acc" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
@@ -264,11 +280,15 @@ const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
   ["frontend/src/components/ExecutiveReportV2.jsx:250:value !== ''",
     "omit a blank coverage fact after the adjacent null guard"],
 ]);
+// The signal-monitoring-state entry is the same reviewed presentation assertion;
+// only its line moved (257 -> 301) when that validator's CT fixtures followed
+// CertSpotter-only CT (loader rewrite in 1a62725d, then the single-provider and
+// historical two-provider fixtures above it).
 const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
   "scripts/validate-phase5-evidence-honesty.js:234:presentation.quality === \"partial\"",
-  "scripts/validate-signal-monitoring-state.js:257:degraded.quality === \"degraded\"",
+  "scripts/validate-signal-monitoring-state.js:301:degraded.quality === \"degraded\"",
 ]);
 
 let passed = 0;

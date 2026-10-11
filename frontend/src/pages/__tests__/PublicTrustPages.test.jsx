@@ -25,7 +25,7 @@ describe('Founder and public assurance pages', () => {
     expect(screen.getByText('90 — provisional')).toBeInTheDocument()
     expect(screen.getByText('16 scan modules recorded')).toBeInTheDocument(); expect(screen.getByText('4 endpoints')).toBeInTheDocument()
     expect(screen.getByText('Partial', { exact: true })).toBeInTheDocument()
-    expect(screen.getByText(/crt.sh source did not complete/)).toHaveTextContent('CertSpotter returned results')
+    expect(screen.getByText(/sources used at the time did not complete/)).toHaveTextContent('the other returned results')
     expect(screen.getByText(/example.com scorecard/)).toHaveTextContent('separate, clearly labelled illustration')
     expect(document.body.textContent).not.toContain('100/100')
   })

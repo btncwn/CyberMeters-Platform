@@ -44,8 +44,7 @@ try {
       error: requested === provider ? null : "fixture unavailable",
       data: requested !== provider ? null : [{
         not_before: START, not_after: expiry,
-        common_name: "example.com", name_value: "example.com\nadmin.example.com",
-        issuer_name: "C4 CA", issuer: { name: "C4 CA" },
+        issuer: { name: "C4 CA" },
         dns_names: ["example.com", "admin.example.com"],
       }],
     }) };
@@ -56,7 +55,6 @@ try {
     const json = (body, status = 200) => new Response(JSON.stringify(body), {
       status, headers: { "content-type": "application/json" },
     });
-    if (url.hostname === "crt.sh") return json({}, 403);
     if (url.hostname === "api.certspotter.com") return json([{
       not_before: START, not_after: EXPIRY, issuer: { name: "C4 CA" },
       dns_names: ["example.com", "admin.example.com"],
@@ -71,7 +69,7 @@ try {
     });
   };
 
-  for (const provider of ["crt_sh", "certspotter"]) {
+  for (const provider of ["certspotter"]) {
     await test(`C4 ${provider}: injected instant selects certificate; strict boundary`, async () => {
       let calls = 0;
       const selected = await resolveCertificateTransparency("example.com", {
@@ -87,18 +85,6 @@ try {
       assert.equal(equal.cert_not_after, null, "not_after == now must remain excluded");
       const defaultClock = await resolveCertificateTransparency("example.com", { ctCache: cache(provider) });
       assert.equal(defaultClock.cert_not_after, null, "default November clock excludes expired certificate");
-      if (provider === "certspotter") {
-        // Both providers answer, but crt.sh has no unexpired certificate. The
-        // fallback must use the first instant even if the clock would advance.
-        calls = 0;
-        const mixed = { get: (domain, source) => cache(source, source === "crt_sh" ? NOW : EXPIRY).get(domain, source) };
-        const fallback = await resolveCertificateTransparency("example.com", {
-          ctCache: mixed, now: () => { calls++; return NOW_MS + (calls - 1) * DAY; },
-        });
-        assert.equal(calls, 1, "crt.sh and CertSpotter fallback share one sampled instant");
-        assert.equal(fallback.cert_not_after, EXPIRY);
-        assert.equal(fallback.cert_expiry_days, Math.floor((Date.parse(EXPIRY) - NOW_MS) / DAY));
-      }
     });
   }
 

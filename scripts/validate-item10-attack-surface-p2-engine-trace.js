@@ -279,8 +279,9 @@ try {
   eq("same-host foreign tenant remains isolated",
     db.prepare("SELECT status FROM workspace_assets WHERE id='asset-foreign'").get().status,
     "inactive");
-  ok("real trace reused shared CT providers once per scan",
-    providerCalls.crt === 5 && providerCalls.certspotter === 5,
+  // Production scans query CertSpotter as their sole CT source (ct-providers.js).
+  ok("real trace reused the shared CT provider once per scan and never contacted crt.sh",
+    providerCalls.crt === 0 && providerCalls.certspotter === 5,
     JSON.stringify(providerCalls));
 } finally {
   globalThis.fetch = originalFetch;

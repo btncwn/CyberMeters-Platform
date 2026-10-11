@@ -41,20 +41,14 @@ export const CT_PROVIDER_FIRST_SUCCESS_RELEASE_CUSTOMER_WORDING =
 const CT_PROVIDER_TELEMETRY_MODULES = Object.freeze(["ssl", "subdomains"]);
 const CT_PROVIDER_PHYSICAL_ATTEMPT_LIMIT = 4;
 export const CT_PROVIDER_POLICIES = Object.freeze({
-  // crt.sh serves a broad suffix query and is historically the slower provider.
-  crt_sh: Object.freeze({ timeoutMs: 6_000, maxAttempts: 2, backoffMs: 150 }),
-  // CertSpotter is a narrower indexed API and should normally answer faster.
+  // CertSpotter is an indexed API and normally answers well inside this bound.
   certspotter: Object.freeze({ timeoutMs: 4_000, maxAttempts: 2, backoffMs: 100 }),
 });
 
+// The CertSpotter API host. The optional SSLMate key is sent only here.
+const CERTSPOTTER_API_ORIGIN = "https://api.certspotter.com/";
+
 const PROVIDERS = Object.freeze({
-  crt_sh: {
-    // One suffix-wide response covers both the former apex certificate lookup and
-    // the former %.domain discovery lookup. Consumers restore their prior view.
-    url: (domain) => `https://crt.sh/?q=${encodeURIComponent("%" + domain)}&output=json`,
-    fetchContext: "scan/ct/crt-sh",
-    parseContext: "scan/ct/crt-sh-parse",
-  },
   certspotter: {
     url: (domain) =>
       `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(domain)}&include_subdomains=true&expand=dns_names&expand=issuer`,
@@ -491,10 +485,22 @@ export function createCertificateTransparencyCache({
   captureTelemetry = true,
   telemetryNow = Date.now,
   timeoutSignal = (ms) => AbortSignal.timeout(ms),
+  // Optional SSLMate API key. Without it CertSpotter's free unauthenticated
+  // quota is used.
+  certspotterApiKey = null,
 } = {}) {
   if (typeof fetcher !== "function") {
     throw new TypeError("Certificate Transparency cache requires a fetch function");
   }
+  const apiKey = typeof certspotterApiKey === "string" && certspotterApiKey.trim()
+    ? certspotterApiKey.trim()
+    : null;
+  // The key travels only to the CertSpotter API host, never to any other URL.
+  const providerFetcher = apiKey
+    ? (url, init = {}) => (String(url).startsWith(CERTSPOTTER_API_ORIGIN)
+      ? fetcher(url, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${apiKey}` } })
+      : fetcher(url, init))
+    : fetcher;
 
   const entries = new Map();
   const consumers = new Map();
@@ -589,7 +595,7 @@ export function createCertificateTransparencyCache({
     const accounting = physicalAccountingFor(normalizedDomain, provider);
     entry.promise = fetchProvider(config, provider, normalizedDomain, {
       accounting,
-      fetcher,
+      fetcher: providerFetcher,
       signal: controller.signal,
       policy: resolvePolicy(provider, policies),
       recordAttempt: captureTelemetry ? recordAttempt : null,
@@ -658,6 +664,7 @@ export function createCertificateTransparencyCache({
   };
 
   return {
+    providers: Object.freeze(Object.keys(PROVIDERS)),
     get(domain, provider, { accounting = null, module = null, signal: consumerSignal = null } = {}) {
       const normalizedDomain = normalizeDomain(domain);
       const config = PROVIDERS[provider];

@@ -387,9 +387,6 @@ jobs:
       - name: Validate CT-R1 provider telemetry load-bearing mutations
         run: node scripts/validate-ct-r1-provider-telemetry-mutations.js
 
-      - name: Validate CT-R2 PR-2A.1 consumer-isolation semantic mutations
-        run: node scripts/validate-ct-consumer-isolation-oracle-mutations.js
-
       - name: Validate CT-R2 PR-3 structural first-success-wins semantics
         run: node scripts/validate-ct-first-success-wins.js
 
@@ -762,14 +759,8 @@ jobs:
       - name: Validate CT-R1 faithful runScanEngine finalization trace
         run: node scripts/validate-ct-r1-provider-telemetry-engine-trace.js
 
-      - name: Validate CT-R2 PR-2A faithful runScanEngine finalization trace
-        run: node scripts/validate-ct-provider-overlap-engine-trace.js
-
       - name: Validate CT-R2 PR-3 first-success-wins semantic mutations
         run: node scripts/validate-ct-first-success-wins-mutations.js
-
-      - name: Validate Brand passive discovery PR-D load-bearing mutations
-        run: node scripts/validate-brand-passive-discovery-corrective-mutations.js
 
       - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
         run: node scripts/validate-hosted-tls-rpt.js
@@ -1032,6 +1023,9 @@ jobs:
       - name: Validate subdomain sensitive names (production names are never scored as sensitive)
         run: node scripts/validate-subdomain-sensitive-names.js
 
+      - name: Validate Certificate Transparency production policy (CertSpotter only, crt.sh never contacted)
+        run: node scripts/validate-ct-certspotter-only.js
+
       - name: Validate website signed-in scanning (vault, sign-in session, profiles)
         run: node scripts/validate-website-sign-in.js
 
@@ -1157,9 +1151,6 @@ jobs:
 
       - name: Validate managed brand takedown lifecycle (evidence + approval + verification)
         run: node scripts/validate-brand-takedown-lifecycle.js
-
-      - name: Validate Brand passive discovery PR-D corrective (CT merge / active scheduling / authenticated bounded trigger)
-        run: node scripts/validate-brand-passive-discovery-corrective.js
 
       - name: Validate Brand IDN discovery PR-B (generation / CT expansion / own-IDN exclusion / corroboration)
         run: node scripts/validate-brand-idn-discovery.js
@@ -1548,20 +1539,8 @@ jobs:
       - name: Validate CT-R1 provider telemetry (fixtures + schema + analyzer + governance)
         run: node scripts/validate-ct-r1-provider-telemetry.js
 
-      - name: Validate CT-R2 PR-2A shadow provider-overlap telemetry
-        run: node scripts/validate-ct-provider-overlap-telemetry.js
-
-      - name: Validate CT-R2 PR-2A shadow provider-overlap load-bearing mutations
-        run: node scripts/validate-ct-provider-overlap-telemetry-mutations.js
-
-      - name: Validate CT-R2 PR-2A.1 consumer-isolation binding oracle
-        run: node scripts/validate-ct-consumer-isolation-oracle.js
-
       - name: Validate brand DNS enrichment (tri-state truth + auto lifecycle + shared helper)
         run: node scripts/validate-brand-dns-enrichment.js
-
-      - name: Validate brand passive discovery (CT nested-host discovery / membership filter / CT-observed honesty / tenant isolation)
-        run: node scripts/validate-brand-passive-discovery.js
 
       - name: Validate Brand IDN/homograph PR-A (IDNA round-trip / skeleton / script / negatives / ASCII compatibility)
         run: node scripts/validate-brand-idn-homograph.js

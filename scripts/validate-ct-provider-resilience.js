@@ -52,7 +52,7 @@ async function importCacheSource(source, suffix) {
   const isolated = source.replace(
     'import { customerSafeFailure } from "../lib/errors.js";',
     'const customerSafeFailure = (_context, _error, message) => message;'
-  );
+  ).replace('from "./ct-providers.js";', `from "${engineUrl("ct-providers.js")}";`);
   const href = `data:text/javascript;base64,${Buffer.from(isolated).toString("base64")}#${suffix}`;
   return import(href);
 }
@@ -60,14 +60,14 @@ async function importCacheSource(source, suffix) {
 async function attemptCapContract(createCache) {
   let calls = 0;
   const result = await createCache({
-    policies: policy("crt_sh", { maxAttempts: 3, backoffMs: 0 }),
+    policies: policy("certspotter", { maxAttempts: 3, backoffMs: 0 }),
     fetcher: async () => {
       calls++;
       return calls < 3 ? jsonResponse({}, 503) : jsonResponse([{ id: "late-success" }]);
     },
     remainingMs: () => 10_000,
     sleep: async () => {},
-  }).get("example.com", "crt_sh");
+  }).get("example.com", "certspotter");
   return { calls, result };
 }
 
@@ -75,7 +75,7 @@ async function deadlineContract(createCache) {
   let calls = 0;
   let remaining = 50;
   const result = await createCache({
-    policies: policy("crt_sh", { maxAttempts: 2, backoffMs: 0 }),
+    policies: policy("certspotter", { maxAttempts: 2, backoffMs: 0 }),
     fetcher: async () => {
       calls++;
       remaining = 0;
@@ -83,26 +83,40 @@ async function deadlineContract(createCache) {
     },
     remainingMs: () => remaining,
     sleep: async () => {},
-  }).get("example.com", "crt_sh");
+  }).get("example.com", "certspotter");
   return { calls, result };
 }
 
 async function falseEmptyContract(createCache) {
   const result = await createCache({
-    policies: policy("crt_sh", { backoffMs: 0 }),
+    policies: policy("certspotter", { backoffMs: 0 }),
     fetcher: async () => jsonResponse({}, 503),
     remainingMs: () => 10_000,
     sleep: async () => {},
-  }).get("example.com", "crt_sh");
+  }).get("example.com", "certspotter");
   return result;
 }
 
-// Named defaults are intentionally different: crt.sh is historically slower.
+// CertSpotter is the only CT provider; its named policy is the whole policy.
 eq("hard attempt cap permits exactly one retry", CT_PROVIDER_HARD_ATTEMPT_CAP, 2);
-eq("crt.sh named timeout", CT_PROVIDER_POLICIES.crt_sh.timeoutMs, 6_000);
+same("CT policy declares exactly the CertSpotter provider", Object.keys(CT_PROVIDER_POLICIES), ["certspotter"]);
 eq("CertSpotter named timeout", CT_PROVIDER_POLICIES.certspotter.timeoutMs, 4_000);
-ok("provider timeouts are independently tunable",
-  CT_PROVIDER_POLICIES.crt_sh.timeoutMs !== CT_PROVIDER_POLICIES.certspotter.timeoutMs);
+eq("CertSpotter named attempt budget", CT_PROVIDER_POLICIES.certspotter.maxAttempts, 2);
+// The provider timeout is tunable per provider: a policy override, not the
+// named default, sets the attempt timer when the scan budget allows it.
+{
+  const observedTimeouts = [];
+  await createCertificateTransparencyCache({
+    policies: policy("certspotter", { timeoutMs: 1_234, maxAttempts: 1 }),
+    fetcher: async () => jsonResponse([]),
+    remainingMs: () => 10_000,
+    timeoutSignal: (ms) => {
+      observedTimeouts.push(ms);
+      return new AbortController().signal;
+    },
+  }).get("example.com", "certspotter");
+  same("provider timeout is independently tunable", observedTimeouts, [1_234]);
+}
 {
   const cacheSource = fs.readFileSync(enginePath("ct-provider-cache.js"), "utf8");
   ok("production timeout signal uses the platform AbortSignal timer",
@@ -111,12 +125,17 @@ ok("provider timeouts are independently tunable",
 
 // Transient failure then success: one shared logical result, one retry, unchanged data.
 {
-  const fixture = [{ id: 7, name_value: "example.com\nwww.example.com" }];
+  const fixture = [{
+    not_before: "2026-01-01T00:00:00.000Z",
+    not_after: "2099-01-01T00:00:00.000Z",
+    issuer: { name: "Fixture CA" },
+    dns_names: ["example.com", "www.example.com"],
+  }];
   const sleeps = [];
   let calls = 0;
   let clock = 1_000;
   const cache = createCertificateTransparencyCache({
-    policies: policy("crt_sh", { backoffMs: 25 }),
+    policies: policy("certspotter", { backoffMs: 25 }),
     fetcher: async () => {
       calls++;
       clock += calls === 1 ? 20 : 15;
@@ -129,8 +148,8 @@ ok("provider timeouts are independently tunable",
       clock += ms;
     },
   });
-  const first = cache.get("Example.COM.", "crt_sh");
-  const second = cache.get("example.com", "crt_sh");
+  const first = cache.get("Example.COM.", "certspotter");
+  const second = cache.get("example.com", "certspotter");
   ok("consumers share one in-flight logical lookup", first === second);
   const [a, b] = await Promise.all([first, second]);
   ok("consumers receive one shared logical result", a === b);
@@ -138,10 +157,10 @@ ok("provider timeouts are independently tunable",
   same("recovered provider data is byte-identical", a.data, fixture);
   same("one short backoff occurs", sleeps, [25]);
   const health = cache.healthSnapshot();
-  eq("recovered provider health is available", health.crt_sh.outcome, "available");
-  eq("recovered provider health records both attempts", health.crt_sh.attempts, 2);
-  eq("recovered provider health records total latency", health.crt_sh.latency_ms, 60);
-  eq("recovered provider health clears final error", health.crt_sh.final_error, null);
+  eq("recovered provider health is available", health.certspotter.outcome, "available");
+  eq("recovered provider health records both attempts", health.certspotter.attempts, 2);
+  eq("recovered provider health records total latency", health.certspotter.latency_ms, 60);
+  eq("recovered provider health clears final error", health.certspotter.final_error, null);
 }
 
 // Persistent transient failure: bounded attempts and explicit unavailable result.
@@ -175,10 +194,10 @@ ok("provider timeouts are independently tunable",
     },
     remainingMs: () => 5_000,
   });
-  const result = await cache.get("example.com", "crt_sh");
+  const result = await cache.get("example.com", "certspotter");
   ok("bad response shape is explicit unavailable", unavailableContract(result));
   eq("bad response shape is not retried", calls, 1);
-  eq("bad shape health records one attempt", cache.healthSnapshot().crt_sh.attempts, 1);
+  eq("bad shape health records one attempt", cache.healthSnapshot().certspotter.attempts, 1);
 }
 {
   let calls = 0;
@@ -205,10 +224,10 @@ ok("provider timeouts are independently tunable",
       return jsonResponse([]);
     },
   });
-  const result = await cache.get(" ", "crt_sh");
+  const result = await cache.get(" ", "certspotter");
   ok("invalid domain is explicit unavailable", unavailableContract(result));
   eq("invalid domain issues no request", calls, 0);
-  eq("invalid domain health records no attempt", cache.healthSnapshot().crt_sh.attempts, 0);
+  eq("invalid domain health records no attempt", cache.healthSnapshot().certspotter.attempts, 0);
 }
 
 // Per-attempt timeout is both enforced and capped by the remaining scan budget.
@@ -243,7 +262,7 @@ ok("provider timeouts are independently tunable",
   console.error = () => {};
   try {
     const cache = createCertificateTransparencyCache({
-      policies: policy("crt_sh", { timeoutMs: 9_000, maxAttempts: 1 }),
+      policies: policy("certspotter", { timeoutMs: 9_000, maxAttempts: 1 }),
       fetcher: async (_url, { signal }) => {
         calls++;
         throw signal.reason || new DOMException("timed out", "TimeoutError");
@@ -254,7 +273,7 @@ ok("provider timeouts are independently tunable",
         return AbortSignal.abort(new DOMException("timed out", "TimeoutError"));
       },
     });
-    const result = await cache.get("example.com", "crt_sh");
+    const result = await cache.get("example.com", "certspotter");
     ok("provider timeout becomes explicit unavailable", unavailableContract(result));
   } finally {
     console.error = originalConsoleError;
@@ -273,19 +292,20 @@ ok("provider timeouts are independently tunable",
 // Health snapshots are copied into the existing R2-only execution diagnostics.
 {
   const cache = createCertificateTransparencyCache({
-    fetcher: async (url) => jsonResponse([{
-      id: String(url).includes("certspotter") ? "certspotter-healthy" : "crt-healthy",
+    fetcher: async () => jsonResponse([{
+      not_before: "2026-01-01T00:00:00.000Z",
+      not_after: "2099-01-01T00:00:00.000Z",
+      issuer: { name: "Healthy CA" },
+      dns_names: ["example.com"],
     }]),
     remainingMs: () => 5_000,
   });
-  await Promise.all([
-    cache.get("example.com", "crt_sh"),
-    cache.get("example.com", "certspotter"),
-  ]);
+  await cache.get("example.com", "certspotter");
   const health = cache.healthSnapshot();
   const diagnostics = buildExecutionDiagnostics({ providerHealth: health });
   same("execution diagnostics records provider health", diagnostics.provider_health, health);
-  eq("diagnostics includes crt.sh health", diagnostics.provider_health.crt_sh.outcome, "available");
+  same("diagnostics records only the queried CT provider",
+    Object.keys(diagnostics.provider_health), ["certspotter"]);
   eq("diagnostics includes CertSpotter health",
     diagnostics.provider_health.certspotter.outcome, "available");
   health.certspotter.attempts = 99;

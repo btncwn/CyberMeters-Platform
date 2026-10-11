@@ -3,12 +3,14 @@
 // SSL module concurrency + evidence-preservation (chronic-partial root-cause fix).
 // runSslModule ran its HTTPS reachability probes and its Certificate-Transparency
 // cert lookup SEQUENTIALLY, so the module's wall-time was the SUM of both chains.
-// On a slow-crt.sh day that pushed the whole scan past its ~21s deadline and
+// On a slow-CT-provider day that pushed the whole scan past its ~21s deadline and
 // starved the later deadline-gated modules (chronic `partial`). The fix launches
 // the CT lookup concurrently with the reachability probes. This suite proves:
 //   1. the two chains OVERLAP (CT fetch starts before the reachability chain ends);
 //   2. total wall-time ≈ max(chains), NOT sum (the load-bearing property);
-//   3. every cert_* field is preserved byte-for-byte vs the pre-fix logic.
+//   3. every cert_* field is preserved from the CertSpotter issuance;
+//   4. CertSpotter is the only CT source contacted;
+//   5. a CT failure is best-effort unknown, never a throw into the scan.
 // Deterministic: global fetch/safeFetch are mocked with controllable delays, and
 // concurrency is asserted by CALL-OVERLAP, never by wall-clock flakiness.
 // CI-blocking. Requires Node 24+.
@@ -26,11 +28,12 @@ const ok = (name, cond) => { cond ? (pass++, results.push(`PASS ${name}`)) : (fa
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const realFetch = globalThis.fetch;
+const isCertSpotter = (url) => String(url).startsWith("https://api.certspotter.com/");
 
-// A fake crt.sh response with one currently-valid cert (drives the cert_* fields).
+// A fake CertSpotter response with one currently-valid issuance (drives the cert_* fields).
 const future = new Date(Date.now() + 60 * 86_400_000).toISOString();
 const past = new Date(Date.now() - 30 * 86_400_000).toISOString();
-const crtBody = [{ not_after: future, not_before: past, issuer_name: "Let's Encrypt", common_name: "acme.example", name_value: "acme.example\nwww.acme.example" }];
+const csBody = [{ not_after: future, not_before: past, issuer: { name: "Let's Encrypt" }, dns_names: ["acme.example", "www.acme.example"] }];
 const jsonResponse = (body) => ({ ok: true, headers: { get: (h) => (h.toLowerCase() === "content-type" ? "application/json" : null) }, json: async () => body });
 
 // ── 1. Concurrency: the CT fetch overlaps the reachability probes ─────────────
@@ -38,11 +41,9 @@ const jsonResponse = (body) => ({ ok: true, headers: { get: (h) => (h.toLowerCas
   const events = [];
   let reachEnd = 0, ctStart = 0;
   // safeFetch (reachability) → uses global fetch to https://... / http://...
-  // crt.sh / certspotter → global fetch to crt.sh / certspotter.
+  // CertSpotter → global fetch to api.certspotter.com.
   globalThis.fetch = async (url) => {
-    const u = String(url);
-    if (u.includes("crt.sh")) { ctStart = performance.now(); events.push(["ct_start", ctStart]); await sleep(120); return jsonResponse(crtBody); }
-    if (u.includes("certspotter")) { await sleep(160); return jsonResponse([]); }
+    if (isCertSpotter(url)) { ctStart = performance.now(); events.push(["ct_start", ctStart]); await sleep(120); return jsonResponse(csBody); }
     // reachability probes (https/http HEAD via safeFetch) — a few sequential hops.
     await sleep(40);
     reachEnd = performance.now();
@@ -60,14 +61,14 @@ const jsonResponse = (body) => ({ ok: true, headers: { get: (h) => (h.toLowerCas
   // were sequential, total would be reach+CT (~≥160ms + hops). Concurrent → ~max.
   ok("total wall-time is bounded by the slower chain, not the sum", total < 200);
   // Evidence still present.
-  ok("cert_not_after preserved from crt.sh", res.cert_not_after === future);
+  ok("cert_not_after preserved from CertSpotter", res.cert_not_after === future);
   ok("cert_issuer preserved", res.cert_issuer === "Let's Encrypt");
   ok("https reachability still resolved", res.https_available === true);
 }
 
 // ── 2. resolveCertificateTransparency is a faithful extraction ────────────────
 {
-  globalThis.fetch = async (url) => (String(url).includes("crt.sh") ? jsonResponse(crtBody) : jsonResponse([]));
+  globalThis.fetch = async (url) => (isCertSpotter(url) ? jsonResponse(csBody) : jsonResponse([]));
   const cert = await resolveCertificateTransparency("acme.example");
   globalThis.fetch = realFetch;
   const fields = ["cert_expiry_days", "cert_age_days", "cert_not_before", "cert_not_after", "cert_issuer", "cert_subject", "cert_san_count", "cert_raw_san_count", "cert_wildcard_san_count", "cert_shared_san_count", "cert_san_names"];
@@ -76,32 +77,37 @@ const jsonResponse = (body) => ({ ok: true, headers: { get: (h) => (h.toLowerCas
   // SAN normalisation is preserved verbatim from the pre-fix code; assert the shape
   // (array + count consistency) rather than a specific normalised membership.
   ok("CT resolver returns a normalised SAN array with a consistent count", Array.isArray(cert.cert_san_names) && cert.cert_san_count === cert.cert_san_names.length);
+  // A CertSpotter issuance has no certificate subject; none is invented.
+  ok("CT resolver claims no certificate subject", cert.cert_subject === null);
 }
 
-// ── 3. parallel CertSpotter evidence supplies fields when crt.sh is empty ─────
+// ── 3. CertSpotter is the only CT source contacted ─────────────────────────────
+// (Replaces the former two-provider fallback case: with a single CT provider
+// there is no fallback to exercise.)
 {
-  const csBody = [{ not_after: future, not_before: past, issuer: { name: "SpotCA" }, dns_names: ["acme.example"] }];
-  let crtCalls = 0, csCalls = 0;
+  const urls = [];
   globalThis.fetch = async (url) => {
-    const u = String(url);
-    if (u.includes("crt.sh")) { crtCalls++; return jsonResponse([]); }            // crt.sh yields no cert
-    if (u.includes("certspotter")) { csCalls++; return jsonResponse(csBody); }    // fallback provides one
-    return { ok: true, status: 200, headers: { get: () => null } };
+    urls.push(String(url));
+    return isCertSpotter(url) ? jsonResponse(csBody) : jsonResponse([]);
   };
   const cert = await resolveCertificateTransparency("acme.example");
   globalThis.fetch = realFetch;
-  ok("both CT providers are launched once", crtCalls === 1 && csCalls === 1);
-  ok("CertSpotter evidence is used when crt.sh is empty", cert.cert_issuer === "SpotCA");
+  ok("exactly one CT request, to CertSpotter, for the scanned domain",
+    urls.length === 1 && isCertSpotter(urls[0]) && new URL(urls[0]).searchParams.get("domain") === "acme.example");
+  ok("CT sources record exactly the CertSpotter provider",
+    JSON.stringify(Object.keys(cert.ct_sources || {})) === JSON.stringify(["certspotter"])
+      && cert.ct_sources.certspotter.error === null);
 }
 
 // ── 4. CT failure is best-effort (nulls), never throws into the scan ──────────
 {
-  globalThis.fetch = async () => { throw new Error("crt.sh down"); };
+  globalThis.fetch = async () => { throw new Error("CertSpotter down"); };
   let threw = false; let cert;
   try { cert = await resolveCertificateTransparency("acme.example"); } catch { threw = true; }
   globalThis.fetch = realFetch;
   ok("CT lookup never throws on external failure", threw === false);
   ok("CT fields fail closed to null/0 on total failure", cert.cert_not_after === null && cert.cert_san_count === 0);
+  ok("total CT failure is recorded, never silent", typeof cert.ct_sources?.certspotter?.error === "string" && cert.ct_sources.certspotter.error.length > 0);
 }
 
 // ── report ─────────────────────────────────────────────────────────────────

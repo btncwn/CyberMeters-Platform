@@ -5,7 +5,7 @@
 // Stored SSL/certificate-intelligence bytes are immutable. The projection
 // clones the certificate-intelligence object, appends one presentation field,
 // and never writes, backfills, or uses time/deployment/application versions.
-import { buildCertificateOwnershipAssessment } from "../engines/cert-intel.js";
+import { buildCertificateOwnershipAssessment, sharedSanMeasured } from "../engines/cert-intel.js";
 
 const POST_CUTOVER_SCHEMA_VERSION = 3;
 const SCHEMA_VERSION_PATTERN = /^external-certificate-observation-v([1-9]\d*)$/;
@@ -57,15 +57,9 @@ export function projectCertificateSharedSanForCustomer({
   const postCutover = versionMatch != null &&
     Number(versionMatch[1]) >= POST_CUTOVER_SCHEMA_VERSION;
   const rawSharedSanCount = ssl?.cert_shared_san_count;
-  const crtShSource = ssl?.ct_sources?.crt_sh;
-  const fivePredicatesHold = Boolean(
-    crtShSource &&
-    crtShSource.error == null &&
-    Number.isInteger(crtShSource.count) &&
-    crtShSource.count > 0 &&
-    Number.isInteger(rawSharedSanCount) &&
-    rawSharedSanCount >= 0
-  );
+  // A CT source answered with a SAN-bearing result and the count is a
+  // non-negative integer.
+  const fivePredicatesHold = sharedSanMeasured(ssl);
   const evidenceComplete = rawCertificateIntelligence.incomplete !== true;
 
   let sharedSanAssessment;

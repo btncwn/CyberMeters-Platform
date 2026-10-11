@@ -20,6 +20,17 @@
 //                 Incoherent. MUST be rejected.
 //
 // Every variant restores exact bytes afterwards, verified by hash.
+//
+// CertSpotter-only CT: the subdomains producer no longer emits `degradations[]`
+// (with one CT provider there is no surviving sibling to fall back to), so the
+// live D1 surface is the carrier, buildScanQuality's structured-deficiency
+// mapping and the asm-cases verification gate; stored D1 records still carry the
+// structured facts. The probe therefore feeds a stored-shape deficiency (the
+// retired provider under a neutral key). The pre-D1 scan-engine imports
+// ct-provider-overlap.js, which later work deleted; any variant that reverts
+// scan-engine restores that pre-D1 dependency from the same base and removes it
+// again afterwards. A real D1 rollback on this tree would therefore also restore
+// that module and the pre-D1 two-provider subdomains producer.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -37,6 +48,10 @@ const PRODUCER = [
 ];
 const CARRIER = "workers/scan-api/src/engines/scan-degradation-contract.js";
 const CONSUMER = ["workers/scan-api/src/engines/asm-cases.js"];
+// Modules the pre-D1 producer imports that no longer exist on this tree. They
+// are not part of the D1 unit; they are restored only so a reverted scan-engine
+// can load, and they are absent again after every variant.
+const PRE_D1_DEPENDENCIES = ["workers/scan-api/src/engines/ct-provider-overlap.js"];
 const ALL = [...PRODUCER, CARRIER, ...CONSUMER];
 
 // Pre-D1 bytes come from the EXACT BASE COMMIT, not from HEAD.
@@ -66,7 +81,8 @@ try {
   try {
     await import(E("scan-degradation-contract.js"));
     // Deterministic module FACTS — the engine stamps observed_at centrally.
-    deg = { module:"subdomains", dependency:"ct_provider:crt_sh", reason:"x",
+    // A stored D1 record's shape; the lost provider is a neutral retired key.
+    deg = { module:"subdomains", dependency:"ct_provider:retired_provider", reason:"x",
       fallback_source:"ct_provider:certspotter", fallback_count:2 };
     out.carrier = true;
   } catch { out.carrier = false; }
@@ -92,7 +108,8 @@ function probe() {
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; console.log(`${c ? "PASS" : "FAIL"} ${n}${!c && d ? " — " + d : ""}`); };
 
-const originals = new Map(ALL.map((r) => [r, fs.existsSync(abs(r)) ? fs.readFileSync(abs(r), "utf8") : null]));
+const originals = new Map([...ALL, ...PRE_D1_DEPENDENCIES].map((r) =>
+  [r, fs.existsSync(abs(r)) ? fs.readFileSync(abs(r), "utf8") : null]));
 const originalHashes = new Map([...originals].map(([r, v]) => [r, v === null ? "ABSENT" : sha256(v)]));
 const restoreAll = () => {
   for (const [r, v] of originals) {
@@ -101,12 +118,18 @@ const restoreAll = () => {
   }
 };
 const revert = (paths) => {
-  for (const r of paths) {
+  // A reverted scan-engine needs its pre-D1 dependencies to load at all.
+  const withDependencies = paths.includes("workers/scan-api/src/engines/scan-engine.js")
+    ? [...paths, ...PRE_D1_DEPENDENCIES.filter((r) => originals.get(r) === null)]
+    : paths;
+  for (const r of withDependencies) {
     const pre = preD1(r);
     if (pre === null) fs.rmSync(abs(r), { force: true }); // new file -> absence
     else fs.writeFileSync(abs(r), pre);
   }
 };
+ok("JR_PRE_D1_DEPENDENCIES_ABSENT_FROM_CURRENT_TREE_AND_PRESENT_AT_BASE",
+  PRE_D1_DEPENDENCIES.every((r) => originals.get(r) === null && preD1(r) !== null));
 
 // ── Current (post-D1) state ────────────────────────────────────────────────
 {
@@ -136,7 +159,7 @@ try {
   const unsafe = s.produced === "degraded" && s.degradedVerifies === true;
   ok("JR_CONSUMER_ONLY_ROLLBACK_IS_UNSAFE_AND_REJECTED", unsafe,
     `expected producer still degraded + verification re-opened; got produced=${s.produced} degradedVerifies=${s.degradedVerifies}`);
-  console.log("     ^ rejected: re-opens the I11A-C3 defect on a status the producer still emits");
+  console.log("     ^ rejected: re-opens the I11A-C3 defect on a status the engine still grades and stored scans still carry");
 } finally { restoreAll(); }
 
 // ── PRODUCER-ONLY rollback — must be REJECTED ──────────────────────────────
@@ -148,7 +171,11 @@ try {
   // imports, so the consumer cannot even LOAD. The rejection is a hard module
   // resolution failure, not a subtle semantic drift — which is the most decisive
   // possible proof that the unit cannot be split.
-  const hardFailure = typeof s.error === "string" && /Cannot find module|ERR_MODULE_NOT_FOUND/.test(s.error);
+  // The missing module must be the carrier itself, so an unrelated load failure
+  // (e.g. a pre-D1 dependency that later work deleted) cannot pass this check.
+  const hardFailure = typeof s.error === "string" &&
+    /Cannot find module|ERR_MODULE_NOT_FOUND/.test(s.error) &&
+    s.error.includes("scan-degradation-contract.js");
   ok("JR_PRODUCER_ONLY_ROLLBACK_IS_REJECTED_AS_A_HARD_LOAD_FAILURE", hardFailure,
     `expected the consumer to fail loading without the carrier; got error=${s.error} carrier=${s.carrier} produced=${s.produced}`);
   console.log("     ^ rejected: consumer imports the carrier the producer-only rollback deletes");

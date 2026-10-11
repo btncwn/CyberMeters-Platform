@@ -317,8 +317,9 @@ try {
     "ct_issuance"
   );
 
-  eq("one shared crt.sh lookup per real scan", providerCalls.crt_sh, 3);
-  eq("one shared CertSpotter fallback per real scan", providerCalls.certspotter, 3);
+  // Production scans query CertSpotter as their sole CT source (ct-providers.js).
+  eq("real scans never contact crt.sh", providerCalls.crt_sh, 0);
+  eq("one shared CertSpotter lookup per real scan", providerCalls.certspotter, 3);
   ok("real engine exercised network edges", outboundCalls > 0);
 
   for (const report of [firstReport, secondReport, thirdReport]) {
