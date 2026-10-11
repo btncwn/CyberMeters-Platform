@@ -8,6 +8,7 @@ import {
   ASSET_REMOVAL_CONFIRMATION_POLICY,
   ATTACK_SURFACE_SIGNAL_COMPLETENESS_VERSION,
   ATTACK_SURFACE_SIGNAL_KEYS,
+  deriveRemovalObservation,
 } from "./attack-surface-signal-completeness.js";
 import { normalizeHostname } from "./hostnames.js";
 import { createId } from "../lib/util.js";
@@ -111,6 +112,14 @@ export function notAssessedSignals() {
     dns_resolution: { state: "not_assessed", reason: "asset_not_in_active_recheck_envelope" },
     http_https_service: { state: "not_assessed", reason: "asset_not_in_active_recheck_envelope" },
   };
+}
+
+// The scanned root is the customer's own domain, not a discovered asset, so it
+// never enters removal confirmation. Positive active evidence for it is still a
+// real observation: accept it so the root reads "Observed" instead of "Not
+// assessed", and drop anything weaker so the root can never qualify removal.
+function rootObservation(row) {
+  return row && deriveRemovalObservation(row.signal_states) === "observed" ? row : null;
 }
 
 function normalizeRemovalObservation(row) {
@@ -331,7 +340,7 @@ export async function persistAttackSurfaceLifecycle({
         scopeSignals
           ? { signal_states: scopeSignals }
           : normalizeHostname(asset.hostname) === root
-            ? null
+            ? rootObservation(observationByHost.get(root))
             : observationByHost.get(normalizeHostname(asset.hostname)),
       );
       const previousRows = byAsset.get(asset.id) || [];

@@ -267,6 +267,27 @@ eq("root identity never enters removal confirmation",
   db.prepare("SELECT lifecycle_state FROM workspace_assets WHERE id='asset-root'").get().lifecycle_state,
   "not_assessed");
 
+// Positive active evidence for the scanned root is a real observation and is
+// shown as such; a later negative never qualifies the root for removal.
+await persist("scan-root-seen", "2026-08-02T00:00:00.000Z", [observed("example.com")]);
+eq("observed root reads observed instead of not assessed",
+  db.prepare("SELECT lifecycle_state FROM workspace_assets WHERE id='asset-root'").get().lifecycle_state,
+  "observed");
+for (const [scanId, at] of [
+  ["scan-root-gone-1", "2026-08-03T00:00:00.000Z"],
+  ["scan-root-gone-2", "2026-08-05T00:00:00.000Z"],
+  ["scan-root-gone-3", "2026-08-07T00:00:00.000Z"],
+]) {
+  await persist(scanId, at, [negative("example.com")]);
+}
+eq("root negatives never qualify removal",
+  db.prepare("SELECT COUNT(*) AS n FROM asset_lifecycle_observations WHERE asset_id='asset-root' AND qualifies_removal=1").get().n, 0);
+eq("root negatives never confirm removal",
+  db.prepare("SELECT lifecycle_state FROM workspace_assets WHERE id='asset-root'").get().lifecycle_state,
+  "observed");
+eq("root negatives never emit a removal event",
+  db.prepare("SELECT COUNT(*) AS n FROM asset_events WHERE event_type='asset_no_longer_seen' AND hostname='example.com'").get().n, 0);
+
 // The production writer consumes the same semantic timestamp, independent
 // ingestion timestamp and bytewise scan-id order as the read projection. These
 // two assets confirm only when created_at and then scan_id resolve their reset
