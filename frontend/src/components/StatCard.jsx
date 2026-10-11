@@ -52,7 +52,7 @@ export default function StatCard({
       {sub && <p className="text-xs text-gray-500 mt-0.5 leading-snug">{sub}</p>}
       {/* NUMBER AT THE BOTTOM, and deliberately SMALLER than the label — it
          supports the meaning, it does not dominate it. */}
-      <p className={`text-[13px] font-bold mt-2 leading-none tabular-nums ${T.value}`}>{value ?? '—'}</p>
+      <p className={`text-[14px] font-bold mt-2 leading-none tabular-nums ${T.value}`}>{value ?? '—'}</p>
     </div>
   )
 }

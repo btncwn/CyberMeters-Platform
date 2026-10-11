@@ -39,7 +39,7 @@ function EvidenceStrengthLine({ assertion, fallbackLimits = [] }) {
     ? evidenceLimits([assertion])
     : [...new Set(fallbackLimits.map(customerEvidenceText).filter(Boolean))]
   return (
-    <div className="mt-1 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-1.5 text-[11px] leading-relaxed text-slate-500">
+    <div className="mt-1 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-1.5 text-[13px] leading-relaxed text-slate-500">
       <p className="font-semibold text-slate-700">
         Evidence strength: {hasGrade ? evidenceStrengthLabel(assertion) : 'Not recorded'}
       </p>
@@ -68,11 +68,11 @@ function DomainRow({ d }) {
         </div>
       </div>
       <div className="flex-shrink-0 text-right">
-        <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-md border ${TONE[meta.tone]}`}>
+        <span className={`inline-block text-[13px] font-medium px-2 py-0.5 rounded-md border ${TONE[meta.tone]}`}>
           {conclusionLabel}{provisional ? ' · provisional' : ''}
         </span>
         {typeof d.finding_count === 'number' && d.finding_count > 0 && (
-          <div className="text-[11px] text-gray-400 mt-1">{d.finding_count} finding{d.finding_count === 1 ? '' : 's'}</div>
+          <div className="text-[13px] text-gray-400 mt-1">{d.finding_count} finding{d.finding_count === 1 ? '' : 's'}</div>
         )}
       </div>
     </div>
@@ -93,7 +93,7 @@ export default function CyberMotDomains({ domains, title = 'Cyber MOT — Eight-
       <div>
         {list.map((d) => <DomainRow key={d.domain_key} d={d} />)}
       </div>
-      <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">
+      <p className="text-[13px] text-gray-400 mt-3 leading-relaxed">
         Every domain is always shown with one honest state — a domain with no evidence is never marked healthy.
         Identity Exposure shows provider relationships, possible hostnames and measured endpoints where HTTP evidence is available; credential/breach monitoring is not provided;
         Shadow IT shows externally observed technology (approved-inventory comparison is not yet configured).

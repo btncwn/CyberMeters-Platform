@@ -43,7 +43,7 @@ export default function VerificationStatusBadge({ status, size = 'sm' }) {
     }
   })()
 
-  const textSize = size === 'md' ? 'text-xs' : 'text-[11px]'
+  const textSize = size === 'md' ? 'text-xs' : 'text-[13px]'
   const iconSize = size === 'md' ? 'w-3.5 h-3.5' : 'w-3 h-3'
   const px       = size === 'md' ? 'px-2.5 py-1' : 'px-2 py-0.5'
 

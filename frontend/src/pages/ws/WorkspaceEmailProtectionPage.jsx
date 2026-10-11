@@ -141,13 +141,13 @@ function DmarcJourney({ journey }) {
           </div>
           {journey.business_risk && (
             <div className="mb-3">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-0.5">What this means for your business</p>
+              <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-0.5">What this means for your business</p>
               <p className="text-sm text-gray-700 leading-relaxed">{journey.business_risk}</p>
             </div>
           )}
           {journey.next_step && (
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-0.5">Next recommended step</p>
+              <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-0.5">Next recommended step</p>
               <p className="text-sm text-gray-800 font-medium leading-relaxed flex items-start gap-1.5">
                 <ArrowRight className="w-4 h-4 text-brand-600 flex-shrink-0 mt-0.5" />
                 {journey.next_step}
@@ -380,7 +380,7 @@ function BimiCard({ readiness }) {
         : found && <KV k="Certificate URL" v={<span className="text-amber-700">Not listed</span>} />}
       {readiness.blockers?.length > 0 && (
         <div className="rounded-lg bg-amber-50 border border-amber-100 p-2.5 space-y-1">
-          <p className="text-[11px] font-bold text-amber-700 uppercase tracking-wide">Readiness blockers</p>
+          <p className="text-[13px] font-bold text-amber-700 uppercase tracking-wide">Readiness blockers</p>
           {readiness.blockers.map((b, i) => <p key={i} className="text-xs text-amber-800 leading-relaxed">{b}</p>)}
         </div>
       )}
@@ -447,7 +447,7 @@ function ActionCard({ action }) {
           )}
           {action.copyable_value && (
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">DNS value to publish</p>
+              <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-1">DNS value to publish</p>
               <DnsValue value={action.copyable_value} />
             </div>
           )}
@@ -589,7 +589,7 @@ function GuidedRemediation({ stage, hasReports, readiness, senders, actions, onG
 
       {additional.length > 0 && (
         <div className="mt-4">
-          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Also recommended</p>
+          <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Also recommended</p>
           <div className="space-y-3">
             {additional.map((a, i) => <ActionCard key={a.id || i} action={a} />)}
           </div>
@@ -602,7 +602,7 @@ function GuidedRemediation({ stage, hasReports, readiness, senders, actions, onG
 function Field({ label, body, accent }) {
   return (
     <div>
-      <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-0.5">{label}</p>
+      <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-0.5">{label}</p>
       <p className={`text-sm leading-relaxed ${accent ? 'text-gray-900 font-medium' : 'text-gray-700'}`}>{body}</p>
     </div>
   )
@@ -808,7 +808,7 @@ function EnforcementReadiness({ readiness }) {
         {hasScore && (
           <div className="flex flex-col items-end mr-1">
             <span className="text-2xl font-bold tabular-nums leading-none text-gray-900">{readiness.score}<span className="text-sm font-semibold text-gray-400">/100</span></span>
-            <span className={`mt-1 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${statusPill}`}>{statusLabel}</span>
+            <span className={`mt-1 inline-flex items-center px-2 py-0.5 rounded-full text-[13px] font-semibold border ${statusPill}`}>{statusLabel}</span>
           </div>
         )}
         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${confPill}`}>
@@ -838,7 +838,7 @@ function EnforcementReadiness({ readiness }) {
       </div>
       {readiness.checks?.length > 0 && (
         <div className="px-6 pt-4 pb-1">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-2">Readiness checks</p>
+          <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-2">Readiness checks</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2">
             {readiness.checks.map((c) => {
               const tone = checkTone(c.status)
@@ -860,7 +860,7 @@ function EnforcementReadiness({ readiness }) {
           {readiness.explanation && <p className="text-sm text-gray-700 leading-relaxed mb-3">{readiness.explanation}</p>}
           {readiness.blockers?.length > 0 && (
             <div className="mb-3">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1.5">What blocks a stronger policy request</p>
+              <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-1.5">What blocks a stronger policy request</p>
               <ul className="space-y-1.5">
                 {readiness.blockers.map((b, i) => (
                   <li key={i} className="flex items-start gap-1.5 text-sm text-gray-700">
@@ -872,7 +872,7 @@ function EnforcementReadiness({ readiness }) {
           )}
           {readiness.next_step && (
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-0.5">Next recommended step</p>
+              <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-0.5">Next recommended step</p>
               <p className="text-sm text-gray-900 font-medium leading-relaxed flex items-start gap-1.5">
                 <ArrowRight className="w-4 h-4 text-brand-600 flex-shrink-0 mt-0.5" /> {readiness.next_step}
               </p>
@@ -1017,7 +1017,7 @@ function DmarcSummaryPanel({ summary }) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Sender mix */}
         <div className="card p-5">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-3">Sender mix ({s.total ?? 0})</p>
+          <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-3">Sender mix ({s.total ?? 0})</p>
           <div className="space-y-2">
             {[
               ['Trusted', s.trusted, 'bg-brand-500'],
@@ -1034,7 +1034,7 @@ function DmarcSummaryPanel({ summary }) {
         </div>
         {/* Disposition */}
         <div className="card p-5">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-3">Disposition</p>
+          <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-3">Disposition</p>
           <div className="flex h-2.5 rounded-full overflow-hidden mb-3 border border-gray-100">
             <div style={{ width: `${(d.none || 0) / dispTotal * 100}%` }} className="bg-gray-300" />
             <div style={{ width: `${(d.quarantine || 0) / dispTotal * 100}%` }} className="bg-amber-400" />
@@ -1048,7 +1048,7 @@ function DmarcSummaryPanel({ summary }) {
         </div>
         {/* Business risk */}
         <div className="card p-5 flex flex-col">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-3">Business risk</p>
+          <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-3">Business risk</p>
           <span className={`self-start inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border capitalize ${brTone}`}>{br.level || 'low'}</span>
           {br.summary && <p className="text-sm text-gray-600 leading-relaxed mt-3">{br.summary}</p>}
         </div>
@@ -1085,7 +1085,7 @@ function SenderRow({ sender, onClassify, classifying }) {
           <td colSpan={8} className="px-5 py-4">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Recommended action</p>
+                <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-1">Recommended action</p>
                 <p className="text-sm text-gray-700 leading-relaxed">{sender.recommended_action || 'Classify this sender if it is a legitimate business email source.'}</p>
                 <p className="text-xs text-gray-400 mt-2">First seen {fmtDate(sender.first_seen)} · Last seen {fmtDate(sender.last_seen)}</p>
                 {sender.provider_reason && <p className="text-xs text-gray-400 mt-1">{sender.provider_reason}</p>}
@@ -1115,7 +1115,7 @@ function SenderRow({ sender, onClassify, classifying }) {
                 </div>
               </div>
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Classify this sender</p>
+                <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-1">Classify this sender</p>
                 <textarea
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
@@ -1519,7 +1519,7 @@ function DmarcReportHistory({ wsId, domain }) {
           <div className="overflow-x-auto p-6 pt-3">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100">
+                <tr className="text-left text-[13px] font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100">
                   <th className="py-2 pr-4">Reporter</th>
                   <th className="py-2 pr-4">Period covered</th>
                   <th className="py-2 pr-4 text-right">Messages</th>
@@ -1864,7 +1864,7 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
             {!rec && <span className="ml-2 text-xs font-bold uppercase tracking-wide text-gray-600 bg-gray-100 rounded px-1.5 py-0.5">Optional</span>}
           </p>
           <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-            Add one CNAME and we host the <code className="text-[11px]">_smtp._tls</code> record for you, so you get
+            Add one CNAME and we host the <code className="text-[13px]">_smtp._tls</code> record for you, so you get
             reports when someone can’t deliver mail to you over TLS.
           </p>
         </div>
@@ -2261,7 +2261,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                       state === 'current' ? 'bg-brand-600 border-brand-600 text-white shadow-sm ring-2 ring-brand-200'
                       : state === 'done' ? 'bg-brand-50 border-brand-200 text-brand-700'
                       : 'bg-white border-gray-200 text-gray-400'}`}>
-                      <p className="text-[13px] font-bold leading-tight">{label}</p>
+                      <p className="text-[14px] font-bold leading-tight">{label}</p>
                       {state === 'current' && <p className="text-xs font-semibold text-brand-100 mt-0.5">You are here</p>}
                       {state === 'done' && <p className="text-xs text-brand-600 mt-0.5">✓ passed</p>}
                     </div>
@@ -2687,7 +2687,7 @@ function EpMetric({ label, explanation, value }) {
     <div className="card p-5">
       <p className="text-sm font-semibold text-gray-900 leading-snug">{label}</p>
       <p className="text-xs text-gray-500 mt-1 leading-snug">{explanation}</p>
-      <p className={`text-[13px] font-bold mt-2 tabular-nums ${known ? 'text-gray-800' : 'text-gray-400'}`}>
+      <p className={`text-[14px] font-bold mt-2 tabular-nums ${known ? 'text-gray-800' : 'text-gray-400'}`}>
         {known ? (typeof value === 'number' ? value.toLocaleString() : value) : 'Waiting'}
       </p>
     </div>
@@ -3197,7 +3197,7 @@ export function BecExposure({ wsId, domain }) {
                 <p className="text-sm text-gray-600 mt-1 leading-relaxed">
                   BEC Exposure measures how exposed this domain is to spoofing, supplier impersonation and invoice-fraud abuse.
                 </p>
-                <p className="text-[13px] font-bold text-gray-700 mt-2 tabular-nums">
+                <p className="text-[14px] font-bold text-gray-700 mt-2 tabular-nums">
                   Score {data.exposure_score}/100 <span className="font-medium text-gray-500">· Higher means more exposed</span>
                 </p>
                 {data.confidence && (
@@ -3212,7 +3212,7 @@ export function BecExposure({ wsId, domain }) {
             {/* Evidence chips */}
             {chips.length > 0 && (
               <div>
-                <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Evidence</p>
+                <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Evidence</p>
                 <p className="text-xs text-gray-500 mb-2">Sender figures here use customer-submitted reports. Automatically received reports appear separately in sender activity and do not establish trust in the sender.</p>
                 <div className="flex flex-wrap gap-1.5">
                   {chips.map((c, i) => (
@@ -3226,7 +3226,7 @@ export function BecExposure({ wsId, domain }) {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {reasons.length > 0 && (
                 <div>
-                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Why this domain is exposed</p>
+                  <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Why this domain is exposed</p>
                   <ul className="space-y-2.5">
                     {reasons.map((r, i) => (
                       <li key={r.code || i} className="text-sm">
@@ -3242,7 +3242,7 @@ export function BecExposure({ wsId, domain }) {
               )}
               {actions.length > 0 && (
                 <div>
-                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Reduce exposure</p>
+                  <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Reduce exposure</p>
                   <ul className="space-y-2.5">
                     {actions.map((a, i) => (
                       <li key={a.code || i} className="text-sm">
@@ -3368,7 +3368,7 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
               {tiles.map(t => (
                 <div key={t.label} className="rounded-xl border border-gray-200 bg-white px-3 py-2.5">
                   <p className="text-xs font-semibold text-gray-700 leading-snug">{t.label}</p>
-                  <p className={`text-[13px] font-bold mt-1 tabular-nums ${t.tone === 'warn' ? 'text-amber-700' : t.tone === 'ok' ? 'text-brand-700' : t.tone === 'na' ? 'text-gray-400' : 'text-gray-800'}`}>
+                  <p className={`text-[14px] font-bold mt-1 tabular-nums ${t.tone === 'warn' ? 'text-amber-700' : t.tone === 'ok' ? 'text-brand-700' : t.tone === 'na' ? 'text-gray-400' : 'text-gray-800'}`}>
                     {typeof t.value === 'number' ? t.value.toLocaleString() : t.value}
                   </p>
                 </div>
@@ -3386,14 +3386,14 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
             {senderSummary && (
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Customer-submitted sender activity · BEC assessment</p>
+                  <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">Customer-submitted sender activity · BEC assessment</p>
                   <button onClick={onGotoSenders} className="text-xs font-medium text-brand-700 hover:text-brand-800">View full inventory →</button>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {senderSummary.map(s => (
                     <div key={s.label} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
                       <p className="text-xs font-semibold text-gray-700 leading-snug">{s.label} senders</p>
-                      <p className={`text-[13px] font-bold mt-1 tabular-nums ${s.tone === 'warn' ? 'text-amber-700' : 'text-gray-800'}`}>{s.value}</p>
+                      <p className={`text-[14px] font-bold mt-1 tabular-nums ${s.tone === 'warn' ? 'text-amber-700' : 'text-gray-800'}`}>{s.value}</p>
                     </div>
                   ))}
                 </div>

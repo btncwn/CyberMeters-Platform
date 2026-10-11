@@ -151,12 +151,12 @@ export default function DomainHistory() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <StatusBadge status={scan.status} />
                       {i === 0 && (
-                        <span className="text-[10px] text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-2 py-0.5 font-bold uppercase tracking-wider">
+                        <span className="text-[12px] text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-2 py-0.5 font-bold uppercase tracking-wider">
                           Latest
                         </span>
                       )}
                     </div>
-                    <p className="mono text-[11px] text-gray-300 mt-1.5 truncate">{scan.id}</p>
+                    <p className="mono text-[13px] text-gray-300 mt-1.5 truncate">{scan.id}</p>
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-xs text-gray-400 flex items-center gap-1">
                         <Clock className="w-3 h-3" />

@@ -236,7 +236,7 @@ export default function ShadowItInventoryPage() {
                           this says CyberMeters saw it and nobody has reviewed it. */}
                       {it.newly_observed === true && (
                         <span
-                          className="ml-2 inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-200 align-middle"
+                          className="ml-2 inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-[12px] font-semibold text-sky-700 ring-1 ring-sky-200 align-middle"
                           title={SHADOW_IT_FIRST_OBSERVATION_LABEL}
                         >
                           New
@@ -295,7 +295,7 @@ export default function ShadowItInventoryPage() {
                         if (available.length === 0) return null
                         return (
                           <div key={group.key} role="group" aria-label={`${group.label} actions for ${it.display_name}`}>
-                            <div className="text-[10px] uppercase tracking-wide text-slate-400">{group.label}</div>
+                            <div className="text-[12px] uppercase tracking-wide text-slate-400">{group.label}</div>
                             <div className="flex flex-wrap gap-1 mt-0.5">
                               {available.map((a) => (
                                 <button

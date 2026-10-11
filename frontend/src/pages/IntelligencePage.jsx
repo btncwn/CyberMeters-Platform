@@ -149,7 +149,7 @@ function ScoreRing({ score, status, size = 'md' }) {
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           {score != null
             ? <><span className={`${size === 'sm' ? 'text-xl' : 'text-2xl'} font-bold ${cfg.cls}`}>{score}</span>
-                <span className="text-[9px] text-gray-300 font-semibold">/100</span></>
+                <span className="text-[12px] text-gray-300 font-semibold">/100</span></>
             : <span className="text-gray-300 text-xs">—</span>}
         </div>
       </div>
@@ -295,14 +295,14 @@ function SummaryBar({ assessment, domain, emailIntel, remPlan, kev, cve }) {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px bg-gray-100">
         {stats.map((s, i) => (
           <div key={i} className="bg-white flex flex-col items-center justify-center py-5 px-3 gap-1 text-center">
-            <span className="label text-[9px] text-gray-400">{s.label}</span>
+            <span className="label text-[12px] text-gray-400">{s.label}</span>
 
             {s.isPill ? (
               <>
                 <span className={`text-xs font-bold px-3 py-1 rounded-full border mt-0.5 ${s.pillCls}`}>
                   {s.pillTxt}
                 </span>
-                <span className="text-[10px] font-semibold text-gray-400 mt-0.5">{s.sub}</span>
+                <span className="text-[12px] font-semibold text-gray-400 mt-0.5">{s.sub}</span>
               </>
             ) : (
               <>
@@ -311,12 +311,12 @@ function SummaryBar({ assessment, domain, emailIntel, remPlan, kev, cve }) {
                     {s.value}
                   </span>
                   {s.kevBadge && (
-                    <span className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded leading-none">
+                    <span className="text-[12px] font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded leading-none">
                       +{s.kevCount} KEV
                     </span>
                   )}
                 </div>
-                <span className="text-[10px] font-semibold text-gray-400 truncate max-w-[120px]" title={s.sub}>
+                <span className="text-[12px] font-semibold text-gray-400 truncate max-w-[120px]" title={s.sub}>
                   {s.sub}
                 </span>
               </>
@@ -516,7 +516,7 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
             <span className={`text-xl font-bold ${cls}`}>
               {risk.incomplete && !(count > 0) ? '—' : (count ?? 0)}
             </span>
-            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{label}</span>
+            <span className="text-[12px] font-semibold text-gray-400 uppercase tracking-wide">{label}</span>
           </div>
         ))}
       </div>
@@ -557,7 +557,7 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
                             and an incomplete risk projection never presents a
                             deduction (unavailable evidence is not a signal). */}
                         {!risk.incomplete && Number.isFinite(f.score_impact) && f.score_impact < 0 && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-100">
+                          <span className="text-[12px] font-bold px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-100">
                             {f.score_impact} pts
                           </span>
                         )}
@@ -586,17 +586,17 @@ function RemediationItem({ item, index, tier }) {
   const c = P_COLOR[tier]
   return (
     <div className={`flex items-start gap-3 p-3 rounded-xl border ${c.bg} ${c.border}`}>
-      <div className={`w-5 h-5 rounded-full ${c.badge} flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5`}>
+      <div className={`w-5 h-5 rounded-full ${c.badge} flex items-center justify-center text-[12px] font-bold flex-shrink-0 mt-0.5`}>
         {index + 1}
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-xs font-semibold text-gray-900 leading-snug">{item.title}</p>
-        {item.reason && <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">{item.reason}</p>}
+        {item.reason && <p className="text-[13px] text-gray-500 mt-0.5 leading-relaxed">{item.reason}</p>}
         {item.action && (
-          <p className={`text-[11px] font-medium mt-1 leading-relaxed ${c.text}`}>{item.action}</p>
+          <p className={`text-[13px] font-medium mt-1 leading-relaxed ${c.text}`}>{item.action}</p>
         )}
         {item.due_date && (
-          <p className="text-[10px] text-gray-400 mt-0.5">Due: {item.due_date}</p>
+          <p className="text-[12px] text-gray-400 mt-0.5">Due: {item.due_date}</p>
         )}
       </div>
     </div>
@@ -650,7 +650,7 @@ function RemediationSection({ plan, assessmentMessage = null }) {
                 ? `${t.bg} ${t.text} border-b-2 ${t.border.replace('border-', 'border-b-')}`
                 : 'text-gray-500 hover:bg-gray-50'}`}
           >
-            <span className={`w-4 h-4 rounded-full ${t.badge} flex items-center justify-center text-[9px] font-bold`}>
+            <span className={`w-4 h-4 rounded-full ${t.badge} flex items-center justify-center text-[12px] font-bold`}>
               {t.count}
             </span>
             {t.label}
@@ -690,8 +690,8 @@ function EmailControl({ label, status, statusCls, detail, mono, warning }) {
     <div className="px-5 py-3 flex items-start gap-3 border-b border-gray-50 last:border-0">
       <span className="text-xs font-semibold text-gray-500 w-16 flex-shrink-0 pt-0.5">{label}</span>
       <div className="flex-1 min-w-0">
-        {detail && <p className={`text-[11px] ${mono ? 'mono text-gray-500 break-all' : 'text-gray-500'} leading-snug`}>{detail}</p>}
-        {warning && <p className="text-[11px] text-amber-600 mt-0.5 leading-snug">{warning}</p>}
+        {detail && <p className={`text-[13px] ${mono ? 'mono text-gray-500 break-all' : 'text-gray-500'} leading-snug`}>{detail}</p>}
+        {warning && <p className="text-[13px] text-amber-600 mt-0.5 leading-snug">{warning}</p>}
       </div>
       <div className="flex-shrink-0">
         <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${statusCls}`}>{status}</span>
@@ -795,7 +795,7 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
             <div>
               <span className="text-xs font-semibold text-gray-500">MTA-STS</span>
               {mta_sts?.policy_mode && (
-                <span className="text-[10px] text-gray-400 ml-2">Mode: {mta_sts.policy_mode}</span>
+                <span className="text-[12px] text-gray-400 ml-2">Mode: {mta_sts.policy_mode}</span>
               )}
             </div>
             <StatusPill value={mta_sts?.enabled} trueLabel="Enabled" falseLabel="Not configured" />
@@ -808,13 +808,13 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
             <div>
               <span className="text-xs font-semibold text-gray-500">STARTTLS</span>
               {starttls?.mx_records?.length > 0 && (
-                <p className="text-[10px] text-gray-400 mt-0.5">
+                <p className="text-[12px] text-gray-400 mt-0.5">
                   MX: {starttls.mx_records.slice(0, 2).map(r => r.host).join(', ')}
                   {starttls.mx_records.length > 2 && ` +${starttls.mx_records.length - 2}`}
                 </p>
               )}
             </div>
-            <span className="text-[10px] text-gray-400 italic">Cannot probe from cloud</span>
+            <span className="text-[12px] text-gray-400 italic">Cannot probe from cloud</span>
           </div>
         </div>
       </div>
@@ -822,7 +822,7 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
       {/* Strengths */}
       {intel.strengths?.length > 0 && (
         <div className="px-5 py-3 border-t border-gray-100 bg-brand-50/40">
-          <p className="text-[10px] font-bold text-brand-700 uppercase tracking-widest mb-2">Strengths</p>
+          <p className="text-[12px] font-bold text-brand-700 uppercase tracking-widest mb-2">Strengths</p>
           <ul className="space-y-1">
             {intel.strengths.map((s, i) => (
               <li key={i} className="flex items-start gap-1.5 text-xs text-brand-800">
@@ -838,7 +838,7 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
       {intel.business_impacts?.length > 0 && (
         <div className="border-t border-gray-100">
           <div className="px-5 py-3 bg-gray-50">
-            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Business Impacts</p>
+            <p className="text-[12px] font-bold text-gray-500 uppercase tracking-widest">Business Impacts</p>
           </div>
           {intel.business_impacts.map((imp, i) => {
             const rlBadge = { CRITICAL: 'badge-critical', HIGH: 'badge-high', MEDIUM: 'badge-medium', LOW: 'badge-low' }
@@ -853,9 +853,9 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
                     <p className="text-xs font-semibold text-gray-800">{imp.technical}</p>
                     <span className={`flex-shrink-0 ${rlBadge[imp.risk_level] || rlBadge.LOW}`}>{imp.risk_level}</span>
                   </div>
-                  <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">{imp.business_impact}</p>
+                  <p className="text-[13px] text-gray-500 mt-0.5 leading-relaxed">{imp.business_impact}</p>
                   {imp.recommendation && (
-                    <p className="text-[11px] text-brand-600 font-medium mt-1 leading-relaxed">→ {imp.recommendation}</p>
+                    <p className="text-[13px] text-brand-600 font-medium mt-1 leading-relaxed">→ {imp.recommendation}</p>
                   )}
                 </div>
               </div>
@@ -868,7 +868,7 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
       {intel.findings?.length > 0 && (
         <div className="border-t border-gray-100">
           <div className="px-5 py-3 bg-gray-50">
-            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Email Security Findings</p>
+            <p className="text-[12px] font-bold text-gray-500 uppercase tracking-widest">Email Security Findings</p>
           </div>
           <ul className="divide-y divide-gray-50">
             {intel.findings.map((f, i) => (
@@ -876,9 +876,9 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
                 <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${SEV_DOT[f.severity] || 'bg-gray-300'}`} />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold text-gray-800">{f.title}</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{f.description}</p>
+                  <p className="text-[13px] text-gray-400 mt-0.5 leading-relaxed">{f.description}</p>
                   {f.recommendation && (
-                    <p className="text-[11px] text-brand-600 font-medium mt-1">→ {f.recommendation}</p>
+                    <p className="text-[13px] text-brand-600 font-medium mt-1">→ {f.recommendation}</p>
                   )}
                 </div>
                 <span className={`flex-shrink-0 ${SEV_BADGE[f.severity] || SEV_BADGE.informational}`}>{f.severity}</span>
@@ -961,7 +961,7 @@ function TechDetectionSection({ tech }) {
       <div className="divide-y divide-gray-50">
         {headerRows.map(({ label, value }) => (
           <div key={label} className="flex items-start justify-between gap-3 px-5 py-2">
-            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide flex-shrink-0 pt-0.5 w-20">{label}</span>
+            <span className="text-[12px] font-semibold text-gray-400 uppercase tracking-wide flex-shrink-0 pt-0.5 w-20">{label}</span>
             <span className={`text-xs text-right break-all leading-relaxed ${
               value?.includes('✓') ? 'text-brand-600 font-medium' :
               value?.includes('✗') ? 'text-red-500 font-medium'  : 'text-gray-700 mono'
@@ -974,7 +974,7 @@ function TechDetectionSection({ tech }) {
       {tech.info_findings?.length > 0 && (
         <div className="border-t border-gray-100">
           <div className="px-5 py-2.5 bg-amber-50/60 border-b border-amber-100">
-            <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest">
+            <p className="text-[12px] font-bold text-amber-700 uppercase tracking-widest">
               Version Disclosure ({tech.info_findings.length})
             </p>
           </div>
@@ -983,7 +983,7 @@ function TechDetectionSection({ tech }) {
               <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-xs font-semibold text-gray-800">{f.title}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{f.description}</p>
+                <p className="text-[13px] text-gray-400 mt-0.5 leading-relaxed">{f.description}</p>
               </div>
             </div>
           ))}
@@ -1057,7 +1057,7 @@ function CveIntelSection({ cve, assessmentMessage = null }) {
               <div key={tech}>
                 <div className="px-5 py-2.5 bg-gray-50 flex items-center justify-between">
                   <span className="text-xs font-bold text-gray-700 capitalize">{tech}</span>
-                  <span className="text-[10px] text-gray-400">{cves.length} CVE{cves.length !== 1 ? 's' : ''} (High+)</span>
+                  <span className="text-[12px] text-gray-400">{cves.length} CVE{cves.length !== 1 ? 's' : ''} (High+)</span>
                 </div>
                 {presentation?.evidence_publishable === false ? (
                   <div className="px-5 py-3 text-xs text-amber-800">
@@ -1072,18 +1072,18 @@ function CveIntelSection({ cve, assessmentMessage = null }) {
                   <div className="divide-y divide-gray-50">
                     {cves.map(c => (
                       <div key={c.cve_id} className="flex items-start gap-3 px-5 py-3">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded mono flex-shrink-0 mt-0.5 ${CVE_SEV_STYLE[c.severity] || CVE_SEV_STYLE.UNKNOWN}`}>
+                        <span className={`text-[12px] font-bold px-2 py-0.5 rounded mono flex-shrink-0 mt-0.5 ${CVE_SEV_STYLE[c.severity] || CVE_SEV_STYLE.UNKNOWN}`}>
                           {c.cve_id}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <p className="text-[11px] text-gray-600 leading-relaxed">{c.description}</p>
+                          <p className="text-[13px] text-gray-600 leading-relaxed">{c.description}</p>
                         </div>
                         <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${CVE_SEV_STYLE[c.severity] || CVE_SEV_STYLE.UNKNOWN}`}>
+                          <span className={`text-[12px] font-bold px-1.5 py-0.5 rounded ${CVE_SEV_STYLE[c.severity] || CVE_SEV_STYLE.UNKNOWN}`}>
                             {c.severity}
                           </span>
                           {c.cvss_score != null && (
-                            <span className="text-[10px] text-gray-400 mono">{c.cvss_score}</span>
+                            <span className="text-[12px] text-gray-400 mono">{c.cvss_score}</span>
                           )}
                         </div>
                       </div>
@@ -1134,8 +1134,8 @@ function KevSection({ kev, assessmentMessage = null }) {
       />
 
       <div className="px-5 py-2 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-        <span className="text-[10px] text-gray-400">Catalog: {kev.checked?.toLocaleString() ?? '—'} entries</span>
-        <span className="text-[10px] text-gray-400">Source: CISA KEV</span>
+        <span className="text-[12px] text-gray-400">Catalog: {kev.checked?.toLocaleString() ?? '—'} entries</span>
+        <span className="text-[12px] text-gray-400">Source: CISA KEV</span>
       </div>
 
       {matches.length === 0 ? (
@@ -1169,14 +1169,14 @@ function KevSection({ kev, assessmentMessage = null }) {
                     <p className="text-xs font-semibold text-gray-800 leading-snug">{m.vulnerability_name}</p>
                   )}
                   {m.short_description && (
-                    <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{m.short_description}</p>
+                    <p className="text-[13px] text-gray-400 mt-0.5 leading-relaxed">{m.short_description}</p>
                   )}
                   {m.required_action && (
-                    <p className="text-[11px] text-red-600 font-medium mt-1 leading-relaxed">
+                    <p className="text-[13px] text-red-600 font-medium mt-1 leading-relaxed">
                       Required: {m.required_action}
                     </p>
                   )}
-                  <div className="flex items-center gap-3 mt-1.5 text-[10px] text-gray-400">
+                  <div className="flex items-center gap-3 mt-1.5 text-[12px] text-gray-400">
                     {m.date_added && <span>Added: {m.date_added}</span>}
                     {m.due_date   && <span className="text-red-500 font-semibold">Due: {m.due_date}</span>}
                   </div>

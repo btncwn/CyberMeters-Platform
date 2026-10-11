@@ -89,11 +89,11 @@ function StepRow({ n, title, explanation, status, actionLabel, to }) {
     <li className="flex items-start gap-3 py-3">
       {done
         ? <CheckCircle className="w-5 h-5 text-brand-600 flex-shrink-0 mt-0.5" />
-        : <span className="w-5 h-5 rounded-full border border-gray-300 text-[11px] font-bold text-gray-400 flex items-center justify-center flex-shrink-0 mt-0.5">{n}</span>}
+        : <span className="w-5 h-5 rounded-full border border-gray-300 text-[13px] font-bold text-gray-400 flex items-center justify-center flex-shrink-0 mt-0.5">{n}</span>}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold text-gray-900">{title}</p>
-          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${s.cls}`}>{s.label}</span>
+          <span className={`text-[12px] font-semibold px-1.5 py-0.5 rounded-full border ${s.cls}`}>{s.label}</span>
         </div>
         <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{explanation}</p>
       </div>
@@ -153,7 +153,7 @@ export default function ServiceLauncher() {
 
         {/* 1 · Welcome */}
         <header>
-          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-[11px] font-bold text-brand-700 uppercase tracking-[0.14em] mb-3">
+          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-[13px] font-bold text-brand-700 uppercase tracking-[0.14em] mb-3">
             <span className="w-1.5 h-1.5 rounded-full bg-brand-500" /> Welcome to CyberMeters
           </span>
           <h1 className="page-title">Welcome to CyberMeters</h1>

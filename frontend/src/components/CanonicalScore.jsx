@@ -22,7 +22,7 @@ export default function CanonicalScore({ assessment }) {
     return (
       <div className="max-w-[16rem]">
         <span className="text-xs text-gray-400 font-medium">—</span>
-        <p className="text-[11px] text-gray-500 mt-1 leading-tight">{view.reason}</p>
+        <p className="text-[13px] text-gray-500 mt-1 leading-tight">{view.reason}</p>
       </div>
     )
   }
@@ -34,9 +34,9 @@ export default function CanonicalScore({ assessment }) {
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border bg-amber-50 text-amber-800 border-amber-200">
             {view.score}
           </span>
-          <span className="text-[11px] font-semibold text-amber-800">Provisional</span>
+          <span className="text-[13px] font-semibold text-amber-800">Provisional</span>
         </div>
-        <p className="text-[11px] text-amber-800 mt-1 leading-tight">{view.reason}</p>
+        <p className="text-[13px] text-amber-800 mt-1 leading-tight">{view.reason}</p>
       </div>
     )
   }

@@ -138,7 +138,7 @@ export default function ScansPage() {
                       </div>
                       <div>
                         <p className="font-semibold text-gray-900">{scan.domain}</p>
-                        <p className="mono text-[11px] text-gray-300 truncate max-w-[200px]">{scan.id}</p>
+                        <p className="mono text-[13px] text-gray-300 truncate max-w-[200px]">{scan.id}</p>
                       </div>
                     </div>
                   </td>

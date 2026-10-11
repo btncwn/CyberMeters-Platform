@@ -83,9 +83,9 @@ export default function CloudAssetsPage() {
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={chartData} layout="vertical" barCategoryGap="30%">
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-              <YAxis dataKey="provider" type="category" width={100} tick={{ fontSize: 11, fill: '#64748b' }} />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <XAxis type="number" tick={{ fontSize: 13, fill: '#94a3b8' }} />
+              <YAxis dataKey="provider" type="category" width={100} tick={{ fontSize: 13, fill: '#64748b' }} />
+              <Tooltip contentStyle={{ fontSize: 13, borderRadius: 8 }} />
               <Bar dataKey="count" fill="#00876A" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>

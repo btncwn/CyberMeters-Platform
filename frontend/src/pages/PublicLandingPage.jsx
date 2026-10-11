@@ -246,7 +246,6 @@ function HeroStage() {
               <li key={t} className="inline-flex items-center gap-2"><Check className="w-4 h-4 text-[#7FD8FF]" aria-hidden="true" />{t}</li>
             ))}
           </ul>
-          <p className="mt-8 text-[13px] text-white/60">The eye and its findings are an illustration with example findings, not a live result.</p>
         </div>
         {!wide && (
           <div className="relative mx-auto mt-14 -mb-6 flex justify-center">
@@ -358,7 +357,7 @@ export default function PublicLandingPage() {
                   <p className="mt-3 text-[16px] leading-[1.55] text-[#46506A]">{s.copy}</p>
                   <ul className="mt-auto pt-5 flex flex-wrap gap-2">
                     {s.tags.map(t => (
-                      <li key={t} className="text-[13px] text-[#46506A] px-2.5 py-1 rounded-full border" style={{ borderColor: c.ring, background: c.surface }}>{t}</li>
+                      <li key={t} className="text-[14px] text-[#46506A] px-2.5 py-1 rounded-full border" style={{ borderColor: c.ring, background: c.surface }}>{t}</li>
                     ))}
                   </ul>
                 </article>
@@ -391,7 +390,7 @@ export default function PublicLandingPage() {
                 <p className="font-cm text-[22px] leading-tight">Sample report</p>
                 <p className="text-[14px] text-[#6A7389] mt-1">example.co.uk</p>
               </div>
-              <span className="text-[13px] font-semibold text-[#3D45A8] bg-[#E6E8FD] rounded-full px-3 py-1">Sample</span>
+              <span className="text-[14px] font-semibold text-[#3D45A8] bg-[#E6E8FD] rounded-full px-3 py-1">Sample</span>
             </div>
             <ul>
               {SAMPLE_ROWS.map(r => {
@@ -403,7 +402,7 @@ export default function PublicLandingPage() {
                       <p className="text-[15px] font-semibold text-[#121A2E] truncate">{r.name}</p>
                       <p className="text-[14px] text-[#6A7389] truncate">{r.note}</p>
                     </div>
-                    <span className={`text-[13px] font-semibold rounded-full px-3 py-1 whitespace-nowrap ${TONE[r.tone]}`}>{r.state}</span>
+                    <span className={`text-[14px] font-semibold rounded-full px-3 py-1 whitespace-nowrap ${TONE[r.tone]}`}>{r.state}</span>
                   </li>
                 )
               })}
@@ -477,7 +476,7 @@ export default function PublicLandingPage() {
           </nav>
         </div>
         <div className="border-t border-[#EEF1F7]">
-          <div className={`${CONTAINER} py-5 text-[13px] text-[#7A8399]`}>© {year} CyberMeters. All rights reserved.</div>
+          <div className={`${CONTAINER} py-5 text-[14px] text-[#7A8399]`}>© {year} CyberMeters. All rights reserved.</div>
         </div>
       </footer>
     </div>

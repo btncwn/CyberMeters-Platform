@@ -319,16 +319,16 @@ export default function WorkspaceBusinessRiskPage() {
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis
                       dataKey="date"
-                      tick={{ fontSize: 11, fill: '#9ca3af' }}
+                      tick={{ fontSize: 13, fill: '#9ca3af' }}
                       tickFormatter={v => parseServerDate(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                     />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#9ca3af' }} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 13, fill: '#9ca3af' }} />
                     <Tooltip content={<ChartTooltip />} />
                     <Line type="monotone" dataKey="BRS" stroke="#6366f1" strokeWidth={2} dot={false} name="BRS" />
                     <Line type="monotone" dataKey="ASM" stroke="#94a3b8" strokeWidth={1.5} dot={false} name="ASM" strokeDasharray="4 2" />
                   </LineChart>
                 </ResponsiveContainer>
-                <p className="text-[11px] text-gray-400 mt-2 text-center">
+                <p className="text-[13px] text-gray-400 mt-2 text-center">
                   BRS (indigo) vs ASM technical score (gray dashed) — last {trendData.length} scans
                 </p>
               </div>

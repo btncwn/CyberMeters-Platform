@@ -15,7 +15,7 @@ function MetricBar({ label, value, tone = 'brand', note = null }) {
       <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
         <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
-      {note && <p className="text-[11px] text-gray-400 mt-1">{note}</p>}
+      {note && <p className="text-[13px] text-gray-400 mt-1">{note}</p>}
     </div>
   )
 }

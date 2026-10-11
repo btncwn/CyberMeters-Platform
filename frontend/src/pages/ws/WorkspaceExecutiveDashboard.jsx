@@ -92,11 +92,11 @@ function ScoreTrendChart({ trend }) {
     <ResponsiveContainer width="100%" height={200}>
       <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -24 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-        <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9CA3AF' }} />
-        <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#9CA3AF' }} />
+        <XAxis dataKey="date" tick={{ fontSize: 13, fill: '#9CA3AF' }} />
+        <YAxis domain={[0, 100]} tick={{ fontSize: 13, fill: '#9CA3AF' }} />
         <Tooltip
           formatter={(v) => [`${v}`, 'Score']}
-          contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #E5E7EB' }}
+          contentStyle={{ fontSize: 13, borderRadius: 8, border: '1px solid #E5E7EB' }}
         />
         <Line
           type="monotone"
@@ -148,7 +148,7 @@ function RiskDistPie({ dist }) {
         />
         <Tooltip
           formatter={(v, n) => [`${v}`, n]}
-          contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #E5E7EB' }}
+          contentStyle={{ fontSize: 13, borderRadius: 8, border: '1px solid #E5E7EB' }}
         />
       </PieChart>
     </ResponsiveContainer>
@@ -167,7 +167,7 @@ function SevBadge({ severity }) {
     info:     'bg-gray-100 text-gray-600',
   }[s] ?? 'bg-gray-100 text-gray-500'
   return (
-    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${cls}`}>
+    <span className={`text-[12px] font-bold uppercase px-2 py-0.5 rounded-full ${cls}`}>
       {severity ?? '—'}
     </span>
   )
@@ -290,7 +290,7 @@ function KpiBar({ kpis }) {
           <div key={label} className="flex flex-col items-center py-4 px-3 text-center">
             <Icon className="w-4 h-4 text-brand-500 mb-1.5" />
             <span className="text-xl font-bold text-gray-900">{value}</span>
-            <span className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">{label}</span>
+            <span className="text-[12px] text-gray-400 uppercase tracking-wide mt-0.5">{label}</span>
           </div>
         ))}
       </div>
