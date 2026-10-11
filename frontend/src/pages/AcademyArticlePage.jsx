@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, Navigate } from 'react-router-dom'
 import {
   GraduationCap, ArrowLeft, Clock, ChevronRight,
   BookOpen, ArrowRight, Info, AlertTriangle, CheckCircle,
@@ -165,6 +165,9 @@ export default function AcademyArticlePage() {
   const catMeta  = useMemo(() => article ? getCategoryMeta(article.category) : null, [article])
   const related  = useMemo(() => article ? getRelatedArticles(slug) : [], [slug, article])
   const c        = COLOR_CLASSES[catMeta?.color] || COLOR_CLASSES.brand
+
+  // An earlier slug still opens the article, at its current address.
+  if (article && article.slug !== slug) return <Navigate to={`/academy/${article.slug}`} replace />
 
   if (!article) {
     return (
