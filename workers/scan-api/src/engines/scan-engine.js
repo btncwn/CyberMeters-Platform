@@ -1564,7 +1564,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       const settled = await raceModuleDeadline(
         deadline,
         () => Promise.allSettled([
-          runCveModule(modules.technology_detection, { accounting: cveOutbound, signal: phase5Controller.signal }),
+          runCveModule(modules.technology_detection, { accounting: cveOutbound, signal: phase5Controller.signal, env }),
           runKevModule(modules.technology_detection, env, { accounting: kevOutbound, signal: phase5Controller.signal }),
           runEmailIntelModule(domain, modules.email_security, modules.dns, {
             accounting: emailIntelOutbound,
@@ -1637,7 +1637,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           fallback: cveFallback,
           estimateMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.cve_intelligence,
           hardMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.cve_intelligence,
-          run: ({ accounting, signal }) => runCveModule(modules.technology_detection, { accounting, signal }),
+          run: ({ accounting, signal }) => runCveModule(modules.technology_detection, { accounting, signal, env }),
         }),
         runCappedModule("known_exploited_vulnerabilities", {
           fallback: kevFallback,

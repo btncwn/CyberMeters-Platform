@@ -81,6 +81,9 @@ const REMEDIATION_NOT_REQUIRED = new Set([
   "tech_server_version_disclosure", "tech_xpoweredby_version_disclosure",
   // AS-B2 Stage 1: version-blind catalogue correlation is observation-only.
   "cve_high_severity_detected",
+  // Reported-version NVD correlation (KEV/EPSS ordered) is observation-only
+  // until a score-methodology revision admits it; registry-mapped to asm.vuln.cve.
+  "known_vulnerable_component",
 ]);
 
 // Dynamic / suffixed emitters normalise to a stable prefix the resolver handles.
@@ -149,7 +152,7 @@ const NON_FINDING = new Set([
   "canonical_url_probe", "http_header_probe", "dns_mx_lookup", "dns_txt_lookup",
   "certificate_transparency", "certificate_transparency_observation", "supporting_infrastructure_observation",
   "http_fingerprint_observation", "http_probe", "whois", "self_attestation", "scan_findings",
-  "technology_kev_correlation", "live_tls",
+  "technology_kev_correlation", "reported_version_cpe_match", "live_tls",
   "identity_discovery", "saas_exposure", "supporting_infrastructure_observation",
   // finding_type CLASS values (not ids)
   "finding", "observation",

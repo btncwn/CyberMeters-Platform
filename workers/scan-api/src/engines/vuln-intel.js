@@ -183,11 +183,228 @@ async function lookupCvesForTechnology(techName, maxResults = 5, opts = {}) {
   }
 }
 
+// ── Version-aware CVE correlation ────────────────────────────────────────────
+// When a response header reports a product version (e.g. "nginx/1.18.0",
+// "Apache/2.4.41 (Ubuntu)", "PHP/7.4.3"), NVD is asked for the CVEs that affect
+// that exact CPE, and each returned record is re-checked locally against its
+// own applicability statements. Only explicit applicability counts: an exact
+// version match, or a version range with an upper bound that contains the
+// reported version. NVD records that apply to "all versions" without a bound,
+// and configurations that also require a specific platform (AND), are not
+// counted — precision over recall. Everything stays honest about the source:
+// the version is what the server REPORTS; distributions often backport fixes
+// without changing it, so a match is "listed as affected", not "vulnerable".
+
+export const CVE_VERSION_EVIDENCE_VERSION = "cve-version-evidence-v1";
+
+const REPORTED_VERSION_PATTERNS = [
+  { tech: "nginx",     re: /\bnginx\/(\d+\.\d+\.\d+)\b/i },
+  { tech: "openresty", re: /\bopenresty\/(\d+\.\d+\.\d+(?:\.\d+)?)\b/i },
+  { tech: "apache",    re: /\bApache\/(\d+\.\d+\.\d+)\b/i },
+  { tech: "iis",       re: /\bMicrosoft-IIS\/(\d+\.\d+)\b/i },
+  { tech: "php",       re: /\bPHP\/(\d+\.\d+\.\d+)\b/i },
+  { tech: "lighttpd",  re: /\blighttpd\/(\d+\.\d+\.\d+)\b/i },
+];
+
+// NVD CPE vendor:product names, in lookup order. nginx moved to the f5 vendor
+// in the CPE dictionary; older records remain under nginx:nginx.
+const VERSION_CPE_CANDIDATES = {
+  nginx:     ["f5:nginx", "nginx:nginx"],
+  openresty: ["openresty:openresty"],
+  apache:    ["apache:http_server"],
+  iis:       ["microsoft:internet_information_services"],
+  php:       ["php:php"],
+  lighttpd:  ["lighttpd:lighttpd"],
+};
+
+export function parseReportedVersions(techModule) {
+  const found = new Map();
+  for (const [source, value] of [["server_header", techModule?.server], ["x_powered_by_header", techModule?.x_powered_by]]) {
+    if (typeof value !== "string" || !value) continue;
+    const platform = value.match(/\(([^)]{1,40})\)/)?.[1] || null;
+    for (const { tech, re } of REPORTED_VERSION_PATTERNS) {
+      const version = value.match(re)?.[1];
+      if (version && !found.has(tech)) found.set(tech, { version, source, platform_hint: platform });
+    }
+  }
+  return found;
+}
+
+// Numeric dotted comparison; null when either side is not purely numeric
+// (then the record is not counted rather than guessed).
+export function compareVersions(a, b) {
+  const pa = String(a).split("."), pb = String(b).split(".");
+  if (![...pa, ...pb].every((part) => /^\d+$/.test(part))) return null;
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = Number(pa[i] || 0), y = Number(pb[i] || 0);
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+function withinBounds(match, version) {
+  const checks = [
+    [match.versionStartIncluding, (c) => c >= 0],
+    [match.versionStartExcluding, (c) => c > 0],
+    [match.versionEndIncluding,   (c) => c <= 0],
+    [match.versionEndExcluding,   (c) => c < 0],
+  ];
+  for (const [bound, accept] of checks) {
+    if (bound == null) continue;
+    const cmp = compareVersions(version, bound);
+    if (cmp === null || !accept(cmp)) return false;
+  }
+  return true;
+}
+
+export function cpeAppliesExplicitly(cve, vendorProduct, version) {
+  const prefix = `cpe:2.3:a:${vendorProduct}:`;
+  for (const config of cve?.configurations || []) {
+    if (String(config?.operator || "OR").toUpperCase() === "AND") continue;
+    for (const node of config?.nodes || []) {
+      if (node?.negate) continue;
+      for (const match of node?.cpeMatch || []) {
+        if (match?.vulnerable !== true || typeof match.criteria !== "string" || !match.criteria.startsWith(prefix)) continue;
+        const criteriaVersion = match.criteria.split(":")[5];
+        const ranged = match.versionStartIncluding || match.versionStartExcluding || match.versionEndIncluding || match.versionEndExcluding;
+        if (criteriaVersion && criteriaVersion !== "*" && criteriaVersion !== "-") {
+          if (!ranged && compareVersions(criteriaVersion, version) === 0) return true;
+          continue;
+        }
+        if (!(match.versionEndIncluding || match.versionEndExcluding)) continue;
+        if (withinBounds(match, version)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function cvssOf(cve) {
+  const metrics = cve?.metrics || {};
+  const pick = metrics.cvssMetricV31?.[0]?.cvssData || metrics.cvssMetricV30?.[0]?.cvssData || null;
+  if (pick) return { cvss_score: pick.baseScore ?? null, severity: pick.baseSeverity || "UNKNOWN" };
+  const v2 = metrics.cvssMetricV2?.[0]?.cvssData;
+  if (v2) {
+    const score = v2.baseScore;
+    return { cvss_score: score ?? null, severity: score >= 7 ? "HIGH" : score >= 4 ? "MEDIUM" : "LOW" };
+  }
+  return { cvss_score: null, severity: "UNKNOWN" };
+}
+
+async function lookupVersionCves(tech, version, opts, budget) {
+  const candidates = VERSION_CPE_CANDIDATES[tech] || [];
+  for (let i = 0; i < candidates.length; i++) {
+    if (budget.calls <= budget.reserve) return { status: "budget_exhausted", cves: [], cpe: null };
+    const vendorProduct = candidates[i];
+    const cpe = `cpe:2.3:a:${vendorProduct}:${version}:*:*:*:*:*:*:*`;
+    const url = new URL("https://services.nvd.nist.gov/rest/json/cves/2.0");
+    url.searchParams.set("cpeName", cpe);
+    budget.calls -= 1;
+    if (budget.made++ > 0) await new Promise((r) => setTimeout(r, 300));
+    let data;
+    try {
+      const res = await safeFetch(url.toString(), {
+        headers: { "User-Agent": "CyberMeters-Scanner/1.0" },
+        signal: combineLookupSignals(opts.signal, AbortSignal.timeout(10_000)),
+        accounting: opts.accounting || null,
+      });
+      if (!res || res.status !== 200) return { status: "unavailable", cves: [], cpe };
+      data = await res.json();
+    } catch {
+      return { status: "unavailable", cves: [], cpe };
+    }
+    const records = Array.isArray(data?.vulnerabilities) ? data.vulnerabilities : [];
+    // An empty answer under one vendor name is not evidence of "no CVEs" while
+    // another dictionary name remains; a non-empty one is authoritative.
+    if (records.length === 0 && i < candidates.length - 1) continue;
+    const cves = [];
+    for (const item of records) {
+      const cve = item?.cve || {};
+      if (!cve.id || /reject/i.test(String(cve.vulnStatus || ""))) continue;
+      if (!cpeAppliesExplicitly(cve, vendorProduct, version)) continue;
+      const description = (cve.descriptions || []).find((d) => d.lang === "en")?.value || "";
+      cves.push({
+        cve_id: cve.id,
+        ...cvssOf(cve),
+        description: description.length > 300 ? description.slice(0, 297) + "..." : description,
+        technology: tech,
+        version_matched: true,
+        matched_version: version,
+        published: cve.published || null,
+      });
+    }
+    return { status: "complete", cves, cpe };
+  }
+  return { status: "complete", cves: [], cpe: null };
+}
+
+const EPSS_URL = "https://api.first.org/data/v1/epss";
+
+// One batched EPSS read inside the module's remaining time. Failure leaves
+// epss null with an explicit status — never a fabricated probability.
+async function fetchEpss(cveIds, opts, timeoutMs) {
+  if (!cveIds.length) return { status: "not_applicable", scores: new Map() };
+  if (timeoutMs < 500) return { status: "skipped_deadline", scores: new Map() };
+  const ids = [];
+  let length = 0;
+  for (const id of cveIds) {
+    if (length + id.length + 1 > 1_900) break;
+    ids.push(id); length += id.length + 1;
+  }
+  const url = new URL(EPSS_URL);
+  url.searchParams.set("cve", ids.join(","));
+  try {
+    const res = await safeFetch(url.toString(), {
+      headers: { "User-Agent": "CyberMeters-Scanner/1.0" },
+      signal: combineLookupSignals(opts.signal, AbortSignal.timeout(timeoutMs)),
+      accounting: opts.accounting || null,
+    });
+    if (!res || res.status !== 200) return { status: "unavailable", scores: new Map() };
+    const body = await res.json();
+    const scores = new Map();
+    for (const row of Array.isArray(body?.data) ? body.data : []) {
+      const epss = Number(row?.epss), percentile = Number(row?.percentile);
+      if (row?.cve && Number.isFinite(epss) && Number.isFinite(percentile)) {
+        scores.set(row.cve, { epss, epss_percentile: percentile, epss_date: row.date || null });
+      }
+    }
+    return { status: ids.length < cveIds.length ? "partial" : "complete", scores };
+  } catch {
+    return { status: "unavailable", scores: new Map() };
+  }
+}
+
+// KEV membership from the R2 catalogue cache only (fresh or stale); the KEV
+// module owns origin fetches. No cache → membership unknown, stated as such.
+export async function readKevCatalogueIds(env) {
+  if (!env?.cybermeters_reports?.get) return { status: "unavailable", ids: null };
+  try {
+    const obj = await env.cybermeters_reports.get(KEV_CACHE_KEY);
+    if (!obj) return { status: "unavailable", ids: null };
+    const parsed = JSON.parse(await obj.text());
+    if (!Array.isArray(parsed?.vulnerabilities)) return { status: "unavailable", ids: null };
+    return { status: "complete", ids: new Set(parsed.vulnerabilities.map((row) => row?.cveID).filter(Boolean)) };
+  } catch {
+    return { status: "unavailable", ids: null };
+  }
+}
+
+function rankVersionCves(a, b) {
+  return Number(b.kev === true) - Number(a.kev === true)
+    || (b.epss ?? -1) - (a.epss ?? -1)
+    || (b.cvss_score ?? -1) - (a.cvss_score ?? -1)
+    || a.cve_id.localeCompare(b.cve_id);
+}
+
 /**
  * Run CVE correlation for detected technologies.
  * Ported from cve_lookup.correlate_cves() — limits to 3 technologies,
  * 300ms delay between NVD requests to respect free-tier rate limits,
- * skips exploit-db check (Worker network budget).
+ * skips exploit-db check (Worker network budget). A technology whose version
+ * is reported in a response header uses the version-aware CPE lookup above;
+ * the rest keep the version-blind keyword search. At most 3 NVD calls in
+ * total, and the optional EPSS read only uses time left inside the module's
+ * durable cap.
  */
 export async function runCveModule(techModule, opts = {}) {
   const accounting = opts.accounting || null;
@@ -214,10 +431,20 @@ export async function runCveModule(techModule, opts = {}) {
     if (n && ALLOWED_CVE_TECHNOLOGIES.has(n)) candidates.add(n);
   }
 
+  // Versioned technologies first: the bounded NVD budget goes to precise,
+  // version-aware evidence before version-blind keyword searches.
+  const reported = parseReportedVersions(techModule);
+  for (const tech of reported.keys()) {
+    if (ALLOWED_CVE_TECHNOLOGIES.has(tech)) candidates.add(tech);
+  }
   // Limit to 3 to bound runtime (NVD free tier: no API key → 5 req/30s)
-  const toCheck = [...candidates].slice(0, 3);
+  const toCheck = [...candidates]
+    .sort((a, b) => Number(reported.has(b)) - Number(reported.has(a)))
+    .slice(0, 3);
   const results = {};
   const lookupStatuses = {};
+  const versionResults = {};
+  const versionEvidence = {};
   let totalCves = 0, criticalCount = 0, highCount = 0;
 
   if (toCheck.length === 0) {
@@ -233,7 +460,31 @@ export async function runCveModule(techModule, opts = {}) {
     };
   }
 
-  for (const tech of toCheck) {
+  const startedAt = Date.now();
+  // Three NVD calls in total, shared by every technology; each later
+  // technology keeps one call reserved so a vendor-name fallback can never
+  // starve it.
+  const budget = { calls: 3, reserve: 0, made: 0 };
+  for (const [index, tech] of toCheck.entries()) {
+    budget.reserve = toCheck.length - index - 1;
+    const reportedVersion = reported.get(tech);
+    if (reportedVersion) {
+      const lookup = await lookupVersionCves(tech, reportedVersion.version, { accounting, signal: opts.signal || null }, budget);
+      lookupStatuses[tech] = { status: lookup.status, mode: "reported_version" };
+      versionEvidence[tech] = {
+        version: reportedVersion.version,
+        source: reportedVersion.source,
+        platform_hint: reportedVersion.platform_hint,
+        cpe: lookup.cpe,
+        status: lookup.status,
+        matched: lookup.cves.length,
+      };
+      if (lookup.cves.length > 0) versionResults[tech] = lookup.cves;
+      continue;
+    }
+    budget.calls -= 1;
+    // Respect NVD free-tier rate limit between requests
+    if (budget.made++ > 0) await new Promise(r => setTimeout(r, 300));
     const lookup = await lookupCvesForTechnology(tech, 5, {
       accounting,
       signal: opts.signal || null,
@@ -248,10 +499,36 @@ export async function runCveModule(techModule, opts = {}) {
         else if (c.severity === "HIGH") highCount++;
       }
     }
-    // Respect NVD free-tier rate limit between requests
-    if (toCheck.indexOf(tech) < toCheck.length - 1) {
-      await new Promise(r => setTimeout(r, 300));
+  }
+
+  let versionFields = {};
+  if (Object.keys(versionEvidence).length > 0) {
+    const versionIds = [...new Set(Object.values(versionResults).flat().map((c) => c.cve_id))];
+    const kev = versionIds.length ? await readKevCatalogueIds(opts.env) : { status: "not_applicable", ids: null };
+    const remainingMs = 31_000 - (Date.now() - startedAt);
+    const epss = await fetchEpss(versionIds, { accounting, signal: opts.signal || null }, Math.min(4_000, remainingMs));
+    let kevTotal = 0;
+    for (const [tech, list] of Object.entries(versionResults)) {
+      for (const cve of list) {
+        cve.kev = kev.ids ? kev.ids.has(cve.cve_id) : null;
+        const score = epss.scores.get(cve.cve_id);
+        cve.epss = score?.epss ?? null;
+        cve.epss_percentile = score?.epss_percentile ?? null;
+        if (cve.kev === true) kevTotal++;
+      }
+      list.sort(rankVersionCves);
+      versionEvidence[tech].matched = list.length;
+      versionResults[tech] = list.slice(0, 25);
     }
+    versionFields = {
+      version_evidence_version: CVE_VERSION_EVIDENCE_VERSION,
+      version_evidence: versionEvidence,
+      version_results: versionResults,
+      version_matched_total: versionIds.length,
+      version_kev_total: kevTotal,
+      kev_status: kev.status,
+      epss_status: epss.status,
+    };
   }
 
   const lookupRows = Object.values(lookupStatuses);
@@ -277,6 +554,7 @@ export async function runCveModule(techModule, opts = {}) {
     high_count:     highCount,
     source:         "nvd_api",
     cve_coverage:   cveCoverage,
+    ...versionFields,
     ...(incomplete ? {
       incomplete: true,
       outcome,
