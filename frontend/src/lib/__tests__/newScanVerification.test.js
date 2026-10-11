@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   canStartScan, isValidDomainSyntax, domainHintFor, safeErrorMessage,
-  isVerificationRequired, dnsInstructionFrom, checkFailureMessage,
+  isVerificationRequired, isPlanOrRateLimit, dnsInstructionFrom, checkFailureMessage,
   shouldKeepInstructions, SCAN_STATES, DNS_TTL_GUIDANCE,
   requiresVerificationCta, isDeadEnd, canonicalDomainInput, matchWorkspaceDomain } from '../newScanVerification'
 
@@ -203,5 +203,19 @@ describe('matchWorkspaceDomain: an existing exact record wins, otherwise the ape
   })
   it('the hint names the record that will actually be scanned', () => {
     expect(domainHintFor('verified', 'www.x.com', 'x.com').text).toMatch(/verified for x\.com/)
+  })
+})
+
+// Live finding: adding a domain over the plan limit showed the upgrade prompt AND
+// a red "Something went wrong" with a Retry that could never succeed.
+describe('plan and rate limits are shown once, by the upgrade prompt', () => {
+  it('recognises both limit codes from either field', () => {
+    expect(isPlanOrRateLimit({ code: 'plan_limit_exceeded' })).toBe(true)
+    expect(isPlanOrRateLimit({ error: 'rate_limit_exceeded' })).toBe(true)
+  })
+  it('never swallows any other failure', () => {
+    expect(isPlanOrRateLimit({ code: 'domain_verification_required' })).toBe(false)
+    expect(isPlanOrRateLimit(new Error('network down'))).toBe(false)
+    expect(isPlanOrRateLimit(null)).toBe(false)
   })
 })

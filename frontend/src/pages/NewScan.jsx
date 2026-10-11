@@ -12,7 +12,7 @@ import { useDomainConnectOffer } from '../hooks/useDomainConnectOffer'
 import { useWorkspace } from '../hooks/useWorkspace'
 import {
   canStartScan, isValidDomainSyntax, canonicalDomainInput, matchWorkspaceDomain, domainHintFor, safeErrorMessage,
-  isVerificationRequired, dnsInstructionFrom, checkFailureMessage,
+  isVerificationRequired, isPlanOrRateLimit, dnsInstructionFrom, checkFailureMessage,
   requiresVerificationCta, verifyFailureNote,
   isAuthoritativeVerified, verifyResponseClaimsSuccess, VERIFY_UNCONFIRMED_MESSAGE,
 } from '../lib/newScanVerification'
@@ -142,7 +142,12 @@ export default function NewScan() {
       if (!instruction) { setError(safeErrorMessage({})); setState('valid_unverified'); return }
       setDns(instruction); setState('instructions')
     } catch (e) {
-      setError(safeErrorMessage(e)); setState('valid_unverified')
+      // Adding the domain can hit the plan's domain limit. That is shown once, by
+      // the global upgrade prompt (cybermeters:plan-limit) — never a second time
+      // as a red "Something went wrong" with a Retry that cannot succeed.
+      if (isPlanOrRateLimit(e)) setError(null)
+      else setError(safeErrorMessage(e))
+      setState('valid_unverified')
     }
   }
 
@@ -267,7 +272,7 @@ export default function NewScan() {
         // exact record it gated on, so we never guess.
         setGated({ domain_id: e.domain_id, workspace_id: e.workspace_id })
         setState('valid_unverified'); setError(null)
-      } else if (e.code !== 'plan_limit_exceeded' && e.code !== 'rate_limit_exceeded') {
+      } else if (!isPlanOrRateLimit(e)) {
         // safeErrorMessage guarantees a machine code never reaches the customer.
         setError(safeErrorMessage(e)); setState(valid ? 'valid_unverified' : 'idle')
       } else {

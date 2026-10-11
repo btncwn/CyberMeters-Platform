@@ -147,6 +147,13 @@ export function safeErrorMessage(err) {
   return message;
 }
 
+// Plan and rate limits are surfaced by the global upgrade prompt; callers use
+// this to keep the inline error area quiet instead of showing them twice.
+export function isPlanOrRateLimit(err) {
+  const code = err?.code || err?.error
+  return code === 'plan_limit_exceeded' || code === 'rate_limit_exceeded'
+}
+
 export function isVerificationRequired(err) {
   return (err?.code || err?.error) === 'domain_verification_required';
 }
