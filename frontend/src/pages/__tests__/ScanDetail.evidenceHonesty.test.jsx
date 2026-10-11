@@ -371,7 +371,8 @@ describe('ScanDetail evidence honesty', () => {
     await renderFixture({ scan: scanFixture({ score: 99 }), report })
 
     const scanInfo = cardForHeading('Scan Information')
-    expect(within(scanInfo).getByText('Provisional Score')).toBeInTheDocument()
+    expect(within(scanInfo).getByText('Score')).toBeInTheDocument()
+    expect(within(scanInfo).queryByText('Provisional Score')).not.toBeInTheDocument()
     expect(within(scanInfo).getByText('—')).toBeInTheDocument()
     expect(within(scanInfo).queryByText('99 / 100')).not.toBeInTheDocument()
     expect(within(scanInfo).queryByText('99')).not.toBeInTheDocument()
@@ -386,7 +387,8 @@ describe('ScanDetail evidence honesty', () => {
     await renderFixture({ scan: scanFixture({ score: 99, rating: 'good' }), report })
 
     const scanInfo = cardForHeading('Scan Information')
-    expect(within(scanInfo).getByText('Provisional Score')).toBeInTheDocument()
+    expect(within(scanInfo).getByText('Score')).toBeInTheDocument()
+    expect(within(scanInfo).queryByText('Provisional Score')).not.toBeInTheDocument()
     expect(within(scanInfo).getByText('—')).toBeInTheDocument()
     expect(within(scanInfo).getByText(SUPPRESSED_ASSESSMENT.suppression_reason)).toBeInTheDocument()
     expect(within(scanInfo).queryByText('99 / 100')).not.toBeInTheDocument()

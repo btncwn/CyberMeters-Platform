@@ -240,9 +240,12 @@ function SummaryBar({ assessment, domain, emailIntel, remPlan, kev, cve }) {
 
   const stats = [
     {
-      label:   cms.provisional ? 'Provisional Score' : 'Cyber Metrics Score',
+      // A withheld score is not a provisional number: it keeps the plain label.
+      label:   cms.provisional && cms.score != null ? 'Provisional Score' : 'Cyber Metrics Score',
       value:   cms.score != null ? String(cms.score) : '—',
-      sub:     cms.provisional ? `Provisional · ${domain || '/100'}` : (domain || '/100'),
+      sub:     cms.provisional
+        ? (cms.score == null ? 'Withheld · scan incomplete' : `Provisional · ${domain || '/100'}`)
+        : (domain || '/100'),
       color:   cms.score == null ? '#9CA3AF' : cms.band.color,
       mono:    false,
     },

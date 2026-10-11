@@ -1778,7 +1778,7 @@ export default function ScanDetail() {
                   <KV label="Scan ID"   value={<span className="mono text-xs text-brand-600">{scan.id}</span>} />
                   <KV label="Domain"    value={scan.domain} />
                   <KV label="Status"    value={<StatusBadge status={scan.status} />} />
-                  <KV label={assessment?.provisional === true ? 'Provisional Score' : 'Score'} value={
+                  <KV label={assessment?.provisional === true && assessmentScore !== null ? 'Provisional Score' : 'Score'} value={
                     assessmentScore !== null
                       ? <span className="font-bold text-brand-600">{assessmentScore} / 100</span>
                       : '—'
