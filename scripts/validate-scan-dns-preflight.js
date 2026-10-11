@@ -115,9 +115,16 @@ try {
       && allAbsent.assets.every(a => a.probe_status === "not_applicable" && a.reachable === null && a.http_assessed === false));
     ok(`NO_ADDRESS_${rcode}_HTTP_NOT_HEALTHY`, admin.evidence_status === "not_assessed"
       && signals.http_https_service.state === "not_assessed" && signals.exposure_admin_surface.state === "not_assessed");
-    ok(`NO_ADDRESS_${rcode}_NO_REMOVAL_PROOF`, allAbsent.removal_observations.every(row =>
-      row.signal_states.http_https_service.state === "not_assessed"
-      && deriveRemovalObservation(row.signal_states) === "not_assessed"));
+    // A name with authoritative DNS absence on both the DNS signal and the
+    // probe's own preflight is a complete removal negative, so a deleted name
+    // can progress to confirmed removal instead of reading "not assessed"
+    // forever. Case closure stays blocked (NO_CASE_VERIFICATION below).
+    ok(`NO_ADDRESS_${rcode}_IS_COMPLETE_REMOVAL_NEGATIVE`, allAbsent.removal_observations.length > 0
+      && allAbsent.removal_observations.every(row =>
+        row.signal_states.dns_resolution.state === "absent"
+        && row.signal_states.http_https_service.state === "not_observed"
+        && row.signal_states.http_https_service.reason === "http_not_applicable_no_address"
+        && deriveRemovalObservation(row.signal_states) === "not_observed"));
     ok(`NO_ADDRESS_${rcode}_NO_CASE_VERIFICATION`, !moduleCompletionGate(modules, { status: "complete" }).canVerify("asset_exposure")
       && !moduleCompletionGate(modules, { status: "complete" }).canVerify("admin_surface_detection"));
     const previous = { admin_surface_detection: { evidence_status: "issue_detected", services: [
@@ -158,6 +165,16 @@ try {
   const absentAlias = await probeAsset(host);
   ok("NO_ADDRESS_CNAME_CHAIN_PROVEN", observed.length === 0 && absentAlias.probe_status === "not_applicable"
     && absentAlias.dns_evidence.families.A.terminal === "terminal.example.test");
+  // A dangling CNAME (alias to a name with no address) is a takeover candidate,
+  // not a removed asset: the alias record is still published, so it must read
+  // observed and can never progress towards confirmed removal.
+  {
+    const danglingExposure = await runExposureModule(host, [host], { cache: new Map() });
+    ok("NO_ADDRESS_DANGLING_CNAME_NEVER_REMOVAL_NEGATIVE", danglingExposure.removal_observations.length > 0
+      && danglingExposure.removal_observations.every((row) =>
+        row.signal_states.dns_resolution.state === "observed"
+        && deriveRemovalObservation(row.signal_states) === "observed"));
+  }
   const redirected = "redirect.example.test";
   transport((name, type) => name === redirected ? soaNodata(name, type) : publicDns(name, type), redirected);
   const redirectedAbsent = await probeAsset(host);
