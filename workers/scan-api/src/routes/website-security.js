@@ -41,8 +41,7 @@ export async function websiteSecurityRoutes(rctx) {
 
   // ── GET /website-security/pages — important-page inventory (mig 115) ───────
   const pagesMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/website-security\/pages$/);
-  if (pagesMatch) {
-    if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+  if (pagesMatch && request.method === "GET") {
     const wsId = pagesMatch[1];
     const user = await requireAuth(request, env);
     if (!user) return json({ error: "Unauthorized" }, 401);
@@ -70,6 +69,7 @@ export async function websiteSecurityRoutes(rctx) {
       return json({ error: "Website pages are temporarily unavailable" }, 503);
     }
   }
+  if (pagesMatch) return json({ error: "Method not allowed" }, 405);
 
   const m = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/website-security\/conditions(?:\/([^/]+)(?:\/([^/]+))?)?$/);
   if (!m) return null;

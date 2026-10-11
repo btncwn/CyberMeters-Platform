@@ -40,8 +40,8 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 280,
-    "authed": 250,
+    "total": 281,
+    "authed": 251,
     "public_unauthed": 30,
     "sensitive_scope_gaps": 0,
     "by_scope": {
@@ -70,8 +70,8 @@
         "authed": 2
       },
       "workspace": {
-        "total": 138,
-        "authed": 138
+        "total": 139,
+        "authed": 139
       },
       "webhook": {
         "total": 2,
@@ -3066,6 +3066,20 @@
       "path_kind": null,
       "file": "workers/scan-api/src/routes/shadow-it.js",
       "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/website-security.js",
+      "scope": "workspace",
       "auth_guards": [
         "requireAuth",
         "requireWorkspaceRole"

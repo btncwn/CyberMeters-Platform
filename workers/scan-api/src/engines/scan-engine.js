@@ -77,8 +77,11 @@ import { evaluateWebsiteSecurityForScan } from "./website-security-lifecycle.js"
 import { PAGE_DISCOVERY_VERSION, runPageDiscoveryModule } from "./page-discovery.js";
 import { persistWebsitePagesForScan } from "./website-pages.js";
 
-// Phase 7a cap for important-page discovery (durable scans only).
-const PAGE_DISCOVERY_BUDGET_MS = 30_000;
+// Phase 7a cap for important-page discovery (durable scans only), and the
+// headroom it must leave for post-terminal work (verification, lifecycle,
+// snapshot, alerts, notifications) that shares the same invocation deadline.
+const PAGE_DISCOVERY_BUDGET_MS = 25_000;
+const PAGE_DISCOVERY_POST_TERMINAL_RESERVE_MS = 40_000;
 import { evaluateCyberEssentialsLifecycle } from "./ce-lifecycle.js";
 import { correlateRelatedChanges } from "./related-changes.js";
 import {
@@ -2019,7 +2022,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         modules.page_discovery = notRun("not_durable_execution");
       } else if (reservedMode) {
         modules.page_discovery = notRun("reserved_capacity_mode");
-      } else if (!deadline.canRun(PAGE_DISCOVERY_BUDGET_MS)) {
+      } else if (!deadline.canRun(PAGE_DISCOVERY_BUDGET_MS + PAGE_DISCOVERY_POST_TERMINAL_RESERVE_MS)) {
         modules.page_discovery = notRun("deadline_budget");
       } else {
         const pageRun = await runCappedModule("page_discovery", {
@@ -2031,13 +2034,22 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           }),
         });
         modules.page_discovery = pageRun.thrown ? notRun("module_failed") : (pageRun.value || notRun("module_failed"));
+        const pageTimedOut = pageRun.timedOut === true || Boolean(modules.page_discovery.timeout_source);
         try {
+          const pageOutbound = pageRun.thrown
+            ? (() => { pageRun.ctx?.markIncomplete?.("module_error"); return outboundAccounting.snapshot("page_discovery"); })()
+            : pageTimedOut
+            ? abandonOutbound(pageRun.ctx, "page_discovery", pageRun.startedMs != null ? "module_race" : "launch_gate")
+            : settleOutboundValue(pageRun.ctx, "page_discovery", modules.page_discovery);
           telemetry.record("page_discovery", {
-            outcome:      modules.page_discovery.coverage,
-            timeout:      pageRun.timedOut === true,
-            error_class:  pageRun.thrown?.name || null,
-            duration_ms:  pageRun.durationMs,
-            allocated_ms: pageRun.allocatedMs,
+            outcome:        telemetry.outcomeOf(modules.page_discovery),
+            timeout:        pageTimedOut,
+            error_class:    pageRun.thrown?.name || null,
+            duration_ms:    pageRun.durationMs,
+            allocated_ms:   pageRun.allocatedMs,
+            timeout_source: pageTimedOut ? (modules.page_discovery.timeout_source || "module_race") : null,
+            outbound:       pageOutbound,
+            outbound_calls: pageOutbound?.outbound_measurement_complete ? pageOutbound.outbound_attempts_observed : null,
           });
         } catch { /* telemetry is observational only */ }
       }
@@ -2826,10 +2838,13 @@ function buildCanonicalUrlProfile(modules) {
           .bind(domainId)
           .all();
         for (const { workspace_id } of (pageWsRows.results || [])) {
-          await persistWebsitePagesForScan(env, {
-            workspace_id, domain_id: domainId, domain, scan_id: scanId,
-            discovery: modules.page_discovery,
-          });
+          // One workspace failing must not stop the others.
+          try {
+            await persistWebsitePagesForScan(env, {
+              workspace_id, domain_id: domainId, domain, scan_id: scanId,
+              discovery: modules.page_discovery,
+            });
+          } catch { /* non-fatal for this workspace */ }
         }
       }
     } catch { /* non-fatal — the next scan records the pages again */ }

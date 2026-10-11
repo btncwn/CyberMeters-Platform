@@ -38,7 +38,7 @@ export function pageStatusMeta(status) {
 
 /** One-line summary of the latest run for a domain. */
 export function coverageSummary(run) {
-  if (!run) return 'No extra pages have been checked yet. They are checked on the next full scan.'
+  if (!run) return 'No extra pages have been checked yet. They are checked during queued and scheduled scans of a verified domain.'
   const observed = Number(run.counts?.observed) || 0
   const max = Number(run.counts?.max_pages) || 15
   const reasons = (run.partial_reasons || []).map((r) => COVERAGE_REASON_LABEL[r]).filter(Boolean)
@@ -69,4 +69,14 @@ export function pageFacts(page) {
   const scripts = o.third_party_scripts || []
   if (scripts.length) facts.push(`${scripts.length} third-party script host${scripts.length === 1 ? '' : 's'}`)
   return facts
+}
+
+/** Sensitive-page label with how it was identified (never stated as fact when inferred from the address). */
+export function sensitiveLabel(page) {
+  const label = SENSITIVE_KIND_LABEL[page?.sensitive_kind]
+  if (!label) return null
+  const basis = page?.observation?.sensitive_basis
+  if (basis === 'password_field') return `${label} · has a password field`
+  const POSSIBLY = { login: 'Possibly a sign-in page', admin: 'Possibly an admin page', account: 'Possibly an account page', checkout: 'Possibly a checkout or payment page' }
+  return `${POSSIBLY[page.sensitive_kind]} · from its address`
 }

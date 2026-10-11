@@ -14,7 +14,7 @@
 
 const PAGE_STATUS = Object.freeze({ OBSERVED: "observed", NOT_FOUND: "not_found", UNCONFIRMED: "unconfirmed" });
 const MAX_PAGES_PER_RUN = 25;
-const MAX_LIST_ROWS = 200;
+const MAX_LIST_ROWS_PER_DOMAIN = 60;
 
 async function sha(text) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -158,7 +158,16 @@ export async function persistWebsitePagesForScan(env, { workspace_id, domain_id,
       ).bind(id, workspace_id, domain_id, String(domain || "").slice(0, 253), path, kind, source,
         outcome, statusCode, finalUrlOf(page), JSON.stringify(obs), now, now, now, scan_id, now, now));
       created++;
-      await event(id, path, "page_first_seen", { sensitive_kind: kind, source });
+      // Guarded so two concurrent scans cannot both record a first sighting.
+      events++;
+      stmts.push(db.prepare(
+        `INSERT OR IGNORE INTO website_page_events
+           (id, workspace_id, domain_id, page_id, path, scan_id, event_type, detail_json, created_at)
+         SELECT ?, ?, ?, ?, ?, ?, 'page_first_seen', ?, ?
+          WHERE NOT EXISTS (SELECT 1 FROM website_page_events e
+                             WHERE e.page_id = ? AND e.event_type = 'page_first_seen')`,
+      ).bind(`wspe-${(await sha(`${scan_id}|${id}|page_first_seen`)).slice(0, 24)}`,
+        workspace_id, domain_id, id, path, scan_id, JSON.stringify({ sensitive_kind: kind, source }), now, id));
       continue;
     }
 
@@ -189,7 +198,7 @@ export async function persistWebsitePagesForScan(env, { workspace_id, domain_id,
   return { run: coverage, created, updated, events };
 }
 
-/** Read surface: pages + latest run per verified domain of the workspace. */
+/** Read surface: pages + latest run per domain linked to the workspace (bounded per domain). */
 export async function listWebsitePages(env, workspaceId, { domainId = null } = {}) {
   const db = env.cybermeters_db;
   const domainRows = (await db
@@ -202,11 +211,15 @@ export async function listWebsitePages(env, workspaceId, { domainId = null } = {
   const ids = domainRows.map((d) => d.domain_id);
   const ph = ids.map(() => "?").join(",");
   const [pages, runs] = await Promise.all([
-    db.prepare(`SELECT id, domain_id, path, monitoring_status, sensitive_kind, discovery_source, last_outcome,
-                       last_status_code, last_final_url, last_observation_json, first_seen_at, last_seen_at,
-                       last_checked_at
-                  FROM website_pages WHERE workspace_id = ? AND domain_id IN (${ph})
-                 ORDER BY (sensitive_kind IS NULL), path LIMIT ${MAX_LIST_ROWS}`)
+    db.prepare(`SELECT * FROM (
+                  SELECT id, domain_id, path, monitoring_status, sensitive_kind, discovery_source, last_outcome,
+                         last_status_code, last_final_url, last_observation_json, first_seen_at, last_seen_at,
+                         last_checked_at,
+                         ROW_NUMBER() OVER (PARTITION BY domain_id ORDER BY (sensitive_kind IS NULL), path) AS rn,
+                         COUNT(*) OVER (PARTITION BY domain_id) AS domain_total
+                    FROM website_pages WHERE workspace_id = ? AND domain_id IN (${ph}))
+                 WHERE rn <= ${MAX_LIST_ROWS_PER_DOMAIN}
+                 ORDER BY domain_id, rn`)
       .bind(workspaceId, ...ids).all(),
     db.prepare(`SELECT r.domain_id, r.scan_id, r.coverage, r.partial_reasons_json, r.counts_json, r.observed_at
                   FROM website_page_discovery_runs r
@@ -221,7 +234,9 @@ export async function listWebsitePages(env, workspaceId, { domainId = null } = {
     counts: parse(r.counts_json, {}), observed_at: r.observed_at,
   }]));
   const pagesByDomain = new Map();
+  const totals = new Map();
   for (const p of pages?.results || []) {
+    totals.set(p.domain_id, Number(p.domain_total) || 0);
     const list = pagesByDomain.get(p.domain_id) || [];
     list.push({
       id: p.id, path: p.path, monitoring_status: p.monitoring_status, sensitive_kind: p.sensitive_kind,
@@ -235,5 +250,7 @@ export async function listWebsitePages(env, workspaceId, { domainId = null } = {
     domain_id: d.domain_id, domain: d.domain,
     latest_run: runByDomain.get(d.domain_id) || null,
     pages: pagesByDomain.get(d.domain_id) || [],
+    total_pages: totals.get(d.domain_id) || 0,
+    truncated: (totals.get(d.domain_id) || 0) > (pagesByDomain.get(d.domain_id) || []).length,
   }));
 }
