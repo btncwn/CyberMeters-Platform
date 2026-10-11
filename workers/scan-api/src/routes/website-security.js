@@ -22,6 +22,7 @@ import {
   listWebsiteSecurityConditions, countWebsiteSecurityConditions,
   getWebsiteSecurityCondition, listWebsiteSecurityEvents,
 } from "../engines/website-security-lifecycle.js";
+import { listWebsitePages } from "../engines/website-pages.js";
 import { pageMeta, paginationParams } from "../lib/util.js";
 
 const WS_SCOPE_NOTE =
@@ -29,8 +30,46 @@ const WS_SCOPE_NOTE =
   + "A condition is only ever recorded as no-longer-observed when the module that detects it provably ran on a complete scan; "
   + "where it did not, the state stays `unknown`, which means CyberMeters could not tell — never that the issue was fixed.";
 
+const WS_PAGES_SCOPE_NOTE =
+  "Up to 15 of the site's own public pages per scan, found from homepage links, the sitemap and a short list of common "
+  + "paths, checked with passive requests only. This is not a full crawl: pages behind a login, pages only reachable "
+  + "through JavaScript and other hosts are not checked. A page is shown as not found only when it was requested and "
+  + "answered 404 or 410; pages not requested in a scan keep their last observation.";
+
 export async function websiteSecurityRoutes(rctx) {
   const { request, env, url, json, requireAuth, requireWorkspaceRole } = rctx;
+
+  // ── GET /website-security/pages — important-page inventory (mig 115) ───────
+  const pagesMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/website-security\/pages$/);
+  if (pagesMatch) {
+    if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+    const wsId = pagesMatch[1];
+    const user = await requireAuth(request, env);
+    if (!user) return json({ error: "Unauthorized" }, 401);
+    const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+    if (!access) return json({ error: "Forbidden" }, 403);
+    const ws = await env.cybermeters_db
+      .prepare(`SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
+      .bind(wsId).first().catch(() => null);
+    if (!ws) return json({ error: "Workspace not found" }, 404);
+    try {
+      // Domain filter resolves within THIS workspace only (never widens across tenants).
+      let domainId = null;
+      const domain = url.searchParams.get("domain");
+      if (domain) {
+        const row = await env.cybermeters_db
+          .prepare(`SELECT d.id AS id FROM domains d JOIN workspace_domains wd ON wd.domain_id = d.id
+                    WHERE wd.workspace_id = ? AND d.domain = ?`)
+          .bind(wsId, String(domain).toLowerCase()).first();
+        if (!row) return json({ workspace_id: wsId, domains: [], scope_note: WS_PAGES_SCOPE_NOTE });
+        domainId = row.id;
+      }
+      const domains = await listWebsitePages(env, wsId, { domainId });
+      return json({ workspace_id: wsId, domains, scope_note: WS_PAGES_SCOPE_NOTE });
+    } catch {
+      return json({ error: "Website pages are temporarily unavailable" }, 503);
+    }
+  }
 
   const m = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/website-security\/conditions(?:\/([^/]+)(?:\/([^/]+))?)?$/);
   if (!m) return null;

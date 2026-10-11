@@ -74,6 +74,11 @@ import { correlateShadowItInventory } from "./shadow-it-inventory.js";
 import { correlateCertificateLifecycle } from "./certificate-lifecycle.js";
 import { correlateIdentityExposure } from "./identity-lifecycle.js";
 import { evaluateWebsiteSecurityForScan } from "./website-security-lifecycle.js";
+import { PAGE_DISCOVERY_VERSION, runPageDiscoveryModule } from "./page-discovery.js";
+import { persistWebsitePagesForScan } from "./website-pages.js";
+
+// Phase 7a cap for important-page discovery (durable scans only).
+const PAGE_DISCOVERY_BUDGET_MS = 30_000;
 import { evaluateCyberEssentialsLifecycle } from "./ce-lifecycle.js";
 import { correlateRelatedChanges } from "./related-changes.js";
 import {
@@ -2000,6 +2005,44 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       findings.push(f);
     }
 
+    // Phase 7a: Website important-page discovery (engines/page-discovery.js).
+    // Bounded passive GETs of the site's own pages (homepage links, sitemap,
+    // a short well-known list; max 15 pages) on the scanned host only. Durable
+    // (queue/cron) scans only, after the external-RUA capacity gate, under its
+    // own explicit cap. It NEVER sets `incomplete`: a partial or skipped crawl
+    // is reported on the module's own `coverage`, so it cannot downgrade scan
+    // quality or block verification for any other domain. Produces no findings
+    // yet; its observations are persisted per workspace in Phase 8m-ii.
+    {
+      const notRun = (reason) => ({ source: "page_discovery", version: PAGE_DISCOVERY_VERSION, coverage: "not_run", partial_reasons: [reason], pages: [] });
+      if (!durableInvocation) {
+        modules.page_discovery = notRun("not_durable_execution");
+      } else if (reservedMode) {
+        modules.page_discovery = notRun("reserved_capacity_mode");
+      } else if (!deadline.canRun(PAGE_DISCOVERY_BUDGET_MS)) {
+        modules.page_discovery = notRun("deadline_budget");
+      } else {
+        const pageRun = await runCappedModule("page_discovery", {
+          estimateMs: PAGE_DISCOVERY_BUDGET_MS,
+          hardMs: PAGE_DISCOVERY_BUDGET_MS,
+          fallback: () => notRun("module_budget_exhausted"),
+          run: ({ accounting, signal, remainingMs }) => runPageDiscoveryModule(domain, {
+            dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs,
+          }),
+        });
+        modules.page_discovery = pageRun.thrown ? notRun("module_failed") : (pageRun.value || notRun("module_failed"));
+        try {
+          telemetry.record("page_discovery", {
+            outcome:      modules.page_discovery.coverage,
+            timeout:      pageRun.timedOut === true,
+            error_class:  pageRun.thrown?.name || null,
+            duration_ms:  pageRun.durationMs,
+            allocated_ms: pageRun.allocatedMs,
+          });
+        } catch { /* telemetry is observational only */ }
+      }
+    }
+
 /**
  * buildCanonicalUrlProfile(modules)
  *
@@ -2772,6 +2815,24 @@ function buildCanonicalUrlProfile(modules) {
         });
       }
     } catch { /* non-fatal — lifecycle catches up on the next scan */ }
+
+    // Phase 8m-ii: Website important-page inventory (migration 115). Persists
+    // THIS scan's page observations for each workspace that owns the domain and
+    // has it verified (checked inside). Non-fatal; never touches findings.
+    try {
+      if (modules.page_discovery?.source === "page_discovery") {
+        const pageWsRows = await env.cybermeters_db
+          .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+          .bind(domainId)
+          .all();
+        for (const { workspace_id } of (pageWsRows.results || [])) {
+          await persistWebsitePagesForScan(env, {
+            workspace_id, domain_id: domainId, domain, scan_id: scanId,
+            discovery: modules.page_discovery,
+          });
+        }
+      }
+    } catch { /* non-fatal — the next scan records the pages again */ }
 
     // Phase 8n: Cyber Essentials external-evidence lifecycle — re-assess the
     // workspace's externally evidenced control-theme readiness now that a new scan

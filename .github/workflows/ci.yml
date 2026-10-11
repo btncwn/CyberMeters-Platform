@@ -1020,6 +1020,9 @@ jobs:
       - name: Validate Website Security lifecycle (flood guard / unknown≠recovery / band escalation / reappearance, mutation-tested)
         run: node scripts/validate-website-security-lifecycle.js
 
+      - name: Validate Website important-page discovery (bounds, scope, honesty, persistence, engine trace)
+        run: node scripts/validate-website-page-discovery.js
+
       # Cyber Essentials is the 8th and last canonical alerting domain, and the one
       # with the most ways to be dishonest. It detects nothing of its own, so it owns
       # only control-theme READINESS transitions — never a second "we found X" for a
