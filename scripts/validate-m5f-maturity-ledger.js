@@ -236,6 +236,11 @@ async function checkWriterAndReaders() {
   const web = cur.find((d) => d.domain_key === "website_security");
   eq("D: website reads managed after owned case", web.maturity_stage, "managed");
   eq("D: email reads observed (clean, no case)", cur.find((d) => d.domain_key === "email_protection").maturity_stage, "observed");
+  // PR9: the workspace view names the domain record behind each shown stage, so a
+  // screen can open THAT record's history; an unassessed domain names none.
+  eq("D: workspace view carries the folded row's domain id", web.domain_id, "d1");
+  eq("D: workspace view carries the folded row's domain name", web.domain_name, "example.com");
+  ok("D: not-established skeleton names no domain record", empty.every((d) => d.domain_id === undefined && d.domain_name === undefined));
 
   // 5: readWorkspaceMaturity performs ZERO writes.
   writes.length = 0;

@@ -659,6 +659,9 @@ export const api = {
 
   /** GET /api/workspaces/:id/maturity — per-workspace eight-domain maturity ledger (M5.f) */
   getWorkspaceMaturity: (id) => request(`/workspaces/${id}/maturity`),
+  /** GET /api/workspaces/:id/maturity/:domainId/:domainKey/history — append-only, newest first */
+  getMaturityHistory: (id, domainId, domainKey, limit = 20) =>
+    request(`/workspaces/${encodeURIComponent(id)}/maturity/${encodeURIComponent(domainId)}/${encodeURIComponent(domainKey)}/history?limit=${limit}`),
 
   /** GET /api/workspaces/:id/scorecard */
   getWorkspaceScorecard: (id) => request(`/workspaces/${id}/scorecard`),
