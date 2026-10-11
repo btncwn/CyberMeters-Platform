@@ -76,6 +76,7 @@ eq("forms: implicit action inherits page scheme", [forms[2].action_kind, forms[2
 eq("mixed content on https", findMixedContent(`<script src="http://cdn.old/x.js"></script><img src='http://img.example/a.png'><link rel=stylesheet href="http://css.example/s.css"><a href="http://x">`, "https://acme.test/"),
   { count: 3, hosts: ["cdn.old", "img.example", "css.example"] });
 eq("no mixed content on http page", findMixedContent(`<script src="http://cdn/x.js">`, "http://acme.test/").count, 0);
+// nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag -- INTENTIONAL: inert HTML fixture parsed (never rendered) by the scanner under test; `hosts` is a test-local Set.
 eq("third-party scripts", thirdPartyScriptHosts(`<script src="/app.js"></script><script src="https://cdn.vendor.example/v.js"></script><script src="//www.acme.test/x.js"></script><script src="https://a.analytics.example/t.js">`, "https://acme.test/", hosts),
   ["a.analytics.example", "cdn.vendor.example"]);
 
@@ -382,6 +383,7 @@ const evts = (db, ws) => db.prepare("SELECT path, event_type FROM website_page_e
 {
   // Scanner semantics: comments and raw-text (script/style) content are not markup.
   eq("comment-hidden password field ignored", hasPasswordField("<!-- <input type=password> --><p>x</p>"), false);
+  // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag -- INTENTIONAL: inert HTML fixture parsed (never rendered) by the scanner under test; `hosts` is a test-local Set.
   eq("script string '<form' ignored", extractForms(`<script>var s = "<form action='http://x'><input type=password>";</script>`, "https://acme.test/", hosts).length, 0);
   eq("mixed content inside script string ignored", findMixedContent(`<script>document.write('<img src="http://x/y.png">')</script>`, "https://acme.test/").count, 0);
   eq("data-href is not href", extractLinks(`<a data-href="/x">`), []);
@@ -513,6 +515,7 @@ const evts = (db, ws) => db.prepare("SELECT path, event_type FROM website_page_e
   eq("unsafe GETs are never requestable", ["/logout", "/account/delete", "/unsubscribe", "/sign-out", "/api/v1/users", "/graphql", "/wp-json/x", "/oauth/token"].map((p) => isRequestablePath(p)), [false, false, false, false, false, false, false, false]);
   eq("ordinary pages are requestable", ["/admin", "/account", "/pricing", "/reset-password", "/verify-email"].map((p) => isRequestablePath(p)), [true, true, true, true, true]);
   ok("api path classifier", isApiPath("/api/users") && !isApiPath("/apiary"));
+  // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag -- INTENTIONAL: inert HTML fixture parsed (never rendered) by the scanner under test; `hosts` is a test-local Set.
   eq("first-party scripts only", firstPartyScriptUrls(`<script src="/a.js"></script><script src="https://cdn.other/x.js"></script><script src="https://www.acme.test/b.js"></script><script src="https://acme.test:8443/c.js"></script>`, "https://acme.test/", hosts),
     ["https://acme.test/a.js", "https://www.acme.test/b.js"]);
   // Linear on hostile JS.

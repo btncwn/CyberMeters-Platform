@@ -729,7 +729,10 @@
       "domain": "website",
       "tables": [
         "website_security_conditions",
-        "website_security_events"
+        "website_security_events",
+        "website_pages",
+        "website_page_events",
+        "website_page_discovery_runs"
       ],
       "ownership": {
         "website_security_conditions": {
@@ -739,13 +742,25 @@
         "website_security_events": {
           "model": "direct",
           "column": "workspace_id"
+        },
+        "website_pages": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "website_page_events": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "website_page_discovery_runs": {
+          "model": "direct",
+          "column": "workspace_id"
         }
       },
       "non_tenant": false,
       "coverage": {
         "dynamic_harness": false,
         "property_based": false,
-        "note": "workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle)"
+        "note": "workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle); page inventory (mig 115) is workspace_id + domain_id scoped, written only for live verified workspaces, read via the workspace-gated pages route, purged with the workspace (validate-website-page-discovery)"
       }
     },
     {
@@ -1180,6 +1195,9 @@
     "users": "identity_root",
     "vendor_risk_scores": "shadow_it",
     "vendor_risk_scores_history": "shadow_it",
+    "website_page_discovery_runs": "website_security",
+    "website_page_events": "website_security",
+    "website_pages": "website_security",
     "website_security_conditions": "website_security",
     "website_security_events": "website_security",
     "workspace_alert_channels": "alerts",
@@ -1200,9 +1218,9 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 101,
-    "classified": 101,
-    "tenant_owned_tables": 97,
+    "schema_tables": 104,
+    "classified": 104,
+    "tenant_owned_tables": 100,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
     "resource_classes": 37,

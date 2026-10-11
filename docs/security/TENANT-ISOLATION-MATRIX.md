@@ -11,9 +11,9 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 101
-- **classified:** 101
-- **tenant owned tables:** 97
+- **schema tables:** 104
+- **classified:** 104
+- **tenant owned tables:** 100
 - **infra or identity tables:** 4
 - **unclassified:** 0
 - **resource classes:** 37
@@ -61,7 +61,7 @@ data cannot be silently omitted.
 | brand | brand | direct(workspace_id) | 4 | ✓ | ✓ |
 | email_protection | email | direct(workspace_id) | 11 | — | — |
 | cyber_essentials | cyber_essentials | direct(workspace_id) | 3 | — | — |
-| website_security | website | direct(workspace_id) | 2 | — | — |
+| website_security | website | direct(workspace_id) | 5 | — | — |
 | shadow_it | shadow_it | direct(workspace_id) | 7 | ✓ | — |
 | posture_state | reporting | direct(workspace_id) | 4 | ✓ | — |
 | related_changes | correlation | direct(workspace_id) | 2 | — | — |
@@ -92,7 +92,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 - **identity_exposure:** foreign/anon denial on /identity-surfaces with owner positive control in validate-tenant-isolation-extended.js; plus the dedicated validate-identity-exposure.js
 - **email_protection:** workspace_id-scoped; ingest is endpoint-key gated (key binds workspace); read surfaces harness-covered via /maturity + email-protection routes
 - **cyber_essentials:** workspace_id-scoped; read surfaces exist; write is answer-versioned (validate-ce-answer-versioning)
-- **website_security:** workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle)
+- **website_security:** workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle); page inventory (mig 115) is workspace_id + domain_id scoped, written only for live verified workspaces, read via the workspace-gated pages route, purged with the workspace (validate-website-page-discovery)
 - **related_changes:** M6 B1 deterministic Related Changes (mig 098); both workspace_id-scoped (evidence carries a denormalised workspace_id); read/feedback/case surface is workspace_id-filtered and role-gated; isolation proven by validate-m6-b1-related-changes + the static tenant-query audit, purge by validate-purge-completeness
 - **api_tokens:** workspace_id + user_id scoped; account route ownership-gated
 - **report_branding:** workspace_branding is workspace_id-scoped (per-workspace co-brand logo); msp_branding_profiles is owner_user_id-scoped (MSP white-label profile, usable only for the MSP's own portfolio); isolation proven by validate-report-branding-v2 + the static audit; logos stored in R2 under tenant-prefixed, content-addressed keys
@@ -190,6 +190,9 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `users` | identity_root(id) | identity_root |
 | `vendor_risk_scores` | direct(workspace_id) | shadow_it |
 | `vendor_risk_scores_history` | direct(workspace_id) | shadow_it |
+| `website_page_discovery_runs` | direct(workspace_id) | website_security |
+| `website_page_events` | direct(workspace_id) | website_security |
+| `website_pages` | direct(workspace_id) | website_security |
 | `website_security_conditions` | direct(workspace_id) | website_security |
 | `website_security_events` | direct(workspace_id) | website_security |
 | `workspace_alert_channels` | direct(workspace_id) | alerts |
