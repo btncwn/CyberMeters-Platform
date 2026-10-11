@@ -1,0 +1,100 @@
+{
+  "schema": "cybermeters.route-wiring/v1",
+  "doc": "Backend routes no screen calls, each with a reason. Checked by scripts/validate-route-wiring.js: a new unwired route must be classified here; an entry that becomes wired or disappears must be removed.",
+  "classes": {
+    "admin": "Platform-admin only; no customer screen by design.",
+    "auth_flow": "Opened by a browser redirect or an email link, not by the API client.",
+    "webhook": "Called by a third party (e.g. Stripe).",
+    "internal": "Machine-to-machine (ingestion, cron, other Workers).",
+    "external_api": "For API clients/export tooling; a screen uses another route for the same data.",
+    "customer_pending": "Built for customers but no screen calls it yet — work not yet reaching customers.",
+    "deprecated": "Kept only until removed."
+  },
+  "unwired": {
+    "exact:/api/account/onboarding-state": {
+      "class": "customer_pending",
+      "reason": "Onboarding progress API; no screen reads it yet."
+    },
+    "exact:/api/account/report-branding": {
+      "class": "external_api",
+      "reason": "Account-level report branding (API only); the Settings screen manages branding through /api/workspaces/:id/branding."
+    },
+    "exact:/api/admin/subscriptions": {
+      "class": "admin",
+      "reason": "Platform-admin billing inspection; no customer screen by design."
+    },
+    "exact:/api/auth/microsoft/callback": {
+      "class": "auth_flow",
+      "reason": "Microsoft sign-in OAuth callback (browser redirect)."
+    },
+    "exact:/api/auth/verify-email": {
+      "class": "auth_flow",
+      "reason": "Opened from the verification email link; redirects to /verify-email."
+    },
+    "exact:/api/billing/portal": {
+      "class": "external_api",
+      "reason": "Account-level Stripe portal session; screens use /api/workspaces/:id/billing/portal."
+    },
+    "exact:/api/billing/subscription": {
+      "class": "external_api",
+      "reason": "Kept for API clients; screens use /api/account/subscription (status made honest in #537)."
+    },
+    "exact:/api/billing/webhook": {
+      "class": "webhook",
+      "reason": "Stripe webhook."
+    },
+    "exact:/api/dmarc-ingest": {
+      "class": "internal",
+      "reason": "Token-authenticated DMARC aggregate-report ingestion (machine-to-machine)."
+    },
+    "exact:/api/plans": {
+      "class": "external_api",
+      "reason": "Public alias of /api/billing/plans for API clients; screens use /api/billing/plans."
+    },
+    "exact:/api/stripe/webhook": {
+      "class": "webhook",
+      "reason": "Stripe webhook (alias)."
+    },
+    "exact:/api/validation/benchmark": {
+      "class": "admin",
+      "reason": "Platform-admin scanner benchmark (made admin-only by #536)."
+    },
+    "re:^\\/api\\/portfolio\\/domains\\/([^/]+)\\/([^/]+)$": {
+      "class": "customer_pending",
+      "reason": "Per-domain MSP portfolio detail; no screen yet."
+    },
+    "re:^\\/api\\/scans\\/[^/]+\\/snapshot$": {
+      "class": "external_api",
+      "reason": "Canonical eight-domain snapshot (M5.c) for export/API clients; screens render through report routes."
+    },
+    "re:^\\/api\\/workspaces\\/([^/]+)\\/alerts(\\/[^/]*)?$": {
+      "class": "customer_pending",
+      "reason": "Workspace alert list + summary API; the Alerts page shows alert channels, not this list."
+    },
+    "re:^\\/api\\/workspaces\\/([^/]+)\\/report-retention$": {
+      "class": "customer_pending",
+      "reason": "Report retention settings; no screen yet."
+    },
+    "re:^\\/api\\/workspaces\\/([^/]+)\\/report-schedule-runs$": {
+      "class": "customer_pending",
+      "reason": "Run history of the second scheduled-report API; no screen shows schedule runs yet."
+    },
+    "re:^\\/api\\/workspaces\\/([^/]+)\\/report-schedules$": {
+      "class": "customer_pending",
+      "reason": "A second scheduled-report API (newer contract); the Reports page manages schedules through /scheduled-reports."
+    },
+    "re:^\\/api\\/workspaces\\/([^/]+)\\/report-schedules\\/([^/]+)$": {
+      "class": "customer_pending",
+      "reason": "Item route of the second scheduled-report API; the Reports page uses /scheduled-reports/:id."
+    },
+    "re:^\\/api\\/workspaces\\/([^/]+)\\/scorecard\\/pdf$": {
+      "class": "customer_pending",
+      "reason": "Snapshot-native executive PDF; screens download /api/workspaces/:id/report."
+    },
+    "re:^\\/api\\/workspaces\\/([^/]+)\\/scorecard\\/pdf-data$": {
+      "class": "external_api",
+      "reason": "Snapshot metadata for export tooling."
+    }
+  },
+  "unserved_frontend": {}
+}

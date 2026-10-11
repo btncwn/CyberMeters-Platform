@@ -245,8 +245,11 @@ async function request(path, options = {}) {
   return res.json()
 }
 
-async function signInCall(method, workspaceId, suffix, body) {
-  const res = await safeFetch(`${BASE}/workspaces/${encodeURIComponent(workspaceId)}/website-security/sign-in${suffix}`, {
+// Sign-in profile writes return { status, ok, body } instead of throwing, so the
+// form can show the backend's own outcome. `path` is the full API path (literal
+// at each call site, which keeps it visible to the route-wiring guard).
+async function signInCall(method, path, body) {
+  const res = await safeFetch(`${BASE}${path}`, {
     method,
     cache: 'no-store',
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -854,9 +857,12 @@ export const api = {
    * so a 4xx (validation, rate limit, plan) is shown in the form itself and
    * never routed to the global scan-limit / upgrade modal.
    */
-  saveWebsiteSignIn: (workspaceId, domain, body) => signInCall('PUT', workspaceId, `/${encodeURIComponent(domain)}`, body),
-  deleteWebsiteSignIn: (workspaceId, domain) => signInCall('DELETE', workspaceId, `/${encodeURIComponent(domain)}`),
-  testWebsiteSignIn: (workspaceId, domain) => signInCall('POST', workspaceId, `/${encodeURIComponent(domain)}/test`, {}),
+  saveWebsiteSignIn: (workspaceId, domain, body) =>
+    signInCall('PUT', `/workspaces/${encodeURIComponent(workspaceId)}/website-security/sign-in/${encodeURIComponent(domain)}`, body),
+  deleteWebsiteSignIn: (workspaceId, domain) =>
+    signInCall('DELETE', `/workspaces/${encodeURIComponent(workspaceId)}/website-security/sign-in/${encodeURIComponent(domain)}`),
+  testWebsiteSignIn: (workspaceId, domain) =>
+    signInCall('POST', `/workspaces/${encodeURIComponent(workspaceId)}/website-security/sign-in/${encodeURIComponent(domain)}/test`, {}),
   getWebsiteSecurityPages: (workspaceId, params = {}) => {
     const q = new URLSearchParams(params).toString()
     return request(`/workspaces/${encodeURIComponent(workspaceId)}/website-security/pages${q ? `?${q}` : ''}`)
