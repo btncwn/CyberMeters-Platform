@@ -2,6 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Computer Modern Serif for the public website headings and copy. Unmodified
+   CMU web fonts, SIL Open Font License (public/fonts/computer-modern/OFL.txt).
+   Only downloaded on pages that use the `font-cm` utility. */
+@font-face {
+  font-family: 'Computer Modern Serif';
+  src: url('/fonts/computer-modern/cmunrm.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Computer Modern Serif';
+  src: url('/fonts/computer-modern/cmunbx.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Computer Modern Serif';
+  src: url('/fonts/computer-modern/cmunti.woff') format('woff');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
 @layer base {
   html { scroll-behavior: smooth; }
   body {

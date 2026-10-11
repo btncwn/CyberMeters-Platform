@@ -43,6 +43,12 @@ if (!globalThis.matchMedia) {
   })
 }
 
+// jsdom has no canvas and logs "not implemented" on every getContext call.
+// Canvas illustrations treat a missing 2D context as "draw nothing".
+if (globalThis.HTMLCanvasElement) {
+  HTMLCanvasElement.prototype.getContext = () => null
+}
+
 // Storage persists between tests in the same file — start every test clean.
 beforeEach(() => {
   localStorage.clear()

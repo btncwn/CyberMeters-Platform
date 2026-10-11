@@ -1,76 +1,100 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import PublicLandingPage from '../PublicLandingPage'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
+import { EXAMPLE_FINDINGS, paintIris } from '../../components/landing/IrisGlobe'
 
 function renderLanding() {
   return render(<MemoryRouter><PublicLandingPage /></MemoryRouter>)
 }
 
+const CANONICAL = ['Identity Exposure', 'Attack Surface', 'Email Protection', 'Website Security', 'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness']
+
 describe('PublicLandingPage', () => {
-  it('presents the eight canonical domains by name', () => {
+  it('presents the eight canonical domains by name, in canonical order', () => {
     renderLanding()
-    const names = ['Identity Exposure', 'Attack Surface', 'Email Protection', 'Website Security', 'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness']
     expect(screen.getAllByRole('heading', { level: 3 })
-      .map(heading => heading.textContent).filter(name => names.includes(name))).toEqual(names)
+      .map(heading => heading.textContent).filter(name => CANONICAL.includes(name))).toEqual(CANONICAL)
   })
 
   it('keeps the Cyber Essentials legal disclaimer verbatim (trust requirement)', () => {
     // CyberMeters must never imply it issues Cyber Essentials certification.
-    // This note is a compliance requirement — the test guards it against being
-    // dropped in a future redesign.
     renderLanding()
-    expect(
-      screen.getByText(/does not provide Cyber Essentials certification/i)
-    ).toBeInTheDocument()
+    expect(screen.getByText(/does not provide Cyber Essentials certification/i)).toBeInTheDocument()
     expect(screen.getByText(/IASME and approved Certification Bodies/i)).toBeInTheDocument()
-  })
-
-  it('routes the bounded preview calls-to-action to the free scan', () => {
-    renderLanding()
-    const ctas = screen.getAllByRole('link', { name: /free preview/i })
-      .filter(a => a.getAttribute('href') === '/free-scan')
-    expect(ctas.length).toBeGreaterThanOrEqual(3) // nav + hero + final CTA
-  })
-
-  it('describes the free scan as a bounded eight-domain snapshot with verified deep access', () => {
-    renderLanding()
-    expect(screen.getByText(/bounded, honest snapshot of all eight/i)).toBeInTheDocument()
-    expect(screen.getByText(/bounded, non-persistent snapshot across all eight Cyber MOT domains/i)).toBeInTheDocument()
-    expect(screen.getByText(/Deep findings, remediation, PDF and monitoring unlock only after account and domain verification/i)).toBeInTheDocument()
-    expect(screen.getByText(/what could not be assessed/i)).toBeInTheDocument()
-    expect(screen.queryByText(/See your real posture across all eight domains in two minutes/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/run your Cyber MOT.*under two minutes/i)).not.toBeInTheDocument()
   })
 
   it('leads with the exposure headline', () => {
     renderLanding()
-    expect(screen.getByRole('heading', { name: /Know where your business is/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Know what your business exposes to the internet.' })).toBeInTheDocument()
   })
 
-  it('colours each domain card with its glacier identity from the shared palette', () => {
-    renderLanding()
-    // The Email service question is styled with the shared email text colour.
-    const emailQuestion = screen.getByText(/Can attackers send email as me/i)
-    expect(emailQuestion).toHaveStyle({ color: SERVICE_COLORS.email.text })
-    const brandQuestion = screen.getByText(/Is anyone impersonating my brand/i)
-    expect(brandQuestion).toHaveStyle({ color: SERVICE_COLORS.brand.text })
+  it('sends every free-check call to action to the free scan, with the domain when typed', () => {
+    const { container } = renderLanding()
+    expect(screen.getByRole('link', { name: 'Run a free check' })).toHaveAttribute('href', '/free-scan')
+    const forms = [...container.querySelectorAll('form')]
+    expect(forms).toHaveLength(2) // hero + closing call to action
+    for (const form of forms) {
+      expect(form).toHaveAttribute('action', '/free-scan')
+      expect(form).toHaveAttribute('method', 'get')
+      expect(within(form).getByLabelText('Your domain')).toHaveAttribute('name', 'domain')
+      expect(within(form).getByRole('button', { name: 'Run a free check' })).toHaveAttribute('type', 'submit')
+    }
   })
 
-  it('labels the example scorecard as illustrative, not a live assessment', () => {
+  it('describes the free check as a bounded one-off snapshot, with full access only after verification', () => {
     renderLanding()
-    expect(screen.getByText(/Cyber MOT · Result/i)).toBeInTheDocument()
-    expect(screen.getByText('Posture')).toBeInTheDocument()
-    expect(screen.getByText(/Overall verdict/i)).toBeInTheDocument()
-    expect(screen.getByText(/example.com — illustrative sample/i)).toBeInTheDocument()
-    expect(screen.getByText(/Example score and findings.*Not a live assessment/i)).toBeInTheDocument()
+    expect(screen.getByText(/one-off snapshot of public evidence: nothing is stored or monitored until you create an account/i)).toBeInTheDocument()
+    expect(screen.getByText(/Full findings, fix steps, PDF reports and monitoring unlock once you verify that you own the domain/i)).toBeInTheDocument()
+    expect(screen.getByText(/Scheduled checks, alerts and PDF reports come with paid plans and the 14-day trial/i)).toBeInTheDocument()
+    expect(screen.getByText(/bounded, non-persistent snapshot across all eight areas/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/what could not be assessed/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/Nothing is marked as passed on silence/i)).toBeInTheDocument()
+    expect(screen.queryByText(/two minutes/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/fully protected|guarantee/i)).not.toBeInTheDocument()
   })
-  it('links to the founder story without putting biography into the product pitch', () => {
+
+  it('captions the animated eye as an illustration with example findings', () => {
     renderLanding()
-    expect(screen.getByRole('link', { name: 'About' })).toHaveAttribute('href', '/about')
+    expect(screen.getByText(/illustration with example findings, not a live result/i)).toBeInTheDocument()
+  })
+
+  it('labels the report panel as a sample in the product coverage vocabulary, with no score', () => {
+    renderLanding()
+    const sample = screen.getByRole('figure', { name: 'Sample report layout' })
+    expect(within(sample).getByText('Sample')).toBeInTheDocument()
+    expect(within(sample).getByText(/not a live result/i)).toBeInTheDocument()
+    expect(within(sample).getAllByText('Evidence insufficient').length).toBeGreaterThan(0)
+    expect(within(sample).getAllByText('Customer input required').length).toBeGreaterThan(0)
+    expect(within(sample).queryByText(/\b\d{2,3}\s*\/\s*100\b|score/i)).not.toBeInTheDocument()
+  })
+
+  it('colours each area question with its identity from the shared palette', () => {
+    renderLanding()
+    expect(screen.getByText('Can attackers send email as me?')).toHaveStyle({ color: SERVICE_COLORS.email.text })
+    expect(screen.getByText('Is anyone impersonating my brand?')).toHaveStyle({ color: SERVICE_COLORS.brand.text })
+  })
+
+  it('does not advertise the MSP portfolio view, which is not customer-accepted', () => {
+    renderLanding()
+    expect(screen.queryByText(/portfolio/i)).not.toBeInTheDocument()
+  })
+
+  it('links to the founder story and trust page without putting biography into the pitch', () => {
+    renderLanding()
+    for (const link of screen.getAllByRole('link', { name: 'About' })) expect(link).toHaveAttribute('href', '/about')
+    for (const link of screen.getAllByRole('link', { name: 'Trust & Security' })) expect(link).toHaveAttribute('href', '/trust')
     expect(screen.queryByText(/Designed and developed by Turhan Acar/i)).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Trust & Security' })).toHaveAttribute('href', '/trust')
+  })
+})
+
+describe('IrisGlobe illustration', () => {
+  it('only uses canonical area names for its example findings', () => {
+    for (const f of EXAMPLE_FINDINGS) expect(CANONICAL).toContain(f.area)
   })
 
+  it('draws nothing when the browser has no 2D canvas', () => {
+    expect(paintIris(document.createElement('canvas'), 400)).toBe(false)
+  })
 })
