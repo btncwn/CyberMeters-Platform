@@ -1,5 +1,5 @@
 // ── Billing + free-scan routes ──
-// Public free-scan (rate-limited, bounded six-module snapshot), workspace
+// Public free-scan (rate-limited, bounded five-module snapshot), workspace
 // subscription state, public plans list and workspace Stripe checkout/portal
 // endpoints. Extracted near-verbatim from index.js (router split, Phase 2
 // PR #13). Receives the per-request routeCtx from index.js; returns a
@@ -8,7 +8,6 @@ import { runDnsModule } from "../engines/dns-scan.js";
 import { runEmailModule } from "../engines/email-scan.js";
 import { runHeadersModule } from "../engines/headers-scan.js";
 import { runSslModule } from "../engines/ssl-scan.js";
-import { runSubdomainsModule } from "../engines/subdomains-scan.js";
 import { runTechModule } from "../engines/tech-scan.js";
 import {
   buildFreeScanEvidence,
@@ -18,7 +17,6 @@ import {
   FREE_SCAN_DEADLINE_MS,
   FREE_SCAN_SUBREQUEST_LIMIT,
 } from "../engines/free-scan-preview.js";
-import { createCertificateTransparencyCache } from "../engines/ct-provider-cache.js";
 import { makeDnsCache, PhysicalSubrequestCounter } from "../engines/scan-budget.js";
 import { BILLING_PLAN_METADATA, getEffectiveDomainLimit, getPaymentGraceState, getPlanFeatures, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { getTrialAllowance } from "../engines/trial-allowance.js";
@@ -53,7 +51,6 @@ export async function billingRoutes(rctx) {
     ssl: runSslModule,
     headers: runHeadersModule,
     email_security: runEmailModule,
-    subdomains: runSubdomainsModule,
     technology_detection: runTechModule,
     ...(rctx.freeScanModuleRunners || {}),
   };
@@ -61,7 +58,7 @@ export async function billingRoutes(rctx) {
 
     // ── POST /api/free-scan ──────────────────────────────────────────────────
     // Public endpoint — no authentication required.
-    // Runs a bounded six-module public snapshot and returns a deliberately
+    // Runs a bounded five-module public snapshot and returns a deliberately
     // reduced eight-domain projection suitable for the /free-scan page.
     //
     // Rate limit: 5 free scans per IP per hour (IP stored hashed in api_rate_limits).
@@ -149,7 +146,7 @@ export async function billingRoutes(rctx) {
       }
 
       // One invocation owns one physical counter and one wall-clock deadline.
-      // The six modules share DNS/CT caches. Deep fan-out modules are never
+      // The five modules share DNS caches. Deep fan-out modules are never
       // launched anonymously; the public projection says so explicitly.
       const scannedAt = new Date().toISOString();
       const physicalCounter = new PhysicalSubrequestCounter({
@@ -199,22 +196,15 @@ export async function billingRoutes(rctx) {
         }, 503);
       }
 
-      const ctCache = createCertificateTransparencyCache({
-        accounting: physicalCounter.contextFor("free_preview_ct", { signal: deadline.signal }),
-        signal: deadline.signal,
-        remainingMs,
-        certspotterApiKey: env?.CERTSPOTTER_API_KEY || null,
-      });
-
       let settlements;
       try {
-        const [dnsR, sslR, headersR, emailR, subdomainsR, technologyR] =
+        const [dnsR, sslR, headersR, emailR, technologyR] =
           await Promise.allSettled([
             freeScanModuleRunners.dns(domain, {
               accounting: accountingFor("dns"), signal: deadline.signal, cache: dnsCache,
             }),
             freeScanModuleRunners.ssl(domain, {
-              accounting: accountingFor("ssl"), signal: deadline.signal, ctCache,
+              accounting: accountingFor("ssl"), signal: deadline.signal,
               dnsResolver: freeScanDnsQuery, dnsCache: safetyDnsCache,
             }),
             freeScanModuleRunners.headers(domain, {
@@ -223,10 +213,6 @@ export async function billingRoutes(rctx) {
             }),
             freeScanModuleRunners.email_security(domain, {
               accounting: accountingFor("email"), signal: deadline.signal, cache: dnsCache,
-            }),
-            freeScanModuleRunners.subdomains(domain, {
-              accounting: accountingFor("subdomains"), signal: deadline.signal,
-              cache: dnsCache, ctCache,
             }),
             freeScanModuleRunners.technology_detection(domain, {
               accounting: accountingFor("technology"), signal: deadline.signal,
@@ -238,7 +224,6 @@ export async function billingRoutes(rctx) {
           ssl: sslR,
           headers: headersR,
           email_security: emailR,
-          subdomains: subdomainsR,
           technology_detection: technologyR,
         };
       } finally {

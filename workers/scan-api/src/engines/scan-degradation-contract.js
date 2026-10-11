@@ -14,13 +14,9 @@
 // `complete` and never weaker than `partial` — every protection applied to
 // `partial` applies to `degraded` as well.
 //
-// WHY A SEPARATE CARRIER. The per-provider `modules.subdomains.sources` shape is a
-// live compatibility invariant asserted by deep equality in
-// `scripts/validate-shared-ct-provider-cache.js` (per-source success shape is
-// exactly `{ count, error }`). Degradation facts are therefore carried in a
-// SIBLING `degradations[]` array — never by widening `sources`. Satisfying the
-// invariant through product compatibility is required; weakening that test is
-// explicitly forbidden.
+// WHY A SEPARATE CARRIER. Degradation facts are carried in a SIBLING
+// `degradations[]` array so that no module's own result shape is widened to
+// hold them.
 //
 // FAIL-CLOSED BY CONSTRUCTION. Anything this module cannot fully validate returns
 // null, and a null degradation can never produce `degraded` — the caller stays on

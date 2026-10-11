@@ -4,10 +4,9 @@
 // Each signal resolves independently so a failed sibling cannot erase reliable
 // evidence. The state vocabulary is closed and non-overlapping.
 import { normalizeBoundedCoverageState } from "./bounded-coverage.js";
-import { ctProvidersUsed } from "./ct-providers.js";
 
 export const ATTACK_SURFACE_SIGNAL_COMPLETENESS_VERSION =
-  "attack-surface-signal-completeness-v2";
+  "attack-surface-signal-completeness-v3";
 
 export const ATTACK_SURFACE_SIGNAL_STATES = Object.freeze([
   "observed",
@@ -43,10 +42,6 @@ export const ASSET_REMOVAL_CONFIRMATION_POLICY = Object.freeze({
   minimum_observation_spacing_ms: 24 * 60 * 60 * 1000,
   minimum_confirmation_window_ms: 48 * 60 * 60 * 1000,
   relevant_active_sources: ACTIVE_REMOVAL_SOURCES,
-  passive_sources_excluded: Object.freeze([
-    "certspotter",
-    "certificate_transparency",
-  ]),
 });
 
 function count(value) {
@@ -84,40 +79,46 @@ function signal(state, reason, {
   };
 }
 
-function sourceErrors(module) {
-  return Object.entries(module?.sources || {})
-    .filter(([, value]) => value?.error)
-    .map(([name]) => name);
+// Discovery is CyberMeters' own observation only: the bounded DNS wordlist and
+// SRV lookups (dns_bruteforce) plus hostnames the site's own pages link to
+// (technology_detection), merged into modules.subdomains together with the
+// wildcard check that decides which wordlist answers are real. A fixed wordlist
+// can never prove that no other hostname exists, so coverage is always bounded.
+function discoveryCoverage(brute) {
+  const checked = Number(brute?.checked);
+  return {
+    coverage_state: "bounded",
+    basis: "own_observation",
+    wordlist_checked: Number.isFinite(checked) ? checked : null,
+  };
 }
 
 function resolveSubdomainDiscovery(modules) {
-  const ct = modules?.subdomains;
+  const sub = modules?.subdomains;
   const brute = modules?.dns_bruteforce;
-  const coverage = ct?.discovery_coverage || null;
-  const coverageState = normalizeBoundedCoverageState(coverage?.coverage_state);
+  const tech = modules?.technology_detection;
+  const coverage = discoveryCoverage(brute);
   const discoverySignal = (state, reason, detail = {}) => signal(state, reason, {
     ...detail,
-    coverage_state: coverageState,
+    coverage_state: coverage.coverage_state,
     coverage,
   });
-  const ctItems = ct?.items || [];
-  const bruteItems = brute?.items || [];
+  const subItems = Array.isArray(sub?.items) ? sub.items : [];
+  const bruteItems = Array.isArray(brute?.items) ? brute.items : [];
   const observedCount = new Set([
-    ...ctItems,
-    ...bruteItems.map((item) => item?.hostname).filter(Boolean),
-  ]).size;
-  const failedSources = sourceErrors(ct);
-  // The CT providers this result recorded (ct-providers.js).
-  const ctProviders = ctProvidersUsed(ct);
+    ...subItems,
+    ...bruteItems
+      .filter((item) => item?.wildcard_match !== true)
+      .map((item) => item?.hostname)
+      .filter(Boolean),
+  ].map((host) => String(host).toLowerCase())).size;
   const sources = [
-    ...(ct ? ctProviders : []),
-    ...(brute ? ["dns_bruteforce"] : []),
+    ...(brute && !moduleNotAssessed(brute) ? ["dns_bruteforce", "dns_srv"] : []),
+    ...(tech && !moduleNotAssessed(tech) ? ["html_link"] : []),
   ];
   const limitations = [
-    ...failedSources.map((name) => `${name}_unavailable`),
-    ct?.incomplete_reason,
+    sub?.incomplete_reason,
     brute?.incomplete_reason,
-    ct?.ct_error ? "ct_sources_unavailable" : null,
   ];
 
   if (observedCount > 0) {
@@ -127,27 +128,21 @@ function resolveSubdomainDiscovery(modules) {
       limitations,
     });
   }
-  if (moduleNotAssessed(ct) && moduleNotAssessed(brute)) {
+  if (moduleNotAssessed(sub) && moduleNotAssessed(brute)) {
     return discoverySignal("not_assessed", "discovery_not_evaluated", { sources });
   }
-
-  const ctUnavailable = Boolean(ct?.error || ct?.ct_error) &&
-    failedSources.length >= ctProviders.length;
-  const bruteUnavailable = Boolean(brute?.error);
-  if ((moduleNotAssessed(ct) || ctUnavailable) &&
-      (moduleNotAssessed(brute) || bruteUnavailable)) {
+  if ((moduleNotAssessed(brute) || Boolean(brute?.error)) &&
+      (moduleNotAssessed(sub) || Boolean(sub?.error))) {
     return discoverySignal("unavailable", "all_discovery_sources_unavailable", {
       sources,
       limitations,
     });
   }
 
-  const ctComplete = Boolean(
-    ct &&
-    !ct.error &&
-    !ct.ct_error &&
-    ct.incomplete !== true &&
-    ctProviders.every((provider) => ct.sources?.[provider] && !ct.sources[provider].error)
+  // The wildcard check decides which wordlist answers are real, so without it
+  // an empty result cannot be read as "nothing found".
+  const wildcardCheckComplete = Boolean(
+    sub && !sub.error && sub.incomplete !== true && !moduleNotAssessed(sub)
   );
   const bruteComplete = Boolean(
     brute &&
@@ -155,19 +150,13 @@ function resolveSubdomainDiscovery(modules) {
     brute.incomplete !== true &&
     Number.isFinite(Number(brute.checked))
   );
-  if (!ctComplete || !bruteComplete) {
+  if (!wildcardCheckComplete || !bruteComplete) {
     return discoverySignal("incomplete", "discovery_sources_incomplete", {
       sources,
       limitations,
     });
   }
-  if (coverageState === "bounded") {
-    return discoverySignal("not_observed", "bounded_discovery_no_hostname", { sources });
-  }
-  if (coverageState === "not_recorded") {
-    return discoverySignal("not_observed", "discovery_coverage_not_recorded_no_hostname", { sources });
-  }
-  return discoverySignal("not_observed", "complete_discovery_no_hostname", { sources });
+  return discoverySignal("not_observed", "bounded_discovery_no_hostname", { sources });
 }
 
 // Exported so customer SCORING consumes the identical DNS semantics rather than

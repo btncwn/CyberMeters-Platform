@@ -35,7 +35,8 @@ export function resolveScanCapacity(env = {}) {
 }
 
 // Core-ASM critical prefixes discovered by a single-resolver A lookup — deterministic
-// and CT-independent. Mandatory always run; optional only when justified + budget.
+// and independent of any third-party source. Mandatory always run; optional only
+// when justified + budget.
 export const CRITICAL_PREFIXES_MANDATORY = Object.freeze([
   "admin", "login", "portal", "dashboard", "manage", "vpn", "remote", "api",
 ]);
@@ -63,7 +64,7 @@ export const MODULE_SUBREQUEST_COST = Object.freeze({
   email_security:       24,   // SPF/BIMI + DKIM selector sweep (conservative pre-DMARCbis estimate retained)
   dmarc_core:           10,   // RFC 9989: <=8 tree + <=1 existence + <=1 corroboration
   dmarc_external_rua:   11,   // one fully admitted RFC 9990 destination host
-  subdomains:           6,    // CT: CertSpotter (with one retry) + wildcard A/AAAA
+  subdomains:           2,    // wildcard A + AAAA
   technology_detection: 4,
   whois_intelligence:   4,
   subdomain_takeover:   12,
@@ -336,7 +337,7 @@ export function createScanDeadline(env = {}, now = Date.now, options = {}) {
   let abortProvenance = null;
   let totalCeilingProvenance = null;
   // The canonical global-deadline event is recorded once, in one place, so that
-  // CT-R1 telemetry and overlap freeze read the same owner, reason and time.
+  // telemetry and the terminal write read the same owner, reason and time.
   const recordAbortProvenance = (reason) => {
     abortProvenance = {
       aborted: true,
@@ -743,7 +744,7 @@ export function createModuleTelemetry(now = Date.now) {
 
 // ── Sub-operation timing telemetry (Track B: measurement only) ────────────────
 // Attributes a module-cap exhaustion to the specific sub-operation inside the
-// module (which HTTPS probe, which redirect hop, which CT wait), because the
+// module (which HTTPS probe, which redirect hop, which DNS wait), because the
 // per-module row alone cannot say WHY ssl/headers/subdomains hit their caps
 // while the global deadline still had headroom.
 //
@@ -855,8 +856,6 @@ export function createSubOperationTelemetry(now = Date.now) {
 //   timeout_source    — module_race (race cap fired) | launch_gate (canRun
 //                       refused the launch) | per_fetch (the module's own fetch
 //                       timeout, derived from the existing timeout flag) | null.
-//   provider_health   — per-provider outcome/attempt/latency/final-error snapshot
-//                       from the per-scan CT cache; R2 diagnostics only.
 export const SCAN_EXECUTION_DIAGNOSTICS_VERSION = "scan-exec-diag-v1";
 
 export function buildExecutionDiagnostics({
@@ -864,7 +863,6 @@ export function buildExecutionDiagnostics({
   trigger = null,
   deadline = null,
   telemetry = null,
-  providerHealth = null,
 } = {}) {
   return {
     version:            SCAN_EXECUTION_DIAGNOSTICS_VERSION,
@@ -874,7 +872,6 @@ export function buildExecutionDiagnostics({
     total_ceiling_ms:   deadline?.totalCeilingMs ?? null,
     finalization_reserve_ms: deadline?.finalizationReserveMs ?? null,
     engine_wall_ms:     typeof deadline?.elapsedMs === "function" ? deadline.elapsedMs() : null,
-    provider_health:    providerHealth ?? {},
     modules: (telemetry?.rows ?? []).map((r) => ({
       module:         r.module,
       wall_ms:        r.duration_ms ?? null,

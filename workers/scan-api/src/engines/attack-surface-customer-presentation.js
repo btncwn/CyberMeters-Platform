@@ -190,7 +190,7 @@ function coverageMessage(key, coverageState, coverage) {
     }
   }
   if (key === "subdomain_discovery") {
-    return "Certificate Transparency discovery reached one or more declared limits. Hostnames beyond those limits were not assessed; no completeness conclusion is drawn from the retained set.";
+    return "Discovery is bounded by its sources and declared limits. Hostnames beyond them were not assessed; no completeness conclusion is drawn from the retained set.";
   }
   return "A declared coverage limit was reached. Evidence beyond that limit was not assessed and no completeness conclusion is inferred.";
 }
@@ -418,9 +418,6 @@ export function buildAttackSurfaceCustomerPresentation({
           ASSET_REMOVAL_CONFIRMATION_POLICY.minimum_confirmation_window_ms,
         relevant_active_sources: [
           ...ASSET_REMOVAL_CONFIRMATION_POLICY.relevant_active_sources,
-        ],
-        passive_sources_excluded: [
-          ...ASSET_REMOVAL_CONFIRMATION_POLICY.passive_sources_excluded,
         ],
       },
     },

@@ -1,16 +1,10 @@
 // ── Subdomain discovery + brute-force scan module ──
-// Certificate Transparency (CertSpotter) subdomain discovery,
+// Own-observation subdomain discovery (no third-party discovery service),
 // sensitive-label classification, and a bounded
 // DNS brute-force pass with wildcard filtering. Extracted verbatim from index.js (monolith
 // decomposition, Phase 1c). Only the three run*/filter* entry points are public; the label
 // sets, isSensitiveSubdomain and _subdomainsCoreWork are module-internal.
 import { dnsQuery } from "./dns.js";
-import { normalizeDiscoveredHostname } from "./hostnames.js";
-import { customerSafeFailure } from "../lib/errors.js";
-import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
-import { CT_PROVIDERS, ctFailedSources } from "./ct-providers.js";
-import { CT_SIBLING_GRACE_MS, raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
-import { coverageStateFromTruncation } from "./bounded-coverage.js";
 
 /**
  * Subdomain names whose presence suggests a development, staging, or
@@ -59,15 +53,6 @@ const SENSITIVE_LABELS = new Set([
   "jira", "confluence", "wiki",
 ]);
 
-export function projectSubdomainCtSource(result, measuredCount = null) {
-  return {
-    count: result?.status === "available" && Number.isFinite(Number(measuredCount))
-      ? Math.max(0, Number(measuredCount))
-      : 0,
-    error: result?.status === "unavailable" ? result.error : null,
-  };
-}
-
 export function isSensitiveSubdomain(hostname, domain) {
   // Strip the root domain to get the subdomain part(s)
   const sub = hostname.endsWith("." + domain)
@@ -85,98 +70,26 @@ export function isSensitiveSubdomain(hostname, domain) {
   });
 }
 
-// ── Subdomain Discovery v2 ────────────────────────────────────────────────────
-// Certificate Transparency names come from CertSpotter's issuance index
-// (ct-providers.js), deduplicated into a single sorted list. A CT failure never
-// aborts the scan; it makes this module honestly incomplete. The source count
-// and error are exposed in modules.subdomains.sources.
+// ── Subdomain discovery: wildcard DNS check ──────────────────────────────────
+// CyberMeters discovers subdomains with its own observations — the bounded DNS
+// name checks and SRV records below, hosts the home page links to, and assets it
+// already knows — and queries no third-party discovery service. This module asks
+// one question first: does the zone answer for ANY name (wildcard DNS)? A
+// wildcard answer means a name check that resolves is not, on its own, evidence
+// that the name exists, so name-check results are filtered against it. The scan
+// engine merges the discovered names into `items` afterwards.
+export const SUBDOMAIN_DISCOVERY_SOURCE = "dns_discovery";
+const WILDCARD_CHECK_CAP_MS = 10_000;
 
 export async function runSubdomainsModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
   const cache = opts.cache || null;
-  const ctCache = opts.ctCache || createCertificateTransparencyCache({
-    accounting: () => accounting,
-    signal: opts.globalSignal || opts.signal,
-    globalDeadlineProvenance: opts.globalDeadlineProvenance,
-  });
-  const SOURCE    = "certificate_transparency_multi_source";
-  const PER_CAP   = 300;   // max unique names from the CT source (the discovery ceiling)
-  const MERGE_CAP = 300;   // cap on the merged deduplicated set
-  // Tier 1 (waitUntil-cancellation guard): the shared provider cache owns its leaf
-  // deadlines; this outer 15s cap still bounds provider parsing plus wildcard DNS.
-  // On cap the scan continues with an honest empty CT result (never fake clean).
-  const HARD_CAP_MS = 15_000;
-
-  // Graceful fallback — returned on hard-cap timeout or unexpected throw
-  const emptyResult = (error, wildcardDns = false, wildcardHost = null) => ({
-    count:              0,
-    items:              [],
-    sensitive:          [],
-    source:             SOURCE,
-    sources:            ctFailedSources(error),
-    ct_providers:       [...CT_PROVIDERS],
-    wildcard_dns:       wildcardDns,
-    wildcard_dns_addresses: [],
-    wildcard_test_host: wildcardHost,
-    wildcard_warning:   null,
-    error,
-  });
-
-  // CONSUMER RELEASE belongs to whoever owns this module's budget — the reserved
-  // CT consumer boundary or scan-engine's capped-module boundary. Releasing here
-  // too would make the module a second release path, so whether "released"
-  // precedes "globally aborted" would depend on which path happened to run
-  // first. One boundary, one release.
-
-  try {
-    // Race the inner async work against a hard-cap timer.
-    // If the hard cap fires first the scan continues with an empty result;
-    // the inner work is abandoned (Cloudflare GC's the hanging fetch).
-    const work = _subdomainsCoreWork(
-      domain,
-      SOURCE,
-      PER_CAP,
-      MERGE_CAP,
-      {
-        accounting,
-        cache,
-        ctCache,
-        signal: opts.signal,
-        subOps: opts.subOps,
-      },
-    );
-    return await Promise.race([
-      work,
-      new Promise((resolve) =>
-        setTimeout(() => {
-          resolve(emptyResult("Subdomain discovery timed out (15s hard cap)"));
-        }, HARD_CAP_MS)
-      ),
-    ]);
-  } catch (err) {
-    return emptyResult(err?.message ?? "Subdomain module threw unexpectedly");
-  }
-}
-
-/**
- * Inner implementation — separated so the hard-cap race wrapper stays clean.
- * All network calls fire in parallel:
- *   • Wildcard DNS A  (6 s DoH timeout via dnsQuery)
- *   • Wildcard DNS AAAA
- *   • shared CertSpotter provider promise
- */
-async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}) {
-  const accounting = opts.accounting || null;
-  const cache = opts.cache || null;
-  const ctCache = opts.ctCache;
   const wildcardLabel = `cybermeters-wildcard-check-${Math.random().toString(36).slice(2, 10)}`;
   const wildcardHost  = `${wildcardLabel}.${domain}`;
 
   // Track B sub-operation timing — observational only, guarded at every call so a
-  // broken/absent collector can never alter the parallel network calls or their
-  // Promise.allSettled semantics. The ct_wait_* rows time THIS consumer's wait on
-  // the shared provider promise (module wall-time attribution); the per-provider
-  // network attempts remain the ct_provider_telemetry rows.
+  // broken/absent collector can never alter the DNS queries or their
+  // Promise.allSettled semantics.
   const timedSubOp = (name, promise) => {
     let token = null;
     // Never open a row once the module signal is aborted — a post-cap operation
@@ -192,169 +105,70 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
       } catch { /* observational only */ }
     };
     return promise.then(
-      // A shared CT provider promise RESOLVES with status:"unavailable" on failure
-      // (never rejects); record that honestly instead of "ok". dnsQuery results
-      // carry no lowercase `status` field and stay "ok".
-      (v) => { settle(v?.status === "unavailable" ? "unavailable" : "ok"); return v; },
+      (v) => { settle("ok"); return v; },
       (e) => { settle("error"); throw e; },
     );
   };
 
-  // The shared provider wait is consumed through the first-success orchestrator,
-  // whose released projection is immutable; a later terminal attempt remains
-  // CT-R1 telemetry only.
-  const ctReleasePromise = raceCertificateTransparencyFirstSuccess({
-    ctCache,
-    domain,
-    module: "subdomains",
-    accounting,
-    signal: opts.signal,
-    wrapProviderWait: (provider, promise) => timedSubOp(`ct_wait_${provider}`, promise),
-    siblingGraceMs: CT_SIBLING_GRACE_MS,
+  // The wildcard check could not finish: name-check answers cannot be told
+  // apart from wildcard answers, so discovery is honestly incomplete.
+  const notCompleted = (reason) => ({
+    count:              0,
+    items:              [],
+    sensitive:          [],
+    source:             SUBDOMAIN_DISCOVERY_SOURCE,
+    wildcard_dns:       false,
+    wildcard_dns_addresses: [],
+    wildcard_test_host: wildcardHost,
+    wildcard_warning:   null,
+    incomplete:         true,
+    incomplete_reason:  reason,
+    error:              null,
   });
 
-  // ── Fire all network calls in parallel ──────────────────────────────────
-  const [wASettled, wAAAASettled, ctReleaseSettled] =
-    await Promise.allSettled([
+  try {
+    const work = Promise.allSettled([
       timedSubOp("wildcard_dns_a", dnsQuery(wildcardHost, "A", { accounting, cache })),
       timedSubOp("wildcard_dns_aaaa", dnsQuery(wildcardHost, "AAAA", { accounting, cache })),
-      ctReleasePromise,
+    ]).then(([wASettled, wAAAASettled]) => {
+      const aAnswers    = wASettled.status    === "fulfilled" ? (wASettled.value?.Answer    || []) : [];
+      const aaaaAnswers = wAAAASettled.status === "fulfilled" ? (wAAAASettled.value?.Answer || []) : [];
+      const wildcardDnsAnswers = [...new Set(
+        [...aAnswers, ...aaaaAnswers]
+          .filter((answer) => answer.type === 1 || answer.type === 28)
+          .map((answer) => String(answer.data || "").toLowerCase())
+          .filter(Boolean)
+      )].sort();
+      const wildcardDnsAddresses = [...new Set(
+        aAnswers
+          .filter((answer) => answer.type === 1)
+          .map((answer) => String(answer.data || "").toLowerCase())
+          .filter(Boolean)
+      )].sort();
+      const wildcardDns = wildcardDnsAnswers.length > 0;
+      return {
+        count:              0,
+        items:              [],
+        sensitive:          [],
+        source:             SUBDOMAIN_DISCOVERY_SOURCE,
+        wildcard_dns:       wildcardDns,
+        wildcard_dns_addresses: wildcardDnsAddresses,
+        wildcard_test_host: wildcardHost,
+        wildcard_warning:   wildcardDns
+          ? "Wildcard DNS detected. Subdomain discovery results may include false positives."
+          : null,
+        error:              null,
+      };
+    });
+    return await Promise.race([
+      work,
+      new Promise((resolve) =>
+        setTimeout(() => resolve(notCompleted("wildcard_check_timed_out")), WILDCARD_CHECK_CAP_MS)
+      ),
     ]);
-  const ctRelease = ctReleaseSettled.status === "fulfilled" ? ctReleaseSettled.value : null;
-  const certSpotterSettled = ctRelease
-    ? { status: "fulfilled", value: ctRelease.providers.certspotter }
-    : { status: "rejected", reason: ctReleaseSettled.reason };
-
-  // ── Wildcard DNS result ─────────────────────────────────────────────────
-  const aAnswers    = wASettled.status    === "fulfilled" ? (wASettled.value.Answer    || []) : [];
-  const aaaaAnswers = wAAAASettled.status === "fulfilled" ? (wAAAASettled.value.Answer || []) : [];
-  const wildcardDnsAnswers = [...new Set(
-    [...aAnswers, ...aaaaAnswers]
-      .filter((answer) => answer.type === 1 || answer.type === 28)
-      .map((answer) => String(answer.data || "").toLowerCase())
-      .filter(Boolean)
-  )].sort();
-  const wildcardDnsAddresses = [...new Set(
-    aAnswers
-      .filter((answer) => answer.type === 1)
-      .map((answer) => String(answer.data || "").toLowerCase())
-      .filter(Boolean)
-  )].sort();
-  const wildcardDns     = wildcardDnsAnswers.length > 0;
-  const wildcardWarning = wildcardDns
-    ? "Wildcard DNS detected. Subdomain discovery results may include false positives."
-    : null;
-
-  const seen    = new Set();
-  const sources = {};
-  let certSpotterUniqueTotal = null;
-  let certSpotterUniqueKept = null;
-  let certSpotterUniqueDroppedCount = null;
-  let certSpotterProviderCapReached = null;
-
-  // ── CertSpotter ───────────────────────────────────────────────────────
-  // Response: [{ dns_names: ["sub.example.com", ...], ... }, ...]
-  try {
-    const result = certSpotterSettled.status === "fulfilled" ? certSpotterSettled.value : null;
-    if (!result) {
-      sources.certspotter = { count: 0, error: customerSafeFailure("scan/ct/certspotter", certSpotterSettled.reason, "fetch failed") };
-    } else if (result.status === "unavailable") {
-      sources.certspotter = projectSubdomainCtSource(result);
-    } else {
-      const certSpotterCandidates = new Set();
-      for (const entry of result.data) {
-        for (const name of entry.dns_names || []) {
-          const normalized = normalizeDiscoveredHostname(name, domain);
-          if (normalized) certSpotterCandidates.add(normalized);
-        }
-      }
-      certSpotterUniqueTotal = certSpotterCandidates.size;
-      const before = seen.size;
-      outer: for (const entry of result.data) {
-        for (const name of entry.dns_names || []) {
-          const n = normalizeDiscoveredHostname(name, domain);
-          if (!n) continue;
-          seen.add(n);
-          if (seen.size - before >= PER_CAP) break outer;
-        }
-      }
-      certSpotterUniqueKept = seen.size - before;
-      certSpotterUniqueDroppedCount = Math.max(0, certSpotterUniqueTotal - certSpotterUniqueKept);
-      certSpotterProviderCapReached = certSpotterUniqueTotal > certSpotterUniqueKept;
-      sources.certspotter = projectSubdomainCtSource(result, certSpotterUniqueKept);
-    }
-  } catch (err) {
-    sources.certspotter = { count: 0, error: customerSafeFailure("scan/ct/certspotter-parse", err, "parse error") };
+  } catch {
+    return notCompleted("wildcard_check_failed");
   }
-
-  // ── CT source failed ──────────────────────────────────────────────────
-  // Sprint 10C: CT source failures (rate limits, timeouts, HTTP errors) are external
-  // service issues — not a domain security failure. Store the detail in ct_error
-  // (available for diagnostics in modules.subdomains.ct_error) but do NOT set the
-  // top-level error field; the module is marked incomplete instead.
-  const usedSources = CT_PROVIDERS.map((provider) => [provider, sources[provider]]);
-  const allCtSourcesFailed = usedSources.every(([, row]) => row?.error);
-  if (seen.size === 0 && allCtSourcesFailed) {
-    return {
-      count:              0,
-      items:              [],
-      sensitive:          [],
-      source:             SOURCE,
-      sources,
-      wildcard_dns:       wildcardDns,
-      wildcard_dns_addresses: wildcardDnsAddresses,
-      wildcard_test_host: wildcardHost,
-      wildcard_warning:   wildcardWarning,
-      ct_error: `CT source failed — ${usedSources.map(([provider, row]) => `${provider}: ${row.error}`).join("; ")}`,
-      ct_providers: [...CT_PROVIDERS],
-      // Keep the external outage non-fatal to the overall scan, while making
-      // this module ineligible to support a "no subdomains found" conclusion.
-      // The canonical monitoring-state resolver carries the provider-specific
-      // signal; this module-level flag is defence in depth for older consumers.
-      incomplete: true,
-      incomplete_reason: "ct_sources_unavailable",
-      error:    null,   // never block core scan quality for external CT failures
-    };
-  }
-
-  // ── Merge, cap, sort ─────────────────────────────────────────────────
-  const items     = [...seen].slice(0, MERGE_CAP).sort();
-  const sensitive = items.filter((h) => isSensitiveSubdomain(h, domain));
-  const mergedCandidateTotal = seen.size;
-  const mergedDroppedCount = Math.max(0, mergedCandidateTotal - items.length);
-  const mergedCapReached = mergedCandidateTotal > items.length;
-  const capReached = certSpotterProviderCapReached === true || mergedCapReached;
-  const discoveryCoverage = {
-    per_provider: {
-      certspotter_unique_total: certSpotterUniqueTotal,
-      certspotter_unique_kept: certSpotterUniqueKept,
-      certspotter_dropped_count: certSpotterUniqueDroppedCount,
-      certspotter_cap_reached: certSpotterProviderCapReached,
-    },
-    merged: {
-      candidate_total: mergedCandidateTotal,
-      kept: items.length,
-      dropped_count: mergedDroppedCount,
-      cap_reached: mergedCapReached,
-      selection_order: "provider_response",
-    },
-    coverage_state: coverageStateFromTruncation(capReached),
-  };
-
-  return {
-    count:              items.length,
-    items,
-    sensitive,
-    source:             SOURCE,
-    sources,
-    ct_providers:       [...CT_PROVIDERS],
-    discovery_coverage: discoveryCoverage,
-    wildcard_dns:       wildcardDns,
-    wildcard_dns_addresses: wildcardDnsAddresses,
-    wildcard_test_host: wildcardHost,
-    wildcard_warning:   wildcardWarning,
-    error:              null,
-  };
 }
 
 // ── DNS Brute-Force Discovery ─────────────────────────────────────────────────
