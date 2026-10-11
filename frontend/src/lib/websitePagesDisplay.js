@@ -69,7 +69,8 @@ export function pageFacts(page) {
     if (f.action_kind === 'other_origin' && f.action_host) facts.push(`${f.has_password ? 'Password form' : 'Form'} sends to ${f.action_host}`)
     else if (f.action_scheme === 'http') facts.push(`${f.has_password ? 'Password form' : 'Form'} sends over plain HTTP`)
   }
-  const insecureCookies = (o.cookies || []).filter((c) => !c.secure).map((c) => c.name)
+  // A Set-Cookie that only removes a cookie (deletes: true) stores nothing, so it is not "a cookie without Secure".
+  const insecureCookies = (o.cookies || []).filter((c) => !c.secure && c.deletes !== true).map((c) => c.name)
   if (insecureCookies.length) facts.push(`Cookie without Secure: ${insecureCookies.slice(0, 3).join(', ')}${insecureCookies.length > 3 ? '…' : ''}`)
   if (o.mixed_content?.count > 0) facts.push(`${o.mixed_content.count} insecure (http://) resource${o.mixed_content.count === 1 ? '' : 's'} on an HTTPS page`)
   const scripts = o.third_party_scripts || []

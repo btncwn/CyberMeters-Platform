@@ -104,9 +104,10 @@ async function baselineThen(env, findings, opts = COMPLETE) {
 // to something a customer could self-certify, fails HERE.
 {
   const slug = (n) => String(n).toLowerCase().replace(/-/g, "_");
-  const keys = ["ssl_not_available", "ssl_no_http_redirect", ...COOKIE_FINDING_TYPES];
+  const { SIGNIN_CONDITION_KEYS } = await import(eng("signin-page-findings.js"));
+  const keys = ["ssl_not_available", "ssl_no_http_redirect", ...COOKIE_FINDING_TYPES, ...SIGNIN_CONDITION_KEYS];
   for (const h of SECURITY_HEADERS) keys.push(`header_missing_${slug(h.name)}`, `header_malformed_${slug(h.name)}`);
-  eq("all 17 condition keys enumerated (2 ssl + 6 headers × 2 + 3 cookies)", keys.length, 17);
+  eq("all 21 condition keys enumerated (2 ssl + 6 headers × 2 + 3 cookies + 4 sign-in page)", keys.length, 21);
 
   for (const k of keys) {
     const spec = lifecycle.websiteConditionSpec(k);

@@ -183,7 +183,8 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
   }
 
   // Every recurrence the evaluator can emit MUST be graded, or it fails closed.
-  for (const key of ["ssl_not_available", "ssl_no_http_redirect", "header_missing_strict_transport_security", "header_malformed_content_security_policy"]) {
+  for (const key of ["ssl_not_available", "ssl_no_http_redirect", "header_missing_strict_transport_security", "header_malformed_content_security_policy",
+    "https_signin_form_cross_origin", "https_signin_form_insecure", "https_signin_no_hsts", "https_signin_cookie_no_secure"]) {
     const spec = websiteConditionSpec(key);
     ok(`${key}: maps to an actionable recurrence`, Boolean(spec?.recurrence));
     eq(`${key}: its recurrence is graded (never a default)`,

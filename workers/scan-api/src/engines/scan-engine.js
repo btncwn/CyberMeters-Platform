@@ -76,6 +76,7 @@ import { correlateIdentityExposure } from "./identity-lifecycle.js";
 import { evaluateWebsiteSecurityForScan } from "./website-security-lifecycle.js";
 import { PAGE_DISCOVERY_VERSION, runPageDiscoveryModule } from "./page-discovery.js";
 import { persistWebsitePagesForScan } from "./website-pages.js";
+import { signInPageFindings } from "./signin-page-findings.js";
 
 // Phase 7a cap for important-page discovery (durable scans only), and the
 // headroom it must leave for post-terminal work (verification, lifecycle,
@@ -2054,6 +2055,15 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         } catch { /* telemetry is observational only */ }
       }
     }
+
+    // Phase 7a-ii: Website Security findings from the site's own SIGN-IN pages
+    // (engines/signin-page-findings.js) — only pages with an observed password
+    // field. Pushed after computeScore, so they never move the CMS; they feed
+    // the Website Security domain state, lifecycle, cases and alerts like any
+    // other website finding. None when the page check did not run.
+    try {
+      for (const f of signInPageFindings(modules.page_discovery, { domain, checkedAt: new Date(now()).toISOString() })) findings.push(f);
+    } catch { /* non-fatal: an observation must not break the scan */ }
 
 /**
  * buildCanonicalUrlProfile(modules)

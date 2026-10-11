@@ -459,8 +459,11 @@ const parity = states.map(parityOutputs);
 // Identity HTTP inventory updates the frozen scope text and 2026-10-10.1
 // methodology stamps. Explicit object comparison retained all finding/scoring
 // facts; all five SAN projection states must still produce identical outputs.
-const GOLDEN_F13 = "2392bfcf0b5fae972669da7887ee4baaa8c79931bfc8c895b253ecd075f0f363";
-const GOLDEN_F14 = "702bd157651a4055eceaeddcf02540e5e7f88f2f3a7a06c2427a1198a6806e93";
+// Sign-in page remediations (web.signin.*) move the frozen registry fingerprint
+// r69-7eefae14 -> r72-31ea0a7c; substituting the old fingerprint reproduces both
+// previous hashes exactly, so only that methodology stamp changed.
+const GOLDEN_F13 = "1411b445ada4ac9e325d9d50236a115ed4c20dd6d4400fcd2aebc0d6575e326f";
+const GOLDEN_F14 = "0b3458167e79695dd1d607e92d6ca7eca9d8fcb8cae484d66410362cb18a46c2";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

@@ -270,8 +270,30 @@ export function parseSitemap(xml, limit = PAGE_DISCOVERY_LIMITS.maxSitemapUrls) 
   return { isIndex, locs };
 }
 
+/**
+ * True when a Set-Cookie only removes the cookie (RFC 6265 §5.3: Max-Age <= 0,
+ * or Expires in the past — Max-Age wins when both are present). Such a header
+ * stores nothing, so its missing flags say nothing about the site's cookies.
+ */
+export function cookieDeletes(attrs, now = Date.now()) {
+  const maxAge = attrs.find((a) => a.startsWith("max-age="));
+  if (maxAge) {
+    const v = maxAge.slice(8).trim();
+    if (/^-?\d+$/.test(v)) return Number(v) <= 0;
+  }
+  const expires = attrs.find((a) => a.startsWith("expires="));
+  if (!expires) return false;
+  const v = expires.slice(8).trim();
+  // Only a recognisable cookie-date (month name + hh:mm:ss) counts: browsers
+  // ignore anything else, and a lenient parse ("0" → year 2000) must never
+  // hide a real cookie. When unsure, it is NOT a removal.
+  if (!/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/.test(v) || !/\d{1,2}:\d{1,2}:\d{1,2}/.test(v)) return false;
+  const t = Date.parse(v);
+  return Number.isFinite(t) && t <= now;
+}
+
 /** Parse Set-Cookie strings into names + flags. Values are discarded. */
-export function parseCookieFlags(setCookies, limit = PAGE_DISCOVERY_LIMITS.maxCookies) {
+export function parseCookieFlags(setCookies, limit = PAGE_DISCOVERY_LIMITS.maxCookies, now = Date.now()) {
   const out = [];
   for (const raw of setCookies || []) {
     if (out.length >= limit) break;
@@ -285,6 +307,8 @@ export function parseCookieFlags(setCookies, limit = PAGE_DISCOVERY_LIMITS.maxCo
       secure: flags.includes("secure"),
       httponly: flags.includes("httponly"),
       samesite: sameSite ? sameSite.split("=")[1] || null : null,
+      // Present only on a removal, so ordinary cookies keep their shape.
+      ...(cookieDeletes(flags, now) ? { deletes: true } : {}),
     });
   }
   return out;
