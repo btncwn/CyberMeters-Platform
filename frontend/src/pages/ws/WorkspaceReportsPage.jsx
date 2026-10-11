@@ -5,6 +5,7 @@ import { FileText, Download, Plus, RefreshCw, AlertTriangle, Clock, Calendar, Tr
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
+import ReportSnapshotHistory from '../../components/ReportSnapshotHistory'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -592,6 +593,7 @@ function WorkspaceReports({ wsId, wsName }) {
 
       {/* Scheduled Reports */}
       <ScheduledReportsCard wsId={wsId} />
+      <ReportSnapshotHistory wsId={wsId} />
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 bg-gray-900/30 flex items-center justify-center px-4">
