@@ -1732,7 +1732,7 @@
         "tags": [
           "Public"
         ],
-        "summary": "QA benchmark (authenticated, rate-limited)",
+        "summary": "QA benchmark (platform admin session only, rate-limited)",
         "operationId": "validationBenchmark",
         "parameters": [
           {
@@ -1749,6 +1749,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           },
           "429": {
             "$ref": "#/components/responses/RateLimited"
