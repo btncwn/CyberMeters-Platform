@@ -111,7 +111,7 @@ const WORKSPACE_TOOLS = [
   { to: '/ws/audit-log',           icon: ClipboardList,   label: 'Audit Log'    },
   { to: '/ws/members',             icon: Users,           label: 'Team Members' },
   { to: '/ws/alerts',              icon: Bell,            label: 'Alert Channels' },
-  { to: '/ws/retention',           icon: HardDrive,       label: 'Retention'    },
+  { to: '/ws/retention',           icon: HardDrive,       label: 'Usage & retention' },
   { to: '/settings',               icon: Settings,        label: 'Settings'     },
 ]
 

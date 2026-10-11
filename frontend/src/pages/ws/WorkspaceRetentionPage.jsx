@@ -21,6 +21,7 @@ import {
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
+import WorkspaceUsageCard from '../../components/WorkspaceUsageCard'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -695,13 +696,14 @@ export default function WorkspaceRetentionPage() {
     <WsPage wsId={wsId} wsName={wsName}>
       {/* Page header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Retention Controls</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Usage &amp; Retention</h1>
         <p className="text-sm text-gray-400 mt-0.5">
-          Manage report storage, configure retention periods, and control automatic cleanup.
+          See this month’s usage, manage report storage, configure retention periods, and control automatic cleanup.
         </p>
       </div>
 
       <div className="space-y-6">
+        <WorkspaceUsageCard workspaceId={wsId} />
         <StorageUsageCard
           data={storage}
           loading={storageLoading}
