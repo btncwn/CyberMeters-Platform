@@ -1295,6 +1295,9 @@ jobs:
       - name: Validate workspace restore (owner-only list, window, purge race, fail-closed)
         run: node scripts/validate-workspace-restore.js
 
+      - name: Validate live-version stamps and check (Pages version.json, Worker commit)
+        run: node scripts/validate-live-version-check.js
+
       - name: Validate integration flows (tenant isolation / access control)
         run: node scripts/validate-integration.js
 

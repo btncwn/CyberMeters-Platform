@@ -79,7 +79,7 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | POST | `(none)` | 2447 | unknown | **GAP** | — |
 | PUT | `(none)` | 2447 | unknown | **GAP** | — |
 | GET | `/health` | 2452 | public-or-global | public | — |
-| GET | `/ready` | 2468 | public-or-global | public | — |
+| GET | `/ready` | 2471 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 

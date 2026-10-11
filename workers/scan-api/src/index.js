@@ -2455,6 +2455,9 @@ export default {
         service:       "cybermeters-scan-api",
         version:       env.APP_VERSION || "dev",
         deployment_id: env.CF_VERSION_METADATA?.id || null,
+        // Git commit the deployed code was built from (set by `npm run deploy`
+        // via --var GIT_COMMIT); null when deployed without it.
+        commit:        /^[0-9a-f]{40}$/.test(String(env.GIT_COMMIT || "")) ? env.GIT_COMMIT : null,
         // Exposed so the frontend maintenance overlay can auto-dismiss when the
         // window lifts (both /health and /ready stay reachable during maintenance).
         maintenance:   isMaintenanceMode(env),
