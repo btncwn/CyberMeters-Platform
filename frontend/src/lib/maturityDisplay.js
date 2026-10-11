@@ -53,3 +53,45 @@ export function resolveDisplayMaturity(domains) {
     established: false,
   }))
 }
+
+// ── Maturity history (presentation only) ────────────────────────────────────
+// Words for the server's reason codes. The code itself — and the stage — come
+// from the canonical ledger; an unknown code is shown as-is, never guessed.
+export const MATURITY_REASON_TEXT = Object.freeze({
+  monitored_recurrence_watch: 'Fixed, re-observed by CyberMeters, and watched for recurrence',
+  verified_by_observation: 'Fix re-observed by CyberMeters',
+  live_issue_managed: 'An issue is currently observed; it has an owner',
+  issue_unmanaged: 'An observed issue has no owner yet',
+  recurrence_reopened: 'An issue came back; its case was reopened',
+  capability_capped: 'Managed — CyberMeters cannot re-observe this domain to verify it',
+  attested_not_verified: 'Customer attested the fix; not externally verified',
+  managed_owned: 'Issues have owners',
+  observed_clean: 'Assessed; nothing to manage',
+  observed_monitoring: 'Assessed; monitoring only',
+  customer_input_required: 'Needs customer input before it can be assessed',
+  domain_not_observed: 'The domain’s evidence was not obtained on that scan',
+})
+
+export function maturityReasonText(code) {
+  return MATURITY_REASON_TEXT[code] || (code ? String(code).replace(/_/g, ' ') : null)
+}
+
+/** History rows (newest first) with "changed" marking where the stage moved. */
+export function maturityHistoryRows(history) {
+  const list = Array.isArray(history) ? history.filter((h) => h && typeof h.maturity_stage === 'string') : []
+  return list.map((h, i) => {
+    const older = list[i + 1]
+    return {
+      key: `${h.assessed_at || i}-${i}`,
+      assessed_at: h.assessed_at || null,
+      stage: h.maturity_stage,
+      label: STAGE_META[h.maturity_stage]?.label || h.stage_label || h.maturity_stage,
+      tone: STAGE_META[h.maturity_stage]?.tone || 'gray',
+      reason: maturityReasonText(h.reason_code),
+      changed: !older || older.maturity_stage !== h.maturity_stage,
+      regressed: Boolean(h.flags?.regressed),
+      attested: Boolean(h.flags?.attested),
+      unmanaged: Boolean(h.flags?.has_unmanaged_issue),
+    }
+  })
+}

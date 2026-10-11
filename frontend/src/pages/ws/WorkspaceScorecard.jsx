@@ -152,7 +152,7 @@ export default function WorkspaceScorecard() {
       </div>
 
       <div className="mb-8">
-        <DomainMaturity domains={maturityDomains} />
+        <DomainMaturity domains={maturityDomains} workspaceId={wsId} />
       </div>
 
       {/* ── Section grid ── */}

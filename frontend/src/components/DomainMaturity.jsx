@@ -4,9 +4,11 @@
 // server `maturity_stage` to a customer-friendly label/colour, renders the server's own
 // explanation and honest flags verbatim, and always shows all eight domains so none
 // silently disappears and a domain with no eligible assessment is never shown as mature.
-import React from 'react'
-import { resolveDisplayMaturity, STAGE_META } from '../lib/maturityDisplay'
+import React, { useState } from 'react'
+import { resolveDisplayMaturity, STAGE_META, maturityHistoryRows } from '../lib/maturityDisplay'
 import { ATTESTED_LABEL } from '../lib/caseDisplay'
+import { api } from '../api'
+import { parseServerDate } from '../utils/dates'
 
 const TONE = {
   green:  'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -33,7 +35,44 @@ function Flags({ flags }) {
   )
 }
 
-function MaturityRow({ d }) {
+function fmtDate(value) {
+  const t = parseServerDate(value)
+  return t && !Number.isNaN(t.getTime()) ? t.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+}
+
+// Append-only history of one domain record's stage for this canonical domain,
+// read from the ledger (newest first). Rendered verbatim; nothing derived.
+function MaturityHistory({ workspaceId, d }) {
+  const [state, setState] = useState({ loading: true, error: false, rows: [] })
+  React.useEffect(() => {
+    let cancelled = false
+    Promise.resolve().then(() => api.getMaturityHistory(workspaceId, d.domain_id, d.domain_key))
+      .then((res) => { if (!cancelled) setState({ loading: false, error: false, rows: maturityHistoryRows(res?.history) }) })
+      .catch(() => { if (!cancelled) setState({ loading: false, error: true, rows: [] }) })
+    return () => { cancelled = true }
+  }, [workspaceId, d.domain_id, d.domain_key])
+  if (state.loading) return <p className="text-xs text-gray-500 mt-2">Loading history…</p>
+  if (state.error) return <p role="alert" className="text-xs text-red-700 mt-2">History could not be loaded.</p>
+  if (!state.rows.length) return <p className="text-xs text-gray-500 mt-2">No recorded assessments yet.</p>
+  return (
+    <ol className="mt-2 border-l border-gray-200 pl-3 space-y-1.5" aria-label={`${d.display_name} maturity history`}>
+      {state.rows.slice(0, 12).map((r) => (
+        <li key={r.key} className="text-xs text-gray-600">
+          <span className="text-gray-400">{fmtDate(r.assessed_at)}</span>
+          {' · '}
+          <span className={r.changed ? 'font-medium text-gray-900' : ''}>{r.label}</span>
+          {r.reason && <span className="text-gray-500"> — {r.reason}</span>}
+          {r.regressed && <span className="ml-1 text-red-700">(recurred)</span>}
+          {r.attested && <span className="ml-1 text-amber-700">({ATTESTED_LABEL})</span>}
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+function MaturityRow({ d, workspaceId }) {
+  const [open, setOpen] = useState(false)
+  const canShowHistory = Boolean(workspaceId && d.established && d.domain_id)
   const meta = STAGE_META[d.maturity_stage] || { label: d.maturity_stage || 'unknown', tone: 'gray' }
   // A domain CyberMeters cannot re-observe (ceiling below monitored) can be managed but
   // never CyberMeters-verified — surface the honest reason it will not reach the top rungs.
@@ -48,6 +87,12 @@ function MaturityRow({ d }) {
             Ceiling: {STAGE_META[d.capability_ceiling]?.label || d.capability_ceiling} — CyberMeters cannot re-observe this domain, so it can be managed but not verified.
           </div>
         )}
+        {canShowHistory && (
+          <button type="button" className="text-[11px] text-brand-700 hover:underline mt-1" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+            {open ? 'Hide history' : `History${d.domain_name ? ` for ${d.domain_name}` : ''}`}
+          </button>
+        )}
+        {open && canShowHistory && <MaturityHistory workspaceId={workspaceId} d={d} />}
       </div>
       <div className="flex-shrink-0 text-right">
         <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-md border ${TONE[meta.tone] || TONE.gray}`}>
@@ -65,6 +110,7 @@ function MaturityRow({ d }) {
 // shows as mature without evidence).
 export default function DomainMaturity({
   domains,
+  workspaceId = null,
   title = 'Managed maturity — Eight-Domain Lifecycle',
   subtitle = 'How far each domain has travelled through the managed lifecycle — observed, managed, then verified and monitored by CyberMeters. This is not the security score; a clean domain with nothing to manage sits at “Observed”.',
 }) {
@@ -76,7 +122,7 @@ export default function DomainMaturity({
         {subtitle && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{subtitle}</p>}
       </div>
       <div>
-        {list.map((d) => <MaturityRow key={d.domain_key} d={d} />)}
+        {list.map((d) => <MaturityRow key={d.domain_key} d={d} workspaceId={workspaceId} />)}
       </div>
       <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">
         “Verified” and “Verified &amp; monitored” mean CyberMeters re-observed the fix itself. A customer

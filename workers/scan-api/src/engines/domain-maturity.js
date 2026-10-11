@@ -336,6 +336,8 @@ function viewFromRow(domainKey, row) {
     resolver_version: row.resolver_version ?? null,
     ledger_contract_version: row.ledger_contract_version ?? MATURITY_LEDGER_CONTRACT_VERSION,
     established: true,
+    // Present only on the workspace view (the folded row's own domain record).
+    ...(row.domain_id !== undefined ? { domain_id: row.domain_id ?? null, domain_name: row.domain_name ?? null } : {}),
   };
 }
 
@@ -351,16 +353,20 @@ export async function readWorkspaceMaturity(db, workspaceId) {
   const skeleton = () => MATURITY_DOMAIN_KEYS.map((k) => viewFromRow(k, null));
   if (!workspaceId) return skeleton();
   try {
+    // The domain record's name travels with the folded row so a screen can say
+    // WHICH domain the shown stage (and its history) belongs to.
     const res = await db.prepare(
-      `SELECT domain_key, domain_id, scan_id, maturity_stage, capability_ceiling, reason_code,
-              previous_stage, flags_json, evidence_json, scan_quality, resolver_version,
-              ledger_contract_version, assessed_at
+      `SELECT r.domain_key, r.domain_id, d.domain AS domain_name, r.scan_id, r.maturity_stage, r.capability_ceiling,
+              r.reason_code, r.previous_stage, r.flags_json, r.evidence_json, r.scan_quality, r.resolver_version,
+              r.ledger_contract_version, r.assessed_at
        FROM (
          SELECT *, ROW_NUMBER() OVER (
            PARTITION BY domain_id, domain_key ORDER BY assessed_at DESC, created_at DESC
          ) AS rn
          FROM domain_maturity_ledger WHERE workspace_id = ?
-       ) WHERE rn = 1`
+       ) r
+       LEFT JOIN domains d ON d.id = r.domain_id
+       WHERE r.rn = 1`
     ).bind(workspaceId).all();
     // Fold to one row per domain_key by worst case (lowest stage); ties keep the freshest
     // (rows already arrive newest-first per series, so the first seen at a given rank wins).
