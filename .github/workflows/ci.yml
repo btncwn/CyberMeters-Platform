@@ -1026,6 +1026,9 @@ jobs:
       - name: Validate Website sign-in page findings (evidence-only, lifecycle, never fixed by absence)
         run: node scripts/validate-website-signin-findings.js
 
+      - name: Validate Website home-page availability (conclusive 404/410 only, score-neutral, mutation-tested)
+        run: node scripts/validate-website-home-page-availability.js
+
       - name: Validate website signed-in scanning (vault, sign-in session, profiles)
         run: node scripts/validate-website-sign-in.js
 

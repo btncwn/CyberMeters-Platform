@@ -546,8 +546,14 @@ function dnsRemovalSignal(results) {
 
 function httpRemovalSignal(asset) {
   if (!asset) return { state: "unavailable", reason: "http_probe_unavailable", evidence_count: 0 };
+  // The probe's own strict DNS preflight proved, from matching authoritative
+  // A and AAAA answers, that this exact name has no address. No HTTP service
+  // can be reached by that name, so this is a complete HTTP negative for
+  // removal confirmation. It still only counts beside an independent
+  // authoritative DNS absence, and confirmation still needs three spaced
+  // observations; it never closes an exposure case on its own.
   if (asset.probe_status === "not_applicable") {
-    return { state: "not_assessed", reason: "http_not_applicable_no_address", evidence_count: 0 };
+    return { state: "not_observed", reason: "http_not_applicable_no_address", evidence_count: 0 };
   }
   if (asset.probe_status === "not_executed") {
     return { state: "not_assessed", reason: asset.reason || "http_probe_not_executed", evidence_count: 0 };

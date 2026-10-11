@@ -793,10 +793,14 @@ export default function Dashboard() {
         <div className="flex flex-col lg:flex-row lg:items-center gap-8 px-8 py-8">
           {/* Score ring */}
           <div className="flex flex-col items-center gap-3 lg:min-w-[240px]">
-            <span className="eyebrow">{ins.postureProvisional ? 'Provisional Score' : 'Cyber Metrics Score'}</span>
+            <span className="eyebrow">{ins.postureProvisional && ins.score != null ? 'Provisional Score' : 'Cyber Metrics Score'}</span>
             <ScoreRing score={ins.score} riskLevel={ins.postureProvisional ? null : ins.riskLevel} />
             {ins.postureProvisional && (
-              <p className="text-[11px] text-amber-700 text-center leading-relaxed max-w-[200px] font-medium">Some checks were not completed. This score is provisional.</p>
+              <p className="text-[11px] text-amber-700 text-center leading-relaxed max-w-[200px] font-medium">
+                {ins.score != null
+                  ? 'Some checks were not completed. This score is provisional.'
+                  : 'Some checks were not completed, so no score is shown for this scan.'}
+              </p>
             )}
           </div>
 

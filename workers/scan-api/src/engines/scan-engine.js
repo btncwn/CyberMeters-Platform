@@ -77,6 +77,7 @@ import { evaluateWebsiteSecurityForScan } from "./website-security-lifecycle.js"
 import { PAGE_DISCOVERY_VERSION, runPageDiscoveryModule } from "./page-discovery.js";
 import { persistWebsitePagesForScan } from "./website-pages.js";
 import { signInPageFindings } from "./signin-page-findings.js";
+import { homePageAvailabilityFindings } from "./website-availability.js";
 
 import { SIGNED_IN_SCAN_VERSION, runSignedInScan, signedInSummary } from "./website-signed-in-scan.js";
 import { loadSignedInScanProfile, recordSignInAttempt } from "./website-sign-in-profiles.js";
@@ -2068,6 +2069,14 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // other website finding. None when the page check did not run.
     try {
       for (const f of signInPageFindings(modules.page_discovery, { domain, checkedAt: new Date(now()).toISOString() })) findings.push(f);
+    } catch { /* non-fatal: an observation must not break the scan */ }
+
+    // Phase 7a-iii: is a website actually served? (engines/website-availability.js)
+    // An observation only, built from the headers module's own home-page GET and
+    // raised only on a conclusive 404/410 that stayed on this domain. Pushed
+    // after computeScore, so it never moves the CMS.
+    try {
+      for (const f of homePageAvailabilityFindings(modules, { domain, checkedAt: new Date(now()).toISOString() })) findings.push(f);
     } catch { /* non-fatal: an observation must not break the scan */ }
 
     // Phase 7b: Signed-in scanning (engines/website-signed-in-scan.js). Only
