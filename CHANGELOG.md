@@ -7,6 +7,53 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.10.11-2 — page discovery, signed-in scanning and product wiring — 11 October 2026
+
+Website Security now checks up to 15 important pages per durable scan. Pages
+come from homepage links, the sitemap, robots.txt, the site's own JavaScript and
+common addresses. Pages whose password field was observed raise four
+lifecycle-managed findings: password form posting to another site, password form
+over HTTP, HSTS missing on a sign-in page while the homepage sends it, and a
+cookie without Secure. A cookie-removal header is not counted as a cookie.
+Signed-in scanning (paid plans or trials) stores sign-in details encrypted under
+`WEBSITE_AUTH_KEY`, proves the sign-in against an anonymous answer, and checks
+pages behind it without following action addresses. Customer screens now reach:
+
+- workspace restore;
+- brand "Check now";
+- workspace usage;
+- per-domain maturity history;
+- assessment snapshot history;
+- the MSP portfolio summary.
+
+Subscription status comes from the canonical resolver. The QA benchmark is
+platform-admin only, and the unused subscription-features route is removed.
+`/health` and the Pages `/version.json` report the deployed commit;
+`scripts/check-live-versions.mjs` compares both with main. CI now fails when a
+Worker route reaches no screen and is not classified. The following PRs merged
+as a train, each after 17/17 checks at its head:
+
+- #536, #537, #543, #538, #539, #546, #547, #548, #549;
+- #544, #540, #550, #542, #545.
+
+Main CI #1901 passed at `fae7091c`.
+
+Migrations 115 and 116 were applied remotely. Migration 115 was retried after a
+transient Cloudflare authentication error (code 10000). Migration 116 first ran
+before 115; the two are independent and both use `IF NOT EXISTS`. All five tables
+are present. `WEBSITE_AUTH_KEY` was set; it was written twice before any sign-in
+profile existed, and the profile count was 0.
+
+Worker `a5743f6e-d056-4eb4-8c1c-183628c9b8a1` runs
+`2026.10.11-signin-findings.8b51e675f871` at commit `fae7091c`. An identical
+earlier upload, `1f3cc983-deb0-4cfb-b31d-ab28e82cf465`, served for minutes before
+migration 115 completed; page persistence there was non-fatal. This deploy also
+first shipped the already merged Worker changes of #531, #533 and #534. Pages
+`/version.json` reports the same commit. Worker rollback is
+`1bd0b44a-599e-453c-bf78-77c01f904fb1` (`2026.10.10-asm-discovery`).
+Status: DEPLOYED. Authenticated live acceptance of the new screens and of
+signed-in scanning is outstanding.
+
 ## v2026.10.11-1 — website evidence and shared case navigation — 11 October 2026
 
 Website Security uses the shared module layout and shows recorded HTTPS,
