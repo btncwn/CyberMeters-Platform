@@ -93,15 +93,15 @@
     },
     "re:^\\/api\\/workspaces\\/([^/]+)\\/report-schedule-runs$": {
       "class": "customer_pending",
-      "reason": "Scheduled report run history; no screen yet."
+      "reason": "Run history of the second scheduled-report API; no screen shows schedule runs yet."
     },
     "re:^\\/api\\/workspaces\\/([^/]+)\\/report-schedules$": {
       "class": "customer_pending",
-      "reason": "Scheduled reports; no screen yet (API only)."
+      "reason": "A second scheduled-report API (newer contract); the Reports page manages schedules through /scheduled-reports."
     },
     "re:^\\/api\\/workspaces\\/([^/]+)\\/report-schedules\\/([^/]+)$": {
       "class": "customer_pending",
-      "reason": "Scheduled report item; no screen yet (API only)."
+      "reason": "Item route of the second scheduled-report API; the Reports page uses /scheduled-reports/:id."
     },
     "re:^\\/api\\/workspaces\\/([^/]+)\\/report-snapshots$": {
       "class": "customer_pending",
