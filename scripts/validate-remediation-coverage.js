@@ -86,6 +86,9 @@ const REMEDIATION_NOT_REQUIRED = new Set([
   // Reported-version NVD correlation (KEV/EPSS ordered) is observation-only
   // until a score-methodology revision admits it; registry-mapped to asm.vuln.cve.
   "known_vulnerable_component",
+  // Website served? A conclusive home-page 404/410 is observation-only (score 0);
+  // registry-mapped to web.homepage.not_served for the customer's next step.
+  "https_home_page_not_found",
 ]);
 
 // Dynamic / suffixed emitters normalise to a stable prefix the resolver handles.
@@ -121,9 +124,10 @@ ok("exactly the four B1 remediation identities are version 2",
 ok("all other remediation identities remain version 1",
   REMEDIATION_REGISTRY.filter((entry) => !v2Ids.includes(entry.remediation_id)).every((entry) => entry.version === 1));
 // The original 67 records are unchanged; live hostname/trust findings add two;
-// sign-in page conditions add three (web.signin.form_offsite / form_http / cookie_secure).
-ok("registry has exactly 72 entries including the two live TLS and three sign-in page remediations", REMEDIATION_REGISTRY.length === 72);
-ok("registry fingerprint including live TLS and sign-in forms is exact", remediationRegistryFingerprint() === "r72-31ea0a7c", remediationRegistryFingerprint());
+// sign-in page conditions add three (web.signin.form_offsite / form_http / cookie_secure);
+// the home-page availability observation adds one (web.homepage.not_served).
+ok("registry has exactly 73 entries including live TLS, sign-in page and home-page remediations", REMEDIATION_REGISTRY.length === 73);
+ok("registry fingerprint including live TLS, sign-in forms and home page is exact", remediationRegistryFingerprint() === "r73-133d04b1", remediationRegistryFingerprint());
 ok("certificate_expiring_critical maps to expiring, never expired",
   resolveRemediation({ finding_type: "certificate_expiring_critical" }).remediation_id === "cert.expiry.expiring"
   && !byId.get("cert.expiry.expired")?.finding_types.includes("certificate_expiring_critical"));
@@ -145,7 +149,7 @@ ok("cookie remediation names SameSite and preserves zero-cookie inconclusive sem
 const EMITTER_FILES = [
   "scoring.js", "email-intel.js", "email-analysis.js", "cloud-storage-scan.js",
   "asset-intel.js", "tech-scan.js", "whois-scan.js", "cert-trust-l2.js", "scan-engine.js",
-  "network-probe.js", "signin-page-findings.js",
+  "network-probe.js", "signin-page-findings.js", "website-availability.js",
 ];
 // Literals that appear as id:/type: but are NOT finding types (evidence types,
 // module names, classifications, hosted-service ids, workflow states…).
