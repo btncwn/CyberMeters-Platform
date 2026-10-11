@@ -3,6 +3,7 @@ import { checkScanLimit, getOperationAdmission, getMonthStart, getMonthResetAt, 
 import { NETWORK_LIMITS, NETWORK_PORTS, normalizeNetworkTarget, normalizeNetworkPorts } from '../engines/network-targets.js';
 import { createId } from '../lib/util.js';
 import { networkReceiptHash } from '../engines/network-scan-dispatch.js';
+import { buildNetworkSuggestions, hostsNeedingResolution, NETWORK_SUGGESTION_LIMITS, resolveHostAddresses } from '../engines/network-suggestions.js';
 
 const parseJson = value => value ? JSON.parse(value) : null;
 export const networkTargetProjection = row => ({ id:row.id,target:row.target,target_type:row.target_type,address_count:row.address_count,label:row.label,authorization_status:row.authorization_status,authorized_by:row.authorized_by,authorized_at:row.authorized_at,created_at:row.created_at });
@@ -31,7 +32,7 @@ async function monthlyUsage(db,ownerId) {
 
 export async function networkAssetRoutes(rctx) {
   const {request,env,url,json,requireAuth,requireWorkspaceRole,consumeApiRateLimit,serverError}=rctx;
-  const match=url.pathname.match(/^\/api\/workspaces\/([^/]+)\/(network-targets|network-scans|network-assets)(?:\/([^/]+)(?:\/(scans|retest))?)?$/);
+  const match=url.pathname.match(/^\/api\/workspaces\/([^/]+)\/(network-targets|network-scans|network-assets|network-suggestions)(?:\/([^/]+)(?:\/(scans|retest))?)?$/);
   if(!match)return null;
   const [,workspaceId,resource,id,action]=match;
   const user=await requireAuth(request,env);if(!user)return json({error:'Unauthorized'},401);
@@ -45,6 +46,17 @@ export async function networkAssetRoutes(rctx) {
       const owner=await getWorkspaceBillingUserId(workspaceId,user.id,env);
       const limits=getPlanLimits(await getEffectivePlan(owner,env));
       return json({targets:rows.results.map(networkTargetProjection),capabilities:{can_manage:!!manage,can_scan:!!scan&&limits.scans_per_month>0,collector_available:!!env.NETWORK_PROBE?.fetch&&!!env.SCAN_QUEUE?.send,allowed_ports:NETWORK_PORTS,limits:NETWORK_LIMITS}});
+    }
+    // Suggestions are read-only: they never create a target or start a scan.
+    // Targets still require the literal address + authorization POST below.
+    if(request.method==='GET'&&resource==='network-suggestions'&&!id) {
+      const rate=await consumeApiRateLimit(env,[{scope:'user',scope_id:user.id},{scope:'workspace',scope_id:workspaceId}],'network_suggestions',60,3600);
+      if(rate)return json(rate.body,rate.status);
+      const assets=(await db.prepare(`SELECT a.hostname,a.ip_addresses,a.cname,a.status,a.lifecycle_state,a.wildcard_dns,d.domain FROM workspace_assets a JOIN workspace_domains wd ON wd.workspace_id=a.workspace_id AND wd.domain_id=a.domain_id JOIN domains d ON d.id=a.domain_id WHERE a.workspace_id=? AND wd.verification_status='verified' AND a.status='active' ORDER BY a.last_seen DESC,a.hostname LIMIT ?`).bind(workspaceId,NETWORK_SUGGESTION_LIMITS.assets).all()).results||[];
+      const targets=(await db.prepare('SELECT addresses_json FROM network_targets WHERE workspace_id=?').bind(workspaceId).all()).results||[];
+      const registeredAddresses=targets.flatMap(row=>{try{const list=parseJson(row.addresses_json);return Array.isArray(list)?list:[];}catch{return [];}});
+      const resolved=await resolveHostAddresses(hostsNeedingResolution(assets));
+      return json(buildNetworkSuggestions({assets,registeredAddresses,resolved}));
     }
     if(request.method==='POST'&&resource==='network-targets'&&!id) {
       if(!await requireWorkspaceRole(user,workspaceId,'domain:import',env))return json({error:'Forbidden — admin role required'},403);

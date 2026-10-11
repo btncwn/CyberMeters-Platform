@@ -138,4 +138,64 @@ const quota=await call(`network-targets/${targetId}/scans`,{method:'POST',body:{
 eq('shared quota exhausted refuses admission',quota.status,403);eq('quota reports exact used',quota.body.usage,limit);
 eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refusal no queue',queued.length,preQuota.queue);eq('quota refusal no probe',probeCalls,preQuota.probes);
 
+// ── Suggested targets from discovery: read-only, verified-domain, tenant-scoped ──
+{
+  const ns=await import('../workers/scan-api/src/engines/network-suggestions.js');
+  eq('edge range v4 is Cloudflare',ns.publishedEdgeProvider('104.18.1.1'),'Cloudflare');
+  eq('edge range v6 is Cloudflare',ns.publishedEdgeProvider('2606:4700::1111'),'Cloudflare');
+  eq('ordinary address is not edge',ns.publishedEdgeProvider('93.184.216.40'),null);
+  eq('range boundary excluded',ns.publishedEdgeProvider('104.15.255.255'),null);
+  eq('IPv6 canonical form',ns.canonicalAddress('2001:4860:4860:0:0:0:0:8888'),'2001:4860:4860::8888');
+  const resolved=await ns.resolveHostAddresses(['a.example.com'],{dnsQueryImpl:async(h,t)=>t==='A'?{Answer:[{type:1,data:'93.184.216.50'},{type:5,data:'cname.example.net.'}]}:{Answer:[{type:28,data:'2001:4860:4860::8844'}]}});
+  eq('DoH resolution keeps only A/AAAA',resolved.get('a.example.com'),['93.184.216.50','2001:4860:4860::8844']);
+  const failedLookup=await ns.resolveHostAddresses(['b.example.com'],{dnsQueryImpl:async()=>{throw new Error('dns down');}});
+  eq('failed lookup fabricates no address',failedLookup.get('b.example.com'),[]);
+  const many=Array.from({length:30},(_,i)=>({hostname:`h${i}.example.com`,domain:'example.com',status:'active',lifecycle_state:'observed',wildcard_dns:0,ip_addresses:null}));
+  many.push({hostname:'vpn.example.com',domain:'example.com',status:'active',lifecycle_state:'observed',wildcard_dns:0,ip_addresses:null});
+  const toResolve=ns.hostsNeedingResolution(many);
+  eq('resolution budget bounded',toResolve.length,ns.NETWORK_SUGGESTION_LIMITS.resolve_hosts);
+  eq('high-value host resolved first',toResolve[0],'vpn.example.com');
+
+  const now=new Date().toISOString();
+  db.prepare("INSERT INTO domains(id,user_id,domain) VALUES('d_ok','owner','example.com'),('d_unv','owner','unverified.example'),('d_b','other','other.example')").run();
+  db.prepare("INSERT INTO workspace_domains(workspace_id,domain_id,verification_status) VALUES('wa','d_ok','verified'),('wa','d_unv','unverified'),('wb','d_b','verified')").run();
+  const asset=db.prepare('INSERT INTO workspace_assets(id,workspace_id,domain_id,hostname,first_seen,last_seen,created_at,updated_at,ip_addresses,cname,wildcard_dns,lifecycle_state,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+  for(const [id,ws,dom,host,ips,cname,wild,life,status] of [
+    ['a1','wa','d_ok','admin.example.com','["93.184.216.40"]',null,0,'observed','active'],
+    ['a2','wa','d_ok','vpn.example.com','["93.184.216.40"]',null,0,'observed','active'],
+    ['a3','wa','d_ok','cdn.example.com','["104.18.1.1"]',null,0,'observed','active'],
+    ['a4','wa','d_ok','store.example.com','["93.184.216.60"]','shops.myshopify.com',0,'observed','active'],
+    ['a5','wa','d_ok','www.example.com','["8.8.8.8"]',null,0,'observed','active'],
+    ['a6','wa','d_ok','old.example.com','["93.184.216.70"]',null,0,'confirmed_removed','active'],
+    ['a7','wa','d_ok','wild.example.com','["93.184.216.80"]',null,1,'observed','active'],
+    ['a8','wa','d_ok','internal.example.com','["10.0.0.5"]',null,0,'observed','active'],
+    ['a9','wa','d_ok','ct-only.example.com',null,null,0,'observed','active'],
+    ['a10','wa','d_unv','admin.unverified.example','["93.184.216.90"]',null,0,'observed','active'],
+    ['a11','wb','d_b','admin.other.example','["93.184.216.99"]',null,0,'observed','active'],
+  ])asset.run(id,ws,dom,host,now,now,now,now,ips,cname,wild,life,status);
+
+  const before={rows:snapshot(),queue:queued.length,probes:probeCalls},ratesBefore=rateCalls;
+  eq('suggestions unauthenticated',(await call('network-suggestions',{user:null})).status,401);
+  eq('suggestions foreign workspace',(await call('network-suggestions',{user:'other'})).status,403);
+  const viewer=await call('network-suggestions',{user:'viewer'});eq('viewer may read suggestions',viewer.status,200);
+  const got=await call('network-suggestions');eq('suggestions ok',got.status,200);
+  const rows=got.body.suggestions||[];
+  eq('suggestion addresses and order',rows.map(r=>[r.address,r.recommendation]),[
+    ['93.184.216.40','candidate'],['8.8.8.8','covered'],['104.18.1.1','provider_infrastructure'],['93.184.216.60','provider_infrastructure']]);
+  eq('one IP groups its hostnames',rows[0].hostnames,['admin.example.com','vpn.example.com']);
+  eq('sensitive names flagged',[rows[0].priority,rows[0].high_value_labels],['high',['admin','vpn']]);
+  eq('edge evidence named',[rows[2].provider,rows[2].provider_evidence],['Cloudflare','published_edge_range']);
+  eq('CNAME evidence named',[rows[3].provider,rows[3].provider_evidence],['Shopify','dns_cname']);
+  eq('coverage counts',got.body.coverage,{likely_own_servers:2,covered:1,shared_infrastructure:2});
+  const listed=new Set(rows.flatMap(r=>r.hostnames));
+  ok('removed, wildcard, private, unresolved, unverified and foreign hosts excluded',
+    ['old.example.com','wild.example.com','internal.example.com','ct-only.example.com','admin.unverified.example','admin.other.example'].every(h=>!listed.has(h)));
+  eq('suggestions create no target, scan, queue job or probe',{rows:snapshot(),queue:queued.length,probes:probeCalls},before);
+  ok('suggestions are rate limited',rateCalls>ratesBefore);
+  rateFailure=true;eq('rate limit refusal',(await call('network-suggestions')).status,503);rateFailure=false;
+  const routeSrc=fs.readFileSync(path.join(root,'workers/scan-api/src/routes/network-assets.js'),'utf8');
+  const slice=routeSrc.slice(routeSrc.indexOf("resource==='network-suggestions'"),routeSrc.indexOf("if(request.method==='POST'&&resource==='network-targets'&&!id)"));
+  ok('suggestion route never writes',slice.length>200&&!/\b(INSERT|UPDATE|DELETE)\b/.test(slice)&&!/SCAN_QUEUE|NETWORK_PROBE/.test(slice));
+}
+
 console.log(`\nNetwork assets: ${passed} passed, ${failed} failed`);if(failed)process.exit(1);
