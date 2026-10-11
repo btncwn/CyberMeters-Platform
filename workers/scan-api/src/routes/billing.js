@@ -19,6 +19,7 @@ import {
   FREE_SCAN_SUBREQUEST_LIMIT,
 } from "../engines/free-scan-preview.js";
 import { createCertificateTransparencyCache } from "../engines/ct-provider-cache.js";
+import { CT_SCAN_PROVIDERS } from "../engines/ct-providers.js";
 import { makeDnsCache, PhysicalSubrequestCounter } from "../engines/scan-budget.js";
 import { BILLING_PLAN_METADATA, getEffectiveDomainLimit, getPaymentGraceState, getPlanFeatures, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { getTrialAllowance } from "../engines/trial-allowance.js";
@@ -203,6 +204,8 @@ export async function billingRoutes(rctx) {
         accounting: physicalCounter.contextFor("free_preview_ct", { signal: deadline.signal }),
         signal: deadline.signal,
         remainingMs,
+        enabledProviders: CT_SCAN_PROVIDERS,
+        certspotterApiKey: env?.CERTSPOTTER_API_KEY || null,
       });
 
       let settlements;

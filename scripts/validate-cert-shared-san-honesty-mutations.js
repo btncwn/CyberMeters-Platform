@@ -41,17 +41,10 @@ const semanticMutants = Object.freeze([
   {
     id: "DERIVE_OWNERSHIP_FROM_UNMEASURED_COUNT",
     target: "certIntel",
-    from: `  const sharedSanMeasured = Boolean(
-    crtShSource &&
-    crtShSource.error == null &&
-    Number.isInteger(crtShSource.count) &&
-    crtShSource.count > 0 &&
-    Number.isInteger(rawSharedSanCount) &&
-    rawSharedSanCount >= 0
-  );
-  const sharedSanCount = sharedSanMeasured ? rawSharedSanCount : null;`,
+    from: `  const sharedSanMeasured = measuredBy != null;
+  const sharedSanCount = sharedSanMeasured ? ssl.cert_shared_san_count : null;`,
     to: `  const sharedSanMeasured = true;
-  const sharedSanCount = Number(rawSharedSanCount || 0);`,
+  const sharedSanCount = Number(ssl?.cert_shared_san_count || 0);`,
     expectedFailures: [
       "CS_ONLY_MODULE_SHARED_SAN_NULL",
       "CS_ONLY_OWNERSHIP_UNKNOWN",

@@ -4,6 +4,7 @@
 // SSL and subdomain consumers share one outbound request. A successful empty response
 // remains distinct from an unavailable provider; failures never collapse to [].
 import { customerSafeFailure } from "../lib/errors.js";
+import { CT_ALL_PROVIDERS, normalizeCtProviders } from "./ct-providers.js";
 
 // One retry restores bounded resilience after PR-5.2 removed the duplicate
 // per-consumer lookups. The hard cap is deliberately independent of tunable policy.
@@ -491,10 +492,26 @@ export function createCertificateTransparencyCache({
   captureTelemetry = true,
   telemetryNow = Date.now,
   timeoutSignal = (ms) => AbortSignal.timeout(ms),
+  // Which providers this scan queries (ct-providers.js). Production passes
+  // CT_SCAN_PROVIDERS; the default keeps the original two-provider behaviour.
+  enabledProviders = CT_ALL_PROVIDERS,
+  // SSLMate API key. Unauthenticated CertSpotter queries are limited and meant
+  // for personal/evaluation use; with a key they run under the paid plan.
+  certspotterApiKey = null,
 } = {}) {
   if (typeof fetcher !== "function") {
     throw new TypeError("Certificate Transparency cache requires a fetch function");
   }
+  const enabled = normalizeCtProviders(enabledProviders);
+  const apiKey = typeof certspotterApiKey === "string" && certspotterApiKey.trim()
+    ? certspotterApiKey.trim()
+    : null;
+  // The key travels only to the CertSpotter API host, never to any other URL.
+  const providerFetcher = apiKey
+    ? (url, init = {}) => (String(url).startsWith("https://api.certspotter.com/")
+      ? fetcher(url, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${apiKey}` } })
+      : fetcher(url, init))
+    : fetcher;
 
   const entries = new Map();
   const consumers = new Map();
@@ -589,7 +606,7 @@ export function createCertificateTransparencyCache({
     const accounting = physicalAccountingFor(normalizedDomain, provider);
     entry.promise = fetchProvider(config, provider, normalizedDomain, {
       accounting,
-      fetcher,
+      fetcher: providerFetcher,
       signal: controller.signal,
       policy: resolvePolicy(provider, policies),
       recordAttempt: captureTelemetry ? recordAttempt : null,
@@ -658,9 +675,14 @@ export function createCertificateTransparencyCache({
   };
 
   return {
+    enabledProviders: enabled,
     get(domain, provider, { accounting = null, module = null, signal: consumerSignal = null } = {}) {
       const normalizedDomain = normalizeDomain(domain);
       const config = PROVIDERS[provider];
+      // A provider this scan does not use is never queried.
+      if (config && !enabled.includes(provider)) {
+        return Promise.resolve(unavailable(provider, normalizedDomain, "provider not used by this scan"));
+      }
       if (captureTelemetry && CT_PROVIDER_TELEMETRY_MODULES.includes(module)) {
         if (!providerConsumers.has(provider)) providerConsumers.set(provider, new Set());
         providerConsumers.get(provider).add(module);

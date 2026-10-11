@@ -381,8 +381,9 @@ try {
   eq("case alerts record initial unknown and later observed issue",
     db.prepare("SELECT COUNT(*) AS n FROM managed_case_events WHERE case_id=? AND action='monitoring_changed'").get(originalCaseId).n,
     2);
-  ok("real trace reuses each shared CT provider exactly once per scan",
-    providerCalls.crt === 6 && providerCalls.certspotter === 6,
+  // Production scans query CertSpotter as their sole CT source (ct-providers.js).
+  ok("real trace reuses the shared CT provider exactly once per scan and never contacts crt.sh",
+    providerCalls.crt === 0 && providerCalls.certspotter === 6,
     JSON.stringify(providerCalls));
 
   eq("legacy waitUntil executable envelope remains 19,000 ms",

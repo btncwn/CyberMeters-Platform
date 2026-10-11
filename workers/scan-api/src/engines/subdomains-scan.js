@@ -8,6 +8,7 @@ import { dnsQuery } from "./dns.js";
 import { normalizeDiscoveredHostname } from "./hostnames.js";
 import { customerSafeFailure } from "../lib/errors.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
+import { CT_ALL_PROVIDERS, ctFailedSources, normalizeCtProviders } from "./ct-providers.js";
 import { CT_SIBLING_GRACE_MS, raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
 import { coverageStateFromTruncation } from "./bounded-coverage.js";
 
@@ -109,12 +110,16 @@ export async function runSubdomainsModule(domain, opts = {}) {
   const HARD_CAP_MS = 15_000;
 
   // Graceful fallback — returned on hard-cap timeout or unexpected throw
+  // Only the CT providers this scan uses are reported (ct-providers.js).
+  const ctProviders = normalizeCtProviders(ctCache.enabledProviders);
+  const ctProvidersField = ctProviders.length === CT_ALL_PROVIDERS.length ? {} : { ct_providers: [...ctProviders] };
   const emptyResult = (error, wildcardDns = false, wildcardHost = null) => ({
     count:              0,
     items:              [],
     sensitive:          [],
     source:             SOURCE,
-    sources:            { crt_sh: { count: 0, error }, certspotter: { count: 0, error } },
+    sources:            ctFailedSources(ctProviders, error),
+    ...ctProvidersField,
     wildcard_dns:       wildcardDns,
     wildcard_dns_addresses: [],
     wildcard_test_host: wildcardHost,
@@ -153,6 +158,8 @@ export async function runSubdomainsModule(domain, opts = {}) {
         accounting,
         cache,
         ctCache,
+        ctProviders,
+        ctProvidersField,
         signal: opts.signal,
         subOps: opts.subOps,
         ctOverlap: opts.ctOverlap,
@@ -188,6 +195,10 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   const accounting = opts.accounting || null;
   const cache = opts.cache || null;
   const ctCache = opts.ctCache;
+  const ctProviders = opts.ctProviders || CT_ALL_PROVIDERS;
+  const ctProvidersField = opts.ctProvidersField || {};
+  const crtShUsed = ctProviders.includes("crt_sh");
+  const certSpotterUsed = ctProviders.includes("certspotter");
   const wildcardLabel = `cybermeters-wildcard-check-${Math.random().toString(36).slice(2, 10)}`;
   const wildcardHost  = `${wildcardLabel}.${domain}`;
 
@@ -225,7 +236,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   // release boundary. A later terminal attempt remains CT-R1 telemetry and the
   // frozen overlap row records its intentional customer-evidence exclusion as
   // `in_flight_at_consumer_release`.
-  for (const provider of ["crt_sh", "certspotter"]) {
+  for (const provider of ctProviders) {
     try { opts.ctOverlap?.begin?.(provider); } catch { /* observational only */ }
   }
   const ctReleasePromise = raceCertificateTransparencyFirstSuccess({
@@ -279,7 +290,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     : null;
 
   const seen    = new Set();
-  const sources = { crt_sh: null, certspotter: null };
+  const sources = {};
   let crtRowsReceived = null;
   let crtRowsExamined = null;
   let crtRowDroppedCount = null;
@@ -293,8 +304,8 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   let certSpotterUniqueDroppedCount = null;
   let certSpotterProviderCapReached = null;
 
-  // ── Source 1: crt.sh ───────────────────────────────────────────────────
-  try {
+  // ── Source 1: crt.sh (only when this scan uses it) ─────────────────────
+  if (crtShUsed) try {
     const result = crtShSettled.status === "fulfilled" ? crtShSettled.value : null;
     if (!result) {
       sources.crt_sh = { count: 0, error: customerSafeFailure("scan/ct/crt-sh", crtShSettled.reason, "fetch failed") };
@@ -348,7 +359,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
 
   // ── Source 2: CertSpotter ─────────────────────────────────────────────
   // Response: [{ dns_names: ["sub.example.com", ...], ... }, ...]
-  try {
+  if (certSpotterUsed) try {
     const result = certSpotterSettled.status === "fulfilled" ? certSpotterSettled.value : null;
     if (!result) {
       sources.certspotter = { count: 0, error: customerSafeFailure("scan/ct/certspotter", certSpotterSettled.reason, "fetch failed") };
@@ -389,7 +400,9 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   // service issues — not a domain security failure.  Store the detail in ct_error
   // (available for diagnostics in modules.subdomains.ct_error) but do NOT set the
   // top-level error field.  scan_quality must stay "complete" for these cases.
-  if (seen.size === 0 && sources.crt_sh?.error && sources.certspotter?.error) {
+  const usedSources = ctProviders.map((provider) => [provider, sources[provider]]);
+  const allCtSourcesFailed = usedSources.length > 0 && usedSources.every(([, row]) => row?.error);
+  if (seen.size === 0 && allCtSourcesFailed) {
     return {
       count:              0,
       items:              [],
@@ -400,7 +413,10 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
       wildcard_dns_addresses: wildcardDnsAddresses,
       wildcard_test_host: wildcardHost,
       wildcard_warning:   wildcardWarning,
-      ct_error: `Both CT sources failed — crt.sh: ${sources.crt_sh.error}; certspotter: ${sources.certspotter.error}`,
+      ct_error: usedSources.length === 2
+        ? `Both CT sources failed — crt.sh: ${sources.crt_sh.error}; certspotter: ${sources.certspotter.error}`
+        : `CT source failed — ${usedSources.map(([provider, row]) => `${provider}: ${row.error}`).join("; ")}`,
+      ...ctProvidersField,
       // Keep the external outage non-fatal to the overall scan, while making
       // this module ineligible to support a "no subdomains found" conclusion.
       // The canonical monitoring-state resolver carries the provider-specific
@@ -420,7 +436,10 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   const ctCrtFailed = !!sources.crt_sh?.error;
   const ctCertSpotterFailed = !!sources.certspotter?.error;
   const ctFailedProviderCount = (ctCrtFailed ? 1 : 0) + (ctCertSpotterFailed ? 1 : 0);
-  const ctLostProvider = ctFailedProviderCount === 1 ? (ctCrtFailed ? "crt_sh" : "certspotter") : null;
+  // A lost provider can only fall back to a sibling when this scan used two.
+  const ctLostProvider = ctFailedProviderCount === 1 && ctProviders.length === 2
+    ? (ctCrtFailed ? "crt_sh" : "certspotter")
+    : null;
   const ctSurvivingProvider = ctLostProvider === "crt_sh" ? "certspotter" : "crt_sh";
   const ctSurvivingCount = Number(sources[ctSurvivingProvider]?.count ?? 0);
   // DETERMINISTIC BY CONSTRUCTION. The module emits only observation FACTS and
@@ -478,6 +497,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     sensitive,
     source:             SOURCE,
     sources,
+    ...ctProvidersField,
     discovery_coverage: discoveryCoverage,
     wildcard_dns:       wildcardDns,
     wildcard_dns_addresses: wildcardDnsAddresses,

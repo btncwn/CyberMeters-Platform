@@ -113,8 +113,9 @@ globalThis.fetch = async (input) => {
       vulnerabilities: [],
     });
   }
+  // Production scans query CertSpotter as their sole CT source (ct-providers.js);
+  // crt.sh is answered here only to prove it is never relied upon.
   if (url.hostname === "crt.sh") {
-    if (providerMode === "partial") return jsonResponse({}, 403);
     return jsonResponse([{
       id: 1,
       name_value: "example.com\nwww.example.com",
@@ -126,6 +127,7 @@ globalThis.fetch = async (input) => {
     }]);
   }
   if (url.hostname === "api.certspotter.com") {
+    if (providerMode === "partial") return jsonResponse({}, 403);
     return jsonResponse([{
       id: "brs-cert",
       not_before: "2026-07-01T00:00:00.000Z",
@@ -227,15 +229,10 @@ try {
   eq("real partial engine trace does not throw", partialError, null);
   const partialScan = db.prepare("SELECT status,scan_quality FROM scans WHERE id='scan-partial'").get();
   eq("real second scan terminal completed", partialScan.status, "completed");
-  // D1 SUCCESSION (FD-006 seq 50, via Governance seq 181 successor-3).
-  // This fixture sets providerMode="partial", which makes crt.sh return 403 while
-  // CertSpotter still serves data — i.e. single-CT-provider loss WITH surviving
-  // publishable evidence. FD-006 declares exactly that case `degraded`, not
-  // `partial`: the scan is not fully corroborated, but it is not incomplete either.
-  // The old expectation predates the governed grade and is superseded here, not
-  // weakened — every OTHER partial driver still dominates to `partial`, which the
-  // D1 contract fixtures assert directly.
-  eq("real second scan canonical degraded quality (D1 governed CT case)", partialScan.scan_quality, "degraded");
+  // providerMode="partial" makes CertSpotter, the production scan's sole CT
+  // source, return 403. That is total CT loss with no surviving provider, which
+  // FD-006 grades `partial` (incomplete), never `degraded` and never complete.
+  eq("real second scan canonical partial quality (sole CT source lost)", partialScan.scan_quality, "partial");
   eq("real partial scan preserves canonical BRS byte-for-byte", JSON.stringify(db.prepare(
     "SELECT score,risk_band,calculated_at,payload_json FROM workspace_brs_scores WHERE workspace_id='ws'"
   ).get()), JSON.stringify(completeBrs));

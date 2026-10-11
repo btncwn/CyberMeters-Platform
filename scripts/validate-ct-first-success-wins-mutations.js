@@ -103,8 +103,8 @@ const mutationTargets = Object.freeze({
     '      if (result?.status === "available") {',
     '      if (result?.status === "available" && result.data.length > 0) {', "M10"))],
   M11: [target("orchestrator", (source) => once(source,
-    "    const includedTerminalProviders = PROVIDERS.filter((provider) => terminalResults.has(provider));",
-    "    const includedTerminalProviders = winner ? [winner] : PROVIDERS.filter((provider) => terminalResults.has(provider));", "M11"))],
+    "    const includedTerminalProviders = racedProviders.filter((provider) => terminalResults.has(provider));",
+    "    const includedTerminalProviders = winner ? [winner] : racedProviders.filter((provider) => terminalResults.has(provider));", "M11"))],
 });
 
 let sequence = 0;

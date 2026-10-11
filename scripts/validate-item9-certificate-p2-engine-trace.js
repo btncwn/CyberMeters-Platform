@@ -156,7 +156,8 @@ globalThis.fetch = async (input) => {
   const url = new URL(String(input));
   if (url.hostname === "crt.sh") {
     providerCalls.crt_sh += 1;
-    // Non-transient provider isolation: no retry and no effect on CertSpotter.
+    // Production scans query CertSpotter only (ct-providers.js); reaching here
+    // is itself a failure, counted below.
     return jsonResponse({}, 403);
   }
   if (url.hostname === "api.certspotter.com") {
@@ -264,8 +265,8 @@ try {
     db.prepare("SELECT status FROM scans WHERE id = 'scan-item9-p2'")
       .get()?.status, "completed");
   ok("real engine exercised outbound provider paths", outboundCalls > 0);
-  eq("real engine uses one shared crt.sh logical lookup",
-    providerCalls.crt_sh, 1);
+  eq("real engine never contacts crt.sh (CertSpotter is the sole CT source)",
+    providerCalls.crt_sh, 0);
   eq("real engine uses one shared CertSpotter logical lookup",
     providerCalls.certspotter, 1);
 
@@ -277,12 +278,12 @@ try {
   const signals = completeness?.signals || {};
   eq("production caller attaches the P1 model",
     completeness?.model_version, "certificate-signal-completeness-v2");
-  eq("isolated crt.sh failure degrades only CT completeness",
+  eq("the sole CT source answering is complete CT monitoring",
     signals.certificate_transparency?.completeness_state,
-    "monitoring_degraded");
-  eq("fallback issuer remains a scoped degraded positive",
-    signals.issuer?.completeness_state, "monitoring_degraded");
-  eq("fallback issuer observation is retained",
+    "monitoring_healthy");
+  eq("CertSpotter issuer is a complete positive",
+    signals.issuer?.completeness_state, "monitoring_healthy");
+  eq("CertSpotter issuer observation is retained",
     signals.issuer?.observation, "present");
   eq("active-service sibling remains independently complete",
     signals.active_service?.completeness_state, "monitoring_healthy");
@@ -341,9 +342,9 @@ try {
     `attempts ${sslDiagnostic?.outbound_attempts_observed}`);
   eq("real engine SSL subrequest accounting is complete",
     sslDiagnostic?.outbound_measurement_complete, true);
-  eq("R2 diagnostics preserve provider isolation",
-    diagnostics.provider_health?.crt_sh?.outcome, "unavailable");
-  eq("R2 diagnostics preserve fallback provider success",
+  eq("R2 diagnostics never report crt.sh, which production does not query",
+    diagnostics.provider_health?.crt_sh, undefined);
+  eq("R2 diagnostics record CertSpotter success",
     diagnostics.provider_health?.certspotter?.outcome, "available");
 
   const activeRows = db.prepare(
@@ -375,10 +376,10 @@ try {
     eq(`${row.workspace_id}: D1 evidence persists the P1 model`,
       evidence.signal_completeness?.model_version,
       "certificate-signal-completeness-v2");
-    eq(`${row.workspace_id}: persisted CT state is scoped and degraded`,
+    eq(`${row.workspace_id}: persisted CT state is complete`,
       evidence.signal_completeness?.signals
         ?.certificate_transparency?.completeness_state,
-      "monitoring_degraded");
+      "monitoring_healthy");
     eq(`${row.workspace_id}: persisted active-service sibling stays complete`,
       evidence.signal_completeness?.signals
         ?.active_service?.completeness_state,

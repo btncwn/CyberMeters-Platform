@@ -52,7 +52,7 @@ async function importCacheSource(source, suffix) {
   const isolated = source.replace(
     'import { customerSafeFailure } from "../lib/errors.js";',
     'const customerSafeFailure = (_context, _error, message) => message;'
-  );
+  ).replace('from "./ct-providers.js";', `from "${engineUrl("ct-providers.js")}";`);
   const href = `data:text/javascript;base64,${Buffer.from(isolated).toString("base64")}#${suffix}`;
   return import(href);
 }

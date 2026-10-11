@@ -954,7 +954,7 @@ export function computeScore(modules, domain) {
           expected_value:              "Reachability or exposure evidence before applying score impact",
           source:                      "certificate_transparency",
           checked_at:                  evidenceTime,
-          manual_verification_command: `curl -s "https://crt.sh/?q=%25.${domain}&output=json"`,
+          manual_verification_command: `curl -s "https://api.certspotter.com/v1/issuances?domain=${domain}&include_subdomains=true&expand=dns_names"`,
         },
       });
     }

@@ -29,6 +29,7 @@ import { insertCertificateEvents, upsertCertificateObservation } from "./cert-ev
 import { runCertificateIntelligenceModule } from "./cert-intel.js";
 import { CLOUD_STORAGE_MAX_PHYSICAL_ATTEMPTS, runCloudStorageModule } from "./cloud-storage-scan.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
+import { CT_SCAN_PROVIDERS, ctFailedSources } from "./ct-providers.js";
 import { createCtProviderOverlapCollector, persistCtProviderOverlapTelemetry } from "./ct-provider-overlap.js";
 import { deriveSignalMonitoringStates } from "./signal-monitoring-state.js";
 import { runSaasExposureModule, runThirdPartyDiscoveryModule } from "./discovery-scan.js";
@@ -791,11 +792,15 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     reservedPhysicalCounter = opts.testOnlyPhysicalSubrequestCounter;
   }
   const dnsCache = makeDnsCache();
+  // Production CT policy (ct-providers.js): CertSpotter only, authenticated
+  // with the SSLMate key when the Worker secret is set.
   const ctCache = createCertificateTransparencyCache({
     signal: deadline.signal,
     globalDeadlineProvenance: () => deadline.globalDeadlineProvenance(),
     remainingMs: () => deadline.remainingMs(),
     now,
+    enabledProviders: CT_SCAN_PROVIDERS,
+    certspotterApiKey: env?.CERTSPOTTER_API_KEY || null,
   });
   const ctProviderOverlap = createCtProviderOverlapCollector({ now });
   // CT-R1: terminal-only, once-only provider telemetry persistence. Set the
@@ -1131,7 +1136,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // (CT + brute-force) subdomain list. ──
       const subdomainsFallback = () => markDeadlineDeferred({
         count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
-        sources: { crt_sh: { count: 0, error: "module deadline exceeded" }, certspotter: { count: 0, error: "module deadline exceeded" } },
+        sources: ctFailedSources(ctCache.enabledProviders, "module deadline exceeded"),
+        ct_providers: [...ctCache.enabledProviders],
         wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
       });
       const [dnsSettled, sslSettled, headersSettled, emailSettled, dmarcSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
@@ -1230,7 +1236,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       subdomainsResult = subdomainsSettled.status === "fulfilled" && !subdomainsSettled.value.thrown
         ? subdomainsSettled.value.value
         : { count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
-            sources: { crt_sh: { count: 0, error: "module rejected" }, certspotter: { count: 0, error: "module rejected" } },
+            sources: ctFailedSources(ctCache.enabledProviders, "module rejected"),
+            ct_providers: [...ctCache.enabledProviders],
             wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
             error: customerSafeFailure("scan/subdomains", subdomainsSettled.value?.thrown || subdomainsSettled.reason, "Subdomain module failed") };
       techResult = techSettled.status === "fulfilled" && !techSettled.value.thrown ? techSettled.value.value : { error: customerSafeFailure("scan/technology", techSettled.value?.thrown || techSettled.reason, "Technology module failed") };

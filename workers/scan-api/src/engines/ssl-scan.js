@@ -7,6 +7,7 @@ import { customerSafeFailure } from "../lib/errors.js";
 import { aggregateFetchObservations, classifyFetchObservation } from "../lib/fetch-observation.js";
 import { classifyServiceability, mayGroundAbsence } from "../lib/serviceability.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
+import { normalizeCtProviders } from "./ct-providers.js";
 import { CT_SIBLING_GRACE_MS, raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
 import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertificateSanNames } from "./hostnames.js";
 import { TLS_RUNTIME_STATES } from "./tls-evidence.js";
@@ -50,14 +51,17 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
   let cert_san_count   = 0;
   let cert_raw_san_count = 0;
   let cert_wildcard_san_count = 0;
-  // Shared-SAN count is source-specific: only crt.sh supplies the selected
-  // certificate's complete name_value list used by the ownership assessment.
-  // CertSpotter-only evidence can populate the other certificate fields, but it
-  // does not measure this value. Keep the sentinel nullable until the crt.sh
+  // Shared-SAN count is source-specific. crt.sh measures it from the selected
+  // certificate's name_value list. CertSpotter measures it from the selected
+  // issuance's complete DNS SAN list, but only when CertSpotter is the scan's
+  // sole CT source: as a fallback behind crt.sh it never measured this value, and
+  // two-provider records keep that meaning. Keep the sentinel nullable until a
   // branch below actually selects and measures a SAN-bearing certificate.
   let cert_shared_san_count = null;
   let cert_san_names   = [];
-  const ct_sources = { crt_sh: null, certspotter: null };
+  // Only the CT providers this scan uses are queried and reported.
+  const ctProviders = normalizeCtProviders(ctCache.enabledProviders);
+  const ct_sources = Object.fromEntries(ctProviders.map((provider) => [provider, null]));
   let providerResults;
   try {
     providerResults = (await raceCertificateTransparencyFirstSuccess({
@@ -70,12 +74,10 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
     })).providers;
   } catch (err) {
     const error = customerSafeFailure("scan/ct/first-success", err, "CT orchestration failed");
-    providerResults = {
-      crt_sh: { status: "unavailable", data: null, error },
-      certspotter: { status: "unavailable", data: null, error },
-    };
+    providerResults = Object.fromEntries(ctProviders.map((provider) =>
+      [provider, { status: "unavailable", data: null, error }]));
   }
-  try {
+  if (ctProviders.includes("crt_sh")) try {
     const crtResult = providerResults.crt_sh;
     ct_sources.crt_sh = projectSslCtSource(crtResult);
     if (crtResult.status === "available") {
@@ -126,8 +128,8 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
   // when crt.sh did not already supply the selected certificate. A later physical
   // result remains telemetry and cannot mutate this released object.
   const certSpotterResult = providerResults.certspotter;
-  ct_sources.certspotter = projectSslCtSource(certSpotterResult);
-  if (cert_not_after == null) {
+  if (ctProviders.includes("certspotter")) ct_sources.certspotter = projectSslCtSource(certSpotterResult);
+  if (cert_not_after == null && ctProviders.includes("certspotter")) {
     try {
       if (certSpotterResult.status === "available") {
         const issuances = certSpotterResult.data.filter((issuance) =>
@@ -154,6 +156,12 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
           cert_san_count = cert_san_names.length;
           cert_raw_san_count = dnsNames.length;
           cert_wildcard_san_count = dnsNames.filter((n) => n.includes("*")).length;
+          if (!ctProviders.includes("crt_sh")) {
+            const rawSanNames = parseCertificateSanNames(dnsNames.join(" "));
+            cert_shared_san_count = rawSanNames.filter((name) =>
+              !normalizeDiscoveredHostname(name.replace(/^\*\./, ""), domain)
+            ).length;
+          }
         }
       }
     } catch (err) {

@@ -168,7 +168,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     monitoring_degradation_message: "Attack-surface and subdomain discovery coverage was incomplete this run.",
     match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_)/.test(f?.id || ""),
     maturity: "M3", managed_status: "managed_case",
-    limitations: ["External observation only; no internal-network discovery. Subdomain coverage depends on public Certificate Transparency logs."],
+    limitations: ["External observation only; no internal-network discovery. Subdomain coverage depends on public Certificate Transparency logs (certificates that have not expired), DNS name checks and links found on the website."],
   },
   {
     domain_key: "certificates_trust",

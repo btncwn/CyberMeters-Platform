@@ -256,19 +256,25 @@ async function runEngineScenario({ name, domain, commonName, names, expected }) 
 
   const realFetch = globalThis.fetch;
   const realRandom = Math.random;
+  // Production scans query CertSpotter as their sole CT source (ct-providers.js);
+  // its issuance carries the certificate's complete DNS SAN list but no subject,
+  // so `commonName` never reaches the engine. crt.sh must never be contacted.
+  let crtShCalls = 0;
   globalThis.fetch = async (input) => {
     const url = new URL(String(input));
     if (url.hostname === "crt.sh") {
+      crtShCalls += 1;
+      return jsonResponse({}, 503);
+    }
+    if (url.hostname === "api.certspotter.com") {
       return jsonResponse([{
-        id: `crt-${name}`,
-        common_name: commonName,
-        name_value: names.join("\n"),
-        issuer_name: "Candidate A Fixture CA",
+        id: `certspotter-${name}`,
+        dns_names: names,
+        issuer: { name: "Candidate A Fixture CA" },
         not_before: "2026-08-01T00:00:00.000Z",
         not_after: "2099-08-01T00:00:00.000Z",
       }]);
     }
-    if (url.hostname === "api.certspotter.com") return jsonResponse({}, 403);
     if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
       return jsonResponse({ Status: 0, Answer: url.searchParams.get("type") === "A" ? [{ type: 1, data: "93.184.216.34" }] : [] });
     }
@@ -309,7 +315,7 @@ async function runEngineScenario({ name, domain, commonName, names, expected }) 
     return { response, body: await response.json() };
   };
   const route = await callReport();
-  return { db, store, trace, env, scanId, domainId, domain, engineError, rawBytes, report, route, callReport, expected };
+  return { db, store, trace, env, scanId, domainId, domain, engineError, rawBytes, report, route, callReport, expected, crtShCalls };
 }
 
 const scenarios = [];
@@ -343,6 +349,7 @@ fixture("F04", zeroScenarios.every((scenario) => {
   const projected = scenario.route.body?.modules?.certificate_intelligence?.shared_san_assessment;
   const rawStillSame = scenario.store.get(`reports/${scenario.scanId}.json`) === scenario.rawBytes;
   return scenario.engineError == null && scenario.route.response.status === 200 && rawStillSame &&
+    scenario.crtShCalls === 0 &&
     scenario.report.modules?.ssl?.cert_shared_san_count === 0 &&
     projected?.measurement_state === scenario.expected.state &&
     projected?.ownership_status === scenario.expected.status &&
@@ -355,6 +362,7 @@ const positive = scenarios[3];
 const positiveProjected = positive.route.body?.modules?.certificate_intelligence?.shared_san_assessment;
 fixture("F05",
   positive.engineError == null && positive.route.response.status === 200 &&
+  positive.crtShCalls === 0 &&
   positive.report.modules?.ssl?.cert_shared_san_count === 1 &&
   positiveProjected?.measurement_state === "measured_positive" &&
   positiveProjected?.ownership_status === "shared_certificate" &&
@@ -473,8 +481,11 @@ const parity = states.map(parityOutputs);
 // The website-unavailable remediation (web.homepage.unavailable) moves it again,
 // r73-133d04b1 -> r74-05b42c41; with only that entry removed both previous
 // hashes reproduce exactly.
-const GOLDEN_F13 = "7ace74e6cbd06518ded28bddf82072725f162dd9bb291f1e6632e7240121b1c5";
-const GOLDEN_F14 = "061fd0f45d3ee0d41e62aee2db650b6ca3cee02e3ff0d0abf553f90ff9894c1e";
+// CertSpotter-only CT rewords the Attack Surface limitation sentence (CT logs
+// cover certificates that have not expired); with only that sentence reverted
+// both previous hashes reproduce exactly.
+const GOLDEN_F13 = "7d062322dfad8554618a3e5c50d180d30c9dec99f76c135b0fe115d8b098f418";
+const GOLDEN_F14 = "6f2a2d581311d465d5401f94642b9b519faa92b270dadab24ee4432f624c0ac0";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

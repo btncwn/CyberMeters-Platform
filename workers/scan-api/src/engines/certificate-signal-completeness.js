@@ -10,6 +10,7 @@
 // presented as healthy.
 import { SIGNAL_MONITORING_STATES } from "./signal-monitoring-state.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
+import { ctProvidersUsed } from "./ct-providers.js";
 
 export const CERTIFICATE_SIGNAL_COMPLETENESS_VERSION =
   "certificate-signal-completeness-v2";
@@ -393,7 +394,7 @@ export const CERTIFICATE_SIGNAL_CONTRACTS = Object.freeze({
     authorities: [RFC_9162_CT, RFC_6962_CT_LEGACY],
     limitations: [
       "CT records certificate or precertificate logging and does not prove live service presentation.",
-      "crt.sh and CertSpotter are aggregation paths; disagreement is surfaced and never averaged into a healthy result.",
+      "CT search providers are aggregation paths; production scans query CertSpotter, which covers certificates that have not expired. Provider disagreement is surfaced and never averaged into a healthy result.",
     ],
     assurance_family: "certificate_transparency",
   }),
@@ -1037,13 +1038,15 @@ export function deriveCertificateSignalCompleteness({
   };
 }
 
-function providerStateFromHealth(providerHealth = {}) {
-  const outcomes = ["crt_sh", "certspotter"].map(
+// The CT providers this scan used (ct-providers.js); undeclared records keep the
+// original two-provider meaning, so a missing provider row is never healthy.
+function providerStateFromHealth(providerHealth = {}, providers = ctProvidersUsed(null)) {
+  const outcomes = providers.map(
     (provider) => providerHealth?.[provider]?.outcome ?? null
   );
   const available = outcomes.filter((value) => value === "available").length;
   const unavailable = outcomes.filter((value) => value === "unavailable").length;
-  if (available === 2) return SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
+  if (available === providers.length) return SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
   if (available > 0 && unavailable > 0) return SIGNAL_MONITORING_STATES.MONITORING_DEGRADED;
   if (available === 0 && unavailable > 0) return SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE;
   return SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
@@ -1052,14 +1055,15 @@ function providerStateFromHealth(providerHealth = {}) {
 function providerStateFromModules(modules = {}) {
   const subSources = modules?.subdomains?.sources || {};
   const sslSources = modules?.ssl?.ct_sources || {};
-  const statuses = ["crt_sh", "certspotter"].map((provider) => {
+  const providers = ctProvidersUsed(modules?.subdomains);
+  const statuses = providers.map((provider) => {
     const row = subSources?.[provider] ?? sslSources?.[provider] ?? null;
     if (!row) return null;
     return cleanString(row.error) ? "unavailable" : "available";
   });
   const available = statuses.filter((value) => value === "available").length;
   const unavailable = statuses.filter((value) => value === "unavailable").length;
-  if (available === 2) return SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
+  if (available === providers.length) return SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
   if (available > 0 && unavailable > 0) return SIGNAL_MONITORING_STATES.MONITORING_DEGRADED;
   if (available === 0 && unavailable > 0) return SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE;
   return SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
@@ -1068,7 +1072,7 @@ function providerStateFromModules(modules = {}) {
 function currentCtState({ monitoringStates, providerHealth, modules }) {
   const canonical = monitoringStates?.signals?.certificate_transparency?.state;
   if (COMPLETENESS_STATES.has(canonical)) return canonical;
-  const health = providerStateFromHealth(providerHealth);
+  const health = providerStateFromHealth(providerHealth, ctProvidersUsed(modules?.subdomains));
   if (health !== SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE) return health;
   return providerStateFromModules(modules);
 }
@@ -1393,12 +1397,11 @@ export function deriveCertificateSignalCompletenessFromModules({
         ctState === SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE
         ? CERTIFICATE_OBSERVATION_STATES.UNKNOWN
         : CERTIFICATE_OBSERVATION_STATES.PRESENT,
-      value: {
-        crt_sh: providerHealth?.crt_sh?.outcome ??
-          (cleanString(modules?.subdomains?.sources?.crt_sh?.error) ? "unavailable" : "available"),
-        certspotter: providerHealth?.certspotter?.outcome ??
-          (cleanString(modules?.subdomains?.sources?.certspotter?.error) ? "unavailable" : "available"),
-      },
+      value: Object.fromEntries(ctProvidersUsed(modules?.subdomains).map((provider) => [
+        provider,
+        providerHealth?.[provider]?.outcome ??
+          (cleanString(modules?.subdomains?.sources?.[provider]?.error) ? "unavailable" : "available"),
+      ])),
       observation_scope: "ct_issuance",
       achieved_grade: "L1",
       source_type: "normative_protocol",

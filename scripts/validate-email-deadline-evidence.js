@@ -250,33 +250,28 @@ function mockFetch(variant, { onLateResolve = null } = {}) {
       }
       return answer();
     }
-    if (host === "crt.sh") {
+    // Production scans query CertSpotter as their sole CT source.
+    if (host === "api.certspotter.com") {
       if (variant === "cert-deferred") throw new TypeError("simulated CT source failure");
       if (certificateExpiryDays != null) {
         return json([{
-          common_name: "example.com",
-          name_value: "example.com\nwww.example.com",
+          dns_names: ["example.com", "www.example.com"],
           not_before: "2026-01-01T00:00:00Z",
           not_after: new Date(NOW_MS + (certificateExpiryDays * 86_400_000) + 3_600_000).toISOString(),
-          issuer_name: "Let's Encrypt",
+          issuer: { name: "Let's Encrypt" },
         }]);
       }
       const names = variant === "b2-admin"
-        ? "example.com\ngrafana.example.com"
+        ? ["example.com", "grafana.example.com"]
         : b2bAdminHosts.size > 0
-          ? `example.com\n${[...b2bAdminHosts].join("\n")}`
+          ? ["example.com", ...b2bAdminHosts]
           : null;
       return json(names ? [{
-        common_name: "example.com",
-        name_value: names,
+        dns_names: names,
         not_before: "2026-01-01T00:00:00Z",
         not_after: "2027-01-01T00:00:00Z",
-        issuer_name: "Let's Encrypt",
+        issuer: { name: "Let's Encrypt" },
       }] : []);
-    }
-    if (host === "api.certspotter.com") {
-      if (variant === "cert-deferred") throw new TypeError("simulated CT source failure");
-      return json([]);
     }
     if (host === "services.nvd.nist.gov") {
       if (variant === "slow-cve") {
@@ -1469,7 +1464,7 @@ ok("B3d: report evidence remains explicitly CT-only and not live-leaf verified",
     cert13Evidence[0]?.type === "certificate_transparency" &&
     cert13Evidence[0]?.basis === "latest_expiring_logged_certificate" &&
     cert13Evidence[0]?.live_certificate_verified === false &&
-    cert13Evidence[0]?.providers?.includes("crt_sh"));
+    cert13Evidence[0]?.providers?.includes("certspotter"));
 ok("B3d: producer title and description are copied verbatim",
   cert13Rows[0]?.title === cert13.report?.modules?.certificate_intelligence
     ?.suspicious_certificate_signals?.find((row) => row.signal === cert13Rows[0]?.id)?.title &&

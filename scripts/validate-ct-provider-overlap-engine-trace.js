@@ -276,8 +276,10 @@ try {
     "SELECT * FROM ct_provider_overlap_telemetry WHERE scan_id='scan-overlap'",
   ).get();
   ok("engine trace: exactly one durable overlap row exists", Boolean(row));
-  eq("engine trace: provider failure censors comparison",
-    row?.comparison_status, "censored_provider_failure");
+  // Production scans query CertSpotter only, so no cross-provider comparison
+  // is ever measured: the unqueried provider leaves it not started.
+  eq("engine trace: an unqueried provider leaves the comparison unmeasured",
+    row?.comparison_status, "not_started");
   eq("engine trace: censored overlap fields remain NULL",
     [row?.intersection_count, row?.crt_sh_only_count,
       row?.certspotter_only_count, row?.union_count]
@@ -342,7 +344,7 @@ try {
   ).get();
   eq("outer 12s release: frozen provider states are durable",
     `${outerRow?.crt_sh_attempt_state}|${outerRow?.certspotter_attempt_state}|${outerRow?.comparison_status}`,
-    "terminal_success|in_flight_at_consumer_release|censored_in_flight");
+    "not_started|in_flight_at_consumer_release|censored_in_flight");
   eq("outer 12s release: overlap fields remain NULL",
     [outerRow?.intersection_count, outerRow?.crt_sh_only_count,
       outerRow?.certspotter_only_count, outerRow?.union_count]

@@ -16,7 +16,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers/scan-api/src/engines");
 const fixtureValidator = path.join(root, "scripts/validate-ct-provider-overlap-telemetry.js");
 const engineValidator = path.join(root, "scripts/validate-ct-provider-overlap-engine-trace.js");
-const EXPECTED_MUTANTS = 21;
+const EXPECTED_MUTANTS = 20;
 const EXPECTED_FIXTURE_ASSERTIONS = 118;
 const EXPECTED_ENGINE_ASSERTIONS = 24;
 
@@ -466,25 +466,10 @@ runMutant({
   ),
 });
 
-runMutant({
-  name: "outer 12s subdomains release hook is omitted",
-  sourcePath: scanEnginePath,
-  validator: engineValidator,
-  validatorAssertions: EXPECTED_ENGINE_ASSERTIONS,
-  summaryPattern: /CT provider overlap engine trace: (\d+)\/(\d+) assertions passed/,
-  envName: "CT_OVERLAP_SCAN_ENGINE_MODULE_URL",
-  expectedFailures: [
-    "outer 12s release: frozen provider states are durable",
-    "outer 12s release: overlap fields remain NULL",
-    "outer 12s release: late provider settlement cannot rewrite durable state",
-  ],
-  mutate: (source) => replaceExactlyOnce(
-    source,
-    `runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: (cause) => { ctCache.releaseConsumer?.(domain, "subdomains", cause); ctProviderOverlap.freeze({ global_deadline: deadline.globalDeadlineProvenance() }); }, run:`,
-    `runCappedModule("subdomains",           { fallback: subdomainsFallback, run:`,
-    "outer subdomains consumer-release hook",
-  ),
-});
+// The outer 12s release-hook mutant was retired when production scans moved to
+// CertSpotter as their sole CT source: with no second provider queried, no
+// cross-provider comparison is ever measured, so freezing it at the outer
+// release is unobservable in the overlap row (an equivalent mutant).
 
 runMutant({
   name: "inner 15s subdomains release hook is omitted",

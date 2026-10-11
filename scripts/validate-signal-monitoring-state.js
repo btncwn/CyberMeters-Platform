@@ -33,7 +33,9 @@ async function loadStateModule() {
       "providers: Object.freeze([]),"
     );
   if (mutated === source) throw new Error(`state mutation target missing: ${mutation}`);
-  return import(`data:text/javascript;base64,${Buffer.from(mutated).toString("base64")}#${mutation}`);
+  const linked = mutated.replace('from "./ct-providers.js";',
+    `from "${pathToFileURL(path.join(worker, "engines", "ct-providers.js")).href}";`);
+  return import(`data:text/javascript;base64,${Buffer.from(linked).toString("base64")}#${mutation}`);
 }
 
 async function loadPresentationModule() {
