@@ -205,3 +205,27 @@ describe('FreeScanPage evidence honesty', () => {
     )
   })
 })
+
+describe('FreeScanPage hand-over from the landing page', () => {
+  it('runs the check once for a valid ?domain= and drops the parameter', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => responseFor({ moduleState: 'completed', coverageState: 'complete' }) }))
+    vi.stubGlobal('fetch', fetchMock)
+    Element.prototype.scrollIntoView = vi.fn()
+    window.history.pushState({}, '', '/free-scan?domain=Example.co.uk')
+    render(<MemoryRouter><FreeScanPage /></MemoryRouter>)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ domain: 'example.co.uk' })
+    expect(window.location.search).toBe('')
+    window.history.pushState({}, '', '/')
+  })
+
+  it('ignores an invalid domain parameter and waits for the visitor', () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/free-scan?domain=%3Cscript%3E')
+    render(<MemoryRouter><FreeScanPage /></MemoryRouter>)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(screen.getByPlaceholderText('yourbusiness.co.uk')).toHaveValue('')
+    window.history.pushState({}, '', '/')
+  })
+})

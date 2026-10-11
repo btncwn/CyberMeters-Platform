@@ -22,6 +22,8 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+        // Public website display face (Computer Modern, self-hosted, SIL OFL).
+        cm: ['"Computer Modern Serif"', 'Georgia', 'Cambria', 'serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace'],
       },
       boxShadow: {

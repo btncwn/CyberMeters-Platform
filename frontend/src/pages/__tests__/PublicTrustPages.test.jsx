@@ -16,6 +16,7 @@ describe('Founder and public assurance pages', () => {
     expect(screen.getByText(/AI-generated code and reviews still need verification/)).toHaveTextContent('not independent third-party penetration tests')
     expect(screen.getByRole('link', { name: /See our own-domain check/ })).toHaveAttribute('href', '/trust')
     expect(document.body.textContent).not.toMatch(/Scotist|100\/100|years of experience/i)
+    expect(document.body.textContent).not.toMatch(/small businesses, startups|digital agencies|small teams/i)
   })
   it('keeps the real dated own-domain observation provisional and separate from the illustrative landing score', () => {
     mount(TrustPage)
@@ -39,6 +40,7 @@ describe('Founder and public assurance pages', () => {
   it('keeps privacy links without advertising the disconnected provider', () => {
     mount(TrustPage)
     expect(screen.queryByText(/LeakCheck/)).not.toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/small businesses, startups|digital agencies|small teams/i)
     expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy')
     expect(screen.getByRole('link', { name: 'Data Processing Addendum' })).toHaveAttribute('href', '/dpa')
   })
