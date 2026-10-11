@@ -122,11 +122,11 @@ const SENSITIVE_PATH_RULES = [
 
 const STATIC_ASSET_RE = /\.(?:png|jpe?g|gif|webp|svg|ico|css|js|mjs|map|json|xml|txt|pdf|zip|gz|mp4|mp3|wav|woff2?|ttf|eot|avif|docx?|xlsx?|pptx?|csv|rss|atom)$/i;
 
-const PROBE_HEADERS = {
+export const PROBE_HEADERS = Object.freeze({
   "User-Agent":      "Mozilla/5.0 (compatible; CyberMeters-Scanner/1.0; +https://cybermeters.com/scanner)",
   "Accept":          "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.5",
-};
+});
 
 // ── Pure helpers (exported for fixtures) ────────────────────────────────────
 
@@ -186,7 +186,7 @@ export function toSameSitePageUrl(href, baseUrl, hosts) {
 const MAX_TAG_CHARS = 4096;
 const RAW_TEXT_TAGS = new Set(["script", "style", "template", "textarea", "noscript"]);
 
-function attrOf(tag, name) {
+export function attrOf(tag, name) {
   // `tag` is bounded by MAX_TAG_CHARS, so this regex runs on a short string.
   const m = tag.match(new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
   return m ? (m[1] ?? m[2] ?? m[3] ?? "") : null;
@@ -516,7 +516,7 @@ function randomProbePath() {
   return `/cybermeters-check-${[...b].map((x) => x.toString(16).padStart(2, "0")).join("")}`;
 }
 
-async function readBoundedText(res, maxBytes) {
+export async function readBoundedText(res, maxBytes) {
   if (!res?.body) { try { return (await res.text()).slice(0, maxBytes); } catch { return ""; } }
   const reader = res.body.getReader();
   const chunks = [];
@@ -541,13 +541,13 @@ async function readBoundedText(res, maxBytes) {
   return new TextDecoder("utf-8", { fatal: false }).decode(buf);
 }
 
-function headerPresence(headers) {
+export function headerPresence(headers) {
   const present = [], missing = [];
   for (const h of SECURITY_HEADERS) (headers.get(h.name) ? present : missing).push(h.name);
   return { present, missing };
 }
 
-function setCookiesOf(headers) {
+export function setCookiesOf(headers) {
   try {
     if (typeof headers.getSetCookie === "function") return headers.getSetCookie();
     if (typeof headers.getAll === "function") return headers.getAll("set-cookie");

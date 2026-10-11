@@ -113,6 +113,7 @@ import { identityExposureRoutes } from "./routes/identity-exposure.js";
 import { identityWorkforceRoutes } from "./routes/identity-workforce.js";
 import { identityPublicSecretsRoutes } from "./routes/identity-public-secrets.js";
 import { websiteSecurityRoutes } from "./routes/website-security.js";
+import { websiteSignInRoutes } from "./routes/website-sign-in.js";
 import { cyberEssentialsControlsRoutes } from "./routes/cyber-essentials-controls.js";
 import { emailProtectionLifecycleRoutes } from "./routes/email-protection-lifecycle.js";
 import { workspaceInsightRoutes } from "./routes/workspace-insights.js";
@@ -1126,6 +1127,7 @@ const WORKSPACE_PURGE_TABLES = [
   // Website important-page inventory (mig 115). Events and runs first: neither
   // holds an FK to the pages table, so they are purged on their own workspace_id.
   "website_page_events", "website_page_discovery_runs", "website_pages",
+  "website_sign_in_attempts", "website_sign_in_profiles",
   // Cyber Essentials lifecycle (mig 090). Events first: no FK to the records table.
   "cyber_essentials_events", "cyber_essentials_control_records",
   // Canonical per-domain Cyber MOT state history (mig 091). Append-only, one row per
@@ -2622,6 +2624,8 @@ export default {
 
     // ── Website Security lifecycle read routes (mig 089) ────────────────────
     {
+      const websiteSignInResponse = await websiteSignInRoutes(routeCtx);
+      if (websiteSignInResponse) return websiteSignInResponse;
       const websiteSecurityResponse = await websiteSecurityRoutes(routeCtx);
       if (websiteSecurityResponse) return websiteSecurityResponse;
     }

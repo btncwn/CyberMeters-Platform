@@ -245,6 +245,21 @@ async function request(path, options = {}) {
   return res.json()
 }
 
+async function signInCall(method, workspaceId, suffix, body) {
+  const res = await safeFetch(`${BASE}/workspaces/${encodeURIComponent(workspaceId)}/website-security/sign-in${suffix}`, {
+    method,
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  })
+  if (res.status === 401 && localStorage.getItem(TOKEN_KEY)) {
+    handleUnauthorized()
+    throw Object.assign(new Error('Session expired. Please sign in again.'), { status: 401 })
+  }
+  const data = await res.json().catch(() => ({}))
+  return { status: res.status, ok: res.ok, body: data }
+}
+
 /**
  * Authenticated request returning a Blob (PDF/CSV downloads). Same ApiError
  * decoration as request().
@@ -831,6 +846,17 @@ export const api = {
 
   /** GET /api/workspaces/:id/website-security/conditions — list (mig 089) */
   /** GET /api/workspaces/:id/website-security/pages — bounded important-page inventory (mig 115) */
+  /** GET signed-in scanning profiles (never returns secrets). */
+  getWebsiteSignIn: (workspaceId) =>
+    request(`/workspaces/${encodeURIComponent(workspaceId)}/website-security/sign-in`),
+  /**
+   * Signed-in scanning writes return { status, ok, body } instead of throwing,
+   * so a 4xx (validation, rate limit, plan) is shown in the form itself and
+   * never routed to the global scan-limit / upgrade modal.
+   */
+  saveWebsiteSignIn: (workspaceId, domain, body) => signInCall('PUT', workspaceId, `/${encodeURIComponent(domain)}`, body),
+  deleteWebsiteSignIn: (workspaceId, domain) => signInCall('DELETE', workspaceId, `/${encodeURIComponent(domain)}`),
+  testWebsiteSignIn: (workspaceId, domain) => signInCall('POST', workspaceId, `/${encodeURIComponent(domain)}/test`, {}),
   getWebsiteSecurityPages: (workspaceId, params = {}) => {
     const q = new URLSearchParams(params).toString()
     return request(`/workspaces/${encodeURIComponent(workspaceId)}/website-security/pages${q ? `?${q}` : ''}`)
