@@ -11,6 +11,11 @@ let passed = 0;
 function check(name, actual, expected) { assert.deepEqual(actual, expected, name); passed++; }
 const mod = await loadWorker();
 const db = buildDb();
+// The hand-made production table can enforce one subscription row per
+// workspace (it predates the migrations that describe it). Mirror that rule so
+// a webhook that moves a row onto an occupied workspace fails here too — the
+// exact failure of the 11 Oct 2026 live payment.
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_test_subscriptions_workspace ON subscriptions (workspace_id) WHERE workspace_id IS NOT NULL");
 const env = makeEnv(db);
 const seed = await makeSeeder(db, mod);
 for (const id of ["buyer", "foreign", "empty", "multiple", "viewer", "analyst", "admin"]) {
@@ -174,11 +179,31 @@ const histCompleted = await deliver({ id: "hist-completion", type: "checkout.ses
 check("completion for a customer on a historical row is applied", histCompleted.status, 200);
 check("the row that holds the customer is the one activated",
   { ...db.prepare("SELECT id, workspace_id, subscription_status, stripe_subscription_id FROM subscriptions WHERE stripe_customer_id='cus-hist'").get() },
-  { id: "sub-row-hist", workspace_id: "hist-new", subscription_status: "active", stripe_subscription_id: "sub-hist" });
+  { id: "sub-row-hist", workspace_id: "hist-old", subscription_status: "active", stripe_subscription_id: "sub-hist" });
 const histCreated = await deliver({ id: "hist-created", type: "customer.subscription.created", data: { object: { id: "sub-hist", customer: "cus-hist", status: "active", metadata: histMeta, items: { data: [{ price: { id: "price_sm", recurring: { interval: "month" } }, current_period_start: Math.floor(Date.now()/1000), current_period_end: Math.floor(Date.now()/1000) + 30 * 86400 }] } } } });
 check("subscription.created for the same customer is applied", histCreated.status, 200);
 check("historical owner now holds the purchased plan", (await getEffectivePlanState("history", env)).plan, "starter");
 check("no extra subscription row was invented", db.prepare("SELECT COUNT(*) n FROM subscriptions WHERE owner_user_id='history'").get().n, 2);
+
+// The 11 Oct 2026 live case exactly: no Stripe ids anywhere, a lapsed trial in
+// the paying workspace and a cancelled row in another. The old lookup took the
+// other workspace's row and moved it onto the paying workspace — a unique
+// workspace_id violation on every retry. The paying workspace's row is the one.
+seed.user("mirror", "mirror@billing.invalid");
+seed.workspace("mirror-old", "mirror", "mirror-old");
+seed.workspace("mirror-ws", "mirror", "mirror-ws");
+db.prepare("INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status, created_at, updated_at) VALUES ('sub-row-mirror-old','mirror','mirror-old','business','canceled','canceled','2026-06-23 10:15:57','2026-10-08 20:30:39')").run();
+db.prepare("INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status, trial_start, trial_end, created_at, updated_at) VALUES ('sub-row-mirror-trial','mirror','mirror-ws','professional','trialing','trialing','2026-07-06 14:11:10','2026-07-20 14:11:10','2026-07-06 14:11:10','2026-07-06 14:11:10')").run();
+const mirrorMeta = { workspace_id: "mirror-ws", interval: "monthly", user_id: "mirror", plan: "starter" };
+check("live-case completion is applied", (await deliver({ id: "mirror-completion", type: "checkout.session.completed", data: { object: { id: "cs-mirror", metadata: mirrorMeta, customer: "cus-mirror", subscription: "sub-mirror", payment_status: "paid", status: "complete" } } })).status, 200);
+check("live-case subscription.created is applied", (await deliver({ id: "mirror-created", type: "customer.subscription.created", data: { object: { id: "sub-mirror", customer: "cus-mirror", status: "active", metadata: mirrorMeta, items: { data: [{ price: { id: "price_sm", recurring: { interval: "month" } }, current_period_start: Math.floor(Date.now()/1000), current_period_end: Math.floor(Date.now()/1000) + 30 * 86400 }] } } } })).status, 200);
+check("the paying workspace's row carries the subscription",
+  { ...db.prepare("SELECT id, subscription_status, stripe_subscription_id FROM subscriptions WHERE workspace_id='mirror-ws'").get() },
+  { id: "sub-row-mirror-trial", subscription_status: "active", stripe_subscription_id: "sub-mirror" });
+check("the other workspace's history is untouched",
+  { ...db.prepare("SELECT workspace_id, subscription_status, stripe_customer_id FROM subscriptions WHERE id='sub-row-mirror-old'").get() },
+  { workspace_id: "mirror-old", subscription_status: "canceled", stripe_customer_id: null });
+check("live-case owner holds the purchased plan", (await getEffectivePlanState("mirror", env)).plan, "starter");
 
 // Targeted storage errors wrap only the named D1 statement. SQLite handles
 // every other query normally; the test never fakes a completed marker.

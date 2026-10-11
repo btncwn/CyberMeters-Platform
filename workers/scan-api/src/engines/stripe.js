@@ -475,7 +475,11 @@ async function upsertStripeSubscriptionState(env, state) {
                WHEN ? IS NOT NULL AND (current_period_end IS NULL OR ? >= current_period_end) THEN ?
                ELSE current_period_end END,
              cancel_at_period_end = COALESCE(?, cancel_at_period_end),
-             workspace_id = COALESCE(?, workspace_id),
+             workspace_id = CASE
+               WHEN ? IS NOT NULL AND NOT EXISTS (
+                 SELECT 1 FROM subscriptions other WHERE other.workspace_id = ? AND other.id <> subscriptions.id
+               ) THEN ?
+               ELSE workspace_id END,
              updated_at = datetime('now')
          WHERE id = ?`
       )
@@ -490,7 +494,13 @@ async function upsertStripeSubscriptionState(env, state) {
         state.current_period_start || null,
         cpEnd, cpEnd, cpEnd,
         cancelAtPeriodEnd,
-        workspaceId,
+        // The hand-made production table can enforce one row per workspace
+        // (it predates the migrations that describe it). A row is moved to
+        // the event's workspace only when that workspace has no other row;
+        // otherwise the move would break that rule and fail every retry.
+        // Entitlement is resolved per owner, so the row's workspace never
+        // changes what the customer gets.
+        workspaceId, workspaceId, workspaceId,
         rowId
       )
       .run();
