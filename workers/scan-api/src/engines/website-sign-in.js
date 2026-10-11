@@ -127,7 +127,10 @@ export function siteUrl(raw, hosts, field) {
   if (u.username || u.password || (u.port && u.port !== "443")) bad(`${field}_invalid`);
   u.hash = ""; u.search = "";
   const path = normalizePath(u.pathname);
-  if (isApiPath(path) || !isRequestablePath(path, { strict: true })) bad(`${field}_not_a_page`);
+  // The start page is requested WITH the session: the signed-in rules apply.
+  // The sign-in page is only fetched before signing in ("/session/new" is fine).
+  if (field === "start_url" && classifySensitivePath(path) === "login") bad("start_url_is_login_page");
+  if (field === "start_url" ? !signedInRequestable(path) : (isApiPath(path) || !isRequestablePath(path))) bad(`${field}_not_a_page`);
   return u.toString();
 }
 
@@ -379,10 +382,12 @@ function looksLikeOtherForm(form) {
 
 /** Choose the sign-in form and its username/password fields. */
 export function pickLoginForm(forms, { usernameField = null, passwordField = null } = {}) {
-  const candidates = forms
-    .filter((f) => f.fields.filter((x) => x.type === "password").length === 1)
-    .filter((f) => !f.fields.some((x) => x.type === "password" && x.autocomplete === "new-password"))
-    .filter((f) => !looksLikeOtherForm(f));
+  const single = forms.filter((f) => f.fields.filter((x) => x.type === "password").length === 1);
+  const isOther = (f) => f.fields.some((x) => x.type === "password" && x.autocomplete === "new-password") || looksLikeOtherForm(f);
+  // Registration/reset-looking forms are only ever used when the customer
+  // named the password field explicitly (some sign-in forms misuse
+  // autocomplete="new-password"), and then only after the clean candidates.
+  const candidates = passwordField ? [...single.filter((f) => !isOther(f)), ...single.filter(isOther)] : single.filter((f) => !isOther(f));
   if (!candidates.length) return { error: "login_form_not_found" };
   // A field marked current-password is the strongest sign of a sign-in form.
   candidates.sort((a, b) => Number(b.fields.some((x) => x.autocomplete === "current-password")) - Number(a.fields.some((x) => x.autocomplete === "current-password")));
@@ -728,18 +733,20 @@ export async function signIn(domain, profile, secret, opts = {}) {
     // 3. Submit once. Cookies before/after are compared IN MEMORY only.
     const before = session.jar.snapshot();
     const loginPageUrl = new URL(login.url);
-    const loginPath = normalizePath(new URL(profile.login_url).pathname);
     // From here on the credentials have been submitted: whatever happens next
     // counts toward the lock-out protection unless the sign-in is proven.
     detail.submitted = true;
+    if (opts.progress && typeof opts.progress === "object") opts.progress.submitted = true;
     const posted = await session.page(action.toString(), {
       method: "POST",
       body: buildLoginBody(form, usernameName, passwordName, secret),
       referer: `${loginPageUrl.origin}${loginPageUrl.pathname}`,
       authed: true,
-      // The site's own post-sign-in redirects are followed (a browser would),
-      // except back to the sign-in page (a refusal) or into an action address.
-      stopAt: (next) => normalizePath(next.pathname) === loginPath || addressCarriesAction(next),
+      // The site's own post-sign-in redirects are followed, as a browser
+      // would — including through the sign-in path (Moodle's ?testsession,
+      // a homepage sign-in form) — except into an action address. Where it
+      // lands is judged below, never assumed.
+      stopAt: (next) => addressCarriesAction(next),
     });
     const cookiesAtSignIn = describeSetCookies(posted.set_cookies, { now: typeof opts.now === "function" ? opts.now() : Date.now() });
     const landing = { status: posted.status ?? null, path: posted.outcome === "ok" || posted.outcome === "stopped" ? normalizePath(new URL(posted.url).pathname) : null };
@@ -749,8 +756,6 @@ export async function signIn(domain, profile, secret, opts = {}) {
     if (posted.outcome === "insecure") return finish("login_not_https", extra);
     if (isChallenge(posted)) return finish("bot_protection", extra);
     if (posted.status === 429) return finish("rate_limited", extra);
-    // Sent straight back to the sign-in page: the site did not accept them.
-    if (posted.outcome === "stopped" && normalizePath(new URL(posted.url).pathname) === loginPath) return finish("credentials_rejected", extra);
     // Not following a redirect into an action address is fine when a start
     // page can prove the sign-in; without one there is nothing to prove it on.
     if (posted.outcome === "stopped" && !profile.start_url) return finish("sign_in_redirect_not_followed", extra);

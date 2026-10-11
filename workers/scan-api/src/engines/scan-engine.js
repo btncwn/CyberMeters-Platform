@@ -2087,7 +2087,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       } else if (prepared?.secret) {
         let { profile, secret } = prepared;
         prepared = null;
-        const notRun = (reason) => ({ source: "signed_in_scan", version: SIGNED_IN_SCAN_VERSION, sign_in: { outcome: "budget_exhausted", detail: {} }, coverage: "not_run", partial_reasons: [reason], counts: {}, pages: [] });
+        // `progress.submitted` survives a module timeout, so a sign-in form that
+        // was sent still counts toward the lock-out protection.
+        const progress = { submitted: false };
+        const notRun = (reason) => ({ source: "signed_in_scan", version: SIGNED_IN_SCAN_VERSION, sign_in: { outcome: "budget_exhausted", detail: progress.submitted ? { submitted: true } : {} }, coverage: "not_run", partial_reasons: [reason], counts: {}, pages: [] });
         let signedIn;
         if (!deadline.canRun(SIGNED_IN_SCAN_BUDGET_MS + PAGE_DISCOVERY_POST_TERMINAL_RESERVE_MS)) {
           signedIn = notRun("deadline_budget");
@@ -2097,7 +2100,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
             hardMs: SIGNED_IN_SCAN_BUDGET_MS,
             fallback: () => notRun("module_budget_exhausted"),
             run: ({ accounting, signal, remainingMs }) => runSignedInScan(domain, profile, secret, {
-              dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs,
+              dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs, progress,
             }),
           });
           signedIn = run.thrown ? notRun("module_failed") : (run.value || notRun("module_failed"));

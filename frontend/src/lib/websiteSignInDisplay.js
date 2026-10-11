@@ -22,7 +22,7 @@ export const SIGN_IN_OUTCOME_META = Object.freeze({
   anonymous_check_unavailable: { label: 'Could not confirm sign-in', tone: 'warn', help: 'The start page did not answer a request without the session, so the sign-in could not be confirmed. Try again later.' },
   start_page_unavailable: { label: 'Start page unavailable', tone: 'warn', help: 'The start page did not answer with a normal page. Check its address.' },
   login_page_unavailable: { label: 'Sign-in page unavailable', tone: 'warn', help: 'The sign-in page did not answer with a normal page. Check its address.' },
-  login_form_not_found: { label: 'No sign-in form found', tone: 'warn', help: 'No form with a password field is in the sign-in page’s HTML. If the form is built by JavaScript, use the header or cookie method.' },
+  login_form_not_found: { label: 'No sign-in form found', tone: 'warn', help: 'No sign-in form with a password field is in the sign-in page’s HTML. If the form is built by JavaScript, use the header or cookie method; if it looks like a registration form, enter its password field name under “Advanced”.' },
   username_field_not_found: { label: 'Username field not found', tone: 'warn', help: 'Enter the username field’s name under “Advanced”.' },
   login_form_uses_get: { label: 'Form would put the password in the address', tone: 'warn', help: 'This form sends the password in the URL (GET). CyberMeters will not submit it.' },
   login_form_posts_offsite: { label: 'Form sends to another site', tone: 'warn', help: 'The sign-in form posts to another site. CyberMeters only sends credentials to this domain.' },

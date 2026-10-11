@@ -697,6 +697,36 @@ function richApp(extra = {}) {
   }
 }
 
+{
+  // Round 2: post-sign-in redirects through the sign-in path are followed like a browser.
+  const moodle = fakeApp({
+    afterPost: (url, { redirect, sess }) => { sess.authed = true; return redirect(url, "/login?testsession=2", 303); },
+    route: (u, i, { redirect, cookiesOf, sessions, url }) => {
+      const sess = sessions.get(cookiesOf(i.headers || {}).sid);
+      return u.pathname === "/login" && u.search === "?testsession=2" && sess?.authed ? redirect(url, "/account", 303) : null;
+    },
+  });
+  eq("Moodle-style ?testsession hop: correct password signs in", (await run(moodle)).outcome, "signed_in");
+  eq("…also without a start page", (await run(fakeApp({
+    afterPost: (url, { redirect, sess }) => { sess.authed = true; return redirect(url, "/login?testsession=2", 303); },
+    route: (u, i, { redirect, cookiesOf, sessions, url }) => (u.pathname === "/login" && u.search === "?testsession=2" && sessions.get(cookiesOf(i.headers || {}).sid)?.authed ? redirect(url, "/account", 303) : null),
+  }), { ...FORM, start_url: null })).outcome, "signed_in");
+  eq("wrong password redirected back to sign-in: still refused", (await run(fakeApp({ wrongMode: "redirect" }), FORM, { ...GOOD, password: "nope" })).outcome, "credentials_rejected");
+  const misused = `<form method=post action="/login"><input type=email name=email><input type=password name=pw autocomplete="new-password"></form>`;
+  eq("login form misusing new-password: refused without an override", si.pickLoginForm(si.extractFormsWithFields(misused)).error, "login_form_not_found");
+  eq("…usable when the customer names the password field", si.pickLoginForm(si.extractFormsWithFields(misused), { passwordField: "pw" }).passwordName, "pw");
+  const both = si.extractFormsWithFields(`<form method=post action="/register" id=register><input name=email><input type=password name=password autocomplete="new-password"></form><form method=post action="/login"><input name=email><input type=password name=password></form>`);
+  eq("override still prefers the clean sign-in form", si.pickLoginForm(both, { passwordField: "password" }).form.action, "/login");
+  eq("Rails 8 /session/new accepted as the sign-in page", si.normalizeSignInInput({ ...SAVE, login_url: "https://acme.test/session/new" }, { domain: "acme.test" }).login_url, "https://acme.test/session/new");
+  throwsCode("start page with an action word refused", () => si.normalizeSignInInput({ ...SAVE, start_url: "https://acme.test/account/export" }, { domain: "acme.test" }), "start_url_not_a_page");
+  throwsCode("sign-in page start page refused", () => si.normalizeSignInInput({ ...SAVE, start_url: "https://acme.test/admin/login" }, { domain: "acme.test" }), "start_url_is_login_page");
+  const progress = { submitted: false };
+  await runSignedInScan("acme.test", FORM, { ...GOOD, password: "bad" }, { fetchImpl: richApp().fetchImpl, progress });
+  eq("progress records the submission (survives a module timeout)", progress.submitted, true);
+  const engine = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "scan-engine.js"), "utf8");
+  ok("engine: timeout fallback keeps the submission", /detail: progress\.submitted \? \{ submitted: true \} : \{\}/.test(engine) && /remainingMs, progress,/.test(engine));
+}
+
 // ── 9. End-to-end: queue scan → sign-in → workspace-private attempt row ────
 {
   const { runScanEngine } = await import(src("engines", "scan-engine.js"));
