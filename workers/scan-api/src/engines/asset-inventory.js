@@ -35,10 +35,10 @@ export function subdomainDiscoveryComplete(modules) {
   const sub = modules?.subdomains;
   if (!sub) return false;                        // no discovery module → cannot anchor disappearance
   if (sub.error) return false;                   // module-level failure (e.g. module rejected)
-  if (sub.ct_error) return false;                // both CT sources failed → items collapsed
+  if (sub.ct_error) return false;                // every CT source failed → items collapsed
   const sources = sub.sources || {};
-  if (sources.crt_sh?.error) return false;       // a CT source errored → partial coverage
-  if (sources.certspotter?.error) return false;
+  // Any CT source that errored → partial coverage.
+  if (Object.values(sources).some((source) => source?.error)) return false;
   const bf = modules?.dns_bruteforce;
   if (bf?.error) return false;                   // brute-force feeder timed out/failed
   return true;

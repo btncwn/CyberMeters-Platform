@@ -62,7 +62,7 @@ const dnsJson = (answers = []) => new Response(
 function requestKind(value) {
   const url = String(value);
   if (/cloudflare-dns\.com\/dns-query|dns\.google\/resolve|dns\.quad9\.net\/dns-query/.test(url)) return "dns";
-  if (/crt\.sh|api\.certspotter\.com/.test(url)) return "ct";
+  if (/api\.certspotter\.com/.test(url)) return "ct";
   if (/nvd\.nist\.gov|cisa\.gov|githubusercontent\.com/.test(url)) return "intelligence";
   return "http";
 }
@@ -263,7 +263,7 @@ function observingAccounting(counter, category) {
   );
 
   const ctCounter = new PhysicalSubrequestCounter({ limit: 50, safetyMargin: 0 });
-  const ctObservation = observingAccounting(ctCounter, "ct-crt-sh");
+  const ctObservation = observingAccounting(ctCounter, "ct-certspotter");
   const ctCalls = [];
   const ctCache = createCertificateTransparencyCache({
     accounting: ctObservation.accounting,
@@ -272,13 +272,12 @@ function observingAccounting(counter, category) {
       () => new Response("[]", { status: 200, headers: { "content-type": "application/json" } }),
     ),
     policies: {
-      crt_sh: { timeoutMs: 1_000, maxAttempts: 2, backoffMs: 0 },
       certspotter: { timeoutMs: 1_000, maxAttempts: 2, backoffMs: 0 },
     },
     timeoutSignal: () => undefined,
     sleep: async () => {},
   });
-  const ctResult = await ctCache.get("example.com", "crt_sh", {
+  const ctResult = await ctCache.get("example.com", "certspotter", {
     accounting: ctObservation.accounting,
     module: "subdomains",
   });
@@ -287,12 +286,12 @@ function observingAccounting(counter, category) {
       subdomains: {
         incomplete: true,
         incomplete_reason: "ct_sources_unavailable",
-        sources: { crt_sh: { error: "redirect_refused" } },
+        sources: { certspotter: { error: "redirect_refused" } },
       },
     },
     scanQuality: { status: "partial" },
   });
-  const ctHealth = ctCache.healthSnapshot().crt_sh;
+  const ctHealth = ctCache.healthSnapshot().certspotter;
   ok(
     "ASB6B_CT_REDIRECT_REFUSED_UNAVAILABLE",
     ctCalls.length === 1

@@ -139,7 +139,12 @@ const mutants = [
       '      schema_version: "external-certificate-observation-v3",\n      schema_note: "mutation",', "M10"),
   },
   {
-    id: "SAN_A_M11", target: "projector", expected: ["F07", "F09"],
+    // F07 (a post-cutover null count) is no longer a single-site kill: the
+    // projector delegates measurement to cert-intel's sharedSanMeasured(ssl),
+    // which reads the stored count itself and rejects a non-integer, so the
+    // projector-local coercion cannot assess it. F09's pre-cutover undefined
+    // still collapses into legacy_ambiguous_zero and kills this mutant.
+    id: "SAN_A_M11", target: "projector", expected: ["F09"],
     mutate: (s) => replaceExactly(s,
       "const rawSharedSanCount = ssl?.cert_shared_san_count;",
       "const rawSharedSanCount = ssl?.cert_shared_san_count ?? 0;", "M11"),

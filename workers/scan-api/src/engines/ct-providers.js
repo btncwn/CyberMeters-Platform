@@ -1,37 +1,37 @@
 // ── Certificate Transparency provider policy ─────────────────────────────────
 //
-// Which CT search providers a scan queries. Production scans query CertSpotter
-// (SSLMate) only: it has a documented, key-authenticated API with published rate
-// limits. crt.sh has no API contract, no SLA and frequent 502/timeouts, and when
-// it failed the whole scan was marked degraded — so production does not depend
-// on it. The two-provider code paths stay intact and tested; a scan that does
-// not declare its providers (historical records, fixtures) keeps the original
-// two-provider meaning, so nothing historical is reinterpreted.
+// CertSpotter (SSLMate) is the only Certificate Transparency search provider:
+// a documented API with published rate limits. An optional SSLMate API key
+// (Worker secret CERTSPOTTER_API_KEY) raises the quota; without it the free
+// unauthenticated quota is used.
 //
 // What this costs, stated plainly: CertSpotter returns certificates that have
 // not expired. Names that appeared only on expired certificates are not
 // searched; DNS name checks, SRV records and on-site links still contribute.
+//
+// Stored records are never reinterpreted. Readers take a record's provider set
+// from what the record itself declares or recorded, never from this constant.
 
-export const CT_ALL_PROVIDERS = Object.freeze(["crt_sh", "certspotter"]);
-export const CT_SCAN_PROVIDERS = Object.freeze(["certspotter"]);
+export const CT_PROVIDERS = Object.freeze(["certspotter"]);
 
-// Canonical order, known providers only. Anything empty or unrecognised falls
-// back to the original two-provider set rather than silently shrinking it.
-export function normalizeCtProviders(list) {
-  if (!Array.isArray(list)) return CT_ALL_PROVIDERS;
-  const wanted = new Set(list.map((value) => String(value)));
-  const providers = CT_ALL_PROVIDERS.filter((provider) => wanted.has(provider));
-  return providers.length > 0 && providers.length === wanted.size
-    ? Object.freeze(providers)
-    : CT_ALL_PROVIDERS;
+function providerNames(value) {
+  if (Array.isArray(value)) return value.map((entry) => String(entry)).filter(Boolean);
+  if (value && typeof value === "object") return Object.keys(value);
+  return [];
 }
 
-// The providers a recorded subdomains result actually used.
-export function ctProvidersUsed(subdomainsModule) {
-  return normalizeCtProviders(subdomainsModule?.ct_providers);
+// The CT providers a recorded module used: its declared `ct_providers`, else
+// the provider keys it recorded under `sources` / `ct_sources`, else the
+// current provider set.
+export function ctProvidersUsed(module) {
+  for (const candidate of [module?.ct_providers, module?.sources, module?.ct_sources]) {
+    const names = providerNames(candidate);
+    if (names.length > 0) return Object.freeze([...new Set(names)]);
+  }
+  return CT_PROVIDERS;
 }
 
-// Same-shape failure rows for exactly the providers a scan used.
-export function ctFailedSources(providers, error) {
-  return Object.fromEntries(normalizeCtProviders(providers).map((provider) => [provider, { count: 0, error }]));
+// Same-shape failure rows for the current provider set.
+export function ctFailedSources(error) {
+  return Object.fromEntries(CT_PROVIDERS.map((provider) => [provider, { count: 0, error }]));
 }

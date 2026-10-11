@@ -71,15 +71,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2446 | preflight | public | — |
-| DELETE | `(none)` | 2452 | unknown | **GAP** | — |
-| GET | `(none)` | 2452 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2452 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2452 | unknown | **GAP** | — |
-| POST | `(none)` | 2452 | unknown | **GAP** | — |
-| PUT | `(none)` | 2452 | unknown | **GAP** | — |
-| GET | `/health` | 2457 | public-or-global | public | — |
-| GET | `/ready` | 2476 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2445 | preflight | public | — |
+| DELETE | `(none)` | 2451 | unknown | **GAP** | — |
+| GET | `(none)` | 2451 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2451 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2451 | unknown | **GAP** | — |
+| POST | `(none)` | 2451 | unknown | **GAP** | — |
+| PUT | `(none)` | 2451 | unknown | **GAP** | — |
+| GET | `/health` | 2456 | public-or-global | public | — |
+| GET | `/ready` | 2475 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -154,32 +154,32 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
 | POST | `/api/free-scan` | 74 | public-or-global | public | — |
-| GET | `/^\/api\/workspaces\/([^/` | 308 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `/api/plans` | 376 | public-or-global | public | — |
-| POST | `/^\/api\/workspaces\/([^/` | 418 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| POST | `/^\/api\/workspaces\/([^/` | 699 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/^\/api\/workspaces\/([^/` | 309 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/api/plans` | 377 | public-or-global | public | — |
+| POST | `/^\/api\/workspaces\/([^/` | 419 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^/` | 700 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/brand.js`
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `/^\/api\/workspaces\/([^/` | 183 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 188 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 269 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 290 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 54 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^/` | 59 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 140 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 161 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 172 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^/` | 177 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^/` | 197 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^/` | 207 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^/` | 221 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 243 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `/^\/api\/workspaces\/([^/` | 301 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | POST | `/^\/api\/workspaces\/([^/` | 306 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 326 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 336 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 350 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 372 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 430 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 435 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 512 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `(none)` | 512 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `(none)` | 541 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 683 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 736 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 383 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 383 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 412 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 554 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 607 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/certificates-lifecycle.js`
 

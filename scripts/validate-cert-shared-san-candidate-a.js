@@ -59,12 +59,17 @@ function projectedIntelligence(modules, domain = "example.com") {
   });
 }
 
+// Stored records are read with the providers they recorded, so the default
+// models a historical record whose measuring CT provider has since been retired
+// (a neutral key, not a live provider). `ctSources` overrides the whole map,
+// e.g. a current CertSpotter-only record or a historical two-provider record.
 function storedModules({
   version = "external-certificate-observation-v2",
   includeEvidence = true,
   raw = 0,
-  crtCount = 5,
-  crtError = null,
+  ctCount = 5,
+  ctError = null,
+  ctSources = null,
   incomplete = false,
   subject = "example.com",
   sans = ["example.com"],
@@ -77,7 +82,7 @@ function storedModules({
     cert_san_names: sans,
     cert_wildcard_san_count: wildcard,
     cert_shared_san_count: raw,
-    ct_sources: { crt_sh: { count: crtCount, error: crtError } },
+    ct_sources: ctSources ?? { retired_provider: { count: ctCount, error: ctError } },
   };
   if (includeEvidence) ssl.certificate_evidence = { schema_version: version };
   return {
@@ -97,12 +102,24 @@ function storedModules({
 const legacy = storedModules();
 const legacyProjected = projectedIntelligence(legacy);
 const legacyAssessment = legacyProjected?.shared_san_assessment;
+// A pre-cutover two-provider zero stays ambiguous even when its surviving
+// provider answered: the measurement predicate is provider-generic, so the
+// legacy gate (not the provider name) is what keeps an eager zero unproven.
+const legacyTwoProviderAssessment = assessment(storedModules({
+  ctSources: {
+    retired_provider: { count: 0, error: "provider unavailable" },
+    certspotter: { count: 4, error: null },
+  },
+}));
 fixture("F01",
   legacyAssessment?.measurement_state === "legacy_ambiguous_zero" &&
   legacyAssessment?.assessment_state === "not_assessed" &&
   legacyAssessment?.ownership_status == null &&
   legacyAssessment?.customer_owned == null &&
-  legacyAssessment?.confidence == null);
+  legacyAssessment?.confidence == null &&
+  legacyTwoProviderAssessment?.measurement_state === "legacy_ambiguous_zero" &&
+  legacyTwoProviderAssessment?.customer_owned == null &&
+  legacyTwoProviderAssessment?.confidence == null);
 
 const unversioned = storedModules({ includeEvidence: false });
 const unversionedAssessment = assessment(unversioned);
@@ -122,19 +139,39 @@ fixture("F03",
 
 const brokenV3 = storedModules({
   version: "external-certificate-observation-v3",
-  crtError: "provider unavailable",
+  ctError: "provider unavailable",
 });
 const brokenAssessment = assessment(brokenV3);
+// The same error sentinel on a current CertSpotter-only record.
+const brokenCertSpotterAssessment = assessment(storedModules({
+  version: "external-certificate-observation-v3",
+  ctSources: { certspotter: { count: 5, error: "provider unavailable" } },
+}));
 fixture("F06",
   brokenAssessment?.measurement_state === "unmeasured" &&
   brokenAssessment?.assessment_state === "not_assessed" &&
-  brokenAssessment?.customer_owned == null && brokenAssessment?.confidence == null);
+  brokenAssessment?.customer_owned == null && brokenAssessment?.confidence == null &&
+  brokenCertSpotterAssessment?.measurement_state === "unmeasured" &&
+  brokenCertSpotterAssessment?.customer_owned == null &&
+  brokenCertSpotterAssessment?.confidence == null);
 
 const nullV3 = storedModules({
   version: "external-certificate-observation-v3", raw: null,
   rawOwned: null, rawConfidence: null,
 });
-fixture("F07", assessment(nullV3)?.measurement_state === "unmeasured");
+// A historical two-provider v3 record in which CertSpotter answered only as a
+// fallback: that branch never wrote the count, so it stays unmeasured.
+const fallbackNullV3 = storedModules({
+  version: "external-certificate-observation-v3", raw: null,
+  rawOwned: null, rawConfidence: null,
+  ctSources: {
+    retired_provider: { count: 0, error: "provider unavailable" },
+    certspotter: { count: 3, error: null },
+  },
+});
+fixture("F07",
+  assessment(nullV3)?.measurement_state === "unmeasured" &&
+  assessment(fallbackNullV3)?.measurement_state === "unmeasured");
 
 const legacyPositive = storedModules({ raw: 2, rawOwned: false, rawConfidence: 50 });
 const legacyPositiveAssessment = assessment(legacyPositive);
@@ -256,17 +293,14 @@ async function runEngineScenario({ name, domain, commonName, names, expected }) 
 
   const realFetch = globalThis.fetch;
   const realRandom = Math.random;
-  // Production scans query CertSpotter as their sole CT source (ct-providers.js);
-  // its issuance carries the certificate's complete DNS SAN list but no subject,
-  // so `commonName` never reaches the engine. crt.sh must never be contacted.
-  let crtShCalls = 0;
+  // Scans query CertSpotter as their sole CT source (ct-providers.js); its
+  // issuance carries the certificate's complete DNS SAN list but no subject, so
+  // `commonName` never reaches the engine and no subject is claimed.
+  let certSpotterCalls = 0;
   globalThis.fetch = async (input) => {
     const url = new URL(String(input));
-    if (url.hostname === "crt.sh") {
-      crtShCalls += 1;
-      return jsonResponse({}, 503);
-    }
     if (url.hostname === "api.certspotter.com") {
+      certSpotterCalls += 1;
       return jsonResponse([{
         id: `certspotter-${name}`,
         dns_names: names,
@@ -315,7 +349,17 @@ async function runEngineScenario({ name, domain, commonName, names, expected }) 
     return { response, body: await response.json() };
   };
   const route = await callReport();
-  return { db, store, trace, env, scanId, domainId, domain, engineError, rawBytes, report, route, callReport, expected, crtShCalls };
+  return { db, store, trace, env, scanId, domainId, domain, engineError, rawBytes, report, route, callReport, expected, certSpotterCalls };
+}
+
+// The single-provider truth for a fresh engine record: CertSpotter was queried,
+// it is the only CT source the SSL record names, and no certificate subject is
+// claimed from an issuance that carries none.
+function certSpotterOnlyRecord(scenario) {
+  const ssl = scenario.report.modules?.ssl || {};
+  return scenario.certSpotterCalls > 0 &&
+    JSON.stringify(Object.keys(ssl.ct_sources || {})) === JSON.stringify(["certspotter"]) &&
+    ssl.cert_subject === null;
 }
 
 const scenarios = [];
@@ -349,7 +393,7 @@ fixture("F04", zeroScenarios.every((scenario) => {
   const projected = scenario.route.body?.modules?.certificate_intelligence?.shared_san_assessment;
   const rawStillSame = scenario.store.get(`reports/${scenario.scanId}.json`) === scenario.rawBytes;
   return scenario.engineError == null && scenario.route.response.status === 200 && rawStillSame &&
-    scenario.crtShCalls === 0 &&
+    certSpotterOnlyRecord(scenario) &&
     scenario.report.modules?.ssl?.cert_shared_san_count === 0 &&
     projected?.measurement_state === scenario.expected.state &&
     projected?.ownership_status === scenario.expected.status &&
@@ -362,7 +406,7 @@ const positive = scenarios[3];
 const positiveProjected = positive.route.body?.modules?.certificate_intelligence?.shared_san_assessment;
 fixture("F05",
   positive.engineError == null && positive.route.response.status === 200 &&
-  positive.crtShCalls === 0 &&
+  certSpotterOnlyRecord(positive) &&
   positive.report.modules?.ssl?.cert_shared_san_count === 1 &&
   positiveProjected?.measurement_state === "measured_positive" &&
   positiveProjected?.ownership_status === "shared_certificate" &&
@@ -484,8 +528,13 @@ const parity = states.map(parityOutputs);
 // CertSpotter-only CT rewords the Attack Surface limitation sentence (CT logs
 // cover certificates that have not expired); with only that sentence reverted
 // both previous hashes reproduce exactly.
-const GOLDEN_F13 = "7d062322dfad8554618a3e5c50d180d30c9dec99f76c135b0fe115d8b098f418";
-const GOLDEN_F14 = "6f2a2d581311d465d5401f94642b9b519faa92b270dadab24ee4432f624c0ac0";
+// Removing crt.sh from product code drops it from two stamped provider lists:
+// the certificate_transparency monitoring definition (its fallback evidence
+// names only certspotter) and the asset-removal policy's passive_sources_excluded.
+// With only those two lists restored both previous hashes reproduce exactly;
+// the provider list alone restores F14, and F13 also needs the policy list.
+const GOLDEN_F13 = "1ae9c6da70766c4289637918744fdd96f206f35f593117df612e0bd2882dcde9";
+const GOLDEN_F14 = "10afaf0924b3faf7a5d55b1e306a437c721e17e30f6d74c31a3960e2f318beb0";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
@@ -547,7 +596,7 @@ const unavailableIntel = runCertificateIntelligenceModule({
   ssl: {
     cert_san_count: null, cert_raw_san_count: null,
     cert_wildcard_san_count: null, cert_shared_san_count: null,
-    ct_sources: { crt_sh: { count: 0, error: "unavailable" }, certspotter: { count: 0, error: "unavailable" } },
+    ct_sources: { certspotter: { count: 0, error: "unavailable" } },
   },
 }, "example.com");
 fixture("F18",

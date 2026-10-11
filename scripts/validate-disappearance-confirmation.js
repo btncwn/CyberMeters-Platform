@@ -49,24 +49,40 @@ const ok = (name, cond, detail = "") => {
 };
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
-// G0 — subdomain discovery module shapes (mirrors subdomains-scan.js return shapes).
+// G0 — subdomain discovery module shapes (mirrors subdomains-scan.js return shapes:
+// CertSpotter is the only CT source and the record declares it). The predicate is
+// provider-generic, so a stored two-provider record (the retired provider under a
+// neutral key) keeps its partial-coverage meaning.
+const certSpotterOnly = (count, error = null) => ({
+  sources: { certspotter: { count, error } },
+  ct_providers: ["certspotter"],
+});
 const subHealthy = (items = ["a.example.com"]) => ({
-  subdomains: { items, sources: { crt_sh: { count: items.length, error: null }, certspotter: { count: 0, error: null } } },
+  subdomains: { items, ...certSpotterOnly(items.length) },
   dns_bruteforce: { items: [], error: null },
 });
-const subCtBothFailed = () => ({
-  // Both CT sources failed → items collapsed, ct_error set, top-level error stays null.
-  subdomains: { items: [], sources: { crt_sh: { count: 0, error: "HTTP 429" }, certspotter: { count: 0, error: "HTTP 429" } }, ct_error: "Both CT sources failed" },
+const subCtFailed = () => ({
+  // CertSpotter failed → items collapsed, ct_error set, top-level error stays null.
+  subdomains: {
+    items: [], ...certSpotterOnly(0, "HTTP 429"),
+    ct_error: "CT source failed — certspotter: HTTP 429",
+    incomplete: true, incomplete_reason: "ct_sources_unavailable",
+  },
+});
+const subCtSourceErrorOnly = () => ({
+  // A CertSpotter error row with no ct_error: only the per-source guard stops it.
+  subdomains: { items: [], ...certSpotterOnly(0, "HTTP 429") },
 });
 const subOneSourceFailed = () => ({
-  // crt.sh succeeded, certspotter 429 — partial coverage.
-  subdomains: { items: ["a.example.com"], sources: { crt_sh: { count: 1, error: null }, certspotter: { count: 0, error: "HTTP 429" } } },
+  // Stored two-provider record: the retired provider answered, CertSpotter 429 —
+  // partial coverage.
+  subdomains: { items: ["a.example.com"], sources: { retired_provider: { count: 1, error: null }, certspotter: { count: 0, error: "HTTP 429" } } },
 });
 const subModuleError = () => ({
-  subdomains: { items: [], sources: { crt_sh: { count: 0, error: "module rejected" }, certspotter: { count: 0, error: "module rejected" } }, error: "Subdomain module failed" },
+  subdomains: { items: [], ...certSpotterOnly(0, "module rejected"), error: "Subdomain module failed" },
 });
 const subBruteforceFailed = () => ({
-  subdomains: { items: ["a.example.com"], sources: { crt_sh: { count: 1, error: null }, certspotter: { count: 0, error: null } } },
+  subdomains: { items: ["a.example.com"], ...certSpotterOnly(1) },
   dns_bruteforce: { items: [], error: "timed out" },
 });
 
@@ -80,12 +96,14 @@ ok("G0.1 healthy CT scan (no errors) → discovery complete → disappearance al
   subdomainDiscoveryComplete(subHealthy()) === true);
 // (matrix 7) healthy scan that genuinely found zero subdomains (no errors) → still complete.
 ok("G0.1b healthy scan, empty items but NO errors → complete (genuine disappearance allowed)",
-  subdomainDiscoveryComplete({ subdomains: { items: [], sources: { crt_sh: { count: 0, error: null }, certspotter: { count: 0, error: null } } } }) === true);
-// (matrix 2/4) both CT sources failed (unavailable) → NOT complete → no disappearance.
-ok("G0.2 both CT sources failed (ct_error) → NOT complete → no disappearance",
-  subdomainDiscoveryComplete(subCtBothFailed()) === false);
-// (matrix 14) one failed source among the two → fail neutral, no disappearance.
-ok("G0.3 one CT source failed (partial coverage) → NOT complete → no disappearance",
+  subdomainDiscoveryComplete({ subdomains: { items: [], ...certSpotterOnly(0) } }) === true);
+// (matrix 2/4) the CT source failed (unavailable) → NOT complete → no disappearance.
+ok("G0.2 CertSpotter failed (ct_error) → NOT complete → no disappearance",
+  subdomainDiscoveryComplete(subCtFailed()) === false);
+ok("G0.2b CertSpotter error row without ct_error → NOT complete → no disappearance",
+  subdomainDiscoveryComplete(subCtSourceErrorOnly()) === false);
+// (matrix 14) one failed source in a stored two-provider record → fail neutral.
+ok("G0.3 stored record: one of two CT sources failed (partial coverage) → NOT complete → no disappearance",
   subdomainDiscoveryComplete(subOneSourceFailed()) === false);
 // (matrix 4) module rejected (top-level error) → no disappearance.
 ok("G0.4 subdomains module error → NOT complete → no disappearance",
@@ -98,7 +116,7 @@ ok("G0.6 dns_bruteforce feeder failed → NOT complete → no disappearance",
   subdomainDiscoveryComplete(subBruteforceFailed()) === false);
 // brute-force module simply absent (optional feeder) → still complete.
 ok("G0.7 no dns_bruteforce module (optional) + healthy CT → complete",
-  subdomainDiscoveryComplete({ subdomains: { items: ["a"], sources: { crt_sh: { count: 1, error: null }, certspotter: { count: 0, error: null } } } }) === true);
+  subdomainDiscoveryComplete({ subdomains: { items: ["a"], ...certSpotterOnly(1) } }) === true);
 
 // ── G1 — email sender recovery (senderRecoveryConfirmed) ─────────────────────
 // (matrix 1) prior active failures + condition cleared + window HAS reports, zero failed → recovery.
@@ -198,24 +216,31 @@ async function mutant(srcPath, from, to) {
 }
 
 // G0 mutations ----------------------------------------------------------------
-// M1: remove the both-CT-failed guard → ct_error (unavailable) now reads complete.
+// M1: remove the every-CT-source-failed guard → ct_error (unavailable) now reads complete.
 {
   const m = await mutant(ASSET_SRC, 'if (sub.ct_error) return false;', 'if (false) return false;');
   // Isolate the ct_error guard: a payload carrying ONLY ct_error (no per-source
   // errors) — the guard is the sole line standing between it and a false "complete".
   ok("mutation M1 (ct_error guard removed) → collapsed CT now falsely 'complete' — CAUGHT",
-    m.anchor && m.mod.subdomainDiscoveryComplete({ subdomains: { items: [], ct_error: "Both CT sources failed" } }) === true);
+    m.anchor && m.mod.subdomainDiscoveryComplete({ subdomains: { items: [], ct_error: "CT source failed — certspotter: HTTP 429" } }) === true);
 }
-// M2: remove the per-source (crt_sh) guard → partial coverage now reads complete.
+// The two named-provider guards became ONE provider-generic "any recorded source
+// errored" guard. M2 removes it; M3 weakens it to "every source errored", which a
+// single-provider fixture cannot distinguish, so it is caught by the stored
+// two-provider record.
+const ANY_SOURCE_ERRORED_GUARD =
+  "  if (Object.values(sources).some((source) => source?.error)) return false;";
+// M2: remove the per-source guard → a CertSpotter error row now reads complete.
 {
-  const m = await mutant(ASSET_SRC, '  if (sources.crt_sh?.error) return false;       // a CT source errored → partial coverage', '  if (false) return false;');
-  ok("mutation M2 (crt_sh source guard removed) → partial coverage falsely 'complete' — CAUGHT",
-    m.anchor && m.mod.subdomainDiscoveryComplete({ subdomains: { items: [], sources: { crt_sh: { error: "429" }, certspotter: { error: null } } } }) === true);
+  const m = await mutant(ASSET_SRC, ANY_SOURCE_ERRORED_GUARD, "  if (false) return false;");
+  ok("mutation M2 (per-source error guard removed) → CertSpotter error row falsely 'complete' — CAUGHT",
+    m.anchor && m.mod.subdomainDiscoveryComplete(subCtSourceErrorOnly()) === true);
 }
-// M3: remove the certspotter source guard.
+// M3: require every source to have errored → partial coverage now reads complete.
 {
-  const m = await mutant(ASSET_SRC, '  if (sources.certspotter?.error) return false;', '  if (false) return false;');
-  ok("mutation M3 (certspotter source guard removed) → partial coverage falsely 'complete' — CAUGHT",
+  const m = await mutant(ASSET_SRC, ANY_SOURCE_ERRORED_GUARD,
+    "  if (Object.values(sources).every((source) => source?.error)) return false;");
+  ok("mutation M3 (any-source guard weakened to every-source) → partial coverage falsely 'complete' — CAUGHT",
     m.anchor && m.mod.subdomainDiscoveryComplete(subOneSourceFailed()) === true);
 }
 // M4: flip the missing-module default to true → missing evidence reads healthy.

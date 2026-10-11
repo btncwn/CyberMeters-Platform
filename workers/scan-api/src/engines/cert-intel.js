@@ -1,5 +1,5 @@
 import { liveCertificateFindings } from './network-probe.js';
-import { ctProvidersUsed } from "./ct-providers.js";
+import { CT_PROVIDERS, ctProvidersUsed } from "./ct-providers.js";
 // ── Certificate intelligence module ──
 // Sensitive-host classification, certificate ownership assessment, and the certificate
 // intelligence scan roll-up (expiry, CA concentration, self-signed, lifecycle). Extracted
@@ -24,7 +24,7 @@ import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
 // Data sources (already in modules — zero new network calls):
 //   modules.ssl          → cert_expiry_days, cert_not_after, https_available
 //   modules.subdomains   → CT-sourced hostname list, sensitive[], wildcard_dns,
-//                          sources (crt_sh + certspotter counts)
+//                          sources (per-provider counts)
 //   modules.dns_bruteforce → brute-forced hostnames
 //   domain               → apex for sensitive-label checks
 //
@@ -51,43 +51,35 @@ export function isCertSensitiveHost(hostname, domain) {
   return sub.split(".").some((label) => CERT_SENSITIVE_LABELS.has(label.toLowerCase()));
 }
 
-// Which CT source measured ssl.cert_shared_san_count, or null when it was not
-// measured. Sentinel precedence (same house rule as CT provider-source counts):
-// a provider error or missing measurement dominates any compatibility number,
-// and the measuring source must have returned a SAN-bearing result, so a
-// producer that regresses to an eager zero still fails closed.
-// crt.sh measures it whenever it supplied the selected certificate. CertSpotter
-// measures it only as the scan's sole CT source (no crt_sh entry at all); in a
-// two-provider record CertSpotter was a fallback that never measured it, so
-// historical records keep exactly their original meaning.
-export function sharedSanMeasurementSource(ssl) {
+// Whether ssl.cert_shared_san_count is a measurement. Sentinel precedence (same
+// house rule as CT provider-source counts): a provider error or missing
+// measurement dominates any compatibility number. A CT source must have answered
+// with a SAN-bearing result and the count must be a non-negative integer, so a
+// producer that regresses to an eager zero still fails closed. Only the branch
+// that selected a certificate ever writes the count, so a provider that answered
+// without supplying the selected certificate never makes it a measurement.
+export function sharedSanMeasured(ssl) {
   const rawSharedSanCount = ssl?.cert_shared_san_count;
-  if (!Number.isInteger(rawSharedSanCount) || rawSharedSanCount < 0) return null;
+  if (!Number.isInteger(rawSharedSanCount) || rawSharedSanCount < 0) return false;
   const sources = ssl?.ct_sources;
-  if (!sources || typeof sources !== "object") return null;
-  const answered = (source) => Boolean(
+  if (!sources || typeof sources !== "object") return false;
+  return Object.values(sources).some((source) => Boolean(
     source && source.error == null && Number.isInteger(source.count) && source.count > 0,
-  );
-  if (answered(sources.crt_sh)) return "crt_sh";
-  if (!Object.hasOwn(sources, "crt_sh") && answered(sources.certspotter)) return "certspotter";
-  return null;
+  ));
 }
 
 export function buildCertificateOwnershipAssessment(ssl, domain) {
   const root = normalizeHostname(domain);
   const subject = String(ssl?.cert_subject || "").toLowerCase().replace(/^\*\./, "").replace(/\.$/, "");
   const customerSans = Array.isArray(ssl?.cert_san_names) ? ssl.cert_san_names : [];
-  const measuredBy = sharedSanMeasurementSource(ssl);
-  const sharedSanMeasured = measuredBy != null;
-  const sharedSanCount = sharedSanMeasured ? ssl.cert_shared_san_count : null;
+  const measured = sharedSanMeasured(ssl);
+  const sharedSanCount = measured ? ssl.cert_shared_san_count : null;
   const wildcardSanCount = Number(ssl?.cert_wildcard_san_count || 0);
-  // A CertSpotter issuance carries no certificate subject (the SSL module records
-  // the scanned domain in its place), so only a crt.sh subject is evidence.
-  // CertSpotter ownership rests on the certificate's own customer-domain names.
-  const subjectMatches = measuredBy === "crt_sh" &&
-    Boolean(root && (subject === root || subject.endsWith(`.${root}`)));
+  // Only an observed certificate subject is evidence; a CT issuance without one
+  // records none, and ownership then rests on the certificate's own DNS names.
+  const subjectMatches = Boolean(root && subject && (subject === root || subject.endsWith(`.${root}`)));
 
-  if (!sharedSanMeasured) {
+  if (!measured) {
     return {
       status: "unknown",
       assessment_state: "not_assessed",
@@ -199,16 +191,15 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
     const allSensitive = [...new Set([...issued_for_sensitive_hosts, ...subSensitive])].sort();
 
     // ── CT source health ──────────────────────────────────────────────────
-    const crtShSource = subMod.sources?.crt_sh;
-    const certSpotSource = subMod.sources?.certspotter;
-    const crtShError = crtShSource?.error ?? null;
-    const certSpotError = certSpotSource?.error ?? null;
-    // A non-null error makes count a compatibility sentinel, not a measured
-    // provider result. Preserve the historical numeric customer projection,
-    // while preventing an incoherent { count: positive, error: non-null }
-    // source from entering discrepancy decisions as measured evidence.
-    const crtShCount = crtShSource?.error == null ? (crtShSource?.count ?? 0) : 0;
-    const certSpotCount = certSpotSource?.error == null ? (certSpotSource?.count ?? 0) : 0;
+    // Every CT provider the subdomains result recorded (ct-providers.js). A
+    // non-null error makes count a compatibility sentinel, not a measured
+    // provider result, so an incoherent { count: positive, error: non-null }
+    // source never counts as measured evidence.
+    const ctProviders = ctProvidersUsed(subMod);
+    const ctCounts = Object.fromEntries(ctProviders.map((provider) => {
+      const row = subMod.sources?.[provider];
+      return [provider, row?.error == null ? (row?.count ?? 0) : 0];
+    }));
 
     // Certificate Transparency is this module's ONLY evidence source. When BOTH logs
     // are unavailable the module observed nothing at all — it did not observe "no
@@ -223,13 +214,13 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
     // class, so certificate intelligence kept the bug. `incomplete` is the canonical
     // signal: buildScanQuality (scan-engine.js) sweeps it into modules_skipped and forces
     // scan_quality "partial", so absence of evidence defers instead of reading clean.
-    // Only the CT providers this scan used count (ct-providers.js). A declared
-    // provider set is a blackout when every declared provider failed or left no
-    // row; an undeclared (historical) record keeps the original two-provider rule.
-    const ctProviders = ctProvidersUsed(subMod);
-    const ctBlackout = Array.isArray(subMod.ct_providers)
+    // A declared provider set is a blackout when every declared provider failed
+    // or left no row; an undeclared (historical) record is a blackout when every
+    // provider row it recorded carries an error.
+    const ctBlackout = Array.isArray(subMod.ct_providers) && subMod.ct_providers.length > 0
       ? ctProviders.every((provider) => !subMod.sources?.[provider] || Boolean(subMod.sources[provider].error))
-      : !!(crtShError && certSpotError);
+      : ctProviders.some((provider) => subMod.sources?.[provider]) &&
+        ctProviders.every((provider) => Boolean(subMod.sources?.[provider]?.error));
 
     // ── Suspicious signal detection ───────────────────────────────────────
     const suspicious_certificate_signals = [];
@@ -320,17 +311,7 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
       });
     }
 
-    // CT discrepancy: one source returning 2× or more than the other
-    if (crtShCount > 0 && certSpotCount > 0) {
-      const ratio = Math.max(crtShCount, certSpotCount) / Math.min(crtShCount, certSpotCount);
-      if (ratio >= 2) {
-        suspicious_certificate_signals.push({
-          signal:      "ct_source_discrepancy",
-          severity:    "info",
-          description: `CT sources returned different hostname counts — crt.sh: ${crtShCount}, CertSpotter: ${certSpotCount}. Some hostnames may only appear in one log.`,
-        });
-      }
-    } else if (ctBlackout) {
+    if (ctBlackout) {
       suspicious_certificate_signals.push({
         signal:      "ct_sources_unavailable",
         severity:    "info",
@@ -410,8 +391,7 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
 	      ca_concentration,
 	      issued_for_sensitive_hosts: allSensitive,
 	      newly_observed_hosts,
-	      ct_sources:            Object.fromEntries(ctProviders.map((provider) =>
-	        [provider, provider === "crt_sh" ? crtShCount : certSpotCount])),
+	      ct_sources:            { ...ctCounts },
 	      wildcard_dns:          subMod.wildcard_dns ?? false,
       wildcard_warning:      subMod.wildcard_warning ?? null,
       suspicious_certificate_signals,
@@ -459,7 +439,7 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
 	      ca_concentration:           buildCaConcentrationAnalytics([]),
 	      issued_for_sensitive_hosts: [],
       newly_observed_hosts:       [],
-      ct_sources:                 { crt_sh: 0, certspotter: 0 },
+      ct_sources:                 Object.fromEntries(CT_PROVIDERS.map((provider) => [provider, 0])),
       wildcard_dns:               false,
       wildcard_warning:           null,
       suspicious_certificate_signals: [],

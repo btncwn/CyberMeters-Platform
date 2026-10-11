@@ -44,7 +44,6 @@ export const ASSET_REMOVAL_CONFIRMATION_POLICY = Object.freeze({
   minimum_confirmation_window_ms: 48 * 60 * 60 * 1000,
   relevant_active_sources: ACTIVE_REMOVAL_SOURCES,
   passive_sources_excluded: Object.freeze([
-    "crt_sh",
     "certspotter",
     "certificate_transparency",
   ]),
@@ -108,8 +107,7 @@ function resolveSubdomainDiscovery(modules) {
     ...bruteItems.map((item) => item?.hostname).filter(Boolean),
   ]).size;
   const failedSources = sourceErrors(ct);
-  // The CT providers this scan actually used (ct-providers.js); a record that
-  // does not declare them keeps the original two-provider meaning.
+  // The CT providers this result recorded (ct-providers.js).
   const ctProviders = ctProvidersUsed(ct);
   const sources = [
     ...(ct ? ctProviders : []),

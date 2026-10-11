@@ -21,6 +21,7 @@ import { runDmarcbisCore, unavailableDmarcbisCore } from "./dmarcbis-production.
 import { runHeadersModule } from "./headers-scan.js";
 import { makeReservedProbeFetch } from "./reserved-probe.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
+import { CT_PROVIDERS, ctFailedSources } from "./ct-providers.js";
 import {
   CRITICAL_PREFIXES_MANDATORY, MODULE_SUBREQUEST_COST, PhysicalSubrequestCounter,
   SubrequestBudget, isSubrequestBudgetExhaustedError,
@@ -45,10 +46,7 @@ function reservedSslCtFallback(cause) {
     incomplete: true,
     incomplete_reason: cause,
     outcome: "deadline_exceeded",
-    ct_sources: {
-      crt_sh: { count: 0, error },
-      certspotter: { count: 0, error },
-    },
+    ct_sources: ctFailedSources(error),
     source: "tls_probe",
   };
 }
@@ -61,10 +59,8 @@ function reservedSubdomainsCtFallback(cause) {
     count: 0,
     items: [],
     sensitive: [],
-    sources: {
-      crt_sh: { count: 0, error },
-      certspotter: { count: 0, error },
-    },
+    sources: ctFailedSources(error),
+    ct_providers: [...CT_PROVIDERS],
     wildcard_dns: false,
     wildcard_dns_addresses: [],
     incomplete: true,
@@ -92,7 +88,6 @@ function combineConsumerSignals(...signals) {
 
 export async function runReservedCtConsumer(domain, module, {
   ctCache,
-  ctOverlap = null,
   signal = null,
   globalDeadlineProvenance = null,
   budgetMs,
@@ -111,11 +106,6 @@ export async function runReservedCtConsumer(domain, module, {
     if (released) return;
     released = true;
     ctCache.releaseConsumer?.(domain, module, cause);
-    if (module === "subdomains") {
-      ctOverlap?.freeze?.({
-        global_deadline: globalDeadlineProvenance?.() || null,
-      });
-    }
   };
   const boundaryValue = (cause) => {
     release(cause);
@@ -352,7 +342,6 @@ async function gateModule(
 export async function runReservedScan(domain, {
   capacity,
   ctCache = null,
-  ctOverlap = null,
   dnsCache: suppliedDnsCache = null,
   knownAssetHosts = [],
   signal = null,
@@ -537,7 +526,6 @@ export async function runReservedScan(domain, {
   }), {}, signal);
   const subdomains           = await gateModule(budget, physicalCounter, "subdomains", (accounting) => runReservedCtConsumer(domain, "subdomains", {
     ctCache: sharedCtCache,
-    ctOverlap,
     signal,
     globalDeadlineProvenance,
     budgetMs: reservedCtBudgets.subdomains,
@@ -545,7 +533,6 @@ export async function runReservedScan(domain, {
       accounting,
       cache: dnsCache,
       ctCache: sharedCtCache,
-      ctOverlap,
       signal: consumerSignal,
       globalSignal: signal,
       globalDeadlineProvenance,

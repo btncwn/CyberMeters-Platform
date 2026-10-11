@@ -394,7 +394,7 @@ export const CERTIFICATE_SIGNAL_CONTRACTS = Object.freeze({
     authorities: [RFC_9162_CT, RFC_6962_CT_LEGACY],
     limitations: [
       "CT records certificate or precertificate logging and does not prove live service presentation.",
-      "CT search providers are aggregation paths; production scans query CertSpotter, which covers certificates that have not expired. Provider disagreement is surfaced and never averaged into a healthy result.",
+      "CT search providers are aggregation paths; scans query CertSpotter, which covers certificates that have not expired. A provider failure is surfaced and never averaged into a healthy result.",
     ],
     assurance_family: "certificate_transparency",
   }),
@@ -1038,8 +1038,8 @@ export function deriveCertificateSignalCompleteness({
   };
 }
 
-// The CT providers this scan used (ct-providers.js); undeclared records keep the
-// original two-provider meaning, so a missing provider row is never healthy.
+// The CT providers the scan recorded (ct-providers.js); a provider with no
+// recorded outcome is never healthy.
 function providerStateFromHealth(providerHealth = {}, providers = ctProvidersUsed(null)) {
   const outcomes = providers.map(
     (provider) => providerHealth?.[provider]?.outcome ?? null
@@ -1072,7 +1072,13 @@ function providerStateFromModules(modules = {}) {
 function currentCtState({ monitoringStates, providerHealth, modules }) {
   const canonical = monitoringStates?.signals?.certificate_transparency?.state;
   if (COMPLETENESS_STATES.has(canonical)) return canonical;
-  const health = providerStateFromHealth(providerHealth, ctProvidersUsed(modules?.subdomains));
+  // Without a recorded subdomains result, the providers are the ones whose
+  // health was recorded.
+  const healthProviders = Object.keys(providerHealth || {});
+  const providers = modules?.subdomains || healthProviders.length === 0
+    ? ctProvidersUsed(modules?.subdomains)
+    : healthProviders;
+  const health = providerStateFromHealth(providerHealth, providers);
   if (health !== SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE) return health;
   return providerStateFromModules(modules);
 }

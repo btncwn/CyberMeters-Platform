@@ -4,9 +4,11 @@
 // DB-backed and CI-blocking. No network, production, or migration access.
 //
 // The behavioural fixtures cover every current Brand producer/write/link family:
-// generated scan persistence, passive CT persistence, manual/scheduled DNS and
-// HTTP enrichment, profile loading/linking, case production, audit production,
-// route/profile/classification writes, and domain-removal lifecycle writes.
+// generated scan persistence, manual/scheduled DNS and HTTP enrichment, profile
+// loading/linking, case production, audit production, route/profile/
+// classification writes, and domain-removal lifecycle writes. (The passive
+// Certificate Transparency producer was removed with crt.sh; candidates it
+// stored earlier remain and are covered by the same persistence guards.)
 // Static inventory assertions pin the private route/case/link statements that
 // cannot be invoked in isolation without weakening their real authorization path.
 import fs from "node:fs";
@@ -23,10 +25,6 @@ const {
   upsertBrandAssets,
 } = await import(worker("engines", "asset-persistence.js"));
 const {
-  discoverBrandCandidatesForWorkspace,
-  runBrandPassiveDiscoverySweep,
-} = await import(worker("engines", "brand-passive-discovery.js"));
-const {
   enrichBrandCandidatesDns,
   runBrandDnsEnrichmentSweep,
 } = await import(worker("engines", "brand-dns-enrichment.js"));
@@ -41,7 +39,7 @@ const { brandRoutes } = await import(worker("routes", "brand.js"));
 
 const NOW = "2026-08-11T12:00:00.000Z";
 const DELETED = "2026-08-11T11:59:00.000Z";
-const EXPECTED_ASSERTIONS = 57;
+const EXPECTED_ASSERTIONS = 54;
 
 let passed = 0;
 let failed = 0;
@@ -214,26 +212,6 @@ function observation(candidateDomain = "acme-login.test") {
   };
 }
 
-function ctFetch(onFetch = null) {
-  return async () => {
-    onFetch?.();
-    return {
-      ok: true,
-      headers: { get: (name) => name === "content-type" ? "application/json" : null },
-      json: async () => [{
-        id: 501,
-        name_value: "acme-login.test",
-        common_name: "acme-login.test",
-        serial_number: "AA501",
-        issuer_name: "Fixture CA",
-        entry_timestamp: NOW,
-        not_before: NOW,
-        not_after: "2026-11-11T12:00:00.000Z",
-      }],
-    };
-  };
-}
-
 async function callBrandRoute(db, {
   pathname, body, hooks = {}, access = true,
 }) {
@@ -315,7 +293,7 @@ async function callBrandRoute(db, {
   equal("H01-RACE-DIRECT-UPDATE", [result.status, tableBytes(db)], ["failed", before]);
 }
 
-// B. Generated scan and passive-CT producers.
+// B. Generated scan producer.
 {
   const db = createDb();
   seedWorkspace(db, { deletedAt: DELETED });
@@ -348,39 +326,25 @@ async function callBrandRoute(db, {
   equal("H01-RACE-SCAN-PRODUCER", tableBytes(db), before);
 }
 {
-  const db = createDb();
-  seedWorkspace(db, { deletedAt: DELETED });
-  let fetches = 0;
-  const stats = await discoverBrandCandidatesForWorkspace(
-    { cybermeters_db: d1(db) }, "ws_a",
-    { fetchImpl: async (url) => { fetches++; return (ctFetch())(url); }, now: NOW },
-  );
-  equal("H01-DELETED-PASSIVE-DIRECT", [fetches, stats.inserted,
-    db.prepare("SELECT COUNT(*) n FROM workspace_brand_assets").get().n], [0, 0, 0]);
-}
-{
+  // A brand-new generated candidate: the workspace is deleted after the scan
+  // authorizer read but before the canonical INSERT, so only the INSERT's own
+  // active-workspace guard can refuse the write.
   const db = createDb();
   seedWorkspace(db);
-  const stats = await discoverBrandCandidatesForWorkspace(
-    { cybermeters_db: d1(db) }, "ws_a",
-    { fetchImpl: ctFetch(() => db.prepare("UPDATE workspaces SET deleted_at=? WHERE id='ws_a'").run(DELETED)), now: NOW },
-  );
-  equal("H01-RACE-PASSIVE-CT", [stats.inserted,
-    db.prepare("SELECT COUNT(*) n FROM workspace_brand_assets").get().n], [0, 0]);
-}
-{
-  const db = createDb();
-  seedWorkspace(db, { id: "ws_active", domainId: "dom_active", domain: "active.test" });
-  seedWorkspace(db, { id: "ws_deleted", domainId: "dom_deleted", domain: "deleted.test", deletedAt: DELETED });
-  seedCandidate(db, { id: "bra_active", workspaceId: "ws_active", domain: "active.test", candidate: "active-login.test", profileId: "profile_ws_active" });
-  seedCandidate(db, { id: "bra_deleted", workspaceId: "ws_deleted", domain: "deleted.test", candidate: "deleted-login.test", profileId: "profile_ws_deleted" });
-  let deletedFetched = false;
-  const stats = await runBrandPassiveDiscoverySweep({ cybermeters_db: d1(db) }, {
-    workspacesPerDay: 2,
-    fetchImpl: async (url) => { if (decodeURIComponent(url).includes("deleted")) deletedFetched = true; return (ctFetch())(url); },
-    now: NOW,
-  });
-  equal("H01-DELETED-PASSIVE-SCHEDULE", [stats.workspaces, deletedFetched], [1, false]);
+  const before = tableBytes(db);
+  let deleted = false;
+  const env = { cybermeters_db: d1(db, {
+    after: ({ sql, kind }) => {
+      if (!deleted && kind === "all" && /FROM workspace_domains wd/.test(sql)) {
+        db.prepare("UPDATE workspaces SET deleted_at=? WHERE id='ws_a'").run(DELETED);
+        deleted = true;
+      }
+    },
+  }) };
+  await upsertBrandAssets("dom_a", { domains: [{
+    candidate_domain: "acme-fresh.test", variant_type: "substitution",
+  }] }, env);
+  equal("H01-RACE-SCAN-PRODUCER-INSERT", [deleted, tableBytes(db)], [true, before]);
 }
 
 // C. DNS and HTTP manual/scheduled enrichment; deletion during external I/O.
@@ -552,7 +516,7 @@ async function callBrandRoute(db, {
   const db = createDb();
   seedWorkspace(db, { deletedAt: DELETED });
   await createAuditEvent({ cybermeters_db: d1(db) }, {
-    workspace_id: "ws_a", event_type: "brand_passive_discovery_completed",
+    workspace_id: "ws_a", event_type: "brand_profile_updated",
     entity_type: "brand_profile", entity_id: "profile_ws_a",
     active_workspace_required: true,
   });
@@ -627,7 +591,7 @@ async function callBrandRoute(db, {
   const db = createDb();
   seedWorkspace(db);
   const result = await createAuditEvent({ cybermeters_db: d1(db) }, {
-    workspace_id: "ws_a", event_type: "brand_passive_discovery_completed",
+    workspace_id: "ws_a", event_type: "brand_profile_updated",
     entity_type: "brand_profile", entity_id: "profile_ws_a",
     active_workspace_required: true,
   });
@@ -669,7 +633,6 @@ async function callBrandRoute(db, {
 // profile-link, route classification, and case candidate path carries the same
 // canonical active-workspace authority at its SQL boundary.
 const asset = source("workers/scan-api/src/engines/asset-persistence.js");
-const passive = source("workers/scan-api/src/engines/brand-passive-discovery.js");
 const dns = source("workers/scan-api/src/engines/brand-dns-enrichment.js");
 const http = source("workers/scan-api/src/engines/brand-http-enrichment.js");
 const protection = source("workers/scan-api/src/engines/brand-protection.js");
@@ -711,7 +674,6 @@ const scanAuthorizer = asset.slice(
 );
 check("H01-SOURCE-SCAN-AUTHORIZER", /FROM workspace_domains wd\s+JOIN workspaces w[\s\S]{0,180}?w\.deleted_at IS NULL/.test(scanAuthorizer));
 check("H01-SOURCE-SCAN-PROFILE-LINK", /SET brand_profile_id[\s\S]*?WHERE workspace_id = \?[\s\S]*?EXISTS[\s\S]*?deleted_at IS NULL/.test(asset));
-check("H01-SOURCE-PASSIVE-PRODUCER", /FROM workspaces w\s+JOIN workspace_domains wd[\s\S]{0,220}?w\.deleted_at IS NULL/.test(passive));
 const dnsSelect = dns.slice(dns.indexOf("export function selectBrandCandidatesSql"), dns.indexOf("async function fireResolvingAssetEvent"));
 const dnsEvent = dns.slice(dns.indexOf("async function fireResolvingAssetEvent"), dns.indexOf("function runChanges"));
 const dnsEnrich = dns.slice(dns.indexOf("export async function enrichBrandCandidatesDns"), dns.indexOf("export async function runBrandDnsEnrichmentSweep"));

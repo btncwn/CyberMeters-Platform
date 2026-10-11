@@ -31,7 +31,7 @@ export default function TrustPage() {
             <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Live TLS evidence</dt><dd>4 endpoints</dd></div>
             <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Certificate Transparency coverage</dt><dd>Partial</dd></div>
           </dl>
-          <p><strong className="text-gray-800">Why provisional?</strong> Certificate Transparency coverage was incomplete. The crt.sh source did not complete while CertSpotter returned results. A completed scan does not make every evidence source complete.</p>
+          <p><strong className="text-gray-800">Why provisional?</strong> Certificate Transparency coverage was incomplete. One of the two Certificate Transparency sources used at the time did not complete while the other returned results. A completed scan does not make every evidence source complete.</p>
           <p><strong className="text-gray-800">TLS limits.</strong> Live certificate, hostname and trust checks refer to the captured endpoints and the recorded runtime trust store. The runtime-observed issuer chain is not proof of the exact chain sent on the wire. The exact wire chain, OCSP and revocation status were not measured.</p>
           <p>This result is not a clean bill of health, a guarantee against vulnerabilities or proof of complete security. The example.com scorecard on our home page is a separate, clearly labelled illustration.</p>
         </Section>

@@ -48,31 +48,24 @@ const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), 
   headers: { "content-type": "application/json" },
 });
 
-const crtCertificates = [
+// CertSpotter is the only CT provider (ct-providers.js). It returns issuances
+// that have not expired; the longest-lived one covering the apex is selected.
+const certSpotterCertificates = [
   {
-    id: "crt-current",
-    not_before: "2026-07-01T00:00:00.000Z",
-    not_after: "2026-10-01T00:00:00.000Z",
-    issuer_name: "Fixture Current CA",
-    common_name: "example.com",
-    name_value: "example.com\nwww.example.com\n*.example.com",
+    id: "spot-current",
+    not_before: "2026-07-02T00:00:00.000Z",
+    not_after: "2026-11-01T00:00:00.000Z",
+    issuer: { name: "Fixture Current CA" },
+    dns_names: ["example.com", "api.example.com", "*.example.com"],
   },
   {
-    id: "crt-historical",
+    id: "spot-older",
     not_before: "2026-01-01T00:00:00.000Z",
     not_after: "2026-08-01T00:00:00.000Z",
-    issuer_name: "Fixture Historical CA",
-    common_name: "example.com",
-    name_value: "example.com\nold.example.com",
+    issuer: { name: "Fixture Older CA" },
+    dns_names: ["example.com", "old.example.com"],
   },
 ];
-const certSpotterCertificates = [{
-  id: "spot-current",
-  not_before: "2026-07-02T00:00:00.000Z",
-  not_after: "2026-11-01T00:00:00.000Z",
-  issuer: { name: "Fixture Fallback CA" },
-  dns_names: ["example.com", "api.example.com", "*.example.com"],
-}];
 
 function accounting(limit) {
   const counters = { attempts: 0, completed: 0, errors: 0 };
@@ -101,10 +94,15 @@ function timeoutSignal(ms) {
 
 function providerFixture(mode, calls) {
   return async (input, { signal } = {}) => {
-    const url = String(input);
-    const provider = url.includes("crt.sh") ? "crt_sh" : "certspotter";
-    calls[provider] += 1;
-    const outcome = mode[provider];
+    const url = new URL(String(input));
+    // Any CT fetch that is not CertSpotter is recorded and refused, so a
+    // reintroduced provider shows up as a call rather than as evidence.
+    if (url.hostname !== "api.certspotter.com") {
+      calls.other += 1;
+      return jsonResponse({}, 503);
+    }
+    calls.certspotter += 1;
+    const outcome = mode.certspotter;
     if (outcome === "timeout") {
       return new Promise((_resolve, reject) => {
         signal?.addEventListener(
@@ -115,24 +113,16 @@ function providerFixture(mode, calls) {
       });
     }
     if (outcome === "unavailable") return jsonResponse({}, 403);
-    return jsonResponse(
-      provider === "crt_sh" ? crtCertificates : certSpotterCertificates,
-    );
+    return jsonResponse(certSpotterCertificates);
   };
 }
 
 async function runScenario(scenario) {
-  const calls = { crt_sh: 0, certspotter: 0 };
+  const calls = { certspotter: 0, other: 0 };
   const sslAccounting = accounting(fixture.module_subrequest_cap);
   const subdomainAccounting = accounting(MODULE_SUBREQUEST_COST.subdomains);
   const policies = {
     ...CT_PROVIDER_POLICIES,
-    crt_sh: {
-      ...CT_PROVIDER_POLICIES.crt_sh,
-      timeoutMs: 5,
-      maxAttempts: 1,
-      backoffMs: 0,
-    },
     certspotter: {
       ...CT_PROVIDER_POLICIES.certspotter,
       timeoutMs: 5,
@@ -228,10 +218,15 @@ try {
     eq(`${prefix}: P1 model is attached in the production certificate engine`,
       result.intelligence.signal_completeness.model_version,
       fixture.model_version);
-    eq(`${prefix}: one shared crt.sh logical lookup`,
-      result.calls.crt_sh, 1);
     eq(`${prefix}: one shared CertSpotter logical lookup`,
       result.calls.certspotter, 1);
+    eq(`${prefix}: no other CT provider is contacted`,
+      result.calls.other, 0);
+    ok(`${prefix}: SSL and subdomains record CertSpotter as their only CT source`,
+      JSON.stringify(Object.keys(result.ssl.ct_sources || {})) === JSON.stringify(["certspotter"]) &&
+        JSON.stringify(Object.keys(result.subdomains.sources || {})) === JSON.stringify(["certspotter"]) &&
+        JSON.stringify(result.subdomains.ct_providers) === JSON.stringify(["certspotter"]),
+      JSON.stringify({ ssl: result.ssl.ct_sources, subdomains: result.subdomains.sources }));
     ok(`${prefix}: executable deadline stays inside 9 seconds`,
       result.elapsedMs < fixture.module_budget_ms,
       `elapsed ${result.elapsedMs}ms`);
@@ -266,6 +261,31 @@ try {
   }
 
   const complete = results.get("complete");
+  // CertSpotter supplies the selected certificate: the longest-lived current
+  // issuance, its complete DNS SAN list measured, and no subject claimed.
+  eq("complete: CertSpotter issuance supplies the selected certificate",
+    complete.ssl.cert_issuer, "Fixture Current CA");
+  eq("complete: shared SAN is measured from the CertSpotter issuance",
+    complete.ssl.cert_shared_san_count, 0);
+  eq("complete: no certificate subject is claimed from an issuance",
+    complete.ssl.cert_subject, null);
+  // A CertSpotter failure leaves no CT source, so subdomain discovery is
+  // honestly incomplete rather than a "no subdomains" conclusion.
+  for (const name of ["provider-unavailable", "provider-timeout"]) {
+    const { subdomains } = results.get(name);
+    ok(`${name}: subdomain discovery is incomplete when CertSpotter fails`,
+      subdomains.incomplete === true &&
+        subdomains.incomplete_reason === "ct_sources_unavailable" &&
+        subdomains.error == null &&
+        /^CT source failed — certspotter: /.test(String(subdomains.ct_error || "")) &&
+        !("degradations" in subdomains),
+      JSON.stringify({
+        incomplete: subdomains.incomplete,
+        incomplete_reason: subdomains.incomplete_reason,
+        ct_error: subdomains.ct_error,
+      }));
+  }
+
   const ctOnly = runCertificateIntelligenceModule(
     {
       ssl: {

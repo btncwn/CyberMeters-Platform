@@ -1,8 +1,14 @@
 #!/usr/bin/env node
 //
-// Item 8 PR-B — deterministic IDN generation + passive CT discovery.
-// Pins bounded volume, A-label dedupe, customer-owned IDN exclusion,
-// corroboration-tier risk, additive API evidence, and fail-honest wording data.
+// Item 8 PR-B — deterministic IDN generation and generated-scan persistence.
+// Pins bounded volume, canonical A-label generation, corroboration-tier risk,
+// additive API evidence, fail-honest customer wording, and the generated-scan
+// persistence path for IDN candidates.
+//
+// The passive Certificate Transparency keyword discovery that PR-B originally
+// added was removed together with crt.sh. Candidates it stored earlier keep
+// their `ct_observed` evidence; this file proves a generated scan re-observing
+// such a row keeps that evidence, its history and the customer's decision.
 import path from "node:path";
 import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -25,22 +31,13 @@ const {
   generateIdnHomographCandidates,
   BRAND_IDN_GENERATION_LIMIT,
 } = await import(eng("idn-homograph.js"));
-const { generateTyposquatCandidates } = await import(eng("brand-typosquat.js"));
+const { generateTyposquatCandidates, runTyposquatModule } = await import(eng("brand-typosquat.js"));
 const {
   brandCandidateToApi,
   normalizeBrandVariantType,
   scoreBrandCandidateRisk,
 } = await import(eng("brand-protection.js"));
-const {
-  BRAND_CT_QUERY_CAP,
-  brandCtQueryUrls,
-  buildDiscoveredCandidateRisk,
-  buildLookalikeBaseSet,
-  canonicalBrandHostname,
-  discoverBrandCandidatesForWorkspace,
-  filterDiscoveredHosts,
-  parseCtResponseHostnames,
-} = await import(eng("brand-passive-discovery.js"));
+const { upsertBrandAssets } = await import(eng("asset-persistence.js"));
 
 // ── 1. Bounded, deterministic generation ────────────────────────────────────
 const generated = generateIdnHomographCandidates("apple", "com");
@@ -49,11 +46,11 @@ ok("canonical Cyrillic-a IDN is generated",
 eq("canonical IDN variant", generated.find((item) =>
   item.candidate_domain === "xn--pple-43d.com")?.variant_type, "homoglyph_idn");
 eq("canonical Unicode display form", generated.find((item) =>
-  item.candidate_domain === "xn--pple-43d.com")?.unicode_domain, "\u0430pple.com");
+  item.candidate_domain === "xn--pple-43d.com")?.unicode_domain, "аpple.com");
 ok("generation is bounded", generated.length > 0 && generated.length <= BRAND_IDN_GENERATION_LIMIT);
 eq("generation is deterministic", generateIdnHomographCandidates("apple", "com"), generated);
 eq("short brand refused", generateIdnHomographCandidates("ab", "com"), []);
-eq("non-ASCII brand is not expanded speculatively", generateIdnHomographCandidates("\u0430pple", "com"), []);
+eq("non-ASCII brand is not expanded speculatively", generateIdnHomographCandidates("аpple", "com"), []);
 
 const allCandidates = generateTyposquatCandidates("apple", "com");
 ok("canonical generator includes an IDN family",
@@ -66,67 +63,20 @@ ok("generated IDNs never invent live evidence", allCandidates
 eq("homoglyph_idn is canonical vocabulary",
   normalizeBrandVariantType("homoglyph_idn"), "homoglyph_idn");
 
-// ── 2. CT query expansion + A-label canonicalisation ─────────────────────────
-const urls = brandCtQueryUrls("apple", "com");
-ok("literal brand query is preserved", urls.some((url) => decodeURIComponent(url).includes("%apple%")));
-ok("punycode query closes literal-token blind spot",
-  urls.some((url) => decodeURIComponent(url).includes("xn--pple-43d.com")));
-ok("CT query plan is bounded", urls.length >= 2 && urls.length <= BRAND_CT_QUERY_CAP);
-eq("Unicode hostname canonicalises to A-label",
-  canonicalBrandHostname("\u0430pple.com"), "xn--pple-43d.com");
-eq("A-label remains canonical",
-  canonicalBrandHostname("XN--PPLE-43D.COM"), "xn--pple-43d.com");
-eq("invalid hostname fails closed", canonicalBrandHostname("not a host"), null);
-
-const parsed = parseCtResponseHostnames([
-  { name_value: "\u0430pple.com\nxn--pple-43d.com\nlogin.xn--pple-43d.com" },
-]);
-eq("Unicode + A-label CT forms dedupe",
-  parsed.filter((host) => host === "xn--pple-43d.com").length, 1);
-ok("nested IDN SAN is retained canonically", parsed.includes("login.xn--pple-43d.com"));
-
-// ── 3. Skeleton-aware membership + customer-owned IDN exclusion ──────────────
-const bases = buildLookalikeBaseSet("apple", "com");
-ok("generated IDN is an allowed lookalike base", bases.has("xn--pple-43d.com"));
-const discovered = filterDiscoveredHosts([
-  "xn--pple-43d.com",
-  "login.xn--pple-43d.com",
-  "xn--e1afmkfd.xn--p1ai",
-], {
-  brand: "apple",
-  tld: "com",
-  ownRegistrables: new Set(["apple.com"]),
-  lookalikeBases: bases,
+// ── 2. Corroboration tiers + API evidence ────────────────────────────────────
+// A stored candidate whose evidence says a certificate naming it was logged
+// (ct_observed) is still scored by the canonical risk scorer.
+const ctOnly = scoreBrandCandidateRisk({
+  variant_type: "homoglyph_idn",
+  similarity_score: 100,
+  idn_visual_confusable: true,
+  mixed_script: true,
+  ct_observed: true,
+  classification: "unreviewed",
 });
-eq("bare IDN is typed as homoglyph_idn",
-  discovered.find((item) => item.candidate_domain === "xn--pple-43d.com")?.variant_type,
-  "homoglyph_idn");
-eq("nested IDN host preserves nested_host type",
-  discovered.find((item) => item.candidate_domain === "login.xn--pple-43d.com")?.variant_type,
-  "nested_host");
-ok("unrelated punycode is not admitted",
-  !discovered.some((item) => item.candidate_domain === "xn--e1afmkfd.xn--p1ai"));
-
-const owned = filterDiscoveredHosts([
-  "xn--pple-43d.com",
-  "login.xn--pple-43d.com",
-], {
-  brand: "apple",
-  tld: "com",
-  // Unicode customer input must exclude the equivalent A-label and its hosts.
-  ownRegistrables: new Set(["\u0430pple.com"]),
-  lookalikeBases: bases,
-});
-eq("customer-owned Unicode IDN and nested hosts are excluded", owned, []);
-
-// ── 4. Corroboration tiers + API evidence ────────────────────────────────────
-const bareHost = discovered.find((item) => item.candidate_domain === "xn--pple-43d.com");
-const ctOnly = buildDiscoveredCandidateRisk(bareHost, "apple");
-eq("bare CT IDN remains low until activity is observed", ctOnly.risk.risk_level, "low");
+eq("bare CT IDN remains low until activity is observed", ctOnly.risk_level, "low");
 ok("bare CT risk records the activity boundary",
-  ctOnly.risk.reasons.includes("idn_candidate_not_yet_live"));
-ok("CT evidence contains visual-confusable fact",
-  ctOnly.evidence.some((item) => item.signal === "idn_visual_confusable" && item.value === true));
+  ctOnly.reasons.includes("idn_candidate_not_yet_live"));
 
 const dnsOnly = scoreBrandCandidateRisk({
   variant_type: "homoglyph_idn",
@@ -165,7 +115,7 @@ const api = brandCandidateToApi({
   https_available: null,
   evidence_json: JSON.stringify([{ signal: "ct_observed", value: true }]),
 }, { brand_name: "apple", primary_domain: "apple.com" });
-eq("API exposes safe Unicode display form", api.unicode_domain, "\u0430pple.com");
+eq("API exposes safe Unicode display form", api.unicode_domain, "аpple.com");
 ok("API exposes structured IDN facts", api.idn_homograph?.visually_confusable === true &&
   api.idn_homograph?.mixed_script === true);
 ok("API does not call a CT-only candidate malicious",
@@ -174,33 +124,78 @@ const brandPage = fs.readFileSync(
   path.join(root, "frontend", "src", "pages", "ws", "BrandMonitoringPage.jsx"),
   "utf8",
 );
+const frontendApi = fs.readFileSync(path.join(root, "frontend", "src", "api.js"), "utf8");
 ok("customer surface labels the exact IDN evidence",
   brandPage.includes("Visually confusable IDN"));
 ok("customer surface states the non-verdict boundary",
   brandPage.includes("lookalike signal, not proof of abuse"));
 ok("customer surface never claims confirmed phishing",
   !brandPage.toLowerCase().includes("confirmed phishing"));
+ok("stored certificate-log evidence keeps its customer label",
+  brandPage.includes("Seen in certificate log"));
+ok("customer surface calls no removed Brand discovery route",
+  !/runBrandDiscovery|\/brand\/discovery/.test(`${brandPage}\n${frontendApi}`));
 
-// ── 5. End-to-end: only the A-label query returns the CT observation ──────────
+// ── 3. End-to-end: generated scan persistence through the canonical writer ───
 {
+  const NOW = "2026-01-01T00:00:00Z";
   const db = new DatabaseSync(":memory:");
   db.exec(`
     CREATE TABLE workspaces (id TEXT PRIMARY KEY, deleted_at TEXT);
-    CREATE TABLE workspace_domains (workspace_id TEXT, domain_id TEXT);
     CREATE TABLE domains (id TEXT PRIMARY KEY, domain TEXT, created_at TEXT);
+    CREATE TABLE workspace_domains (workspace_id TEXT, domain_id TEXT);
+    CREATE TABLE workspace_brand_profiles (
+      id TEXT PRIMARY KEY, workspace_id TEXT UNIQUE, brand_name TEXT,
+      primary_domain TEXT, created_at TEXT, updated_at TEXT
+    );
     CREATE TABLE workspace_brand_assets (
       id TEXT PRIMARY KEY, workspace_id TEXT, domain TEXT, candidate_domain TEXT,
       variant_type TEXT, similarity_score INTEGER, risk_level TEXT,
       risk_reasons TEXT, evidence_json TEXT, dns_resolves INTEGER,
-      https_available INTEGER, mx_present INTEGER, ip_address TEXT, status TEXT, classification TEXT,
-      first_seen TEXT, last_seen TEXT, last_checked_at TEXT, created_at TEXT,
-      updated_at TEXT, UNIQUE (workspace_id, domain, candidate_domain)
+      https_available INTEGER, mx_present INTEGER, ip_address TEXT, status TEXT,
+      classification TEXT, brand_profile_id TEXT, first_seen TEXT, last_seen TEXT,
+      last_checked_at TEXT, managed_case_ref TEXT, history_marker TEXT,
+      created_at TEXT, updated_at TEXT,
+      UNIQUE (workspace_id, domain, candidate_domain)
     );
   `);
   db.prepare("INSERT INTO workspaces VALUES (?,NULL)").run("ws1");
-  db.prepare("INSERT INTO domains VALUES (?,?,?)").run("d1", "apple.com", "2026-01-01T00:00:00Z");
+  db.prepare("INSERT INTO domains VALUES (?,?,?)").run("d1", "apple.com", NOW);
   db.prepare("INSERT INTO workspace_domains VALUES (?,?)").run("ws1", "d1");
-  const env = { cybermeters_db: {
+  db.prepare("INSERT INTO workspace_brand_profiles VALUES (?,?,?,?,?,?)")
+    .run("profile_ws1", "ws1", "apple", "apple.com", NOW, NOW);
+  const seed = db.prepare(`
+    INSERT INTO workspace_brand_assets
+      (id, workspace_id, domain, candidate_domain, variant_type, similarity_score,
+       risk_level, risk_reasons, evidence_json, dns_resolves, https_available,
+       mx_present, status, classification, brand_profile_id, first_seen, last_seen,
+       managed_case_ref, history_marker, created_at, updated_at)
+    VALUES (?, 'ws1', 'apple.com', ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'unverified',
+            ?, 'profile_ws1', ?, ?, 'case_keep', 'history_keep', ?, ?)
+  `);
+  // A historical candidate stored by the retired passive CT producer.
+  seed.run("bra_ct_stored", "xn--pple-43d.com", "homoglyph_idn", 100, "low",
+    JSON.stringify(["certificate_observed_not_yet_live", "unrelated_customer_context"]),
+    JSON.stringify([
+      { signal: "ct_observed", value: true },
+      { signal: "ct_observation", value: { source: "crt.sh", entry_id: "501", serial_number: "AA501" } },
+      { signal: "unrelated_historical_evidence", value: "retain" },
+    ]),
+    "unreviewed", NOW, "2026-01-02T00:00:00Z", NOW, NOW);
+  // A generated lookalike the customer has already declared as their own.
+  seed.run("bra_owned", "apple.co", "tld_variation", 100, "info",
+    JSON.stringify(["customer_owned_reason"]), JSON.stringify([]),
+    "owned", NOW, "2026-01-02T00:00:00Z", NOW, NOW);
+
+  const brandMod = runTyposquatModule("apple.com");
+  ok("generated population contains the stored lookalikes",
+    ["xn--pple-43d.com", "apple.co"].every((name) =>
+      brandMod.domains.some((item) => item.candidate_domain === name)));
+  const fresh = brandMod.domains.find((item) =>
+    item.variant_type === "homoglyph_idn" && item.candidate_domain !== "xn--pple-43d.com");
+  ok("generated population contains a second, unstored IDN", Boolean(fresh));
+
+  await upsertBrandAssets("d1", brandMod, { cybermeters_db: {
     prepare(sql) {
       const statement = db.prepare(sql);
       return {
@@ -211,32 +206,43 @@ ok("customer surface never claims confirmed phishing",
         }),
       };
     },
-  } };
-  const requested = [];
-  const fetchImpl = async (url) => {
-    requested.push(decodeURIComponent(url));
-    const body = decodeURIComponent(url).includes("xn--pple-43d.com")
-      ? [{ id: 201, name_value: "login.xn--pple-43d.com", common_name: "xn--pple-43d.com" }]
-      : [];
-    return {
-      ok: true,
-      headers: { get: () => "application/json" },
-      json: async () => body,
-    };
-  };
-  const stats = await discoverBrandCandidatesForWorkspace(env, "ws1", { fetchImpl });
-  ok("end-to-end query fan-out is bounded",
-    stats.queries_attempted === requested.length && requested.length <= BRAND_CT_QUERY_CAP);
-  ok("A-label-only CT observation is discovered", stats.discovered >= 2, `got ${stats.discovered}`);
+  } });
+
   const row = db.prepare(
     "SELECT * FROM workspace_brand_assets WHERE workspace_id = ? AND candidate_domain = ?",
-  ).get("ws1", "xn--pple-43d.com");
-  eq("bare discovered row keeps canonical variant", row?.variant_type, "homoglyph_idn");
-  eq("bare CT-only row persists low risk", row?.risk_level, "low");
-  eq("activity remains unknown until the existing enrichment sweep runs", row?.dns_resolves, null);
+  ).get("ws1", fresh?.candidate_domain ?? "");
+  const freshEvidence = JSON.parse(row?.evidence_json || "[]");
+  eq("generated IDN persists with canonical variant", row?.variant_type, "homoglyph_idn");
+  eq("generated-only IDN persists as a low watchlist item", row?.risk_level, "low");
+  ok("generated-only IDN records the registration boundary",
+    JSON.parse(row?.risk_reasons || "[]").includes("not_registered_watchlist"));
+  eq("activity remains unknown until the existing enrichment sweep runs",
+    [row?.dns_resolves, row?.https_available], [null, null]);
   ok("durable evidence contains exact visual-confusable signal",
-    JSON.parse(row?.evidence_json || "[]")
-      .some((item) => item.signal === "idn_visual_confusable" && item.value === true));
+    freshEvidence.some((item) => item.signal === "idn_visual_confusable" && item.value === true));
+  ok("generated persistence never invents certificate-log evidence",
+    !freshEvidence.some((item) => item.signal === "ct_observed"));
+
+  const stored = db.prepare("SELECT * FROM workspace_brand_assets WHERE id = 'bra_ct_stored'").get();
+  const storedEvidence = JSON.parse(stored?.evidence_json || "[]");
+  eq("generated scan reuses the stored CT-observed row",
+    db.prepare("SELECT COUNT(*) n FROM workspace_brand_assets WHERE candidate_domain = 'xn--pple-43d.com'").get().n, 1);
+  ok("generated scan cannot erase stored CT evidence",
+    storedEvidence.some((item) => item.signal === "ct_observed" && item.value === true) &&
+    storedEvidence.some((item) => item.signal === "ct_observation" && item.value?.entry_id === "501"));
+  ok("generated scan preserves unrelated stored history",
+    storedEvidence.some((item) => item.signal === "unrelated_historical_evidence") &&
+    JSON.parse(stored?.risk_reasons || "[]").includes("unrelated_customer_context") &&
+    stored?.first_seen === NOW &&
+    stored?.managed_case_ref === "case_keep" && stored?.history_marker === "history_keep");
+  ok("stored CT evidence keeps the CT-only IDN tier",
+    stored?.risk_level === "low" &&
+    JSON.parse(stored?.risk_reasons || "[]").includes("idn_candidate_not_yet_live"));
+
+  const owned = db.prepare("SELECT * FROM workspace_brand_assets WHERE id = 'bra_owned'").get();
+  eq("customer classification outranks generated re-observation",
+    [owned?.classification, owned?.risk_level, owned?.risk_reasons],
+    ["owned", "info", JSON.stringify(["customer_owned_reason"])]);
 }
 
 console.log(`\nBrand IDN discovery PR-B: ${pass}/${pass + fail} passed`);

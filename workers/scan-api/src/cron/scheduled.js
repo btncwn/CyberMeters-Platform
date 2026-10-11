@@ -151,17 +151,6 @@ export async function runScheduled(event, env, ctx, tasks) {
 	      ctx.waitUntil(runCronTask(env, "brand_dns_enrichment", () => tasks.runBrandDnsEnrichmentSweep(env)));
 	    }
 
-	    // ── Brand passive discovery via Certificate Transparency (daily) ─────
-	    // Generation alone cannot enumerate arbitrary NESTED hosts on a lookalike
-	    // base (office365password.acme.co). This bounded daily sweep queries public
-	    // CT logs on the brand token and ingests only hosts whose registrable base
-	    // is a generated lookalike. Discovered hosts land dns_resolves NULL, so the
-	    // DNS enrichment sweep above validates them on the next hourly tick. Runs
-	    // once daily to keep crt.sh fan-out polite and predictable.
-	    if (tasks.runBrandPassiveDiscoverySweep && new Date(now).getUTCHours() === 3) {
-	      ctx.waitUntil(runCronTask(env, "brand_passive_discovery", () => tasks.runBrandPassiveDiscoverySweep(env)));
-	    }
-
 	    // ── Brand HTTP/TLS live enrichment (daily) ───────────────────────────
 	    // For lookalike candidates DNS has confirmed live, probe the live web
 	    // surface (through the SSRF-safe fetcher) to set https_available and detect a

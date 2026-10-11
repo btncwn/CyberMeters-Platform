@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 //
 // Item 5 / PR-5.4: canonical within-scan per-signal monitoring states and
-// customer wording. Proves all four states, CT provider fallback semantics,
+// customer wording. Proves all four states, CT provider semantics (CertSpotter
+// only; stored two-provider records keep their recorded meaning),
 // module-incomplete attribution, PR-5.1 coarse fallback, complete-copy stability,
-// backend report exposure, and three executable mutation directions. CI-blocking.
+// backend report exposure, and four executable mutation directions. CI-blocking.
 // Node 24+.
 import fs from "node:fs";
 import path from "node:path";
@@ -18,20 +19,26 @@ const presentationPath = path.join(worker, "engines", "assessment-presentation.j
 const mutation = process.argv.find((arg) => arg.startsWith("--mutation="))?.split("=")[1] ?? null;
 
 async function loadStateModule() {
-  if (mutation !== "collapse-states" && mutation !== "drop-ct-attribution") {
+  if (mutation !== "collapse-states" && mutation !== "drop-ct-attribution" &&
+      mutation !== "ignore-recorded-ct-providers") {
     return import(pathToFileURL(statePath).href);
   }
 
   const source = fs.readFileSync(statePath, "utf8");
+  // drop-ct-attribution: the CT definition no longer depends on any provider.
+  // ignore-recorded-ct-providers: a stored result is read with the current
+  // provider set instead of the providers it recorded.
   const mutated = mutation === "collapse-states"
     ? source
       .replace('MONITORING_DEGRADED: "monitoring_degraded"', 'MONITORING_DEGRADED: "monitoring_healthy"')
       .replace('SIGNAL_UNAVAILABLE:  "signal_unavailable"', 'SIGNAL_UNAVAILABLE:  "monitoring_healthy"')
       .replace('EVIDENCE_INCOMPLETE: "evidence_incomplete"', 'EVIDENCE_INCOMPLETE: "monitoring_healthy"')
-    : source.replace(
-      'providers: Object.freeze(["crt_sh", "certspotter"]),',
-      "providers: Object.freeze([]),"
-    );
+    : mutation === "drop-ct-attribution"
+      ? source.replace(
+        "    providers: CT_PROVIDERS,\n",
+        "    providers: Object.freeze([]),\n"
+      )
+      : source.replace('    providers_recorded_by: "subdomains",\n', "");
   if (mutated === source) throw new Error(`state mutation target missing: ${mutation}`);
   const linked = mutated.replace('from "./ct-providers.js";',
     `from "${pathToFileURL(path.join(worker, "engines", "ct-providers.js")).href}";`);
@@ -111,8 +118,8 @@ const completeQuality = {
   warnings: [],
   modules_skipped: [],
 };
+// CertSpotter is the only CT provider (ct-providers.js).
 const fullProviderHealth = {
-  crt_sh: provider("available"),
   certspotter: provider("available"),
 };
 const derive = (overrides = {}) => deriveSignalMonitoringStates({
@@ -149,38 +156,73 @@ const derive = (overrides = {}) => deriveSignalMonitoringStates({
 }
 
 // ── Required state fixtures ─────────────────────────────────────────────────
+// A current scan has one CT provider, so CT is healthy, unavailable or
+// incomplete. monitoring_degraded comes only from a stored two-provider record
+// (undeclared providers; the retired provider under a neutral key), which is
+// read with the providers it recorded and keeps its partial-outage meaning.
+const historicalTwoProviderModules = () => ({
+  ...completeModules(),
+  subdomains: {
+    sources: {
+      retired_provider: { count: 0, error: "provider unavailable" },
+      certspotter: { count: 3, error: null },
+    },
+  },
+});
 const degradedCt = derive({
+  modules: historicalTwoProviderModules(),
   providerHealth: {
-    crt_sh: provider("unavailable"),
+    retired_provider: provider("unavailable"),
     certspotter: provider("available"),
   },
 });
 {
   const ct = degradedCt.signals.certificate_transparency;
-  eq("crt.sh unavailable + CertSpotter available → CT monitoring_degraded",
+  eq("historical two-provider record: one provider unavailable + CertSpotter available → CT monitoring_degraded",
     ct.state, "monitoring_degraded");
   ok("degraded CT carries CT-specific wording",
     ct.message.includes("certificate transparency") &&
       ct.message.includes("could not fully verify"));
   ok("degraded CT never reads healthy",
     ct.state !== "monitoring_healthy" && !/completed normally/i.test(ct.message));
-  eq("degraded CT exposes crt.sh unavailable evidence",
-    ct.evidence.providers.crt_sh, "unavailable");
-  eq("degraded CT exposes fallback available evidence",
+  eq("degraded CT exposes the recorded provider's unavailable evidence",
+    ct.evidence.providers.retired_provider, "unavailable");
+  eq("degraded CT exposes CertSpotter available evidence",
     ct.evidence.providers.certspotter, "available");
 }
 
 const unavailableCt = derive({
   providerHealth: {
-    crt_sh: provider("unavailable"),
+    certspotter: provider("unavailable"),
   },
 });
 {
   const ct = unavailableCt.signals.certificate_transparency;
-  eq("provider unavailable + no fallback evidence → signal_unavailable",
+  eq("CertSpotter unavailable → CT signal_unavailable",
     ct.state, "signal_unavailable");
   ok("unavailable CT wording is explicit and never healthy",
     /unavailable/i.test(ct.message) && !/completed normally/i.test(ct.message));
+}
+
+// A current record declares CertSpotter as its only provider. A provider the
+// scan never queried (even one with a stale health row) is not missing
+// evidence, and the evidence names only the provider that was queried.
+{
+  const declared = completeModules();
+  declared.subdomains = {
+    sources: { certspotter: { count: 3, error: null } },
+    ct_providers: ["certspotter"],
+  };
+  const ct = derive({
+    modules: declared,
+    providerHealth: {
+      retired_provider: provider("unavailable"),
+      certspotter: provider("available"),
+    },
+  }).signals.certificate_transparency;
+  eq("current record: CertSpotter available → CT monitoring_healthy", ct.state, "monitoring_healthy");
+  eq("current record: CT evidence names only CertSpotter",
+    JSON.stringify(ct.evidence.providers), JSON.stringify({ certspotter: "available" }));
 }
 
 const incompleteModules = completeModules();
@@ -349,7 +391,9 @@ const allComplete = derive();
 if (!mutation) {
   for (const [name, expectedFailure] of [
     ["collapse-states", "FAIL the canonical model exposes four distinct states"],
-    ["drop-ct-attribution", "FAIL crt.sh unavailable + CertSpotter available"],
+    ["drop-ct-attribution", "FAIL CertSpotter unavailable → CT signal_unavailable"],
+    ["ignore-recorded-ct-providers",
+      "FAIL historical two-provider record: one provider unavailable + CertSpotter available → CT monitoring_degraded"],
     ["present-degraded-as-healthy", "FAIL attributable degraded CT upgrades completion copy"],
   ]) {
     const run = spawnSync(process.execPath, [scriptPath, `--mutation=${name}`], {

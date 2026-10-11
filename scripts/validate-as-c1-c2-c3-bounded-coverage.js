@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // AS-C1/C2/C3 U1+U2+U3 — focused bounded-coverage contract.
 //
-// The ten F* assertions are the founder-approved fail-first fixtures. On the
-// exact 757b447 base all ten must fail semantically while the positive controls
-// complete normally. The same file is the green oracle for the candidate and
+// The F* assertions began as the founder-approved fail-first fixtures (on the
+// exact 757b447 base all of them failed semantically while the positive
+// controls completed normally). CertSpotter is now the only CT source, so the
+// CT discovery fixtures assert its single cap; the retired provider's raw-row
+// cap no longer exists. The same file is the green oracle for the candidate and
 // for the fresh-process semantic mutation registry.
 
 import fs from "node:fs";
@@ -114,18 +116,16 @@ async function exposureFixture(candidateCount, recheckCount = 0) {
 function available(data) {
   return { status: "available", data, error: null };
 }
-async function discoveryFixture(crtRows, certRows) {
+async function discoveryFixture(certRows) {
   const ctCache = {
-    get: async (_domain, provider) => provider === "crt_sh"
-      ? available(crtRows)
-      : available(certRows),
+    providers: ["certspotter"],
+    get: async () => available(certRows),
   };
   return subdomainModule.runSubdomainsModule("example.com", {
     ctCache,
     cache: new Map(),
   });
 }
-const crtRow = (name) => ({ name_value: name, common_name: name });
 const certRow = (name) => ({ dns_names: [name] });
 
 try {
@@ -146,40 +146,31 @@ try {
     JSON.stringify(boundedExposure.exposure.probe_coverage),
   );
 
-  const mergedCrt = hosts(200, "crt").map(crtRow);
-  const mergedCert = hosts(172, "spot").map(certRow);
-  const merged = await discoveryFixture(mergedCrt, mergedCert);
+  // CertSpotter is the only CT source: its per-provider cap (300) is the
+  // discovery ceiling, so the merged cap can never be reached on its own.
+  const capped = await discoveryFixture(hosts(372, "spot").map(certRow));
   check(
-    "F3_MERGED_CAP_DENOMINATOR_AND_DROPPED_COUNT",
-    merged.discovery_coverage?.merged?.candidate_total === 372 &&
-      merged.discovery_coverage?.merged?.kept === 300 &&
-      merged.discovery_coverage?.merged?.dropped_count === 72 &&
-      merged.discovery_coverage?.merged?.cap_reached === true &&
-      merged.discovery_coverage?.merged?.selection_order === "provider_response" &&
-      merged.discovery_coverage?.coverage_state === "bounded",
-    JSON.stringify(merged.discovery_coverage),
+    "F3_CT_CAP_DENOMINATOR_AND_DROPPED_COUNT",
+    capped.discovery_coverage?.per_provider?.certspotter_unique_total === 372 &&
+      capped.discovery_coverage?.per_provider?.certspotter_unique_kept === 300 &&
+      capped.discovery_coverage?.per_provider?.certspotter_dropped_count === 72 &&
+      capped.discovery_coverage?.per_provider?.certspotter_cap_reached === true &&
+      capped.discovery_coverage?.merged?.selection_order === "provider_response" &&
+      capped.discovery_coverage?.coverage_state === "bounded" &&
+      capped.items.length === 300,
+    JSON.stringify(capped.discovery_coverage),
   );
 
-  const rawRows = Array.from({ length: 2_001 }, (_, index) =>
-    crtRow(index < 250 ? `raw-${String(index).padStart(4, "0")}.example.com` : "raw-0000.example.com"));
-  const providerBounded = await discoveryFixture(rawRows, []);
+  const uncapped = await discoveryFixture(hosts(250, "spot").map(certRow));
   check(
-    "F4_PER_PROVIDER_CAP_IS_INDEPENDENT",
-    providerBounded.discovery_coverage?.per_provider?.crt_sh_unique_total === 250 &&
-      providerBounded.discovery_coverage?.per_provider?.crt_sh_unique_kept === 200 &&
-      providerBounded.discovery_coverage?.per_provider?.crt_sh_dropped_count === 50 &&
-      providerBounded.discovery_coverage?.per_provider?.crt_sh_cap_reached === true &&
-      providerBounded.discovery_coverage?.per_provider?.certspotter_cap_reached === false,
-    JSON.stringify(providerBounded.discovery_coverage?.per_provider),
-  );
-  check(
-    "F5_RAW_CRT_ROW_CAP_IS_INDEPENDENT",
-    providerBounded.discovery_coverage?.crt_sh?.rows_received === 2_001 &&
-      providerBounded.discovery_coverage?.crt_sh?.rows_examined === 2_000 &&
-      providerBounded.discovery_coverage?.crt_sh?.rows_available === null &&
-      providerBounded.discovery_coverage?.crt_sh?.dropped_count === 1 &&
-      providerBounded.discovery_coverage?.crt_sh?.row_cap_reached === true,
-    JSON.stringify(providerBounded.discovery_coverage?.crt_sh),
+    "F4_CT_BELOW_CAP_IS_COMPLETE_NOT_BOUNDED",
+    uncapped.discovery_coverage?.per_provider?.certspotter_unique_total === 250 &&
+      uncapped.discovery_coverage?.per_provider?.certspotter_unique_kept === 250 &&
+      uncapped.discovery_coverage?.per_provider?.certspotter_dropped_count === 0 &&
+      uncapped.discovery_coverage?.per_provider?.certspotter_cap_reached === false &&
+      uncapped.discovery_coverage?.merged?.cap_reached === false &&
+      uncapped.discovery_coverage?.coverage_state === "complete",
+    JSON.stringify(uncapped.discovery_coverage),
   );
 
   const boundedScope = typeof lifecycleModule.ctDiscoveryScopeSignals === "function"
@@ -211,7 +202,7 @@ try {
     signals: {
       subdomain_discovery: {
         state: "observed", reason: "hostname_observed", evidence_count: 1,
-        sources: ["crt_sh"], limitations: [],
+        sources: ["certspotter"], limitations: [],
       },
       exposure_admin_surface: {
         state: "not_observed", reason: "complete_exposure_admin_probe_no_signal",
@@ -272,10 +263,9 @@ try {
   const assetSource = fs.readFileSync(enginePath("asset-intel.js"), "utf8");
   const lifecycleSource = fs.readFileSync(enginePath("attack-surface-lifecycle.js"), "utf8");
   check(
-    "P2_ALL_FOUR_CAPS_RETAINED",
+    "P2_ALL_CAPS_RETAINED",
     /slice\(0, 50\)/.test(assetSource) &&
-      /slice\(0, 2_000\)/.test(subdomainSource) &&
-      /const PER_CAP\s*=\s*200/.test(subdomainSource) &&
+      /const PER_CAP\s*=\s*300/.test(subdomainSource) &&
       /const MERGE_CAP\s*=\s*300/.test(subdomainSource),
   );
   check(
@@ -293,11 +283,10 @@ try {
   );
   check(
     "P5_C2_MECHANISMS_REMAIN_SEPARATE",
-    providerBounded.discovery_coverage?.crt_sh &&
-      providerBounded.discovery_coverage?.per_provider &&
-      providerBounded.discovery_coverage?.merged &&
-      !Object.prototype.hasOwnProperty.call(providerBounded.discovery_coverage, "truncated"),
-    JSON.stringify(providerBounded.discovery_coverage),
+    capped.discovery_coverage?.per_provider &&
+      capped.discovery_coverage?.merged &&
+      !Object.prototype.hasOwnProperty.call(capped.discovery_coverage, "truncated"),
+    JSON.stringify(capped.discovery_coverage),
   );
   check(
     "P6_BOUNDED_SIGNAL_EXPOSES_ADDITIVE_CUSTOMER_COPY",
@@ -312,8 +301,11 @@ try {
         "Exposure / admin surface was not observed in the retained probe set. Checked 50 of 300 discovered hosts. Hosts beyond this limit were not assessed; no conclusion is drawn about them.",
   );
   check(
-    "P7_RAW_ROWS_AVAILABLE_DENOMINATOR_IS_NEVER_FABRICATED",
-    providerBounded.discovery_coverage?.crt_sh?.rows_available === null,
+    "P7_COVERAGE_RECORDS_ONLY_THE_QUERIED_PROVIDER",
+    JSON.stringify(Object.keys(capped.discovery_coverage || {})) ===
+      JSON.stringify(["per_provider", "merged", "coverage_state"]) &&
+      Object.keys(capped.discovery_coverage.per_provider).every((key) => key.startsWith("certspotter_")),
+    JSON.stringify(capped.discovery_coverage),
   );
 } finally {
   globalThis.fetch = originalFetch;

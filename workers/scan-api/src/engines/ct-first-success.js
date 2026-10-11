@@ -8,16 +8,12 @@
 import {
   CT_PROVIDER_FIRST_SUCCESS_RELEASE_CUSTOMER_WORDING,
 } from "./ct-provider-cache.js";
+import { CT_PROVIDERS } from "./ct-providers.js";
 
-const PROVIDERS = Object.freeze(["crt_sh", "certspotter"]);
-
-// Bounded wait for the sibling provider after the first success. CertSpotter
-// returns only unexpired issuances and usually answers first; crt.sh adds the
-// historical names and usually answers within one attempt. Releasing at the first
-// success excluded crt.sh from almost every scan and marked it degraded. Waiting
-// up to one crt.sh attempt lets a healthy sibling be included; a sibling still in
-// flight when the wait ends (or when the module is aborted) is excluded exactly
-// as before, so a slow or failing provider still reads as reduced coverage.
+// Bounded wait for any sibling provider after the first success. A sibling
+// still in flight when the wait ends (or when the module is aborted) is
+// excluded, so a slow or failing provider reads as reduced coverage. With a
+// single provider the first settlement is final and no wait occurs.
 export const CT_SIBLING_GRACE_MS = 6_000;
 
 function freezeProviderResult(result) {
@@ -54,11 +50,11 @@ export async function raceCertificateTransparencyFirstSuccess({
     throw new TypeError("First-success CT orchestration requires a CT provider cache");
   }
   if (!module) throw new TypeError("First-success CT orchestration requires a consumer module");
-  // Only the providers this scan uses are raced (ct-providers.js). A cache that
-  // does not declare them keeps the original two-provider race.
-  const racedProviders = Array.isArray(ctCache.enabledProviders) && ctCache.enabledProviders.length > 0
-    ? PROVIDERS.filter((provider) => ctCache.enabledProviders.includes(provider))
-    : PROVIDERS;
+  // The cache declares its providers; a cache that does not uses the current
+  // provider set (ct-providers.js).
+  const racedProviders = Array.isArray(ctCache.providers) && ctCache.providers.length > 0
+    ? Object.freeze([...ctCache.providers])
+    : CT_PROVIDERS;
 
   const terminalResults = new Map();
   const consumerResults = new Map();

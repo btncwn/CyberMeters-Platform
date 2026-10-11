@@ -83,6 +83,7 @@ function fakeClock(start = 1_000_000) {
 function makePostTerminalEngineFixture({
   failFirstTerminalReport = false,
   holdPostTerminal = true,
+  holdAuditEvents = false,
   onPostTerminalHold = null,
 } = {}) {
   let terminalStatus = null;
@@ -104,7 +105,10 @@ function makePostTerminalEngineFixture({
           terminalStatus = args[0];
           return Promise.resolve({ meta: { changes: 1 } });
         }
-        if (/INSERT INTO audit_events/.test(sql)) {
+        // The completed path writes its terminal audit event before the
+        // post-terminal stage is armed, so audit inserts are not held unless a
+        // fixture opts in (see the failure-branch fixture below).
+        if (/INSERT INTO audit_events/.test(sql) && !holdAuditEvents) {
           return Promise.resolve({ meta: { changes: 1 } });
         }
         if (holdPostTerminal && terminalStatus != null && releaseHeld == null) {
@@ -167,7 +171,7 @@ const withEngineFetchFixture = async (run) => {
     if (/dns\.google\/resolve|cloudflare-dns\.com\/dns-query/.test(url)) {
       return Response.json({ Status: 0, Answer: [] });
     }
-    if (/crt\.sh|certspotter/.test(url)) return Response.json([]);
+    if (/api\.certspotter\.com/.test(url)) return Response.json([]);
     if (/services\.nvd\.nist\.gov/.test(url)) return Response.json({ vulnerabilities: [] });
     return new Response("<html><title>Fixture</title></html>", {
       status: 200,
@@ -562,8 +566,10 @@ const boundaryFixtures = {
       let httpHop = 0;
       return (scheduler, input, init) => {
         const url = String(input);
-        if (url.includes("crt.sh") || url.includes("certspotter")) {
-          return delayedJson(scheduler, [], url.includes("crt.sh") ? 5_999 : 3_999, init.signal);
+        // CertSpotter (the only CT provider) answers just inside its 4s attempt
+        // timeout; CT runs concurrently and never sets the SSL boundary.
+        if (url.includes("api.certspotter.com")) {
+          return delayedJson(scheduler, [], 3_999, init.signal);
         }
         if (url.startsWith("https://")) {
           return delayedHttp(scheduler, 522, { server: "cloudflare" }, 9_999, init.signal);
@@ -646,7 +652,7 @@ for (const [module, capMs] of Object.entries(SCAN_DURABLE_CORE_MODULE_BUDGETS)) 
     let httpHop = 0;
     failFetcher = (scheduler, input, init) => {
       const url = String(input);
-      if (url.includes("crt.sh") || url.includes("certspotter")) return delayedJson(scheduler, [], url.includes("crt.sh") ? 5_999 : 3_999, init.signal);
+      if (url.includes("api.certspotter.com")) return delayedJson(scheduler, [], 3_999, init.signal);
       if (url.startsWith("https://")) return delayedHttp(scheduler, 522, { server: "cloudflare" }, 9_999, init.signal);
       httpHop += 1;
       return delayedHttp(scheduler, httpHop === 1 ? 301 : 200, httpHop === 1 ? { location: "http://step.example.com" } : { server: "origin" }, 9_999, init.signal);
@@ -1326,10 +1332,16 @@ await withEngineFetchFixture(async (fetchCount) => {
 // The recovery/failure branch has the identical requirement. Make the first
 // completed-report write fail, allow the failed terminal pair to settle, then
 // hold its first post-terminal D1 operation across the exact inner ceiling.
+// With the physical budget exhausted no CT request is issued, so there are no
+// CT telemetry rows to write (the always-written CT overlap row that used to
+// come first was removed with the overlap telemetry module): the first
+// post-terminal D1 operation on this branch is the scan_failed audit insert,
+// which therefore is the operation held here.
 await withEngineFetchFixture(async (fetchCount) => {
   let fireCeiling = null;
   const fixture = makePostTerminalEngineFixture({
     failFirstTerminalReport: true,
+    holdAuditEvents: true,
     onPostTerminalHold: () => queueMicrotask(() => fireCeiling?.()),
   });
   const result = await runScanEngine(

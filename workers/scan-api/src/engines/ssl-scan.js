@@ -1,13 +1,13 @@
 // ── SSL / TLS scan module ──
 // External-scan HTTPS/TLS phase: HTTPS reachability, certificate expiry via Certificate
-// Transparency (crt.sh + certspotter fallback), SAN discovery. Extracted verbatim from
+// Transparency (CertSpotter), SAN discovery. Extracted verbatim from
 // index.js (monolith decomposition, Phase 1c) — no logic change.
 import { safeFetch, SCANNER_PAGE_HEADERS } from "../lib/http.js";
 import { customerSafeFailure } from "../lib/errors.js";
 import { aggregateFetchObservations, classifyFetchObservation } from "../lib/fetch-observation.js";
 import { classifyServiceability, mayGroundAbsence } from "../lib/serviceability.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
-import { normalizeCtProviders } from "./ct-providers.js";
+import { CT_PROVIDERS } from "./ct-providers.js";
 import { CT_SIBLING_GRACE_MS, raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
 import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertificateSanNames } from "./hostnames.js";
 import { TLS_RUNTIME_STATES } from "./tls-evidence.js";
@@ -23,12 +23,12 @@ export function projectSslCtSource(result) {
   };
 }
 
-// Certificate Transparency lookup (crt.sh + certspotter fallback). The certificate
+// Certificate Transparency lookup (CertSpotter). The certificate
 // field logic remains the extracted behavior; provider I/O now comes from the shared
 // per-scan cache. It runs CONCURRENTLY with HTTPS probes because certificate data
 // comes from CT logs, not from reaching the origin, and running them
 // sequentially made the SSL module's wall-time the SUM of both chains — up to ~16s
-// of CT lookups on top of reachability, which on a slow-crt.sh day pushed the whole
+// of CT lookups on top of reachability, which on a slow-provider day pushed the whole
 // scan past its ~21s deadline and starved the later deadline-gated modules
 // (docs/CHRONIC-PARTIAL-SCAN-ROOT-CAUSE.md). Returns the 11 cert_* fields; on any
 // failure they stay at their explicit unknown/null or measured numeric sentinel
@@ -51,17 +51,12 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
   let cert_san_count   = 0;
   let cert_raw_san_count = 0;
   let cert_wildcard_san_count = 0;
-  // Shared-SAN count is source-specific. crt.sh measures it from the selected
-  // certificate's name_value list. CertSpotter measures it from the selected
-  // issuance's complete DNS SAN list, but only when CertSpotter is the scan's
-  // sole CT source: as a fallback behind crt.sh it never measured this value, and
-  // two-provider records keep that meaning. Keep the sentinel nullable until a
-  // branch below actually selects and measures a SAN-bearing certificate.
+  // Shared-SAN count comes from the selected issuance's complete DNS SAN list.
+  // Keep the sentinel nullable until the branch below actually selects and
+  // measures a SAN-bearing certificate.
   let cert_shared_san_count = null;
   let cert_san_names   = [];
-  // Only the CT providers this scan uses are queried and reported.
-  const ctProviders = normalizeCtProviders(ctCache.enabledProviders);
-  const ct_sources = Object.fromEntries(ctProviders.map((provider) => [provider, null]));
+  const ct_sources = Object.fromEntries(CT_PROVIDERS.map((provider) => [provider, null]));
   let providerResults;
   try {
     providerResults = (await raceCertificateTransparencyFirstSuccess({
@@ -74,102 +69,52 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
     })).providers;
   } catch (err) {
     const error = customerSafeFailure("scan/ct/first-success", err, "CT orchestration failed");
-    providerResults = Object.fromEntries(ctProviders.map((provider) =>
+    providerResults = Object.fromEntries(CT_PROVIDERS.map((provider) =>
       [provider, { status: "unavailable", data: null, error }]));
   }
-  if (ctProviders.includes("crt_sh")) try {
-    const crtResult = providerResults.crt_sh;
-    ct_sources.crt_sh = projectSslCtSource(crtResult);
-    if (crtResult.status === "available") {
-      const certs = crtResult.data.filter((certificate) =>
-        coversRootDomain(certificate.name_value || certificate.common_name || domain)
+  // The released provider result is immutable; a later physical result remains
+  // telemetry and cannot mutate it.
+  const certSpotterResult = providerResults.certspotter;
+  ct_sources.certspotter = projectSslCtSource(certSpotterResult);
+  try {
+    if (certSpotterResult.status === "available") {
+      const issuances = certSpotterResult.data.filter((issuance) =>
+        coversRootDomain(
+          (Array.isArray(issuance.dns_names) ? issuance.dns_names : []).join(" ")
+        )
       );
-      // Keep only certs that are currently valid (not yet expired).
-      // Sort by not_after descending so the longest-lived cert comes first —
-      // that is the one most likely still active on the server.
-      const valid = certs
-        .filter(c => c.not_after && new Date(c.not_after).getTime() > now)
+      const valid = issuances
+        .filter((c) => c.not_after && new Date(c.not_after).getTime() > now)
         .sort((a, b) => new Date(b.not_after).getTime() - new Date(a.not_after).getTime());
       if (valid.length > 0) {
         const selected = valid[0];
-        const rawSanNames = parseCertificateSanNames(selected.name_value || selected.common_name || domain);
+        const dnsNames = Array.isArray(selected.dns_names) ? selected.dns_names : [];
         cert_not_before  = selected.not_before || null;
-        cert_not_after   = valid[0].not_after;
-        cert_expiry_days = Math.floor(
-          (new Date(cert_not_after).getTime() - now) / 86_400_000
-        );
+        cert_not_after   = selected.not_after;
+        cert_expiry_days = Math.floor((new Date(cert_not_after).getTime() - now) / 86_400_000);
         const notBeforeMs = cert_not_before ? new Date(cert_not_before).getTime() : NaN;
         cert_age_days = Number.isFinite(notBeforeMs)
           ? Math.max(0, Math.floor((now - notBeforeMs) / 86_400_000))
           : null;
-        cert_issuer    = selected.issuer_name || null;
-        cert_subject   = selected.common_name || domain;
-        cert_san_names = normalizeCertificateSanNames(
-          selected.name_value || selected.common_name || domain,
-          domain
-        );
+        cert_issuer    = (selected.issuer && selected.issuer.name) || null;
+        // A CertSpotter issuance carries no certificate subject, so none is
+        // claimed: ownership rests on the certificate's own DNS names.
+        cert_subject   = null;
+        cert_san_names = normalizeCertificateSanNames(dnsNames.join(" "), domain);
         cert_san_count = cert_san_names.length;
-        cert_raw_san_count = rawSanNames.length;
-        cert_wildcard_san_count = rawSanNames.filter((name) => name.includes("*")).length;
+        cert_raw_san_count = dnsNames.length;
+        cert_wildcard_san_count = dnsNames.filter((n) => n.includes("*")).length;
+        const rawSanNames = parseCertificateSanNames(dnsNames.join(" "));
         cert_shared_san_count = rawSanNames.filter((name) =>
           !normalizeDiscoveredHostname(name.replace(/^\*\./, ""), domain)
         ).length;
       }
     }
   } catch (err) {
-    ct_sources.crt_sh = {
+    ct_sources.certspotter = {
       count: 0,
-      error: customerSafeFailure("scan/ct/crt-sh-consume", err, "parse error"),
+      error: customerSafeFailure("scan/ct/certspotter-consume", err, "parse error"),
     };
-  }
-
-  // Both providers were launched together. Preserve CertSpotter's source result
-  // whenever it was terminal before release, but use its certificate fields only
-  // when crt.sh did not already supply the selected certificate. A later physical
-  // result remains telemetry and cannot mutate this released object.
-  const certSpotterResult = providerResults.certspotter;
-  if (ctProviders.includes("certspotter")) ct_sources.certspotter = projectSslCtSource(certSpotterResult);
-  if (cert_not_after == null && ctProviders.includes("certspotter")) {
-    try {
-      if (certSpotterResult.status === "available") {
-        const issuances = certSpotterResult.data.filter((issuance) =>
-          coversRootDomain(
-            (Array.isArray(issuance.dns_names) ? issuance.dns_names : []).join(" ")
-          )
-        );
-        const valid = issuances
-          .filter((c) => c.not_after && new Date(c.not_after).getTime() > now)
-          .sort((a, b) => new Date(b.not_after).getTime() - new Date(a.not_after).getTime());
-        if (valid.length > 0) {
-          const selected = valid[0];
-          const dnsNames = Array.isArray(selected.dns_names) ? selected.dns_names : [];
-          cert_not_before  = selected.not_before || null;
-          cert_not_after   = selected.not_after;
-          cert_expiry_days = Math.floor((new Date(cert_not_after).getTime() - now) / 86_400_000);
-          const notBeforeMs = cert_not_before ? new Date(cert_not_before).getTime() : NaN;
-          cert_age_days = Number.isFinite(notBeforeMs)
-            ? Math.max(0, Math.floor((now - notBeforeMs) / 86_400_000))
-            : null;
-          cert_issuer    = (selected.issuer && selected.issuer.name) || null;
-          cert_subject   = domain;
-          cert_san_names = normalizeCertificateSanNames(dnsNames.join(" "), domain);
-          cert_san_count = cert_san_names.length;
-          cert_raw_san_count = dnsNames.length;
-          cert_wildcard_san_count = dnsNames.filter((n) => n.includes("*")).length;
-          if (!ctProviders.includes("crt_sh")) {
-            const rawSanNames = parseCertificateSanNames(dnsNames.join(" "));
-            cert_shared_san_count = rawSanNames.filter((name) =>
-              !normalizeDiscoveredHostname(name.replace(/^\*\./, ""), domain)
-            ).length;
-          }
-        }
-      }
-    } catch (err) {
-      ct_sources.certspotter = {
-        count: 0,
-        error: customerSafeFailure("scan/ct/certspotter-consume", err, "parse error"),
-      };
-    }
   }
 
   return {
@@ -208,7 +153,7 @@ export async function runSslModule(domain, opts = {}) {
   // Launch the Certificate Transparency lookup CONCURRENTLY with the reachability
   // probes below. The two are independent, so awaiting the promise at the end makes
   // the module's wall-time max(reachability, CT) instead of their sum.
-  // The ct_lookup sub-op times the WHOLE composite (crt.sh + certspotter fallback)
+  // The ct_lookup sub-op times the WHOLE CT composite
   // from this consumer's side; the per-provider network attempts remain the
   // ct_provider_telemetry rows. The side branch below observes the shared promise
   // without changing what the module awaits.
@@ -233,7 +178,7 @@ export async function runSslModule(domain, opts = {}) {
             opts.subOps?.finish?.(ctSubOp, { outcome: "aborted", aborted: true });
             return;
           }
-          const tried = [r?.ct_sources?.crt_sh, r?.ct_sources?.certspotter].filter((s) => s != null);
+          const tried = Object.values(r?.ct_sources || {}).filter((s) => s != null);
           const anyOk = tried.some((s) => s.error == null);
           opts.subOps?.finish?.(ctSubOp, { outcome: anyOk ? "ok" : "unavailable" });
         } catch { /* observational only */ }
@@ -492,7 +437,7 @@ export async function runSslModule(domain, opts = {}) {
     // never present as healthy and can never resolve an existing condition.
     //
     // Scoped to the HTTPS probe deliberately: Certificate Transparency data below
-    // comes from crt.sh/certspotter and is independent of reaching the origin, so
+    // comes from Certificate Transparency and is independent of reaching the origin, so
     // it stays valid and is not discarded. What is unknown is whether the site
     // serves HTTPS — which is exactly what `required: ["headers","ssl"]` on the
     // Website Security domain is asking.

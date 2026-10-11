@@ -5,7 +5,7 @@
 // one state per signal. It does not probe, score, compare with an earlier scan,
 // or change scan_quality. Missing or unrecognised evidence fails closed.
 
-import { ctProvidersUsed } from "./ct-providers.js";
+import { CT_PROVIDERS, ctProvidersUsed } from "./ct-providers.js";
 
 export const SIGNAL_MONITORING_STATE_VERSION = "signal-monitoring-state-v1";
 
@@ -25,7 +25,9 @@ export const SIGNAL_MONITORING_DEFINITIONS = Object.freeze({
   }),
   certificate_transparency: Object.freeze({
     modules: Object.freeze(["subdomains"]),
-    providers: Object.freeze(["crt_sh", "certspotter"]),
+    providers: CT_PROVIDERS,
+    // A recorded result names the providers it actually used (ct-providers.js).
+    providers_recorded_by: "subdomains",
   }),
   website_security: Object.freeze({
     modules: Object.freeze(["ssl", "headers"]),
@@ -289,13 +291,13 @@ function providerEvidenceState(providerNames, providerHealth) {
   return SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
 }
 
-// The providers a signal depends on in THIS scan. Certificate Transparency uses
-// the providers the subdomains result declares (ct-providers.js); a provider the
-// scan did not query is not missing evidence.
-function signalProviders(signal, definition, modules) {
-  if (signal !== "certificate_transparency") return definition.providers;
-  const used = ctProvidersUsed(modules?.subdomains);
-  return definition.providers.filter((provider) => used.includes(provider));
+// The providers a signal depends on in THIS scan. A provider-backed signal whose
+// owning module records its providers uses that record, so a stored result is
+// read with the providers it actually queried; a provider it did not query is
+// not missing evidence.
+function signalProviders(definition, modules) {
+  if (definition.providers.length === 0 || !definition.providers_recorded_by) return definition.providers;
+  return ctProvidersUsed(modules?.[definition.providers_recorded_by]);
 }
 
 function resolveSignalState(definition, modules, skipped, providerHealth, providers = definition.providers) {
@@ -330,7 +332,7 @@ export function deriveSignalMonitoringStates({
   const signals = {};
 
   for (const [signal, definition] of Object.entries(SIGNAL_MONITORING_DEFINITIONS)) {
-    const providers = signalProviders(signal, definition, modules || {});
+    const providers = signalProviders(definition, modules || {});
     const state = resolveSignalState(definition, modules || {}, skipped, providerHealth || {}, providers);
     const incompleteModules = definition.modules.filter((moduleName) =>
       moduleEvidenceState(modules || {}, moduleName, skipped) ===

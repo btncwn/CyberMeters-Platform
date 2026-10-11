@@ -83,7 +83,6 @@ import {
 import { sendWeeklyDigests } from "./engines/weekly-digest.js";
 import { runBrandTakedownFollowupSweep } from "./engines/brand-cases.js";
 import { runBrandDnsEnrichmentSweep } from "./engines/brand-dns-enrichment.js";
-import { runBrandPassiveDiscoverySweep } from "./engines/brand-passive-discovery.js";
 import { runBrandHttpEnrichmentSweep } from "./engines/brand-http-enrichment.js";
 import { admitDomainScan, calculateNextRun, checkReportLimit, checkScanLimit, checkScheduledScanLimit, computeScheduledReportNextRunAt, countEnabledScheduledScans, countReportsThisMonth, countScansThisMonth, evaluateScheduledScanEligibility, generateWorkspaceExecutiveReport, getAccountUsage, getEntitlementUsage, getMonthResetAt, getMonthStart, getOwnedWorkspaceIds, getPlanContext, getPlanLimits, getPlanRetentionDays, getReportExpiresAt, getReportRetentionPolicyForWorkspace, getRetentionCutoff, getRetentionCutoffForDays, getUpgradeRecommendation, getWorkspaceBillingUserId, getWorkspaceOwnerId, getWorkspaceReportStorageMetrics, getWorkspaceRetentionSettings, normalizeReportScheduleFrequency, normalizeReportScheduleRecipients, planLimitExceeded, retentionDaysToPolicy, retentionPolicyToDays } from "./engines/plan-usage.js";
 import { TRIAL_PLAN, TRIAL_DURATION_DAYS, auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription, getPublicBillingPlans, getTrialRemainingDays, getWorkspaceSubscription, isSubscriptionActive, isTrialActive, parseCheckoutPlan } from "./engines/subscription-state.js";
@@ -345,13 +344,13 @@ function evaluateRegressionFixtures(fixtures = SCANNER_REGRESSION_FIXTURES) {
 //                         1 Google DoH: _dmarc TXT; 1 Quad9 DoH: A; 2 CF DoH: TXT+_dmarcTXT
 //                         cross-check; 1 Google DoH: CAA cross-check; 3 CF DNSSEC: DS/DNSKEY/RRSIG)
 //                         Was: 11 — missed DNSSEC (3) + CAA Google cross-check (1) + TXT cross-checks (2)
-//   ssl             — 4  (HTTPS + www-HTTPS fallback + HTTP + crt.sh)
+//   ssl             — 4  (HTTPS + www-HTTPS fallback + HTTP + CT)
 //   headers         — 2  (HTTPS + HTTP fallback)
 //   email_security  — 22 in runScanEngine (TXT root + BIMI + 19 DKIM selectors + up to
 //                         3 Phase 2 provider extras); lightweight direct callers retain
 //                         the legacy exact _dmarc lookup (23) until separately budgeted
 //   dmarc_core      — 10 logical questions, independently capped at 750 ms
-//   ct_discovery    — 4  (wildcard A + AAAA DoH + crt.sh + CertSpotter)
+//   ct_discovery    — 3  (wildcard A + AAAA DoH + CertSpotter)
 //   dns_bruteforce  — actual checked count (40 names + 8 MX + 8 SRV lookups)
 //   asset_exposure  — 0  (variable; up to 50×2 HTTP probes; tracked separately from exposure result)
 //   admin_surface   — 0  (pure computation, zero I/O)
@@ -2777,7 +2776,6 @@ export default {
    retryFailedAlertDeliveries,
     runBrandTakedownFollowupSweep,
     runBrandDnsEnrichmentSweep,
-    runBrandPassiveDiscoverySweep,
     runBrandHttpEnrichmentSweep,
     triggerScheduledScan,
     recoverInterruptedScans: async (env) => {

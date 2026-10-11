@@ -20,7 +20,7 @@ const check = (id, condition, detail = "") => {
 
 check(
   "AS_C3_SUBDOMAIN_DECLARATION_NAMES_CT_PROVIDERS_NOT_RDAP",
-  /^\/\/ ── Subdomain discovery \+ brute-force scan module ──\n\/\/ Multi-source Certificate Transparency \(crt\.sh \+ CertSpotter\) subdomain discovery,/m.test(subdomains) &&
+  /^\/\/ ── Subdomain discovery \+ brute-force scan module ──\n\/\/ Certificate Transparency \(CertSpotter\) subdomain discovery,/m.test(subdomains) &&
     !/^\/\/[^\n]*RDAP/m.test(subdomains),
 );
 check(

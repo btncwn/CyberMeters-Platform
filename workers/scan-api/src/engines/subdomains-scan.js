@@ -1,5 +1,5 @@
 // ── Subdomain discovery + brute-force scan module ──
-// Multi-source Certificate Transparency (crt.sh + CertSpotter) subdomain discovery,
+// Certificate Transparency (CertSpotter) subdomain discovery,
 // sensitive-label classification, and a bounded
 // DNS brute-force pass with wildcard filtering. Extracted verbatim from index.js (monolith
 // decomposition, Phase 1c). Only the three run*/filter* entry points are public; the label
@@ -8,7 +8,7 @@ import { dnsQuery } from "./dns.js";
 import { normalizeDiscoveredHostname } from "./hostnames.js";
 import { customerSafeFailure } from "../lib/errors.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
-import { CT_ALL_PROVIDERS, ctFailedSources, normalizeCtProviders } from "./ct-providers.js";
+import { CT_PROVIDERS, ctFailedSources } from "./ct-providers.js";
 import { CT_SIBLING_GRACE_MS, raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
 import { coverageStateFromTruncation } from "./bounded-coverage.js";
 
@@ -86,12 +86,10 @@ export function isSensitiveSubdomain(hostname, domain) {
 }
 
 // ── Subdomain Discovery v2 ────────────────────────────────────────────────────
-// Two Certificate Transparency sources run in parallel:
-//   1. crt.sh          — certificate search (wildcard query, large historical set)
-//   2. CertSpotter     — issuance index (different index, no API key required)
-// Results are merged and deduplicated into a single sorted list.
-// If one source fails the other still contributes — scan never aborts.
-// Per-source counts and errors are exposed in modules.subdomains.sources.
+// Certificate Transparency names come from CertSpotter's issuance index
+// (ct-providers.js), deduplicated into a single sorted list. A CT failure never
+// aborts the scan; it makes this module honestly incomplete. The source count
+// and error are exposed in modules.subdomains.sources.
 
 export async function runSubdomainsModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
@@ -102,7 +100,7 @@ export async function runSubdomainsModule(domain, opts = {}) {
     globalDeadlineProvenance: opts.globalDeadlineProvenance,
   });
   const SOURCE    = "certificate_transparency_multi_source";
-  const PER_CAP   = 200;   // max unique names from each CT source
+  const PER_CAP   = 300;   // max unique names from the CT source (the discovery ceiling)
   const MERGE_CAP = 300;   // cap on the merged deduplicated set
   // Tier 1 (waitUntil-cancellation guard): the shared provider cache owns its leaf
   // deadlines; this outer 15s cap still bounds provider parsing plus wildcard DNS.
@@ -110,16 +108,13 @@ export async function runSubdomainsModule(domain, opts = {}) {
   const HARD_CAP_MS = 15_000;
 
   // Graceful fallback — returned on hard-cap timeout or unexpected throw
-  // Only the CT providers this scan uses are reported (ct-providers.js).
-  const ctProviders = normalizeCtProviders(ctCache.enabledProviders);
-  const ctProvidersField = ctProviders.length === CT_ALL_PROVIDERS.length ? {} : { ct_providers: [...ctProviders] };
   const emptyResult = (error, wildcardDns = false, wildcardHost = null) => ({
     count:              0,
     items:              [],
     sensitive:          [],
     source:             SOURCE,
-    sources:            ctFailedSources(ctProviders, error),
-    ...ctProvidersField,
+    sources:            ctFailedSources(error),
+    ct_providers:       [...CT_PROVIDERS],
     wildcard_dns:       wildcardDns,
     wildcard_dns_addresses: [],
     wildcard_test_host: wildcardHost,
@@ -132,18 +127,6 @@ export async function runSubdomainsModule(domain, opts = {}) {
   // too would make the module a second release path, so whether "released"
   // precedes "globally aborted" would depend on which path happened to run
   // first. One boundary, one release.
-  //
-  // The overlap FREEZE is different: it is idempotent and first-wins, and it
-  // closes the observation window this module owns. Keeping it here means a
-  // collector handed to the module is always frozen, so a caller without its own
-  // boundary records an honest snapshot instead of silently losing the row.
-  const freezeCtOverlap = () => {
-    try {
-      opts.ctOverlap?.freeze?.({
-        global_deadline: opts.globalDeadlineProvenance?.() || null,
-      });
-    } catch { /* observational only */ }
-  };
 
   try {
     // Race the inner async work against a hard-cap timer.
@@ -158,47 +141,34 @@ export async function runSubdomainsModule(domain, opts = {}) {
         accounting,
         cache,
         ctCache,
-        ctProviders,
-        ctProvidersField,
         signal: opts.signal,
         subOps: opts.subOps,
-        ctOverlap: opts.ctOverlap,
       },
-    ).then((result) => {
-      freezeCtOverlap();
-      return result;
-    });
+    );
     return await Promise.race([
       work,
       new Promise((resolve) =>
         setTimeout(() => {
-          freezeCtOverlap();
           resolve(emptyResult("Subdomain discovery timed out (15s hard cap)"));
         }, HARD_CAP_MS)
       ),
     ]);
   } catch (err) {
-    freezeCtOverlap();
     return emptyResult(err?.message ?? "Subdomain module threw unexpectedly");
   }
 }
 
 /**
  * Inner implementation — separated so the hard-cap race wrapper stays clean.
- * All 4 network calls fire in parallel:
+ * All network calls fire in parallel:
  *   • Wildcard DNS A  (6 s DoH timeout via dnsQuery)
  *   • Wildcard DNS AAAA
- *   • shared crt.sh provider promise
  *   • shared CertSpotter provider promise
  */
 async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}) {
   const accounting = opts.accounting || null;
   const cache = opts.cache || null;
   const ctCache = opts.ctCache;
-  const ctProviders = opts.ctProviders || CT_ALL_PROVIDERS;
-  const ctProvidersField = opts.ctProvidersField || {};
-  const crtShUsed = ctProviders.includes("crt_sh");
-  const certSpotterUsed = ctProviders.includes("certspotter");
   const wildcardLabel = `cybermeters-wildcard-check-${Math.random().toString(36).slice(2, 10)}`;
   const wildcardHost  = `${wildcardLabel}.${domain}`;
 
@@ -230,31 +200,20 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     );
   };
 
-  // CT-R2 PR-3 launches both shared provider waits and releases on the first
-  // SUCCESS, never the first settlement. PR-2A overlap remains a one-way
-  // observer: it sees only providers terminal at this consumer's immutable
-  // release boundary. A later terminal attempt remains CT-R1 telemetry and the
-  // frozen overlap row records its intentional customer-evidence exclusion as
-  // `in_flight_at_consumer_release`.
-  for (const provider of ctProviders) {
-    try { opts.ctOverlap?.begin?.(provider); } catch { /* observational only */ }
-  }
+  // The shared provider wait is consumed through the first-success orchestrator,
+  // whose released projection is immutable; a later terminal attempt remains
+  // CT-R1 telemetry only.
   const ctReleasePromise = raceCertificateTransparencyFirstSuccess({
     ctCache,
     domain,
     module: "subdomains",
     accounting,
     signal: opts.signal,
-    observeTerminal: (provider, value) => {
-      try {
-        opts.ctOverlap?.observe?.(provider, { status: "fulfilled", value }, domain);
-      } catch { /* observational only */ }
-    },
     wrapProviderWait: (provider, promise) => timedSubOp(`ct_wait_${provider}`, promise),
     siblingGraceMs: CT_SIBLING_GRACE_MS,
   });
 
-  // ── Fire all 4 network calls in parallel ────────────────────────────────
+  // ── Fire all network calls in parallel ──────────────────────────────────
   const [wASettled, wAAAASettled, ctReleaseSettled] =
     await Promise.allSettled([
       timedSubOp("wildcard_dns_a", dnsQuery(wildcardHost, "A", { accounting, cache })),
@@ -262,9 +221,6 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
       ctReleasePromise,
     ]);
   const ctRelease = ctReleaseSettled.status === "fulfilled" ? ctReleaseSettled.value : null;
-  const crtShSettled = ctRelease
-    ? { status: "fulfilled", value: ctRelease.providers.crt_sh }
-    : { status: "rejected", reason: ctReleaseSettled.reason };
   const certSpotterSettled = ctRelease
     ? { status: "fulfilled", value: ctRelease.providers.certspotter }
     : { status: "rejected", reason: ctReleaseSettled.reason };
@@ -291,89 +247,25 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
 
   const seen    = new Set();
   const sources = {};
-  let crtRowsReceived = null;
-  let crtRowsExamined = null;
-  let crtRowDroppedCount = null;
-  let crtRowCapReached = null;
-  let crtUniqueTotal = null;
-  let crtUniqueKept = null;
-  let crtUniqueDroppedCount = null;
-  let crtProviderCapReached = null;
   let certSpotterUniqueTotal = null;
   let certSpotterUniqueKept = null;
   let certSpotterUniqueDroppedCount = null;
   let certSpotterProviderCapReached = null;
 
-  // ── Source 1: crt.sh (only when this scan uses it) ─────────────────────
-  if (crtShUsed) try {
-    const result = crtShSettled.status === "fulfilled" ? crtShSettled.value : null;
-    if (!result) {
-      sources.crt_sh = { count: 0, error: customerSafeFailure("scan/ct/crt-sh", crtShSettled.reason, "fetch failed") };
-    } else if (result.status === "unavailable") {
-      sources.crt_sh = projectSubdomainCtSource(result);
-    } else {
-      const rootDomain = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
-      const rawData = result.data.filter((entry) => [
-        ...(entry.name_value || "").split(/\n/),
-        entry.common_name || "",
-      ].some((raw) => {
-        const name = String(raw || "").trim().toLowerCase().replace(/\.$/, "");
-        return name !== rootDomain && name.endsWith(`.${rootDomain}`);
-      }));
-      crtRowsReceived = rawData.length;
-      crtRowsExamined = Math.min(rawData.length, 2_000);
-      crtRowDroppedCount = Math.max(0, rawData.length - crtRowsExamined);
-      crtRowCapReached = rawData.length > 2_000;
-      const crtCandidates = new Set();
-      for (const entry of rawData.slice(0, 2_000)) {
-        for (const raw of [
-          ...(entry.name_value || "").split(/\n/),
-          entry.common_name || "",
-        ]) {
-          const name = normalizeDiscoveredHostname(raw, domain);
-          if (name) crtCandidates.add(name);
-        }
-      }
-      crtUniqueTotal = crtCandidates.size;
-      const before = seen.size;
-      outer: for (const entry of rawData.slice(0, 2_000)) {
-        const names = [
-          ...(entry.name_value || "").split(/\n/),
-          entry.common_name || "",
-        ];
-        for (const raw of names) {
-          const name = normalizeDiscoveredHostname(raw, domain);
-          if (!name) continue;
-          seen.add(name);
-          if (seen.size - before >= PER_CAP) break outer;
-        }
-      }
-      crtUniqueKept = seen.size - before;
-      crtUniqueDroppedCount = Math.max(0, crtUniqueTotal - crtUniqueKept);
-      crtProviderCapReached = crtUniqueTotal > crtUniqueKept;
-      sources.crt_sh = projectSubdomainCtSource(result, crtUniqueKept);
-    }
-  } catch (err) {
-    sources.crt_sh = { count: 0, error: customerSafeFailure("scan/ct/crt-sh-parse", err, "parse error") };
-  }
-
-  // ── Source 2: CertSpotter ─────────────────────────────────────────────
+  // ── CertSpotter ───────────────────────────────────────────────────────
   // Response: [{ dns_names: ["sub.example.com", ...], ... }, ...]
-  if (certSpotterUsed) try {
+  try {
     const result = certSpotterSettled.status === "fulfilled" ? certSpotterSettled.value : null;
     if (!result) {
       sources.certspotter = { count: 0, error: customerSafeFailure("scan/ct/certspotter", certSpotterSettled.reason, "fetch failed") };
     } else if (result.status === "unavailable") {
       sources.certspotter = projectSubdomainCtSource(result);
     } else {
-      const seenBeforeCertSpotter = new Set(seen);
       const certSpotterCandidates = new Set();
       for (const entry of result.data) {
         for (const name of entry.dns_names || []) {
           const normalized = normalizeDiscoveredHostname(name, domain);
-          if (normalized && !seenBeforeCertSpotter.has(normalized)) {
-            certSpotterCandidates.add(normalized);
-          }
+          if (normalized) certSpotterCandidates.add(normalized);
         }
       }
       certSpotterUniqueTotal = certSpotterCandidates.size;
@@ -395,13 +287,13 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     sources.certspotter = { count: 0, error: customerSafeFailure("scan/ct/certspotter-parse", err, "parse error") };
   }
 
-  // ── Both CT sources failed ────────────────────────────────────────────
+  // ── CT source failed ──────────────────────────────────────────────────
   // Sprint 10C: CT source failures (rate limits, timeouts, HTTP errors) are external
-  // service issues — not a domain security failure.  Store the detail in ct_error
+  // service issues — not a domain security failure. Store the detail in ct_error
   // (available for diagnostics in modules.subdomains.ct_error) but do NOT set the
-  // top-level error field.  scan_quality must stay "complete" for these cases.
-  const usedSources = ctProviders.map((provider) => [provider, sources[provider]]);
-  const allCtSourcesFailed = usedSources.length > 0 && usedSources.every(([, row]) => row?.error);
+  // top-level error field; the module is marked incomplete instead.
+  const usedSources = CT_PROVIDERS.map((provider) => [provider, sources[provider]]);
+  const allCtSourcesFailed = usedSources.every(([, row]) => row?.error);
   if (seen.size === 0 && allCtSourcesFailed) {
     return {
       count:              0,
@@ -413,10 +305,8 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
       wildcard_dns_addresses: wildcardDnsAddresses,
       wildcard_test_host: wildcardHost,
       wildcard_warning:   wildcardWarning,
-      ct_error: usedSources.length === 2
-        ? `Both CT sources failed — crt.sh: ${sources.crt_sh.error}; certspotter: ${sources.certspotter.error}`
-        : `CT source failed — ${usedSources.map(([provider, row]) => `${provider}: ${row.error}`).join("; ")}`,
-      ...ctProvidersField,
+      ct_error: `CT source failed — ${usedSources.map(([provider, row]) => `${provider}: ${row.error}`).join("; ")}`,
+      ct_providers: [...CT_PROVIDERS],
       // Keep the external outage non-fatal to the overall scan, while making
       // this module ineligible to support a "no subdomains found" conclusion.
       // The canonical monitoring-state resolver carries the provider-specific
@@ -430,52 +320,12 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   // ── Merge, cap, sort ─────────────────────────────────────────────────
   const items     = [...seen].slice(0, MERGE_CAP).sort();
   const sensitive = items.filter((h) => isSensitiveSubdomain(h, domain));
-  const ctCoverageDegraded = !!(sources.crt_sh?.error || sources.certspotter?.error);
-  // Count the losses rather than testing a disjunction: single-provider loss and
-  // both-provider loss are different D1 outcomes and must never be conflated.
-  const ctCrtFailed = !!sources.crt_sh?.error;
-  const ctCertSpotterFailed = !!sources.certspotter?.error;
-  const ctFailedProviderCount = (ctCrtFailed ? 1 : 0) + (ctCertSpotterFailed ? 1 : 0);
-  // A lost provider can only fall back to a sibling when this scan used two.
-  const ctLostProvider = ctFailedProviderCount === 1 && ctProviders.length === 2
-    ? (ctCrtFailed ? "crt_sh" : "certspotter")
-    : null;
-  const ctSurvivingProvider = ctLostProvider === "crt_sh" ? "certspotter" : "crt_sh";
-  const ctSurvivingCount = Number(sources[ctSurvivingProvider]?.count ?? 0);
-  // DETERMINISTIC BY CONSTRUCTION. The module emits only observation FACTS and
-  // carries no wall-clock stamp: a timestamp minted here would make the module
-  // result differ between two otherwise identical runs and break the byte-identity
-  // invariant that telemetry must not change module output. The scan engine stamps
-  // `observed_at` once when it builds the validated contract record.
-  const ctDegradation = (ctLostProvider && items.length > 0 && ctSurvivingCount > 0)
-    ? Object.freeze({
-      module: "subdomains",
-      dependency: `ct_provider:${ctLostProvider}`,
-      reason: String(sources[ctLostProvider]?.error || "provider unavailable"),
-      fallback_source: `ct_provider:${ctSurvivingProvider}`,
-      fallback_count: ctSurvivingCount,
-    })
-    : null;
   const mergedCandidateTotal = seen.size;
   const mergedDroppedCount = Math.max(0, mergedCandidateTotal - items.length);
   const mergedCapReached = mergedCandidateTotal > items.length;
-  const capReached = crtRowCapReached === true ||
-    crtProviderCapReached === true ||
-    certSpotterProviderCapReached === true ||
-    mergedCapReached;
+  const capReached = certSpotterProviderCapReached === true || mergedCapReached;
   const discoveryCoverage = {
-    crt_sh: {
-      rows_received: crtRowsReceived,
-      rows_examined: crtRowsExamined,
-      rows_available: null,
-      dropped_count: crtRowDroppedCount,
-      row_cap_reached: crtRowCapReached,
-    },
     per_provider: {
-      crt_sh_unique_total: crtUniqueTotal,
-      crt_sh_unique_kept: crtUniqueKept,
-      crt_sh_dropped_count: crtUniqueDroppedCount,
-      crt_sh_cap_reached: crtProviderCapReached,
       certspotter_unique_total: certSpotterUniqueTotal,
       certspotter_unique_kept: certSpotterUniqueKept,
       certspotter_dropped_count: certSpotterUniqueDroppedCount,
@@ -497,28 +347,12 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     sensitive,
     source:             SOURCE,
     sources,
-    ...ctProvidersField,
+    ct_providers:       [...CT_PROVIDERS],
     discovery_coverage: discoveryCoverage,
     wildcard_dns:       wildcardDns,
     wildcard_dns_addresses: wildcardDnsAddresses,
     wildcard_test_host: wildcardHost,
     wildcard_warning:   wildcardWarning,
-    // ── D1 Option D (FD-006 seq 50) ──────────────────────────────────────
-    // EXACTLY ONE case may earn `degraded`: a single CT provider was lost, the
-    // surviving provider returned usable positive evidence, and a valid
-    // structured deficiency can be built. Everything else keeps the legacy
-    // `incomplete` flag and therefore stays `partial`:
-    //   * BOTH providers lost — counted, never inferred from a disjunction;
-    //   * no surviving positive evidence (nothing publishable to fall back on);
-    //   * a deficiency record the contract refuses to validate.
-    // `sources` keeps its exact legacy `{count, error}` per-provider shape; the
-    // structured facts ride in a SIBLING `degradations[]`, because that shape is
-    // a live deep-equality compatibility invariant.
-    ...(ctDegradation
-      ? { degradations: [ctDegradation] }
-      : (ctCoverageDegraded
-        ? { incomplete: true, incomplete_reason: "ct_source_degraded" }
-        : {})),
     error:              null,
   };
 }

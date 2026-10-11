@@ -56,7 +56,7 @@ const registry = Object.freeze([
       "F2_EXPOSURE_DENOMINATOR_AND_DROPPED_COUNT",
       "F7_RECHECK_SATURATION_IS_OBSERVABLE_ONLY",
       "F9_BOUNDED_COVERAGE_DOES_NOT_PROPAGATE_TO_SCAN_QUALITY",
-      "P2_ALL_FOUR_CAPS_RETAINED",
+      "P2_ALL_CAPS_RETAINED",
       "P6_BOUNDED_SIGNAL_EXPOSES_ADDITIVE_CUSTOMER_COPY",
     ],
   },
@@ -127,18 +127,7 @@ const registry = Object.freeze([
     module: "subdomains",
     file: "workers/scan-api/src/engines/subdomains-scan.js",
     anchor: `const discoveryCoverage = {
-    crt_sh: {
-      rows_received: crtRowsReceived,
-      rows_examined: crtRowsExamined,
-      rows_available: null,
-      dropped_count: crtRowDroppedCount,
-      row_cap_reached: crtRowCapReached,
-    },
     per_provider: {
-      crt_sh_unique_total: crtUniqueTotal,
-      crt_sh_unique_kept: crtUniqueKept,
-      crt_sh_dropped_count: crtUniqueDroppedCount,
-      crt_sh_cap_reached: crtProviderCapReached,
       certspotter_unique_total: certSpotterUniqueTotal,
       certspotter_unique_kept: certSpotterUniqueKept,
       certspotter_dropped_count: certSpotterUniqueDroppedCount,
@@ -155,11 +144,10 @@ const registry = Object.freeze([
   };`,
     replacement: collapsedDiscoveryCoverage,
     expected: [
-      "F3_MERGED_CAP_DENOMINATOR_AND_DROPPED_COUNT",
-      "F4_PER_PROVIDER_CAP_IS_INDEPENDENT",
-      "F5_RAW_CRT_ROW_CAP_IS_INDEPENDENT",
+      "F3_CT_CAP_DENOMINATOR_AND_DROPPED_COUNT",
+      "F4_CT_BELOW_CAP_IS_COMPLETE_NOT_BOUNDED",
       "P5_C2_MECHANISMS_REMAIN_SEPARATE",
-      "P7_RAW_ROWS_AVAILABLE_DENOMINATOR_IS_NEVER_FABRICATED",
+      "P7_COVERAGE_RECORDS_ONLY_THE_QUERIED_PROVIDER",
     ],
   },
   {
