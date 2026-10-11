@@ -25,7 +25,7 @@ const {
   runPageDiscoveryModule, PAGE_DISCOVERY_LIMITS, siteHosts, normalizePath, classifySensitivePath,
   toSameSitePageUrl, extractLinks, parseRobotsSitemaps, parseSitemap, parseCookieFlags, extractForms,
   findMixedContent, thirdPartyScriptHosts, forEachTag, hasPasswordField,
-  extractJsPaths, firstPartyScriptUrls, isRequestablePath, isApiPath,
+  extractJsPaths, firstPartyScriptUrls, isRequestablePath, isApiPath, pathWords,
 } = pd;
 
 let pass = 0, fail = 0;
@@ -510,8 +510,8 @@ const evts = (db, ws) => db.prepare("SELECT path, event_type FROM website_page_e
     ["/account/billing", "/admin/panel", "/api/v1/users", "/hidden-report", "/logout", "/settings"]);
   ok("js paths: parameterised, protocol-relative, asset and traversal paths excluded",
     !found.some((p) => p.includes(":") || p.startsWith("//") || p.startsWith("/static") || p.startsWith("/img") || p.includes("..")), JSON.stringify(found));
-  eq("unsafe GETs are never requestable", ["/logout", "/account/delete", "/unsubscribe", "/sign-out", "/api/v1/users", "/graphql", "/wp-json/x", "/oauth/token"].map(isRequestablePath), [false, false, false, false, false, false, false, false]);
-  eq("ordinary pages are requestable", ["/admin", "/account", "/pricing", "/reset-styles-guide"].map(isRequestablePath), [true, true, true, false]);
+  eq("unsafe GETs are never requestable", ["/logout", "/account/delete", "/unsubscribe", "/sign-out", "/api/v1/users", "/graphql", "/wp-json/x", "/oauth/token"].map((p) => isRequestablePath(p)), [false, false, false, false, false, false, false, false]);
+  eq("ordinary pages are requestable", ["/admin", "/account", "/pricing", "/reset-password", "/verify-email"].map((p) => isRequestablePath(p)), [true, true, true, true, true]);
   ok("api path classifier", isApiPath("/api/users") && !isApiPath("/apiary"));
   eq("first-party scripts only", firstPartyScriptUrls(`<script src="/a.js"></script><script src="https://cdn.other/x.js"></script><script src="https://www.acme.test/b.js"></script><script src="https://acme.test:8443/c.js"></script>`, "https://acme.test/", hosts),
     ["https://acme.test/a.js", "https://www.acme.test/b.js"]);
@@ -542,6 +542,79 @@ const evts = (db, ws) => db.prepare("SELECT path, event_type FROM website_page_e
   eq("js: source persisted", pageRow(db, "ws_a", "/hidden-report")?.discovery_source, "javascript");
   const counts = JSON.parse(db.prepare("SELECT counts_json FROM website_page_discovery_runs WHERE scan_id='js1'").get().counts_json);
   eq("js: run counts persisted", [counts.js_scripts_read, counts.js_api_paths_found, counts.js_paths_seen], [1, 1, 2]);
+}
+
+// ── 7. Round-3 review hardening ────────────────────────────────────────────
+async function catchAllRun({ echo, realPages = {} }) {
+  let n = 0;
+  const layout = (path, title, body) => `<html><head><title>${title}</title>${"<meta name=x content=y>".repeat(220)}<meta name="csrf-token" content="${n++}">${echo(path)}</head><body><nav><a href="/">Home</a><a href="/about">About</a></nav>${body}</body></html>`;
+  const fetchImpl = async (url) => {
+    const u = new URL(url);
+    let res;
+    if (u.pathname === "/robots.txt" || u.pathname === "/sitemap.xml") res = new Response("nf", { status: 404 });
+    else if (u.pathname === "/") res = new Response(layout("/", "Acme", `<a href="/contact">Contact</a><a href="/about">x</a>`), { headers: { "content-type": "text/html" } });
+    else if (realPages[u.pathname]) res = new Response(layout(u.pathname, realPages[u.pathname].title, realPages[u.pathname].body || ""), { headers: { "content-type": "text/html" } });
+    else res = new Response(layout(u.pathname, `${u.pathname.slice(1).replace(/-/g, " ")} | Acme`, "<p>Sorry</p>"), { headers: { "content-type": "text/html" } });
+    Object.defineProperty(res, "url", { value: url });
+    return res;
+  };
+  return runPageDiscoveryModule("acme.test", { fetchImpl });
+}
+{
+  const echoes = {
+    canonical: (p) => `<link rel="canonical" href="https://acme.test${p}">`,
+    hreflang: (p) => `<link rel="alternate" hreflang="de" href="/de${p}">`,
+    breadcrumb: (p) => `<a class="crumb" href="${p}">here</a>`,
+    title_and_link: (p) => `<a href="https://acme.test${p}">${p.slice(1)}</a>`,
+  };
+  for (const [label, echo] of Object.entries(echoes)) {
+    const r = await catchAllRun({ echo });
+    const observed = r.pages.filter((p) => p.outcome === "observed").map((p) => p.path).sort();
+    eq(`catch-all echoing path (${label}): nothing fake observed`, observed, ["/"]);
+  }
+  // Real pages on a catch-all site with the same layout but their own titles stay observed.
+  const r = await catchAllRun({ echo: (p) => `<link rel="canonical" href="https://acme.test${p}">`,
+    realPages: { "/about": { title: "About us — our story" }, "/contact": { title: "Contact the team", body: "<form method=post action='/send'><input name=email></form>" } } });
+  eq("catch-all: real pages with their own titles still observed", r.pages.filter((p) => p.outcome === "observed").map((p) => p.path).sort(), ["/", "/about", "/contact"]);
+}
+{
+  // Baseline probe unavailable → coverage says it could not tell.
+  const fetchImpl = async (url) => {
+    const u = new URL(url);
+    let res;
+    if (u.pathname.startsWith("/cybermeters-check-")) res = new Response("boom", { status: 503, headers: { "content-type": "text/html" } });
+    else if (u.pathname === "/") res = new Response("<a href='/a'>a</a>", { headers: { "content-type": "text/html" } });
+    else res = new Response("nf", { status: 404 });
+    Object.defineProperty(res, "url", { value: url });
+    return res;
+  };
+  const r = await runPageDiscoveryModule("acme.test", { fetchImpl });
+  ok("baseline unavailable recorded as a partial reason", r.partial_reasons.includes("catch_all_baseline_unavailable"), JSON.stringify(r.partial_reasons));
+}
+{
+  const unsafe = ["/sign_out", "/log_out", "/signoff", "/doLogout", "/logoutUser", "/user/logoutAll", "/account/close", "/sessions/end",
+    "/exit", "/opt-out", "/optout", "/cart/clear", "/cart/add/123", "/add-to-cart", "/admin/cache/clear", "/admin/cache/flush",
+    "/admin/reindex", "/jobs/run", "/cron", "/install", "/admin/users/123/ban", "/subscription/suspend", "/account%2Flogout"];
+  const allowed = unsafe.filter((p) => isRequestablePath(p));
+  eq("word classifier: every reviewer unsafe example refused", allowed, []);
+  eq("word classifier: sensitive pages stay requestable", ["/reset-password", "/password/reset", "/account/reset-pin", "/verify-email", "/login", "/my-account"].filter((p) => !isRequestablePath(p)), []);
+  eq("strict (JavaScript) mode refuses action verbs", ["/products/new", "/report/export", "/settings/update"].filter((p) => isRequestablePath(p, { strict: true })), []);
+  ok("strict mode still allows sensitive pages", isRequestablePath("/admin/users", { strict: true }) && isRequestablePath("/account/billing", { strict: true }));
+  eq("api classifier extended", ["/v1/users", "/v2", "/trpc/user.get", "/jsonrpc", "/odata/Products", "/services/data", "/socket.io/", "/livewire/message", "/wp-admin/admin-ajax.php"].filter((p) => !isApiPath(p)), []);
+  eq("pathWords splits camelCase and %-encoding", pathWords("/user/logoutAll/a%2Fb-c_d"), ["user", "logout", "all", "a", "b", "c", "d"]);
+}
+{
+  // JS counts are unique; JS paths that are not real pages are counted, not listed.
+  const r = await runPageDiscoveryModule("acme.test", { fetchImpl: site({
+    "acme.test/": { body: `<script src="/a.js"></script><script src="/b.js"></script>` },
+    "acme.test/a.js": { type: "application/javascript", body: `x=["/hidden-report","/promo-x"]` },
+    "acme.test/b.js": { type: "application/javascript", body: `y=["/hidden-report"]` },
+    "acme.test/hidden-report": { body: "<html>r</html>" },
+    "acme.test/promo-x": { redirect: "https://acme.test/" },
+  }) });
+  eq("js: unique paths counted once", r.javascript.paths_found, 2);
+  eq("js: checked vs seen", [r.javascript.paths_checked, r.javascript.paths_seen], [2, 1]);
+  ok("js: soft-404 JS path not listed in pages", !r.pages.some((p) => p.path === "/promo-x"));
 }
 
 // ── 4. End-to-end engine trace: queue scan → module → D1 inventory ─────────

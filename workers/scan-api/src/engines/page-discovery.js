@@ -26,7 +26,7 @@
 import { safeFetch } from "../lib/http.js";
 import { SECURITY_HEADERS } from "./security-headers-config.js";
 
-export const PAGE_DISCOVERY_VERSION = "2026-10-11.2";
+export const PAGE_DISCOVERY_VERSION = "2026-10-11.3";
 
 export const PAGE_DISCOVERY_LIMITS = Object.freeze({
   maxPages: 15,             // observed pages, homepage included
@@ -48,15 +48,65 @@ export const PAGE_DISCOVERY_LIMITS = Object.freeze({
 });
 
 // Never request paths whose GET might change state on a badly designed site,
-// and never request API endpoints: they are counted, not called.
-const UNSAFE_PATH_RE = /(?:^|\/)(?:log-?out|sign-?out|log-?off|delete|remove|destroy|unsubscribe|cancel|deactivate|revoke|reset|confirm|verify|approve|reject|disable|enable|purge|empty)(?:\/|$|[-_.])/i;
-const API_PATH_RE = /(?:^|\/)(?:api|graphql|gql|rest|rpc|wp-json|ajax|xmlrpc\.php|oauth|token|webhooks?)(?:\/|$|\.)/i;
+// and never request API endpoints: they are counted, not called. Matching is
+// on WORDS of the path (segments split on / - _ . and camelCase, %-decoded),
+// so "/doLogout", "/sign_out", "/account%2Flogout" and "/cart/add/1" are all
+// recognised, while "/reset-password" or "/verify-email" (safe to GET once the
+// query is stripped, and exactly the sensitive pages worth checking) are not.
+const UNSAFE_WORDS = new Set([
+  "logout", "signout", "logoff", "signoff", "exit", "delete", "remove", "destroy", "unsubscribe",
+  "optout", "cancel", "deactivate", "revoke", "disable", "enable", "purge", "clear", "flush",
+  "reindex", "cron", "install", "uninstall", "ban", "suspend", "block", "close", "terminate",
+  "kill", "wipe", "drop", "truncate", "empty", "confirm", "approve", "reject",
+]);
+const UNSAFE_PAIRS = [["log", "out"], ["sign", "out"], ["log", "off"], ["sign", "off"], ["opt", "out"], ["add", "to"]];
+// Paths only MENTIONED in JavaScript must also carry no action verb at all.
+const ACTION_WORDS = new Set([
+  "create", "update", "edit", "save", "submit", "send", "post", "upload", "import", "export",
+  "sync", "refresh", "trigger", "start", "stop", "pause", "resume", "publish", "unpublish",
+  "archive", "restore", "move", "copy", "toggle", "set", "assign", "invite", "add", "new", "run",
+]);
+const API_PATH_RE = /(?:^|\/)(?:api|graphql|gql|rest|rpc|trpc|jsonrpc|odata|services|socket\.io|livewire|wp-json|ajax|xmlrpc\.php|admin-ajax\.php|oauth2?|token|webhooks?|v\d{1,3})(?:\/|$|\.)/i;
 
-export function isApiPath(path) { return API_PATH_RE.test(String(path || "")); }
-/** True when a passive GET of this path is safe to make. */
-export function isRequestablePath(path) {
-  const p = String(path || "");
-  return !UNSAFE_PATH_RE.test(p) && !API_PATH_RE.test(p);
+/** Lower-case words of a path, %-decoded per segment, split on separators and camelCase. */
+export function pathWords(path) {
+  const words = [];
+  for (let seg of String(path || "").split("/")) {
+    try { seg = decodeURIComponent(seg); } catch { /* keep raw */ }
+    for (const part of seg.split(/[\/\-_.~\s+]+/)) {
+      for (const w of part.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(" ")) if (w) words.push(w.toLowerCase());
+    }
+  }
+  return words;
+}
+
+function hasUnsafeWords(words) {
+  if (words.some((w) => UNSAFE_WORDS.has(w))) return true;
+  for (let i = 0; i + 1 < words.length; i++) {
+    if (UNSAFE_PAIRS.some(([a, b]) => words[i] === a && words[i + 1] === b)) return true;
+    if ((words[i] === "cart" || words[i] === "basket") && words[i + 1] === "add") return true;
+    if (["job", "jobs", "task", "tasks"].includes(words[i]) && words[i + 1] === "run") return true;
+    if (["session", "sessions"].includes(words[i]) && words[i + 1] === "end") return true;
+  }
+  return false;
+}
+
+export function isApiPath(path) {
+  let p = String(path || "");
+  try { p = decodeURIComponent(p); } catch { /* keep raw */ }
+  return API_PATH_RE.test(p);
+}
+/**
+ * True when a passive GET of this path is safe to make. `strict` (paths only
+ * mentioned in JavaScript) additionally refuses any action verb unless the
+ * path itself is a recognised sensitive page.
+ */
+export function isRequestablePath(path, { strict = false } = {}) {
+  if (isApiPath(path)) return false;
+  const words = pathWords(path);
+  if (hasUnsafeWords(words)) return false;
+  if (strict && !classifySensitivePath(String(path || "")) && words.some((w) => ACTION_WORDS.has(w))) return false;
+  return true;
 }
 
 export const WELL_KNOWN_PATHS = Object.freeze([
@@ -382,15 +432,54 @@ function fingerprint(text) {
  * catch-all site that returns the same shell with a fresh token every time
  * still matches itself, while a genuinely different page does not.
  */
-export function structureFingerprint(html) {
+export function structureFingerprint(html, { requestedPath = null, selfPaths = null, baseUrl = null } = {}) {
   const parts = [];
-  const target = (v) => { if (!v) return ""; const t = v.trim(); const q = t.search(/[?#]/); return (q === -1 ? t : t.slice(0, q)).slice(0, 200); };
-  forEachTag(html, new Set(["a", "form", "input", "script", "link", "img", "iframe", "meta", "title", "h1", "h2", "button", "select", "textarea"]), (name, tag) => {
-    if (name === "a" || name === "link") parts.push(`${name}:${target(attrOf(tag, "href"))}`);
+  // Every path in `selfPaths` is replaced by one placeholder wherever it
+  // appears (links, titles). Comparisons pass the SAME set on both sides
+  // (candidate path + baseline probe path), so a page echoing its own address
+  // and a shell that links to that address normalise identically.
+  const selves = (selfPaths || (requestedPath ? [requestedPath] : []))
+    .filter((p) => typeof p === "string" && p && p !== "/")
+    .sort((a, b) => b.length - a.length);
+  const words = [];
+  for (const sp of selves) {
+    const lastSeg = sp.split("/").filter(Boolean).pop() || "";
+    const phrase = lastSeg.toLowerCase().replace(/[-_.\s]+/g, " ").trim();
+    if (phrase) words.push(phrase);
+  }
+  words.sort((a, b) => b.length - a.length);
+  let baseHost = null;
+  try { baseHost = baseUrl ? new URL(baseUrl).host : null; } catch { baseHost = null; }
+  const target = (v) => {
+    if (!v) return "";
+    let t = v.trim();
+    if (baseUrl) { try { const u = new URL(t, baseUrl); t = u.host === baseHost ? u.pathname : `${u.host}${u.pathname}`; } catch { /* keep raw */ } }
+    const q = t.search(/[?#]/);
+    t = (q === -1 ? t : t.slice(0, q)).slice(0, 200);
+    for (const sp of selves) t = t.split(sp).join("{P}");
+    return t;
+  };
+  const textAfter = (endIndex) => {
+    const end = html.indexOf("<", endIndex);
+    // Separators folded the same way as the path words, so "wp login.php",
+    // "wp-login.php" and "Wp Login Php" all match the echoed path.
+    let text = html.slice(endIndex, end === -1 ? endIndex + 200 : Math.min(end, endIndex + 200))
+      .toLowerCase().replace(/[-_.\s]+/g, " ").trim();
+    for (const w of words) text = text.split(w).join("{W}");
+    return text;
+  };
+  forEachTag(html, new Set(["a", "form", "input", "script", "link", "img", "iframe", "meta", "title", "h1", "h2", "button", "select", "textarea"]), (name, tag, endIndex) => {
+    if (name === "link") {
+      // canonical/alternate links restate the page's own address: not structure.
+      const rel = (attrOf(tag, "rel") || "").toLowerCase();
+      if (/canonical|alternate|shortlink/.test(rel)) return true;
+      parts.push(`link:${target(attrOf(tag, "href"))}`);
+    } else if (name === "a") parts.push(`a:${target(attrOf(tag, "href"))}`);
     else if (name === "script" || name === "img" || name === "iframe") parts.push(`${name}:${target(attrOf(tag, "src"))}`);
     else if (name === "form") parts.push(`form:${(attrOf(tag, "method") || "get").toLowerCase()}:${target(attrOf(tag, "action"))}`);
     else if (name === "input") parts.push(`input:${(attrOf(tag, "type") || "text").toLowerCase()}:${attrOf(tag, "name") || ""}`);
     else if (name === "meta") parts.push(`meta:${attrOf(tag, "name") || attrOf(tag, "property") || ""}`);
+    else if (name === "title" || name === "h1") parts.push(`${name}:${textAfter(endIndex)}`);
     else parts.push(name);
     return parts.length < 2000;
   });
@@ -463,6 +552,8 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
   let fetches = 0;
   const sources = { homepage_links: 0, robots_sitemaps: 0, sitemap_urls: 0, javascript_paths: 0, well_known_probed: 0, unsafe_skipped: 0 };
   const javascript = { scripts_read: 0, paths_found: 0, api_paths_found: 0 };
+  const jsUnique = new Set();
+  let jsChecked = 0, jsSeen = 0;
 
   const timeLeft = () => (typeof opts.remainingMs === "function" ? opts.remainingMs() : Infinity);
   const canFetch = () => {
@@ -520,11 +611,7 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
       sensitive: pages.filter((p) => p.outcome === "observed" && p.sensitive_kind).length,
     },
     sources,
-    javascript: {
-      ...javascript,
-      paths_checked: pages.filter((p) => p.source === "javascript").length,
-      paths_seen: pages.filter((p) => p.source === "javascript" && p.outcome === "observed").length,
-    },
+    javascript: { ...javascript, paths_checked: jsChecked, paths_seen: jsSeen },
     pages,
   });
 
@@ -551,7 +638,6 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
   }
   const homePath = normalizePath(new URL(homeUrl).pathname);
   const homeFingerprint = fingerprint(homeHtml);
-  const homeStructure = structureFingerprint(homeHtml);
   pages.push(observePage({ requestedUrl: homeUrl, res: home, html: homeHtml, source: "homepage", hosts, homePath, homeFingerprint, isHome: true }));
   seenPaths.add(homePath);
 
@@ -561,22 +647,26 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
   // real page (soft-404), however its tokens or nonces differ.
   let catchAll = null; // { structure } when the site answers unknown paths with HTML
   if (canFetch()) {
-    const probeUrl = new URL(randomProbePath(), homeUrl).toString();
+    const probePath = randomProbePath();
+    const probeUrl = new URL(probePath, homeUrl).toString();
     const res = await get(probeUrl);
     if (res && res.status >= 200 && res.status < 300 && fromSite(res, hosts) && /html/i.test(res.headers.get("content-type") || "")) {
-      catchAll = { structure: structureFingerprint(await readBoundedText(res, L.bodyBytes)) };
+      catchAll = { html: await readBoundedText(res, L.bodyBytes), probePath };
     } else {
+      // A definite 404/410 is the normal, informative answer. No answer or an
+      // error means we cannot tell whether this site is a catch-all: say so.
+      if (!res || res.status >= 500) partial.add("catch_all_baseline_unavailable");
       await cancelBody(res);
     }
   }
-  const softContext = { homeStructure, catchAll };
+  const softContext = { homeHtml, homeUrl, catchAll };
 
   // 2. Candidates: homepage links, then sitemaps (robots.txt + /sitemap.xml).
   const candidates = new Map(); // path -> { url, source }
   const addCandidate = (u, source) => {
     if (!u) return;
     const path = normalizePath(u.pathname);
-    if (!isRequestablePath(path)) { sources.unsafe_skipped++; return; }
+    if (!isRequestablePath(path, { strict: source === "javascript" })) { sources.unsafe_skipped++; return; }
     if (seenPaths.has(path) || candidates.has(path)) return;
     candidates.set(path, { url: u.toString(), source });
     return true;
@@ -623,6 +713,9 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
     javascript.scripts_read++;
     const found = extractJsPaths(await readBoundedText(res, L.scriptBytes), L.maxJsPaths);
     for (const p of found) {
+      const key = normalizePath(p);
+      if (jsUnique.has(key)) continue;
+      jsUnique.add(key);
       javascript.paths_found++;
       if (isApiPath(p)) { javascript.api_paths_found++; continue; }
       if (addCandidate(toSameSitePageUrl(p, homeUrl, hosts), "javascript")) sources.javascript_paths++;
@@ -645,7 +738,16 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
     const html = res && /html/i.test(res.headers.get("content-type") || "") && res.status < 400
       ? await readBoundedText(res, L.bodyBytes)
       : (await cancelBody(res), "");
-    pages.push(observePage({ requestedUrl: c.url, res, html, source: c.source, hosts, homePath, homeFingerprint, softContext }));
+    const observed = observePage({ requestedUrl: c.url, res, html, source: c.source, hosts, homePath, homeFingerprint, softContext });
+    if (c.source === "javascript") {
+      // A path only mentioned in JavaScript is kept in the result only when it
+      // is a real page (observed) or a definite 404/410 for an existing record;
+      // anything else is counted, not listed.
+      jsChecked++;
+      if (observed.outcome === "observed") jsSeen++;
+      if (observed.outcome !== "observed" && observed.outcome !== "not_found") continue;
+    }
+    pages.push(observed);
   }
 
   // 4. Well-known sensitive paths for kinds not yet covered (bounded probes).
@@ -728,9 +830,15 @@ function observePage({ requestedUrl, res, html, source, hosts, homePath, homeFin
   if (!isHome && final && normalizePath(final.pathname) === homePath) return { ...common, outcome: "soft_404", soft_404_basis: "redirected_to_homepage" };
   if (!isHome && html && fingerprint(html) === homeFingerprint) return { ...common, outcome: "soft_404", soft_404_basis: "same_content_as_homepage" };
   if (!isHome && softContext?.catchAll) {
-    const shape = structureFingerprint(html);
-    if (shape === softContext.catchAll.structure) return { ...common, outcome: "soft_404", soft_404_basis: "same_as_unknown_path_response" };
-    if (shape === softContext.homeStructure) return { ...common, outcome: "soft_404", soft_404_basis: "same_structure_as_homepage" };
+    // Symmetric normalisation: the same self-path set on every side.
+    const selfPaths = [path, softContext.catchAll.probePath];
+    const shape = structureFingerprint(html, { selfPaths, baseUrl: softContext.homeUrl });
+    if (shape === structureFingerprint(softContext.catchAll.html, { selfPaths, baseUrl: softContext.homeUrl })) {
+      return { ...common, outcome: "soft_404", soft_404_basis: "same_as_unknown_path_response" };
+    }
+    if (shape === structureFingerprint(softContext.homeHtml, { selfPaths, baseUrl: softContext.homeUrl })) {
+      return { ...common, outcome: "soft_404", soft_404_basis: "same_structure_as_homepage" };
+    }
   }
   const pageUrl = final ? final.toString() : requestedUrl;
   const forms = extractForms(html, pageUrl, hosts);
