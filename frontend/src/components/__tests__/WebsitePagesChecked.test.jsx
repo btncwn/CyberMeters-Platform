@@ -26,7 +26,7 @@ describe('WebsitePagesChecked', () => {
     expect(await screen.findByText('acme.test')).toBeInTheDocument()
     expect(api.getWebsiteSecurityPages).toHaveBeenCalledWith('ws1')
     expect(screen.getByText(/Partial: the page limit was reached/)).toBeInTheDocument()
-    expect(screen.getByText('Sign-in page')).toBeInTheDocument()
+    expect(screen.getByText('Possibly a sign-in page · from its address')).toBeInTheDocument()
     expect(screen.getByText('Password form sends to collector.example')).toBeInTheDocument()
     expect(screen.getByText('HSTS header not sent')).toBeInTheDocument()
     expect(screen.getByText('Not found')).toBeInTheDocument()
@@ -43,6 +43,17 @@ describe('WebsitePagesChecked', () => {
     api.getWebsiteSecurityPages.mockResolvedValue({ domains: [{ domain_id: 'd1', domain: 'acme.test', latest_run: null, pages: [] }] })
     render(<WebsitePagesChecked workspaceId="ws1" />)
     expect(await screen.findByText('No pages recorded for this domain yet.')).toBeInTheDocument()
-    expect(screen.getByText(/next full scan/)).toBeInTheDocument()
+    expect(screen.getByText(/queued and scheduled scans of a verified domain/)).toBeInTheDocument()
+  })
+
+  it('marks stale observations on pages that are no longer seen and shows truncation', async () => {
+    api.getWebsiteSecurityPages.mockResolvedValue({ domains: [{ domain_id: 'd1', domain: 'acme.test', latest_run: null, total_pages: 80, truncated: true, pages: [
+      { id: 'p1', path: '/portal', sensitive_kind: 'login', monitoring_status: 'not_found', last_seen_at: '2026-10-01T00:00:00Z',
+        observation: { sensitive_basis: 'password_field', https: true, security_headers: { missing: ['strict-transport-security'] }, forms: [], cookies: [], mixed_content: { count: 0 }, third_party_scripts: [] } },
+    ] }] })
+    render(<WebsitePagesChecked workspaceId="ws1" />)
+    expect(await screen.findByText('Sign-in page · has a password field')).toBeInTheDocument()
+    expect(screen.getByText(/As of when it was last seen/)).toBeInTheDocument()
+    expect(screen.getByText(/Showing 1 of 80 recorded pages/)).toBeInTheDocument()
   })
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { coverageSummary, pageFacts, pageStatusMeta } from '../websitePagesDisplay'
+import { coverageSummary, pageFacts, pageStatusMeta, sensitiveLabel } from '../websitePagesDisplay'
 
 describe('websitePagesDisplay', () => {
   it('states page status without claiming more than the evidence', () => {
@@ -10,7 +10,7 @@ describe('websitePagesDisplay', () => {
   })
 
   it('summarises coverage honestly, including partial and not run', () => {
-    expect(coverageSummary(null)).toMatch(/next full scan/)
+    expect(coverageSummary(null)).toMatch(/queued and scheduled scans of a verified domain/)
     expect(coverageSummary({ coverage: 'complete', counts: { observed: 4, max_pages: 15 } })).toBe('4 pages seen on the last scan (checks up to 15).')
     expect(coverageSummary({ coverage: 'partial', counts: { observed: 15, max_pages: 15 }, partial_reasons: ['page_limit'] })).toMatch(/Partial: the page limit was reached/)
     expect(coverageSummary({ coverage: 'not_run', partial_reasons: ['not_durable_execution'] })).toMatch(/not checked on the last scan because this scan type/)
@@ -39,5 +39,11 @@ describe('websitePagesDisplay', () => {
 
   it('a page with no observation has no facts', () => {
     expect(pageFacts({ observation: null })).toEqual([])
+  })
+
+  it('never states an address-inferred page type as fact', () => {
+    expect(sensitiveLabel({ sensitive_kind: 'admin', observation: { sensitive_basis: 'path' } })).toBe('Possibly an admin page · from its address')
+    expect(sensitiveLabel({ sensitive_kind: 'login', observation: { sensitive_basis: 'password_field' } })).toBe('Sign-in page · has a password field')
+    expect(sensitiveLabel({ sensitive_kind: null })).toBe(null)
   })
 })

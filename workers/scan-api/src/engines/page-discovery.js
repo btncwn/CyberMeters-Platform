@@ -64,15 +64,19 @@ const PROBE_HEADERS = {
 
 /** Hosts that count as "this site": the scanned host and its www/apex sibling. */
 export function siteHosts(domain) {
-  const d = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
+  let d = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
   if (!d) return new Set();
+  // WHATWG URL parsing gives the ASCII (punycode) form the fetched URLs will carry.
+  try { d = new URL(`http://${d}/`).hostname; } catch { return new Set(); }
   const apex = d.startsWith("www.") ? d.slice(4) : d;
   return new Set([apex, `www.${apex}`]);
 }
 
 /** Normalise a path for identity: no query/fragment, no trailing slash (except root). */
 export function normalizePath(pathname) {
-  let p = String(pathname || "/");
+  // Path parameters (e.g. ";jsessionid=…", added by servers for cookieless
+  // clients like the scanner) are session data, not page identity: drop them.
+  let p = String(pathname || "/").split(";")[0];
   try { p = decodeURI(p); } catch { /* keep raw */ }
   p = p.replace(/\/{2,}/g, "/");
   if (!p.startsWith("/")) p = `/${p}`;
@@ -96,25 +100,84 @@ export function toSameSitePageUrl(href, baseUrl, hosts) {
   if (u.username || u.password) return null;
   if (!hosts.has(u.hostname.toLowerCase())) return null;
   if (u.port && u.port !== "443" && u.port !== "80") return null;
+  // Drop path parameters (";jsessionid=…"): session data, not page identity.
+  if (u.pathname.includes(";")) u.pathname = u.pathname.split(";")[0];
   if (STATIC_ASSET_RE.test(u.pathname)) return null;
   u.hash = "";
   u.search = "";
   return u;
 }
 
-const attr = (tag, name) => {
-  const m = tag.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
+// ── Linear-time HTML scanning ───────────────────────────────────────────────
+// Hostile pages must not be able to burn the Worker's CPU: regexes of the form
+// /<tag\b[^>]*>/ backtrack quadratically on "<a<a<a…" bodies and a module cap
+// cannot interrupt synchronous work. Every scan below is a single forward pass
+// with indexOf; tags longer than MAX_TAG_CHARS are ignored; comments are
+// skipped; <script>/<style>/<template> CONTENT is skipped (only the opening tag
+// is inspected), so text inside inline scripts is never read as markup.
+const MAX_TAG_CHARS = 4096;
+const RAW_TEXT_TAGS = new Set(["script", "style", "template", "textarea", "noscript"]);
+
+function attrOf(tag, name) {
+  // `tag` is bounded by MAX_TAG_CHARS, so this regex runs on a short string.
+  const m = tag.match(new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
   return m ? (m[1] ?? m[2] ?? m[3] ?? "") : null;
-};
+}
+
+/**
+ * forEachTag(html, wanted, visit) — single forward pass. `wanted` is a Set of
+ * lower-case tag names; visit(name, tagText, endIndex) may return false to stop.
+ * Closing tags are reported as "/name".
+ */
+export function forEachTag(html, wanted, visit) {
+  const text = String(html || "");
+  const n = text.length;
+  let lower = null; // lower-cased copy, built once on first raw-text tag
+  let i = 0;
+  let gt = -1; // cached position of the next '>' at or after i
+  while (i < n) {
+    const lt = text.indexOf("<", i);
+    if (lt === -1) break;
+    if (text.startsWith("<!--", lt)) {
+      const end = text.indexOf("-->", lt + 4);
+      if (end === -1) break;
+      i = end + 3;
+      continue;
+    }
+    if (gt < lt) { gt = text.indexOf(">", lt); if (gt === -1) break; }
+    // Read the tag name directly (letters/digits only), no regex.
+    let k = lt + 1;
+    const closing = text[k] === "/";
+    if (closing) k++;
+    let name = "";
+    while (k < n && name.length < 16) {
+      const c = text.charCodeAt(k);
+      const isAlnum = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57);
+      if (!isAlnum) break;
+      name += text[k];
+      k++;
+    }
+    name = name.toLowerCase();
+    if (!name || gt - lt > MAX_TAG_CHARS) { i = lt + 1; continue; }
+    const key = closing ? `/${name}` : name;
+    if (wanted.has(key) && visit(key, text.slice(lt, gt + 1), gt + 1) === false) return;
+    i = gt + 1;
+    if (!closing && RAW_TEXT_TAGS.has(name)) {
+      if (lower === null) lower = text.toLowerCase();
+      const close = lower.indexOf(`</${name}`, i);
+      if (close === -1) break;
+      i = close;
+    }
+  }
+}
 
 export function extractLinks(html, limit = PAGE_DISCOVERY_LIMITS.maxLinksParsed) {
   const out = [];
-  const re = /<a\b[^>]*>/gi;
-  let m;
-  while ((m = re.exec(html)) && out.length < limit) {
-    const href = attr(m[0], "href");
+  forEachTag(html, new Set(["a"]), (_n, tag) => {
+    const href = attrOf(tag, "href");
     if (href != null) out.push(href);
-  }
+    return out.length < limit;
+  });
   return out;
 }
 
@@ -161,27 +224,43 @@ export function parseCookieFlags(setCookies, limit = PAGE_DISCOVERY_LIMITS.maxCo
 /** Forms on the page: where they post and whether they carry a password field. */
 export function extractForms(html, pageUrl, hosts, limit = PAGE_DISCOVERY_LIMITS.maxForms) {
   const forms = [];
-  const re = /<form\b([^>]*)>([\s\S]*?)(?:<\/form>|$)/gi;
-  let m;
-  while ((m = re.exec(html)) && forms.length < limit) {
-    const tag = `<form ${m[1]}>`;
-    const inner = m[2].slice(0, 20_000);
-    const method = (attr(tag, "method") || "get").toLowerCase() === "post" ? "post" : "get";
-    const action = attr(tag, "action");
-    let actionKind = "same_origin", actionScheme = null, actionHost = null;
-    if (action && action.trim() && !action.trim().startsWith("#")) {
-      try {
-        const u = new URL(action.trim(), pageUrl);
-        actionScheme = u.protocol === "https:" ? "https" : (u.protocol === "http:" ? "http" : null);
-        if (!hosts.has(u.hostname.toLowerCase())) { actionKind = "other_origin"; actionHost = u.hostname.toLowerCase(); }
-      } catch { actionKind = "unparseable"; }
-    } else {
-      try { actionScheme = new URL(pageUrl).protocol === "https:" ? "https" : "http"; } catch { /* keep null */ }
+  let current = null;
+  forEachTag(html, new Set(["form", "/form", "input"]), (name, tag) => {
+    if (name === "form") {
+      if (forms.length >= limit) return false;
+      const method = (attrOf(tag, "method") || "get").toLowerCase() === "post" ? "post" : "get";
+      const action = attrOf(tag, "action");
+      let actionKind = "same_origin", actionScheme = null, actionHost = null;
+      if (action && action.trim() && !action.trim().startsWith("#")) {
+        try {
+          const u = new URL(action.trim(), pageUrl);
+          actionScheme = u.protocol === "https:" ? "https" : (u.protocol === "http:" ? "http" : null);
+          if (!hosts.has(u.hostname.toLowerCase())) { actionKind = "other_origin"; actionHost = u.hostname.toLowerCase(); }
+        } catch { actionKind = "unparseable"; }
+      } else {
+        try { actionScheme = new URL(pageUrl).protocol === "https:" ? "https" : "http"; } catch { /* keep null */ }
+      }
+      current = { method, action_kind: actionKind, action_scheme: actionScheme, action_host: actionHost, has_password: false };
+      forms.push(current);
+    } else if (name === "/form") {
+      current = null;
+    } else if (current && isPasswordInput(tag)) {
+      current.has_password = true;
     }
-    const hasPassword = /<input\b[^>]*\btype\s*=\s*["']?password\b/i.test(inner);
-    forms.push({ method, action_kind: actionKind, action_scheme: actionScheme, action_host: actionHost, has_password: hasPassword });
-  }
+    return true;
+  });
   return forms;
+}
+
+function isPasswordInput(tag) {
+  const t = attrOf(tag, "type");
+  return typeof t === "string" && t.trim().toLowerCase() === "password";
+}
+
+export function hasPasswordField(html) {
+  let found = false;
+  forEachTag(html, new Set(["input"]), (_n, tag) => { if (isPasswordInput(tag)) { found = true; return false; } return true; });
+  return found;
 }
 
 /** Active mixed content on an HTTPS page: http:// scripts, iframes, stylesheets, images. */
@@ -191,47 +270,46 @@ export function findMixedContent(html, pageUrl) {
   if (!https) return { count: 0, hosts: [] };
   const hosts = new Set();
   let count = 0;
-  const re = /<(script|iframe|img|link|source|video|audio|embed)\b[^>]*>/gi;
-  let m;
-  while ((m = re.exec(html))) {
-    const tag = m[0];
-    const name = m[1].toLowerCase();
+  forEachTag(html, new Set(["script", "iframe", "img", "link", "source", "video", "audio", "embed"]), (name, tag) => {
     if (name === "link") {
-      const rel = (attr(tag, "rel") || "").toLowerCase();
-      if (!/stylesheet|preload|modulepreload/.test(rel)) continue;
+      const rel = (attrOf(tag, "rel") || "").toLowerCase();
+      if (!/stylesheet|preload|modulepreload/.test(rel)) return true;
     }
-    const ref = attr(tag, name === "link" ? "href" : "src");
-    if (ref && /^http:\/\//i.test(ref.trim())) {
+    const ref = attrOf(tag, name === "link" ? "href" : "src");
+    if (ref && ref.trim().toLowerCase().startsWith("http://")) {
       count++;
-      try { hosts.add(new URL(ref.trim()).hostname.toLowerCase()); } catch { /* ignore */ }
+      try { if (hosts.size < 10) hosts.add(new URL(ref.trim()).hostname.toLowerCase()); } catch { /* ignore */ }
     }
-  }
-  return { count, hosts: [...hosts].slice(0, 10) };
+    return true;
+  });
+  return { count, hosts: [...hosts] };
 }
 
 /** Hostnames of <script src> outside this site. */
 export function thirdPartyScriptHosts(html, pageUrl, hosts, limit = PAGE_DISCOVERY_LIMITS.maxThirdPartyScripts) {
   const out = new Set();
-  const re = /<script\b[^>]*>/gi;
-  let m;
-  while ((m = re.exec(html)) && out.size < limit) {
-    const src = attr(m[0], "src");
-    if (!src) continue;
-    try {
-      const u = new URL(src.trim(), pageUrl);
-      const h = u.hostname.toLowerCase();
-      if ((u.protocol === "https:" || u.protocol === "http:") && !hosts.has(h)) out.add(h);
-    } catch { /* ignore */ }
-  }
+  forEachTag(html, new Set(["script"]), (_n, tag) => {
+    const src = attrOf(tag, "src");
+    if (src) {
+      try {
+        const u = new URL(src.trim(), pageUrl);
+        const h = u.hostname.toLowerCase();
+        if ((u.protocol === "https:" || u.protocol === "http:") && !hosts.has(h)) out.add(h);
+      } catch { /* ignore */ }
+    }
+    return out.size < limit;
+  });
   return [...out].sort();
 }
 
 function fingerprint(text) {
-  // Cheap, stable content fingerprint for soft-404 detection (not security-relevant).
-  const s = String(text || "").replace(/\s+/g, " ").slice(0, 4096);
+  // Content fingerprint for soft-404 detection over the WHOLE bounded body
+  // (a shared <head> longer than any prefix must not make every page "equal").
+  // Not security-relevant; FNV-1a 32-bit + length.
+  const s = String(text || "");
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return (h >>> 0).toString(16);
+  return `${s.length}:${(h >>> 0).toString(16)}`;
 }
 
 async function readBoundedText(res, maxBytes) {
@@ -304,7 +382,17 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
   const get = async (url) => {
     fetches++;
     const timeout = AbortSignal.timeout(L.perFetchTimeoutMs);
-    const signal = opts.signal && typeof AbortSignal.any === "function" ? AbortSignal.any([opts.signal, timeout]) : (opts.signal || timeout);
+    let signal = timeout;
+    if (opts.signal) {
+      if (typeof AbortSignal.any === "function") signal = AbortSignal.any([opts.signal, timeout]);
+      else {
+        const c = new AbortController();
+        const stop = () => c.abort();
+        opts.signal.addEventListener?.("abort", stop, { once: true });
+        timeout.addEventListener?.("abort", stop, { once: true });
+        signal = c.signal;
+      }
+    }
     try {
       return await safeFetch(url, {
         method: "GET",
@@ -355,8 +443,9 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
     try { finalUrl = new URL(res.url || `${proto}://${domain}/`); } catch { continue; }
     if (!hosts.has(finalUrl.hostname.toLowerCase())) { partial.add("homepage_redirects_offsite"); try { await res.body?.cancel(); } catch { /* */ } break; }
     if (res.status >= 500 || res.status >= 400) { partial.add("homepage_error_status"); try { await res.body?.cancel(); } catch { /* */ } continue; }
-    home = res; homeUrl = finalUrl.toString();
-    homeHtml = /html/i.test(res.headers.get("content-type") || "") ? await readBoundedText(res, L.bodyBytes) : "";
+    home = res; homeUrl = stripUrl(finalUrl.toString());
+    if (/html/i.test(res.headers.get("content-type") || "")) homeHtml = await readBoundedText(res, L.bodyBytes);
+    else await cancelBody(res);
     break;
   }
   if (!home) {
@@ -384,7 +473,7 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
   const sitemapUrls = [];
   if (canFetch()) {
     const robots = await get(new URL("/robots.txt", homeUrl).toString());
-    if (robots && robots.status === 200) {
+    if (robots && robots.status === 200 && fromSite(robots, hosts)) {
       for (const sm of parseRobotsSitemaps(await readBoundedText(robots, 32_768))) {
         const u = toSitemapUrl(sm, homeUrl, hosts);
         if (u) { sitemapUrls.push(u); sources.robots_sitemaps++; }
@@ -398,7 +487,7 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
     const smUrl = sitemapQueue.shift();
     sitemapsFetched++;
     const res = await get(smUrl);
-    if (!res || res.status !== 200) { try { await res?.body?.cancel(); } catch { /* */ } continue; }
+    if (!res || res.status !== 200 || !fromSite(res, hosts)) { await cancelBody(res); continue; }
     const { isIndex, locs } = parseSitemap(await readBoundedText(res, L.sitemapBytes));
     if (isIndex) {
       for (const loc of locs.slice(0, 3)) { const u = toSitemapUrl(loc, homeUrl, hosts); if (u) sitemapQueue.push(u); }
@@ -458,8 +547,21 @@ function toSitemapUrl(raw, homeUrl, hosts) {
   try {
     const u = new URL(String(raw).trim(), homeUrl);
     if ((u.protocol !== "https:" && u.protocol !== "http:") || !hosts.has(u.hostname.toLowerCase())) return null;
+    if (u.username || u.password) return null;
+    if (u.port && u.port !== "443" && u.port !== "80") return null;
+    u.hash = "";
     return u.toString();
   } catch { return null; }
+}
+
+/** True when a response (after redirects) still comes from this site. */
+function fromSite(res, hosts) {
+  try { return !!res && hosts.has(new URL(res.url).hostname.toLowerCase()); } catch { return false; }
+}
+
+/** Origin + path only: never keep a query string or fragment from a redirect. */
+function stripUrl(u) {
+  try { const x = new URL(u); return `${x.protocol}//${x.host}${x.pathname.split(";")[0]}`; } catch { return null; }
 }
 
 function observePage({ requestedUrl, res, html, source, hosts, homePath, homeFingerprint, isHome = false }) {
@@ -474,7 +576,7 @@ function observePage({ requestedUrl, res, html, source, hosts, homePath, homeFin
   const common = {
     ...base,
     status_code: res.status,
-    final_url: final ? `${final.protocol}//${final.host}${final.pathname}` : null,
+    final_url: final ? stripUrl(final.toString()) : null,
     redirected: (() => {
       try {
         const req = new URL(requestedUrl);
@@ -493,7 +595,7 @@ function observePage({ requestedUrl, res, html, source, hosts, homePath, homeFin
   if (!isHome && html && fingerprint(html) === homeFingerprint) return { ...common, outcome: "soft_404", soft_404_basis: "same_content_as_homepage" };
   const pageUrl = final ? final.toString() : requestedUrl;
   const forms = extractForms(html, pageUrl, hosts);
-  const hasPassword = forms.some((f) => f.has_password) || /<input\b[^>]*\btype\s*=\s*["']?password\b/i.test(html);
+  const hasPassword = forms.some((f) => f.has_password) || hasPasswordField(html);
   const observation = {
     ...common,
     outcome: "observed",

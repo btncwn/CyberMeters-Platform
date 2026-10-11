@@ -24,7 +24,7 @@ const { runScanEngine } = await import(src("engines", "scan-engine.js"));
 const {
   runPageDiscoveryModule, PAGE_DISCOVERY_LIMITS, siteHosts, normalizePath, classifySensitivePath,
   toSameSitePageUrl, extractLinks, parseRobotsSitemaps, parseSitemap, parseCookieFlags, extractForms,
-  findMixedContent, thirdPartyScriptHosts,
+  findMixedContent, thirdPartyScriptHosts, forEachTag, hasPasswordField,
 } = pd;
 
 let pass = 0, fail = 0;
@@ -336,6 +336,121 @@ const evts = (db, ws) => db.prepare("SELECT path, event_type FROM website_page_e
   eq("route: soft-deleted workspace 404", (await call("ws_a"))[0], 404);
 }
 
+// ── 5. Non-author review hardening ─────────────────────────────────────────
+{
+  // P1-1: hostile HTML is parsed in linear time (no catastrophic backtracking).
+  const N = 98_304;
+  const hostile = {
+    links: "<a".repeat(N / 2), imgs: "<img".repeat(N / 4), forms: "<form".repeat(N / 5),
+    inputs: "<input".repeat(N / 6), scripts: "<script".repeat(N / 7),
+    farGt: "<a" + " x".repeat(N / 2) + ">", scriptsClosed: "<script>x</script>".repeat(N / 17),
+    comments: "<!--".repeat(N / 4),
+  };
+  const time = (fn) => { const t = performance.now(); fn(); return performance.now() - t; };
+  for (const [label, html] of Object.entries(hostile)) {
+    const ms = Math.max(
+      time(() => extractLinks(html)), time(() => findMixedContent(html, "https://acme.test/")),
+      time(() => extractForms(html, "https://acme.test/", hosts)), time(() => hasPasswordField(html)),
+      time(() => thirdPartyScriptHosts(html, "https://acme.test/", hosts)),
+    );
+    ok(`hostile HTML (${label}) parsed in linear time`, ms < 300, `${ms.toFixed(0)}ms`);
+  }
+  // Linear scaling: a 400 KB "<a<a…<a>" body (one far '>') must stay fast; a
+  // scanner that re-searches for '>' per '<' is quadratic here (~0.5 s).
+  {
+    const big = "<a".repeat(200_000) + ">";
+    let worst = 0;
+    for (let k = 0; k < 3; k++) worst = Math.max(worst, time(() => extractLinks(big)));
+    ok("scanner scales linearly on a 400 KB hostile body", worst < 150, `${worst.toFixed(0)}ms`);
+  }
+  // Whole module against a site serving hostile bodies on every page.
+  const body = "<a href='/p1'>" + "<a".repeat(48_000);
+  const routes = { "acme.test/": { body } };
+  for (let i = 0; i < 20; i++) routes[`acme.test/p${i}`] = { body: `<a href='/p${i + 1}'>` + "<img".repeat(24_000) };
+  const t0 = performance.now();
+  await runPageDiscoveryModule("acme.test", { fetchImpl: site(routes) });
+  ok("hostile site: whole module stays fast", performance.now() - t0 < 3_000, `${(performance.now() - t0).toFixed(0)}ms`);
+}
+{
+  // Scanner semantics: comments and raw-text (script/style) content are not markup.
+  eq("comment-hidden password field ignored", hasPasswordField("<!-- <input type=password> --><p>x</p>"), false);
+  eq("script string '<form' ignored", extractForms(`<script>var s = "<form action='http://x'><input type=password>";</script>`, "https://acme.test/", hosts).length, 0);
+  eq("mixed content inside script string ignored", findMixedContent(`<script>document.write('<img src="http://x/y.png">')</script>`, "https://acme.test/").count, 0);
+  eq("data-href is not href", extractLinks(`<a data-href="/x">`), []);
+  let seen = 0; forEachTag("<A HREF=/a><a\nhref='/b'>", new Set(["a"]), () => { seen++; });
+  eq("tags across case and newlines", seen, 2);
+}
+{
+  // P1-2: a long shared <head> does not make different pages "the same".
+  const head = "<head>" + "<meta name=x content=y>".repeat(250) + "</head>"; // ~5.5 KB
+  const r = await runPageDiscoveryModule("acme.test", { fetchImpl: site({
+    "acme.test/": { body: `<html>${head}<body><a href="/login">in</a> home</body></html>` },
+    "acme.test/login": { body: `<html>${head}<body><form method=post><input type=password></form></body></html>` },
+  }) });
+  eq("shared head: real page still observed", r.pages.find((p) => p.path === "/login")?.outcome, "observed");
+}
+{
+  // DNS answering a private address: safeFetch refuses, nothing is fetched.
+  const log = [];
+  const privateDns = async (_host, type) => ({ Status: 0, Answer: type === "A" ? [{ name: "acme.test", type: 1, TTL: 60, data: "10.0.0.5" }] : [] });
+  const r = await runPageDiscoveryModule("acme.test", { fetchImpl: site(baseRoutes, { log }), dnsResolver: privateDns });
+  eq("private DNS: no request reaches the host", log.length, 0);
+  eq("private DNS: not_run", r.coverage, "not_run");
+  // And the scan engine wires the strict resolver into the module.
+  const engineSrc = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/scan-engine.js"), "utf8");
+  ok("engine passes dnsResolver + dnsCache to page discovery",
+    /runPageDiscoveryModule\(domain, \{\s*dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs,\s*\}\)/.test(engineSrc));
+}
+{
+  // robots.txt / sitemap-index entries off-host or on other ports are never fetched.
+  const log = [];
+  await runPageDiscoveryModule("acme.test", { fetchImpl: site({
+    "acme.test/": { body: "<a href='/a'>" },
+    "acme.test/robots.txt": { type: "text/plain", body: "Sitemap: https://acme.test:6379/s.xml\nSitemap: https://evil.example/s.xml\nSitemap: https://u:p@acme.test/s.xml\nSitemap: https://acme.test/index.xml" },
+    "acme.test/index.xml": { type: "application/xml", body: "<sitemapindex><sitemap><loc>http://www.acme.test:22/x.xml</loc></sitemap><sitemap><loc>https://evil.example/y.xml</loc></sitemap></sitemapindex>" },
+  }, { log }) });
+  ok("sitemaps: no other host, port or credentials fetched",
+    !log.some((u) => /:6379|:22\/|evil\.example|u:p@/.test(u)), JSON.stringify(log));
+  // A robots.txt that redirects off-site is not parsed.
+  const log2 = [];
+  await runPageDiscoveryModule("acme.test", { fetchImpl: site({
+    "acme.test/": { body: "<p>x</p>" },
+    "acme.test/robots.txt": { redirect: "https://elsewhere.example/robots.txt" },
+    "elsewhere.example/robots.txt": { type: "text/plain", body: "Sitemap: https://acme.test/secret-sitemap.xml" },
+  }, { log: log2 }) });
+  ok("off-site robots.txt is not parsed", !log2.some((u) => u.includes("secret-sitemap")), JSON.stringify(log2));
+}
+{
+  // Privacy: redirect query strings and path session parameters never survive.
+  const r = await runPageDiscoveryModule("acme.test", { fetchImpl: site({
+    "acme.test/": { redirect: "https://acme.test/home?session=SECRET123#frag" },
+    "acme.test/home": { body: "<a href='/login;jsessionid=JSESS42'>in</a>" },
+    "acme.test/login": { body: "<form method=post><input type=password></form>" },
+  }) });
+  const dump = JSON.stringify(r);
+  ok("no redirect query string or fragment kept", !/SECRET123|frag/.test(dump), dump.slice(0, 300));
+  ok("no ;jsessionid kept", !dump.includes("JSESS42"));
+  ok("session-parameter path normalised to the page", r.pages.some((p) => p.path === "/login" && p.outcome === "observed"));
+}
+{
+  // Unicode domain: hosts are compared in their ASCII form.
+  ok("unicode domain → punycode host", siteHosts("bücher.example").has("xn--bcher-kva.example"));
+}
+{
+  // The module never carries a field the scan-quality / verification gates read.
+  const FORBIDDEN = ["incomplete", "incomplete_reason", "skipped", "error", "degradations", "outcome"];
+  const shapes = [
+    await runPageDiscoveryModule("acme.test", { fetchImpl: site(baseRoutes) }),
+    await runPageDiscoveryModule("acme.test", { fetchImpl: site(baseRoutes), remainingMs: () => 0 }),
+    await runPageDiscoveryModule("acme.test", { fetchImpl: site({ "acme.test/": { status: 503 } }) }),
+  ];
+  ok("module result never carries scan-quality/verification fields", shapes.every((r) => FORBIDDEN.every((k) => !(k in r))));
+  const engineSrc = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/scan-engine.js"), "utf8");
+  const notRunSrc = engineSrc.match(/const notRun = \(reason\) => \(\{([^\n]*)\}\);/)?.[1] || "";
+  ok("engine notRun() carries no scan-quality/verification fields", notRunSrc && FORBIDDEN.every((k) => !new RegExp(`\\b${k}\\s*:`).test(notRunSrc)), notRunSrc);
+  ok("engine leaves post-terminal headroom before launching", /deadline\.canRun\(PAGE_DISCOVERY_BUDGET_MS \+ PAGE_DISCOVERY_POST_TERMINAL_RESERVE_MS\)/.test(engineSrc));
+}
+
 // ── 4. End-to-end engine trace: queue scan → module → D1 inventory ─────────
 {
   const NOW = "2026-10-11T09:00:00.000Z";
@@ -414,6 +529,9 @@ const evts = (db, ws) => db.prepare("SELECT path, event_type FROM website_page_e
   const q = await run("waituntil");
   eq("trace: non-durable scan does not crawl", [q.report?.modules?.page_discovery?.coverage, q.report?.modules?.page_discovery?.partial_reasons?.[0]], ["not_run", "not_durable_execution"]);
   eq("trace: non-durable scan writes no pages", q.db.prepare("SELECT COUNT(*) AS n FROM website_pages").get().n, 0);
+  const qMod = q.report?.modules?.page_discovery || {};
+  ok("trace: not_run module carries no scan-quality/verification fields",
+    ["incomplete", "incomplete_reason", "skipped", "error", "degradations", "outcome"].every((k) => !(k in qMod)), JSON.stringify(qMod));
 }
 
 console.log(`validate-website-page-discovery: ${pass} passed, ${fail} failed`);

@@ -13,8 +13,8 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 280
-- **Auth-guarded:** 250
+- **Total entry points:** 281
+- **Auth-guarded:** 251
 - **Unauthenticated (public by design):** 30
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
@@ -28,7 +28,7 @@ guard without an explicit, documented public-allowlist reason.
 | public-or-global | 38 | 20 |
 | unknown | 63 | 54 |
 | webhook | 2 | 0 |
-| workspace | 138 | 138 |
+| workspace | 139 | 139 |
 
 ## Public allowlist (unauthenticated by design)
 
@@ -391,6 +391,7 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
+| GET | `/^\/api\/workspaces\/([^/` | 44 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `(none)` | 98 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `(none)` | 150 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
