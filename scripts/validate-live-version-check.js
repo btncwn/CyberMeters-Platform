@@ -33,8 +33,12 @@ ok("pages: /version.json is never cached (inherits the no-store rule)", /^\/\*\n
 // ── 2. Worker stamp ─────────────────────────────────────────────────────────
 const index = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "index.js"), "utf8");
 ok("worker: /health reports a full-SHA commit or null", /commit:\s+\/\^\[0-9a-f\]\{40\}\$\/\.test\(String\(env\.GIT_COMMIT \|\| ""\)\) \? env\.GIT_COMMIT : null/.test(index));
+const deploy = fs.readFileSync(path.join(root, "scripts", "deploy-scan-api.sh"), "utf8");
+ok("worker: deploy script stamps the commit it is built from", /commit=\$\(git -C "\$root" rev-parse HEAD\)/.test(deploy) && /wrangler deploy --var "GIT_COMMIT:\$commit"/.test(deploy));
+ok("worker: deploy script refuses uncommitted Worker sources (the stamp must be true)", /status --porcelain -- workers\/scan-api shared\)" \]; then[\s\S]*?exit 1/.test(deploy) && /^set -eu$/m.test(deploy));
+// workers/scan-api/package.json is SHA-pinned by the install-script policy — the stamp lives in the script instead.
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "workers", "scan-api", "package.json"), "utf8"));
-ok("worker: npm run deploy stamps the commit", pkg.scripts.deploy === "wrangler deploy --var GIT_COMMIT:$(git rev-parse HEAD)");
+ok("worker: package.json deploy script untouched (install-script policy pin)", pkg.scripts.deploy === "wrangler deploy");
 
 // ── 3. Assessment ───────────────────────────────────────────────────────────
 eq("assess: live = main", assessComponent({ liveCommit: A, mainCommit: A, pending: [], reachable: true }), { status: "live_at_main", ok: true });

@@ -11,7 +11,7 @@
 //
 // Exit code 0: every component is live at main (or nothing it ships changed
 // since). 1: something on main is not live yet, or a component cannot say
-// which commit it runs (e.g. a Worker deployed without `npm run deploy`).
+// which commit it runs (e.g. a Worker deployed without scripts/deploy-scan-api.sh).
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
@@ -36,7 +36,7 @@ const STATUS_TEXT = {
   live_no_pending_changes: "live (later main commits do not touch it)",
   behind_main: "NOT live — commits on main are waiting to be deployed",
   live_commit_not_on_main: "live commit is not on main (deployed from another branch?)",
-  unknown_commit: "cannot tell — it does not report its commit (deploy with `npm run deploy`)",
+  unknown_commit: "cannot tell — it does not report its commit (deploy with `sh scripts/deploy-scan-api.sh`)",
   unreachable: "unreachable",
 };
 
