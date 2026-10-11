@@ -92,9 +92,9 @@ const EXPECTED = Object.freeze({
     source_file_count: 15,
     // The QA-benchmark admin gate shifts workspace-insights.js source lines;
     // all 35 predicate snippets and 26 query sites remain unchanged.
-    fingerprint: "6671cdf648b453da8db48e74ce306cf80e5fdf1a1e09530eda6c317443e141a6",
+    fingerprint: "5148873db302b47363e104b373f253d469f33a6b05f50dc64ae8d57521c8d0f8",
     resolved_query_sink_count: 19,
-    resolved_query_sink_fingerprint: "d48936a6c782e2ea3506e25238cddea54c4bc5962c80b7fbe101ce2fa3ef4259",
+    resolved_query_sink_fingerprint: "c704df5c4e2638595e2b0cf0e544ea0e5b2a35e00493bad8e253e8fe41c77e4d",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -201,7 +201,7 @@ const EXPECTED = Object.freeze({
   // workspace aggregate scan selectors into one direct-attribution helper
   // shifts source positions only. No scan-quality read was added or removed.
   // Trial PDF admission shifts source locations; all 23 existing projection SQL texts and multiplicities are unchanged.
-  sql_reads: { projection_occurrences: 23, fingerprint: "cabf99a08e0652bbce6c1a25c7e924ffbe90b28e73799ab7a8151af1dbcc4222" },
+  sql_reads: { projection_occurrences: 23, fingerprint: "79060875dc702fe896f1e0208fed4ef34586670359c584858e46ebb1823cec77" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

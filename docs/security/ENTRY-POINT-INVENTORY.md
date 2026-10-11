@@ -13,14 +13,14 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 279
-- **Auth-guarded:** 249
+- **Total entry points:** 280
+- **Auth-guarded:** 250
 - **Unauthenticated (public by design):** 30
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
 | Scope | Handlers | Auth-guarded |
 |---|---:|---:|
-| account | 25 | 25 |
+| account | 26 | 26 |
 | admin | 2 | 2 |
 | email | 1 | 1 |
 | portfolio | 9 | 9 |
@@ -492,12 +492,13 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `(none)` | 59 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| PATCH | `(none)` | 186 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| DELETE | `(none)` | 218 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 285 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `(none)` | 368 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| POST | `/^\/api\/workspaces\/([^/` | 457 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 542 | workspace | ✓ | requireAuth |
+| GET | `(none)` | 60 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| PATCH | `(none)` | 187 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `(none)` | 219 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 286 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 369 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^/` | 458 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/api/account/deleted-workspaces` | 558 | account | ✓ | requireAuth |
+| POST | `/^\/api\/workspaces\/([^/` | 625 | workspace | ✓ | requireAuth |
 
 _`*` = workspace-scoping helper (getAccessibleWorkspaceIds / getWorkspaceBillingUserId)._
