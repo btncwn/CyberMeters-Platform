@@ -10,10 +10,11 @@ import { parseServerDate } from '../utils/dates'
 // `justDeleted` ({ id, name }) comes from the delete flow so the owner gets an
 // immediate "Undo" for the workspace they just removed.
 
-function formatDay(value) {
+// The deadline is an exact moment (deletion + window), so show the time too.
+function formatDeadline(value) {
   const d = parseServerDate(value)
   if (!d || Number.isNaN(d.getTime())) return null
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })
+  return d.toLocaleString(undefined, { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function restoreErrorMessage(err) {
@@ -76,7 +77,7 @@ export default function DeletedWorkspacesPanel({ justDeleted = null, onRestored 
           <div className="text-sm">
             <p className="font-semibold text-green-800">“{restored.name}” was restored.</p>
             <p className="text-green-700 mt-0.5">
-              Scheduled scans stay paused and archived assets stay inactive until you turn them back on.
+              Monitoring resumes: scheduled scans for its domains are switched back on and its asset inventory is active again.
             </p>
           </div>
         </div>
@@ -87,8 +88,8 @@ export default function DeletedWorkspacesPanel({ justDeleted = null, onRestored 
           <div className="flex-1 text-sm">
             <p className="font-semibold text-amber-900">“{justDeletedItem.name}” was deleted.</p>
             <p className="text-amber-800 mt-0.5">
-              {formatDay(justDeletedItem.restorable_until)
-                ? <>You can undo this until {formatDay(justDeletedItem.restorable_until)}. After that its data is permanently removed.</>
+              {formatDeadline(justDeletedItem.restorable_until)
+                ? <>You can undo this before {formatDeadline(justDeletedItem.restorable_until)}. After that its data is permanently removed.</>
                 : <>You can undo this during the restore window. After that its data is permanently removed.</>}
             </p>
             {rowError[justDeletedItem.id] && <p className="text-red-700 mt-1">{rowError[justDeletedItem.id]}</p>}
@@ -112,7 +113,7 @@ export default function DeletedWorkspacesPanel({ justDeleted = null, onRestored 
             <h2 className="text-sm font-bold text-gray-900">Recently deleted</h2>
           </div>
           <p className="text-xs text-gray-500 mb-3">
-            Deleted workspaces can be restored until permanent deletion. Restoring does not restart scheduled scans.
+            Deleted workspaces can be restored before permanent deletion. Restoring switches monitoring back on for the domains still in the workspace.
           </p>
           {loadError ? (
             <div className="flex items-center gap-2 text-sm text-red-700">
@@ -127,8 +128,8 @@ export default function DeletedWorkspacesPanel({ justDeleted = null, onRestored 
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">{ws.name}</p>
                     <p className="text-xs text-gray-500">
-                      {formatDay(ws.restorable_until)
-                        ? `Can be restored until ${formatDay(ws.restorable_until)}`
+                      {formatDeadline(ws.restorable_until)
+                        ? `Can be restored before ${formatDeadline(ws.restorable_until)}`
                         : 'Can be restored during the restore window'}
                     </p>
                     {rowError[ws.id] && <p className="text-xs text-red-700 mt-1">{rowError[ws.id]}</p>}

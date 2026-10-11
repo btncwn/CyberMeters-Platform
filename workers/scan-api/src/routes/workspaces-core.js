@@ -534,20 +534,37 @@ export async function workspacesCoreRoutes(rctx) {
 	      }
 	    }
 
+    // ── Restore-window clock ────────────────────────────────────────────────
+    // The purge cron is due DELETION_PURGE_WINDOW_DAYS after the OLDEST open
+    // workspace deletion request (isDeletionPurgeDue on created_at), which can
+    // predate deleted_at when a delete re-used an old pending request. The
+    // customer-facing deadline is therefore the earlier of the two; an
+    // unparseable deleted_at has no honest deadline and is not restorable.
+    const restoreWindowMs = DELETION_PURGE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const restoreClockMs = (deletedAt, oldestPendingAt) => {
+      const deletedMs = new Date(deletedAt).getTime();
+      if (!deletedAt || Number.isNaN(deletedMs)) return NaN;
+      const pendingMs = oldestPendingAt ? new Date(oldestPendingAt).getTime() : NaN;
+      return Number.isNaN(pendingMs) ? deletedMs : Math.min(deletedMs, pendingMs);
+    };
+
     // ── GET /api/account/deleted-workspaces ─────────────────────────────────
     // The owner's soft-deleted workspaces that can still be restored: inside the
-    // purge window and with no permanent deletion started or finished. Session
-    // only, owner-scoped by owner_user_id, bounded. Read failures are a 503,
-    // never an empty list that would hide a restorable workspace.
+    // purge window, with no workspace purge started or finished and no account
+    // deletion in progress (an account purge destroys every owned workspace).
+    // Session only, owner-scoped by owner_user_id, bounded. Read failures are a
+    // 503, never an empty list that would hide a restorable workspace.
     if (request.method === "GET" && url.pathname === "/api/account/deleted-workspaces") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
-      const windowMs = DELETION_PURGE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
       try {
         const rows = await env.cybermeters_db
           .prepare(
-            `SELECT w.id, w.name, w.deleted_at
+            `SELECT w.id, w.name, w.deleted_at,
+                    (SELECT MIN(p.created_at) FROM deletion_requests p
+                      WHERE p.request_type = 'workspace' AND p.workspace_id = w.id
+                        AND p.status = 'pending') AS oldest_pending_at
                FROM workspaces w
               WHERE w.owner_user_id = ?
                 AND w.deleted_at IS NOT NULL
@@ -558,20 +575,29 @@ export async function workspacesCoreRoutes(rctx) {
                      AND d.workspace_id = w.id
                      AND d.status IN ('purging', 'completed')
                 )
+                AND NOT EXISTS (
+                  SELECT 1 FROM deletion_requests a
+                   WHERE a.request_type = 'account'
+                     AND a.user_id = ?
+                     AND a.status IN ('pending', 'purging')
+                )
               ORDER BY w.deleted_at DESC
               LIMIT 50`
           )
-          .bind(user.id, `-${DELETION_PURGE_WINDOW_DAYS} days`)
+          .bind(user.id, `-${DELETION_PURGE_WINDOW_DAYS} days`, user.id)
           .all();
-        const workspaces = (rows?.results || []).map((w) => {
-          const deletedMs = new Date(w.deleted_at).getTime();
-          return {
+        const now = Date.now();
+        const workspaces = [];
+        for (const w of rows?.results || []) {
+          const clock = restoreClockMs(w.deleted_at, w.oldest_pending_at);
+          if (Number.isNaN(clock) || now >= clock + restoreWindowMs) continue;
+          workspaces.push({
             id: w.id,
             name: w.name,
             deleted_at: w.deleted_at,
-            restorable_until: Number.isNaN(deletedMs) ? null : new Date(deletedMs + windowMs).toISOString(),
-          };
-        });
+            restorable_until: new Date(clock + restoreWindowMs).toISOString(),
+          });
+        }
         return json({ workspaces, restore_window_days: DELETION_PURGE_WINDOW_DAYS });
       } catch {
         return json({ error: "Deleted workspaces are temporarily unavailable" }, 503);
@@ -581,19 +607,26 @@ export async function workspacesCoreRoutes(rctx) {
     // ── POST /api/workspaces/:id/restore ─────────────────────────────────────
     // Undo a soft-delete inside the purge window. Owner-only; authorized
     // directly against the workspaces row because role resolution may exclude
-    // deleted workspaces. Once purging has started, restore is refused.
+    // deleted workspaces.
     //
-    // Race-safe against the purge cron: the pending deletion request is
-    // cancelled FIRST with a compare-and-swap (pending -> cancelled, exactly one
-    // row). The purge claim is the mirror CAS (pending -> purging), so exactly
-    // one of the two can win; a lost race returns 409 and nothing is restored.
-    // A failed read of the request fails closed (503), never open.
+    // Refused (409) when ANY workspace deletion request for it is purging or
+    // completed, when an account deletion is in progress, when the deadline has
+    // passed, or when deleted_at cannot be read. A failed read fails closed (503).
+    //
+    // The restore is ONE D1 batch (a single transaction): undelete the workspace
+    // only if no purge has been claimed, then — only if it is live — cancel every
+    // pending request, reactivate the assets and re-enable the schedules the
+    // deletion switched off for domains still linked to the workspace. The purge
+    // claim is a compare-and-swap on 'pending', so either the batch cancels the
+    // requests first or the claim makes the guarded undelete change nothing:
+    // exactly one side wins, and a partial restore cannot be committed.
     const workspaceRestoreMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/restore$/);
     if (workspaceRestoreMatch && request.method === "POST") {
       const workspaceId = workspaceRestoreMatch[1];
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+      const NO_LONGER = "This workspace can no longer be restored — permanent deletion has already started.";
       try {
         const ws = await env.cybermeters_db
           .prepare("SELECT id, name, owner_user_id, deleted_at FROM workspaces WHERE id = ? LIMIT 1")
@@ -608,37 +641,67 @@ export async function workspacesCoreRoutes(rctx) {
         if (!ws || ws.owner_user_id !== user.id) return json({ error: "Forbidden" }, 403);
         if (!ws.deleted_at) return json({ error: "Workspace is not deleted" }, 400);
 
-        let delReq;
+        let requests, accountDeletion;
         try {
-          delReq = await env.cybermeters_db
-            .prepare("SELECT id, status, created_at FROM deletion_requests WHERE request_type = 'workspace' AND workspace_id = ? AND status IN ('pending', 'purging', 'completed') ORDER BY created_at DESC LIMIT 1")
+          requests = (await env.cybermeters_db
+            .prepare("SELECT id, status, created_at FROM deletion_requests WHERE request_type = 'workspace' AND workspace_id = ? AND status IN ('pending', 'purging', 'completed')")
             .bind(workspaceId)
+            .all())?.results || [];
+          accountDeletion = await env.cybermeters_db
+            .prepare("SELECT id FROM deletion_requests WHERE request_type = 'account' AND user_id = ? AND status IN ('pending', 'purging') LIMIT 1")
+            .bind(user.id)
             .first();
         } catch {
           return json({ error: "Restore is temporarily unavailable. Please try again." }, 503);
         }
-        if (delReq?.status === "purging" || delReq?.status === "completed") {
-          return json({ error: "This workspace can no longer be restored — permanent deletion has already started." }, 409);
+        if (requests.some((r) => r.status === "purging" || r.status === "completed")) {
+          return json({ error: NO_LONGER }, 409);
         }
-        const deletedAtMs = new Date(ws.deleted_at).getTime();
-        if (!Number.isNaN(deletedAtMs) && Date.now() > deletedAtMs + DELETION_PURGE_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
+        if (accountDeletion) {
+          return json({ error: "Your account is scheduled for deletion, so its workspaces cannot be restored." }, 409);
+        }
+        const pendingTimes = requests.filter((r) => r.status === "pending").map((r) => r.created_at).filter(Boolean).sort();
+        const clock = restoreClockMs(ws.deleted_at, pendingTimes[0] ?? null);
+        if (Number.isNaN(clock) || Date.now() >= clock + restoreWindowMs) {
           return json({ error: "The restore window for this workspace has passed." }, 409);
         }
 
-        if (delReq?.id) {
-          const cancelled = await env.cybermeters_db
-            .prepare("UPDATE deletion_requests SET status = 'cancelled', updated_at = datetime('now') WHERE id = ? AND status = 'pending'")
-            .bind(delReq.id)
-            .run();
-          if (Number(cancelled?.meta?.changes ?? 0) !== 1) {
-            return json({ error: "This workspace can no longer be restored — permanent deletion has already started." }, 409);
-          }
+        const db = env.cybermeters_db;
+        const LIVE = "EXISTS (SELECT 1 FROM workspaces lw WHERE lw.id = ? AND lw.owner_user_id = ? AND lw.deleted_at IS NULL)";
+        const LINKED_DOMAIN_IDS = "SELECT wd.domain_id FROM workspace_domains wd WHERE wd.workspace_id = ?";
+        const results = await db.batch([
+          db.prepare(
+            `UPDATE workspaces SET deleted_at = NULL
+              WHERE id = ? AND owner_user_id = ? AND deleted_at IS NOT NULL
+                AND NOT EXISTS (SELECT 1 FROM deletion_requests d
+                                 WHERE d.request_type = 'workspace' AND d.workspace_id = ?
+                                   AND d.status IN ('purging', 'completed'))
+                AND NOT EXISTS (SELECT 1 FROM deletion_requests a
+                                 WHERE a.request_type = 'account' AND a.user_id = ?
+                                   AND a.status IN ('pending', 'purging'))`
+          ).bind(workspaceId, user.id, workspaceId, user.id),
+          db.prepare(
+            `UPDATE deletion_requests SET status = 'cancelled', updated_at = datetime('now')
+              WHERE request_type = 'workspace' AND workspace_id = ? AND status = 'pending' AND ${LIVE}`
+          ).bind(workspaceId, workspaceId, user.id),
+          db.prepare(
+            `UPDATE workspace_assets SET status = 'active', updated_at = datetime('now')
+              WHERE workspace_id = ? AND status = 'inactive'
+                AND domain_id IN (${LINKED_DOMAIN_IDS}) AND ${LIVE}`
+          ).bind(workspaceId, workspaceId, workspaceId, user.id),
+          db.prepare(
+            `UPDATE scheduled_scans SET enabled = 1
+              WHERE workspace_id = ? AND enabled = 0
+                AND domain IN (SELECT d.domain FROM domains d WHERE d.id IN (${LINKED_DOMAIN_IDS}))
+                AND ${LIVE}`
+          ).bind(workspaceId, workspaceId, workspaceId, user.id),
+        ]);
+        const changed = (r) => Number(r?.meta?.changes ?? 0);
+        if (changed(results?.[0]) !== 1) {
+          const now = await db.prepare("SELECT deleted_at FROM workspaces WHERE id = ? LIMIT 1").bind(workspaceId).first().catch(() => null);
+          if (now && !now.deleted_at) return json({ error: "This workspace has already been restored." }, 409);
+          return json({ error: NO_LONGER }, 409);
         }
-
-        await env.cybermeters_db
-          .prepare("UPDATE workspaces SET deleted_at = NULL WHERE id = ? AND owner_user_id = ? AND deleted_at IS NOT NULL")
-          .bind(workspaceId, user.id)
-          .run();
 
         await createAuditEvent(env, {
           workspace_id: workspaceId,
@@ -647,12 +710,20 @@ export async function workspacesCoreRoutes(rctx) {
           entity_type: "workspace",
           entity_id: workspaceId,
           description: `Workspace "${ws.name}" restored within the deletion window`,
-          metadata: { deletion_request_id: delReq?.id ?? null },
+          metadata: {
+            cancelled_deletion_requests: changed(results[1]),
+            reactivated_assets: changed(results[2]),
+            reenabled_schedules: changed(results[3]),
+          },
         }).catch(() => {});
 
-        // Schedules stay disabled and archived assets stay inactive — the
-        // owner re-enables what they still need.
-        return json({ restored: true, workspace_id: workspaceId, note: "Scheduled scans remain paused and archived assets remain inactive; re-enable them as needed." });
+        return json({
+          restored: true,
+          workspace_id: workspaceId,
+          reactivated_assets: changed(results[2]),
+          reenabled_schedules: changed(results[3]),
+          note: "Monitoring resumes: scheduled scans for this workspace's domains are switched back on and its asset inventory is active again.",
+        });
       } catch {
         return json({ error: "Unable to restore workspace" }, 500);
       }

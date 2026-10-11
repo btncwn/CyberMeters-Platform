@@ -35,27 +35,43 @@ function createDb() {
       requested_by TEXT, status TEXT, created_at TEXT, updated_at TEXT);
     CREATE TABLE audit_events (id TEXT, workspace_id TEXT, user_id TEXT, event_type TEXT, entity_type TEXT,
       entity_id TEXT, description TEXT, metadata TEXT, created_at TEXT);
+    CREATE TABLE domains (id TEXT PRIMARY KEY, domain TEXT);
+    CREATE TABLE workspace_domains (workspace_id TEXT, domain_id TEXT);
+    CREATE TABLE workspace_assets (id TEXT PRIMARY KEY, workspace_id TEXT, domain_id TEXT, hostname TEXT,
+      status TEXT, updated_at TEXT);
+    CREATE TABLE scheduled_scans (id TEXT PRIMARY KEY, workspace_id TEXT, domain TEXT, enabled INTEGER);
   `);
   return db;
 }
 const addWs = (db, id, owner, deletedAt, name = id) =>
   db.prepare("INSERT INTO workspaces VALUES (?,?,?,?,?)").run(id, name, owner, deletedAt, ago(90));
-const addReq = (db, id, ws, status, createdAt) =>
-  db.prepare("INSERT INTO deletion_requests VALUES (?,?,?,?,?,?,?,?)").run(id, "workspace", "u_owner", ws, "u_owner", status, createdAt, createdAt);
+const addReq = (db, id, ws, status, createdAt, type = "workspace", user = "u_owner") =>
+  db.prepare("INSERT INTO deletion_requests VALUES (?,?,?,?,?,?,?,?)").run(id, type, user, ws, user, status, createdAt, createdAt);
 
 // D1 shim. `hooks` may intercept SQL: { match: RegExp, before?: fn(db), throws?: bool }.
+// batch() runs as ONE transaction (as D1 does): any failure rolls back all.
 function d1(db, hooks = []) {
+  const stmt = (sql) => {
+    const hook = hooks.find((h) => h.match.test(sql));
+    const st = db.prepare(sql);
+    const guard = () => { if (hook?.throws) throw new Error("D1_ERROR: simulated"); hook?.before?.(db); };
+    const bound = (...a) => ({
+      _run: () => { guard(); const r = st.run(...a); return { meta: { changes: Number(r.changes) } }; },
+      all: async () => { guard(); return { results: st.all(...a) }; },
+      first: async () => { guard(); return st.get(...a) ?? null; },
+      run: async () => { guard(); const r = st.run(...a); return { meta: { changes: Number(r.changes) } }; },
+    });
+    return { bind: (...a) => bound(...a), all: async () => bound().all(), first: async () => bound().first(), run: async () => bound().run(), _run: () => bound()._run() };
+  };
   return {
-    prepare(sql) {
-      const hook = hooks.find((h) => h.match.test(sql));
-      const st = db.prepare(sql);
-      const guard = () => { if (hook?.throws) throw new Error("D1_ERROR: simulated"); hook?.before?.(db); };
-      const bound = (...a) => ({
-        all: async () => { guard(); return { results: st.all(...a) }; },
-        first: async () => { guard(); return st.get(...a) ?? null; },
-        run: async () => { guard(); const r = st.run(...a); return { meta: { changes: Number(r.changes) } }; },
-      });
-      return { bind: (...a) => bound(...a), all: async () => bound().all(), first: async () => bound().first(), run: async () => bound().run() };
+    prepare: stmt,
+    async batch(statements) {
+      db.exec("BEGIN");
+      try {
+        const out = statements.map((s) => s._run());
+        db.exec("COMMIT");
+        return out;
+      } catch (e) { db.exec("ROLLBACK"); throw e; }
     },
   };
 }
@@ -138,7 +154,7 @@ const reqStatus = (db, id) => db.prepare("SELECT status FROM deletion_requests W
   const [st, body] = await restore(db, "ws_a");
   eq("restore: owner inside window → 200", st, 200);
   eq("restore: response says restored", body.restored, true);
-  ok("restore: response explains schedules stay paused", /paused/i.test(body.note || ""));
+  ok("restore: response says monitoring resumes", /resumes/i.test(body.note || ""));
   eq("restore: workspace is live again", deletedAt(db, "ws_a"), null);
   eq("restore: pending purge request cancelled", reqStatus(db, "r_a"), "cancelled");
   eq("restore: second restore → 400 (not deleted)", (await restore(db, "ws_a"))[0], 400);
@@ -159,19 +175,129 @@ const reqStatus = (db, id) => db.prepare("SELECT status FROM deletion_requests W
   ok("restore: read failure leaves workspace deleted", deletedAt(db, "ws_b") !== null);
   eq("restore: read failure leaves request pending", reqStatus(db, "r_b"), "pending");
 }
+
+// ── P1: more than one open request ──────────────────────────────────────────
 {
-  // The purge cron claims the request (pending -> purging) after our read but
-  // before our cancel. The cancel CAS must lose and nothing may be restored.
+  // Older request already purging + newer pending: both sides must NOT win.
   const db = createDb();
-  addWs(db, "ws_race", "u_owner", ago(4)); addReq(db, "r_race", "ws_race", "pending", ago(4));
+  addWs(db, "ws_two", "u_owner", ago(5));
+  addReq(db, "r_old", "ws_two", "purging", ago(31));
+  addReq(db, "r_new", "ws_two", "pending", ago(5));
+  eq("two rows: any purging row → 409", (await restore(db, "ws_two"))[0], 409);
+  ok("two rows: workspace stays deleted", deletedAt(db, "ws_two") !== null);
+  eq("two rows: newer pending request untouched", reqStatus(db, "r_new"), "pending");
+  eq("two rows: hidden from the list", (await list(db))[1].workspaces.map((w) => w.id), []);
+}
+{
+  // Two pending rows (double submit): restore cancels BOTH so no purge remains.
+  const db = createDb();
+  addWs(db, "ws_dup", "u_owner", ago(3));
+  addReq(db, "r_dup1", "ws_dup", "pending", ago(4));
+  addReq(db, "r_dup2", "ws_dup", "pending", ago(3));
+  eq("duplicate pending: restore → 200", (await restore(db, "ws_dup"))[0], 200);
+  eq("duplicate pending: both requests cancelled", [reqStatus(db, "r_dup1"), reqStatus(db, "r_dup2")], ["cancelled", "cancelled"]);
+}
+{
+  // A re-used old pending request makes the purge due earlier than deleted_at.
+  const db = createDb();
+  addWs(db, "ws_clock", "u_owner", ago(5));
+  addReq(db, "r_clock", "ws_clock", "pending", ago(WINDOW + 1));
+  eq("old request clock: hidden from the list", (await list(db))[1].workspaces.map((w) => w.id), []);
+  eq("old request clock: restore → 409", (await restore(db, "ws_clock"))[0], 409);
+  ok("old request clock: still deleted", deletedAt(db, "ws_clock") !== null);
+}
+{
+  const db = createDb();
+  addWs(db, "ws_clock2", "u_owner", ago(5));
+  addReq(db, "r_clock2", "ws_clock2", "pending", ago(20));
+  const w = (await list(db))[1].workspaces[0];
+  ok("deadline uses the older request clock",
+    Math.abs(new Date(w.restorable_until).getTime() - (Date.now() - 20 * DAY + WINDOW * DAY)) < 5000, w?.restorable_until);
+}
+{
+  const db = createDb();
+  addWs(db, "ws_nan", "u_owner", "not-a-date");
+  eq("unparseable deleted_at: restore → 409", (await restore(db, "ws_nan"))[0], 409);
+  eq("unparseable deleted_at: not listed", (await list(db))[1].workspaces.length, 0);
+}
+{
+  const db = createDb();
+  addWs(db, "ws_acct", "u_owner", ago(2));
+  addReq(db, "r_acct", null, "pending", ago(1), "account", "u_owner");
+  eq("account deletion pending: list is empty", (await list(db))[1].workspaces.length, 0);
+  const [st, body] = await restore(db, "ws_acct");
+  eq("account deletion pending: restore → 409", st, 409);
+  ok("account deletion pending: says why", /account is scheduled for deletion/.test(body.error));
+  ok("account deletion pending: still deleted", deletedAt(db, "ws_acct") !== null);
+}
+
+// ── P2: atomicity, true undo, honest outcomes ───────────────────────────────
+function seedMonitoring(db, ws) {
+  db.prepare("INSERT INTO domains VALUES (?,?)").run("d_linked", "linked.example");
+  db.prepare("INSERT INTO domains VALUES (?,?)").run("d_removed", "removed.example");
+  db.prepare("INSERT INTO workspace_domains VALUES (?,?)").run(ws, "d_linked");
+  const a = db.prepare("INSERT INTO workspace_assets VALUES (?,?,?,?,?,?)");
+  a.run("a1", ws, "d_linked", "www.linked.example", "inactive", ago(5));
+  a.run("a2", ws, "d_removed", "www.removed.example", "inactive", ago(9));
+  a.run("a3", "ws_other", "d_linked", "x.linked.example", "inactive", ago(5));
+  const sc = db.prepare("INSERT INTO scheduled_scans VALUES (?,?,?,?)");
+  sc.run("s1", ws, "linked.example", 0);
+  sc.run("s2", ws, "removed.example", 0);
+  sc.run("s3", "ws_other", "linked.example", 0);
+}
+const assetStatus = (db, id) => db.prepare("SELECT status FROM workspace_assets WHERE id = ?").get(id).status;
+const schedEnabled = (db, id) => db.prepare("SELECT enabled FROM scheduled_scans WHERE id = ?").get(id).enabled;
+{
+  const db = createDb();
+  addWs(db, "ws_mon", "u_owner", ago(5)); addReq(db, "r_mon", "ws_mon", "pending", ago(5));
+  seedMonitoring(db, "ws_mon");
+  const [st, body] = await restore(db, "ws_mon");
+  eq("undo: restore → 200", st, 200);
+  eq("undo: linked-domain asset active again", assetStatus(db, "a1"), "active");
+  eq("undo: removed-domain asset stays inactive", assetStatus(db, "a2"), "inactive");
+  eq("undo: other workspace asset untouched", assetStatus(db, "a3"), "inactive");
+  eq("undo: linked-domain schedule re-enabled", schedEnabled(db, "s1"), 1);
+  eq("undo: removed-domain schedule stays off", schedEnabled(db, "s2"), 0);
+  eq("undo: other workspace schedule untouched", schedEnabled(db, "s3"), 0);
+  eq("undo: response reports what resumed", [body.reactivated_assets, body.reenabled_schedules], [1, 1]);
+}
+{
+  // A failure inside the batch rolls everything back: no stranded state.
+  const db = createDb();
+  addWs(db, "ws_mid", "u_owner", ago(5)); addReq(db, "r_mid", "ws_mid", "pending", ago(5));
+  seedMonitoring(db, "ws_mid");
+  const [st] = await restore(db, "ws_mid", { hooks: [{ match: /UPDATE workspace_assets SET status = 'active'/, throws: true }] });
+  eq("mid-batch failure → 500", st, 500);
+  ok("mid-batch failure: workspace still deleted", deletedAt(db, "ws_mid") !== null);
+  eq("mid-batch failure: request still pending (purge can proceed)", reqStatus(db, "r_mid"), "pending");
+  eq("mid-batch failure: schedule still off", schedEnabled(db, "s1"), 0);
+}
+{
+  // Purge claim lands just before the batch: guarded undelete changes nothing.
+  const db = createDb();
+  addWs(db, "ws_late", "u_owner", ago(5)); addReq(db, "r_late", "ws_late", "pending", ago(5));
+  seedMonitoring(db, "ws_late");
   const hooks = [{
-    match: /UPDATE deletion_requests SET status = 'cancelled'/,
-    before: (raw) => raw.prepare("UPDATE deletion_requests SET status = 'purging' WHERE id = 'r_race' AND status = 'pending'").run(),
+    match: /UPDATE workspaces SET deleted_at = NULL/,
+    before: (raw) => raw.prepare("UPDATE deletion_requests SET status = 'purging' WHERE id = 'r_late' AND status = 'pending'").run(),
   }];
-  const [st] = await restore(db, "ws_race", { hooks });
-  eq("race: purge wins → restore 409", st, 409);
-  ok("race: workspace stays deleted while purging", deletedAt(db, "ws_race") !== null);
-  eq("race: request remains purging", reqStatus(db, "r_race"), "purging");
+  const [st] = await restore(db, "ws_late", { hooks });
+  eq("late purge claim → 409", st, 409);
+  ok("late purge claim: still deleted", deletedAt(db, "ws_late") !== null);
+  eq("late purge claim: request stays purging", reqStatus(db, "r_late"), "purging");
+  eq("late purge claim: nothing reactivated", [assetStatus(db, "a1"), schedEnabled(db, "s1")], ["inactive", 0]);
+}
+{
+  // Second tab restores first: honest message, no second success.
+  const db = createDb();
+  addWs(db, "ws_tab", "u_owner", ago(5)); addReq(db, "r_tab", "ws_tab", "pending", ago(5));
+  const hooks = [{
+    match: /UPDATE workspaces SET deleted_at = NULL/,
+    before: (raw) => raw.prepare("UPDATE workspaces SET deleted_at = NULL WHERE id = 'ws_tab'").run(),
+  }];
+  const [st, body] = await restore(db, "ws_tab", { hooks });
+  eq("concurrent restore → 409", st, 409);
+  ok("concurrent restore: says already restored", /already been restored/.test(body.error));
 }
 
 console.log(`validate-workspace-restore: ${pass} passed, ${fail} failed`);
