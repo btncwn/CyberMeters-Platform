@@ -830,6 +830,11 @@ export const api = {
   // rather than writing their own, so the honesty boundary cannot drift per page.
 
   /** GET /api/workspaces/:id/website-security/conditions — list (mig 089) */
+  /** GET /api/workspaces/:id/website-security/pages — bounded important-page inventory (mig 115) */
+  getWebsiteSecurityPages: (workspaceId, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${encodeURIComponent(workspaceId)}/website-security/pages${q ? `?${q}` : ''}`)
+  },
   getWebsiteSecurityConditions: (id, params = {}) => {
     const q = new URLSearchParams(params).toString()
     return request(`/workspaces/${id}/website-security/conditions${q ? `?${q}` : ''}`)

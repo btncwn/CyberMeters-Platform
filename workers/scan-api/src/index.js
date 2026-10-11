@@ -1123,6 +1123,9 @@ const WORKSPACE_PURGE_TABLES = [
   // conditions table (history must outlive the record it describes), so they are
   // purged on their own workspace_id ahead of it.
   "website_security_events", "website_security_conditions",
+  // Website important-page inventory (mig 115). Events and runs first: neither
+  // holds an FK to the pages table, so they are purged on their own workspace_id.
+  "website_page_events", "website_page_discovery_runs", "website_pages",
   // Cyber Essentials lifecycle (mig 090). Events first: no FK to the records table.
   "cyber_essentials_events", "cyber_essentials_control_records",
   // Canonical per-domain Cyber MOT state history (mig 091). Append-only, one row per

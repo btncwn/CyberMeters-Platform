@@ -13,8 +13,8 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 280
-- **Auth-guarded:** 250
+- **Total entry points:** 281
+- **Auth-guarded:** 251
 - **Unauthenticated (public by design):** 30
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
@@ -28,7 +28,7 @@ guard without an explicit, documented public-allowlist reason.
 | public-or-global | 38 | 20 |
 | unknown | 63 | 54 |
 | webhook | 2 | 0 |
-| workspace | 138 | 138 |
+| workspace | 139 | 139 |
 
 ## Public allowlist (unauthenticated by design)
 
@@ -71,15 +71,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2441 | preflight | public | — |
-| DELETE | `(none)` | 2447 | unknown | **GAP** | — |
-| GET | `(none)` | 2447 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2447 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2447 | unknown | **GAP** | — |
-| POST | `(none)` | 2447 | unknown | **GAP** | — |
-| PUT | `(none)` | 2447 | unknown | **GAP** | — |
-| GET | `/health` | 2452 | public-or-global | public | — |
-| GET | `/ready` | 2471 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2444 | preflight | public | — |
+| DELETE | `(none)` | 2450 | unknown | **GAP** | — |
+| GET | `(none)` | 2450 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2450 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2450 | unknown | **GAP** | — |
+| POST | `(none)` | 2450 | unknown | **GAP** | — |
+| PUT | `(none)` | 2450 | unknown | **GAP** | — |
+| GET | `/health` | 2455 | public-or-global | public | — |
+| GET | `/ready` | 2474 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -390,8 +390,9 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `(none)` | 59 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 111 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 46 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 100 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 152 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/workspace-activity.js`
 

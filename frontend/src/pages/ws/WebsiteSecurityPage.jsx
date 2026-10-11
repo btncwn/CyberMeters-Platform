@@ -5,6 +5,7 @@ import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import WebsiteScanOverview from '../../components/WebsiteScanOverview'
+import WebsitePagesChecked from '../../components/WebsitePagesChecked'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
 import {
   monitoringMeta, severityMeta, scanQualityMeta, unknownReasonText,
@@ -140,6 +141,7 @@ function WebsiteSecurityContent({ workspaceId, workspaceName }) {
         </div>
       </header>
       <WebsiteScanOverview workspaceId={workspaceId} refresh={refresh} />
+      <WebsitePagesChecked workspaceId={workspaceId} refresh={refresh} />
       <div className="mb-4"><h2 className="section-title">Tracked findings</h2><p className="mt-1 text-base text-gray-600">Across this workspace. Open a finding for its evidence, managed case and recheck.</p></div>
       {data?.scope_note && <details className="mb-5 text-sm text-gray-600"><summary className="cursor-pointer font-medium">What this checks</summary><p className="mt-2 max-w-3xl leading-relaxed">{data.scope_note}</p></details>}
       <div className="mb-4 flex flex-wrap items-center gap-3">
