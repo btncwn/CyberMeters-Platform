@@ -327,6 +327,12 @@ const noLeak = (name, result, values) => {
   eq("rate limited", (await run(fakeApp({ route: (u, i, { respond, url }) => respond(url, 429, "slow down") }))).outcome, "rate_limited");
   eq("JS-built sign-in page", (await run(fakeApp({ loginHtml: () => `<div id=root></div><script src=/app.js></script>` }))).outcome, "login_form_not_found");
   eq("sign-in page unavailable", (await run(fakeApp({ route: (u, i, { respond, url }) => (u.pathname === "/login" ? respond(url, 500, "err") : null) }))).outcome, "login_page_unavailable");
+  const unsafeAfter = fakeApp({ afterLogin: "/logout?next=/" });
+  eq("post-sign-in redirect into sign-out not followed (no start page)", (await run(unsafeAfter, { ...FORM, start_url: null })).outcome, "sign_in_redirect_not_followed");
+  ok("post-sign-in redirect into sign-out: never requested", unsafeAfter.log.every((x) => x.path !== "/logout"));
+  const unsafeAfter2 = fakeApp({ afterLogin: "/logout?next=/" });
+  eq("post-sign-in redirect into sign-out: start page still proves it", (await run(unsafeAfter2)).outcome, "signed_in");
+  ok("…and sign-out is still never requested", unsafeAfter2.log.every((x) => x.path !== "/logout"));
   eq("budget: request ceiling ends the attempt", (await run(fakeApp(), FORM, GOOD, { limits: { maxFetches: 2 } })).outcome, "budget_exhausted");
   eq("budget: limits can only be tightened", (await run(fakeApp(), FORM, GOOD, { limits: { maxFetches: 999 } })).detail.fetches <= si.SIGN_IN_LIMITS.maxFetches, true);
   eq("account page with a change-password form still counts as signed in",
@@ -516,6 +522,191 @@ const SAVE = { method: "form", login_url: "https://acme.test/login", start_url: 
   let code = null;
   try { await store.saveSignInProfile(env, { workspaceId: "ws_a", domainId: "d3", domain: "unverified.test", userId: "u_owner", input, existing: null }); } catch (e) { code = e.code; }
   eq("store: unverified domain never stored", [code, db.prepare("SELECT COUNT(*) AS n FROM website_sign_in_profiles").get().n], ["profile_not_saved", 0]);
+}
+
+// ── 8. Signed-in page checks ───────────────────────────────────────────────
+const crawlMod = await import(src("engines", "website-signed-in-scan.js"));
+const { runSignedInScan, signedInSummary, cacheControlOf, hasFrameProtection, SIGNED_IN_SCAN_LIMITS } = crawlMod;
+{
+  eq("cache-control: missing", cacheControlOf(null).kind, "missing");
+  eq("cache-control: no-store wins", cacheControlOf("private, no-store, max-age=0").kind, "no_store");
+  eq("cache-control: private", cacheControlOf("private, max-age=60").kind, "private");
+  eq("cache-control: storable, unknown tokens dropped", cacheControlOf("public, max-age=600, x-evil=<script>"), { kind: "storable", directives: ["public", "max-age=600"] });
+  ok("framing: XFO or frame-ancestors", hasFrameProtection(new Headers({ "x-frame-options": "DENY" })) && hasFrameProtection(new Headers({ "content-security-policy": "default-src 'self'; frame-ancestors 'none'" })) && !hasFrameProtection(new Headers({ "content-security-policy": "default-src 'self'" })));
+}
+function richApp(extra = {}) {
+  const flags = { touched: [] };
+  const app = fakeApp({ ...extra, route: (u, init, { respond, redirect, cookiesOf, sessions, url }) => {
+    if (!SITE.has(u.hostname) || u.protocol !== "https:") return null;
+    if (["/login", "/"].includes(u.pathname)) return null;
+    const sess = sessions.get(cookiesOf(init.headers || {}).sid);
+    const authed = !!sess?.authed && !(extra.endAfter && (sess.n = (sess.n || 0) + 1) > extra.endAfter);
+    if (/logout|delete|close|export/.test(u.pathname)) { flags.touched.push(u.pathname); return respond(url, 200, "<html>did something</html>"); }
+    const page = (body, headers = {}) => respond(url, 200, `<html><body>${body}</body></html>`, headers);
+    if (extra.spa && u.pathname.startsWith("/account")) {
+      return authed ? page(`<div id=app></div><a href="/account/a">a</a><a href="/account/b">b</a><p>Signed in as Jane Tester</p>`, { "cache-control": "no-store" }) : redirect(url, "/login");
+    }
+    switch (u.pathname) {
+      case "/account":
+        return authed ? page(`<h1>Account</h1><p>Signed in as Jane Tester</p>
+          <a href="/account/orders">Orders</a><a href="/account/settings">Settings</a><a href="/logout">Sign out</a>
+          <a href="/account/delete">Delete account</a><a href="/admin">Admin</a><a href="/api/me">me</a><a href="/account/invoice.pdf">pdf</a>
+          <a href="https://other.example/x">x</a><a href="/account/close">close</a><a href="/account/export">export</a><a href="/help">Help</a>
+          <a href="http://acme.test/account/plain">plain</a><a href="/account/old">old</a>`, { "cache-control": "no-store", "x-frame-options": "DENY" })
+          : redirect(url, "/login");
+      case "/account/orders":
+        if (extra.strictAuth && !authed) return redirect(url, "/login");
+        // Broken access control on purpose: served with or without a session.
+        return page(`<h1>Orders</h1><a href="/account/orders/1">Order 1</a><script src="https://cdn.tracker.example/t.js"></script>`, { "cache-control": "public, max-age=600" });
+      case "/account/orders/1":
+        return authed ? page(`<h1>Order 1</h1><form method=post action="http://acme.test/reorder"><button>Again</button></form>`, { "cache-control": "private" }) : redirect(url, "/login");
+      case "/account/settings": {
+        if (extra.strictAuth && !authed) return redirect(url, "/login");
+        // A cache in front of the site serves the signed-in page to everyone.
+        const h = new Headers({ "content-type": "text/html" }); h.append("set-cookie", "pref=SETTINGVALUE; Path=/");
+        const r = new Response(`<html><h1>Settings</h1><p>Signed in as Jane Tester</p></html>`, { status: 200, headers: h });
+        Object.defineProperty(r, "url", { value: url });
+        return r;
+      }
+      case "/admin": return authed ? respond(url, 403, "<html>Forbidden</html>") : redirect(url, "/login");
+      case "/help": return page("<h1>Help</h1>");
+      case "/account/old": return redirect(url, "/logout");
+      default: return respond(url, 404, "nf");
+    }
+  } });
+  return { ...app, flags };
+}
+{
+  const app = richApp();
+  const r = await runSignedInScan("acme.test", { ...FORM, signed_in_text: "Signed in as Jane" }, GOOD, { fetchImpl: app.fetchImpl });
+  eq("signed-in scan: signed in and complete", [r.sign_in.outcome, r.coverage, r.partial_reasons], ["signed_in", "complete", []]);
+  const by = Object.fromEntries(r.pages.map((p) => [p.path, p]));
+  eq("signed-in scan: pages checked (sensitive first, depth 2)", r.pages.map((p) => `${p.path}:${p.outcome}`).sort(),
+    ["/account/old:redirect_not_followed", "/account/orders/1:observed", "/account/orders:observed", "/account/settings:observed", "/account:observed", "/admin:refused", "/help:observed"].sort());
+  ok("signed-in scan: never requested sign-out, delete, close or export", app.flags.touched.length === 0, JSON.stringify(app.flags.touched));
+  ok("signed-in scan: API, static, other-host and plain-HTTP links never requested", app.log.every((x) => !/\/api\/|\.pdf$/.test(x.path) && SITE.has(x.host) && x.protocol === "https:"));
+  eq("signed-in scan: exactly one sign-in, one POST", [app.log.filter((x) => x.path === "/login" && x.method === "GET").length, app.log.filter((x) => x.method === "POST").length], [1, 1]);
+  eq("signed-in scan: unsafe links counted, not requested", r.counts.unsafe_skipped >= 4, true);
+  eq("cache: start page no-store, orders storable, settings missing, order private",
+    [by["/account"].cache_control.kind, by["/account/orders"].cache_control.kind, by["/account/settings"].cache_control.kind, by["/account/orders/1"].cache_control.kind],
+    ["no_store", "storable", "missing", "private"]);
+  eq("framing: start page protected, orders not", [by["/account"].frame_protection, by["/account/orders"].frame_protection], [true, false]);
+  eq("anonymous contrast", [by["/account"].anonymous_access, by["/account/orders"].anonymous_access, by["/account/settings"].anonymous_access, by["/account/orders/1"].anonymous_access],
+    ["refused", "served_same_page", "served_with_signed_in_text", "refused"]);
+  eq("signed-in page facts: third-party script, HTTP form", [by["/account/orders"].third_party_scripts, by["/account/orders/1"].forms[0].action_scheme], [["cdn.tracker.example"], "http"]);
+  const anonReqs = app.log.filter((x) => !x.headers.Cookie && x.path.startsWith("/account"));
+  ok("anonymous contrast requests carry no session", anonReqs.length >= 3);
+  const summary = signedInSummary(r);
+  const text = JSON.stringify(summary);
+  ok("summary: no cookie values, credentials, HTML or session ids", !/SETTINGVALUE|Corr3ct|jane@acme|<h1|auth\d|pre\d/.test(text), text.slice(0, 300));
+  ok("summary: bounded", text.length < 64_000 && summary.pages.length <= 25);
+  boundary("signed-in scan", app, [GOOD.password, GOOD.username]);
+}
+{
+  const r = await runSignedInScan("acme.test", FORM, { ...GOOD, password: "bad" }, { fetchImpl: richApp().fetchImpl });
+  eq("signed-in scan: refused sign-in checks no pages", [r.sign_in.outcome, r.coverage, r.pages.length], ["credentials_rejected", "not_run", 0]);
+  const spa = await runSignedInScan("acme.test", FORM, GOOD, { fetchImpl: richApp({ spa: true }).fetchImpl });
+  eq("SPA shell: identical pages count once", [spa.pages.length, spa.counts.duplicates], [1, 2]);
+  const ended = await runSignedInScan("acme.test", FORM, GOOD, { fetchImpl: richApp({ endAfter: 2, strictAuth: true }).fetchImpl });
+  ok("session ended mid-scan is reported", ended.partial_reasons.includes("session_ended"), JSON.stringify(ended.partial_reasons));
+  const tight = await runSignedInScan("acme.test", FORM, GOOD, { fetchImpl: richApp().fetchImpl, limits: { maxFetches: 8 } });
+  ok("request ceiling: partial, not complete", tight.coverage === "partial" && tight.partial_reasons.includes("fetch_limit"), JSON.stringify([tight.coverage, tight.partial_reasons]));
+  const few = await runSignedInScan("acme.test", FORM, GOOD, { fetchImpl: richApp().fetchImpl, scanLimits: { maxPages: 2, maxPages2: 99 } });
+  ok("page limit: partial", few.partial_reasons.includes("page_limit") && few.pages.filter((p) => p.outcome === "observed").length === 2);
+  const big = await runSignedInScan("acme.test", FORM, GOOD, { fetchImpl: richApp().fetchImpl, scanLimits: { maxPages: 999 } });
+  ok("scan limits can only be tightened", big.limits.max_pages === SIGNED_IN_SCAN_LIMITS.maxPages);
+}
+
+{
+  // The profile a scan may use: active, live workspace, verified domain, paid plan, key present.
+  const db = createDb(); const env = { cybermeters_db: d1(db), WEBSITE_AUTH_KEY: KEY };
+  const input = si.normalizeSignInInput(SAVE, { domain: "acme.test" });
+  await store.saveSignInProfile(env, { workspaceId: "ws_a", domainId: "d1", domain: "acme.test", userId: "u_owner", input, existing: null });
+  const got = await store.loadSignedInScanProfile(env, { workspaceId: "ws_a", domainId: "d1" });
+  eq("scan profile: usable with secret", [!!got?.secret, got?.secret?.password === GOOD.password], [true, true]);
+  eq("scan profile: other workspace has none", await store.loadSignedInScanProfile(env, { workspaceId: "ws_b", domainId: "d1" }), null);
+  eq("scan profile: missing key → blocked, not attempted", (await store.loadSignedInScanProfile({ ...env, WEBSITE_AUTH_KEY: undefined }, { workspaceId: "ws_a", domainId: "d1" }))?.blocked, "vault_unavailable");
+  setPlan(db, "free", "u_owner");
+  eq("scan profile: free plan → blocked", (await store.loadSignedInScanProfile(env, { workspaceId: "ws_a", domainId: "d1" }))?.blocked, "plan_required");
+  setPlan(db, "business", "u_owner");
+  db.prepare("UPDATE website_sign_in_profiles SET status = 'paused'").run();
+  eq("scan profile: paused → not used", await store.loadSignedInScanProfile(env, { workspaceId: "ws_a", domainId: "d1" }), null);
+  db.prepare("UPDATE website_sign_in_profiles SET status = 'active'").run();
+  db.prepare("UPDATE workspace_domains SET verification_status = 'pending' WHERE workspace_id = 'ws_a' AND domain_id = 'd1'").run();
+  eq("scan profile: domain no longer verified → not used", await store.loadSignedInScanProfile(env, { workspaceId: "ws_a", domainId: "d1" }), null);
+  db.prepare("UPDATE workspace_domains SET verification_status = 'verified' WHERE workspace_id = 'ws_a' AND domain_id = 'd1'").run();
+  db.prepare("UPDATE workspaces SET deleted_at = 'x' WHERE id = 'ws_a'").run();
+  eq("scan profile: deleted workspace → not used", await store.loadSignedInScanProfile(env, { workspaceId: "ws_a", domainId: "d1" }), null);
+}
+
+// ── 9. End-to-end: queue scan → sign-in → workspace-private attempt row ────
+{
+  const { runScanEngine } = await import(src("engines", "scan-engine.js"));
+  const NOW = "2026-10-11T09:00:00.000Z";
+  const NOW_MS = Date.parse(NOW);
+  const db = new DatabaseSync(":memory:");
+  const apply = (f) => { try { db.exec(fs.readFileSync(f, "utf8")); } catch (e) { if (!/^(?:duplicate column name|no such table|table \S+ already exists|index \S+ already exists)/.test(e.message)) throw e; } };
+  apply(path.join(root, "database/schema.sql"));
+  for (const f of fs.readdirSync(path.join(root, "database/migrations")).filter((n) => n.endsWith(".sql")).sort()) apply(path.join(root, "database/migrations", f));
+  db.exec("PRAGMA foreign_keys = OFF");
+  const stmt = (sql, args = []) => ({
+    __sql: sql, bind: (...b) => stmt(sql, b),
+    first: async (col) => { const r = db.prepare(sql).get(...args) ?? null; return col && r ? r[col] : r; },
+    all: async () => ({ results: db.prepare(sql).all(...args), success: true, meta: {} }),
+    run: async () => { const r = db.prepare(sql).run(...args); return { success: true, meta: { changes: r.changes, last_row_id: Number(r.lastInsertRowid || 0) } }; },
+  });
+  const D1 = { prepare: (sql) => stmt(sql), exec: async (sql) => { db.exec(sql); return {}; },
+    batch: async (list) => { const out = []; db.exec("BEGIN"); try { for (const x of list) out.push(/^\s*select/i.test(x.__sql) ? await x.all() : await x.run()); db.exec("COMMIT"); return out; } catch (e) { db.exec("ROLLBACK"); throw e; } } };
+  const store2 = new Map();
+  const R2 = { get: async (k) => { const b = store2.get(String(k)); return b == null ? null : { text: async () => b, json: async () => JSON.parse(b) }; },
+    put: async (k, b) => { store2.set(String(k), String(b)); return {}; }, delete: async () => ({}), head: async () => null, list: async () => ({ objects: [] }) };
+  const env = { cybermeters_db: D1, cybermeters_reports: R2, SCAN_CAPACITY_MODE: "legacy", SCAN_SUBREQUEST_LIMIT: "200", SCAN_DEADLINE_MS: "115000", APP_VERSION: "signin-trace", WEBSITE_AUTH_KEY: KEY };
+  db.prepare("INSERT INTO users (id, email) VALUES ('usr','owner@example.com')").run();
+  db.prepare("INSERT INTO workspaces (id, name, owner_user_id, deleted_at) VALUES ('ws','Trace','usr',NULL), ('ws2','Other','usr2',NULL)").run();
+  db.prepare("INSERT INTO domains (id, user_id, domain) VALUES ('dom','usr','acme.test')").run();
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id, verification_status, verified_at) VALUES ('ws','dom','verified','2026-01-01'), ('ws2','dom','verified','2026-01-01')").run();
+  db.prepare(`INSERT INTO subscriptions (id, owner_user_id, plan, status, subscription_status, current_period_end, created_at, updated_at) VALUES ('sub','usr','business','active','active',?,?,?)`).run(new Date(Date.now() + 20 * DAY).toISOString(), NOW, NOW);
+  db.prepare(`INSERT INTO scans (id, workspace_id, domain_id, domain, status, scan_quality, created_at) VALUES ('scan-si','ws','dom','acme.test','running',NULL,?)`).run(NOW);
+  const input = si.normalizeSignInInput({ ...SAVE, signed_in_text: "Signed in as Jane" }, { domain: "acme.test" });
+  await store.saveSignInProfile(env, { workspaceId: "ws", domainId: "dom", domain: "acme.test", userId: "usr", input, existing: null });
+  const app = richApp();
+  const prevFetch = globalThis.fetch, prevErr = console.error, prevWarn = console.warn, prevLog = console.log;
+  globalThis.fetch = async (input2, init) => {
+    const url = new URL(String(input2));
+    const j = (b) => new Response(JSON.stringify(b), { status: 200, headers: { "content-type": "application/json" } });
+    if (url.hostname === "crt.sh" || url.hostname === "api.certspotter.com") return j([]);
+    if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
+      const name = String(url.searchParams.get("name") || "").toLowerCase();
+      const type = String(url.searchParams.get("type") || "A").toUpperCase();
+      return j(SITE.has(name) && type === "A" ? { Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] } : { Status: 0, Answer: [] });
+    }
+    return app.fetchImpl(String(input2), init);
+  };
+  console.error = () => {}; console.warn = () => {}; console.log = () => {};
+  try { await runScanEngine("scan-si", "dom", "ws", "acme.test", env, { now: () => NOW_MS, executionContext: "queue", trigger: "manual" }); }
+  finally { globalThis.fetch = prevFetch; console.error = prevErr; console.warn = prevWarn; console.log = prevLog; }
+  const attempt = db.prepare("SELECT * FROM website_sign_in_attempts WHERE scan_id = 'scan-si'").get();
+  eq("trace: scan signed in and recorded the attempt for its workspace", [attempt?.workspace_id, attempt?.source, attempt?.outcome, attempt?.coverage], ["ws", "scan", "signed_in", "complete"]);
+  const sum = JSON.parse(attempt?.summary_json || "{}");
+  ok("trace: signed-in pages stored on the attempt", (sum.pages || []).some((p) => p.path === "/account/settings" && p.anonymous_access === "served_with_signed_in_text"));
+  eq("trace: other workspace sharing the domain gets nothing", db.prepare("SELECT COUNT(*) AS n FROM website_sign_in_attempts WHERE workspace_id = 'ws2'").get().n, 0);
+  const report = store2.get("reports/scan-si.json") || "";
+  // Only the module's own telemetry row (name, timing) is in the scan's report; no signed-in data.
+  ok("trace: shared scan report carries no signed-in data", report.length > 0 && !/\/account\/settings|\/account\/orders|served_with_signed_in_text|Jane Tester|anonymous_access/.test(report));
+  ok("trace: credentials never stored or reported in clear", !/Corr3ct/.test(report) && !/Corr3ct/.test(JSON.stringify(db.prepare("SELECT * FROM website_sign_in_attempts").all())));
+  eq("trace: profile health updated", db.prepare("SELECT last_outcome, last_attempt_source FROM website_sign_in_profiles").get(), { last_outcome: "signed_in", last_attempt_source: "scan" });
+  eq("trace: scan completed", db.prepare("SELECT status FROM scans WHERE id = 'scan-si'").get().status, "completed");
+  ok("trace: scan never signed out", app.flags.touched.length === 0, JSON.stringify(app.flags.touched) + JSON.stringify(app.log.filter((x) => app.flags.touched.includes(x.path)).map((x) => [x.path, !!x.headers.Cookie])));
+  // Free plan: not attempted, recorded as such, nothing sent.
+  db.prepare("DELETE FROM subscriptions").run();
+  db.prepare(`INSERT INTO scans (id, workspace_id, domain_id, domain, status, scan_quality, created_at) VALUES ('scan-free','ws','dom','acme.test','running',NULL,?)`).run(NOW);
+  const posts = app.log.filter((x) => x.method === "POST").length;
+  globalThis.fetch = async (u, i) => { const url = new URL(String(u)); if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") return new Response(JSON.stringify({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] }), { status: 200 }); return app.fetchImpl(String(u), i); };
+  console.error = () => {}; console.warn = () => {}; console.log = () => {};
+  try { await runScanEngine("scan-free", "dom", "ws", "acme.test", env, { now: () => NOW_MS, executionContext: "queue", trigger: "manual" }); }
+  finally { globalThis.fetch = prevFetch; console.error = prevErr; console.warn = prevWarn; console.log = prevLog; }
+  eq("trace: free plan → not attempted, recorded", db.prepare("SELECT outcome, coverage FROM website_sign_in_attempts WHERE scan_id = 'scan-free'").get(), { outcome: "plan_required", coverage: "not_run" });
+  eq("trace: free plan → no sign-in submitted", app.log.filter((x) => x.method === "POST").length, posts);
 }
 
 // ── 7. Wiring ───────────────────────────────────────────────────────────────

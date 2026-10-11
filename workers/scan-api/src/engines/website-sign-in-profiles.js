@@ -11,7 +11,8 @@
 // a successful test or a re-save resumes it.
 import { createId } from "../lib/util.js";
 import { encryptWebsiteSecret, decryptWebsiteSecret, websiteAuthKeyAvailable } from "../lib/website-auth-secrets.js";
-import { normalizePlan } from "./entitlements.js";
+import { normalizePlan, getEffectivePlan } from "./entitlements.js";
+import { getWorkspaceBillingUserId } from "./plan-usage.js";
 import { signIn, SIGN_IN_TEST_LIMITS, CREDENTIAL_FAILURE_OUTCOMES } from "./website-sign-in.js";
 
 export const SIGN_IN_PAUSE_AFTER = 3;
@@ -65,7 +66,7 @@ export function signInProfileView(row) {
 // Never store a truncated (unparseable) JSON document.
 const boundedJson = (value, max) => { const text = JSON.stringify(value); return text.length <= max ? text : JSON.stringify({ truncated: true }); };
 const parse = (v, fallback) => { try { return v ? JSON.parse(v) : fallback; } catch { return fallback; } };
-export function signInAttemptView(row) {
+export function signInAttemptView(row, { withSummary = false } = {}) {
   return {
     id: row.id,
     source: row.source,
@@ -73,7 +74,7 @@ export function signInAttemptView(row) {
     outcome: row.outcome,
     detail: parse(row.detail_json, {}),
     coverage: row.coverage ?? null,
-    summary: parse(row.summary_json, null),
+    ...(withSummary ? { summary: parse(row.summary_json, null) } : {}),
     created_at: row.created_at,
   };
 }
@@ -175,7 +176,7 @@ export async function recordSignInAttempt(env, { workspaceId, domainId, profile,
       WHERE EXISTS (SELECT 1 FROM workspaces w WHERE w.id = ? AND w.deleted_at IS NULL)
      ON CONFLICT DO NOTHING`)
     .bind(createId("wsia"), workspaceId, domainId, profile.id, profile.credential_revision, source, scanId, outcome,
-      boundedJson(detail || {}, 16_000), coverage, summary ? boundedJson(summary, 8_000) : null, actorUserId, now, workspaceId);
+      boundedJson(detail || {}, 16_000), coverage, summary ? boundedJson(summary, 64_000) : null, actorUserId, now, workspaceId);
   const update = db.prepare(
     `UPDATE website_sign_in_profiles SET
        last_attempt_at = ?, last_attempt_source = ?, last_outcome = ?,
@@ -226,19 +227,48 @@ export async function listSignInProfiles(db, workspaceId) {
       WHERE wd.workspace_id = ? AND wd.verification_status = 'verified' AND wd.verified_at IS NOT NULL
       ORDER BY d.domain LIMIT 500`).bind(workspaceId).all()).results || [];
   const attempts = (await db.prepare(
-    `SELECT * FROM (
+    `SELECT id, domain_id, source, scan_id, outcome, detail_json, coverage, created_at FROM (
        SELECT a.*, ROW_NUMBER() OVER (PARTITION BY a.domain_id ORDER BY a.created_at DESC, a.id DESC) AS rn
          FROM website_sign_in_attempts a WHERE a.workspace_id = ?)
       WHERE rn <= 5 ORDER BY domain_id, created_at DESC, id DESC`).bind(workspaceId).all()).results || [];
+  // The signed-in pages of the latest SCAN attempt per domain (tests check sign-in only).
+  const latestScans = (await db.prepare(
+    `SELECT id, domain_id, source, scan_id, outcome, detail_json, coverage, summary_json, created_at FROM (
+       SELECT a.*, ROW_NUMBER() OVER (PARTITION BY a.domain_id ORDER BY a.created_at DESC, a.id DESC) AS rn
+         FROM website_sign_in_attempts a WHERE a.workspace_id = ? AND a.source = 'scan')
+      WHERE rn = 1`).bind(workspaceId).all()).results || [];
   const byDomain = new Map();
   for (const a of attempts) {
     if (!byDomain.has(a.domain_id)) byDomain.set(a.domain_id, []);
     byDomain.get(a.domain_id).push(signInAttemptView(a));
   }
+  const scanByDomain = new Map(latestScans.map((a) => [a.domain_id, signInAttemptView(a, { withSummary: true })]));
   return domains.map((r) => ({
     domain_id: r.domain_id,
     domain: r.domain,
     profile: r.id ? signInProfileView(r) : null,
     recent_attempts: byDomain.get(r.domain_id) || [],
+    latest_scan: scanByDomain.get(r.domain_id) || null,
   }));
+}
+
+/**
+ * The profile a scan of (workspace, domain) may use: active, live workspace,
+ * verified domain. Returns null (nothing to do), { profile, blocked } (record
+ * why it was not attempted) or { profile, secret }.
+ */
+export async function loadSignedInScanProfile(env, { workspaceId, domainId }) {
+  if (!workspaceId || !domainId) return null;
+  const profile = await env.cybermeters_db.prepare(
+    `SELECT p.* FROM website_sign_in_profiles p
+       JOIN workspaces w ON w.id = p.workspace_id AND w.deleted_at IS NULL
+       JOIN workspace_domains wd ON wd.workspace_id = p.workspace_id AND wd.domain_id = p.domain_id
+        AND wd.verification_status = 'verified' AND wd.verified_at IS NOT NULL
+      WHERE p.workspace_id = ? AND p.domain_id = ? AND p.status = 'active'`).bind(workspaceId, domainId).first();
+  if (!profile) return null;
+  const owner = await getWorkspaceBillingUserId(workspaceId, null, env);
+  if (!owner || !planAllowsSignedInScanning(await getEffectivePlan(owner, env))) return { profile, blocked: "plan_required" };
+  const secret = await openSignInSecret(env, profile, { workspaceId, domainId });
+  if (!secret) return { profile, blocked: "vault_unavailable" };
+  return { profile, secret };
 }

@@ -3,8 +3,10 @@ import { KeyRound } from 'lucide-react'
 import { api } from '../api'
 import { parseServerDate } from '../utils/dates'
 import {
-  PAUSED_REASON_TEXT, PROOF_TEXT, SIGN_IN_METHOD_LABEL, sessionFacts, signInErrorText, signInOutcomeMeta,
+  PAUSED_REASON_TEXT, PROOF_TEXT, SIGN_IN_METHOD_LABEL, SIGNED_IN_PAGE_STATUS, sessionFacts, signInErrorText, signInOutcomeMeta,
+  signedInCoverageText, signedInPageFacts,
 } from '../lib/websiteSignInDisplay'
+import { sensitiveLabel } from '../lib/websitePagesDisplay'
 
 // "Signed-in scanning" — set up a test account per verified domain, test the
 // sign-in now, and see the login health. The backend owns every outcome; the
@@ -31,6 +33,38 @@ function OutcomePanel({ outcome, detail, when }) {
       {facts.length > 0 && (
         <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Observed at sign-in">
           {facts.map((f) => <li key={f} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-700">{f}</li>)}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function SignedInPages({ latest }) {
+  const pages = latest?.outcome === 'signed_in' ? (latest.summary?.pages || []) : []
+  return (
+    <div className="mt-3">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Signed-in pages</h4>
+      <p className="text-xs text-gray-500 mb-1">{signedInCoverageText(latest)}{latest?.created_at && fmt(latest.created_at) ? ` (${fmt(latest.created_at)})` : ''}</p>
+      {pages.length > 0 && (
+        <ul className="divide-y divide-gray-100" aria-label="Signed-in pages checked">
+          {pages.map((p) => {
+            const facts = signedInPageFacts(p)
+            const label = sensitiveLabel({ sensitive_kind: p.sensitive_kind, observation: { sensitive_basis: 'path' } })
+            return (
+              <li key={p.path} className="py-2 flex flex-col gap-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="mono text-sm text-gray-900 break-all">{p.path}</span>
+                  {label && <span className="text-xs rounded px-2 py-0.5 bg-brand-50 text-brand-700">{label}</span>}
+                  <span className="text-xs rounded px-2 py-0.5 bg-gray-100 text-gray-700">{SIGNED_IN_PAGE_STATUS[p.outcome] || 'Unknown'}</span>
+                </div>
+                {facts.length > 0 && (
+                  <ul className="flex flex-wrap gap-1.5" aria-label={`Observed on ${p.path}`}>
+                    {facts.map((f) => <li key={f} className="text-xs rounded border border-gray-200 px-2 py-0.5 text-gray-700">{f}</li>)}
+                  </ul>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>
@@ -251,6 +285,7 @@ export default function WebsiteSignInSettings({ workspaceId }) {
             {p?.status === 'paused' && <p className="mt-2 text-sm text-amber-800">{PAUSED_REASON_TEXT[p.paused_reason] || 'Paused.'}</p>}
             {notes[d.domain] && <p className="mt-2 text-sm text-gray-700" role="status">{notes[d.domain]}</p>}
             {p && shown && <OutcomePanel outcome={shown.outcome} detail={shown.detail} when={shown.when} />}
+            {p && <SignedInPages latest={d.latest_scan} />}
             {editing === d.domain && data.can_use && (
               <SignInForm workspaceId={workspaceId} domain={d.domain} profile={p}
                 onCancel={() => setEditing(null)}

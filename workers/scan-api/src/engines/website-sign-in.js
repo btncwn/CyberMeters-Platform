@@ -18,6 +18,7 @@
 //   • nothing secret is returned or stored: no cookie or header values, no
 //     password, no raw HTML. The result carries names, flags and codes only.
 import { safeFetch } from "../lib/http.js";
+import { isOutboundControlError } from "../lib/ssrf.js";
 import {
   PROBE_HEADERS, siteHosts, normalizePath, forEachTag, attrOf, readBoundedText,
   setCookiesOf, hasPasswordField, isRequestablePath, isApiPath, classifySensitivePath,
@@ -51,9 +52,9 @@ export const SIGN_IN_OUTCOMES = Object.freeze([
   "signed_in_text_not_found", "signed_in_text_not_distinctive", "start_page_public", "start_page_unavailable",
   // the sign-in page is not something we can use safely
   "login_page_unavailable", "login_form_not_found", "username_field_not_found", "login_form_uses_get",
-  "login_form_posts_offsite", "login_not_https", "sign_in_redirects_offsite", "login_error_status",
+  "login_form_posts_offsite", "login_not_https", "sign_in_redirects_offsite", "sign_in_redirect_not_followed", "login_error_status",
   // not attempted / internal
-  "vault_unavailable", "budget_exhausted", "error",
+  "vault_unavailable", "plan_required", "budget_exhausted", "error",
 ]);
 // Outcomes that mean "the site refused these credentials or needs a human":
 // repeated, they pause the profile so a scan can never lock the account out.
@@ -490,20 +491,21 @@ export function createSiteSession(domain, { staticAuth = null, opts = {}, limits
         ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
       });
     } catch (err) {
-      if (opts.signal?.aborted) throw err;
+      // Scan budget/deadline: end the run (the caller reports it), never retry.
+      if (opts.signal?.aborted || isOutboundControlError(err)) { state.exhausted = state.exhausted || "scan_budget"; throw err; }
       return null;
     }
   }
 
   /**
    * navigate(url, { method, body, authed, referer })
-   * → { outcome: "ok" | "offsite" | "insecure" | "unavailable" | "too_many_redirects" | "exhausted",
+   * → { outcome: "ok" | "offsite" | "insecure" | "stopped" | "unavailable" | "too_many_redirects" | "exhausted",
    *     res, url (final URL string), status, offsite_host, set_cookies: [raw…] }
    * Set-Cookie on EVERY hop is applied to the jar (authed) and returned for
    * flag inspection. Never follows a hop off the site; when authed, never
    * follows a hop to plain HTTP.
    */
-  async function navigate(startUrl, { method = "GET", body = null, contentType = "application/x-www-form-urlencoded", authed = true, referer = null } = {}) {
+  async function navigate(startUrl, { method = "GET", body = null, contentType = "application/x-www-form-urlencoded", authed = true, referer = null, stopAt = null } = {}) {
     let current = startUrl, m = method, b = body;
     const setCookies = [];
     for (let hop = 0; hop <= L.maxHops; hop++) {
@@ -525,6 +527,9 @@ export function createSiteSession(domain, { staticAuth = null, opts = {}, limits
         next.hash = "";
         if (!hosts.has(next.hostname.toLowerCase())) return { outcome: "offsite", url: current, offsite_host: next.hostname.toLowerCase(), set_cookies: setCookies };
         if (authed && !credentialTarget(next)) return { outcome: "insecure", url: next.toString(), set_cookies: setCookies };
+        // The caller decides where a redirect may NOT be followed (a sign-in
+        // page, an address that could change something, another path).
+        if (stopAt && stopAt(next, u)) return { outcome: "stopped", url: next.toString(), status: res.status, set_cookies: setCookies };
         if (m === "POST" && (res.status === 307 || res.status === 308)) {
           // Re-sending the form is only acceptable to the very same origin.
           if (next.origin !== u.origin) return { outcome: "offsite", url: current, offsite_host: next.hostname.toLowerCase(), set_cookies: setCookies };
@@ -553,6 +558,16 @@ export function createSiteSession(domain, { staticAuth = null, opts = {}, limits
   return { hosts, jar, navigate, page, state, canFetch, limits: L };
 }
 
+/** Never follow a signed-in redirect into a sign-in page or an address that could change something. */
+export function signedInStopAt(loginPath) {
+  return (next) => {
+    const p = normalizePath(next.pathname);
+    return p === loginPath || classifySensitivePath(p) === "login" || !isRequestablePath(p, { strict: true });
+  };
+}
+/** Anonymous contrast: any redirect to a different path is already the answer ("refused"). */
+export const anonymousStopAt = (next, current) => normalizePath(next.pathname) !== normalizePath(current.pathname);
+
 const isChallenge = (nav) => {
   const h = nav?.res?.headers;
   if (!h) return false;
@@ -572,22 +587,22 @@ const isChallenge = (nav) => {
 export async function verifySignedIn(session, { startUrl, signedInText = null, loginUrl = null }) {
   const startPath = normalizePath(new URL(startUrl).pathname);
   const loginPath = loginUrl ? normalizePath(new URL(loginUrl).pathname) : null;
-  const authed = await session.page(startUrl, { authed: true });
+  const authed = await session.page(startUrl, { authed: true, stopAt: signedInStopAt(loginPath) });
   if (authed.outcome === "exhausted") return { outcome: "budget_exhausted" };
   if (isChallenge(authed)) return { outcome: "bot_protection" };
   const authedPath = authed.outcome === "ok" ? normalizePath(new URL(authed.url).pathname) : null;
   const detail = { start_status: authed.status ?? null };
-  const refused = authed.outcome === "offsite" || [401, 403].includes(authed.status)
+  const refused = authed.outcome === "offsite" || authed.outcome === "stopped" || [401, 403].includes(authed.status)
     || (authedPath && authedPath !== startPath && (authedPath === loginPath || classifySensitivePath(authedPath) === "login"))
     || (authed.status >= 200 && authed.status < 300 && looksLikeLoginPage(authed.html) && !containsSignedInText(authed.html, signedInText));
   if (refused) return { outcome: "session_refused", detail };
   if (authed.status === 429) return { outcome: "rate_limited", detail };
   if (authed.outcome !== "ok" || !(authed.status >= 200 && authed.status < 300) || !authed.html) return { outcome: "start_page_unavailable", detail };
 
-  const anon = await session.page(startUrl, { authed: false });
+  const anon = await session.page(startUrl, { authed: false, stopAt: anonymousStopAt });
   const anonPath = anon.outcome === "ok" ? normalizePath(new URL(anon.url).pathname) : null;
   let anonymous = "unavailable";
-  if (anon.outcome === "offsite" || [401, 403, 404, 410].includes(anon.status) || (anonPath && anonPath !== startPath)
+  if (anon.outcome === "offsite" || anon.outcome === "stopped" || [401, 403, 404, 410].includes(anon.status) || (anonPath && anonPath !== startPath)
       || (anon.status >= 200 && anon.status < 300 && looksLikeLoginPage(anon.html))) anonymous = "refused";
   else if (anon.outcome === "ok" && anon.status >= 200 && anon.status < 300 && anon.html) anonymous = "served";
   detail.anonymous_access = anonymous;
@@ -652,16 +667,21 @@ export async function signIn(domain, profile, secret, opts = {}) {
       body: buildLoginBody(form, usernameName, passwordName, secret),
       referer: `${loginPageUrl.origin}${loginPageUrl.pathname}`,
       authed: true,
+      // After the form, never follow a redirect into an address that could change something.
+      stopAt: (next) => !isRequestablePath(normalizePath(next.pathname), { strict: true }),
     });
     const cookiesAtSignIn = describeSetCookies(posted.set_cookies, { now: typeof opts.now === "function" ? opts.now() : Date.now() });
-    const landing = { status: posted.status ?? null, path: posted.outcome === "ok" ? normalizePath(new URL(posted.url).pathname) : null };
+    const landing = { status: posted.status ?? null, path: posted.outcome === "ok" || posted.outcome === "stopped" ? normalizePath(new URL(posted.url).pathname) : null };
     const extra = { form: formDetail, landing, cookies_at_sign_in: cookiesAtSignIn };
     if (posted.outcome === "exhausted") return finish("budget_exhausted", extra);
     if (posted.outcome === "offsite") return finish("sign_in_redirects_offsite", { ...extra, offsite_host: posted.offsite_host });
     if (posted.outcome === "insecure") return finish("login_not_https", extra);
     if (isChallenge(posted)) return finish("bot_protection", extra);
     if (posted.status === 429) return finish("rate_limited", extra);
-    if (posted.outcome !== "ok" || posted.status >= 500) return finish("login_error_status", extra);
+    // Not following a redirect into an unsafe address is fine when a start
+    // page can prove the sign-in; without one there is nothing to prove it on.
+    if (posted.outcome === "stopped" && !profile.start_url) return finish("sign_in_redirect_not_followed", extra);
+    if ((posted.outcome !== "ok" && posted.outcome !== "stopped") || posted.status >= 500) return finish("login_error_status", extra);
     if (posted.html && detectOneTimeCode(posted.html)) return finish("mfa_required", extra);
     if (posted.html && detectCaptcha(posted.html)) return finish("captcha_present", extra);
     if ([401, 403].includes(posted.status)) return finish("credentials_rejected", extra);
@@ -680,7 +700,7 @@ export async function signIn(domain, profile, secret, opts = {}) {
     }
     return { ...finish("signed_in", { ...extra, ...v.detail, session_cookie_renewed: renewed, start_path: normalizePath(new URL(startUrl).pathname) }), session, startPage: v.startPage };
   } catch (err) {
-    if (opts.signal?.aborted) return finish("budget_exhausted");
+    if (opts.signal?.aborted || session.state.exhausted) return finish("budget_exhausted");
     return finish("error");
   }
 }

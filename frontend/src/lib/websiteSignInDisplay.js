@@ -27,7 +27,9 @@ export const SIGN_IN_OUTCOME_META = Object.freeze({
   login_form_posts_offsite: { label: 'Form sends to another site', tone: 'warn', help: 'The sign-in form posts to another site. CyberMeters only sends credentials to this domain.' },
   login_not_https: { label: 'Part of the sign-in is not HTTPS', tone: 'warn', help: 'CyberMeters only sends credentials over HTTPS, so it stopped.' },
   sign_in_redirects_offsite: { label: 'Sign-in continues on another site', tone: 'warn', help: 'This looks like single sign-on. CyberMeters does not send credentials to another site — use the header or cookie method.' },
+  sign_in_redirect_not_followed: { label: 'Stopped at a redirect after sign-in', tone: 'warn', help: 'After sign-in the site redirected to an address that could change something, so CyberMeters did not follow it. Add a page that needs sign-in as the start page.' },
   login_error_status: { label: 'Error after sign-in', tone: 'warn', help: 'The site returned an error after the form was sent.' },
+  plan_required: { label: 'Needs a paid plan or trial', tone: 'muted', help: 'Signed-in scanning needs an active paid plan or trial, so the scan did not sign in.' },
   vault_unavailable: { label: 'Temporarily unavailable', tone: 'muted', help: 'Signed-in scanning is temporarily unavailable.' },
   budget_exhausted: { label: 'Ran out of time', tone: 'muted', help: 'The sign-in took longer than allowed. Try again.' },
   error: { label: 'Could not complete', tone: 'muted', help: 'The sign-in could not be completed. Try again.' },
@@ -97,3 +99,71 @@ export const PROOF_TEXT = Object.freeze({
   signed_in_text: 'Confirmed by your signed-in text on the start page.',
   anonymous_refused: 'Confirmed because the start page opened with the session but refused a request without it.',
 })
+
+// ── Signed-in pages (latest scan) ───────────────────────────────────────────
+
+export const SIGNED_IN_PAGE_STATUS = Object.freeze({
+  observed: 'Checked',
+  refused: 'Refused for this account',
+  redirect_not_followed: 'Redirect not followed',
+  not_found: 'Not found',
+  error_status: 'Error',
+  redirected_offsite: 'Goes to another site',
+  not_html: 'Not a page',
+  unavailable: 'No answer',
+})
+
+const SIGNED_IN_PARTIAL_TEXT = {
+  page_limit: 'the page limit was reached',
+  fetch_limit: 'the request limit was reached',
+  time_budget: 'time ran out',
+  scan_budget: 'the scan’s request budget ran out',
+  session_ended: 'the session ended during the scan',
+  aborted: 'the scan stopped early',
+  error: 'part of the check could not complete',
+  deadline_budget: 'the scan ran out of time before this step',
+  module_budget_exhausted: 'this step ran out of time',
+  module_failed: 'this step could not complete',
+}
+
+/** One line about the latest scan's signed-in check for a domain. */
+export function signedInCoverageText(latest) {
+  if (!latest) return 'Signed-in pages are checked during queued and scheduled scans.'
+  if (latest.outcome !== 'signed_in') {
+    if (latest.outcome === 'plan_required') return 'The last scan did not sign in: signed-in scanning needs an active paid plan or trial.'
+    return `The last scan could not sign in: ${signInOutcomeMeta(latest.outcome).label.toLowerCase()}.`
+  }
+  const s = latest.summary || {}
+  const n = Number(s.counts?.pages_observed) || 0
+  const max = Number(s.limits?.max_pages) || 10
+  const reasons = (s.partial_reasons || []).map((r) => SIGNED_IN_PARTIAL_TEXT[r]).filter(Boolean)
+  const base = `${n} signed-in page${n === 1 ? '' : 's'} checked on the last scan (up to ${max}).`
+  return latest.coverage === 'partial' && reasons.length ? `${base} Partial: ${reasons.join(', ')}.` : base
+}
+
+/** Neutral facts for one signed-in page; the anonymous contrast comes first. */
+export function signedInPageFacts(page) {
+  if (!page || page.outcome !== 'observed') return []
+  const facts = []
+  if (page.anonymous_access === 'served_with_signed_in_text') facts.push('Without signing in, this page still showed your signed-in text')
+  if (page.anonymous_access === 'served_same_page') facts.push('Also served without signing in (same page)')
+  const cc = page.cache_control || {}
+  if (cc.kind === 'missing') facts.push('No Cache-Control header')
+  if (cc.kind === 'storable') facts.push(`Cache-Control lets caches keep a copy${cc.directives?.length ? ` (${cc.directives.join(', ')})` : ''}`)
+  if (page.frame_protection === false) facts.push('Can be shown inside another site’s frame (no X-Frame-Options or frame-ancestors)')
+  const missing = new Set(page.missing_headers || [])
+  if (missing.has('strict-transport-security')) facts.push('HSTS header not sent')
+  if (missing.has('content-security-policy')) facts.push('No Content-Security-Policy')
+  for (const c of page.cookies || []) {
+    if (!c.secure) facts.push(`Cookie ${c.name} without Secure`)
+    if (!c.httponly) facts.push(`Cookie ${c.name} without HttpOnly`)
+  }
+  for (const f of page.forms || []) {
+    if (f.action_kind === 'other_origin' && f.action_host) facts.push(`Form sends to ${f.action_host}`)
+    else if (f.action_scheme === 'http') facts.push('Form sends over plain HTTP')
+  }
+  if (page.mixed_content?.count > 0) facts.push(`${page.mixed_content.count} insecure (http://) resource${page.mixed_content.count === 1 ? '' : 's'}`)
+  const scripts = page.third_party_scripts || []
+  if (scripts.length) facts.push(`${scripts.length} third-party script host${scripts.length === 1 ? '' : 's'} on a signed-in page`)
+  return facts
+}

@@ -78,11 +78,16 @@ import { PAGE_DISCOVERY_VERSION, runPageDiscoveryModule } from "./page-discovery
 import { persistWebsitePagesForScan } from "./website-pages.js";
 import { signInPageFindings } from "./signin-page-findings.js";
 
+import { SIGNED_IN_SCAN_VERSION, runSignedInScan, signedInSummary } from "./website-signed-in-scan.js";
+import { loadSignedInScanProfile, recordSignInAttempt } from "./website-sign-in-profiles.js";
+
 // Phase 7a cap for important-page discovery (durable scans only), and the
 // headroom it must leave for post-terminal work (verification, lifecycle,
 // snapshot, alerts, notifications) that shares the same invocation deadline.
 const PAGE_DISCOVERY_BUDGET_MS = 25_000;
 const PAGE_DISCOVERY_POST_TERMINAL_RESERVE_MS = 40_000;
+// Phase 7b cap for signed-in scanning (sign-in + up to 10 signed-in pages).
+const SIGNED_IN_SCAN_BUDGET_MS = 30_000;
 import { evaluateCyberEssentialsLifecycle } from "./ce-lifecycle.js";
 import { correlateRelatedChanges } from "./related-changes.js";
 import {
@@ -2064,6 +2069,67 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     try {
       for (const f of signInPageFindings(modules.page_discovery, { domain, checkedAt: new Date(now()).toISOString() })) findings.push(f);
     } catch { /* non-fatal: an observation must not break the scan */ }
+
+    // Phase 7b: Signed-in scanning (engines/website-signed-in-scan.js). Only
+    // for THIS scan's workspace, only with an active sign-in profile on a
+    // verified domain of a live workspace with a paid plan or trial, durable
+    // scans only, under its own cap. The result is workspace-private: it is
+    // recorded on that workspace's sign-in attempt row and is deliberately
+    // NOT placed in `modules` (the domain's shared scan report). It never sets
+    // `incomplete` and never produces findings.
+    if (workspaceId && durableInvocation && !reservedMode) {
+      let prepared = null;
+      try { prepared = await loadSignedInScanProfile(env, { workspaceId, domainId }); } catch { prepared = null; }
+      if (prepared?.blocked) {
+        try {
+          await recordSignInAttempt(env, { workspaceId, domainId, profile: prepared.profile, source: "scan", scanId, outcome: prepared.blocked, coverage: "not_run" });
+        } catch { /* non-fatal */ }
+      } else if (prepared?.secret) {
+        let { profile, secret } = prepared;
+        prepared = null;
+        const notRun = (reason) => ({ source: "signed_in_scan", version: SIGNED_IN_SCAN_VERSION, sign_in: { outcome: "budget_exhausted", detail: {} }, coverage: "not_run", partial_reasons: [reason], counts: {}, pages: [] });
+        let signedIn;
+        if (!deadline.canRun(SIGNED_IN_SCAN_BUDGET_MS + PAGE_DISCOVERY_POST_TERMINAL_RESERVE_MS)) {
+          signedIn = notRun("deadline_budget");
+        } else {
+          const run = await runCappedModule("signed_in_scan", {
+            estimateMs: SIGNED_IN_SCAN_BUDGET_MS,
+            hardMs: SIGNED_IN_SCAN_BUDGET_MS,
+            fallback: () => notRun("module_budget_exhausted"),
+            run: ({ accounting, signal, remainingMs }) => runSignedInScan(domain, profile, secret, {
+              dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs,
+            }),
+          });
+          signedIn = run.thrown ? notRun("module_failed") : (run.value || notRun("module_failed"));
+          try {
+            const timedOut = run.timedOut === true || Boolean(signedIn.timeout_source);
+            const outbound = run.thrown
+              ? (() => { run.ctx?.markIncomplete?.("module_error"); return outboundAccounting.snapshot("signed_in_scan"); })()
+              : timedOut
+              ? abandonOutbound(run.ctx, "signed_in_scan", run.startedMs != null ? "module_race" : "launch_gate")
+              : settleOutboundValue(run.ctx, "signed_in_scan", { coverage: signedIn.coverage });
+            telemetry.record("signed_in_scan", {
+              outcome:        signedIn.sign_in?.outcome === "signed_in" ? "ok" : "skipped",
+              timeout:        timedOut,
+              error_class:    run.thrown?.name || null,
+              duration_ms:    run.durationMs,
+              allocated_ms:   run.allocatedMs,
+              timeout_source: timedOut ? (signedIn.timeout_source || "module_race") : null,
+              outbound,
+              outbound_calls: outbound?.outbound_measurement_complete ? outbound.outbound_attempts_observed : null,
+            });
+          } catch { /* telemetry is observational only */ }
+        }
+        secret = null;
+        try {
+          await recordSignInAttempt(env, {
+            workspaceId, domainId, profile, source: "scan", scanId,
+            outcome: signedIn.sign_in?.outcome || "error", detail: signedIn.sign_in?.detail || {},
+            coverage: signedIn.coverage, summary: signedInSummary(signedIn),
+          });
+        } catch { /* non-fatal — the next scan records it again */ }
+      }
+    }
 
 /**
  * buildCanonicalUrlProfile(modules)

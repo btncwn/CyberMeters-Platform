@@ -75,6 +75,20 @@ describe('WebsiteSignInSettings', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('could not be loaded')
   })
 
+  it('shows the last scan’s signed-in pages with neutral facts', async () => {
+    api.getWebsiteSignIn.mockResolvedValue(listing({ domains: [{ domain_id: 'd1', domain: 'acme.test', profile, recent_attempts: [],
+      latest_scan: { outcome: 'signed_in', coverage: 'complete', created_at: '2026-10-11T00:00:00Z', summary: { counts: { pages_observed: 2 }, limits: { max_pages: 10 }, partial_reasons: [], pages: [
+        { path: '/account', outcome: 'observed', sensitive_kind: 'account', cache_control: { kind: 'no_store', directives: ['no-store'] }, frame_protection: true, missing_headers: [], cookies: [], forms: [], mixed_content: { count: 0 }, third_party_scripts: [], anonymous_access: 'refused' },
+        { path: '/account/settings', outcome: 'observed', sensitive_kind: 'account', cache_control: { kind: 'missing', directives: [] }, frame_protection: true, missing_headers: [], cookies: [], forms: [], mixed_content: { count: 0 }, third_party_scripts: [], anonymous_access: 'served_with_signed_in_text' },
+        { path: '/admin', outcome: 'refused', sensitive_kind: 'admin' },
+      ] } } }] }))
+    render(<WebsiteSignInSettings workspaceId="ws1" />)
+    expect(await screen.findByText(/2 signed-in pages checked on the last scan/)).toBeInTheDocument()
+    expect(screen.getByText('Without signing in, this page still showed your signed-in text')).toBeInTheDocument()
+    expect(screen.getByText('No Cache-Control header')).toBeInTheDocument()
+    expect(screen.getByText('Refused for this account')).toBeInTheDocument()
+  })
+
   it('a rate-limited test is shown in place, not as a global error', async () => {
     api.getWebsiteSignIn.mockResolvedValue(listing({ domains: [{ domain_id: 'd1', domain: 'acme.test', profile, recent_attempts: [] }] }))
     api.testWebsiteSignIn.mockResolvedValue({ ok: false, status: 429, body: { code: 'rate_limit_exceeded' } })

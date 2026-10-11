@@ -61,7 +61,7 @@ const UNSAFE_WORDS = new Set([
 ]);
 const UNSAFE_PAIRS = [["log", "out"], ["sign", "out"], ["log", "off"], ["sign", "off"], ["opt", "out"], ["add", "to"]];
 // Paths only MENTIONED in JavaScript must also carry no action verb at all.
-const ACTION_WORDS = new Set([
+export const ACTION_WORDS = new Set([
   "create", "update", "edit", "save", "submit", "send", "post", "upload", "import", "export",
   "sync", "refresh", "trigger", "start", "stop", "pause", "resume", "publish", "unpublish",
   "archive", "restore", "move", "copy", "toggle", "set", "assign", "invite", "add", "new", "run",
