@@ -186,6 +186,7 @@ function buildScene() {
     cities: CITIES.map(([name, lat, lon]) => ({ name, v: vec(lat, lon) })),
     routes: ROUTES.map(([a, b], i) => ({ pts: route(byName[a], byName[b]), dur: 2600 + (i % 5) * 700, phase: (i * 0.137) % 1 })),
     findings: EXAMPLE_FINDINGS.map(f => vec(f.lat, f.lon)),
+    labelWidths: new Map(),
   }
 }
 
@@ -291,16 +292,24 @@ function drawGlobe(ctx, canvas, box, R, spin, tilt, active, now, fx, scene) {
     })
   }
 
-  // Major cities.
+  // Major cities. Names closest to the viewer are labelled first and a name
+  // that would overlap one already drawn is left out, so labels never collide.
   ctx.font = '600 11px Inter, system-ui, sans-serif'
-  for (const city of scene.cities) {
-    const p = rot(city.v)
-    if (p.z <= 0.04) continue
+  const shown = scene.cities.map(city => ({ city, p: rot(city.v) })).filter(({ p }) => p.z > 0.04)
+  for (const { p } of shown) {
     ctx.fillStyle = `rgba(255,236,190,${(0.45 + p.z * 0.55).toFixed(2)})`
     ctx.beginPath(); ctx.arc(p.x, p.y, 2.1, 0, TAU); ctx.fill()
     ctx.strokeStyle = `rgba(255,226,160,${(p.z * 0.35).toFixed(2)})`
     ctx.beginPath(); ctx.arc(p.x, p.y, 4.6, 0, TAU); ctx.stroke()
-    if (fx.cityLabels && p.z > 0.5) {
+  }
+  if (fx.cityLabels) {
+    const taken = []
+    const widths = scene.labelWidths
+    for (const { city, p } of shown.filter(({ p }) => p.z > 0.5).sort((a, b) => b.p.z - a.p.z)) {
+      if (!widths.has(city.name)) widths.set(city.name, ctx.measureText(city.name).width)
+      const box = { x: p.x + 4, y: p.y - 17, w: widths.get(city.name) + 4, h: 15 }
+      if (taken.some(t => box.x < t.x + t.w && t.x < box.x + box.w && box.y < t.y + t.h && t.y < box.y + box.h)) continue
+      taken.push(box)
       ctx.fillStyle = `rgba(232,246,255,${Math.min(0.92, (p.z - 0.5) * 2.4).toFixed(2)})`
       ctx.fillText(city.name, p.x + 6, p.y - 5)
     }
@@ -439,6 +448,7 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
       const root = rootRef.current
       const scale = root ? root.getBoundingClientRect().width / size || 1 : 1
       const avoid = avoidRef?.current?.getBoundingClientRect()
+      const taken = []
       labelRefs.current.forEach((el, i) => {
         if (!el) return
         const spot = placed.find(p => p.i === i)
@@ -459,7 +469,12 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
           shift = avoid.right + 16 - r.left
           if (r.right + shift > vw - 12) el.style.opacity = '0'
         }
-        if (shift) el.style.transform = `translateX(${(shift / scale).toFixed(1)}px) ${base}`
+        // Two labels never stack on top of each other: the later one moves below.
+        const box = { left: r.left + shift, right: r.right + shift, top: r.top, bottom: r.bottom }
+        const clash = taken.find(t => box.left < t.right && t.left < box.right && box.top < t.bottom + 6 && t.top < box.bottom + 6)
+        const drop = clash ? clash.bottom + 8 - box.top : 0
+        taken.push({ ...box, top: box.top + drop, bottom: box.bottom + drop })
+        if (shift || drop) el.style.transform = `translate(${(shift / scale).toFixed(1)}px, ${(drop / scale).toFixed(1)}px) ${base}`
       })
     }
 
