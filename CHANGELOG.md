@@ -7,7 +7,7 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
-## Unreleased — website evidence and shared case navigation
+## v2026.10.11-1 — website evidence and shared case navigation — 11 October 2026
 
 Website Security uses the shared module layout and shows recorded HTTPS,
 redirect, header and cookie checks even when no findings are tracked. Findings
@@ -16,6 +16,23 @@ Uncertain evidence keeps historical severity separate from current status.
 All eight service menus link to their existing case queue; automated case
 verification can open a workspace-bound recheck form. No crawler or authenticated
 application testing is added. Frontend-only; no migration or Worker deployment.
+
+PR #532 merged as `231aba70` after all 17 checks passed at `d8d20a85`.
+The branch includes #529. Independent changed-path review passed, as did 886
+frontend tests, build/typecheck and desktop/mobile fixture checks. Exact CI
+inventory pins include the added evidence-link test and reviewed quality reads;
+the existing mutation assertions remain enforced.
+
+Pages deployment `5f9012cd-7657-45d2-860d-468f61bc31ba` successfully published
+this source. The authenticated live Website Security page displayed the selected
+workspace's recorded partial scan even with zero findings; skipped HTTPS checks
+stayed unconfirmed. Its evidence link opened the correct technical report and
+stored HTTP responses. Recheck opened the verified `cybermeters.com` form without
+starting a scan, and Managed Cases opened with Website Security selected. Paging,
+nonempty case links and mobile behavior were proved with controlled fixtures;
+no new live scan or case closure is claimed. The API stayed healthy at
+`1bd0b44a-599e-453c-bf78-77c01f904fb1`. Pages rollback is
+`b9a51fec-748f-42de-b218-9979e8c08caf` (source `138aa3e6`).
 
 ## Unreleased — workspace report recovery
 
