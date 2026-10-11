@@ -33,6 +33,12 @@ const ASSERTIONS = Object.freeze([
   "LATE_SUCCESS_IS_TERMINAL_TELEMETRY",
   "LATE_SUCCESS_IS_EXCLUDED_FROM_CUSTOMER_OUTPUT",
   "LATE_FAILURE_IS_TERMINAL_TELEMETRY",
+  "GRACE_INCLUDES_SIBLING_THAT_FINISHES_IN_WINDOW",
+  "GRACE_INCLUDES_SIBLING_FAILURE_AS_FAILURE",
+  "GRACE_EXPIRY_EXCLUDES_IN_FLIGHT_SIBLING",
+  "GRACE_ABORT_RELEASES_WITHOUT_WAITING",
+  "GRACE_NEVER_EXCEEDS_ONE_CRT_SH_ATTEMPT",
+  "SUBDOMAINS_SIBLING_WITHIN_GRACE_IS_NOT_DEGRADED",
 ]);
 
 const MUTATION_ASSERTION = Object.freeze({
@@ -122,13 +128,16 @@ function cacheFixture() {
   return { cache, gates, aborts, calls };
 }
 
-async function startRace(fixture, module = "subdomains") {
+async function startRace(fixture, module = "subdomains", extra = {}) {
   return modules.orchestrator.raceCertificateTransparencyFirstSuccess({
     ctCache: fixture.cache,
     domain: "example.com",
     module,
+    ...extra,
   });
 }
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function pendingAfter(promise, turns = 2) {
   let settled = false;
@@ -374,6 +383,106 @@ async function assertionBody(id) {
         && row?.outcome === "http_error"
         && row?.customer_evidence_disposition === "late_failure_after_first_success"
         && consumer?.terminal_physical_attempt_state === "terminal_failure";
+    }
+    // Bounded sibling grace: a sibling that finishes inside the window is real
+    // evidence and is included; one still in flight when the window ends is
+    // excluded exactly as before, so a slow provider still reads as reduced.
+    case "GRACE_INCLUDES_SIBLING_THAT_FINISHES_IN_WINDOW": {
+      const fixture = cacheFixture();
+      const outputPromise = startRace(fixture, "subdomains", { siblingGraceMs: 2_000 });
+      fixture.gates.certspotter.resolve(providerBody.certspotter);
+      const waitingForSibling = await pendingAfter(outputPromise, 4);
+      fixture.gates.crt_sh.resolve(providerBody.crt_sh);
+      const output = await outputPromise;
+      await turn();
+      const row = fixture.cache.telemetrySnapshot().find((entry) =>
+        entry.provider === "crt_sh" && entry.module === "subdomains");
+      return waitingForSibling
+        && output.release.winner === "certspotter"
+        && output.release.included_terminal_providers.join("|") === "crt_sh|certspotter"
+        && output.providers.crt_sh.status === "available"
+        && output.providers.crt_sh.data[0].issuer_name === "crt issuer"
+        && row?.customer_evidence_disposition !== "late_success_excluded_after_first_success";
+    }
+    case "GRACE_INCLUDES_SIBLING_FAILURE_AS_FAILURE": {
+      const fixture = cacheFixture();
+      const outputPromise = startRace(fixture, "subdomains", { siblingGraceMs: 2_000 });
+      fixture.gates.certspotter.resolve(providerBody.certspotter);
+      await turn();
+      fixture.gates.crt_sh.resolve(jsonResponse({}, 502));
+      const output = await outputPromise;
+      return output.providers.crt_sh.status === "unavailable"
+        && output.providers.crt_sh.error === "HTTP 502"
+        && output.providers.certspotter.status === "available";
+    }
+    case "GRACE_EXPIRY_EXCLUDES_IN_FLIGHT_SIBLING": {
+      const fixture = cacheFixture();
+      const started = Date.now();
+      const output = await (async () => {
+        const outputPromise = startRace(fixture, "subdomains", { siblingGraceMs: 30 });
+        fixture.gates.certspotter.resolve(providerBody.certspotter);
+        return outputPromise;
+      })();
+      const waited = Date.now() - started;
+      fixture.gates.crt_sh.resolve(providerBody.crt_sh);
+      await turn();
+      return waited >= 25
+        && output.providers.crt_sh.status === "unavailable"
+        && output.providers.crt_sh.error
+          === modules.cache.CT_PROVIDER_FIRST_SUCCESS_RELEASE_CUSTOMER_WORDING
+        && output.release.included_terminal_providers.join("|") === "certspotter";
+    }
+    case "GRACE_ABORT_RELEASES_WITHOUT_WAITING": {
+      const fixture = cacheFixture();
+      const controller = new AbortController();
+      const started = Date.now();
+      const outputPromise = startRace(fixture, "subdomains", {
+        siblingGraceMs: 5_000,
+        signal: controller.signal,
+      });
+      fixture.gates.certspotter.resolve(providerBody.certspotter);
+      await sleep(10);
+      controller.abort(new Error("module deadline"));
+      const output = await outputPromise;
+      const waited = Date.now() - started;
+      fixture.gates.crt_sh.resolve(providerBody.crt_sh);
+      await turn();
+      return waited < 1_000
+        && output.providers.certspotter.status === "available"
+        && output.providers.crt_sh.status === "unavailable";
+    }
+    case "GRACE_NEVER_EXCEEDS_ONE_CRT_SH_ATTEMPT": {
+      return Number.isFinite(modules.orchestrator.CT_SIBLING_GRACE_MS)
+        && modules.orchestrator.CT_SIBLING_GRACE_MS > 0
+        && modules.orchestrator.CT_SIBLING_GRACE_MS
+          <= modules.cache.CT_PROVIDER_POLICIES.crt_sh.timeoutMs;
+    }
+    case "SUBDOMAINS_SIBLING_WITHIN_GRACE_IS_NOT_DEGRADED": {
+      const fixture = cacheFixture();
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = async (input) => {
+        if (String(input).includes("dns-query")) return jsonResponse({ Status: 0, Answer: [] });
+        throw new Error(`unexpected non-cache fetch ${input}`);
+      };
+      try {
+        const outputPromise = modules.subdomains.runSubdomainsModule("example.com", {
+          ctCache: fixture.cache,
+          cache: new Map(),
+        });
+        fixture.gates.certspotter.resolve(providerBody.certspotter);
+        await sleep(20);
+        fixture.gates.crt_sh.resolve(providerBody.crt_sh);
+        const output = await outputPromise;
+        const quality = modules.scanEngine.buildScanQuality({ subdomains: output }, "2026-08-18T01:00:00Z");
+        const declared = Array.isArray(output.degradations) ? output.degradations : [];
+        return declared.length === 0
+          && output.sources?.crt_sh?.error == null
+          && output.sources?.certspotter?.error == null
+          && quality.status !== "degraded"
+          && (output.subdomains || output.items || []).length > 0;
+      } finally {
+        globalThis.fetch = realFetch;
+      }
     }
     default:
       throw new Error(`missing assertion body ${id}`);

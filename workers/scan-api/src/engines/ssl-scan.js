@@ -7,7 +7,7 @@ import { customerSafeFailure } from "../lib/errors.js";
 import { aggregateFetchObservations, classifyFetchObservation } from "../lib/fetch-observation.js";
 import { classifyServiceability, mayGroundAbsence } from "../lib/serviceability.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
-import { raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
+import { CT_SIBLING_GRACE_MS, raceCertificateTransparencyFirstSuccess } from "./ct-first-success.js";
 import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertificateSanNames } from "./hostnames.js";
 import { TLS_RUNTIME_STATES } from "./tls-evidence.js";
 
@@ -66,6 +66,7 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
       module: "ssl",
       accounting,
       signal: opts.signal,
+      siblingGraceMs: CT_SIBLING_GRACE_MS,
     })).providers;
   } catch (err) {
     const error = customerSafeFailure("scan/ct/first-success", err, "CT orchestration failed");
