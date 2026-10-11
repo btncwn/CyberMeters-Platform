@@ -20,6 +20,15 @@ export default {
           900: '#003328',
         },
       },
+      // Readable type scale (founder, 11 Oct): product text never reads below
+      // the market average. Every step sits above Tailwind's default.
+      fontSize: {
+        xs: ['0.875rem', { lineHeight: '1.25rem' }],     // 14px (default 12)
+        sm: ['1rem', { lineHeight: '1.5rem' }],          // 16px (default 14)
+        base: ['1.0625rem', { lineHeight: '1.65rem' }],  // 17px (default 16)
+        lg: ['1.1875rem', { lineHeight: '1.75rem' }],    // 19px (default 18)
+        xl: ['1.3125rem', { lineHeight: '1.875rem' }],   // 21px (default 20)
+      },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
         // Public website display face (Computer Modern, self-hosted, SIL OFL).

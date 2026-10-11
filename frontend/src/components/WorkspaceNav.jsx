@@ -200,7 +200,7 @@ export default function WorkspaceNav({ wsName }) {
                   style={{ color: t.icon, transform: hovered && !active ? 'scale(1.08)' : undefined }}
                 />
                 <span
-                  className="flex-1 truncate text-[15px] leading-tight"
+                  className="flex-1 min-w-0 text-[15px] leading-snug"
                   style={active ? { color: t.text } : undefined}
                 >
                   {svc.title}
@@ -246,7 +246,7 @@ export default function WorkspaceNav({ wsName }) {
       <div className="px-2.5 py-2.5 border-t border-gray-100">
         <button
           onClick={() => setToolsOpen(v => !v)}
-          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 hover:bg-gray-50 transition-colors"
+          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[13px] font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 hover:bg-gray-50 transition-colors"
         >
           <span className="flex-1 text-left">Workspace</span>
           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${toolsOpen ? 'rotate-180' : ''}`} />

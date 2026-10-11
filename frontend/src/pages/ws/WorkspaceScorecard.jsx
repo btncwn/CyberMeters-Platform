@@ -51,7 +51,7 @@ function StatusIcon({ status, className = 'w-5 h-5 flex-shrink-0' }) {
 function StatusBadge({ status }) {
   const c = statusColors(status)
   return (
-    <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${c.bg} ${c.text}`}>
+    <span className={`text-[12px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${c.bg} ${c.text}`}>
       {status ?? 'unknown'}
     </span>
   )

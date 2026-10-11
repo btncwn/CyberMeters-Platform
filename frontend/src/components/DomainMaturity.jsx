@@ -29,7 +29,7 @@ function Flags({ flags }) {
   return (
     <div className="flex flex-wrap gap-1 mt-1 justify-end">
       {chips.map((c, i) => (
-        <span key={i} className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded border ${c.cls}`}>{c.text}</span>
+        <span key={i} className={`inline-block text-[12px] font-medium px-1.5 py-0.5 rounded border ${c.cls}`}>{c.text}</span>
       ))}
     </div>
   )
@@ -83,19 +83,19 @@ function MaturityRow({ d, workspaceId }) {
         <div className="text-sm font-semibold text-gray-900">{d.display_name}</div>
         <div className="text-xs text-gray-500 mt-0.5 leading-relaxed">{d.stage_description}</div>
         {cappedBelowVerified && (
-          <div className="text-[11px] text-gray-400 mt-1">
+          <div className="text-[13px] text-gray-400 mt-1">
             Ceiling: {STAGE_META[d.capability_ceiling]?.label || d.capability_ceiling} — CyberMeters cannot re-observe this domain, so it can be managed but not verified.
           </div>
         )}
         {canShowHistory && (
-          <button type="button" className="text-[11px] text-brand-700 hover:underline mt-1" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          <button type="button" className="text-[13px] text-brand-700 hover:underline mt-1" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
             {open ? 'Hide history' : `History${d.domain_name ? ` for ${d.domain_name}` : ''}`}
           </button>
         )}
         {open && canShowHistory && <MaturityHistory workspaceId={workspaceId} d={d} />}
       </div>
       <div className="flex-shrink-0 text-right">
-        <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-md border ${TONE[meta.tone] || TONE.gray}`}>
+        <span className={`inline-block text-[13px] font-medium px-2 py-0.5 rounded-md border ${TONE[meta.tone] || TONE.gray}`}>
           {d.stage_label || meta.label}
         </span>
         <Flags flags={d.flags} />
@@ -124,7 +124,7 @@ export default function DomainMaturity({
       <div>
         {list.map((d) => <MaturityRow key={d.domain_key} d={d} workspaceId={workspaceId} />)}
       </div>
-      <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">
+      <p className="text-[13px] text-gray-400 mt-3 leading-relaxed">
         “Verified” and “Verified &amp; monitored” mean CyberMeters re-observed the fix itself. A customer
         attestation is shown separately and is never counted as verified. Maturity reflects the last
         complete assessment; domains CyberMeters cannot re-observe can be managed but not verified.

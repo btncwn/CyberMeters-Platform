@@ -321,7 +321,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                         { label: 'Value',       value: instructions.dns?.value },
                       ].map(({ label, value }) => (
                         <div key={label} className="bg-gray-50 rounded-lg p-3">
-                          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">{label}</p>
+                          <p className="text-[12px] font-semibold uppercase tracking-widest text-gray-400 mb-1">{label}</p>
                           <div className="flex items-center gap-1">
                             <code className="text-xs text-gray-800 break-all">{value}</code>
                             <CopyButton text={value} />
@@ -337,7 +337,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                         { label: 'File Content (exact)', value: instructions.html?.content },
                       ].map(({ label, value }) => (
                         <div key={label} className="bg-gray-50 rounded-lg p-3">
-                          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">{label}</p>
+                          <p className="text-[12px] font-semibold uppercase tracking-widest text-gray-400 mb-1">{label}</p>
                           <div className="flex items-center gap-1">
                             <code className="text-xs text-gray-800 break-all">{value}</code>
                             <CopyButton text={value} />
@@ -769,9 +769,9 @@ export default function WorkspaceDashboard() {
                     <ResponsiveContainer width="100%" height={160}>
                       <AreaChart data={timeline}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={fmt} />
-                        <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={28} />
-                        <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                        <XAxis dataKey="day" tick={{ fontSize: 13, fill: '#94a3b8' }} tickFormatter={fmt} />
+                        <YAxis tick={{ fontSize: 13, fill: '#94a3b8' }} width={28} />
+                        <Tooltip contentStyle={{ fontSize: 13, borderRadius: 8, border: '1px solid #e2e8f0' }} />
                         <Area type="monotone" dataKey="asset_count" stroke="#00876A" fill="#e6f4f1" strokeWidth={2} />
                       </AreaChart>
                     </ResponsiveContainer>

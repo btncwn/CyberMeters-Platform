@@ -205,7 +205,7 @@ function EvidenceBadge({ control }) {
   return (
     <div className={`rounded-xl border px-3 py-2 ${meta.className}`}>
       <p className="text-xs font-bold">{meta.label}</p>
-      <p className="mt-0.5 text-[11px] leading-relaxed opacity-80">{meta.helper}</p>
+      <p className="mt-0.5 text-[13px] leading-relaxed opacity-80">{meta.helper}</p>
     </div>
   )
 }
@@ -235,7 +235,7 @@ function ControlResultCard({ control, readinessNotAssessed = false }) {
         {readinessNotAssessed ? (
           <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700">
             <p className="text-xs font-bold">External readiness not assessed</p>
-            <p className="mt-0.5 text-[11px] leading-relaxed opacity-80">
+            <p className="mt-0.5 text-[13px] leading-relaxed opacity-80">
               Your saved answers are retained, but they are not being combined with a current external readiness verdict.
             </p>
           </div>
@@ -253,17 +253,17 @@ function ControlResultCard({ control, readinessNotAssessed = false }) {
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Readiness score</p>
+          <p className="text-[13px] font-bold uppercase tracking-wide text-gray-400">Readiness score</p>
           <p className="mt-1 text-lg font-bold text-gray-900">{readinessNotAssessed ? '—' : (control.measured_score ?? '—')}<span className="text-xs text-gray-400">/100</span></p>
         </div>
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Self-declared answers</p>
+          <p className="text-[13px] font-bold uppercase tracking-wide text-gray-400">Self-declared answers</p>
           <p className="mt-1 text-lg font-bold text-gray-900">
             {control.self_attestation?.answered ?? 0}<span className="text-xs text-gray-400">/{control.self_attestation?.total ?? 0}</span>
           </p>
         </div>
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Gaps noted</p>
+          <p className="text-[13px] font-bold uppercase tracking-wide text-gray-400">Gaps noted</p>
           <p className="mt-1 text-lg font-bold text-gray-900">{measuredGaps.length + selfGaps.length}</p>
         </div>
       </div>

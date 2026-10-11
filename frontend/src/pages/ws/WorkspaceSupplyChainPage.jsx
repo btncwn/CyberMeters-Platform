@@ -56,7 +56,7 @@ function ConfidencePill({ level }) {
     level === 'medium' ? 'bg-amber-50 text-amber-700 border border-amber-100' :
     'bg-gray-100 text-gray-500 border border-gray-200'
   return (
-    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${cls}`}>
+    <span className={`text-[12px] font-semibold px-2 py-0.5 rounded-full capitalize ${cls}`}>
       {level}
     </span>
   )
@@ -88,7 +88,7 @@ function CriticalVendorsTable({ vendors }) {
               <td className="py-2 font-medium text-gray-800">{v.name}</td>
               <td className="py-2 text-gray-500 capitalize">{(v.category || '').replace(/_/g, ' ')}</td>
               <td className="py-2">
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                <span className={`text-[12px] font-bold px-1.5 py-0.5 rounded ${
                   v.tier === 1 ? 'bg-red-50 text-red-700' :
                   v.tier === 2 ? 'bg-amber-50 text-amber-700' :
                   'bg-gray-100 text-gray-500'
@@ -150,7 +150,7 @@ function ConcentrationSection({ concentration }) {
             {concentration.top_parents.map((p, i) => (
               <li key={i} className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
-                  <span className={`w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center ${
+                  <span className={`w-5 h-5 rounded text-[12px] font-bold flex items-center justify-center ${
                     p.tier === 1 ? 'bg-red-50 text-red-700' :
                     p.tier === 2 ? 'bg-amber-50 text-amber-700' :
                     'bg-gray-100 text-gray-500'
@@ -194,7 +194,7 @@ function ComplianceSection({ compliance }) {
               <ConfidencePill level={compliance[key]} />
             ) : (
               <span
-                className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200"
+                className="text-[12px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200"
                 title={compliance.state_reason || 'This readiness signal is incomplete.'}
               >
                 Incomplete
@@ -204,7 +204,7 @@ function ComplianceSection({ compliance }) {
         ))}
       </ul>
       {compliance.note && (
-        <p className="text-[10px] text-gray-400 mt-4 leading-relaxed">{compliance.note}</p>
+        <p className="text-[12px] text-gray-400 mt-4 leading-relaxed">{compliance.note}</p>
       )}
     </div>
   )
@@ -312,7 +312,7 @@ export default function WorkspaceSupplyChainPage() {
               ) : (
                 <div className="max-w-40 text-right">
                   <p className="text-xs font-semibold">Supply Chain Score unavailable</p>
-                  <p className="text-[10px] mt-1 opacity-75">Current BRS-dependent maturity evidence is incomplete.</p>
+                  <p className="text-[12px] mt-1 opacity-75">Current BRS-dependent maturity evidence is incomplete.</p>
                 </div>
               )}
               {resilienceAssessed && (

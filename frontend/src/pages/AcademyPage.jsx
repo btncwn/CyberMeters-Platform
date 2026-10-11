@@ -49,12 +49,12 @@ function ArticleCard({ article }) {
       className="group flex flex-col bg-white rounded-xl border border-gray-100 hover:border-brand-200 hover:shadow-sm transition-all p-5 gap-3"
     >
       <div className="flex items-start justify-between gap-2">
-        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold ${c.badge}`}>
+        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[13px] font-semibold ${c.badge}`}>
           <CategoryIcon name={cat?.icon} className="w-3 h-3" />
           {cat?.label || article.category}
         </span>
         {article.featured && (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[13px] font-semibold bg-amber-50 text-amber-700">
             Featured
           </span>
         )}
@@ -64,17 +64,17 @@ function ArticleCard({ article }) {
         <h3 className="text-sm font-bold text-gray-900 group-hover:text-brand-600 transition-colors leading-snug">
           {article.title}
         </h3>
-        <p className="text-[13px] text-gray-500 mt-1.5 leading-relaxed line-clamp-2">
+        <p className="text-[14px] text-gray-500 mt-1.5 leading-relaxed line-clamp-2">
           {article.summary}
         </p>
       </div>
 
       <div className="flex items-center gap-3 mt-auto pt-1">
-        <span className="flex items-center gap-1 text-[11px] text-gray-400">
+        <span className="flex items-center gap-1 text-[13px] text-gray-400">
           <Clock className="w-3 h-3" />
           {article.readTime} min read
         </span>
-        <span className="ml-auto flex items-center gap-1 text-[11px] font-semibold text-brand-600 opacity-0 group-hover:opacity-100 transition-opacity">
+        <span className="ml-auto flex items-center gap-1 text-[13px] font-semibold text-brand-600 opacity-0 group-hover:opacity-100 transition-opacity">
           Read <ArrowRight className="w-3 h-3" />
         </span>
       </div>
@@ -97,7 +97,7 @@ function FeaturedCard({ article }) {
       </div>
 
       <div>
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${c.badge} mb-2`}>
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-semibold uppercase tracking-wider ${c.badge} mb-2`}>
           {cat?.label}
         </span>
         <h3 className="text-base font-bold text-gray-900 group-hover:text-brand-600 transition-colors leading-snug">
@@ -125,7 +125,7 @@ function CategoryPill({ cat, active, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold transition-all whitespace-nowrap
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-semibold transition-all whitespace-nowrap
         ${active
           ? `${c.badge} ring-1 ring-inset ring-current`
           : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100 bg-white border border-gray-200'
@@ -193,7 +193,7 @@ export default function AcademyPage() {
       {/* Featured — only when not searching or filtering */}
       {!isSearching && !activeCategory && (
         <section className="mb-10">
-          <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-4">Featured Articles</h2>
+          <h2 className="text-[13px] font-semibold text-gray-400 uppercase tracking-wider mb-4">Featured Articles</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {featured.map(a => <FeaturedCard key={a.slug} article={a} />)}
           </div>
@@ -206,7 +206,7 @@ export default function AcademyPage() {
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => setActive(null)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold transition-all whitespace-nowrap
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-semibold transition-all whitespace-nowrap
                 ${!activeCategory
                   ? 'bg-gray-900 text-white'
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100 bg-white border border-gray-200'
@@ -238,14 +238,14 @@ export default function AcademyPage() {
         )}
 
         {activeCategory && !isSearching && (
-          <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-4">
+          <h2 className="text-[13px] font-semibold text-gray-400 uppercase tracking-wider mb-4">
             {CATEGORIES.find(c => c.slug === activeCategory)?.label}
             <span className="ml-2 normal-case font-normal">— {displayArticles.length} article{displayArticles.length !== 1 ? 's' : ''}</span>
           </h2>
         )}
 
         {!isSearching && !activeCategory && (
-          <h2 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-4">All Articles</h2>
+          <h2 className="text-[13px] font-semibold text-gray-400 uppercase tracking-wider mb-4">All Articles</h2>
         )}
 
         {displayArticles.length === 0 ? (

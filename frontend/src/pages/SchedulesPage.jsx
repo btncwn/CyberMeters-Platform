@@ -229,15 +229,15 @@ export default function SchedulesPage() {
             <p className="label">How it works</p>
             <ul className="space-y-2 text-xs text-gray-500">
               <li className="flex items-start gap-2">
-                <span className="w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+                <span className="w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-[12px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
                 Add a domain and choose how often to scan it.
               </li>
               <li className="flex items-start gap-2">
-                <span className="w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+                <span className="w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-[12px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
                 CyberMeters automatically runs a full scan on schedule.
               </li>
               <li className="flex items-start gap-2">
-                <span className="w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+                <span className="w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-[12px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
                 Each scan appears in your Scans list. Historical changes are tracked automatically.
               </li>
             </ul>
@@ -278,7 +278,7 @@ export default function SchedulesPage() {
                           </div>
                           <div>
                             <p className="font-semibold text-gray-900">{s.domain}</p>
-                            <p className="mono text-[11px] text-gray-300 truncate max-w-[180px]">{s.id}</p>
+                            <p className="mono text-[13px] text-gray-300 truncate max-w-[180px]">{s.id}</p>
                           </div>
                         </div>
                       </td>

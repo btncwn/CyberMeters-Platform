@@ -58,7 +58,7 @@ function HttpsChip({ row }) {
     : s.tone === 'info' ? 'bg-blue-50 text-blue-700 border-blue-100'
     : s.tone === 'warn' ? 'bg-amber-50 text-amber-700 border-amber-100'
     : 'bg-gray-50 text-gray-500 border-gray-200'
-  return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cls}`}>{s.label}</span>
+  return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[13px] font-semibold border ${cls}`}>{s.label}</span>
 }
 
 const COLUMNS = [
@@ -116,7 +116,7 @@ function ActionCard({ severity, title, body }) {
       <div className="flex-1">
         <div className="flex items-center justify-between gap-2 mb-1">
           <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><Icon className="w-4 h-4 text-gray-400" /> {title}</h3>
-          <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${cfg.chip}`}>{severity}</span>
+          <span className={`text-[12px] uppercase font-bold px-2 py-0.5 rounded-full border ${cfg.chip}`}>{severity}</span>
         </div>
         <p className="text-xs text-gray-500 leading-relaxed">{body}</p>
       </div>
@@ -133,7 +133,7 @@ function TrustTile({ icon: Icon, label, status, tone, hint, to }) {
         <span className="text-sm font-semibold text-gray-800">{label}</span>
       </div>
       <p className={`text-sm font-medium ${cls}`}>{status}</p>
-      {hint && <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">{hint}</p>}
+      {hint && <p className="text-[13px] text-gray-400 mt-1 leading-relaxed">{hint}</p>}
     </div>
   )
   return to ? <Link to={to} className="block">{inner}</Link> : inner
@@ -152,7 +152,7 @@ function FindingPill({ finding }) {
           <p className="text-sm font-semibold text-gray-900">{finding.title || finding.type}</p>
           <p className="text-xs text-gray-500 mt-1">{finding.reasons?.[0] || 'Certificate evidence needs review.'}</p>
         </div>
-        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${cls}`}>{finding.severity || 'info'}</span>
+        <span className={`text-[12px] uppercase font-bold px-2 py-0.5 rounded-full border ${cls}`}>{finding.severity || 'info'}</span>
       </div>
     </div>
   )
@@ -383,9 +383,9 @@ export default function CertificatesPage() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                  <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
-                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                  <XAxis dataKey="day" tick={{ fontSize: 13, fill: '#94a3b8' }} />
+                  <YAxis tick={{ fontSize: 13, fill: '#94a3b8' }} allowDecimals={false} />
+                  <Tooltip contentStyle={{ fontSize: 13, borderRadius: 8 }} />
                   <Area type="monotone" dataKey="events" stroke="#00876A" strokeWidth={2} fill="url(#certGrad)" name="Events" />
                 </AreaChart>
               </ResponsiveContainer>

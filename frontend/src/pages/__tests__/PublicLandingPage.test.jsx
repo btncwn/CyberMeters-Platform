@@ -55,9 +55,11 @@ describe('PublicLandingPage', () => {
     expect(screen.queryByText(/fully protected|guarantee/i)).not.toBeInTheDocument()
   })
 
-  it('captions the animated eye as an illustration with example findings', () => {
-    renderLanding()
-    expect(screen.getByText(/illustration with example findings, not a live result/i)).toBeInTheDocument()
+  it('keeps the animated eye decorative, out of the reading order', () => {
+    const { container } = renderLanding()
+    const eyes = [...container.querySelectorAll('.cm-eye')]
+    expect(eyes.length).toBeGreaterThan(0)
+    for (const eye of eyes) expect(eye).toHaveAttribute('aria-hidden', 'true')
   })
 
   it('labels the report panel as a sample in the product coverage vocabulary, with no score', () => {

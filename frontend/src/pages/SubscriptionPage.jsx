@@ -166,7 +166,7 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
 
       {/* Progress bar */}
       <div className="mt-4">
-        <div className="flex items-center justify-between text-[10px] font-medium mb-1.5"
+        <div className="flex items-center justify-between text-[12px] font-medium mb-1.5"
              style={{ color: urgent ? '#b91c1c' : warning ? '#92400e' : '#1d4ed8' }}>
           <span>Day {14 - daysLeft} of 14</span>
           <span>{daysLeft} days remaining</span>
@@ -219,7 +219,7 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
             <span className={`text-xs font-black uppercase tracking-widest px-2.5 py-1 rounded-full border ${meta.badge}`}>
               {meta.label}
             </span>
-            <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${scfg.pill}`}>
+            <span className={`flex items-center gap-1 text-[12px] font-bold px-2 py-0.5 rounded-full border ${scfg.pill}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${scfg.dot}`} />
               {scfg.label}
             </span>
@@ -233,9 +233,9 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
             ) : (
               <>
                 <p className="text-2xl font-black text-gray-800">£{shownGbp.toFixed(2)}</p>
-                <p className="text-[10px] text-gray-400 font-medium">{annualBilling ? '/ year' : '/ month'}</p>
+                <p className="text-[12px] text-gray-400 font-medium">{annualBilling ? '/ year' : '/ month'}</p>
                 {annualBilling && annualEqMonthlyGbp !== null && annualEqMonthlyGbp > 0 && (
-                  <p className="text-[10px] text-gray-400 font-medium mt-0.5">≈ £{annualEqMonthlyGbp.toFixed(2)}/mo · billed annually</p>
+                  <p className="text-[12px] text-gray-400 font-medium mt-0.5">≈ £{annualEqMonthlyGbp.toFixed(2)}/mo · billed annually</p>
                 )}
               </>
             )}
@@ -244,7 +244,7 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
         {shownGbp === null && plan === 'enterprise' && (
           <div className="text-right flex-shrink-0">
             <p className="text-lg font-black text-amber-700">{mspFloor != null ? `from £${mspFloor.toFixed(2)}` : 'Contact us'}</p>
-            <p className="text-[10px] text-gray-400 font-medium">{mspFloor != null ? `${annualBilling ? '/ year' : '/ month'} · contact us` : 'sales-led'}</p>
+            <p className="text-[12px] text-gray-400 font-medium">{mspFloor != null ? `${annualBilling ? '/ year' : '/ month'} · contact us` : 'sales-led'}</p>
           </div>
         )}
       </div>
@@ -399,7 +399,7 @@ function UpgradePrompt({ plan, onUpgrade, checkoutLoading, livePlans }) {
           <ChevronRight className="w-3.5 h-3.5" />
         </Link>
       </div>
-      <p className="text-[10px] text-gray-500 mt-3">No credit card required to start a trial · Cancel anytime</p>
+      <p className="text-[12px] text-gray-500 mt-3">No credit card required to start a trial · Cancel anytime</p>
     </div>
   )
 }

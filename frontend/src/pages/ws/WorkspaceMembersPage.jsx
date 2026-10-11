@@ -50,7 +50,7 @@ const ROLE_LABEL = {
 
 function RoleBadge({ role }) {
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${ROLE_COLORS[role] || 'bg-gray-100 text-gray-600'}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[13px] font-semibold ${ROLE_COLORS[role] || 'bg-gray-100 text-gray-600'}`}>
       {ROLE_LABEL[role] || role}
     </span>
   )
@@ -143,7 +143,7 @@ function InviteForm({ workspaceId, callerRole, onSuccess }) {
         .map(({ role: r, desc }) => (
           <div key={r} className="flex items-start gap-2">
             <RoleBadge role={r} />
-            <p className="text-[11px] text-gray-400 leading-relaxed">{desc}</p>
+            <p className="text-[13px] text-gray-400 leading-relaxed">{desc}</p>
           </div>
         ))}
       </div>
@@ -179,7 +179,7 @@ function RoleSelector({ currentRole, memberId, workspaceId, callerRole, onChange
           value={currentRole}
           onChange={change}
           disabled={changing}
-          className="text-[11px] font-semibold border border-gray-200 rounded-lg px-2.5 py-1.5 pr-6 bg-white appearance-none cursor-pointer hover:border-brand-300 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-200"
+          className="text-[13px] font-semibold border border-gray-200 rounded-lg px-2.5 py-1.5 pr-6 bg-white appearance-none cursor-pointer hover:border-brand-300 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-200"
         >
           <option value="viewer">Viewer</option>
           <option value="analyst">Analyst</option>
@@ -189,7 +189,7 @@ function RoleSelector({ currentRole, memberId, workspaceId, callerRole, onChange
           ? <RefreshCw className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 animate-spin pointer-events-none" />
           : <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />}
       </div>
-      {err && <p className="text-[11px] text-red-600 mt-1">{err}</p>}
+      {err && <p className="text-[13px] text-red-600 mt-1">{err}</p>}
     </div>
   )
 }
@@ -350,7 +350,7 @@ export default function WorkspaceMembersPage() {
                               <p className="text-sm font-semibold text-gray-900 truncate">
                                 {member.name || '—'}
                                 {isCurrentUser && (
-                                  <span className="ml-2 text-[10px] font-medium text-gray-400">(you)</span>
+                                  <span className="ml-2 text-[12px] font-medium text-gray-400">(you)</span>
                                 )}
                               </p>
                               <p className="text-xs text-gray-400 truncate">{member.email}</p>

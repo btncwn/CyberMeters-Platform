@@ -294,7 +294,7 @@ function AlertsSection({ alerts, loading, error, onRetry }) {
           const { label, border, bg } = tierLabels[tier]
           return (
             <div key={tier} className={`border-b ${border} last:border-0 ${bg}`}>
-              <div className="px-6 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
+              <div className="px-6 py-2 text-[12px] font-semibold text-gray-400 uppercase tracking-widest">
                 {label} · {items.length}
               </div>
               {items.map((alert, idx) => (
@@ -370,13 +370,13 @@ function TrendsSection({ trend, loading, error, onRetry }) {
         <ResponsiveContainer width="100%" height={180}>
           <LineChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-            <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={fmtDay} />
-            <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#94a3b8' }} width={28} />
+            <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#94a3b8' }} tickFormatter={fmtDay} />
+            <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: '#94a3b8' }} width={28} />
             <Tooltip
-              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
+              contentStyle={{ fontSize: 13, borderRadius: 8, border: '1px solid #e2e8f0' }}
               formatter={(v, n) => [v != null ? v : '—', n]}
             />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Legend wrapperStyle={{ fontSize: 13 }} />
             <Line type="monotone" dataKey="average_score" name="Avg Score"  stroke="#00876A" strokeWidth={2} dot={false} />
             <Line type="monotone" dataKey="lowest_score"  name="Lowest"     stroke="#ef4444" strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
             <Line type="monotone" dataKey="highest_score" name="Highest"    stroke="#3b82f6" strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
@@ -390,10 +390,10 @@ function TrendsSection({ trend, loading, error, onRetry }) {
         <ResponsiveContainer width="100%" height={180}>
           <LineChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-            <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={fmtDay} />
-            <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} width={28} />
-            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#94a3b8' }} tickFormatter={fmtDay} />
+            <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} width={28} />
+            <Tooltip contentStyle={{ fontSize: 13, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+            <Legend wrapperStyle={{ fontSize: 13 }} />
             <Line type="monotone" dataKey="critical_findings" name="Critical" stroke="#ef4444" strokeWidth={2} dot={false} />
             <Line type="monotone" dataKey="high_findings"     name="High"    stroke="#f97316" strokeWidth={1.5} dot={false} />
             <Line type="monotone" dataKey="scans"             name="Scans"   stroke="#94a3b8" strokeWidth={1} dot={false} strokeDasharray="4 3" />

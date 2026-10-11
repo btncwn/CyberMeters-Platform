@@ -560,7 +560,7 @@ export default function WorkspaceDetailPage() {
                 </div>
                 <div className="min-w-0">
                   <div className="text-lg font-bold text-gray-900 leading-none">{value ?? '—'}</div>
-                  <div className="text-[10px] text-gray-400 mt-0.5 truncate">{label}</div>
+                  <div className="text-[12px] text-gray-400 mt-0.5 truncate">{label}</div>
                 </div>
               </div>
             ))}

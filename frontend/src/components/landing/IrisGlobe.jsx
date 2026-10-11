@@ -620,7 +620,7 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
                 className="cm-finding absolute left-0 top-0 whitespace-nowrap rounded-lg px-3 py-2"
                 style={{ opacity: 0 }}
               >
-                <span className="block text-[12px] leading-4 text-[#BFE6FF]">{f.area}</span>
+                <span className="block text-[13px] leading-4 text-[#BFE6FF]">{f.area}</span>
                 <span className="block text-[14px] leading-5 font-semibold text-white">{f.text}</span>
               </div>
             ))}

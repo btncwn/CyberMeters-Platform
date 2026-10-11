@@ -70,7 +70,7 @@ function CopyButton({ value }) {
     <button
       type="button"
       onClick={handleCopy}
-      className="flex items-center gap-1 text-[10px] font-semibold text-gray-400 hover:text-brand-600 transition-colors"
+      className="flex items-center gap-1 text-[12px] font-semibold text-gray-400 hover:text-brand-600 transition-colors"
     >
       {copied ? <Check className="w-3 h-3 text-brand-600" /> : <Copy className="w-3 h-3" />}
       {copied ? 'Copied' : 'Copy'}
@@ -363,12 +363,12 @@ export default function OnboardingPage() {
             {(verificationInstructions || selectedDomain?.verification_token) && (
               <div className="grid gap-3">
                 <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">Host</p>
+                  <p className="text-[12px] font-semibold uppercase tracking-widest text-gray-400 mb-1">Host</p>
                   <code className="text-sm text-gray-800 break-all">{dnsHost}</code>
                 </div>
                 <div className="bg-gray-50 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">TXT Value</p>
+                    <p className="text-[12px] font-semibold uppercase tracking-widest text-gray-400">TXT Value</p>
                     <CopyButton value={dnsValue} />
                   </div>
                   <code className="text-sm text-gray-800 break-all">{dnsValue}</code>

@@ -159,11 +159,11 @@ function CandidateRow({ c, busy, onClassify }) {
         </button>
         <div className="col-span-4 sm:col-span-2"><RiskBadge level={c.risk_level} /></div>
         <div className="col-span-4 sm:col-span-2">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${CHIP[cm.tone]}`}>{cm.label}</span>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[13px] font-semibold border ${CHIP[cm.tone]}`}>{cm.label}</span>
         </div>
         <div className="hidden sm:flex sm:col-span-2 flex-wrap gap-1">
-          {badges.slice(0, 2).map(b => <span key={b} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{b}</span>)}
-          {badges.length > 2 && <span className="text-[10px] text-gray-400">+{badges.length - 2}</span>}
+          {badges.slice(0, 2).map(b => <span key={b} className="text-[12px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{b}</span>)}
+          {badges.length > 2 && <span className="text-[12px] text-gray-400">+{badges.length - 2}</span>}
         </div>
         <div className="col-span-4 sm:col-span-2 flex justify-end">
           <ClassifyMenu disabled={busy} onPick={v => onClassify(c, v)} />
@@ -190,15 +190,15 @@ function CandidateRow({ c, busy, onClassify }) {
             </dl>
             {badges.length > 0 && (
               <div>
-                <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Evidence</p>
+                <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Evidence</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {badges.map(b => <span key={b} className="inline-flex items-center gap-1 text-[11px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md"><Eye className="w-3 h-3 text-gray-400" />{b}</span>)}
+                  {badges.map(b => <span key={b} className="inline-flex items-center gap-1 text-[13px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md"><Eye className="w-3 h-3 text-gray-400" />{b}</span>)}
                 </div>
               </div>
             )}
             {c._reasons.length > 0 && (
               <div>
-                <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Risk reasons</p>
+                <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Risk reasons</p>
                 <ul className="space-y-1">
                   {c._reasons.map((r, i) => (
                     <li key={i} className="text-xs text-gray-600 flex items-start gap-1.5"><AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />{typeof r === 'object' ? (r.label || r.message || JSON.stringify(r)) : r}</li>
@@ -207,7 +207,7 @@ function CandidateRow({ c, busy, onClassify }) {
               </div>
             )}
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              <span className="text-[11px] text-gray-400">Suggested next step:</span>
+              <span className="text-[13px] text-gray-400">Suggested next step:</span>
               <span className="text-xs text-gray-700">{c.action_required || (isUnreviewed(c) ? 'Review and classify this domain.' : classMeta(c).label === 'Confirmed abuse' ? 'Escalate and consider takedown.' : 'No action needed.')}</span>
             </div>
             <div className="flex flex-wrap gap-2 pt-1">
@@ -373,7 +373,7 @@ function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit }) {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="mono text-sm font-semibold text-gray-900">{c.domain}</span>
-                    <span className={`inline-flex px-2 py-0.5 rounded-full border text-[11px] font-semibold ${CASE_CHIP[c.status] || 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                    <span className={`inline-flex px-2 py-0.5 rounded-full border text-[13px] font-semibold ${CASE_CHIP[c.status] || 'bg-gray-50 text-gray-600 border-gray-200'}`}>
                       {humanize(status)}
                     </span>
                     <RiskBadge level={c.severity} />
@@ -689,7 +689,7 @@ export default function BrandMonitoringPage() {
           </div>
         ) : (
           <>
-            <div className="hidden sm:grid grid-cols-12 gap-3 px-4 py-2 bg-gray-50/70 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+            <div className="hidden sm:grid grid-cols-12 gap-3 px-4 py-2 bg-gray-50/70 text-[12px] font-semibold text-gray-400 uppercase tracking-wide">
               <span className="col-span-4">Candidate domain</span>
               <span className="col-span-2">Risk</span>
               <span className="col-span-2">Classification</span>

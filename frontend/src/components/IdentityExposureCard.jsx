@@ -20,7 +20,7 @@ function Signal({ icon: Icon, label, value, sub }) {
     <div className="rounded-xl border border-gray-100 bg-white p-3">
       <div className="flex items-center gap-1.5 text-gray-400 mb-1.5">
         <Icon className="w-3.5 h-3.5" />
-        <span className="text-[11px] font-medium uppercase tracking-wide">{label}</span>
+        <span className="text-[13px] font-medium uppercase tracking-wide">{label}</span>
       </div>
       <p className="text-sm font-semibold text-gray-900 leading-snug">{value}</p>
       {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
