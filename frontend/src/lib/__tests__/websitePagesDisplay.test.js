@@ -14,6 +14,8 @@ describe('websitePagesDisplay', () => {
     expect(coverageSummary({ coverage: 'complete', counts: { observed: 4, max_pages: 15 } })).toBe('4 pages seen on the last scan (checks up to 15).')
     expect(coverageSummary({ coverage: 'partial', counts: { observed: 15, max_pages: 15 }, partial_reasons: ['page_limit'] })).toMatch(/Partial: the page limit was reached/)
     expect(coverageSummary({ coverage: 'not_run', partial_reasons: ['not_durable_execution'] })).toMatch(/not checked on the last scan because this scan type/)
+    expect(coverageSummary({ coverage: 'complete', counts: { observed: 6, max_pages: 15, js_paths_found: 12, js_paths_checked: 4, js_api_paths_found: 3 } }))
+      .toBe("6 pages seen on the last scan (checks up to 15). 12 paths found in the site's JavaScript, 4 checked; 3 API paths noted but not requested.")
   })
 
   it('lists observed facts neutrally and never includes cookie values', () => {

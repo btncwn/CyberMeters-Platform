@@ -103,6 +103,11 @@ export async function persistWebsitePagesForScan(env, { workspace_id, domain_id,
       not_found: Number(discovery.counts?.not_found) || 0,
       sensitive: Number(discovery.counts?.sensitive) || 0,
       max_pages: Number(discovery.limits?.max_pages) || null,
+      js_scripts_read: Number(discovery.javascript?.scripts_read) || 0,
+      js_paths_found: Number(discovery.javascript?.paths_found) || 0,
+      js_api_paths_found: Number(discovery.javascript?.api_paths_found) || 0,
+      js_paths_checked: Number(discovery.javascript?.paths_checked) || 0,
+      js_paths_seen: Number(discovery.javascript?.paths_seen) || 0,
     }),
     typeof discovery.version === "string" ? discovery.version : null,
     now,
@@ -142,7 +147,7 @@ export async function persistWebsitePagesForScan(env, { workspace_id, domain_id,
     const kind = ["login", "admin", "account", "checkout"].includes(page.sensitive_kind) ? page.sensitive_kind : null;
     const obs = projectObservation(page);
     const statusCode = Number.isInteger(page.status_code) ? page.status_code : null;
-    const source = ["homepage", "homepage_link", "sitemap", "well_known"].includes(page.source) ? page.source : null;
+    const source = ["homepage", "homepage_link", "sitemap", "javascript", "well_known"].includes(page.source) ? page.source : null;
     const outcome = String(page.outcome || "unavailable").slice(0, 40);
 
     if (!prior) {

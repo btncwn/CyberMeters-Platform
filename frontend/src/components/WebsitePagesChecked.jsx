@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { FileSearch } from 'lucide-react'
 import { api } from '../api'
 import { parseServerDate } from '../utils/dates'
-import { coverageSummary, pageFacts, pageStatusMeta, sensitiveLabel } from '../lib/websitePagesDisplay'
+import { SOURCE_LABEL, coverageSummary, pageFacts, pageStatusMeta, sensitiveLabel } from '../lib/websitePagesDisplay'
 
 // "Pages checked" — the bounded important-page inventory for this workspace.
 // Explanation first, facts second; no verdicts (those come from findings).
@@ -31,6 +31,7 @@ function PageRow({ page }) {
         </ul>
       )}
       <p className="text-xs text-gray-500">
+        {SOURCE_LABEL[page.discovery_source] ? `${SOURCE_LABEL[page.discovery_source]} · ` : null}
         {fmt(page.first_seen_at) ? `First seen ${fmt(page.first_seen_at)}` : null}
         {fmt(page.last_seen_at) ? ` · last seen ${fmt(page.last_seen_at)}` : null}
       </p>
