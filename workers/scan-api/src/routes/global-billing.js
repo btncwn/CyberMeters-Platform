@@ -6,7 +6,7 @@
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
 import { billingRoutes } from "./billing.js";
-import { getEffectivePlan, getUserPlan, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
+import { getEffectivePlan, loadAccountSubscription, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { extractIngestToken, hashIngestToken } from "../engines/rua-routing.js";
 import { findSubscriptionRowId, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripeInvoiceSubscriptionId, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripeWebhookSignature, writeSubscriptionEvent } from "../engines/stripe.js";
 import { auditApiTokenSessionRouteDenied, getPublicBillingPlans } from "../engines/subscription-state.js";
@@ -143,37 +143,22 @@ export async function globalBillingRoutes(rctx) {
     }
 
     // ── GET /api/billing/subscription ───────────────────────────────────
-    // Account-scoped subscription state used by the Billing page. Stripe is
-    // not queried at request time; webhooks keep D1 as the platform source of
-    // truth for plan, status, billing cycle, and renewal period.
+    // Published API contract (docs/openapi.json). Account-scoped subscription
+    // state from the SAME canonical description as /api/account/subscription:
+    // no row is `none`, unreadable state is `unavailable` — never an invented
+    // "active"/"monthly". Stripe is not queried at request time.
     if (request.method === "GET" && url.pathname === "/api/billing/subscription") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       try {
-        const sub = await env.cybermeters_db
-          .prepare(
-            `SELECT plan,
-                    subscription_status AS status,
-                    billing_interval AS billing_cycle,
-                    current_period_end
-             FROM subscriptions
-             WHERE owner_user_id = ?
-             ORDER BY COALESCE(updated_at, created_at) DESC
-             LIMIT 1`
-          )
-          .bind(user.id)
-          .first();
-        const plan = await getUserPlan(user.id, env);
-        return json(sub ? {
-          plan,
-          status: sub.status || "active",
-          billing_cycle: normalizeBillingInterval(sub.billing_cycle),
-          current_period_end: sub.current_period_end ?? null,
-        } : {
-          plan,
-          status: "active",
-          billing_cycle: "monthly",
-          current_period_end: null,
+        const described = await loadAccountSubscription(user.id, env);
+        const row = described.row;
+        return json({
+          plan: described.plan,
+          status: described.status,
+          entitled: described.entitled,
+          billing_cycle: row ? normalizeBillingInterval(row.billing_interval) : null,
+          current_period_end: row?.current_period_end ?? null,
         });
       } catch (e) {
         return serverError("billing/subscription", e, "Unable to load subscription.");

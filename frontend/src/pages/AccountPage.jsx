@@ -22,6 +22,7 @@ import {
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { USER_KEY } from '../context/authKeys'
+import { subscriptionStatusDisplay } from '../lib/subscriptionStatusDisplay'
 
 // ── Plan display helpers ─────────────────────────────────────────────────────
 
@@ -32,12 +33,6 @@ const PLAN_CFG = {
   enterprise:   { label: 'Enterprise',   bg: 'bg-amber-50',    text: 'text-amber-700',   border: 'border-amber-200'  },
 }
 
-const STATUS_CFG = {
-  active:    { label: 'Active',    dot: 'bg-green-500',  text: 'text-green-700'  },
-  trial:     { label: 'Trial',     dot: 'bg-blue-400',   text: 'text-blue-700'   },
-  expired:   { label: 'Expired',   dot: 'bg-red-400',    text: 'text-red-700'    },
-  cancelled: { label: 'Cancelled', dot: 'bg-gray-400',   text: 'text-gray-600'   },
-}
 
 function PlanBadge({ plan }) {
   const cfg = PLAN_CFG[plan] ?? PLAN_CFG.free
@@ -49,7 +44,8 @@ function PlanBadge({ plan }) {
 }
 
 function StatusDot({ status }) {
-  const cfg = STATUS_CFG[status] ?? STATUS_CFG.active
+  // Backend-owned status; unknown values read "Unknown", never "Active".
+  const cfg = subscriptionStatusDisplay(status)
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${cfg.text}`}>
       <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
@@ -262,6 +258,9 @@ export default function AccountPage() {
         if (subRes.status === 'fulfilled') {
           // Backend returns { subscription: {...} } — singular object, not an array.
           setSubscription(subRes.value.subscription || null)
+        } else {
+          // A failed read is "unavailable" — never "no subscription / free plan".
+          setSubscription({ status: 'unavailable', plan: null })
         }
         if (tokenRes.status === 'fulfilled') {
           setApiTokens(tokenRes.value.tokens || [])
@@ -571,14 +570,21 @@ export default function AccountPage() {
                   </div>
                 ) : (
                   <div className="p-3.5 rounded-xl border border-gray-100 bg-gray-50/50 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">Plan</span>
-                      <PlanBadge plan={subscription.plan} />
-                    </div>
+                    {subscription.plan && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">Plan</span>
+                        <PlanBadge plan={subscription.plan} />
+                      </div>
+                    )}
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-gray-500">Status</span>
                       <StatusDot status={subscription.status} />
                     </div>
+                    {subscriptionStatusDisplay(subscription.status).note && (
+                      <p className="text-xs text-gray-500" data-testid="subscription-status-note">
+                        {subscriptionStatusDisplay(subscription.status).note}
+                      </p>
+                    )}
                     {subscription.billing_provider && (
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-gray-500">Billing</span>

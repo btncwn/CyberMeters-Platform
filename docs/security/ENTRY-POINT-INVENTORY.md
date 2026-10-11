@@ -93,20 +93,20 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | PUT | `/api/account/company` | 320 | account | ✓ | requireAuth |
 | GET | `/api/account/report-branding` | 399 | account | ✓ | requireAuth |
 | PUT | `/api/account/report-branding` | 429 | account | ✓ | requireAuth |
-| GET | `/api/account/subscription` | 511 | account | ✓ | requireAuth |
-| GET | `/api/account/subscription/features` | 550 | account | ✓ | requireAuth |
-| GET | `/api/account/usage` | 568 | account | ✓ | requireAuth |
-| GET | `/api/account/subscription/limits` | 589 | account | ✓ | requireAuth |
-| GET | `/api/admin/subscriptions` | 614 | admin | ✓ | isPlatformAdmin, requireAuth |
-| GET | `/api/account/api-tokens` | 661 | account | ✓ | requireAuth |
-| POST | `/api/account/api-tokens` | 683 | account | ✓ | requireAuth, requireWorkspaceAccess |
-| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 745 | account | ✓ | requireAuth |
-| GET | `/api/account/login-history` | 783 | account | ✓ | requireAuth |
-| GET | `/api/account/sessions` | 842 | account | ✓ | requireAuth |
-| POST | `/^\/api\/account\/sessions\/([^/` | 892 | account | ✓ | requireAuth |
-| GET | `/api/account/export` | 938 | account | ✓ | requireAuth |
-| POST | `/api/account/delete-request` | 1034 | account | ✓ | requireAuth |
-| GET | `/api/platform/accuracy` | 1070 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/account/subscription` | 514 | account | ✓ | requireAuth |
+| GET | `/api/account/subscription/features` | 545 | account | ✓ | requireAuth |
+| GET | `/api/account/usage` | 563 | account | ✓ | requireAuth |
+| GET | `/api/account/subscription/limits` | 584 | account | ✓ | requireAuth |
+| GET | `/api/admin/subscriptions` | 609 | admin | ✓ | isPlatformAdmin, requireAuth |
+| GET | `/api/account/api-tokens` | 656 | account | ✓ | requireAuth |
+| POST | `/api/account/api-tokens` | 678 | account | ✓ | requireAuth, requireWorkspaceAccess |
+| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 740 | account | ✓ | requireAuth |
+| GET | `/api/account/login-history` | 778 | account | ✓ | requireAuth |
+| GET | `/api/account/sessions` | 837 | account | ✓ | requireAuth |
+| POST | `/^\/api\/account\/sessions\/([^/` | 887 | account | ✓ | requireAuth |
+| GET | `/api/account/export` | 933 | account | ✓ | requireAuth |
+| POST | `/api/account/delete-request` | 1029 | account | ✓ | requireAuth |
+| GET | `/api/platform/accuracy` | 1065 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
 
 ### `workers/scan-api/src/routes/attack-surface.js`
 
@@ -283,10 +283,10 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 |---|---|---:|---|---|---|
 | GET | `/api/billing/plans` | 24 | public-or-global | public | — |
 | POST | `/api/dmarc-ingest` | 43 | webhook | public | — |
-| GET | `/api/billing/subscription` | 149 | public-or-global | ✓ | requireAuth |
-| POST | `/api/billing/webhook` | 189 | webhook | public | — |
-| POST | `/api/billing/checkout` | 571 | public-or-global | ✓ | requireAuth |
-| POST | `/api/billing/portal` | 626 | public-or-global | ✓ | requireAuth |
+| GET | `/api/billing/subscription` | 150 | public-or-global | ✓ | requireAuth |
+| POST | `/api/billing/webhook` | 174 | webhook | public | — |
+| POST | `/api/billing/checkout` | 556 | public-or-global | ✓ | requireAuth |
+| POST | `/api/billing/portal` | 611 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/identity-exposure.js`
 

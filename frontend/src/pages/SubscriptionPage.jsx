@@ -77,7 +77,13 @@ const STATUS_CFG = {
   canceled:  { label: 'Cancelled', dot: 'bg-red-400',    pill: 'bg-red-50 text-red-700 border-red-100'       },
   free:      { label: 'Free',      dot: 'bg-gray-300',   pill: 'bg-gray-50 text-gray-600 border-gray-100'    },
 }
-function statusCfg(s) { return STATUS_CFG[s] ?? STATUS_CFG.free }
+const STATUS_UNKNOWN = { label: 'Unknown', dot: 'bg-gray-300', pill: 'bg-gray-50 text-gray-600 border-gray-100' }
+// Unrecognised workspace subscription statuses read "Unknown", never "Free" or
+// "Active"; only a missing status (no subscription) is the free plan.
+function statusCfg(s) {
+  if (s == null || s === '') return STATUS_CFG.free
+  return Object.prototype.hasOwnProperty.call(STATUS_CFG, s) ? STATUS_CFG[s] : STATUS_UNKNOWN
+}
 
 // Feature gate display config
 const GATE_DISPLAY = [

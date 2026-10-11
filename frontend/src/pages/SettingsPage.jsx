@@ -7,6 +7,7 @@ import { api } from '../api'
 import { Link } from 'react-router-dom'
 import { AgencyReportBranding } from '../components/ReportBranding'
 import { useAuth } from '../context/AuthContext'
+import { subscriptionStatusDisplay } from '../lib/subscriptionStatusDisplay'
 
 const COMPANY_SIZES = ['', '1-10', '11-50', '51-200', '201-1000', '1000+']
 
@@ -235,7 +236,9 @@ export default function SettingsPage() {
         const [profileRes, companyRes, subscriptionRes, usageRes] = await Promise.all([
           api.getAccountProfile(),
           api.getCompanyProfile(),
-          api.getSubscription(),
+          // A failed subscription read must not blank the whole page; it
+          // renders as "Unavailable" in the Subscription card instead.
+          api.getSubscription().catch(() => null),
           api.getAccountUsage(),
         ])
         if (cancelled) return
@@ -249,7 +252,7 @@ export default function SettingsPage() {
           contact_name: c.contact_name || '',
           contact_email: c.contact_email || '',
         })
-        setSubscription(subscriptionRes.subscription || profileRes.subscription || null)
+        setSubscription(subscriptionRes?.subscription || null)
         setUsage(usageRes || null)
       } catch (e) {
         if (!cancelled) setLoadError(e.message)
@@ -439,7 +442,9 @@ export default function SettingsPage() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-gray-400">Status</span>
-              <span className="font-medium text-gray-700 capitalize">{subscription?.status || 'Unavailable'}</span>
+              <span data-testid="subscription-status" className={`font-medium ${subscriptionStatusDisplay(subscription ? subscription.status : 'unavailable').text}`}>
+                {subscriptionStatusDisplay(subscription ? subscription.status : 'unavailable').label}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-gray-400">Billing Provider</span>

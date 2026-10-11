@@ -303,6 +303,7 @@ export async function getEffectivePlanState(userId, env) {
   // - duplicate rows resolve by resolveCanonicalSubscriptionRow, never by
   //   ambiguous newest-row ordering
   if (!userId) return { plan: "free", is_trial: false, source: "none" };
+  let rows;
   try {
     const res = await env.cybermeters_db
       .prepare(
@@ -314,19 +315,104 @@ export async function getEffectivePlanState(userId, env) {
       )
       .bind(userId)
       .all();
-    const resolved = resolveCanonicalSubscriptionRow(res?.results || []);
+    rows = res?.results || [];
+  } catch {
+    return { plan: "free", is_trial: false, source: "error" };
+  }
+  // The governing row stays internal: callers receive the same public shape
+  // as before (plan / is_trial / source / trial_end / trial_expired).
+  const { row: _row, ...state } = planStateFromRows(rows);
+  return state;
+}
+
+// planStateFromRows — the pure core of getEffectivePlanState, exported so a
+// read surface that already holds the owner's rows (the account subscription
+// view) derives its plan from the SAME decision instead of re-querying or
+// re-implementing it.
+export function planStateFromRows(rows) {
+  try {
+    const list = Array.isArray(rows) ? rows : [];
+    const resolved = resolveCanonicalSubscriptionRow(list);
     if (!resolved) {
-      const expired = (res?.results || []).some(row => (row.subscription_status || row.status) === "trialing" && Date.parse(row.trial_end || row.current_period_end) <= Date.now());
+      const expired = list.some(row => (row.subscription_status || row.status) === "trialing" && Date.parse(row.trial_end || row.current_period_end) <= Date.now());
       return { plan: "free", is_trial: false, source: "none", ...(expired ? { trial_expired: true } : {}) };
     }
     return {
       plan: normalizePlan(resolved.row.plan),
       is_trial: resolved.source === "trial",
       source: resolved.source,
+      row: resolved.row,
       ...(resolved.source === "trial" ? { trial_end: resolved.row.trial_end || resolved.row.current_period_end } : {}),
     };
   } catch {
     return { plan: "free", is_trial: false, source: "error" };
+  }
+}
+
+// ── Customer-facing subscription status ─────────────────────────────────────
+// One explicit mapping from the canonical plan state (+ the owner's rows) to
+// the status a customer reads. It never invents "active": no row is `none`,
+// an unreadable state is `unavailable`, and a row that grants nothing keeps
+// its own non-entitling meaning (cancelled, expired, past due beyond grace).
+//
+//   active        unexpired paid subscription (canonical source "paid")
+//   trialing      trial window still running   (source "trial")
+//   past_due      payment failed, inside grace (source "grace", in_grace)
+//   trial_expired trial ended, nothing else entitles
+//   past_due_lapsed payment failed and grace is over
+//   canceled      latest row cancelled
+//   expired       paid period ended without renewal
+//   inactive      any other non-entitling row (incomplete, unpaid, paused…)
+//   none          no subscription row at all (free plan)
+//   unavailable   subscription state could not be read
+export const ACCOUNT_SUBSCRIPTION_STATUSES = Object.freeze([
+  "active", "trialing", "past_due", "trial_expired", "past_due_lapsed",
+  "canceled", "expired", "inactive", "none", "unavailable",
+]);
+
+export function describeAccountSubscription(rows, { error = false } = {}) {
+  if (error) return { plan: "free", status: "unavailable", row: null, entitled: false };
+  const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  const state = planStateFromRows(list);
+  if (state.source === "error") return { plan: "free", status: "unavailable", row: null, entitled: false };
+  if (state.source === "paid") return { plan: state.plan, status: "active", row: state.row, entitled: true };
+  if (state.source === "trial") return { plan: state.plan, status: "trialing", row: state.row, entitled: true, trial_end: state.trial_end ?? null };
+  if (state.source === "grace") return { plan: state.plan, status: "past_due", row: state.row, entitled: true, in_grace: true };
+  if (!list.length) return { plan: "free", status: "none", row: null, entitled: false };
+  const recency = (r) => String(r.updated_at || r.created_at || "");
+  const latest = [...list].sort((a, b) => (recency(a) === recency(b)
+    ? String(b.id || "").localeCompare(String(a.id || ""))
+    : (recency(a) < recency(b) ? 1 : -1)))[0];
+  const raw = String(latest.subscription_status || latest.status || "").trim().toLowerCase();
+  let status;
+  if (state.trial_expired && raw === "trialing") status = "trial_expired";
+  else if (raw === "canceled" || raw === "cancelled") status = "canceled";
+  else if (raw === "past_due") status = "past_due_lapsed";
+  else if (raw === "active") status = "expired";
+  else if (raw === "trialing") status = "trial_expired";
+  else status = "inactive";
+  return { plan: "free", status, row: latest, entitled: false };
+}
+
+// loadAccountSubscription — reads the owner's rows once and returns the
+// canonical description above. A read failure is `unavailable`, never a
+// silently-free or silently-active account.
+export async function loadAccountSubscription(userId, env) {
+  if (!userId) return describeAccountSubscription([], {});
+  try {
+    const res = await env.cybermeters_db
+      .prepare(
+        `SELECT id, workspace_id, plan, status, subscription_status, billing_interval,
+                trial_end, expires_at, current_period_end, payment_failed_at,
+                stripe_subscription_id, created_at, updated_at
+         FROM subscriptions
+         WHERE owner_user_id = ?`
+      )
+      .bind(userId)
+      .all();
+    return describeAccountSubscription(res?.results || []);
+  } catch {
+    return describeAccountSubscription([], { error: true });
   }
 }
 
