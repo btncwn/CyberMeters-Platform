@@ -23,7 +23,7 @@ import {
 
 export async function workspaceInsightRoutes(rctx) {
   const { request, env, url, json, serverError,
-          requireAuth, requireWorkspaceRole, consumeApiRateLimit } = rctx;
+          requireAuth, requireWorkspaceRole, consumeApiRateLimit, isPlatformAdmin } = rctx;
 
     // ── GET /api/validation/benchmark — QA-only, no frontend ────────────
     //
@@ -45,10 +45,22 @@ export async function workspaceInsightRoutes(rctx) {
 
     if (url.pathname === "/api/validation/benchmark" && request.method === "GET") {
       // QA-only diagnostic that runs live scan modules against an arbitrary
-      // domain — authenticated + rate-limited so anonymous traffic can't use
-      // it to burn Worker CPU/subrequests (it was previously fully public).
+      // domain — platform-admin + rate-limited (it was previously fully public,
+      // then open to every signed-in account).
       const bmUser = await requireAuth(request, env);
       if (!bmUser) return json({ error: "Unauthorized" }, 401);
+      // Platform-admin only. It scans an arbitrary, unverified domain outside
+      // the trial allowance, so an ordinary account must never reach a module.
+      // Session-only (no API tokens); fails closed if the admin helper is missing
+      // or throws.
+      let bmAdmin = false;
+      try {
+        bmAdmin = !bmUser.api_token_id
+          && typeof isPlatformAdmin === "function"
+          && (await isPlatformAdmin(bmUser, env)) === true;
+      }
+      catch { bmAdmin = false; }
+      if (!bmAdmin) return json({ error: "Forbidden" }, 403);
       const bmRl = await consumeApiRateLimit(
         env, [{ scope: "user", scope_id: bmUser.id }], "validation_benchmark", 10, 3600
       );

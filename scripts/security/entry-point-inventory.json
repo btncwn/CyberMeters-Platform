@@ -3513,6 +3513,7 @@
       "file": "workers/scan-api/src/routes/workspace-insights.js",
       "scope": "public-or-global",
       "auth_guards": [
+        "isPlatformAdmin",
         "requireAuth"
       ],
       "scope_helpers": [],

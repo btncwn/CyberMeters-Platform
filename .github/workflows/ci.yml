@@ -1286,6 +1286,9 @@ jobs:
       - name: Validate security contracts (auth / MFA / RBAC / billing)
         run: node scripts/validate-security-contracts.js
 
+      - name: Validate QA benchmark is platform-admin only (no module runs when refused)
+        run: node scripts/validate-benchmark-admin-only.js
+
       - name: Validate integration flows (tenant isolation / access control)
         run: node scripts/validate-integration.js
 

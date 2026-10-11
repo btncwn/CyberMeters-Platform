@@ -90,10 +90,11 @@ const EXPECTED = Object.freeze({
     predicate_occurrences: 35,
     unique_query_sites: 26,
     source_file_count: 15,
-    // Identity and trial-report edits shift source lines; all 35 predicate snippets remain unchanged.
-    fingerprint: "20e041672a8df038dc2b37c1944ec9fd5819f320a013b9e0faeaff88852f9310",
+    // The QA-benchmark admin gate shifts workspace-insights.js source lines;
+    // all 35 predicate snippets and 26 query sites remain unchanged.
+    fingerprint: "6671cdf648b453da8db48e74ce306cf80e5fdf1a1e09530eda6c317443e141a6",
     resolved_query_sink_count: 19,
-    resolved_query_sink_fingerprint: "85fa77bec33106c4a73321ff59ace7cd23bf51f0467108ab95ac79672f7584d1",
+    resolved_query_sink_fingerprint: "d48936a6c782e2ea3506e25238cddea54c4bc5962c80b7fbe101ce2fa3ef4259",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
