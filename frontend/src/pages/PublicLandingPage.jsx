@@ -192,6 +192,7 @@ function HeroStage() {
   const still = useMediaQuery('(prefers-reduced-motion: reduce)')
   const stageRef = useRef(null)
   const eyeRef = useRef(null)
+  const textRef = useRef(null)
   const SIZE = 1000
 
   useEffect(() => {
@@ -225,14 +226,14 @@ function HeroStage() {
     <div ref={stageRef} className="cm-stage relative overflow-hidden text-white">
       {wide && (
         <div ref={eyeRef} className="absolute left-0 top-0 z-0 will-change-transform" style={{ width: SIZE, height: SIZE, transformOrigin: '50% 50%' }}>
-          <IrisGlobe size={SIZE} />
+          <IrisGlobe size={SIZE} preferRight avoidRef={textRef} />
         </div>
       )}
       <div className="cm-legibility absolute inset-0 z-0 pointer-events-none" aria-hidden="true" />
 
       {/* Hero */}
       <section className={`${CONTAINER} relative z-10 pt-[148px] lg:pt-[168px] lg:min-h-[800px]`}>
-        <div className="max-w-[700px]">
+        <div ref={textRef} className="max-w-[700px]">
           <h1 className="font-cm font-normal text-[46px] sm:text-[60px] lg:text-[72px] leading-[1.04] tracking-[-0.01em] text-balance">
             Know where your business is exposed and what to do next.
           </h1>

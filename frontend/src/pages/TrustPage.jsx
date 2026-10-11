@@ -20,7 +20,7 @@ export default function TrustPage() {
       <Link to="/" className="inline-flex items-center gap-2 mb-8"><span className="w-7 h-7 rounded-md bg-brand-600 flex items-center justify-center"><Shield className="w-4 h-4 text-white" /></span><span className="font-bold text-gray-900 text-sm">CyberMeters</span></Link>
       <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6 sm:p-10">
         <h1 className="text-3xl font-bold text-gray-900">Trust &amp; Security</h1>
-        <p className="text-sm text-gray-600 mt-4 leading-relaxed">CyberMeters is built and operated by Turhan Acar, a sole trader, for small businesses, startups and digital agencies. Here is what we have checked, how the product handles evidence and where assurance remains limited.</p>
+        <p className="text-sm text-gray-600 mt-4 leading-relaxed">CyberMeters is built and operated by Turhan Acar, a sole trader. Here is what we have checked, how the product handles evidence and where assurance remains limited.</p>
         <Link to="/status" className="mt-5 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-700"><Activity className="w-4 h-4 text-brand-600" />System status<ArrowRight className="w-3.5 h-3.5" /></Link>
 
         <Section icon={Activity} title="We use CyberMeters on our own domain">

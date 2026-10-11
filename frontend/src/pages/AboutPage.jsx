@@ -9,8 +9,8 @@ export default function AboutPage() {
       <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6 sm:p-10 space-y-8">
         <header>
           <p className="eyebrow">About CyberMeters</p>
-          <h1 className="text-3xl sm:text-4xl font-bold mt-3 tracking-tight">Security that small teams can use.</h1>
-          <p className="text-gray-600 mt-4 leading-relaxed">CyberMeters helps small businesses, startups and digital agencies understand their external security, choose the next useful action and keep a record of what changed.</p>
+          <h1 className="text-3xl sm:text-4xl font-bold mt-3 tracking-tight">Know where your business is exposed and what to do next.</h1>
+          <p className="text-gray-600 mt-4 leading-relaxed">CyberMeters helps you understand your external security, choose the next useful action and keep a record of what changed.</p>
         </header>
         <section className="space-y-3" aria-labelledby="founder-heading">
           <h2 id="founder-heading" className="text-xl font-bold">Built and operated by Turhan Acar</h2>
@@ -19,7 +19,7 @@ export default function AboutPage() {
         </section>
         <section className="space-y-3" aria-labelledby="approach-heading">
           <h2 id="approach-heading" className="text-xl font-bold">Clear evidence, practical next steps</h2>
-          <p className="text-sm text-gray-600 leading-relaxed">A small team needs to know what was observed, why it matters and what to do next. CyberMeters keeps missing evidence visible, separates an attempted fix from a verified outcome and lets agencies manage clients in separate workspaces.</p>
+          <p className="text-sm text-gray-600 leading-relaxed">You need to know what was observed, why it matters and what to do next. CyberMeters keeps missing evidence visible, separates an attempted fix from a verified outcome and lets agencies manage clients in separate workspaces.</p>
           <p className="text-sm text-gray-600 leading-relaxed">We use CyberMeters on our own domain. The dated result and its limitations are published on our Trust &amp; Security page, including the checks that could not be completed.</p>
           <Link to="/trust" className="inline-flex items-center gap-2 text-brand-700 font-semibold text-sm">See our own-domain check <ArrowRight className="w-4 h-4" /></Link>
         </section>
