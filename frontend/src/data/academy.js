@@ -13,6 +13,7 @@
  *   featured      — Show in hero row on index
  *   sections      — Array of { heading, blocks[] }
  *                   Each block: { type, text } | { type:'list', items[] } | { type:'code', text }
+ *   aliases       — Earlier slugs that still open the article (optional)
  *   relatedSlugs  — Related article slugs
  *   findingIds    — Maps to Worker finding type IDs (Sprint 11A integration)
  *   publishedAt   — ISO date string
@@ -931,13 +932,13 @@ export const ARTICLES = [
         blocks: [
           p('A Cyber MOT is a simple way to check whether your business looks safe, trusted and well configured from the outside.'),
           p('Just like a vehicle MOT does not make a car perfect, a Cyber MOT does not claim your business is fully secure. It checks important visible signals that are often missed: your email protection, website security, TLS, DNS settings, certificates and Cyber Essentials readiness gaps.'),
-          p('For small businesses, this matters because your domain is part of your reputation. Your website, email setup and public records are often the first things customers, suppliers, insurers and attackers can see. A weak setup can make your business easier to impersonate, easier to distrust and harder to work with.'),
+          p('For any business, this matters because your domain is part of your reputation. Your website, email setup and public records are often the first things customers, suppliers, insurers and attackers can see. A weak setup can make your business easier to impersonate, easier to distrust and harder to work with.'),
         ],
       },
       {
-        heading: 'Why Small Businesses Need It',
+        heading: 'Why Every Business Needs It',
         blocks: [
-          p('Cyber security can feel too big for small companies. Many owners think they need a large consultancy project before they can understand their position. In reality, the first step should be simpler: check the public-facing basics, explain the findings in plain English and fix the highest-risk gaps first. That is the purpose of a Cyber MOT.'),
+          p('Cyber security can feel like too big a job. Many teams think they need a large consultancy project before they can understand their position. In reality, the first step should be simpler: check the public-facing basics, explain the findings in plain English and fix the highest-risk gaps first. That is the purpose of a Cyber MOT.'),
           li([
             'Is your business email protected against spoofing? SPF, DKIM and DMARC help receiving mail services decide whether a message really came from your domain.',
             'Does your website give the right trust signals? A modern site should use HTTPS properly, avoid expired certificates and include sensible browser protections.',
@@ -957,10 +958,10 @@ export const ARTICLES = [
       {
         heading: 'What You Get From a Cyber MOT',
         blocks: [
-          p('For a UK small business, the real value of a Cyber MOT is clarity. You do not need to understand every technical detail. You need to know whether your domain is protected, whether customers can trust your online presence and whether there are obvious gaps that should be fixed.'),
+          p('For most businesses, the real value of a Cyber MOT is clarity. You do not need to understand every technical detail. You need to know whether your domain is protected, whether customers can trust your online presence and whether there are obvious gaps that should be fixed.'),
           p('For MSPs, a Cyber MOT is also a useful client conversation starter. Instead of leading with fear, the MSP can show a simple report: here is what is good, here is what needs attention and here is the plan.'),
           p('The best Cyber MOT is not about creating panic. It is about making cyber hygiene visible, affordable and repeatable. Run it once to understand your current posture. Run it regularly to catch changes. Use it before supplier reviews, insurance renewals, Cyber Essentials preparation or customer security questions.'),
-          p('A small business does not need enterprise complexity to make progress. It needs a clear starting point. That is what a Cyber MOT gives you.'),
+          p('You do not need enterprise complexity to make progress. You need a clear starting point. That is what a Cyber MOT gives you.'),
         ],
       },
     ],
@@ -968,12 +969,13 @@ export const ARTICLES = [
     findingIds: [],
   },
 
-  // ── SEO: DMARC for UK SMBs ───────────────────────────────────────────────
+  // ── SEO: DMARC and email impersonation ───────────────────────────────────
   {
-    slug: 'dmarc-explained-for-uk-small-businesses',
-    title: 'DMARC explained for UK small businesses',
+    slug: 'dmarc-stop-email-impersonation',
+    aliases: ['dmarc-explained-for-uk-small-businesses'],
+    title: 'DMARC: stop criminals sending email as your business',
     category: 'email-security',
-    summary: 'DMARC helps stop criminals sending emails that appear to come from your domain. For UK small businesses, it is one of the most practical ways to reduce impersonation risk and improve trust in business email.',
+    summary: 'DMARC helps stop criminals sending emails that appear to come from your domain. It is one of the most practical ways to reduce impersonation risk and improve trust in business email.',
     readTime: 6,
     featured: false,
     publishedAt: '2026-07-08',
@@ -987,9 +989,9 @@ export const ARTICLES = [
         ],
       },
       {
-        heading: 'Why It Matters for UK Small Businesses',
+        heading: 'Why It Matters for Your Business',
         blocks: [
-          p('Small businesses are attractive targets for impersonation because customers and suppliers often trust familiar names. If your domain has weak email authentication, criminals may be able to send convincing fake invoices, payment changes or password reset messages that appear to come from your business.'),
+          p('Businesses are attractive targets for impersonation because customers and suppliers often trust familiar names. If your domain has weak email authentication, criminals may be able to send convincing fake invoices, payment changes or password reset messages that appear to come from your business.'),
           p('DMARC also supports deliverability. Mail providers increasingly expect domains to have modern authentication in place. A clear DMARC setup helps legitimate email look more trustworthy and helps suspicious email get handled correctly.'),
           li([
             'Protect customers and suppliers from fake emails using your domain',
@@ -1035,7 +1037,7 @@ export const ARTICLES = [
     slug: 'cyber-essentials-what-you-actually-need-to-pass',
     title: 'Cyber Essentials: what you actually need to pass',
     category: 'cyber-essentials',
-    summary: 'Cyber Essentials is the UK baseline for practical cyber hygiene. To prepare well, small businesses need to understand the five control areas and close obvious gaps before starting the formal assessment route.',
+    summary: 'Cyber Essentials is the UK baseline for practical cyber hygiene. To prepare well, you need to understand the five control areas and close obvious gaps before starting the formal assessment route.',
     readTime: 7,
     featured: false,
     publishedAt: '2026-07-08',
@@ -1105,7 +1107,7 @@ export const ARTICLES = [
 // ── Lookup helpers ────────────────────────────────────────────────────────────
 
 export function getArticle(slug) {
-  return ARTICLES.find(a => a.slug === slug) ?? null
+  return ARTICLES.find(a => a.slug === slug || a.aliases?.includes(slug)) ?? null
 }
 
 export function getArticlesByCategory(categorySlug) {
