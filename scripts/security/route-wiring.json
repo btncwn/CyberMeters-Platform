@@ -15,9 +15,9 @@
       "class": "customer_pending",
       "reason": "Onboarding progress API; no screen reads it yet."
     },
-    "exact:/api/account/subscription/features": {
-      "class": "deprecated",
-      "reason": "Unused; removed by #543."
+    "exact:/api/account/report-branding": {
+      "class": "external_api",
+      "reason": "Account-level report branding (API only); the Settings screen manages branding through /api/workspaces/:id/branding."
     },
     "exact:/api/admin/subscriptions": {
       "class": "admin",
@@ -51,14 +51,6 @@
       "class": "external_api",
       "reason": "Public alias of /api/billing/plans for API clients; screens use /api/billing/plans."
     },
-    "exact:/api/portfolio/executive-summary": {
-      "class": "customer_pending",
-      "reason": "MSP portfolio executive summary; screen planned (roadmap PR10), not customer-accepted."
-    },
-    "exact:/api/portfolio/maturity": {
-      "class": "customer_pending",
-      "reason": "MSP portfolio maturity; screen planned (roadmap PR10), not customer-accepted."
-    },
     "exact:/api/stripe/webhook": {
       "class": "webhook",
       "reason": "Stripe webhook (alias)."
@@ -79,14 +71,6 @@
       "class": "customer_pending",
       "reason": "Workspace alert list + summary API; the Alerts page shows alert channels, not this list."
     },
-    "re:^\\/api\\/workspaces\\/([^/]+)\\/brand\\/discovery$": {
-      "class": "customer_pending",
-      "reason": "Brand discovery 'Check now'; screen added by #539."
-    },
-    "re:^\\/api\\/workspaces\\/([^/]+)\\/maturity\\/([^/]+)\\/([^/]+)\\/history$": {
-      "class": "customer_pending",
-      "reason": "Per-domain maturity history; screen planned (roadmap PR9)."
-    },
     "re:^\\/api\\/workspaces\\/([^/]+)\\/report-retention$": {
       "class": "customer_pending",
       "reason": "Report retention settings; no screen yet."
@@ -103,14 +87,6 @@
       "class": "customer_pending",
       "reason": "Item route of the second scheduled-report API; the Reports page uses /scheduled-reports/:id."
     },
-    "re:^\\/api\\/workspaces\\/([^/]+)\\/report-snapshots$": {
-      "class": "customer_pending",
-      "reason": "Report snapshot history; read-only screen planned (roadmap PR11a)."
-    },
-    "re:^\\/api\\/workspaces\\/([^/]+)\\/restore$": {
-      "class": "customer_pending",
-      "reason": "Workspace restore; screen added by #538."
-    },
     "re:^\\/api\\/workspaces\\/([^/]+)\\/scorecard\\/pdf$": {
       "class": "customer_pending",
       "reason": "Snapshot-native executive PDF; screens download /api/workspaces/:id/report."
@@ -118,10 +94,6 @@
     "re:^\\/api\\/workspaces\\/([^/]+)\\/scorecard\\/pdf-data$": {
       "class": "external_api",
       "reason": "Snapshot metadata for export tooling."
-    },
-    "re:^\\/api\\/workspaces\\/([^/]+)\\/usage$": {
-      "class": "customer_pending",
-      "reason": "Workspace usage card; screen planned (roadmap PR8)."
     }
   },
   "unserved_frontend": {}

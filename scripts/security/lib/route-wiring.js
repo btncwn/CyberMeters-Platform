@@ -2,7 +2,7 @@
 //
 // Backend patterns: every regex literal starting ^\/api\/ and every "/api/…"
 // string in the Worker's router (index.js + routes/**). Frontend calls: every
-// path passed to request()/requestBlob() and every `${BASE}/…` template in
+// path passed to request()/requestBlob()/signInCall() and every `${BASE}/…` template in
 // frontend/src (tests excluded). A template placeholder after "/" stands for
 // a path segment; any other placeholder (a query string or optional suffix)
 // is dropped, as is everything after "?".
@@ -75,6 +75,9 @@ function sampleOf(ts, node) {
   return s;
 }
 
+// API helpers in frontend/src/api.js and the argument index that holds the path.
+const PATH_HELPERS = new Map([["request", 0], ["requestBlob", 0], ["signInCall", 1]]);
+
 export function extractFrontendCalls(root, ts, files = null) {
   const list = files || walk(path.join(root, "frontend/src"));
   const calls = [];
@@ -87,8 +90,8 @@ export function extractFrontendCalls(root, ts, files = null) {
       calls.push({ path: p, at: `${path.relative(root, file)}:${sf.getLineAndCharacterOfPosition(node.getStart()).line + 1}` });
     };
     const visit = (n) => {
-      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && ["request", "requestBlob"].includes(n.expression.text) && n.arguments[0]) {
-        const s = sampleOf(ts, n.arguments[0]);
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && PATH_HELPERS.has(n.expression.text) && n.arguments[PATH_HELPERS.get(n.expression.text)]) {
+        const s = sampleOf(ts, n.arguments[PATH_HELPERS.get(n.expression.text)]);
         if (s && s.startsWith("/")) add(s, n);
       } else if (ts.isTemplateExpression(n) && n.head.text === "" && IS_BASE.test(n.templateSpans[0]?.expression.getText() || "")) {
         const s = sampleOf(ts, n);
