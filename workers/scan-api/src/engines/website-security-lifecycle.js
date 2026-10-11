@@ -34,6 +34,7 @@ import {
   TLS_RUNTIME_STATES,
 } from "./tls-evidence.js";
 import { maySupportDefectConclusion, mayGroundRedirectAbsence } from "../lib/serviceability.js";
+import { isSignInConditionKey, evaluateSignInCondition } from "./signin-page-findings.js";
 
 export const WEBSITE_SECURITY_DOMAIN_KEY = "website_security";
 
@@ -73,6 +74,14 @@ const WS_CONDITIONS = Object.freeze({
     recurrence: "browser_protection_missing",
     module: "domain_security_enrichment",
   }])),
+  // Sign-in page conditions (engines/signin-page-findings.js). page_discovery never
+  // marks itself incomplete, so absence is NEVER inferred from the module gate:
+  // evaluateSignInCondition decides present / clear / deferred on observed
+  // sign-in pages (see the status tree below).
+  https_signin_form_cross_origin: { recurrence: "credential_form_exposed", module: "page_discovery" },
+  https_signin_form_insecure:     { recurrence: "credential_form_exposed", module: "page_discovery" },
+  https_signin_no_hsts:           { recurrence: "browser_protection_missing", module: "page_discovery" },
+  https_signin_cookie_no_secure:  { recurrence: "browser_protection_missing", module: "page_discovery" },
   // header_missing_* and header_malformed_* are derived per header from the frozen
   // SECURITY_HEADERS list, so they are matched by prefix rather than enumerated —
   // enumerating them would drift the moment a header is added to that list.
@@ -291,8 +300,12 @@ export async function evaluateWebsiteSecurityForScan(env, {
           moduleComplete: gate.canVerify("domain_security_enrichment"),
         })
         : null;
+      const signInObservation = isSignInConditionKey(key)
+        ? evaluateSignInCondition(key, modules?.page_discovery)
+        : null;
       if (obs && obs.material && mayIssueFromModule(modules, spec.module)
-          && (!cookieObservation || cookieObservation.state === "present")) {
+          && (!cookieObservation || cookieObservation.state === "present")
+          && (!signInObservation || signInObservation.state === "present")) {
         status = "observed";
         recurrence = obs.recurrence;
         band = obs.severity;            // the band IS the grade: worsening escalates
@@ -311,6 +324,17 @@ export async function evaluateWebsiteSecurityForScan(env, {
         status = "unknown";
         unknown_reason = gate.scanPartial ? "scan_partial" : cookieObservation.reason;
         reason = "cookie_observation_inconclusive";
+      } else if (signInObservation?.state === "clear" && !gate.scanPartial) {
+        // Sign-in pages were observed with a password field on a page check that was
+        // not cut short, and the condition is false on every one of them.
+        status = "no_longer_observed";
+        reason = "sign_in_pages_observed_and_clear";
+      } else if (signInObservation) {
+        // No sign-in page observed, the page check did not run or was cut short:
+        // we did not look, so this is unknown — never a fix.
+        status = "unknown";
+        unknown_reason = gate.scanPartial ? "scan_partial" : signInObservation.reason;
+        reason = "sign_in_observation_inconclusive";
       } else if (obs && !obs.material) {
         // Present but our evidence is too weak to act on. Not gone.
         status = "unknown";

@@ -48,6 +48,8 @@ const ACTIONABLE = [
   "admin_surface_critical", "admin_surface_high", "admin_surface_medium",
   "dse_hsts_short_maxage",
   "dse_cookie_no_secure", "dse_cookie_no_httponly", "dse_cookie_no_samesite",
+  // website sign-in pages — signin-page-findings.js
+  "https_signin_form_cross_origin", "https_signin_form_insecure", "https_signin_no_hsts", "https_signin_cookie_no_secure",
   "certificate_expiring_critical", "certificate_expiring_soon",
   // live TLS — network-probe.js literal add(...) calls
   "certificate_expired", "certificate_hostname_mismatch", "certificate_untrusted",
@@ -118,9 +120,10 @@ ok("exactly the four B1 remediation identities are version 2",
   JSON.stringify(v2Ids) === JSON.stringify(["cert.expiry.expired", "cert.expiry.expiring", "web.cookie.flags", "web.header.csp"]));
 ok("all other remediation identities remain version 1",
   REMEDIATION_REGISTRY.filter((entry) => !v2Ids.includes(entry.remediation_id)).every((entry) => entry.version === 1));
-// The original 67 records are unchanged; live hostname/trust findings add two.
-ok("registry has exactly 69 entries including the two live TLS remediations", REMEDIATION_REGISTRY.length === 69);
-ok("registry fingerprint including live TLS is exact", remediationRegistryFingerprint() === "r69-7eefae14", remediationRegistryFingerprint());
+// The original 67 records are unchanged; live hostname/trust findings add two;
+// sign-in page conditions add three (web.signin.form_offsite / form_http / cookie_secure).
+ok("registry has exactly 72 entries including the two live TLS and three sign-in page remediations", REMEDIATION_REGISTRY.length === 72);
+ok("registry fingerprint including live TLS and sign-in forms is exact", remediationRegistryFingerprint() === "r72-31ea0a7c", remediationRegistryFingerprint());
 ok("certificate_expiring_critical maps to expiring, never expired",
   resolveRemediation({ finding_type: "certificate_expiring_critical" }).remediation_id === "cert.expiry.expiring"
   && !byId.get("cert.expiry.expired")?.finding_types.includes("certificate_expiring_critical"));
@@ -142,7 +145,7 @@ ok("cookie remediation names SameSite and preserves zero-cookie inconclusive sem
 const EMITTER_FILES = [
   "scoring.js", "email-intel.js", "email-analysis.js", "cloud-storage-scan.js",
   "asset-intel.js", "tech-scan.js", "whois-scan.js", "cert-trust-l2.js", "scan-engine.js",
-  "network-probe.js",
+  "network-probe.js", "signin-page-findings.js",
 ];
 // Literals that appear as id:/type: but are NOT finding types (evidence types,
 // module names, classifications, hosted-service ids, workflow states…).

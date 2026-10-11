@@ -46,13 +46,14 @@ import { isCookieFindingType } from "./cookie-observation.js";
 export const WEBSITE_CASE_TYPE = "website_case";
 export const WEBSITE_SECURITY_DOMAIN_KEY = "website_security";
 
-// The four alertable recurrence classes the lifecycle can emit. Every one opens a case and
+// The five alertable recurrence classes the lifecycle can emit. Every one opens a case and
 // every one is verifiable by re-observation.
 export const WEBSITE_CASE_RECURRENCES = Object.freeze(new Set([
   "transport_not_available",       // ssl_not_available          → https_recheck → automated
   "insecure_redirect",             // ssl_no_http_redirect       → https_recheck → automated
   "browser_protection_missing",    // header_missing_* / cookies → https_recheck → automated
   "browser_protection_malformed",  // header_malformed_*         → https_recheck → automated
+  "credential_form_exposed",       // https_signin_form_*        → https_recheck → automated
 ]));
 
 // The ONE system-observed verifier for this domain. `condition_resolved` is the Website
