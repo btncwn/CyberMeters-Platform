@@ -155,7 +155,10 @@ describe('IntelligencePage canonical assessment and history presentation', () =>
 
     expect(screen.getAllByText('Not assessed').length).toBeGreaterThan(0)
     expect(screen.getByText('Score —/100')).toBeInTheDocument()
-    expect(within(summaryMetric('Provisional Score')).getByText('—')).toBeInTheDocument()
+    // A withheld score keeps the plain label; it is not a provisional number.
+    expect(within(summaryMetric('Cyber Metrics Score')).getByText('—')).toBeInTheDocument()
+    expect(within(summaryMetric('Cyber Metrics Score')).getByText('Withheld · scan incomplete')).toBeInTheDocument()
+    expect(screen.queryByText('Provisional Score')).not.toBeInTheDocument()
     expectRawStoredAssessmentHidden()
     expect(screen.queryByText('99')).not.toBeInTheDocument()
   })
