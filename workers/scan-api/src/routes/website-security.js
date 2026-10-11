@@ -26,15 +26,16 @@ import { listWebsitePages } from "../engines/website-pages.js";
 import { pageMeta, paginationParams } from "../lib/util.js";
 
 const WS_SCOPE_NOTE =
-  "Externally observed website evidence only — passive HTTPS/header inspection, no authenticated crawl, no application testing. "
+  "Externally observed website evidence only — passive HTTPS/header inspection and no application testing. Pages behind a "
+  + "sign-in are checked only when signed-in scanning is set up with a test account, and then with read-only requests. "
   + "A condition is only ever recorded as no-longer-observed when the module that detects it provably ran on a complete scan; "
   + "where it did not, the state stays `unknown`, which means CyberMeters could not tell — never that the issue was fixed.";
 
 const WS_PAGES_SCOPE_NOTE =
   "Up to 15 of the site's own public pages per scan, found from homepage links, the sitemap, paths mentioned in the "
   + "site's own JavaScript (read, never run) and a short list of common paths, checked with passive requests only. "
-  + "This is not a full crawl: pages behind a login, pages that only exist inside a JavaScript app and other hosts are "
-  + "not checked. Addresses recognised as changing something when visited (sign-out, delete, unsubscribe) and API "
+  + "This is not a full crawl: pages that only exist inside a JavaScript app and other hosts are not checked, and pages "
+  + "behind a sign-in are checked separately, only when signed-in scanning is set up. Addresses recognised as changing something when visited (sign-out, delete, unsubscribe) and API "
   + "endpoints are not requested. A page is shown as not found only when it was requested and answered 404 or 410; pages not "
   + "requested in a scan keep their last observation.";
 

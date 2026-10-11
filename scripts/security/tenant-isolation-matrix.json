@@ -732,7 +732,9 @@
         "website_security_events",
         "website_pages",
         "website_page_events",
-        "website_page_discovery_runs"
+        "website_page_discovery_runs",
+        "website_sign_in_profiles",
+        "website_sign_in_attempts"
       ],
       "ownership": {
         "website_security_conditions": {
@@ -754,13 +756,21 @@
         "website_page_discovery_runs": {
           "model": "direct",
           "column": "workspace_id"
+        },
+        "website_sign_in_profiles": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "website_sign_in_attempts": {
+          "model": "direct",
+          "column": "workspace_id"
         }
       },
       "non_tenant": false,
       "coverage": {
         "dynamic_harness": false,
         "property_based": false,
-        "note": "workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle); page inventory (mig 115) is workspace_id + domain_id scoped, written only for live verified workspaces, read via the workspace-gated pages route, purged with the workspace (validate-website-page-discovery)"
+        "note": "workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle); page inventory (mig 115) is workspace_id + domain_id scoped, written only for live verified workspaces, read via the workspace-gated pages route, purged with the workspace (validate-website-page-discovery); sign-in profiles + attempts (mig 116) are workspace_id + domain_id scoped, secrets AES-GCM-bound to workspace/domain/profile, owner/admin-session writes, deleted with the domain link and the workspace (validate-website-sign-in)"
       }
     },
     {
@@ -1200,6 +1210,8 @@
     "website_pages": "website_security",
     "website_security_conditions": "website_security",
     "website_security_events": "website_security",
+    "website_sign_in_attempts": "website_security",
+    "website_sign_in_profiles": "website_security",
     "workspace_alert_channels": "alerts",
     "workspace_assets": "assets",
     "workspace_brand_assets": "brand",
@@ -1218,9 +1230,9 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 104,
-    "classified": 104,
-    "tenant_owned_tables": 100,
+    "schema_tables": 106,
+    "classified": 106,
+    "tenant_owned_tables": 102,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
     "resource_classes": 37,

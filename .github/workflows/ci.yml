@@ -1026,6 +1026,9 @@ jobs:
       - name: Validate Website sign-in page findings (evidence-only, lifecycle, never fixed by absence)
         run: node scripts/validate-website-signin-findings.js
 
+      - name: Validate website signed-in scanning (vault, sign-in session, profiles)
+        run: node scripts/validate-website-sign-in.js
+
       # Cyber Essentials is the 8th and last canonical alerting domain, and the one
       # with the most ways to be dishonest. It detects nothing of its own, so it owns
       # only control-theme READINESS transitions — never a second "we found X" for a

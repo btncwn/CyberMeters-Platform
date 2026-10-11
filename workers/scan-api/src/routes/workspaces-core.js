@@ -260,6 +260,15 @@ export async function workspacesCoreRoutes(rctx) {
               .run()
               .catch(e => console.error("[domain_remove_cascade] brand_assets:", e?.message));
           }
+          // Stored sign-in credentials for this domain are destroyed with the
+          // link (awaited: credentials must not outlive the domain's scope).
+          // Scans and routes refuse an unlinked domain regardless.
+          try {
+            await env.cybermeters_db
+              .prepare(`DELETE FROM website_sign_in_profiles WHERE workspace_id = ? AND domain_id = ?`)
+              .bind(workspaceId, linkedDomainId)
+              .run();
+          } catch (e) { console.error("[domain_remove_cascade] website_sign_in_profiles:", e?.message); }
           env.cybermeters_db
             .prepare(`UPDATE workspace_assets SET status = 'inactive', updated_at = datetime('now') WHERE workspace_id = ? AND domain_id = ?`)
             .bind(workspaceId, linkedDomainId)
