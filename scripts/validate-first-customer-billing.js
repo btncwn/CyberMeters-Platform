@@ -28,8 +28,20 @@ seed.workspace("deleted", "buyer", "deleted", true);
 const call = makeCaller(mod.default, env);
 const requests = [];
 const providerRequests = [];
+// Stripe's own view of who is billed. The checkout consults it before creating
+// a subscription, because our row cannot know when a webhook never landed.
+const stripeCustomers = [];
+let stripeLookupDown = false;
 globalThis.fetch = async (url, opts = {}) => {
   providerRequests.push(url);
+  if (url.startsWith("https://api.stripe.com/v1/customers?") || url.startsWith("https://api.stripe.com/v1/subscriptions?")) {
+    if (stripeLookupDown) return Response.json({ error: { type: "api_error" } }, { status: 500 });
+    const q = new URL(url).searchParams;
+    if (url.includes("/v1/customers?")) {
+      return Response.json({ data: stripeCustomers.filter(c => c.email === q.get("email")).map(c => ({ id: c.id, subscriptions: { data: c.subscriptions } })) });
+    }
+    return Response.json({ data: stripeCustomers.filter(c => c.id === q.get("customer")).flatMap(c => c.subscriptions) });
+  }
   if (url === "https://api.stripe.com/v1/prices/price_sm") {
     return Response.json({ id: "price_sm", active: true, currency: "gbp", unit_amount: 999, recurring: { interval: "month" } });
   }
@@ -111,6 +123,62 @@ check("canonical workspace paid path remains portal", wsPaid.data.portal, true);
 check("Starter CE is available", (await call("GET", "/api/workspaces/owned/cyber-essentials/answers", "token-buyer")).status, 200);
 check("Starter CE remains tenant isolated", (await call("GET", "/api/workspaces/owned/cyber-essentials/answers", "token-foreign")).status, 403);
 check("unentitled owner CE remains denied", (await call("GET", "/api/workspaces/other/cyber-essentials/answers", "token-foreign")).status, 403);
+
+// A paid customer whose webhook never reached us has no Stripe ids on any row,
+// so the row-based portal guard cannot see them. Stripe can: a second checkout
+// must open their portal, never take another payment (11 Oct 2026 live case).
+seed.user("returner", "returner@billing.invalid");
+await seed.session("session-returner", "returner", "token-returner");
+seed.workspace("ret-ws", "returner", "ret-ws");
+seed.member("member-ret-ws", "ret-ws", "returner", "owner");
+stripeCustomers.push({ id: "cus-ret", email: "returner@billing.invalid", subscriptions: [{ id: "sub-ret", status: "active" }] });
+const beforeUnsynced = requests.length;
+const unsynced = await checkout("token-returner");
+check("billed-in-Stripe account is not charged again", unsynced.data.portal, true);
+check("billed-in-Stripe reason is explicit", unsynced.data.reason, "existing_stripe_subscription");
+check("billed-in-Stripe creates only a portal session", requests.slice(beforeUnsynced).map(r => r.url), ["https://api.stripe.com/v1/billing_portal/sessions"]);
+check("portal opens for the billed Stripe customer", requests.at(-1).params.customer, "cus-ret");
+
+stripeCustomers[stripeCustomers.length - 1].subscriptions = [{ id: "sub-ret", status: "incomplete" }];
+check("an unpaid first attempt does not block paying with another card", (await checkout("token-returner")).data.checkout_url, "https://checkout.stripe.com/test-fixture");
+check("retry checkout is a checkout session", requests.at(-1).url, "https://api.stripe.com/v1/checkout/sessions");
+
+stripeLookupDown = true;
+const beforeLookupDown = requests.length;
+check("Stripe lookup failure refuses checkout", (await checkout("token-returner")).status, 503);
+check("Stripe lookup failure creates no session", requests.length, beforeLookupDown);
+stripeLookupDown = false;
+
+// A stored customer whose local row is already cancelled but Stripe still bills.
+seed.user("lapsed", "lapsed@billing.invalid");
+await seed.session("session-lapsed", "lapsed", "token-lapsed");
+seed.workspace("lapsed-ws", "lapsed", "lapsed-ws");
+seed.member("member-lapsed-ws", "lapsed-ws", "lapsed", "owner");
+db.prepare("INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status, stripe_customer_id, updated_at) VALUES ('sub-row-lapsed','lapsed','lapsed-ws','starter','canceled','canceled','cus-lapsed', datetime('now'))").run();
+stripeCustomers.push({ id: "cus-lapsed", email: "other@billing.invalid", subscriptions: [{ id: "sub-lapsed", status: "past_due" }] });
+const lapsed = await checkout("token-lapsed");
+check("stored customer Stripe still bills opens the portal", lapsed.data.portal, true);
+check("stored customer portal uses the stored customer", requests.at(-1).params.customer, "cus-lapsed");
+
+// Webhook row resolution: an owner with several historical rows. The Stripe
+// customer already sits on one of them; the event must update THAT row. The
+// old owner-first lookup took an arbitrary row, copied the customer onto it,
+// hit the unique index and failed every retry — payment taken, plan never on.
+seed.user("history", "history@billing.invalid");
+seed.workspace("hist-old", "history", "hist-old");
+seed.workspace("hist-new", "history", "hist-new");
+db.prepare("INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status, trial_start, trial_end, created_at, updated_at) VALUES ('sub-row-trial','history','hist-new','professional','trialing','trialing','2026-07-06 14:11:10','2026-07-20 14:11:10','2026-07-06 14:11:10','2026-07-06 14:11:10')").run();
+db.prepare("INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status, stripe_customer_id, created_at, updated_at) VALUES ('sub-row-hist','history','hist-old','business','canceled','canceled','cus-hist','2026-06-23 10:15:57','2026-10-08 20:30:39')").run();
+const histMeta = { user_id: "history", workspace_id: "hist-new", plan: "starter", interval: "monthly" };
+const histCompleted = await deliver({ id: "hist-completion", type: "checkout.session.completed", data: { object: { id: "cs-hist", metadata: histMeta, customer: "cus-hist", subscription: "sub-hist" } } });
+check("completion for a customer on a historical row is applied", histCompleted.status, 200);
+check("the row that holds the customer is the one activated",
+  { ...db.prepare("SELECT id, workspace_id, subscription_status, stripe_subscription_id FROM subscriptions WHERE stripe_customer_id='cus-hist'").get() },
+  { id: "sub-row-hist", workspace_id: "hist-new", subscription_status: "active", stripe_subscription_id: "sub-hist" });
+const histCreated = await deliver({ id: "hist-created", type: "customer.subscription.created", data: { object: { id: "sub-hist", customer: "cus-hist", status: "active", metadata: histMeta, items: { data: [{ price: { id: "price_sm", recurring: { interval: "month" } }, current_period_start: Math.floor(Date.now()/1000), current_period_end: Math.floor(Date.now()/1000) + 30 * 86400 }] } } } });
+check("subscription.created for the same customer is applied", histCreated.status, 200);
+check("historical owner now holds the purchased plan", (await getEffectivePlanState("history", env)).plan, "starter");
+check("no extra subscription row was invented", db.prepare("SELECT COUNT(*) n FROM subscriptions WHERE owner_user_id='history'").get().n, 2);
 
 // Targeted storage errors wrap only the named D1 statement. SQLite handles
 // every other query normally; the test never fakes a completed marker.
