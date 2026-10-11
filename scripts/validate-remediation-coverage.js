@@ -89,6 +89,9 @@ const REMEDIATION_NOT_REQUIRED = new Set([
   // Website served? A conclusive home-page 404/410 is observation-only (score 0);
   // registry-mapped to web.homepage.not_served for the customer's next step.
   "https_home_page_not_found",
+  // Every home-page request answered by an edge error / origin 5xx in this scan:
+  // observation-only, registry-mapped to web.homepage.unavailable.
+  "https_home_page_unavailable",
 ]);
 
 // Dynamic / suffixed emitters normalise to a stable prefix the resolver handles.
@@ -125,9 +128,9 @@ ok("all other remediation identities remain version 1",
   REMEDIATION_REGISTRY.filter((entry) => !v2Ids.includes(entry.remediation_id)).every((entry) => entry.version === 1));
 // The original 67 records are unchanged; live hostname/trust findings add two;
 // sign-in page conditions add three (web.signin.form_offsite / form_http / cookie_secure);
-// the home-page availability observation adds one (web.homepage.not_served).
-ok("registry has exactly 73 entries including live TLS, sign-in page and home-page remediations", REMEDIATION_REGISTRY.length === 73);
-ok("registry fingerprint including live TLS, sign-in forms and home page is exact", remediationRegistryFingerprint() === "r73-133d04b1", remediationRegistryFingerprint());
+// the home-page availability observations add two (web.homepage.not_served / unavailable).
+ok("registry has exactly 74 entries including live TLS, sign-in page and home-page remediations", REMEDIATION_REGISTRY.length === 74);
+ok("registry fingerprint including live TLS, sign-in forms and home page is exact", remediationRegistryFingerprint() === "r74-05b42c41", remediationRegistryFingerprint());
 ok("certificate_expiring_critical maps to expiring, never expired",
   resolveRemediation({ finding_type: "certificate_expiring_critical" }).remediation_id === "cert.expiry.expiring"
   && !byId.get("cert.expiry.expired")?.finding_types.includes("certificate_expiring_critical"));

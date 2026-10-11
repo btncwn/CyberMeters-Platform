@@ -46,7 +46,7 @@ export default function LiveTlsEvidence({ evidence, showEndpoints = true }) {
           <Field label="Valid until">{time(leaf.not_after)}</Field>
           <Field label="Hostname or address match"><span className={matchResult === 'mismatched' ? 'text-red-700 font-medium' : ''}>{matchResult === 'matched' ? 'Matched the recorded identity' : matchResult === 'mismatched' ? 'Did not match the recorded identity' : 'Not established'}</span></Field>
           <Field label="Named trust-store validation"><span className={trustResult === 'invalid' ? 'text-red-700 font-medium' : ''}>{trustResult === 'valid' ? 'Valid against the recorded trust store' : trustResult === 'invalid' ? 'Invalid against the recorded trust store' : 'Not established'}</span></Field>
-          <Field label="Trust store">{text(store.name)}{store.version ? ` · ${text(store.version)}` : ''}</Field>
+          <Field label="Trust store">{/mozilla ca roots/i.test(String(store.name || '')) ? `Mozilla CA root store${store.version ? ` (scanner bundle ${text(store.version)})` : ''}` : `${text(store.name)}${store.version ? ` · ${text(store.version)}` : ''}`}</Field>
           <Field label="Trust-store fingerprint">{text(store.sha256)}</Field>
         </dl>
         <dl className="space-y-3">

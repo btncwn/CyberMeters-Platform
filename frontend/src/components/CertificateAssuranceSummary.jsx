@@ -1,5 +1,6 @@
 import { Info, LockKeyhole } from 'lucide-react'
 import LiveTlsEvidence from './LiveTlsEvidence'
+import { customerEvidenceText } from '../lib/evidenceStrengthDisplay'
 
 const STATE_STYLE = {
   observed: 'border-blue-200 bg-blue-50 text-blue-800',
@@ -7,6 +8,47 @@ const STATE_STYLE = {
   unknown: 'border-violet-200 bg-violet-50 text-violet-800',
   unavailable: 'border-gray-200 bg-gray-50 text-gray-600',
   incomplete: 'border-amber-200 bg-amber-50 text-amber-800',
+}
+
+// Evidence detail is shown in customer words, the same way the PDF shows it:
+// internal policy identifiers, publication thresholds and raw provenance
+// records stay in the evidence store and are never printed.
+const SOURCE_TYPE_TEXT = {
+  normative_protocol: 'standards-based protocol observation',
+  product_policy: 'CyberMeters product policy',
+  configuration_baseline: 'configuration baseline',
+  customer_attestation: 'customer attestation',
+}
+const CORROBORATION_TEXT = {
+  'independent-source': 'an independent source',
+  'independent-path': 'an independent validation path',
+  repeated: 'a repeated observation',
+}
+const readable = (value) => String(value ?? '').replace(/_/g, ' ').trim()
+
+function observedAt(signal) {
+  const value = signal?.provenance && typeof signal.provenance === 'object' ? signal.provenance.observed_at : null
+  const date = value ? new Date(value) : null
+  return date && !Number.isNaN(date.getTime())
+    ? date.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' UTC'
+    : null
+}
+
+// Published standards are cited by name; every product-policy citation collapses
+// to one "CyberMeters product policy" mention.
+function citedStandards(authorities) {
+  const list = Array.isArray(authorities) ? authorities : []
+  const standards = list
+    .filter((a) => a?.requirement_type !== 'product_policy')
+    .map((a) => {
+      const name = a.standard_id || a.id || a.authority
+      const version = a.standard_version || a.version
+      const section = a.section ? String(a.section) : ''
+      return [name, version ? `(${String(version).replace(/^\(|\)$/g, '')})` : null, section || null].filter(Boolean).join(' ')
+    })
+    .filter(Boolean)
+  if (list.some((a) => a?.requirement_type === 'product_policy')) standards.push('CyberMeters product policy')
+  return standards.join('; ')
 }
 
 const stateLabel = (signal) =>
@@ -23,25 +65,18 @@ function SignalRow({ signal, showEvidence }) {
           {stateLabel(signal)}
         </span>
       </div>
-      <p className="mt-1 text-xs leading-relaxed text-slate-500">{signal.customer_message}</p>
+      <p className="mt-1 text-xs leading-relaxed text-slate-500">{customerEvidenceText(signal.customer_message)}</p>
       {showEvidence && (
         <div className="mt-2 space-y-0.5 border-t border-slate-100 pt-2 text-[10px] leading-relaxed text-slate-400">
           <p>
-            Evidence grade {grade.achieved || 'L0'} · source {signal.source_type || 'not recorded'}
+            Evidence grade {grade.achieved || 'L0'} · {SOURCE_TYPE_TEXT[signal.source_type] || readable(signal.source_type) || 'source not recorded'}
+            {observedAt(signal) ? ` · observed ${observedAt(signal)}` : ''}
           </p>
           <p>
-            Ceiling {grade.observable_ceiling || 'not recorded'} · minimum publishable {grade.minimum_publishable || 'not recorded'}
+            Required corroboration: {(signal.required_corroboration || []).map((value) => CORROBORATION_TEXT[value] || readable(value)).join(', ') || 'none recorded'}
           </p>
           <p>
-            Required corroboration: {(signal.required_corroboration || []).join(', ') || 'none recorded'}
-          </p>
-          <p>
-            Authorities: {(signal.cited_authorities || []).map((a) => [a.standard_id || a.id || a.authority, a.standard_version || a.version, a.section, a.requirement_type].filter(Boolean).join(' ')).join('; ') || 'not recorded'}
-          </p>
-          <p>
-            Provenance: {signal.provenance
-              ? (typeof signal.provenance === 'string' ? signal.provenance : JSON.stringify(signal.provenance))
-              : 'not recorded'}
+            Cited standards: {citedStandards(signal.cited_authorities) || 'not recorded'}
           </p>
         </div>
       )}

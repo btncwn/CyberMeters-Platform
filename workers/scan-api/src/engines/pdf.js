@@ -462,10 +462,10 @@ function retestText(support, method) {
 // The declared trust store is a fact; the runtime that bundles it (and its
 // version) is an implementation detail no customer needs to read.
 const RUNTIME_TRUST_STORE = /\bNode\.js bundled Mozilla CA roots(?:\s*\(?v\d+(?:\.\d+)*\)?)?/g;
-const RUNTIME_TRUST_STORE_CONTEXT = /\bcontext\s+Node\.js bundled Mozilla CA roots(?:\s*\(?v\d+(?:\.\d+)*\)?)?/g;
+const RUNTIME_TRUST_STORE_CONTEXT = /\b(context|store)\s+Node\.js bundled Mozilla CA roots(?:\s*\(?v\d+(?:\.\d+)*\)?)?/g;
 function withoutRuntimeNames(value) {
   return String(value ?? "")
-    .replace(RUNTIME_TRUST_STORE_CONTEXT, "context (the Mozilla CA root store)")
+    .replace(RUNTIME_TRUST_STORE_CONTEXT, "$1 (the Mozilla CA root store)")
     .replace(RUNTIME_TRUST_STORE, "the Mozilla CA root store");
 }
 
@@ -482,7 +482,7 @@ function customerBodyText(value) {
     // "the DMARC protocol" would produce "a complete the DMARC protocol ...".
     .replace(/\b(a|an|the)\s+(complete\s+)?RFC\s+(\d+)\b/gi, (match, article, adjective, number) =>
       RFC_PROTOCOL_NAMES[number] ? `${article} ${adjective || ""}${RFC_PROTOCOL_NAMES[number]}` : match)
-    .replace(RUNTIME_TRUST_STORE_CONTEXT, "context (the Mozilla CA root store)")
+    .replace(RUNTIME_TRUST_STORE_CONTEXT, "$1 (the Mozilla CA root store)")
     .replace(RUNTIME_TRUST_STORE, "the Mozilla CA root store")
     .replace(/\bRFC 7208 SPF\b/gi, "SPF")
     .replace(/\bRFC 9989 DMARC\b/gi, "DMARC")
@@ -1061,6 +1061,14 @@ function sectionRemediation(w, snap, {
 // the rule's cert family also matches standing conditions (sensitive hostname in
 // CT, expiring soon), so a more specific claim could say more than the evidence.
 // Wording is kept identical to frontend RULE_LABELS (relatedChangesDisplay.js).
+// Same customer words the web report uses (frontend relatedChangesDisplay.js).
+const RELATED_CHANGE_DIRECTION_TEXT = Object.freeze({ appeared: "appeared", changed: "changed", degraded: "degraded" });
+const RELATED_CHANGE_STATE_TEXT = Object.freeze({
+  new: "needs review",
+  expected: "expected - planned",
+  unrelated: "not related",
+  unexpected_confirmed: "confirmed unexpected",
+});
 const RELATED_CHANGE_LABELS = {
   new_host_with_cert: "New host with a certificate signal",
   new_host_with_identity: "New host with a possible identity-facing hostname",
@@ -1093,7 +1101,7 @@ function sectionRelatedChanges(w, summary, { reportSubjectDomain = null } = {}) 
     const label = RELATED_CHANGE_LABELS[it.rule_id] || it.rule_id;
     const affected = String(it.affected_domain || it.registrable_domain || "").trim().toLowerCase();
     w.text(`${label} - affects ${affected}`, { size: 10, bold: true });
-    w.text(`${it.signal_family_count} independent signal families - ${it.direction} - status: ${it.customer_state}`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+    w.text(`${it.signal_family_count} independent signal families changed together - ${RELATED_CHANGE_DIRECTION_TEXT[it.direction] || readableCode(it.direction)} - review status: ${RELATED_CHANGE_STATE_TEXT[it.customer_state] || readableCode(it.customer_state)}`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
     if (subject && affected && affected !== subject) {
       w.text(`This change affects ${affected}, a different domain in this workspace. It is not necessarily a change to ${subject}.`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
     } else if (subject && affected === subject) {

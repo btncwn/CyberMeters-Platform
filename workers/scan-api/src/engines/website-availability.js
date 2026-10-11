@@ -17,8 +17,29 @@
 //     anything else — one 2xx anywhere means a website exists.
 // A 5xx, 401/403/429, a timeout or an unassessed module never raises it: those
 // are not conclusive answers about whether a website is served.
+//
+// A second observation covers the site that is DOWN rather than absent: every
+// home-page request in this scan (HTTPS and HTTP) was answered by a Cloudflare
+// edge error (520-530) or an origin 5xx, so no response from the site itself was
+// seen. That is reported as exactly what was observed in this scan — visitors
+// were most likely seeing an error page — never as a conclusion that the site is
+// gone, and a probe that never ran (budget, timeout, DNS) raises nothing.
 
 export const HOME_PAGE_NOT_FOUND_ID = "https_home_page_not_found";
+export const HOME_PAGE_UNAVAILABLE_ID = "https_home_page_unavailable";
+
+// What each Cloudflare edge code means for the visitor, in plain words.
+const EDGE_ERROR_TEXT = Object.freeze({
+  520: "Cloudflare received an unknown error from the website's server",
+  521: "the website's server refused the connection",
+  522: "the connection to the website's server timed out",
+  523: "Cloudflare could not reach the website's server",
+  524: "the website's server took too long to respond",
+  525: "the secure (SSL) connection between Cloudflare and the website's server failed",
+  526: "the website's server presented an invalid SSL certificate to Cloudflare",
+  530: "Cloudflare could not reach the website's server",
+});
+const UNAVAILABLE_LABELS = new Set(["origin_not_observed", "origin_error_response"]);
 
 const NOT_FOUND_STATUSES = new Set([404, 410]);
 const HOME_PAGE_LABELS = new Set(["/", "final_canonical_url", "www_variant"]);
@@ -49,6 +70,61 @@ export function homePageAvailabilityFindings(modules, { domain, checkedAt = null
   const headers = modules?.headers;
   const root = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
   if (!headers || !root) return [];
+  return [
+    ...homePageNotFound(headers, root, checkedAt),
+    ...homePageUnavailable(headers, root, checkedAt),
+  ];
+}
+
+function homePageUnavailable(headers, root, checkedAt) {
+  if (headers.accessible === true || headers.headers_assessed === true) return [];
+  const paths = Array.isArray(headers.checked_paths) ? headers.checked_paths : [];
+  if (paths.length === 0) return [];
+  // Every recorded home-page answer must be an edge error or an origin 5xx on
+  // this domain; any other answer (or none) is not this observation.
+  const failing = paths.every((path) =>
+    UNAVAILABLE_LABELS.has(path?.label) &&
+    Number(path.status_code) >= 500 && Number(path.status_code) <= 599 &&
+    sameSite(path.requested_url, root));
+  if (!failing) return [];
+  if (!paths.some((path) => String(path.requested_url || "").startsWith("https://"))) return [];
+
+  const answers = [...new Map(paths.map((path) => {
+    const code = Number(path.status_code);
+    const edge = path.label === "origin_not_observed" && EDGE_ERROR_TEXT[code];
+    const text = edge
+      ? `HTTP ${code}: ${EDGE_ERROR_TEXT[code]}`
+      : `HTTP ${code}: the website's server returned an error`;
+    return [code, text];
+  })).values()];
+
+  return [{
+    // Literal on purpose (see the not-found observation below).
+    id: "https_home_page_unavailable",
+    finding_type: "observation",
+    module: "headers",
+    severity: "low",
+    confidence: "high",
+    title: "Website returned an error instead of the home page",
+    description: `In this scan, every request to the home page of ${root} returned an error instead of the website (${answers.join("; ")}). Visitors were most likely seeing an error page when the scan ran. One scan can catch a short outage; if this appears again on the next scan, the site is down.`,
+    score_impact: 0,
+    evidence: {
+      evidence_type: "https_probe",
+      probe_target: `https://${root}`,
+      observed_value: answers.join("; "),
+      expected_value: "The website's home page served by its own server",
+      checked_paths: paths.map((path) => ({
+        label: path.label,
+        method: path.method || null,
+        requested_url: path.requested_url || null,
+        status_code: Number(path.status_code),
+      })),
+      checked_at: checkedAt,
+    },
+  }];
+}
+
+function homePageNotFound(headers, root, checkedAt) {
   if (headers.headers_assessed !== true || headers.accessible !== true) return [];
   if (headers.validation_uncertain === true ||
       (Array.isArray(headers.bot_protection_signals) && headers.bot_protection_signals.length > 0)) {

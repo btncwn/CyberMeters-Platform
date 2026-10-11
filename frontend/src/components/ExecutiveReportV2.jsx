@@ -76,14 +76,26 @@ function EvidenceStrengthSummary({ assertions, className = '' }) {
       <p className="text-xs font-semibold text-slate-800">
         Evidence strength: {primary ? evidenceStrengthLabel(primary) : 'Not recorded'}
       </p>
-      <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
-        <span className="font-semibold text-slate-700">Limits:</span>
-        {' '}{limits.length
-          ? limits.join(' ')
-          : (primary
-              ? 'No additional limit was recorded.'
-              : 'Evidence-Grade metadata was not recorded in this historical snapshot.')}
-      </p>
+      {limits.length ? (
+        // One readable line up front; the full list stays one click away rather
+        // than a wall of text above the report.
+        <details className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+          <summary className="cursor-pointer">
+            Each domain below states what was and was not assessed.{' '}
+            <span className="font-semibold text-slate-700">Show all recorded limits ({limits.length})</span>
+          </summary>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4">
+            {limits.map((limit) => <li key={limit}>{limit}</li>)}
+          </ul>
+        </details>
+      ) : (
+        <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+          <span className="font-semibold text-slate-700">Limits:</span>
+          {' '}{primary
+            ? 'No additional limit was recorded.'
+            : 'Evidence-Grade metadata was not recorded in this historical snapshot.'}
+        </p>
+      )}
     </div>
   )
 }

@@ -46,6 +46,7 @@ import {
 import {
   buildCertificateCustomerPresentation,
   buildCertificateLifecycleAssurance,
+  customerTrustStoreName,
 } from "./certificate-customer-presentation.js";
 import {
   buildAttackSurfaceCustomerPresentation,
@@ -198,7 +199,7 @@ function liveCertificateSnapshotEvidence(report) {
     "A leaf certificate was captured from a tested live TLS endpoint.",
     nameResult ? `Hostname matching was performed: ${nameResult}.` : "Hostname matching was not recorded.",
     trustResult
-      ? `Validation against the declared trust store ${String(store.name).slice(0, 160)} (${String(store.version).slice(0, 80)}) was performed: ${trustResult}.`
+      ? `Validation against the declared trust store (${String(customerTrustStoreName(store)).slice(0, 160)}) was performed: ${trustResult}.`
       : "Validation against a declared trust store was not recorded.",
     "This is scoped evidence, not a general certificate-trust verdict.",
   ].join(" ");

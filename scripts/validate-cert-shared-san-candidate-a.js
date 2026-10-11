@@ -470,8 +470,11 @@ const parity = states.map(parityOutputs);
 // The home-page availability remediation (web.homepage.not_served) moves the
 // registry fingerprint r72-31ea0a7c -> r73-133d04b1; with only that entry
 // removed both previous hashes reproduce exactly.
-const GOLDEN_F13 = "8f88a2de6b81dd04f76c91a20a971f10e7a31470adbe5bd890ad5245f95450ee";
-const GOLDEN_F14 = "75b94ae8db8d69f1e9becf29a3b727dbe316670474672f104e5ac5cc11974db6";
+// The website-unavailable remediation (web.homepage.unavailable) moves it again,
+// r73-133d04b1 -> r74-05b42c41; with only that entry removed both previous
+// hashes reproduce exactly.
+const GOLDEN_F13 = "7ace74e6cbd06518ded28bddf82072725f162dd9bb291f1e6632e7240121b1c5";
+const GOLDEN_F14 = "061fd0f45d3ee0d41e62aee2db650b6ca3cee02e3ff0d0abf553f90ff9894c1e";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
