@@ -21,7 +21,7 @@ describe('DeletedWorkspacesPanel', () => {
 
   it('offers an immediate Undo for the workspace just deleted and restores it', async () => {
     api.getDeletedWorkspaces.mockResolvedValue({ workspaces: [WS('ws_1', 'Acme')] })
-    api.restoreWorkspace.mockResolvedValue({ restored: true, workspace_id: 'ws_1', note: 'Scheduled scans remain paused' })
+    api.restoreWorkspace.mockResolvedValue({ restored: true, workspace_id: 'ws_1', note: 'Restored. 1 scheduled scan was switched back on; 2 stayed off because your plan\'s scheduled-scan allowance is used.' })
     const onRestored = vi.fn()
     render(<DeletedWorkspacesPanel justDeleted={{ id: 'ws_1', name: 'Acme' }} onRestored={onRestored} />)
     expect(await screen.findByText(/“Acme” was deleted\./)).toBeInTheDocument()
@@ -29,7 +29,7 @@ describe('DeletedWorkspacesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /undo delete/i }))
     await waitFor(() => expect(api.restoreWorkspace).toHaveBeenCalledWith('ws_1'))
     expect(await screen.findByText(/“Acme” was restored\./)).toBeInTheDocument()
-    expect(screen.getByText(/Monitoring resumes/)).toBeInTheDocument()
+    expect(screen.getByText(/2 stayed off because your plan/)).toBeInTheDocument()
     expect(onRestored).toHaveBeenCalledWith('ws_1')
     expect(screen.queryByRole('button', { name: /undo delete/i })).not.toBeInTheDocument()
   })
@@ -64,5 +64,14 @@ describe('DeletedWorkspacesPanel', () => {
     expect(await screen.findByText('Deleted workspaces could not be loaded.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(await screen.findByText('Alpha')).toBeInTheDocument()
+  })
+
+  it('explains a plan-limit refusal with the server message', async () => {
+    api.getDeletedWorkspaces.mockResolvedValue({ workspaces: [WS('ws_a', 'Alpha')] })
+    api.restoreWorkspace.mockRejectedValue(Object.assign(new Error('Your plan includes 1 workspace. Delete another workspace or upgrade your plan to restore this one.'), { status: 403, code: 'plan_limit_exceeded' }))
+    render(<DeletedWorkspacesPanel />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore Alpha' }))
+    expect(await screen.findByText(/Your plan includes 1 workspace/)).toBeInTheDocument()
+    expect(screen.queryByText(/Only the workspace owner/)).not.toBeInTheDocument()
   })
 })

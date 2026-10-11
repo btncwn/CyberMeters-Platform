@@ -6,7 +6,8 @@
 // route matches, or null so the main router continues.
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
 import { resolveAssessmentPresentation } from "../engines/assessment-presentation.js";
-import { domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEntitlementUsage, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
+import { domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEntitlementUsage, getOwnedWorkspaceIds, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
+import { getEffectiveDomainLimit, getEffectivePlanState } from "../engines/entitlements.js";
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, sendCustomerEmail, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { canonicalDomainInput, createId, isValidDomain, isValidEmail } from "../lib/util.js";
@@ -666,6 +667,52 @@ export async function workspacesCoreRoutes(rctx) {
           return json({ error: "The restore window for this workspace has passed." }, 409);
         }
 
+        // Plan limits — a restore must not give the owner more than they could
+        // create today (deleting frees domain/workspace slots that may since
+        // have been reused). Same canonical helpers as domain-add and
+        // workspace-create; any read failure fails closed.
+        let planState, liveIds, linkedIds, accountDomainIds, enabledSchedules, candidateSchedules;
+        try {
+          planState = await getEffectivePlanState(user.id, env);
+          liveIds = await getOwnedWorkspaceIds(user.id, env);
+          linkedIds = ((await env.cybermeters_db
+            .prepare("SELECT DISTINCT domain_id FROM workspace_domains WHERE workspace_id = ?")
+            .bind(workspaceId).all())?.results || []).map((r) => r.domain_id);
+          accountDomainIds = liveIds.length
+            ? ((await env.cybermeters_db
+                .prepare(`SELECT DISTINCT domain_id FROM workspace_domains WHERE workspace_id IN (${liveIds.map(() => "?").join(",")})`)
+                .bind(...liveIds).all())?.results || []).map((r) => r.domain_id)
+            : [];
+          enabledSchedules = Number((await env.cybermeters_db
+            .prepare("SELECT COUNT(*) AS n FROM scheduled_scans WHERE workspace_id = ? AND enabled = 1")
+            .bind(workspaceId).first())?.n ?? 0);
+          candidateSchedules = Number((await env.cybermeters_db
+            .prepare(`SELECT COUNT(DISTINCT s.domain) AS n FROM scheduled_scans s
+                       WHERE s.workspace_id = ? AND s.enabled = 0
+                         AND s.domain IN (SELECT d.domain FROM domains d JOIN workspace_domains wd ON wd.domain_id = d.id WHERE wd.workspace_id = ?)`)
+            .bind(workspaceId, workspaceId).first())?.n ?? 0);
+        } catch {
+          return json({ error: "Restore is temporarily unavailable. Please try again." }, 503);
+        }
+        if (planState?.source === "error") {
+          return json({ error: "Your plan could not be checked. Please try again." }, 503);
+        }
+        const limits = getPlanLimits(planState.plan);
+        const domainLimit = getEffectiveDomainLimit(planState.plan, planState.is_trial);
+        if (liveIds.length + 1 > limits.workspaces) {
+          return json({
+            ...planLimitExceeded("workspaces", limits.workspaces, liveIds.length),
+            upgrade_message: `Your plan includes ${limits.workspaces} workspace${limits.workspaces === 1 ? "" : "s"}. Delete another workspace or upgrade your plan to restore this one.`,
+          }, 403);
+        }
+        const domainsAfter = new Set([...accountDomainIds, ...linkedIds]).size;
+        if (linkedIds.length > domainLimit || domainsAfter > domainLimit) {
+          return json(domainLimitRejection(planState.plan, planState.is_trial, domainLimit, Math.max(domainsAfter, linkedIds.length)), 403);
+        }
+        // Schedules come back one per domain, only within the plan's scheduled
+        // scan allowance (0 on plans without scheduled scans); the rest stay off.
+        const scheduleCap = Math.max(0, Number(limits.scheduled_scans ?? 0) - enabledSchedules);
+
         const db = env.cybermeters_db;
         const LIVE = "EXISTS (SELECT 1 FROM workspaces lw WHERE lw.id = ? AND lw.owner_user_id = ? AND lw.deleted_at IS NULL)";
         const LINKED_DOMAIN_IDS = "SELECT wd.domain_id FROM workspace_domains wd WHERE wd.workspace_id = ?";
@@ -691,10 +738,17 @@ export async function workspacesCoreRoutes(rctx) {
           ).bind(workspaceId, workspaceId, workspaceId, user.id),
           db.prepare(
             `UPDATE scheduled_scans SET enabled = 1
-              WHERE workspace_id = ? AND enabled = 0
-                AND domain IN (SELECT d.domain FROM domains d WHERE d.id IN (${LINKED_DOMAIN_IDS}))
+              WHERE id IN (
+                SELECT MIN(s.id) FROM scheduled_scans s
+                 WHERE s.workspace_id = ? AND s.enabled = 0
+                   AND s.domain IN (SELECT d.domain FROM domains d WHERE d.id IN (${LINKED_DOMAIN_IDS}))
+                   AND NOT EXISTS (SELECT 1 FROM scheduled_scans e
+                                    WHERE e.workspace_id = s.workspace_id AND e.domain = s.domain AND e.enabled = 1)
+                 GROUP BY s.domain
+                 ORDER BY s.domain
+                 LIMIT ?)
                 AND ${LIVE}`
-          ).bind(workspaceId, workspaceId, workspaceId, user.id),
+          ).bind(workspaceId, workspaceId, scheduleCap, workspaceId, user.id),
         ]);
         const changed = (r) => Number(r?.meta?.changes ?? 0);
         if (changed(results?.[0]) !== 1) {
@@ -717,12 +771,17 @@ export async function workspacesCoreRoutes(rctx) {
           },
         }).catch(() => {});
 
+        const reenabled = changed(results[3]);
+        const leftOff = Math.max(0, candidateSchedules - reenabled);
         return json({
           restored: true,
           workspace_id: workspaceId,
           reactivated_assets: changed(results[2]),
-          reenabled_schedules: changed(results[3]),
-          note: "Monitoring resumes: scheduled scans for this workspace's domains are switched back on and its asset inventory is active again.",
+          reenabled_schedules: reenabled,
+          schedules_left_off: leftOff,
+          note: leftOff > 0
+            ? `Restored. ${reenabled} scheduled scan${reenabled === 1 ? " was" : "s were"} switched back on; ${leftOff} stayed off because your plan's scheduled-scan allowance is used. Assets for the workspace's current domains are active again.`
+            : "Restored. Scheduled scans for the workspace's current domains are switched back on and their assets are active again. Scans still run only while your plan and domain verification allow.",
         });
       } catch {
         return json({ error: "Unable to restore workspace" }, 500);

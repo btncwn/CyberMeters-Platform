@@ -18,6 +18,7 @@ function formatDeadline(value) {
 }
 
 function restoreErrorMessage(err) {
+  if (err?.code === 'plan_limit_exceeded') return err.message || 'Restoring this workspace would exceed your plan.'
   if (err?.status === 409) return err.message || 'This workspace can no longer be restored.'
   if (err?.status === 403) return 'Only the workspace owner can restore this workspace.'
   if (err?.status === 503) return 'Restore is temporarily unavailable. Please try again.'
@@ -77,7 +78,7 @@ export default function DeletedWorkspacesPanel({ justDeleted = null, onRestored 
           <div className="text-sm">
             <p className="font-semibold text-green-800">“{restored.name}” was restored.</p>
             <p className="text-green-700 mt-0.5">
-              Monitoring resumes: scheduled scans for its domains are switched back on and its asset inventory is active again.
+              {restored.note || 'Scheduled scans for its current domains are switched back on where your plan allows.'}
             </p>
           </div>
         </div>
@@ -113,7 +114,7 @@ export default function DeletedWorkspacesPanel({ justDeleted = null, onRestored 
             <h2 className="text-sm font-bold text-gray-900">Recently deleted</h2>
           </div>
           <p className="text-xs text-gray-500 mb-3">
-            Deleted workspaces can be restored before permanent deletion. Restoring switches monitoring back on for the domains still in the workspace.
+            Deleted workspaces can be restored before permanent deletion. Restoring switches monitoring back on for the domains still in the workspace, within your plan's limits.
           </p>
           {loadError ? (
             <div className="flex items-center gap-2 text-sm text-red-700">

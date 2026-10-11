@@ -40,8 +40,19 @@ function createDb() {
     CREATE TABLE workspace_assets (id TEXT PRIMARY KEY, workspace_id TEXT, domain_id TEXT, hostname TEXT,
       status TEXT, updated_at TEXT);
     CREATE TABLE scheduled_scans (id TEXT PRIMARY KEY, workspace_id TEXT, domain TEXT, enabled INTEGER);
+    CREATE TABLE subscriptions (id TEXT PRIMARY KEY, owner_user_id TEXT, workspace_id TEXT, plan TEXT,
+      status TEXT, subscription_status TEXT, trial_end TEXT, expires_at TEXT, current_period_end TEXT,
+      payment_failed_at TEXT, stripe_subscription_id TEXT, created_at TEXT, updated_at TEXT);
   `);
+  setPlan(db, "business");
   return db;
+}
+function setPlan(db, plan, owner = "u_owner") {
+  db.prepare("DELETE FROM subscriptions WHERE owner_user_id = ?").run(owner);
+  if (plan === "free") return;
+  db.prepare("INSERT INTO subscriptions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+    `sub_${owner}_${plan}`, owner, null, plan, null, "active", null, null,
+    new Date(Date.now() + 20 * DAY).toISOString(), null, `sub_stripe_${owner}`, ago(40), ago(1));
 }
 const addWs = (db, id, owner, deletedAt, name = id) =>
   db.prepare("INSERT INTO workspaces VALUES (?,?,?,?,?)").run(id, name, owner, deletedAt, ago(90));
@@ -154,7 +165,7 @@ const reqStatus = (db, id) => db.prepare("SELECT status FROM deletion_requests W
   const [st, body] = await restore(db, "ws_a");
   eq("restore: owner inside window → 200", st, 200);
   eq("restore: response says restored", body.restored, true);
-  ok("restore: response says monitoring resumes", /resumes/i.test(body.note || ""));
+  ok("restore: response explains scans resume within plan and verification", /switched back on/.test(body.note || "") && /plan and domain verification allow/.test(body.note || ""));
   eq("restore: workspace is live again", deletedAt(db, "ws_a"), null);
   eq("restore: pending purge request cancelled", reqStatus(db, "r_a"), "cancelled");
   eq("restore: second restore → 400 (not deleted)", (await restore(db, "ws_a"))[0], 400);
@@ -298,6 +309,91 @@ const schedEnabled = (db, id) => db.prepare("SELECT enabled FROM scheduled_scans
   const [st, body] = await restore(db, "ws_tab", { hooks });
   eq("concurrent restore → 409", st, 409);
   ok("concurrent restore: says already restored", /already been restored/.test(body.error));
+}
+
+// ── Plan limits (non-author review P1) ──────────────────────────────────────
+const linkDomain = (db, ws, domainId, name) => {
+  if (!db.prepare("SELECT 1 FROM domains WHERE id = ?").get(domainId)) db.prepare("INSERT INTO domains VALUES (?,?)").run(domainId, name);
+  db.prepare("INSERT INTO workspace_domains VALUES (?,?)").run(ws, domainId);
+};
+{
+  // Professional: 1 workspace. Owner deleted A, created B, tries to restore A.
+  const db = createDb(); setPlan(db, "professional");
+  addWs(db, "ws_A", "u_owner", ago(3)); addReq(db, "r_A", "ws_A", "pending", ago(3));
+  addWs(db, "ws_B", "u_owner", null);
+  const [st, body] = await restore(db, "ws_A");
+  eq("workspace limit: restore refused 403", st, 403);
+  eq("workspace limit: canonical plan-limit body", [body.error, body.resource, body.limit], ["plan_limit_exceeded", "workspaces", 1]);
+  ok("workspace limit: still deleted, request still pending", deletedAt(db, "ws_A") !== null && reqStatus(db, "r_A") === "pending");
+}
+{
+  // Business: 10 domains. A holds 4, B (live) was filled to 8 after A's deletion.
+  const db = createDb(); setPlan(db, "business");
+  addWs(db, "ws_A", "u_owner", ago(3)); addReq(db, "r_A", "ws_A", "pending", ago(3));
+  addWs(db, "ws_B", "u_owner", null);
+  for (let i = 0; i < 4; i++) linkDomain(db, "ws_A", `da${i}`, `a${i}.example`);
+  for (let i = 0; i < 8; i++) linkDomain(db, "ws_B", `db${i}`, `b${i}.example`);
+  const [st, body] = await restore(db, "ws_A");
+  eq("domain limit: restore refused 403", st, 403);
+  eq("domain limit: domains resource with post-restore usage", [body.resource, body.limit, body.usage], ["domains", 10, 12]);
+  ok("domain limit: still deleted", deletedAt(db, "ws_A") !== null);
+  // Shared domain counted once: A's domains overlapping B do not double count.
+  const db2 = createDb(); setPlan(db2, "business");
+  addWs(db2, "ws_A", "u_owner", ago(3)); addWs(db2, "ws_B", "u_owner", null);
+  for (let i = 0; i < 4; i++) linkDomain(db2, "ws_A", `db${i}`, `b${i}.example`);
+  for (let i = 0; i < 8; i++) linkDomain(db2, "ws_B", `db${i}`, `b${i}.example`);
+  eq("domain limit: overlapping domains counted once → 200", (await restore(db2, "ws_A"))[0], 200);
+}
+{
+  // Plan without scheduled scans (free): restore allowed, no schedule resumes.
+  const db = createDb(); setPlan(db, "free");
+  addWs(db, "ws_F", "u_owner", ago(3)); addReq(db, "r_F", "ws_F", "pending", ago(3));
+  linkDomain(db, "ws_F", "df", "f.example");
+  db.prepare("INSERT INTO scheduled_scans VALUES (?,?,?,?)").run("sf", "ws_F", "f.example", 0);
+  const [st, body] = await restore(db, "ws_F");
+  eq("free plan: restore → 200", st, 200);
+  eq("free plan: schedule stays off", schedEnabled(db, "sf"), 0);
+  eq("free plan: response reports it", [body.reenabled_schedules, body.schedules_left_off], [0, 1]);
+  ok("free plan: note explains the allowance", /allowance/.test(body.note));
+}
+{
+  // Starter: 5 scheduled scans. 7 disabled across 7 linked domains → 5 resume.
+  const db = createDb(); setPlan(db, "business");
+  addWs(db, "ws_S", "u_owner", ago(3)); addReq(db, "r_S", "ws_S", "pending", ago(3));
+  for (let i = 0; i < 7; i++) {
+    linkDomain(db, "ws_S", `ds${i}`, `s${i}.example`);
+    db.prepare("INSERT INTO scheduled_scans VALUES (?,?,?,?)").run(`ss${i}`, "ws_S", `s${i}.example`, 0);
+  }
+  setPlan(db, "starter");
+  db.prepare("DELETE FROM workspace_domains WHERE workspace_id = 'ws_S' AND domain_id NOT IN ('ds0')").run(); // starter: 1 domain
+  db.prepare("INSERT INTO scheduled_scans VALUES (?,?,?,?)").run("ss0b", "ws_S", "s0.example", 0); // duplicate for s0
+  const [st, body] = await restore(db, "ws_S");
+  eq("starter: restore → 200", st, 200);
+  eq("starter: one schedule per domain (no duplicate re-enabled)",
+    db.prepare("SELECT COUNT(*) AS n FROM scheduled_scans WHERE workspace_id = 'ws_S' AND domain = 's0.example' AND enabled = 1").get().n, 1);
+  eq("starter: unlinked-domain schedules stay off",
+    db.prepare("SELECT COUNT(*) AS n FROM scheduled_scans WHERE workspace_id = 'ws_S' AND domain <> 's0.example' AND enabled = 1").get().n, 0);
+  eq("starter: response counts", body.reenabled_schedules, 1);
+}
+{
+  // Business cap: 100 scheduled scans allowed; with 99 already enabled only 1 more resumes.
+  const db = createDb(); setPlan(db, "business");
+  addWs(db, "ws_C", "u_owner", ago(3)); addReq(db, "r_C", "ws_C", "pending", ago(3));
+  for (let i = 0; i < 99; i++) db.prepare("INSERT INTO scheduled_scans VALUES (?,?,?,?)").run(`on${i}`, "ws_C", `on${i}.example`, 1);
+  for (let i = 0; i < 3; i++) {
+    linkDomain(db, "ws_C", `dc${i}`, `c${i}.example`);
+    db.prepare("INSERT INTO scheduled_scans VALUES (?,?,?,?)").run(`cs${i}`, "ws_C", `c${i}.example`, 0);
+  }
+  const [, body] = await restore(db, "ws_C");
+  eq("cap: only the remaining allowance resumes", [body.reenabled_schedules, body.schedules_left_off], [1, 2]);
+}
+{
+  // Plan state unreadable → fail closed.
+  const db = createDb();
+  addWs(db, "ws_P", "u_owner", ago(3)); addReq(db, "r_P", "ws_P", "pending", ago(3));
+  const [st] = await restore(db, "ws_P", { hooks: [{ match: /FROM subscriptions/, throws: true }] });
+  eq("plan unreadable: 503", st, 503);
+  ok("plan unreadable: still deleted", deletedAt(db, "ws_P") !== null);
 }
 
 console.log(`validate-workspace-restore: ${pass} passed, ${fail} failed`);
