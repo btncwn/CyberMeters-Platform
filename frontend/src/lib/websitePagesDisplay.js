@@ -45,7 +45,13 @@ export function coverageSummary(run) {
   if (run.coverage === 'not_run') {
     return `Extra pages were not checked on the last scan${reasons.length ? ` because ${reasons[0]}` : ''}.`
   }
-  const base = `${observed} page${observed === 1 ? '' : 's'} seen on the last scan (checks up to ${max}).`
+  let base = `${observed} page${observed === 1 ? '' : 's'} seen on the last scan (checks up to ${max}).`
+  const jsFound = Number(run.counts?.js_paths_found) || 0
+  if (jsFound > 0) {
+    const checked = Number(run.counts?.js_paths_checked) || 0
+    const api = Number(run.counts?.js_api_paths_found) || 0
+    base += ` ${jsFound} path${jsFound === 1 ? '' : 's'} found in the site's JavaScript, ${checked} checked${api ? `; ${api} API path${api === 1 ? '' : 's'} noted but not requested` : ''}.`
+  }
   if (run.coverage === 'partial' && reasons.length) return `${base} Partial: ${reasons.join(', ')}.`
   return base
 }
@@ -80,3 +86,11 @@ export function sensitiveLabel(page) {
   const POSSIBLY = { login: 'Possibly a sign-in page', admin: 'Possibly an admin page', account: 'Possibly an account page', checkout: 'Possibly a checkout or payment page' }
   return `${POSSIBLY[page.sensitive_kind]} · from its address`
 }
+
+export const SOURCE_LABEL = Object.freeze({
+  homepage: 'Homepage',
+  homepage_link: 'Linked from the homepage',
+  sitemap: 'Listed in the sitemap',
+  javascript: "Found in the site's JavaScript",
+  well_known: 'Common address checked',
+})

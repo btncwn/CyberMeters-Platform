@@ -10,7 +10,10 @@
 //   • passive GETs only (no form submission, no authentication, no fuzzing);
 //   • the scanned host and its www/apex sibling only — never other hosts;
 //   • candidates come from the homepage's own links, robots.txt Sitemap lines,
-//     /sitemap.xml and a short list of well-known paths;
+//     /sitemap.xml, quoted path literals in up to 3 first-party JavaScript
+//     files (static reading, nothing executed) and a short well-known list;
+//   • paths that could change state on GET (logout, delete, unsubscribe…) and
+//     API endpoints are never requested;
 //   • hard bounds: PAGE_DISCOVERY_LIMITS (pages, fetches, bytes, time);
 //   • nothing is inferred from absence: a page is "not_found" only when it was
 //     actually requested and answered 404/410; an unrequested page is simply
@@ -23,11 +26,11 @@
 import { safeFetch } from "../lib/http.js";
 import { SECURITY_HEADERS } from "./security-headers-config.js";
 
-export const PAGE_DISCOVERY_VERSION = "2026-10-11.1";
+export const PAGE_DISCOVERY_VERSION = "2026-10-11.2";
 
 export const PAGE_DISCOVERY_LIMITS = Object.freeze({
   maxPages: 15,             // observed pages, homepage included
-  maxFetches: 24,           // every GET: pages, robots.txt, sitemaps, probes
+  maxFetches: 28,           // every GET: pages, robots.txt, sitemaps, scripts, probes
   bodyBytes: 98_304,        // per HTML page
   sitemapBytes: 262_144,    // per sitemap document
   maxSitemapUrls: 500,      // parsed <loc> entries considered
@@ -39,7 +42,22 @@ export const PAGE_DISCOVERY_LIMITS = Object.freeze({
   maxForms: 10,
   maxCookies: 20,
   maxThirdPartyScripts: 20,
+  maxScripts: 3,            // first-party JS files read for path discovery
+  scriptBytes: 262_144,     // per JS file
+  maxJsPaths: 200,          // unique path literals kept per scan
 });
+
+// Never request paths whose GET might change state on a badly designed site,
+// and never request API endpoints: they are counted, not called.
+const UNSAFE_PATH_RE = /(?:^|\/)(?:log-?out|sign-?out|log-?off|delete|remove|destroy|unsubscribe|cancel|deactivate|revoke|reset|confirm|verify|approve|reject|disable|enable|purge|empty)(?:\/|$|[-_.])/i;
+const API_PATH_RE = /(?:^|\/)(?:api|graphql|gql|rest|rpc|wp-json|ajax|xmlrpc\.php|oauth|token|webhooks?)(?:\/|$|\.)/i;
+
+export function isApiPath(path) { return API_PATH_RE.test(String(path || "")); }
+/** True when a passive GET of this path is safe to make. */
+export function isRequestablePath(path) {
+  const p = String(path || "");
+  return !UNSAFE_PATH_RE.test(p) && !API_PATH_RE.test(p);
+}
 
 export const WELL_KNOWN_PATHS = Object.freeze([
   "/login", "/admin", "/account", "/checkout", "/signin", "/wp-login.php", "/my-account", "/user/login",
@@ -303,6 +321,49 @@ export function thirdPartyScriptHosts(html, pageUrl, hosts, limit = PAGE_DISCOVE
   return [...out].sort();
 }
 
+/** Same-site <script src> URLs (first-party JavaScript), in document order. */
+export function firstPartyScriptUrls(html, pageUrl, hosts, limit = PAGE_DISCOVERY_LIMITS.maxScripts) {
+  const out = [];
+  const seen = new Set();
+  forEachTag(html, new Set(["script"]), (_n, tag) => {
+    const src = attrOf(tag, "src");
+    if (!src) return true;
+    try {
+      const u = new URL(src.trim(), pageUrl);
+      if ((u.protocol === "https:" || u.protocol === "http:") && hosts.has(u.hostname.toLowerCase())
+          && !u.username && !u.password && (!u.port || u.port === "443" || u.port === "80")) {
+        u.hash = "";
+        const key = u.toString();
+        if (!seen.has(key)) { seen.add(key); out.push(key); }
+      }
+    } catch { /* ignore */ }
+    return out.length < limit;
+  });
+  return out;
+}
+
+const JS_PATH_RE = /(["'`])(\/[A-Za-z0-9_\-./~%]{1,160})\1/g; // bounded class: linear
+
+/**
+ * extractJsPaths(js) — quoted path-like literals in JavaScript ("/admin/users",
+ * path: '/settings'). Static analysis only; nothing is executed. Template or
+ * parameterised routes (":id", "${…}", "*") never match the character class.
+ */
+export function extractJsPaths(js, limit = PAGE_DISCOVERY_LIMITS.maxJsPaths) {
+  const out = new Set();
+  const text = String(js || "");
+  JS_PATH_RE.lastIndex = 0;
+  let m;
+  while ((m = JS_PATH_RE.exec(text)) && out.size < limit) {
+    const p = m[2];
+    if (p.length < 2 || p.startsWith("//") || p.includes("/../") || p.endsWith("/..")) continue;
+    if (STATIC_ASSET_RE.test(p)) continue;
+    if (/\/(?:node_modules|static|assets|dist|build|chunks?|fonts?|images?|img|css|js)(?:\/|$)/i.test(p)) continue;
+    out.add(p);
+  }
+  return [...out];
+}
+
 function fingerprint(text) {
   // Content fingerprint for soft-404 detection over the WHOLE bounded body
   // (a shared <head> longer than any prefix must not make every page "equal").
@@ -400,7 +461,8 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
   const pages = [];
   const seenPaths = new Set();
   let fetches = 0;
-  const sources = { homepage_links: 0, robots_sitemaps: 0, sitemap_urls: 0, well_known_probed: 0 };
+  const sources = { homepage_links: 0, robots_sitemaps: 0, sitemap_urls: 0, javascript_paths: 0, well_known_probed: 0, unsafe_skipped: 0 };
+  const javascript = { scripts_read: 0, paths_found: 0, api_paths_found: 0 };
 
   const timeLeft = () => (typeof opts.remainingMs === "function" ? opts.remainingMs() : Infinity);
   const canFetch = () => {
@@ -458,6 +520,11 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
       sensitive: pages.filter((p) => p.outcome === "observed" && p.sensitive_kind).length,
     },
     sources,
+    javascript: {
+      ...javascript,
+      paths_checked: pages.filter((p) => p.source === "javascript").length,
+      paths_seen: pages.filter((p) => p.source === "javascript" && p.outcome === "observed").length,
+    },
     pages,
   });
 
@@ -509,6 +576,7 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
   const addCandidate = (u, source) => {
     if (!u) return;
     const path = normalizePath(u.pathname);
+    if (!isRequestablePath(path)) { sources.unsafe_skipped++; return; }
     if (seenPaths.has(path) || candidates.has(path)) return;
     candidates.set(path, { url: u.toString(), source });
     return true;
@@ -545,10 +613,29 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
     }
   }
 
-  // 3. Rank: sensitive-looking paths first, then link order, then sitemap order.
+  // 2b. First-party JavaScript: quoted path literals (static, nothing executed).
+  //     API paths are counted, never requested; other paths join the
+  //     candidate list and must still be OBSERVED to count as pages.
+  for (const scriptUrl of firstPartyScriptUrls(homeHtml, homeUrl, hosts, L.maxScripts)) {
+    if (!canFetch()) break;
+    const res = await get(scriptUrl);
+    if (!res || res.status !== 200 || !fromSite(res, hosts)) { await cancelBody(res); continue; }
+    javascript.scripts_read++;
+    const found = extractJsPaths(await readBoundedText(res, L.scriptBytes), L.maxJsPaths);
+    for (const p of found) {
+      javascript.paths_found++;
+      if (isApiPath(p)) { javascript.api_paths_found++; continue; }
+      if (addCandidate(toSameSitePageUrl(p, homeUrl, hosts), "javascript")) sources.javascript_paths++;
+    }
+  }
+
+  // 3. Rank: sensitive-looking paths first, then link order, sitemap order, JavaScript order.
+  const SOURCE_RANK = { homepage_link: 0, sitemap: 1, javascript: 2 };
   const ranked = [...candidates.entries()]
     .map(([path, c], i) => ({ path, ...c, i, kind: classifySensitivePath(path) }))
-    .sort((a, b) => (a.kind ? 0 : 1) - (b.kind ? 0 : 1) || (a.source === b.source ? a.i - b.i : (a.source === "homepage_link" ? -1 : 1)));
+    .sort((a, b) => (a.kind ? 0 : 1) - (b.kind ? 0 : 1)
+      || ((SOURCE_RANK[a.source] ?? 9) - (SOURCE_RANK[b.source] ?? 9))
+      || a.i - b.i);
 
   for (const c of ranked) {
     if (pages.length >= L.maxPages) { partial.add("page_limit"); break; }

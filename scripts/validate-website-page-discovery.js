@@ -25,6 +25,7 @@ const {
   runPageDiscoveryModule, PAGE_DISCOVERY_LIMITS, siteHosts, normalizePath, classifySensitivePath,
   toSameSitePageUrl, extractLinks, parseRobotsSitemaps, parseSitemap, parseCookieFlags, extractForms,
   findMixedContent, thirdPartyScriptHosts, forEachTag, hasPasswordField,
+  extractJsPaths, firstPartyScriptUrls, isRequestablePath, isApiPath,
 } = pd;
 
 let pass = 0, fail = 0;
@@ -498,6 +499,49 @@ const evts = (db, ws) => db.prepare("SELECT path, event_type FROM website_page_e
   ok("150-domain workspace lists without error", !threw && Array.isArray(listed) && listed.length === 151, String(threw?.message || listed?.length));
   const listSrc = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/website-pages.js"), "utf8");
   ok("list queries do not bind one parameter per domain", !/\.bind\(workspaceId, \.\.\.ids\)/.test(listSrc));
+}
+
+// ── 6. JavaScript path discovery (PR 15) ───────────────────────────────────
+{
+  const js = `const r=[{path:"/admin/panel"},{path:'/settings'}];fetch(\`/account/billing\`);go("/users/:id");x="\${y}/z";
+    a="//cdn.example/lib.js";b="/static/js/main.js";c="/api/v1/users";d="/logout";e='/hidden-report';f="/img/logo";g="/a/../b"`;
+  const found = extractJsPaths(js);
+  eq("js paths: quoted literals extracted", found.filter((p) => ["/admin/panel", "/settings", "/account/billing", "/hidden-report", "/api/v1/users", "/logout"].includes(p)).sort(),
+    ["/account/billing", "/admin/panel", "/api/v1/users", "/hidden-report", "/logout", "/settings"]);
+  ok("js paths: parameterised, protocol-relative, asset and traversal paths excluded",
+    !found.some((p) => p.includes(":") || p.startsWith("//") || p.startsWith("/static") || p.startsWith("/img") || p.includes("..")), JSON.stringify(found));
+  eq("unsafe GETs are never requestable", ["/logout", "/account/delete", "/unsubscribe", "/sign-out", "/api/v1/users", "/graphql", "/wp-json/x", "/oauth/token"].map(isRequestablePath), [false, false, false, false, false, false, false, false]);
+  eq("ordinary pages are requestable", ["/admin", "/account", "/pricing", "/reset-styles-guide"].map(isRequestablePath), [true, true, true, false]);
+  ok("api path classifier", isApiPath("/api/users") && !isApiPath("/apiary"));
+  eq("first-party scripts only", firstPartyScriptUrls(`<script src="/a.js"></script><script src="https://cdn.other/x.js"></script><script src="https://www.acme.test/b.js"></script><script src="https://acme.test:8443/c.js"></script>`, "https://acme.test/", hosts),
+    ["https://acme.test/a.js", "https://www.acme.test/b.js"]);
+  // Linear on hostile JS.
+  const hostileJs = "\"/".repeat(130_000) + "'" + "a".repeat(100_000);
+  const t = performance.now(); extractJsPaths(hostileJs); const ms = performance.now() - t;
+  ok("js path extraction is linear on hostile input", ms < 300, `${ms.toFixed(0)}ms`);
+}
+{
+  const log = [];
+  const r = await runPageDiscoveryModule("acme.test", { fetchImpl: site({
+    "acme.test/": { body: `<a href="/logout">out</a><a href="/account/delete">del</a><script src="/app.js"></script><script src="https://cdn.vendor.example/v.js"></script>` },
+    "acme.test/app.js": { type: "application/javascript", body: `routes=["/admin/panel","/hidden-report","/api/users","/logout","/users/:id"]` },
+    "acme.test/admin/panel": { body: "<form method=post><input type=password></form>" },
+    "acme.test/hidden-report": { body: "<html>report</html>" },
+  }, { log }) });
+  const by = Object.fromEntries(r.pages.map((p) => [p.path, p]));
+  eq("js: admin path from JavaScript observed", [by["/admin/panel"]?.source, by["/admin/panel"]?.outcome, by["/admin/panel"]?.sensitive_kind], ["javascript", "observed", "login"]);
+  eq("js: hidden page from JavaScript observed", [by["/hidden-report"]?.source, by["/hidden-report"]?.outcome], ["javascript", "observed"]);
+  ok("js: logout and delete are never requested", !log.some((u) => /\/logout|\/account\/delete/.test(u)), JSON.stringify(log));
+  ok("js: API endpoints are never requested", !log.some((u) => u.includes("/api/")));
+  ok("js: third-party script not fetched", !log.some((u) => u.includes("cdn.vendor.example")));
+  eq("js: counts", [r.javascript.scripts_read, r.javascript.api_paths_found, r.javascript.paths_seen], [1, 1, 2]);
+  ok("js: unsafe paths counted as skipped", r.sources.unsafe_skipped >= 2);
+  // Persisted with its source.
+  const db = createDb(); const env = { cybermeters_db: d1(db) };
+  await persistWebsitePagesForScan(env, { workspace_id: "ws_a", domain_id: "d1", domain: "acme.test", scan_id: "js1", discovery: r });
+  eq("js: source persisted", pageRow(db, "ws_a", "/hidden-report")?.discovery_source, "javascript");
+  const counts = JSON.parse(db.prepare("SELECT counts_json FROM website_page_discovery_runs WHERE scan_id='js1'").get().counts_json);
+  eq("js: run counts persisted", [counts.js_scripts_read, counts.js_api_paths_found, counts.js_paths_seen], [1, 1, 2]);
 }
 
 // ── 4. End-to-end engine trace: queue scan → module → D1 inventory ─────────
