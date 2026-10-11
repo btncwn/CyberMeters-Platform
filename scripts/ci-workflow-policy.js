@@ -12,11 +12,12 @@ const { parseDocument, isMap, isSeq } = workerRequire("yaml");
 
 export const CANONICAL_SKIP_CONDITION = "${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}";
 export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d55297df4fd3f90a2f57548697efcf062";
-// Include the QA benchmark admin-only validator (frontend-build shard, beside
-// security contracts); prior assignments remain.
-export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 394;
-export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "ecb0a56948647127dffba0c54d30429ee39b511845390970620ff502f7ade50a";
-export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "a489f12e253e4c5d648d7a2b8a98a7d16da9f5050fb95783eb62a093c7506f24";
+// Include the QA benchmark admin-only validator and the account subscription
+// status validator (frontend-build shard, beside security contracts); prior
+// assignments remain.
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 395;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "af0f37dbef5121dab9b358db121e473c3abe9e7e4d0feb074d4ecf2dc54ec136";
+export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "c0a81d03b63dd7459afe3e90afae7ebeb842fb2030cece2694522f1ed0df3d3c";
 
 export const F004_MATRIX_JOB_ID = "validate_f004_recovery_mutations";
 export const F004_MATRIX_VALIDATOR_PATH = "scripts/validate-f004-recovery-instrumentation-mutations.js";
@@ -67,7 +68,7 @@ export const EXPECTED_SHARD_COUNTS = Object.freeze({
   validate_runtime_security: 101,
   validate_report_cx: 91,
   validate_data_migrations: 90,
-  validate_frontend_build: 90,
+  validate_frontend_build: 91,
   validate_integration_assurance: 21,
   validate_f004_recovery_mutations: 1,
 });

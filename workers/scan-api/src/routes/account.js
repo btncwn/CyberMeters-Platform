@@ -5,7 +5,7 @@
 // Extracted near-verbatim from index.js (router split, Phase 2 PR #18).
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
-import { PLAN_FEATURES, getEffectivePlan, getPlanFeatures, hasFeatureEntitlement, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
+import { PLAN_FEATURES, getEffectivePlan, getPlanFeatures, hasFeatureEntitlement, loadAccountSubscription, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { validateBrandingInput } from "../engines/report-branding.js";
 import { validateFindingEvidence } from "../engines/findings.js";
 import { visibleFindingSql } from "../engines/finding-identity.js";
@@ -231,6 +231,9 @@ export async function accountRoutes(rctx) {
             .first(),
         ]);
         const plan = await getEffectivePlan(user.id, env);
+        // Status from the same canonical description as /api/account/subscription;
+        // no row reads `none`, never an invented "active"/"manual".
+        const described = await loadAccountSubscription(user.id, env);
         return json({
           user: {
             id:    user.id,
@@ -239,12 +242,9 @@ export async function accountRoutes(rctx) {
             plan,
           },
           company: profile ?? null,
-          subscription: sub ? { ...sub, plan } : {
-            plan,
-            status:           "active",
-            billing_provider: "manual",
-            billing_email:    user.email,
-          },
+          subscription: sub
+            ? { ...sub, plan, status: described.status, entitled: described.entitled }
+            : { plan, status: described.status, entitled: described.entitled, billing_provider: null, billing_email: null },
         });
       } catch (e) {
         return serverError("api", e);
@@ -508,35 +508,30 @@ export async function accountRoutes(rctx) {
     }
 
     // ── GET /api/account/subscription ────────────────────────────────────
+    // Plan AND status come from the canonical resolver (loadAccountSubscription),
+    // so the status can never contradict the plan, and nothing is invented: no
+    // row reads `none` (not "active"/"manual"), unreadable state `unavailable`.
     if (request.method === "GET" && url.pathname === "/api/account/subscription") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       try {
-        const sub = await env.cybermeters_db
-          .prepare(
-            `SELECT id, plan, subscription_status AS status,
-                    billing_interval AS billing_cycle,
-                    'stripe' AS billing_provider,
-                    NULL AS billing_email, NULL AS trial_ends_at,
-                    current_period_end, created_at, updated_at
-             FROM subscriptions
-             WHERE owner_user_id = ?
-             ORDER BY COALESCE(updated_at, created_at) DESC
-             LIMIT 1`
-          )
-          .bind(user.id)
-          .first();
-
-        const plan = await getEffectivePlan(user.id, env);
+        const described = await loadAccountSubscription(user.id, env);
+        const row = described.row;
         return json({
-          subscription: sub ? { ...sub, plan, billing_cycle: normalizeBillingInterval(sub.billing_cycle) } : {
-            plan,
-            status:             "active",
-            billing_cycle:      "monthly",
-            billing_provider:   "manual",
-            billing_email:      user.email,
-            trial_ends_at:      null,
-            current_period_end: null,
+          subscription: {
+            id:                 row?.id ?? null,
+            plan:               described.plan,
+            status:             described.status,
+            entitled:           described.entitled,
+            in_grace:           described.in_grace === true,
+            billing_cycle:      row ? normalizeBillingInterval(row.billing_interval) : null,
+            billing_provider:   row ? (row.stripe_subscription_id ? "stripe" : "cybermeters") : null,
+            billing_email:      null,
+            trial_ends_at:      described.status === "trialing" || described.status === "trial_expired"
+              ? (row?.trial_end || row?.current_period_end || null) : null,
+            current_period_end: row?.current_period_end ?? null,
+            created_at:         row?.created_at ?? null,
+            updated_at:         row?.updated_at ?? null,
           },
         });
       } catch (e) {

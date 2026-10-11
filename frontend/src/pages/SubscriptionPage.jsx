@@ -75,9 +75,16 @@ const STATUS_CFG = {
   active:    { label: 'Active',    dot: 'bg-green-400',  pill: 'bg-green-50 text-green-700 border-green-100' },
   past_due:  { label: 'Past due',  dot: 'bg-amber-400',  pill: 'bg-amber-50 text-amber-700 border-amber-100' },
   canceled:  { label: 'Cancelled', dot: 'bg-red-400',    pill: 'bg-red-50 text-red-700 border-red-100'       },
+  expired:   { label: 'Expired',   dot: 'bg-red-400',    pill: 'bg-red-50 text-red-700 border-red-100'       },
   free:      { label: 'Free',      dot: 'bg-gray-300',   pill: 'bg-gray-50 text-gray-600 border-gray-100'    },
 }
-function statusCfg(s) { return STATUS_CFG[s] ?? STATUS_CFG.free }
+const STATUS_UNKNOWN = { label: 'Unknown', dot: 'bg-gray-300', pill: 'bg-gray-50 text-gray-600 border-gray-100' }
+// Unrecognised workspace subscription statuses read "Unknown", never "Free" or
+// "Active"; only a missing status (no subscription) is the free plan.
+function statusCfg(s) {
+  if (s == null || s === '') return STATUS_CFG.free
+  return Object.prototype.hasOwnProperty.call(STATUS_CFG, s) ? STATUS_CFG[s] : STATUS_UNKNOWN
+}
 
 // Feature gate display config
 const GATE_DISPLAY = [
@@ -178,7 +185,10 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
 // ── Plan card ─────────────────────────────────────────────────────────────────
 
 function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, subscriptionActive, trialActive, checkoutLoading, portalPlanChange = false }) {
-  const scfg = statusCfg(trialActive ? 'trialing' : (status || 'free'))
+  // A raw "active" row that the backend says no longer grants access (period
+  // ended) is Expired, never a green Active.
+  const scfg = statusCfg(trialActive ? 'trialing'
+    : (status === 'active' && subscriptionActive === false ? 'expired' : (status || 'free')))
   const upgradeTo = UPGRADE_TARGET[plan]
   // Price comes only from live canonical plan metadata; without it, no price
   // is displayed (never a stale local figure).

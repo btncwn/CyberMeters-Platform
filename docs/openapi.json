@@ -1638,6 +1638,7 @@
           "Billing"
         ],
         "summary": "Current subscription",
+        "description": "Plan and status from the canonical entitlement resolver. status is one of: active, trialing, past_due (payment failed, inside grace), trial_expired, past_due_lapsed, canceled, expired, inactive, none (no subscription; free plan). An active row whose plan resolves to free reads inactive. If the state cannot be read the response is 503 with status unavailable and plan null. billing_cycle is null when there is no subscription; entitled is true only for active, trialing and past_due within grace.",
         "operationId": "getBillingSubscription",
         "responses": {
           "200": {

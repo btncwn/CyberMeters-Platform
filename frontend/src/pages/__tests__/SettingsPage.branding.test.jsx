@@ -14,7 +14,7 @@ beforeEach(() => {
 describe('Settings current billing and agency branding', () => {
   it('mounts real V2 profiles and displays current API plan instead of stale auth plan', async () => {
     render(<MemoryRouter><SettingsPage /></MemoryRouter>); await screen.findByText('No agency profiles saved.')
-    expect(screen.getByText('business')).toBeInTheDocument(); expect(screen.getByText('trialing')).toBeInTheDocument(); expect(screen.queryByText('free')).not.toBeInTheDocument()
+    expect(screen.getByText('business')).toBeInTheDocument(); expect(screen.getByTestId('subscription-status')).toHaveTextContent('Trial'); expect(screen.queryByText('Active')).not.toBeInTheDocument(); expect(screen.queryByText('free')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Manage billing' })).toHaveAttribute('href', '/billing'); expect(screen.queryByText(/Payment integration is not enabled/)).not.toBeInTheDocument(); expect(screen.queryByText('Upgrade coming soon')).not.toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Agency report branding' })).getByRole('button', { name: 'Add agency profile' })).toBeEnabled()
   })
@@ -23,5 +23,25 @@ describe('Settings current billing and agency branding', () => {
     render(<MemoryRouter><SettingsPage /></MemoryRouter>); await screen.findByText('No agency profiles saved.')
     expect(screen.getAllByText('Unavailable')).toHaveLength(3); expect(screen.queryByText('active')).not.toBeInTheDocument(); expect(screen.queryByText('free')).not.toBeInTheDocument(); expect(screen.queryByText('manual')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Manage billing' })).toBeInTheDocument()
+  })
+})
+
+describe('Settings subscription status honesty', () => {
+  it('shows Unavailable, not a free/active state, when the subscription cannot be read', async () => {
+    api.getSubscription.mockRejectedValue(new Error('boom'))
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>); await screen.findByText('No agency profiles saved.')
+    expect(screen.getByTestId('subscription-status')).toHaveTextContent('Unavailable')
+    expect(screen.queryByText('Active')).not.toBeInTheDocument()
+  })
+  it('an unrecognised backend status reads Unknown, never Active', async () => {
+    api.getSubscription.mockResolvedValue({ subscription: { plan: 'starter', status: 'incomplete_expired', billing_provider: 'stripe' } })
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>); await screen.findByText('No agency profiles saved.')
+    expect(screen.getByTestId('subscription-status')).toHaveTextContent('Unknown')
+    expect(screen.queryByText('Active')).not.toBeInTheDocument()
+  })
+  it('a trial that has ended reads Trial ended', async () => {
+    api.getSubscription.mockResolvedValue({ subscription: { plan: 'free', status: 'trial_expired', billing_provider: 'cybermeters' } })
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>); await screen.findByText('No agency profiles saved.')
+    expect(screen.getByTestId('subscription-status')).toHaveTextContent('Trial ended')
   })
 })
