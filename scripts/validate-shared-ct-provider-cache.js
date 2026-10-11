@@ -215,8 +215,9 @@ try {
   eq("subdomains preserve merged count", shared.subdomains.count, 5);
   same("subdomains preserve sorted merged names", shared.subdomains.items,
     ["admin.example.com", "api.example.com", "app.example.com", "example.com", "www.example.com"]);
+  // app/api are everyday production names and are never classified sensitive.
   same("subdomains preserve sensitive classification", shared.subdomains.sensitive,
-    ["admin.example.com", "api.example.com", "app.example.com"]);
+    ["admin.example.com"]);
   same("subdomains preserve per-source success shape", shared.subdomains.sources, {
     crt_sh: { count: 3, error: null },
     certspotter: { count: 2, error: null },

@@ -1029,6 +1029,9 @@ jobs:
       - name: Validate Website home-page availability (conclusive 404/410 only, score-neutral, mutation-tested)
         run: node scripts/validate-website-home-page-availability.js
 
+      - name: Validate subdomain sensitive names (production names are never scored as sensitive)
+        run: node scripts/validate-subdomain-sensitive-names.js
+
       - name: Validate website signed-in scanning (vault, sign-in session, profiles)
         run: node scripts/validate-website-sign-in.js
 

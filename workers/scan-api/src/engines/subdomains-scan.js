@@ -14,6 +14,14 @@ import { coverageStateFromTruncation } from "./bounded-coverage.js";
 /**
  * Subdomain names whose presence suggests a development, staging, or
  * administrative asset — used for risk detection only, not for blocking.
+ *
+ * Only names that point AWAY from a normal production service belong here: a
+ * reachable match is scored and told it "suggests development, staging, or
+ * administrative use". Everyday production names (app, api, mobile, mail,
+ * webmail, smtp, mx, portal, dashboard, auth, login, sso, oauth) are not on the
+ * list — every business publishes them, and naming them a sensitive exposure
+ * is a false positive. Real admin panels are found by content in the admin
+ * surface module, and identity-facing hosts by Identity Exposure.
  */
 const SENSITIVE_LABELS = new Set([
   // Non-production environments
@@ -28,9 +36,7 @@ const SENSITIVE_LABELS = new Set([
   "admin", "administrator", "admins", "adm",
   "cp", "cpanel", "webmin", "plesk", "whm",
   "manager", "manage", "control", "panel",
-  "dashboard", "portal",
-  // Authentication / access
-  "auth", "login", "sso", "oauth",
+  // Remote access
   "vpn", "remote", "rdp",
   // Data / storage
   "db", "database", "sql", "mysql", "mongo", "mongodb",
@@ -43,14 +49,10 @@ const SENSITIVE_LABELS = new Set([
   "git", "gitlab", "bitbucket", "github",
   "jenkins", "ci", "cd", "build", "deploy",
   "sonar", "sonarqube", "nexus", "artifactory",
-  // Apps / API / mobile
-  "api", "app", "mobile",
   // Internal / sensitive
   "internal", "intranet", "corp", "private",
   "old", "legacy", "archive", "temp", "tmp",
-  // Mail
-  "mail", "webmail", "smtp", "mx",
-  // Remote access
+  // Legacy remote file / shell access
   "ftp", "ssh",
   // Collaboration
   "jira", "confluence", "wiki",
@@ -65,7 +67,7 @@ export function projectSubdomainCtSource(result, measuredCount = null) {
   };
 }
 
-function isSensitiveSubdomain(hostname, domain) {
+export function isSensitiveSubdomain(hostname, domain) {
   // Strip the root domain to get the subdomain part(s)
   const sub = hostname.endsWith("." + domain)
     ? hostname.slice(0, -(domain.length + 1))
