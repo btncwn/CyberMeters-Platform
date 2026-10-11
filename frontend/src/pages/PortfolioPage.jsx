@@ -16,6 +16,11 @@ import RiskBadge from '../components/RiskBadge'
 import { bandMeta, metaForScore } from '../lib/score-presentation'
 import { assetLifecycleClaimDisplay } from '../lib/assetLifecycleClaimDisplay'
 import { PortfolioExecutiveSummary, PortfolioMaturity } from '../components/PortfolioSummaryCards'
+import { PlanGate } from '../components/PlanUsageCard'
+
+// A plan gate is one fact about the account, not a failure of each section:
+// show a single upgrade card instead of one "Retry" per section.
+const isPlanGate = (e) => (e?.error ?? e?.code) === 'plan_feature_required'
 
 // RatingBadge renders the CANONICAL Cyber Metrics Score band vocabulary via the
 // mirror module (M5.e) — one label/tone source, unknown stays neutral.
@@ -418,6 +423,7 @@ export default function PortfolioPage() {
   const [trendLoading,      setTrendLoading]      = useState(true)
 
   const [refreshing, setRefreshing] = useState(false)
+  const [planGate,   setPlanGate]   = useState(null)
 
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) {
@@ -447,6 +453,8 @@ export default function PortfolioPage() {
 
     if (tr.status === 'fulfilled') setTrend(tr.value?.trend ?? [])
     else setTrendErr(tr.reason?.message ?? 'Failed to load trends')
+
+    setPlanGate([ov, ws, al, tr].find((r) => r.status === 'rejected' && isPlanGate(r.reason))?.reason ?? null)
 
     setOverviewLoading(false); setWorkspacesLoading(false)
     setAlertsLoading(false);   setTrendLoading(false)
@@ -493,6 +501,7 @@ export default function PortfolioPage() {
         </div>
       </div>
 
+      <PlanGate error={planGate}>
       {/* Overview cards */}
       <OverviewSection
         data={overview}
@@ -540,6 +549,7 @@ export default function PortfolioPage() {
           api.getPortfolioAlerts(50).then(d => setAlerts(d.alerts ?? [])).catch(e => setAlertsErr(e.message)).finally(() => setAlertsLoading(false))
         }}
       />
+      </PlanGate>
 
     </div>
   )
