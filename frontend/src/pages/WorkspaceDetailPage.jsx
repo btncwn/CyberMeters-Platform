@@ -389,7 +389,8 @@ export default function WorkspaceDetailPage() {
       }
     } catch { /* ignore storage errors */ }
     setShowDelete(false)
-    navigate('/workspaces', { replace: true })
+    // Hand the deleted workspace to the list so the owner gets an immediate Undo.
+    navigate('/workspaces', { replace: true, state: { justDeleted: { id, name: workspace?.name || '' } } })
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────

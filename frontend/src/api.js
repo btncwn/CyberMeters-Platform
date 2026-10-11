@@ -1370,6 +1370,20 @@ export const api = {
   requestWorkspaceDeletion: (workspaceId) =>
     request(`/workspaces/${workspaceId}/delete-request`, { method: 'POST' }),
 
+  /**
+   * GET /api/account/deleted-workspaces
+   * The owner's soft-deleted workspaces that can still be restored.
+   * Returns { workspaces: [{ id, name, deleted_at, restorable_until }], restore_window_days }
+   */
+  getDeletedWorkspaces: () => request('/account/deleted-workspaces'),
+
+  /**
+   * POST /api/workspaces/:id/restore — undo a soft-delete inside the window.
+   * Returns { restored: true, workspace_id, note }
+   */
+  restoreWorkspace: (workspaceId) =>
+    request(`/workspaces/${encodeURIComponent(workspaceId)}/restore`, { method: 'POST' }),
+
   // ── Workspace Activity (Audit Trail) ─────────────────────────────────────
 
   /**

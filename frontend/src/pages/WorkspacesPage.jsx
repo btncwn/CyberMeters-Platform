@@ -1,12 +1,13 @@
 import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   RefreshCw, Briefcase, Globe, Plus, ChevronRight, X, Shield, TrendingUp, FileText,
 } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
+import DeletedWorkspacesPanel from '../components/DeletedWorkspacesPanel'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -103,6 +104,8 @@ export default function WorkspacesPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const navigate = useNavigate()
+  const location = useLocation()
+  const justDeleted = location.state?.justDeleted ?? null
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -172,6 +175,8 @@ export default function WorkspacesPage() {
       </div>
 
       {error && <ErrorAlert message={error} />}
+
+      <DeletedWorkspacesPanel justDeleted={justDeleted} onRestored={() => load(true)} />
 
       {/* Empty state */}
       {workspaces.length === 0 && !error && (

@@ -1292,6 +1292,9 @@ jobs:
       - name: Validate account subscription status honesty (canonical plan + status)
         run: node scripts/validate-account-subscription-status.js
 
+      - name: Validate workspace restore (owner-only list, window, purge race, fail-closed)
+        run: node scripts/validate-workspace-restore.js
+
       - name: Validate integration flows (tenant isolation / access control)
         run: node scripts/validate-integration.js
 

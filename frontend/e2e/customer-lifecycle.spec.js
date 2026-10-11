@@ -264,6 +264,10 @@ async function installApiMock(page, state) {
       return route.fulfill(json({ request_id: 'delreq_e2e', status: 'pending' }))
     }
 
+    if (method === 'GET' && path === '/account/deleted-workspaces') {
+      return route.fulfill(json({ workspaces: [], restore_window_days: 30 }))
+    }
+
     if (path.includes('/notifications')) {
       return route.fulfill(json({ workspace_id: workspace.id, unread_count: 0, count: 0, notifications: [] }))
     }
