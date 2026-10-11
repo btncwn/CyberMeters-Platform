@@ -1425,6 +1425,10 @@ export const api = {
   // ── Scheduled Reports ────────────────────────────────────────────────────
 
   /** GET /api/workspaces/:id/scheduled-reports */
+  /** GET /api/workspaces/:id/report-snapshots — completed canonical snapshots, newest first (metadata only) */
+  getReportSnapshots: (workspaceId) =>
+    request(`/workspaces/${encodeURIComponent(workspaceId)}/report-snapshots?limit=100`),
+
   getScheduledReports: (workspaceId) =>
     request(`/workspaces/${workspaceId}/scheduled-reports`),
 
