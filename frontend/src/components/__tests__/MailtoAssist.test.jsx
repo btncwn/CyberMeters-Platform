@@ -24,6 +24,9 @@ describe('MailtoAssist', () => {
     expect(status).toHaveTextContent('hello@cybermeters.com')
     expect(status).toHaveTextContent(/If your email app did not open/)
     expect(screen.getByRole('button', { name: /cop(y|ied)/i })).toBeInTheDocument()
+    // The copy fallback never leaves its helper field behind, even when the
+    // browser refuses to copy.
+    expect(document.querySelector('textarea')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })

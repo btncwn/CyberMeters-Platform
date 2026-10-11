@@ -19,19 +19,19 @@ async function copyText(text) {
       return true
     }
   } catch { /* fall back below */ }
+  const area = document.createElement('textarea')
+  area.value = text
+  area.setAttribute('readonly', '')
+  area.setAttribute('aria-hidden', 'true')
+  Object.assign(area.style, { position: 'fixed', top: '0', left: '0', opacity: '0', pointerEvents: 'none' })
+  document.body.appendChild(area)
   try {
-    const area = document.createElement('textarea')
-    area.value = text
-    area.setAttribute('readonly', '')
-    area.style.position = 'fixed'
-    area.style.opacity = '0'
-    document.body.appendChild(area)
     area.select()
-    const ok = document.execCommand('copy')
-    area.remove()
-    return ok
+    return document.execCommand('copy') === true
   } catch {
     return false
+  } finally {
+    area.remove()
   }
 }
 
@@ -68,7 +68,9 @@ export default function MailtoAssist() {
         <div className="flex-1 min-w-0">
           <p className="text-base font-semibold break-all">{address}</p>
           <p className="text-sm text-gray-300 mt-1">
-            {copied ? 'Address copied. ' : ''}If your email app did not open, paste the address into a new email.
+            {copied
+              ? 'Address copied. If your email app did not open, paste it into a new email.'
+              : 'If your email app did not open, copy the address into a new email.'}
           </p>
           <button
             type="button"
