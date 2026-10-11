@@ -1318,6 +1318,8 @@ export const api = {
    * Returns { plan, limits, usage: { workspaces, domains, users } }.
    */
   getAccountUsage: () => request('/account/usage'),
+  /** GET /api/workspaces/:id/usage — this workspace's activity this month (allowances are account-wide). */
+  getWorkspaceUsage: (id) => request(`/workspaces/${encodeURIComponent(id)}/usage`),
 
   /** GET /api/billing/plans */
   getBillingPlans: () => request('/billing/plans'),
