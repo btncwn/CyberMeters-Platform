@@ -34,8 +34,8 @@ const WS_PAGES_SCOPE_NOTE =
   "Up to 15 of the site's own public pages per scan, found from homepage links, the sitemap, paths mentioned in the "
   + "site's own JavaScript (read, never run) and a short list of common paths, checked with passive requests only. "
   + "This is not a full crawl: pages behind a login, pages that only exist inside a JavaScript app and other hosts are "
-  + "not checked. Addresses that could change something when visited (sign-out, delete, unsubscribe) and API endpoints "
-  + "are never requested. A page is shown as not found only when it was requested and answered 404 or 410; pages not "
+  + "not checked. Addresses recognised as changing something when visited (sign-out, delete, unsubscribe) and API "
+  + "endpoints are not requested. A page is shown as not found only when it was requested and answered 404 or 410; pages not "
   + "requested in a scan keep their last observation.";
 
 export async function websiteSecurityRoutes(rctx) {
