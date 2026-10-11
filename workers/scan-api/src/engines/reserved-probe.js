@@ -10,6 +10,7 @@
 // "Too many subrequests" budget throw) propagate so probeAsset can classify them.
 import { resolvePublicDnsTarget, STRICT_DNS_STATES, urlIsBlockedTarget } from "../lib/ssrf.js";
 import { dnsQuery } from "./dns.js";
+import { SCANNER_PAGE_HEADERS } from "../lib/http.js";
 
 export const RESERVED_MAX_REDIRECT_HOPS = 3;   // follow up to 3 redirects; cap the 4th
 
@@ -103,6 +104,7 @@ export function makeSsrfSafeProbeFetch({ resolver: baseResolver, maxHops = RESER
       try {
         res = await fetch(current, {
           method: "GET",
+          headers: SCANNER_PAGE_HEADERS,
           redirect: "manual",
           signal: combineSignals(opts?.signal, activeAccounting?.signal, AbortSignal.timeout(timeoutMs)),
         });

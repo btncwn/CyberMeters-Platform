@@ -2,7 +2,7 @@
 // Module 5 scan phase: fetches the site, reads response headers + a body snippet, and
 // infers the technology stack (server/framework/CMS/versions). Extracted verbatim from
 // index.js (monolith decomposition, Phase 1c). looksVersioned is module-internal.
-import { safeFetch } from "../lib/http.js";
+import { safeFetch, SCANNER_PAGE_HEADERS } from "../lib/http.js";
 import { classifyFetchObservation, FETCH_OBSERVATION_STATES } from "../lib/fetch-observation.js";
 import { classifyServiceability } from "../lib/serviceability.js";
 
@@ -98,6 +98,7 @@ export async function runTechModule(domain, opts = {}) {
     res = await safeFetch(`https://${domain}`, {
       method:   "GET",
       redirect: "follow",
+      headers:  SCANNER_PAGE_HEADERS,
       accounting,
       signal: opts.signal,
       dnsResolver: opts.dnsResolver,
