@@ -163,7 +163,8 @@ export function forEachTag(html, wanted, visit) {
     if (wanted.has(key) && visit(key, text.slice(lt, gt + 1), gt + 1) === false) return;
     i = gt + 1;
     if (!closing && RAW_TEXT_TAGS.has(name)) {
-      if (lower === null) lower = text.toLowerCase();
+      // ASCII-only folding keeps indexes aligned ("İ".toLowerCase() is 2 chars).
+      if (lower === null) lower = text.replace(/[A-Z]+/g, (m) => m.toLowerCase());
       const close = lower.indexOf(`</${name}`, i);
       if (close === -1) break;
       i = close;
@@ -312,6 +313,35 @@ function fingerprint(text) {
   return `${s.length}:${(h >>> 0).toString(16)}`;
 }
 
+/**
+ * structureFingerprint(html) — a noise-tolerant shape of the page: structural
+ * tag names plus their navigation targets (href/src/action without query),
+ * form method, input type/name and meta name. Per-response values (CSRF
+ * tokens, nonces, `value`, `content`, inline script text) are excluded, so a
+ * catch-all site that returns the same shell with a fresh token every time
+ * still matches itself, while a genuinely different page does not.
+ */
+export function structureFingerprint(html) {
+  const parts = [];
+  const target = (v) => { if (!v) return ""; const t = v.trim(); const q = t.search(/[?#]/); return (q === -1 ? t : t.slice(0, q)).slice(0, 200); };
+  forEachTag(html, new Set(["a", "form", "input", "script", "link", "img", "iframe", "meta", "title", "h1", "h2", "button", "select", "textarea"]), (name, tag) => {
+    if (name === "a" || name === "link") parts.push(`${name}:${target(attrOf(tag, "href"))}`);
+    else if (name === "script" || name === "img" || name === "iframe") parts.push(`${name}:${target(attrOf(tag, "src"))}`);
+    else if (name === "form") parts.push(`form:${(attrOf(tag, "method") || "get").toLowerCase()}:${target(attrOf(tag, "action"))}`);
+    else if (name === "input") parts.push(`input:${(attrOf(tag, "type") || "text").toLowerCase()}:${attrOf(tag, "name") || ""}`);
+    else if (name === "meta") parts.push(`meta:${attrOf(tag, "name") || attrOf(tag, "property") || ""}`);
+    else parts.push(name);
+    return parts.length < 2000;
+  });
+  return fingerprint(parts.join("|"));
+}
+
+function randomProbePath() {
+  const b = new Uint8Array(8);
+  crypto.getRandomValues(b);
+  return `/cybermeters-check-${[...b].map((x) => x.toString(16).padStart(2, "0")).join("")}`;
+}
+
 async function readBoundedText(res, maxBytes) {
   if (!res?.body) { try { return (await res.text()).slice(0, maxBytes); } catch { return ""; } }
   const reader = res.body.getReader();
@@ -454,8 +484,25 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
   }
   const homePath = normalizePath(new URL(homeUrl).pathname);
   const homeFingerprint = fingerprint(homeHtml);
+  const homeStructure = structureFingerprint(homeHtml);
   pages.push(observePage({ requestedUrl: homeUrl, res: home, html: homeHtml, source: "homepage", hosts, homePath, homeFingerprint, isHome: true }));
   seenPaths.add(homePath);
+
+  // Catch-all baseline: one request for a path that cannot exist. If the site
+  // answers it with a 2xx HTML page, that page's STRUCTURE is what "no such
+  // page" looks like here, and any candidate with the same structure is not a
+  // real page (soft-404), however its tokens or nonces differ.
+  let catchAll = null; // { structure } when the site answers unknown paths with HTML
+  if (canFetch()) {
+    const probeUrl = new URL(randomProbePath(), homeUrl).toString();
+    const res = await get(probeUrl);
+    if (res && res.status >= 200 && res.status < 300 && fromSite(res, hosts) && /html/i.test(res.headers.get("content-type") || "")) {
+      catchAll = { structure: structureFingerprint(await readBoundedText(res, L.bodyBytes)) };
+    } else {
+      await cancelBody(res);
+    }
+  }
+  const softContext = { homeStructure, catchAll };
 
   // 2. Candidates: homepage links, then sitemaps (robots.txt + /sitemap.xml).
   const candidates = new Map(); // path -> { url, source }
@@ -511,7 +558,7 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
     const html = res && /html/i.test(res.headers.get("content-type") || "") && res.status < 400
       ? await readBoundedText(res, L.bodyBytes)
       : (await cancelBody(res), "");
-    pages.push(observePage({ requestedUrl: c.url, res, html, source: c.source, hosts, homePath, homeFingerprint }));
+    pages.push(observePage({ requestedUrl: c.url, res, html, source: c.source, hosts, homePath, homeFingerprint, softContext }));
   }
 
   // 4. Well-known sensitive paths for kinds not yet covered (bounded probes).
@@ -530,7 +577,7 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
     const html = res && /html/i.test(res.headers.get("content-type") || "") && res.status < 400
       ? await readBoundedText(res, L.bodyBytes)
       : (await cancelBody(res), "");
-    const page = observePage({ requestedUrl: url, res, html, source: "well_known", hosts, homePath, homeFingerprint });
+    const page = observePage({ requestedUrl: url, res, html, source: "well_known", hosts, homePath, homeFingerprint, softContext });
     // A probe that is not a real page tells us nothing worth keeping, except a
     // definite 404/410, which is what lets a previously seen page be reported
     // as no longer found.
@@ -564,7 +611,7 @@ function stripUrl(u) {
   try { const x = new URL(u); return `${x.protocol}//${x.host}${x.pathname.split(";")[0]}`; } catch { return null; }
 }
 
-function observePage({ requestedUrl, res, html, source, hosts, homePath, homeFingerprint, isHome = false }) {
+function observePage({ requestedUrl, res, html, source, hosts, homePath, homeFingerprint, softContext = null, isHome = false }) {
   let path = "/";
   try { path = normalizePath(new URL(requestedUrl).pathname); } catch { /* keep root */ }
   const base = { path, source, requested_url: requestedUrl, sensitive_kind: classifySensitivePath(path), sensitive_basis: null };
@@ -593,6 +640,11 @@ function observePage({ requestedUrl, res, html, source, hosts, homePath, homeFin
   if (!/html/.test(contentType)) return { ...common, outcome: "not_html", content_type: contentType || null };
   if (!isHome && final && normalizePath(final.pathname) === homePath) return { ...common, outcome: "soft_404", soft_404_basis: "redirected_to_homepage" };
   if (!isHome && html && fingerprint(html) === homeFingerprint) return { ...common, outcome: "soft_404", soft_404_basis: "same_content_as_homepage" };
+  if (!isHome && softContext?.catchAll) {
+    const shape = structureFingerprint(html);
+    if (shape === softContext.catchAll.structure) return { ...common, outcome: "soft_404", soft_404_basis: "same_as_unknown_path_response" };
+    if (shape === softContext.homeStructure) return { ...common, outcome: "soft_404", soft_404_basis: "same_structure_as_homepage" };
+  }
   const pageUrl = final ? final.toString() : requestedUrl;
   const forms = extractForms(html, pageUrl, hosts);
   const hasPassword = forms.some((f) => f.has_password) || hasPasswordField(html);

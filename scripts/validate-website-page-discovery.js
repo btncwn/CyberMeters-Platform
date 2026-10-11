@@ -294,13 +294,13 @@ const evts = (db, ws) => db.prepare("SELECT path, event_type FROM website_page_e
   ok("page_not_found event", evts(db, "ws_a").includes("/login:page_not_found"));
   // Scan 3: /login back; error answer for "/" keeps its observation.
   await persistWebsitePagesForScan(env, { workspace_id: "ws_a", domain_id: "d1", domain: "acme.test", scan_id: "s3", now: t3,
-    discovery: disc([page("/login"), page("/", "error_status")]) });
+    discovery: disc([page("/login", "observed", { sensitive_kind: "login" }), page("/", "error_status")]) });
   ok("page_reappeared event", evts(db, "ws_a").includes("/login:page_reappeared"));
   eq("error answer → unconfirmed, last_seen kept", [pageRow(db, "ws_a", "/").monitoring_status, pageRow(db, "ws_a", "/").last_seen_at], ["unconfirmed", t1]);
   ok("unconfirmed keeps last good observation", JSON.parse(pageRow(db, "ws_a", "/").last_observation_json)?.security_headers);
   // Re-running scan 3 is a no-op for events (deterministic ids).
   const before = evts(db, "ws_a").length;
-  await persistWebsitePagesForScan(env, { workspace_id: "ws_a", domain_id: "d1", domain: "acme.test", scan_id: "s3", now: t3, discovery: disc([page("/login"), page("/", "error_status")]) });
+  await persistWebsitePagesForScan(env, { workspace_id: "ws_a", domain_id: "d1", domain: "acme.test", scan_id: "s3", now: t3, discovery: disc([page("/login", "observed", { sensitive_kind: "login" }), page("/", "error_status")]) });
   eq("idempotent rerun: no duplicate events", evts(db, "ws_a").length, before);
   // Tenant isolation and eligibility.
   eq("unverified domain: nothing written", (await persistWebsitePagesForScan(env, { workspace_id: "ws_unv", domain_id: "d1", domain: "acme.test", scan_id: "s1", discovery: disc([page("/")]) })).skipped, "workspace_or_domain_not_eligible");
@@ -313,6 +313,13 @@ const evts = (db, ws) => db.prepare("SELECT path, event_type FROM website_page_e
   eq("list: sensitive first", listed[0].pages.map((p) => p.path), ["/login", "/"]);
   eq("list: latest run", listed[0].latest_run?.scan_id, "s3");
   eq("list: other workspace sees nothing", (await listWebsitePages(env, "ws_b"))[0]?.pages?.length ?? 0, 0);
+  // A page that stops carrying its sensitive signal is re-evaluated, not stuck.
+  {
+    const db2 = createDb(); const env2 = { cybermeters_db: d1(db2) };
+    await persistWebsitePagesForScan(env2, { workspace_id: "ws_a", domain_id: "d1", domain: "acme.test", scan_id: "x1", discovery: disc([page("/portal", "observed", { sensitive_kind: "login", sensitive_basis: "password_field", password_field: true })]) });
+    await persistWebsitePagesForScan(env2, { workspace_id: "ws_a", domain_id: "d1", domain: "acme.test", scan_id: "x2", discovery: disc([page("/portal")]) });
+    eq("sensitive kind re-evaluated on each observation", pageRow(db2, "ws_a", "/portal").sensitive_kind, null);
+  }
   eq("projection drops unknown fields", Object.keys(projectObservation(page("/x")).cookies[0]).sort(), ["httponly", "name", "samesite", "secure"]);
 }
 {
@@ -449,6 +456,48 @@ const evts = (db, ws) => db.prepare("SELECT path, event_type FROM website_page_e
   const notRunSrc = engineSrc.match(/const notRun = \(reason\) => \(\{([^\n]*)\}\);/)?.[1] || "";
   ok("engine notRun() carries no scan-quality/verification fields", notRunSrc && FORBIDDEN.every((k) => !new RegExp(`\\b${k}\\s*:`).test(notRunSrc)), notRunSrc);
   ok("engine leaves post-terminal headroom before launching", /deadline\.canRun\(PAGE_DISCOVERY_BUDGET_MS \+ PAGE_DISCOVERY_POST_TERMINAL_RESERVE_MS\)/.test(engineSrc));
+}
+
+{
+  // Round-2 P1: catch-all site answering every unknown path with the homepage
+  // shell plus a fresh CSRF token. Nothing that does not exist may be "observed".
+  let n = 0;
+  const shell = () => `<html><head>${"<meta name=x content=y>".repeat(250)}<meta name="csrf-token" content="${n++}-${Math.random()}"></head><body><a href="/about">About</a><form method=post action="/search"><input type=hidden name=csrf value="${Math.random()}"></form></body></html>`;
+  const fetchImpl = async (url) => {
+    const u = new URL(url);
+    let res;
+    if (u.pathname === "/real-login") res = new Response(`<html><body><form method=post action="/session"><input type=password name=pw></form></body></html>`, { headers: { "content-type": "text/html" } });
+    else if (u.pathname === "/robots.txt" || u.pathname === "/sitemap.xml") res = new Response("nf", { status: 404 });
+    else res = new Response(shell().replace("<body>", u.pathname === "/" ? `<body><a href="/real-login">in</a>` : "<body>"), { headers: { "content-type": "text/html" } });
+    Object.defineProperty(res, "url", { value: url });
+    return res;
+  };
+  const r = await runPageDiscoveryModule("acme.test", { fetchImpl });
+  const observed = r.pages.filter((p) => p.outcome === "observed").map((p) => p.path).sort();
+  eq("catch-all: only real pages are observed", observed, ["/", "/real-login"]);
+  ok("catch-all: well-known probes are not recorded as seen", !r.pages.some((p) => ["/admin", "/account", "/checkout", "/login"].includes(p.path) && p.outcome === "observed"));
+  eq("catch-all: /about (homepage shell) is a soft-404", r.pages.find((p) => p.path === "/about")?.outcome, "soft_404");
+}
+{
+  // Round-2 P2(b): non-ASCII case folding must not shift raw-text skipping.
+  const html = "İ".repeat(60) + "<title>x</title><style>a{}</style><script>var s='<a href=\"/fake\">';</script><a href=\"/hidden\">h</a>";
+  eq("unicode before raw-text tags: real link found, script text ignored", extractLinks(html), ["/hidden"]);
+  const html2 = "<title>" + "İ".repeat(8) + "</title><style>x</style><script>var s='<form action=\"https://collector.example/x\"><input type=password>'</script>";
+  eq("unicode before raw-text tags: no invented form", extractForms(html2, "https://acme.test/", hosts).length, 0);
+}
+
+{
+  // Round-2 P2(a): a workspace with more than 100 domains still lists (no 1+N binding).
+  const db = createDb(); const env = { cybermeters_db: d1(db) };
+  for (let i = 0; i < 150; i++) {
+    db.prepare("INSERT INTO domains VALUES (?,?)").run(`dd${i}`, `d${i}.test`);
+    db.prepare("INSERT INTO workspace_domains VALUES ('ws_a', ?, 'verified')").run(`dd${i}`);
+  }
+  let threw = null, listed = null;
+  try { listed = await listWebsitePages(env, "ws_a"); } catch (e) { threw = e; }
+  ok("150-domain workspace lists without error", !threw && Array.isArray(listed) && listed.length === 151, String(threw?.message || listed?.length));
+  const listSrc = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/website-pages.js"), "utf8");
+  ok("list queries do not bind one parameter per domain", !/\.bind\(workspaceId, \.\.\.ids\)/.test(listSrc));
 }
 
 // ── 4. End-to-end engine trace: queue scan → module → D1 inventory ─────────

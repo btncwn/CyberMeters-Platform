@@ -165,15 +165,15 @@ export async function persistWebsitePagesForScan(env, { workspace_id, domain_id,
            (id, workspace_id, domain_id, page_id, path, scan_id, event_type, detail_json, created_at)
          SELECT ?, ?, ?, ?, ?, ?, 'page_first_seen', ?, ?
           WHERE NOT EXISTS (SELECT 1 FROM website_page_events e
-                             WHERE e.page_id = ? AND e.event_type = 'page_first_seen')`,
+                             WHERE e.workspace_id = ? AND e.page_id = ? AND e.event_type = 'page_first_seen')`,
       ).bind(`wspe-${(await sha(`${scan_id}|${id}|page_first_seen`)).slice(0, 24)}`,
-        workspace_id, domain_id, id, path, scan_id, JSON.stringify({ sensitive_kind: kind, source }), now, id));
+        workspace_id, domain_id, id, path, scan_id, JSON.stringify({ sensitive_kind: kind, source }), now, workspace_id, id));
       continue;
     }
 
     if (status === PAGE_STATUS.OBSERVED) {
       stmts.push(db.prepare(
-        `UPDATE website_pages SET monitoring_status = 'observed', sensitive_kind = COALESCE(?, sensitive_kind),
+        `UPDATE website_pages SET monitoring_status = 'observed', sensitive_kind = ?,
                 last_outcome = ?, last_status_code = ?, last_final_url = ?, last_observation_json = ?,
                 first_seen_at = COALESCE(first_seen_at, ?), last_seen_at = ?, last_checked_at = ?,
                 last_scan_id = ?, updated_at = ?
@@ -208,8 +208,12 @@ export async function listWebsitePages(env, workspaceId, { domainId = null } = {
                ORDER BY d.domain`)
     .bind(...(domainId ? [workspaceId, domainId] : [workspaceId])).all())?.results || [];
   if (!domainRows.length) return [];
-  const ids = domainRows.map((d) => d.domain_id);
-  const ph = ids.map(() => "?").join(",");
+  // Bound by subquery, not by binding every domain id: D1 allows at most 100
+  // parameters per query and a workspace may hold more domains than that.
+  const DOMAINS = domainId
+    ? "(SELECT ?)"
+    : "(SELECT wd.domain_id FROM workspace_domains wd WHERE wd.workspace_id = ?)";
+  const domainArg = domainId || workspaceId;
   const [pages, runs] = await Promise.all([
     db.prepare(`SELECT * FROM (
                   SELECT id, domain_id, path, monitoring_status, sensitive_kind, discovery_source, last_outcome,
@@ -217,16 +221,16 @@ export async function listWebsitePages(env, workspaceId, { domainId = null } = {
                          last_checked_at,
                          ROW_NUMBER() OVER (PARTITION BY domain_id ORDER BY (sensitive_kind IS NULL), path) AS rn,
                          COUNT(*) OVER (PARTITION BY domain_id) AS domain_total
-                    FROM website_pages WHERE workspace_id = ? AND domain_id IN (${ph}))
+                    FROM website_pages WHERE workspace_id = ? AND domain_id IN ${DOMAINS})
                  WHERE rn <= ${MAX_LIST_ROWS_PER_DOMAIN}
                  ORDER BY domain_id, rn`)
-      .bind(workspaceId, ...ids).all(),
+      .bind(workspaceId, domainArg).all(),
     db.prepare(`SELECT r.domain_id, r.scan_id, r.coverage, r.partial_reasons_json, r.counts_json, r.observed_at
                   FROM website_page_discovery_runs r
-                 WHERE r.workspace_id = ? AND r.domain_id IN (${ph})
+                 WHERE r.workspace_id = ? AND r.domain_id IN ${DOMAINS}
                    AND r.observed_at = (SELECT MAX(r2.observed_at) FROM website_page_discovery_runs r2
                                          WHERE r2.workspace_id = r.workspace_id AND r2.domain_id = r.domain_id)`)
-      .bind(workspaceId, ...ids).all(),
+      .bind(workspaceId, domainArg).all(),
   ]);
   const parse = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
   const runByDomain = new Map((runs?.results || []).map((r) => [r.domain_id, {
