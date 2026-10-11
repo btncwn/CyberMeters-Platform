@@ -75,23 +75,10 @@ refer to `subscription_accounts` as the conceptual billing account table.
 logic should resolve the effective plan first, then pass that plan into the
 feature helpers.
 
-## Read-Only Metadata Endpoint
+## Read-Only Metadata Endpoint (removed)
 
-`GET /api/account/subscription/features`
-
-Returns:
-
-```json
-{
-  "plan": "starter",
-  "features": [
-    "business_risk_score"
-  ]
-}
-```
-
-This endpoint is informational only. It does not enforce gates and does not
-change subscription behavior.
+`GET /api/account/subscription/features` was removed (October 2026): no
+screen or client used it. Feature helpers remain server-side only.
 
 ## Future Gating Strategy
 

@@ -5,7 +5,7 @@
 // Extracted near-verbatim from index.js (router split, Phase 2 PR #18).
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
-import { PLAN_FEATURES, getEffectivePlan, getPlanFeatures, hasFeatureEntitlement, loadAccountSubscription, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
+import { PLAN_FEATURES, getEffectivePlan, hasFeatureEntitlement, loadAccountSubscription, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { validateBrandingInput } from "../engines/report-branding.js";
 import { validateFindingEvidence } from "../engines/findings.js";
 import { visibleFindingSql } from "../engines/finding-identity.js";
@@ -533,23 +533,6 @@ export async function accountRoutes(rctx) {
             created_at:         row?.created_at ?? null,
             updated_at:         row?.updated_at ?? null,
           },
-        });
-      } catch (e) {
-        return serverError("api", e);
-      }
-    }
-
-    // ── GET /api/account/subscription/features ──────────────────────────
-    // Read-only feature entitlement metadata. This exposes the static
-    // PLAN_FEATURES result for the effective plan; it does not gate features.
-    if (request.method === "GET" && url.pathname === "/api/account/subscription/features") {
-      const user = await requireAuth(request, env);
-      if (!user) return json({ error: "Unauthorized" }, 401);
-      try {
-        const plan = await getEffectivePlan(user.id, env);
-        return json({
-          plan,
-          features: getPlanFeatures(plan),
         });
       } catch (e) {
         return serverError("api", e);
