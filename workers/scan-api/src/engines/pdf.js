@@ -462,8 +462,11 @@ function retestText(support, method) {
 // The declared trust store is a fact; the runtime that bundles it (and its
 // version) is an implementation detail no customer needs to read.
 const RUNTIME_TRUST_STORE = /\bNode\.js bundled Mozilla CA roots(?:\s*\(?v\d+(?:\.\d+)*\)?)?/g;
+const RUNTIME_TRUST_STORE_CONTEXT = /\bcontext\s+Node\.js bundled Mozilla CA roots(?:\s*\(?v\d+(?:\.\d+)*\)?)?/g;
 function withoutRuntimeNames(value) {
-  return String(value ?? "").replace(RUNTIME_TRUST_STORE, "the Mozilla CA root store");
+  return String(value ?? "")
+    .replace(RUNTIME_TRUST_STORE_CONTEXT, "context (the Mozilla CA root store)")
+    .replace(RUNTIME_TRUST_STORE, "the Mozilla CA root store");
 }
 
 const RFC_PROTOCOL_NAMES = Object.freeze({
@@ -479,6 +482,7 @@ function customerBodyText(value) {
     // "the DMARC protocol" would produce "a complete the DMARC protocol ...".
     .replace(/\b(a|an|the)\s+(complete\s+)?RFC\s+(\d+)\b/gi, (match, article, adjective, number) =>
       RFC_PROTOCOL_NAMES[number] ? `${article} ${adjective || ""}${RFC_PROTOCOL_NAMES[number]}` : match)
+    .replace(RUNTIME_TRUST_STORE_CONTEXT, "context (the Mozilla CA root store)")
     .replace(RUNTIME_TRUST_STORE, "the Mozilla CA root store")
     .replace(/\bRFC 7208 SPF\b/gi, "SPF")
     .replace(/\bRFC 9989 DMARC\b/gi, "DMARC")
@@ -634,12 +638,22 @@ function sectionAssessmentScore(w, snap) {
   const ec0 = o.evidence_completeness || {};
   w.heading("Assessment Score");
   evidenceBasisLine(w, "Score basis", o.assessment_evidence_grade);
-  const scoreText = o.cyber_metrics_score == null
+  const scoreWithheld = o.cyber_metrics_score == null;
+  const scoreText = scoreWithheld
     ? "Not available for this assessment"
     : `${o.cyber_metrics_score} / 100`;
-  w.text(`${o.assessment?.provisional ? "Provisional Score" : "Cyber Metrics Score"}: ${scoreText}`, { size: 14, bold: true });
+  // A withheld score is not a provisional number; it is labelled plainly and
+  // carries the frozen reason the score was withheld, never a bare dash.
+  const scoreLabel = !scoreWithheld && o.assessment?.provisional ? "Provisional Score" : "Cyber Metrics Score";
+  w.text(`${scoreLabel}: ${scoreText}`, { size: 14, bold: true });
   if (o.score_band) w.text(`CyberMeters assessment band: ${o.score_band}`, { size: 11 });
   if (o.assessment?.message) w.prose(customerBodyText(o.assessment.message), { size: 9, color: "0.45 0.35 0.10" });
+  const withheldReason = scoreWithheld && Array.isArray(o.not_fully_assessed)
+    ? o.not_fully_assessed.find((entry) => entry?.domain_key === "cyber_metrics_score")?.reason
+    : null;
+  if (withheldReason && withheldReason !== o.assessment?.message) {
+    w.prose(customerBodyText(withheldReason), { size: 9, color: "0.45 0.35 0.10" });
+  }
   w.gap(4);
   // Coverage is incomplete when the snapshot's OWN frozen facts say so: a non-complete
   // scan quality, any skipped module, or any domain still needing further evidence /
