@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import CyberMetersLogo from '../components/CyberMetersLogo'
+import PublicSiteHeader from '../components/PublicSiteHeader'
+import PublicSiteFooter from '../components/PublicSiteFooter'
 import IrisGlobe from '../components/landing/IrisGlobe'
 import ProductFrame from '../components/landing/ProductFrame'
 import ProductShowcase from '../components/landing/ProductShowcase'
@@ -8,7 +9,6 @@ import ProductTour from '../components/landing/ProductTour'
 import { SERVICE_COLORS } from '../theme/serviceColors'
 
 const APP_URL = 'https://app.cybermeters.com'
-const CONTACT = 'mailto:hello@cybermeters.com'
 
 // The eight canonical domains, each led with the question a business owner
 // actually asks. Identity colours come from the shared domain palette.
@@ -149,71 +149,6 @@ function DomainForm({ id, tone = 'dark' }) {
   )
 }
 
-const NAV = [
-  { label: 'Product', href: '#product' },
-  { label: 'Areas', href: '#areas' },
-  { label: 'How it works', href: '#how' },
-  { label: 'Pricing', to: '/pricing' },
-  { label: 'Trust & Security', to: '/trust' },
-  { label: 'About', to: '/about' },
-]
-
-function Header() {
-  const [solid, setSolid] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
-  useEffect(() => {
-    const on = () => setSolid(window.scrollY > 24)
-    on()
-    window.addEventListener('scroll', on, { passive: true })
-    return () => window.removeEventListener('scroll', on)
-  }, [])
-  return (
-    <header className={`fixed inset-x-0 top-0 z-50 transition-[background-color,box-shadow] duration-300 ${solid || menuOpen ? 'bg-[#183A86]/95 shadow-[0_8px_30px_-12px_rgba(6,16,48,.6)] backdrop-blur' : 'bg-transparent'}`}>
-      <div className={`${CONTAINER} hidden lg:flex justify-end gap-7 pt-3 text-[14px] text-white/80`}>
-        <a href={CONTACT} className="hover:text-white">Contact</a>
-        <a href={`${APP_URL}/login`} className="hover:text-white">Sign in</a>
-      </div>
-      <div className={`${CONTAINER} flex items-center justify-between h-[68px]`}>
-        <Link to="/" aria-label="CyberMeters home"><CyberMetersLogo size={30} showWordmark darkMode /></Link>
-        <nav aria-label="Main" className="hidden lg:flex items-center gap-7 xl:gap-9 text-[16px] font-semibold text-white">
-          {NAV.map(item => item.to
-            ? <Link key={item.label} to={item.to} className="hover:text-[#BFE6FF]">{item.label}</Link>
-            : <a key={item.label} href={item.href} className="hover:text-[#BFE6FF]">{item.label}</a>)}
-        </nav>
-        <div className="flex items-center gap-3">
-          <Link to="/free-scan" className="h-11 px-5 rounded-[8px] bg-white text-[#183A86] text-[15px] font-semibold inline-flex items-center hover:bg-[#EEF3FF] transition-colors">
-            Run a free check
-          </Link>
-          <button
-            type="button"
-            className="lg:hidden h-11 px-4 rounded-[8px] border border-white/40 text-white text-[15px] font-semibold"
-            aria-expanded={menuOpen}
-            aria-controls="landing-menu"
-            onClick={() => setMenuOpen(v => !v)}
-          >
-            {menuOpen ? 'Close' : 'Menu'}
-          </button>
-        </div>
-      </div>
-      {menuOpen && (
-        <nav id="landing-menu" aria-label="Main" className="lg:hidden border-t border-white/15">
-          <ul className={`${CONTAINER} py-4 grid gap-1 text-[16px] font-semibold text-white`}>
-            {NAV.map(item => (
-              <li key={item.label}>
-                {item.to
-                  ? <Link to={item.to} onClick={() => setMenuOpen(false)} className="block py-2.5">{item.label}</Link>
-                  : <a href={item.href} onClick={() => setMenuOpen(false)} className="block py-2.5">{item.label}</a>}
-              </li>
-            ))}
-            <li><a href={CONTACT} className="block py-2.5">Contact</a></li>
-            <li><a href={`${APP_URL}/login`} className="block py-2.5">Sign in</a></li>
-          </ul>
-        </nav>
-      )}
-    </header>
-  )
-}
-
 // Desktop: the eye starts on the right of the hero and drifts to the centre as
 // the page scrolls, settling above the facts band. Phones get a static layout.
 function HeroStage() {
@@ -319,28 +254,6 @@ function ClosingEye() {
   )
 }
 
-const FOOTER = [
-  { title: 'Product', links: [
-    { label: 'Free check', to: '/free-scan' },
-    { label: 'Areas', href: '#areas' },
-    { label: 'How it works', href: '#how' },
-    { label: 'Pricing', to: '/pricing' },
-  ] },
-  { title: 'Company', links: [
-    { label: 'About', to: '/about' },
-    { label: 'Trust & Security', to: '/trust' },
-    { label: 'Status', to: '/status' },
-    { label: 'Support', to: '/support' },
-  ] },
-  { title: 'Legal', links: [
-    { label: 'Privacy', to: '/privacy' },
-    { label: 'Terms', to: '/terms' },
-    { label: 'DPA', to: '/dpa' },
-    { label: 'Cookies', to: '/cookies' },
-    { label: 'Sign in', href: `${APP_URL}/login` },
-  ] },
-]
-
 // The eight areas as a short overview: name and question always visible,
 // details on request, so the section stays scannable on every screen.
 function AreasOverview() {
@@ -394,7 +307,6 @@ function SectionHeading({ id, title, lead, center = false }) {
 }
 
 export default function PublicLandingPage() {
-  const year = new Date().getFullYear()
   return (
     <div className="min-h-screen bg-white text-[#121A2E]">
       <style>{`
@@ -412,7 +324,7 @@ export default function PublicLandingPage() {
         @media (prefers-reduced-motion: reduce){.cm-iris[data-ready]{animation:none}.cm-iris{transition:none}.cm-tour-in{animation:none}}
       `}</style>
 
-      <Header />
+      <PublicSiteHeader tone="dark" />
       <HeroStage />
 
       {/* Product: the first thing after the hero is the product itself */}
@@ -585,32 +497,7 @@ export default function PublicLandingPage() {
         </div>
       </section>
 
-      <footer className="bg-white border-t border-[#E6EAF3]">
-        <div className={`${CONTAINER} py-14 grid grid-cols-2 md:grid-cols-[1.4fr_1fr_1fr_1fr] gap-x-10 gap-y-10`}>
-          <div className="col-span-2 md:col-span-1">
-            <CyberMetersLogo size={28} showWordmark />
-            <p className="mt-4 text-[15px] text-[#5A6378] max-w-[30ch]">External security checks for your business.</p>
-            <p className="mt-1 text-[15px] text-[#5A6378]">
-              <a href={CONTACT} className="hover:text-[#121A2E]">hello@cybermeters.com</a>
-            </p>
-          </div>
-          {FOOTER.map(col => (
-            <nav key={col.title} aria-label={col.title}>
-              <p className="text-[15px] font-semibold text-[#121A2E]">{col.title}</p>
-              <ul className="mt-4 space-y-3 text-[15px] text-[#46506A]">
-                {col.links.map(l => (
-                  <li key={l.label}>
-                    {l.to ? <Link to={l.to} className="hover:text-[#121A2E]">{l.label}</Link> : <a href={l.href} className="hover:text-[#121A2E]">{l.label}</a>}
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          ))}
-        </div>
-        <div className="border-t border-[#EEF1F7]">
-          <div className={`${CONTAINER} py-5 text-[14px] text-[#7A8399]`}>© {year} CyberMeters. All rights reserved.</div>
-        </div>
-      </footer>
+      <PublicSiteFooter sectionBase="" />
     </div>
   )
 }

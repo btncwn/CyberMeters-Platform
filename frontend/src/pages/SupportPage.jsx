@@ -1,10 +1,11 @@
-import { Link } from 'react-router-dom'
+import PublicSiteHeader from '../components/PublicSiteHeader'
+import PublicSiteFooter from '../components/PublicSiteFooter'
 
 export default function SupportPage() {
   return (
     <div className="min-h-screen bg-gray-50">
+      <PublicSiteHeader />
       <main className="max-w-3xl mx-auto px-6 py-12">
-        <Link to="/pricing" className="text-sm font-medium text-brand-600 hover:text-brand-700">CyberMeters</Link>
         <section className="mt-6 bg-white border border-gray-100 rounded-2xl shadow-card p-8">
           <h1 className="text-3xl font-bold text-gray-900">Support</h1>
           <p className="text-gray-600 mt-3 leading-relaxed">
@@ -18,6 +19,7 @@ export default function SupportPage() {
           </p>
         </section>
       </main>
+      <PublicSiteFooter />
     </div>
   )
 }

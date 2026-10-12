@@ -388,21 +388,19 @@ export default function Layout() {
 
       {/* Top nav */}
       <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 shadow-header sticky top-0 z-50">
-        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-3 xl:py-0 xl:min-h-[68px] flex flex-wrap items-center gap-3 xl:gap-4">
+        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 pt-3 flex flex-wrap items-center gap-3 xl:gap-4">
 
           {/* Logo */}
           <button
             onClick={() => navigate('/dashboard')}
             className="flex-shrink-0 group"
           >
-            <CyberMetersLogo size={34} showWordmark animated />
+            <CyberMetersLogo size={30} showWordmark animated />
           </button>
 
-          {/* Divider separating brand from navigation — a small commercial-app cue */}
-          <div className="hidden xl:block h-7 w-px bg-gray-200 mx-1 flex-shrink-0" />
-
-          {/* Nav */}
-          <nav aria-label="Main navigation" className="order-3 xl:order-none w-full xl:w-auto min-w-0 flex flex-wrap items-center gap-1 xl:gap-2.5">
+          {/* Nav — always its own row under the brand and account controls, so
+              it never collides with them at any width. */}
+          <nav aria-label="Main navigation" className="order-3 w-full min-w-0 flex flex-wrap items-center gap-1 pb-2.5">
             {NAV.map(({ to, label }) => (
               <NavLink
                 key={to}
@@ -427,7 +425,7 @@ export default function Layout() {
                 navigate('/scans/new')
                 window.dispatchEvent(new CustomEvent('cybermeters:new-scan-reset'))
               }}
-              className="btn-primary"
+              className="btn-primary whitespace-nowrap"
               aria-label="New Scan"
             >
               <span>New Scan</span>
@@ -469,8 +467,8 @@ export default function Layout() {
       {/* Footer */}
       <footer className="border-t border-gray-100 bg-white">
         <div className="max-w-screen-xl mx-auto px-6 py-3 flex flex-wrap items-center justify-between gap-3">
-          <span className="text-xs text-gray-400">© {new Date().getFullYear()} CyberMeters — External Security Monitoring</span>
-          <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400">
+          <span className="text-xs text-gray-500">© {new Date().getFullYear()} CyberMeters — External Security Monitoring</span>
+          <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500">
             <NavLink to="/pricing"  className="hover:text-gray-700">Pricing</NavLink>
             <NavLink to="/terms"    className="hover:text-gray-700">Terms</NavLink>
             <NavLink to="/privacy"  className="hover:text-gray-700">Privacy</NavLink>

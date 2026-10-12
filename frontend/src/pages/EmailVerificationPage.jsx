@@ -9,7 +9,7 @@
  */
 import { useState, useEffect } from 'react'
 import { useSearchParams, Link, useNavigate } from 'react-router-dom'
-import CyberMetersLogo from '../components/CyberMetersLogo'
+import AuthShell from '../components/AuthShell'
 import { api } from '../api'
 
 export default function EmailVerificationPage() {
@@ -71,10 +71,7 @@ export default function EmailVerificationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-
-      {/* Brand */}
-      <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
+    <AuthShell>
 
       <div className="card auth-card text-center">
 
@@ -137,10 +134,10 @@ export default function EmailVerificationPage() {
       </div>
 
       <div className="mt-8 text-center">
-        <p className="text-xs text-gray-300">
+        <p className="text-xs text-gray-500">
           © {new Date().getFullYear()} CyberMeters — External Security Monitoring
         </p>
       </div>
-    </div>
+    </AuthShell>
   )
 }

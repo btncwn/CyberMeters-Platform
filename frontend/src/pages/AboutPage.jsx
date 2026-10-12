@@ -1,10 +1,12 @@
 import { Link } from 'react-router-dom'
+import PublicSiteHeader from '../components/PublicSiteHeader'
+import PublicSiteFooter from '../components/PublicSiteFooter'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 
 export default function AboutPage() {
   return <div className="min-h-screen bg-gray-50 text-gray-900">
+      <PublicSiteHeader />
     <main className="max-w-3xl mx-auto px-5 sm:px-6 py-10 sm:py-12">
-      <Link to="/" className="inline-block mb-8" aria-label="CyberMeters home"><CyberMetersLogo className="h-7" /></Link>
       <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6 sm:p-10 space-y-8">
         <header>
           <p className="eyebrow">About CyberMeters</p>
@@ -30,5 +32,6 @@ export default function AboutPage() {
         <nav aria-label="About page links" className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-gray-500 border-t border-gray-100 pt-5"><Link to="/">Home</Link><Link to="/trust">Trust &amp; Security</Link><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><Link to="/dpa">DPA</Link></nav>
       </article>
     </main>
+    <PublicSiteFooter />
   </div>
 }

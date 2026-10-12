@@ -1583,7 +1583,7 @@ export default function ScanDetail() {
                 <h1 className="text-xl font-bold text-gray-900 truncate">{scan.domain}</h1>
                 <StatusBadge status={scan.status} />
               </div>
-              <p className="mono text-xs text-gray-300">{scan.id}</p>
+              <p className="mono text-xs text-gray-500">{scan.id}</p>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <button onClick={() => navigate(`/domain/${encodeURIComponent(scan.domain)}/history`)} className="btn-secondary">

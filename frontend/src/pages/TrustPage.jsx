@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom'
+import PublicSiteHeader from '../components/PublicSiteHeader'
+import PublicSiteFooter from '../components/PublicSiteFooter'
 
 function Section({ title, children }) {
   return <section className="mt-8">
@@ -15,8 +17,8 @@ function Item({ children }) {
 // its provisional score or unmeasured checks into a security certification.
 export default function TrustPage() {
   return <div className="min-h-screen bg-gray-50">
+      <PublicSiteHeader />
     <main className="max-w-3xl mx-auto px-5 sm:px-6 py-10 sm:py-12">
-      <Link to="/" className="inline-flex items-center gap-2 mb-8"><span className="font-bold text-gray-900 text-sm">CyberMeters</span></Link>
       <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6 sm:p-10">
         <h1 className="text-3xl font-bold text-gray-900">Trust &amp; Security</h1>
         <p className="text-sm text-gray-600 mt-4 leading-relaxed">CyberMeters is built and operated by Turhan Acar, a sole trader. Here is what we have checked, how the product handles evidence and where assurance remains limited.</p>
@@ -32,7 +34,7 @@ export default function TrustPage() {
           </dl>
           <p><strong className="text-gray-800">Why provisional?</strong> One evidence source used at the time did not complete while the others returned results. A completed scan does not make every evidence source complete.</p>
           <p><strong className="text-gray-800">TLS limits.</strong> Live certificate, hostname and trust checks refer to the captured endpoints and the recorded runtime trust store. The runtime-observed issuer chain is not proof of the exact chain sent on the wire. The exact wire chain, OCSP and revocation status were not measured.</p>
-          <p>This result is not a clean bill of health, a guarantee against vulnerabilities or proof of complete security. The example.com scorecard on our home page is a separate, clearly labelled illustration.</p>
+          <p>This result is not a clean bill of health, a guarantee against vulnerabilities or proof of complete security. The example.co.uk sample on our home page is a separate, clearly labelled illustration.</p>
         </Section>
 
         <Section title="How the service runs">
@@ -65,5 +67,6 @@ export default function TrustPage() {
         <nav aria-label="Trust page links" className="mt-10 pt-6 border-t border-gray-100 flex flex-wrap gap-x-5 gap-y-2 text-xs text-gray-500"><Link to="/about">About CyberMeters</Link><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><Link to="/dpa">DPA</Link><Link to="/support">Support</Link></nav>
       </article>
     </main>
+    <PublicSiteFooter />
   </div>
 }

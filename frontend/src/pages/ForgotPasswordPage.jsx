@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import CyberMetersLogo from '../components/CyberMetersLogo'
+import AuthShell from '../components/AuthShell'
 import { api } from '../api'
 
 export default function ForgotPasswordPage() {
@@ -25,10 +25,7 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-
-      {/* Brand */}
-      <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
+    <AuthShell>
 
       {/*
         Both the form and the "Check your email" success state share the ONE
@@ -103,15 +100,15 @@ export default function ForgotPasswordPage() {
         )}
       </div>
 
-      <p className="mt-5 text-sm text-gray-400 flex items-center gap-1.5">
+      <p className="mt-5 text-sm text-gray-500 flex items-center gap-1.5">
         <Link to="/login" className="text-brand-600 font-semibold hover:underline">
           Back to sign in
         </Link>
       </p>
 
-      <p className="mt-8 text-xs text-gray-300">
+      <p className="mt-8 text-xs text-gray-500">
         © {new Date().getFullYear()} CyberMeters — External Security Monitoring
       </p>
-    </div>
+    </AuthShell>
   )
 }

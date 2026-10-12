@@ -142,7 +142,7 @@ describe('PublicLandingPage product story', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     fireEvent.click(toggle)
     expect(screen.getByRole('button', { name: 'Close' })).toHaveAttribute('aria-expanded', 'true')
-    expect(document.getElementById('landing-menu')).toBeInTheDocument()
+    expect(document.getElementById('site-menu')).toBeInTheDocument()
   })
 })
 

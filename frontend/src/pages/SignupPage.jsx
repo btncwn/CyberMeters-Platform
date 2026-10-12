@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import CyberMetersLogo from '../components/CyberMetersLogo'
+import AuthShell from '../components/AuthShell'
 import { api } from '../api'
 import { persistSignupDomainParam, sanitizeDomainParam } from '../utils/signupDomainHandoff'
 
@@ -32,6 +32,36 @@ function ResendLink({ email }) {
     >
       {loading ? 'Sending…' : 'Resend verification email'}
     </button>
+  )
+}
+
+// What happens after "Create account", so the visitor can see the whole path
+// to a first result before giving any details.
+function NextSteps({ domain }) {
+  const steps = [
+    ['Confirm your email', 'We send a link to activate your account.'],
+    ['Add your domain', domain ? 'The domain from your free check is kept for you.' : 'The domain you want CyberMeters to check.'],
+    ['Prove you own it', 'Add one DNS TXT record. It changes nothing else.'],
+    ['See your first full check', 'Each area says what was observed, what needs attention and what could not be assessed.'],
+  ]
+  return (
+    <div className="card p-6 sm:p-8">
+      <h2 className="text-base font-bold text-gray-900">What happens next</h2>
+      <ol className="mt-5 space-y-5">
+        {steps.map(([title, copy], i) => (
+          <li key={title} className="flex gap-4">
+            <span className="w-8 h-8 flex-shrink-0 rounded-full bg-brand-50 text-brand-700 text-sm font-bold grid place-items-center">{i + 1}</span>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">{title}</p>
+              <p className="text-sm text-gray-600 mt-0.5 leading-relaxed">{copy}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-6 pt-5 border-t border-gray-100 text-sm text-gray-600 leading-relaxed">
+        A new account starts with the 14-day trial of the full product.
+      </p>
+    </div>
   )
 }
 
@@ -77,10 +107,7 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen auth-bg flex flex-col items-center justify-center px-4">
-
-      {/* Brand */}
-      <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
+    <AuthShell aside={done ? null : <NextSteps domain={pendingDomain} />}>
 
       {/* ── Success: email sent ── */}
       {done ? (
@@ -106,7 +133,7 @@ export default function SignupPage() {
       /* ── Signup form ── */
       <div className="card auth-card shadow-card-lg !rounded-[20px]">
         <h1 className="text-xl font-bold text-gray-900 mb-1">Create account</h1>
-        <p className="text-sm text-gray-400 mb-6">See your business's external security risks in minutes.</p>
+        <p className="text-sm text-gray-500 mb-6">See your business's external security risks in minutes.</p>
 
         {pendingDomain && (
           <div className="flex items-center gap-2 px-3 py-2 mb-5 bg-brand-50 border border-brand-100 rounded-xl text-xs text-brand-800">
@@ -122,10 +149,11 @@ export default function SignupPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Name</label>
+            <label htmlFor="signup-name" className="block text-xs font-semibold text-gray-500 mb-1.5">Name</label>
             <div className="relative">
               <input
                 type="text"
+                id="signup-name"
                 className="input"
                 placeholder="Jane Smith"
                 value={name}
@@ -137,10 +165,11 @@ export default function SignupPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Email</label>
+            <label htmlFor="signup-email" className="block text-xs font-semibold text-gray-500 mb-1.5">Email</label>
             <div className="relative">
               <input
                 type="email"
+                id="signup-email"
                 className="input"
                 placeholder="you@example.com"
                 value={email}
@@ -152,10 +181,11 @@ export default function SignupPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Password</label>
+            <label htmlFor="signup-password" className="block text-xs font-semibold text-gray-500 mb-1.5">Password</label>
             <div className="relative">
               <input
                 type="password"
+                id="signup-password"
                 className="input"
                 placeholder="At least 12 characters"
                 value={password}
@@ -167,10 +197,11 @@ export default function SignupPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Confirm password</label>
+            <label htmlFor="signup-confirm" className="block text-xs font-semibold text-gray-500 mb-1.5">Confirm password</label>
             <div className="relative">
               <input
                 type="password"
+                id="signup-confirm"
                 className="input"
                 placeholder="••••••••"
                 value={confirm}
@@ -192,7 +223,7 @@ export default function SignupPage() {
             }
           </button>
 
-          <p className="text-[13px] text-gray-400 text-center leading-relaxed mt-3">
+          <p className="text-[13px] text-gray-500 text-center leading-relaxed mt-3">
             By creating an account you agree to our{' '}
             <Link to="/terms"   className="text-brand-600 hover:underline">Terms of Service</Link>
             {' '}and{' '}
@@ -204,7 +235,7 @@ export default function SignupPage() {
       )}
 
       {!done && (
-        <p className="mt-5 text-sm text-gray-400">
+        <p className="mt-5 text-sm text-gray-500">
           Already have an account?{' '}
           <Link to="/login" className="text-brand-600 font-semibold hover:underline">
             Sign in
@@ -213,16 +244,16 @@ export default function SignupPage() {
       )}
 
       <div className="mt-8 text-center">
-        <div className="flex flex-wrap justify-center gap-3 text-xs text-gray-300 mb-2">
+        <div className="flex flex-wrap justify-center gap-3 text-xs text-gray-500 mb-2">
           <Link to="/terms"   className="hover:text-gray-500">Terms</Link>
           <Link to="/privacy" className="hover:text-gray-500">Privacy</Link>
           <Link to="/dpa"     className="hover:text-gray-500">DPA</Link>
           <Link to="/cookies" className="hover:text-gray-500">Cookies</Link>
         </div>
-        <p className="text-xs text-gray-300">
+        <p className="text-xs text-gray-500">
           © {new Date().getFullYear()} CyberMeters — External Security Monitoring
         </p>
       </div>
-    </div>
+    </AuthShell>
   )
 }

@@ -9,6 +9,8 @@ import { Moon, Sun } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import FreeCyberMotPreviewGrid from '../components/FreeCyberMotPreviewGrid'
 import { BASE } from '../api'
+import { SERVICE_COLORS } from '../theme/serviceColors'
+import { marketingHomeHref } from '../utils/siteLinks'
 import {
   deriveFreeScanPresentation,
   FREE_SCAN_STATE_LABELS,
@@ -16,6 +18,27 @@ import {
 import './FreeScanPage.css'
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info']
+
+// The areas the full check covers, in the product's presentation order.
+const AREAS = [
+  { key: 'identity', label: 'Identity Exposure' },
+  { key: 'surface', label: 'Attack Surface' },
+  { key: 'email', label: 'Email Protection' },
+  { key: 'website', label: 'Website Security' },
+  { key: 'shadow_it', label: 'Shadow IT' },
+  { key: 'certs', label: 'Certificates & Trust' },
+  { key: 'brand', label: 'Brand Protection' },
+  { key: 'cyber_essentials', label: 'Cyber Essentials' },
+]
+
+// Backend-ranked severities, most urgent first. Presentation order only.
+function bySeverity(findings) {
+  const rank = severity => {
+    const i = SEVERITIES.indexOf(severity)
+    return i === -1 ? SEVERITIES.length : i
+  }
+  return [...findings].sort((a, b) => rank(a.severity) - rank(b.severity))
+}
 
 const LOADING_STEPS = [
   'Checking public DNS evidence',
@@ -194,7 +217,7 @@ export default function FreeScanPage() {
     <div className="free-mot-page" data-theme={theme}>
       <header className="fm-header">
         <div className="fm-shell fm-header__inner">
-          <Link to="/" aria-label="CyberMeters home"><CyberMetersLogo className="fm-logo" /></Link>
+          <a href={marketingHomeHref()} aria-label="CyberMeters home"><CyberMetersLogo size={28} showWordmark darkMode={theme === 'dark'} /></a>
           <div className="fm-header__actions">
             <button
               className="fm-theme-toggle"
@@ -218,7 +241,7 @@ export default function FreeScanPage() {
                 <span className="fm-kicker">Free Cyber MOT</span>
                 <h1>See your whole external attack surface — before an attacker does.</h1>
                 <p className="fm-hero__lede">
-                  One bounded snapshot maps honest public signals across all eight Cyber MOT domains.
+                  One bounded snapshot of honest public signals for your domain.
                   Deep takeover, CVE/KEV and asset checks unlock only after account and domain verification.
                 </p>
                 <form className="fm-scan-form" onSubmit={handleScan}>
@@ -250,19 +273,19 @@ export default function FreeScanPage() {
                 </div>
               </div>
 
-              <aside className="fm-hero-panel" aria-label="Eight Cyber MOT domains">
+              <aside className="fm-hero-panel" aria-label="What the free check covers">
                 <div className="fm-hero-panel__header">
                   <span>Free Cyber MOT</span>
-                  <strong>8 domains · one honest view</strong>
+                  <strong>One honest view</strong>
                 </div>
-                <div className="fm-mini-grid">
-                  {[
-                    'Identity Exposure', 'Attack Surface', 'Email Protection', 'Website Security',
-                    'Shadow IT', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials',
-                  ].map((label, index) => (
-                    <div key={label}><span>{String(index + 1).padStart(2, '0')}</span>{label}</div>
+                <ul className="fm-area-list">
+                  {AREAS.map(area => (
+                    <li key={area.key}>
+                      <i style={{ background: SERVICE_COLORS[area.key]?.icon }} aria-hidden="true" />
+                      {area.label}
+                    </li>
                   ))}
-                </div>
+                </ul>
                 <p>Full findings, remediation, PDF and monitoring require a verified domain.</p>
               </aside>
             </div>
@@ -310,18 +333,6 @@ export default function FreeScanPage() {
             ))}
           </div>
 
-          <FreeCyberMotPreviewGrid domains={presentation.domains} />
-
-          <aside className="fm-guardrail">
-            <div>
-              <h2>Built to resist misuse</h2>
-              <p>
-                The public path is bounded by IP, domain and global throttles, rejects private/rebinding targets,
-                stores no scan or report, and never runs deep asset fan-out anonymously.
-              </p>
-            </div>
-          </aside>
-
           <section className="fm-findings" aria-labelledby="preview-findings-title">
             <div className="fm-section-heading">
               <div>
@@ -332,7 +343,7 @@ export default function FreeScanPage() {
             </div>
             <div className="fm-findings__grid">
               {shownFindings.length > 0
-                ? shownFindings.map((finding) => <Finding finding={finding} key={finding.id} />)
+                ? bySeverity(shownFindings).map((finding) => <Finding finding={finding} key={finding.id} />)
                 : (
                   <div className="fm-findings__empty">
                     No finding was exposed by the completed public checks. Evidence remains incomplete, so this is not a healthy verdict.
@@ -350,13 +361,31 @@ export default function FreeScanPage() {
             <h2>Start my 14-day trial</h2>
             <p>
               Verify the domain first, then unlock the full finding list, remediation, Executive PDF,
-              re-scans and ongoing monitoring across all eight domains.
+              re-scans and ongoing monitoring.
             </p>
+            <ol className="fm-cta__steps">
+              <li>Create your account</li>
+              <li>Add one DNS TXT record to verify {result.domain}</li>
+              <li>See every finding with the steps to fix it</li>
+            </ol>
             <Link to={signupPath(result.domain)} className="fm-button">
               Start my 14-day trial
             </Link>
             <small>No card · then from £9.99/mo · cancel anytime</small>
           </section>
+
+
+          <FreeCyberMotPreviewGrid domains={presentation.domains} />
+
+          <aside className="fm-guardrail">
+            <div>
+              <h2>Built to resist misuse</h2>
+              <p>
+                The public path is bounded by IP, domain and global throttles, rejects private/rebinding targets,
+                stores no scan or report, and never runs deep asset fan-out anonymously.
+              </p>
+            </div>
+          </aside>
 
           <p className="fm-honesty-note">
             DKIM uses common selectors. The served certificate is inspected in the full scan, not in this preview. Brand is watchlist-only.

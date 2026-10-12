@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
-import CyberMetersLogo from '../components/CyberMetersLogo'
+import AuthShell from '../components/AuthShell'
 import { useAuth } from '../context/AuthContext'
 import { api, BASE } from '../api'
 
@@ -136,10 +136,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen auth-bg flex flex-col items-center justify-center px-4">
-
-      {/* Brand */}
-      <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
+    <AuthShell>
 
       <div className="card auth-card shadow-card-lg !rounded-[20px]">
 
@@ -147,7 +144,7 @@ export default function LoginPage() {
         {!mfaRequired && (
           <>
             <h1 className="text-xl font-bold text-gray-900 mb-1">Sign in</h1>
-            <p className="text-sm text-gray-400 mb-6">Enter your credentials to continue.</p>
+            <p className="text-sm text-gray-500 mb-6">Enter your credentials to continue.</p>
 
             {error && (
               <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
@@ -180,9 +177,10 @@ export default function LoginPage() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Email</label>
+                <label htmlFor="login-email" className="block text-xs font-semibold text-gray-500 mb-1.5">Email</label>
                 <div className="relative">
                   <input
+                    id="login-email"
                     type="email"
                     className="input"
                     placeholder="you@example.com"
@@ -196,9 +194,10 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Password</label>
+                <label htmlFor="login-password" className="block text-xs font-semibold text-gray-500 mb-1.5">Password</label>
                 <div className="relative">
                   <input
+                    id="login-password"
                     type="password"
                     className="input"
                     placeholder="••••••••"
@@ -234,7 +233,7 @@ export default function LoginPage() {
             {/* ── SSO divider ── */}
             <div className="flex items-center gap-3 my-5">
               <div className="flex-1 h-px bg-gray-100" />
-              <span className="text-xs text-gray-300 font-medium">or</span>
+              <span className="text-xs text-gray-500 font-medium">or</span>
               <div className="flex-1 h-px bg-gray-100" />
             </div>
 
@@ -273,8 +272,9 @@ export default function LoginPage() {
 
             <form onSubmit={handleMfaSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Verification code</label>
+                <label htmlFor="login-mfa-code" className="block text-xs font-semibold text-gray-500 mb-1.5">Verification code</label>
                 <input
+                  id="login-mfa-code"
                   type="text"
                   inputMode="numeric"
                   pattern="\d{6}"
@@ -335,8 +335,9 @@ export default function LoginPage() {
 
             <form onSubmit={handleRecoverySubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Recovery code</label>
+                <label htmlFor="login-recovery-code" className="block text-xs font-semibold text-gray-500 mb-1.5">Recovery code</label>
                 <input
+                  id="login-recovery-code"
                   type="text"
                   className="input font-mono text-center tracking-widest"
                   placeholder="XXXX-XXXX-XXXX"
@@ -371,7 +372,7 @@ export default function LoginPage() {
       </div>
 
       {!mfaRequired && (
-        <p className="mt-5 text-sm text-gray-400">
+        <p className="mt-5 text-sm text-gray-500">
           Don't have an account?{' '}
           <Link to="/signup" className="text-brand-600 font-semibold hover:underline">
             Create one
@@ -380,16 +381,16 @@ export default function LoginPage() {
       )}
 
       <div className="mt-8 text-center">
-        <div className="flex flex-wrap justify-center gap-3 text-xs text-gray-300 mb-2">
+        <div className="flex flex-wrap justify-center gap-3 text-xs text-gray-500 mb-2">
           <Link to="/terms"   className="hover:text-gray-500">Terms</Link>
           <Link to="/privacy" className="hover:text-gray-500">Privacy</Link>
           <Link to="/dpa"     className="hover:text-gray-500">DPA</Link>
           <Link to="/cookies" className="hover:text-gray-500">Cookies</Link>
         </div>
-        <p className="text-xs text-gray-300">
+        <p className="text-xs text-gray-500">
           © {new Date().getFullYear()} CyberMeters — External Security Monitoring
         </p>
       </div>
-    </div>
+    </AuthShell>
   )
 }
