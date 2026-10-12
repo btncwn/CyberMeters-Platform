@@ -105,7 +105,7 @@ max_retries = 5
 [vars]
 # Human-readable release version, surfaced by GET /health. Bump on each
 # production release (date-based: YYYY.MM.DD).
-APP_VERSION = "2026.10.12-own-observation.fa2153147547"
+APP_VERSION = "2026.10.12-referenced-hostnames.60a1ae88a756"
 # DNS_PROVIDER_KEY is a dedicated versioned encryption key ring, staged as a
 # Worker secret. Never put its value here or reuse an authentication key.
 # WEBSITE_AUTH_KEY is the separate key ring for signed-in scanning credentials
