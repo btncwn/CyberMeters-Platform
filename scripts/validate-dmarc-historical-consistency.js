@@ -465,8 +465,8 @@ const certHistoryFinding = (id) => ({
   module: "certificate_intelligence",
   severity: id === "certificate_expiring_critical" ? "high" : "medium",
   title: id === "certificate_expiring_critical"
-    ? "Logged certificate validity ends within 14 days"
-    : "Logged certificate validity ends within 30 days",
+    ? "The live certificate expires within 14 days"
+    : "The live certificate expires within 30 days",
 });
 const certHistoryModule = (days = 30, overrides = {}) => ({
   executed: true,
@@ -475,12 +475,11 @@ const certHistoryModule = (days = 30, overrides = {}) => ({
   error: null,
   outcome: "complete",
   tls_state: "observed_present",
-  evidence_source: "certificate_transparency",
-  live_certificate_verified: false,
+  evidence_source: "live_tls",
+  live_certificate_verified: true,
   expiry_evidence: "usable",
   expires_at: new Date(CERT_HISTORY_NOW_MS + (days + 0.5) * 86_400_000).toISOString(),
   days_until_expiry: days,
-  ct_sources: { crt_sh: 1, certspotter: 0 },
   signal_completeness: {
     signals: { expiry: { provenance: { observed_at: CERT_HISTORY_NOW } } },
   },
@@ -549,8 +548,11 @@ const inconclusiveCertificateScenarios = [
   ["incoherent expiry pair", { certificate: certHistoryModule(13, {
     expires_at: new Date(CERT_HISTORY_NOW_MS + 16 * 86_400_000).toISOString(),
   }) }],
-  ["zero CT providers", { certificate: certHistoryModule(13, {
-    ct_sources: { crt_sh: 0, certspotter: 0 },
+  ["no live certificate", { certificate: certHistoryModule(13, {
+    evidence_source: "not_observed", live_certificate_verified: false,
+  }) }],
+  ["historical log-only record", { certificate: certHistoryModule(13, {
+    evidence_source: "certificate_transparency", live_certificate_verified: false,
   }) }],
 ];
 for (const [name, fixture] of inconclusiveCertificateScenarios) {
@@ -932,21 +934,14 @@ globalThis.fetch = async (input) => {
       vulnerabilities: [],
     });
   }
-  // Production scans query CertSpotter as their sole CT source; losing it is
-  // total CT loss, which makes the later scan honestly non-complete.
-  if (url.hostname === "api.certspotter.com") {
-    if (a2bProviderMode === "partial") return jsonResponse({}, 403);
-    return jsonResponse([{
-      id: "a2b-cert",
-      not_before: "2026-08-01T00:00:00.000Z",
-      not_after: "2027-08-01T00:00:00.000Z",
-      issuer: { name: "A2b Fixture CA" },
-      dns_names: ["fixture.example", "www.fixture.example"],
-    }]);
-  }
   if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
     const name = String(url.searchParams.get("name") || "").toLowerCase();
     const type = String(url.searchParams.get("type") || "A").toUpperCase();
+    // Losing the wildcard check leaves discovery incomplete, which makes the
+    // later scan honestly non-complete.
+    if (a2bProviderMode === "partial" && name.startsWith("cybermeters-wildcard-check-")) {
+      return jsonResponse({}, 503);
+    }
     if (name === "fixture.example" && type === "A") {
       // The complete control needs a public preflight address; all HTTP stays mocked below.
       return jsonResponse({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });

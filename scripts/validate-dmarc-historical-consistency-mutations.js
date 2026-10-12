@@ -433,21 +433,20 @@ const mutants = [
       replaceOnce(
         engine(copy, "historical-scan.js"),
         `        module.tls_state !== TLS_RUNTIME_STATES.OBSERVED_PRESENT ||
-        module.evidence_source !== "certificate_transparency" ||`,
-        `        module.evidence_source !== "certificate_transparency" ||`,
+        module.evidence_source !== "live_tls" ||`,
+        `        module.evidence_source !== "live_tls" ||`,
       );
     },
   },
   {
     id: "M-S3b-2",
-    name: "ignore expiry-pair and positive-provider coherence",
+    name: "ignore expiry-pair coherence",
     apply(copy) {
       replaceOnce(
         engine(copy, "historical-scan.js"),
         `    return Number.isFinite(observedAtMs) && Number.isFinite(expiresAtMs) &&
       expiresAtMs > observedAtMs && Number.isFinite(days) && Number.isInteger(days) && days >= 0 &&
-      Math.abs(Math.floor((expiresAtMs - observedAtMs) / 86_400_000) - days) <= 1 &&
-      ctCounts.some((count) => typeof count === "number" && count > 0);`,
+      Math.abs(Math.floor((expiresAtMs - observedAtMs) / 86_400_000) - days) <= 1;`,
         "    return true;",
       );
     },
@@ -458,8 +457,8 @@ const mutants = [
     apply(copy) {
       replaceOnce(
         engine(copy, "historical-scan.js"),
-        `        module.live_certificate_verified !== false || module.expiry_evidence !== "usable") {`,
-        `        module.live_certificate_verified !== false) {`,
+        `        module.live_certificate_verified !== true || module.expiry_evidence !== "usable") {`,
+        `        module.live_certificate_verified !== true) {`,
       );
     },
   },
@@ -517,7 +516,7 @@ const expectedFailure = {
   H10: /FAIL - non-comparable helper suppresses only derived new\/resolved claims/,
   H11: /FAIL - late known_exploited_vulnerabilities completed producer resolved transition is exact/,
   "M-S3b-1": /FAIL - certificate history keeps TLS unavailable not re-observed/,
-  "M-S3b-2": /FAIL - certificate history keeps (?:blank expiry date|past expiry date|incoherent expiry pair|zero CT providers) not re-observed/,
+  "M-S3b-2": /FAIL - certificate history keeps (?:blank expiry date|past expiry date|incoherent expiry pair) not re-observed/,
   "M-S3b-3": /FAIL - certificate history keeps expiry evidence not usable not re-observed/,
   "M-S3b-4": /FAIL - certificate history resolves a prior id only after coherent 30-day re-observation/,
   "M-S3b-5": /FAIL - certificate-specific history gate never captures a non-certificate identity/,

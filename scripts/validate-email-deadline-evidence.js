@@ -62,6 +62,7 @@ const loadedModule = (url) => ({
 });
 const { computeScore } = await import(engUrl("scoring.js"));
 const { runScanEngine } = await import(scanEngineUrl);
+const { liveTlsProbeBinding } = await import(pathToFileURL(path.join(root, "scripts", "lib", "live-tls-fixture.mjs")).href);
 const {
   isPublishableModuleEvidence,
   markDeadlineDeferred,
@@ -83,6 +84,16 @@ const pdfModuleUrl = process.env.EMAIL_DEADLINE_PDF_MODULE_URL || engUrl("pdf.js
 const { buildScanReportPdf } = await import(pdfModuleUrl);
 
 const NOW = "2026-07-29T09:00:00.000Z";
+// Variants whose live TLS collector presents a certificate expiring in N days.
+const CERT_LIVE_DAYS = new Map([
+  ["cert-expiry-13", 13],
+  ["cert-expiry-14", 14],
+  ["cert-expiry-29", 29],
+  ["cert-expiry-30", 30],
+  ["cert-expiry-13-deferred-intel", 13],
+]);
+// Variants whose configured collector is unavailable.
+const CERT_COLLECTOR_UNAVAILABLE = new Set(["cert-tls-unavailable", "cert-deferred"]);
 const NOW_MS = Date.parse(NOW);
 const EXPECTED_MUTANTS = 21;
 
@@ -166,14 +177,6 @@ function delayedUnrefResponse(ms, response) {
 function mockFetch(variant, { onLateResolve = null } = {}) {
   const dmarcRecord = variant === "no-spf" ? DMARC_NONE : DMARC_REJECT;
   const includeSpf = variant !== "no-spf";
-  const certificateExpiryDays = new Map([
-    ["cert-expiry-13", 13],
-    ["cert-expiry-14", 14],
-    ["cert-expiry-29", 29],
-    ["cert-expiry-30", 30],
-    ["cert-tls-unavailable", 13],
-    ["cert-expiry-13-deferred-intel", 13],
-  ]).get(variant);
   const b2bAdminHosts = new Set({
     "b2b-admin": [
       "phpmyadmin.example.com",
@@ -250,29 +253,6 @@ function mockFetch(variant, { onLateResolve = null } = {}) {
       }
       return answer();
     }
-    // Production scans query CertSpotter as their sole CT source.
-    if (host === "api.certspotter.com") {
-      if (variant === "cert-deferred") throw new TypeError("simulated CT source failure");
-      if (certificateExpiryDays != null) {
-        return json([{
-          dns_names: ["example.com", "www.example.com"],
-          not_before: "2026-01-01T00:00:00Z",
-          not_after: new Date(NOW_MS + (certificateExpiryDays * 86_400_000) + 3_600_000).toISOString(),
-          issuer: { name: "Let's Encrypt" },
-        }]);
-      }
-      const names = variant === "b2-admin"
-        ? ["example.com", "grafana.example.com"]
-        : b2bAdminHosts.size > 0
-          ? ["example.com", ...b2bAdminHosts]
-          : null;
-      return json(names ? [{
-        dns_names: names,
-        not_before: "2026-01-01T00:00:00Z",
-        not_after: "2027-01-01T00:00:00Z",
-        issuer: { name: "Let's Encrypt" },
-      }] : []);
-    }
     if (host === "services.nvd.nist.gov") {
       if (variant === "slow-cve") {
         return {
@@ -327,12 +307,17 @@ function mockFetch(variant, { onLateResolve = null } = {}) {
       },
     };
     const b2bPage = b2bAdminHosts.has(host) ? b2bPages[host] : null;
+    // The home page links to the variant's admin hosts, so discovery finds them
+    // the way production does: from the site's own references.
+    const homePageLinks = (host === "example.com" || host === "www.example.com") && b2bAdminHosts.size > 0
+      ? `<html><body>${[...b2bAdminHosts].map((name) => `<a href="https://${name}/">${name}</a>`).join("")}</body></html>`
+      : null;
     if ((variant === "cert-tls-unavailable" || variant === "cert-deferred") &&
         (host === "example.com" || host === "www.example.com")) {
       throw new TypeError("simulated HTTPS source failure");
     }
     return new Response(
-      b2bPage?.body || (variant === "b2-admin"
+      b2bPage?.body || homePageLinks || (variant === "b2-admin"
         ? "<html><title>Grafana</title></html>"
         : "<html></html>"),
       {
@@ -417,6 +402,11 @@ async function trace(variant, {
       ? "115000"
       : "19000",
     APP_VERSION: "email-deadline-p1",
+    ...(CERT_LIVE_DAYS.has(variant)
+      ? { NETWORK_PROBE: liveTlsProbeBinding({ days: CERT_LIVE_DAYS.get(variant) }) }
+      : CERT_COLLECTOR_UNAVAILABLE.has(variant)
+        ? { NETWORK_PROBE: { fetch: async () => new Response("collector unavailable", { status: 503 }) } }
+        : {}),
   };
   db.prepare("INSERT INTO users (id, email) VALUES ('usr','o@example.com')").run();
   db.prepare("INSERT INTO workspaces (id, name, deleted_at) VALUES ('ws','EMAIL-P1',NULL)").run();
@@ -639,7 +629,7 @@ const PRIOR_CRITICAL_CERTIFICATE_FINDING = Object.freeze({
   finding_type: "finding",
   severity: "high",
   score_impact: 0,
-  title: "Logged certificate validity ends within 14 days",
+  title: "The live certificate expires within 14 days",
 });
 
 const CERTIFICATE_EXPIRY_IDS = new Set([
@@ -670,7 +660,6 @@ function certCustomerOutput(t, { includeExecutive = false, includePdf = false } 
       live_certificate_verified: certificateIntel.live_certificate_verified ?? null,
       expires_at: certificateIntel.expires_at ?? null,
       days_until_expiry: certificateIntel.days_until_expiry ?? null,
-      ct_sources: certificateIntel.ct_sources || [],
     },
     report_cert_findings: (t.report?.findings || [])
       .filter((finding) => CERTIFICATE_EXPIRY_IDS.has(finding.id)),
@@ -918,49 +907,32 @@ if (childArg) {
       diagnostics: (t.diagnostics?.modules || []).filter((row) => names.has(row.module)),
     };
   }
-  else if (mode === "b2d-contract") {
+  else if (mode === "live-admission-contract") {
     const scanEngineSource = fs.readFileSync(fileURLToPath(scanEngineUrl), "utf8");
-    const bridgeStart = scanEngineSource.indexOf(
-      "    // B2d: project only the two producer-owned, CT-bounded expiry findings",
+    const admissionStart = scanEngineSource.indexOf(
+      "    // Certificate findings come only from the live TLS collector",
     );
     const reconcileStart = scanEngineSource.indexOf(
       "    if (modules.historical_changes) {",
-      bridgeStart,
+      admissionStart,
     );
     const gateStart = scanEngineSource.indexOf(
       "      modules.historical_changes = applyScanComparability(",
       reconcileStart,
     );
-    const bridge = bridgeStart >= 0 && reconcileStart > bridgeStart
-      ? scanEngineSource.slice(bridgeStart, reconcileStart)
+    const admission = admissionStart >= 0 && reconcileStart > admissionStart
+      ? scanEngineSource.slice(admissionStart, reconcileStart)
       : "";
     out = {
       loaded_module_url: scanEngineUrl,
       loaded_module_sha256: loadedScanEngineSha256(),
-      tls_guard: bridge.includes(
-        "modules.ssl?.tls_state === TLS_RUNTIME_STATES.OBSERVED_PRESENT",
-      ),
-      exact_ids: bridge.includes(`const certificateExpiryIds = [
-      "certificate_expiring_critical",
-      "certificate_expiring_soon",
-    ];`) && !bridge.includes("certificate_expired") && !bridge.includes('"no_https"'),
-      ct_live_evidence: bridge.includes(
-        'certificateIntel.evidence_source === "certificate_transparency"',
-      ) && bridge.includes("certificateIntel.live_certificate_verified === false") &&
-        bridge.includes('type: "certificate_transparency"') &&
-        bridge.includes('basis: "latest_expiring_logged_certificate"') &&
-        bridge.includes("live_certificate_verified: false"),
-      usable_expiry: bridge.includes('certificateIntel.expiry_evidence === "usable"'),
-      numeric_band: bridge.includes("!Number.isFinite(days) || !Number.isInteger(days) || !exactBand") &&
-        bridge.includes("days >= 0 && days < 14") &&
-        bridge.includes("days >= 14 && days <= 29"),
-      exact_source_and_dedupe: bridge.includes("sourceRows.length !== 1") &&
-        bridge.includes("findings.some((finding) => finding?.id === findingId)"),
-      score_neutral: bridge.includes("score_impact: 0"),
-      late_order: bridgeStart >= 0 && bridgeStart < reconcileStart && reconcileStart < gateStart,
+      live_only: admission.includes("for (const signal of liveCertificateFindings(modules.ssl, domain)) {"),
+      dedupe: admission.includes("if (findings.some(finding => finding.id === signal.signal)) continue;"),
+      module_owner: admission.includes("findings.push({ ...signal, id: signal.signal, module: 'certificate_intelligence' });"),
+      late_order: admissionStart >= 0 && admissionStart < reconcileStart && reconcileStart < gateStart,
     };
   }
-  else if (mode === "b2d-cert13") {
+  else if (mode === "live-cert13") {
     const t = await trace("cert-expiry-13", { deterministicProof: true, previousFindings: [] });
     out = {
       loaded_module_url: scanEngineUrl,
@@ -973,7 +945,7 @@ if (childArg) {
       managed_cases: t.managedCases,
     };
   }
-  else if (mode === "b2d-cx") {
+  else if (mode === "live-cert-cx") {
     const variants = {
       cert13: await trace("cert-expiry-13", {
         deterministicProof: true,
@@ -1001,7 +973,7 @@ if (childArg) {
       certCustomerOutput(t, { includeExecutive: true, includePdf: true }),
     ]));
   }
-  else if (mode === "b2d-tls-unavailable") {
+  else if (mode === "live-cert-collector-unavailable") {
     const t = await trace("cert-tls-unavailable", { deterministicProof: true });
     out = {
       loaded_module_url: scanEngineUrl,
@@ -1435,8 +1407,8 @@ ok("B3c: score and methodology remain byte-identical across the score-neutral br
   mtaMissing.report?.cyber_metrics_score === mtaPresent.report?.cyber_metrics_score &&
     mtaMissing.report?.score_methodology === mtaPresent.report?.score_methodology);
 
-// ── B3d. CT-bounded certificate expiry bridge + late history ─────────────
-console.log("\n── B3d. CT-bounded certificate expiry bridge and late history ──");
+// ── B3d. Live certificate expiry admission + late history ────────────────
+console.log("\n── B3d. Live certificate expiry admission and late history ──");
 const certFinding = (traceResult) => (traceResult.report?.findings || [])
   .filter((finding) => String(finding.id || "").startsWith("certificate_expiring_"));
 const certDomain = (traceResult) => (traceResult.snapshot?.domains || [])
@@ -1450,21 +1422,20 @@ const cert13 = await trace("cert-expiry-13", {
 });
 const cert13Rows = certFinding(cert13);
 const cert13Evidence = cert13Rows[0]?.evidence || [];
-ok("B3d: 13 days emits one score-neutral high CT finding",
+ok("B3d: 13 days emits one score-neutral high live finding",
   cert13Rows.length === 1 &&
     cert13Rows[0]?.id === "certificate_expiring_critical" &&
     cert13Rows[0]?.finding_type === "finding" &&
     cert13Rows[0]?.severity === "high" && cert13Rows[0]?.score_impact === 0 &&
-    cert13Rows[0]?.days_until_expiry === 13);
-ok("B3d: report evidence remains explicitly CT-only and not live-leaf verified",
-  cert13Rows[0]?.evidence_source === "certificate_transparency" &&
-    cert13Rows[0]?.evidence_basis === "latest_expiring_logged_certificate" &&
-    cert13Rows[0]?.live_certificate_verified === false &&
+    cert13.report?.modules?.certificate_intelligence?.days_until_expiry === 13);
+ok("B3d: report evidence is the live leaf with its endpoint and certificate identity",
+  cert13Rows[0]?.evidence_source === "live_tls" &&
+    cert13Rows[0]?.evidence_basis === "pinned_public_address_tls_handshake" &&
+    cert13Rows[0]?.live_certificate_verified === true &&
     cert13Evidence.length === 1 &&
-    cert13Evidence[0]?.type === "certificate_transparency" &&
-    cert13Evidence[0]?.basis === "latest_expiring_logged_certificate" &&
-    cert13Evidence[0]?.live_certificate_verified === false &&
-    cert13Evidence[0]?.providers?.includes("certspotter"));
+    cert13Evidence[0]?.type === "live_tls" &&
+    /^sha256:[a-f0-9]{64}$/.test(cert13Evidence[0]?.certificate_identity || "") &&
+    cert13Evidence[0]?.endpoint?.port === 443);
 ok("B3d: producer title and description are copied verbatim",
   cert13Rows[0]?.title === cert13.report?.modules?.certificate_intelligence
     ?.suspicious_certificate_signals?.find((row) => row.signal === cert13Rows[0]?.id)?.title &&
@@ -1492,12 +1463,12 @@ ok("B3d: 14 days emits one medium soon finding",
   certFinding(cert14).length === 1 &&
     certFinding(cert14)[0]?.id === "certificate_expiring_soon" &&
     certFinding(cert14)[0]?.severity === "medium" &&
-    certFinding(cert14)[0]?.days_until_expiry === 14);
+    cert14.report?.modules?.certificate_intelligence?.days_until_expiry === 14);
 ok("B3d: 29 days emits one medium soon finding",
   certFinding(cert29).length === 1 &&
     certFinding(cert29)[0]?.id === "certificate_expiring_soon" &&
     certFinding(cert29)[0]?.severity === "medium" &&
-    certFinding(cert29)[0]?.days_until_expiry === 29);
+    cert29.report?.modules?.certificate_intelligence?.days_until_expiry === 29);
 ok("B3d: 30 days emits no expiry finding or action and resolves the prior id",
   certFinding(cert30).length === 0 && certActions(cert30).length === 0 &&
     cert30.historical?.resolved_findings?.filter((finding) =>
@@ -1513,7 +1484,7 @@ const certTlsUnavailable = await trace("cert-tls-unavailable", {
   deterministicProof: true,
   previousFindings: [PRIOR_CRITICAL_CERTIFICATE_FINDING],
 });
-ok("B3d: unavailable TLS admits no certificate finding and keeps prior evidence not re-observed",
+ok("B3d: an unavailable collector admits no certificate finding and keeps prior evidence not re-observed",
   certFinding(certTlsUnavailable).length === 0 &&
     certTlsUnavailable.historical?.not_reobserved_findings?.filter((finding) =>
       finding.id === "certificate_expiring_critical").length === 1 &&
@@ -1523,7 +1494,7 @@ const certDeferred = await trace("cert-deferred", {
   deterministicProof: true,
   previousFindings: [PRIOR_CRITICAL_CERTIFICATE_FINDING],
 });
-ok("B3d: deferred TLS/CT producer keeps the prior expiry finding not re-observed",
+ok("B3d: an unavailable collector with failed HTTPS keeps the prior expiry finding not re-observed",
   certFinding(certDeferred).length === 0 &&
     certDeferred.historical?.not_reobserved_findings?.filter((finding) =>
       finding.id === "certificate_expiring_critical").length === 1 &&
@@ -1575,15 +1546,10 @@ function certificateCxPositive(name, candidate, expected) {
       snapshotItem?.domain_keys?.includes("certificates_trust") &&
       candidate.snapshot_cert_observations.length === 0,
     JSON.stringify({ signal, snapshotItem }));
-  ok(`B3e ${name}: CT-bounded explanation stays honest`,
+  ok(`B3e ${name}: live-certificate explanation stays honest`,
     typeof snapshotItem?.explanation === "string" &&
-      snapshotItem.explanation.includes(
-        "returned by the available Certificate Transparency source",
-      ) &&
-      snapshotItem.explanation.includes("was not inspected") &&
-      !snapshotItem.explanation.includes("service outage") &&
-      !snapshotItem.explanation.includes("your certificate") &&
-      !snapshotItem.explanation.includes("live certificate was verified"));
+      snapshotItem.explanation.includes("served by this endpoint") &&
+      !snapshotItem.explanation.includes("service outage"));
   ok(`B3e ${name}: Executive preserves the snapshot item and Certificates domain`,
     executiveItems.length === 1 &&
       JSON.stringify(executiveItems[0]) === JSON.stringify(snapshotItem) &&
@@ -1606,23 +1572,23 @@ function certificateCxPositive(name, candidate, expected) {
   ok(`B3e ${name}: score and methodology remain independently frozen`,
     candidate.score === candidate.paired_score_control &&
       candidate.score_methodology === "2026-08-26.1" &&
-      candidate.resolver_version === "2026-10-10.1");
+      candidate.resolver_version === "2026-10-12.1");
 }
 
 certificateCxPositive("13-day", cert13Cx, {
   id: "certificate_expiring_critical",
   severity: "high",
-  title: "Logged certificate validity ends within 14 days",
+  title: "The live certificate expires within 14 days",
 });
 certificateCxPositive("14-day", cert14Cx, {
   id: "certificate_expiring_soon",
   severity: "medium",
-  title: "Logged certificate validity ends within 30 days",
+  title: "The live certificate expires within 30 days",
 });
 certificateCxPositive("29-day", cert29Cx, {
   id: "certificate_expiring_soon",
   severity: "medium",
-  title: "Logged certificate validity ends within 30 days",
+  title: "The live certificate expires within 30 days",
 });
 ok("B3e 14/29-day: producer renewal clause and score bytes stay exact",
   [cert14Cx, cert29Cx].every((candidate) => {
@@ -1630,9 +1596,8 @@ ok("B3e 14/29-day: producer renewal clause and score bytes stay exact",
     const signal = candidate.producer_signals.find((row) =>
       row.signal === "certificate_expiring_soon");
     return item?.explanation === signal?.description &&
-      item?.explanation?.endsWith(
-        "Plan renewal now so the replacement is deployed before that date.",
-      ) && candidate.score === cert13Cx.score &&
+      item?.explanation?.startsWith("Plan renewal of the certificate served by this endpoint") &&
+      candidate.score === cert13Cx.score &&
       candidate.score_methodology === cert13Cx.score_methodology;
   }));
 
@@ -1650,8 +1615,8 @@ function certificateCxAbsent(name, candidate) {
       candidate.certificates_domain?.state !== "issue_detected" &&
       !(candidate.certificates_domain?.finding_ids || []).some((id) =>
         CERTIFICATE_EXPIRY_IDS.has(id)) &&
-      !candidate.pdf_text.includes("Logged certificate validity ends within 14 days") &&
-      !candidate.pdf_text.includes("Logged certificate validity ends within 30 days") &&
+      !candidate.pdf_text.includes("The live certificate expires within 14 days") &&
+      !candidate.pdf_text.includes("The live certificate expires within 30 days") &&
       !candidate.pdf_text.includes("Renew the certificate before expiry"),
     JSON.stringify(candidate.certificates_domain));
 }
@@ -1947,7 +1912,7 @@ ok("B9 CX: PDF renders exact backend title/severity and canonical action",
 ok("B9 CX: score and score methodology equal the paired no-bucket control",
   b2bVcenterCx.score === b2bVcenterCx.paired_score_control
     && b2bVcenterCx.score_methodology === "2026-08-26.1"
-    && b2bVcenterCx.resolver_version === "2026-10-10.1",
+    && b2bVcenterCx.resolver_version === "2026-10-12.1",
   JSON.stringify({
     score: b2bVcenterCx.score,
     paired: b2bVcenterCx.paired_score_control,

@@ -316,7 +316,7 @@ ok("gate → CAN verify on a genuine complete scan (happy path unchanged)",
     pulls > 0 && pulls <= Math.ceil(LINKED_HOST_LIMITS.maxBytes / chunk16k.byteLength) + 2);
 
   // Merge into discovery
-  ok("merge: SRV then linked names follow CT/brute-force names, without duplicates",
+  ok("merge: SRV then linked names follow word-list names, without duplicates",
     JSON.stringify(withReferencedHostnames(["a.example.com", "b.example.com"], {
       srvItems: [{ hostname: "c.example.com" }, { hostname: "a.example.com" }, null, { hostname: 5 }],
       linkedHostnames: ["d.example.com", "c.example.com", ""],
@@ -326,7 +326,7 @@ ok("gate → CAN verify on a genuine complete scan (happy path unchanged)",
 
   const engineSrc = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/scan-engine.js"), "utf8");
   ok("wiring: production discovery appends SRV targets and home-page links",
-    /const mergedSubdomainItems = withReferencedHostnames\(\[\.\.\.subdomainsResult\.items, \.\.\.bruteNewItems\], \{\s*srvItems: bruteforceResult\.srv_items,\s*linkedHostnames: techResult\?\.linked_hostnames,\s*\}\);/.test(engineSrc));
+    /const mergedSubdomainItems = withReferencedHostnames\(bruteNewItems, \{\s*srvItems: bruteforceResult\.srv_items,\s*linkedHostnames: techResult\?\.linked_hostnames,\s*\}\);/.test(engineSrc));
   ok("wiring: only durable runs give the technology module remaining time",
     /runTechModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs: durableInvocation \? remainingMs : null \}\)/.test(engineSrc));
 }

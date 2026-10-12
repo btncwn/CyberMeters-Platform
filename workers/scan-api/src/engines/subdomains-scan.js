@@ -131,8 +131,16 @@ export async function runSubdomainsModule(domain, opts = {}) {
       timedSubOp("wildcard_dns_a", dnsQuery(wildcardHost, "A", { accounting, cache })),
       timedSubOp("wildcard_dns_aaaa", dnsQuery(wildcardHost, "AAAA", { accounting, cache })),
     ]).then(([wASettled, wAAAASettled]) => {
-      const aAnswers    = wASettled.status    === "fulfilled" ? (wASettled.value?.Answer    || []) : [];
-      const aaaaAnswers = wAAAASettled.status === "fulfilled" ? (wAAAASettled.value?.Answer || []) : [];
+      // Only an authoritative answer (NOERROR or NXDOMAIN) measures the random
+      // label. A failed request or a resolver error leaves the wildcard question
+      // open, and without it name-check answers cannot be trusted.
+      const authoritative = (settled) => settled.status === "fulfilled" &&
+        (settled.value?.Status === 0 || settled.value?.Status === 3);
+      if (!authoritative(wASettled) || !authoritative(wAAAASettled)) {
+        return notCompleted("wildcard_check_failed");
+      }
+      const aAnswers    = wASettled.value?.Answer    || [];
+      const aaaaAnswers = wAAAASettled.value?.Answer || [];
       const wildcardDnsAnswers = [...new Set(
         [...aAnswers, ...aaaaAnswers]
           .filter((answer) => answer.type === 1 || answer.type === 28)

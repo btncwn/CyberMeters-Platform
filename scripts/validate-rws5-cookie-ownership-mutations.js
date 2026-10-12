@@ -95,7 +95,7 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m7-resolver-version-reused",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-10.1";',
+    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-12.1";',
     replacement: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-30.1";',
     expectedFailures: ["current resolver version preserves the evidence-methodology boundary"],
   },
@@ -236,13 +236,9 @@ const MUTATIONS = Object.freeze([
   },
   {
     id: "b1c-m1-critical-severity-restored",
-    file: "workers/scan-api/src/engines/cert-intel.js",
-    anchor: `        signal:      "certificate_expiring_critical",
-        finding_type: "finding",
-        severity:    "high",`,
-    replacement: `        signal:      "certificate_expiring_critical",
-        finding_type: "finding",
-        severity:    "critical",`,
+    file: "workers/scan-api/src/engines/network-probe.js",
+    anchor: "'Renew and deploy the certificate served by this endpoint before its observed expiry.','high',row);",
+    replacement: "'Renew and deploy the certificate served by this endpoint before its observed expiry.','critical',row);",
     expectedFailures: [
       "certificate expiry 13-day boundary emits high critical-window finding",
       "reachable certificate critical signal is high",
@@ -250,66 +246,54 @@ const MUTATIONS = Object.freeze([
   },
   {
     id: "b1c-m2-fourteen-enters-critical-window",
-    file: "workers/scan-api/src/engines/cert-intel.js",
-    anchor: "    if (!live && expiryEvidenceUsable && days_until_expiry < 14) {",
-    replacement: "    if (!live && expiryEvidenceUsable && days_until_expiry <= 14) {",
+    file: "workers/scan-api/src/engines/network-probe.js",
+    anchor: "else if(remaining<14*86400000)add('certificate_expiring_critical'",
+    replacement: "else if(remaining<=14.5*86400000)add('certificate_expiring_critical'",
     expectedFailures: [
       "certificate expiry 14-day boundary emits medium soon finding",
-      "certificate expiry descriptions stay within returned CT evidence scope",
-      "certificate expiry soon description is CT-honest",
+      "certificate expiry soon description is live-honest",
       "certificate expiry soon title is producer-owned",
     ],
   },
   {
     id: "b1c-m3-expiry-evidence-guard-dropped",
     file: "workers/scan-api/src/engines/cert-intel.js",
-    anchor: `    const expiryEvidenceUsable = Number.isFinite(days_until_expiry) &&
-      Number.isInteger(days_until_expiry) && days_until_expiry >= 0 &&
-      expiryDateMatchesDayCount;`,
-    replacement: `    const expiryEvidenceUsable = days_until_expiry !== null &&
-      expiryDateMatchesDayCount;`,
-    expectedFailures: ["invalid certificate expiry evidence emits no signal and stays not usable"],
-  },
-  {
-    id: "b1c-m4-negative-emits-scan-time-expired",
-    file: "workers/scan-api/src/engines/cert-intel.js",
-    anchor: "    if (!live && expiryEvidenceUsable && days_until_expiry < 14) {",
-    replacement: `    if (!live && Number.isFinite(days_until_expiry) && days_until_expiry < 0) {
-      suspicious_certificate_signals.push({
-        signal: "certificate_expired",
-        finding_type: "finding",
-        severity: "high",
-        score_impact: 0,
-      });
-    } else if (!live && expiryEvidenceUsable && days_until_expiry < 14) {`,
+    anchor: "    const expiryUsable = Number.isFinite(liveExpiryMs) && Number.isFinite(liveObservedMs);",
+    replacement: "    const expiryUsable = Boolean(live);",
     expectedFailures: [
-      "certificate intelligence never emits scan-time expired identity",
-      "invalid certificate expiry evidence emits no signal and stays not usable",
+      "unusable served expiry values emit no signal and stay not usable",
     ],
   },
   {
-    id: "b1c-m5-ct-evidence-fields-dropped",
-    file: "workers/scan-api/src/engines/cert-intel.js",
-    anchor: `        evidence_source: "certificate_transparency",
-        live_certificate_verified: false,
-        evidence_basis: "latest_expiring_logged_certificate",
-        title:        "Logged certificate validity ends within 14 days",`,
-    replacement: `        title:        "Logged certificate validity ends within 14 days",`,
-    expectedFailures: ["certificate expiry evidence is CT-only and not live-verified"],
+    id: "b1c-m4-expired-identity-dropped",
+    file: "workers/scan-api/src/engines/network-probe.js",
+    anchor: "    if(remaining<=0)add('certificate_expired',",
+    replacement: "    if(false)add('certificate_expired',",
+    expectedFailures: [
+      "an expired live certificate is reported as expired",
+    ],
+  },
+  {
+    id: "b1c-m5-live-evidence-fields-dropped",
+    file: "workers/scan-api/src/engines/network-probe.js",
+    anchor: "evidence_source:'live_tls',live_certificate_verified:true,",
+    replacement: "",
+    expectedFailures: [
+      "certificate expiry evidence is the live leaf",
+    ],
   },
   {
     id: "b1c-m6-critical-identity-changed",
-    file: "workers/scan-api/src/engines/cert-intel.js",
-    anchor: '        signal:      "certificate_expiring_critical",',
-    replacement: '        signal:      "certificate_expiring_unknown",',
+    file: "workers/scan-api/src/engines/network-probe.js",
+    anchor: "add('certificate_expiring_critical',",
+    replacement: "add('certificate_expiring_unknown',",
     expectedFailures: [
       "certificate critical maps to expiring action",
       "certificate expiry 13-day boundary emits high critical-window finding",
-      "certificate expiry critical description is CT-honest",
+      "certificate expiry critical description is live-honest",
       "certificate expiry critical score impact stays zero",
       "certificate expiry critical title is producer-owned",
-      "certificate expiry descriptions stay within returned CT evidence scope",
-      "certificate expiry evidence is CT-only and not live-verified",
+      "certificate expiry evidence is the live leaf",
       "reachable certificate critical signal is explicit finding",
       "reachable certificate critical signal is high",
     ],
@@ -325,30 +309,29 @@ const MUTATIONS = Object.freeze([
   },
   {
     id: "b1c-title-drop",
-    file: "workers/scan-api/src/engines/cert-intel.js",
-    anchor: '        title:        "Logged certificate validity ends within 14 days",',
-    replacement: "",
-    expectedFailures: ["certificate expiry critical title is producer-owned"],
-  },
-  {
-    id: "b1c-m8-expiry-date-pair-guard-dropped",
-    file: "workers/scan-api/src/engines/cert-intel.js",
-    anchor: `    const expiryEvidenceUsable = Number.isFinite(days_until_expiry) &&
-      Number.isInteger(days_until_expiry) && days_until_expiry >= 0 &&
-      expiryDateMatchesDayCount;`,
-    replacement: `    const expiryEvidenceUsable = Number.isFinite(days_until_expiry) &&
-      Number.isInteger(days_until_expiry) && days_until_expiry >= 0;`,
-    expectedFailures: ["incoherent certificate expiry pairs emit no signal and stay not usable"],
-  },
-  {
-    id: "b1c-m9-universal-ct-claim-restored",
-    file: "workers/scan-api/src/engines/cert-intel.js",
-    anchor: "The latest-expiring currently valid certificate record returned by the available Certificate Transparency source for ${domain} ends on ${expires_at}",
-    replacement: "No currently valid publicly logged certificate covering ${domain} expires later than ${expires_at}",
+    file: "workers/scan-api/src/engines/network-probe.js",
+    anchor: "'The live certificate expires within 14 days',",
+    replacement: "'',",
     expectedFailures: [
-      "certificate expiry critical description is CT-honest",
-      "certificate expiry descriptions stay within returned CT evidence scope",
-      "certificate expiry soon description is CT-honest",
+      "certificate expiry critical title is producer-owned",
+    ],
+  },
+  {
+    id: "b1c-m8-live-leaf-requirement-dropped",
+    file: "workers/scan-api/src/engines/cert-intel.js",
+    anchor: "ssl.live_certificate?.collection_complete === true ? ssl.live_certificate : null;",
+    replacement: "ssl.live_certificate ? ssl.live_certificate : null;",
+    expectedFailures: [
+      "a partially captured leaf is not a certificate",
+    ],
+  },
+  {
+    id: "b1c-m9-trust-claim-in-description",
+    file: "workers/scan-api/src/engines/network-probe.js",
+    anchor: "'Renew and deploy the certificate served by this endpoint before its observed expiry.'",
+    replacement: "'Renew this fully trusted certificate before it expires.'",
+    expectedFailures: [
+      "certificate expiry critical description is live-honest",
     ],
   },
   {
@@ -470,7 +453,7 @@ const MUTATIONS = Object.freeze([
   {
     id: "comparable-historical-transition",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-10.1";',
+    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-12.1";',
     replacement: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-07-24.4";',
     expectedFailures: [
       "current resolver version preserves the evidence-methodology boundary",
@@ -479,80 +462,46 @@ const MUTATIONS = Object.freeze([
     ],
   },
   {
-    id: "b2d-d1-tls-admission-removed",
+    id: "live-d1-admission-dedupe-removed",
     file: "workers/scan-api/src/engines/scan-engine.js",
-    anchor: "      modules.ssl?.tls_state === TLS_RUNTIME_STATES.OBSERVED_PRESENT &&",
-    replacement: "      true &&",
-    b2dProbe: "tls_unavailable",
+    anchor: "      if (findings.some(finding => finding.id === signal.signal)) continue;\n",
+    replacement: "",
+    liveProbe: "contract_dedupe",
   },
   {
-    id: "b2d-d2-other-signal-admitted",
+    id: "live-d2-module-owner-changed",
     file: "workers/scan-api/src/engines/scan-engine.js",
-    anchor: `    const certificateExpiryIds = [
-      "certificate_expiring_critical",
-      "certificate_expiring_soon",
-    ];`,
-    replacement: `    const certificateExpiryIds = [
-      "certificate_expiring_critical",
-      "certificate_expiring_soon",
-      "no_https",
-    ];`,
-    b2dProbe: "contract_exact_ids",
+    anchor: "      findings.push({ ...signal, id: signal.signal, module: 'certificate_intelligence' });",
+    replacement: "      findings.push({ ...signal, id: signal.signal, module: 'ssl' });",
+    liveProbe: "contract_owner",
   },
   {
-    id: "b2d-d3-live-leaf-claim-restored",
+    id: "live-d3-score-impact-added",
     file: "workers/scan-api/src/engines/scan-engine.js",
-    anchor: `            live_certificate_verified: false,
-            providers: certificateEvidenceProviders,`,
-    replacement: `            live_certificate_verified: true,
-            providers: certificateEvidenceProviders,`,
-    b2dProbe: "evidence_integrity",
+    anchor: "      findings.push({ ...signal, id: signal.signal, module: 'certificate_intelligence' });",
+    replacement: "      findings.push({ ...signal, score_impact: -10, id: signal.signal, module: 'certificate_intelligence' });",
+    liveProbe: "score_neutral",
   },
   {
-    id: "b2d-d4-numeric-bound-dropped",
+    id: "live-d4-evidence-dropped",
     file: "workers/scan-api/src/engines/scan-engine.js",
-    anchor: "          !Number.isFinite(days) || !Number.isInteger(days) || !exactBand ||",
-    replacement: "          !exactBand ||",
-    b2dProbe: "numeric_band",
+    anchor: "      findings.push({ ...signal, id: signal.signal, module: 'certificate_intelligence' });",
+    replacement: "      findings.push({ ...signal, evidence: [], id: signal.signal, module: 'certificate_intelligence' });",
+    liveProbe: "evidence_integrity",
   },
   {
-    id: "b2d-d5-dedupe-removed",
+    id: "live-d5-live-findings-not-admitted",
     file: "workers/scan-api/src/engines/scan-engine.js",
-    anchor: "        if (sourceRows.length !== 1 || findings.some((finding) => finding?.id === findingId)) continue;",
-    replacement: "        if (sourceRows.length < 1) continue;",
-    b2dProbe: "source_and_dedupe",
+    anchor: "    for (const signal of liveCertificateFindings(modules.ssl, domain)) {",
+    replacement: "    for (const signal of []) {",
+    liveProbe: "admission",
   },
   {
-    id: "b2d-d6-score-impact-restored",
-    file: "workers/scan-api/src/engines/scan-engine.js",
-    anchor: `          severity: source.severity,
-          score_impact: 0,
-          title: source.title,`,
-    replacement: `          severity: source.severity,
-          score_impact: -10,
-          title: source.title,`,
-    b2dProbe: "score_neutral",
-  },
-  {
-    id: "b2d-d7-late-reconcile-disabled",
+    id: "live-d6-late-reconcile-disabled",
     file: "workers/scan-api/src/engines/scan-engine.js",
     anchor: "    if (modules.historical_changes) {",
     replacement: "    if (false && modules.historical_changes) {",
-    b2dProbe: "late_history",
-  },
-  {
-    id: "b2d-d8-expired-identity-admitted",
-    file: "workers/scan-api/src/engines/scan-engine.js",
-    anchor: `    const certificateExpiryIds = [
-      "certificate_expiring_critical",
-      "certificate_expiring_soon",
-    ];`,
-    replacement: `    const certificateExpiryIds = [
-      "certificate_expiring_critical",
-      "certificate_expiring_soon",
-      "certificate_expired",
-    ];`,
-    b2dProbe: "contract_exact_ids",
+    liveProbe: "late_history",
   },
   {
     id: "M-S4CX-1-pdf-finding-title-dropped",
@@ -613,7 +562,7 @@ const MUTATIONS = Object.freeze([
           items={report.modules?.certificate_intelligence?.producer_signals?.length
             ? [...(report.observed_findings || []), {
                 finding_id: "frontend_synthetic_certificate",
-                title: "Logged certificate validity ends within 14 days",
+                title: "The live certificate expires within 14 days",
                 explanation: "Synthetic frontend certificate projection.",
                 severity: "high",
               }]
@@ -654,7 +603,7 @@ const candidateFingerprints = new Map(
 
 function makeSandbox(mutation) {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), `rws5-${mutation.id}-`));
-  for (const relative of ["database", "shared", "workers/scan-api/src", "workers/network-probe/src"]) {
+  for (const relative of ["database", "shared", "workers/scan-api/src", "workers/network-probe/src", "scripts/lib"]) {
     fs.cpSync(path.join(root, relative), path.join(sandbox, relative), { recursive: true });
   }
   fs.mkdirSync(path.join(sandbox, "scripts"), { recursive: true });
@@ -695,13 +644,11 @@ function failuresFrom(output) {
     .sort();
 }
 
-function runB2dProbe(sandbox, mutation, mutated) {
-  const childMode = ["tls_unavailable"].includes(mutation.b2dProbe)
-    ? "b2d-tls-unavailable"
-    : ["evidence_integrity", "score_neutral", "late_history"].includes(mutation.b2dProbe)
-      ? "b2d-cert13"
-      : "b2d-contract";
-  const loadedUrl = `${pathToFileURL(fs.realpathSync(mutated.target)).href}?b2d-mutant=${mutation.id}`;
+function runLiveProbe(sandbox, mutation, mutated) {
+  const childMode = ["contract_dedupe", "contract_owner"].includes(mutation.liveProbe)
+    ? "live-admission-contract"
+    : "live-cert13";
+  const loadedUrl = `${pathToFileURL(fs.realpathSync(mutated.target)).href}?live-mutant=${mutation.id}`;
   const child = spawnSync(process.execPath, [path.join(sandbox, b2dValidatorRelative), `--child=${childMode}`], {
     cwd: sandbox,
     encoding: "utf8",
@@ -716,16 +663,14 @@ function runB2dProbe(sandbox, mutation, mutated) {
   const completed = child.status === 0 && !child.signal && projection != null;
   const finding = projection?.findings?.find((row) => row.id === "certificate_expiring_critical");
   const defect = {
-    tls_unavailable: () => (projection?.findings || []).length > 0,
-    contract_exact_ids: () => projection?.exact_ids === false,
-    evidence_integrity: () => finding?.live_certificate_verified !== false ||
-      finding?.evidence?.[0]?.live_certificate_verified !== false,
-    numeric_band: () => projection?.numeric_band === false,
-    source_and_dedupe: () => projection?.exact_source_and_dedupe === false,
-    score_neutral: () => finding?.score_impact !== 0,
-    late_history: () => !projection?.historical?.new_findings?.some((row) =>
+    contract_dedupe: () => projection?.dedupe === false && projection?.live_only === true,
+    contract_owner: () => projection?.module_owner === false && projection?.live_only === true,
+    score_neutral: () => finding != null && finding.score_impact !== 0,
+    evidence_integrity: () => finding != null && finding.evidence?.[0]?.type !== "live_tls",
+    admission: () => finding == null,
+    late_history: () => finding != null && !projection?.historical?.new_findings?.some((row) =>
       row.id === "certificate_expiring_critical"),
-  }[mutation.b2dProbe];
+  }[mutation.liveProbe];
   return {
     child,
     projection,
@@ -739,7 +684,7 @@ function runB2dProbe(sandbox, mutation, mutated) {
 function runS4cxProbe(sandbox, mutation, mutated) {
   const child = spawnSync(process.execPath, [
     path.join(sandbox, b2dValidatorRelative),
-    "--child=b2d-cx",
+    "--child=live-cert-cx",
   ], {
     cwd: sandbox,
     encoding: "utf8",
@@ -768,7 +713,7 @@ function runS4cxProbe(sandbox, mutation, mutated) {
   const expectedUrl = pathToFileURL(fs.realpathSync(mutated.target)).href;
   const defect = {
     pdf_title: () => !candidate?.pdf_text?.includes(
-      "[HIGH] Logged certificate validity ends within 14 days",
+      "[HIGH] The live certificate expires within 14 days",
     ) && candidate?.pdf_text?.includes("[HIGH] Finding"),
     snapshot_title: () => snapshotItem?.title !== producer?.title &&
       snapshotItem?.title === "Renew the certificate before expiry",
@@ -817,12 +762,12 @@ function runS4cxFrontendProbe(sandbox, mutation, mutated) {
       "/frontend/src/components/ExecutiveReportV2.jsx",
     ) && sha(fs.readFileSync(mutated.target)) === mutated.digest,
     defectDetected: completed &&
-      /Logged certificate validity ends within 14 days/.test(output),
+      /The live certificate expires within 14 days/.test(output),
   };
 }
 
 ok("mutation registry is exact, ordered and unique",
-  MUTATIONS.length === 54 && new Set(MUTATIONS.map((mutation) => mutation.id)).size === MUTATIONS.length);
+  MUTATIONS.length === 52 && new Set(MUTATIONS.map((mutation) => mutation.id)).size === MUTATIONS.length);
 
 for (const mutation of MUTATIONS) {
   let sandbox = null;
@@ -831,13 +776,13 @@ for (const mutation of MUTATIONS) {
     const mutated = mutate(sandbox, mutation);
     ok(`${mutation.id}: exact anchor/replacement preflight`, true);
 
-    if (mutation.b2dProbe) {
-      const probe = runB2dProbe(sandbox, mutation, mutated);
-      ok(`${mutation.id}: focused B2d child completed without invalid kill`,
+    if (mutation.liveProbe) {
+      const probe = runLiveProbe(sandbox, mutation, mutated);
+      ok(`${mutation.id}: focused live-admission child completed without invalid kill`,
         probe.completed,
         `${probe.child.stdout || ""}${probe.child.stderr || ""}`.slice(-1200));
       ok(`${mutation.id}: exact loaded-module URL and SHA proof`, probe.exactLoad);
-      ok(`${mutation.id}: isolated B2d contract regression detected`,
+      ok(`${mutation.id}: isolated live-admission regression detected`,
         probe.defectDetected,
         JSON.stringify(probe.projection));
       continue;
