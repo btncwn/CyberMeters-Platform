@@ -3,6 +3,7 @@
 // consolidation, per-asset probe metadata). Extracted verbatim from index.js (monolith
 // decomposition, Phase 1c).
 import { buildAssetInventoryMetadata, consolidateInventoryAssetAliases, probeAsset } from "./asset-intel.js";
+import { deriveRemovalObservation } from "./attack-surface-signal-completeness.js";
 import { normalizeHostname } from "./hostnames.js";
 import { createId } from "../lib/util.js";
 import { loadTimelineComparisonContext } from "./timeline-trust.js";
@@ -226,10 +227,29 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
   // canonical key.  .url is the post-redirect URL and may resolve to a *different*
   // hostname (e.g. probing blackbullbarbers.co.uk → redirect → www.blackbullbarbers.co.uk).
   // Falling back to .url would create spurious separate asset rows for the same host.
+  // A probe is a check, not a sighting: a re-checked name that DNS no longer
+  // answers for, or that served nothing, must not refresh last_seen. Only a
+  // name the probe actually observed (an address, an existing DNS name or an
+  // HTTP response) joins the inventory from this source.
+  const removalObservations = modules?.asset_exposure?.removal_observations;
+  const observedByProbe = Array.isArray(removalObservations)
+    ? new Set(removalObservations
+      .filter((row) => deriveRemovalObservation(row?.signal_states) === "observed")
+      .map((row) => normalizeHostname(row?.host))
+      .filter(Boolean))
+    : null;
+  // Without removal observations (older result shapes), positive probe
+  // evidence is an HTTP response, a redirect, an alias or an address.
+  const probeObserved = (asset, host) => observedByProbe
+    ? observedByProbe.has(host)
+    : asset?.reachable === true ||
+      (asset?.status != null && Number.isFinite(Number(asset.status))) ||
+      Boolean(asset?.redirect_to || asset?.cname || asset?.ip);
   for (const asset of modules?.asset_exposure?.assets || []) {
     const h = normalizeHostname(asset.host || asset.hostname || asset.url);
     if (!h) continue;
     const existing = allAssets.find((a) => a.hostname === h);
+    if (!existing && !probeObserved(asset, h)) continue;
     if (existing) {
       existing.ip_addresses = existing.ip_addresses ?? JSON.stringify(asset.ip ? [asset.ip] : []);
       existing.cname        = existing.cname ?? asset.cname ?? null;

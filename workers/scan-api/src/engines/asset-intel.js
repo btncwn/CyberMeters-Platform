@@ -14,6 +14,7 @@ import {
 } from "./phase5-evidence.js";
 import { isPublishableModuleEvidence } from "./scan-budget.js";
 import { coverageStateFromTruncation } from "./bounded-coverage.js";
+import { DNS_NAME_WITHOUT_ADDRESS } from "./attack-surface-signal-completeness.js";
 
 // ── Module 7: Asset Exposure Engine ──────────────────────────────────────────
 
@@ -527,7 +528,7 @@ function authoritativeDnsNegative(answer) {
     (!Array.isArray(answer.Answer) || answer.Answer.length === 0);
 }
 
-function dnsRemovalSignal(results) {
+export function dnsRemovalSignal(results) {
   const fulfilled = results
     .filter((result) => result.status === "fulfilled")
     .map((result) => result.value);
@@ -539,7 +540,16 @@ function dnsRemovalSignal(results) {
     return { state: "observed", reason: "active_dns_records_observed", evidence_count: evidenceCount };
   }
   if (fulfilled.length === results.length && fulfilled.every(authoritativeDnsNegative)) {
-    return { state: "absent", reason: "authoritative_a_aaaa_absence", evidence_count: 0 };
+    // NXDOMAIN for both address types: the name does not exist.
+    if (fulfilled.every((answer) => answer.Status === 3)) {
+      return { state: "absent", reason: "authoritative_a_aaaa_absence", evidence_count: 0 };
+    }
+    // NOERROR with no address for both types: the name exists in DNS — it may
+    // carry mail or text records — but has no address. An existing name is
+    // externally observed; it is never evidence that the asset is gone.
+    if (fulfilled.every((answer) => answer.Status === 0)) {
+      return { state: "observed", reason: DNS_NAME_WITHOUT_ADDRESS, evidence_count: 0 };
+    }
   }
   return { state: "unavailable", reason: "active_dns_evidence_unavailable", evidence_count: 0 };
 }
@@ -692,7 +702,7 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
     assets,
     ...(assets.some((asset) => asset.probe_status === "not_applicable") ? {
       http_not_applicable_count: assets.filter((asset) => asset.probe_status === "not_applicable").length,
-      http_coverage_notice: "Some names have verified DNS absence; HTTP was not tested for those names.",
+      http_coverage_notice: "Some names have no address in DNS; HTTP was not tested for those names.",
     } : {}),
     removal_observations: removalObservations,
     source,

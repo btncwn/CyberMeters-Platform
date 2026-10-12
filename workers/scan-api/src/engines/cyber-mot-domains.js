@@ -477,7 +477,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       .some((asset) => asset?.probe_status === "not_applicable")) {
       base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = "partial";
-      base.summary = "Some names have verified DNS absence. HTTP was not tested for those names; no healthy web-service conclusion is made.";
+      base.summary = "Some names have no address in DNS. HTTP was not tested for those names; no healthy web-service conclusion is made.";
       return base;
     }
     if (relevant.length === 0) {

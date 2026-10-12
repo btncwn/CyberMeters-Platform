@@ -44,6 +44,8 @@ const BRAND_SRC = path.join(ENG, "brand-cases.js");
 
 const assetInventory = await import(pathToFileURL(ASSET_SRC).href);
 const { applyAssetRemovalConfirmation } = await import(pathToFileURL(REMOVAL_SRC).href);
+const INTEL_SRC = path.join(ENG, "asset-intel.js");
+const { dnsRemovalSignal } = await import(pathToFileURL(INTEL_SRC).href);
 const { senderRecoveryConfirmed } = await import(pathToFileURL(EMAIL_SRC).href);
 const { interpretBrandGoneProbe } = await import(pathToFileURL(BRAND_SRC).href);
 
@@ -96,6 +98,36 @@ ok("G0.8 discovery silence is not evidence: inventory carries no discovery-compl
   !("subdomainDiscoveryComplete" in assetInventory));
 ok("G0.9 no inventory producer writes asset_no_longer_seen",
   !fs.readFileSync(ASSET_SRC, "utf8").includes("asset_no_longer_seen"));
+
+// A name that exists in DNS without an address (mail or text records only) is
+// externally observed, never absent. Only NXDOMAIN for both address types is
+// DNS absence; a split answer is not evidence either way.
+const settled = (status) => ({ status: "fulfilled", value: { Status: status, Answer: [] } });
+const NAME_ONLY = { dns_resolution: { state: "observed", reason: "dns_name_without_address" }, http_https_service: { state: "not_observed" } };
+const ADDRESS = { dns_resolution: { state: "observed", reason: "active_dns_records_observed" }, http_https_service: { state: "not_observed" } };
+const NAME_ONLY_HTTP = { dns_resolution: { state: "observed", reason: "dns_name_without_address" }, http_https_service: { state: "observed", reason: "http_response_observed" } };
+const CONFIRMED = { lifecycle_state: "confirmed_removed", qualifying_observations: [], confirmed_removed_at: at(0) };
+const after = (signalStates) => applyAssetRemovalConfirmation(CONFIRMED, { scan_id: "scan_after", observed_at: at(5 * DAY), signal_states: signalStates });
+ok("G0.10 NXDOMAIN for A and AAAA is DNS absence",
+  dnsRemovalSignal([settled(NXDOMAIN), settled(NXDOMAIN)]).state === "absent");
+{
+  const nameOnly = dnsRemovalSignal([settled(NOERR), settled(NOERR)]);
+  ok("G0.11 NOERROR without an address is an observed name, not absence",
+    nameOnly.state === "observed" && nameOnly.reason === "dns_name_without_address", JSON.stringify(nameOnly));
+}
+ok("G0.12 a split NXDOMAIN/NOERROR answer is not evidence either way",
+  dnsRemovalSignal([settled(NXDOMAIN), settled(NOERR)]).state === "unavailable");
+ok("G0.13 a name without an address is never confirmed removed",
+  observe(applyAssetRemovalConfirmation, [[0, NAME_ONLY], [DAY, NAME_ONLY], [2 * DAY, NAME_ONLY]]).lifecycle_state === "observed");
+{
+  const corrected = after(NAME_ONLY);
+  ok("G0.14 after a confirmed removal, a name without an address corrects the lifecycle without a reappearance claim",
+    corrected.lifecycle_state === "observed" && corrected.transition === "observed", JSON.stringify(corrected));
+}
+ok("G0.15 after a confirmed removal, an address is a reappearance",
+  after(ADDRESS).transition === "reappeared");
+ok("G0.16 after a confirmed removal, an HTTP response is a reappearance",
+  after(NAME_ONLY_HTTP).transition === "reappeared");
 
 // ── G1 — email sender recovery (senderRecoveryConfirmed) ─────────────────────
 // (matrix 1) prior active failures + condition cleared + window HAS reports, zero failed → recovery.
@@ -258,6 +290,23 @@ async function mutant(srcPath, from, to) {
   const r = m.anchor ? m.mod.interpretBrandGoneProbe(doh(SERVFAIL, 0), doh(SERVFAIL, 0)) : null;
   ok("mutation M10 (SERVFAIL admitted as authoritative) → failed probe falsely gone — CAUGHT",
     m.anchor && r.complete === true && r.gone === true);
+}
+
+// M11: NOERROR without an address read as absence again → a mail-only name is
+// confirmable as removed.
+{
+  const m = await mutant(INTEL_SRC, "    if (fulfilled.every((answer) => answer.Status === 3)) {", "    if (fulfilled.every((answer) => answer.Status === 3 || answer.Status === 0)) {");
+  const r = m.anchor ? m.mod.dnsRemovalSignal([settled(NOERR), settled(NOERR)]) : null;
+  ok("mutation M11 (name without an address read as absence) — CAUGHT",
+    m.anchor && r.state === "absent");
+}
+// M12: reappearance claimed from a name merely existing.
+{
+  const m = await mutant(REMOVAL_SRC, `      transition: previousLifecycle === "confirmed_removed" &&
+        hasAddressOrServiceEvidence(observation.signal_states)`, `      transition: previousLifecycle === "confirmed_removed"`);
+  const r = m.anchor ? m.mod.applyAssetRemovalConfirmation(CONFIRMED, { scan_id: "scan_after", observed_at: at(5 * DAY), signal_states: NAME_ONLY }) : null;
+  ok("mutation M12 (reappearance claimed from a name without an address) — CAUGHT",
+    m.anchor && r.transition === "reappeared");
 }
 
 console.log(`\ndisappearance-confirmation: ${pass}/${pass + fail} passed`);

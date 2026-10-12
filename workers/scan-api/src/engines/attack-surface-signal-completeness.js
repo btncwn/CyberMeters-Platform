@@ -36,6 +36,21 @@ const ACTIVE_REMOVAL_SOURCES = Object.freeze([
 ]);
 const COMPLETE_NEGATIVE_STATES = new Set(["absent", "not_observed"]);
 
+// A name that exists in DNS without an address (mail or text records only) is
+// externally observed, but it is not evidence that an address or a service
+// came back.
+export const DNS_NAME_WITHOUT_ADDRESS = "dns_name_without_address";
+
+// Positive evidence beyond the name merely existing: an address, an alias or
+// an HTTP response from an active source.
+function hasAddressOrServiceEvidence(signalStates = {}) {
+  return ACTIVE_REMOVAL_SOURCES.some((source) => {
+    const value = signalStates?.[source];
+    const state = value?.state ?? value;
+    return state === "observed" && value?.reason !== DNS_NAME_WITHOUT_ADDRESS;
+  });
+}
+
 export const ASSET_REMOVAL_CONFIRMATION_POLICY = Object.freeze({
   version: "asset-removal-confirmation-v1",
   required_qualifying_observations: 3,
@@ -709,12 +724,17 @@ export function applyAssetRemovalConfirmation(current = {}, observation = {}) {
   };
 
   if (observationState === "observed") {
+    // After a confirmed removal, a reappearance claim needs an address, alias
+    // or service. A name that is only seen to exist corrects the lifecycle to
+    // observed without claiming that anything came back: earlier scans counted
+    // a name without an address as absent, so it may never have left.
     return {
       ...base,
       lifecycle_state: "observed",
       qualifying_observations: [],
       confirmed_removed_at: null,
-      transition: previousLifecycle === "confirmed_removed"
+      transition: previousLifecycle === "confirmed_removed" &&
+        hasAddressOrServiceEvidence(observation.signal_states)
         ? "reappeared"
         : "observed",
     };
