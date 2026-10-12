@@ -23,7 +23,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
-import { clearMicrosoftLoginBindings, microsoftLoginVerifiers } from '../lib/microsoftLoginBinding'
+import { forgetMicrosoftLoginVerifier, microsoftLoginVerifiers } from '../lib/microsoftLoginBinding'
 
 export default function MicrosoftCallbackPage() {
   const [searchParams]  = useSearchParams()
@@ -56,7 +56,7 @@ export default function MicrosoftCallbackPage() {
 
     api.exchangeOAuthCode(otc, verifiers)
       .then(async data => {
-        clearMicrosoftLoginBindings()
+        await forgetMicrosoftLoginVerifier(data?.binding).catch(() => {})
         // MFA-enabled account: the backend issued a second-factor challenge instead
         // of a session. Hand the challenge to the login page, which renders the
         // existing MFA step (authenticator code + recovery code) to complete it.

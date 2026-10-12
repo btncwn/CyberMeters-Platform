@@ -64,7 +64,7 @@ guard(
   (s) => {
     const block = exchangeBlock(s);
     const gate = block.indexOf("if (user.mfa_enabled) {");
-    const challenge = block.indexOf("return json({ mfa_required: true, challenge_token: challengeRaw })");
+    const challenge = block.indexOf("return json({ mfa_required: true, challenge_token: challengeRaw");
     const session = block.indexOf("INSERT INTO user_sessions");
     return gate !== -1 && challenge > gate && session > challenge
       && /if \(user\.mfa_enabled\) \{[\s\S]*?INSERT INTO mfa_challenges[\s\S]*?return json\(\{ mfa_required: true/.test(block);
