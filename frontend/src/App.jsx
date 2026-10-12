@@ -5,6 +5,7 @@ import Layout from './components/Layout'
 import ChunkErrorBoundary from './components/ChunkErrorBoundary'
 import MaintenanceOverlay from './components/MaintenanceOverlay'
 import MailtoAssist from './components/MailtoAssist'
+import { isPreviewHost } from './utils/siteLinks'
 import ProtectedRoute from './components/ProtectedRoute'
 
 // ── Fallback Spinner Component ───────────────────────────────────────────
@@ -175,6 +176,8 @@ function AppRoutes() {
         <Route path="/status"                 element={<StatusPage />} />
         <Route path="/invitations/:token"     element={<InvitationLandingPage />} />
         <Route path="/free-scan"              element={<FreeScanPage />} />
+        {/* Pull-request previews have no marketing host; show the public page here. */}
+        {isPreviewHost() && <Route path="/landing" element={<PublicLandingPage />} />}
         <Route path="/cyber-essentials-readiness" element={<CyberEssentialsReadinessPage />} />
 
         {/* ── Protected app ───────────────────────────────────────────── */}

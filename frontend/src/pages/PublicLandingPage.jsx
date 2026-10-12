@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import CyberMetersLogo from '../components/CyberMetersLogo'
+import PublicSiteHeader from '../components/PublicSiteHeader'
+import PublicSiteFooter from '../components/PublicSiteFooter'
 import IrisGlobe from '../components/landing/IrisGlobe'
+import ProductFrame from '../components/landing/ProductFrame'
+import ProductShowcase from '../components/landing/ProductShowcase'
+import ProductTour from '../components/landing/ProductTour'
 import { SERVICE_COLORS } from '../theme/serviceColors'
 
 const APP_URL = 'https://app.cybermeters.com'
-const CONTACT = 'mailto:hello@cybermeters.com'
 
 // The eight canonical domains, each led with the question a business owner
 // actually asks. Identity colours come from the shared domain palette.
@@ -83,13 +86,29 @@ const PRINCIPLES = [
 
 const STEPS = [
   { title: 'Check', copy: 'Enter a domain for a bounded, non-persistent external snapshot. Verify ownership before accessing deeper checks.' },
-  { title: 'Understand', copy: 'See what was observed, what needs attention and what could not be assessed. Share the report with your team or IT provider.' },
-  { title: 'Act', copy: 'Use the recommended steps to prioritise work, assign an owner and record progress.' },
-  { title: 'Check again', copy: 'Recheck supported fixes when the work is done, schedule rechecks and review alerts for recorded changes.' },
+  { title: 'Verify', copy: 'Create an account and add one DNS TXT record. CyberMeters looks for it before it shows full findings for that domain.' },
+  { title: 'Understand and act', copy: 'Each area says what was observed, what needs attention and what could not be assessed. Assign the recommended steps to an owner.' },
+  { title: 'Check again', copy: 'When the work is done, CyberMeters checks again where the fix can be seen from outside. Scheduled rechecks and alerts keep watching for changes.' },
 ]
 
-// Sample layout for the "how it reads" panel. States use the product's own
-// coverage vocabulary; no scores, no live data.
+const UNSEEN = [
+  'Your internal network, devices or staff laptops',
+  'Passwords or credentials leaked elsewhere, or dark-web data',
+  'Settings and licences inside your SaaS accounts',
+  'Activity inside your email or identity systems',
+]
+
+const FAQS = [
+  { q: 'Do I need to install anything?', a: 'No. CyberMeters looks only at what is publicly visible from the internet: DNS, websites, certificates and similar public evidence. Nothing runs on your systems.' },
+  { q: 'Why do I have to verify my domain?', a: 'Full findings and monitoring are shown only to someone who controls the domain. You prove that by adding one DNS TXT record; CyberMeters checks it, and you can check again while the record spreads.' },
+  { q: 'Will CyberMeters change my DNS or fix things for me?', a: 'No. It explains what to change and who usually makes the change, then checks again where the fix can be seen from outside. Your DNS, email or IT provider makes the change.' },
+  { q: 'What happens to the free check?', a: 'You see one snapshot in your browser. To keep results, monitor changes or get reports, create an account and verify the domain.' },
+  { q: 'Is this Cyber Essentials certification?', a: 'No. CyberMeters helps you prepare and shows readiness gaps it can evidence. Certification itself comes from an approved Certification Body.' },
+]
+
+
+// Sample rows for the product view. States use the product's own coverage
+// vocabulary; no scores, no live data.
 const SAMPLE_ROWS = [
   { name: 'Email Protection', key: 'email', state: 'Issue detected', note: 'DMARC set to monitor only', tone: 'issue' },
   { name: 'Website Security', key: 'website', state: 'Assessed healthy', note: 'HTTPS and headers in place', tone: 'ok' },
@@ -100,12 +119,6 @@ const SAMPLE_ROWS = [
   { name: 'Shadow IT & Unmanaged Technology', key: 'shadow_it', state: 'Customer input required', note: 'Classify 4 tools', tone: 'input' },
   { name: 'Cyber Essentials Readiness', key: 'cyber_essentials', state: 'Customer input required', note: 'Questionnaire not started', tone: 'input' },
 ]
-const TONE = {
-  issue: 'bg-[#FFF1D6] text-[#8A5300]',
-  ok: 'bg-[#DDF3E7] text-[#11643D]',
-  gap: 'bg-[#E9ECF2] text-[#465066]',
-  input: 'bg-[#E6E8FD] text-[#3D45A8]',
-}
 
 const CONTAINER = 'mx-auto w-full max-w-[1280px] px-6 sm:px-10 lg:px-16'
 
@@ -146,37 +159,6 @@ function DomainForm({ id, tone = 'dark' }) {
         </button>
       </div>
     </form>
-  )
-}
-
-function Header() {
-  const [solid, setSolid] = useState(false)
-  useEffect(() => {
-    const on = () => setSolid(window.scrollY > 24)
-    on()
-    window.addEventListener('scroll', on, { passive: true })
-    return () => window.removeEventListener('scroll', on)
-  }, [])
-  return (
-    <header className={`fixed inset-x-0 top-0 z-50 transition-[background-color,box-shadow] duration-300 ${solid ? 'bg-[#183A86]/95 shadow-[0_8px_30px_-12px_rgba(6,16,48,.6)] backdrop-blur' : 'bg-transparent'}`}>
-      <div className={`${CONTAINER} hidden lg:flex justify-end gap-7 pt-3 text-[14px] text-white/80`}>
-        <Link to="/pricing" className="hover:text-white">Pricing</Link>
-        <a href={CONTACT} className="hover:text-white">Contact</a>
-        <a href={`${APP_URL}/login`} className="hover:text-white">Sign in</a>
-      </div>
-      <div className={`${CONTAINER} flex items-center justify-between h-[68px]`}>
-        <Link to="/" aria-label="CyberMeters home"><CyberMetersLogo size={30} showWordmark darkMode /></Link>
-        <nav aria-label="Main" className="hidden lg:flex items-center gap-9 text-[16px] font-semibold text-white">
-          <a href="#areas" className="hover:text-[#BFE6FF]">Areas</a>
-          <a href="#how" className="hover:text-[#BFE6FF]">How it works</a>
-          <Link to="/trust" className="hover:text-[#BFE6FF]">Trust &amp; Security</Link>
-          <Link to="/about" className="hover:text-[#BFE6FF]">About</Link>
-        </nav>
-        <Link to="/free-scan" className="h-11 px-5 rounded-[8px] bg-white text-[#183A86] text-[15px] font-semibold inline-flex items-center hover:bg-[#EEF3FF] transition-colors">
-          Run a free check
-        </Link>
-      </div>
-    </header>
   )
 }
 
@@ -236,7 +218,10 @@ function HeroStage() {
             CyberMeters runs external security checks on your domain, from email and website to certificates and lookalike domains, and says plainly what it could not check.
           </p>
           <div className="mt-10"><DomainForm id="hero-domain" /></div>
-          <ul className="mt-6 flex flex-wrap gap-x-7 gap-y-2 text-[15px] text-white/85">
+          <a href="#product" className="mt-5 inline-block text-[16px] font-semibold text-white underline decoration-white/50 underline-offset-4 hover:decoration-white">
+            See a sample result first
+          </a>
+          <ul className="mt-5 flex flex-wrap gap-x-7 gap-y-2 text-[15px] text-white/85">
             {['Nothing to install', 'Free one-off check', 'Full results after you verify your domain'].map(t => (
               <li key={t}>{t}</li>
             ))}
@@ -282,6 +267,49 @@ function ClosingEye() {
   )
 }
 
+// The eight areas as a short overview: name and question always visible,
+// details on request, so the section stays scannable on every screen.
+function AreasOverview() {
+  const [open, setOpen] = useState(null)
+  return (
+    <ul className="mt-16 grid grid-cols-1 md:grid-cols-2 gap-x-10 lg:gap-x-16">
+      {SERVICES.map(s => {
+        const c = SERVICE_COLORS[s.key]
+        const expanded = open === s.key
+        const panelId = `area-${s.key}`
+        return (
+          <li key={s.name} className="border-t border-[#DDE2EE] py-7">
+            <div className="flex items-start gap-5">
+              <span className="mt-2 w-1 self-stretch rounded-full flex-shrink-0" style={{ background: c.icon }} aria-hidden="true" />
+              <div className="flex-1 min-w-0">
+                <h3 className="font-cm font-normal text-[32px] leading-[1.08] text-[#121A2E]">{s.name}</h3>
+                <p className="mt-3 text-[17px] font-semibold leading-snug" style={{ color: c.text }}>{s.q}</p>
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-controls={panelId}
+                  onClick={() => setOpen(expanded ? null : s.key)}
+                  className="mt-3 text-[16px] font-semibold text-[#1D46A8] hover:underline"
+                >
+                  {expanded ? 'Hide details' : 'What it checks'}
+                </button>
+                <div id={panelId} hidden={!expanded}>
+                  <p className="mt-3 text-[16px] leading-[1.55] text-[#46506A]">{s.copy}</p>
+                  <ul className="mt-4 flex flex-wrap gap-2">
+                    {s.tags.map(t => (
+                      <li key={t} className="text-[14px] text-[#46506A] px-2.5 py-1 rounded-full border" style={{ borderColor: c.ring, background: c.surface }}>{t}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 function SectionHeading({ id, title, lead, center = false }) {
   return (
     <div className={center ? 'text-center mx-auto max-w-[860px]' : 'max-w-[760px]'}>
@@ -292,7 +320,6 @@ function SectionHeading({ id, title, lead, center = false }) {
 }
 
 export default function PublicLandingPage() {
-  const year = new Date().getFullYear()
   return (
     <div className="min-h-screen bg-white text-[#121A2E]">
       <style>{`
@@ -305,30 +332,27 @@ export default function PublicLandingPage() {
         .cm-iris[data-ready]{opacity:1;animation:cm-iris-spin 150s linear infinite}
         @keyframes cm-iris-spin{to{transform:rotate(360deg)}}
         .cm-finding{background:rgba(9,22,64,.78);border:1px solid rgba(150,215,255,.45);box-shadow:0 10px 30px -12px rgba(0,0,0,.6);transition:opacity .6s ease;backdrop-filter:blur(4px)}
-        @media (prefers-reduced-motion: reduce){.cm-iris[data-ready]{animation:none}.cm-iris{transition:none}}
+        .cm-tour-in{animation:cm-tour-in .22s ease-out}
+        @keyframes cm-tour-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+        @media (prefers-reduced-motion: reduce){.cm-iris[data-ready]{animation:none}.cm-iris{transition:none}.cm-tour-in{animation:none}}
       `}</style>
 
-      <Header />
+      <PublicSiteHeader tone="dark" />
       <HeroStage />
 
-      {/* Principles */}
-      <section aria-labelledby="principles-title" className="bg-[#F3F5FB] py-24 lg:py-[120px]">
+      {/* Product: the first thing after the hero is the product itself */}
+      <section id="product" aria-labelledby="product-title" className="scroll-mt-24 py-24 lg:py-[120px]">
         <div className={CONTAINER}>
-          <SectionHeading id="principles-title" center title="Honest about what it can see." lead="A security check is only useful if you can trust what it did not find. These rules hold for every result." />
-          <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-10 lg:gap-14">
-            {PRINCIPLES.map(p => (
-              <div key={p.title} className="border-t-2 border-[#2550B6] pt-7">
-                <h3 className="font-cm font-normal text-[28px] lg:text-[30px] leading-[1.15] text-[#121A2E]">{p.title}</h3>
-                <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">{p.copy}</p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-16 flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
-            <p className="font-cm text-[22px] text-[#121A2E]">We use CyberMeters on our own domain.</p>
-            <Link to="/trust" className="h-[50px] px-6 rounded-[8px] border-2 border-[#2550B6] text-[#1D46A8] text-[16px] font-semibold inline-flex items-center gap-2 hover:bg-[#2550B6] hover:text-white transition-colors">
-              View our own-domain check
-            </Link>
-          </div>
+          <SectionHeading id="product-title" title="See what a check gives you." lead="One workspace for your domain. Each area says what was observed, what needs attention and what could not be assessed." />
+          <ProductShowcase rows={SAMPLE_ROWS} />
+        </div>
+      </section>
+
+      {/* One finding, step by step */}
+      <section id="tour" aria-labelledby="tour-title" className="scroll-mt-24 bg-[#F3F5FB] py-24 lg:py-[120px]">
+        <div className={CONTAINER}>
+          <SectionHeading id="tour-title" title="Follow one finding from discovery to recheck." lead="A sample email finding, in the same screens you use after signing up." />
+          <ProductTour />
         </div>
       </section>
 
@@ -336,23 +360,7 @@ export default function PublicLandingPage() {
       <section id="areas" aria-labelledby="areas-title" className="scroll-mt-24 py-24 lg:py-[120px]">
         <div className={CONTAINER}>
           <SectionHeading id="areas-title" center title="Eight areas in one workspace" lead="Start with a bounded, honest external snapshot. The report separates observed issues from missing evidence, so you can decide what needs attention." />
-          <div className="mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            {SERVICES.map(s => {
-              const c = SERVICE_COLORS[s.key]
-              return (
-                <article key={s.name} className="flex flex-col rounded-[12px] border bg-white p-6 transition-shadow hover:shadow-[0_18px_40px_-24px_rgba(18,26,46,.45)]" style={{ borderColor: c.ring }}>
-                  <h3 className="font-cm font-normal text-[32px] leading-[1.08] text-[#121A2E]">{s.name}</h3>
-                  <p className="mt-4 text-[17px] font-semibold leading-snug" style={{ color: c.text }}>{s.q}</p>
-                  <p className="mt-3 text-[16px] leading-[1.55] text-[#46506A]">{s.copy}</p>
-                  <ul className="mt-auto pt-5 flex flex-wrap gap-2">
-                    {s.tags.map(t => (
-                      <li key={t} className="text-[14px] text-[#46506A] px-2.5 py-1 rounded-full border" style={{ borderColor: c.ring, background: c.surface }}>{t}</li>
-                    ))}
-                  </ul>
-                </article>
-              )
-            })}
-          </div>
+          <AreasOverview />
         </div>
       </section>
 
@@ -373,42 +381,71 @@ export default function PublicLandingPage() {
               ))}
             </ol>
           </div>
-          <figure aria-label="Sample report layout" className="rounded-[16px] bg-white border border-[#DDE2EE] shadow-[0_30px_60px_-40px_rgba(18,26,46,.5)] overflow-hidden">
-            <div className="flex items-center justify-between gap-4 px-6 py-5 border-b border-[#E6EAF3]">
-              <div>
-                <p className="font-cm text-[22px] leading-tight">Sample report</p>
-                <p className="text-[14px] text-[#6A7389] mt-1">example.co.uk</p>
-              </div>
-              <span className="text-[14px] font-semibold text-[#3D45A8] bg-[#E6E8FD] rounded-full px-3 py-1">Sample</span>
-            </div>
-            <ul>
-              {SAMPLE_ROWS.map(r => {
-                const c = SERVICE_COLORS[r.key]
-                return (
-                  <li key={r.name} className="flex items-center gap-4 px-6 py-3.5 border-b border-[#EEF1F7] last:border-b-0">
-                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: c.icon }} aria-hidden="true" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[15px] font-semibold text-[#121A2E] truncate">{r.name}</p>
-                      <p className="text-[14px] text-[#6A7389] truncate">{r.note}</p>
+          <div className="lg:sticky lg:top-28">
+            <ProductFrame label="Sample domain verification" path="/onboarding" caption="Illustrative example. Your own record is shown after you add your domain.">
+              <div className="p-5 sm:p-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[14px] text-[#6A7389]">Step 3 of 5</p>
+                    <p className="font-cm text-[22px] leading-tight text-[#121A2E] mt-1">Verify example.co.uk</p>
+                  </div>
+                  <span className="text-[14px] font-semibold rounded-full px-3 py-1 bg-[#FFF1D6] text-[#8A5300]">Waiting for the record</span>
+                </div>
+                <p className="mt-4 text-[15px] leading-[1.55] text-[#46506A]">Add this TXT record at your DNS provider. It proves you control the domain and changes nothing else.</p>
+                <dl className="mt-4 rounded-xl border border-[#E6EAF3]">
+                  {[['Type', 'TXT'], ['Host', '_cybermeters.example.co.uk'], ['Value', 'cybermeters-verification=7f3c9a1e52b8']].map(([k, v]) => (
+                    <div key={k} className="grid grid-cols-[72px_minmax(0,1fr)] gap-3 px-4 py-3 border-b border-[#EEF1F7] last:border-b-0">
+                      <dt className="text-[14px] text-[#6A7389]">{k}</dt>
+                      <dd className="mono text-[14px] text-[#121A2E] break-all">{v}</dd>
                     </div>
-                    <span className={`text-[14px] font-semibold rounded-full px-3 py-1 whitespace-nowrap ${TONE[r.tone]}`}>{r.state}</span>
-                  </li>
-                )
-              })}
-            </ul>
-            <figcaption className="px-6 py-4 bg-[#F7F8FC] text-[14px] text-[#5A6378]">
-              Sample layout to show how results read, not a live result. Each area says what was observed, what could not be assessed and what needs your input.
-            </figcaption>
-          </figure>
+                  ))}
+                </dl>
+                <p className="mt-4 text-[14px] leading-[1.55] text-[#5A6378]">DNS changes can take a while to appear. Until CyberMeters finds the record, the domain stays unverified and you can check again.</p>
+              </div>
+            </ProductFrame>
+          </div>
         </div>
       </section>
 
-      {/* Free check and account */}
-      <section aria-labelledby="start-title" className="py-24 lg:py-[120px]">
+      {/* Trust */}
+      <section id="trust" aria-labelledby="principles-title" className="scroll-mt-24 py-24 lg:py-[120px]">
+        <div className={CONTAINER}>
+          <SectionHeading id="principles-title" title="Honest about what it can see." lead="A security check is only useful if you can trust what it did not find. These rules hold for every result." />
+          <div className="mt-14 grid grid-cols-1 md:grid-cols-3 gap-10 lg:gap-14">
+            {PRINCIPLES.map(p => (
+              <div key={p.title} className="border-t-2 border-[#2550B6] pt-7">
+                <h3 className="font-cm font-normal text-[28px] lg:text-[30px] leading-[1.15] text-[#121A2E]">{p.title}</h3>
+                <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">{p.copy}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-16 grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-8">
+            <div className="rounded-[14px] border border-[#DDE2EE] p-8 lg:p-10">
+              <h3 className="font-cm font-normal text-[28px] lg:text-[30px] leading-[1.15]">What CyberMeters does not see</h3>
+              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">It checks only what is publicly visible from the internet. It does not see:</p>
+              <ul className="mt-5 space-y-2.5 text-[17px] text-[#2B3448] list-disc pl-5 marker:text-[#2550B6]">
+                {UNSEEN.map(t => <li key={t}>{t}</li>)}
+              </ul>
+            </div>
+            <div className="rounded-[14px] bg-[#F3F5FB] p-8 lg:p-10 flex flex-col">
+              <h3 className="font-cm font-normal text-[28px] lg:text-[30px] leading-[1.15]">We use CyberMeters on our own domain.</h3>
+              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">The trust page explains how we handle your data, which providers we use and how to report a security concern.</p>
+              <div className="mt-auto pt-6">
+                <Link to="/trust" className="h-[50px] px-6 rounded-[8px] border-2 border-[#2550B6] text-[#1D46A8] text-[16px] font-semibold inline-flex items-center hover:bg-[#2550B6] hover:text-white transition-colors">
+                  View our own-domain check
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Ways to start */}
+      <section id="start" aria-labelledby="start-title" className="scroll-mt-24 bg-[#F3F5FB] py-24 lg:py-[120px]">
         <div className={CONTAINER}>
           <SectionHeading id="start-title" center title="Start free. Go deeper once it is yours." />
-          <div className="mt-14 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-[1040px] mx-auto">
-            <div className="rounded-[14px] border border-[#DDE2EE] p-8 lg:p-10">
+          <div className="mt-14 grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="rounded-[14px] bg-white border border-[#DDE2EE] p-8 flex flex-col">
               <h3 className="font-cm font-normal text-[30px] leading-[1.15]">Free check</h3>
               <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">A one-off snapshot of public evidence: nothing is stored or monitored until you create an account.</p>
               <ul className="mt-6 space-y-3 text-[17px] text-[#2B3448] list-disc pl-5 marker:text-[#2550B6]">
@@ -416,17 +453,48 @@ export default function PublicLandingPage() {
                   <li key={t}>{t}</li>
                 ))}
               </ul>
+              <div className="mt-auto pt-8">
+                <Link to="/free-scan" className="h-[50px] px-6 rounded-[8px] bg-[#FFB81C] hover:bg-[#FFC640] text-[#1B2333] text-[16px] font-semibold inline-flex items-center transition-colors">Check a domain now</Link>
+              </div>
             </div>
-            <div className="rounded-[14px] border-2 border-[#2550B6] p-8 lg:p-10 bg-[#F7F9FF]">
+            <div className="rounded-[14px] border-2 border-[#2550B6] p-8 bg-white flex flex-col">
               <h3 className="font-cm font-normal text-[30px] leading-[1.15]">With an account</h3>
               <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">Full findings, fix steps, PDF reports and monitoring unlock once you verify that you own the domain.</p>
+              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">A new account starts with the 14-day trial of the full product.</p>
+              <div className="mt-auto pt-8">
+                <a href={`${APP_URL}/signup`} className="h-[50px] px-6 rounded-[8px] bg-[#2550B6] hover:bg-[#1D46A8] text-white text-[16px] font-semibold inline-flex items-center transition-colors">Start my 14-day trial</a>
+              </div>
+            </div>
+            <div className="rounded-[14px] bg-white border border-[#DDE2EE] p-8 flex flex-col">
+              <h3 className="font-cm font-normal text-[30px] leading-[1.15]">Plans</h3>
               <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">Scheduled checks, alerts and PDF reports come with paid plans and the 14-day trial.</p>
-              <Link to="/pricing" className="mt-6 inline-flex items-center gap-2 text-[16px] font-semibold text-[#1D46A8] hover:underline">See pricing</Link>
+              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">Pricing is per monitored domain. Prices shown are the live prices from our billing system.</p>
+              <div className="mt-auto pt-8">
+                <Link to="/pricing" className="h-[50px] px-6 rounded-[8px] border-2 border-[#2550B6] text-[#1D46A8] text-[16px] font-semibold inline-flex items-center hover:bg-[#2550B6] hover:text-white transition-colors">See pricing</Link>
+              </div>
             </div>
           </div>
-          <p className="mt-10 max-w-[1040px] mx-auto text-[15px] leading-[1.6] text-[#5A6378] border-l-2 border-[#C9D1E4] pl-5">
+          <p className="mt-10 text-[15px] leading-[1.6] text-[#5A6378] border-l-2 border-[#C9D1E4] pl-5">
             CyberMeters provides cyber posture checks and Cyber Essentials readiness support. It does not provide Cyber Essentials certification. Certification is handled through IASME and approved Certification Bodies.
           </p>
+        </div>
+      </section>
+
+      {/* Questions */}
+      <section id="faq" aria-labelledby="faq-title" className="scroll-mt-24 py-24 lg:py-[120px]">
+        <div className={`${CONTAINER} grid grid-cols-1 lg:grid-cols-[1fr_1.4fr] gap-10 lg:gap-20 items-start`}>
+          <SectionHeading id="faq-title" title="Questions before you start" />
+          <div className="border-t border-[#DDE2EE]">
+            {FAQS.map(f => (
+              <details key={f.q} className="group border-b border-[#DDE2EE]">
+                <summary className="cursor-pointer list-none flex items-start justify-between gap-6 py-6 font-cm text-[26px] leading-[1.2] text-[#121A2E] [&::-webkit-details-marker]:hidden">
+                  {f.q}
+                  <span aria-hidden="true" className="font-cm text-[26px] leading-none text-[#2550B6] group-open:rotate-45 transition-transform">+</span>
+                </summary>
+                <p className="pb-6 -mt-1 text-[17px] leading-[1.6] text-[#46506A] max-w-[62ch]">{f.a}</p>
+              </details>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -442,32 +510,7 @@ export default function PublicLandingPage() {
         </div>
       </section>
 
-      <footer className="bg-white border-t border-[#E6EAF3]">
-        <div className={`${CONTAINER} py-12 flex flex-col lg:flex-row lg:items-start lg:justify-between gap-8`}>
-          <div>
-            <CyberMetersLogo size={28} showWordmark />
-            <p className="mt-4 text-[15px] text-[#5A6378]">External security checks for your business.</p>
-            <p className="mt-1 text-[15px] text-[#5A6378]">
-              <a href={CONTACT} className="hover:text-[#121A2E]">hello@cybermeters.com</a>
-            </p>
-          </div>
-          <nav aria-label="Footer" className="grid grid-cols-2 sm:grid-cols-4 gap-x-10 gap-y-3 text-[15px] text-[#46506A]">
-            <Link to="/about" className="hover:text-[#121A2E]">About</Link>
-            <Link to="/trust" className="hover:text-[#121A2E]">Trust &amp; Security</Link>
-            <Link to="/pricing" className="hover:text-[#121A2E]">Pricing</Link>
-            <Link to="/status" className="hover:text-[#121A2E]">Status</Link>
-            <Link to="/support" className="hover:text-[#121A2E]">Support</Link>
-            <a href={`${APP_URL}/login`} className="hover:text-[#121A2E]">Sign in</a>
-            <Link to="/privacy" className="hover:text-[#121A2E]">Privacy</Link>
-            <Link to="/terms" className="hover:text-[#121A2E]">Terms</Link>
-            <Link to="/dpa" className="hover:text-[#121A2E]">DPA</Link>
-            <Link to="/cookies" className="hover:text-[#121A2E]">Cookies</Link>
-          </nav>
-        </div>
-        <div className="border-t border-[#EEF1F7]">
-          <div className={`${CONTAINER} py-5 text-[14px] text-[#7A8399]`}>© {year} CyberMeters. All rights reserved.</div>
-        </div>
-      </footer>
+      <PublicSiteFooter sectionBase="" />
     </div>
   )
 }

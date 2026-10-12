@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom'
+import PublicSiteHeader from '../components/PublicSiteHeader'
+import PublicSiteFooter from '../components/PublicSiteFooter'
 
 function Section({ title, children }) {
   return (
@@ -12,12 +14,9 @@ function Section({ title, children }) {
 export default function PrivacyPage() {
   return (
     <div className="min-h-screen bg-gray-50">
+      <PublicSiteHeader />
       <main className="max-w-3xl mx-auto px-6 py-12">
 
-        {/* Brand */}
-        <Link to="/" className="inline-flex items-center gap-2 group mb-8">
-          <span className="font-bold text-gray-900 text-sm group-hover:text-brand-700 transition-colors">CyberMeters</span>
-        </Link>
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Privacy Policy</h1>
@@ -171,6 +170,7 @@ export default function PrivacyPage() {
           <Link to="/support" className="hover:text-gray-700">Support</Link>
         </div>
       </main>
+      <PublicSiteFooter />
     </div>
   )
 }

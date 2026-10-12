@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
-import CyberMetersLogo from '../components/CyberMetersLogo'
+import PublicSiteHeader from '../components/PublicSiteHeader'
+import PublicSiteFooter from '../components/PublicSiteFooter'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
 
@@ -140,19 +141,7 @@ export default function PricingPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-100">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link to={isAuthenticated ? '/dashboard' : '/login'}>
-            <CyberMetersLogo size={36} showWordmark animated />
-          </Link>
-          <nav className="flex items-center gap-4 text-sm font-medium">
-            <Link to="/support" className="text-gray-500 hover:text-gray-800">Support</Link>
-            <Link to={isAuthenticated ? '/dashboard' : '/login'} className="btn-secondary py-2">
-              {isAuthenticated ? 'Dashboard' : 'Sign in'}
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <PublicSiteHeader signedIn={isAuthenticated} />
 
       <main className="max-w-6xl mx-auto px-6 py-12">
         <div className="max-w-2xl mb-8">
@@ -254,12 +243,8 @@ export default function PricingPage() {
           </div>
         )}
 
-        <footer className="mt-12 pt-6 border-t border-gray-200 flex flex-wrap gap-4 text-sm text-gray-400">
-          <Link to="/terms" className="hover:text-gray-700">Terms</Link>
-          <Link to="/privacy" className="hover:text-gray-700">Privacy</Link>
-          <Link to="/support" className="hover:text-gray-700">Support</Link>
-        </footer>
       </main>
+      <PublicSiteFooter />
     </div>
   )
 }

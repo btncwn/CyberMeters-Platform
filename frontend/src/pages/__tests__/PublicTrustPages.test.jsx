@@ -26,7 +26,7 @@ describe('Founder and public assurance pages', () => {
     expect(screen.getByText('16 scan modules recorded')).toBeInTheDocument(); expect(screen.getByText('4 endpoints')).toBeInTheDocument()
     expect(screen.getByText('Partial', { exact: true })).toBeInTheDocument()
     expect(screen.getByText(/evidence source used at the time did not complete/)).toHaveTextContent('the others returned results')
-    expect(screen.getByText(/example.com scorecard/)).toHaveTextContent('separate, clearly labelled illustration')
+    expect(screen.getByText(/example.co.uk sample on our home page/)).toHaveTextContent('separate, clearly labelled illustration')
     expect(document.body.textContent).not.toContain('100/100')
   })
   it('retains exact TLS and independent-assurance limitations beside the evidence', () => {

@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom'
+import PublicSiteHeader from '../components/PublicSiteHeader'
+import PublicSiteFooter from '../components/PublicSiteFooter'
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { BASE } from '../api'
@@ -86,10 +88,8 @@ export default function StatusPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <PublicSiteHeader />
       <main className="max-w-2xl mx-auto px-6 py-12">
-        <Link to="/" className="inline-flex items-center gap-2 group mb-8">
-          <span className="font-bold text-gray-900 text-sm group-hover:text-brand-700 transition-colors">CyberMeters</span>
-        </Link>
 
         <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8">
           <div className="flex items-start justify-between gap-4">
@@ -129,6 +129,7 @@ export default function StatusPage() {
           <Link to="/trust" className="text-brand-600 hover:underline">Trust &amp; Security</Link> page.
         </p>
       </main>
+      <PublicSiteFooter />
     </div>
   )
 }

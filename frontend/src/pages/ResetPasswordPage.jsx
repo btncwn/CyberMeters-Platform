@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
-import CyberMetersLogo from '../components/CyberMetersLogo'
+import AuthShell from '../components/AuthShell'
 import { api } from '../api'
 
 export default function ResetPasswordPage() {
@@ -19,8 +19,7 @@ export default function ResetPasswordPage() {
   // lands on an unbranded page.
   if (!token) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-        <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
+      <AuthShell>
         <div className="card auth-card text-center">
           <h1 className="text-lg font-bold text-gray-900 mb-2">This reset link is invalid or has expired</h1>
           <p className="text-sm text-gray-400 mb-6">
@@ -31,16 +30,16 @@ export default function ResetPasswordPage() {
             Request new link
           </Link>
         </div>
-        <p className="mt-5 text-sm text-gray-400">
+        <p className="mt-5 text-sm text-gray-500">
           Remember your password?{' '}
           <Link to="/login" className="text-brand-600 font-semibold hover:underline">
             Sign in
           </Link>
         </p>
-        <p className="mt-8 text-xs text-gray-300">
+        <p className="mt-8 text-xs text-gray-500">
           © {new Date().getFullYear()} CyberMeters — External Security Monitoring
         </p>
-      </div>
+      </AuthShell>
     )
   }
 
@@ -72,10 +71,7 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-
-      {/* Brand */}
-      <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
+    <AuthShell>
 
       <div className="card auth-card">
         {done ? (
@@ -152,16 +148,16 @@ export default function ResetPasswordPage() {
         )}
       </div>
 
-      <p className="mt-5 text-sm text-gray-400">
+      <p className="mt-5 text-sm text-gray-500">
         Remember your password?{' '}
         <Link to="/login" className="text-brand-600 font-semibold hover:underline">
           Sign in
         </Link>
       </p>
 
-      <p className="mt-8 text-xs text-gray-300">
+      <p className="mt-8 text-xs text-gray-500">
         © {new Date().getFullYear()} CyberMeters — External Security Monitoring
       </p>
-    </div>
+    </AuthShell>
   )
 }
