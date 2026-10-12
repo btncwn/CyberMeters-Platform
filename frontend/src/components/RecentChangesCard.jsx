@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Clock, ArrowRight, Globe, Network, Mail, Lock, AlertTriangle, Activity } from 'lucide-react'
 import { api } from '../api'
 import { assetLifecycleClaimDisplay } from '../lib/assetLifecycleClaimDisplay'
 
@@ -9,9 +8,6 @@ import { assetLifecycleClaimDisplay } from '../lib/assetLifecycleClaimDisplay'
 // Timeline events and links to the full feed. Renders nothing until it knows
 // there is (or isn't) history, so it never flashes an empty box.
 
-const CATEGORY_ICON = {
-  asset: Globe, dns: Network, email: Mail, certificate: Lock, exposure: AlertTriangle,
-}
 const SEVERITY_DOT = {
   info: 'bg-gray-300', low: 'bg-blue-400', medium: 'bg-amber-400', high: 'bg-red-400', critical: 'bg-red-600',
 }
@@ -46,21 +42,16 @@ export default function RecentChangesCard({ workspaceId }) {
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Clock className="w-4 h-4 text-brand-600" />
-          <h2 className="text-sm font-semibold text-gray-900">Recent changes</h2>
-        </div>
+        <h2 className="text-sm font-semibold text-gray-900">Recent changes</h2>
         <Link to="/exposure" className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">
-          View timeline <ArrowRight className="w-3.5 h-3.5" />
+          View timeline
         </Link>
       </div>
       <ul className="space-y-2">
         {events.map(e => {
-          const Icon = CATEGORY_ICON[e.category] ?? Activity
           const claimDisplay = assetLifecycleClaimDisplay(e)
           return (
             <li key={e.id} className="flex items-center gap-3">
-              <Icon className="w-4 h-4 text-gray-400 flex-shrink-0" />
               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${SEVERITY_DOT[e.severity] ?? SEVERITY_DOT.info}`} />
               <span className="text-sm text-gray-700 truncate flex-1 min-w-0">{claimDisplay.title}</span>
               <time className="text-xs text-gray-400 flex-shrink-0">{relTime(e.created_at)}</time>

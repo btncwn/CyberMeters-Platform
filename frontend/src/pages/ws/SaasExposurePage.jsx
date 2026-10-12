@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Zap, ExternalLink } from 'lucide-react'
+import { Zap } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -24,19 +24,19 @@ function ExposureCard({ exp }) {
         {exp.tenant_url && (
           <a href={exp.tenant_url} target="_blank" rel="noopener noreferrer"
              className="flex items-center gap-1.5 text-xs text-brand-600 hover:underline truncate">
-            <ExternalLink className="w-3 h-3 flex-shrink-0" /> Tenant: {exp.tenant_url}
+            Tenant: {exp.tenant_url}
           </a>
         )}
         {exp.portal_url && (
           <a href={exp.portal_url} target="_blank" rel="noopener noreferrer"
              className="flex items-center gap-1.5 text-xs text-gray-500 hover:underline truncate">
-            <ExternalLink className="w-3 h-3 flex-shrink-0" /> Portal: {exp.portal_url}
+            Portal: {exp.portal_url}
           </a>
         )}
         {exp.admin_url && (
           <a href={exp.admin_url} target="_blank" rel="noopener noreferrer"
              className="flex items-center gap-1.5 text-xs text-red-500 hover:underline truncate">
-            <ExternalLink className="w-3 h-3 flex-shrink-0" /> Admin: {exp.admin_url}
+            Admin: {exp.admin_url}
           </a>
         )}
       </div>
@@ -91,7 +91,6 @@ export default function SaasExposurePage() {
 
       {exposures.length === 0 ? (
         <div className="card py-16 text-center">
-          <Zap className="w-10 h-10 text-gray-200 mx-auto mb-3" />
           <p className="text-sm text-gray-400">No SaaS portals exposed to the internet.</p>
         </div>
       ) : (

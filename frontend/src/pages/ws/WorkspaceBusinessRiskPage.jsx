@@ -1,9 +1,6 @@
 import { parseServerDate } from '../../utils/dates'
 import { useCallback, useEffect, useState } from 'react'
-import {
-  AlertTriangle, CheckCircle2, TrendingUp, Mail, Globe,
-  ShieldCheck, Tag, Package2, RefreshCw,
-} from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
@@ -35,7 +32,7 @@ function GradeBadge({ grade, label, score }) {
 }
 
 // ── Category row ─────────────────────────────────────────────────────────────
-function CategoryRow({ icon: Icon, label, category, weight }) {
+function CategoryRow({ label, category, weight }) {
   if (!category) return null
   const { score, label: catLabel, issues = [] } = category
   const pct = Math.max(0, Math.min(100, score))
@@ -45,9 +42,6 @@ function CategoryRow({ icon: Icon, label, category, weight }) {
   return (
     <div className="py-4 border-b border-gray-100 last:border-0">
       <div className="flex items-center gap-3 mb-2">
-        <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center flex-shrink-0">
-          <Icon className="w-4 h-4 text-gray-500" />
-        </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm font-semibold text-gray-800">{label}</span>
@@ -62,18 +56,16 @@ function CategoryRow({ icon: Icon, label, category, weight }) {
         </div>
       </div>
       {issues && issues.length > 0 && (
-        <div className="ml-11 space-y-1">
+        <div className="space-y-1">
           {issues.map((issue, i) => (
             <div key={i} className="flex items-start gap-1.5 text-xs text-gray-500">
-              <AlertTriangle className="w-3 h-3 text-amber-400 flex-shrink-0 mt-0.5" />
               {issue}
             </div>
           ))}
         </div>
       )}
       {(!issues || issues.length === 0) && (
-        <div className="ml-11 flex items-center gap-1.5 text-xs text-emerald-600">
-          <CheckCircle2 className="w-3 h-3" />
+        <div className="flex items-center gap-1.5 text-xs text-emerald-600">
           No issues detected
         </div>
       )}
@@ -98,11 +90,11 @@ function ChartTooltip({ active, payload, label }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 const CATEGORIES = [
-  { key: 'email_trust',             label: 'Email Trust',             icon: Mail,       weight: 0.25 },
-  { key: 'website_trust',           label: 'Website Trust',           icon: ShieldCheck, weight: 0.20 },
-  { key: 'operational_continuity',  label: 'Operational Continuity',  icon: Globe,      weight: 0.20 },
-  { key: 'attack_surface_exposure', label: 'Attack Surface Exposure', icon: Package2,   weight: 0.20 },
-  { key: 'brand_reputation_risk',   label: 'Brand / Reputation Risk', icon: Tag,        weight: 0.15 },
+  { key: 'email_trust',             label: 'Email Trust',             weight: 0.25 },
+  { key: 'website_trust',           label: 'Website Trust',           weight: 0.20 },
+  { key: 'operational_continuity',  label: 'Operational Continuity',  weight: 0.20 },
+  { key: 'attack_surface_exposure', label: 'Attack Surface Exposure', weight: 0.20 },
+  { key: 'brand_reputation_risk',   label: 'Brand / Reputation Risk', weight: 0.15 },
 ]
 
 export default function WorkspaceBusinessRiskPage() {
@@ -155,7 +147,6 @@ export default function WorkspaceBusinessRiskPage() {
 
         {error && (
           <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 flex items-center gap-2 text-sm text-red-600 mb-6">
-            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
             {error}
           </div>
         )}
@@ -179,7 +170,6 @@ export default function WorkspaceBusinessRiskPage() {
                   <GradeBadge grade={data.grade} label={data.band ?? data.grade_label} score={data.score ?? data.brs} />
                 ) : (
                   <div className="inline-flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-6 py-5 text-amber-800">
-                    <AlertTriangle className="w-7 h-7 flex-shrink-0" />
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-widest opacity-60">Current assessment</p>
                       <p className="text-xl font-bold">Business Risk Score unavailable</p>
@@ -243,7 +233,6 @@ export default function WorkspaceBusinessRiskPage() {
                     return (
                       <div key={i} className={`rounded-lg border px-4 py-3 ${sevCls}`}>
                         <div className="flex items-start gap-3">
-                          <AlertTriangle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${txtCls}`} />
                           <div className="min-w-0">
                             <p className={`text-xs font-semibold ${txtCls}`}>{title}</p>
                             <p className="text-sm text-gray-700 mt-0.5">{impact}</p>
@@ -266,10 +255,9 @@ export default function WorkspaceBusinessRiskPage() {
                 BRS = (Email Trust 25%) + (Website Trust 20%) + (Operational Continuity 20%) + (Attack Surface 20%) + (Brand Risk 15%)
               </p>
               <div>
-                {CATEGORIES.map(({ key, label, icon, weight }) => (
+                {CATEGORIES.map(({ key, label, weight }) => (
                   <CategoryRow
                     key={key}
-                    icon={icon}
                     label={label}
                     weight={weight}
                     category={data.categories?.[key]}
@@ -311,7 +299,6 @@ export default function WorkspaceBusinessRiskPage() {
             {trendData.length > 1 && (
               <div className="card p-6">
                 <div className="flex items-center gap-2 mb-4">
-                  <TrendingUp className="w-4 h-4 text-gray-400" />
                   <h2 className="text-sm font-semibold text-gray-900">Score Trend</h2>
                 </div>
                 <ResponsiveContainer width="100%" height={180}>
@@ -336,7 +323,6 @@ export default function WorkspaceBusinessRiskPage() {
 
             {trendData.length === 0 && !loading && (
               <div className="card p-6 text-center text-sm text-gray-500">
-                <TrendingUp className="w-6 h-6 text-gray-300 mx-auto mb-2" />
                 Trend data will appear after multiple scans.
               </div>
             )}

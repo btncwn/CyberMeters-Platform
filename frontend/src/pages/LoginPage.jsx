@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
-import { Mail, Lock, AlertTriangle, LogIn, KeyRound, Smartphone, LifeBuoy, MailCheck } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { useAuth } from '../context/AuthContext'
 import { api, BASE } from '../api'
@@ -152,7 +151,6 @@ export default function LoginPage() {
 
             {error && (
               <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
                 {error}
               </div>
             )}
@@ -160,7 +158,6 @@ export default function LoginPage() {
             {verificationRequired && (
               <div className="px-4 py-3 mb-5 bg-amber-50 border border-amber-100 rounded-xl text-sm">
                 <div className="flex items-center gap-2.5 text-amber-700 mb-2">
-                  <MailCheck className="w-4 h-4 flex-shrink-0" />
                   <span className="font-semibold">Email not verified</span>
                 </div>
                 <p className="text-amber-600 text-xs mb-3">
@@ -185,10 +182,9 @@ export default function LoginPage() {
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Email</label>
                 <div className="relative">
-                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                   <input
                     type="email"
-                    className="input pl-10"
+                    className="input"
                     placeholder="you@example.com"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
@@ -202,10 +198,9 @@ export default function LoginPage() {
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Password</label>
                 <div className="relative">
-                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                   <input
                     type="password"
-                    className="input pl-10"
+                    className="input"
                     placeholder="••••••••"
                     value={password}
                     onChange={e => setPassword(e.target.value)}
@@ -220,7 +215,6 @@ export default function LoginPage() {
                   to="/forgot-password"
                   className="text-xs text-brand-600 font-medium hover:underline flex items-center gap-1"
                 >
-                  <KeyRound className="w-3 h-3" />
                   Forgot password?
                 </Link>
               </div>
@@ -232,7 +226,7 @@ export default function LoginPage() {
               >
                 {loading
                   ? <span className="opacity-70">Signing in…</span>
-                  : <><LogIn className="w-4 h-4" /> Sign in</>
+                  : 'Sign in'
                 }
               </button>
             </form>
@@ -265,9 +259,6 @@ export default function LoginPage() {
         {mfaRequired && !showRecovery && (
           <>
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
-                <Smartphone className="w-4 h-4 text-brand-600" />
-              </div>
               <div>
                 <h1 className="text-base font-bold text-gray-900 leading-tight">Two-factor authentication</h1>
                 <p className="text-xs text-gray-400">Enter the 6-digit code from your authenticator app.</p>
@@ -276,7 +267,6 @@ export default function LoginPage() {
 
             {error && (
               <div className="flex items-center gap-2.5 px-4 py-3 mb-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
                 {error}
               </div>
             )}
@@ -321,7 +311,6 @@ export default function LoginPage() {
                 onClick={() => { setShowRecovery(true); setError(null) }}
                 className="text-xs text-brand-600 font-medium hover:underline flex items-center gap-1"
               >
-                <LifeBuoy className="w-3 h-3" />
                 Use recovery code
               </button>
             </div>
@@ -332,9 +321,6 @@ export default function LoginPage() {
         {mfaRequired && showRecovery && (
           <>
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
-                <LifeBuoy className="w-4 h-4 text-amber-600" />
-              </div>
               <div>
                 <h1 className="text-base font-bold text-gray-900 leading-tight">Recovery code</h1>
                 <p className="text-xs text-gray-400">Enter one of your saved backup codes.</p>
@@ -343,7 +329,6 @@ export default function LoginPage() {
 
             {error && (
               <div className="flex items-center gap-2.5 px-4 py-3 mb-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
                 {error}
               </div>
             )}

@@ -1,18 +1,5 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
-  CheckCircle2,
-  ClipboardCheck,
-  HelpCircle,
-  Lock,
-  RefreshCw,
-  ShieldCheck,
-  ShieldAlert,
-  UserCheck,
-} from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { CE_QUESTIONS } from '../../../shared/cyber-essentials-questions.js'
 
@@ -92,23 +79,13 @@ const GAP_COPY = {
 // stored, and 4 of the 6 shared keys were worded differently. A visitor who answered this
 // check and then subscribed was answering a different questionnaire.
 //
-// Only the icons stay local — they are React components and cannot live in pure data. Every
-// word a visitor reads now comes from the shared set, so this page and the paid product
+// Every word a visitor reads now comes from the shared set, so this page and the paid product
 // cannot drift again (scripts/validate-ce-question-drift.js blocks it in CI).
 //
 // No API call and no anonymous endpoint: the questions ship in the bundle.
-const CONTROL_ICONS = {
-  boundary_protection: ShieldCheck,
-  secure_configuration: Lock,
-  access_control: UserCheck,
-  malware_protection: ShieldAlert,
-  patch_management_readiness: RefreshCw,
-}
-
 const CONTROLS = CE_QUESTIONS.map(control => ({
   id: control.control_key,
   title: control.public_title,
-  icon: CONTROL_ICONS[control.control_key],
   // Honesty metadata, from the same place the backend reads it: `partial` means CyberMeters
   // can corroborate SOME of this control from outside; `none` means it cannot see it at all
   // and the answer is self-attestation, labelled as such.
@@ -228,7 +205,6 @@ function DisclaimerBox({ compact = false }) {
   return (
     <div className="rounded-2xl border border-amber-100 bg-amber-50 p-5">
       <div className="flex items-start gap-3">
-        <HelpCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
         <div>
           <h2 className="text-sm font-bold text-amber-950">Readiness, not certification</h2>
           <p className={`mt-1 text-sm leading-relaxed text-amber-800 ${compact ? 'max-w-3xl' : ''}`}>
@@ -263,19 +239,16 @@ function EmptyState({ type, onStart }) {
 
   return (
     <div className="card p-6 text-center">
-      <ClipboardCheck className="mx-auto h-10 w-10 text-brand-600" />
-      <h3 className="mt-3 text-base font-bold text-gray-900">{state.title}</h3>
+      <h3 className="text-base font-bold text-gray-900">{state.title}</h3>
       <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-gray-500">{state.text}</p>
       {state.to && (
         <Link to={state.to} className="btn-primary mt-5">
           {state.cta}
-          <ArrowRight className="h-4 w-4" />
         </Link>
       )}
       {state.onClick && (
         <button type="button" onClick={state.onClick} className="btn-primary mt-5">
           {state.cta}
-          <ArrowRight className="h-4 w-4" />
         </button>
       )}
     </div>
@@ -322,7 +295,6 @@ function IntroView({ onStart }) {
           <div className="mt-7 flex flex-col gap-3 sm:flex-row">
             <button type="button" onClick={onStart} className="btn-primary">
               Start readiness check
-              <ArrowRight className="h-4 w-4" />
             </button>
             <Link to="/free-scan" className="btn-secondary">
               Run Cyber MOT first
@@ -383,7 +355,6 @@ function QuestionnaireView({ answers, onAnswer, onSubmit, onBack }) {
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <button type="button" onClick={onBack} className="btn-ghost mb-3">
-            <ArrowLeft className="h-4 w-4" />
             Back to intro
           </button>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">Cyber Essentials Readiness Preview</h1>
@@ -398,15 +369,11 @@ function QuestionnaireView({ answers, onAnswer, onSubmit, onBack }) {
 
       <div className="space-y-5">
         {CONTROLS.map((control, controlIndex) => {
-          const Icon = control.icon
           const controlAnswered = control.questions.filter(question => answers[answerKey(control.id, question.id)]).length
           return (
             <section key={control.id} className="card p-5 sm:p-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-brand-50 ring-1 ring-brand-100">
-                    <Icon className="h-5 w-5 text-brand-600" />
-                  </div>
                   <div>
                     <p className="text-[13px] font-bold uppercase tracking-wide text-gray-400">Control {controlIndex + 1}</p>
                     <h2 className="text-lg font-bold text-gray-900">{control.title}</h2>
@@ -458,7 +425,6 @@ function QuestionnaireView({ answers, onAnswer, onSubmit, onBack }) {
           <ProgressBar answered={answered} total={totalQuestions} />
           <button type="button" onClick={onSubmit} disabled={!complete} className="btn-primary disabled:cursor-not-allowed disabled:opacity-40">
             Show readiness result
-            <ArrowRight className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -525,7 +491,6 @@ function GapList({ gaps }) {
         {gaps.map(gap => (
           <div key={gap.id} className="rounded-xl border border-gray-200 bg-white p-4">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
               <div>
                 <p className="text-sm font-bold text-gray-900">{gap.title}</p>
                 <p className="mt-1 text-sm leading-relaxed text-gray-600">{gap.text}</p>
@@ -560,7 +525,6 @@ function ResultView({ result, onEdit }) {
       <section className={`rounded-2xl border p-6 ${status.className}`}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
-            <CheckCircle2 className="mt-0.5 h-6 w-6 flex-shrink-0" />
             <div>
               <h2 className="text-xl font-bold">{status.title}</h2>
               <p className="mt-1 max-w-3xl text-sm leading-relaxed">{status.body}</p>
@@ -584,7 +548,6 @@ function ResultView({ result, onEdit }) {
 
       <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-5">
         <div className="flex items-start gap-3">
-          <HelpCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-gray-400" />
           <p className="text-sm leading-relaxed text-gray-600">
             CyberMeters provides readiness guidance only. It does not issue Cyber Essentials certification and cannot fully verify internal controls such as MFA, admin account separation, endpoint protection or patching across your devices. Formal Cyber Essentials certification is handled through IASME and approved Certification Bodies.
           </p>

@@ -3,8 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Globe, Server, Package2, AlertTriangle, Shield, Activity,
-  FileText, TrendingUp, TrendingDown, Minus, Clock, ArrowRight,
-  Building2, Layers, RefreshCw, ShieldCheck, XCircle,
+  FileText, Clock, Building2, RefreshCw, ShieldCheck, XCircle,
 } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
@@ -89,7 +88,6 @@ function StatusDot({ status }) {
 function SectionError({ message, onRetry }) {
   return (
     <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 flex items-center gap-3 text-sm text-red-600">
-      <AlertTriangle className="w-4 h-4 flex-shrink-0" />
       <span>{message}</span>
       {onRetry && (
         <button onClick={onRetry} className="ml-auto btn-ghost text-red-500 hover:text-red-600 py-0.5 px-2">
@@ -172,10 +170,9 @@ function WorkspaceTable({ rows, loading, error, onRetry }) {
 
   if (!rows || rows.length === 0) return (
     <div className="card p-8 mb-8 text-center">
-      <Building2 className="w-10 h-10 text-gray-200 mx-auto mb-3" />
       <p className="text-sm text-gray-500 font-medium">Create a workspace to start monitoring your portfolio.</p>
       <button onClick={() => navigate('/workspaces')} className="btn-primary mt-4 mx-auto">
-        <Building2 className="w-4 h-4" /> Create Workspace
+        Create Workspace
       </button>
     </div>
   )
@@ -200,7 +197,6 @@ function WorkspaceTable({ rows, loading, error, onRetry }) {
               <th className="text-left">Last Scan</th>
               <th className="text-left">Last Report</th>
               <th className="text-center">Status</th>
-              <th />
             </tr>
           </thead>
           <tbody>
@@ -230,9 +226,6 @@ function WorkspaceTable({ rows, loading, error, onRetry }) {
                 <td className="text-gray-500 text-sm">{fmtDate(ws.last_scan_at)}</td>
                 <td className="text-gray-500 text-sm">{fmtDate(ws.last_report_at)}</td>
                 <td className="text-center"><StatusDot status={ws.status} /></td>
-                <td>
-                  <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-brand-500" />
-                </td>
               </tr>
             ))}
           </tbody>
@@ -264,7 +257,6 @@ function AlertsSection({ alerts, loading, error, onRetry }) {
   if (error) return <div className="mb-8"><SectionError message={error} onRetry={onRetry} /></div>
   if (!alerts || alerts.length === 0) return (
     <div className="card p-8 mb-8 text-center">
-      <Shield className="w-10 h-10 text-gray-200 mx-auto mb-3" />
       <p className="text-sm text-gray-500">No portfolio alerts yet.</p>
     </div>
   )
@@ -317,7 +309,6 @@ function AlertsSection({ alerts, loading, error, onRetry }) {
                     )}
                   </div>
                   <div className="flex-shrink-0 flex items-center gap-1 text-xs text-gray-300">
-                    <Clock className="w-3 h-3" />
                     {fmtDateTime(alert.created_at)}
                   </div>
                 </div>
@@ -342,7 +333,6 @@ function TrendsSection({ trend, loading, error, onRetry }) {
   if (error) return <div className="mb-8"><SectionError message={error} onRetry={onRetry} /></div>
   if (!trend || trend.length === 0) return (
     <div className="card p-8 mb-8 text-center">
-      <TrendingUp className="w-10 h-10 text-gray-200 mx-auto mb-3" />
       <p className="text-sm text-gray-500">Trend data will appear after scans complete.</p>
     </div>
   )
@@ -351,7 +341,6 @@ function TrendsSection({ trend, loading, error, onRetry }) {
   const first = trend[0]?.average_score
   const last  = trend[trend.length - 1]?.average_score
   const diff  = last != null && first != null ? Math.round(last - first) : null
-  const TrendIcon  = diff == null ? null : diff > 0 ? TrendingUp : diff < 0 ? TrendingDown : Minus
   const trendColor = diff == null ? '' : diff > 0 ? 'text-brand-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'
 
   return (
@@ -360,9 +349,8 @@ function TrendsSection({ trend, loading, error, onRetry }) {
       <div className="card p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-gray-900">Portfolio Score Trend (30d)</h2>
-          {TrendIcon && diff != null && (
+          {diff != null && (
             <span className={`flex items-center gap-1 text-sm font-semibold ${trendColor}`}>
-              <TrendIcon className="w-4 h-4" />
               {diff > 0 ? '+' : ''}{diff} pts
             </span>
           )}
@@ -473,7 +461,6 @@ export default function PortfolioPage() {
       <div className="flex items-start justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Layers className="w-6 h-6 text-brand-600" />
             Portfolio Dashboard
           </h1>
           <p className="text-sm text-gray-400 mt-1">
@@ -484,7 +471,6 @@ export default function PortfolioPage() {
         <div className="flex items-center gap-3">
           {highestRisk && (
             <div className="card px-4 py-2.5 text-sm flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-500" />
               <span className="text-gray-500">Highest risk:</span>
               <span className="font-semibold text-gray-900">{highestRisk.name}</span>
               <span className="badge-critical">{highestRisk.critical_findings} critical</span>
@@ -495,7 +481,7 @@ export default function PortfolioPage() {
             disabled={refreshing}
             className="btn-secondary"
           >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
             {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>

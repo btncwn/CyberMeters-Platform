@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
-import { Shield, RefreshCw, CheckCircle2, AlertTriangle, Wrench, HelpCircle } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { BASE } from '../api'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -14,10 +14,10 @@ import { BASE } from '../api'
 const ROOT = (BASE || '').replace(/\/api\/?$/, '')
 
 const STATE = {
-  operational: { label: 'All systems operational', cls: 'text-green-700', dot: 'bg-green-500', Icon: CheckCircle2, iconCls: 'text-green-500' },
-  degraded:    { label: 'Partial service disruption', cls: 'text-amber-700', dot: 'bg-amber-500', Icon: AlertTriangle, iconCls: 'text-amber-500' },
-  maintenance: { label: 'Scheduled maintenance', cls: 'text-brand-700', dot: 'bg-brand-500', Icon: Wrench, iconCls: 'text-brand-600' },
-  unknown:     { label: 'Unable to reach the service', cls: 'text-gray-600', dot: 'bg-gray-400', Icon: HelpCircle, iconCls: 'text-gray-400' },
+  operational: { label: 'All systems operational', cls: 'text-green-700', dot: 'bg-green-500' },
+  degraded:    { label: 'Partial service disruption', cls: 'text-amber-700', dot: 'bg-amber-500' },
+  maintenance: { label: 'Scheduled maintenance', cls: 'text-brand-700', dot: 'bg-brand-500' },
+  unknown:     { label: 'Unable to reach the service', cls: 'text-gray-600', dot: 'bg-gray-400' },
 }
 
 function Component({ name, ok }) {
@@ -83,24 +83,18 @@ export default function StatusPage() {
   }, [check])
 
   const s = STATE[state] || STATE.unknown
-  const StateIcon = s.Icon
 
   return (
     <div className="min-h-screen bg-gray-50">
       <main className="max-w-2xl mx-auto px-6 py-12">
         <Link to="/" className="inline-flex items-center gap-2 group mb-8">
-          <div className="w-7 h-7 rounded-md bg-brand-600 flex items-center justify-center">
-            <Shield className="w-4 h-4 text-white" strokeWidth={2.5} />
-          </div>
           <span className="font-bold text-gray-900 text-sm group-hover:text-brand-700 transition-colors">CyberMeters</span>
         </Link>
 
         <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              {state === 'loading'
-                ? <RefreshCw className="w-6 h-6 text-gray-300 animate-spin flex-shrink-0" />
-                : <StateIcon className={`w-6 h-6 flex-shrink-0 ${s.iconCls}`} />}
+              {state === 'loading' && <RefreshCw className="w-6 h-6 text-gray-300 animate-spin flex-shrink-0" />}
               <div className="min-w-0">
                 <h1 className="text-xl font-bold text-gray-900">System status</h1>
                 <p className={`text-sm font-semibold ${state === 'loading' ? 'text-gray-400' : s.cls}`}>
@@ -113,7 +107,7 @@ export default function StatusPage() {
               disabled={loading}
               className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:border-brand-300 hover:text-brand-700 transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              {loading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
               Refresh
             </button>
           </div>

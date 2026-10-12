@@ -1,4 +1,3 @@
-import { Info, LockKeyhole } from 'lucide-react'
 import LiveTlsEvidence from './LiveTlsEvidence'
 import { customerEvidenceText } from '../lib/evidenceStrengthDisplay'
 
@@ -102,7 +101,6 @@ export default function CertificateAssuranceSummary({
   return (
     <section className={`rounded-2xl border border-slate-200 bg-slate-50/70 p-5 ${className}`}>
       <div className="flex items-start gap-3">
-        <LockKeyhole className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-700" />
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-bold text-slate-900">{title}</h3>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">{presentation.scope_note}</p>
@@ -116,7 +114,6 @@ export default function CertificateAssuranceSummary({
 
       {summary.trust_ceiling && (
         <div className="mt-3 flex gap-2 rounded-lg border border-blue-100 bg-white px-3 py-2">
-          <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-blue-600" />
           <p className="text-xs leading-relaxed text-slate-600">{summary.trust_ceiling}</p>
         </div>
       )}

@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Gauge } from 'lucide-react'
 import { api } from '../api'
 import { monthLabel, storageText, usageRows } from '../lib/workspaceUsageDisplay'
 
@@ -25,7 +24,6 @@ export default function WorkspaceUsageCard({ workspaceId }) {
   return (
     <section className="card p-5" aria-label="Usage this month">
       <div className="flex items-center gap-2 mb-1">
-        <Gauge className="w-4 h-4 text-gray-500" />
         <h2 className="section-title">Usage in {monthLabel(data?.period_start)}</h2>
       </div>
       <p className="text-sm text-gray-600 mb-3">

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useId, useState } from 'react'
-import { ListPlus } from 'lucide-react'
 import { api } from '../api'
 import { parseServerDate } from '../utils/dates'
 
@@ -181,7 +180,6 @@ export default function HostnameListPanel({ workspaceId }) {
   return (
     <section className="card p-5" aria-labelledby="hostname-list-heading">
       <div className="flex items-center gap-2 mb-1">
-        <ListPlus className="w-4 h-4 text-brand-600" aria-hidden="true" />
         <h2 id="hostname-list-heading" className="text-base font-semibold text-gray-900">Hostnames you know about</h2>
       </div>
       {data?.scope_note && <p className="text-sm text-gray-600">{data.scope_note}</p>}

@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { Fingerprint, Mail, Users, KeyRound } from 'lucide-react'
 import { api } from '../api'
 
 // Consolidated Identity Exposure — "how can an attacker impersonate, steal, or
@@ -15,11 +14,10 @@ const LEVEL = {
   Unavailable: { text: 'text-slate-700', bg: 'bg-slate-50', ring: 'border-slate-200' },
 }
 
-function Signal({ icon: Icon, label, value, sub }) {
+function Signal({ label, value, sub }) {
   return (
     <div className="rounded-xl border border-gray-100 bg-white p-3">
       <div className="flex items-center gap-1.5 text-gray-400 mb-1.5">
-        <Icon className="w-3.5 h-3.5" />
         <span className="text-[13px] font-medium uppercase tracking-wide">{label}</span>
       </div>
       <p className="text-sm font-semibold text-gray-900 leading-snug">{value}</p>
@@ -55,10 +53,7 @@ export default function IdentityExposureCard({ workspaceId }) {
   return (
     <div className={`card p-5 border ${lvl.ring}`}>
       <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="flex items-center gap-2">
-          <Fingerprint className="w-4.5 h-4.5 text-brand-600" strokeWidth={2.2} />
-          <h2 className="text-sm font-semibold text-gray-900">Identity Exposure</h2>
-        </div>
+        <h2 className="text-sm font-semibold text-gray-900">Identity Exposure</h2>
         <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${lvl.bg} ${lvl.text}`}>{data.identity_exposure_level}</span>
       </div>
 
@@ -66,19 +61,16 @@ export default function IdentityExposureCard({ workspaceId }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Signal
-          icon={Mail}
           label="Email spoofing"
           value={email.policy_gap_domains > 0 ? `${email.policy_gap_domains} DMARC policy gap${email.policy_gap_domains === 1 ? '' : 's'}` : email.policy_observed_domains > 0 ? `${email.policy_observed_domains} enforcing polic${email.policy_observed_domains === 1 ? 'y' : 'ies'} observed` : 'Not evaluated'}
           sub={email.policy_gap_domains > 0 ? 'Missing or monitoring-only policy' : email.policy_observed_domains > 0 ? 'Message authentication is not tested here' : 'No usable DMARC evidence'}
         />
         <Signal
-          icon={Users}
           label="Impersonation"
           value={imp.active > 0 ? `${imp.active} active lookalike${imp.active === 1 ? '' : 's'}` : notObserved ? 'Not evaluated' : 'No active lookalike observed'}
           sub={imp.mail_receiving_domains > 0 ? `${imp.mail_receiving_domains} with mail-receiving MX records` : imp.active > 0 ? 'Needs review; abuse is not established' : notObserved ? 'Evidence unavailable' : 'Observed brand evidence only'}
         />
         <Signal
-          icon={KeyRound}
           label="Identity discovery"
           value={`${login.provider_relationship_count ?? 0} provider relationship${login.provider_relationship_count === 1 ? '' : 's'} · ${login.surface_candidate_count ?? 0} possible hostname${login.surface_candidate_count === 1 ? '' : 's'}`}
           sub={(login.reachability_evaluated_count ?? 0) > 0 ? `${login.reachable_surface_count ?? 0} measured reachable` : 'Endpoint reachability not evaluated'}

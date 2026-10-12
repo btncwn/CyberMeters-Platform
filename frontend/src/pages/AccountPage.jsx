@@ -13,12 +13,7 @@ import { parseServerDate } from '../utils/dates'
 
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  User, Building2, CreditCard, Save, AlertTriangle,
-  CheckCircle, Globe, Briefcase, ChevronDown, Shield,
-  KeyRound, Trash2, Plus, Gauge, Smartphone, Copy, LifeBuoy,
-  ChevronRight,
-} from 'lucide-react'
+import { CheckCircle, ChevronDown, Trash2, Copy } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { USER_KEY } from '../context/authKeys'
@@ -56,13 +51,10 @@ function StatusDot({ status }) {
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
 
-function Section({ icon: Icon, title, children }) {
+function Section({ title, children }) {
   return (
     <div className="card mb-6">
       <div className="flex items-center gap-2.5 mb-5 pb-4 border-b border-gray-100">
-        <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
-          <Icon className="w-4 h-4 text-brand-600" />
-        </div>
         <h2 className="font-semibold text-gray-900">{title}</h2>
       </div>
       {children}
@@ -133,9 +125,6 @@ function PlanLimitsCard({ planLimits }) {
   return (
     <div className="card mb-6">
       <div className="flex items-center gap-2.5 mb-5 pb-4 border-b border-gray-100">
-        <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
-          <Gauge className="w-4 h-4 text-brand-600" />
-        </div>
         <div className="flex items-center gap-2 flex-1">
           <h2 className="font-semibold text-gray-900">Plan Usage</h2>
           <PlanBadge plan={plan} />
@@ -426,7 +415,6 @@ export default function AccountPage() {
         </div>
       ) : loadError ? (
         <div className="card p-8 text-center">
-          <AlertTriangle className="w-8 h-8 text-red-400 mx-auto mb-3" />
           <p className="text-sm text-red-600">{loadError}</p>
         </div>
       ) : (
@@ -437,7 +425,7 @@ export default function AccountPage() {
             <div className="lg:col-span-2">
 
               {/* ── Profile ──────────────────────────────────────────────── */}
-              <Section icon={User} title="Profile">
+              <Section title="Profile">
                 <Field label="Email address" hint="Email cannot be changed.">
                   <input
                     type="email"
@@ -460,7 +448,7 @@ export default function AccountPage() {
               </Section>
 
               {/* ── Company Information ───────────────────────────────────── */}
-              <Section icon={Building2} title="Company Information">
+              <Section title="Company Information">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5">
                   <Field label="Company name">
                     <input
@@ -516,14 +504,13 @@ export default function AccountPage() {
                   </Field>
                   <Field label="Country" hint="Country of primary operations">
                     <div className="relative flex items-center">
-                      <Globe className="absolute left-3 w-4 h-4 text-gray-400 pointer-events-none" />
                       <input
                         type="text"
                         name="country"
                         value={form.country}
                         onChange={handleChange}
                         placeholder="United Kingdom"
-                        className="input pl-9"
+                        className="input"
                         maxLength={100}
                       />
                     </div>
@@ -533,13 +520,11 @@ export default function AccountPage() {
                 {/* Save feedback */}
                 {saveError && (
                   <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100 mb-4">
-                    <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
                     <p className="text-xs text-red-600">{saveError}</p>
                   </div>
                 )}
                 {saveOk && (
                   <div className="flex items-center gap-2 p-3 rounded-xl bg-green-50 border border-green-100 mb-4">
-                    <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
                     <p className="text-xs text-green-700">Profile saved successfully.</p>
                   </div>
                 )}
@@ -550,7 +535,6 @@ export default function AccountPage() {
                     disabled={saving}
                     className="btn-primary flex items-center gap-2 disabled:opacity-50"
                   >
-                    <Save className="w-4 h-4" />
                     {saving ? 'Saving…' : 'Save changes'}
                   </button>
                 </div>
@@ -560,11 +544,10 @@ export default function AccountPage() {
             {/* Right column — Plan Usage + Subscription */}
             <div className="lg:col-span-1">
               <PlanLimitsCard planLimits={planLimits} />
-              <Section icon={CreditCard} title="Subscription">
+              <Section title="Subscription">
 
                 {!subscription ? (
                   <div className="text-center py-6">
-                    <Briefcase className="w-8 h-8 text-gray-200 mx-auto mb-2" />
                     <p className="text-sm text-gray-400">No subscription found.</p>
                     <p className="text-xs text-gray-300 mt-1">Your account is on the free plan.</p>
                   </div>
@@ -610,10 +593,7 @@ export default function AccountPage() {
                 )}
 
                 <div className="mt-5 p-4 rounded-xl bg-brand-50 border border-brand-100">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Shield className="w-4 h-4 text-brand-600" />
-                    <p className="text-xs font-semibold text-brand-700">Upgrade your plan</p>
-                  </div>
+                  <p className="text-xs font-semibold text-brand-700 mb-2">Upgrade your plan</p>
                   <p className="text-xs text-brand-600 leading-relaxed">
                     Unlock unlimited domains, advanced reporting, and MSP portfolio features.
                   </p>
@@ -622,16 +602,14 @@ export default function AccountPage() {
               </Section>
 
               {/* ── Two-Factor Authentication ─────────────────────────── */}
-              <Section icon={Smartphone} title="Two-Factor Authentication">
+              <Section title="Two-Factor Authentication">
                 {mfaSuccess && (
                   <div className="flex items-center gap-2 p-3 rounded-xl bg-green-50 border border-green-100 mb-4">
-                    <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
                     <p className="text-xs text-green-700">{mfaSuccess}</p>
                   </div>
                 )}
                 {mfaError && (
                   <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100 mb-4">
-                    <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
                     <p className="text-xs text-red-600">{mfaError}</p>
                   </div>
                 )}
@@ -660,7 +638,6 @@ export default function AccountPage() {
                         disabled={mfaBusy}
                         className="btn-primary w-full justify-center disabled:opacity-50"
                       >
-                        <Smartphone className="w-4 h-4" />
                         {mfaBusy ? 'Setting up…' : 'Enable MFA'}
                       </button>
                     ) : (
@@ -695,6 +672,7 @@ export default function AccountPage() {
                           onClick={copySecret}
                           className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"
                           title="Copy secret"
+                          aria-label="Copy secret"
                         >
                           {copiedSecret ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                         </button>
@@ -746,7 +724,6 @@ export default function AccountPage() {
                       ))}
                     </div>
                     <div className="flex items-center gap-2 p-3 rounded-xl bg-green-50 border border-green-100">
-                      <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
                       <p className="text-xs text-green-700 font-medium">MFA is now active on your account.</p>
                     </div>
                     <button type="button" onClick={mfaReset} className="w-full btn-primary justify-center">
@@ -789,7 +766,7 @@ export default function AccountPage() {
                 )}
               </Section>
 
-              <Section icon={KeyRound} title="API Tokens">
+              <Section title="API Tokens">
                 <div className="space-y-4">
                   <div className="space-y-3">
                     <div>
@@ -843,7 +820,6 @@ export default function AccountPage() {
                       disabled={tokenBusy || !tokenName.trim()}
                       className="btn-primary w-full justify-center disabled:opacity-50"
                     >
-                      <Plus className="w-4 h-4" />
                       Generate token
                     </button>
                   </div>
@@ -857,14 +833,12 @@ export default function AccountPage() {
 
                   {tokenError && (
                     <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100">
-                      <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
                       <p className="text-xs text-red-600">{tokenError}</p>
                     </div>
                   )}
 
                   {apiTokens.length === 0 ? (
                     <div className="text-center py-5 border border-dashed border-gray-200 rounded-xl">
-                      <KeyRound className="w-7 h-7 text-gray-200 mx-auto mb-2" />
                       <p className="text-sm text-gray-400">No API tokens yet.</p>
                     </div>
                   ) : (
@@ -892,6 +866,7 @@ export default function AccountPage() {
                                   disabled={tokenBusy}
                                   className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-50"
                                   title="Revoke token"
+                                  aria-label="Revoke token"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
@@ -912,28 +887,20 @@ export default function AccountPage() {
                   onClick={() => navigate('/account/security')}
                   className="w-full flex items-center gap-3 text-left group pb-3"
                 >
-                  <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0 group-hover:bg-brand-100 transition-colors">
-                    <Shield className="w-4 h-4 text-brand-600" />
-                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900">Security</p>
                     <p className="text-xs text-gray-400">Login history &amp; active sessions</p>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0" />
                 </button>
                 <button
                   type="button"
                   onClick={() => navigate('/account/privacy')}
                   className="w-full flex items-center gap-3 text-left group pt-3"
                 >
-                  <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-100 transition-colors">
-                    <LifeBuoy className="w-4 h-4 text-blue-600" />
-                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900">Privacy &amp; Data</p>
                     <p className="text-xs text-gray-400">Export data, deletion requests, retention policy</p>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0" />
                 </button>
               </div>
             </div>

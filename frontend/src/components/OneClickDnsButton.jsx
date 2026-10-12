@@ -1,5 +1,3 @@
-import { Zap } from 'lucide-react'
-
 // Renders only when the backend has offered one-click verification. The link is
 // a full navigation to the DNS provider's own consent screen (built and signed
 // server-side); the customer approves there and is sent back to CyberMeters,
@@ -14,7 +12,6 @@ export default function OneClickDnsButton({ offer, className = '' }) {
         className="btn-primary w-full justify-center py-2.5 text-sm"
         data-testid="one-click-dns"
       >
-        <Zap className="w-4 h-4" />
         <span>Add the record automatically with {provider}</span>
       </a>
       <p className="text-xs text-brand-800 leading-relaxed">

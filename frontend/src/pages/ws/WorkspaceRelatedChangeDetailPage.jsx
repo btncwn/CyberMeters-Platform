@@ -12,7 +12,6 @@
 // connected — change is not compromise.
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, GitCompareArrows, Link2, FolderPlus } from 'lucide-react'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import { useWorkspace } from '../../hooks/useWorkspace'
@@ -190,7 +189,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
             onClick={() => navigate(-1)}
             className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"
           >
-            <ArrowLeft className="w-4 h-4" /> Back to related changes
+            Back to related changes
           </button>
 
           {/* ── Header ─────────────────────────────────────────────────── */}
@@ -198,7 +197,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 mb-2">
-                  <GitCompareArrows className="w-3.5 h-3.5" aria-hidden="true" /> Change cluster
+                  Change cluster
                 </span>
                 <h1 className="text-lg font-semibold text-slate-900">{ruleLabel(rc.rule_id)}</h1>
                 <p className="text-sm text-slate-600 mt-1">
@@ -239,7 +238,6 @@ export default function WorkspaceRelatedChangeDetailPage() {
 
           {/* ── Honesty note ───────────────────────────────────────────── */}
           <div className="rounded-xl border border-slate-200 bg-brand-50/40 px-4 py-3 flex items-start gap-2.5">
-            <GitCompareArrows className="w-4 h-4 text-brand-600 flex-shrink-0 mt-0.5" aria-hidden="true" />
             <p className="text-xs text-slate-600 leading-relaxed">{HONESTY_NOTE}</p>
           </div>
 
@@ -389,7 +387,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
                   disabled={!!busy}
                   className="inline-flex items-center justify-center gap-1.5 text-xs rounded-md border border-slate-200 bg-white text-slate-700 px-3 py-1.5 font-medium hover:bg-slate-50 disabled:opacity-50"
                 >
-                  <Link2 className="w-3.5 h-3.5" /> {busy === 'link' ? 'Linking…' : 'Link to existing case'}
+                  {busy === 'link' ? 'Linking…' : 'Link to existing case'}
                 </button>
                 <button
                   type="button"
@@ -397,7 +395,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
                   disabled={!!busy}
                   className="inline-flex items-center justify-center gap-1.5 text-xs rounded-md border border-brand-200 bg-brand-50 text-brand-700 px-3 py-1.5 font-medium hover:bg-brand-100 disabled:opacity-50"
                 >
-                  <FolderPlus className="w-3.5 h-3.5" /> {busy === 'create' ? 'Creating…' : 'Create case from this related change'}
+                  {busy === 'create' ? 'Creating…' : 'Create case from this related change'}
                 </button>
               </div>
             </div>

@@ -1,8 +1,4 @@
 import { useEffect, useState, useCallback } from 'react'
-import {
-  AlertTriangle, Building2, CheckCircle, CreditCard,
-  Save, Settings, User, Bell,
-} from 'lucide-react'
 import { api } from '../api'
 import { Link } from 'react-router-dom'
 import { AgencyReportBranding } from '../components/ReportBranding'
@@ -25,7 +21,6 @@ function Status({ error, ok }) {
   if (error) {
     return (
       <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 border border-red-100 text-xs text-red-600">
-        <AlertTriangle className="w-4 h-4" />
         {error}
       </div>
     )
@@ -33,7 +28,6 @@ function Status({ error, ok }) {
   if (ok) {
     return (
       <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 border border-green-100 text-xs text-green-700">
-        <CheckCircle className="w-4 h-4" />
         Saved
       </div>
     )
@@ -139,10 +133,7 @@ function NotificationPreferencesCard() {
   if (!wsId) {
     return (
       <div className="card p-6 space-y-4 lg:col-span-2">
-        <div className="flex items-center gap-2">
-          <Bell className="w-4 h-4 text-brand-600" />
-          <h2 className="text-sm font-bold text-gray-900">Notifications</h2>
-        </div>
+        <h2 className="text-sm font-bold text-gray-900">Notifications</h2>
         <p className="text-sm text-gray-400">Select a workspace to configure notification preferences.</p>
       </div>
     )
@@ -150,10 +141,7 @@ function NotificationPreferencesCard() {
 
   return (
     <div className="card p-6 space-y-4 lg:col-span-2">
-      <div className="flex items-center gap-2">
-        <Bell className="w-4 h-4 text-brand-600" />
-        <h2 className="text-sm font-bold text-gray-900">Notifications</h2>
-      </div>
+      <h2 className="text-sm font-bold text-gray-900">Notifications</h2>
 
       <p className="text-xs text-gray-400">
         Control how often CyberMeters sends you email alerts for this workspace.
@@ -200,7 +188,6 @@ function NotificationPreferencesCard() {
         disabled={saving || loading}
         className="btn-primary disabled:opacity-50"
       >
-        <Save className="w-4 h-4" />
         {saving ? 'Saving…' : 'Save Preferences'}
       </button>
     </div>
@@ -331,10 +318,7 @@ export default function SettingsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <form onSubmit={saveAccount} className="card p-6 space-y-4">
-          <div className="flex items-center gap-2">
-            <User className="w-4 h-4 text-brand-600" />
-            <h2 className="text-sm font-bold text-gray-900">Account Profile</h2>
-          </div>
+          <h2 className="text-sm font-bold text-gray-900">Account Profile</h2>
           <Field label="Name">
             <input
               className="input"
@@ -348,16 +332,12 @@ export default function SettingsPage() {
           </Field>
           <Status {...accountStatus} />
           <button type="submit" disabled={accountSaving} className="btn-primary disabled:opacity-50">
-            <Save className="w-4 h-4" />
             {accountSaving ? 'Saving...' : 'Save Account'}
           </button>
         </form>
 
         <form onSubmit={saveCompany} className="card p-6 space-y-4 lg:col-span-2">
-          <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-brand-600" />
-            <h2 className="text-sm font-bold text-gray-900">Company Profile</h2>
-          </div>
+          <h2 className="text-sm font-bold text-gray-900">Company Profile</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field label="Company Name">
               <input
@@ -425,16 +405,12 @@ export default function SettingsPage() {
           </div>
           <Status {...companyStatus} />
           <button type="submit" disabled={companySaving} className="btn-primary disabled:opacity-50">
-            <Save className="w-4 h-4" />
             {companySaving ? 'Saving...' : 'Save Company'}
           </button>
         </form>
 
         <div className="card p-6 space-y-4">
-          <div className="flex items-center gap-2">
-            <CreditCard className="w-4 h-4 text-brand-600" />
-            <h2 className="text-sm font-bold text-gray-900">Subscription</h2>
-          </div>
+          <h2 className="text-sm font-bold text-gray-900">Subscription</h2>
           <div className="space-y-3 text-sm">
             <div className="flex items-center justify-between">
               <span className="text-gray-400">Plan</span>
@@ -491,10 +467,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="card p-6 space-y-4 lg:col-span-2">
-          <div className="flex items-center gap-2">
-            <Settings className="w-4 h-4 text-brand-600" />
-            <h2 className="text-sm font-bold text-gray-900">API</h2>
-          </div>
+          <h2 className="text-sm font-bold text-gray-900">API</h2>
           <Field label="Base URL">
             <input
               className={`input mono text-xs ${!import.meta.env.VITE_API_BASE_URL ? 'text-red-500' : ''}`}

@@ -19,7 +19,6 @@
  */
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { AlertTriangle } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
@@ -91,7 +90,6 @@ export default function MicrosoftCallbackPage() {
         {error ? (
           <>
             <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600 text-left">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
               {error}
             </div>
             <button

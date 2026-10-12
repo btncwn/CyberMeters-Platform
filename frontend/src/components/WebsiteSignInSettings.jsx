@@ -1,5 +1,4 @@
 import { useEffect, useId, useState } from 'react'
-import { KeyRound } from 'lucide-react'
 import { api } from '../api'
 import { parseServerDate } from '../utils/dates'
 import {
@@ -237,10 +236,7 @@ export default function WebsiteSignInSettings({ workspaceId }) {
   const domains = data?.domains || []
   return (
     <section className="card p-5 mb-6" aria-label="Signed-in scanning">
-      <div className="flex items-center gap-2 mb-1">
-        <KeyRound className="w-4 h-4 text-gray-500" />
-        <h2 className="section-title">Signed-in scanning</h2>
-      </div>
+      <h2 className="section-title mb-1">Signed-in scanning</h2>
       <p className="text-sm text-gray-600 mb-3">
         Give CyberMeters a test account and it will also check pages behind your site’s sign-in — the pages your
         customers’ data lives on — with read-only requests.

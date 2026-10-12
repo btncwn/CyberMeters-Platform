@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ShieldAlert, ExternalLink, Pin } from 'lucide-react'
+import { ShieldAlert } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -17,7 +17,7 @@ const COLUMNS = [
       <div>
         <a href={v} target="_blank" rel="noopener noreferrer"
            className="font-medium text-brand-600 hover:underline text-sm flex items-center gap-1 truncate max-w-xs">
-          {v} <ExternalLink className="w-3 h-3 flex-shrink-0" />
+          {v}
         </a>
         {row.title && <p className="text-xs text-gray-400 mt-0.5 truncate max-w-xs">{row.title}</p>}
       </div>
@@ -109,7 +109,6 @@ export default function AdminSurfacesPage() {
 
       {/* Severity pin */}
       <div className="card p-4 mb-6 flex items-center gap-2 flex-wrap">
-        <Pin className="w-4 h-4 text-gray-400 flex-shrink-0" />
         <span className="text-xs text-gray-500 font-medium mr-1">Pin severity:</span>
         <button
           onClick={() => setPinSeverity('')}

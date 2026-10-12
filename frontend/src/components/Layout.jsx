@@ -1,12 +1,7 @@
 import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useRef } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
-import {
-  LayoutDashboard, Server, ScanLine, FileBarChart2,
-  Settings, Shield, Plus, ChevronDown, Calendar,
-  Briefcase, ChevronRight, Check, LogOut, User,
-  AlertTriangle, X, CreditCard, GraduationCap, ShieldAlert, LayoutGrid,
-} from 'lucide-react'
+import { ChevronDown, Check, X } from 'lucide-react'
 import CyberMetersLogo from './CyberMetersLogo'
 import { api, logoutWithToken } from '../api'
 import { TOKEN_KEY } from '../context/authKeys'
@@ -25,20 +20,20 @@ import FeedbackWidget from './FeedbackWidget'
 // service sidebars; secondary tools (Scans, Schedules, Academy) live in the user
 // menu. No routes are removed — everything stays reachable.
 const NAV = [
-  { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard'  },
-  { to: '/services',   icon: LayoutGrid,      label: 'Services'   },
-  { to: '/workspaces', icon: Briefcase,       label: 'Workspaces' },
-  { to: '/reports',    icon: FileBarChart2,   label: 'Reports'    },
-  { to: '/billing',    icon: CreditCard,      label: 'Billing'    },
-  { to: '/settings',   icon: Settings,        label: 'Settings'   },
+  { to: '/dashboard',  label: 'Dashboard'  },
+  { to: '/services',   label: 'Services'   },
+  { to: '/workspaces', label: 'Workspaces' },
+  { to: '/reports',    label: 'Reports'    },
+  { to: '/billing',    label: 'Billing'    },
+  { to: '/settings',   label: 'Settings'   },
 ]
 
 // Secondary destinations surfaced in the user menu so they stay reachable
 // without crowding the primary navigation.
 const MORE_LINKS = [
-  { to: '/scans',     icon: ScanLine,      label: 'Scans'     },
-  { to: '/schedules', icon: Calendar,      label: 'Schedules' },
-  { to: '/academy',   icon: GraduationCap, label: 'Academy'   },
+  { to: '/scans',     label: 'Scans'     },
+  { to: '/schedules', label: 'Schedules' },
+  { to: '/academy',   label: 'Academy'   },
 ]
 
 // ── Workspace Selector Dropdown ───────────────────────────────────────────────
@@ -97,7 +92,6 @@ function WorkspaceSelector() {
         onClick={handleOpen}
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
       >
-        <Briefcase className="w-3.5 h-3.5 text-gray-400" />
         <span className="max-w-[120px] truncate">{activeName || 'Workspace'}</span>
         <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -122,9 +116,6 @@ function WorkspaceSelector() {
               onClick={() => selectWorkspace(ws)}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left"
             >
-              <div className="w-5 h-5 rounded-md bg-brand-50 flex items-center justify-center flex-shrink-0">
-                <Briefcase className="w-3 h-3 text-brand-600" />
-              </div>
               <span className="flex-1 truncate">{ws.name}</span>
               {ws.id === activeId && <Check className="w-3.5 h-3.5 text-brand-600 flex-shrink-0" />}
             </button>
@@ -135,9 +126,7 @@ function WorkspaceSelector() {
               onClick={() => { setOpen(false); navigate('/workspaces') }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-brand-600 hover:bg-brand-50 transition-colors text-left font-medium"
             >
-              <Plus className="w-3.5 h-3.5" />
               Manage workspaces
-              <ChevronRight className="w-3 h-3 ml-auto" />
             </button>
             {activeId && (
               <button
@@ -224,20 +213,18 @@ function UserMenu() {
             onClick={() => { setOpen(false); navigate('/account') }}
             className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
           >
-            <User className="w-4 h-4 text-gray-400" />
             Account settings
           </button>
 
           {/* Secondary tools — kept reachable out of the lean top nav. */}
           <div className="border-t border-gray-100 mt-1 pt-1">
             <p className="px-4 pt-1 pb-0.5 text-[12px] font-semibold text-gray-400 uppercase tracking-widest">Tools</p>
-            {MORE_LINKS.map(({ to, icon: Icon, label }) => (
+            {MORE_LINKS.map(({ to, label }) => (
               <button
                 key={to}
                 onClick={() => { setOpen(false); navigate(to) }}
                 className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
               >
-                <Icon className="w-4 h-4 text-gray-400" />
                 {label}
               </button>
             ))}
@@ -248,7 +235,6 @@ function UserMenu() {
               onClick={handleLogout}
               className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
             >
-              <LogOut className="w-4 h-4" />
               Sign out
             </button>
           </div>
@@ -333,9 +319,6 @@ function UpgradePromptModal() {
           onPointerCancel={onDragEnd}
           title="Drag to move"
         >
-          <div className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
-            <AlertTriangle className="w-5 h-5 text-amber-600" />
-          </div>
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-bold text-gray-900">{limit.title || "You've reached your plan limit"}</h2>
             <p className="text-sm text-gray-500 mt-1">{body}</p>
@@ -420,13 +403,12 @@ export default function Layout() {
 
           {/* Nav */}
           <nav aria-label="Main navigation" className="order-3 xl:order-none w-full xl:w-auto min-w-0 flex flex-wrap items-center gap-1 xl:gap-2.5">
-            {NAV.map(({ to, icon: Icon, label }) => (
+            {NAV.map(({ to, label }) => (
               <NavLink
                 key={to}
                 to={to}
                 className={({ isActive }) => isActive ? 'nav-link-active' : 'nav-link'}
               >
-                <Icon className="w-4 h-4" />
                 {label}
               </NavLink>
             ))}
@@ -448,8 +430,7 @@ export default function Layout() {
               className="btn-primary"
               aria-label="New Scan"
             >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">New Scan</span>
+              <span>New Scan</span>
             </button>
 
             <UserMenu />

@@ -9,7 +9,6 @@
 // avoid.
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, Clock, FolderOpen, Shield } from 'lucide-react'
 import { api } from '../api'
 import { sortDisplayDomains } from '../lib/cyberMotDisplay'
 import { PlanGate } from '../components/PlanUsageCard'
@@ -193,7 +192,6 @@ export default function PortfolioDomainsPage() {
     return (
       <div className="p-6 max-w-screen-xl mx-auto">
         <div className="card p-6 border border-red-100 bg-red-50 flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
           <div>
             <div className="text-sm font-semibold text-red-800">Could not load your portfolio</div>
             <div className="text-xs text-red-700 mt-1">{error.message || 'Please try again.'}</div>
@@ -222,7 +220,6 @@ export default function PortfolioDomainsPage() {
         <>
           {summary.coverage_note && (
             <div className="card p-4 mb-4 border border-amber-100 bg-amber-50 flex items-start gap-2">
-              <Clock className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
               <div className="text-xs text-amber-800">{summary.coverage_note}</div>
             </div>
           )}
@@ -277,7 +274,6 @@ export default function PortfolioDomainsPage() {
 
       {rows.length === 0 ? (
         <div className="card p-12 text-center" data-testid="portfolio-empty">
-          <Shield className="w-10 h-10 text-gray-300 mx-auto mb-3" />
           <div className="text-sm font-semibold text-gray-800">
             {data?.portfolio_state === 'no_workspaces' || data?.portfolio_state === 'no_domains'
               ? 'No domains in your portfolio yet'
@@ -339,7 +335,7 @@ export default function PortfolioDomainsPage() {
 
       {data?.generated_at && (
         <div className="text-[13px] text-gray-400 mt-4 flex items-center gap-1">
-          <FolderOpen className="w-3 h-3" /> Generated {new Date(data.generated_at).toLocaleString('en-GB')}
+          Generated {new Date(data.generated_at).toLocaleString('en-GB')}
         </div>
       )}
     </div>

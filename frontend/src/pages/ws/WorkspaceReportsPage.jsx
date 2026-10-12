@@ -1,7 +1,7 @@
 import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { FileText, Download, Plus, RefreshCw, AlertTriangle, Clock, Calendar, Trash2, ToggleLeft, ToggleRight } from 'lucide-react'
+import { RefreshCw, Trash2, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -123,15 +123,12 @@ function ScheduledReportsCard({ wsId }) {
   return (
     <div className="card p-6 mt-6">
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-gray-400" />
-          <h2 className="text-sm font-semibold text-gray-900">Scheduled Reports</h2>
-        </div>
+        <h2 className="text-sm font-semibold text-gray-900">Scheduled Reports</h2>
         <button
           onClick={() => { setShowForm(v => !v); setCreateErr(null) }}
           className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1"
         >
-          <Plus className="w-3.5 h-3.5" /> New Schedule
+          New Schedule
         </button>
       </div>
 
@@ -190,7 +187,6 @@ function ScheduledReportsCard({ wsId }) {
 
       {!loading && !error && schedules.length === 0 && (
         <div className="py-8 text-center">
-          <Calendar className="w-8 h-8 text-gray-200 mx-auto mb-2" />
           <p className="text-sm text-gray-400">No scheduled reports configured.</p>
         </div>
       )}
@@ -213,6 +209,7 @@ function ScheduledReportsCard({ wsId }) {
                 <button
                   onClick={() => handleToggle(sr)}
                   title={sr.enabled ? 'Disable' : 'Enable'}
+                  aria-label={sr.enabled ? 'Disable' : 'Enable'}
                   className="text-gray-400 hover:text-brand-600 transition-colors"
                 >
                   {sr.enabled
@@ -223,6 +220,7 @@ function ScheduledReportsCard({ wsId }) {
                 <button
                   onClick={() => handleDelete(sr.id)}
                   title="Delete schedule"
+                  aria-label="Delete schedule"
                   className="text-gray-300 hover:text-red-500 transition-colors"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -396,8 +394,7 @@ function WorkspaceReports({ wsId, wsName }) {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <FileText className="w-6 h-6 text-brand-600" />
+          <h1 className="text-2xl font-bold text-gray-900">
             PDF Reports
           </h1>
           <p className="text-sm text-gray-400 mt-1">
@@ -445,7 +442,7 @@ function WorkspaceReports({ wsId, wsName }) {
           >
             {generating
               ? <><RefreshCw className="w-4 h-4 animate-spin" /> Generating…</>
-              : <><Plus className="w-4 h-4" /> Generate Report</>
+              : 'Generate Report'
             }
           </button>
         </div>
@@ -477,7 +474,6 @@ function WorkspaceReports({ wsId, wsName }) {
       {/* Generation error */}
       {genError && (
         <div className="mb-6 flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           {genError}
           <button onClick={() => setGenError(null)} className="ml-auto text-red-400 hover:text-red-600">✕</button>
         </div>
@@ -486,7 +482,6 @@ function WorkspaceReports({ wsId, wsName }) {
       {/* Reports table / empty state */}
       {reports.length === 0 ? (
         <div className="card p-16 text-center">
-          <FileText className="w-12 h-12 text-gray-200 mx-auto mb-4" />
           <p className="text-gray-500 font-medium mb-1">No reports generated yet.</p>
           <p className="text-sm text-gray-400 mb-6">Complete the guided setup to create your first assessment and report.</p>
           <div className="flex flex-wrap items-center justify-center gap-3">
@@ -500,7 +495,7 @@ function WorkspaceReports({ wsId, wsName }) {
             >
               {generating
                 ? <><RefreshCw className="w-4 h-4 animate-spin" /> Generating…</>
-                : <><Plus className="w-4 h-4" /> Generate manually</>
+                : 'Generate manually'
               }
             </button>
           </div>
@@ -513,7 +508,7 @@ function WorkspaceReports({ wsId, wsName }) {
               onClick={() => load(true)}
               className="btn-ghost text-xs py-1.5 px-2.5"
             >
-              <RefreshCw className="w-3.5 h-3.5" /> Refresh
+              Refresh
             </button>
           </div>
 
@@ -548,7 +543,7 @@ function WorkspaceReports({ wsId, wsName }) {
                     <td>
                       <span className="text-sm text-gray-500 flex items-center gap-1">
                         {report.status === 'pending' || report.status === 'running'
-                          ? <><Clock className="w-3.5 h-3.5 text-amber-400 animate-pulse" /> In progress…</>
+                          ? 'In progress…'
                           : fmtDateTime(report.generated_at)
                         }
                       </span>
@@ -565,7 +560,6 @@ function WorkspaceReports({ wsId, wsName }) {
                             onClick={() => handleDownload(report)}
                             className="btn-ghost py-1 px-2.5 text-xs inline-flex items-center gap-1.5 text-brand-600 hover:text-brand-700"
                           >
-                            <Download className="w-3.5 h-3.5" />
                             PDF
                           </button>
                         ) : report.status === 'failed' ? (
@@ -578,7 +572,6 @@ function WorkspaceReports({ wsId, wsName }) {
                           disabled={deleting}
                           className="btn-ghost py-1 px-2.5 text-xs inline-flex items-center gap-1.5 text-red-500 hover:text-red-600 disabled:opacity-50"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
                           Delete
                         </button>
                       </div>
@@ -599,9 +592,6 @@ function WorkspaceReports({ wsId, wsName }) {
         <div className="fixed inset-0 z-50 bg-gray-900/30 flex items-center justify-center px-4">
           <div className="w-full max-w-md rounded-xl bg-white border border-gray-100 shadow-xl p-6">
             <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center flex-shrink-0">
-                <Trash2 className="w-5 h-5 text-red-500" />
-              </div>
               <div className="min-w-0">
                 <h2 className="text-sm font-bold text-gray-900">Delete this report permanently?</h2>
                 <div className="mt-3 space-y-1 text-sm">

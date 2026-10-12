@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import {
-  AlertTriangle, CheckCircle2, GitBranch, RefreshCw, Shield, Zap,
-} from 'lucide-react'
+import { AlertTriangle, GitBranch, Shield, Zap } from 'lucide-react'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import { useWorkspace } from '../../hooks/useWorkspace'
@@ -107,8 +105,7 @@ function CriticalVendorsTable({ vendors }) {
 function CascadingRiskList({ risks }) {
   if (!risks?.length) {
     return (
-      <div className="flex items-center gap-2 text-sm text-brand-600 py-2">
-        <CheckCircle2 className="w-4 h-4" />
+      <div className="text-sm text-brand-600 py-2">
         No cascading risk scenarios detected.
       </div>
     )
@@ -120,11 +117,6 @@ function CascadingRiskList({ risks }) {
     <ul className="space-y-3">
       {sorted.map((r, i) => (
         <li key={i} className="flex gap-3">
-          <AlertTriangle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${
-            r.severity === 'critical' ? 'text-red-500' :
-            r.severity === 'high'     ? 'text-orange-500' :
-            'text-amber-400'
-          }`} />
           <div>
             <p className="text-sm font-medium text-gray-800">{r.scenario}</p>
             <p className="text-xs text-gray-400 mt-0.5 capitalize">
@@ -255,7 +247,7 @@ export default function WorkspaceSupplyChainPage() {
           </p>
         </div>
         <button onClick={load} className="btn-ghost flex items-center gap-1.5">
-          <RefreshCw className="w-4 h-4" /> Refresh
+          Refresh
         </button>
       </div>
 
@@ -397,7 +389,6 @@ export default function WorkspaceSupplyChainPage() {
 
       {!data && !loading && !error && (
         <div className="card p-12 text-center">
-          <GitBranch className="w-10 h-10 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 font-medium">No supply chain data yet</p>
           <p className="text-sm text-gray-400 mt-1">Run a scan to generate supply chain intelligence.</p>
         </div>

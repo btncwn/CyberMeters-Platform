@@ -30,11 +30,16 @@ export default {
         xl: ['1.3125rem', { lineHeight: '1.875rem' }],   // 21px (default 20)
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        // Public website display face (Computer Modern, self-hosted, SIL OFL).
+        // One type style across the product (founder, 12 Oct): Computer Modern,
+        // self-hosted, SIL OFL. `sans` keeps its name so every existing class
+        // picks it up.
+        sans: ['"Computer Modern Text"', '"Computer Modern Serif"', 'Georgia', 'serif'],
+        // Display headings at true size.
         cm: ['"Computer Modern Serif"', 'Georgia', 'Cambria', 'serif'],
-        mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace'],
+        mono: ['"Computer Modern Typewriter"', 'ui-monospace', 'monospace'],
       },
+      // Computer Modern is drawn for normal spacing; squeezed headings read badly.
+      letterSpacing: { tighter: '0', tight: '0' },
       boxShadow: {
         // Refined, slightly cooler shadows (navy-tinted) read more premium than flat black.
         card: '0 1px 2px 0 rgba(16,24,40,.05), 0 1px 3px 0 rgba(16,24,40,.04)',

@@ -7,40 +7,28 @@
  * Props: none (self-contained, reads/writes localStorage).
  */
 import { useState } from 'react'
-import {
-  X, Users, LayoutDashboard, Server, AlertTriangle, FileText, Boxes,
-} from 'lucide-react'
+import { X } from 'lucide-react'
 
 const DISMISSED_KEY = 'cybermeters_team_onboarding_dismissed'
 
 const FEATURES = [
   {
-    icon: LayoutDashboard,
-    color: 'bg-brand-50 text-brand-600',
     title: 'Dashboard',
     desc: 'Your workspace home — cyber score, recent scans, key findings, and domain health at a glance.',
   },
   {
-    icon: Server,
-    color: 'bg-amber-50 text-amber-600',
     title: 'Assets',
     desc: 'Every subdomain, certificate, cloud service, and admin panel discovered during scanning.',
   },
   {
-    icon: AlertTriangle,
-    color: 'bg-red-50 text-red-500',
     title: 'Findings',
     desc: 'Prioritised security issues with severity ratings, evidence, and remediation guidance.',
   },
   {
-    icon: FileText,
-    color: 'bg-purple-50 text-purple-600',
     title: 'Reports',
     desc: 'Executive PDF reports you can share with clients, management, or auditors.',
   },
   {
-    icon: Boxes,
-    color: 'bg-green-50 text-green-600',
     title: 'Shadow IT & Unmanaged Technology',
     desc: 'SaaS portals, third-party scripts and providers observed on your domains — classified as approved, under review or unmanaged.',
   },
@@ -62,16 +50,11 @@ export default function TeamOnboardingCard() {
     <div className="bg-white rounded-2xl border border-brand-100 shadow-sm overflow-hidden">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-4 border-b border-gray-50">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center flex-shrink-0">
-            <Users className="w-4 h-4 text-brand-600" />
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-gray-900">Welcome to your team workspace</h3>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Here's a quick guide to what you can do.
-            </p>
-          </div>
+        <div>
+          <h3 className="text-base font-bold text-gray-900">Welcome to your team workspace</h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Here's a quick guide to what you can do.
+          </p>
         </div>
         <button
           onClick={dismiss}
@@ -84,11 +67,8 @@ export default function TeamOnboardingCard() {
 
       {/* Feature grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-px bg-gray-100">
-        {FEATURES.map(({ icon: Icon, color, title, desc }) => (
+        {FEATURES.map(({ title, desc }) => (
           <div key={title} className="bg-white px-5 py-4">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2.5 ${color}`}>
-              <Icon className="w-4 h-4" />
-            </div>
             <p className="text-sm font-semibold text-gray-900 mb-1">{title}</p>
             <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
           </div>

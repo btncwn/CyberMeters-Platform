@@ -13,11 +13,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import {
-  HardDrive, Clock, Trash2, ToggleLeft, ToggleRight,
-  AlertTriangle, CheckCircle, RefreshCw, X, Info,
-  TrendingUp, FileText, Shield,
-} from 'lucide-react'
+import { ToggleLeft, ToggleRight, RefreshCw, X } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -80,17 +76,12 @@ function InlineBadge({ children, variant = 'neutral' }) {
   )
 }
 
-function SectionHeader({ icon: Icon, iconBg = 'bg-brand-50', iconColor = 'text-brand-600', title, subtitle, action }) {
+function SectionHeader({ title, subtitle, action }) {
   return (
     <div className="flex items-start justify-between gap-4 mb-5">
-      <div className="flex items-start gap-3">
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
-          <Icon className={`w-4 h-4 ${iconColor}`} />
-        </div>
-        <div>
-          <h2 className="text-sm font-bold text-gray-900">{title}</h2>
-          {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
-        </div>
+      <div>
+        <h2 className="text-sm font-bold text-gray-900">{title}</h2>
+        {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
       </div>
       {action && <div className="flex-shrink-0">{action}</div>}
     </div>
@@ -110,9 +101,6 @@ function CleanupWarningModal({ open, onConfirm, onCancel, newDays, wasAutoCleanu
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
         {/* Header */}
         <div className="px-6 py-5 flex items-start gap-3 border-b border-amber-100 bg-amber-50">
-          <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-            <AlertTriangle className="w-5 h-5 text-amber-600" />
-          </div>
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-bold text-gray-900">Review your retention changes</h3>
             <p className="text-xs text-gray-500 mt-0.5">This may result in permanent data removal</p>
@@ -121,6 +109,7 @@ function CleanupWarningModal({ open, onConfirm, onCancel, newDays, wasAutoCleanu
             onClick={onCancel}
             disabled={loading}
             className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-amber-100 flex items-center justify-center flex-shrink-0"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
@@ -130,7 +119,6 @@ function CleanupWarningModal({ open, onConfirm, onCancel, newDays, wasAutoCleanu
         <div className="px-6 py-5 space-y-3">
           {reducingDays && (
             <div className="flex items-start gap-2.5 p-3 rounded-xl bg-red-50 border border-red-100">
-              <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-red-700">
                 Reducing the retention period to <strong>{newDays} days</strong> means reports older than
                 that may be <strong>permanently removed</strong> during the next cleanup cycle.
@@ -139,7 +127,6 @@ function CleanupWarningModal({ open, onConfirm, onCancel, newDays, wasAutoCleanu
           )}
           {enablingCleanup && (
             <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-100">
-              <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-amber-800">
                 Enabling auto cleanup will automatically delete reports that exceed the configured
                 retention period. <strong>This action cannot be automatically reversed</strong> once
@@ -187,7 +174,6 @@ function StorageUsageCard({ data, loading, error, onRefresh }) {
   return (
     <div className="card p-6">
       <SectionHeader
-        icon={HardDrive}
         title="Storage Usage"
         subtitle="Report storage consumed by this workspace"
         action={
@@ -196,6 +182,7 @@ function StorageUsageCard({ data, loading, error, onRefresh }) {
               onClick={onRefresh}
               className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center transition-colors"
               title="Refresh"
+              aria-label="Refresh"
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
@@ -205,16 +192,12 @@ function StorageUsageCard({ data, loading, error, onRefresh }) {
 
       {error && (
         <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-sm text-red-700">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           {error}
         </div>
       )}
 
       {noData && !error && (
         <div className="flex flex-col items-center py-8 text-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center">
-            <HardDrive className="w-6 h-6 text-gray-300" />
-          </div>
           <p className="text-sm font-medium text-gray-500">Storage metrics unavailable</p>
           <p className="text-xs text-gray-400 max-w-xs">
             Storage data will appear once reports have been generated for this workspace.
@@ -252,25 +235,18 @@ function RetentionPolicyCard({ data, loading, error }) {
   return (
     <div className="card p-6">
       <SectionHeader
-        icon={Clock}
-        iconBg="bg-blue-50"
-        iconColor="text-blue-600"
         title="Current Retention Policy"
         subtitle="Your active report lifecycle settings"
       />
 
       {error && (
         <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-sm text-red-700">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           {error}
         </div>
       )}
 
       {noData && !error && (
         <div className="flex flex-col items-center py-8 text-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center">
-            <Clock className="w-6 h-6 text-gray-300" />
-          </div>
           <p className="text-sm font-medium text-gray-500">No retention policy configured</p>
           <p className="text-xs text-gray-400 max-w-xs">
             Configure a retention policy below to control how long reports are stored.
@@ -292,9 +268,6 @@ function RetentionPolicyCard({ data, loading, error }) {
               </div>
             ) : (
               <>
-                <div className="w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
-                  <Clock className="w-5 h-5 text-brand-600" />
-                </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-gray-900">
                     {data?.retention_days ? `${data.retention_days}-day retention` : 'Not configured'}
@@ -414,16 +387,12 @@ function RetentionSettingsCard({ wsId, current, loading, loadError, onRetry, onS
   return (
     <div className="card p-6">
       <SectionHeader
-        icon={Shield}
-        iconBg="bg-amber-50"
-        iconColor="text-amber-600"
         title="Retention Controls"
         subtitle="Configure how long reports are stored and when cleanup runs"
       />
 
       {loadError && (
         <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-sm text-red-700 mb-5">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           {loadError}
           <button onClick={onRetry} className="ml-auto text-xs underline">Retry</button>
         </div>
@@ -482,7 +451,6 @@ function RetentionSettingsCard({ wsId, current, loading, loadError, onRetry, onS
 
           {/* Warning copy — always visible */}
           <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-amber-50 border border-amber-100">
-            <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-amber-800 leading-relaxed">
               Reports older than the configured retention period may be permanently removed.
               Download any reports you need before enabling auto cleanup.
@@ -492,13 +460,11 @@ function RetentionSettingsCard({ wsId, current, loading, loadError, onRetry, onS
           {/* Save feedback */}
           {saveOk && (
             <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-green-50 border border-green-100 text-sm text-green-700">
-              <CheckCircle className="w-4 h-4 flex-shrink-0" />
               Retention settings saved successfully.
             </div>
           )}
           {saveErr && (
             <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-sm text-red-700">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
               {saveErr}
             </div>
           )}
@@ -549,7 +515,7 @@ function StorageInsightsSection({ storage, retention, loading }) {
   if (loading) {
     return (
       <div className="card p-6">
-        <SectionHeader icon={Info} iconBg="bg-gray-50" iconColor="text-gray-400" title="Storage Insights" />
+        <SectionHeader title="Storage Insights" />
         <div className="space-y-2.5">
           <Skel className="h-10 w-full rounded-xl" />
           <Skel className="h-10 w-4/5 rounded-xl" />
@@ -563,16 +529,14 @@ function StorageInsightsSection({ storage, retention, loading }) {
 
   if (storage) {
     const mb = storage.storage_mb ?? 0
-    if (mb < 100)  insights.push({ icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50', text: 'Storage usage is within typical plan limits.' })
-    if (mb > 500)  insights.push({ icon: AlertTriangle, color: 'text-amber-600', bg: 'bg-amber-50', text: 'Storage usage is high. Consider downloading and archiving older reports.' })
+    if (mb < 100)  insights.push({ bg: 'bg-green-50', text: 'Storage usage is within typical plan limits.' })
+    if (mb > 500)  insights.push({ bg: 'bg-amber-50', text: 'Storage usage is high. Consider downloading and archiving older reports.' })
 
     if (storage.report_count > 0 && retention?.retention_days) {
       // Rough estimate: assume linear distribution of reports
       const estimatedOld = Math.round(storage.report_count * 0.15)
       if (estimatedOld > 0 && retention.auto_cleanup) {
         insights.push({
-          icon: Trash2,
-          color: 'text-amber-600',
           bg: 'bg-amber-50',
           text: `Auto cleanup may remove approximately ${estimatedOld} older report${estimatedOld === 1 ? '' : 's'} based on your retention policy.`,
         })
@@ -580,16 +544,16 @@ function StorageInsightsSection({ storage, retention, loading }) {
     }
 
     if (storage.report_count === 0) {
-      insights.push({ icon: FileText, color: 'text-gray-400', bg: 'bg-gray-50', text: 'No reports stored yet. Retention settings will apply once reports are generated.' })
+      insights.push({ bg: 'bg-gray-50', text: 'No reports stored yet. Retention settings will apply once reports are generated.' })
     }
   }
 
   if (retention) {
     if (!retention.auto_cleanup) {
-      insights.push({ icon: Info, color: 'text-blue-600', bg: 'bg-blue-50', text: 'Auto cleanup is disabled. Reports will accumulate until manually managed.' })
+      insights.push({ bg: 'bg-blue-50', text: 'Auto cleanup is disabled. Reports will accumulate until manually managed.' })
     }
     if (retention.retention_days >= 730) {
-      insights.push({ icon: TrendingUp, color: 'text-brand-600', bg: 'bg-brand-50', text: 'Long retention periods support compliance and historical trend analysis.' })
+      insights.push({ bg: 'bg-brand-50', text: 'Long retention periods support compliance and historical trend analysis.' })
     }
   }
 
@@ -598,22 +562,15 @@ function StorageInsightsSection({ storage, retention, loading }) {
   return (
     <div className="card p-6">
       <SectionHeader
-        icon={Info}
-        iconBg="bg-gray-50"
-        iconColor="text-gray-500"
         title="Storage Insights"
         subtitle="Observations based on your current configuration"
       />
       <div className="space-y-2.5">
-        {insights.map((ins, i) => {
-          const Icon = ins.icon
-          return (
-            <div key={i} className={`flex items-start gap-3 px-4 py-3 rounded-xl border ${ins.bg} border-transparent`}>
-              <Icon className={`w-4 h-4 flex-shrink-0 mt-0.5 ${ins.color}`} />
-              <p className="text-sm text-gray-700 leading-relaxed">{ins.text}</p>
-            </div>
-          )
-        })}
+        {insights.map((ins, i) => (
+          <div key={i} className={`flex items-start gap-3 px-4 py-3 rounded-xl border ${ins.bg} border-transparent`}>
+            <p className="text-sm text-gray-700 leading-relaxed">{ins.text}</p>
+          </div>
+        ))}
       </div>
     </div>
   )

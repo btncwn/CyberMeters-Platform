@@ -1,11 +1,7 @@
 import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  Mail, ShieldCheck, ShieldAlert, KeyRound, Image as ImageIcon, Lock, FileText,
-  Copy, Check, AlertTriangle, CheckCircle, ChevronDown, Info, RefreshCw, Globe,
-  ArrowRight, Megaphone, Upload, Users, Filter, Gauge, X, Inbox,
-} from 'lucide-react'
+import { ChevronDown, RefreshCw, X } from 'lucide-react'
 import DmarcPolicyEvidenceCard from '../../components/DmarcPolicyEvidenceCard'
 import CloudflareDnsChanges from '../../components/CloudflareDnsChanges'
 import { api, BASE } from '../../api'
@@ -54,7 +50,6 @@ function CopyButton({ value, label = 'Copy' }) {
       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-700 transition-colors flex-shrink-0"
       title="Copy DNS value"
     >
-      {copied ? <Check className="w-3.5 h-3.5 text-brand-600" /> : <Copy className="w-3.5 h-3.5" />}
       {copied ? 'Copied' : label}
     </button>
   )
@@ -82,7 +77,7 @@ const JOURNEY_STAGES = [
 function DmarcJourney({ journey }) {
   if (!journey || !journey.stage) {
     return (
-      <EmptyCard icon={ShieldAlert} title="DMARC journey unavailable"
+      <EmptyCard title="DMARC journey unavailable"
         body="DMARC journey data is not available for this scan yet. Re-run a scan to generate it." />
     )
   }
@@ -92,9 +87,6 @@ function DmarcJourney({ journey }) {
   return (
     <section className="card-md overflow-hidden">
       <div className="flex items-center gap-2.5 px-6 py-4 border-b border-gray-200 bg-gray-50/70">
-        <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center flex-shrink-0">
-          <ShieldCheck className="w-4 h-4 text-white" />
-        </div>
         <div>
           <span className="eyebrow">DMARC Policy Journey</span>
           <h2 className="section-title leading-tight">Where you are on the requested-policy journey</h2>
@@ -115,7 +107,7 @@ function DmarcJourney({ journey }) {
                     : done ? 'bg-brand-50 border-brand-300 text-brand-700'
                     : 'bg-white border-gray-200 text-gray-300'
                   }`}>
-                    {done ? <Check className="w-4 h-4" /> : i + 1}
+                    {i + 1}
                   </div>
                   <span className={`mt-2 text-xs font-semibold whitespace-nowrap ${
                     current ? 'text-brand-700' : done ? 'text-gray-600' : 'text-gray-400'
@@ -149,7 +141,6 @@ function DmarcJourney({ journey }) {
             <div>
               <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-0.5">Next recommended step</p>
               <p className="text-sm text-gray-800 font-medium leading-relaxed flex items-start gap-1.5">
-                <ArrowRight className="w-4 h-4 text-brand-600 flex-shrink-0 mt-0.5" />
                 {journey.next_step}
               </p>
             </div>
@@ -173,16 +164,11 @@ function statusPill(kind) {
   return map[kind] || map.na
 }
 
-function AuthCard({ icon: Icon, title, status, statusKind = 'na', children }) {
+function AuthCard({ title, status, statusKind = 'na', children }) {
   return (
     <div className="card p-5 flex flex-col">
       <div className="flex items-center justify-between gap-2 mb-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-            <Icon className="w-4 h-4 text-brand-600" />
-          </div>
-          <h3 className="text-sm font-bold text-gray-900">{title}</h3>
-        </div>
+        <h3 className="text-sm font-bold text-gray-900 min-w-0">{title}</h3>
         {status && (
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${statusPill(statusKind)}`}>
             {status}
@@ -221,7 +207,7 @@ function Warnings({ items }) {
     <div className="mt-1 space-y-1.5">
       {safe.map((w, i) => (
         <p key={i} className="flex items-start gap-1.5 text-xs text-amber-700 leading-relaxed">
-          <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" /> {w}
+          {w}
         </p>
       ))}
     </div>
@@ -231,7 +217,7 @@ function Warnings({ items }) {
 // ── Individual auth cards ─────────────────────────────────────────────────────
 function SpfCard({ spf, detail, wsId, domain }) {
   const [chain, setChain]   = useState(null)   // null | 'loading' | analysis result
-  if (!detail && !spf) return <AuthCard icon={ShieldCheck} title="SPF" status="No data" statusKind="na"><NaNote /></AuthCard>
+  if (!detail && !spf) return <AuthCard title="SPF" status="No data" statusKind="na"><NaNote /></AuthCard>
   const present = spf?.present ?? Boolean(detail?.raw)
   const valid = detail?.valid
   const status = !present ? 'Not found' : valid ? 'Published' : 'Issues found'
@@ -245,7 +231,7 @@ function SpfCard({ spf, detail, wsId, domain }) {
   const live = chain && chain !== 'loading' ? chain : null
 
   return (
-    <AuthCard icon={ShieldCheck} title="SPF" status={status} statusKind={kind}>
+    <AuthCard title="SPF" status={status} statusKind={kind}>
       <KV k="Record status" v={!present ? 'Not published' : valid ? 'Valid' : 'Published, needs review'} />
       {detail?.all_mechanism != null && <KV k="‘all’ mechanism" v={detail.all_mechanism} mono />}
       {detail?.policy_strength && <KV k="Policy strength" v={<span className="capitalize">{detail.policy_strength}</span>} />}
@@ -278,7 +264,7 @@ function SpfCard({ spf, detail, wsId, domain }) {
         <div className="pt-2 border-t border-gray-100">
           {!chain && (
             <button onClick={analyseChain} className="btn-secondary text-xs w-full">
-              <RefreshCw className="w-3.5 h-3.5" /> Analyse full include chain
+              Analyse full include chain
             </button>
           )}
           {chain === 'loading' && (
@@ -325,14 +311,14 @@ function SpfCard({ spf, detail, wsId, domain }) {
 }
 
 function DmarcCard({ dmarc, detail }) {
-  if (!detail && !dmarc) return <AuthCard icon={ShieldCheck} title="DMARC" status="No data" statusKind="na"><NaNote /></AuthCard>
+  if (!detail && !dmarc) return <AuthCard title="DMARC" status="No data" statusKind="na"><NaNote /></AuthCard>
   const present = dmarc?.present ?? Boolean(detail?.raw)
   const policy = detail?.policy || dmarc?.policy
   const status = !present ? 'Not found' : detail?.valid === false ? 'Invalid' : (policy ? `p=${policy}` : 'Published')
   const kind = !present ? 'bad' : detail?.valid === false ? 'warn' : policy === 'reject' ? 'good' : policy === 'none' ? 'warn' : 'info'
   const align = (m) => (m === 's' ? 'Strict' : m === 'r' ? 'Relaxed' : m || '—')
   return (
-    <AuthCard icon={ShieldCheck} title="DMARC" status={status} statusKind={kind}>
+    <AuthCard title="DMARC" status={status} statusKind={kind}>
       <KV k="Exact-record policy (p)" v={policy ? <code className="mono">{policy}</code> : 'Not set'} />
       <KV k="Subdomain policy (sp)" v={detail?.subdomain_policy ? <code className="mono">{detail.subdomain_policy}</code> : 'Inherits main'} />
       {typeof detail?.percentage === 'number' && <KV k="Legacy pct (not applied by DMARCbis)" v={`${detail.percentage}%`} />}
@@ -351,7 +337,7 @@ function DkimCard({ detail }) {
   const label = status === 'detected' ? 'Detected' : status === 'uncertain' ? 'Uncertain' : status === 'not_detected' ? 'Not verified' : 'No data'
   const kind = status === 'detected' ? 'good' : status === 'uncertain' ? 'warn' : 'na'
   return (
-    <AuthCard icon={KeyRound} title="DKIM" status={label} statusKind={kind}>
+    <AuthCard title="DKIM" status={label} statusKind={kind}>
       {detail?.selector && <KV k="Selector" v={detail.selector} mono />}
       {detail?.provider && <KV k="Provider (inferred)" v={detail.provider} />}
       <p className="text-xs text-gray-600 leading-relaxed">
@@ -359,7 +345,6 @@ function DkimCard({ detail }) {
       </p>
       {/* Always surface the uncertainty caveat safely */}
       <div className="flex items-start gap-1.5 rounded-lg bg-blue-50 border border-blue-100 p-2.5">
-        <Info className="w-3.5 h-3.5 text-blue-500 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-blue-800 leading-relaxed">
           {detail?.limitation || 'Full DKIM validation requires a signed email sample or a known selector. A custom selector may be in use even when none is detected.'}
         </p>
@@ -369,10 +354,10 @@ function DkimCard({ detail }) {
 }
 
 function BimiCard({ readiness }) {
-  if (!readiness) return <AuthCard icon={ImageIcon} title="BIMI" status="No data" statusKind="na"><NaNote /></AuthCard>
+  if (!readiness) return <AuthCard title="BIMI" status="No data" statusKind="na"><NaNote /></AuthCard>
   const found = readiness.record_found
   return (
-    <AuthCard icon={ImageIcon} title="BIMI" status={found ? 'Record found' : 'Not configured'} statusKind={found ? 'info' : 'na'}>
+    <AuthCard title="BIMI" status={found ? 'Record found' : 'Not configured'} statusKind={found ? 'info' : 'na'}>
       <p className="text-xs text-gray-500 -mt-1">Readiness only — BIMI is optional and never replaces SPF, DKIM, or DMARC.</p>
       <KV k="Record" v={found ? 'Published' : 'None'} />
       {readiness.logo_url && <KV k="Logo URL" v={readiness.logo_url} mono />}
@@ -390,11 +375,11 @@ function BimiCard({ readiness }) {
 }
 
 function MtaStsCard({ detail }) {
-  if (!detail) return <AuthCard icon={Lock} title="MTA-STS" status="Not available" statusKind="na">
+  if (!detail) return <AuthCard title="MTA-STS" status="Not available" statusKind="na">
     <NaNote text="MTA-STS transport details were not returned for this scan." /></AuthCard>
   const enforced = detail.policy_found && detail.mode === 'enforce'
   return (
-    <AuthCard icon={Lock} title="MTA-STS" status={detail.policy_found ? (detail.mode || 'Found') : 'No policy'} statusKind={enforced ? 'good' : detail.policy_found ? 'warn' : 'na'}>
+    <AuthCard title="MTA-STS" status={detail.policy_found ? (detail.mode || 'Found') : 'No policy'} statusKind={enforced ? 'good' : detail.policy_found ? 'warn' : 'na'}>
       <KV k="Policy file" v={detail.policy_found ? 'Confirmed' : 'Not confirmed'} />
       <KV k="Mode" v={<span className="capitalize">{detail.mode || 'unknown'}</span>} />
       <Warnings items={detail.warnings} />
@@ -403,10 +388,10 @@ function MtaStsCard({ detail }) {
 }
 
 function TlsRptCard({ detail }) {
-  if (!detail) return <AuthCard icon={FileText} title="TLS-RPT" status="Not available" statusKind="na">
+  if (!detail) return <AuthCard title="TLS-RPT" status="Not available" statusKind="na">
     <NaNote text="TLS-RPT details were not returned for this scan." /></AuthCard>
   return (
-    <AuthCard icon={FileText} title="TLS-RPT" status={detail.record_found ? 'Found' : 'Not found'} statusKind={detail.record_found ? 'good' : 'na'}>
+    <AuthCard title="TLS-RPT" status={detail.record_found ? 'Found' : 'Not found'} statusKind={detail.record_found ? 'good' : 'na'}>
       <KV k="Record" v={detail.record_found ? 'Published' : 'None'} />
       {detail.rua?.length > 0 && <KV k="Reporting (rua)" v={detail.rua.join(', ')} mono />}
       <Warnings items={detail.warnings} />
@@ -453,7 +438,6 @@ function ActionCard({ action }) {
           )}
           {action.caution && (
             <div className="flex items-start gap-1.5 rounded-lg bg-amber-50 border border-amber-100 p-2.5">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-amber-800 leading-relaxed">{action.caution}</p>
             </div>
           )}
@@ -549,13 +533,9 @@ function GuidedRemediation({ stage, hasReports, readiness, senders, actions, onG
           return (
             <div key={m.key} className={isCurrent ? 'bg-brand-50/30' : ''}>
               <div className="flex items-start gap-3 px-5 py-3.5">
-                {isDone ? (
-                  <CheckCircle className="w-6 h-6 text-brand-600 flex-shrink-0" />
-                ) : (
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                    isCurrent ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-400 border border-gray-200'
-                  }`}>{i + 1}</span>
-                )}
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                  isCurrent ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-400 border border-gray-200'
+                }`}>{i + 1}</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className={`text-sm font-bold ${isDone ? 'text-gray-400 line-through decoration-gray-300' : isCurrent ? 'text-gray-900' : 'text-gray-500'}`}>
@@ -577,7 +557,7 @@ function GuidedRemediation({ stage, hasReports, readiness, senders, actions, onG
                   )}
                   {isCurrent && (
                     <button onClick={() => onGoto(m.target)} className="btn-primary text-xs mt-3">
-                      {m.cta} <ArrowRight className="w-3.5 h-3.5" />
+                      {m.cta}
                     </button>
                   )}
                 </div>
@@ -614,8 +594,7 @@ function DifferentiatorBlock({ wsId }) {
     <section className="card overflow-hidden">
       <div className="flex flex-col sm:flex-row">
         <div className="flex-1 p-6">
-          <div className="flex items-center gap-2 mb-2">
-            <Megaphone className="w-4 h-4 text-brand-600" />
+          <div className="mb-2">
             <span className="eyebrow">Email risk is part of your attack surface</span>
           </div>
           <h2 className="section-title mb-2">Impersonation risk doesn't stop at the inbox</h2>
@@ -668,7 +647,7 @@ const STAGE_LABEL = {
 const BEC_DOT = { critical: 'text-red-700', high: 'text-red-700', medium: 'text-amber-700', low: 'text-brand-700', minimal: 'text-brand-700' }
 function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
   if (!rows || rows.length < 2) return null
-  const cell = (ok) => ok === true ? <CheckCircle className="w-4 h-4 text-brand-600 mx-auto" />
+  const cell = (ok) => ok === true ? <span className="text-xs font-semibold text-brand-700">Yes</span>
     : ok === false ? <span className="text-gray-300">—</span>
     : <span className="text-gray-300 text-xs">·</span>
   const compCell = (c) => c == null
@@ -703,7 +682,7 @@ function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
             {rows.map(r => (
               <tr key={r.domain} onClick={() => onSelect(r.domain)}
                 className={`cursor-pointer transition-colors ${r.domain === selectedDomain ? 'bg-brand-50/50' : 'hover:bg-gray-50/60'}`}>
-                <td><span className="font-semibold text-gray-800 text-sm flex items-center gap-1.5"><Globe className="w-3.5 h-3.5 text-gray-400" />{r.domain}</span></td>
+                <td><span className="font-semibold text-gray-800 text-sm">{r.domain}</span></td>
                 <td><span className="text-xs font-semibold text-gray-700">{STAGE_LABEL[r.stage] || '—'}</span></td>
                 <td className="text-center">{compCell(r.compliance)}</td>
                 <td>{becCell(r.bec)}</td>
@@ -721,12 +700,9 @@ function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
   )
 }
 
-function EmptyCard({ icon: Icon = Mail, title, body, action }) {
+function EmptyCard({ title, body, action }) {
   return (
     <div className="card p-10 text-center flex flex-col items-center">
-      <div className="w-12 h-12 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center mb-3">
-        <Icon className="w-6 h-6 text-gray-300" />
-      </div>
       <p className="text-sm font-bold text-gray-800 mb-1">{title}</p>
       {body && <p className="text-sm text-gray-500 max-w-md leading-relaxed mb-4">{body}</p>}
       {action}
@@ -798,9 +774,6 @@ function EnforcementReadiness({ readiness }) {
   return (
     <section className="card-md overflow-hidden">
       <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-gray-50/70">
-        <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center flex-shrink-0">
-          <Gauge className="w-4 h-4 text-white" />
-        </div>
         <div className="flex-1">
           <span className="eyebrow">Policy-change readiness</span>
           <h2 className="section-title leading-tight">Is the evidence ready for a stronger policy request?</h2>
@@ -826,7 +799,7 @@ function EnforcementReadiness({ readiness }) {
                     current ? 'bg-brand-600 border-brand-600 text-white ring-4 ring-brand-100'
                     : done ? 'bg-brand-50 border-brand-300 text-brand-700'
                     : 'bg-white border-gray-200 text-gray-300'}`}>
-                    {done ? <Check className="w-4 h-4" /> : i + 1}
+                    {i + 1}
                   </div>
                   <span className={`mt-2 text-xs font-semibold whitespace-nowrap ${current ? 'text-brand-700' : done ? 'text-gray-600' : 'text-gray-400'}`}>{s.label}</span>
                 </div>
@@ -864,7 +837,7 @@ function EnforcementReadiness({ readiness }) {
               <ul className="space-y-1.5">
                 {readiness.blockers.map((b, i) => (
                   <li key={i} className="flex items-start gap-1.5 text-sm text-gray-700">
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" /> {b}
+                    {b}
                   </li>
                 ))}
               </ul>
@@ -874,7 +847,7 @@ function EnforcementReadiness({ readiness }) {
             <div>
               <p className="text-[13px] font-bold uppercase tracking-wide text-gray-500 mb-0.5">Next recommended step</p>
               <p className="text-sm text-gray-900 font-medium leading-relaxed flex items-start gap-1.5">
-                <ArrowRight className="w-4 h-4 text-brand-600 flex-shrink-0 mt-0.5" /> {readiness.next_step}
+                {readiness.next_step}
               </p>
             </div>
           )}
@@ -926,9 +899,6 @@ function ChangeReviewQueue({ wsId }) {
   return (
     <section className="card-md overflow-hidden">
       <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-gray-50/70">
-        <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center flex-shrink-0">
-          <Users className="w-4 h-4 text-white" />
-        </div>
         <div className="flex-1">
           <span className="eyebrow">Managed change review</span>
           <h2 className="section-title leading-tight">Policy changes awaiting approval</h2>
@@ -939,7 +909,7 @@ function ChangeReviewQueue({ wsId }) {
       </div>
       {err && (
         <div className="mx-6 mt-4 flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3.5 py-2.5">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" /> {err}
+          {err}
         </div>
       )}
       <ul className="divide-y divide-gray-100">
@@ -949,7 +919,7 @@ function ChangeReviewQueue({ wsId }) {
               <span className="font-semibold text-gray-900">{c.domain}</span>
               <span className="inline-flex items-center gap-1.5 text-sm text-gray-600">
                 <span className="font-medium">{c.from_policy || 'none'}</span>
-                <ArrowRight className="w-3.5 h-3.5 text-gray-400" />
+                <span aria-hidden="true" className="text-gray-400">→</span>
                 <span className="font-semibold text-gray-900">{c.to_policy}</span>
               </span>
               <span className="text-xs text-gray-400">
@@ -965,11 +935,11 @@ function ChangeReviewQueue({ wsId }) {
             <div className="flex items-center gap-2">
               <button onClick={() => act(c.id, 'approved')} disabled={busy === c.id}
                 className="btn-primary text-sm inline-flex items-center gap-1.5 disabled:opacity-50">
-                <CheckCircle className="w-4 h-4" /> Approve
+                Approve
               </button>
               <button onClick={() => act(c.id, 'rejected')} disabled={busy === c.id}
                 className="btn-secondary text-sm inline-flex items-center gap-1.5 disabled:opacity-50">
-                <X className="w-4 h-4" /> Reject
+                Reject
               </button>
             </div>
           </li>
@@ -1248,7 +1218,6 @@ function SenderInventory({ data, onClassify, classifyingId, loading }) {
       </div>
       {senders.length > 0 && (
         <div className="flex items-center gap-1.5 flex-wrap">
-          <Filter className="w-3.5 h-3.5 text-gray-400" />
           {SENDER_FILTERS.map(f => (
             <button key={f} onClick={() => setFilter(f)}
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
@@ -1259,9 +1228,9 @@ function SenderInventory({ data, onClassify, classifyingId, loading }) {
         </div>
       )}
       {!data ? (
-        <EmptyCard icon={AlertTriangle} title="Sender list unavailable" body="The sender inventory could not be loaded for this domain. Try refreshing." />
+        <EmptyCard title="Sender list unavailable" body="The sender inventory could not be loaded for this domain. Try refreshing." />
       ) : senders.length === 0 ? (
-        <EmptyCard icon={Users} title="No senders observed yet"
+        <EmptyCard title="No senders observed yet"
           body="Import a DMARC aggregate report below to start building your sending-source inventory." />
       ) : (
         <div className="card overflow-hidden">
@@ -1300,10 +1269,10 @@ function SenderInventory({ data, onClassify, classifyingId, loading }) {
 // for this domain — no waiting for DMARC aggregate reports (or forwarding to an
 // inbox, as point-tools require). Headers are parsed server-side and discarded.
 const VS_TONE = {
-  authenticated_aligned: { label: 'Authenticated & aligned', cls: 'bg-brand-50 border-brand-200 text-brand-800', icon: CheckCircle, ic: 'text-brand-600' },
-  passes_not_aligned:    { label: 'Passes, but not aligned', cls: 'bg-amber-50 border-amber-200 text-amber-800', icon: AlertTriangle, ic: 'text-amber-500' },
-  fails:                 { label: 'Fails authentication',     cls: 'bg-red-50 border-red-200 text-red-800',       icon: ShieldAlert, ic: 'text-red-500' },
-  unparseable:           { label: 'Could not read headers',   cls: 'bg-gray-50 border-gray-200 text-gray-600',    icon: Info, ic: 'text-gray-400' },
+  authenticated_aligned: { label: 'Authenticated & aligned', cls: 'bg-brand-50 border-brand-200 text-brand-800' },
+  passes_not_aligned:    { label: 'Passes, but not aligned', cls: 'bg-amber-50 border-amber-200 text-amber-800' },
+  fails:                 { label: 'Fails authentication',     cls: 'bg-red-50 border-red-200 text-red-800' },
+  unparseable:           { label: 'Could not read headers',   cls: 'bg-gray-50 border-gray-200 text-gray-600' },
 }
 function InstantSourceValidator({ wsId, domain }) {
   const [headers, setHeaders] = useState('')
@@ -1328,7 +1297,6 @@ function InstantSourceValidator({ wsId, domain }) {
     </span>
   ) : null
   const tone = result ? (VS_TONE[result.verdict] || VS_TONE.unparseable) : null
-  const Icon = tone?.icon
 
   return (
     <section className="card overflow-hidden">
@@ -1350,20 +1318,17 @@ function InstantSourceValidator({ wsId, domain }) {
         />
         <div className="flex items-center gap-3">
           <button onClick={validate} disabled={busy || !headers.trim()} className="btn-primary text-sm disabled:opacity-50">
-            {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+            {busy && <RefreshCw className="w-4 h-4 animate-spin" />}
             {busy ? 'Checking…' : 'Validate sender'}
           </button>
           {headers && !busy && (
             <button onClick={() => { setHeaders(''); setResult(null); setErr(null) }} className="text-xs font-semibold text-gray-400 hover:text-gray-600">Clear</button>
           )}
         </div>
-        {err && <p className="text-sm text-red-700 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {err}</p>}
+        {err && <p className="text-sm text-red-700">{err}</p>}
         {result && tone && (
           <div className={`rounded-xl border p-4 ${tone.cls}`}>
-            <div className="flex items-center gap-2">
-              <Icon className={`w-5 h-5 flex-shrink-0 ${tone.ic}`} />
-              <p className="text-sm font-bold">{tone.label}</p>
-            </div>
+            <p className="text-sm font-bold">{tone.label}</p>
             <p className="text-xs mt-1.5 leading-relaxed">{result.message}</p>
             {(result.spf || result.dkim || result.dmarc || result.source_ip || result.dkim_domain) && (
               <div className="flex flex-wrap gap-1.5 mt-3">
@@ -1395,7 +1360,6 @@ function ImportDmarcReport({ onImport, importing, result, error }) {
   return (
     <section className="card overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center"><Upload className="w-4 h-4 text-brand-700" /></div>
         <div>
           <span className="eyebrow">Feed the engine</span>
           <h2 className="section-title leading-tight">Import a DMARC report</h2>
@@ -1421,17 +1385,16 @@ function ImportDmarcReport({ onImport, importing, result, error }) {
         />
         <div className="flex items-center gap-3">
           <button onClick={submit} disabled={!xml.trim() || importing} className="btn-primary disabled:opacity-50">
-            {importing ? <><RefreshCw className="w-4 h-4 animate-spin" /> Importing…</> : <><Upload className="w-4 h-4" /> Import report</>}
+            {importing ? <><RefreshCw className="w-4 h-4 animate-spin" /> Importing…</> : 'Import report'}
           </button>
-          {error && <span className="text-sm text-red-600 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> {error}</span>}
+          {error && <span className="text-sm text-red-600">{error}</span>}
         </div>
         {result && (
           <div className={`rounded-xl border p-4 ${result.imported ? 'border-brand-100 bg-brand-50/50' : result.duplicate ? 'border-amber-100 bg-amber-50/40' : 'border-gray-200 bg-gray-50'}`}>
             {result.duplicate ? (
-              <p className="text-sm text-amber-800 flex items-center gap-1.5"><Info className="w-4 h-4" /> This report was already imported and was not counted again.</p>
+              <p className="text-sm text-amber-800">This report was already imported and was not counted again.</p>
             ) : result.imported ? (
               <div className="flex items-start gap-2">
-                <CheckCircle className="w-4 h-4 text-brand-600 flex-shrink-0 mt-0.5" />
                 <p className="text-sm text-gray-700">
                   Imported <b>{result.records_imported}</b> record(s) · <b>{(result.messages_imported ?? 0).toLocaleString()}</b> message(s) ·
                   <b> {result.sources_updated}</b> sending source(s) updated.
@@ -1612,7 +1575,6 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
   return (
     <section className="card overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center"><Inbox className="w-4 h-4 text-brand-700" /></div>
         <div>
           <span className="eyebrow">Automate ingestion</span>
           <h2 className="section-title leading-tight">Connect DMARC reporting</h2>
@@ -1628,7 +1590,7 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
               your DMARC record — aggregate reports then flow in and update sender intelligence without manual paste.
             </p>
             <button onClick={() => run(() => api.createDmarcIngestEndpoint(wsId, domain))} disabled={busy} className="btn-primary disabled:opacity-50">
-              {busy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Working…</> : <><Inbox className="w-4 h-4" /> Activate DMARC reporting</>}
+              {busy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Working…</> : 'Activate DMARC reporting'}
             </button>
           </>
         ) : (
@@ -1642,10 +1604,10 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
                   fullyConnected ? 'text-brand-700' : reportsReceived ? 'text-amber-700' : 'text-gray-500'
                 }`}>
                   {fullyConnected
-                    ? <><CheckCircle className="w-3.5 h-3.5" /> Connected</>
+                    ? 'Connected'
                     : reportsReceived
-                      ? <><AlertTriangle className="w-3.5 h-3.5" /> Receiving reports · DNS update required</>
-                      : <><Info className="w-3.5 h-3.5" /> Not receiving yet</>}
+                      ? 'Receiving reports · DNS update required'
+                      : 'Not receiving yet'}
                 </span>
               </div>
               <p className="text-sm text-gray-600 leading-relaxed">Add this value to your DMARC record:</p>
@@ -1655,7 +1617,6 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
               </div>
               {reportsReceived && !dnsVerified && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 text-xs text-amber-900 flex items-start gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
                   Reports are arriving, but your DMARC record does not yet include the CyberMeters reporting address. Add the value above to finish setup.
                 </div>
               )}
@@ -1682,7 +1643,6 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
             {/* Mode B — Signed upload (advanced) */}
             <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
               <button onClick={() => setShowAdvanced(v => !v)} className="w-full flex items-center gap-2 text-left">
-                <KeyRound className="w-4 h-4 text-gray-500" />
                 <h3 className="text-sm font-semibold text-gray-800">Signed upload key</h3>
                 <span className="text-xs text-gray-400">Advanced · scripts &amp; MSP automation</span>
                 <ChevronDown className={`w-4 h-4 text-gray-400 ml-auto transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
@@ -1695,7 +1655,7 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
                   </p>
                   {rawToken && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
-                      <p className="text-sm text-amber-900 flex items-center gap-1.5"><Info className="w-4 h-4" /> Copy this token now — it is shown only once and cannot be retrieved later.</p>
+                      <p className="text-sm text-amber-900">Copy this token now — it is shown only once and cannot be retrieved later.</p>
                       <div className="flex items-center gap-2">
                         <code className="mono text-xs flex-1 break-all bg-white border border-amber-200 rounded-lg px-3 py-2">{rawToken}</code>
                         <CopyButton value={rawToken} label="Copy" />
@@ -1704,10 +1664,10 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
                   )}
                   <div className="flex items-center gap-3">
                     <button onClick={() => run(() => api.rotateDmarcIngestEndpoint(wsId, domain), 'Rotate the upload key? The current token stops working immediately.')} disabled={busy} className="btn-secondary text-sm disabled:opacity-50">
-                      <RefreshCw className="w-4 h-4" /> {rawToken ? 'Rotate again' : 'Generate token'}
+                      {rawToken ? 'Rotate again' : 'Generate token'}
                     </button>
                     <button onClick={() => run(() => api.revokeDmarcIngestEndpoint(wsId, domain), 'Revoke this endpoint? Inbound email and signed uploads will be rejected.')} disabled={busy} className="text-sm text-red-600 hover:text-red-700 font-medium inline-flex items-center gap-1.5 disabled:opacity-50">
-                      <X className="w-4 h-4" /> Revoke
+                      Revoke
                     </button>
                   </div>
                   <div className="space-y-1.5">
@@ -1719,7 +1679,7 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
             </div>
           </>
         )}
-        {err && <span className="text-sm text-red-600 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> {err}</span>}
+        {err && <span className="text-sm text-red-600">{err}</span>}
       </div>
     </section>
   )
@@ -1763,10 +1723,9 @@ function WizardStepper({ steps, completed, current }) {
         return (
           <li key={label} className="flex items-center gap-2">
             <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold ${done ? 'bg-brand-600 text-white' : isCurrent ? 'bg-brand-100 text-brand-700 ring-2 ring-brand-300' : 'bg-gray-100 text-gray-400'}`}>
-              {done ? <Check className="w-3.5 h-3.5" /> : i + 1}
+              {i + 1}
             </span>
             <span className={`text-xs ${isCurrent ? 'font-semibold text-gray-800' : done ? 'text-gray-600' : 'text-gray-500'}`}>{label}</span>
-            {i < steps.length - 1 && <ChevronDown className="w-3.5 h-3.5 text-gray-300 -rotate-90 hidden sm:block" />}
           </li>
         )
       })}
@@ -1888,7 +1847,7 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
             disabled={!endpointReady || busy === 'create'}
             className="btn-secondary text-sm disabled:opacity-50"
           >
-            {busy === 'create' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+            {busy === 'create' && <RefreshCw className="w-4 h-4 animate-spin" />}
             Host TLS-RPT
           </button>
           {!endpointReady && (
@@ -1918,7 +1877,7 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
                 disabled={Boolean(busy)}
                 className="btn-secondary text-xs disabled:opacity-50"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${busy === 'verify' ? 'animate-spin' : ''}`} />
+                {busy === 'verify' && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                 Check connection
               </button>
             )}
@@ -2004,7 +1963,7 @@ function ManagedMtaStsCard({ wsId, domain }) {
             disabled={busy === 'create'}
             className="btn-secondary text-sm disabled:opacity-50"
           >
-            {busy === 'create' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+            {busy === 'create' && <RefreshCw className="w-4 h-4 animate-spin" />}
             Generate MTA-STS guidance
           </button>
           <p className="text-xs text-gray-400 mt-2">Starts in testing mode. CyberMeters will not switch this to enforce automatically.</p>
@@ -2062,7 +2021,7 @@ function ManagedMtaStsCard({ wsId, domain }) {
                 disabled={Boolean(busy)}
                 className="btn-secondary text-xs disabled:opacity-50"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${busy === 'verify' ? 'animate-spin' : ''}`} />
+                {busy === 'verify' && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                 Check DNS and policy
               </button>
             )}
@@ -2147,7 +2106,6 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
 
       {rec?.issue && (
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-          <Info className="w-3.5 h-3.5 text-amber-700 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-amber-800 leading-relaxed">
             {rec.issue === 'config_error'
               ? 'Publishing is delayed on our side — no action needed from you. We’ve been notified and will complete setup automatically.'
@@ -2163,7 +2121,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
             disabled={!endpointReady || busy === 'create'}
             className="btn-primary text-sm disabled:opacity-50"
           >
-            {busy === 'create' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+            {busy === 'create' && <RefreshCw className="w-4 h-4 animate-spin" />}
             Set up managed DMARC
           </button>
           {!endpointReady && (
@@ -2193,7 +2151,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                 disabled={Boolean(busy)}
                 className="btn-secondary text-xs disabled:opacity-50"
               >
-                {busy === 'verify' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                {busy === 'verify' && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                 Check connection
               </button>
             )}
@@ -2335,18 +2293,17 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                         disabled={Boolean(busy)}
                         className="btn-primary w-full justify-center py-3 text-sm disabled:opacity-50"
                       >
-                        {busy === 'policy' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+                        {busy === 'policy' && <RefreshCw className="w-4 h-4 animate-spin" />}
                         Advance to {rec.next_step.label}
                       </button>
                       {ramp?.readiness && !ramp.readiness.ready && (
                         <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3.5 py-2.5">
-                          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                           <span><span className="font-semibold">Safety interlock:</span> {ramp.readiness.reasons[0]}</span>
                         </div>
                       )}
                       {ramp?.readiness?.ready && (
                         <p className="flex items-center gap-1.5 text-sm text-brand-700 font-semibold">
-                          <CheckCircle className="w-4 h-4" /> Compliance is healthy — ready for the next step.
+                          Compliance is healthy — ready for the next step.
                         </p>
                       )}
                     </div>
@@ -2381,7 +2338,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                       disabled={Boolean(busy)}
                       className="btn-secondary text-sm disabled:opacity-50"
                     >
-                      <RefreshCw className={`w-4 h-4 ${busy === 'rollback' ? 'animate-spin' : ''}`} />
+                      {busy === 'rollback' && <RefreshCw className="w-4 h-4 animate-spin" />}
                       {busy === 'rollback' ? 'Rolling back…' : 'Roll back last change'}
                     </button>
                   )}
@@ -2495,14 +2452,14 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
     ? (LIVE_MAP[liveStatus] || 'lookup_failed')
     : (!hasScanData ? 'unavailable' : (!present ? 'no_dmarc' : (already ? 'configured' : 'missing_rua')))
   const VERIFY_MSG = {
-    configured:       { kind: 'good', icon: CheckCircle, text: 'DNS looks correctly configured. Your CyberMeters reporting address is in the DMARC record.' },
-    missing_rua:      { kind: 'warn', icon: AlertTriangle, text: 'DMARC exists, but CyberMeters reporting address is not included yet. Add it to the rua= tag (see the value above) — do not delete your existing record.' },
-    no_dmarc:         { kind: 'warn', icon: Info, text: 'No DMARC record found yet. Add the TXT record above, then check again.' },
-    invalid:          { kind: 'warn', icon: AlertTriangle, text: 'We found a DMARC record, but it could not be read as valid. Check the record value above, then re-check.' },
-    multiple:         { kind: 'warn', icon: AlertTriangle, text: 'More than one DMARC record was found at _dmarc. DNS allows only one — remove the extra record, then re-check.' },
-    endpoint_missing: { kind: 'na',   icon: Info, text: 'Create your reporting address first (use “Activate DMARC reporting” above), then add it to your DMARC record and re-check.' },
-    lookup_failed:    { kind: 'na',   icon: Info, text: 'We couldn’t check your DNS just now. This is common while DNS is updating — please try again in a few minutes.' },
-    unavailable:      { kind: 'na',   icon: Info, text: 'Click “Verify setup” to check your DNS now, or it will be confirmed automatically once your record includes the CyberMeters address.' },
+    configured:       { kind: 'good', text: 'DNS looks correctly configured. Your CyberMeters reporting address is in the DMARC record.' },
+    missing_rua:      { kind: 'warn', text: 'DMARC exists, but CyberMeters reporting address is not included yet. Add it to the rua= tag (see the value above) — do not delete your existing record.' },
+    no_dmarc:         { kind: 'warn', text: 'No DMARC record found yet. Add the TXT record above, then check again.' },
+    invalid:          { kind: 'warn', text: 'We found a DMARC record, but it could not be read as valid. Check the record value above, then re-check.' },
+    multiple:         { kind: 'warn', text: 'More than one DMARC record was found at _dmarc. DNS allows only one — remove the extra record, then re-check.' },
+    endpoint_missing: { kind: 'na',   text: 'Create your reporting address first (use “Activate DMARC reporting” above), then add it to your DMARC record and re-check.' },
+    lookup_failed:    { kind: 'na',   text: 'We couldn’t check your DNS just now. This is common while DNS is updating — please try again in a few minutes.' },
+    unavailable:      { kind: 'na',   text: 'Click “Verify setup” to check your DNS now, or it will be confirmed automatically once your record includes the CyberMeters address.' },
   }
   const vm = VERIFY_MSG[verifyState]
 
@@ -2518,18 +2475,17 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
   return (
     <section className="card overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center"><ShieldCheck className="w-4 h-4 text-brand-700" /></div>
         <div>
           <span className="eyebrow">Get connected</span>
           <h2 className="section-title leading-tight">DMARC setup wizard</h2>
         </div>
         {fullyConnected ? (
           <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-50 border border-brand-100 text-xs font-semibold text-brand-700">
-            <CheckCircle className="w-3.5 h-3.5" /> Connected
+            Connected
           </span>
         ) : needsDnsAction ? (
           <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-800">
-            <AlertTriangle className="w-3.5 h-3.5" /> Receiving reports · DNS not verified
+            Receiving reports · DNS not verified
           </span>
         ) : null}
       </div>
@@ -2549,7 +2505,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
               your DNS — then reports flow in on their own. You always make the DNS change yourself; CyberMeters never edits your DNS.
             </p>
             <button onClick={activate} disabled={busy} className="btn-primary disabled:opacity-50">
-              {busy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Starting…</> : <><ArrowRight className="w-4 h-4" /> Start DMARC setup</>}
+              {busy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Starting…</> : 'Start DMARC setup'}
             </button>
           </>
         ) : (
@@ -2559,7 +2515,6 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
             {/* Action-required banner — reports arriving but DNS not verified */}
             {needsDnsAction && (
               <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 flex gap-2.5">
-                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                 <p className="text-sm text-amber-900">
                   {dnsKnown
                     ? 'Reports have been received, but your current DNS record does not include the CyberMeters reporting address yet. Add the recommended value below to complete setup.'
@@ -2587,7 +2542,6 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">2 · Copy the DNS record</p>
               {present && existingRaw && !already && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-900 flex gap-2">
-                  <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
                   <span>You already have a DMARC record. <b>Do not delete it.</b> Just add the CyberMeters reporting address to the existing <code className="mono">rua=</code> tag — the value below already includes both.</span>
                 </div>
               )}
@@ -2606,10 +2560,10 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
             <div className="space-y-2">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">3 · Verify setup{dnsVerified && <span className="ml-1.5 text-brand-600 normal-case font-medium">· verified</span>}</p>
               <div className={`rounded-lg border p-3 text-sm flex gap-2 ${vm.kind === 'good' ? 'border-brand-100 bg-brand-50/50 text-brand-800' : vm.kind === 'warn' ? 'border-amber-200 bg-amber-50/50 text-amber-900' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
-                <vm.icon className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>{vm.text}</span>
+                <span>{vm.text}</span>
               </div>
               <button onClick={verifyDns} disabled={checking} className="btn-secondary text-sm disabled:opacity-50">
-                {checking ? <><RefreshCw className="w-4 h-4 animate-spin" /> Checking DNS…</> : <><ShieldCheck className="w-4 h-4" /> Verify setup</>}
+                {checking ? <><RefreshCw className="w-4 h-4 animate-spin" /> Checking DNS…</> : 'Verify setup'}
               </button>
             </div>
 
@@ -2620,7 +2574,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
               </p>
               {fullyConnected ? (
                 <div className="rounded-lg border border-brand-100 bg-brand-50/50 p-3 space-y-1.5">
-                  <p className="text-sm text-brand-800 flex items-center gap-1.5"><CheckCircle className="w-4 h-4" /> Connected — DMARC reports are arriving and your DNS record is verified for {domain}.</p>
+                  <p className="text-sm text-brand-800">Connected — DMARC reports are arriving and your DNS record is verified for {domain}.</p>
                   <p className="text-xs text-gray-600">
                     Last report received: <b className="text-gray-700">{fmt(endpoint.last_inbound_at)}</b>.
                     {typeof totalMessages === 'number' && totalMessages > 0 && <> {totalMessages.toLocaleString()} message(s) observed so far.</>} Your sender inventory has started below.
@@ -2628,7 +2582,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
                 </div>
               ) : receiving ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 space-y-1.5">
-                  <p className="text-sm text-amber-900 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> Reports are arriving, but DNS is not verified yet.</p>
+                  <p className="text-sm text-amber-900">Reports are arriving, but DNS is not verified yet.</p>
                   <p className="text-xs text-gray-600">
                     Last report received: <b className="text-gray-700">{fmt(endpoint.last_inbound_at)}</b>. Add the recommended value above to your DMARC record to finish setup — this becomes <b>Connected</b> once your record includes the CyberMeters address.
                   </p>
@@ -2642,7 +2596,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
             </div>
           </>
         )}
-        {err && <span className="text-sm text-red-600 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> {err}</span>}
+        {err && <span className="text-sm text-red-600">{err}</span>}
       </div>
     </section>
   )
@@ -2657,10 +2611,10 @@ function epFmt(t) { return t ? parseServerDate(t).toLocaleString() : null }
 
 function EpStatusChecklist({ items }) {
   const ICON = {
-    done:    { I: CheckCircle,   cls: 'text-brand-600',  txt: 'Done' },
-    needs:   { I: AlertTriangle, cls: 'text-amber-500',  txt: 'Needs action' },
-    waiting: { I: Info,          cls: 'text-gray-400',   txt: 'Waiting' },
-    unknown: { I: Info,          cls: 'text-gray-300',   txt: 'Unknown' },
+    done:    { cls: 'text-brand-600',  txt: 'Done' },
+    needs:   { cls: 'text-amber-500',  txt: 'Needs action' },
+    waiting: { cls: 'text-gray-400',   txt: 'Waiting' },
+    unknown: { cls: 'text-gray-300',   txt: 'Unknown' },
   }
   return (
     <div className="card p-5">
@@ -2670,7 +2624,6 @@ function EpStatusChecklist({ items }) {
           const c = ICON[it.status] || ICON.unknown
           return (
             <li key={it.label} className="flex items-center gap-2.5">
-              <c.I className={`w-4 h-4 flex-shrink-0 ${c.cls}`} />
               <span className="text-sm text-gray-700 flex-1">{it.label}</span>
               <span className={`text-xs font-medium ${c.cls}`}>{c.txt}</span>
             </li>
@@ -2734,14 +2687,13 @@ function RemediationsPanel({ wsId, domain }) {
   return (
     <section className="card overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center"><ShieldCheck className="w-4 h-4 text-white" /></div>
         <div>
           <span className="eyebrow">Auto-fix</span>
           <h2 className="section-title leading-tight">Security gaps &amp; one-click fixes</h2>
         </div>
         {gaps.length === 0 && good.length > 0 && (
           <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-50 border border-brand-100 text-xs font-semibold text-brand-700">
-            <CheckCircle className="w-3.5 h-3.5" /> All checks pass
+            All checks pass
           </span>
         )}
       </div>
@@ -2751,9 +2703,6 @@ function RemediationsPanel({ wsId, domain }) {
           return (
             <div key={item.id} className="rounded-lg border border-gray-200">
               <button onClick={() => toggle(item.id)} className="w-full flex items-center gap-3 px-4 py-3 text-left">
-                {item.ok
-                  ? <CheckCircle className="w-4 h-4 text-brand-600 flex-shrink-0" />
-                  : <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-gray-900">{item.title}</p>
                   <p className="text-xs text-gray-400">
@@ -2893,9 +2842,6 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPresentatio
   return (
     <section className="card overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center flex-shrink-0">
-          <Mail className="w-4 h-4 text-white" />
-        </div>
         <div className="min-w-0">
           <span className="eyebrow">Email protection posture</span>
           <h2 className="section-title leading-tight truncate">What did CyberMeters observe for {domain}?</h2>
@@ -2921,7 +2867,7 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPresentatio
             {pill(stageLabel, strongerRequested ? 'ok' : stage === 'missing' ? 'bad' : 'warn')}
             {staleScan && (
               <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700">
-                <CheckCircle className="w-3 h-3" /> Live in DNS
+                Live in DNS
               </span>
             )}
           </div>
@@ -2966,7 +2912,7 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPresentatio
             >
               {rescan === 'starting'
                 ? (<>Starting… <RefreshCw className="w-4 h-4 animate-spin" /></>)
-                : (<>{next.label} {next.rescan ? <RefreshCw className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}</>)}
+                : next.label}
             </button>
           </div>
         )}
@@ -3021,11 +2967,11 @@ export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, send
   else state = 'not_configured'
 
   const STATE = {
-    not_configured:   { tone: 'na',   icon: Info,        title: 'Not configured',         msg: 'Add the CyberMeters RUA address to your DMARC record so reports can be received.' },
-    dns_not_verified: { tone: 'warn', icon: AlertTriangle, title: 'DNS not verified',      msg: 'CyberMeters is not listed in your DMARC rua tag yet.' },
-    waiting:          { tone: 'info', icon: Inbox,       title: 'Waiting for reports',     msg: 'DNS is ready. Reports usually arrive after mailbox providers send aggregate DMARC reports.' },
-    receiving:        { tone: 'warn', icon: ShieldCheck, title: 'Receiving reports · DNS not verified', msg: 'CyberMeters has received DMARC reports for this domain. Finish DNS verification to fully connect.' },
-    connected:        { tone: 'ok',   icon: CheckCircle, title: 'Connected',               msg: 'DMARC reporting is connected and receiving data.' },
+    not_configured:   { tone: 'na',   title: 'Not configured',         msg: 'Add the CyberMeters RUA address to your DMARC record so reports can be received.' },
+    dns_not_verified: { tone: 'warn', title: 'DNS not verified',      msg: 'CyberMeters is not listed in your DMARC rua tag yet.' },
+    waiting:          { tone: 'info', title: 'Waiting for reports',     msg: 'DNS is ready. Reports usually arrive after mailbox providers send aggregate DMARC reports.' },
+    receiving:        { tone: 'warn', title: 'Receiving reports · DNS not verified', msg: 'CyberMeters has received DMARC reports for this domain. Finish DNS verification to fully connect.' },
+    connected:        { tone: 'ok',   title: 'Connected',               msg: 'DMARC reporting is connected and receiving data.' },
   }[state]
   const PANEL = {
     ok:   'border-brand-100 bg-brand-50/50',
@@ -3033,7 +2979,6 @@ export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, send
     info: 'border-blue-100 bg-blue-50/40',
     na:   'border-gray-200 bg-gray-50',
   }[STATE.tone]
-  const ICONCLS = { ok: 'text-brand-600', warn: 'text-amber-600', info: 'text-blue-600', na: 'text-gray-400' }[STATE.tone]
 
   const VERIFY_MSG = {
     verified:               { ok: true,  text: 'CyberMeters RUA found in your DMARC record.' },
@@ -3069,7 +3014,6 @@ export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, send
       {/* Connection status panel */}
       <section className={`card p-5 border ${PANEL}`}>
         <div className="flex items-start gap-3">
-          <STATE.icon className={`w-6 h-6 flex-shrink-0 mt-0.5 ${ICONCLS}`} />
           <div className="flex-1 min-w-0">
             <p className="text-base font-bold text-gray-900">{STATE.title}</p>
             <p className="text-sm text-gray-600 mt-0.5 leading-relaxed">{STATE.msg}</p>
@@ -3077,7 +3021,7 @@ export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, send
           </div>
           <div className="flex flex-col items-end gap-2 flex-shrink-0">
             <button onClick={verify} disabled={checking || !domain} className="btn-secondary text-sm disabled:opacity-50">
-              {checking ? <><RefreshCw className="w-4 h-4 animate-spin" /> Checking DNS…</> : <><ShieldCheck className="w-4 h-4" /> Verify setup</>}
+              {checking ? <><RefreshCw className="w-4 h-4 animate-spin" /> Checking DNS…</> : 'Verify setup'}
             </button>
             {next?.cta && next.act && (
               <button onClick={next.act} className="text-xs font-medium text-brand-700 hover:text-brand-800">{next.cta} →</button>
@@ -3086,7 +3030,7 @@ export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, send
         </div>
         {vr && (
           <div className={`mt-3 rounded-lg border p-2.5 text-sm flex items-center gap-2 ${vr.ok ? 'border-brand-100 bg-brand-50/60 text-brand-800' : 'border-amber-200 bg-amber-50/50 text-amber-900'}`}>
-            {vr.ok ? <CheckCircle className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}{vr.text}
+            {vr.text}
           </div>
         )}
       </section>
@@ -3307,24 +3251,23 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
   else state = 'C'
 
   const STATE = {
-    U: { tone: 'na', icon: Info, label: 'Report status unavailable',
+    U: { tone: 'na', label: 'Report status unavailable',
          msg: 'DMARC report history could not be loaded.',
          next: 'Refresh this page to check report receipt.' },
-    A: { tone: 'na',   icon: Inbox,        label: 'No reports received yet',
+    A: { tone: 'na',   label: 'No reports received yet',
          msg: 'CyberMeters has not received DMARC aggregate reports for this domain yet.',
          next: 'Add the CyberMeters reporting address to your DMARC record.', cta: 'View setup instructions', act: onGotoSetup },
-    B: { tone: 'ok',   icon: CheckCircle,  label: 'Reports received',
+    B: { tone: 'ok',   label: 'Reports received',
          msg: 'DMARC reports have been received or imported, and the reporting address is present in DNS.',
          next: 'Review who is sending email using this domain.', cta: 'Review sender activity', act: onGotoSenders },
-    C: { tone: 'warn', icon: AlertTriangle, label: 'Reports received · DNS not verified',
+    C: { tone: 'warn', label: 'Reports received · DNS not verified',
          msg: 'DMARC reports have been received or imported, but the reporting address is not verified in DNS. Report receipt alone does not verify the setup.',
          next: 'Update your DMARC record to include the CyberMeters reporting address.', cta: 'Finish DNS setup', act: onGotoSetup },
-    D: { tone: 'info', icon: Inbox,        label: 'DNS verified · waiting for reports',
+    D: { tone: 'info', label: 'DNS verified · waiting for reports',
          msg: 'Your DMARC record includes the CyberMeters reporting address. Reports may take 24–48 hours to arrive depending on mail volume and receivers.',
          next: 'No action needed — reports will appear automatically.', cta: 'Review setup', act: onGotoSetup },
   }[state]
   const PANEL = { ok: 'border-brand-100 bg-brand-50/50', warn: 'border-amber-200 bg-amber-50/50', info: 'border-blue-100 bg-blue-50/40', na: 'border-gray-200 bg-gray-50' }[STATE.tone]
-  const ICONCLS = { ok: 'text-brand-600', warn: 'text-amber-600', info: 'text-blue-600', na: 'text-gray-400' }[STATE.tone]
   const dnsLabel = dnsVerified === true ? 'Verified' : dnsVerified === false ? 'Not verified' : 'Unknown'
 
   const tiles = [
@@ -3355,7 +3298,6 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
           <>
             <div className={`rounded-xl border p-4 ${PANEL}`}>
               <div className="flex flex-col sm:flex-row sm:items-start gap-3">
-                <STATE.icon className={`w-6 h-6 flex-shrink-0 mt-0.5 ${ICONCLS}`} />
                 <div className="flex-1 min-w-0">
                   <p className="text-base font-bold text-gray-900">{STATE.label}</p>
                   <p className="text-sm text-gray-600 mt-0.5 leading-relaxed">{STATE.msg}</p>
@@ -3380,7 +3322,7 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Recommended next step</p>
                 <p className="text-sm text-gray-700 mt-0.5">{STATE.next}</p>
               </div>
-              {STATE.act && <button onClick={STATE.act} className="btn-primary text-sm flex-shrink-0">{STATE.cta} <ArrowRight className="w-4 h-4" /></button>}
+              {STATE.act && <button onClick={STATE.act} className="btn-primary text-sm flex-shrink-0">{STATE.cta}</button>}
             </div>
 
             {senderSummary && (
@@ -3425,9 +3367,8 @@ function Toast({ toast, onClose }) {
   const ok = toast.kind === 'ok'
   return (
     <div className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-sm ${ok ? 'bg-brand-50 border-brand-100 text-brand-800' : 'bg-red-50 border-red-100 text-red-700'}`}>
-      {ok ? <CheckCircle className="w-4 h-4 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 flex-shrink-0" />}
       <span className="flex-1">{toast.msg}</span>
-      <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X className="w-4 h-4" /></button>
+      <button onClick={onClose} className="text-gray-400 hover:text-gray-700" aria-label="Close"><X className="w-4 h-4" /></button>
     </div>
   )
 }
@@ -3642,8 +3583,8 @@ export default function WorkspaceEmailProtectionPage() {
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <button onClick={gotoSetup} className="btn-primary text-sm"><ShieldCheck className="w-4 h-4" /> Review DMARC setup</button>
-        <button onClick={gotoSenders} className="btn-secondary text-sm"><Users className="w-4 h-4" /> View sender inventory</button>
+        <button onClick={gotoSetup} className="btn-primary text-sm">Review DMARC setup</button>
+        <button onClick={gotoSenders} className="btn-secondary text-sm">View sender inventory</button>
         {domainScans.length > 1 && (
           <div className="relative">
             <select
@@ -3656,7 +3597,7 @@ export default function WorkspaceEmailProtectionPage() {
             <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
         )}
-        <button onClick={loadScans} className="btn-ghost text-sm" disabled={loading} title="Refresh">
+        <button onClick={loadScans} className="btn-ghost text-sm" disabled={loading} title="Refresh" aria-label="Refresh">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
@@ -3676,15 +3617,15 @@ export default function WorkspaceEmailProtectionPage() {
           action={<Link to="/scans/new" className="btn-primary">Run a scan</Link>}
         />
       ) : reportLoading ? (
-        <EmptyCard icon={RefreshCw} title="Loading email posture…" body="Fetching the latest scan report for this domain." />
+        <EmptyCard title="Loading email posture…" body="Fetching the latest scan report for this domain." />
       ) : !es ? (
         <EmptyCard title="Email guidance unavailable"
           body="The latest scan for this domain did not return email-security data. Try re-running the scan." />
       ) : moduleErrored ? (
-        <EmptyCard icon={AlertTriangle} title="Email module did not complete"
+        <EmptyCard title="Email module did not complete"
           body="The email-security module reported an error on the last scan. Re-run the scan to try again." />
       ) : notApplicable ? (
-        <EmptyCard icon={Info} title="Email guidance not applicable for this domain"
+        <EmptyCard title="Email guidance not applicable for this domain"
           body={es.applicability?.reason ? `${es.applicability.reason}. This domain is not expected to send mail, so email-authentication findings are not raised.` : 'This domain is not expected to send mail, so email guidance does not apply.'} />
       ) : (
         <div className="space-y-6">
@@ -3743,12 +3684,12 @@ export default function WorkspaceEmailProtectionPage() {
 
           {/* 1c. DMARC summary or get-started hint */}
           {siLoading && !dmarc ? (
-            <EmptyCard icon={RefreshCw} title="Loading DMARC sender intelligence…" body="Fetching imported report data for this domain." />
+            <EmptyCard title="Loading DMARC sender intelligence…" body="Fetching imported report data for this domain." />
           ) : !dmarc ? (
-            <EmptyCard icon={AlertTriangle} title="DMARC summary unavailable"
+            <EmptyCard title="DMARC summary unavailable"
               body="Sender intelligence could not be loaded for this domain. You can still import a report below." />
           ) : !hasReports ? (
-            <EmptyCard icon={Inbox} title="No DMARC reports imported yet"
+            <EmptyCard title="No DMARC reports imported yet"
               body="Import a DMARC aggregate (RUA) report to reveal who is sending email using this domain, whether they pass alignment, and when you can safely tighten policy. Use the import panel below to get started." />
           ) : (
             <DmarcSummaryPanel summary={dmarc} />

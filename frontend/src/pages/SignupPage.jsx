@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Mail, Lock, User, AlertTriangle, UserPlus, CheckCircle, Globe } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { api } from '../api'
 import { persistSignupDomainParam, sanitizeDomainParam } from '../utils/signupDomainHandoff'
@@ -86,11 +85,6 @@ export default function SignupPage() {
       {/* ── Success: email sent ── */}
       {done ? (
         <div className="card auth-card text-center">
-          <div className="flex justify-center mb-4">
-            <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center">
-              <CheckCircle className="w-6 h-6 text-green-500" />
-            </div>
-          </div>
           <h1 className="text-xl font-bold text-gray-900 mb-2">Check your email</h1>
           <p className="text-sm text-gray-500 mb-6">
             We sent a verification link to{' '}
@@ -116,14 +110,12 @@ export default function SignupPage() {
 
         {pendingDomain && (
           <div className="flex items-center gap-2 px-3 py-2 mb-5 bg-brand-50 border border-brand-100 rounded-xl text-xs text-brand-800">
-            <Globe className="w-3.5 h-3.5 flex-shrink-0 text-brand-600" />
             <span>We'll set up <span className="font-semibold">{pendingDomain}</span> right after you sign up.</span>
           </div>
         )}
 
         {error && (
           <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
-            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
             {error}
           </div>
         )}
@@ -132,10 +124,9 @@ export default function SignupPage() {
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Name</label>
             <div className="relative">
-              <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               <input
                 type="text"
-                className="input pl-10"
+                className="input"
                 placeholder="Jane Smith"
                 value={name}
                 onChange={e => setName(e.target.value)}
@@ -148,10 +139,9 @@ export default function SignupPage() {
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Email</label>
             <div className="relative">
-              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               <input
                 type="email"
-                className="input pl-10"
+                className="input"
                 placeholder="you@example.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
@@ -164,10 +154,9 @@ export default function SignupPage() {
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Password</label>
             <div className="relative">
-              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               <input
                 type="password"
-                className="input pl-10"
+                className="input"
                 placeholder="At least 12 characters"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
@@ -180,10 +169,9 @@ export default function SignupPage() {
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">Confirm password</label>
             <div className="relative">
-              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               <input
                 type="password"
-                className="input pl-10"
+                className="input"
                 placeholder="••••••••"
                 value={confirm}
                 onChange={e => setConfirm(e.target.value)}
@@ -200,7 +188,7 @@ export default function SignupPage() {
           >
             {loading
               ? <span className="opacity-70">Creating account…</span>
-              : <><UserPlus className="w-4 h-4" /> Create account</>
+              : 'Create account'
             }
           </button>
 

@@ -1,9 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
-import {
-  ShieldCheck, Copy, CheckCircle, AlertTriangle, Activity,
-  Wifi, RefreshCw, Globe, ArrowLeft, ExternalLink, Clock,
-} from 'lucide-react'
+import { Activity, RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import VerificationStatusBadge from '../components/VerificationStatusBadge'
 import OneClickDnsButton from '../components/OneClickDnsButton'
@@ -37,10 +34,7 @@ function CopyField({ label, value }) {
           onClick={copy}
           className="flex-shrink-0 flex items-center gap-1 text-xs text-gray-400 hover:text-brand-600 transition-colors"
         >
-          {copied
-            ? <><CheckCircle className="w-3.5 h-3.5 text-brand-500" /> Copied</>
-            : <><Copy className="w-3.5 h-3.5" /> Copy</>
-          }
+          {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
     </div>
@@ -54,7 +48,6 @@ function DnsCheckResult({ result }) {
   const { found, matches, value, expected, error } = result
   if (error && !found) return (
     <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
-      <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
       <div>
         <p className="font-semibold">DNS lookup error</p>
         <p className="text-xs mt-0.5 opacity-80">{error}</p>
@@ -63,7 +56,6 @@ function DnsCheckResult({ result }) {
   )
   if (!found) return (
     <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-700">
-      <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
       <div>
         <p className="font-semibold">TXT record not found yet</p>
         <p className="text-xs mt-1 opacity-80">DNS changes can take up to 48 hours to propagate. Try again later.</p>
@@ -73,7 +65,6 @@ function DnsCheckResult({ result }) {
   if (found && !matches) return (
     <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-700 space-y-2">
       <div className="flex items-center gap-2 font-semibold">
-        <AlertTriangle className="w-4 h-4" />
         TXT record found but value doesn't match
       </div>
       <div className="text-xs space-y-1">
@@ -84,7 +75,6 @@ function DnsCheckResult({ result }) {
   )
   return (
     <div className="flex items-start gap-3 p-4 bg-brand-50 border border-brand-100 rounded-xl text-sm text-brand-700">
-      <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-brand-500" />
       <div>
         <p className="font-semibold">DNS TXT record found and matches</p>
         <p className="text-xs mt-0.5 opacity-80">You can now click "Verify Ownership" to complete verification.</p>
@@ -239,7 +229,6 @@ export default function DomainVerifyPage() {
   if (error) return (
     <div className="max-w-2xl mx-auto px-6 py-12">
       <div className="card p-6 text-center">
-        <AlertTriangle className="w-8 h-8 text-red-400 mx-auto mb-3" />
         <p className="text-gray-700 font-medium mb-1">Failed to load domain</p>
         <p className="text-sm text-gray-400 mb-4">{error}</p>
         <button onClick={load} className="btn-secondary mx-auto">Retry</button>
@@ -255,15 +244,12 @@ export default function DomainVerifyPage() {
         onClick={() => navigate(-1)}
         className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition-colors mb-6"
       >
-        <ArrowLeft className="w-4 h-4" /> Back
+        Back
       </button>
 
       {/* Header */}
       <div className="flex items-start justify-between mb-8">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
-            <Globe className="w-5 h-5 text-brand-600" />
-          </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900">{domainName}</h1>
             <p className="text-sm text-gray-400 mt-0.5">Domain Ownership Verification</p>
@@ -275,7 +261,6 @@ export default function DomainVerifyPage() {
       {/* Already verified */}
       {isVerified && (
         <div className="card p-8 text-center mb-6">
-          <CheckCircle className="w-12 h-12 text-brand-500 mx-auto mb-3" />
           <p className="text-lg font-bold text-gray-900 mb-1">Domain Verified</p>
           <p className="text-sm text-gray-400">
             Ownership confirmed
@@ -289,7 +274,6 @@ export default function DomainVerifyPage() {
       {!isVerified && (
         <div className="card p-5 mb-6 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <ShieldCheck className="w-5 h-5 text-amber-400 flex-shrink-0" />
             <div>
               <p className="text-sm font-semibold text-gray-900">
                 {status === 'failed' ? 'Last verification attempt failed' : 'Verification required'}
@@ -306,7 +290,7 @@ export default function DomainVerifyPage() {
           >
             {generating
               ? <><Activity className="w-3.5 h-3.5 animate-spin" /> Generating…</>
-              : instructions ? <><RefreshCw className="w-3.5 h-3.5" /> Regenerate Token</> : 'Get Instructions'
+              : instructions ? 'Regenerate Token' : 'Get Instructions'
             }
           </button>
         </div>
@@ -314,7 +298,6 @@ export default function DomainVerifyPage() {
 
       {genError && (
         <div className="mb-4 flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           {genError}
         </div>
       )}
@@ -369,7 +352,6 @@ export default function DomainVerifyPage() {
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" />
                     Test URL
                   </a>
                 )}
@@ -390,7 +372,7 @@ export default function DomainVerifyPage() {
                 >
                   {checking
                     ? <><Activity className="w-4 h-4 animate-spin" /> Checking…</>
-                    : <><Wifi className="w-4 h-4" /> Check DNS Record</>
+                    : 'Check DNS Record'
                   }
                 </button>
               )}
@@ -402,7 +384,7 @@ export default function DomainVerifyPage() {
               >
                 {verifying
                   ? <><Activity className="w-4 h-4 animate-spin" /> Verifying…</>
-                  : <><ShieldCheck className="w-4 h-4" /> Verify Ownership</>
+                  : 'Verify Ownership'
                 }
               </button>
 
@@ -419,10 +401,6 @@ export default function DomainVerifyPage() {
                   ? 'bg-brand-50 border-brand-100 text-brand-700'
                   : 'bg-red-50 border-red-100 text-red-600'
               }`}>
-                {verifyResult.success
-                  ? <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                  : <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                }
                 <div>
                   <p className="font-semibold">{verifyResult.success ? 'Verified!' : 'Verification failed'}</p>
                   <p className="text-xs mt-0.5 opacity-80">{verifyResult.message}</p>
@@ -444,7 +422,6 @@ export default function DomainVerifyPage() {
       {/* Meta */}
       {lastAttempt && (
         <div className="flex items-center gap-2 text-xs text-gray-400">
-          <Clock className="w-3.5 h-3.5" />
           Verification last attempted {fmt(lastAttempt)}
         </div>
       )}

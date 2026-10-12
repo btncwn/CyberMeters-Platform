@@ -1,9 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import {
-  ArrowLeft, RefreshCw, Globe, Clock, ScanLine,
-  ChevronRight, Activity, CheckCircle, CalendarDays,
-} from 'lucide-react'
+import { RefreshCw, Globe } from 'lucide-react'
 import { api } from '../api'
 import StatusBadge from '../components/StatusBadge'
 import Spinner from '../components/Spinner'
@@ -59,27 +56,22 @@ export default function DomainHistory() {
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
       <Link to="/scans" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-600 transition-colors font-medium">
-        <ArrowLeft className="w-4 h-4" />
         Back to Scans
       </Link>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <div className="w-8 h-8 rounded-lg bg-brand-50 border border-brand-100 flex items-center justify-center">
-              <Globe className="w-4 h-4 text-brand-600" />
-            </div>
             <h1 className="text-xl font-bold text-gray-900">{domain}</h1>
           </div>
           <p className="text-sm text-gray-400">Scan history for this domain</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => load(true)} disabled={refreshing} className="btn-secondary">
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
             Refresh
           </button>
           <Link to="/scans/new" className="btn-primary" state={{ domain }}>
-            <ScanLine className="w-4 h-4" />
             New Scan
           </Link>
         </div>
@@ -88,23 +80,14 @@ export default function DomainHistory() {
       {!loading && scans.length > 0 && (
         <div className="grid grid-cols-3 gap-4">
           <div className="card p-5">
-            <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center mb-3">
-              <Activity className="w-4 h-4 text-brand-600" />
-            </div>
             <p className="text-3xl font-bold text-brand-700">{scans.length}</p>
             <p className="text-sm font-semibold text-gray-700 mt-1">Total Scans</p>
           </div>
           <div className="card p-5">
-            <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center mb-3">
-              <CheckCircle className="w-4 h-4 text-green-600" />
-            </div>
             <p className="text-3xl font-bold text-green-700">{completed}</p>
             <p className="text-sm font-semibold text-gray-700 mt-1">Completed</p>
           </div>
           <div className="card p-5">
-            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center mb-3">
-              <CalendarDays className="w-4 h-4 text-blue-600" />
-            </div>
             <p className="text-sm font-bold text-blue-700 mt-1">{latest ? relativeTime(latest.created_at) : '—'}</p>
             <p className="text-sm font-semibold text-gray-700 mt-1">Last Scan</p>
           </div>
@@ -128,7 +111,7 @@ export default function DomainHistory() {
             icon={Globe}
             title="No scan history"
             description={`No scans found for ${domain}`}
-            action={<Link to="/scans/new" className="btn-primary"><ScanLine className="w-4 h-4" />Start first scan</Link>}
+            action={<Link to="/scans/new" className="btn-primary">Start first scan</Link>}
           />
         ) : (
           <div className="relative">
@@ -159,13 +142,11 @@ export default function DomainHistory() {
                     <p className="mono text-[13px] text-gray-300 mt-1.5 truncate">{scan.id}</p>
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-xs text-gray-400 flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
                         {formatDate(scan.created_at)}
                       </span>
                       <span className="text-xs text-gray-300">{relativeTime(scan.created_at)}</span>
                     </div>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-500 transition-colors flex-shrink-0 mt-1" />
                 </li>
               ))}
             </ul>

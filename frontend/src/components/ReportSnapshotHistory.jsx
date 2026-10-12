@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { History } from 'lucide-react'
 import { api } from '../api'
 import { parseServerDate } from '../utils/dates'
 import { snapshotRows } from '../lib/reportSnapshotDisplay'
@@ -30,10 +29,7 @@ export default function ReportSnapshotHistory({ wsId }) {
   return (
     <section className="card p-6 mt-6" aria-label="Assessment snapshots">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <History className="w-4 h-4 text-gray-500" />
-          <h2 className="text-sm font-semibold text-gray-900">Assessment snapshots</h2>
-        </div>
+        <h2 className="text-sm font-semibold text-gray-900">Assessment snapshots</h2>
         <button type="button" className="btn-secondary text-sm" aria-expanded={open} onClick={toggle}>
           {open ? 'Hide' : 'Show history'}
         </button>

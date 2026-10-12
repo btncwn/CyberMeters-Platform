@@ -14,22 +14,15 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  Download, Trash2, AlertTriangle, CheckCircle, Shield,
-  FileText, Clock, X, Loader, ChevronRight, Briefcase,
-  Lock, RefreshCw,
-} from 'lucide-react'
+import { X, Loader, RefreshCw } from 'lucide-react'
 import { api } from '../api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function SectionCard({ icon: Icon, iconBg = 'bg-brand-50', iconColor = 'text-brand-600', title, subtitle, children }) {
+function SectionCard({ title, subtitle, children }) {
   return (
     <div className="card p-6">
       <div className="flex items-start gap-4 mb-5">
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
-          <Icon className={`w-5 h-5 ${iconColor}`} />
-        </div>
         <div>
           <h2 className="text-base font-bold text-gray-900">{title}</h2>
           {subtitle && <p className="text-sm text-gray-400 mt-0.5">{subtitle}</p>}
@@ -42,14 +35,12 @@ function SectionCard({ icon: Icon, iconBg = 'bg-brand-50', iconColor = 'text-bra
 
 function StatusBanner({ type, children }) {
   const cfg = {
-    success: { bg: 'bg-green-50 border-green-100',  icon: CheckCircle,    iconColor: 'text-green-600',  text: 'text-green-800' },
-    error:   { bg: 'bg-red-50 border-red-100',      icon: AlertTriangle,  iconColor: 'text-red-500',    text: 'text-red-700'   },
-    warning: { bg: 'bg-amber-50 border-amber-100',  icon: AlertTriangle,  iconColor: 'text-amber-500',  text: 'text-amber-800' },
-  }[type] ?? { bg: 'bg-gray-50 border-gray-100', icon: CheckCircle, iconColor: 'text-gray-500', text: 'text-gray-700' }
-  const Icon = cfg.icon
+    success: { bg: 'bg-green-50 border-green-100',  text: 'text-green-800' },
+    error:   { bg: 'bg-red-50 border-red-100',      text: 'text-red-700'   },
+    warning: { bg: 'bg-amber-50 border-amber-100',  text: 'text-amber-800' },
+  }[type] ?? { bg: 'bg-gray-50 border-gray-100', text: 'text-gray-700' }
   return (
     <div className={`flex items-start gap-3 px-4 py-3 rounded-xl border text-sm ${cfg.bg} ${cfg.text}`}>
-      <Icon className={`w-4 h-4 flex-shrink-0 mt-0.5 ${cfg.iconColor}`} />
       <span>{children}</span>
     </div>
   )
@@ -80,9 +71,6 @@ function ConfirmModal({ open, onClose, onConfirm, title, description, confirmWor
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
         {/* Header */}
         <div className={`px-6 py-5 flex items-start gap-3 border-b ${dangerous ? 'border-red-100 bg-red-50' : 'border-gray-100'}`}>
-          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${dangerous ? 'bg-red-100' : 'bg-amber-100'}`}>
-            <AlertTriangle className={`w-5 h-5 ${dangerous ? 'text-red-600' : 'text-amber-600'}`} />
-          </div>
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-bold text-gray-900">{title}</h3>
             <p className="text-sm text-gray-500 mt-1 leading-relaxed">{description}</p>
@@ -90,6 +78,7 @@ function ConfirmModal({ open, onClose, onConfirm, title, description, confirmWor
           <button
             onClick={handleClose}
             disabled={loading}
+            aria-label="Close"
             className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center flex-shrink-0"
           >
             <X className="w-4 h-4" />
@@ -174,7 +163,6 @@ function ExportSection() {
 
   return (
     <SectionCard
-      icon={Download}
       title="Export my data"
       subtitle="Download a copy of all data associated with your account."
     >
@@ -202,7 +190,7 @@ function ExportSection() {
       >
         {status === 'loading'
           ? <><Loader className="w-4 h-4 animate-spin" />Preparing export…</>
-          : <><Download className="w-4 h-4" />Download my account data</>
+          : 'Download my account data'
         }
       </button>
     </SectionCard>
@@ -241,9 +229,6 @@ function AccountDeletionSection() {
 
   return (
     <SectionCard
-      icon={Trash2}
-      iconBg="bg-red-50"
-      iconColor="text-red-500"
       title="Request account deletion"
       subtitle="Permanently remove your account and all associated data."
     >
@@ -277,7 +262,6 @@ function AccountDeletionSection() {
             onClick={() => setModalOpen(true)}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 transition-colors"
           >
-            <Trash2 className="w-4 h-4" />
             Request account deletion
           </button>
         </>
@@ -330,9 +314,6 @@ function WorkspaceRow({ workspace, onRequested }) {
 
   return (
     <div className="flex items-center gap-4 py-3 border-b border-gray-50 last:border-0">
-      <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
-        <Briefcase className="w-4 h-4 text-brand-600" />
-      </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-gray-900 truncate">{workspace.name}</p>
         <p className="text-xs text-gray-400 truncate">{workspace.id}</p>
@@ -340,7 +321,6 @@ function WorkspaceRow({ workspace, onRequested }) {
 
       {submitted ? (
         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-2.5 py-1">
-          <CheckCircle className="w-3 h-3" />
           Deletion requested
         </span>
       ) : (
@@ -351,7 +331,6 @@ function WorkspaceRow({ workspace, onRequested }) {
             onClick={() => setModalOpen(true)}
             className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg border border-red-100 transition-colors"
           >
-            <Trash2 className="w-3.5 h-3.5" />
             Request deletion
           </button>
         </div>
@@ -386,9 +365,6 @@ function WorkspaceDeletionSection() {
 
   return (
     <SectionCard
-      icon={Trash2}
-      iconBg="bg-orange-50"
-      iconColor="text-orange-500"
       title="Request workspace deletion"
       subtitle="Submit a deletion request for a specific workspace."
     >
@@ -440,9 +416,6 @@ function DataRetentionSection() {
 
   return (
     <SectionCard
-      icon={Clock}
-      iconBg="bg-blue-50"
-      iconColor="text-blue-600"
       title="Data retention"
       subtitle="How long CyberMeters stores your data."
     >
@@ -472,34 +445,27 @@ function DataRetentionSection() {
 
 function LegalLinksSection() {
   const links = [
-    { to: '/privacy', icon: Shield,   label: 'Privacy Policy',     desc: 'How we collect, use, and protect your data' },
-    { to: '/dpa',     icon: FileText, label: 'Data Processing Agreement', desc: 'GDPR-compliant DPA for business customers' },
-    { to: '/terms',   icon: Lock,     label: 'Terms of Service',   desc: 'Platform usage terms and conditions' },
+    { to: '/privacy', label: 'Privacy Policy',     desc: 'How we collect, use, and protect your data' },
+    { to: '/dpa',     label: 'Data Processing Agreement', desc: 'GDPR-compliant DPA for business customers' },
+    { to: '/terms',   label: 'Terms of Service',   desc: 'Platform usage terms and conditions' },
   ]
 
   return (
     <SectionCard
-      icon={FileText}
-      iconBg="bg-gray-50"
-      iconColor="text-gray-500"
       title="Legal documents"
       subtitle="Privacy and data processing agreements."
     >
       <div className="space-y-2">
-        {links.map(({ to, icon: Icon, label, desc }) => (
+        {links.map(({ to, label, desc }) => (
           <Link
             key={to}
             to={to}
             className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 border border-transparent hover:border-gray-100 transition-all group"
           >
-            <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0 group-hover:bg-brand-100 transition-colors">
-              <Icon className="w-4 h-4 text-brand-600" />
-            </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-gray-900">{label}</p>
               <p className="text-xs text-gray-400">{desc}</p>
             </div>
-            <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0" />
           </Link>
         ))}
       </div>
@@ -517,7 +483,6 @@ export default function AccountPrivacyPage() {
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-1">
           <Link to="/account" className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Account</Link>
-          <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
           <span className="text-sm font-medium text-gray-700">Privacy &amp; Data</span>
         </div>
         <h1 className="text-2xl font-bold text-gray-900">Privacy &amp; Data</h1>

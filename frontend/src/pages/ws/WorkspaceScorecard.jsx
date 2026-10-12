@@ -1,8 +1,5 @@
 import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
-import {
-  CheckCircle, AlertCircle, XCircle, HelpCircle, ArrowRight,
-} from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -38,14 +35,6 @@ function statusColors(status) {
     critical: { ring: 'ring-red-200',    bg: 'bg-red-50',    text: 'text-red-700',    bar: '#EF4444' },
     unknown:  { ring: 'ring-gray-200',   bg: 'bg-gray-50',   text: 'text-gray-500',   bar: '#D1D5DB' },
   }[status] ?? { ring: 'ring-gray-200', bg: 'bg-gray-50', text: 'text-gray-500', bar: '#D1D5DB' }
-}
-
-function StatusIcon({ status, className = 'w-5 h-5 flex-shrink-0' }) {
-  if (status === 'good')     return <CheckCircle className={`${className} text-brand-500`} />
-  if (status === 'fair')     return <CheckCircle className={`${className} text-blue-400`} />
-  if (status === 'warning')  return <AlertCircle className={`${className} text-amber-400`} />
-  if (status === 'critical') return <XCircle     className={`${className} text-red-500`} />
-  return <HelpCircle className={`${className} text-gray-300`} />
 }
 
 function StatusBadge({ status }) {
@@ -163,7 +152,6 @@ export default function WorkspaceScorecard() {
             {report.sections.map(sec => (
               <div key={sec.title} className="card p-5">
                 <div className="flex items-start gap-3">
-                  <StatusIcon status={sec.status} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
                       <h3 className="font-semibold text-sm text-gray-900">{sec.title}</h3>
@@ -201,7 +189,6 @@ export default function WorkspaceScorecard() {
                   <p className="text-sm font-semibold text-gray-900">{r.title}</p>
                   <p className="text-xs text-gray-500 mt-0.5">{r.description}</p>
                 </div>
-                <ArrowRight className="w-4 h-4 text-gray-300 flex-shrink-0 mt-0.5 ml-auto" />
               </div>
             ))}
           </div>

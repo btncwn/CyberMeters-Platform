@@ -1,11 +1,4 @@
-import {
-  AlertTriangle,
-  CheckCircle,
-  ChevronDown,
-  FileClock,
-  Info,
-  ShieldCheck,
-} from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 
 function toneFor(presentation) {
   if (presentation?.status !== 'current') return 'neutral'
@@ -17,18 +10,12 @@ function toneFor(presentation) {
 const TONE = {
   ok: {
     shell: 'border-brand-100 bg-brand-50/30',
-    icon: 'bg-brand-100 text-brand-700',
-    Icon: ShieldCheck,
   },
   warn: {
     shell: 'border-amber-200 bg-amber-50/40',
-    icon: 'bg-amber-100 text-amber-700',
-    Icon: AlertTriangle,
   },
   neutral: {
     shell: 'border-slate-200 bg-slate-50',
-    icon: 'bg-white text-slate-500',
-    Icon: FileClock,
   },
 }
 
@@ -130,7 +117,6 @@ export default function DmarcPolicyEvidenceCard({
 }) {
   if (!presentation) return null
   const tone = TONE[toneFor(presentation)]
-  const Icon = tone.Icon
 
   if (presentation.status !== 'current') {
     return (
@@ -139,9 +125,6 @@ export default function DmarcPolicyEvidenceCard({
         aria-label="DMARC methodology notice"
       >
         <div className="flex items-start gap-3">
-          <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${tone.icon}`}>
-            <Icon className="h-4 w-4" />
-          </div>
           <div>
             <p className="text-sm font-bold text-slate-900">{presentation.headline}</p>
             <p className="mt-1 text-xs leading-relaxed text-slate-600">
@@ -160,9 +143,6 @@ export default function DmarcPolicyEvidenceCard({
       aria-label="DMARC policy evidence"
     >
       <div className="flex items-start gap-3">
-        <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${tone.icon}`}>
-          <Icon className="h-4 w-4" />
-        </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
@@ -236,9 +216,6 @@ export default function DmarcPolicyEvidenceCard({
                 ? 'text-amber-800'
                 : 'text-slate-500'
             }`}>
-              {presentation.monitoring.state === 'monitoring_degraded'
-                ? <AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0" />
-                : <CheckCircle className="mt-0.5 h-3 w-3 flex-shrink-0" />}
               {presentation.monitoring.message}
             </p>
           )}
@@ -276,7 +253,6 @@ export default function DmarcPolicyEvidenceCard({
           )}
 
           <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-relaxed text-slate-500">
-            <Info className="mt-0.5 h-3 w-3 flex-shrink-0" />
             A requested DMARC policy does not prove how every receiver handled mail.
           </p>
         </div>

@@ -12,12 +12,9 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import {
-  Bell, X, CheckCheck, AlertTriangle, ShieldAlert,
-  FileText, Globe, ScanLine, Info, Mail, Lock, ClipboardCheck,
-  MonitorCheck, KeyRound, Boxes,
-} from 'lucide-react'
+import { Bell, X } from 'lucide-react'
 import { api } from '../api'
+import { DOMAIN_KEY_LABELS } from '../lib/caseDisplay'
 
 // ── Severity / type helpers ────────────────────────────────────────────────────
 
@@ -48,29 +45,6 @@ export function appPath(raw) {
     const u = new URL(raw)
     return u.origin === window.location.origin ? `${u.pathname}${u.search}${u.hash}` : null
   } catch { return null }
-}
-
-function TypeIcon({ type, domainKey }) {
-  const cls = 'w-4 h-4 flex-shrink-0'
-  switch (domainKey) {
-    case 'email_protection':               return <Mail className={`${cls} text-blue-500`} />
-    case 'brand_protection':               return <ShieldAlert className={`${cls} text-red-500`} />
-    case 'attack_surface':                 return <Globe className={`${cls} text-teal-600`} />
-    case 'certificates_trust':             return <Lock className={`${cls} text-sky-600`} />
-    case 'cyber_essentials_readiness':     return <ClipboardCheck className={`${cls} text-emerald-600`} />
-    case 'website_security':               return <MonitorCheck className={`${cls} text-amber-600`} />
-    case 'identity_exposure':              return <KeyRound className={`${cls} text-indigo-600`} />
-    case 'shadow_it_unmanaged_technology': return <Boxes className={`${cls} text-purple-600`} />
-    default: break
-  }
-  switch (type) {
-    case 'critical_finding':  return <ShieldAlert className={`${cls} text-red-500`} />
-    case 'high_finding':      return <AlertTriangle className={`${cls} text-orange-400`} />
-    case 'scan_completed':    return <ScanLine className={`${cls} text-brand-500`} />
-    case 'report_generated':  return <FileText className={`${cls} text-brand-500`} />
-    case 'domain_verified':   return <Globe className={`${cls} text-brand-500`} />
-    default:                  return <Info className={`${cls} text-gray-400`} />
-  }
 }
 
 function fmtRelative(isoStr) {
@@ -205,7 +179,7 @@ export default function NotificationBell() {
   // If no workspace selected, render a plain non-interactive bell
   if (!wsId) {
     return (
-      <button className="relative w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+      <button className="relative w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors" aria-label="Notifications">
         <Bell className="w-[18px] h-[18px]" />
       </button>
     )
@@ -233,7 +207,6 @@ export default function NotificationBell() {
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <div className="flex items-center gap-2">
-              <Bell className="w-4 h-4 text-gray-400" />
               <span className="font-semibold text-gray-900 text-sm">Notifications</span>
               {hasUnread && (
                 <span className="px-1.5 py-0.5 rounded-full text-[12px] font-bold bg-red-500 text-white leading-none">
@@ -248,13 +221,13 @@ export default function NotificationBell() {
                   disabled={markingAll}
                   className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium px-2 py-1 rounded-lg hover:bg-brand-50 transition-colors disabled:opacity-50"
                 >
-                  <CheckCheck className="w-3.5 h-3.5" />
                   All read
                 </button>
               )}
               <button
                 onClick={() => setOpen(false)}
                 className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                aria-label="Close notifications"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -265,7 +238,6 @@ export default function NotificationBell() {
           <div className="max-h-[420px] overflow-y-auto">
             {loadError && !hasLoadedSuccessfully ? (
               <div role="alert" className="px-4 py-8 text-center">
-                <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto mb-2" aria-hidden="true" />
                 <p className="text-sm font-semibold text-gray-700">We couldn’t load notifications.</p>
                 <p className="text-xs text-gray-400 mt-1">Check your connection and try again.</p>
                 <button
@@ -281,7 +253,6 @@ export default function NotificationBell() {
               <>
                 {loadError && (
                   <div role="alert" className="flex items-start gap-2 px-4 py-3 bg-amber-50 border-b border-amber-100 text-amber-800">
-                    <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
                     <p className="text-xs leading-relaxed flex-1">
                       <span className="font-semibold">Couldn’t refresh notifications.</span>{' '}
                       Showing the last known notifications.
@@ -301,7 +272,6 @@ export default function NotificationBell() {
                   <div className="px-4 py-8 text-center text-sm text-gray-400">Loading…</div>
                 ) : notifications.length === 0 && !loadError ? (
                   <div className="px-4 py-10 text-center">
-                    <Bell className="w-8 h-8 text-gray-200 mx-auto mb-2" />
                     <p className="text-sm text-gray-400">No notifications yet.</p>
                     <p className="text-xs text-gray-300 mt-1">Events appear here after scans and reports.</p>
                   </div>
@@ -335,13 +305,11 @@ export default function NotificationBell() {
                           onClick={handleNotifClick}
                           className={`flex gap-3 px-4 py-3.5 transition-colors ${isUnread ? 'bg-brand-50/30' : ''} ${link ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default hover:bg-gray-50/50'}`}
                         >
-                      {/* Type icon */}
-                      <div className="flex-shrink-0 mt-0.5">
-                        <TypeIcon type={n.type} domainKey={meta?.domain_key || meta?.domain} />
-                      </div>
-
                       {/* Content */}
                       <div className="flex-1 min-w-0">
+                        {DOMAIN_KEY_LABELS[meta?.domain_key || meta?.domain] && (
+                          <p className="text-xs text-gray-500 mb-0.5">{DOMAIN_KEY_LABELS[meta?.domain_key || meta?.domain]}</p>
+                        )}
                         <div className="flex items-start justify-between gap-2">
                           <p className={`text-xs font-semibold leading-snug ${isUnread ? 'text-gray-900' : 'text-gray-600'}`}>
                             {n.title}
@@ -354,6 +322,7 @@ export default function NotificationBell() {
                               <button
                                 onClick={e => { e.stopPropagation(); handleMarkRead(n.id) }}
                                 title="Mark as read"
+                                aria-label="Mark as read"
                                 className="w-5 h-5 flex items-center justify-center rounded text-gray-300 hover:text-brand-500 hover:bg-brand-50 transition-colors"
                               >
                                 <X className="w-3 h-3" />

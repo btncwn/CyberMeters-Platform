@@ -22,11 +22,7 @@ import { parseServerDate } from '../utils/dates'
  */
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import {
-  Shield, Users, BarChart2, Server, TrendingUp, Boxes,
-  CheckCircle, AlertTriangle, Clock, LogIn, UserPlus, RefreshCw,
-  Briefcase, ArrowRight, X,
-} from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
 import CyberMetersLogoMark from '../components/CyberMetersLogo'
@@ -52,38 +48,26 @@ const ROLE_DESCRIPTIONS = {
 
 const BENEFITS = [
   {
-    icon: BarChart2,
-    color: 'bg-brand-50 text-brand-600',
     title: 'Shared Security Monitoring',
     desc: 'Scheduled, continuous monitoring across all domains in your workspace — shared with the whole team.',
   },
   {
-    icon: Shield,
-    color: 'bg-red-50 text-red-500',
     title: 'Executive Reporting',
     desc: 'Generate PDF risk reports for clients and stakeholders in one click.',
   },
   {
-    icon: Server,
-    color: 'bg-amber-50 text-amber-600',
     title: 'Asset Inventory',
     desc: 'Track every subdomain, certificate, cloud service, and exposed admin surface.',
   },
   {
-    icon: TrendingUp,
-    color: 'bg-green-50 text-green-600',
     title: 'Historical Tracking',
     desc: 'Score trends over time so you can demonstrate improvement to stakeholders.',
   },
   {
-    icon: Boxes,
-    color: 'bg-purple-50 text-purple-600',
     title: 'Shadow IT Visibility',
     desc: 'See the SaaS portals, third-party scripts and providers observed on your domains, and keep an approved inventory.',
   },
   {
-    icon: Users,
-    color: 'bg-sky-50 text-sky-600',
     title: 'Team Collaboration',
     desc: 'Work alongside colleagues with role-based access so everyone sees what they need.',
   },
@@ -114,15 +98,8 @@ function StatusBanner({ type, children }) {
     success: 'bg-green-50 border-green-200 text-green-700',
     info:    'bg-blue-50 border-blue-200 text-blue-700',
   }
-  const icons = {
-    error:   <AlertTriangle className="w-4 h-4 flex-shrink-0" />,
-    warning: <AlertTriangle className="w-4 h-4 flex-shrink-0" />,
-    success: <CheckCircle   className="w-4 h-4 flex-shrink-0" />,
-    info:    <Shield        className="w-4 h-4 flex-shrink-0" />,
-  }
   return (
     <div className={`flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm font-medium ${styles[type]}`}>
-      {icons[type]}
       <span>{children}</span>
     </div>
   )
@@ -236,9 +213,6 @@ export default function InvitationLandingPage() {
         <div className="w-full flex flex-col items-center gap-6">
           <div className="flex justify-center"><CyberMetersLogoMark size={36} showWordmark animated /></div>
           <div className="card auth-card text-center">
-            <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
-              <X className="w-7 h-7 text-red-500" />
-            </div>
             <h1 className="text-xl font-bold text-gray-900 mb-2">Invitation not found</h1>
             <p className="text-sm text-gray-400 mb-6">
               This invitation link is invalid or has already been removed. Ask the workspace owner to send a new invitation.
@@ -259,9 +233,6 @@ export default function InvitationLandingPage() {
         <div className="w-full flex flex-col items-center gap-6">
           <div className="flex justify-center"><CyberMetersLogoMark size={36} showWordmark animated /></div>
           <div className="card auth-card text-center">
-            <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-4">
-              <Clock className="w-7 h-7 text-amber-500" />
-            </div>
             <h1 className="text-xl font-bold text-gray-900 mb-2">Invitation expired</h1>
             <p className="text-sm text-gray-400 mb-6">
               This invitation to <strong className="text-gray-700">{preview.workspace_name}</strong> expired
@@ -283,9 +254,6 @@ export default function InvitationLandingPage() {
         <div className="w-full flex flex-col items-center gap-6">
           <div className="flex justify-center"><CyberMetersLogoMark size={36} showWordmark animated /></div>
           <div className="card auth-card text-center">
-            <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-7 h-7 text-green-500" />
-            </div>
             <h1 className="text-xl font-bold text-gray-900 mb-2">Invitation already used</h1>
             <p className="text-sm text-gray-400 mb-6">
               This invitation has already been accepted. If you're trying to access{' '}
@@ -307,9 +275,6 @@ export default function InvitationLandingPage() {
         <div className="w-full flex flex-col items-center gap-6">
           <div className="flex justify-center"><CyberMetersLogoMark size={36} showWordmark animated /></div>
           <div className="card auth-card text-center">
-            <div className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4">
-              <X className="w-7 h-7 text-gray-400" />
-            </div>
             <h1 className="text-xl font-bold text-gray-900 mb-2">Invitation cancelled</h1>
             <p className="text-sm text-gray-400 mb-6">
               This invitation to <strong className="text-gray-700">{preview.workspace_name}</strong> was cancelled
@@ -331,16 +296,12 @@ export default function InvitationLandingPage() {
         <div className="w-full flex flex-col items-center gap-6">
           <div className="flex justify-center"><CyberMetersLogoMark size={36} showWordmark animated /></div>
           <div className="card auth-card text-center">
-            <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-7 h-7 text-green-500" />
-            </div>
             <h1 className="text-xl font-bold text-gray-900 mb-2">Successfully joined workspace</h1>
             <p className="text-sm text-gray-400 mb-6">
               You're now a <strong className="text-gray-700">{ROLE_LABELS[preview?.role] || preview?.role}</strong> in{' '}
               <strong className="text-gray-700">{preview?.workspace_name}</strong>.
             </p>
             <button onClick={handleGoToWorkspace} className="btn-primary w-full justify-center">
-              <ArrowRight className="w-4 h-4" />
               Go to Workspace
             </button>
           </div>
@@ -365,9 +326,6 @@ export default function InvitationLandingPage() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           {/* Header band */}
           <div className="bg-brand-600 px-8 py-6">
-            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center mb-3">
-              <Briefcase className="w-6 h-6 text-white" />
-            </div>
             <h1 className="text-2xl font-bold text-white mb-1">
               You've been invited to join a workspace
             </h1>
@@ -395,7 +353,6 @@ export default function InvitationLandingPage() {
 
             {/* Role description */}
             <div className="flex items-start gap-2.5 bg-brand-50 rounded-xl px-4 py-3">
-              <Shield className="w-4 h-4 text-brand-500 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-brand-700">
                 <strong>{ROLE_LABELS[preview.role] || preview.role}:</strong>{' '}
                 {ROLE_DESCRIPTIONS[preview.role] || 'Access to workspace data and reports.'}
@@ -405,7 +362,6 @@ export default function InvitationLandingPage() {
             {/* Expiry */}
             {preview.expires_at && (
               <p className="text-xs text-gray-400 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5" />
                 Invitation expires {formatDate(preview.expires_at)}
               </p>
             )}
@@ -434,7 +390,7 @@ export default function InvitationLandingPage() {
                   {joining ? (
                     <><RefreshCw className="w-4 h-4 animate-spin" /> Joining…</>
                   ) : (
-                    <><CheckCircle className="w-4 h-4" /> Join Workspace</>
+                    'Join Workspace'
                   )}
                 </button>
               </div>
@@ -445,11 +401,9 @@ export default function InvitationLandingPage() {
                   Create an account or sign in to accept this invitation.
                 </p>
                 <button onClick={handleSignUp} className="btn-primary w-full justify-center">
-                  <UserPlus className="w-4 h-4" />
                   Sign Up &amp; Join Workspace
                 </button>
                 <button onClick={handleSignIn} className="btn-secondary w-full justify-center">
-                  <LogIn className="w-4 h-4" />
                   Sign In &amp; Join Workspace
                 </button>
               </div>
@@ -463,11 +417,8 @@ export default function InvitationLandingPage() {
             What you'll get access to
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {BENEFITS.map(({ icon: Icon, color, title, desc }) => (
+            {BENEFITS.map(({ title, desc }) => (
               <div key={title} className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${color}`}>
-                  <Icon className="w-4 h-4" />
-                </div>
                 <p className="text-sm font-semibold text-gray-900 mb-1">{title}</p>
                 <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
               </div>

@@ -2,11 +2,7 @@ import { parseServerDate } from '../utils/dates'
 import CasesQueue from '../components/CasesQueue'
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  RefreshCw, Server, AlertTriangle, Globe, Cloud,
-  Shield, Activity, X, ChevronRight, Layers, UserCheck,
-  CheckCircle, Clock, Wrench,
-} from 'lucide-react'
+import { RefreshCw, Server, AlertTriangle, Globe, Cloud, Shield, Activity, X, Layers } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import StatCard from '../components/StatCard'
@@ -148,16 +144,12 @@ function ManagedCasesPanel({ workspaceId }) {
     <div className="card p-0 overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-brand-50 flex items-center justify-center">
-            <Wrench className="w-4 h-4 text-brand-600" />
-          </div>
           <div>
             <h2 className="text-sm font-bold text-gray-900">Managed Cases</h2>
             <p className="text-xs text-gray-400">Customer-owned fixes with CyberMeters verification.</p>
           </div>
         </div>
         <button onClick={loadCases} className="btn-secondary text-xs">
-          <RefreshCw className="w-3.5 h-3.5" />
           Refresh
         </button>
       </div>
@@ -196,9 +188,9 @@ function ManagedCasesPanel({ workspaceId }) {
                   </p>
                 )}
                 <div className="flex items-center gap-4 text-xs text-gray-400">
-                  <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {item.age_hours ?? 0}h open</span>
-                  {item.owner_ref && <span className="inline-flex items-center gap-1"><UserCheck className="w-3.5 h-3.5" /> {item.owner_ref}</span>}
-                  {item.last_verified_at && <span className="inline-flex items-center gap-1"><CheckCircle className="w-3.5 h-3.5" /> checked {fmtDate(item.last_verified_at)}</span>}
+                  <span className="inline-flex items-center gap-1">{item.age_hours ?? 0}h open</span>
+                  {item.owner_ref && <span className="inline-flex items-center gap-1">{item.owner_ref}</span>}
+                  {item.last_verified_at && <span className="inline-flex items-center gap-1">checked {fmtDate(item.last_verified_at)}</span>}
                 </div>
               </div>
               <div className="w-full lg:w-72 flex-shrink-0 space-y-2">
@@ -290,6 +282,7 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
@@ -537,15 +530,11 @@ export default function AssetsPage() {
     return (
       <div className="max-w-screen-xl mx-auto px-6 py-8">
         <div className="card p-12 text-center">
-          <div className="w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center mx-auto mb-4">
-            <Server className="w-6 h-6 text-brand-600" />
-          </div>
           <h2 className="text-lg font-semibold text-gray-900 mb-2">Select a Workspace</h2>
           <p className="text-sm text-gray-400 mb-6">
             Asset inventory is scoped to a workspace. Select one from the top navigation.
           </p>
           <Link to="/workspaces" className="btn-primary">
-            <ChevronRight className="w-4 h-4" />
             Go to Workspaces
           </Link>
         </div>
@@ -567,12 +556,9 @@ export default function AssetsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5 mb-1">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: '#D6F0EC' }}>
-              <Server className="w-4 h-4" style={{ color: '#12938C' }} />
-            </div>
             <h1 className="text-2xl font-bold text-gray-900">Asset Inventory</h1>
           </div>
-          <p className="text-sm text-gray-400 mt-0.5 ml-10">
+          <p className="text-sm text-gray-400 mt-0.5">
             {workspaceName ? `Workspace: ${workspaceName}` : 'Persistent cross-scan asset tracking'}
           </p>
         </div>
@@ -581,7 +567,7 @@ export default function AssetsPage() {
           disabled={refreshing || loading}
           className="btn-secondary flex-shrink-0"
         >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
           Refresh
         </button>
       </div>
@@ -681,7 +667,6 @@ export default function AssetsPage() {
                       <th>Source</th>
                       <th>Risk</th>
                       <th>Last Seen</th>
-                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -702,9 +687,6 @@ export default function AssetsPage() {
                         <td className="text-xs text-gray-500">{assetSourceLabel(asset.source)}</td>
                         <td><RiskBadge level={asset.risk_level} /></td>
                         <td className="text-xs text-gray-500">{fmtDate(asset.last_seen)}</td>
-                        <td className="pr-4">
-                          <ChevronRight className="w-4 h-4 text-gray-300" />
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -716,9 +698,6 @@ export default function AssetsPage() {
           {/* ── Timeline ──────────────────────────────────────────────────── */}
           <div className="card p-0 overflow-hidden">
             <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-100">
-              <div className="w-7 h-7 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
-                <Activity className="w-4 h-4 text-brand-600" />
-              </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-semibold text-gray-900">Asset Timeline</span>
                 <span className="text-xs text-gray-400">daily event counts · last 30 days</span>

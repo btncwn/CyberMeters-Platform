@@ -1,11 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
-import {
-  LayoutDashboard, Shield, Lock, Tag, Briefcase, ChevronLeft, ChevronDown,
-  ChevronRight, BarChart2, ClipboardList, Users, HardDrive, Mail,
-  Server, Settings, Bell, MonitorCheck, KeyRound, Boxes, ClipboardCheck,
-  FolderKanban, GitCompareArrows,
-} from 'lucide-react'
+import { ChevronLeft, ChevronDown, ChevronRight } from 'lucide-react'
 import { preloadComponent } from '../utils/preload'
 import { routePreloadMap } from '../utils/preloadMap'
 import { SERVICE_COLORS } from '../theme/serviceColors'
@@ -24,14 +19,14 @@ const THEME = Object.fromEntries(
 // ── Canonical Cyber MOT domains — the primary sections in the sidebar ─────────
 const SERVICES = [
   {
-    key: 'identity', domainKey: 'identity_exposure', title: 'Identity Exposure', icon: KeyRound, to: '/ws/identity-exposure',
+    key: 'identity', domainKey: 'identity_exposure', title: 'Identity Exposure', to: '/ws/identity-exposure',
     match: p => p.startsWith('/ws/identity-exposure'),
     items: [
       { to: '/ws/identity-exposure', label: 'Overview', end: true },
     ],
   },
   {
-    key: 'surface', domainKey: 'attack_surface', title: 'Attack Surface', icon: Server, to: '/assets',
+    key: 'surface', domainKey: 'attack_surface', title: 'Attack Surface', to: '/assets',
     match: p => p.startsWith('/assets') || p.startsWith('/exposure') || p.startsWith('/ws/admin-surfaces')
       || p.startsWith('/ws/cloud-assets') || p.startsWith('/scans') || p.startsWith('/schedules'),
     items: [
@@ -45,7 +40,7 @@ const SERVICES = [
     ],
   },
   {
-    key: 'email', domainKey: 'email_protection', title: 'Email Protection', icon: Mail, to: '/ws/email-protection',
+    key: 'email', domainKey: 'email_protection', title: 'Email Protection', to: '/ws/email-protection',
     match: p => p.startsWith('/ws/email-protection'),
     items: [
       { to: '/ws/email-protection', label: 'Overview', end: true },
@@ -55,14 +50,14 @@ const SERVICES = [
     ],
   },
   {
-    key: 'website', domainKey: 'website_security', title: 'Website Security', icon: MonitorCheck, to: '/ws/website-security',
+    key: 'website', domainKey: 'website_security', title: 'Website Security', to: '/ws/website-security',
     match: p => p.startsWith('/ws/website-security'),
     items: [
       { to: '/ws/website-security', label: 'Overview', end: true },
     ],
   },
   {
-    key: 'shadow_it', domainKey: 'shadow_it_unmanaged_technology', title: 'Shadow IT & Unmanaged Technology', icon: Boxes, to: '/ws/shadow-it',
+    key: 'shadow_it', domainKey: 'shadow_it_unmanaged_technology', title: 'Shadow IT & Unmanaged Technology', to: '/ws/shadow-it',
     match: p => p.startsWith('/ws/shadow-it') || p.startsWith('/ws/saas-exposure') || p.startsWith('/ws/third-party'),
     items: [
       { to: '/ws/shadow-it',       label: 'Overview', end: true },
@@ -71,7 +66,7 @@ const SERVICES = [
     ],
   },
   {
-    key: 'certs', domainKey: 'certificates_trust', title: 'Certificates & Trust', icon: Lock, to: '/ws/certificates',
+    key: 'certs', domainKey: 'certificates_trust', title: 'Certificates & Trust', to: '/ws/certificates',
     match: p => p.startsWith('/ws/certificates'),
     items: [
       { to: '/ws/certificates',  label: 'Overview', end: true },
@@ -83,7 +78,7 @@ const SERVICES = [
     ],
   },
   {
-    key: 'brand', domainKey: 'brand_protection', title: 'Brand Protection', icon: Tag, to: '/ws/brand-monitoring',
+    key: 'brand', domainKey: 'brand_protection', title: 'Brand Protection', to: '/ws/brand-monitoring',
     match: p => p.startsWith('/ws/brand-monitoring'),
     items: [
       { to: '/ws/brand-monitoring', label: 'Overview', end: true },
@@ -92,7 +87,7 @@ const SERVICES = [
     ],
   },
   {
-    key: 'cyber_essentials', domainKey: 'cyber_essentials_readiness', title: 'Cyber Essentials Readiness', icon: ClipboardCheck, to: '/ws/cyber-essentials',
+    key: 'cyber_essentials', domainKey: 'cyber_essentials_readiness', title: 'Cyber Essentials Readiness', to: '/ws/cyber-essentials',
     match: p => p.startsWith('/ws/cyber-essentials'),
     items: [
       { to: '/ws/cyber-essentials', label: 'Overview', end: true },
@@ -103,16 +98,16 @@ const SERVICES = [
 // Secondary workspace/admin links — tucked into a small footer dropdown so they
 // never dominate the coloured service suite.
 const WORKSPACE_TOOLS = [
-  { to: '/ws/dashboard',           icon: LayoutDashboard, label: 'Dashboard'    },
-  { to: '/ws/scorecard',           icon: Shield,          label: 'Scorecard'    },
-  { to: '/ws/executive-dashboard', icon: BarChart2,       label: 'Executive'    },
-  { to: '/ws/cases',               icon: FolderKanban,    label: 'Managed Cases' },
-  { to: '/ws/related-changes',     icon: GitCompareArrows, label: 'Related Changes' },
-  { to: '/ws/audit-log',           icon: ClipboardList,   label: 'Audit Log'    },
-  { to: '/ws/members',             icon: Users,           label: 'Team Members' },
-  { to: '/ws/alerts',              icon: Bell,            label: 'Alert Channels' },
-  { to: '/ws/retention',           icon: HardDrive,       label: 'Usage & retention' },
-  { to: '/settings',               icon: Settings,        label: 'Settings'     },
+  { to: '/ws/dashboard',           label: 'Dashboard'    },
+  { to: '/ws/scorecard',           label: 'Scorecard'    },
+  { to: '/ws/executive-dashboard', label: 'Executive'    },
+  { to: '/ws/cases',               label: 'Managed Cases' },
+  { to: '/ws/related-changes',     label: 'Related Changes' },
+  { to: '/ws/audit-log',           label: 'Audit Log'    },
+  { to: '/ws/members',             label: 'Team Members' },
+  { to: '/ws/alerts',              label: 'Alert Channels' },
+  { to: '/ws/retention',           label: 'Usage & retention' },
+  { to: '/settings',               label: 'Settings'     },
 ]
 
 // Exported: Layout uses this to wash the routed content column in the active
@@ -141,7 +136,6 @@ export default function WorkspaceNav({ wsName }) {
     if (loader) preloadComponent(loader)
   }
 
-  const activeTheme = activeKey ? THEME[activeKey] : null
 
   return (
     <aside className="w-full lg:w-[20%] lg:max-w-[280px] lg:min-w-[236px] flex-shrink-0 bg-white border-b lg:border-b-0 lg:border-r border-gray-200 xl:sticky xl:top-[68px] xl:h-[calc(100vh-68px)] xl:overflow-y-auto flex flex-col" onKeyDown={event => { if (event.key === 'Escape' && mobileOpen) { setMobileOpen(false); mobileToggle.current?.focus() } }}>
@@ -160,15 +154,7 @@ export default function WorkspaceNav({ wsName }) {
           <ChevronLeft className="w-3.5 h-3.5" />
           All workspaces
         </button>
-        <div className="flex items-center gap-2.5">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: activeTheme ? activeTheme.icon : '#00876A' }}
-          >
-            <Briefcase className="w-4 h-4 text-white" />
-          </div>
-          <span className="text-base font-bold text-gray-900 truncate">{wsName || 'Workspace'}</span>
-        </div>
+        <p className="text-lg font-bold text-gray-900 break-words">{wsName || 'Workspace'}</p>
       </div>
 
       {/* ── Cyber MOT domains ── */}
@@ -178,7 +164,6 @@ export default function WorkspaceNav({ wsName }) {
           const expanded = expandedKey === svc.key
           const hovered = hoverKey === svc.key
           const t = THEME[svc.key]
-          const Icon = svc.icon
           return (
             <div key={svc.key}>
               <Link
@@ -194,13 +179,8 @@ export default function WorkspaceNav({ wsName }) {
                   active ? 'font-semibold' : 'font-medium text-gray-700'
                 }`}
               >
-                <Icon
-                  className="w-[22px] h-[22px] flex-shrink-0 transition-transform"
-                  strokeWidth={active ? 2.4 : 2}
-                  style={{ color: t.icon, transform: hovered && !active ? 'scale(1.08)' : undefined }}
-                />
                 <span
-                  className="flex-1 min-w-0 text-[15px] leading-snug"
+                  className="flex-1 min-w-0 text-[17px] leading-snug"
                   style={active ? { color: t.text } : undefined}
                 >
                   {svc.title}
@@ -213,7 +193,7 @@ export default function WorkspaceNav({ wsName }) {
               {/* The expanded service reveals its coloured sub-items */}
               {expanded && (
                 <div
-                  className="ml-[26px] mt-1 mb-1.5 pl-3.5 space-y-0.5 border-l-2"
+                  className="ml-3 mt-1 mb-1.5 pl-3.5 space-y-0.5 border-l-2"
                   style={{ borderColor: t.bg }}
                 >
                   {[...svc.items, { to: `/ws/cases?domain_key=${svc.domainKey}`, label: 'Managed cases' }].map((item, i) => item.hash ? (
@@ -253,7 +233,7 @@ export default function WorkspaceNav({ wsName }) {
         </button>
         {toolsOpen && (
           <div className="mt-1 space-y-0.5">
-            {WORKSPACE_TOOLS.map(({ to, icon: Icon, label }) => (
+            {WORKSPACE_TOOLS.map(({ to, label }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -266,7 +246,7 @@ export default function WorkspaceNav({ wsName }) {
                   }`
                 }
               >
-                <Icon className="w-4 h-4 flex-shrink-0" /> {label}
+                {label}
               </NavLink>
             ))}
           </div>

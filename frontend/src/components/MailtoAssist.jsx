@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, Copy, Mail, X } from 'lucide-react'
+import { X } from 'lucide-react'
 
 // Email links open the visitor's email app — but only when one is set up on
 // that computer. Many people read email in a browser, so a mailto link can look
@@ -64,7 +64,6 @@ export default function MailtoAssist() {
   return (
     <div role="status" aria-live="polite" className="fixed inset-x-0 bottom-4 z-[100] flex justify-center px-4 pointer-events-none">
       <div className="pointer-events-auto w-full max-w-[460px] rounded-2xl bg-gray-900 text-white shadow-2xl px-5 py-4 flex items-start gap-4">
-        <Mail className="w-5 h-5 mt-0.5 flex-shrink-0 text-emerald-300" aria-hidden="true" />
         <div className="flex-1 min-w-0">
           <p className="text-base font-semibold break-all">{address}</p>
           <p className="text-sm text-gray-300 mt-1">
@@ -77,7 +76,6 @@ export default function MailtoAssist() {
             onClick={() => copyText(address).then(setCopied)}
             className="mt-3 inline-flex items-center gap-2 rounded-lg bg-white/10 hover:bg-white/20 px-3 py-1.5 text-sm font-semibold"
           >
-            {copied ? <Check className="w-4 h-4" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
             {copied ? 'Copied' : 'Copy address'}
           </button>
         </div>

@@ -9,7 +9,6 @@
  */
 import { useState, useEffect } from 'react'
 import { useSearchParams, Link, useNavigate } from 'react-router-dom'
-import { CheckCircle, AlertTriangle, Mail } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { api } from '../api'
 
@@ -82,11 +81,6 @@ export default function EmailVerificationPage() {
         {/* ── Success ── */}
         {success && (
           <>
-            <div className="flex justify-center mb-4">
-              <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-green-500" />
-              </div>
-            </div>
             <h1 className="text-xl font-bold text-gray-900 mb-2">Email verified</h1>
             <p className="text-sm text-gray-500 mb-6">
               Your email address has been verified. You can now sign in to CyberMeters.
@@ -103,11 +97,6 @@ export default function EmailVerificationPage() {
         {/* ── Error / expired token ── */}
         {!success && (
           <>
-            <div className="flex justify-center mb-4">
-              <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
-                <AlertTriangle className="w-6 h-6 text-red-400" />
-              </div>
-            </div>
             <h1 className="text-xl font-bold text-gray-900 mb-2">Verification failed</h1>
             <p className="text-sm text-gray-500 mb-6">
               {error || 'This verification link is invalid or has expired.'}
@@ -115,17 +104,15 @@ export default function EmailVerificationPage() {
 
             {resendDone ? (
               <div className="flex items-center gap-2 px-4 py-3 bg-green-50 border border-green-100 rounded-xl text-sm text-green-700 text-left mb-4">
-                <CheckCircle className="w-4 h-4 flex-shrink-0" />
                 If that address has an unverified account, a new link is on its way.
               </div>
             ) : (
               <form onSubmit={handleResend} className="text-left space-y-3 mb-4">
                 <p className="text-xs text-gray-400 text-center mb-2">Get a new verification link</p>
                 <div className="relative">
-                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                   <input
                     type="email"
-                    className="input pl-10"
+                    className="input"
                     placeholder="you@example.com"
                     value={resendEmail}
                     onChange={e => setResendEmail(e.target.value)}

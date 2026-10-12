@@ -13,12 +13,8 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import {
-  Bell, CheckCheck, AlertTriangle, ShieldAlert,
-  FileText, Globe, ScanLine, Info, ChevronDown,
-  ArrowLeft, Mail, Lock, ClipboardCheck, MonitorCheck, KeyRound, Boxes,
-} from 'lucide-react'
 import { api } from '../api'
+import { DOMAIN_KEY_LABELS } from '../lib/caseDisplay'
 
 // ── Shared severity config ────────────────────────────────────────────────────
 
@@ -67,30 +63,6 @@ const SEVERITY_CFG = {
 
 function severityCfg(sev) {
   return SEVERITY_CFG[sev] ?? SEVERITY_CFG.info
-}
-
-// ── Type icon ─────────────────────────────────────────────────────────────────
-
-function TypeIcon({ type, domainKey, className = 'w-5 h-5 flex-shrink-0' }) {
-  switch (domainKey) {
-    case 'email_protection':               return <Mail           className={`${className} text-blue-500`} />
-    case 'brand_protection':               return <ShieldAlert    className={`${className} text-red-500`} />
-    case 'attack_surface':                 return <Globe          className={`${className} text-teal-600`} />
-    case 'certificates_trust':             return <Lock           className={`${className} text-sky-600`} />
-    case 'cyber_essentials_readiness':     return <ClipboardCheck className={`${className} text-emerald-600`} />
-    case 'website_security':               return <MonitorCheck   className={`${className} text-amber-600`} />
-    case 'identity_exposure':              return <KeyRound       className={`${className} text-indigo-600`} />
-    case 'shadow_it_unmanaged_technology': return <Boxes          className={`${className} text-purple-600`} />
-    default: break
-  }
-  switch (type) {
-    case 'critical_finding':  return <ShieldAlert  className={`${className} text-red-500`} />
-    case 'high_finding':      return <AlertTriangle className={`${className} text-orange-400`} />
-    case 'scan_completed':    return <ScanLine      className={`${className} text-brand-500`} />
-    case 'report_generated':  return <FileText      className={`${className} text-brand-500`} />
-    case 'domain_verified':   return <Globe         className={`${className} text-brand-500`} />
-    default:                  return <Info          className={`${className} text-gray-400`} />
-  }
 }
 
 // ── Relative time ─────────────────────────────────────────────────────────────
@@ -175,15 +147,13 @@ function NotificationCard({ n, onMarkRead }) {
         ${link ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default'}
       `}
     >
-      {/* Type icon */}
-      <div className="flex-shrink-0 mt-0.5">
-        <TypeIcon type={n.type} domainKey={meta?.domain_key || meta?.domain} />
-      </div>
-
       {/* Main content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
+            {DOMAIN_KEY_LABELS[meta?.domain_key || meta?.domain] && (
+              <p className="text-xs text-gray-500 mb-0.5">{DOMAIN_KEY_LABELS[meta?.domain_key || meta?.domain]}</p>
+            )}
             <p className={`text-sm font-semibold leading-snug ${isUnread ? 'text-gray-900' : 'text-gray-600'}`}>
               {n.title}
             </p>
@@ -362,7 +332,6 @@ export default function NotificationsPage() {
     if (statusFilter === 'unread') {
       return (
         <div className="py-20 text-center">
-          <CheckCheck className="w-10 h-10 text-green-300 mx-auto mb-3" />
           <p className="text-sm font-medium text-gray-500">All caught up</p>
           <p className="text-xs text-gray-400 mt-1">No unread notifications.</p>
         </div>
@@ -370,7 +339,6 @@ export default function NotificationsPage() {
     }
     return (
       <div className="py-20 text-center">
-        <Bell className="w-10 h-10 text-gray-200 mx-auto mb-3" />
         <p className="text-sm font-medium text-gray-500">No notifications yet</p>
         <p className="text-xs text-gray-400 mt-1">Events appear here after scans complete.</p>
       </div>
@@ -383,7 +351,6 @@ export default function NotificationsPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <Bell className="w-12 h-12 text-gray-200 mx-auto mb-4" />
           <h2 className="text-lg font-semibold text-gray-700 mb-1">No workspace selected</h2>
           <p className="text-sm text-gray-400 mb-4">Select a workspace to view notifications.</p>
           <Link to="/workspaces" className="text-sm text-brand-600 hover:underline">
@@ -408,7 +375,6 @@ export default function NotificationsPage() {
                 to="/dashboard"
                 className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 transition-colors"
               >
-                <ArrowLeft className="w-3.5 h-3.5" />
                 Back
               </Link>
             </div>
@@ -437,7 +403,6 @@ export default function NotificationsPage() {
               disabled={markingAll}
               className="flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-medium px-3 py-2 rounded-xl hover:bg-brand-50 transition-colors disabled:opacity-50"
             >
-              <CheckCheck className="w-4 h-4" />
               {markingAll ? 'Marking…' : 'Mark all read'}
             </button>
           )}
@@ -498,7 +463,6 @@ export default function NotificationsPage() {
           {/* Notification list */}
           {loadError && !hasLoadedSuccessfully ? (
             <div role="alert" className="px-6 py-16 text-center">
-              <AlertTriangle className="w-10 h-10 text-amber-400 mx-auto mb-3" aria-hidden="true" />
               <p className="text-sm font-semibold text-gray-700">We couldn’t load notifications.</p>
               <p className="text-xs text-gray-400 mt-1">Check your connection and try again.</p>
               <button
@@ -514,7 +478,6 @@ export default function NotificationsPage() {
             <>
               {loadError && (
                 <div role="alert" className="flex items-center gap-3 px-4 py-3 bg-amber-50 border-b border-amber-100 text-amber-800">
-                  <AlertTriangle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
                   <p className="text-xs flex-1">
                     <span className="font-semibold">Couldn’t refresh notifications.</span>{' '}
                     Showing the last known results.
@@ -562,10 +525,7 @@ export default function NotificationsPage() {
                     {loadingMore ? (
                       <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
                     ) : (
-                      <>
-                        <ChevronDown className="w-4 h-4" />
-                        Load more
-                      </>
+                      'Load more'
                     )}
                   </button>
                 </div>

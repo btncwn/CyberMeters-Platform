@@ -1,36 +1,20 @@
 import { useMemo } from 'react'
 import { useParams, Link, useNavigate, Navigate } from 'react-router-dom'
-import {
-  GraduationCap, ArrowLeft, Clock, ChevronRight,
-  BookOpen, ArrowRight, Info, AlertTriangle, CheckCircle,
-  Radar, Mail, Globe, Lock, Shield, Cloud,
-  Users, Layers, Briefcase, Link as LinkIcon,
-} from 'lucide-react'
 import { getArticle, getCategoryMeta, getRelatedArticles } from '../data/academy'
-
-// ── Icon resolver ──────────────────────────────────────────────────────────────
-const ICON_MAP = {
-  Radar, Mail, Globe, Lock, Shield, AlertTriangle,
-  Cloud, Users, Layers, Briefcase, Link: LinkIcon,
-}
-function CategoryIcon({ name, className = 'w-4 h-4' }) {
-  const Icon = ICON_MAP[name] || BookOpen
-  return <Icon className={className} />
-}
 
 // ── Colour helpers ─────────────────────────────────────────────────────────────
 const COLOR_CLASSES = {
-  brand:  { bg: 'bg-brand-50',  icon: 'text-brand-600',  badge: 'bg-brand-50 text-brand-700'  },
-  blue:   { bg: 'bg-blue-50',   icon: 'text-blue-600',   badge: 'bg-blue-50 text-blue-700'    },
-  indigo: { bg: 'bg-indigo-50', icon: 'text-indigo-600', badge: 'bg-indigo-50 text-indigo-700'},
-  green:  { bg: 'bg-emerald-50',icon: 'text-emerald-600',badge: 'bg-emerald-50 text-emerald-700'},
-  purple: { bg: 'bg-purple-50', icon: 'text-purple-600', badge: 'bg-purple-50 text-purple-700'},
-  red:    { bg: 'bg-red-50',    icon: 'text-red-600',    badge: 'bg-red-50 text-red-700'      },
-  cyan:   { bg: 'bg-cyan-50',   icon: 'text-cyan-600',   badge: 'bg-cyan-50 text-cyan-700'    },
-  amber:  { bg: 'bg-amber-50',  icon: 'text-amber-600',  badge: 'bg-amber-50 text-amber-700'  },
-  pink:   { bg: 'bg-pink-50',   icon: 'text-pink-600',   badge: 'bg-pink-50 text-pink-700'    },
-  orange: { bg: 'bg-orange-50', icon: 'text-orange-600', badge: 'bg-orange-50 text-orange-700'},
-  rose:   { bg: 'bg-rose-50',   icon: 'text-rose-600',   badge: 'bg-rose-50 text-rose-700'    },
+  brand:  { badge: 'bg-brand-50 text-brand-700' },
+  blue:   { badge: 'bg-blue-50 text-blue-700' },
+  indigo: { badge: 'bg-indigo-50 text-indigo-700' },
+  green:  { badge: 'bg-emerald-50 text-emerald-700' },
+  purple: { badge: 'bg-purple-50 text-purple-700' },
+  red:    { badge: 'bg-red-50 text-red-700' },
+  cyan:   { badge: 'bg-cyan-50 text-cyan-700' },
+  amber:  { badge: 'bg-amber-50 text-amber-700' },
+  pink:   { badge: 'bg-pink-50 text-pink-700' },
+  orange: { badge: 'bg-orange-50 text-orange-700' },
+  rose:   { badge: 'bg-rose-50 text-rose-700' },
 }
 
 // ── Block renderer ─────────────────────────────────────────────────────────────
@@ -72,14 +56,13 @@ function Block({ block }) {
 
     case 'callout': {
       const variants = {
-        info:    { bg: 'bg-blue-50 border-blue-100',   icon: <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />,           text: 'text-blue-900' },
-        warning: { bg: 'bg-amber-50 border-amber-100', icon: <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />, text: 'text-amber-900' },
-        success: { bg: 'bg-emerald-50 border-emerald-100', icon: <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />, text: 'text-emerald-900' },
+        info:    { bg: 'bg-blue-50 border-blue-100',   text: 'text-blue-900' },
+        warning: { bg: 'bg-amber-50 border-amber-100', text: 'text-amber-900' },
+        success: { bg: 'bg-emerald-50 border-emerald-100', text: 'text-emerald-900' },
       }
       const v = variants[block.variant] || variants.info
       return (
         <div className={`mt-4 flex gap-3 p-4 rounded-xl border ${v.bg}`}>
-          {v.icon}
           <p className={`text-[14px] leading-relaxed ${v.text}`}>{block.text}</p>
         </div>
       )
@@ -112,26 +95,19 @@ function Section({ section, index }) {
 
 // ── Related article mini-card ──────────────────────────────────────────────────
 function RelatedCard({ article }) {
-  const cat = getCategoryMeta(article.category)
-  const c = COLOR_CLASSES[cat?.color] || COLOR_CLASSES.brand
   return (
     <Link
       to={`/academy/${article.slug}`}
       className="group flex items-start gap-3 p-3.5 bg-white rounded-xl border border-gray-100 hover:border-brand-200 hover:shadow-sm transition-all"
     >
-      <div className={`w-8 h-8 rounded-lg ${c.bg} flex items-center justify-center flex-shrink-0`}>
-        <CategoryIcon name={cat?.icon} className={`w-4 h-4 ${c.icon}`} />
-      </div>
       <div className="min-w-0">
         <p className="text-sm font-semibold text-gray-800 group-hover:text-brand-600 transition-colors leading-snug line-clamp-2">
           {article.title}
         </p>
         <div className="flex items-center gap-1 mt-1">
-          <Clock className="w-3 h-3 text-gray-400" />
           <span className="text-[13px] text-gray-400">{article.readTime} min</span>
         </div>
       </div>
-      <ArrowRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-brand-500 flex-shrink-0 mt-1 transition-colors" />
     </Link>
   )
 }
@@ -172,11 +148,9 @@ export default function AcademyArticlePage() {
   if (!article) {
     return (
       <div className="max-w-screen-xl mx-auto px-6 py-16 text-center">
-        <GraduationCap className="w-12 h-12 text-gray-300 mx-auto mb-4" />
         <h1 className="text-lg font-bold text-gray-900 mb-2">Article not found</h1>
         <p className="text-sm text-gray-500 mb-6">The article you're looking for doesn't exist or may have been moved.</p>
         <Link to="/academy" className="btn-primary inline-flex items-center gap-2">
-          <ArrowLeft className="w-4 h-4" />
           Back to Academy
         </Link>
       </div>
@@ -189,10 +163,9 @@ export default function AcademyArticlePage() {
       {/* Breadcrumb */}
       <nav className="flex items-center gap-1.5 text-[13px] text-gray-400 mb-6">
         <Link to="/academy" className="hover:text-brand-600 flex items-center gap-1 transition-colors">
-          <GraduationCap className="w-3.5 h-3.5" />
           Academy
         </Link>
-        <ChevronRight className="w-3.5 h-3.5" />
+        <span aria-hidden="true">/</span>
         <Link
           to={`/academy`}
           onClick={e => { e.preventDefault(); navigate('/academy') }}
@@ -200,7 +173,7 @@ export default function AcademyArticlePage() {
         >
           {catMeta?.label}
         </Link>
-        <ChevronRight className="w-3.5 h-3.5" />
+        <span aria-hidden="true">/</span>
         <span className="text-gray-600 font-medium truncate max-w-xs">{article.title}</span>
       </nav>
 
@@ -213,7 +186,6 @@ export default function AcademyArticlePage() {
           <div className="mb-8">
             <div className="flex items-center gap-2 mb-3 flex-wrap">
               <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[13px] font-semibold ${c.badge}`}>
-                <CategoryIcon name={catMeta?.icon} className="w-3 h-3" />
                 {catMeta?.label}
               </span>
               {article.featured && (
@@ -222,7 +194,6 @@ export default function AcademyArticlePage() {
                 </span>
               )}
               <span className="flex items-center gap-1 text-[13px] text-gray-400 ml-auto">
-                <Clock className="w-3.5 h-3.5" />
                 {article.readTime} min read
               </span>
             </div>
@@ -253,7 +224,6 @@ export default function AcademyArticlePage() {
               to="/academy"
               className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-brand-600 transition-colors"
             >
-              <ArrowLeft className="w-4 h-4" />
               Back to Academy
             </Link>
           </div>
@@ -283,9 +253,7 @@ export default function AcademyArticlePage() {
             to="/academy"
             className="flex items-center gap-2.5 px-4 py-3 bg-brand-50 hover:bg-brand-100 rounded-xl text-sm font-semibold text-brand-700 transition-colors"
           >
-            <GraduationCap className="w-4 h-4" />
             Academy home
-            <ArrowRight className="w-3.5 h-3.5 ml-auto" />
           </Link>
         </aside>
       </div>

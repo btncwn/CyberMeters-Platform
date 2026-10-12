@@ -29,7 +29,6 @@ function AccuracyScoreBadge({ score }) {
   const label = score >= 80 ? 'High' : score >= 60 ? 'Good' : score >= 40 ? 'Fair' : 'Low'
   return (
     <div className={`flex items-center gap-3 rounded-xl border px-5 py-4 ${color}`}>
-      <Target className="w-8 h-8 flex-shrink-0" />
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide opacity-70">Accuracy Score</p>
         <p className="text-3xl font-bold leading-tight">{score}<span className="text-base font-normal opacity-60">/100</span></p>
@@ -72,7 +71,6 @@ export default function AccuracyPage() {
 
       {error && (
         <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 flex items-center gap-2 text-sm text-red-600 mb-6">
-          <AlertTriangle className="w-4 h-4" />
           {error}
         </div>
       )}

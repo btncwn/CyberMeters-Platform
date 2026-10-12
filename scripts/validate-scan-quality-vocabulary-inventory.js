@@ -289,7 +289,7 @@ const REVIEWED_DYNAMIC_QUALITY_EXPRESSIONS = new Map([
 // without deciding a security status. They are keyed by file, line and snippet;
 // a move, duplicate or wording change fails the classification gate.
 const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
-  ["frontend/src/components/ExecutiveReportV2.jsx:250:value !== ''",
+  ["frontend/src/components/ExecutiveReportV2.jsx:247:value !== ''",
     "omit a blank coverage fact after the adjacent null guard"],
 ]);
 // The signal-monitoring-state entry is the same reviewed presentation assertion;

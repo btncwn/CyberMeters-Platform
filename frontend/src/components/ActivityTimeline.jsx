@@ -1,41 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import {
-  Activity, LogIn, LogOut, Globe, ShieldCheck, Users, UserMinus,
-  ScanLine, FileText, Bell, RefreshCw, ChevronDown, Mail, Lock,
-  ClipboardCheck, MonitorCheck, KeyRound, Boxes, ShieldAlert,
-} from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
-
-// ── Event type config ────────────────────────────────────────────────────────
-
-const EVENT_CONFIG = {
-  login:                    { icon: LogIn,       color: 'text-brand-600',  bg: 'bg-brand-50'  },
-  logout:                   { icon: LogOut,      color: 'text-gray-500',   bg: 'bg-gray-100'  },
-  workspace_created:        { icon: Activity,    color: 'text-brand-600',  bg: 'bg-brand-50'  },
-  workspace_member_added:   { icon: Users,       color: 'text-brand-600',  bg: 'bg-brand-50'  },
-  workspace_member_removed: { icon: UserMinus,   color: 'text-red-500',    bg: 'bg-red-50'    },
-  domain_added:             { icon: Globe,       color: 'text-brand-600',  bg: 'bg-brand-50'  },
-  domain_imported:          { icon: Globe,       color: 'text-brand-600',  bg: 'bg-brand-50'  },
-  domain_verified:          { icon: ShieldCheck, color: 'text-green-600',  bg: 'bg-green-50'  },
-  report_generated:         { icon: FileText,    color: 'text-purple-600', bg: 'bg-purple-50' },
-  scan_started:             { icon: ScanLine,    color: 'text-amber-500',  bg: 'bg-amber-50'  },
-  scan_completed:           { icon: ScanLine,    color: 'text-brand-600',  bg: 'bg-brand-50'  },
-  notification_read:        { icon: Bell,        color: 'text-gray-500',   bg: 'bg-gray-100'  },
-  email_protection_alert:   { icon: Mail,        color: 'text-blue-600',   bg: 'bg-blue-50'   },
-  brand_protection_alert:   { icon: ShieldAlert, color: 'text-red-600',    bg: 'bg-red-50'    },
-  attack_surface_alert:     { icon: Globe,       color: 'text-teal-600',   bg: 'bg-teal-50'   },
-  certificates_trust_alert: { icon: Lock,        color: 'text-sky-600',    bg: 'bg-sky-50'    },
-  cyber_essentials_alert:   { icon: ClipboardCheck, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-  cyber_essentials_readiness_alert: { icon: ClipboardCheck, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-  website_security_alert:   { icon: MonitorCheck, color: 'text-amber-600', bg: 'bg-amber-50'  },
-  identity_exposure_alert:  { icon: KeyRound,    color: 'text-indigo-600', bg: 'bg-indigo-50' },
-  shadow_it_alert:          { icon: Boxes,       color: 'text-purple-600', bg: 'bg-purple-50' },
-  shadow_it_unmanaged_technology_alert: { icon: Boxes, color: 'text-purple-600', bg: 'bg-purple-50' },
-}
-
-function eventConfig(type) {
-  return EVENT_CONFIG[type] ?? { icon: Activity, color: 'text-gray-400', bg: 'bg-gray-100' }
-}
 
 function fmtTime(str) {
   if (!str) return '—'
@@ -61,20 +26,10 @@ function fmtFull(str) {
   })
 }
 
-function EventIcon({ type }) {
-  const { icon: Icon, color, bg } = eventConfig(type)
-  return (
-    <div className={`w-7 h-7 rounded-full ${bg} flex items-center justify-center flex-shrink-0`}>
-      <Icon className={`w-3.5 h-3.5 ${color}`} />
-    </div>
-  )
-}
-
 function EventRow({ event }) {
   const actor = event.actor?.name || event.actor?.email || null
   return (
     <div className="flex items-start gap-3 py-2.5 border-b border-gray-50 last:border-0">
-      <EventIcon type={event.event_type} />
       <div className="flex-1 min-w-0">
         <p className="text-sm text-gray-700 leading-snug">
           {actor && <span className="font-medium text-gray-900">{actor} </span>}
@@ -176,10 +131,7 @@ export default function ActivityTimeline({ workspaceId }) {
     <div className="card p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-gray-400" />
-          <h2 className="text-sm font-semibold text-gray-900">Activity</h2>
-        </div>
+        <h2 className="text-sm font-semibold text-gray-900">Activity</h2>
         <div className="flex items-center gap-2">
           <select
             value={filter}
@@ -195,6 +147,7 @@ export default function ActivityTimeline({ workspaceId }) {
             disabled={loading}
             className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-40"
             title="Refresh"
+            aria-label="Refresh"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -208,7 +161,6 @@ export default function ActivityTimeline({ workspaceId }) {
 
       {!loading && !error && events.length === 0 && (
         <div className="py-8 text-center">
-          <Activity className="w-8 h-8 text-gray-200 mx-auto mb-2" />
           <p className="text-sm text-gray-400">No activity yet</p>
         </div>
       )}
@@ -228,7 +180,7 @@ export default function ActivityTimeline({ workspaceId }) {
         >
           {loading
             ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            : <><ChevronDown className="w-3.5 h-3.5" /> Load more</>
+            : 'Load more'
           }
         </button>
       )}

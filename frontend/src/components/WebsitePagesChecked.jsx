@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { FileSearch } from 'lucide-react'
 import { api } from '../api'
 import { parseServerDate } from '../utils/dates'
 import { SOURCE_LABEL, coverageSummary, pageFacts, pageStatusMeta, sensitiveLabel } from '../lib/websitePagesDisplay'
@@ -59,10 +58,7 @@ export default function WebsitePagesChecked({ workspaceId, refresh = 0 }) {
   const domains = data?.domains || []
   return (
     <section className="card p-5 mb-6" aria-label="Pages checked">
-      <div className="flex items-center gap-2 mb-1">
-        <FileSearch className="w-4 h-4 text-gray-500" />
-        <h2 className="section-title">Pages checked</h2>
-      </div>
+      <h2 className="section-title mb-1">Pages checked</h2>
       <p className="text-sm text-gray-600 mb-3">
         Besides the homepage, CyberMeters checks a small number of your site's own public pages — sign-in, account,
         admin and checkout pages first — for what a visitor's browser would receive.

@@ -1,5 +1,3 @@
-import { AlertTriangle, Bell, Radar } from 'lucide-react'
-
 function AssuranceProjection({ presentation }) {
   if (!presentation) return null
   const signals = (presentation.signal_order || [])
@@ -47,7 +45,6 @@ function AssuranceProjection({ presentation }) {
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="rounded-lg border border-gray-100 p-3">
           <div className="flex items-center gap-2 text-xs font-bold text-gray-800">
-            <Radar className="h-3.5 w-3.5 text-brand-600" />
             Asset lifecycle
           </div>
           <p className="mt-1 text-[13px] leading-relaxed text-gray-500">
@@ -73,7 +70,6 @@ function AssuranceProjection({ presentation }) {
 
         <div className="rounded-lg border border-gray-100 p-3">
           <div className="flex items-center gap-2 text-xs font-bold text-gray-800">
-            <Bell className="h-3.5 w-3.5 text-brand-600" />
             ASM alert eligibility
           </div>
           <p className="mt-1 text-[13px] leading-relaxed text-gray-500">
@@ -113,7 +109,6 @@ export default function AttackSurfaceAssurance({ presentations, coverage = null 
     return (
       <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs text-amber-800">
         <div className="flex items-center gap-2 font-semibold">
-          <AlertTriangle className="h-3.5 w-3.5" />
           Attack Surface evidence was not recorded
         </div>
         <p className="mt-1">No favourable security or availability conclusion is inferred.</p>
@@ -125,7 +120,6 @@ export default function AttackSurfaceAssurance({ presentations, coverage = null 
       {coverage?.truncated && (
         <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-800">
           <div className="flex items-center gap-2 font-semibold">
-            <AlertTriangle className="h-3.5 w-3.5" />
             Partial lifecycle evidence
           </div>
           <p className="mt-1">{coverage.customer_message}</p>

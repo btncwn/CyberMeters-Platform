@@ -5,21 +5,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  AlertTriangle,
-  ArrowRight,
-  Check,
-  Clock3,
-  FileLock2,
-  Globe2,
-  LockKeyhole,
-  Moon,
-  RefreshCw,
-  ScanSearch,
-  ShieldCheck,
-  Sparkles,
-  Sun,
-} from 'lucide-react'
+import { Moon, Sun } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import FreeCyberMotPreviewGrid from '../components/FreeCyberMotPreviewGrid'
 import { BASE } from '../api'
@@ -102,7 +88,7 @@ function Finding({ finding }) {
       </div>
       {finding.description && <p>{finding.description}</p>}
       {finding.academy_slug && (
-        <Link to={`/academy/${finding.academy_slug}`}>Plain-English guidance <ArrowRight /></Link>
+        <Link to={`/academy/${finding.academy_slug}`}>Plain-English guidance</Link>
       )}
     </article>
   )
@@ -112,14 +98,13 @@ function LoadingState({ domain, step }) {
   return (
     <main className="fm-shell fm-loading-wrap">
       <section className="fm-loading" aria-live="polite">
-        <div className="fm-loading__radar"><ScanSearch /></div>
         <span className="fm-kicker">Bounded public snapshot</span>
         <h1>Building the Cyber MOT for {domain}</h1>
         <p>One rate-limited snapshot. No report, scan history or monitoring record is stored.</p>
         <div className="fm-loading__steps">
           {LOADING_STEPS.map((label, index) => (
             <div className={index <= step ? 'is-active' : ''} key={label}>
-              <span>{index < step ? <Check /> : index + 1}</span>
+              <span>{index + 1}</span>
               {label}
             </div>
           ))}
@@ -230,7 +215,7 @@ export default function FreeScanPage() {
           <section className="fm-hero">
             <div className="fm-shell fm-hero__grid">
               <div>
-                <span className="fm-kicker"><Sparkles /> Free Cyber MOT</span>
+                <span className="fm-kicker">Free Cyber MOT</span>
                 <h1>See your whole external attack surface — before an attacker does.</h1>
                 <p className="fm-hero__lede">
                   One bounded snapshot maps honest public signals across all eight Cyber MOT domains.
@@ -239,7 +224,8 @@ export default function FreeScanPage() {
                 <form className="fm-scan-form" onSubmit={handleScan}>
                   <label htmlFor="free-scan-domain">Business domain</label>
                   <div>
-                    <span aria-hidden="true"><Globe2 /></span>
+                    {/* Empty first grid cell keeps the input's left inset. */}
+                    <span aria-hidden="true" />
                     <input
                       id="free-scan-domain"
                       value={domain}
@@ -250,17 +236,17 @@ export default function FreeScanPage() {
                       autoFocus
                     />
                     <button type="submit" disabled={!domain.trim()}>
-                      Run my free Cyber MOT <ArrowRight />
+                      Run my free Cyber MOT
                     </button>
                   </div>
                 </form>
                 {error && (
-                  <div className="fm-error" role="alert"><AlertTriangle />{error}</div>
+                  <div className="fm-error" role="alert">{error}</div>
                 )}
                 <div className="fm-trust-row">
-                  <span><ShieldCheck /> Passive external evidence</span>
-                  <span><Clock3 /> Rate-limited single snapshot</span>
-                  <span><FileLock2 /> Nothing stored</span>
+                  <span>Passive external evidence</span>
+                  <span>Rate-limited single snapshot</span>
+                  <span>Nothing stored</span>
                 </div>
               </div>
 
@@ -277,7 +263,7 @@ export default function FreeScanPage() {
                     <div key={label}><span>{String(index + 1).padStart(2, '0')}</span>{label}</div>
                   ))}
                 </div>
-                <p><LockKeyhole /> Full findings, remediation, PDF and monitoring require a verified domain.</p>
+                <p>Full findings, remediation, PDF and monitoring require a verified domain.</p>
               </aside>
             </div>
           </section>
@@ -295,7 +281,7 @@ export default function FreeScanPage() {
               <p>{result.scanned_at ? `Completed ${new Date(result.scanned_at).toLocaleString('en-GB')}` : 'Snapshot completed'}</p>
             </div>
             <button className="fm-button fm-button--secondary" onClick={reset} type="button">
-              <RefreshCw /> Check another domain
+              Check another domain
             </button>
           </div>
 
@@ -327,7 +313,6 @@ export default function FreeScanPage() {
           <FreeCyberMotPreviewGrid domains={presentation.domains} />
 
           <aside className="fm-guardrail">
-            <ShieldCheck />
             <div>
               <h2>Built to resist misuse</h2>
               <p>
@@ -354,7 +339,6 @@ export default function FreeScanPage() {
                   </div>
                 )}
               <div className="fm-sealed">
-                <LockKeyhole />
                 <strong>{lockedCount > 0 ? `${lockedCount} more sealed` : 'Deep assessment sealed'}</strong>
                 <span>Unlock only after account creation and canonical domain-ownership verification.</span>
               </div>
@@ -369,7 +353,7 @@ export default function FreeScanPage() {
               re-scans and ongoing monitoring across all eight domains.
             </p>
             <Link to={signupPath(result.domain)} className="fm-button">
-              Start my 14-day trial <ArrowRight />
+              Start my 14-day trial
             </Link>
             <small>No card · then from £9.99/mo · cancel anytime</small>
           </section>

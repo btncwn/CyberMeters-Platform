@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  Globe, ArrowRight, Check, Layers, PackageX, FileKey2, EyeOff,
-} from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import IrisGlobe from '../components/landing/IrisGlobe'
 import { SERVICE_COLORS } from '../theme/serviceColors'
@@ -72,10 +69,10 @@ const SERVICES = [
 ]
 
 const FACTS = [
-  { icon: Layers, big: 'External', small: 'checks only what is publicly visible' },
-  { icon: PackageX, big: 'No agent', small: 'nothing is installed on your systems' },
-  { icon: FileKey2, big: '1 DNS record', small: 'proves that you own the domain' },
-  { icon: EyeOff, big: 'Gaps named', small: 'every result says what could not be checked' },
+  { big: 'External', small: 'checks only what is publicly visible' },
+  { big: 'No agent', small: 'nothing is installed on your systems' },
+  { big: '1 DNS record', small: 'proves that you own the domain' },
+  { big: 'Gaps named', small: 'every result says what could not be checked' },
 ]
 
 const PRINCIPLES = [
@@ -132,7 +129,6 @@ function DomainForm({ id, tone = 'dark' }) {
       <label htmlFor={id} className="sr-only">Your domain</label>
       <div className={`flex flex-col sm:flex-row gap-2 sm:gap-0 sm:items-stretch rounded-[12px] bg-white p-1.5 ${tone === 'dark' ? 'shadow-[0_18px_50px_-20px_rgba(6,16,48,.65)]' : 'border border-[#D5DBEA] shadow-sm'}`}>
         <div className="flex items-center gap-3 flex-1 min-w-0 pl-4 h-[52px]">
-          <Globe className="w-5 h-5 text-[#7A8399] flex-shrink-0" aria-hidden="true" />
           <input
             id={id}
             name="domain"
@@ -146,7 +142,7 @@ function DomainForm({ id, tone = 'dark' }) {
           />
         </div>
         <button type="submit" className="h-[52px] px-6 rounded-[8px] bg-[#FFB81C] hover:bg-[#FFC640] text-[#1B2333] text-[16px] font-semibold inline-flex items-center justify-center gap-2 transition-colors">
-          Run a free check <ArrowRight className="w-4 h-4" aria-hidden="true" />
+          Run a free check
         </button>
       </div>
     </form>
@@ -242,7 +238,7 @@ function HeroStage() {
           <div className="mt-10"><DomainForm id="hero-domain" /></div>
           <ul className="mt-6 flex flex-wrap gap-x-7 gap-y-2 text-[15px] text-white/85">
             {['Nothing to install', 'Free one-off check', 'Full results after you verify your domain'].map(t => (
-              <li key={t} className="inline-flex items-center gap-2"><Check className="w-4 h-4 text-[#7FD8FF]" aria-hidden="true" />{t}</li>
+              <li key={t}>{t}</li>
             ))}
           </ul>
         </div>
@@ -260,10 +256,8 @@ function HeroStage() {
         </h2>
         <ul className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           {FACTS.map((f, i) => {
-            const Icon = f.icon
             return (
-              <li key={f.big} className={`flex items-start gap-4 px-2 lg:px-6 py-5 lg:py-0 ${i > 0 ? 'lg:border-l border-white/25' : ''}`}>
-                <Icon className="w-9 h-9 text-[#7FD8FF] flex-shrink-0 mt-1" strokeWidth={1.5} aria-hidden="true" />
+              <li key={f.big} className={`px-2 lg:px-6 py-5 lg:py-0 ${i > 0 ? 'lg:border-l border-white/25' : ''}`}>
                 <div>
                   <p className="font-cm text-[30px] leading-[1.1] whitespace-nowrap">{f.big}</p>
                   <p className="mt-1.5 text-[16px] leading-[1.45] text-white/80">{f.small}</p>
@@ -332,7 +326,7 @@ export default function PublicLandingPage() {
           <div className="mt-16 flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
             <p className="font-cm text-[22px] text-[#121A2E]">We use CyberMeters on our own domain.</p>
             <Link to="/trust" className="h-[50px] px-6 rounded-[8px] border-2 border-[#2550B6] text-[#1D46A8] text-[16px] font-semibold inline-flex items-center gap-2 hover:bg-[#2550B6] hover:text-white transition-colors">
-              View our own-domain check <ArrowRight className="w-4 h-4" aria-hidden="true" />
+              View our own-domain check
             </Link>
           </div>
         </div>
@@ -417,9 +411,9 @@ export default function PublicLandingPage() {
             <div className="rounded-[14px] border border-[#DDE2EE] p-8 lg:p-10">
               <h3 className="font-cm font-normal text-[30px] leading-[1.15]">Free check</h3>
               <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">A one-off snapshot of public evidence: nothing is stored or monitored until you create an account.</p>
-              <ul className="mt-6 space-y-3 text-[16px] text-[#2B3448]">
+              <ul className="mt-6 space-y-3 text-[17px] text-[#2B3448] list-disc pl-5 marker:text-[#2550B6]">
                 {['External checks, nothing installed', 'Shows what could not be assessed', 'No sign-up needed'].map(t => (
-                  <li key={t} className="flex gap-3"><Check className="w-5 h-5 mt-0.5 text-[#2550B6] flex-shrink-0" aria-hidden="true" />{t}</li>
+                  <li key={t}>{t}</li>
                 ))}
               </ul>
             </div>
@@ -427,7 +421,7 @@ export default function PublicLandingPage() {
               <h3 className="font-cm font-normal text-[30px] leading-[1.15]">With an account</h3>
               <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">Full findings, fix steps, PDF reports and monitoring unlock once you verify that you own the domain.</p>
               <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">Scheduled checks, alerts and PDF reports come with paid plans and the 14-day trial.</p>
-              <Link to="/pricing" className="mt-6 inline-flex items-center gap-2 text-[16px] font-semibold text-[#1D46A8] hover:underline">See pricing <ArrowRight className="w-4 h-4" aria-hidden="true" /></Link>
+              <Link to="/pricing" className="mt-6 inline-flex items-center gap-2 text-[16px] font-semibold text-[#1D46A8] hover:underline">See pricing</Link>
             </div>
           </div>
           <p className="mt-10 max-w-[1040px] mx-auto text-[15px] leading-[1.6] text-[#5A6378] border-l-2 border-[#C9D1E4] pl-5">

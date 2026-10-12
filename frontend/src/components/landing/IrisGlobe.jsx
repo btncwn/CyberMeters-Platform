@@ -294,7 +294,7 @@ function drawGlobe(ctx, canvas, box, R, spin, tilt, active, now, fx, scene) {
 
   // Major cities. Names closest to the viewer are labelled first and a name
   // that would overlap one already drawn is left out, so labels never collide.
-  ctx.font = '600 11px Inter, system-ui, sans-serif'
+  ctx.font = "600 12px 'Computer Modern Text', Georgia, serif"
   const shown = scene.cities.map(city => ({ city, p: rot(city.v) })).filter(({ p }) => p.z > 0.04)
   for (const { p } of shown) {
     ctx.fillStyle = `rgba(255,236,190,${(0.45 + p.z * 0.55).toFixed(2)})`

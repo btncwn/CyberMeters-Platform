@@ -4,7 +4,7 @@
 
 /* Computer Modern Serif for the public website headings and copy. Unmodified
    CMU web fonts, SIL Open Font License (public/fonts/computer-modern/OFL.txt).
-   Only downloaded on pages that use the `font-cm` utility. */
+   Display headings use it at true size through the `font-cm` utility. */
 @font-face {
   font-family: 'Computer Modern Serif';
   src: url('/fonts/computer-modern/cmunrm.woff') format('woff');
@@ -27,6 +27,51 @@
   font-display: swap;
 }
 
+/* Product text face: the same unmodified CMU files, scaled up because Computer
+   Modern draws smaller than common UI faces at the same size (founder, 12 Oct:
+   one LaTeX-paper type style everywhere, never small). */
+@font-face {
+  font-family: 'Computer Modern Text';
+  src: url('/fonts/computer-modern/cmunrm.woff') format('woff');
+  font-weight: 100 500;
+  font-style: normal;
+  font-display: swap;
+  size-adjust: 112%;
+}
+@font-face {
+  font-family: 'Computer Modern Text';
+  src: url('/fonts/computer-modern/cmunbx.woff') format('woff');
+  font-weight: 600 900;
+  font-style: normal;
+  font-display: swap;
+  size-adjust: 112%;
+}
+@font-face {
+  font-family: 'Computer Modern Text';
+  src: url('/fonts/computer-modern/cmunti.woff') format('woff');
+  font-weight: 100 500;
+  font-style: italic;
+  font-display: swap;
+  size-adjust: 112%;
+}
+@font-face {
+  font-family: 'Computer Modern Text';
+  src: url('/fonts/computer-modern/cmunbi.woff') format('woff');
+  font-weight: 600 900;
+  font-style: italic;
+  font-display: swap;
+  size-adjust: 112%;
+}
+/* Code, DNS records and other literal values. */
+@font-face {
+  font-family: 'Computer Modern Typewriter';
+  src: url('/fonts/computer-modern/cmuntt.woff') format('woff');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  size-adjust: 108%;
+}
+
 @layer base {
   html { scroll-behavior: smooth; }
   body {
@@ -34,8 +79,7 @@
        (Linear/Vanta-style layering) instead of floating on flat white. */
     @apply text-gray-900 antialiased;
     background-color: #EEF1F6;
-    font-family: 'Inter', system-ui, sans-serif;
-    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    font-family: 'Computer Modern Text', 'Computer Modern Serif', Georgia, serif;
   }
   ::selection { background-color: rgba(0,135,106,.18); }
   * { -webkit-font-smoothing: antialiased; }
@@ -107,7 +151,7 @@
     }
   }
 
-  .mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+  .mono { font-family: 'Computer Modern Typewriter', ui-monospace, monospace; }
   .label { @apply text-[13px] font-bold text-gray-500 uppercase tracking-[0.12em]; }
 
   /* Premium typographic system — headings lead, numbers support. Section titles
@@ -154,7 +198,7 @@
   .pill-eyebrow {
     @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-brand-100
            text-[13px] font-semibold uppercase tracking-[0.13em] text-brand-800;
-    background: rgba(231,242,238,0.7); font-family: 'JetBrains Mono', monospace;
+    background: rgba(231,242,238,0.7); font-family: 'Computer Modern Typewriter', ui-monospace, monospace;
   }
   .pill-eyebrow .pill-dot { @apply w-[7px] h-[7px] rounded-full bg-brand-600; }
 
