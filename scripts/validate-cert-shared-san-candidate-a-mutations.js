@@ -15,6 +15,7 @@ const target = (relative) => path.join(root, ...relative.split("/"));
 const targets = {
   projector: target("workers/scan-api/src/routes/certificate-shared-san-projection.js"),
   ssl: target("workers/scan-api/src/engines/ssl-scan.js"),
+  probe: target("workers/scan-api/src/engines/network-probe.js"),
   p2: target("scripts/validate-item9-certificate-p2-engine-trace.js"),
   certIntel: target("workers/scan-api/src/engines/cert-intel.js"),
   phase5: target("workers/scan-api/src/engines/phase5-evidence.js"),
@@ -103,10 +104,12 @@ const mutants = [
       "  return {\n    ...rawCertificateIntelligence,\n    shared_san_count: sharedSanAssessment.shared_san_count,\n    ownership: {\n      ...(rawCertificateIntelligence.ownership || {}),\n      status: sharedSanAssessment.ownership_status,\n      customer_owned: sharedSanAssessment.customer_owned,\n      confidence: sharedSanAssessment.confidence,\n    },\n    shared_san_assessment: sharedSanAssessment,\n  };", "M05"),
   },
   {
-    id: "SAN_A_M06", target: "ssl", expected: ["F04", "F05", "F10", "F19"],
+    // The report's certificate evidence schema is stamped where the live TLS
+    // observation is attached; the SSL module's own stamp is overwritten there.
+    id: "SAN_A_M06", target: "probe", expected: ["F10", "F19"],
     mutate: (s) => replaceExactly(s,
-      '      schema_version: "external-certificate-observation-v3",',
-      '      schema_version: "external-certificate-observation-v2",', "M06"),
+      "schema_version:'external-certificate-observation-v4'",
+      "schema_version:'external-certificate-observation-v3'", "M06"),
   },
   {
     id: "SAN_A_M07", target: "p2", expected: ["F19"],
@@ -117,8 +120,8 @@ const mutants = [
   {
     id: "SAN_A_M08", target: "certIntel", expected: ["F18"],
     mutate: (s) => replaceExactly(s,
-      `\t      san_count:             live?.dns_names?.length ?? ssl.cert_san_count ?? 0,\n\t      raw_san_count:         live?.dns_names?.length ?? ssl.cert_raw_san_count ?? ssl.cert_san_count ?? 0,\n\t      wildcard_san_count:    live ? (live.dns_names || []).filter(name => name.startsWith("*.")).length : ssl.cert_wildcard_san_count ?? 0,`,
-      `\t      san_count:             live?.dns_names?.length ?? ssl.cert_san_count ?? null,\n\t      raw_san_count:         live?.dns_names?.length ?? ssl.cert_raw_san_count ?? ssl.cert_san_count ?? null,\n\t      wildcard_san_count:    live ? (live.dns_names || []).filter(name => name.startsWith("*.")).length : ssl.cert_wildcard_san_count ?? null,`, "M08"),
+      `      san_count:             liveSans.length,\n      raw_san_count:         liveSans.length,`,
+      `      san_count:             live ? liveSans.length : ssl.cert_san_count,\n      raw_san_count:         live ? liveSans.length : ssl.cert_raw_san_count,`, "M08"),
   },
   {
     id: "SAN_A_M09", target: "phase5", expected: ["F12"],
@@ -146,8 +149,8 @@ const mutants = [
     // still collapses into legacy_ambiguous_zero and kills this mutant.
     id: "SAN_A_M11", target: "projector", expected: ["F09"],
     mutate: (s) => replaceExactly(s,
-      "const rawSharedSanCount = ssl?.cert_shared_san_count;",
-      "const rawSharedSanCount = ssl?.cert_shared_san_count ?? 0;", "M11"),
+      "    : ssl?.cert_shared_san_count;",
+      "    : ssl?.cert_shared_san_count ?? 0;", "M11"),
   },
   {
     id: "SAN_A_M12", target: "route", expected: ["F21"],

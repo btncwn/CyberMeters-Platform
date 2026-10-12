@@ -143,7 +143,7 @@ const brokenV3 = storedModules({
 });
 const brokenAssessment = assessment(brokenV3);
 // The same error sentinel on a single-source record.
-const brokenCertSpotterAssessment = assessment(storedModules({
+const brokenSourceAssessment = assessment(storedModules({
   version: "external-certificate-observation-v3",
   ctSources: { provider_b: { count: 5, error: "provider unavailable" } },
 }));
@@ -151,9 +151,9 @@ fixture("F06",
   brokenAssessment?.measurement_state === "unmeasured" &&
   brokenAssessment?.assessment_state === "not_assessed" &&
   brokenAssessment?.customer_owned == null && brokenAssessment?.confidence == null &&
-  brokenCertSpotterAssessment?.measurement_state === "unmeasured" &&
-  brokenCertSpotterAssessment?.customer_owned == null &&
-  brokenCertSpotterAssessment?.confidence == null);
+  brokenSourceAssessment?.measurement_state === "unmeasured" &&
+  brokenSourceAssessment?.customer_owned == null &&
+  brokenSourceAssessment?.confidence == null);
 
 const nullV3 = storedModules({
   version: "external-certificate-observation-v3", raw: null,
@@ -517,20 +517,20 @@ const parity = states.map(parityOutputs);
 // The website-unavailable remediation (web.homepage.unavailable) moves it again,
 // r73-133d04b1 -> r74-05b42c41; with only that entry removed both previous
 // hashes reproduce exactly.
-// CertSpotter-only CT rewords the Attack Surface limitation sentence (CT logs
-// cover certificates that have not expired); with only that sentence reverted
-// both previous hashes reproduce exactly.
-// Removing crt.sh from product code drops it from two stamped provider lists:
-// the certificate_transparency monitoring definition (its fallback evidence
-// names only certspotter) and the asset-removal policy's passive_sources_excluded.
-// With only those two lists restored both previous hashes reproduce exactly;
-// the provider list alone restores F14, and F13 also needs the policy list.
+// A single certificate-log source rewords the Attack Surface limitation
+// sentence; with only that sentence reverted both previous hashes reproduce.
+// Dropping the second log source removes it from two stamped provider lists
+// (the monitoring definition and the asset-removal policy's excluded passive
+// sources); with only those two lists restored both previous hashes reproduce.
 // Retiring certificate logs moves the methodology stamps (resolver, monitoring,
 // certificate and attack-surface completeness versions, registry fingerprint,
 // snapshot builder) and the Attack Surface / Certificates wording; all five SAN
 // projection states still produce identical outputs.
-const GOLDEN_F13 = "658dda3cf8c08cd6dfb44d5b05cfa20847d099181c65c697f18d82969e9a9a08";
-const GOLDEN_F14 = "f21336e22ded348110b69c17470c3ba30389a1a416d9f7de624da6fcba1e1678";
+// Without a captured live leaf the Certificates & Trust evidence basis now
+// states that no certificate fact is asserted; with only that sentence reverted
+// both previous hashes (658dda3c…, f21336e2…) reproduce exactly.
+const GOLDEN_F13 = "333f92db83dda7c46b676eecda21070e4a1d8304308a9d4f05b593a3ccd67b32";
+const GOLDEN_F14 = "aff8c25fb24ad7dc04883b188b7e72c3f5abca3b34b5706638183ce57bf07465";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
