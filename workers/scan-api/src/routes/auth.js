@@ -13,7 +13,7 @@ import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { isSingleTenantConfig, validateMicrosoftIdToken } from "../lib/microsoft-jwt.js";
 import { hashPassword, verifyPassword } from "../lib/password.js";
-import { newPasswordRejection } from "../lib/pwned-passwords.js";
+import { newPasswordRejection } from "../lib/common-passwords.js";
 import { browserBindingChallenges, isBrowserBindingChallenge } from "../lib/oauth-browser-binding.js";
 import { generateTotpSecret, verifyTotp } from "../lib/totp.js";
 import { createId, isValidEmail } from "../lib/util.js";
@@ -1243,9 +1243,9 @@ export async function authRoutes(rctx) {
 
         const newHash = await hashPassword(newPassword);
 
-        // The provider lookup can take seconds. Recheck token eligibility in the
-        // same atomic batch as every change, then consume it last. Concurrent
-        // resets cannot reuse the token or sign out a newly recovered session.
+        // Recheck token eligibility in the same atomic batch as every change,
+        // then consume it last. Concurrent resets cannot reuse the token or sign
+        // out a newly recovered session.
         const checkedAt = new Date().toISOString();
         const eligible = `EXISTS (SELECT 1 FROM password_reset_tokens
           WHERE id = ? AND user_id = ? AND used_at IS NULL
