@@ -1,14 +1,15 @@
 // ── Referenced hostnames ─────────────────────────────────────────────────────
 // Hostnames under the scanned domain that the customer's own published
 // configuration names: the live certificate, the website's security and link
-// headers, its redirects, and the domain's mail, name-server, SPF and DMARC
-// records. They are read from evidence this scan already holds — nothing extra
+// headers, its redirects, and the domain's mail, name-server, SPF, DMARC and
+// BIMI records. They are read from evidence this scan already holds — nothing extra
 // is fetched to find them — and each is confirmed with one bounded DNS lookup
 // before it joins discovery. A name only counts as discovered when DNS answers
 // for it; a reference alone never does.
 import { dnsQuery } from "./dns.js";
 import { extractHostnameCandidates, normalizeHostname } from "./hostname-candidates.js";
 import {
+  extractFromBimiRecord,
   extractFromCorsHeader,
   extractFromDmarcRecord,
   extractFromLinkHeader,
@@ -36,6 +37,7 @@ export const REFERENCED_HOSTNAME_ASSET_SOURCES = Object.freeze({
   ns:             "ns_target",
   spf:            "spf_reference",
   dmarc:          "dmarc_reference",
+  bimi:           "bimi_reference",
   redirect_chain: "redirect_reference",
   csp:            "csp_reference",
   link_header:    "link_header_reference",
@@ -79,7 +81,7 @@ function redirectPairs(ssl, headers) {
  * Pure: no network, storage or clock. Names outside the scanned domain, the
  * domain itself, wildcard names and malformed values are never candidates.
  */
-export function collectReferencedHostnames(domain, { ssl = null, headers = null, dns = null, spfRecord = null, dmarcRecord = null, observedAt = null } = {}) {
+export function collectReferencedHostnames(domain, { ssl = null, headers = null, dns = null, spfRecord = null, dmarcRecord = null, bimiRecord = null, observedAt = null } = {}) {
   const root = normalizeHostname(domain);
   const evidence = [];
   const sets = [];
@@ -116,6 +118,8 @@ export function collectReferencedHostnames(domain, { ssl = null, headers = null,
   if (spf) { evidence.push("spf"); sets.push(extractFromSpfRecords(spf, options)); }
   const dmarc = text(dmarcRecord);
   if (dmarc) { evidence.push("dmarc"); sets.push(extractFromDmarcRecord(dmarc, options)); }
+  const bimi = text(bimiRecord);
+  if (bimi) { evidence.push("bimi"); sets.push(extractFromBimiRecord(bimi, options)); }
 
   const merged = new Map();
   let truncated = false;

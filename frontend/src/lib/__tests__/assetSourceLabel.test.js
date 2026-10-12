@@ -19,6 +19,7 @@ describe('assetSourceLabel', () => {
     expect(assetSourceLabel('ns_target')).toBe('Your name server (NS)')
     expect(assetSourceLabel('spf_reference')).toBe('Named in your SPF record')
     expect(assetSourceLabel('dmarc_reference')).toBe('Named in your DMARC record')
+    expect(assetSourceLabel('bimi_reference')).toBe('Named in your BIMI record')
     expect(assetSourceLabel('redirect_reference')).toBe('Reached by a website redirect')
     expect(assetSourceLabel('csp_reference')).toBe('Named in your Content-Security-Policy')
     expect(assetSourceLabel('link_header_reference')).toBe('Named in a website Link header')

@@ -64,6 +64,7 @@ const DNS = {
 };
 const SPF = "v=spf1 include:_spf.example.com a:relay.example.com ip4:192.0.2.1 include:vendor.test -all";
 const DMARC = "v=DMARC1; p=reject; rua=mailto:dmarc@reports.example.com,https://agg.example.com/in";
+const BIMI = "v=BIMI1; l=https://brand.example.com/logo.svg; a=https://certs.vendor.test/vmc.pem";
 
 const EXPECTED_ORDER = [
   ["billing.example.com", ["live_tls_san"]],
@@ -73,6 +74,7 @@ const EXPECTED_ORDER = [
   ["relay.example.com", ["spf"]],
   ["agg.example.com", ["dmarc"]],
   ["reports.example.com", ["dmarc"]],
+  ["brand.example.com", ["bimi"]],
   ["login.example.com", ["redirect_chain"]],
   ["cdn.example.com", ["csp"]],
   ["js.example.com", ["csp"]],
@@ -85,12 +87,12 @@ const dohAnswer = (name, ip) => ({ Status: 0, Question: [{ name, type: 1 }], Ans
 async function fixtures(api) {
   let checks = 0;
   const collected = api.collectReferencedHostnames("example.com", {
-    ssl: LIVE_SSL, headers: HEADERS, dns: DNS, spfRecord: SPF, dmarcRecord: DMARC,
+    ssl: LIVE_SSL, headers: HEADERS, dns: DNS, spfRecord: SPF, dmarcRecord: DMARC, bimiRecord: BIMI,
   });
   assert.deepEqual(collected.candidates.map((c) => [c.hostname, c.sources]), EXPECTED_ORDER, "collection: exact in-scope names, sources and precedence order"); checks++;
   assert.deepEqual(collected.evidence_inputs,
-    ["cors_header", "csp", "dmarc", "link_header", "live_tls_san", "mx", "ns", "redirect_chain", "spf"], "collection: evidence inputs named"); checks++;
-  for (const name of ["example.com", "other.test", "cdn.vendor.test", "mx.provider.test", "r.example.com", "_spf.example.com"]) {
+    ["bimi", "cors_header", "csp", "dmarc", "link_header", "live_tls_san", "mx", "ns", "redirect_chain", "spf"], "collection: evidence inputs named"); checks++;
+  for (const name of ["example.com", "other.test", "cdn.vendor.test", "mx.provider.test", "r.example.com", "_spf.example.com", "certs.vendor.test"]) {
     assert.ok(!collected.candidates.some((c) => c.hostname === name), `collection: ${name} is never a candidate`); checks++;
   }
   const incomplete = api.collectReferencedHostnames("example.com", {
@@ -135,7 +137,7 @@ async function fixtures(api) {
   assert.deepEqual(result.confirmed[0].ip_addresses, ["203.0.113.10"], "confirmation: answered addresses are kept"); checks++;
   assert.equal(result.confirmed[1].alias_only, true, "confirmation: an alias without an address is marked alias-only"); checks++;
   assert.equal(result.confirmed[2].wildcard_match, true, "confirmation: a wildcard-shaped answer is flagged, not hidden"); checks++;
-  assert.equal(result.not_found, 5, "confirmation: NXDOMAIN names are counted as not found"); checks++;
+  assert.equal(result.not_found, 6, "confirmation: NXDOMAIN names are counted as not found"); checks++;
   assert.equal(result.no_address, 1, "confirmation: NOERROR without an address is counted as no address"); checks++;
   assert.equal(result.lookup_failed, 2, "confirmation: SERVFAIL and transport failures are counted as failed lookups"); checks++;
   assert.ok(result.executed === true && result.incomplete === true && result.incomplete_reason === "lookup_failed", "confirmation: failed lookups leave the step incomplete"); checks++;
