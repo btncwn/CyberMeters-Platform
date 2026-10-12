@@ -1017,6 +1017,9 @@ jobs:
       - name: Validate customer hostname lists (scope, tenancy, history, DNS confirmation, engine trace)
         run: node scripts/validate-discovery-hostname-list.js
 
+      - name: Validate known-host re-check rotation and takeover over the inventory
+        run: node scripts/validate-discovery-recheck.js
+
       - name: Validate asset recheck rotation
         run: node scripts/validate-asset-recheck-rotation.js
 

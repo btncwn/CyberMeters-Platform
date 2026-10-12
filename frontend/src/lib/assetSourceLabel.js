@@ -16,6 +16,7 @@ const SOURCE_LABELS = Object.freeze({
   ns_target:                'Your name server (NS)',
   spf_reference:            'Named in your SPF record',
   dmarc_reference:          'Named in your DMARC record',
+  bimi_reference:           'Named in your BIMI record',
   redirect_reference:       'Reached by a website redirect',
   csp_reference:            'Named in your Content-Security-Policy',
   link_header_reference:    'Named in a website Link header',

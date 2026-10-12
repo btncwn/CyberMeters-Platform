@@ -1157,6 +1157,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           dns: dnsResult,
           spfRecord: emailResult?.spf?.record ?? null,
           dmarcRecord: applyDmarcbisEmailCompatibilityProjection(domain, { ...(emailResult || {}) }, dmarcCoreResult)?.dmarc?.record ?? null,
+          bimiRecord: emailResult?._bimi_record ?? null,
         });
         let referencedThrown = null;
         const referencedRun = await runCappedModule("referenced_hostnames", {
@@ -1322,7 +1323,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       try {
         const takeoverRun = await runCappedModule("subdomain_takeover", {
           fallback: () => markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" }),
-          run: ({ accounting, signal }) => runTakeoverModule(domain, discoveryHosts, { accounting, signal, cache: dnsCache }),
+          // Names already in the inventory are checked too, after this scan's
+          // discoveries: a forgotten host whose alias outlived its service is
+          // the classic takeover, and it may no longer be rediscovered.
+          run: ({ accounting, signal }) => runTakeoverModule(domain, [...discoveryHosts, ...knownAssetHosts], { accounting, signal, cache: dnsCache }),
         });
         takeoverThrown = takeoverRun.thrown;
         takeoverResult = takeoverThrown

@@ -55,6 +55,7 @@ function buildDb() {
       hostname TEXT NOT NULL,
       source TEXT NOT NULL DEFAULT 'dns_bruteforce',
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+      last_seen TEXT,
       updated_at TEXT,
       UNIQUE (workspace_id, hostname)
     );

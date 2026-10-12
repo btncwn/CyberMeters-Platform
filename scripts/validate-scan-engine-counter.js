@@ -174,7 +174,7 @@ async function runEngineLedger(mode, {
       success: true,
     }),
     all: async () => ({
-      results: variableFanout && /SELECT DISTINCT wa\.hostname/.test(sql)
+      results: variableFanout && /AS last_checked\s+FROM workspace_assets wa/.test(sql)
         ? VARIABLE_KNOWN_HOSTS.map((hostname) => ({ hostname }))
         : [],
     }),
