@@ -39,11 +39,6 @@ const beforeWorktree = sha256(JSON.stringify(
     .map((file) => [file, fileSha(path.join(root, file))]),
 ));
 
-const collapsedDiscoveryCoverage = `const discoveryCoverage = {
-    truncated: capReached,
-    coverage_state: coverageStateFromTruncation(capReached),
-  };`;
-
 const registry = Object.freeze([
   {
     id: "M1",
@@ -74,20 +69,19 @@ const registry = Object.freeze([
     file: "workers/scan-api/src/engines/bounded-coverage.js",
     anchor: 'return truncated === true ? "bounded" : "complete";',
     replacement: 'return "bounded";',
-    // The below-cap CT discovery fixture (F4) also catches an always-bounded
-    // classifier, alongside the unbounded exposure control (F10).
-    expected: [
-      "F4_CT_BELOW_CAP_IS_COMPLETE_NOT_BOUNDED",
-      "F10_UNBOUNDED_EXECUTION_IS_COMPLETE_NOT_ALWAYS_BOUNDED",
-    ],
+    expected: ["F10_UNBOUNDED_EXECUTION_IS_COMPLETE_NOT_ALWAYS_BOUNDED"],
   },
   {
+    // Own discovery claiming a complete inventory.
     id: "M4",
-    module: "lifecycle",
-    file: "workers/scan-api/src/engines/attack-surface-lifecycle.js",
-    anchor: ') === "bounded"\n        ? "not_assessed"\n        : null;',
-    replacement: ') === "bounded"\n        ? null\n        : null;',
-    expected: ["F6_BOUNDED_CT_SCOPE_FREEZES_LIFECYCLE"],
+    module: "signal",
+    file: "workers/scan-api/src/engines/attack-surface-signal-completeness.js",
+    anchor: '    coverage_state: "bounded",\n    basis: "own_observation",',
+    replacement: '    coverage_state: "complete",\n    basis: "own_observation",',
+    expected: [
+      "F3_OWN_DISCOVERY_COVERAGE_IS_BOUNDED_AND_DECLARED",
+      "F4_OWN_DISCOVERY_WITHOUT_HOSTNAME_NEVER_CLAIMS_COMPLETE",
+    ],
   },
   {
     id: "M5",
@@ -128,32 +122,13 @@ const registry = Object.freeze([
     expected: ["F8_HISTORICAL_ABSENCE_PROJECTS_NOT_RECORDED"],
   },
   {
+    // An empty word-list result read as "nothing found" without the wildcard check.
     id: "M8",
-    module: "subdomains",
-    file: "workers/scan-api/src/engines/subdomains-scan.js",
-    anchor: `const discoveryCoverage = {
-    per_provider: {
-      certspotter_unique_total: certSpotterUniqueTotal,
-      certspotter_unique_kept: certSpotterUniqueKept,
-      certspotter_dropped_count: certSpotterUniqueDroppedCount,
-      certspotter_cap_reached: certSpotterProviderCapReached,
-    },
-    merged: {
-      candidate_total: mergedCandidateTotal,
-      kept: items.length,
-      dropped_count: mergedDroppedCount,
-      cap_reached: mergedCapReached,
-      selection_order: "provider_response",
-    },
-    coverage_state: coverageStateFromTruncation(capReached),
-  };`,
-    replacement: collapsedDiscoveryCoverage,
-    expected: [
-      "F3_CT_CAP_DENOMINATOR_AND_DROPPED_COUNT",
-      "F4_CT_BELOW_CAP_IS_COMPLETE_NOT_BOUNDED",
-      "P5_C2_MECHANISMS_REMAIN_SEPARATE",
-      "P7_COVERAGE_RECORDS_ONLY_THE_QUERIED_PROVIDER",
-    ],
+    module: "signal",
+    file: "workers/scan-api/src/engines/attack-surface-signal-completeness.js",
+    anchor: "if (!wildcardCheckComplete || !bruteComplete) {",
+    replacement: "if (!bruteComplete) {",
+    expected: ["F6_WILDCARD_CHECK_FAILURE_IS_INCOMPLETE_NOT_NO_HOSTNAME"],
   },
   {
     id: "M9",

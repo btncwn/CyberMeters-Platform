@@ -4,7 +4,7 @@
 //
 // Runs the ACTUAL verifyManagedCaseById against a stateful D1 mock, an R2 mock, and a
 // fetch that throws the real "Too many subrequests" on call 51. Proves: one-host cost
-// stays far below 50, only the affected host is resolved/probed, no CT/DKIM/CVE/KEV/
+// stays far below 50, only the affected host is resolved/probed, no DKIM/CVE/KEV/
 // cloud calls, the lifecycle (present→open, fixed→resolve, incomplete→defer, returns→
 // reopen once), foreign tenant fails closed, arbitrary host injection is impossible,
 // and duplicate concurrent requests are idempotent. Node 24+. CI-blocking.
@@ -138,7 +138,7 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
   eq("still_present: decision", result.decision, "still_present");
   ok("still_present: case stays open (verification_failed, not resolved)", caseAfter.status === "verification_failed");
   ok("still_present: only affected host resolved/probed", calls.every((c) => c.url.includes("admin.example.com")));
-  ok("still_present: no CT/DKIM/CVE/KEV/cloud calls", calls.every((c) => c.cat === "doh" || c.cat === "exposure"));
+  ok("still_present: no DKIM/CVE/KEV/cloud calls", calls.every((c) => c.cat === "doh" || c.cat === "exposure"));
 }
 
 // DNS SERVFAIL cannot become a successful absence/remediation decision, even

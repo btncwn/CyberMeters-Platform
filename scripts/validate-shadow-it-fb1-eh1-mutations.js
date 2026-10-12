@@ -32,11 +32,11 @@ const registry = Object.freeze([
     id: "SIT_M03", defect: "incomplete folded into empty", expected: ["F04", "F10"],
     changes: [
       { target: INV,
-        anchor: '    : deferCtAssetEvidence ? "incomplete" : assetRead.outcome;',
-        replacement: '    : deferCtAssetEvidence ? "empty" : assetRead.outcome;' },
+        anchor: '    : deferDiscoveredAssetEvidence ? "incomplete" : assetRead.outcome;',
+        replacement: '    : deferDiscoveredAssetEvidence ? "empty" : assetRead.outcome;' },
       { target: INV,
-        anchor: '    if (deferCtAssetEvidence && r.source === "certificate_transparency") {\n      deferredKeys.add(canonicalTechnologyKey(meta.display));\n      continue;\n    }',
-        replacement: '    if (false && deferCtAssetEvidence && r.source === "certificate_transparency") {\n      deferredKeys.add(canonicalTechnologyKey(meta.display));\n      continue;\n    }' },
+        anchor: '    if (deferDiscoveredAssetEvidence && DISCOVERY_ASSET_SOURCES.has(r.source)) {\n      deferredKeys.add(canonicalTechnologyKey(meta.display));\n      continue;\n    }',
+        replacement: '    if (false && deferDiscoveredAssetEvidence && DISCOVERY_ASSET_SOURCES.has(r.source)) {\n      deferredKeys.add(canonicalTechnologyKey(meta.display));\n      continue;\n    }' },
       { target: INV,
         anchor: '  sourceOutcomes.saas_exposure = !saasExposure || !Array.isArray(saasExposure.exposures)\n    ? "incomplete"',
         replacement: '  sourceOutcomes.saas_exposure = !saasExposure || !Array.isArray(saasExposure.exposures)\n    ? "empty"' },
@@ -145,8 +145,8 @@ const registry = Object.freeze([
   {
     id: "SIT_M17", defect: "Shadow IT mutable state wired into immutable report tier", expected: ["F22"],
     changes: [{ target: SNAPSHOT,
-      anchor: 'export const SNAPSHOT_BUILDER_VERSION = "2026-08-12.1";',
-      replacement: 'export const SNAPSHOT_BUILDER_VERSION = "2026-08-12.1";\n// MUTANT: catalogue_hostname_prune entered the immutable report tier.' }],
+      anchor: 'export const SNAPSHOT_BUILDER_VERSION = "2026-10-12.1";',
+      replacement: 'export const SNAPSHOT_BUILDER_VERSION = "2026-10-12.1";\n// MUTANT: catalogue_hostname_prune entered the immutable report tier.' }],
   },
 ]);
 

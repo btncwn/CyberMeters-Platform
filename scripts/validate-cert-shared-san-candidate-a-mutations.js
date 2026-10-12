@@ -111,8 +111,8 @@ const mutants = [
   {
     id: "SAN_A_M07", target: "p2", expected: ["F19"],
     mutate: (s) => replaceExactly(s,
-      `  eq("SSL declares the additive P4 evidence schema",\n    report.modules?.ssl?.certificate_evidence?.schema_version,\n    "external-certificate-observation-v3");`,
-      `  ok("SSL declares the additive P4 evidence schema",\n    report.modules?.ssl?.certificate_evidence?.schema_version\n      ?.startsWith("external-certificate-observation-v"));`, "M07"),
+      `  eq("SSL declares the live TLS evidence schema",\n    report.modules?.ssl?.certificate_evidence?.schema_version,\n    "external-certificate-observation-v4");`,
+      `  ok("SSL declares the live TLS evidence schema",\n    report.modules?.ssl?.certificate_evidence?.schema_version\n      ?.startsWith("external-certificate-observation-v"));`, "M07"),
   },
   {
     id: "SAN_A_M08", target: "certIntel", expected: ["F18"],

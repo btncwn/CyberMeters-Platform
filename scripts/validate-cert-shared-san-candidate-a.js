@@ -663,29 +663,31 @@ fixture("F30",
   })());
 
 function p2Guard() {
-  const sslFile = source("workers", "scan-api", "src", "engines", "ssl-scan.js");
+  // The SSL module's evidence schema in a scan report is stamped when the live
+  // TLS observation is attached; the P2 engine trace must guard it.
+  const probeFile = source("workers", "scan-api", "src", "engines", "network-probe.js");
   const validator = source("scripts", "validate-item9-certificate-p2-engine-trace.js");
-  const original = fs.readFileSync(sslFile, "utf8");
-  const anchor = '      schema_version: "external-certificate-observation-v3",';
+  const original = fs.readFileSync(probeFile, "utf8");
+  const anchor = "schema_version:'external-certificate-observation-v4'";
   if (original.split(anchor).length - 1 !== 1) return false;
   const first = spawnSync(process.execPath, [validator], { cwd: root, encoding: "utf8", timeout: 120_000 });
   if (first.status !== 0 || first.error || first.signal) return false;
   try {
-    fs.writeFileSync(sslFile, original.replace(anchor,
-      '      schema_version: "external-certificate-observation-v2",'));
+    fs.writeFileSync(probeFile, original.replace(anchor,
+      "schema_version:'external-certificate-observation-v3'"));
     const second = spawnSync(process.execPath, [validator], { cwd: root, encoding: "utf8", timeout: 120_000 });
     const output = `${second.stdout || ""}\n${second.stderr || ""}`;
     return second.status !== 0 && !second.error && !second.signal &&
-      output.includes("SSL declares the additive P4 evidence schema");
+      output.includes("SSL declares the live TLS evidence schema");
   } finally {
-    fs.writeFileSync(sslFile, original);
+    fs.writeFileSync(probeFile, original);
   }
 }
 fixture("F19", p2Guard());
 
 fixture("F20",
   hash(fs.readFileSync(source("scripts", "fixtures", "item9-p4-certificate-trust-depth.json"))) ===
-    "478ae4d855ee1971ffafe847251626dbb68caebf39ec40631657db34b19b63d2" &&
+    "a71757be49d614a86ab6e53e1d3a8da89a36f9cd2f9e6678d8a7cae266f063fb" &&
   JSON.parse(fs.readFileSync(source("scripts", "fixtures", "item9-p4-certificate-trust-depth.json"), "utf8"))
     .base_modules?.ssl?.certificate_evidence?.schema_version === "external-certificate-observation-v2");
 

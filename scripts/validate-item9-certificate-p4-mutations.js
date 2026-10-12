@@ -42,10 +42,6 @@ async function withMutant(file, mutate, run) {
   }
 }
 
-const healthyProviders = {
-  crt_sh: { outcome: "available" },
-  certspotter: { outcome: "available" },
-};
 const baseModules = () => ({
   ssl: {
     https_available: true,
@@ -113,16 +109,13 @@ const baseModules = () => ({
     },
   },
   subdomains: {
-    sources: {
-      crt_sh: { count: 1, error: null },
-      certspotter: { count: 1, error: null },
-    },
+    items: [],
+    source: "dns_discovery",
   },
 });
-const derive = (module, modules, providerHealth = healthyProviders) =>
+const derive = (module, modules) =>
   module.deriveCertificateSignalCompletenessFromModules({
     modules,
-    providerHealth,
     observedAt: NOW,
     engineVersion: "item9-p4-mutation",
   });
@@ -133,11 +126,11 @@ await withMutant(
     const replacements = [
       [
         "completeness_state: trust.leafCollected\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
-        "completeness_state: trust.leafCollected || selectedCtCertificate\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
+        "completeness_state: trust.leafCollected || Boolean(ssl.cert_subject)\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
       ],
       [
         "observation: trust.leafCollected\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
-        "observation: trust.leafCollected || selectedCtCertificate\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
+        "observation: trust.leafCollected || Boolean(ssl.cert_subject)\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
       ],
       [
         '      } : null,\n      observation_scope: "live_tls",',
@@ -147,7 +140,7 @@ await withMutant(
     let mutated = source;
     for (const [before, after] of replacements) {
       if (mutated.split(before).length !== 2) {
-        throw new Error("CT-as-live-leaf mutation anchor must match exactly once");
+        throw new Error("stored-fields-as-live-leaf mutation anchor must match exactly once");
       }
       mutated = mutated.replace(before, after);
     }
@@ -157,7 +150,7 @@ await withMutant(
     const modules = baseModules();
     modules.ssl.certificate_evidence.live_tls = {};
     const result = derive(mutant, modules);
-    ok("MUTANT CT issuance as live leaf makes the CT-only fixture red",
+    ok("MUTANT stored certificate fields as live leaf makes the no-leaf fixture red",
       result.signals.leaf.observation === "present");
   },
 );
@@ -312,7 +305,7 @@ await withMutant(
         evidence_json: "{}",
       }],
     });
-    ok("MUTANT CT/history multiplicity as parallel live set makes fixture red",
+    ok("MUTANT history multiplicity as parallel live set makes fixture red",
       result.anomalies.some((row) => row.type === "parallel_certificate"));
   },
 );

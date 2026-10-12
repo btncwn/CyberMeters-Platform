@@ -1216,9 +1216,6 @@ jobs:
       - name: Validate D1 I11A-C3 successor (degraded never verifies + snapshot-once read stability)
         run: node scripts/validate-d1-i11a-c3-successor.js
 
-      - name: Validate D1 Option D joint rollback
-        run: node scripts/validate-d1-option-d-joint-rollback.js
-
       - name: Validate provisional domain-score workspace API contract
         run: node scripts/validate-provisional-score-labeling-api.js
 

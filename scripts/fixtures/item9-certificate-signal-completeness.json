@@ -64,20 +64,6 @@
       "source": "injected_tls_handshake",
       "method": "presented_leaf_validity_parse"
     },
-    "certificate_transparency": {
-      "completeness_state": "monitoring_degraded",
-      "observation": "present",
-      "value": {
-        "crt_sh": "unavailable",
-        "certspotter": "available"
-      },
-      "observation_scope": "ct_issuance",
-      "achieved_grade": "L1",
-      "source_type": "normative_protocol",
-      "source": "shared_ct_provider_cache",
-      "method": "shared_provider_query",
-      "provider": "certspotter"
-    },
     "wildcard": {
       "completeness_state": "monitoring_healthy",
       "observation": "absent",
@@ -133,15 +119,36 @@
       "source": "injected_https_probe",
       "method": "http_response_over_tls",
       "corroboration_status": "repeated"
+    },
+    "caa": {
+      "completeness_state": "monitoring_degraded",
+      "observation": "present",
+      "value": {
+        "present": true,
+        "records": [
+          "0 issue \"ca.example\""
+        ],
+        "issuers": [
+          "ca.example"
+        ],
+        "wildcard_issuers": [],
+        "iodef": [],
+        "resolver_agreement_score": 50
+      },
+      "observation_scope": "dns_policy",
+      "achieved_grade": "L1",
+      "source_type": "normative_protocol",
+      "source": "dns_scan_caa",
+      "method": "rfc8659_relevant_rrset_observation"
     }
   },
-  "current_modules_ct_only": {
+  "stored_certificate_fields_without_live_leaf": {
     "modules": {
       "ssl": {
         "https_probe_executed": true,
         "https_available": true,
         "cert_subject": "CN=example.com",
-        "cert_issuer": "Example Logged CA",
+        "cert_issuer": "Example Stored CA",
         "cert_not_after": "2026-11-26T10:00:00.000Z",
         "cert_san_names": [
           "example.com",
@@ -152,14 +159,6 @@
       "certificate_intelligence": {
         "parallel_evidence_complete": true,
         "parallel_certificate_observed": true
-      }
-    },
-    "providerHealth": {
-      "crt_sh": {
-        "outcome": "available"
-      },
-      "certspotter": {
-        "outcome": "available"
       }
     }
   }

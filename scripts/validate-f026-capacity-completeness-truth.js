@@ -21,7 +21,8 @@ import { fileURLToPath } from "node:url";
 
 import { buildScanQuality, computeScanBudget } from "../workers/scan-api/src/engines/scan-engine.js";
 import { resolveScanCapacity } from "../workers/scan-api/src/engines/scan-budget.js";
-import { BRUTEFORCE_MAX_NAMES } from "../workers/scan-api/src/engines/subdomains-scan.js";
+import { BRUTEFORCE_MAX_NAMES, SRV_TARGET_CAP } from "../workers/scan-api/src/engines/subdomains-scan.js";
+import { LINKED_HOST_LIMITS } from "../workers/scan-api/src/engines/tech-scan.js";
 import { RESERVED_MAX_REDIRECT_HOPS } from "../workers/scan-api/src/engines/reserved-probe.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -174,12 +175,16 @@ function variableOutboundBoundTruth() {
   const ssrfSource = source("workers/scan-api/src/lib/ssrf.js");
   const engineSource = source("workers/scan-api/src/engines/scan-engine.js");
 
-  const ctMergeCap = integerLiteral(subdomainsSource, /const MERGE_CAP\s*=\s*([\d_]+)/, "CT MERGE_CAP");
   const mailLabelsBlock = subdomainsSource.match(/const MAIL_SUBDOMAIN_LABELS\s*=\s*\[([\s\S]*?)\];/)?.[1] || "";
   const mailLabelCount = (mailLabelsBlock.match(/"[^"]+"/g) || []).length;
   const srvLabelsBlock = subdomainsSource.match(/export const SRV_DISCOVERY_LABELS\s*=\s*Object\.freeze\(\[([\s\S]*?)\]\);/)?.[1] || "";
   const srvLabelCount = (srvLabelsBlock.match(/"[^"]+"/g) || []).length;
   const bruteHostCap = BRUTEFORCE_MAX_NAMES + mailLabelCount + srvLabelCount;
+  // Own discovery's candidate ceiling: word list + mail labels + SRV targets
+  // (capped) + home-page links (capped). No discovery source is unbounded.
+  const srvTargetCap = integerLiteral(subdomainsSource, /export const SRV_TARGET_CAP\s*=\s*([\d_]+)/, "SRV_TARGET_CAP");
+  const discoveredCandidateCap = BRUTEFORCE_MAX_NAMES + mailLabelCount + srvTargetCap + LINKED_HOST_LIMITS.maxHosts;
+  const srvCapEnforced = /if \(srvItems\.length >= SRV_TARGET_CAP\) \{ srvTargetsDropped\+\+; continue; \}/.test(subdomainsSource);
   const knownAssetCap = integerLiteral(attackLifecycleSource, /const MAX_RECHECK_HOSTS\s*=\s*([\d_]+)/, "MAX_RECHECK_HOSTS");
   const exposureHostCap = integerLiteral(assetSource, /const targets\s*=\s*candidates\.slice\(0,\s*([\d_]+)\)/, "exposure host cap");
   const takeoverHostCap = integerLiteral(takeoverSource, /const HOST_CAP\s*=\s*([\d_]+)/, "takeover HOST_CAP");
@@ -208,9 +213,12 @@ function variableOutboundBoundTruth() {
     engineSource.includes("modules.admin_surface_detection = runAdminSurfaceModule(modules);");
 
   ok("(c) discovered and historical candidates are source-bounded before variable probes",
-    ctMergeCap === 300 && bruteHostCap === 56 && knownAssetCap === 50 &&
+    srvTargetCap === SRV_TARGET_CAP && srvTargetCap === 50 && srvCapEnforced &&
+      LINKED_HOST_LIMITS.maxHosts === 25 && discoveredCandidateCap === 123 &&
+      bruteHostCap === 56 && knownAssetCap === 50 &&
       exposureHostCap === 50 && takeoverHostCap === 100,
-    JSON.stringify({ ctMergeCap, bruteHostCap, knownAssetCap, exposureHostCap, takeoverHostCap }));
+    JSON.stringify({ srvTargetCap, srvCapEnforced, linkedHostCap: LINKED_HOST_LIMITS.maxHosts,
+      discoveredCandidateCap, bruteHostCap, knownAssetCap, exposureHostCap, takeoverHostCap }));
   ok("(c) exposure redirect/DNS fan-out is source-bounded",
     protocolCount === 2 && RESERVED_MAX_REDIRECT_HOPS === 3 &&
       exposureHasTwoRemovalDnsQueries && ssrfHasTwoAddressQueries &&

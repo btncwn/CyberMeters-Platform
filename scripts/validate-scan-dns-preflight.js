@@ -55,7 +55,6 @@ function transport(resolver, redirectHost = null) {
     if (parsed.hostname === "cloudflare-dns.com") {
       return Response.json(await resolver(parsed.searchParams.get("name"), parsed.searchParams.get("type")));
     }
-    if (["crt.sh", "api.certspotter.com"].includes(parsed.hostname)) return Response.json([]);
     // No fallback to native fetch: every outbound operation is synthetic.
     observed.push({ hostname: parsed.hostname, redirect: opts.redirect });
     if (redirectHost && parsed.hostname !== redirectHost) {
@@ -251,17 +250,17 @@ try {
     ok(`CALLER_${file}_IMPORTS_REAL_DNS`, /import \{[^}]*\bdnsQuery\b[^}]*\} from "\.\/dns\.js"/.test(source));
     for (const [, name, expression] of calls) {
       const build = new Function("dnsQuery", "dnsCache", "accounting", "signal", "remainingMs", "durableInvocation",
-        "ctCache", "sharedCtCache", "subOpTelemetry", "certificateNowMs", "consumerSignal", `return (${expression});`);
+        "subOpTelemetry", "certificateNowMs", "moduleSignal", `return (${expression});`);
       for (const cname of [false, true]) {
         transport(soaResolver(cname));
-        const options = build(dnsQuery, new Map(), null, undefined, null, false, undefined, undefined, undefined, Date.now(), undefined);
+        const options = build(dnsQuery, new Map(), null, undefined, null, false, undefined, Date.now(), undefined);
         await functions[name](host, options);
         ok(`CALLER_${file}_${name}_SOA_${cname ? "CNAME" : "OMITTED"}_PUBLIC`, observed.length > 0);
       }
       for (const [state, resolver] of [["error", errorDns], ["private", privateDns], ["public", publicDns]]) {
         transport(resolver);
         const dnsCache = new Map();
-        const options = build(dnsQuery, dnsCache, null, undefined, null, false, undefined, undefined, undefined, Date.now(), undefined);
+        const options = build(dnsQuery, dnsCache, null, undefined, null, false, undefined, Date.now(), undefined);
         ok(`CALLER_${file}_${name}_RESOLVER_CACHE_${state}`, options.dnsResolver === dnsQuery && options.dnsCache === dnsCache);
         const result = await functions[name](host, options);
         ok(`CALLER_${file}_${name}_${state}_HTTP`, state === "public" ? observed.length > 0 : observed.length === 0);
@@ -276,7 +275,7 @@ try {
       for (const [state, resolver] of [["private", privateDns], ["error", errorDns], ["public", publicDns]]) {
         const next = "redirect.example.test";
         transport((name, type) => name === next ? resolver(name, type) : publicDns(name, type), next);
-        const options = build(dnsQuery, new Map(), null, undefined, null, false, undefined, undefined, undefined, Date.now(), undefined);
+        const options = build(dnsQuery, new Map(), null, undefined, null, false, undefined, Date.now(), undefined);
         await functions[name](host, options);
         ok(`CALLER_${file}_${name}_REDIRECT_${state}`, state === "public"
           ? (name === "runSslModule" || observed.some((call) => call.hostname === next))

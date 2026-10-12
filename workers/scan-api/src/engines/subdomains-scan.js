@@ -1,9 +1,8 @@
 // ── Subdomain discovery + brute-force scan module ──
-// Own-observation subdomain discovery (no third-party discovery service),
-// sensitive-label classification, and a bounded
-// DNS brute-force pass with wildcard filtering. Extracted verbatim from index.js (monolith
-// decomposition, Phase 1c). Only the three run*/filter* entry points are public; the label
-// sets, isSensitiveSubdomain and _subdomainsCoreWork are module-internal.
+// Own-observation subdomain discovery (no third-party discovery service): a
+// wildcard check, a bounded DNS word list with wildcard filtering, SRV targets
+// and home-page links under the scanned domain, plus sensitive-label
+// classification.
 import { dnsQuery } from "./dns.js";
 
 /**
@@ -266,6 +265,11 @@ export const SRV_DISCOVERY_LABELS = Object.freeze([
   "_caldavs._tcp", "_carddavs._tcp", "_imaps._tcp", "_submission._tcp",
 ]);
 
+// A record may name any number of targets. Discovery keeps the first
+// SRV_TARGET_CAP unique targets in answer order and counts the rest, so the
+// candidate set stays bounded and the truncation is stated, never hidden.
+export const SRV_TARGET_CAP = 50;
+
 export function srvTargetsUnder(domain, answers = []) {
   const root = String(domain || "").toLowerCase();
   const targets = new Set();
@@ -351,6 +355,7 @@ export async function runBruteforceModule(domain, opts = {}) {
     const srvNames = SRV_DISCOVERY_LABELS.map((label) => `${label}.${domain}`);
     const srvItems = [];
     let srvAnswered = 0;
+    let srvTargetsDropped = 0;
     try {
       const secondPass = await Promise.race([
         Promise.allSettled([
@@ -378,6 +383,7 @@ export async function runBruteforceModule(domain, opts = {}) {
           for (const target of srvTargetsUnder(domain, answers)) {
             if (srvHosts.has(target)) continue;
             srvHosts.add(target);
+            if (srvItems.length >= SRV_TARGET_CAP) { srvTargetsDropped++; continue; }
             srvItems.push({ hostname: target, source: "dns_srv", record: host });
           }
         }
@@ -393,6 +399,7 @@ export async function runBruteforceModule(domain, opts = {}) {
       srv_items: srvItems,
       srv_checked: srvNames.length,
       srv_answered: srvAnswered,
+      srv_targets_dropped: srvTargetsDropped,
       source:  "dns_bruteforce",
       error:   null,
     };

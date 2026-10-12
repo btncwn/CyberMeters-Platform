@@ -113,32 +113,14 @@ globalThis.fetch = async (input) => {
       vulnerabilities: [],
     });
   }
-  // Production scans query CertSpotter as their sole CT source (ct-providers.js);
-  // crt.sh is answered here only to prove it is never relied upon.
-  if (url.hostname === "crt.sh") {
-    return jsonResponse([{
-      id: 1,
-      name_value: "example.com\nwww.example.com",
-      common_name: "example.com",
-      issuer_name: "BRS Fixture CA",
-      entry_timestamp: "2026-07-28T08:00:00.000Z",
-      not_before: "2026-07-01T00:00:00.000Z",
-      not_after: "2026-11-01T00:00:00.000Z",
-    }]);
-  }
-  if (url.hostname === "api.certspotter.com") {
-    if (providerMode === "partial") return jsonResponse({}, 403);
-    return jsonResponse([{
-      id: "brs-cert",
-      not_before: "2026-07-01T00:00:00.000Z",
-      not_after: "2026-11-01T00:00:00.000Z",
-      issuer: { name: "BRS Fixture CA" },
-      dns_names: ["example.com", "www.example.com"],
-    }]);
-  }
   if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
     const name = String(url.searchParams.get("name") || "").toLowerCase();
     const type = String(url.searchParams.get("type") || "A").toUpperCase();
+    // Losing the wildcard check leaves subdomain discovery incomplete, which
+    // makes the second scan honestly non-complete.
+    if (providerMode === "partial" && name.startsWith("cybermeters-wildcard-check-")) {
+      return jsonResponse({}, 503);
+    }
     if (["example.com", "www.example.com"].includes(name) && type === "A") {
       return jsonResponse({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
     }
@@ -229,10 +211,10 @@ try {
   eq("real partial engine trace does not throw", partialError, null);
   const partialScan = db.prepare("SELECT status,scan_quality FROM scans WHERE id='scan-partial'").get();
   eq("real second scan terminal completed", partialScan.status, "completed");
-  // providerMode="partial" makes CertSpotter, the production scan's sole CT
-  // source, return 403. That is total CT loss with no surviving provider, which
-  // FD-006 grades `partial` (incomplete), never `degraded` and never complete.
-  eq("real second scan canonical partial quality (sole CT source lost)", partialScan.scan_quality, "partial");
+  // providerMode="partial" makes the discovery wildcard check fail, so the
+  // word-list answers cannot be trusted. FD-006 grades that `partial`
+  // (incomplete), never `degraded` and never complete.
+  eq("real second scan canonical partial quality (wildcard check lost)", partialScan.scan_quality, "partial");
   eq("real partial scan preserves canonical BRS byte-for-byte", JSON.stringify(db.prepare(
     "SELECT score,risk_band,calculated_at,payload_json FROM workspace_brs_scores WHERE workspace_id='ws'"
   ).get()), JSON.stringify(completeBrs));

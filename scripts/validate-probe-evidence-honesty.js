@@ -460,43 +460,39 @@ const sslPositivelyAbsent = () => ({
   }
 }
 
-// ════ §5 — CERTIFICATE TRANSPARENCY BLACKOUT ════════════════════════════════
-// The SAME defect class as §1-§4, found live on 2026-07-16 in a different module.
-// Certificate Transparency is certificate intelligence's ONLY evidence source. When
-// BOTH logs fail, `runCertificateIntelligenceModule` observed nothing — it did not
-// observe "no problems". It recorded that as a severity:"info" signal and returned
+// ════ §5 — CERTIFICATE NOT OBSERVED ════════════════════════════════════════
+// The SAME defect class as §1-§4, in a different module. The live TLS leaf is
+// certificate intelligence's ONLY evidence source. When HTTPS is not known to be
+// absent but no leaf was captured, `runCertificateIntelligenceModule` observed
+// nothing — it did not observe "no problems". Without the guard it would return
 // `error: null` with no `incomplete`, so:
 //
-//   buildScanQuality                     -> "complete"
+//   buildScanQuality                         -> "complete"
 //   moduleAssessed(certificate_intelligence) -> true
-//   eight-domain resolver                -> ASSESSED_HEALTHY off ZERO certificates
+//   eight-domain resolver                    -> ASSESSED_HEALTHY off ZERO certificates
 //
 // certificates_trust declares `required: ["certificate_intelligence"]`, so that module
-// is the whole basis of its verdict. #105 was fixed in headers-scan/ssl-scan only —
-// per-module, not per-CLASS — which is why this survived. Hence it lives in THIS suite:
-// the next module to invent a silent-failure path should fail here, not in production.
-const ctBlackoutSubdomains = () => ({
-  items: [], sensitive: [],
-  sources: { crt_sh: { count: 0, error: "timeout" }, certspotter: { count: 0, error: "timeout" } },
-});
-const ctHealthySubdomains = () => ({
-  items: ["www.acme.example.com"], sensitive: [],
-  sources: { crt_sh: { count: 1, error: null }, certspotter: { count: 1, error: null } },
-});
-const certModulesFor = (subdomains) => ({
-  dns: { resolves: true }, ssl: sslHealthy(), headers: headersHealthy(), email_security: {},
-  subdomains,
-  certificate_intelligence: runCertificateIntelligenceModule({ ssl: sslHealthy(), subdomains }, "acme.example.com"),
+// is the whole basis of its verdict. Hence it lives in THIS suite: the next module to
+// invent a silent-failure path should fail here, not in production.
+const { liveTlsSsl } = await import(pathToFileURL(path.join(root, "scripts", "lib", "live-tls-fixture.mjs")).href);
+const CERT_DOMAIN = "acme.example.com";
+const sslWithoutLeaf = () => sslHealthy();
+const sslWithLeaf = () => liveTlsSsl({ domain: CERT_DOMAIN }, sslHealthy());
+const certModulesFor = (ssl) => ({
+  dns: { resolves: true }, ssl, headers: headersHealthy(), email_security: {},
+  subdomains: { count: 0, items: [], sensitive: [], source: "dns_discovery" },
+  certificate_intelligence: runCertificateIntelligenceModule({ ssl, subdomains: {} }, CERT_DOMAIN),
 });
 
 {
-  const blackout = runCertificateIntelligenceModule({ ssl: sslHealthy(), subdomains: ctBlackoutSubdomains() }, "acme.example.com");
-  eq("a total CT blackout marks certificate intelligence incomplete", blackout.incomplete, true);
-  eq("and names the reason", blackout.incomplete_reason, "ct_sources_unavailable");
+  const notObserved = runCertificateIntelligenceModule({ ssl: sslWithoutLeaf(), subdomains: {} }, CERT_DOMAIN);
+  eq("HTTPS without a captured leaf marks certificate intelligence incomplete", notObserved.incomplete, true);
+  eq("and names the reason", notObserved.incomplete_reason, "certificate_not_observed");
+  eq("and states that no certificate was observed", notObserved.evidence_source, "not_observed");
 
-  const modules = certModulesFor(ctBlackoutSubdomains());
+  const modules = certModulesFor(sslWithoutLeaf());
   const q = buildScanQuality(modules);
-  eq("a CT blackout degrades the scan to `partial`, never `complete`", q.status, "partial");
+  eq("an unobserved certificate degrades the scan to `partial`, never `complete`", q.status, "partial");
   ok("and lists the module as skipped", (q.modules_skipped || []).includes("certificate_intelligence"));
 
   const report = { scan_quality: q, modules, findings: [], completed_at: "2026-07-16T00:00:00Z" };
@@ -505,44 +501,35 @@ const certModulesFor = (subdomains) => ({
     cert.state !== CYBER_MOT_STATES.ASSESSED_HEALTHY);
   eq("it reports evidence_insufficient", cert.state, CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT);
 
-  // The direction matters: prove the guard is gated on the blackout, not always-on.
-  // Without this, deleting every certificate would also "pass" the assertion above.
-  const healthy = runCertificateIntelligenceModule({ ssl: sslHealthy(), subdomains: ctHealthySubdomains() }, "acme.example.com");
-  ok("a HEALTHY CT read is NOT marked incomplete", healthy.incomplete === undefined);
-  const qOk = buildScanQuality(certModulesFor(ctHealthySubdomains()));
-  eq("and a healthy CT read still grades the scan complete", qOk.status, "complete");
+  // The direction matters: prove the guard is gated on the missing leaf, not
+  // always-on. Without this, deleting every certificate would also "pass" above.
+  const observed = runCertificateIntelligenceModule({ ssl: sslWithLeaf(), subdomains: {} }, CERT_DOMAIN);
+  ok("a captured live leaf is NOT marked incomplete", observed.incomplete === undefined);
+  eq("and is attributed to the live TLS observation", observed.evidence_source, "live_tls");
+  const qOk = buildScanQuality(certModulesFor(sslWithLeaf()));
+  eq("and a captured leaf still grades the scan complete", qOk.status, "complete");
 }
 
-// ── §5 MUTATION — remove the guard; the blackout must read healthy again ─────
+// ── §5 MUTATION — remove the guard; the missing leaf must read healthy again ──
 {
   const original = fs.readFileSync(srcPath("engines", "cert-intel.js"), "utf8");
   const mutated = original.replace(
-    /\.\.\.\(ctBlackout \? \{ incomplete: true, incomplete_reason: "ct_sources_unavailable" \} : \{\}\),/,
+    /\.\.\.\(certificateNotObserved \? \{ incomplete: true, incomplete_reason: "certificate_not_observed" \} : \{\}\),/,
     "",
   );
   ok("the §5 mutation applied (the guard is where this suite thinks it is)", mutated !== original);
 
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cm-ct-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cm-cert-"));
   const tmp = srcPath("engines", `.cert-intel.mutant.${path.basename(dir)}.js`);
   fs.writeFileSync(tmp, mutated);
   try {
     const { runCertificateIntelligenceModule: mutantRun } = await import(pathToFileURL(tmp).href);
-    const mutantCert = mutantRun({ ssl: sslHealthy(), subdomains: ctBlackoutSubdomains() }, "acme.example.com");
-    ok("MUTANT: a CT blackout carries no `incomplete` flag", mutantCert.incomplete === undefined);
+    const mutantCert = mutantRun({ ssl: sslWithoutLeaf(), subdomains: {} }, CERT_DOMAIN);
+    ok("MUTANT: an unobserved certificate carries no `incomplete` flag", mutantCert.incomplete === undefined);
 
-    const modules = {
-      dns: { resolves: true }, ssl: sslHealthy(), headers: headersHealthy(), email_security: {},
-      subdomains: ctBlackoutSubdomains(), certificate_intelligence: mutantCert,
-    };
+    const modules = { ...certModulesFor(sslWithoutLeaf()), certificate_intelligence: mutantCert };
     const q = buildScanQuality(modules);
-    eq("MUTANT: a CT blackout grades the scan `complete` — the defect, reproduced", q.status, "complete");
-
-    const report = { scan_quality: q, modules, findings: [], completed_at: "2026-07-16T00:00:00Z" };
-    const cert = resolveCyberMotDomainStates(report, { scanId: "s1" }).find((d) => d.domain_key === "certificates_trust");
-    eq("MUTANT: the canonical provider-provenance gate still prevents false healthy",
-      cert.state, CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT);
-    ok("MUTANT: no healthy wording escapes through the independent coverage gate",
-      !/no material issue observed/i.test(cert.summary));
+    eq("MUTANT: an unobserved certificate grades the scan `complete` — the defect, reproduced", q.status, "complete");
   } finally {
     fs.rmSync(tmp, { force: true });
     fs.rmSync(dir, { recursive: true, force: true });

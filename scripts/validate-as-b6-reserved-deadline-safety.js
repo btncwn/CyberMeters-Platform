@@ -17,8 +17,6 @@ const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const targetRoot = process.env.ASB6_RESERVED_TARGET_ROOT || repoRoot;
 const engineRoot = path.join(targetRoot, "workers", "scan-api", "src", "engines");
 const load = (file) => import(pathToFileURL(path.join(engineRoot, file)).href);
-const platformAbortWording =
-  "CyberMeters did not observe the provider result within the scan's global execution window.";
 
 let passed = 0;
 let failed = 0;
@@ -184,15 +182,15 @@ ok(
   JSON.stringify({ fullFetchCalls, error: fullError?.message || null, physical: fullResult?.physicalBudget, modules: m }),
 );
 ok(
-  "ASB6R_PREABORT_CT_PLATFORM_WORDING_PRESERVED",
-  JSON.stringify(Object.keys(m.ssl?.ct_sources || {})) === JSON.stringify(["certspotter"]) &&
-  JSON.stringify(Object.keys(m.subdomains?.sources || {})) === JSON.stringify(["certspotter"]) &&
-  [
-    m.ssl?.ct_sources?.certspotter,
-    m.subdomains?.sources?.certspotter,
-  ].every((source) => source?.count === 0 && source?.error === platformAbortWording),
-  JSON.stringify({ ssl: m.ssl?.ct_sources, subdomains: m.subdomains?.sources }),
+  "ASB6R_PREABORT_FALLBACKS_STATE_THE_CAUSE",
+  [m.ssl, m.subdomains].every((value) =>
+    value?.incomplete_reason === "scan_deadline_exhausted" && value?.physical_attempts_issued === 0)
+    && m.ssl?.source === "tls_probe"
+    && m.subdomains?.source === "dns_discovery"
+    && m.subdomains?.count === 0
+    && !("ct_sources" in (m.ssl || {}))
+    && !("sources" in (m.subdomains || {})),
+  JSON.stringify({ ssl: m.ssl, subdomains: m.subdomains }),
 );
-
 console.log(`\nAS-B6 reserved deadline safety: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

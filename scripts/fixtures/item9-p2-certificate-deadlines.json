@@ -1,28 +1,31 @@
 {
-  "model_version": "certificate-signal-completeness-v2",
+  "model_version": "certificate-signal-completeness-v3",
   "module_budget_ms": 9000,
   "module_subrequest_cap": 6,
   "scenarios": [
     {
       "name": "complete",
-      "certspotter": "available",
-      "expected_ct_state": "monitoring_healthy",
+      "collector": "observed",
+      "expected_ssl_incomplete_reason": null,
+      "expected_leaf_state": "monitoring_healthy",
       "expected_issuer_state": "monitoring_healthy",
       "expected_active_service_state": "monitoring_healthy",
       "expected_active_service_observation": "present"
     },
     {
-      "name": "provider-unavailable",
-      "certspotter": "unavailable",
-      "expected_ct_state": "signal_unavailable",
+      "name": "collector-unavailable",
+      "collector": "unavailable",
+      "expected_ssl_incomplete_reason": "live_tls_unavailable",
+      "expected_leaf_state": "evidence_incomplete",
       "expected_issuer_state": "evidence_incomplete",
       "expected_active_service_state": "monitoring_healthy",
       "expected_active_service_observation": "present"
     },
     {
-      "name": "provider-timeout",
-      "certspotter": "timeout",
-      "expected_ct_state": "signal_unavailable",
+      "name": "collector-timeout",
+      "collector": "timeout",
+      "expected_ssl_incomplete_reason": "live_tls_aborted",
+      "expected_leaf_state": "evidence_incomplete",
       "expected_issuer_state": "evidence_incomplete",
       "expected_active_service_state": "monitoring_healthy",
       "expected_active_service_observation": "present"

@@ -20,7 +20,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers", "scan-api", "src", "engines");
 const validator = path.join(root, "scripts", "validate-subop-timing-telemetry.js");
 const EXPECTED_MUTANTS = 16;
-const EXPECTED_VALIDATOR_ASSERTIONS = 113;
+const EXPECTED_VALIDATOR_ASSERTIONS = 102;
 
 let mutantsKilled = 0;
 let failures = 0;
@@ -272,7 +272,6 @@ runMutant({
   moduleEnv: "SUBOP_TIMING_SCAN_BUDGET_MODULE_URL",
   expectedFailures: [
     "aborted flag wins over outcome",
-    "CT lookup in flight at cap attributed as aborted",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -300,15 +299,18 @@ runMutant({
 });
 
 runMutant({
-  name: "ct_lookup structured resolve classified unconditionally ok",
-  sourceName: "ssl-scan.js",
-  moduleEnv: "SUBOP_TIMING_SSL_MODULE_URL",
-  expectedFailures: ["ct_lookup honest when every provider failed"],
+  name: "failed wildcard lookup classified ok",
+  sourceName: "subdomains-scan.js",
+  moduleEnv: "SUBOP_TIMING_SUBDOMAINS_MODULE_URL",
+  expectedFailures: [
+    "wildcard A lookup row records the resolver failure",
+    "wildcard AAAA lookup row records the resolver failure",
+  ],
   mutate: (source) => replaceExactlyOnce(
     source,
-    `          opts.subOps?.finish?.(ctSubOp, { outcome: anyOk ? "ok" : "unavailable" });`,
-    `          opts.subOps?.finish?.(ctSubOp, { outcome: "ok" });`,
-    "ct_lookup evidence classification",
+    `      (e) => { settle("error"); throw e; },`,
+    `      (e) => { settle("ok"); throw e; },`,
+    "wildcard lookup failure classification",
   ),
 });
 

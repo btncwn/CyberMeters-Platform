@@ -405,11 +405,11 @@ const FIXTURES = [
     },
   },
   {
-    id: "U2-B3-CT01",
+    id: "U2-B3-DISC01",
     run: async () => {
       const result = runIdentityDiscoveryModule({ subdomains: { items: ["admin.example.com"] } }, "example.com", { observedAt: OBSERVED_AT });
       const value = await persistIdentityModule(result, { hostname: "admin.example.com" });
-      return value.adapted?.items[0]?.source === "certificate_transparency" &&
+      return value.adapted?.items[0]?.source === "dns_discovery" &&
         value.claim?.name_resolution?.status === "not_evaluated" && value.claim?.name_resolution?.measured_at === null &&
         value.claim?.reachability?.status === "not_evaluated";
     },
@@ -459,7 +459,7 @@ const FIXTURES = [
         subdomains: { items: ["admin.example.com"] },
         dns_bruteforce: { error: "resolver failed", items: [{ hostname: "admin.example.com", ip_addresses: ["192.0.2.10"] }] },
       }, "example.com", { observedAt: OBSERVED_AT }), "admin.example.com");
-      return row?.evidence?.length === 1 && row.evidence[0]?.source === "certificate_transparency" &&
+      return row?.evidence?.length === 1 && row.evidence[0]?.source === "dns_discovery" &&
         row?.name_resolution?.status === "not_evaluated";
     },
   },
@@ -472,7 +472,7 @@ const FIXTURES = [
         subdomains: { items: ["admin.example.com"] },
         dns_bruteforce: { ...state, items: [{ hostname: "admin.example.com", ip_addresses: ["192.0.2.10"] }] },
       }, "example.com", { observedAt: OBSERVED_AT }), "admin.example.com");
-      return row?.evidence?.length === 1 && row.evidence[0]?.source === "certificate_transparency";
+      return row?.evidence?.length === 1 && row.evidence[0]?.source === "dns_discovery";
     }),
   },
   {

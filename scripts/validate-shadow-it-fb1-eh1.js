@@ -187,7 +187,7 @@ function seedSender(db, { id = "source-1", workspace = "ws1", name = "Example" }
     VALUES (?,?, 'example.com','192.0.2.1',?,'low','example.com',?,?,1,'unknown',?)`)
     .run(id, workspace, name, NOW, NOW, NOW);
 }
-function seedCloud(db, { id = "source-1", workspace = "ws1", provider = "cloudflare", source = "certificate_transparency" } = {}) {
+function seedCloud(db, { id = "source-1", workspace = "ws1", provider = "cloudflare", source = "dns_discovery" } = {}) {
   db.prepare(`INSERT INTO workspace_assets
     (id,workspace_id,domain_id,hostname,asset_type,source,first_seen,last_seen,status,cloud_provider,created_at,updated_at)
     VALUES (?,?, 'd1','cdn.example.com','cdn',?,?,?,'active',?,?,?)`)
@@ -291,7 +291,7 @@ for (const scenario of [
   fx.db.close();
 }
 
-// F10: the existing CT-backed cloud deferral remains intact.
+// F10: the discovery-backed cloud deferral remains intact.
 {
   const fx = createFixture();
   seedInventory(fx.db, { key: "cloudflare", display: "Cloudflare", sourceType: "cloud_asset", sourceEvidence: evidence("workspace_assets", "cloud_asset") });

@@ -114,15 +114,20 @@ export function liveTlsSsl(options = {}, base = { tls_state: "observed_present",
 
 // A NETWORK_PROBE service binding that answers the engine's live TLS request
 // with a receipt bound to that request and the current clock. `days` (or an
-// explicit `notAfter`) positions the served certificate's expiry.
-export function liveTlsProbeBinding(options = {}) {
+// explicit `notAfter`) positions the served certificate's expiry. `options` may
+// be a function of the request, so a multi-scan trace can serve a replacement.
+export function liveTlsProbeBinding(optionsOrFactory = {}) {
   const calls = [];
   return {
     calls,
     fetch: async (_url, init) => {
       const request = JSON.parse(init.body);
       calls.push(request);
-      const now = new Date().toISOString();
+      const options = typeof optionsOrFactory === "function"
+        ? optionsOrFactory(request)
+        : optionsOrFactory;
+      // Date.now() so a validator that pins the clock pins the receipt too.
+      const now = new Date(Date.now()).toISOString();
       const hostname = request.targets?.[0]?.hostname || options.domain || "example.com";
       const receipt = liveTlsReceipt({ ...options, domain: hostname, finishedAt: now });
       return Response.json({

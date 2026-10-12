@@ -300,8 +300,12 @@ function domainEvidenceGrade(entry, report) {
     "Single external observations evaluated under CyberMeters product policy.";
 
   if (entry?.domain_key === "certificates_trust") {
+    // Without a captured live leaf there is no certificate fact to describe;
+    // the basis says so instead of describing a handshake that did not yield one.
     const live = liveCertificateSnapshotEvidence(report);
-    if (live) basis = live.basis;
+    basis = live
+      ? live.basis
+      : "No certificate was captured from a live TLS handshake in this scan, so no certificate fact is asserted.";
   }
 
   if (entry?.domain_key === "email_protection") {

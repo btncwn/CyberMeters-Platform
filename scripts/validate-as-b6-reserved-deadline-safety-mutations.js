@@ -86,21 +86,21 @@ const mutants = [
     after: "      recordAttempt: () => this.recordAttempt(key),",
     expected: "ASB6R_LATE_WORK_AFTER_DEADLINE_REFUSED",
   },
-  // Re-anchored: the reserved CT fallbacks now build their per-provider rows
-  // from the declared provider set (ctFailedSources) instead of literal keys.
+  // The pre-abort shapes keep their own evidence identity: TLS stays a TLS
+  // probe and discovery stays CyberMeters' own DNS discovery.
   {
-    id: "ASB6R-M-SSL-PREABORT-CT-SHAPE-REMOVED",
+    id: "ASB6R-M-SSL-PREABORT-FALLBACK-REMOVED",
     file: "workers/scan-api/src/engines/reserved-scan.js",
-    before: "    ct_sources: ctFailedSources(error),",
-    after: "    ct_sources_removed: ctFailedSources(error),",
-    expected: "ASB6R_PREABORT_CT_PLATFORM_WORDING_PRESERVED",
+    before: '  }), {}, signal, reservedSslFallback("scan_global_deadline"));',
+    after: "  }), {}, signal);",
+    expected: "ASB6R_PREABORT_FALLBACKS_STATE_THE_CAUSE",
   },
   {
-    id: "ASB6R-M-SUBDOMAINS-PREABORT-CT-SHAPE-REMOVED",
+    id: "ASB6R-M-SUBDOMAINS-PREABORT-SOURCE-REMOVED",
     file: "workers/scan-api/src/engines/reserved-scan.js",
-    before: "    sensitive: [],\n    sources: ctFailedSources(error),",
-    after: "    sensitive: [],\n    sources_removed: ctFailedSources(error),",
-    expected: "ASB6R_PREABORT_CT_PLATFORM_WORDING_PRESERVED",
+    before: "    sensitive: [],\n    source: SUBDOMAIN_DISCOVERY_SOURCE,\n    wildcard_dns: false,",
+    after: "    sensitive: [],\n    wildcard_dns: false,",
+    expected: "ASB6R_PREABORT_FALLBACKS_STATE_THE_CAUSE",
   },
 ];
 

@@ -71,18 +71,6 @@
         }
       }
     },
-    "subdomains": {
-      "kind": "fulfilled",
-      "value": {
-        "count": 1,
-        "items": ["app.example.com"],
-        "sensitive": [],
-        "sources": {
-          "crt_sh": { "count": 1, "error": null },
-          "certspotter": { "count": 1, "error": null }
-        }
-      }
-    },
     "technology_detection": {
       "kind": "fulfilled",
       "value": {

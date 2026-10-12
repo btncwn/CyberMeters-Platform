@@ -42,6 +42,8 @@ async function withMutant(file, mutate, run) {
   }
 }
 
+// Stored certificate fields from an earlier scan, with no live TLS leaf. They
+// must never fill a certificate signal.
 const completeModules = () => ({
   ssl: {
     https_available: true,
@@ -55,22 +57,10 @@ const completeModules = () => ({
   subdomains: {
     items: ["www.example.com"],
     sensitive: [],
-    sources: {
-      crt_sh: { count: 2, error: null },
-      certspotter: { count: 2, error: null },
-    },
+    source: "dns_discovery",
   },
 });
-const healthyProviders = {
-  crt_sh: { outcome: "available" },
-  certspotter: { outcome: "available" },
-};
-const unavailableProviders = {
-  crt_sh: { outcome: "unavailable" },
-  certspotter: { outcome: "unavailable" },
-};
-const options = (providerHealth) => ({
-  providerHealth,
+const options = () => ({
   observedAt: NOW,
   engineVersion: "item9-p2-mutation",
 });
@@ -85,7 +75,7 @@ await withMutant(
     const result = mutant.runCertificateIntelligenceModule(
       completeModules(),
       "example.com",
-      options(healthyProviders),
+      options(),
     );
     ok("MUTANT detached P1 model makes the integration fixture red",
       result.signal_completeness === null);
@@ -97,11 +87,11 @@ await withMutant(
   (source) => [
     [
       "completeness_state: trust.leafCollected\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
-      "completeness_state: trust.leafCollected || selectedCtCertificate\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
+      "completeness_state: trust.leafCollected || Boolean(ssl.cert_subject)\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
     ],
     [
       "observation: trust.leafCollected\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
-      "observation: trust.leafCollected || selectedCtCertificate\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
+      "observation: trust.leafCollected || Boolean(ssl.cert_subject)\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
     ],
     [
       '      } : null,\n      observation_scope: "live_tls",\n      achieved_grade: trust.leafCollected',
@@ -109,17 +99,16 @@ await withMutant(
     ],
   ].reduce((text, [from, to], i) => {
     const count = text.split(from).length - 1;
-    ok(`CT-as-live-leaf submutation ${i + 1} has exactly one source anchor`, count === 1);
+    ok(`stored-fields-as-live-leaf submutation ${i + 1} has exactly one source anchor`, count === 1);
     return count === 1 ? text.replace(from, to) : text;
   }, source),
   async (mutant) => {
     const result = mutant.deriveCertificateSignalCompletenessFromModules({
       modules: completeModules(),
-      providerHealth: healthyProviders,
       observedAt: NOW,
       engineVersion: "item9-p2-mutation",
     });
-    ok("MUTANT CT-as-live-leaf makes the CT-only fixture red",
+    ok("MUTANT stored-fields-as-live-leaf makes the no-leaf fixture red",
       result.signals.leaf.observation === "present");
   },
 );
@@ -130,12 +119,13 @@ await withMutant(
     `tls.state !== TLS_RUNTIME_STATES.UNAVAILABLE
           ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
           : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE`,
-    "ctState",
+    `trust.leafCollected
+          ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
+          : SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE`,
   ),
   async (mutant) => {
     const result = mutant.deriveCertificateSignalCompletenessFromModules({
       modules: completeModules(),
-      providerHealth: unavailableProviders,
       observedAt: NOW,
       engineVersion: "item9-p2-mutation",
     });
@@ -160,17 +150,17 @@ await withMutant(
         observations: [
           {
             protected_hostname: "example.com",
-            source: "certificate_transparency",
-            endpoint_context: "ct-entry-1/historical",
-            certificate_identity: "ct-history-1",
+            source: "historical_observation",
+            endpoint_context: "history-entry-1/historical",
+            certificate_identity: "history-1",
             observed_at: observedAt,
             completeness_state: SIGNAL_MONITORING_STATES.MONITORING_HEALTHY,
           },
           {
             protected_hostname: "example.com",
-            source: "certificate_transparency",
-            endpoint_context: "ct-entry-2/historical",
-            certificate_identity: "ct-history-2",
+            source: "historical_observation",
+            endpoint_context: "history-entry-2/historical",
+            certificate_identity: "history-2",
             observed_at: observedAt,
             completeness_state: SIGNAL_MONITORING_STATES.MONITORING_HEALTHY,
           },
@@ -179,19 +169,18 @@ await withMutant(
       observation_scope: "live_tls_endpoint_set",
       achieved_grade: "L3",
       source_type: "product_policy",
-      source: "shared_ct_provider_cache",
-      method: "historical_ct_multiplicity",
+      source: "certificate_observation_history",
+      method: "historical_multiplicity",
     }),
     active_service:`,
   ),
   async (mutant) => {
     const result = mutant.deriveCertificateSignalCompletenessFromModules({
       modules: completeModules(),
-      providerHealth: healthyProviders,
       observedAt: NOW,
       engineVersion: "item9-p2-mutation",
     });
-    ok("MUTANT CT multiplicity as parallel live set makes fixture red",
+    ok("MUTANT historical multiplicity as parallel live set makes fixture red",
       result.signals.parallel_certificate_set.observation === "present");
   },
 );
@@ -249,7 +238,15 @@ const certMod = {
   san_hostnames: ["example.com"],
   san_count: 1,
   expires_at: "2026-11-01T00:00:00.000Z",
-  source: "ssl_ct_correlation",
+  source: "live_tls",
+  evidence_source: "live_tls",
+  live_certificate_verified: true,
+  live_tls: {
+    leaf_certificate: {
+      collection_complete: true,
+      certificate_identity: `sha256:${"c".repeat(64)}`,
+    },
+  },
   signal_completeness: {
     model_version: "certificate-signal-completeness-v1",
     signals: {

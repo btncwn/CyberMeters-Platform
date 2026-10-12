@@ -174,10 +174,16 @@ ok("shadow IT entries do not assert services are unauthorised or internally seen
   shadow.every((e) => e.limitations.some((l) => /externally observed|does not see inside|not.*unauthorised/i.test(l))));
 
 // ── 11. Certificate unknown semantics stay explicit ──────────────────────────
+// historical: a stored finding from the retired certificate source resolves to
+// its deprecated entry, which nothing can verify and which raises no new work.
 const certUnknown = resolveRemediation({ finding_type: "ct_sources_unavailable" });
-eq("certificate CT-incomplete verification is 'unsupported'", certUnknown.verification_method, "unsupported");
-ok("certificate unknown entry names chain/OCSP/revocation as unknown",
-  certUnknown.limitations.some((l) => /chain|ocsp|revocation/i.test(l)));
+eq("historical certificate-source verification is 'unsupported'", certUnknown.verification_method, "unsupported");
+ok("historical certificate-source entry states the source is no longer used",
+  /no longer used/i.test(certUnknown.technical_explanation));
+const certGap = resolveRemediation({ finding_type: "certificate_coverage_gap" });
+ok("a certificate coverage gap does not claim the certificate is missing",
+  /not collected|evidence was simply not collected|did not present/i.test(
+    `${certGap.technical_explanation} ${certGap.business_impact}`));
 
 // ── 12. Cyber Essentials external-certification wording ──────────────────────
 // Certification stays external, and readiness remediation is a SEPARATE concept:

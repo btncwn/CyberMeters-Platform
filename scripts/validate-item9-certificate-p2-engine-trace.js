@@ -3,12 +3,14 @@
 //
 // Executes the real production scan engine against in-memory D1/R2. Only network
 // edges are deterministic. This proves the P1 model is attached after production
-// callers, shares the one CT cache, stays inside the existing SSL allocation and
-// persists workspace-scoped evidence without writing soft-deleted tenants.
+// callers, reads certificate facts only from the live TLS collector (asked once
+// per scan), stays inside the existing SSL allocation and persists
+// workspace-scoped evidence without writing soft-deleted tenants.
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { liveTlsProbeBinding } from "./lib/live-tls-fixture.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { runScanEngine } = await import(pathToFileURL(path.join(
@@ -147,38 +149,12 @@ const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), 
   headers: { "content-type": "application/json" },
 });
 
-const providerCalls = { crt_sh: 0, certspotter: 0 };
 let outboundCalls = 0;
 const realFetch = globalThis.fetch;
 const realRandom = Math.random;
 globalThis.fetch = async (input) => {
   outboundCalls += 1;
   const url = new URL(String(input));
-  if (url.hostname === "crt.sh") {
-    providerCalls.crt_sh += 1;
-    // Production scans query CertSpotter only (ct-providers.js); reaching here
-    // is itself a failure, counted below.
-    return jsonResponse({}, 403);
-  }
-  if (url.hostname === "api.certspotter.com") {
-    providerCalls.certspotter += 1;
-    return jsonResponse([
-      {
-        id: "live-candidate",
-        not_before: "2026-07-01T00:00:00.000Z",
-        not_after: "2026-11-01T00:00:00.000Z",
-        issuer: { name: "Trace Fallback CA" },
-        dns_names: ["example.com", "www.example.com", "*.example.com"],
-      },
-      {
-        id: "historical-candidate",
-        not_before: "2026-01-01T00:00:00.000Z",
-        not_after: "2026-09-01T00:00:00.000Z",
-        issuer: { name: "Trace Historical CA" },
-        dns_names: ["example.com", "old.example.com"],
-      },
-    ]);
-  }
   if (
     url.hostname === "cloudflare-dns.com" ||
     url.hostname === "dns.google"
@@ -212,6 +188,11 @@ const env = {
   SCAN_SUBREQUEST_LIMIT: "200",
   SCAN_DEADLINE_MS: "115000",
   APP_VERSION: "item9-p2-engine-trace",
+  NETWORK_PROBE: liveTlsProbeBinding({
+    days: 98,
+    issuer: "CN=Trace Live CA\nO=Trace",
+    dnsNames: ["example.com", "www.example.com", "*.example.com"],
+  }),
 };
 
 db.prepare("INSERT INTO users (id, email) VALUES ('usr', 'owner@example.com')")
@@ -264,11 +245,9 @@ try {
   eq("real engine terminal status is completed",
     db.prepare("SELECT status FROM scans WHERE id = 'scan-item9-p2'")
       .get()?.status, "completed");
-  ok("real engine exercised outbound provider paths", outboundCalls > 0);
-  eq("real engine never contacts crt.sh (CertSpotter is the sole CT source)",
-    providerCalls.crt_sh, 0);
-  eq("real engine uses one shared CertSpotter logical lookup",
-    providerCalls.certspotter, 1);
+  ok("real engine exercised outbound paths", outboundCalls > 0);
+  eq("real engine asks the live TLS collector exactly once",
+    env.NETWORK_PROBE.calls.length, 1);
 
   const raw = store.get("reports/scan-item9-p2.json");
   ok("real engine writes a terminal raw report", typeof raw === "string");
@@ -277,58 +256,64 @@ try {
   const completeness = intelligence?.signal_completeness;
   const signals = completeness?.signals || {};
   eq("production caller attaches the P1 model",
-    completeness?.model_version, "certificate-signal-completeness-v2");
-  eq("the sole CT source answering is complete CT monitoring",
-    signals.certificate_transparency?.completeness_state,
-    "monitoring_healthy");
-  eq("CertSpotter issuer is a complete positive",
+    completeness?.model_version, "certificate-signal-completeness-v3");
+  ok("no certificate signal depends on an external certificate log",
+    !Object.prototype.hasOwnProperty.call(signals, "certificate_transparency"));
+  eq("the live leaf is a complete observation",
+    signals.leaf?.completeness_state, "monitoring_healthy");
+  eq("the live leaf is observed", signals.leaf?.observation, "present");
+  eq("the served certificate's issuer is a complete positive",
     signals.issuer?.completeness_state, "monitoring_healthy");
-  eq("CertSpotter issuer observation is retained",
-    signals.issuer?.observation, "present");
+  eq("the issuer is read from the served certificate",
+    signals.issuer?.value, "CN=Trace Live CA\nO=Trace");
+  eq("expiry is read from the served certificate",
+    signals.expiry?.observation, "present");
+  eq("a wildcard SAN on the served certificate is observed",
+    signals.wildcard?.observation, "present");
   eq("active-service sibling remains independently complete",
     signals.active_service?.completeness_state, "monitoring_healthy");
   eq("active-service sibling remains observed",
     signals.active_service?.observation, "present");
-  eq("CT-only evidence never claims a live leaf",
-    signals.leaf?.observation, "unknown");
-  eq("CT-only evidence never claims a live chain",
+  eq("a leaf without a collected presented chain never claims a chain",
     signals.chain?.observation, "unknown");
-  eq("multiple CT records never claim a parallel live certificate set",
+  eq("one endpoint never claims a parallel live certificate set",
     signals.parallel_certificate_set?.observation, "unknown");
   eq("P4 current DNS CAA absence is independently assessed",
     signals.caa?.completeness_state, "monitoring_healthy");
   eq("P4 current DNS CAA absence is not confused with a lookup failure",
     signals.caa?.observation, "absent");
-  eq("P4 hostname match stays unknown without a peer leaf",
-    signals.hostname_match?.observation, "unknown");
+  eq("P4 hostname match is assessed against the served certificate",
+    signals.hostname_match?.value?.result, "matched");
   eq("P4 intermediate validity stays unknown without a presented chain",
     signals.intermediate_validity?.observation, "unknown");
-  eq("P4 certificate algorithm stays unknown without live leaf metadata",
+  eq("P4 certificate algorithm stays unknown without a signature algorithm",
     signals.certificate_algorithm?.observation, "unknown");
-  eq("P4 trust-store acceptance stays unknown without declared validation",
-    signals.trust_store_validation?.observation, "unknown");
+  eq("P4 trust-store acceptance names its declared store",
+    signals.trust_store_validation?.value?.trust_store_context?.name,
+    "Node.js bundled Mozilla CA roots");
   eq("P4 revocation stays independently unknown without validated OCSP",
     signals.revocation_assurance?.observation, "unknown");
   eq("P4 production trace does not claim revocation collection support",
     completeness?.assurance_families?.revocation_assurance?.supported, false);
-  eq("P4 production trace labels CT issuance without a live leaf as CT-only",
-    completeness?.summary?.ct_only, true);
-  eq("P4 missing revocation does not erase CT issuer",
+  eq("P4 production trace states the live serving certificate was observed",
+    completeness?.summary?.live_serving_certificate_observed, true);
+  eq("P4 missing revocation does not erase the live issuer",
     signals.issuer?.observation, "present");
   eq("P4 missing revocation does not erase active service",
     signals.active_service?.observation, "present");
-  eq("legacy live-certificate flag remains honest",
-    intelligence?.live_certificate_verified, false);
-  eq("SSL declares the additive P4 evidence schema",
+  eq("live-certificate flag is set only by the collector",
+    intelligence?.live_certificate_verified, true);
+  eq("certificate intelligence is attributed to the live TLS observation",
+    intelligence?.evidence_source, "live_tls");
+  eq("SSL declares the live TLS evidence schema",
     report.modules?.ssl?.certificate_evidence?.schema_version,
-    "external-certificate-observation-v3");
-  eq("SSL declares that live leaf collection was unavailable",
+    "external-certificate-observation-v4");
+  eq("SSL declares that the live leaf was collected",
     report.modules?.ssl?.certificate_evidence?.live_tls?.leaf_collected,
-    false);
-  eq("SSL declares simultaneous endpoint collection was not performed",
-    report.modules?.ssl?.certificate_evidence
-      ?.parallel_certificate_set?.collection_performed,
-    false);
+    true);
+  eq("SSL declares every planned endpoint was observed",
+    report.modules?.ssl?.certificate_evidence?.live_tls?.all_planned_endpoints_observed,
+    true);
 
   const diagnostics = report.execution_diagnostics || {};
   eq("real engine uses the durable 115-second executable budget",
@@ -342,10 +327,8 @@ try {
     `attempts ${sslDiagnostic?.outbound_attempts_observed}`);
   eq("real engine SSL subrequest accounting is complete",
     sslDiagnostic?.outbound_measurement_complete, true);
-  eq("R2 diagnostics never report crt.sh, which production does not query",
-    diagnostics.provider_health?.crt_sh, undefined);
-  eq("R2 diagnostics record CertSpotter success",
-    diagnostics.provider_health?.certspotter?.outcome, "available");
+  eq("R2 diagnostics carry no third-party provider health",
+    diagnostics.provider_health, undefined);
 
   const activeRows = db.prepare(
     `SELECT workspace_id, certificate_key, evidence_json
@@ -375,10 +358,10 @@ try {
     const evidence = JSON.parse(row.evidence_json || "{}");
     eq(`${row.workspace_id}: D1 evidence persists the P1 model`,
       evidence.signal_completeness?.model_version,
-      "certificate-signal-completeness-v2");
-    eq(`${row.workspace_id}: persisted CT state is complete`,
+      "certificate-signal-completeness-v3");
+    eq(`${row.workspace_id}: persisted live leaf state is complete`,
       evidence.signal_completeness?.signals
-        ?.certificate_transparency?.completeness_state,
+        ?.leaf?.completeness_state,
       "monitoring_healthy");
     eq(`${row.workspace_id}: persisted active-service sibling stays complete`,
       evidence.signal_completeness?.signals
@@ -387,10 +370,10 @@ try {
     eq(`${row.workspace_id}: persisted CAA state remains independent`,
       evidence.signal_completeness?.signals?.caa?.observation,
       "absent");
-    eq(`${row.workspace_id}: persisted trust-store state remains unknown`,
+    eq(`${row.workspace_id}: persisted trust-store result is the declared validation`,
       evidence.signal_completeness?.signals
         ?.trust_store_validation?.observation,
-      "unknown");
+      "present");
     eq(`${row.workspace_id}: persisted revocation state remains unknown`,
       evidence.signal_completeness?.signals
         ?.revocation_assurance?.observation,
@@ -412,28 +395,27 @@ try {
     eq("P5 trace: snapshot integrity read succeeds", read.status, "ok");
     const snapshotAssurance = read.snapshot?.certificate_assurance;
     eq("P5 trace: snapshot freezes the customer presentation schema",
-      snapshotAssurance?.schema, "certificate-customer-presentation-v1");
-    eq("P5 trace: CT-only fact survives scan -> persistence -> snapshot",
-      snapshotAssurance?.summary?.ct_only, true);
-    eq("P5 trace: CT issuance is presented as observed",
-      snapshotAssurance?.signals?.certificate_transparency?.state, "observed");
-    ok("P5 trace: CT issuance does not become live-serving",
-      snapshotAssurance?.signals?.leaf?.state !== "observed" &&
-      snapshotAssurance?.summary?.live_tls_certificate?.state !== "observed");
-    ok("P5 trace: unavailable live trust siblings remain non-favourable",
-      ["unknown", "unavailable", "incomplete", "not_observed"].includes(
-        snapshotAssurance?.signals?.trust_store_validation?.state,
-      ) &&
+      snapshotAssurance?.schema, "certificate-customer-presentation-v2");
+    ok("P5 trace: live leaf survives scan -> persistence -> snapshot",
+      snapshotAssurance?.signals?.leaf?.state === "observed" &&
+      snapshotAssurance?.summary?.live_tls_certificate?.state === "observed");
+    ok("P5 trace: a new snapshot carries no certificate-log fields",
+      !Object.prototype.hasOwnProperty.call(snapshotAssurance?.signals || {}, "certificate_transparency") &&
+      !Object.prototype.hasOwnProperty.call(snapshotAssurance?.summary || {}, "ct_issuance") &&
+      !Object.prototype.hasOwnProperty.call(snapshotAssurance?.summary || {}, "ct_only"));
+    eq("P5 trace: the declared trust-store result is presented as observed",
+      snapshotAssurance?.signals?.trust_store_validation?.state, "observed");
+    ok("P5 trace: unvalidated revocation remains non-favourable",
       ["unknown", "unavailable", "incomplete", "not_observed"].includes(
         snapshotAssurance?.signals?.revocation_assurance?.state,
       ));
     ok("P5 trace: independently reliable active-service sibling survives",
       snapshotAssurance?.signals?.active_service?.state === "observed");
     ok("P5 trace: evidence grade/source/provenance survive persistence",
-      snapshotAssurance?.signals?.certificate_transparency?.evidence_grade?.achieved &&
-      snapshotAssurance?.signals?.certificate_transparency?.source_type &&
-      snapshotAssurance?.signals?.certificate_transparency?.provenance?.source &&
-      snapshotAssurance?.signals?.certificate_transparency?.cited_authorities?.length);
+      snapshotAssurance?.signals?.leaf?.evidence_grade?.achieved &&
+      snapshotAssurance?.signals?.leaf?.source_type &&
+      snapshotAssurance?.signals?.leaf?.provenance?.source &&
+      snapshotAssurance?.signals?.leaf?.cited_authorities?.length);
 
     const routeJson = (body, status = 200) => jsonResponse(body, status);
     const serverError = (_scope, error) =>
@@ -491,12 +473,10 @@ try {
     const certificateApi = await certificateResponse.json();
     eq("P5 trace: certificate inventory API renders",
       certificateResponse.status, 200);
-    eq("P5 trace: certificate inventory retains CT-only distinction",
-      certificateApi.certificates?.[0]?.certificate_assurance?.summary?.ct_only,
-      true);
-    ok("P5 trace: certificate inventory does not promote CT to live leaf",
+    eq("P5 trace: certificate inventory presents the live leaf",
       certificateApi.certificates?.[0]?.certificate_assurance
-        ?.signals?.leaf?.state !== "observed");
+        ?.summary?.live_tls_certificate?.state,
+      "observed");
 
     const pdfText = new TextDecoder().decode(buildScanReportPdf(
       { id: "scan-item9-p2", domain: "example.com" },
@@ -504,7 +484,7 @@ try {
     ));
     for (const phrase of [
       "Certificate Evidence & Trust",
-      "CT issuance observed",
+      "Live TLS certificate: observed",
       "Declared trust-store validation",
       "OCSP / revocation assurance",
       "Evidence grade:",
@@ -512,9 +492,8 @@ try {
     ]) {
       ok(`P5 trace: PDF renders ${phrase}`, pdfText.includes(phrase));
     }
-    ok("P5 trace: PDF keeps CT and live-serving as separate states",
-      pdfText.includes("CT issuance observed") &&
-      pdfText.includes("Live TLS certificate: incomplete"));
+    ok("P5 trace: PDF renders no certificate-log row for a new scan",
+      !pdfText.includes("Certificate log record"));
     const executivePdfText = new TextDecoder().decode(
       buildWorkspaceExecutivePdf({
         workspaceName: "Active A",
@@ -524,9 +503,9 @@ try {
     );
     const executiveVisible = [...executivePdfText.matchAll(/\(((?:\\.|[^()\\])*)\) Tj/g)]
       .map((match) => match[1]).join(" ").replace(/\s+/g, " ");
-    ok("P5 trace: Executive brief preserves CT-only evidence without upgrading live trust",
+    ok("P5 trace: Executive brief presents Certificates & Trust without a certificate-log caveat",
       executiveVisible.includes("Certificates & Trust") &&
-      executiveVisible.includes("Certificate log evidence only; live certificate and trust are not verified."));
+      !executiveVisible.includes("Certificate log evidence only"));
     ok("P5 trace: Executive brief links to full provenance in the technical PDF",
       executiveVisible.includes("download the technical PDF") &&
       !executiveVisible.includes("Cited authorities:"));
@@ -537,36 +516,24 @@ try {
   const beforeUnavailablePersistence = db.prepare(
     "SELECT COUNT(*) AS n FROM certificate_observations WHERE domain_id = 'dom'",
   ).get().n;
+  // A later scan whose collector captured no leaf has no certificate identity.
   await upsertCertificateObservation(
     "scan-item9-p2",
     "dom",
     {
       ...intelligence,
+      evidence_source: "not_observed",
+      live_certificate_verified: false,
+      live_tls: null,
       issuer: null,
-      subject: "example.com",
       san_hostnames: [],
       san_count: 0,
       expires_at: null,
-      signal_completeness: {
-        ...completeness,
-        signals: {
-          ...signals,
-          san: { ...signals.san, observation: "unknown", value: null },
-          issuer: { ...signals.issuer, observation: "unknown", value: null },
-          expiry: { ...signals.expiry, observation: "unknown", value: null },
-          certificate_transparency: {
-            ...signals.certificate_transparency,
-            completeness_state: "signal_unavailable",
-            observation: "unknown",
-            value: null,
-          },
-        },
-      },
     },
     env,
     { currentReport: report },
   );
-  eq("provider-unavailable evidence creates no pseudo-certificate row",
+  eq("an unobserved certificate creates no pseudo-certificate row",
     db.prepare(
       "SELECT COUNT(*) AS n FROM certificate_observations WHERE domain_id = 'dom'",
     ).get().n,

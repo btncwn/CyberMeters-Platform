@@ -37,23 +37,24 @@ const sources = Object.fromEntries(Object.entries(paths).map(([key, file]) => [
 const EXPECTED_MUTANT_IDENTITIES = Object.freeze([
   "count-only eligibility re-alerts the 15 Jul replay",
   "blanket scan-level gate kills healthy siblings",
-  "required active-source proof is replaced by passive-source lookup",
+  "required active-source proof is dropped",
   "canonical ordering drops bytewise scan_id tie-break",
   "withheld alert records no reason",
   "migration-102 absence globally silences mapped alerts",
 ]);
 const EXPECTED_MUTANT_COUNT = 6;
-const EXPECTED_VALIDATOR_ASSERTIONS = 45;
+const EXPECTED_VALIDATOR_ASSERTIONS = 46;
 const EXPECTED_FAILURES = Object.freeze({
   "count-only eligibility re-alerts the 15 Jul replay": [
     "bytewise scan_id tie keeps the producer-faithful P4 reappearance eligible",
-    "14 Jul CT blackout cannot alert a removal claim",
+    "14 Jul discovery outage cannot alert a removal claim",
     "14 Jul removal has a declared reason",
     "14 Jul removal produces no alert-worthy eligible count",
     "15 Jul recovery cannot alert reappearance after unconfirmed disappearance",
     "15 Jul reappearance has a declared reason",
     "15 Jul replay produces no alert-worthy eligible count",
     "confirmed removal reason is canonical",
+    "removal without every active source is withheld",
     "reappearance after confirmed removal remains alertable",
     "absent schema cannot assert confirmed reappearance",
     "withheld record is bounded and machine-inspectable",
@@ -61,18 +62,14 @@ const EXPECTED_FAILURES = Object.freeze({
     "withheld reason remains inspectable in existing event_counts JSON",
   ],
   "blanket scan-level gate kills healthy siblings": [
-    "CT-unavailable sibling does not suppress admin/takeover claims",
+    "discovery-unavailable sibling does not suppress admin/takeover claims",
     "strongest independently observed sibling keeps existing severity",
     "one unsupported claim is withheld independently",
     "healthy sibling stays eligible",
     "unsupported critical claim cannot escalate eligible admin severity",
   ],
-  "required active-source proof is replaced by passive-source lookup": [
-    "bytewise scan_id tie keeps the producer-faithful P4 reappearance eligible",
-    "three active-source observations confirm removal eligibility",
-    "confirmed removal reason is canonical",
-    "genuine confirmed removal is alert-worthy",
-    "reappearance after confirmed removal remains alertable",
+  "required active-source proof is dropped": [
+    "removal without every active source is withheld",
   ],
   "canonical ordering drops bytewise scan_id tie-break": [
     "bytewise scan_id tie keeps the producer-faithful P4 reappearance eligible",
@@ -222,16 +219,14 @@ runMutant("blanket scan-level gate kills healthy siblings", {
   ),
 });
 
-runMutant("required active-source proof is replaced by passive-source lookup", {
+runMutant("required active-source proof is dropped", {
   mutateSupport: (source) => mutateRequired(
     source,
     `      ASSET_REMOVAL_CONFIRMATION_POLICY.relevant_active_sources.every(
         (source) => activeSources.has(source),
       )`,
-    `    ASSET_REMOVAL_CONFIRMATION_POLICY.passive_sources_excluded.some(
-      (source) => (detail.passive_sources || []).includes(source),
-    )`,
-    "passive-source removal eligibility",
+    `      ASSET_REMOVAL_CONFIRMATION_POLICY.relevant_active_sources.length >= 0`,
+    "active-source proof dropped",
   ),
 });
 

@@ -3,7 +3,7 @@
 // Track B — per-sub-operation timing telemetry (measurement only, NO behaviour change).
 //
 // Attributes a module-cap exhaustion inside ssl / headers / subdomains to the
-// specific sub-operation (which HTTPS probe, which redirect hop, which CT wait):
+// specific sub-operation (which HTTPS probe, which redirect hop, which DNS check):
 // which one, how long, and whether it completed, was unavailable, or was aborted
 // in flight. Rows persist as scan_module_telemetry pseudo-rows with dotted module
 // names (the existing "scan_finalisation" no-schema pattern).
@@ -15,10 +15,7 @@
 //   • FAIL-SAFE (mutation-grade): a throwing collector, and an absent collector,
 //     leave every module result deep-equal — telemetry can never alter behaviour
 //   • a module abandoned by raceModuleDeadline leaves its in-flight sub-operation
-//     attributable as `aborted` with elapsed time
-//   • CertSpotter still in flight at the consumer cap surfaces ssl.ct_lookup as
-//     `aborted`, while the shared physical CT request stays in flight (consumer
-//     release never cancels it) and no post-cap consumer telemetry rows open
+//     attributable as `aborted` with elapsed time, and no post-cap rows open
 //   • persistModuleTelemetry binds sub-op rows through the EXISTING insert path,
 //     non-fatally, using only existing columns
 //   • the engine wiring (subOps passed to the three offenders + snapshot persist)
@@ -35,6 +32,7 @@ const moduleOverrides = {
   "scan-engine.js": process.env.SUBOP_TIMING_SCAN_ENGINE_MODULE_URL,
   "headers-scan.js": process.env.SUBOP_TIMING_HEADERS_MODULE_URL,
   "ssl-scan.js": process.env.SUBOP_TIMING_SSL_MODULE_URL,
+  "subdomains-scan.js": process.env.SUBOP_TIMING_SUBDOMAINS_MODULE_URL,
 };
 const eng = (f) => import(
   moduleOverrides[f]
@@ -51,9 +49,8 @@ const { computeScore } = await eng("scoring.js");
 const { runSslModule } = await eng("ssl-scan.js");
 const { runHeadersModule } = await eng("headers-scan.js");
 const { runSubdomainsModule } = await eng("subdomains-scan.js");
-const { createCertificateTransparencyCache } = await eng("ct-provider-cache.js");
 
-const EXPECTED_ASSERTIONS = 113;
+const EXPECTED_ASSERTIONS = 102;
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
 const eq = (n, g, w) => ok(n, g === w, `got ${JSON.stringify(g)} want ${JSON.stringify(w)}`);
@@ -122,7 +119,7 @@ const deepEq = (n, a, b) => ok(n, JSON.stringify(normalize(a)) === JSON.stringif
 }
 {
   const sub = createSubOperationTelemetry(steppingClock());
-  sub.begin("subdomains", "ct_wait_certspotter"); // never finished
+  sub.begin("subdomains", "wildcard_dns_a"); // never finished
   const rows = sub.snapshotRows();
   eq("unfinished at snapshot reads aborted", rows[0].outcome, "aborted");
   eq("unfinished has null completed_at", rows[0].completed_at, null);
@@ -153,38 +150,34 @@ const deepEq = (n, a, b) => ok(n, JSON.stringify(normalize(a)) === JSON.stringif
 
 // ── Fixture fetch impls ──────────────────────────────────────────────────────
 // Healthy site: bare HTTPS answers 200; plain HTTP 301s straight to HTTPS;
-// CertSpotter answers valid empty JSON; DoH answers NOERROR/empty.
+// DoH answers NOERROR/empty.
 const healthyFetch = async (url) => {
   const u = String(url);
   if (u.includes("cloudflare-dns.com")) return jsonResponse({ Status: 0, Answer: [] });
-  if (u.includes("api.certspotter.com")) return jsonResponse([]);
   if (u.startsWith("http://")) {
     return new Response(null, { status: 301, headers: { location: u.replace("http://", "https://") } });
   }
   return new Response(null, { status: 200 });
 };
-// Bare host unreachable (thrown → safeFetch null), www answers; CT still fine.
+// Bare host unreachable (thrown → safeFetch null), www answers.
 const bareDownFetch = async (url) => {
   const u = String(url);
   if (u.includes("cloudflare-dns.com")) return jsonResponse({ Status: 0, Answer: [] });
-  if (u.includes("api.certspotter.com")) return jsonResponse([]);
   if (u.startsWith("https://www.")) return new Response(null, { status: 200 });
   if (u.startsWith("http://")) return new Response(null, { status: 200 });
   throw new Error("connect timeout");
 };
 
 const FIXTURE_DOMAIN = "fixture-subop.example.com";
-const sslOpts = (extra = {}) => ({
-  ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch }),
-  ...extra,
-});
+const sslOpts = (extra = {}) => ({ ...extra });
 
 // ── 2. ssl module records the expected sub-operations ───────────────────────
 {
   const sub = createSubOperationTelemetry();
   await withMockFetch(() => runSslModule(FIXTURE_DOMAIN, sslOpts({ subOps: sub })), healthyFetch);
   const by = rowsByModule(sub.snapshotRows());
-  ok("ssl.ct_lookup recorded", by["ssl.ct_lookup"]?.outcome === "ok", JSON.stringify(by["ssl.ct_lookup"]));
+  ok("ssl records no certificate-log lookup", !Object.keys(by).some((name) => /^ssl\.ct_/.test(name)),
+    JSON.stringify(Object.keys(by)));
   eq("ssl.https_probe_bare ok", by["ssl.https_probe_bare"]?.outcome, "ok");
   eq("ssl.http_redirect_hop_1 ok", by["ssl.http_redirect_hop_1"]?.outcome, "ok");
   ok("no www probe when bare proved transport", !("ssl.https_probe_www" in by));
@@ -232,75 +225,49 @@ const sslOpts = (extra = {}) => ({
   deepEq("headers result identical with THROWING collector", withHostile, bare);
 }
 
-// ── 5. subdomains module records DNS + CT-wait sub-operations + fail-safe ───
+// ── 5. subdomains module records its DNS sub-operations + fail-safe ─────────
 {
   const sub = createSubOperationTelemetry();
   await withMockFetch(
-    () => runSubdomainsModule(FIXTURE_DOMAIN, {
-      ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch }),
-      subOps: sub,
-    }),
+    () => runSubdomainsModule(FIXTURE_DOMAIN, { subOps: sub }),
     healthyFetch,
   );
   const by = rowsByModule(sub.snapshotRows());
   eq("subdomains.wildcard_dns_a ok", by["subdomains.wildcard_dns_a"]?.outcome, "ok");
   eq("subdomains.wildcard_dns_aaaa ok", by["subdomains.wildcard_dns_aaaa"]?.outcome, "ok");
-  eq("subdomains.ct_wait_certspotter ok", by["subdomains.ct_wait_certspotter"]?.outcome, "ok");
-  // The module waits on exactly the providers the cache declares: one CT wait.
-  eq("subdomains waits on exactly one CT provider",
-    JSON.stringify(Object.keys(by).filter((name) => name.startsWith("subdomains.ct_wait_"))),
-    JSON.stringify(["subdomains.ct_wait_certspotter"]));
+  // Discovery is CyberMeters' own observation: the module records exactly its
+  // two wildcard lookups and no external-source wait.
+  eq("subdomains records exactly its two wildcard lookups",
+    JSON.stringify(Object.keys(by).filter((name) => name.startsWith("subdomains.")).sort()),
+    JSON.stringify(["subdomains.wildcard_dns_a", "subdomains.wildcard_dns_aaaa"]));
 }
 {
-  // Provider unavailable resolves (never rejects) — the wait row must say so.
-  const downCtFetch = async (url) => {
+  // A failing resolver must be recorded as a failed lookup, never as ok.
+  const downDnsFetch = async (url) => {
     const u = String(url);
-    if (u.includes("cloudflare-dns.com")) return jsonResponse({ Status: 0, Answer: [] });
-    if (u.includes("api.certspotter.com")) return new Response("err", { status: 503 });
+    if (u.includes("cloudflare-dns.com")) return new Response("err", { status: 503 });
     return new Response(null, { status: 200 });
   };
   const sub = createSubOperationTelemetry();
-  await withMockFetch(
-    () => runSubdomainsModule(FIXTURE_DOMAIN, {
-      ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch, policies: { certspotter: { maxAttempts: 1 } } }),
-      subOps: sub,
-    }),
-    downCtFetch,
+  const failed = await withMockFetch(
+    () => runSubdomainsModule(FIXTURE_DOMAIN, { subOps: sub }),
+    downDnsFetch,
   );
   const by = rowsByModule(sub.snapshotRows());
-  eq("ct_wait_certspotter honest on provider failure", by["subdomains.ct_wait_certspotter"]?.outcome, "unavailable");
+  eq("wildcard A lookup row records the resolver failure", by["subdomains.wildcard_dns_a"]?.outcome, "error");
+  eq("wildcard AAAA lookup row records the resolver failure", by["subdomains.wildcard_dns_aaaa"]?.outcome, "error");
+  eq("resolver failure leaves discovery incomplete", failed.incomplete_reason, "wildcard_check_failed");
 
   const bare = await withMockFetch(
-    () => runSubdomainsModule(FIXTURE_DOMAIN, { ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch }) }),
+    () => runSubdomainsModule(FIXTURE_DOMAIN, {}),
     healthyFetch,
   );
   const withHostile = await withMockFetch(
-    () => runSubdomainsModule(FIXTURE_DOMAIN, { ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch }), subOps: hostileCollector() }),
+    () => runSubdomainsModule(FIXTURE_DOMAIN, { subOps: hostileCollector() }),
     healthyFetch,
   );
   const stripHost = (r) => ({ ...r, wildcard_test_host: "<host>" }); // random per-run label
   deepEq("subdomains result identical with THROWING collector", stripHost(withHostile), stripHost(bare));
-}
-
-// ── 5b. ssl ct_lookup is classified from ct_sources, never from bare resolve ─
-{
-  // CertSpotter down: resolveCertificateTransparency still RESOLVES with a
-  // structured object — the composite lookup must read `unavailable`, not `ok`.
-  const downCtFetch = async (url) => {
-    const u = String(url);
-    if (u.includes("api.certspotter.com")) return new Response("err", { status: 503 });
-    if (u.startsWith("http://")) return new Response(null, { status: 301, headers: { location: u.replace("http://", "https://") } });
-    return new Response(null, { status: 200 });
-  };
-  const sub = createSubOperationTelemetry();
-  await withMockFetch(
-    () => runSslModule(FIXTURE_DOMAIN, {
-      ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch, policies: { certspotter: { maxAttempts: 1 } } }),
-      subOps: sub,
-    }),
-    downCtFetch,
-  );
-  eq("ct_lookup honest when every provider failed", rowsByModule(sub.snapshotRows())["ssl.ct_lookup"]?.outcome, "unavailable");
 }
 
 // ── 6. Race-cap abort: correct attribution, and NO row for post-cap probes ───
@@ -309,8 +276,6 @@ const sslOpts = (extra = {}) => ({
 // the in-flight fetch the same way it does live: through accounting.signal.
 {
   const abortAwareFetch = (url, init) => {
-    const u = String(url);
-    if (u.includes("api.certspotter.com")) return Promise.resolve(jsonResponse([]));
     return new Promise((resolve, reject) => {
       const signal = init?.signal;
       const abort = () => reject(new DOMException("The operation was aborted", "AbortError"));
@@ -331,21 +296,24 @@ const sslOpts = (extra = {}) => ({
       );
       // Settle the abandoned module BEFORE the mock fetch is restored, exactly
       // as the live engine leaves it running detached after the race returns.
-      await modulePromise?.catch(() => {});
+      // The wait is bounded: a module that ignores its abort signal stays
+      // pending, and the signal assertions below must report it, not hang.
+      await Promise.race([
+        modulePromise?.catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 200)),
+      ]);
       return raced;
     }, fetchImpl);
   };
 
   const sslSub = createSubOperationTelemetry();
   const sslRaced = await raceAborted((controller) => runSslModule(FIXTURE_DOMAIN, {
-    ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch }),
     signal: controller.signal,
     accounting: { signal: controller.signal },
     subOps: sslSub,
   }));
   eq("ssl race returned the deadline fallback", sslRaced?.outcome, "deadline_exceeded");
   const sslBy = rowsByModule(sslSub.snapshotRows());
-  eq("ct_lookup that finished pre-cap reads ok", sslBy["ssl.ct_lookup"]?.outcome, "ok");
   eq("in-flight bare probe attributed as aborted", sslBy["ssl.https_probe_bare"]?.outcome, "aborted");
   ok("aborted probe carries elapsed time", sslBy["ssl.https_probe_bare"]?.duration_ms >= 0);
   ok("NO row for the post-cap www probe", !("ssl.https_probe_www" in sslBy), JSON.stringify(sslBy["ssl.https_probe_www"]));
@@ -362,56 +330,6 @@ const sslOpts = (extra = {}) => ({
   eq("in-flight headers GET attributed as aborted", headersBy["headers.probe_get_https"]?.outcome, "aborted");
   ok("NO row for the post-cap http protocol retry", !("headers.probe_get_http" in headersBy));
   ok("NO row for the post-cap www variant", !("headers.probe_head_www" in headersBy));
-
-  // The original corrective scenario: CertSpotter and the concurrent bare HTTPS
-  // probe are genuinely in flight when the module cap fires. The cap releases
-  // only SSL's consumer wait; it must never terminate the shared physical CT
-  // work, while the released SSL consumer still records ct_lookup=aborted and
-  // opens no post-cap probe rows. A fixture that lets CertSpotter settle before
-  // the cap cannot pin this ownership boundary.
-  const startedAbortUrls = [];
-  const startedAbortSignals = [];
-  const sequentialCtAbortFetch = (url, init) => new Promise((resolve, reject) => {
-    startedAbortUrls.push(String(url));
-    startedAbortSignals.push({ url: String(url), signal: init?.signal });
-    const signal = init?.signal;
-    const abort = () => reject(new DOMException("The operation was aborted", "AbortError"));
-    if (signal?.aborted) return abort();
-    signal?.addEventListener("abort", abort, { once: true });
-  });
-  const ctAbortSub = createSubOperationTelemetry();
-  const {
-    value: ctAbortRaced,
-    errors: ctAbortErrors,
-  } = await withCapturedConsoleError(() =>
-    raceAborted((controller) => runSslModule(FIXTURE_DOMAIN, {
-      ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch }),
-      signal: controller.signal,
-      accounting: { signal: controller.signal },
-      subOps: ctAbortSub,
-    }), sequentialCtAbortFetch));
-  eq("CT-abort race returned the deadline fallback", ctAbortRaced?.outcome, "deadline_exceeded");
-  const ctAbortBy = rowsByModule(ctAbortSub.snapshotRows());
-  eq("CertSpotter was the one CT provider started before cap",
-    startedAbortUrls.filter((url) => url.includes("api.certspotter.com")).length, 1);
-  eq("bare HTTPS probe started concurrently with CertSpotter",
-    startedAbortUrls.filter((url) => url === `https://${FIXTURE_DOMAIN}`).length, 1);
-  // Replaces the former "fallback provider still starts" check: with one CT
-  // provider the ownership boundary is that consumer release leaves the shared
-  // physical CertSpotter request itself in flight.
-  const startedCtSignals = startedAbortSignals
-    .filter((entry) => entry.url.includes("api.certspotter.com"));
-  ok("consumer release leaves the shared physical CertSpotter request in flight",
-    startedCtSignals.length === 1
-      && startedCtSignals.every((entry) => entry.signal?.aborted !== true));
-  ok("consumer release does not log a physical CT AbortError",
-    ctAbortErrors.length === 0,
-    JSON.stringify(ctAbortErrors));
-  eq("CT lookup in flight at cap attributed as aborted", ctAbortBy["ssl.ct_lookup"]?.outcome, "aborted");
-  eq("bare probe in flight with CT attributed as aborted", ctAbortBy["ssl.https_probe_bare"]?.outcome, "aborted");
-  ok("NO row for CT-abort post-cap www probe", !("ssl.https_probe_www" in ctAbortBy));
-  ok("NO row for CT-abort post-cap redirect hop 1", !("ssl.http_redirect_hop_1" in ctAbortBy));
-  ok("NO row for CT-abort post-cap redirect hop 2", !("ssl.http_redirect_hop_2" in ctAbortBy));
 }
 
 // A fetch implementation can settle with an ordinary transport failure at the
@@ -422,7 +340,6 @@ const sslOpts = (extra = {}) => ({
   const controller = new AbortController();
   const lateOrdinaryFailureFetch = async (url) => {
     const u = String(url);
-    if (u.includes("api.certspotter.com")) return jsonResponse([]);
     if (u === `https://${FIXTURE_DOMAIN}`) {
       controller.abort("module_budget_exhausted");
       throw new Error("ordinary transport failure after module abort");
@@ -432,7 +349,6 @@ const sslOpts = (extra = {}) => ({
   const sub = createSubOperationTelemetry();
   await withMockFetch(
     () => runSslModule(FIXTURE_DOMAIN, {
-      ctCache: createCertificateTransparencyCache({ fetcher: globalThis.fetch }),
       signal: controller.signal,
       accounting: { signal: controller.signal },
       subOps: sub,
@@ -761,7 +677,7 @@ const sslOpts = (extra = {}) => ({
   // report-ready gap widens again.
   const persistFn = engineSrc.slice(
     engineSrc.indexOf("export async function persistSubOperationTelemetry"),
-    engineSrc.indexOf("// CT-R1: provider-attempt telemetry"),
+    engineSrc.indexOf("// The network/enrichment modules we expect a telemetry row for."),
   );
   ok("persistSubOperationTelemetry exists as its own helper", persistFn.length > 0);
   ok("sub-op persistence issues ONE batch()", /await env\.cybermeters_db\.batch\(statements\)/.test(persistFn));

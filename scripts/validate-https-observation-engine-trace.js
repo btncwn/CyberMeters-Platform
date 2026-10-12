@@ -21,6 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { liveTlsProbeBinding } from "./lib/live-tls-fixture.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engUrl = (f) => pathToFileURL(path.join(root, "workers/scan-api/src/engines", f)).href;
@@ -79,20 +80,13 @@ const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 // `httpsMode` decides ONLY what the origin does on https://example.com — every
-// other dependency (DNS, CT) answers identically across scenarios, so any
-// difference in the report is attributable to the HTTPS observation alone.
+// other dependency (DNS, the live TLS collector) answers identically across
+// scenarios, so any difference in the report is attributable to the HTTPS
+// observation alone.
 function installFetch(httpsMode) {
   globalThis.fetch = async (input) => {
     const url = new URL(String(input));
     const host = url.hostname;
-    if (host === "crt.sh" || host === "api.certspotter.com") {
-      // A reliable SIBLING signal: CT is independent of origin reachability and
-      // must keep producing evidence whatever the HTTPS probe saw (T4).
-      return host === "crt.sh" ? json([]) : json([{
-        id: "trace-cert", not_before: "2026-06-27T00:00:00.000Z", not_after: "2099-12-31T23:59:59.000Z",
-        issuer: { name: "PR-A Fixture CA" }, dns_names: ["example.com", "www.example.com"],
-      }]);
-    }
     if (host === "cloudflare-dns.com" || host === "dns.google") {
       const name = String(url.searchParams.get("name") || "").toLowerCase();
       const type = String(url.searchParams.get("type") || "A").toUpperCase();
@@ -123,6 +117,10 @@ async function trace(httpsMode) {
     cybermeters_db: makeD1(db), cybermeters_reports: makeR2(store),
     SCAN_CAPACITY_MODE: "legacy", SCAN_SUBREQUEST_LIMIT: "200",
     SCAN_DEADLINE_MS: "115000", APP_VERSION: "pra-engine-trace",
+    // A reliable SIBLING signal: the TLS handshake is independent of what the
+    // origin answers over HTTP and must keep producing evidence whatever the
+    // HTTPS probe saw (T4).
+    NETWORK_PROBE: liveTlsProbeBinding({ days: 90 }),
   };
   db.prepare("INSERT INTO users (id, email) VALUES ('usr','owner@example.com')").run();
   db.prepare("INSERT INTO workspaces (id, name, deleted_at) VALUES ('ws','PR-A',NULL)").run();
@@ -200,7 +198,7 @@ for (const mode of ["edge_522", "edge_530"]) {
     ws.state === "evidence_insufficient" && ws.coverage !== "complete",
     JSON.stringify(ws));
   const ct = t.domainStates.certificates_trust || {};
-  // certificates_trust REQUIRES certificate_intelligence (CT), which WAS collected,
+  // certificates_trust REQUIRES certificate_intelligence (the live leaf), which WAS collected,
   // so the existing contract yields `provisional` + non-complete coverage rather
   // than evidence_insufficient. What matters for the law is that it is NOT healthy
   // and NOT complete. Changing its required-module set is an eight-domain semantics
@@ -224,10 +222,11 @@ for (const mode of ["edge_522", "edge_530"]) {
     ceState.coverage !== "complete",
     JSON.stringify(ceState));
 
-  // T4 — the reliable sibling (CT-derived certificate identity) still publishes.
-  ok(`T4 ${mode}: reliable sibling CT evidence is still published`,
-    (ssl.cert_not_after || ssl.cert_issuer || ssl.cert_subject) != null,
-    JSON.stringify({ na: ssl.cert_not_after, iss: ssl.cert_issuer }));
+  // T4 — the reliable sibling (the live TLS leaf) still publishes.
+  ok(`T4 ${mode}: reliable sibling live TLS evidence is still published`,
+    ssl.live_certificate?.collection_complete === true &&
+      typeof ssl.live_certificate?.certificate_identity === "string",
+    JSON.stringify(ssl.live_certificate ?? null));
 }
 
 // ── T3 — genuine origin 500 ──────────────────────────────────────────────────

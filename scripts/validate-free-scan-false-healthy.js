@@ -185,8 +185,8 @@ try {
     },
   };
   const completeRoute = await runRouteFixture(completeFixture);
-  eq("COMPLETE control: all six bounded modules are scanned",
-    completeRoute.body.modules_scanned.length, 6);
+  eq("COMPLETE control: all five bounded modules are scanned",
+    completeRoute.body.modules_scanned.length, 5);
   eq("COMPLETE control: explicit coverage is complete",
     completeRoute.body.evidence_coverage.complete, true);
   eq("COMPLETE control: deep opt-outs keep the whole-MOT conclusion incomplete",
@@ -273,7 +273,6 @@ try {
         dmarc_state: { evidence_status: "observed" },
       },
     },
-    subdomains: { status: "fulfilled", value: { count: 0, items: [] } },
     technology_detection: { status: "fulfilled", value: { technologies: [] } },
   });
   eq("attempted remains distinct", distinct.module_evidence[0].state,
@@ -304,7 +303,6 @@ try {
         dmarc_state: { evidence_status: "unavailable" },
       },
     },
-    subdomains: { status: "fulfilled", value: { count: 0, items: [] } },
     technology_detection: { status: "fulfilled", value: { technologies: [] } },
   });
   eq("fulfilled email wrapper does not hide total probe unavailability",
@@ -327,7 +325,6 @@ try {
     ssl: { status: "fulfilled", value: {} },
     headers: { status: "fulfilled", value: {} },
     email_security: { status: "fulfilled", value: mixedEmailValue },
-    subdomains: { status: "fulfilled", value: { count: 0, items: [] } },
     technology_detection: { status: "fulfilled", value: { technologies: [] } },
   });
   eq("mixed email probe outcomes remain partial",
@@ -347,7 +344,6 @@ try {
         dmarc_state: { evidence_status: "observed" },
       },
     },
-    subdomains: { status: "fulfilled", value: { count: 0, items: [] } },
     technology_detection: { status: "fulfilled", value: { technologies: [] } },
   });
   eq("zero findings becomes no-issues only when all six bounded modules completed",

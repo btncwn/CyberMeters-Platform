@@ -3,10 +3,11 @@
 //
 // The F* assertions began as the founder-approved fail-first fixtures (on the
 // exact 757b447 base all of them failed semantically while the positive
-// controls completed normally). CertSpotter is now the only CT source, so the
-// CT discovery fixtures assert its single cap; the retired provider's raw-row
-// cap no longer exists. The same file is the green oracle for the candidate and
-// for the fresh-process semantic mutation registry.
+// controls completed normally). Subdomain discovery is CyberMeters' own
+// observation (word list, SRV targets, home-page links), so its coverage is
+// always bounded and never claims a complete inventory. The same file is the
+// green oracle for the candidate and for the fresh-process semantic mutation
+// registry.
 
 import fs from "node:fs";
 import crypto from "node:crypto";
@@ -113,20 +114,10 @@ async function exposureFixture(candidateCount, recheckCount = 0) {
   };
 }
 
-function available(data) {
-  return { status: "available", data, error: null };
+function discoverySignal(modules) {
+  return signalModule.deriveAttackSurfaceSignalCompleteness(modules).signals.subdomain_discovery;
 }
-async function discoveryFixture(certRows) {
-  const ctCache = {
-    providers: ["certspotter"],
-    get: async () => available(certRows),
-  };
-  return subdomainModule.runSubdomainsModule("example.com", {
-    ctCache,
-    cache: new Map(),
-  });
-}
-const certRow = (name) => ({ dns_names: [name] });
+const wordlistComplete = (items = []) => ({ checked: 56, items, srv_items: [] });
 
 try {
   const boundedExposure = await exposureFixture(300, 50);
@@ -146,46 +137,49 @@ try {
     JSON.stringify(boundedExposure.exposure.probe_coverage),
   );
 
-  // CertSpotter is the only CT source: its per-provider cap (300) is the
-  // discovery ceiling, so the merged cap can never be reached on its own.
-  const capped = await discoveryFixture(hosts(372, "spot").map(certRow));
+  // Own discovery checks a bounded word list plus the names the domain's own
+  // records and home page reference. It can never prove an inventory complete.
+  const discovered = await subdomainModule.runSubdomainsModule("example.com", { cache: new Map() });
+  const found = discoverySignal({
+    subdomains: { ...discovered, count: 2, items: ["app.example.com", "mail.example.com"] },
+    dns_bruteforce: wordlistComplete([{ hostname: "app.example.com" }]),
+    technology_detection: { technologies: [] },
+  });
   check(
-    "F3_CT_CAP_DENOMINATOR_AND_DROPPED_COUNT",
-    capped.discovery_coverage?.per_provider?.certspotter_unique_total === 372 &&
-      capped.discovery_coverage?.per_provider?.certspotter_unique_kept === 300 &&
-      capped.discovery_coverage?.per_provider?.certspotter_dropped_count === 72 &&
-      capped.discovery_coverage?.per_provider?.certspotter_cap_reached === true &&
-      capped.discovery_coverage?.merged?.selection_order === "provider_response" &&
-      capped.discovery_coverage?.coverage_state === "bounded" &&
-      capped.items.length === 300,
-    JSON.stringify(capped.discovery_coverage),
+    "F3_OWN_DISCOVERY_COVERAGE_IS_BOUNDED_AND_DECLARED",
+    found.reason === "hostname_observed" &&
+      found.coverage_state === "bounded" &&
+      found.coverage?.basis === "own_observation" &&
+      found.coverage?.wordlist_checked === 56,
+    JSON.stringify(found),
   );
 
-  const uncapped = await discoveryFixture(hosts(250, "spot").map(certRow));
+  const nothingFound = discoverySignal({
+    subdomains: discovered,
+    dns_bruteforce: wordlistComplete(),
+    technology_detection: { technologies: [] },
+  });
   check(
-    "F4_CT_BELOW_CAP_IS_COMPLETE_NOT_BOUNDED",
-    uncapped.discovery_coverage?.per_provider?.certspotter_unique_total === 250 &&
-      uncapped.discovery_coverage?.per_provider?.certspotter_unique_kept === 250 &&
-      uncapped.discovery_coverage?.per_provider?.certspotter_dropped_count === 0 &&
-      uncapped.discovery_coverage?.per_provider?.certspotter_cap_reached === false &&
-      uncapped.discovery_coverage?.merged?.cap_reached === false &&
-      uncapped.discovery_coverage?.coverage_state === "complete",
-    JSON.stringify(uncapped.discovery_coverage),
+    "F4_OWN_DISCOVERY_WITHOUT_HOSTNAME_NEVER_CLAIMS_COMPLETE",
+    nothingFound.state === "not_observed" &&
+      nothingFound.reason === "bounded_discovery_no_hostname" &&
+      nothingFound.coverage_state === "bounded",
+    JSON.stringify(nothingFound),
   );
 
-  const boundedScope = typeof lifecycleModule.ctDiscoveryScopeSignals === "function"
-    ? lifecycleModule.ctDiscoveryScopeSignals(
-        { source: "certificate_transparency" },
-        { discovery_coverage: { coverage_state: "bounded" } },
-      )
-    : null;
+  // Without the wildcard check, word-list answers cannot be told apart from a
+  // wildcard, so an empty result is incomplete rather than "nothing found".
+  const wildcardUnknown = discoverySignal({
+    subdomains: { ...discovered, incomplete: true, incomplete_reason: "wildcard_check_failed" },
+    dns_bruteforce: wordlistComplete(),
+    technology_detection: { technologies: [] },
+  });
   check(
-    "F6_BOUNDED_CT_SCOPE_FREEZES_LIFECYCLE",
-    boundedScope?.dns_resolution?.state === "not_assessed" &&
-      boundedScope?.http_https_service?.state === "not_assessed" &&
-      boundedScope?.dns_resolution?.reason === "bounded_ct_discovery_scope" &&
-      boundedScope?.http_https_service?.reason === "bounded_ct_discovery_scope",
-    JSON.stringify(boundedScope),
+    "F6_WILDCARD_CHECK_FAILURE_IS_INCOMPLETE_NOT_NO_HOSTNAME",
+    wildcardUnknown.state === "incomplete" &&
+      wildcardUnknown.reason === "discovery_sources_incomplete" &&
+      wildcardUnknown.limitations?.includes("wildcard_check_failed"),
+    JSON.stringify(wildcardUnknown),
   );
 
   check(
@@ -202,7 +196,7 @@ try {
     signals: {
       subdomain_discovery: {
         state: "observed", reason: "hostname_observed", evidence_count: 1,
-        sources: ["certspotter"], limitations: [],
+        sources: ["dns_bruteforce"], limitations: [],
       },
       exposure_admin_surface: {
         state: "not_observed", reason: "complete_exposure_admin_probe_no_signal",
@@ -265,12 +259,18 @@ try {
   check(
     "P2_ALL_CAPS_RETAINED",
     /slice\(0, 50\)/.test(assetSource) &&
-      /const PER_CAP\s*=\s*300/.test(subdomainSource) &&
-      /const MERGE_CAP\s*=\s*300/.test(subdomainSource),
+      /export const BRUTEFORCE_MAX_NAMES\s*=\s*40;/.test(subdomainSource) &&
+      subdomainModule.BRUTE_FORCE_WORDLIST.length === subdomainModule.BRUTEFORCE_MAX_NAMES,
   );
+  const referenced = subdomainModule.withReferencedHostnames(["app.example.com"], {
+    srvItems: [{ hostname: "sip.example.com" }],
+    linkedHostnames: ["shop.example.com", "app.example.com"],
+  });
   check(
-    "P3_MERGED_SELECTION_ORDER_REMAINS_SLICE_THEN_SORT",
-    subdomainSource.includes("const items     = [...seen].slice(0, MERGE_CAP).sort();"),
+    "P3_REFERENCED_HOSTS_APPEND_AFTER_WORDLIST_WITHOUT_DUPLICATES",
+    JSON.stringify(referenced) ===
+      JSON.stringify(["app.example.com", "sip.example.com", "shop.example.com"]),
+    JSON.stringify(referenced),
   );
   check(
     "P4_KNOWN_ASSET_SAFEGUARD_REMAINS_EXACT",
@@ -282,11 +282,10 @@ try {
         "asset_not_in_active_recheck_envelope",
   );
   check(
-    "P5_C2_MECHANISMS_REMAIN_SEPARATE",
-    capped.discovery_coverage?.per_provider &&
-      capped.discovery_coverage?.merged &&
-      !Object.prototype.hasOwnProperty.call(capped.discovery_coverage, "truncated"),
-    JSON.stringify(capped.discovery_coverage),
+    "P5_DISCOVERY_COVERAGE_SHAPE_IS_EXACT",
+    JSON.stringify(Object.keys(found.coverage || {})) ===
+      JSON.stringify(["coverage_state", "basis", "wordlist_checked"]),
+    JSON.stringify(found.coverage),
   );
   check(
     "P6_BOUNDED_SIGNAL_EXPOSES_ADDITIVE_CUSTOMER_COPY",
@@ -301,11 +300,13 @@ try {
         "Exposure / admin surface was not observed in the retained probe set. Checked 50 of 300 discovered hosts. Hosts beyond this limit were not assessed; no conclusion is drawn about them.",
   );
   check(
-    "P7_COVERAGE_RECORDS_ONLY_THE_QUERIED_PROVIDER",
-    JSON.stringify(Object.keys(capped.discovery_coverage || {})) ===
-      JSON.stringify(["per_provider", "merged", "coverage_state"]) &&
-      Object.keys(capped.discovery_coverage.per_provider).every((key) => key.startsWith("certspotter_")),
-    JSON.stringify(capped.discovery_coverage),
+    "P7_DISCOVERY_SOURCES_ARE_OWN_OBSERVATION",
+    discovered.source === "dns_discovery" &&
+      discovered.incomplete !== true &&
+      !Object.prototype.hasOwnProperty.call(discovered, "sources") &&
+      !Object.prototype.hasOwnProperty.call(discovered, "discovery_coverage") &&
+      JSON.stringify(found.sources) === JSON.stringify(["dns_bruteforce", "dns_srv", "html_link"]),
+    JSON.stringify({ discovered, sources: found.sources }),
   );
 } finally {
   globalThis.fetch = originalFetch;
