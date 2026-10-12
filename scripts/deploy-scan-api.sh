@@ -17,5 +17,11 @@ if [ -n "$(git -C "$root" status --porcelain -- workers/scan-api shared)" ]; the
   exit 1
 fi
 
+# The version tag and message carry the same commit into Cloudflare's own
+# deployment record (`wrangler deployments list`), so a running version can be
+# matched to its commit from either side.
+short=$(printf '%s' "$commit" | cut -c1-12)
+message=$(git -C "$root" log -1 --format=%s | cut -c1-100)
+
 cd "$root/workers/scan-api"
-exec npx wrangler deploy --var "GIT_COMMIT:$commit" "$@"
+exec npx wrangler deploy --var "GIT_COMMIT:$commit" --tag "$short" --message "$message" "$@"
