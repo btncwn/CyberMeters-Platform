@@ -855,11 +855,22 @@ export function computeScore(modules, domain) {
         .filter(a => a.reachable)
         .map(a => a.host)
     );
+    // DNS-confirmed names: the word-list check, plus every discovery source
+    // that admits a name only when DNS answers for it (referenced names,
+    // customer-listed names, the rotating word list, name variants and the
+    // NSEC walk). A wildcard-shaped answer is not confirmation.
+    const dnsConfirmedRows = [
+      ...(modules.dns_bruteforce?.items || []),
+      ...(subMod.referenced_hostnames?.confirmed || []),
+      ...(subMod.customer_hostnames?.confirmed || []),
+      ...(subMod.discovery_depth?.confirmed || []),
+    ];
     const bruteDnsSubdomains = new Set(
-      (modules.dns_bruteforce?.items || [])
+      dnsConfirmedRows
         .filter((item) => item?.wildcard_match !== true)
         .map((item) => item?.hostname || item)
-        .filter(Boolean)
+        .filter((host) => typeof host === "string" && host)
+        .map((host) => host.toLowerCase())
     );
 
     // Keep the result visible, but only score an HTTP-confirmed sensitive service.

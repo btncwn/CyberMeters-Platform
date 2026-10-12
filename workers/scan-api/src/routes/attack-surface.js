@@ -7,7 +7,10 @@
 import { buildCaConcentrationAnalytics, buildCertificateLifecycleIntelligence, detectSelfSignedCertificate, mapCertificateAuthorityOwner, normalizeCertificateIssuer } from "../engines/cert-analysis.js";
 import { buildCertificateTrustL2 } from "../engines/cert-trust-l2.js";
 import { buildCertificateCustomerPresentation } from "../engines/certificate-customer-presentation.js";
-import { buildAttackSurfaceCustomerPresentation } from "../engines/attack-surface-customer-presentation.js";
+import {
+  attackSurfaceLifecycleStateLabel,
+  buildAttackSurfaceCustomerPresentation,
+} from "../engines/attack-surface-customer-presentation.js";
 import { listCertificateLifecycle } from "../engines/certificate-lifecycle.js";
 import { assignManagedCaseOwner, deriveAsmCaseTraceability, getManagedCase, listManagedCaseEvents, listManagedCases, managedCaseToApi, transitionManagedCase, verifyManagedCaseById } from "../engines/asm-cases.js";
 import { remapToThirdPartyCategory } from "../engines/discovery-scan.js";
@@ -105,7 +108,10 @@ async function loadAssetPresentationRows(env, workspaceId, {
       .bind(...binds)
       .all();
     return {
-      rows: result.results || [],
+      rows: (result.results || []).map((row) => ({
+        ...row,
+        lifecycle_state_label: attackSurfaceLifecycleStateLabel(row.lifecycle_state),
+      })),
       lifecycle_available: true,
     };
   } catch (error) {
@@ -141,7 +147,7 @@ function lifecycleEvidenceCoverage({
       truncated,
       status: "not_recorded",
       customer_message:
-        "Migration 102 lifecycle fields are not recorded. Asset identities were read only to preserve domain scope; no lifecycle conclusion is inferred.",
+        "Asset lifecycle evidence is not recorded for this workspace. Asset names were read only to keep each domain's scope; no lifecycle conclusion is drawn.",
     };
   }
   if (truncated) {
@@ -172,10 +178,10 @@ async function loadAttackSurfaceLifecycleEvidence(
   bound = ATTACK_SURFACE_LIFECYCLE_EVIDENCE_BOUND,
 ) {
   const lifecycleColumns = `
-    id, domain_id, hostname, lifecycle_state, last_observation_state,
+    id, domain_id, hostname, asset_type, lifecycle_state, last_observation_state,
     lifecycle_policy_version, confirmed_removed_at,
     last_observation_scan_id`;
-  const baseColumns = "id, domain_id, hostname";
+  const baseColumns = "id, domain_id, hostname, asset_type";
   const read = async (columns) => {
     const result = await env.cybermeters_db
       .prepare(
@@ -296,7 +302,20 @@ async function loadAttackSurfacePresentationEvidence(env, workspaceId) {
   };
 }
 
+// Each domain's presentation is titled by its root hostname, read from the
+// root-domain asset already in the lifecycle rows, never by an internal id.
+function rootDomainNames(lifecycleRows) {
+  const names = new Map();
+  for (const row of lifecycleRows) {
+    if (row?.asset_type === "root_domain" && row.domain_id && typeof row.hostname === "string" && !names.has(row.domain_id)) {
+      names.set(row.domain_id, row.hostname);
+    }
+  }
+  return names;
+}
+
 function presentationContext(lifecycleRows, lifecycleAvailable, evidence) {
+  const domainNames = rootDomainNames(lifecycleRows);
   const signalsByDomain = new Map();
   for (const row of evidence.signal_rows) {
     let model = signalsByDomain.get(row.domain_id);
@@ -347,7 +366,7 @@ function presentationContext(lifecycleRows, lifecycleAvailable, evidence) {
         : "Attack Surface per-signal evidence is not recorded for this scope. No favourable result is inferred.",
       lifecycleAbsenceReason: lifecycleAvailable
         ? null
-        : "Migration 102 lifecycle fields are not recorded. Legacy active/inactive status is not interpreted as observed, absent or confirmed removed.",
+        : "Asset lifecycle evidence is not recorded for this workspace. An asset's inventory status is not read as observed, absent or no longer observed.",
       alertAbsenceReason: evidence.alert_status === "unavailable"
         ? "ASM alert eligibility could not be read. No alert outcome is inferred."
         : "No ASM alert-eligibility decision is recorded for this scope. No alert outcome is inferred.",
@@ -364,6 +383,7 @@ function presentationContext(lifecycleRows, lifecycleAvailable, evidence) {
   return {
     domains: [...byDomain.entries()].map(([domain_id, presentation]) => ({
       domain_id,
+      domain: domainNames.get(domain_id) || null,
       ...presentation,
     })),
     forAsset: (asset) => build(
@@ -794,6 +814,27 @@ export async function attackSurfaceRoutes(rctx) {
               env.cybermeters_db.prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND wildcard_dns = 1`).bind(wsId),
               env.cybermeters_db.prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND risk_level IN ('high','critical')`).bind(wsId),
             ]);
+          // Canonical lifecycle counts, read separately so a missing lifecycle
+          // column never fails the legacy summary. Null means not recorded.
+          let lifecycleCounts = null;
+          try {
+            const grouped = await env.cybermeters_db
+              .prepare(
+                `SELECT COALESCE(lifecycle_state, 'not_assessed') AS state, COUNT(*) AS n
+                 FROM workspace_assets
+                 WHERE workspace_id = ?
+                 GROUP BY COALESCE(lifecycle_state, 'not_assessed')`
+              )
+              .bind(wsId)
+              .all();
+            lifecycleCounts = { observed: 0, not_observed: 0, confirmed_removed: 0, not_assessed: 0 };
+            for (const row of grouped.results || []) {
+              const key = Object.prototype.hasOwnProperty.call(lifecycleCounts, row.state) ? row.state : "not_assessed";
+              lifecycleCounts[key] += Number(row.n) || 0;
+            }
+          } catch {
+            lifecycleCounts = null;
+          }
           return json({
             workspace_id:       wsId,
             total_assets:       all.results[0]?.n         ?? 0,
@@ -805,6 +846,7 @@ export async function attackSurfaceRoutes(rctx) {
             cloud_storage_assets: cloudStorage.results[0]?.n ?? 0,
             wildcard_assets:    wildcardAssets.results[0]?.n ?? 0,
             takeover_risks:     takeoverRisks.results[0]?.n  ?? 0,
+            lifecycle_counts:   lifecycleCounts,
           });
         } catch {
           return json({ error: "Database error" }, 500);

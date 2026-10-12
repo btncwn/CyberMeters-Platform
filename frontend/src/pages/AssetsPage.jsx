@@ -37,16 +37,16 @@ function RiskBadge({ level }) {
   return <span className={cls}>{level}</span>
 }
 
-function StatusPill({ status }) {
-  if (status === 'active')
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
-        Legacy active
-      </span>
-    )
+// The asset's lifecycle state, worded by the backend. Colour only separates
+// "seen in the latest assessment" from everything else; it adds no verdict.
+function StatusPill({ asset }) {
+  const label = asset?.lifecycle_state_label || 'Not assessed'
+  const cls = asset?.lifecycle_state === 'observed'
+    ? 'bg-green-100 text-green-700'
+    : 'bg-gray-100 text-gray-600'
   return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">
-      Legacy inactive
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>
+      {label}
     </span>
   )
 }
@@ -312,7 +312,7 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
                 </div>
                 <div>
                   <div className="label mb-1">Status</div>
-                  <StatusPill status={data.asset.status} />
+                  <StatusPill asset={data.asset} />
                 </div>
                 <div>
                   <div className="label mb-1">Source</div>
@@ -544,7 +544,7 @@ export default function AssetsPage() {
 
   // ── Client-side filters ───────────────────────────────────────────────────
   const filtered = assets.filter(a => {
-    if (statusFilter !== 'all' && a.status     !== statusFilter) return false
+    if (statusFilter !== 'all' && a.lifecycle_state !== statusFilter) return false
     if (typeFilter   !== 'all' && a.asset_type !== typeFilter)   return false
     return true
   })
@@ -607,9 +607,9 @@ export default function AssetsPage() {
           {/* ── Summary cards ─────────────────────────────────────────────── */}
           {summary && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              <StatCard icon={Layers}        label="Total assets"     explanation="Active inventory across this workspace" value={summary.total_assets} />
-              <StatCard icon={Shield}        label="Legacy active"    explanation="Legacy inventory status; canonical observation is shown below" value={summary.active_assets} />
-              <StatCard icon={Activity}      label="Legacy inactive"  explanation="Legacy inventory status; not confirmed removal" value={summary.inactive_assets} tone="neutral" />
+              <StatCard icon={Layers}        label="Total assets"     explanation="Everything in this workspace's inventory" value={summary.total_assets} />
+              <StatCard icon={Shield}        label="Seen in latest scan" explanation="Found through DNS or a web service in the latest assessment" value={summary.lifecycle_counts?.observed} />
+              <StatCard icon={Activity}      label="No longer observed" explanation="Not seen for at least 48 hours across repeated scans; not proof it was removed" value={summary.lifecycle_counts?.confirmed_removed} tone="neutral" />
               <StatCard icon={Server}        label="Subdomains"       explanation="Hostnames mapped under your domains"    value={summary.subdomains} tone="info" />
               <StatCard icon={Globe}         label="Exposed services" explanation="Internet-facing services to review"     value={summary.exposed_services} warning={(summary.exposed_services ?? 0) > 0} />
               <StatCard icon={Cloud}         label="Cloud assets"     explanation="Cloud storage and buckets found"        value={summary.cloud_storage_assets} tone="info" />
@@ -621,9 +621,9 @@ export default function AssetsPage() {
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-1.5">
               <span className="label">Status</span>
-              {['all', 'active', 'inactive'].map(v => (
+              {['all', 'observed', 'confirmed_removed'].map(v => (
                 <FilterBtn key={v} active={statusFilter === v} onClick={() => setStatusFilter(v)}>
-                  {v === 'all' ? 'All' : v.charAt(0).toUpperCase() + v.slice(1)}
+                  {v === 'all' ? 'All' : v === 'observed' ? 'Seen in latest scan' : 'No longer observed'}
                 </FilterBtn>
               ))}
             </div>
@@ -683,7 +683,7 @@ export default function AssetsPage() {
                           )}
                         </td>
                         <td><TypeBadge type={asset.asset_type} /></td>
-                        <td><StatusPill status={asset.status} /></td>
+                        <td><StatusPill asset={asset} /></td>
                         <td className="text-xs text-gray-500">{assetSourceLabel(asset.source)}</td>
                         <td><RiskBadge level={asset.risk_level} /></td>
                         <td className="text-xs text-gray-500">{fmtDate(asset.last_seen)}</td>
@@ -700,7 +700,7 @@ export default function AssetsPage() {
             <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-100">
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-semibold text-gray-900">Asset Timeline</span>
-                <span className="text-xs text-gray-400">daily event counts · last 30 days</span>
+                <span className="text-xs text-gray-400">daily change counts · most recent 30 days with changes</span>
               </div>
             </div>
             <Timeline rows={timeline} projection={timelineProjection} />
