@@ -18,10 +18,12 @@
 //   Exchange (POST /api/auth/exchange — fully local, no external fetch):
 //     • missing code                                 → 400
 //     • unknown / expired OTC                        → 401
-//     • valid session OTC                            → returns the bearer token ONCE;
+//     • valid bound OTC + the browser's verifier     → a new session ONCE;
 //       a replay of the same OTC → 401 (single-use)
-//     • MFA-gated OTC                                → returns { mfa_required,
+//     • MFA account                                  → returns { mfa_required,
 //       challenge_token } and NO session token (the second factor is still owed)
+//   Browser binding itself (other browser, races, legacy rows, the full signed
+//   provider round trip) is proven in validate-microsoft-login-binding.js.
 //
 // Source-level non-regression: the callback threads the state's stored nonce into
 // the id_token validator (the pure nonce/aud/iss/exp checks are proven in
@@ -32,6 +34,7 @@
 // suite. Requires Node 24+.
 // ─────────────────────────────────────────────────────────────────────────────
 import fs from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadWorker, buildDb, makeEnv, makeCaller, makeSeeder, ctx } from "./security/lib/worker-harness.js";
@@ -93,8 +96,9 @@ async function main() {
     // Single-use: a VALID state is consumed on first use. The token exchange fetch
     // fails (mocked non-2xx), but the state is deleted BEFORE the exchange, so a
     // replay of the same state can never mint a session.
+    const liveBinding = createHash("sha256").update(randomBytes(32).toString("base64url")).digest("base64url");
     db.prepare(`INSERT INTO oauth_states (state, provider, redirect_uri, expires_at) VALUES ('live-state','microsoft', ?, datetime('now','+10 minutes'))`)
-      .run(JSON.stringify({ redirect_uri: "https://app.cybermeters.com/api/auth/microsoft/callback", nonce: "n2" }));
+      .run(JSON.stringify({ redirect_uri: "https://app.cybermeters.com/api/auth/microsoft/callback", nonce: "n2", binding: liveBinding }));
     const realFetch = globalThis.fetch;
     // Keep the token-exchange fetch mocked across BOTH calls: under correct code the
     // replay is rejected at the state check (before any fetch); if single-use were
@@ -119,23 +123,30 @@ async function main() {
     const call = makeCaller(worker, env);
     const seed = await makeSeeder(db, mod);
     seed.user("uSso", "sso@a.co");
+    seed.user("uSsoMfa", "mfa@a.co");
+    db.prepare("UPDATE users SET mfa_enabled = 1 WHERE id = 'uSsoMfa'").run();
+    const verifier = randomBytes(32).toString("base64url");
+    const binding = createHash("sha256").update(verifier).digest("base64url");
+    const bound = (userId) => JSON.stringify({ binding, user_id: userId });
     ok("missing code → 400", (await call("POST", "/api/auth/exchange", null, {})).status === 400);
-    ok("unknown OTC → 401", (await call("POST", "/api/auth/exchange", null, { code: "no-such-otc" })).status === 401);
+    ok("unknown OTC → 401", (await call("POST", "/api/auth/exchange", null, { code: "no-such-otc", verifiers: [verifier] })).status === 401);
     // Expired OTC.
     db.prepare(`INSERT INTO oauth_states (state, provider, redirect_uri, expires_at) VALUES ('otc-expired','ms_exchange', ?, '2000-01-01 00:00:00')`)
-      .run(JSON.stringify({ token: "t", userId: "uSso", email: "sso@a.co", name: "SSO", plan: "free" }));
-    ok("expired OTC → 401", (await call("POST", "/api/auth/exchange", null, { code: "otc-expired" })).status === 401);
-    // Valid session OTC → token once, replay → 401.
+      .run(bound("uSso"));
+    ok("expired OTC → 401", (await call("POST", "/api/auth/exchange", null, { code: "otc-expired", verifiers: [verifier] })).status === 401);
+    // Valid bound OTC → a new session once, replay → 401.
     db.prepare(`INSERT INTO oauth_states (state, provider, redirect_uri, expires_at) VALUES ('otc-good','ms_exchange', ?, datetime('now','+5 minutes'))`)
-      .run(JSON.stringify({ token: "sess-tok-123", userId: "uSso", email: "sso@a.co", name: "SSO", plan: "free" }));
-    const good = await call("POST", "/api/auth/exchange", null, { code: "otc-good" });
-    ok("valid session OTC → returns the bearer token", good.status === 200 && good.data?.token === "sess-tok-123");
-    ok("OTC is single-use: replay → 401", (await call("POST", "/api/auth/exchange", null, { code: "otc-good" })).status === 401);
-    // MFA-gated OTC → challenge, never a session token.
+      .run(bound("uSso"));
+    const good = await call("POST", "/api/auth/exchange", null, { code: "otc-good", verifiers: [verifier] });
+    ok("valid bound OTC → returns a new bearer token", good.status === 200 && typeof good.data?.token === "string" && good.data?.email === "sso@a.co"
+      && db.prepare("SELECT COUNT(*) AS n FROM user_sessions WHERE user_id = 'uSso'").get().n === 1);
+    ok("OTC is single-use: replay → 401", (await call("POST", "/api/auth/exchange", null, { code: "otc-good", verifiers: [verifier] })).status === 401);
+    // MFA account → challenge, never a session token.
     db.prepare(`INSERT INTO oauth_states (state, provider, redirect_uri, expires_at) VALUES ('otc-mfa','ms_exchange', ?, datetime('now','+5 minutes'))`)
-      .run(JSON.stringify({ mfa_required: true, challenge_token: "chal-abc" }));
-    const mfa = await call("POST", "/api/auth/exchange", null, { code: "otc-mfa" });
-    ok("MFA-gated OTC → { mfa_required, challenge_token } and NO session token", mfa.data?.mfa_required === true && mfa.data?.challenge_token === "chal-abc" && !mfa.data?.token);
+      .run(bound("uSsoMfa"));
+    const mfa = await call("POST", "/api/auth/exchange", null, { code: "otc-mfa", verifiers: [verifier] });
+    ok("MFA account OTC → { mfa_required, challenge_token } and NO session token", mfa.data?.mfa_required === true && typeof mfa.data?.challenge_token === "string" && !mfa.data?.token
+      && db.prepare("SELECT COUNT(*) AS n FROM user_sessions WHERE user_id = 'uSsoMfa'").get().n === 0);
   }
 
   // ── Source non-regression: nonce is threaded from state into the validator ─

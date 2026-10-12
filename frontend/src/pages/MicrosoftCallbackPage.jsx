@@ -3,25 +3,27 @@
  *
  * Landing page for the Microsoft Entra OAuth callback.
  *
- * Security model — two-step handoff (no tokens in URLs):
- *   1. The backend GET /api/auth/microsoft/callback creates a session, then
- *      redirects here with only a short-lived one-time code (OTC) in the URL:
- *        /auth/microsoft/callback?otc=<32-hex-char code>
- *   2. This page reads the OTC, immediately POSTs it to POST /api/auth/exchange,
- *      which validates the OTC (single-use, 30-second TTL), deletes it, and
- *      returns the session bearer token + user metadata in the JSON response body.
+ * Security model — two-step handoff (no tokens in URLs), bound to this browser:
+ *   1. The backend GET /api/auth/microsoft/callback redirects here with only a
+ *      short-lived one-time code (OTC) in the URL:
+ *        /auth/microsoft/callback?otc=<64-hex-char code>
+ *   2. This page POSTs the OTC with the verifiers this browser stored when it
+ *      started the sign-in. The API releases the result only to the matching
+ *      verifier, so a callback link opened in another browser cannot sign it in.
  *   3. The bearer token is passed to login() and stored in localStorage.
  *      It never appears in any URL, browser history entry, or log file.
+ *   A failed exchange never touches an existing session in this browser.
  *
  * Query params received:
  *   otc      — one-time code (short-lived, server-side validated)
- *   ms_error — error message from Microsoft or the backend (no otc present)
+ *   ms_error — present when sign-in failed (its text is not displayed)
  */
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
+import { clearMicrosoftLoginBindings, microsoftLoginVerifiers } from '../lib/microsoftLoginBinding'
 
 export default function MicrosoftCallbackPage() {
   const [searchParams]  = useSearchParams()
@@ -33,8 +35,9 @@ export default function MicrosoftCallbackPage() {
     const otc     = searchParams.get('otc')
     const msError = searchParams.get('ms_error')
 
+    // The URL's wording is never echoed: a link could carry any text.
     if (msError) {
-      setError(msError)
+      setError('Microsoft sign-in did not complete. Please try again.')
       return
     }
 
@@ -45,8 +48,15 @@ export default function MicrosoftCallbackPage() {
 
     // Exchange the one-time code for the session token.
     // The token is returned in the response body — it never appears in any URL.
-    api.exchangeOAuthCode(otc)
+    const verifiers = microsoftLoginVerifiers()
+    if (verifiers.length === 0) {
+      setError('This sign-in was started in another browser or has expired. Please sign in again here.')
+      return
+    }
+
+    api.exchangeOAuthCode(otc, verifiers)
       .then(async data => {
+        clearMicrosoftLoginBindings()
         // MFA-enabled account: the backend issued a second-factor challenge instead
         // of a session. Hand the challenge to the login page, which renders the
         // existing MFA step (authenticator code + recovery code) to complete it.
@@ -78,7 +88,7 @@ export default function MicrosoftCallbackPage() {
         navigate('/services', { replace: true })
       })
       .catch(() => {
-        setError('Sign-in session expired. Please try again.')
+        setError('Sign-in could not be completed in this browser. Please sign in again.')
       })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -364,14 +364,15 @@ export const api = {
 
   /**
    * POST /api/auth/exchange
-   * Exchanges the one-time code (OTC) from the Microsoft OAuth redirect for
-   * the session bearer token and user metadata. The OTC is valid for 30 seconds
-   * and is single-use. Returns { token, id, email, name, plan }.
+   * Exchanges the one-time code (OTC) from the Microsoft OAuth redirect for a
+   * session, proving with `verifiers` that this browser started the sign-in.
+   * The OTC is short-lived and single-use. Returns { token, id, email, name,
+   * plan }, or { mfa_required, challenge_token } for an MFA account.
    */
-  exchangeOAuthCode: (code) =>
+  exchangeOAuthCode: (code, verifiers = []) =>
     request('/auth/exchange', {
       method: 'POST',
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ code, verifiers }),
     }),
 
   /** POST /api/auth/resend-verification → { success } */

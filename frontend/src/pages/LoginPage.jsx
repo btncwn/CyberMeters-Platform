@@ -3,6 +3,11 @@ import { useNavigate, useLocation, Link } from 'react-router-dom'
 import AuthShell from '../components/AuthShell'
 import { useAuth } from '../context/AuthContext'
 import { api, BASE } from '../api'
+import { startMicrosoftSignIn } from '../lib/microsoftLoginBinding'
+
+// The API sends a failed Microsoft sign-in back here with ?ms_error. Its text is
+// never echoed: a link could carry any wording.
+const MICROSOFT_SIGN_IN_FAILED = 'Microsoft sign-in did not complete. Please try again.'
 
 export default function LoginPage() {
   const navigate  = useNavigate()
@@ -18,8 +23,20 @@ export default function LoginPage() {
   // ── Step 1: password ──
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
-  const [error,    setError]    = useState(null)
+  const [error,    setError]    = useState(() =>
+    new URLSearchParams(location.search).has('ms_error') ? MICROSOFT_SIGN_IN_FAILED : null)
   const [loading,  setLoading]  = useState(false)
+
+  // Microsoft sign-in is bound to this browser before leaving for Microsoft.
+  async function handleMicrosoftSignIn(e) {
+    e.preventDefault()
+    setError(null)
+    try {
+      await startMicrosoftSignIn(BASE)
+    } catch {
+      setError('Microsoft sign-in needs this site to store data in your browser. Allow site data and try again.')
+    }
+  }
 
   // ── Email verification flow ──
   const [verificationRequired, setVerificationRequired] = useState(false)
@@ -240,6 +257,7 @@ export default function LoginPage() {
             {/* ── Continue with Microsoft ── */}
             <a
               href={`${BASE}/auth/microsoft/login`}
+              onClick={handleMicrosoftSignIn}
               className="flex items-center justify-center gap-2.5 w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-colors"
             >
               {/* Microsoft logo mark */}

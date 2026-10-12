@@ -14,6 +14,7 @@ import { escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail, sendLifecyc
 import { isSingleTenantConfig, validateMicrosoftIdToken } from "../lib/microsoft-jwt.js";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { newPasswordRejection } from "../lib/pwned-passwords.js";
+import { browserBindingChallenges, isBrowserBindingChallenge } from "../lib/oauth-browser-binding.js";
 import { generateTotpSecret, verifyTotp } from "../lib/totp.js";
 import { createId, isValidEmail } from "../lib/util.js";
 
@@ -586,6 +587,9 @@ export async function authRoutes(rctx) {
     // Initiates the Microsoft Entra OAuth authorization code flow.
     // Generates a CSRF state token, stores it in oauth_states with a 10-minute
     // TTL, and redirects the browser to Microsoft's authorization endpoint.
+    // `binding` is the SHA-256 challenge of a verifier the starting browser
+    // keeps; the sign-in result is released only to that verifier (see
+    // POST /api/auth/exchange). A start without it is refused.
     //
     // Env vars required: AZURE_CLIENT_ID, AZURE_TENANT_ID
     // Optional: MICROSOFT_REDIRECT_URI (defaults to same-origin /callback)
@@ -595,6 +599,13 @@ export async function authRoutes(rctx) {
 
       if (!clientId || !tenantId) {
         return json({ error: "Microsoft login is not configured on this instance" }, 503);
+      }
+
+      const binding = url.searchParams.get("binding");
+      if (!isBrowserBindingChallenge(binding)) {
+        const dest = new URL("/login", env.FRONTEND_URL || url.origin);
+        dest.searchParams.set("ms_error", "Please start Microsoft sign-in again from the sign-in page.");
+        return Response.redirect(dest.toString(), 302);
       }
 
       // Generate a cryptographically random state for CSRF protection
@@ -607,14 +618,14 @@ export async function authRoutes(rctx) {
       const redirectUri = env.MICROSOFT_REDIRECT_URI
         || `${url.origin}/api/auth/microsoft/callback`;
 
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
-
+      // SQLite datetime() format, so the expiry compares correctly against
+      // datetime('now') in the callback lookup.
       await env.cybermeters_db
         .prepare(
           `INSERT INTO oauth_states (state, provider, redirect_uri, expires_at)
-           VALUES (?, 'microsoft', ?, ?)`
+           VALUES (?, 'microsoft', ?, datetime('now', '+10 minutes'))`
         )
-        .bind(stateRaw, JSON.stringify({ redirect_uri: redirectUri, nonce: nonceRaw }), expiresAt)
+        .bind(stateRaw, JSON.stringify({ redirect_uri: redirectUri, nonce: nonceRaw, binding }))
         .run();
 
       // Purge expired states while we're here (best-effort, non-fatal)
@@ -644,9 +655,10 @@ export async function authRoutes(rctx) {
     //   3. Validates the id_token JWT (signature + audience + expiry + oid)
     //   4. Finds an existing user by microsoft_oid, falls back to email match,
     //      or creates a new account
-    //   5. Creates a 30-day session (same pattern as POST /api/auth/login)
-    //   6. Fires USER_LOGIN_MICROSOFT audit event
-    //   7. Redirects to the frontend callback page with token + user params
+    //   5. Stores a short-lived one-time result bound to the starting browser
+    //   6. Redirects to the frontend callback page with only that one-time code
+    // No session or MFA challenge exists until POST /api/auth/exchange proves
+    // the browser holds the verifier for the challenge the sign-in started with.
     //
     // Env vars required: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID
     // Optional: FRONTEND_URL (defaults to same origin)
@@ -676,13 +688,14 @@ export async function authRoutes(rctx) {
         return json({ error: "Missing code or state parameter" }, 400);
       }
 
-      // ── 1. Validate CSRF state ─────────────────────────────────────────
+      // ── 1. Validate and consume the CSRF state in one statement ────────
+      // Single-use: only the request whose DELETE removes the row continues.
       const stateRow = await env.cybermeters_db
         .prepare(
-          `SELECT state, redirect_uri FROM oauth_states
+          `DELETE FROM oauth_states
            WHERE state = ? AND provider = 'microsoft'
              AND expires_at > datetime('now')
-           LIMIT 1`
+           RETURNING redirect_uri`
         )
         .bind(state)
         .first();
@@ -691,14 +704,16 @@ export async function authRoutes(rctx) {
         return json({ error: "Invalid or expired OAuth state. Please try signing in again." }, 400);
       }
 
-      // Delete state immediately — single-use CSRF token
-      await env.cybermeters_db
-        .prepare("DELETE FROM oauth_states WHERE state = ?")
-        .bind(state)
-        .run();
-
       let statePayload = null;
       try { statePayload = JSON.parse(stateRow.redirect_uri); } catch { /* legacy state row */ }
+      // A sign-in started before browser binding existed has no challenge. It
+      // is refused rather than completed without the check.
+      const binding = statePayload?.binding;
+      if (!isBrowserBindingChallenge(binding)) {
+        const dest = new URL("/login", env.FRONTEND_URL || url.origin);
+        dest.searchParams.set("ms_error", "Sign-in expired. Please try again.");
+        return Response.redirect(dest.toString(), 302);
+      }
       const redirectUri = statePayload?.redirect_uri
         || stateRow.redirect_uri
         || (env.MICROSOFT_REDIRECT_URI || `${url.origin}/api/auth/microsoft/callback`);
@@ -847,119 +862,29 @@ export async function authRoutes(rctx) {
         return Response.redirect(dest.toString(), 302);
       }
 
-      // ── 4b. MFA gate ────────────────────────────────────────────────────
-      // If the account has MFA enabled, the SSO path must NOT mint a session on
-      // its own — that would silently ignore a second factor the user opted into
-      // (password login halts here and issues a challenge; SSO must match). Issue
-      // the same short-lived mfa_challenges token, hand it to the frontend through
-      // the OTC redirect, and let it complete at POST /api/auth/mfa/challenge —
-      // the identical endpoint the password flow uses. Fail-closed: no session is
-      // created until the TOTP (or recovery code) is verified.
-      if (user.mfa_enabled) {
-        const { raw: challengeRaw, hash: challengeHash } = await generateMfaChallengeToken();
-        const challengeId = createId("mfach");
-        const challengeExpiry = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
-        await env.cybermeters_db
-          .prepare(
-            `INSERT INTO mfa_challenges (id, user_id, challenge_hash, expires_at)
-             VALUES (?, ?, ?, ?)`
-          )
-          .bind(challengeId, user.id, challengeHash, challengeExpiry)
-          .run();
-        await createAuditEvent(env, {
-          user_id:     user.id,
-          event_type:  "mfa_challenge_issued",
-          entity_type: "user",
-          entity_id:   user.id,
-          description: `MFA challenge issued for ${user.email} (Microsoft SSO)`,
-          metadata:    { challenge_id: challengeId, auth_provider: "microsoft", ip_address: request.headers.get("CF-Connecting-IP") || null, user_agent: request.headers.get("User-Agent") || null },
-        }).catch(() => {});
-
-        // Carry the challenge (not a session token) through the single-use OTC so
-        // it never appears in the redirect URL — same handoff shape as the session
-        // path below. The frontend reads { mfa_required, challenge_token } from the
-        // exchange response and drives the existing MFA UI.
-        const mfaOtcRaw = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-          .map(b => b.toString(16).padStart(2, "0")).join("");
-        const mfaOtcPayload = JSON.stringify({ mfa_required: true, challenge_token: challengeRaw });
-        await env.cybermeters_db
-          .prepare(
-            `INSERT INTO oauth_states (state, provider, redirect_uri, expires_at)
-             VALUES (?, 'ms_exchange', ?, datetime('now', '+5 minutes'))`
-          )
-          .bind(mfaOtcRaw, mfaOtcPayload)
-          .run();
-
-        const mfaFrontendUrl = env.FRONTEND_URL || url.origin;
-        const mfaDest = new URL("/auth/microsoft/callback", mfaFrontendUrl);
-        mfaDest.searchParams.set("otc", mfaOtcRaw);
-        return Response.redirect(mfaDest.toString(), 302);
-      }
-
-      // ── 5. Create session ──────────────────────────────────────────────
-      const { raw: token, hash: tokenHash } = await generateSessionToken();
-      const sessionId = createId("sess");
-      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
-      const loginIp   = request.headers.get("CF-Connecting-IP") || null;
-      const loginUa   = request.headers.get("User-Agent") || null;
-
-      await env.cybermeters_db
-        .prepare(
-          `INSERT INTO user_sessions (id, user_id, token_hash, expires_at, ip_address, user_agent)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        )
-        .bind(sessionId, user.id, tokenHash, expiresAt, loginIp, loginUa)
-        .run();
-
-      // ── 6. Audit ──────────────────────────────────────────────────────
-      const plan = await getEffectivePlan(user.id, env);
-
-      await createAuditEvent(env, {
-        user_id:     user.id,
-        event_type:  "USER_LOGIN_MICROSOFT",
-        entity_type: "user",
-        entity_id:   user.id,
-        description: `${user.email} signed in via Microsoft`,
-        metadata:    {
-          ip_address:    loginIp,
-          user_agent:    loginUa,
-          microsoft_oid: msOid,
-          tenant_id:     msTid,
-        },
-      }).catch(() => {});
-
-      // ── 7. Issue a short-lived one-time code (OTC) and redirect ──────────
-      // The bearer token and user metadata MUST NOT appear in URL parameters —
-      // they would be captured by CDN access logs, browser history, and
-      // Referrer headers. Instead we generate a 30-second single-use OTC,
-      // store it in oauth_states (reusing the existing table with
-      // provider = 'ms_exchange'), and redirect with only the OTC in the URL.
-      // The frontend immediately POSTs the OTC to /api/auth/exchange, which
-      // validates it, deletes it, and returns the session data in a JSON body.
+      // ── 5. Issue a one-time result bound to the starting browser ────────
+      // The result names the user only; no session token or MFA challenge
+      // exists yet. POST /api/auth/exchange releases it to the browser that
+      // presents the verifier for `binding`, and only then mints the session
+      // (or, for an MFA account, the second-factor challenge). A callback link
+      // opened in another browser therefore cannot sign that browser in.
+      //
+      // Only the one-time code appears in the redirect URL. TTL is 5 minutes:
+      // long enough for a slow page load, short enough to limit replay. SQLite
+      // datetime() keeps the expiry comparable with datetime('now').
       const otcRaw = Array.from(crypto.getRandomValues(new Uint8Array(32)))
         .map(b => b.toString(16).padStart(2, "0")).join("");
-
-      const otcPayload = JSON.stringify({
-        token,
-        userId: user.id,
-        email:  user.email,
-        name:   user.name  || "",
-        plan,
-      });
-
-      // Store expires_at using SQLite's own datetime() to guarantee format
-      // consistency with the datetime('now') comparison in the lookup query.
-      // ISO format (JavaScript's toISOString()) cannot be compared correctly
-      // against datetime('now') — the 'T' separator makes ISO strings always
-      // sort as greater than SQLite datetime strings on the same day.
-      // TTL is 5 minutes: long enough for slow edge-cached Pages loads, short
-      // enough to limit the replay window if an OTC is somehow observed.
       await env.cybermeters_db
         .prepare(
           `INSERT INTO oauth_states (state, provider, redirect_uri, expires_at)
            VALUES (?, 'ms_exchange', ?, datetime('now', '+5 minutes'))`
         )
-        .bind(otcRaw, otcPayload)
+        .bind(otcRaw, JSON.stringify({
+          binding,
+          user_id:       user.id,
+          microsoft_oid: msOid,
+          tenant_id:     msTid,
+        }))
         .run();
 
       const frontendUrl = env.FRONTEND_URL || url.origin;
@@ -970,87 +895,127 @@ export async function authRoutes(rctx) {
     }
 
     // ── POST /api/auth/exchange ──────────────────────────────────────────
-    // Exchanges a short-lived one-time code (OTC) issued by the Microsoft
-    // OAuth callback for the session bearer token and user metadata.
-    //
-    // The OTC is stored server-side in oauth_states with provider='ms_exchange'
-    // and a 30-second TTL. It is single-use: deleted on first successful exchange.
-    // The bearer token is returned in the JSON body — it never appears in any URL.
+    // Releases the result of a Microsoft sign-in to the browser that started
+    // it. The one-time code (OTC) from the callback redirect is consumed in the
+    // same statement that checks the browser binding, so it is single-use even
+    // under concurrent requests, and a request without the matching verifier
+    // neither consumes nor receives it.
     //
     // Request:  POST /api/auth/exchange
-    //           Content-Type: application/json
-    //           Body: { "code": "<otc>" }
+    //           Body: { "code": "<otc>", "verifiers": ["<verifier>", ...] }
     //
-    // Response: { "token": "...", "id": "...", "email": "...", "name": "...", "plan": "..." }
-    // Errors:   400 { "error": "Missing code" }
-    //           401 { "error": "Invalid or expired code. Please sign in again." }
-    //           500 { "error": "Exchange failed" }
+    // Response: { "token", "id", "email", "name", "plan" } — a new session; or
+    //           { "mfa_required": true, "challenge_token" } for an MFA account.
+    // Errors:   400 missing code; 401 unknown, expired, replayed or unbound
+    //           code (one message, so a caller learns nothing about which);
+    //           403 suspended account.
     if (request.method === "POST" && url.pathname === "/api/auth/exchange") {
       let body;
       try { body = await request.json(); } catch {
-        console.error("[auth/exchange] invalid JSON body");
         return json({ error: "Invalid JSON body" }, 400);
       }
 
-      const otc = (body.code || "").trim();
+      const otc = typeof body?.code === "string" ? body.code.trim() : "";
       if (!otc) {
-        console.error("[auth/exchange] missing code in request body");
         return json({ error: "Missing code" }, 400);
       }
 
-      // Look up and immediately delete the OTC — single-use enforcement.
+      const rejected = () => json({ error: "Sign-in could not be completed in this browser. Please sign in again." }, 401);
+      const challenges = await browserBindingChallenges(body?.verifiers);
+      if (challenges.length === 0) return rejected();
+
+      // Consume the OTC only when one of the presented verifiers matches its
+      // binding. A non-matching request leaves it for the starting browser.
+      const placeholders = challenges.map(() => "?").join(", ");
       const otcRow = await env.cybermeters_db
         .prepare(
-          `SELECT redirect_uri AS payload FROM oauth_states
+          `DELETE FROM oauth_states
            WHERE state = ? AND provider = 'ms_exchange'
              AND expires_at > datetime('now')
-           LIMIT 1`
+             AND (CASE WHEN json_valid(redirect_uri)
+                       THEN json_extract(redirect_uri, '$.binding') END) IN (${placeholders})
+           RETURNING redirect_uri AS payload`
         )
-        .bind(otc)
+        .bind(otc, ...challenges)
         .first();
+      if (!otcRow) return rejected();
 
-      if (!otcRow) {
-        // Log the OTC prefix (first 8 chars) for correlation — never the full value
-        console.error(`[auth/exchange] OTC not found or expired. prefix=${otc.slice(0,8)}`);
-        return json({ error: "Invalid or expired code. Please sign in again." }, 401);
-      }
+      let payload = null;
+      try { payload = JSON.parse(otcRow.payload); } catch { /* handled below */ }
+      if (typeof payload?.user_id !== "string" || !payload.user_id) return rejected();
 
-      // Delete before responding — prevents replay even under concurrent requests.
-      await env.cybermeters_db
-        .prepare("DELETE FROM oauth_states WHERE state = ? AND provider = 'ms_exchange'")
-        .bind(otc)
-        .run();
-
-      let payload;
       try {
-        payload = JSON.parse(otcRow.payload);
+        const user = await env.cybermeters_db
+          .prepare("SELECT id, email, name, status, mfa_enabled FROM users WHERE id = ? LIMIT 1")
+          .bind(payload.user_id)
+          .first();
+        if (!user) return rejected();
+        if (user.status === "suspended") return json({ error: "Account suspended. Contact support." }, 403);
+
+        const loginIp = request.headers.get("CF-Connecting-IP") || null;
+        const loginUa = request.headers.get("User-Agent") || null;
+
+        // MFA gate: an MFA account receives a second-factor challenge, never a
+        // session. It completes at POST /api/auth/mfa/challenge (or the
+        // recovery-code path) exactly like password sign-in.
+        if (user.mfa_enabled) {
+          const { raw: challengeRaw, hash: challengeHash } = await generateMfaChallengeToken();
+          const challengeId = createId("mfach");
+          const challengeExpiry = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
+          await env.cybermeters_db
+            .prepare(
+              `INSERT INTO mfa_challenges (id, user_id, challenge_hash, expires_at)
+               VALUES (?, ?, ?, ?)`
+            )
+            .bind(challengeId, user.id, challengeHash, challengeExpiry)
+            .run();
+          await createAuditEvent(env, {
+            user_id:     user.id,
+            event_type:  "mfa_challenge_issued",
+            entity_type: "user",
+            entity_id:   user.id,
+            description: `MFA challenge issued for ${user.email} (Microsoft SSO)`,
+            metadata:    { challenge_id: challengeId, auth_provider: "microsoft", ip_address: loginIp, user_agent: loginUa },
+          }).catch(() => {});
+          return json({ mfa_required: true, challenge_token: challengeRaw });
+        }
+
+        const { raw: token, hash: tokenHash } = await generateSessionToken();
+        const sessionId = createId("sess");
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO user_sessions (id, user_id, token_hash, expires_at, ip_address, user_agent)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          )
+          .bind(sessionId, user.id, tokenHash, expiresAt, loginIp, loginUa)
+          .run();
+
+        const plan = await getEffectivePlan(user.id, env);
+        await createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "USER_LOGIN_MICROSOFT",
+          entity_type: "user",
+          entity_id:   user.id,
+          description: `${user.email} signed in via Microsoft`,
+          metadata:    {
+            ip_address:    loginIp,
+            user_agent:    loginUa,
+            microsoft_oid: payload.microsoft_oid || null,
+            tenant_id:     payload.tenant_id || null,
+          },
+        }).catch(() => {});
+
+        return json({
+          token,
+          id:    user.id,
+          email: user.email,
+          name:  user.name || "",
+          plan,
+        });
       } catch (e) {
-        console.error("[auth/exchange] payload JSON.parse failed:", e.message);
-        return json({ error: "Exchange failed" }, 500);
+        return serverError("api", e);
       }
-
-      // MFA-gated SSO handoff: the callback issued a challenge instead of a
-      // session (the account has MFA enabled). Return the challenge token so the
-      // frontend can complete the second factor at POST /api/auth/mfa/challenge.
-      // No session token exists in this payload — nothing is authenticated yet.
-      if (payload.mfa_required && payload.challenge_token) {
-        return json({ mfa_required: true, challenge_token: payload.challenge_token });
-      }
-
-      if (!payload.token || !payload.userId || !payload.email) {
-        console.error("[auth/exchange] payload missing required fields:", Object.keys(payload));
-        return json({ error: "Exchange failed" }, 500);
-      }
-
-      console.log(`[auth/exchange] success for user ${payload.userId.slice(0,8)}...`);
-
-      return json({
-        token: payload.token,
-        id:    payload.userId,
-        email: payload.email,
-        name:  payload.name,
-        plan:  payload.plan,
-      });
     }
 
     // ── POST /api/auth/forgot-password ──────────────────────────────────

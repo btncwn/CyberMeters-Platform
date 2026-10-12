@@ -131,23 +131,23 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| POST | `/api/auth/signup` | 25 | public-or-global | public | — |
-| POST | `/api/auth/login` | 171 | public-or-global | public | — |
-| GET | `/api/auth/me` | 335 | account | ✓ | requireAuth |
-| POST | `/api/auth/logout` | 348 | public-or-global | public | — |
-| GET | `/api/auth/verify-email` | 385 | public-or-global | public | — |
-| POST | `/api/auth/resend-verification` | 476 | public-or-global | public | — |
-| GET | `/api/auth/microsoft/login` | 592 | public-or-global | public | — |
-| GET | `/api/auth/microsoft/callback` | 653 | public-or-global | public | — |
-| POST | `/api/auth/exchange` | 988 | public-or-global | public | — |
-| POST | `/api/auth/forgot-password` | 1059 | public-or-global | public | — |
-| POST | `/api/auth/reset-password` | 1161 | public-or-global | public | — |
-| GET | `/api/auth/mfa/status` | 1301 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/setup` | 1323 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/verify-setup` | 1364 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/challenge` | 1438 | public-or-global | public | — |
-| POST | `/api/auth/mfa/recovery-code` | 1537 | public-or-global | public | — |
-| POST | `/api/auth/mfa/disable` | 1634 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/signup` | 26 | public-or-global | public | — |
+| POST | `/api/auth/login` | 172 | public-or-global | public | — |
+| GET | `/api/auth/me` | 336 | account | ✓ | requireAuth |
+| POST | `/api/auth/logout` | 349 | public-or-global | public | — |
+| GET | `/api/auth/verify-email` | 386 | public-or-global | public | — |
+| POST | `/api/auth/resend-verification` | 477 | public-or-global | public | — |
+| GET | `/api/auth/microsoft/login` | 596 | public-or-global | public | — |
+| GET | `/api/auth/microsoft/callback` | 665 | public-or-global | public | — |
+| POST | `/api/auth/exchange` | 912 | public-or-global | public | — |
+| POST | `/api/auth/forgot-password` | 1024 | public-or-global | public | — |
+| POST | `/api/auth/reset-password` | 1126 | public-or-global | public | — |
+| GET | `/api/auth/mfa/status` | 1266 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/setup` | 1288 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/verify-setup` | 1329 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/challenge` | 1403 | public-or-global | public | — |
+| POST | `/api/auth/mfa/recovery-code` | 1502 | public-or-global | public | — |
+| POST | `/api/auth/mfa/disable` | 1599 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/billing.js`
 
