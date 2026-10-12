@@ -2,18 +2,8 @@ import { SERVICE_COLORS } from '../../theme/serviceColors'
 import ProductFrame from './ProductFrame'
 
 // A sample of the workspace a customer sees after a check, drawn with the
-// product's own vocabulary: coverage states, no score, no live data.
-export const SAMPLE_ROWS = [
-  { name: 'Email Protection', key: 'email', state: 'Issue detected', note: 'DMARC set to monitor only', tone: 'issue' },
-  { name: 'Website Security', key: 'website', state: 'Assessed healthy', note: 'HTTPS and headers in place', tone: 'ok' },
-  { name: 'Certificates & Trust', key: 'certs', state: 'Issue detected', note: 'Renews in 9 days', tone: 'issue' },
-  { name: 'Identity Exposure', key: 'identity', state: 'Evidence insufficient', note: '2 identity-facing hostnames, endpoints not measured', tone: 'gap' },
-  { name: 'Attack Surface', key: 'surface', state: 'Assessed healthy', note: '3 subdomains reviewed', tone: 'ok' },
-  { name: 'Brand Protection', key: 'brand', state: 'Issue detected', note: '1 lookalike candidate', tone: 'issue' },
-  { name: 'Shadow IT & Unmanaged Technology', key: 'shadow_it', state: 'Customer input required', note: 'Classify 4 tools', tone: 'input' },
-  { name: 'Cyber Essentials Readiness', key: 'cyber_essentials', state: 'Customer input required', note: 'Questionnaire not started', tone: 'input' },
-]
-
+// product's own vocabulary: coverage states, no score, no live data. The rows
+// come from the landing page so its copy stays in one place.
 export const TONE = {
   issue: 'bg-[#FFF1D6] text-[#8A5300]',
   ok: 'bg-[#DDF3E7] text-[#11643D]',
@@ -30,7 +20,7 @@ const NOTES = [
   { title: 'What to do next', copy: 'The first thing to fix comes with who usually does it and how CyberMeters checks it again.' },
 ]
 
-export default function ProductShowcase() {
+export default function ProductShowcase({ rows }) {
   return (
     <>
       <ProductFrame
@@ -44,7 +34,7 @@ export default function ProductShowcase() {
           <nav aria-label="Sample workspace areas" className="hidden lg:block bg-white border-r border-[#E6EAF3] py-5 px-3">
             <p className="px-3 text-[17px] font-bold text-[#121A2E]">example.co.uk</p>
             <ul className="mt-4 space-y-1">
-              {NAV_ORDER.map(key => SAMPLE_ROWS.find(r => r.key === key)).map(r => {
+              {NAV_ORDER.map(key => rows.find(r => r.key === key)).filter(Boolean).map(r => {
                 const c = SERVICE_COLORS[r.key]
                 const active = r.key === 'email'
                 return (
@@ -70,7 +60,7 @@ export default function ProductShowcase() {
               <span className="text-[14px] font-semibold text-[#3D45A8] bg-[#E6E8FD] rounded-full px-3 py-1">Sample</span>
             </div>
             <ul className="mt-5 rounded-xl bg-white border border-[#E6EAF3]">
-              {SAMPLE_ROWS.map(r => {
+              {rows.map(r => {
                 const c = SERVICE_COLORS[r.key]
                 return (
                   <li key={r.name} className="flex items-start sm:items-center gap-4 px-4 sm:px-5 py-3.5 border-b border-[#EEF1F7] last:border-b-0">

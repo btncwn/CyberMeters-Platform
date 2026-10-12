@@ -107,6 +107,19 @@ const FAQS = [
 ]
 
 
+// Sample rows for the product view. States use the product's own coverage
+// vocabulary; no scores, no live data.
+const SAMPLE_ROWS = [
+  { name: 'Email Protection', key: 'email', state: 'Issue detected', note: 'DMARC set to monitor only', tone: 'issue' },
+  { name: 'Website Security', key: 'website', state: 'Assessed healthy', note: 'HTTPS and headers in place', tone: 'ok' },
+  { name: 'Certificates & Trust', key: 'certs', state: 'Issue detected', note: 'Renews in 9 days', tone: 'issue' },
+  { name: 'Identity Exposure', key: 'identity', state: 'Evidence insufficient', note: '2 identity-facing hostnames, endpoints not measured', tone: 'gap' },
+  { name: 'Attack Surface', key: 'surface', state: 'Assessed healthy', note: '3 subdomains reviewed', tone: 'ok' },
+  { name: 'Brand Protection', key: 'brand', state: 'Issue detected', note: '1 lookalike candidate', tone: 'issue' },
+  { name: 'Shadow IT & Unmanaged Technology', key: 'shadow_it', state: 'Customer input required', note: 'Classify 4 tools', tone: 'input' },
+  { name: 'Cyber Essentials Readiness', key: 'cyber_essentials', state: 'Customer input required', note: 'Questionnaire not started', tone: 'input' },
+]
+
 const CONTAINER = 'mx-auto w-full max-w-[1280px] px-6 sm:px-10 lg:px-16'
 
 function useMediaQuery(query) {
@@ -331,7 +344,7 @@ export default function PublicLandingPage() {
       <section id="product" aria-labelledby="product-title" className="scroll-mt-24 py-24 lg:py-[120px]">
         <div className={CONTAINER}>
           <SectionHeading id="product-title" title="See what a check gives you." lead="One workspace for your domain. Each area says what was observed, what needs attention and what could not be assessed." />
-          <ProductShowcase />
+          <ProductShowcase rows={SAMPLE_ROWS} />
         </div>
       </section>
 
