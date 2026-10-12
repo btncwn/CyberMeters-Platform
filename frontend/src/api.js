@@ -245,10 +245,10 @@ async function request(path, options = {}) {
   return res.json()
 }
 
-// Sign-in profile writes return { status, ok, body } instead of throwing, so the
-// form can show the backend's own outcome. `path` is the full API path (literal
+// Settings writes (sign-in profiles, hostname lists) return { status, ok, body }
+// instead of throwing, so the form can show the backend's own outcome. `path` is the full API path (literal
 // at each call site, which keeps it visible to the route-wiring guard).
-async function signInCall(method, path, body) {
+async function outcomeCall(method, path, body) {
   const res = await safeFetch(`${BASE}${path}`, {
     method,
     cache: 'no-store',
@@ -836,11 +836,11 @@ export const api = {
    * never routed to the global scan-limit / upgrade modal.
    */
   saveWebsiteSignIn: (workspaceId, domain, body) =>
-    signInCall('PUT', `/workspaces/${encodeURIComponent(workspaceId)}/website-security/sign-in/${encodeURIComponent(domain)}`, body),
+    outcomeCall('PUT', `/workspaces/${encodeURIComponent(workspaceId)}/website-security/sign-in/${encodeURIComponent(domain)}`, body),
   deleteWebsiteSignIn: (workspaceId, domain) =>
-    signInCall('DELETE', `/workspaces/${encodeURIComponent(workspaceId)}/website-security/sign-in/${encodeURIComponent(domain)}`),
+    outcomeCall('DELETE', `/workspaces/${encodeURIComponent(workspaceId)}/website-security/sign-in/${encodeURIComponent(domain)}`),
   testWebsiteSignIn: (workspaceId, domain) =>
-    signInCall('POST', `/workspaces/${encodeURIComponent(workspaceId)}/website-security/sign-in/${encodeURIComponent(domain)}/test`, {}),
+    outcomeCall('POST', `/workspaces/${encodeURIComponent(workspaceId)}/website-security/sign-in/${encodeURIComponent(domain)}/test`, {}),
   getWebsiteSecurityPages: (workspaceId, params = {}) => {
     const q = new URLSearchParams(params).toString()
     return request(`/workspaces/${encodeURIComponent(workspaceId)}/website-security/pages${q ? `?${q}` : ''}`)
@@ -1635,6 +1635,14 @@ export const api = {
 
   // Network targets and observations stay workspace-scoped. The server supplies
   // capabilities and enforces authorization, limits and collector availability.
+  /** GET customer hostname lists for every verified domain (mig 117). */
+  getHostnameLists: (workspaceId) =>
+    request(`/workspaces/${encodeURIComponent(workspaceId)}/attack-surface/hostname-lists`),
+  /** Hostname list writes return { status, ok, body } so the panel shows the backend's own outcome. */
+  saveHostnameList: (workspaceId, domain, body) =>
+    outcomeCall('PUT', `/workspaces/${encodeURIComponent(workspaceId)}/attack-surface/hostname-lists/${encodeURIComponent(domain)}`, body),
+  clearHostnameList: (workspaceId, domain) =>
+    outcomeCall('DELETE', `/workspaces/${encodeURIComponent(workspaceId)}/attack-surface/hostname-lists/${encodeURIComponent(domain)}`),
   getNetworkTargets: (wsId, options = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets`, options),
   addNetworkTarget: (wsId, body) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets`, { method: 'POST', body: JSON.stringify(body) }),
   startNetworkScan: (wsId, targetId, ports) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets/${encodeURIComponent(targetId)}/scans`, { method: 'POST', body: JSON.stringify({ ports }) }),

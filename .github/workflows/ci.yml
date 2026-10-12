@@ -1014,6 +1014,9 @@ jobs:
       - name: Validate discovery depth (rotating word list, name variants, NSEC walk; bounded, engine trace)
         run: node scripts/validate-discovery-depth.js
 
+      - name: Validate customer hostname lists (scope, tenancy, history, DNS confirmation, engine trace)
+        run: node scripts/validate-discovery-hostname-list.js
+
       - name: Validate asset recheck rotation
         run: node scripts/validate-asset-recheck-rotation.js
 

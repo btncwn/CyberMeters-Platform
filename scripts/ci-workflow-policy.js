@@ -17,9 +17,9 @@ export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d5
 // sign-in page findings, signed-in scanning, website home-page
 // availability, subdomain sensitive-name and nine pure discovery validators;
 // prior assignments remain.
-export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 395;
-export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "e0ecb889102c31783a6771e8b4af47d9a6ba2243c493de52d0fa293bf5f7bc6a";
-export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "331d32dc3a70a50cf736c4199107eb34938ea8389ac2d123baebda016e287f6e";
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 396;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "543f36b13638e2c5ee40c1262ada95c96941ae1f26d578b9cb940edab8ed08ff";
+export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "8acc12f9189c24f362218f21371189469a6316d564b65869c562c813dc100ab9";
 
 export const F004_MATRIX_JOB_ID = "validate_f004_recovery_mutations";
 export const F004_MATRIX_VALIDATOR_PATH = "scripts/validate-f004-recovery-instrumentation-mutations.js";
@@ -69,7 +69,7 @@ const EXECUTABLE_VALIDATOR_JOB_IDS = Object.freeze([
 export const EXPECTED_SHARD_COUNTS = Object.freeze({
   validate_runtime_security: 97,
   validate_report_cx: 86,
-  validate_data_migrations: 102,
+  validate_data_migrations: 103,
   validate_frontend_build: 88,
   validate_integration_assurance: 21,
   validate_f004_recovery_mutations: 1,

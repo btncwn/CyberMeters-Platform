@@ -12,6 +12,7 @@ import Spinner from '../components/Spinner'
 import StatCard from '../components/StatCard'
 import AttackSurfaceAssurance from '../components/AttackSurfaceAssurance'
 import NetworkAssetsPanel from '../components/NetworkAssetsPanel'
+import HostnameListPanel from '../components/HostnameListPanel'
 import { assetLifecycleClaimDisplay, projectedCountDisplay } from '../lib/assetLifecycleClaimDisplay'
 import { assetSourceLabel } from '../lib/assetSourceLabel'
 
@@ -604,6 +605,8 @@ export default function AssetsPage() {
             presentations={assurance}
             coverage={assuranceCoverage}
           />
+
+          <HostnameListPanel key={`hostnames-${workspaceId}`} workspaceId={workspaceId} />
 
           <NetworkAssetsPanel key={workspaceId} workspaceId={workspaceId} />
 

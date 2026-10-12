@@ -15,6 +15,7 @@ vi.mock('../../api', () => ({
 
 vi.mock('../../components/CasesQueue', () => ({ default: () => null }))
 vi.mock('../../components/AttackSurfaceAssurance', () => ({ default: () => null }))
+vi.mock('../../components/HostnameListPanel', () => ({ default: () => null }))
 
 const projectionV1 = {
   version: 'asset-lifecycle-claim-projection-v1',

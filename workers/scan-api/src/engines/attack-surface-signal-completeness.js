@@ -83,7 +83,8 @@ function signal(state, reason, {
 // SRV lookups (dns_bruteforce), hostnames the site's own pages link to
 // (technology_detection), names the domain's own configuration points at,
 // confirmed by DNS (referenced_hostnames), and the rotating word list, name
-// variants and NSEC walk (discovery_depth), merged into modules.subdomains
+// variants and NSEC walk (discovery_depth) and names the customer listed
+// (customer_hostnames), merged into modules.subdomains
 // together with the wildcard check that decides which wordlist answers are
 // real. A fixed wordlist can never prove that no other hostname exists, so
 // coverage is always bounded.
@@ -119,17 +120,20 @@ function resolveSubdomainDiscovery(modules) {
   // count as a source only when the lookups ran in this scan.
   const referenced = sub?.referenced_hostnames?.executed === true ? sub.referenced_hostnames : null;
   const depth = sub?.discovery_depth?.executed === true ? sub.discovery_depth : null;
+  const listed = sub?.customer_hostnames?.executed === true ? sub.customer_hostnames : null;
   const sources = [
     ...(brute && !moduleNotAssessed(brute) ? ["dns_bruteforce", "dns_srv"] : []),
     ...(tech && !moduleNotAssessed(tech) ? ["html_link"] : []),
     ...(referenced ? ["referenced_hostnames"] : []),
     ...(depth ? ["discovery_depth"] : []),
+    ...(listed ? ["customer_hostnames"] : []),
   ];
   const limitations = [
     sub?.incomplete_reason,
     brute?.incomplete_reason,
     referenced?.incomplete_reason ? `referenced_hostnames_${referenced.incomplete_reason}` : null,
     depth?.incomplete_reason ? `discovery_depth_${depth.incomplete_reason}` : null,
+    listed?.incomplete_reason ? `customer_hostnames_${listed.incomplete_reason}` : null,
   ];
 
   if (observedCount > 0) {

@@ -139,6 +139,20 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
       ip_addresses: JSON.stringify(Array.isArray(item.ip_addresses) ? item.ip_addresses : []),
     });
   }
+  // Hostnames the customer listed, confirmed by DNS.
+  for (const item of modules?.subdomains?.customer_hostnames?.confirmed || []) {
+    const h = normalizeHostname(item?.hostname);
+    if (!h || typeof item?.source !== "string") continue;
+    allAssets.push({
+      hostname:     h,
+      asset_type:   "subdomain",
+      source:       item.source,
+      wildcard:     item.wildcard_match ? 1 : 0,
+      risk_level:   null,
+      cloud:        null,
+      ip_addresses: JSON.stringify(Array.isArray(item.ip_addresses) ? item.ip_addresses : []),
+    });
+  }
   // Deeper DNS discovery: the rotating word list, name variants and names the
   // zone's NSEC records list, each confirmed by DNS.
   for (const item of modules?.subdomains?.discovery_depth?.confirmed || []) {

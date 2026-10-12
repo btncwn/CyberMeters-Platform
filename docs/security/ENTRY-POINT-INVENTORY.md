@@ -13,8 +13,8 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 285
-- **Auth-guarded:** 255
+- **Total entry points:** 288
+- **Auth-guarded:** 258
 - **Unauthenticated (public by design):** 30
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
@@ -26,7 +26,7 @@ guard without an explicit, documented public-allowlist reason.
 | portfolio | 9 | 9 |
 | preflight | 1 | 0 |
 | public-or-global | 38 | 20 |
-| unknown | 67 | 58 |
+| unknown | 70 | 61 |
 | webhook | 2 | 0 |
 | workspace | 139 | 139 |
 
@@ -71,15 +71,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2445 | preflight | public | — |
-| DELETE | `(none)` | 2451 | unknown | **GAP** | — |
-| GET | `(none)` | 2451 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2451 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2451 | unknown | **GAP** | — |
-| POST | `(none)` | 2451 | unknown | **GAP** | — |
-| PUT | `(none)` | 2451 | unknown | **GAP** | — |
-| GET | `/health` | 2456 | public-or-global | public | — |
-| GET | `/ready` | 2475 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2448 | preflight | public | — |
+| DELETE | `(none)` | 2454 | unknown | **GAP** | — |
+| GET | `(none)` | 2454 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2454 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2454 | unknown | **GAP** | — |
+| POST | `(none)` | 2454 | unknown | **GAP** | — |
+| PUT | `(none)` | 2454 | unknown | **GAP** | — |
+| GET | `/health` | 2459 | public-or-global | public | — |
+| GET | `/ready` | 2478 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -195,6 +195,14 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 |---|---|---:|---|---|---|
 | GET | `(none)` | 58 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `(none)` | 79 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+
+### `workers/scan-api/src/routes/discovery-hostname-lists.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| DELETE | `(none)` | 66 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| PUT | `(none)` | 66 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `(none)` | 78 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/dns-connections.js`
 
@@ -505,10 +513,10 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `(none)` | 60 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | PATCH | `(none)` | 187 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | DELETE | `(none)` | 219 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 295 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `(none)` | 378 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| POST | `/^\/api\/workspaces\/([^/` | 467 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/api/account/deleted-workspaces` | 567 | account | ✓ | requireAuth |
-| POST | `/^\/api\/workspaces\/([^/` | 634 | workspace | ✓ | requireAuth |
+| GET | `(none)` | 304 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 387 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^/` | 476 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/api/account/deleted-workspaces` | 576 | account | ✓ | requireAuth |
+| POST | `/^\/api\/workspaces\/([^/` | 643 | workspace | ✓ | requireAuth |
 
 _`*` = workspace-scoping helper (getAccessibleWorkspaceIds / getWorkspaceBillingUserId)._

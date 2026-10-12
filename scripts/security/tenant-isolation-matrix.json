@@ -140,6 +140,25 @@
       }
     },
     {
+      "class": "hostname_lists",
+      "domain": "attack_surface",
+      "tables": [
+        "discovery_hostname_lists"
+      ],
+      "ownership": {
+        "discovery_hostname_lists": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "Customer hostname lists (mig 117): workspace_id + domain_id scoped; writes need domain:import on a live workspace and a domain verified in it, re-checked inside the write SQL; foreign and unverified domains refused alike; scan reads join the verified link and a live workspace and re-check scope; purged with the workspace (validate-discovery-hostname-list)."
+      }
+    },
+    {
       "class": "network_assets",
       "domain": "attack_surface",
       "tables": [
@@ -1145,6 +1164,7 @@
     "cyber_essentials_events": "cyber_essentials",
     "cyber_mot_domain_states": "posture_state",
     "deletion_requests": "deletion_lifecycle",
+    "discovery_hostname_lists": "hostname_lists",
     "dmarc_aggregate_records": "email_protection",
     "dmarc_aggregate_reports": "email_protection",
     "dmarc_change_requests": "email_protection",
@@ -1230,12 +1250,12 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 106,
-    "classified": 106,
-    "tenant_owned_tables": 102,
+    "schema_tables": 107,
+    "classified": 107,
+    "tenant_owned_tables": 103,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
-    "resource_classes": 37,
+    "resource_classes": 38,
     "classes_with_dynamic_coverage": 17
   }
 }

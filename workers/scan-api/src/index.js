@@ -113,6 +113,7 @@ import { identityWorkforceRoutes } from "./routes/identity-workforce.js";
 import { identityPublicSecretsRoutes } from "./routes/identity-public-secrets.js";
 import { websiteSecurityRoutes } from "./routes/website-security.js";
 import { websiteSignInRoutes } from "./routes/website-sign-in.js";
+import { discoveryHostnameListRoutes } from "./routes/discovery-hostname-lists.js";
 import { cyberEssentialsControlsRoutes } from "./routes/cyber-essentials-controls.js";
 import { emailProtectionLifecycleRoutes } from "./routes/email-protection-lifecycle.js";
 import { workspaceInsightRoutes } from "./routes/workspace-insights.js";
@@ -1113,6 +1114,8 @@ const WORKSPACE_PURGE_TABLES = [
   "dmarc_ingest_endpoints", "workspace_brand_assets", "workspace_brand_profiles",
   "attack_surface_signal_observations", "asset_lifecycle_observations",
   "asset_events", "asset_alert_records", "workspace_assets",
+  // Customer hostname lists (mig 117): workspace_id + domain_id scoped, no FK.
+  "discovery_hostname_lists",
   "managed_case_events", "brand_evidence_bundles", "managed_cases",
   "certificate_observations", "identity_assets", "historical_scores",
   "vendor_risk_scores", "vendor_risk_scores_history", "workspace_vendors",
@@ -2619,6 +2622,12 @@ export default {
       if (publicSourcesResponse) return publicSourcesResponse;
       const identityExposureResponse = await identityExposureRoutes(routeCtx);
       if (identityExposureResponse) return identityExposureResponse;
+    }
+
+    // ── Attack Surface customer hostname lists (mig 117) ────────────────────
+    {
+      const hostnameListResponse = await discoveryHostnameListRoutes(routeCtx);
+      if (hostnameListResponse) return hostnameListResponse;
     }
 
     // ── Website Security lifecycle read routes (mig 089) ────────────────────

@@ -563,6 +563,7 @@ export const OUTBOUND_FULLY_INSTRUMENTED_MODULES = Object.freeze(new Set([
   "whois_intelligence",
   "dns_bruteforce",
   "referenced_hostnames",
+  "customer_hostnames",
   "discovery_depth",
   "subdomain_takeover",
   "asset_exposure",

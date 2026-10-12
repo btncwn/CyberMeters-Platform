@@ -269,6 +269,15 @@ export async function workspacesCoreRoutes(rctx) {
               .bind(workspaceId, linkedDomainId)
               .run();
           } catch (e) { console.error("[domain_remove_cascade] website_sign_in_profiles:", e?.message); }
+          // A hostname list belongs to the domain link: it ends with it
+          // (marked cleared, kept as history). Scans refuse an unlinked domain.
+          try {
+            await env.cybermeters_db
+              .prepare(`UPDATE discovery_hostname_lists SET status = 'cleared', ended_at = ?, ended_by = ?
+                         WHERE workspace_id = ? AND domain_id = ? AND status = 'active'`)
+              .bind(new Date().toISOString(), wsUser.id, workspaceId, linkedDomainId)
+              .run();
+          } catch (e) { console.error("[domain_remove_cascade] discovery_hostname_lists:", e?.message); }
           env.cybermeters_db
             .prepare(`UPDATE workspace_assets SET status = 'inactive', updated_at = datetime('now') WHERE workspace_id = ? AND domain_id = ?`)
             .bind(workspaceId, linkedDomainId)
