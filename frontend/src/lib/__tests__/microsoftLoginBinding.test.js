@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   clearMicrosoftLoginBindings,
   createMicrosoftLoginBinding,
-  microsoftLoginUrl,
+  forgetMicrosoftLoginVerifier,
   microsoftLoginVerifiers,
   startMicrosoftSignIn,
 } from '../microsoftLoginBinding'
@@ -51,21 +51,40 @@ describe('Microsoft sign-in browser binding', () => {
 
   it('fails when the browser refuses storage, so an unbound sign-in never starts', async () => {
     const storage = { getItem: () => null, setItem: () => { throw new Error('blocked') }, removeItem: () => {} }
+    let started = false, assigned = null
+    await expect(startMicrosoftSignIn({ storage, cryptoImpl, start: async () => { started = true }, assign: (url) => { assigned = url } }))
+      .rejects.toThrow()
+    expect(started).toBe(false)
+    expect(assigned).toBeNull()
+  })
+
+  it('posts only the challenge, then follows the Microsoft authorize URL', async () => {
+    const storage = memoryStorage()
+    let posted = null, assigned = null
+    const authorize = 'https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?state=s'
+    await startMicrosoftSignIn({ storage, cryptoImpl, start: async (challenge) => { posted = challenge; return { authorize_url: authorize } }, assign: (url) => { assigned = url } })
+    const [verifier] = microsoftLoginVerifiers({ storage })
+    expect(posted).toBe(createHash('sha256').update(verifier).digest('base64url'))
+    expect(assigned).toBe(authorize)
+    expect(assigned).not.toContain(verifier)
+  })
+
+  it('refuses to follow anything but the Microsoft authorize endpoint', async () => {
     let assigned = null
-    await expect(startMicrosoftSignIn('https://api.test/api', { storage, cryptoImpl, assign: (url) => { assigned = url } }))
+    await expect(startMicrosoftSignIn({ storage: memoryStorage(), cryptoImpl, start: async () => ({ authorize_url: 'https://evil.example/login' }), assign: (url) => { assigned = url } }))
       .rejects.toThrow()
     expect(assigned).toBeNull()
   })
 
-  it('puts the challenge, never the verifier, in the sign-in URL', async () => {
+  it('forgets only the verifier of the finished sign-in', async () => {
     const storage = memoryStorage()
-    let assigned = null
-    await startMicrosoftSignIn('https://api.test/api', { storage, cryptoImpl, assign: (url) => { assigned = url } })
-    const [verifier] = microsoftLoginVerifiers({ storage })
-    const url = new URL(assigned)
-    expect(`${url.origin}${url.pathname}`).toBe('https://api.test/api/auth/microsoft/login')
-    expect(url.searchParams.get('binding')).toBe(createHash('sha256').update(verifier).digest('base64url'))
-    expect(assigned).not.toContain(verifier)
-    expect(microsoftLoginUrl('https://x', 'c-d_e')).toBe('https://x/auth/microsoft/login?binding=c-d_e')
+    const first = await createMicrosoftLoginBinding({ storage, cryptoImpl, now: 1_000 })
+    await createMicrosoftLoginBinding({ storage, cryptoImpl, now: 2_000 })
+    await forgetMicrosoftLoginVerifier(first, { storage, cryptoImpl, now: 3_000 })
+    const left = microsoftLoginVerifiers({ storage, now: 3_000 })
+    expect(left).toHaveLength(1)
+    expect(createHash('sha256').update(left[0]).digest('base64url')).not.toBe(first)
+    await forgetMicrosoftLoginVerifier(undefined, { storage, cryptoImpl, now: 3_000 })
+    expect(microsoftLoginVerifiers({ storage, now: 3_000 })).toHaveLength(1)
   })
 })

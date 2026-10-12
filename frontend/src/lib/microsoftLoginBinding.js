@@ -6,7 +6,8 @@
 // sign-in link finished in another browser cannot sign that browser in.
 //
 // The verifier stays in this browser's storage and is sent only in the body of
-// the exchange request — never in a URL.
+// the exchange request; the challenge goes in the body of the start request.
+// Neither appears in a URL.
 
 const STORAGE_KEY = 'cm_ms_login_bindings'
 const MAX_AGE_MS = 15 * 60 * 1000
@@ -35,16 +36,20 @@ function readEntries(storage, now = Date.now()) {
   }
 }
 
+async function challengeOf(verifier, cryptoImpl) {
+  const digest = await cryptoImpl.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+  return base64Url(new Uint8Array(digest))
+}
+
 /**
- * Create and store a verifier; returns its challenge for the sign-in URL.
+ * Create and store a verifier; returns its challenge for the start request.
  * Throws when the browser does not allow storage — sign-in cannot be bound.
  */
 export async function createMicrosoftLoginBinding({ storage, cryptoImpl = globalThis.crypto, now = Date.now() } = {}) {
   const verifier = base64Url(cryptoImpl.getRandomValues(new Uint8Array(32)))
-  const digest = await cryptoImpl.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
   const entries = [{ verifier, at: now }, ...readEntries(storage, now)].slice(0, MAX_KEPT)
   storageOf(storage).setItem(STORAGE_KEY, JSON.stringify(entries))
-  return base64Url(new Uint8Array(digest))
+  return challengeOf(verifier, cryptoImpl)
 }
 
 /** The verifiers of sign-ins this browser started recently, newest first. */
@@ -52,16 +57,32 @@ export function microsoftLoginVerifiers({ storage, now = Date.now() } = {}) {
   return readEntries(storage, now).map(entry => entry.verifier)
 }
 
-export function clearMicrosoftLoginBindings({ storage } = {}) {
-  try { storageOf(storage).removeItem(STORAGE_KEY) } catch { /* nothing stored */ }
+/**
+ * Forget the verifier of a finished sign-in (identified by its challenge),
+ * keeping the verifiers of sign-ins still in progress in other tabs.
+ */
+export async function forgetMicrosoftLoginVerifier(challenge, { storage, cryptoImpl = globalThis.crypto, now = Date.now() } = {}) {
+  if (typeof challenge !== 'string' || !challenge) return
+  const kept = []
+  for (const entry of readEntries(storage, now)) {
+    if (await challengeOf(entry.verifier, cryptoImpl) !== challenge) kept.push(entry)
+  }
+  try {
+    if (kept.length) storageOf(storage).setItem(STORAGE_KEY, JSON.stringify(kept))
+    else storageOf(storage).removeItem(STORAGE_KEY)
+  } catch { /* storage unavailable: nothing to forget */ }
 }
 
-export function microsoftLoginUrl(base, challenge) {
-  return `${base}/auth/microsoft/login?binding=${encodeURIComponent(challenge)}`
-}
+const MICROSOFT_AUTHORIZE = /^https:\/\/login\.microsoftonline\.com\//
 
-/** Bind this browser, then leave for Microsoft sign-in. */
-export async function startMicrosoftSignIn(base, { assign = (url) => window.location.assign(url), ...options } = {}) {
+/**
+ * Bind this browser, ask the API to start sign-in (`start` posts the
+ * challenge and returns { authorize_url }), then leave for Microsoft.
+ */
+export async function startMicrosoftSignIn({ start, assign = (url) => window.location.assign(url), ...options }) {
   const challenge = await createMicrosoftLoginBinding(options)
-  assign(microsoftLoginUrl(base, challenge))
+  const result = await start(challenge)
+  const url = result?.authorize_url
+  if (typeof url !== 'string' || !MICROSOFT_AUTHORIZE.test(url)) throw new Error('Microsoft sign-in could not be started.')
+  assign(url)
 }

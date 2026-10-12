@@ -141,6 +141,31 @@ async function safeFetch(url, init) {
 }
 
 /**
+ * Sign-in handshake request. It carries no session token, and a refusal never
+ * runs the expired-session handler: a Microsoft sign-in that fails in this
+ * browser must leave any existing session in place.
+ * @param {string} path  API path starting with '/'.
+ * @param {object} body
+ * @returns {Promise<any>}
+ */
+async function signInHandshake(path, body) {
+  const res = await safeFetch(`${BASE}${path}`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const err = /** @type {ApiError} */ (new Error(data.error || 'Sign-in could not be completed. Please try again.'))
+    err.status = res.status
+    if (data.code) err.code = data.code
+    throw err
+  }
+  return data
+}
+
+/**
  * Authenticated JSON request. Throws an {@link ApiError} on any failure —
  * decorated with status/code/plan-gate context so callers branch on fields,
  * never on message strings.
@@ -369,11 +394,14 @@ export const api = {
    * The OTC is short-lived and single-use. Returns { token, id, email, name,
    * plan }, or { mfa_required, challenge_token } for an MFA account.
    */
-  exchangeOAuthCode: (code, verifiers = []) =>
-    request('/auth/exchange', {
-      method: 'POST',
-      body: JSON.stringify({ code, verifiers }),
-    }),
+  exchangeOAuthCode: (code, verifiers = []) => signInHandshake('/auth/exchange', { code, verifiers }),
+
+  /**
+   * POST /api/auth/microsoft/start
+   * Starts Microsoft sign-in bound to this browser's challenge.
+   * Returns { authorize_url }.
+   */
+  startMicrosoftSignIn: (binding) => signInHandshake('/auth/microsoft/start', { binding }),
 
   /** POST /api/auth/resend-verification → { success } */
   resendVerification: (email) =>

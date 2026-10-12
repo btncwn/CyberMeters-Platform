@@ -13,9 +13,9 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 288
+- **Total entry points:** 289
 - **Auth-guarded:** 258
-- **Unauthenticated (public by design):** 30
+- **Unauthenticated (public by design):** 31
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
 | Scope | Handlers | Auth-guarded |
@@ -25,7 +25,7 @@ guard without an explicit, documented public-allowlist reason.
 | email | 1 | 1 |
 | portfolio | 9 | 9 |
 | preflight | 1 | 0 |
-| public-or-global | 38 | 20 |
+| public-or-global | 39 | 20 |
 | unknown | 70 | 61 |
 | webhook | 2 | 0 |
 | workspace | 139 | 139 |
@@ -71,15 +71,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2448 | preflight | public | — |
-| DELETE | `(none)` | 2454 | unknown | **GAP** | — |
-| GET | `(none)` | 2454 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2454 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2454 | unknown | **GAP** | — |
-| POST | `(none)` | 2454 | unknown | **GAP** | — |
-| PUT | `(none)` | 2454 | unknown | **GAP** | — |
-| GET | `/health` | 2459 | public-or-global | public | — |
-| GET | `/ready` | 2478 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2451 | preflight | public | — |
+| DELETE | `(none)` | 2457 | unknown | **GAP** | — |
+| GET | `(none)` | 2457 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2457 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2457 | unknown | **GAP** | — |
+| POST | `(none)` | 2457 | unknown | **GAP** | — |
+| PUT | `(none)` | 2457 | unknown | **GAP** | — |
+| GET | `/health` | 2462 | public-or-global | public | — |
+| GET | `/ready` | 2481 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -137,17 +137,18 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | POST | `/api/auth/logout` | 349 | public-or-global | public | — |
 | GET | `/api/auth/verify-email` | 386 | public-or-global | public | — |
 | POST | `/api/auth/resend-verification` | 477 | public-or-global | public | — |
-| GET | `/api/auth/microsoft/login` | 596 | public-or-global | public | — |
-| GET | `/api/auth/microsoft/callback` | 665 | public-or-global | public | — |
-| POST | `/api/auth/exchange` | 912 | public-or-global | public | — |
-| POST | `/api/auth/forgot-password` | 1024 | public-or-global | public | — |
-| POST | `/api/auth/reset-password` | 1126 | public-or-global | public | — |
-| GET | `/api/auth/mfa/status` | 1266 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/setup` | 1288 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/verify-setup` | 1329 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/challenge` | 1403 | public-or-global | public | — |
-| POST | `/api/auth/mfa/recovery-code` | 1502 | public-or-global | public | — |
-| POST | `/api/auth/mfa/disable` | 1599 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/microsoft/start` | 599 | public-or-global | public | — |
+| GET | `/api/auth/microsoft/login` | 660 | public-or-global | public | — |
+| GET | `/api/auth/microsoft/callback` | 680 | public-or-global | public | — |
+| POST | `/api/auth/exchange` | 928 | public-or-global | public | — |
+| POST | `/api/auth/forgot-password` | 1043 | public-or-global | public | — |
+| POST | `/api/auth/reset-password` | 1145 | public-or-global | public | — |
+| GET | `/api/auth/mfa/status` | 1285 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/setup` | 1307 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/verify-setup` | 1348 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/challenge` | 1422 | public-or-global | public | — |
+| POST | `/api/auth/mfa/recovery-code` | 1521 | public-or-global | public | — |
+| POST | `/api/auth/mfa/disable` | 1618 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/billing.js`
 

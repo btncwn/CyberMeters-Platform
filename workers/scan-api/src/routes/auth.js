@@ -583,29 +583,34 @@ export async function authRoutes(rctx) {
       }
     }
 
-    // ── GET /api/auth/microsoft/login ────────────────────────────────────
-    // Initiates the Microsoft Entra OAuth authorization code flow.
-    // Generates a CSRF state token, stores it in oauth_states with a 10-minute
-    // TTL, and redirects the browser to Microsoft's authorization endpoint.
-    // `binding` is the SHA-256 challenge of a verifier the starting browser
-    // keeps; the sign-in result is released only to that verifier (see
-    // POST /api/auth/exchange). A start without it is refused.
+    // ── POST /api/auth/microsoft/start ───────────────────────────────────
+    // Starts the Microsoft Entra authorization code flow for the app's own
+    // sign-in page. Body: { "binding": "<SHA-256 challenge>" } — the challenge
+    // of a verifier the starting browser keeps; the sign-in result is released
+    // only to that verifier (POST /api/auth/exchange). Returns the Microsoft
+    // authorize URL as JSON for the page to navigate to.
+    //
+    // A JSON POST (CORS-limited to the app origin) rather than a link: another
+    // site cannot start a sign-in with a challenge of its choosing and route the
+    // visitor through Microsoft, and the challenge never appears in a URL.
     //
     // Env vars required: AZURE_CLIENT_ID, AZURE_TENANT_ID
     // Optional: MICROSOFT_REDIRECT_URI (defaults to same-origin /callback)
-    if (request.method === "GET" && url.pathname === "/api/auth/microsoft/login") {
+    if (request.method === "POST" && url.pathname === "/api/auth/microsoft/start") {
       const clientId  = env.AZURE_CLIENT_ID;
       const tenantId  = env.AZURE_TENANT_ID;
 
       if (!clientId || !tenantId) {
         return json({ error: "Microsoft login is not configured on this instance" }, 503);
       }
-
-      const binding = url.searchParams.get("binding");
+      if (!/^application\/json\b/i.test(request.headers.get("Content-Type") || "")) {
+        return json({ error: "Expected a JSON request" }, 415);
+      }
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+      const binding = body?.binding;
       if (!isBrowserBindingChallenge(binding)) {
-        const dest = new URL("/login", env.FRONTEND_URL || url.origin);
-        dest.searchParams.set("ms_error", "Please start Microsoft sign-in again from the sign-in page.");
-        return Response.redirect(dest.toString(), 302);
+        return json({ error: "Please start Microsoft sign-in again from the sign-in page." }, 400);
       }
 
       // Generate a cryptographically random state for CSRF protection
@@ -645,7 +650,17 @@ export async function authRoutes(rctx) {
       authorizeUrl.searchParams.set("state",         stateRaw);
       authorizeUrl.searchParams.set("nonce",         nonceRaw);
 
-      return Response.redirect(authorizeUrl.toString(), 302);
+      return json({ authorize_url: authorizeUrl.toString() });
+    }
+
+    // ── GET /api/auth/microsoft/login ────────────────────────────────────
+    // The old link-based start. A link can be followed from any site, so it no
+    // longer starts a sign-in; it sends the visitor to the sign-in page, which
+    // starts one with POST /api/auth/microsoft/start.
+    if (request.method === "GET" && url.pathname === "/api/auth/microsoft/login") {
+      const dest = new URL("/login", env.FRONTEND_URL || url.origin);
+      dest.searchParams.set("ms_error", "start_again");
+      return Response.redirect(dest.toString(), 302);
     }
 
     // ── GET /api/auth/microsoft/callback ─────────────────────────────────
@@ -904,8 +919,9 @@ export async function authRoutes(rctx) {
     // Request:  POST /api/auth/exchange
     //           Body: { "code": "<otc>", "verifiers": ["<verifier>", ...] }
     //
-    // Response: { "token", "id", "email", "name", "plan" } — a new session; or
-    //           { "mfa_required": true, "challenge_token" } for an MFA account.
+    // Response: { "token", "id", "email", "name", "plan", "binding" } — a new
+    //           session; or { "mfa_required": true, "challenge_token", "binding" }
+    //           for an MFA account. `binding` is the matched challenge.
     // Errors:   400 missing code; 401 unknown, expired, replayed or unbound
     //           code (one message, so a caller learns nothing about which);
     //           403 suspended account.
@@ -977,7 +993,7 @@ export async function authRoutes(rctx) {
             description: `MFA challenge issued for ${user.email} (Microsoft SSO)`,
             metadata:    { challenge_id: challengeId, auth_provider: "microsoft", ip_address: loginIp, user_agent: loginUa },
           }).catch(() => {});
-          return json({ mfa_required: true, challenge_token: challengeRaw });
+          return json({ mfa_required: true, challenge_token: challengeRaw, binding: payload.binding });
         }
 
         const { raw: token, hash: tokenHash } = await generateSessionToken();
@@ -1008,10 +1024,13 @@ export async function authRoutes(rctx) {
 
         return json({
           token,
-          id:    user.id,
-          email: user.email,
-          name:  user.name || "",
+          id:      user.id,
+          email:   user.email,
+          name:    user.name || "",
           plan,
+          // The challenge this sign-in was bound to (not secret), so the page
+          // forgets only that verifier and keeps other tabs' sign-ins.
+          binding: payload.binding,
         });
       } catch (e) {
         return serverError("api", e);
