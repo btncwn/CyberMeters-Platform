@@ -87,12 +87,12 @@ describe('Live TLS evidence presentation', () => {
     expect(screen.queryByText('All planned endpoints were observed in this run.')).not.toBeInTheDocument()
   })
 
-  it('keeps absent or incomplete live evidence distinct from CT issuance evidence', () => {
+  it('keeps absent or incomplete live evidence unknown, never valid', () => {
     const { rerender, container } = render(<LiveTlsEvidence evidence={null} />)
     expect(container).toBeEmptyDOMElement()
     rerender(<LiveTlsEvidence evidence={{ ...fixture(), leaf_collected: false, all_planned_endpoints_observed: false }} />)
     expect(screen.getByText('Live TLS evidence — not fully observed')).toBeInTheDocument()
-    expect(screen.getByText(/Existing certificate-log evidence is separate/)).toBeInTheDocument()
+    expect(screen.getByText(/the certificate currently served is unknown/)).toBeInTheDocument()
     expect(screen.queryByText('Valid against the recorded trust store')).not.toBeInTheDocument()
     expect(screen.queryByText(fingerprint)).not.toBeInTheDocument()
   })
@@ -107,17 +107,17 @@ describe('Live TLS evidence presentation', () => {
     expect(container.querySelector('img,script')).toBeNull()
   })
 
-  it('exposes live evidence on the existing Certificates page while preserving CT-only records', async () => {
-    const assurance = { signals: {}, signal_order: [], summary: { ct_only: true }, scope_note: 'Certificate issuance remains separate.' }
+  it('exposes live evidence on the existing Certificates page while preserving historical log-only records', async () => {
+    const assurance = { signals: {}, signal_order: [], summary: { ct_only: true }, scope_note: 'Certificate signals are reported separately.' }
     api.getWorkspaceCertificates.mockResolvedValue({ certificates: [
       { domain: 'live.example.test', certificate_assurance: { ...assurance, summary: { ct_only: false } }, live_tls: fixture(), days_until_expiry: 23 },
-      { domain: 'ct.example.test', issuer: 'Historical CT issuer', certificate_assurance: assurance, live_tls: null, days_until_expiry: null },
+      { domain: 'historic.example.test', issuer: 'Historical issuer', certificate_assurance: assurance, live_tls: null, days_until_expiry: null },
     ] })
     api.getWorkspaceCertificatesTimeline.mockResolvedValue({})
     render(<MemoryRouter><CertificatesPage /></MemoryRouter>)
     expect(await screen.findByText(fingerprint)).toBeInTheDocument()
-    expect(screen.getByText('CT issuance only')).toBeInTheDocument()
-    expect(screen.getByText('Historical CT issuer')).toBeInTheDocument()
+    expect(screen.getByText('Historical log record only')).toBeInTheDocument()
+    expect(screen.getByText('Historical issuer')).toBeInTheDocument()
     const summaries = screen.getAllByText(/Certificate evidence ·/)
     expect(summaries).toHaveLength(2)
     expect(within(summaries[1].closest('section')).queryByTestId('live-tls-evidence')).not.toBeInTheDocument()

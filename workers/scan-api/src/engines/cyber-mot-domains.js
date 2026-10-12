@@ -56,7 +56,7 @@ import {
 // measurement. Without this bump, the portfolio would tell customers their Cyber Essentials
 // posture improved or deteriorated on the day we deployed a definition change.
 // `.3` (24 July 2026): domain conclusions now consume their declared signal
-// monitoring dependencies. Missing/degraded CT provenance cannot support a
+// monitoring dependencies. Missing/degraded provenance cannot support a
 // healthy negative conclusion, while positive findings remain visible.
 // `.4` (24 July 2026): Evidence-Grade Law pilot. A favourable 2-of-5 external
 // Cyber Essentials indicator can no longer promote the full five-control
@@ -84,7 +84,10 @@ import {
 // establish a healthy HTTP attack surface or rewrite an earlier snapshot.
 // `2026-10-10.1`: HTTP identity inventory does not establish healthy account
 // security. Compromise and sign-in controls remain explicitly unassessed.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-10.1";
+// `2026-10-12.1`: certificate logs are no longer a source. Certificates read only
+// the certificate the live site presents; each domain's monitoring dependency is
+// the signal that actually feeds it. Cross-version trends are incomparable.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-12.1";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -164,31 +167,30 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     description: "Internet-facing subdomains, exposed admin surfaces, takeover risk and cloud exposure.",
     modules: ["subdomains", "admin_surface_detection", "cloud_storage_discovery", "dns"],
     required: ["subdomains", "dns"],
-    monitoring_signals: ["certificate_transparency"],
+    monitoring_signals: ["attack_surface"],
     monitoring_degradation_message: "Attack-surface and subdomain discovery coverage was incomplete this run.",
     match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_)/.test(f?.id || ""),
     maturity: "M3", managed_status: "managed_case",
-    limitations: ["External observation only; no internal-network discovery. Subdomain coverage depends on public Certificate Transparency logs (certificates that have not expired), DNS name checks and links found on the website."],
+    limitations: ["External observation only; no internal-network discovery. Subdomain discovery covers the names CyberMeters checks in DNS, names in DNS records and links found on the website; it is not a complete inventory."],
   },
   {
     domain_key: "certificates_trust",
     display_name: "Certificates & Trust",
-    description: "Certificate expiry, issuer, hostname coverage and anomalies from Certificate Transparency logs.",
+    description: "Certificate expiry, issuer, hostname match and trust of the certificate your live site presents.",
     modules: ["certificate_intelligence"],
     required: ["certificate_intelligence"],
-    monitoring_signals: ["certificate_transparency"],
     match: (f) => /^(cert_|certificate_)/.test(f.id || "")
       || ["dse_missing_caa", "dse_caa_no_issuers"].includes(f?.id)
       || f.module === "certificate_intelligence",
     maturity: "M2", managed_status: "recommendations",
-    limitations: ["Analysis is based on Certificate Transparency logs. Chain validity, root trust, OCSP and revocation status are not checked and remain unknown."],
+    limitations: ["Analysis covers the certificate presented to CyberMeters' live TLS check on the tested endpoints only. OCSP and revocation status are not checked and remain unknown."],
   },
   {
     domain_key: "cyber_essentials_readiness",
     display_name: "Cyber Essentials Readiness",
     description: "An indicative estimate of your likely Cyber Essentials readiness — not a certification.",
     modules: [], // derived from external signals + the questionnaire, not a scan module
-    monitoring_signals: ["certificate_transparency"],
+    monitoring_signals: ["website_security", "attack_surface"],
     monitoring_degradation_message: "External-control indicator coverage was incomplete this run.",
     match: () => false,
     maturity: "M2", managed_status: "recommendations",
@@ -211,7 +213,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     description: "Externally observable provider relationships and possible identity-facing hostnames, with reachability reported only when measured.",
     modules: ["identity_discovery"],
     required: ["identity_discovery"],
-    monitoring_signals: ["certificate_transparency"],
+    monitoring_signals: ["dns"],
     monitoring_degradation_message: "Identity-surface enumeration was incomplete this run.",
     match: (f) => /^identity_/.test(f.id || "") || f.module === "identity_discovery",
     maturity: "M1", managed_status: "monitoring",
@@ -222,7 +224,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     display_name: "Shadow IT & Unmanaged Technology",
     description: "Externally visible SaaS, cloud services, email senders and internet-facing technologies that may sit outside the known technology inventory.",
     modules: ["saas_exposure", "third_party_discovery", "technology_detection", "cloud_storage_discovery", "vendor_relationships"],
-    monitoring_signals: ["certificate_transparency"],
+    monitoring_signals: ["technology_visibility"],
     monitoring_degradation_message: "Technology observation coverage was incomplete this run.",
     match: () => false, // observation-only; not attributed authoritative findings this episode
     maturity: "M0", managed_status: "monitoring",
@@ -273,11 +275,8 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       d.monitoring_signals
     );
     const signalCoverageLimited = !monitoringCoverage.complete;
-    // The signal/provider message remains canonical monitoring provenance, but a
-    // domain conclusion must explain the effect in that domain's own language.
-    // Certificates deliberately keeps the CT-specific wording because CT is the
-    // evidence being assessed there; Identity/Shadow/CE/ASM describe the coverage
-    // consequence instead of exposing a nonsensical provider sentence.
+    // The signal message remains canonical monitoring provenance, but a domain
+    // conclusion explains the effect in that domain's own language.
     const signalCoverageMessage = signalCoverageLimited
       ? (d.monitoring_degradation_message || monitoringCoverage.messages.join(" "))
       : "";
@@ -401,7 +400,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     // ── Scan-evidenced domains (1,2,3,4,6,7) ──────────────────────────────────
     // `required` = the module(s) that MUST have been assessed for a healthy verdict.
     // A globally-complete scan with no mapped finding is NOT enough — the domain's own
-    // required evidence has to have actually been collected (this closes the CT/
+    // required evidence has to have actually been collected (this closes the
     // subdomain "healthy off missing evidence" hole for Attack Surface, and stops
     // Website/Identity/Certs/Brand from reading healthy when their evidence is absent).
     const relevant = d.modules;

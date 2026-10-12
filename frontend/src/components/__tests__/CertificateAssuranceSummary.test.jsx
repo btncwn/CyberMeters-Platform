@@ -44,7 +44,6 @@ describe('CertificateAssuranceSummary', () => {
           signal_order: Object.keys(signals),
           signals,
           summary: {
-            ct_only: false,
             trust_ceiling: 'An unexpired leaf alone does not establish verified trust.',
           },
           relationship: {

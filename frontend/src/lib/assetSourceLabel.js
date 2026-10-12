@@ -3,13 +3,15 @@
 // guessed at.
 const SOURCE_LABELS = Object.freeze({
   scan_root:                'Scanned domain',
-  certificate_transparency: 'Certificate Transparency',
+  dns_discovery:            'DNS discovery',
   dns_bruteforce:           'DNS lookup',
   dns_mx:                   'Mail (MX) record',
   dns_srv:                  'Service (SRV) record',
   html_link:                'Linked from your website',
   cloud_storage_discovery:  'Cloud storage check',
   exposure_probe:           'Web exposure check',
+  // historical: assets discovered before certificate logs were retired.
+  certificate_transparency: 'Certificate log (historical)',
 })
 
 export function assetSourceLabel(source) {

@@ -54,10 +54,10 @@ test('wrong hostname and expired certificate are distinct actual TLS failures',a
  assert.deepEqual(liveCertificateFindings(attachLiveTlsToSsl({},wrong),'owned.example.com').map(x=>x.signal),['certificate_hostname_mismatch']);
  const expired=await tlsFixture('expired',{trusted:true});const findings=liveCertificateFindings(attachLiveTlsToSsl({},expired),'owned.example.com');assert.ok(findings.some(x=>x.signal==='certificate_expired'));assert.ok(findings.some(x=>x.signal==='certificate_untrusted'));
 });
-test('live leaf wins over a conflicting CT projection without deleting CT evidence',async()=>{
- const {receipt}=await tlsFixture('expired',{trusted:true});const ssl=attachLiveTlsToSsl({tls_state:'observed_present',cert_not_after:'2045-01-01T00:00:00.000Z',cert_expiry_days:7000,cert_issuer:'CT issuer'}, {receipt});
- assert.equal(ssl.cert_not_after,'2045-01-01T00:00:00.000Z');
- const ci=runCertificateIntelligenceModule({ssl,subdomains:{sources:{certspotter:{count:1}}}},'owned.example.com');
+test('the live leaf is the only certificate source and keeps unrelated SSL fields',async()=>{
+ const {receipt}=await tlsFixture('expired',{trusted:true});const ssl=attachLiveTlsToSsl({tls_state:'observed_present',redirect_ok:true}, {receipt});
+ assert.equal(ssl.redirect_ok,true);
+ const ci=runCertificateIntelligenceModule({ssl,subdomains:{wildcard_dns:false,items:[]}},'owned.example.com');
  assert.equal(ci.evidence_source,'live_tls');assert.equal(ci.expires_at,'2021-01-01T00:00:00.000Z');assert.equal(ci.certificate_status,'invalid');assert.ok(ci.suspicious_certificate_signals.some(x=>x.signal==='certificate_expired'));
  assert.equal(ci.signal_completeness.signals.hostname_match.provenance.method,'node_tls_check_server_identity');assert.equal(ci.signal_completeness.signals.expiry.observation_scope,'live_tls');assert.equal(ci.signal_completeness.signals.chain.observation,'unknown');
 });
@@ -80,7 +80,7 @@ test('fixed Node exec source is executable and never interprets request commands
  const executed=spawnSync(process.execPath,['--input-type=module','-e',local],{encoding:'utf8',timeout:5000});assert.equal(executed.status,0,executed.stderr);assert.equal(JSON.parse(executed.stdout).quality,'partial');
 });
 
-test('fresh TLS case verification needs every endpoint and cannot use CT/HTTP success',async()=>{
+test('fresh TLS case verification needs every endpoint and cannot use HTTP success',async()=>{
  const {buildLiveTlsCaseVerificationEvidence}=await import('../../scan-api/src/engines/certificate-lifecycle.js');
  const {receipt}=await tlsFixture('valid',{trusted:true});
  const now=new Date().toISOString();const ssl=attachLiveTlsToSsl({}, {receipt});
@@ -88,7 +88,7 @@ test('fresh TLS case verification needs every endpoint and cannot use CT/HTTP su
  const current={id:'observation_1',last_seen:now,evidence_json:JSON.stringify({signal_completeness:ci.signal_completeness})};
  const context={current,after:new Date(Date.now()-60_000).toISOString(),hostname:'owned.example.com',now};
  assert.equal(buildLiveTlsCaseVerificationEvidence('certificate_untrusted',context).verification_result,'verified');
- for(const change of [v=>v.leaf.value.all_planned_endpoints_observed=false,v=>v.hostname_match.observation_scope='ct_issuance',v=>v.trust_store_validation.publishable=false,v=>v.leaf.value.endpoint_checks.push({...v.leaf.value.endpoint_checks[0],hostname_match:'mismatched'})]){
+ for(const change of [v=>v.leaf.value.all_planned_endpoints_observed=false,v=>v.hostname_match.observation_scope='historical_observation',v=>v.trust_store_validation.publishable=false,v=>v.leaf.value.endpoint_checks.push({...v.leaf.value.endpoint_checks[0],hostname_match:'mismatched'})]){
   const bad=structuredClone(ci.signal_completeness);change(bad.signals);const altered={...current,evidence_json:JSON.stringify({signal_completeness:bad})};assert.notEqual(buildLiveTlsCaseVerificationEvidence('certificate_untrusted',{...context,current:altered}).verification_result,'verified');
  }
  assert.equal(buildLiveTlsCaseVerificationEvidence('certificate_untrusted',{...context,after:now}).verification_result,'inconclusive');
@@ -133,19 +133,21 @@ if(process.env.NETWORK_PROBE_BUNDLE){
  });
 }
 
-test('live leaf fingerprint changes persistent identity while historical CT keys stay exact',async()=>{
+test('live leaf fingerprint is the only persistent certificate identity',async()=>{
  const {certificateObservationKey}=await import('../../scan-api/src/engines/cert-events.js');
  const {hashToken}=await import('../../scan-api/src/lib/auth-crypto.js');
- const historic={issuer:'same issuer',subject:'same subject',expires_at:'2040-01-01T00:00:00.000Z',san_hostnames:['owned.example.com']};
- assert.equal(await certificateObservationKey(historic),await hashToken('same issuer|same subject|2040-01-01T00:00:00.000Z|owned.example.com'));
- const live={...historic,evidence_source:'live_tls',live_certificate_verified:true,live_tls:{leaf_certificate:{collection_complete:true,certificate_identity:'sha256:'+'a'.repeat(64)}}};
+ const unobserved={issuer:'same issuer',subject:'same subject',expires_at:'2040-01-01T00:00:00.000Z',san_hostnames:['owned.example.com']};
+ assert.equal(await certificateObservationKey(unobserved),null);
+ const live={...unobserved,evidence_source:'live_tls',live_certificate_verified:true,live_tls:{leaf_certificate:{collection_complete:true,certificate_identity:'sha256:'+'a'.repeat(64)}}};
+ assert.equal(await certificateObservationKey(live),await hashToken('live_tls|sha256:'+'a'.repeat(64)));
  const changed=structuredClone(live);changed.live_tls.leaf_certificate.certificate_identity='sha256:'+'b'.repeat(64);
  assert.notEqual(await certificateObservationKey(live),await certificateObservationKey(changed));
- assert.notEqual(await certificateObservationKey(live),await certificateObservationKey(historic));
+ const partial=structuredClone(live);partial.live_tls.leaf_certificate.collection_complete=false;
+ assert.equal(await certificateObservationKey(partial),null);
 });
 
-test('configured collector failure preserves CT but cannot present a valid live certificate',()=>{
- const ssl=attachLiveTlsToSsl({tls_state:'observed_present',https_available:true,cert_not_after:'2040-01-01T00:00:00.000Z',cert_expiry_days:4800,cert_issuer:'CT issuer'}, {error:'live_tls_unavailable',receipt:null});
- const ci=runCertificateIntelligenceModule({ssl,subdomains:{sources:{certspotter:{count:1}}}},'owned.example.com');
- assert.equal(ci.evidence_source,'certificate_transparency');assert.equal(ci.issuer,'CT issuer');assert.equal(ci.certificate_status,'unknown');assert.equal(ci.incomplete,true);assert.equal(ci.live_certificate_verified,false);assert.equal(liveCertificateFindings(ssl,'owned.example.com').length,0);
+test('configured collector failure leaves the certificate unknown, never valid',()=>{
+ const ssl=attachLiveTlsToSsl({tls_state:'observed_present',https_available:true}, {error:'live_tls_unavailable',receipt:null});
+ const ci=runCertificateIntelligenceModule({ssl,subdomains:{wildcard_dns:false,items:[]}},'owned.example.com');
+ assert.equal(ci.evidence_source,'not_observed');assert.equal(ci.issuer,null);assert.equal(ci.certificate_status,'unknown');assert.equal(ci.incomplete,true);assert.equal(ci.live_certificate_verified,false);assert.equal(liveCertificateFindings(ssl,'owned.example.com').length,0);
 });

@@ -137,6 +137,14 @@ const CLOUD_PROVIDER_META = {
   fastly: { display: "Fastly", category: "cdn" },
   akamai: { display: "Akamai", category: "cdn" },
 };
+const DISCOVERY_ASSET_SOURCES = new Set([
+  "dns_discovery",
+  "dns_bruteforce",
+  "dns_srv",
+  "html_link",
+  "certificate_transparency",
+]);
+
 function cloudProviderMeta(token) {
   const t = String(token || "").trim().toLowerCase();
   if (CLOUD_PROVIDER_META[t]) return CLOUD_PROVIDER_META[t];
@@ -150,7 +158,7 @@ function cloudProviderMeta(token) {
 // Reuses the raw stores (workspace_vendors / workspace_assets / identity_assets /
 // email_sender_sources) — no duplicate authoritative observation store.
 async function gatherShadowItObservations(env, workspaceId, saasExposure, {
-  deferCtAssetEvidence = false,
+  deferDiscoveredAssetEvidence = false,
 } = {}) {
   const obs = [];
   const deferredKeys = new Set();
@@ -169,10 +177,13 @@ async function gatherShadowItObservations(env, workspaceId, saasExposure, {
   const assetRead = await readSourceRows(env, "workspace_assets", `SELECT id, hostname, source, cloud_provider, first_seen, last_seen FROM workspace_assets WHERE workspace_id = ? AND status = 'active' AND cloud_provider IS NOT NULL AND cloud_provider != ''`, workspaceId);
   sourceOutcomes.workspace_assets = assetRead.outcome === "failed"
     ? "failed"
-    : deferCtAssetEvidence ? "incomplete" : assetRead.outcome;
+    : deferDiscoveredAssetEvidence ? "incomplete" : assetRead.outcome;
   for (const r of assetRead.rows) {
     const meta = cloudProviderMeta(r.cloud_provider);
-    if (deferCtAssetEvidence && r.source === "certificate_transparency") {
+    // An asset that entered the inventory through subdomain discovery cannot
+    // drive appearance/disappearance while that discovery is incomplete.
+    // historical: assets discovered from certificate logs keep that source.
+    if (deferDiscoveredAssetEvidence && DISCOVERY_ASSET_SOURCES.has(r.source)) {
       deferredKeys.add(canonicalTechnologyKey(meta.display));
       continue;
     }
@@ -329,13 +340,13 @@ export async function correlateShadowItInventory(env, workspaceId, {
 
   // Gather observations from EVERY persisted, safely-joinable source. Each
   // contribution retains a structured evidence reference.
-  const deferCtAssetEvidence = subdomainDiscovery?.executed === false ||
+  const deferDiscoveredAssetEvidence = subdomainDiscovery?.executed === false ||
     subdomainDiscovery?.incomplete === true;
   const { observations, deferredKeys, sourceOutcomes } = await gatherShadowItObservations(
     env,
     workspaceId,
     saasExposure,
-    { deferCtAssetEvidence },
+    { deferDiscoveredAssetEvidence },
   );
 
   // Group observations by canonical technology key (alias-resolved). Unrelated

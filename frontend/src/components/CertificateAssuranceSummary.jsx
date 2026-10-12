@@ -96,7 +96,7 @@ export default function CertificateAssuranceSummary({
   const signals = presentation.signals || {}
   const summary = presentation.summary || {}
   const keys = compact
-    ? ['certificate_transparency', 'leaf', 'hostname_match', 'chain', 'trust_store_validation', 'revocation_assurance']
+    ? ['leaf', 'expiry', 'hostname_match', 'chain', 'trust_store_validation', 'revocation_assurance']
     : (presentation.signal_order || Object.keys(signals))
 
   return (

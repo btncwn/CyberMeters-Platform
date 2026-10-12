@@ -1,8 +1,9 @@
 // ── Certificates & Trust L2 intelligence ──
 // Compute-on-read certificate findings, renewal readiness, trust-path posture and
-// historical anomalies from existing CT/report evidence. This layer is deliberately
-// honest about current evidence limits: no live TLS handshake, no chain validation,
-// no OCSP/revocation result and no private-key inspection.
+// historical anomalies from the certificate the live site presented and stored
+// certificate history. This layer is deliberately honest about its limits: it
+// performs no handshake of its own, no chain validation, no OCSP/revocation
+// check and no private-key inspection.
 import {
   detectSelfSignedCertificate,
   mapCertificateAuthorityOwner,
@@ -18,7 +19,6 @@ const FINDING_TYPES = new Set([
   "unexpected_wildcard",
   "parallel_certificate",
   "coverage_gap",
-  "ct_source_incomplete",
   "unknown",
 ]);
 
@@ -52,6 +52,12 @@ function daysUntil(expiresAt, fallback, nowMs) {
   return Math.ceil((expires - nowMs) / 86_400_000);
 }
 
+// How the certificate behind a finding was observed: the live TLS handshake, or
+// not at all.
+function observedVia(cert) {
+  return cert?.evidence_source === "live_tls" ? "live_tls" : "not_observed";
+}
+
 function addFinding(findings, finding) {
   if (!finding || !FINDING_TYPES.has(finding.type)) return;
   findings.push({
@@ -59,7 +65,6 @@ function addFinding(findings, finding) {
     reasons: [],
     evidence: [],
     remediation: [],
-    observed_via: "ct",
     ...finding,
   });
 }
@@ -70,7 +75,7 @@ function certEvidence(cert, extra = {}) {
     issuer: cert.issuer || null,
     subject: cert.subject || null,
     expires_at: cert.expires_at || null,
-    observed_via: "ct",
+    observed_via: observedVia(cert),
     ...extra,
   };
 }
@@ -227,16 +232,16 @@ function buildAnomalies(cert, rows) {
       severity: "medium",
       confidence: "medium",
       title: "New wildcard certificate name observed",
-      reasons: ["A wildcard SAN appears in current CT evidence but was not present in prior certificate history."],
+      reasons: ["A wildcard SAN appears on the current certificate but was not present in prior certificate history."],
       evidence: [certEvidence(cert, { wildcard_sans: newWildcards })],
       first_seen: null,
       prior: [...priorSans].filter((san) => san.startsWith("*.")).sort(),
     });
   }
 
-  // A parallel set is a simultaneous LIVE endpoint observation. Multiple
-  // unexpired CT issuances or historical rows do not establish simultaneous
-  // serving and must never manufacture this anomaly.
+  // A parallel set is a simultaneous LIVE endpoint observation. Historical rows
+  // do not establish simultaneous serving and must never manufacture this
+  // anomaly.
   const parallelSignal =
     cert?.signal_completeness?.signals?.parallel_certificate_set;
   if (
@@ -278,11 +283,13 @@ export function buildCertificateTrustL2(cert, options = {}) {
   const current = cert || {};
   const rows = historyRows(options.history);
   const findings = [];
+  const via = observedVia(current);
   const days = daysUntil(current.expires_at, current.days_until_expiry, nowMs);
   const selfSigned = current.self_signed ?? detectSelfSignedCertificate(current.issuer, current.subject);
 
   if (days !== null && days < 0) {
     addFinding(findings, {
+      observed_via: via,
       type: "expired",
       severity: "critical",
       confidence: "high",
@@ -293,6 +300,7 @@ export function buildCertificateTrustL2(cert, options = {}) {
     });
   } else if (days !== null && days <= 30) {
     addFinding(findings, {
+      observed_via: via,
       type: "expiring_soon",
       severity: days <= 14 ? "high" : "medium",
       confidence: "high",
@@ -305,6 +313,7 @@ export function buildCertificateTrustL2(cert, options = {}) {
 
   if (selfSigned === true) {
     addFinding(findings, {
+      observed_via: via,
       type: "self_signed",
       severity: "high",
       confidence: "medium",
@@ -315,28 +324,17 @@ export function buildCertificateTrustL2(cert, options = {}) {
     });
   }
 
-  // Every CT source this scan used returned no hostnames (one or two providers).
-  const ctCounts = Object.values(current.ct_sources || {});
-  if (ctCounts.length > 0 && ctCounts.every((value) => value === 0)) {
+  if (via === "not_observed" || (!current.issuer && !current.expires_at && !current.subject)) {
     addFinding(findings, {
-      type: "ct_source_incomplete",
-      severity: "low",
-      confidence: "medium",
-      title: "Certificate Transparency source incomplete",
-      reasons: ["No CT source returned certificate hostnames for this scan."],
-      evidence: [certEvidence(current, { ct_sources: current.ct_sources })],
-      remediation: ["Review again after the next scan; CT source availability can vary."],
-    });
-  }
-
-  if (!current.issuer && !current.expires_at && !current.subject) {
-    addFinding(findings, {
+      observed_via: via,
       type: "coverage_gap",
       severity: "info",
       confidence: "high",
       title: "Certificate detail unavailable",
-      reasons: ["The latest evidence did not include issuer, subject or expiry details."],
-      evidence: [{ source: "certificate_intelligence", observed_via: "ct" }],
+      reasons: [via === "not_observed"
+        ? "The certificate the site presents was not observed in the latest scan."
+        : "The latest evidence did not include issuer, subject or expiry details."],
+      evidence: [{ source: "certificate_intelligence", observed_via: via }],
       remediation: ["Run a fresh Cyber MOT and confirm the domain serves HTTPS where expected."],
     });
   }
@@ -344,10 +342,11 @@ export function buildCertificateTrustL2(cert, options = {}) {
   const anomalies = buildAnomalies(current, rows);
   for (const anomaly of anomalies) {
     addFinding(findings, {
+      observed_via: via,
       ...anomaly,
       observed_via: anomaly.type === "parallel_certificate"
         ? "live_tls_endpoint_set"
-        : "ct",
+        : observedVia(current),
       remediation: anomaly.type === "unexpected_issuer"
         ? ["Confirm the issuer change was expected and tied to a planned renewal or hosting change."]
         : anomaly.type === "unexpected_wildcard"
@@ -360,11 +359,12 @@ export function buildCertificateTrustL2(cert, options = {}) {
 
   if (findings.length === 0) {
     addFinding(findings, {
+      observed_via: via,
       type: "unknown",
       severity: "info",
       confidence: "low",
       title: "No certificate L2 gaps found from available evidence",
-      reasons: ["Available CT and historical evidence did not show a specific certificate gap."],
+      reasons: ["The available live TLS and historical certificate evidence did not show a specific certificate gap."],
       evidence: [certEvidence(current, { trust_path_limit: UNKNOWN_LIVE_TLS_REASON })],
       remediation: ["Use live TLS inspection if you need chain, root trust, OCSP or served-certificate verification."],
     });

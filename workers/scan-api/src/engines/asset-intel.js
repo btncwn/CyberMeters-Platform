@@ -648,8 +648,8 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
           dns_resolution: dnsRemovalSignal([a, aaaa]),
           http_https_service: httpRemovalSignal(asset),
         },
-        // CT/passive discovery may select a target, but it is deliberately not
-        // an active confirmation source and is never recorded in this list.
+        // Discovery may select a target, but it is deliberately not an active
+        // confirmation source and is never recorded in this list.
         active_sources: ["dns_resolution", "http_https_service"],
         passive_sources: [],
       },

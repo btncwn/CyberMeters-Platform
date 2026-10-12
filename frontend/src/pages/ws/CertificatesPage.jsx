@@ -28,8 +28,10 @@ function trustPathState(row) {
   if (signals.expiry?.state === 'observed' && row.days_until_expiry < 0) {
     return { label: 'Expired certificate observed', tone: 'bad' }
   }
+  // historical: records stored before certificate logs were retired can carry
+  // only a log record and no live certificate.
   if (assurance.summary?.ct_only === true) {
-    return { label: 'CT issuance only', tone: 'info' }
+    return { label: 'Historical log record only', tone: 'info' }
   }
   if (signals.leaf?.state === 'observed') {
     return { label: 'Live TLS certificate observed', tone: 'info' }
@@ -320,7 +322,7 @@ export default function CertificatesPage() {
           <div id="cert-trust" className="card p-6 mb-6 scroll-mt-20">
             <h2 className="font-semibold text-gray-900 mb-1">Trust posture</h2>
             <p className="text-sm text-gray-500 leading-relaxed mb-4 max-w-3xl">
-              CT issuance, active HTTPS, a live-presented certificate, hostname match, chain evidence, declared trust-store validation and revocation assurance are separate observations.
+              Active HTTPS, the live-presented certificate, hostname match, chain evidence, declared trust-store validation and revocation assurance are separate observations.
             </p>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
               <TrustTile icon={Clock}       label="Certificate expiry"      status={expiryTile.status} tone={expiryTile.tone} hint="Expiry across monitored hosts" />
@@ -345,7 +347,7 @@ export default function CertificatesPage() {
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
                   <h2 className="font-semibold text-gray-900">Certificate L2 findings</h2>
-                  <p className="text-sm text-gray-500 mt-1">Certificate changes and renewal-readiness signals from their declared CT, historical or live observation scopes.</p>
+                  <p className="text-sm text-gray-500 mt-1">Certificate changes and renewal-readiness signals from live and historical observations.</p>
                 </div>
                 <span className="text-sm text-gray-400">{l2Findings.length + anomalies.length} item{l2Findings.length + anomalies.length === 1 ? '' : 's'}</span>
               </div>
@@ -366,7 +368,7 @@ export default function CertificatesPage() {
             <DataTable
               columns={COLUMNS}
               rows={certs}
-              empty={<div className="py-12 text-center text-sm text-gray-400">No certificate evidence found. Run a scan to record available CT issuance and live HTTPS observations.</div>}
+              empty={<div className="py-12 text-center text-sm text-gray-400">No certificate evidence found. Run a scan to record the certificate your site presents.</div>}
             />
           </div>
 

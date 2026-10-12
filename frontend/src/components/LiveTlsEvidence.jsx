@@ -34,7 +34,7 @@ export default function LiveTlsEvidence({ evidence, showEndpoints = true }) {
       <p className="text-xs text-gray-500">These observations describe the recorded connection. They do not establish that every endpoint or the whole service is secure.</p>
       {evidence.all_planned_endpoints_observed === false && <p className="text-sm text-amber-800">Endpoint coverage is incomplete. Unmeasured endpoints remain unknown.</p>}
       {evidence.all_planned_endpoints_observed === true && endpoints.length > 0 && <p className="text-sm text-gray-600">All planned endpoints were observed in this run.</p>}
-      {!collected ? <p className="text-sm text-gray-600">A complete live certificate was not recorded. Existing certificate-log evidence is separate; it does not confirm the certificate currently served.</p> : <>
+      {!collected ? <p className="text-sm text-gray-600">A complete live certificate was not recorded, so the certificate currently served is unknown.</p> : <>
         <dl className="grid gap-3 sm:grid-cols-2">
           <Field label="Endpoint">{endpoint(evidence.endpoint)}</Field>
           <Field label="Reference hostname or address">{text(match.reference_hostname || evidence.endpoint?.hostname)}</Field>

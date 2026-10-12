@@ -124,8 +124,8 @@ export async function billingRoutes(rctx) {
 
       // Global backstop: the per-IP cap alone doesn't bound a distributed /
       // botnet attack that spreads guesses across many IPs to drive scan cost
-      // (each scan fans out ~10-20 subrequests, several to external CT services
-      // that can throttle our egress IP). This aggregate ceiling — fail-closed,
+      // (each scan fans out ~10-20 subrequests that can get our egress IP
+      // throttled). This aggregate ceiling — fail-closed,
       // so it can't be evaporated during the D1 stress an attack causes — bounds
       // total free-scan volume regardless of source IP. Generous enough not to
       // affect legitimate traffic at beta scale; tune via the constant.

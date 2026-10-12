@@ -56,9 +56,14 @@ export function projectCertificateSharedSanForCustomer({
   const schemaVersionIsValid = schemaVersionIsMissing || versionMatch != null;
   const postCutover = versionMatch != null &&
     Number(versionMatch[1]) >= POST_CUTOVER_SCHEMA_VERSION;
-  const rawSharedSanCount = ssl?.cert_shared_san_count;
-  // A CT source answered with a SAN-bearing result and the count is a
-  // non-negative integer.
+  // A live leaf measures the count from its own SAN list; a stored record from
+  // an earlier scan carries it as a raw field (historical).
+  const liveOwnership = ssl?.live_certificate?.collection_complete === true
+    ? buildCertificateOwnershipAssessment(ssl, domain)
+    : null;
+  const rawSharedSanCount = liveOwnership
+    ? liveOwnership.shared_san_count
+    : ssl?.cert_shared_san_count;
   const fivePredicatesHold = sharedSanMeasured(ssl);
   const evidenceComplete = rawCertificateIntelligence.incomplete !== true;
 

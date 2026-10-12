@@ -16,13 +16,11 @@ import { loadTimelineComparisonContext } from "./timeline-trust.js";
 
 // ── Standing-condition dedupe ────────────────────────────────────────────────
 //
-// The three certificate condition events below are STANDING conditions: while
-// the underlying fact holds, a naive producer re-fires an identical asset_event
-// on every comparable scan (a persisting sensitive host, a certificate still
-// inside its expiry window, a CT footprint still over threshold). That is
-// timeline noise, not a security event.
+// Certificate expiry is a STANDING condition: while the certificate stays inside
+// its expiry window, a naive producer re-fires an identical asset_event on every
+// comparable scan. That is timeline noise, not a security event.
 //
-// Each condition is reduced to a deterministic *signature* of its current state
+// The condition is reduced to a deterministic *signature* of its current state
 // (null when the condition is absent). An event is emitted only when either:
 //   • this workspace has never recorded that condition before (its own first
 //     occurrence — preserves per-workspace fan-out for a late-joining
@@ -31,39 +29,16 @@ import { loadTimelineComparisonContext } from "./timeline-trust.js";
 //     scan (the previous scan's report, read structurally — never parsed from
 //     prose).
 //
-// Signatures are intentionally coarse so within-condition drift stays silent
-// while genuine transitions still surface:
-//   sensitive host — the sorted SET of sensitive hostnames (a new/removed host
-//                    changes it; the same set does not).
-//   expiring soon  — severity band (<14d critical vs <30d medium) plus the
-//                    certificate's expires_at, so entry into the window, a
-//                    severity escalation, and a renewed-then-re-expiring
-//                    certificate each emit, but the daily countdown does not.
-//   growth         — a single threshold-crossing state. The condition is
-//                    "unusual growth detected"; it surfaces once on crossing
-//                    >50 and again only after the footprint drops back to/below
-//                    threshold and re-crosses. Re-alerting on further magnitude
-//                    of an already-declared growth condition is deliberately
-//                    NOT done here — that is a separate product decision, not a
-//                    new occurrence of this condition.
-
-export function certSensitiveHostSignature(certMod) {
-  const hosts = Array.isArray(certMod?.issued_for_sensitive_hosts) ? certMod.issued_for_sensitive_hosts : [];
-  if (hosts.length === 0) return null;
-  return [...new Set(hosts.map((h) => String(h)))].sort().join("\n");
-}
+// The signature is the severity band (<14d critical vs <30d medium) plus the
+// certificate's expires_at, so entry into the window, a severity escalation, and
+// a renewed-then-re-expiring certificate each emit, but the daily countdown does
+// not.
 
 export function certExpiringSoonSignature(certMod) {
   const days = certMod?.days_until_expiry;
   if (days == null || !(days < 30)) return null;
   const band = days < 14 ? "critical" : "medium";
   return `${band}|${certMod?.expires_at ?? ""}`;
-}
-
-export function certGrowthSignature(certMod) {
-  const total = certMod?.total_certificates_seen;
-  if (!(Number.isFinite(total) && total > 50)) return null;
-  return "over_threshold";
 }
 
 /**
@@ -111,10 +86,8 @@ async function loadActiveCertificateWorkspaces(env, domainId) {
 /**
  * insertCertificateEvents(scanId, domainId, certMod, env)
  *
- * Event types written:
- *   certificate_sensitive_host_detected — sensitive hostnames in CT logs
- *   certificate_expiring_soon           — expiry < 30 days
- *   certificate_growth_detected         — CT count > 50 hostnames
+ * Event type written:
+ *   certificate_expiring_soon — the live certificate expires in < 30 days
  */
 export async function insertCertificateEvents(scanId, domainId, certMod, env, opts = {}) {
   if (!certMod || certMod.error) return;
@@ -140,67 +113,26 @@ export async function insertCertificateEvents(scanId, domainId, certMod, env, op
   // Content baseline for standing-condition dedupe: the previous comparable
   // scan's certificate module, read structurally (never parsed from prose).
   const prevCertMod = comparison.previousReport?.modules?.certificate_intelligence ?? null;
-  const sensitiveSigCur  = certSensitiveHostSignature(certMod);
-  const sensitiveSigPrev = certSensitiveHostSignature(prevCertMod);
   const expirySigCur     = certExpiringSoonSignature(certMod);
   const expirySigPrev    = certExpiringSoonSignature(prevCertMod);
-  const growthSigCur     = certGrowthSignature(certMod);
-  const growthSigPrev    = certGrowthSignature(prevCertMod);
 
   for (const { workspace_id } of wsRows) {
-    // Which of these condition events this workspace has ALREADY recorded for
-    // this domain (per-workspace last-occurrence tracking; one bounded query).
+    // Whether this workspace has ALREADY recorded the condition for this domain
+    // (per-workspace last-occurrence tracking; one bounded query).
     let priorTypes = new Set();
     try {
       const priorRows = await env.cybermeters_db
         .prepare(
           `SELECT DISTINCT event_type FROM asset_events
            WHERE workspace_id = ? AND domain_id = ?
-             AND event_type IN ('certificate_sensitive_host_detected',
-                                'certificate_expiring_soon',
-                                'certificate_growth_detected')`
+             AND event_type = 'certificate_expiring_soon'`
         )
         .bind(workspace_id, domainId)
         .all();
       priorTypes = new Set((priorRows.results || []).map((row) => row.event_type));
-    } catch { /* treat as no prior events → conditions surface once */ }
+    } catch { /* treat as no prior events → the condition surfaces once */ }
 
-    // 1. Sensitive hosts detected in CT
-    if (
-      certMod.issued_for_sensitive_hosts?.length > 0 &&
-      shouldEmitCertConditionEvent(sensitiveSigCur, sensitiveSigPrev, priorTypes.has("certificate_sensitive_host_detected"))
-    ) {
-      try {
-        await env.cybermeters_db
-          .prepare(
-            `INSERT OR IGNORE INTO asset_events
-               (id, workspace_id, domain_id, scan_id, event_type,
-                hostname, severity, description, created_at)
-             VALUES (?, ?, ?, ?, 'certificate_sensitive_host_detected',
-                     ?, ?, ?, ?)`
-          )
-          .bind(
-            await certConditionEventId({
-              workspaceId: workspace_id,
-              domainId,
-              scanId,
-              eventType: "certificate_sensitive_host_detected",
-              signature: sensitiveSigCur,
-            }),
-            workspace_id,
-            domainId,
-            scanId,
-            certMod.issued_for_sensitive_hosts[0],   // first / most notable
-            certMod.issued_for_sensitive_hosts.length >= 5 ? "high" : "medium",
-            `${certMod.issued_for_sensitive_hosts.length} sensitive hostname(s) found in CT logs: ` +
-              certMod.issued_for_sensitive_hosts.slice(0, 5).join(", "),
-            now
-          )
-          .run();
-      } catch { /* non-fatal */ }
-    }
-
-    // 2. Certificate expiring soon
+    // Certificate expiring soon
     const days = certMod.days_until_expiry;
     if (
       days !== null && days < 30 &&
@@ -234,39 +166,6 @@ export async function insertCertificateEvents(scanId, domainId, certMod, env, op
           .run();
       } catch { /* non-fatal */ }
     }
-
-    // 3. Unusual certificate growth
-    if (
-      certMod.total_certificates_seen > 50 &&
-      shouldEmitCertConditionEvent(growthSigCur, growthSigPrev, priorTypes.has("certificate_growth_detected"))
-    ) {
-      try {
-        await env.cybermeters_db
-          .prepare(
-            `INSERT OR IGNORE INTO asset_events
-               (id, workspace_id, domain_id, scan_id, event_type,
-                hostname, severity, description, created_at)
-             VALUES (?, ?, ?, ?, 'certificate_growth_detected',
-                     ?, 'medium', ?, ?)`
-          )
-          .bind(
-            await certConditionEventId({
-              workspaceId: workspace_id,
-              domainId,
-              scanId,
-              eventType: "certificate_growth_detected",
-              signature: growthSigCur,
-            }),
-            workspace_id,
-            domainId,
-            scanId,
-            null,
-            `${certMod.total_certificates_seen} unique hostnames found in CT logs.`,
-            now
-          )
-          .run();
-      } catch { /* non-fatal */ }
-    }
   }
 }
 
@@ -281,22 +180,23 @@ export async function insertCertificateEvents(scanId, domainId, certMod, env, op
  *
  * All writes are non-fatal so an unapplied v2 migration cannot break scans.
  */
+// A certificate identity exists only for a leaf the live TLS collector captured
+// completely; anything else has no key and is never persisted.
 export async function certificateObservationKey(certMod) {
   const leaf = certMod?.live_tls?.leaf_certificate;
   if (certMod?.evidence_source === 'live_tls' && certMod.live_certificate_verified === true && leaf?.collection_complete === true && /^sha256:[a-f0-9]{64}$/.test(leaf.certificate_identity || '')) {
     return hashToken(`live_tls|${leaf.certificate_identity}`);
   }
-  // Historical CT keys remain byte-for-byte the same.
-  return hashToken([certMod.issuer || 'unknown', certMod.subject ?? '', certMod.expires_at ?? '', (Array.isArray(certMod.san_hostnames) ? certMod.san_hostnames : []).slice().sort().join(',')].join('|'));
+  return null;
 }
 
 export async function upsertCertificateObservation(scanId, domainId, certMod, env, opts = {}) {
   if (!certMod || certMod.error) return;
-  // The table is certificate-identity history, not a scan-level CT health log.
-  // Once P2 completeness is present, require a positive CT-scoped certificate
-  // field before deriving a certificate key. A provider blackout must remain in
-  // the raw scan evidence and must not create an "unknown" pseudo-certificate,
-  // churn event or false healthy/alertable persistence record.
+  // The table is certificate-identity history. Only a certificate the live TLS
+  // collector captured is an identity; a scan that observed none must not create
+  // an "unknown" pseudo-certificate, churn event or false healthy record.
+  const certificateKey = await certificateObservationKey(certMod);
+  if (!certificateKey) return;
   const signalCompleteness = certMod.signal_completeness;
   if (signalCompleteness?.signals) {
     const identitySignals = ["san", "issuer", "expiry"];
@@ -344,14 +244,13 @@ export async function upsertCertificateObservation(scanId, domainId, certMod, en
 	    self_signed: certMod.self_signed ?? detectSelfSignedCertificate(issuer, subject),
 	    ca_concentration_signal: certMod.ca_concentration ?? buildCaConcentrationAnalytics(issuer !== "unknown" ? [issuer] : []),
 	    certificate_status: certMod.certificate_status ?? null,
-	    source: certMod.source ?? "ssl_ct_correlation",
+	    source: certMod.source ?? "live_tls",
 	    signal_completeness: certMod.signal_completeness ?? null,
         live_tls: certMod.live_tls ?? null,
-        evidence_source: certMod.evidence_source ?? 'certificate_transparency',
+        evidence_source: certMod.evidence_source ?? 'live_tls',
         live_certificate_verified: certMod.live_certificate_verified === true,
 	  });
 
-  const certificateKey = await certificateObservationKey(certMod);
   const caVendor = normalizeCertificateAuthorityVendor(issuer);
 
   for (const { workspace_id } of wsRows) {

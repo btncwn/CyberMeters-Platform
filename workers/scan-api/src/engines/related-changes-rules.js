@@ -48,8 +48,8 @@ const SHADOW_SOURCE_TO_FAMILY = Object.freeze({
 // total distinct families selected is >= 2.
 export const RELATED_CHANGE_RULES = Object.freeze([
   // Cert halves say "a certificate signal", never "a new or changed certificate":
-  // the cert family also matches standing conditions (sensitive hostname in CT,
-  // expiring soon), so a more specific claim could say more than the evidence.
+  // the cert family also matches standing conditions (e.g. a certificate expiring
+  // soon), so a more specific claim could say more than the evidence.
   {
     id: "new_host_with_cert",
     title: "New host with a certificate signal",

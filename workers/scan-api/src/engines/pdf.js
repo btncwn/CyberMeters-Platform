@@ -471,7 +471,7 @@ function withoutRuntimeNames(value) {
 
 const RFC_PROTOCOL_NAMES = Object.freeze({
   7208: "SPF", 6376: "DKIM", 9989: "DMARC", 8461: "MTA-STS", 8460: "TLS reporting",
-  9162: "Certificate Transparency", 1035: "DNS", 9110: "HTTP", 6797: "HSTS",
+  1035: "DNS", 9110: "HTTP", 6797: "HSTS",
 });
 
 function customerBodyText(value) {
@@ -495,7 +495,6 @@ function customerBodyText(value) {
     .replace(/\bRFC\s+9989\b/gi, "the DMARC protocol")
     .replace(/\bRFC\s+8461\b/gi, "the MTA-STS protocol")
     .replace(/\bRFC\s+8460\b/gi, "the TLS reporting protocol")
-    .replace(/\bRFC\s+9162\b/gi, "the Certificate Transparency protocol")
     .replace(/\bRFC\s+1035\b/gi, "the DNS protocol")
     .replace(/\bRFC\s+9110\b/gi, "the HTTP protocol")
     .replace(/\bRFC\s+6797\b/gi, "the HSTS standard")
@@ -803,7 +802,9 @@ function sectionCertificateAssurance(w, snap, { detail = "full" } = {}) {
     color: "0.35 0.38 0.44",
   });
   for (const [label, value] of [
-    ["CT issuance", summary.ct_issuance],
+    // historical: snapshots frozen before certificate logs were retired carry
+    // this row; it is rendered as recorded and never produced for new scans.
+    ...(summary.ct_issuance ? [["Certificate log record (historical)", summary.ct_issuance]] : []),
     ["Live TLS certificate", summary.live_tls_certificate],
     ["Declared trust-store validation", summary.trust_store_validation],
     ["OCSP / revocation assurance", summary.revocation_assurance],
@@ -1058,8 +1059,8 @@ function sectionRemediation(w, snap, {
 // Presentation-only labels for the deterministic Related Changes rules. NOT a source
 // of meaning (the backend owns that) — just human titles for the frozen summary.
 // Cert halves say "a certificate signal", never "a new or changed certificate":
-// the rule's cert family also matches standing conditions (sensitive hostname in
-// CT, expiring soon), so a more specific claim could say more than the evidence.
+// the rule's cert family also matches standing conditions (e.g. a certificate
+// expiring soon), so a more specific claim could say more than the evidence.
 // Wording is kept identical to frontend RULE_LABELS (relatedChangesDisplay.js).
 // Same customer words the web report uses (frontend relatedChangesDisplay.js).
 const RELATED_CHANGE_DIRECTION_TEXT = Object.freeze({ appeared: "appeared", changed: "changed", degraded: "degraded" });
@@ -1706,6 +1707,8 @@ function executiveAreaRows(w, snap) {
     let reason = executiveText(d?.state_reason || d?.summary);
     // Translate this implementation explanation only; the technical record is unchanged.
     reason = reason.replace(/Identity reachability was not evaluated\s*[-–—]\s*no supported reachability producer is implemented\.\s*Provider relationships and possible hostnames remain visible for review\./, "Sign-in endpoint reachability was not assessed; provider relationships and possible hostnames remain visible for review.");
+    // historical: a snapshot frozen when certificate-log evidence existed without
+    // a live certificate keeps that limitation in its rendering.
     if (name === "Certificates & Trust" && certificateAssuranceFromSnapshot(snap).summary?.ct_only === true) {
       reason += " Certificate log evidence only; live certificate and trust are not verified.";
     }

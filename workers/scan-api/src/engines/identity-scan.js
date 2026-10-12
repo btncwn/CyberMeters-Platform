@@ -280,12 +280,12 @@ export function runIdentityDiscoveryModule(modules, domain, { observedAt = null 
     }
 
     // ── 2. Hostname classification ────────────────────────────────────────
-    // Preserve every real CT/DNS provenance item for the same hostname.
+    // Preserve every real DNS provenance item for the same hostname.
     const hostSources = new Map();
     for (const item of (modules?.subdomains?.items ?? [])) {
       const hostname = typeof item === "string" ? item : item?.hostname;
       addHostEvidence(hostSources, hostname, {
-        source: "certificate_transparency",
+        source: "dns_discovery",
         value: hostname,
         provenance: { producer: "identity_discovery", module: "subdomains", path: "items[]" },
         nameResolution: "not_evaluated",

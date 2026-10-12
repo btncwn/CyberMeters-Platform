@@ -8,7 +8,7 @@ export const IDENTITY_EVIDENCE_SCHEMA_VERSION = "identity_evidence.v2";
 export const IDENTITY_CONFIDENCE_SCHEMA_VERSION = "identity_confidence.v1";
 export const IDENTITY_CLAIM_SCHEMA_VERSION = "identity_claim.v2";
 
-// Reuses the real, SSRF-guarded asset HTTP probe; DNS/CT records never establish
+// Reuses the real, SSRF-guarded asset HTTP probe; DNS records never establish
 // reachability. Only same-host, positive HTTP measurements are admitted.
 export const IDENTITY_REACHABILITY_PRODUCERS = Object.freeze(["asset_exposure_http.v1"]);
 export function hasIdentityReachabilityProducer() {
@@ -169,7 +169,10 @@ export function projectRelatedChangeRecurrence(row = {}) {
 
 export const IDENTITY_EVIDENCE_SOURCES = Object.freeze([
   "cname", "spf", "mx", "csp", "server",
-  "certificate_transparency", "dns_bruteforce", "dns_mx", "http_response", "unknown",
+  "dns_discovery", "dns_bruteforce", "dns_mx", "http_response", "unknown",
+  // historical: stored identity evidence recorded before certificate logs were
+  // retired keeps this source; nothing produces it now.
+  "certificate_transparency",
 ]);
 export const IDENTITY_PROVENANCE_MODULES = Object.freeze([
   "subdomain_takeover", "asset_exposure", "dns_bruteforce", "email_security",

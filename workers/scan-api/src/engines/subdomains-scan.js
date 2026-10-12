@@ -200,7 +200,7 @@ export const BRUTE_FORCE_WORDLIST = Object.freeze([
 // First labels whose exposure matters most: administration, authentication,
 // remote access, pre-production copies and self-hosted tooling. Exposure
 // probing is capped (asset-intel probes the first 50 targets), so these are
-// ordered first and can never be crowded out by ordinary CT names.
+// ordered first and can never be crowded out by ordinary discovered names.
 export const HIGH_VALUE_EXPOSURE_LABELS = Object.freeze([
   "admin", "login", "portal", "dashboard", "manage", "management",
   "vpn", "remote", "rdp", "citrix", "gateway", "sso", "auth",
@@ -249,7 +249,7 @@ const MAIL_SUBDOMAIN_LABELS = [
 ];
 
 // Standard service-location records (RFC 2782 SRV). Their targets name real
-// hosts — often ones a wildcard certificate keeps out of CT. Only targets
+// hosts a word list would miss. Only targets
 // under the scanned domain are kept; third-party targets (e.g. a hosted mail
 // provider) are not the customer's surface. Queried in parallel with the MX
 // pass, so the module's slowest path is unchanged.
@@ -269,8 +269,8 @@ export function srvTargetsUnder(domain, answers = []) {
   return [...targets];
 }
 
-// SRV targets and hosts the home page links to, appended after the names CT
-// and the word list found. Discovery order is kept; nothing is duplicated.
+// SRV targets and hosts the home page links to, appended after the names the
+// word list found. Discovery order is kept; nothing is duplicated.
 export function withReferencedHostnames(discovered = [], { srvItems = [], linkedHostnames = [] } = {}) {
   const base = Array.isArray(discovered) ? discovered : [];
   const seen = new Set(base);

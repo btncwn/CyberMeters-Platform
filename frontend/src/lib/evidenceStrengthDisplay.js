@@ -39,7 +39,6 @@ export function customerEvidenceText(value) {
     .replace(/\bRFC\s+9989\b/gi, 'the DMARC protocol')
     .replace(/\bRFC\s+8461\b/gi, 'the MTA-STS protocol')
     .replace(/\bRFC\s+8460\b/gi, 'the TLS reporting protocol')
-    .replace(/\bRFC\s+9162\b/gi, 'the Certificate Transparency protocol')
     .replace(/\bRFC\s+1035\b/gi, 'the DNS protocol')
     .replace(/\bRFC\s+9110\b/gi, 'the HTTP protocol')
     .replace(/\bRFC\s+6797\b/gi, 'the HSTS standard')

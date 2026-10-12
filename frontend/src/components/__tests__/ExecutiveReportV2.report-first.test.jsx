@@ -66,7 +66,7 @@ function reportFixture() {
       modules_skipped: ['asset_exposure'],
       skipped_score_bearing_modules: ['asset_exposure'],
       monitoring_degraded_signals: [
-        { signal: 'certificate_transparency', state: 'signal_unavailable', message: 'Provider evidence was unavailable.' },
+        { signal: 'attack_surface', state: 'signal_unavailable', message: 'Attack-surface data was unavailable in this run.' },
       ],
     },
     cyber_mot_domains: CYBER_MOT_DISPLAY_ORDER.map((domain) => ({
@@ -99,10 +99,9 @@ function reportFixture() {
 }
 
 const healthyMonitoring = () => ({
-  version: 'signal-monitoring-state-v1',
+  version: 'signal-monitoring-state-v2',
   signals: Object.fromEntries([
     'dns',
-    'certificate_transparency',
     'website_security',
     'email_protection',
     'attack_surface',

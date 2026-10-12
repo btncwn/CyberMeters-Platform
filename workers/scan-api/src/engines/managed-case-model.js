@@ -182,8 +182,8 @@ function baseEntry(domain_key, case_type) {
 //     blanket answer is wrong in both directions at once. Under the old blanket `manual`,
 //     a customer could attest an EXPIRED certificate "verified" (registry:
 //     `certificate_recheck` — CyberMeters re-observes certificates on every scan), and
-//     could attest a Certificate Transparency blackout resolved (registry: `unsupported`
-//     — nothing can verify it). Both were reproduced before this change.
+//     could attest an unverifiable certificate-source gap resolved (registry:
+//     `unsupported` — nothing can verify it). Both were reproduced before this change.
 //
 //   identity_case     → NOT derived, and correctly so: all eight identity_* remediations
 //     are `manual_attestation`, so the blanket and the registry already agree. Deriving

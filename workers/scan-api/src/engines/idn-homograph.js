@@ -1,7 +1,7 @@
 // ── Brand IDN / Unicode homograph analysis ──────────────────────────────────
 //
 // Pure, Worker-compatible detection core for Item 8 PR-A. This module does no
-// DNS, CT, persistence, alerting or case work. It keeps four distinct facts
+// DNS, persistence, alerting or case work. It keeps four distinct facts
 // separate:
 //   1. the submitted hostname,
 //   2. its validated IDNA A-label/U-label round-trip,

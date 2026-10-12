@@ -17,7 +17,6 @@ const EXPECTED_MODULES = Object.freeze([
   Object.freeze({ module: 'ssl', label: 'TLS' }),
   Object.freeze({ module: 'headers', label: 'Headers' }),
   Object.freeze({ module: 'email_security', label: 'Email' }),
-  Object.freeze({ module: 'subdomains', label: 'Certificate Transparency' }),
   Object.freeze({ module: 'technology_detection', label: 'Technology' }),
 ])
 
@@ -184,7 +183,6 @@ export function deriveFreeScanPresentation(result) {
       dns: normalizedSignal(result, 'dns'),
       website_security: normalizedSignal(result, 'website_security'),
       email_protection: normalizedSignal(result, 'email_protection'),
-      certificate_transparency: normalizedSignal(result, 'certificate_transparency'),
     },
   }
 }

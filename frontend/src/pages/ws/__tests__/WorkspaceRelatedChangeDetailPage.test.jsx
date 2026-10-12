@@ -299,9 +299,9 @@ describe('WorkspaceRelatedChangeDetailPage', () => {
     // The raw enum never reaches the customer.
     expect(screen.queryByText(/certificate_sensitive_host_detected/)).not.toBeInTheDocument()
     // The evidence row and the header signals line tell the same story as the
-    // producer: a sensitive hostname observed in CT — not a new/changed cert.
+    // producer: a historical sensitive-hostname observation — not a new/changed cert.
     expect(
-      screen.getAllByText(/Sensitive hostname observed in certificate-transparency logs/).length,
+      screen.getAllByText(/Sensitive hostname observed in a certificate log \(historical\)/).length,
     ).toBeGreaterThanOrEqual(2)
     expect(screen.getByText(/Signals observed:/)).toBeInTheDocument()
   })

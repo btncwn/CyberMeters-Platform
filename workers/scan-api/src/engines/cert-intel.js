@@ -55,10 +55,10 @@ function subjectCommonName(subject) {
 }
 
 // Whether a shared-SAN count is a measurement. A live leaf always measures it
-// from its own SAN list. A stored record from an earlier scan measured it only
-// when a source answered with a SAN-bearing result and recorded a non-negative
-// integer count (sentinel precedence: an error or missing measurement dominates
-// any compatibility number, so an eager zero still fails closed).
+// from its own SAN list. historical: a stored record from an earlier scan
+// measured it only when a source answered with a SAN-bearing result and recorded
+// a non-negative integer count (an error or missing measurement dominates any
+// compatibility number, so an eager zero still fails closed).
 export function sharedSanMeasured(ssl) {
   if (liveLeaf(ssl)) return true;
   const rawSharedSanCount = ssl?.cert_shared_san_count;
@@ -70,8 +70,8 @@ export function sharedSanMeasured(ssl) {
   ));
 }
 
-// The certificate facts ownership is assessed from: the live leaf, or the SAN
-// fields a stored record from an earlier scan carries.
+// The certificate facts ownership is assessed from: the live leaf, or
+// (historical) the SAN fields a stored record from an earlier scan carries.
 function ownershipFacts(ssl, root) {
   const live = liveLeaf(ssl);
   if (live) {
