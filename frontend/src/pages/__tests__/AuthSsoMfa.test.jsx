@@ -25,6 +25,7 @@ vi.mock('../../api', () => ({
   BASE: 'http://test',
   api: {
     exchangeOAuthCode: vi.fn(),
+    startMicrosoftSignIn: vi.fn(),
     mfaChallenge: vi.fn(),
     getWorkspaces: vi.fn(),
   },
@@ -88,9 +89,8 @@ describe('F-2 SSO MFA — MicrosoftCallbackPage', () => {
 
     await waitFor(() => expect(loginSpy).toHaveBeenCalled())
     expect(loginSpy).toHaveBeenCalledWith('t', expect.objectContaining({ id: 'u1', email: 'a@b.com' }))
-    // The browser proves it started the sign-in, then forgets the verifier.
+    // The browser proves it started the sign-in with its stored verifier.
     expect(api.exchangeOAuthCode).toHaveBeenCalledWith('otc123', [VERIFIER])
-    expect(localStorage.getItem('cm_ms_login_bindings')).toBeNull()
   })
 
   it('does not exchange a code this browser did not start', async () => {
@@ -156,8 +156,8 @@ describe('F-2 SSO MFA — LoginPage', () => {
         <LoginPage />
       </MemoryRouter>
     )
-    fireEvent.click(screen.getByRole('link', { name: /Continue with Microsoft/i }))
-    await waitFor(() => expect(startSpy).toHaveBeenCalledWith('http://test'))
+    fireEvent.click(screen.getByRole('button', { name: /Continue with Microsoft/i }))
+    await waitFor(() => expect(startSpy).toHaveBeenCalledWith({ start: api.startMicrosoftSignIn }))
   })
 
   it('explains when the browser cannot store the binding', async () => {
@@ -167,8 +167,19 @@ describe('F-2 SSO MFA — LoginPage', () => {
         <LoginPage />
       </MemoryRouter>
     )
-    fireEvent.click(screen.getByRole('link', { name: /Continue with Microsoft/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Continue with Microsoft/i }))
     expect(await screen.findByText(/store data in your browser/i)).toBeInTheDocument()
+  })
+
+  it('explains when the API refuses to start sign-in', async () => {
+    startSpy.mockRejectedValue(Object.assign(new Error('refused'), { status: 503 }))
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <LoginPage />
+      </MemoryRouter>
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Continue with Microsoft/i }))
+    expect(await screen.findByText(/could not be started/i)).toBeInTheDocument()
   })
 
   it('shows a fixed message for a failed Microsoft sign-in, never the URL text', () => {

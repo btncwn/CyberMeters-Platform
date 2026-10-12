@@ -76,7 +76,7 @@ function sampleOf(ts, node) {
 }
 
 // API helpers in frontend/src/api.js and the argument index that holds the path.
-const PATH_HELPERS = new Map([["request", 0], ["requestBlob", 0], ["outcomeCall", 1]]);
+const PATH_HELPERS = new Map([["request", 0], ["requestBlob", 0], ["outcomeCall", 1], ["signInHandshake", 0]]);
 
 export function extractFrontendCalls(root, ts, files = null) {
   const list = files || walk(path.join(root, "frontend/src"));

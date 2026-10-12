@@ -1302,8 +1302,11 @@ async function purgeWorkspaceData(env, workspaceId) {
 // in `.catch(() => {})`:
 //   • oauth_states has NO user_id column at all (state, provider, redirect_uri,
 //     created_at, expires_at) — `DELETE ... WHERE user_id = ?` raised an SQL
-//     error on every run. It carries no user linkage of any kind and is
-//     expiry-bounded, so it is REMOVED rather than given an invented predicate.
+//     error on every run. A pending Microsoft sign-in result ('ms_exchange')
+//     names a user inside its JSON for at most five minutes; the exchange
+//     re-reads the user, so a purged account gets no session. Rows are
+//     expiry-bounded, so the table is REMOVED here rather than given an
+//     invented predicate.
 //   • customer_profiles keys on owner_user_id, not user_id.
 const ACCOUNT_PURGE_TABLES = [
   { table: "user_sessions",         column: "user_id" },

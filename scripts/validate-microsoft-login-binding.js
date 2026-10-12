@@ -71,9 +71,9 @@ async function fixture() {
   const env = makeEnv(db);
   Object.assign(env, { AZURE_CLIENT_ID: CLIENT_ID, AZURE_CLIENT_SECRET: "secret", AZURE_TENANT_ID: TENANT_ID, FRONTEND_URL: APP });
   const seed = await makeSeeder(db, mod);
-  const send = async (pathname, { method = "GET", body, token } = {}) => {
+  const send = async (pathname, { method = "GET", body, token, contentType = "application/json" } = {}) => {
     const headers = { "CF-Connecting-IP": `10.9.${(ip >> 8) & 255}.${ip++ & 255}` };
-    if (body) headers["Content-Type"] = "application/json";
+    if (body) headers["Content-Type"] = contentType;
     if (token) headers.Authorization = `Bearer ${token}`;
     const res = await worker.fetch(new Request(API + pathname, {
       method, headers, body: body ? JSON.stringify(body) : undefined, redirect: "manual",
@@ -94,8 +94,8 @@ const newBrowser = () => {
 // Start sign-in in a browser and complete the provider round trip; returns the
 // one-time code the callback redirected to (or the callback response).
 async function signIn(f, browser, identity) {
-  const start = await f.send(`/api/auth/microsoft/login?binding=${browser.challenge}`);
-  const authorize = new URL(start.location);
+  const start = await f.send("/api/auth/microsoft/start", { method: "POST", body: { binding: browser.challenge } });
+  const authorize = new URL(start.data.authorize_url);
   const state = authorize.searchParams.get("state");
   const code = `code-${randomBytes(6).toString("hex")}`;
   issuedCodes.set(code, { ...identity, nonce: identity.nonce ?? authorize.searchParams.get("nonce") });
@@ -111,14 +111,16 @@ const owner = { oid: "oid-owner", email: "owner@example.test", name: "Owner" };
   const f = await fixture();
   const A = newBrowser();
   const { start, callback, otc } = await signIn(f, A, owner);
-  ok("start redirects to the provider with state and nonce, never the verifier",
-    start.status === 302 && start.location.startsWith(`https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize`)
-      && !start.location.includes(A.verifier));
+  const authorizeUrl = start.data?.authorize_url || "";
+  ok("start returns the provider URL with state and nonce, never the verifier or challenge",
+    start.status === 200 && !start.location && authorizeUrl.startsWith(`https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize`)
+      && !authorizeUrl.includes(A.verifier) && !authorizeUrl.includes(A.challenge));
   ok("callback redirects to the app with only a one-time code",
     callback.status === 302 && callback.location.startsWith(`${APP}/auth/microsoft/callback?otc=`) && /^[0-9a-f]{64}$/.test(otc || ""));
   ok("callback creates no session before the browser is proven", f.count("SELECT COUNT(*) AS n FROM user_sessions") === 0);
   const result = await exchange(f, otc, [A.verifier]);
   ok("the starting browser receives a session", result.status === 200 && typeof result.data?.token === "string" && result.data?.email === owner.email, JSON.stringify(result.data));
+  ok("the result names the challenge it matched, so the page forgets only that verifier", result.data?.binding === A.challenge);
   const me = await f.send("/api/auth/me", { token: result.data?.token });
   ok("the session works", me.status === 200 && me.data?.email === owner.email, JSON.stringify(me.data));
   ok("a replayed code is refused", (await exchange(f, otc, [A.verifier])).status === 401);
@@ -196,15 +198,22 @@ const owner = { oid: "oid-owner", email: "owner@example.test", name: "Owner" };
   ok("only the first five presented verifiers are considered", (await exchange(f, late.otc, [...decoys, many.verifier])).status === 401);
 }
 
-// ── 5. Start without a binding, and sign-ins started before binding existed ─
+// ── 5. Who can start a sign-in, and sign-ins started before binding existed ─
+// Only the app's own JSON request starts one. A link (GET) or a cross-site form
+// (no JSON content type) cannot route a visitor through Microsoft with a
+// challenge someone else chose.
 {
   const f = await fixture();
   const states = () => f.count("SELECT COUNT(*) AS n FROM oauth_states WHERE provider = 'microsoft'");
-  for (const [label, query] of [["missing", ""], ["malformed", "?binding=short"]]) {
-    const r = await f.send(`/api/auth/microsoft/login${query}`);
-    ok(`a ${label} binding sends the browser back to sign-in without starting`,
-      r.status === 302 && r.location.startsWith(`${APP}/login?ms_error=`) && states() === 0);
+  for (const [label, body] of [["missing", {}], ["malformed", { binding: "short" }]]) {
+    const r = await f.send("/api/auth/microsoft/start", { method: "POST", body });
+    ok(`a ${label} binding starts nothing`, r.status === 400 && !r.location && states() === 0);
   }
+  const link = await f.send(`/api/auth/microsoft/login?binding=${newBrowser().challenge}`);
+  ok("a link to the old start URL starts nothing and sends the visitor to sign-in",
+    link.status === 302 && link.location.startsWith(`${APP}/login?ms_error=`) && states() === 0);
+  const form = await f.send("/api/auth/microsoft/start", { method: "POST", body: { binding: newBrowser().challenge }, contentType: "text/plain" });
+  ok("a cross-site form post (not JSON) starts nothing", form.status === 415 && !form.location && states() === 0);
   f.db.prepare("INSERT INTO oauth_states (state, provider, redirect_uri, expires_at) VALUES ('legacy-state', 'microsoft', ?, datetime('now', '+10 minutes'))")
     .run(JSON.stringify({ redirect_uri: `${API}/api/auth/microsoft/callback`, nonce: "n-legacy" }));
   const requestsBefore = tokenRequests;

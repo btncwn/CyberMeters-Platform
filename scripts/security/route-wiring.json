@@ -27,6 +27,10 @@
       "class": "auth_flow",
       "reason": "Microsoft sign-in OAuth callback (browser redirect)."
     },
+    "exact:/api/auth/microsoft/login": {
+      "class": "auth_flow",
+      "reason": "Old link-based Microsoft start; a followed link is now only sent back to the sign-in page, which starts sign-in with POST /api/auth/microsoft/start."
+    },
     "exact:/api/auth/verify-email": {
       "class": "auth_flow",
       "reason": "Opened from the verification email link; redirects to /verify-email."
