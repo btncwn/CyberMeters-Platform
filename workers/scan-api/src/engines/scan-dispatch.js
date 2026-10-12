@@ -264,6 +264,60 @@ export async function processScanDispatchMessage(body, env, deps = {}) {
     return { action: "ack", outcome: "terminal_noop" };
   }
 
+  // ── 4b. Current authority — never the queue message's. ───────────────────
+  // A workspace scan runs only while its workspace still exists and still
+  // holds a verified link to the domain. Admission checked both, but a scan
+  // can wait in the queue while the workspace is deleted, the domain removed
+  // or its verification lost; such a scan is failed without running, once
+  // (the queued-only guard), and audited with the reason only.
+  if (row.workspace_id) {
+    let authority;
+    try {
+      authority = await env.cybermeters_db
+        .prepare(
+          `SELECT w.deleted_at AS deleted_at, wd.verification_status AS verification_status
+           FROM workspaces w
+           LEFT JOIN workspace_domains wd
+             ON wd.workspace_id = w.id AND wd.domain_id = ?
+           WHERE w.id = ?`
+        )
+        .bind(row.domain_id, row.workspace_id)
+        .first();
+    } catch {
+      return { action: "retry", delaySeconds: TRANSIENT_RETRY_DELAY_S, outcome: "d1_read_failed" };
+    }
+    const reason = !authority ? "workspace_missing"
+      : authority.deleted_at ? "workspace_deleted"
+      : authority.verification_status == null ? "domain_unlinked"
+      : authority.verification_status !== "verified" ? "domain_unverified"
+      : null;
+    if (reason) {
+      let failed;
+      try {
+        failed = await env.cybermeters_db
+          .prepare(`UPDATE scans SET status = 'failed', scan_quality = NULL WHERE id = ? AND status = 'queued'`)
+          .bind(scanId)
+          .run();
+      } catch {
+        return { action: "retry", delaySeconds: TRANSIENT_RETRY_DELAY_S, outcome: "authority_fail_write_failed" };
+      }
+      if ((failed?.meta?.changes ?? 0) > 0) {
+        try {
+          await doCreateAuditEvent(env, {
+            workspace_id: row.workspace_id,
+            actor_type:   "system",
+            event_type:   "scan_authority_lost",
+            entity_type:  "scan",
+            entity_id:    scanId,
+            description:  "Queued scan not run: its workspace or domain authority changed after it was queued",
+            metadata:     { scan_id: scanId, reason },
+          });
+        } catch { /* non-fatal */ }
+      }
+      return { action: "ack", outcome: "authority_lost", reason };
+    }
+  }
+
   // ── 5. Claim CAS — the single execution gate. ─────────────────────────────
   // Exactly one delivery flips queued→running; every other delivery (duplicate,
   // simultaneous consumer, redelivery while an execution is in flight) loses

@@ -99,10 +99,11 @@ ok("A3 retry delays are bounded and positive",
   Number.isInteger(TRANSIENT_RETRY_DELAY_S) && TRANSIENT_RETRY_DELAY_S > 0 && TRANSIENT_RETRY_DELAY_S <= 3600);
 
 // ── Layer B: consumer behaviour (SQL-faithful stub) ──────────────────────────
-function makeConsumerHarness(rows) {
+function makeConsumerHarness(rows, { workspaces = { ws_q: { deleted_at: null, links: { dom_q: "verified" } } } } = {}) {
   const state = {
     rows: rows.map((r) => ({ ...r })),
-    selects: 0, selectPoison: null, updatePoison: null,
+    workspaces: JSON.parse(JSON.stringify(workspaces)),
+    selects: 0, selectPoison: null, updatePoison: null, authorityPoison: null,
     audits: [], stages: [], engineCalls: [],
     engineBehavior: null, // async (state, call) — simulate engine effects
   };
@@ -118,6 +119,14 @@ function makeConsumerHarness(rows) {
                 const row = state.rows.find((r) => r.id === args[0]);
                 return row ? { ...row } : null;
               }
+              // SQL-faithful authority read: workspaces LEFT JOIN its link to
+              // the scan's domain (args: domain_id, workspace_id).
+              if (/FROM workspaces w[\s\S]*LEFT JOIN workspace_domains wd/i.test(sql)) {
+                if (state.authorityPoison) throw state.authorityPoison;
+                const ws = state.workspaces[args[1]];
+                if (!ws) return null;
+                return { deleted_at: ws.deleted_at ?? null, verification_status: ws.links?.[args[0]] ?? null };
+              }
               return null;
             },
             async run() {
@@ -132,6 +141,13 @@ function makeConsumerHarness(rows) {
                 if (hasGuard && row.status !== "queued") return { meta: { changes: 0 } };
                 row.status = "running";
                 row.last_heartbeat_at = args[0];
+                return { meta: { changes: 1 } };
+              }
+              if (/UPDATE scans SET status = 'failed'/i.test(sql)) {
+                const hasGuard = /AND\s+status\s*=\s*'queued'/i.test(sql);
+                const row = state.rows.find((r) => r.id === args[0]);
+                if (!row || (hasGuard && row.status !== "queued")) return { meta: { changes: 0 } };
+                row.status = "failed";
                 return { meta: { changes: 1 } };
               }
               return { meta: { changes: 0 } };
@@ -297,6 +313,45 @@ const QUEUED_ROW = { id: "scan_q1", workspace_id: "ws_q", domain_id: "dom_q", do
   ok("B11 redelivery after completion → no second execution, ZERO additional audits",
     d2.action === "ack" && d2.outcome === "terminal_noop" &&
     state.engineCalls.length === 1 && state.audits.length === auditsAfterFirst);
+}
+
+// B13-B16 — the queue message is never authority. A workspace scan whose
+// workspace was deleted, whose domain link was removed, or whose verification
+// was lost while it waited in the queue is failed without running — once —
+// and audited with the reason only.
+for (const [label, id, workspaces, reason] of [
+  ["B13 workspace deleted while queued", "deleted", { ws_q: { deleted_at: "2026-10-12 10:00:00", links: { dom_q: "verified" } } }, "workspace_deleted"],
+  ["B14 domain unlinked while queued", "unlinked", { ws_q: { deleted_at: null, links: {} } }, "domain_unlinked"],
+  ["B15 verification lost while queued", "unverified", { ws_q: { deleted_at: null, links: { dom_q: "pending" } } }, "domain_unverified"],
+  ["B16 workspace row gone", "missing", {}, "workspace_missing"],
+]) {
+  const { env, deps, state } = makeConsumerHarness([{ ...QUEUED_ROW }], { workspaces });
+  const d = await processScanDispatchMessage(msgFor(), env, deps);
+  const lost = state.audits.filter((a) => a.event_type === "scan_authority_lost");
+  ok(`${label} → failed without running (${id})`,
+    d.action === "ack" && d.outcome === "authority_lost" && d.reason === reason &&
+    state.engineCalls.length === 0 && state.rows[0].status === "failed" &&
+    !state.audits.some((a) => a.event_type === "scan_started"),
+    JSON.stringify(d));
+  ok(`${label} → one audit naming only the reason`,
+    lost.length === 1 && lost[0].metadata?.reason === reason && lost[0].workspace_id === "ws_q" &&
+    !JSON.stringify(lost[0]).includes("queue-fixture.co.uk"));
+  const again = await processScanDispatchMessage(msgFor(), env, deps);
+  ok(`${label} → redelivery is a terminal no-op`, again.outcome === "terminal_noop" && state.engineCalls.length === 0 &&
+    state.audits.filter((a) => a.event_type === "scan_authority_lost").length === 1);
+}
+{
+  const { env, deps, state } = makeConsumerHarness([{ ...QUEUED_ROW }]);
+  state.authorityPoison = new Error("D1 unavailable");
+  const d = await processScanDispatchMessage(msgFor(), env, deps);
+  ok("B17 an unreadable authority record is retried, never run and never failed",
+    d.action === "retry" && d.outcome === "d1_read_failed" && state.engineCalls.length === 0 && state.rows[0].status === "queued");
+}
+{
+  const { env, deps, state } = makeConsumerHarness([{ ...QUEUED_ROW, workspace_id: null }], { workspaces: {} });
+  const d = await processScanDispatchMessage(msgFor({ workspace_id: undefined }), env, deps);
+  ok("B18 a scan with no workspace (free check) is not workspace-gated",
+    d.outcome === "executed" && state.engineCalls.length === 1);
 }
 
 // B12 — handleScanDispatchBatch applies the decision to the real message API.
@@ -736,6 +791,43 @@ ok("E4b replay/claim-lost dispatch path owns no scan_completed audit writer",
   const startedIdx = sc.indexOf('"scan_started"');
   ok("E5 queue branch precedes the waitUntil scan_started audit in the route",
     dispatchIdx > -1 && startedIdx > dispatchIdx);
+}
+
+// E6 — the authority re-check on the real migrated schema (not the stub):
+// a verified link runs; a deleted workspace or a removed link fails the scan.
+{
+  cdb.exec(`
+    INSERT INTO workspaces (id, name, owner_user_id) VALUES ('ws_E', 'WS E', 'user_C1');
+    INSERT INTO domains (id, user_id, domain) VALUES ('dom_E_1', 'user_C1', 'authority-a.co.uk'), ('dom_E_2', 'user_C1', 'authority-b.co.uk');
+    INSERT INTO workspace_domains (workspace_id, domain_id, verification_status) VALUES ('ws_E', 'dom_E_1', 'verified'), ('ws_E', 'dom_E_2', 'verified');
+    INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES ('scan_E1', 'dom_E_1', 'ws_E', 'authority-a.co.uk', 'queued');
+    INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES ('scan_E2', 'dom_E_2', 'ws_E', 'authority-b.co.uk', 'queued');
+  `);
+  const real = {
+    prepare: (sql) => ({ bind: (...args) => ({
+      first: async () => cdb.prepare(sql).get(...args) ?? null,
+      run: async () => ({ meta: { changes: cdb.prepare(sql).run(...args).changes } }),
+      all: async () => ({ results: cdb.prepare(sql).all(...args) }),
+    }) }),
+  };
+  const engine = [];
+  const realDeps = { createAuditEvent: async () => {}, heartbeatScan: async () => {}, runScanEngine: async (id) => { engine.push(id); } };
+  const message = (id, domainId, domain) => ({ v: 1, scan_id: id, workspace_id: "ws_E", domain_id: domainId, domain, trigger: "manual" });
+  const ran = await processScanDispatchMessage(message("scan_E1", "dom_E_1", "authority-a.co.uk"), { cybermeters_db: real }, realDeps);
+  cdb.exec("DELETE FROM workspace_domains WHERE workspace_id = 'ws_E' AND domain_id = 'dom_E_2'");
+  const unlinked = await processScanDispatchMessage(message("scan_E2", "dom_E_2", "authority-b.co.uk"), { cybermeters_db: real }, realDeps);
+  ok("E6 real schema: a verified link runs; a link removed while queued fails the scan unrun",
+    ran.outcome === "executed" && unlinked.outcome === "authority_lost" && unlinked.reason === "domain_unlinked" &&
+    engine.join() === "scan_E1" && cdb.prepare("SELECT status FROM scans WHERE id = 'scan_E2'").get().status === "failed",
+    JSON.stringify({ ran, unlinked }));
+  cdb.exec(`
+    UPDATE scans SET status = 'completed' WHERE id = 'scan_E1';
+    INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES ('scan_E3', 'dom_E_1', 'ws_E', 'authority-a.co.uk', 'queued');
+    UPDATE workspaces SET deleted_at = datetime('now') WHERE id = 'ws_E';
+  `);
+  const deleted = await processScanDispatchMessage(message("scan_E3", "dom_E_1", "authority-a.co.uk"), { cybermeters_db: real }, realDeps);
+  ok("E6b real schema: a workspace deleted while queued fails the scan unrun",
+    deleted.outcome === "authority_lost" && deleted.reason === "workspace_deleted" && engine.length === 1, JSON.stringify(deleted));
 }
 
 console.log(`\nscan-queue-dispatch: ${passed} passed, ${failed} failed`);
