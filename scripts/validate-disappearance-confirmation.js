@@ -5,10 +5,13 @@
 // Proves the disappearance/resolution contract across the three producers that
 // could confirm a disappearance/removal/recovery from INSUFFICIENT evidence:
 //
-//   G0  asset-inventory.js  subdomainDiscoveryComplete(modules)
-//         — a host is retired (inactive + asset_no_longer_seen) ONLY when the CT
-//           discovery that would have re-found it completed intact. Degraded /
-//           partial / failed CT enumeration must never manufacture disappearance.
+//   G0  attack-surface-signal-completeness.js  applyAssetRemovalConfirmation(...)
+//         — a host is confirmed removed ONLY from repeated, spaced, ACTIVE negative
+//           observations (authoritative DNS absence + no HTTP service). Discovery
+//           silence is never evidence: the inventory no longer carries a
+//           discovery-completeness predicate and no producer writes
+//           asset_no_longer_seen. Unavailable / incomplete / not-assessed
+//           observations never advance removal.
 //   G1  email-protection-lifecycle.js  senderRecoveryConfirmed({...})
 //         — an active-failures email case closes ONLY when the window PROVABLY
 //           contains receiver reports (window_total > 0) with zero failures. An
@@ -35,10 +38,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ENG = path.join(ROOT, "workers", "scan-api", "src", "engines");
 const ASSET_SRC = path.join(ENG, "asset-inventory.js");
+const REMOVAL_SRC = path.join(ENG, "attack-surface-signal-completeness.js");
 const EMAIL_SRC = path.join(ENG, "email-protection-lifecycle.js");
 const BRAND_SRC = path.join(ENG, "brand-cases.js");
 
-const { subdomainDiscoveryComplete } = await import(pathToFileURL(ASSET_SRC).href);
+const assetInventory = await import(pathToFileURL(ASSET_SRC).href);
+const { applyAssetRemovalConfirmation } = await import(pathToFileURL(REMOVAL_SRC).href);
 const { senderRecoveryConfirmed } = await import(pathToFileURL(EMAIL_SRC).href);
 const { interpretBrandGoneProbe } = await import(pathToFileURL(BRAND_SRC).href);
 
@@ -49,74 +54,48 @@ const ok = (name, cond, detail = "") => {
 };
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
-// G0 — subdomain discovery module shapes (mirrors subdomains-scan.js return shapes:
-// CertSpotter is the only CT source and the record declares it). The predicate is
-// provider-generic, so a stored two-provider record (the retired provider under a
-// neutral key) keeps its partial-coverage meaning.
-const certSpotterOnly = (count, error = null) => ({
-  sources: { certspotter: { count, error } },
-  ct_providers: ["certspotter"],
-});
-const subHealthy = (items = ["a.example.com"]) => ({
-  subdomains: { items, ...certSpotterOnly(items.length) },
-  dns_bruteforce: { items: [], error: null },
-});
-const subCtFailed = () => ({
-  // CertSpotter failed → items collapsed, ct_error set, top-level error stays null.
-  subdomains: {
-    items: [], ...certSpotterOnly(0, "HTTP 429"),
-    ct_error: "CT source failed — certspotter: HTTP 429",
-    incomplete: true, incomplete_reason: "ct_sources_unavailable",
-  },
-});
-const subCtSourceErrorOnly = () => ({
-  // A CertSpotter error row with no ct_error: only the per-source guard stops it.
-  subdomains: { items: [], ...certSpotterOnly(0, "HTTP 429") },
-});
-const subOneSourceFailed = () => ({
-  // Stored two-provider record: the retired provider answered, CertSpotter 429 —
-  // partial coverage.
-  subdomains: { items: ["a.example.com"], sources: { retired_provider: { count: 1, error: null }, certspotter: { count: 0, error: "HTTP 429" } } },
-});
-const subModuleError = () => ({
-  subdomains: { items: [], ...certSpotterOnly(0, "module rejected"), error: "Subdomain module failed" },
-});
-const subBruteforceFailed = () => ({
-  subdomains: { items: ["a.example.com"], ...certSpotterOnly(1) },
-  dns_bruteforce: { items: [], error: "timed out" },
-});
+// G0 — active removal observations (DNS + HTTP signal states per scan).
+const NEGATIVE = { dns_resolution: { state: "absent" }, http_https_service: { state: "not_observed" } };
+const POSITIVE = { dns_resolution: { state: "observed" }, http_https_service: { state: "observed" } };
+const UNAVAILABLE = { dns_resolution: { state: "unavailable" }, http_https_service: { state: "not_observed" } };
+const INCOMPLETE = { dns_resolution: { state: "absent" }, http_https_service: { state: "incomplete" } };
+const NOT_ASSESSED = { dns_resolution: { state: "not_assessed" }, http_https_service: { state: "not_assessed" } };
+const DAY = 24 * 60 * 60 * 1000;
+const T0 = Date.parse("2026-07-01T00:00:00.000Z");
+const at = (offsetMs) => new Date(T0 + offsetMs).toISOString();
+function observe(confirm, steps) {
+  let current = { lifecycle_state: "observed", qualifying_observations: [], confirmed_removed_at: null };
+  let result = null;
+  steps.forEach(([offsetMs, signalStates], index) => {
+    result = confirm(current, { scan_id: `scan_${index}`, observed_at: at(offsetMs), signal_states: signalStates });
+    current = result;
+  });
+  return result;
+}
 
 // G2 — DoH JSON responses (Cloudflare shape: { Status, Answer }).
 const doh = (status, answers = 0) => ({ Status: status, Answer: Array.from({ length: answers }, (_, i) => ({ data: `x${i}` })) });
 const NOERR = 0, SERVFAIL = 2, NXDOMAIN = 3, REFUSED = 5;
 
-// ── G0 — asset disappearance (subdomainDiscoveryComplete) ────────────────────
-// (matrix 1) complete healthy scan, host genuinely absent → disappearance ALLOWED.
-ok("G0.1 healthy CT scan (no errors) → discovery complete → disappearance allowed",
-  subdomainDiscoveryComplete(subHealthy()) === true);
-// (matrix 7) healthy scan that genuinely found zero subdomains (no errors) → still complete.
-ok("G0.1b healthy scan, empty items but NO errors → complete (genuine disappearance allowed)",
-  subdomainDiscoveryComplete({ subdomains: { items: [], ...certSpotterOnly(0) } }) === true);
-// (matrix 2/4) the CT source failed (unavailable) → NOT complete → no disappearance.
-ok("G0.2 CertSpotter failed (ct_error) → NOT complete → no disappearance",
-  subdomainDiscoveryComplete(subCtFailed()) === false);
-ok("G0.2b CertSpotter error row without ct_error → NOT complete → no disappearance",
-  subdomainDiscoveryComplete(subCtSourceErrorOnly()) === false);
-// (matrix 14) one failed source in a stored two-provider record → fail neutral.
-ok("G0.3 stored record: one of two CT sources failed (partial coverage) → NOT complete → no disappearance",
-  subdomainDiscoveryComplete(subOneSourceFailed()) === false);
-// (matrix 4) module rejected (top-level error) → no disappearance.
-ok("G0.4 subdomains module error → NOT complete → no disappearance",
-  subdomainDiscoveryComplete(subModuleError()) === false);
-// (matrix 5) missing subdomains module entirely → no disappearance.
-ok("G0.5 missing subdomains module → NOT complete → no disappearance",
-  subdomainDiscoveryComplete({}) === false && subdomainDiscoveryComplete(undefined) === false);
-// (matrix 14) brute-force feeder failed → no disappearance.
-ok("G0.6 dns_bruteforce feeder failed → NOT complete → no disappearance",
-  subdomainDiscoveryComplete(subBruteforceFailed()) === false);
-// brute-force module simply absent (optional feeder) → still complete.
-ok("G0.7 no dns_bruteforce module (optional) + healthy CT → complete",
-  subdomainDiscoveryComplete({ subdomains: { items: ["a"], ...certSpotterOnly(1) } }) === true);
+// ── G0 — asset removal confirmation (applyAssetRemovalConfirmation) ─────────
+ok("G0.1 three spaced active negative observations over 48h → confirmed removed",
+  observe(applyAssetRemovalConfirmation, [[0, NEGATIVE], [DAY, NEGATIVE], [2 * DAY, NEGATIVE]]).lifecycle_state === "confirmed_removed");
+ok("G0.2 a single negative observation never confirms removal",
+  observe(applyAssetRemovalConfirmation, [[0, NEGATIVE]]).lifecycle_state !== "confirmed_removed");
+ok("G0.3 unavailable observations never advance removal",
+  observe(applyAssetRemovalConfirmation, [[0, UNAVAILABLE], [DAY, UNAVAILABLE], [2 * DAY, UNAVAILABLE]]).qualifying_observations.length === 0);
+ok("G0.4 incomplete observations never advance removal",
+  observe(applyAssetRemovalConfirmation, [[0, INCOMPLETE], [DAY, INCOMPLETE], [2 * DAY, INCOMPLETE]]).qualifying_observations.length === 0);
+ok("G0.5 not-assessed observations (host outside the recheck envelope) never advance removal",
+  observe(applyAssetRemovalConfirmation, [[0, NOT_ASSESSED], [DAY, NOT_ASSESSED], [2 * DAY, NOT_ASSESSED]]).qualifying_observations.length === 0);
+ok("G0.6 negative observations closer than 24h count once",
+  observe(applyAssetRemovalConfirmation, [[0, NEGATIVE], [60 * 60 * 1000, NEGATIVE]]).qualifying_observations.length === 1);
+ok("G0.7 a positive observation resets the confirmation count",
+  observe(applyAssetRemovalConfirmation, [[0, NEGATIVE], [DAY, NEGATIVE], [2 * DAY, POSITIVE], [3 * DAY, NEGATIVE]]).qualifying_observations.length === 1);
+ok("G0.8 discovery silence is not evidence: inventory carries no discovery-completeness predicate",
+  !("subdomainDiscoveryComplete" in assetInventory));
+ok("G0.9 no inventory producer writes asset_no_longer_seen",
+  !fs.readFileSync(ASSET_SRC, "utf8").includes("asset_no_longer_seen"));
 
 // ── G1 — email sender recovery (senderRecoveryConfirmed) ─────────────────────
 // (matrix 1) prior active failures + condition cleared + window HAS reports, zero failed → recovery.
@@ -180,8 +159,8 @@ ok("G1.5 window_total>0 but window_failed>0 → NO recovery",
 // ── Upstream-gate notes (owned by existing suites, asserted structurally) ─────
 // matrix 6  (stale/non-comparable scan) — loadTimelineComparisonContext gates every
 //           asset_events emit on scan_quality complete-vs-complete + same producer;
-//           proven by validate-posture-events.js. The G0 predicate is an ADDITIONAL
-//           in-series gate, so a non-comparable scan is already blocked upstream.
+//           proven by validate-posture-events.js. G0 removal confirmation is an
+//           ADDITIONAL in-series gate over active observations only.
 // matrix 10 (dedupe) — recentEvtSet 24h window is unchanged; validate-posture-events.js #8.
 // matrix 11 (reappearance) — asset_reappeared requires positive current presence
 //           (existing.status inactive + host present); its emit stays gated on
@@ -190,11 +169,11 @@ ok("G1.5 window_total>0 but window_failed>0 → NO recovery",
 //           canConfirmDisappearance-gated sweep, so a false inactive can no longer be
 //           created to seed a false reappearance.
 // matrix 12/13 (cross-workspace/domain, stale) — the predicates consume a SINGLE
-//           scan's in-memory modules / a single record's window; no cross-tenant
+//           asset's observation history / a single record's window; no cross-tenant
 //           input exists. Workspace scoping is enforced in the SQL (tenant-isolation
 //           suite), not in these pure predicates.
-ok("note: G0 predicate takes single-scan modules only (no cross-tenant input)",
-  typeof subdomainDiscoveryComplete === "function");
+ok("note: G0 confirmation takes one asset's observations only (no cross-tenant input)",
+  typeof applyAssetRemovalConfirmation === "function" && applyAssetRemovalConfirmation.length <= 2);
 
 // ── Mutation harness — each gate is load-bearing ─────────────────────────────
 async function mutant(srcPath, from, to) {
@@ -216,51 +195,37 @@ async function mutant(srcPath, from, to) {
 }
 
 // G0 mutations ----------------------------------------------------------------
-// M1: remove the every-CT-source-failed guard → ct_error (unavailable) now reads complete.
+// M1: let non-negative observations advance removal.
 {
-  const m = await mutant(ASSET_SRC, 'if (sub.ct_error) return false;', 'if (false) return false;');
-  // Isolate the ct_error guard: a payload carrying ONLY ct_error (no per-source
-  // errors) — the guard is the sole line standing between it and a false "complete".
-  ok("mutation M1 (ct_error guard removed) → collapsed CT now falsely 'complete' — CAUGHT",
-    m.anchor && m.mod.subdomainDiscoveryComplete({ subdomains: { items: [], ct_error: "CT source failed — certspotter: HTTP 429" } }) === true);
+  const m = await mutant(REMOVAL_SRC, '  if (observationState !== "not_observed") return base;', '  if (false) return base;');
+  ok("mutation M1 (only-negative gate removed) → unavailable evidence advances removal — CAUGHT",
+    m.anchor && observe(m.mod.applyAssetRemovalConfirmation, [[0, UNAVAILABLE], [DAY, UNAVAILABLE], [2 * DAY, UNAVAILABLE]]).qualifying_observations.length > 0);
 }
-// The two named-provider guards became ONE provider-generic "any recorded source
-// errored" guard. M2 removes it; M3 weakens it to "every source errored", which a
-// single-provider fixture cannot distinguish, so it is caught by the stored
-// two-provider record.
-const ANY_SOURCE_ERRORED_GUARD =
-  "  if (Object.values(sources).some((source) => source?.error)) return false;";
-// M2: remove the per-source guard → a CertSpotter error row now reads complete.
+// M2: one observation is enough.
 {
-  const m = await mutant(ASSET_SRC, ANY_SOURCE_ERRORED_GUARD, "  if (false) return false;");
-  ok("mutation M2 (per-source error guard removed) → CertSpotter error row falsely 'complete' — CAUGHT",
-    m.anchor && m.mod.subdomainDiscoveryComplete(subCtSourceErrorOnly()) === true);
+  const m = await mutant(REMOVAL_SRC,
+    '  required_qualifying_observations: 3,\n  minimum_observation_spacing_ms: 24 * 60 * 60 * 1000,\n  minimum_confirmation_window_ms: 48 * 60 * 60 * 1000,',
+    '  required_qualifying_observations: 1,\n  minimum_observation_spacing_ms: 24 * 60 * 60 * 1000,\n  minimum_confirmation_window_ms: 0,');
+  ok("mutation M2 (single observation confirms) → one negative scan removes the asset — CAUGHT",
+    m.anchor && observe(m.mod.applyAssetRemovalConfirmation, [[0, NEGATIVE]]).lifecycle_state === "confirmed_removed");
 }
-// M3: require every source to have errored → partial coverage now reads complete.
+// M3: drop the spacing requirement.
 {
-  const m = await mutant(ASSET_SRC, ANY_SOURCE_ERRORED_GUARD,
-    "  if (Object.values(sources).every((source) => source?.error)) return false;");
-  ok("mutation M3 (any-source guard weakened to every-source) → partial coverage falsely 'complete' — CAUGHT",
-    m.anchor && m.mod.subdomainDiscoveryComplete(subOneSourceFailed()) === true);
+  const m = await mutant(REMOVAL_SRC, `  if (last &&
+      observedMs - canonicalLifecycleEpoch(last.observed_at) <
+        policy.minimum_observation_spacing_ms) {
+    return base;
+  }`, "");
+  ok("mutation M3 (spacing removed) → back-to-back scans count twice — CAUGHT",
+    m.anchor && observe(m.mod.applyAssetRemovalConfirmation, [[0, NEGATIVE], [60 * 60 * 1000, NEGATIVE]]).qualifying_observations.length === 2);
 }
-// M4: flip the missing-module default to true → missing evidence reads healthy.
+// M4: a positive observation no longer resets the count.
 {
-  const m = await mutant(ASSET_SRC, '  if (!sub) return false;                        // no discovery module → cannot anchor disappearance', '  if (!sub) return true;');
-  ok("mutation M4 (missing module defaults true) → missing evidence falsely 'complete' — CAUGHT",
-    m.anchor && m.mod.subdomainDiscoveryComplete({}) === true);
-}
-// M5: remove the module-error guard.
-{
-  const m = await mutant(ASSET_SRC, 'if (sub.error) return false;', 'if (false) return false;');
-  // Isolate the top-level error guard: a payload carrying ONLY sub.error.
-  ok("mutation M5 (module-error guard removed) → failed module falsely 'complete' — CAUGHT",
-    m.anchor && m.mod.subdomainDiscoveryComplete({ subdomains: { items: [], error: "Subdomain module failed" } }) === true);
-}
-// M6: remove the brute-force feeder guard.
-{
-  const m = await mutant(ASSET_SRC, '  if (bf?.error) return false;                   // brute-force feeder timed out/failed', '  if (false) return false;');
-  ok("mutation M6 (bruteforce guard removed) → failed feeder falsely 'complete' — CAUGHT",
-    m.anchor && m.mod.subdomainDiscoveryComplete(subBruteforceFailed()) === true);
+  const m = await mutant(REMOVAL_SRC, `      lifecycle_state: "observed",
+      qualifying_observations: [],`, `      lifecycle_state: "observed",
+      qualifying_observations: previousRows,`);
+  ok("mutation M4 (observed no longer resets) → stale negatives survive reappearance — CAUGHT",
+    m.anchor && observe(m.mod.applyAssetRemovalConfirmation, [[0, NEGATIVE], [DAY, NEGATIVE], [2 * DAY, POSITIVE], [3 * DAY, NEGATIVE]]).qualifying_observations.length > 1);
 }
 
 // G1 mutations ----------------------------------------------------------------

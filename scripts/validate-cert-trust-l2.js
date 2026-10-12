@@ -72,7 +72,7 @@ const forbiddenTypes = new Set(["weak_key", "weak_signature", "untrusted_chain",
 async function main() {
   const { buildCertificateTrustL2 } = await import(pathToFileURL(certL2Path).href);
 
-  // Expiry fixtures remain relative to the run time. Historical/CT certificate
+  // Expiry fixtures remain relative to the run time. Historical certificate
   // multiplicity is explicitly not simultaneous live-serving evidence.
   const DAY = 86_400_000;
   const iso = (offsetDays) => new Date(Date.now() + offsetDays * DAY).toISOString();
@@ -101,7 +101,7 @@ async function main() {
     expires_at: iso(7), // currently valid, inside the expiring-soon window
     days_until_expiry: 7,
     certificate_status: "valid",
-    ct_sources: { crt_sh: 3, certspotter: 2 },
+    evidence_source: "live_tls",
   };
   const result = buildCertificateTrustL2(cert, { history });
 
@@ -109,7 +109,15 @@ async function main() {
   ok("unexpected issuer anomaly is emitted", result.anomalies.some((a) => a.type === "unexpected_issuer"));
   ok("unexpected SAN anomaly is emitted", result.anomalies.some((a) => a.type === "unexpected_san"));
   ok("unexpected wildcard anomaly is emitted", result.anomalies.some((a) => a.type === "unexpected_wildcard"));
-  ok("historical/CT multiplicity is not a parallel live set",
+  ok("findings name live TLS as how the certificate was observed",
+    result.findings.length > 0 && result.findings.every((finding) => finding.observed_via === "live_tls"));
+  {
+    const unobserved = buildCertificateTrustL2({ subject: "example.co.uk", evidence_source: "not_observed" }, { history: [] });
+    ok("a certificate that was not observed is a coverage gap, never 'no gaps found'",
+      hasFinding(unobserved, "coverage_gap") && !hasFinding(unobserved, "unknown") &&
+        unobserved.findings.every((finding) => finding.observed_via === "not_observed"));
+  }
+  ok("historical multiplicity is not a parallel live set",
     !result.anomalies.some((a) => a.type === "parallel_certificate"));
   const simultaneous = buildCertificateTrustL2({
     signal_completeness: {
@@ -199,9 +207,7 @@ async function main() {
           san_hostnames: ["example.co.uk", "admin.example.co.uk"],
           expires_at: "2026-07-20T00:00:00.000Z",
           days_until_expiry: 7,
-          total_certificates_seen: 2,
-          issued_for_sensitive_hosts: ["admin.example.co.uk"],
-          ct_sources: { crt_sh: 2, certspotter: 1 },
+          evidence_source: "live_tls",
           suspicious_certificate_signals: [],
         },
       },
@@ -253,7 +259,7 @@ async function main() {
     !/fully\s+(?:validated|verified)/i.test(pdfSrc));
   const domSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "cyber-mot-domains.js"), "utf8");
   ok("the Certificates & Trust domain limitation names what is NOT checked, verbatim",
-    domSrc.includes("Chain validity, root trust, OCSP and revocation status are not checked and remain unknown."));
+    domSrc.includes("on the tested endpoints only. OCSP and revocation status are not checked and remain unknown."));
 
   console.log(`\nCertificate Trust L2: ${pass}/${pass + fail} passed`);
   if (fail) { console.error("cert-trust-l2 validation FAILED"); process.exit(1); }

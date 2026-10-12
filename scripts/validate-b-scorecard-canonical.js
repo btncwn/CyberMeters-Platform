@@ -33,6 +33,7 @@ const SCAN_API_CONFIG = process.env.SAN_B_SCAN_API_WRANGLER_PATH ||
   path.join(ROOT, "workers", "scan-api", "wrangler.toml");
 let scorecardModuleUrl = process.env.SAN_B_SCORECARD_MODULE_URL ||
   pathToFileURL(SCORECARD).href;
+const { liveTlsSsl } = await import(pathToFileURL(path.join(ROOT, "scripts", "lib", "live-tls-fixture.mjs")).href);
 const certIntelModuleUrl = process.env.SAN_B_CERT_INTEL_MODULE_URL ||
   absU("cert-intel.js");
 let sourceRevisionDirectory = null;
@@ -323,12 +324,11 @@ const emptyScorecard = await buildScorecardData(
   scorecardEnv([], "not_yet_assessed", null, { noScan: true }),
 );
 const benignProducer = runCertificateIntelligenceModule({
-  ssl: { https_available: true, cert_expiry_days: 84, cert_issuer: "Fixture CA" },
+  ssl: liveTlsSsl({ days: 84 }),
   subdomains: {
     wildcard_dns: true,
     items: ["admin.example.com"],
     sensitive: ["admin.example.com"],
-    sources: { crt_sh: { count: 60 }, certspotter: { count: 60 } },
   },
   dns_bruteforce: { items: [] },
 }, "example.com");
@@ -337,21 +337,14 @@ ok("SAN_B_F12", benignProducer.certificate_risk_level === "low" &&
 ok("SAN_B_F13", benignProducer.certificate_risk_level === "low");
 ok("SAN_B_F14", benignProducer.certificate_risk_level === "low");
 
-const SCORECARD_EXPIRY_NOW_MS = Date.UTC(2026, 7, 30, 12, 0, 0);
-const scorecardExpiryNotAfter = (days, skewDays = 0) => new Date(
-  SCORECARD_EXPIRY_NOW_MS +
-    ((Number.isFinite(days) && days >= 0 ? days : 10) + 0.5 + skewDays) * 86_400_000,
-).toISOString();
-const expiryProducer = (days, notAfter = scorecardExpiryNotAfter(days)) => runCertificateIntelligenceModule({
-  ssl: {
-    https_available: true,
-    cert_expiry_days: days,
-    cert_not_after: notAfter,
-    cert_issuer: "Fixture CA",
-  },
-  subdomains: { items: [], sources: {} },
-}, "example.com", { nowMs: SCORECARD_EXPIRY_NOW_MS });
-const expirySignals = (days) => expiryProducer(days).suspicious_certificate_signals
+const SCORECARD_EXPIRY_NOW = new Date(Date.UTC(2026, 7, 30, 12, 0, 0)).toISOString();
+// The live certificate is the only expiry source: a served notAfter observed by
+// the collector at a recorded instant.
+const expiryProducer = (days, notAfter = null) => runCertificateIntelligenceModule({
+  ssl: liveTlsSsl({ days, notAfter, finishedAt: SCORECARD_EXPIRY_NOW }),
+  subdomains: { items: [] },
+}, "example.com");
+const expirySignals = (days, notAfter = null) => expiryProducer(days, notAfter).suspicious_certificate_signals
   .filter((signal) => signal.signal.startsWith("certificate_expir"));
 ok("certificate scorecard producer uses exact 13/14/29/30 boundaries",
   expirySignals(13)[0]?.signal === "certificate_expiring_critical" &&
@@ -360,33 +353,29 @@ ok("certificate scorecard producer uses exact 13/14/29/30 boundaries",
     expirySignals(14)[0]?.severity === "medium" &&
     expirySignals(29)[0]?.signal === "certificate_expiring_soon" &&
     expirySignals(30).length === 0);
-ok("certificate scorecard producer rejects unusable expiry values",
-  [-1, Number.NaN, null].every((days) => {
-    const result = expiryProducer(days);
-    return result.expiry_evidence === "not_usable" && expirySignals(days).length === 0;
-  }));
-ok("certificate scorecard producer rejects incoherent expiry pairs",
-  [
-    null,
-    "",
-    "not-a-date",
-    scorecardExpiryNotAfter(10, 2),
-    "2100-01-01T00:00:00Z",
-    "2026-08-29T12:00:00.000Z",
-  ].every((notAfter) => {
+ok("certificate scorecard producer reports an expired live certificate",
+  expirySignals(-2)[0]?.signal === "certificate_expired" && expirySignals(-2)[0]?.severity === "high");
+ok("certificate scorecard producer rejects unusable served expiry values",
+  ["not-a-date", "2026-13-45T00:00:00Z"].every((notAfter) => {
     const result = expiryProducer(10, notAfter);
-    return result.expiry_evidence === "not_usable" &&
-      result.suspicious_certificate_signals.every((signal) =>
-        !signal.signal.startsWith("certificate_expir"));
+    return result.expiry_evidence === "not_usable" && result.days_until_expiry === null &&
+      result.suspicious_certificate_signals.every((signal) => !signal.signal.startsWith("certificate_expir"));
   }));
-ok("certificate scorecard producer carries exact CT-honest titles",
-  expirySignals(13)[0]?.title === "Logged certificate validity ends within 14 days" &&
-    expirySignals(14)[0]?.title === "Logged certificate validity ends within 30 days" &&
+ok("certificate scorecard producer never reads expiry without a live certificate",
+  (() => {
+    const result = runCertificateIntelligenceModule({
+      ssl: { tls_state: "observed_present", https_available: true, cert_expiry_days: 10, cert_not_after: "2026-09-09T00:00:00.000Z" },
+      subdomains: { items: [] },
+    }, "example.com");
+    return result.expiry_evidence === "not_usable" && result.days_until_expiry === null &&
+      result.suspicious_certificate_signals.every((signal) => !signal.signal.startsWith("certificate_expir"));
+  })());
+ok("certificate scorecard producer carries exact live-certificate titles",
+  expirySignals(13)[0]?.title === "The live certificate expires within 14 days" &&
+    expirySignals(14)[0]?.title === "The live certificate expires within 30 days" &&
     [expirySignals(13)[0], expirySignals(14)[0]].every((signal) =>
-      signal?.description?.includes("Certificate Transparency") &&
-      signal.description.includes("returned by the available Certificate Transparency source") &&
-      !signal.description.includes("No currently valid publicly logged certificate") &&
-      signal.description.includes("not inspected") &&
+      signal?.description?.includes("served by this endpoint") &&
+      signal.evidence_source === "live_tls" &&
       !signal.description.includes("service outage")));
 
 const snapshotSource = fs.readFileSync(REPORT_SNAPSHOT, "utf8");
@@ -525,7 +514,7 @@ const candidateBMutants = [
     id: "SAN_B_M02",
     expected: ["SAN_B_F02a", "SAN_B_F02b"],
     mutateScorecard: (source) => replaceOne(source,
-      "if (canSayHealthy(certStateB) && !ctSourcesUnavailable &&\n      riskSignals.length === 0 && informationalObservations.length === 0) {",
+      "if (canSayHealthy(certStateB) && !historicalCertificateSourceUnavailable &&\n      riskSignals.length === 0 && informationalObservations.length === 0) {",
       "if (canSayHealthy(certStateB)) {", "SAN_B_M02"),
   },
   {

@@ -2,11 +2,10 @@
 //
 // Certificate standing-condition dedupe validator.
 //
-// insertCertificateEvents() emits three STANDING-condition asset_events
-// (certificate_sensitive_host_detected / certificate_expiring_soon /
-// certificate_growth_detected). Before this guard they re-fired on every
-// comparable scan even when the underlying condition was unchanged, flooding
-// the customer timeline with duplicate noise.
+// insertCertificateEvents() emits one STANDING-condition asset_event,
+// certificate_expiring_soon, from the certificate the live site presented.
+// Before this guard it re-fired on every comparable scan even when the
+// underlying condition was unchanged, flooding the customer timeline.
 //
 // This validator proves, DB-backed and end-to-end, that:
 //   1. an UNCHANGED condition does not re-emit on a later comparable scan;
@@ -15,7 +14,9 @@
 //      last occurrence (a late-joining workspace still gets its first event);
 //   4. repeated execution of the same scan remains idempotent;
 //   5. recurrence after absence is still possible on a later scan;
-//   6. raw asset_events history is append-only (no prior row mutated/deleted).
+//   6. raw asset_events history is append-only (no prior row mutated/deleted);
+//   7. the retired certificate-log conditions (sensitive host, growth) are
+//      never emitted, even from a module carrying their old fields.
 //
 // Every behavioural claim is mutation-tested: each mutation reintroduces the
 // defect and MUST make the contract fail for the intended reason.
@@ -95,12 +96,12 @@ function report(modules = {}) {
   };
 }
 
-function certModule({ sensitive = [], days = null, expiresAt = null, total = 0 } = {}) {
+function certModule({ days = null, expiresAt = null, retired = false } = {}) {
   return {
-    issued_for_sensitive_hosts: sensitive,
     days_until_expiry: days,
     expires_at: expiresAt,
-    total_certificates_seen: total,
+    // Fields a stored module from before certificate logs were retired can carry.
+    ...(retired ? { issued_for_sensitive_hosts: ["admin.cybermeters.com"], total_certificates_seen: 80 } : {}),
   };
 }
 
@@ -135,9 +136,6 @@ function scenarioEnv({ workspaces = ["ws_1"], prevCert = certModule(), priorEven
   return { db, env, reports };
 }
 
-const sensitiveRows = (db) => db.prepare(
-  "SELECT id, workspace_id, scan_id, description FROM asset_events WHERE event_type = 'certificate_sensitive_host_detected' ORDER BY created_at, id"
-).all();
 const typeRows = (db, type) => db.prepare(
   "SELECT id, workspace_id, scan_id FROM asset_events WHERE event_type = ? ORDER BY created_at, id"
 ).all(type);
@@ -145,218 +143,151 @@ const allRows = (db) => db.prepare("SELECT id, event_type, description FROM asse
 
 const currentReport = report();
 
+const EXPIRY = "certificate_expiring_soon";
+const expiryRows = (db) => typeRows(db, EXPIRY);
+
 // The full behavioural + pure contract. Returns null on success, else the first
 // failing reason string. Re-run against each mutant so every guard is proven.
 async function contract(mod) {
   const {
     insertCertificateEvents,
-    certSensitiveHostSignature,
     certExpiringSoonSignature,
-    certGrowthSignature,
     shouldEmitCertConditionEvent,
     certConditionEventId,
   } = mod;
 
   if (typeof certConditionEventId !== "function") return "deterministic_identity_missing";
-  const idSameA = await certConditionEventId({
+  const base = {
     workspaceId: "ws_1",
     domainId: "dom_1",
     scanId: "scan_current",
-    eventType: "certificate_sensitive_host_detected",
-    signature: "admin.cybermeters.com",
-  });
-  const idSameB = await certConditionEventId({
-    workspaceId: "ws_1",
-    domainId: "dom_1",
-    scanId: "scan_current",
-    eventType: "certificate_sensitive_host_detected",
-    signature: "admin.cybermeters.com",
-  });
+    eventType: EXPIRY,
+    signature: "medium|2026-08-05",
+  };
+  const idSameA = await certConditionEventId(base);
+  const idSameB = await certConditionEventId({ ...base });
   if (idSameA !== idSameB) return "deterministic_identity_not_stable";
   if (!/^asev_[a-f0-9]{32}$/.test(idSameA)) return "deterministic_identity_malformed";
-  if (idSameA === await certConditionEventId({ workspaceId: "ws_2", domainId: "dom_1", scanId: "scan_current", eventType: "certificate_sensitive_host_detected", signature: "admin.cybermeters.com" })) {
-    return "workspace_identity_collision";
-  }
-  if (idSameA === await certConditionEventId({ workspaceId: "ws_1", domainId: "dom_2", scanId: "scan_current", eventType: "certificate_sensitive_host_detected", signature: "admin.cybermeters.com" })) {
-    return "domain_identity_collision";
-  }
-  if (idSameA === await certConditionEventId({ workspaceId: "ws_1", domainId: "dom_1", scanId: "scan_later", eventType: "certificate_sensitive_host_detected", signature: "admin.cybermeters.com" })) {
-    return "scan_identity_collision";
-  }
-  if (idSameA === await certConditionEventId({ workspaceId: "ws_1", domainId: "dom_1", scanId: "scan_current", eventType: "certificate_expiring_soon", signature: "admin.cybermeters.com" })) {
+  if (idSameA === await certConditionEventId({ ...base, workspaceId: "ws_2" })) return "workspace_identity_collision";
+  if (idSameA === await certConditionEventId({ ...base, domainId: "dom_2" })) return "domain_identity_collision";
+  if (idSameA === await certConditionEventId({ ...base, scanId: "scan_later" })) return "scan_identity_collision";
+  if (idSameA === await certConditionEventId({ ...base, eventType: "certificate_new_detected" })) {
     return "different_event_type_identity_collision";
   }
-  if (idSameA === await certConditionEventId({ workspaceId: "ws_1", domainId: "dom_1", scanId: "scan_current", eventType: "certificate_sensitive_host_detected", signature: "vpn.cybermeters.com" })) {
+  if (idSameA === await certConditionEventId({ ...base, signature: "critical|2026-08-05" })) {
     return "different_signature_identity_collision";
   }
   const insertSource = insertCertificateEvents.toString();
-  if ((insertSource.match(/INSERT OR IGNORE INTO asset_events/g) || []).length < 3) return "standing_condition_insert_not_idempotent";
+  if ((insertSource.match(/INSERT OR IGNORE INTO asset_events/g) || []).length < 1) return "standing_condition_insert_not_idempotent";
 
   // E2E behavioural checks run FIRST so a broken guard is caught as the exact
   // customer-visible symptom (re-emit / silence / lost fan-out), then the pure
   // helper contract adds finer-grained coverage.
 
-  // ── E2E 1: unchanged sensitive set on a later comparable scan → silent ─────
+  // ── E2E 1: unchanged expiry condition on a later comparable scan → silent ──
   {
-    const set = ["api.cybermeters.com", "app.cybermeters.com"];
     const { db, env } = scenarioEnv({
-      prevCert: certModule({ sensitive: set }),
-      priorEvents: [{ id: "prior_1", workspace_id: "ws_1", event_type: "certificate_sensitive_host_detected", hostname: set[0], description: "2 sensitive hostname(s) found in CT logs: " + set.join(", ") }],
+      prevCert: certModule({ days: 20, expiresAt: "2026-08-05" }),
+      priorEvents: [{ id: "prior_1", workspace_id: "ws_1", event_type: EXPIRY, description: "Certificate expires in 20 days (2026-08-05)." }],
     });
-    await insertCertificateEvents("scan_current", "dom_1", certModule({ sensitive: set }), env, { currentReport });
-    if (sensitiveRows(db).length !== 1) return "unchanged_set_re_emitted";
+    await insertCertificateEvents("scan_current", "dom_1", certModule({ days: 18, expiresAt: "2026-08-05" }), env, { currentReport });
+    if (expiryRows(db).length !== 1) return "unchanged_expiry_re_emitted";
     // Append-only: the seeded prior row is intact.
     if (!allRows(db).some((r) => r.id === "prior_1")) return "prior_row_lost";
   }
 
-  // ── E2E 2: a new sensitive host appears → emit ─────────────────────────────
+  // ── E2E 2: a severity escalation is a genuine transition → emit ───────────
   {
-    const prev = ["api.cybermeters.com", "app.cybermeters.com"];
-    const curr = ["admin.cybermeters.com", "api.cybermeters.com", "app.cybermeters.com"];
     const { db, env } = scenarioEnv({
-      prevCert: certModule({ sensitive: prev }),
-      priorEvents: [{ id: "prior_1", workspace_id: "ws_1", event_type: "certificate_sensitive_host_detected", hostname: prev[0] }],
+      prevCert: certModule({ days: 20, expiresAt: "2026-08-05" }),
+      priorEvents: [{ id: "prior_1", workspace_id: "ws_1", event_type: EXPIRY }],
     });
-    await insertCertificateEvents("scan_current", "dom_1", certModule({ sensitive: curr }), env, { currentReport });
-    if (sensitiveRows(db).length !== 2) return "genuine_new_host_silenced";
+    await insertCertificateEvents("scan_current", "dom_1", certModule({ days: 12, expiresAt: "2026-08-05" }), env, { currentReport });
+    if (expiryRows(db).length !== 2) return "genuine_transition_silenced";
   }
 
   // ── E2E 3: fan-out — a genuine change emits once per workspace ─────────────
   {
-    const prev = ["api.cybermeters.com"];
-    const curr = ["api.cybermeters.com", "vpn.cybermeters.com"];
     const { db, env } = scenarioEnv({
       workspaces: ["ws_1", "ws_2"],
-      prevCert: certModule({ sensitive: prev }),
+      prevCert: certModule({ days: 20, expiresAt: "2026-08-05" }),
       priorEvents: [
-        { id: "p_ws1", workspace_id: "ws_1", event_type: "certificate_sensitive_host_detected", hostname: prev[0] },
-        { id: "p_ws2", workspace_id: "ws_2", event_type: "certificate_sensitive_host_detected", hostname: prev[0] },
+        { id: "p_ws1", workspace_id: "ws_1", event_type: EXPIRY },
+        { id: "p_ws2", workspace_id: "ws_2", event_type: EXPIRY },
       ],
     });
-    await insertCertificateEvents("scan_current", "dom_1", certModule({ sensitive: curr }), env, { currentReport });
-    const fresh = sensitiveRows(db).filter((r) => r.id !== "p_ws1" && r.id !== "p_ws2");
+    await insertCertificateEvents("scan_current", "dom_1", certModule({ days: 12, expiresAt: "2026-08-05" }), env, { currentReport });
+    const fresh = expiryRows(db).filter((r) => r.id !== "p_ws1" && r.id !== "p_ws2");
     if (fresh.length !== 2) return "fanout_not_one_event_per_workspace";
     if (new Set(fresh.map((r) => r.workspace_id)).size !== 2) return "fanout_lost_a_workspace";
   }
 
-  // ── E2E 4: late-joining workspace, unchanged set → it still gets its first ─
+  // ── E2E 4: late-joining workspace, unchanged condition → its first event ──
   {
-    const set = ["api.cybermeters.com"];
     const { db, env } = scenarioEnv({
       workspaces: ["ws_1", "ws_2"],
-      prevCert: certModule({ sensitive: set }),
+      prevCert: certModule({ days: 20, expiresAt: "2026-08-05" }),
       // Only ws_1 has recorded the condition before; ws_2 joined later.
-      priorEvents: [{ id: "p_ws1", workspace_id: "ws_1", event_type: "certificate_sensitive_host_detected", hostname: set[0] }],
+      priorEvents: [{ id: "p_ws1", workspace_id: "ws_1", event_type: EXPIRY }],
     });
-    await insertCertificateEvents("scan_current", "dom_1", certModule({ sensitive: set }), env, { currentReport });
-    const fresh = sensitiveRows(db).filter((r) => r.id !== "p_ws1");
+    await insertCertificateEvents("scan_current", "dom_1", certModule({ days: 18, expiresAt: "2026-08-05" }), env, { currentReport });
+    const fresh = expiryRows(db).filter((r) => r.id !== "p_ws1");
     if (fresh.length !== 1) return "late_join_workspace_not_served";
     if (fresh[0].workspace_id !== "ws_2") return "late_join_served_wrong_workspace";
   }
 
-  // ── E2E 5: expiring-soon standing condition does not re-fire on countdown ──
+  // ── E2E 5: retired certificate-log conditions are never emitted ───────────
   {
-    const { db, env } = scenarioEnv({
-      prevCert: certModule({ days: 20, expiresAt: "2026-08-05" }),
-      priorEvents: [{ id: "exp_1", workspace_id: "ws_1", event_type: "certificate_expiring_soon" }],
-    });
-    await insertCertificateEvents("scan_current", "dom_1", certModule({ days: 18, expiresAt: "2026-08-05" }), env, { currentReport });
-    if (typeRows(db, "certificate_expiring_soon").length !== 1) return "expiry_countdown_re_emitted";
+    const { db, env } = scenarioEnv({ prevCert: certModule() });
+    await insertCertificateEvents("scan_current", "dom_1", certModule({ retired: true }), env, { currentReport });
+    const retiredRows = db.prepare(
+      `SELECT id FROM asset_events
+       WHERE event_type IN ('certificate_sensitive_host_detected', 'certificate_growth_detected')`
+    ).all();
+    if (retiredRows.length !== 0) return "retired_condition_emitted";
+    if (expiryRows(db).length !== 0) return "expiry_emitted_without_expiry";
   }
 
-  // ── E2E 6: growth standing condition does not re-fire while over threshold ─
+  // ── E2E 6: repeated execution for the same scan is idempotent ─────────────
   {
-    const { db, env } = scenarioEnv({
-      prevCert: certModule({ total: 60 }),
-      priorEvents: [{ id: "grow_1", workspace_id: "ws_1", event_type: "certificate_growth_detected" }],
-    });
-    await insertCertificateEvents("scan_current", "dom_1", certModule({ total: 72 }), env, { currentReport });
-    if (typeRows(db, "certificate_growth_detected").length !== 1) return "growth_standing_re_emitted";
-  }
-
-  // ── E2E 7: repeated execution for the same scan is idempotent ─────────────
-  {
-    const { db, env } = scenarioEnv({
-      prevCert: certModule(),
-      priorEvents: [{ id: "older_sensitive", workspace_id: "ws_1", event_type: "certificate_sensitive_host_detected", hostname: "old.cybermeters.com" }],
-    });
-    const current = certModule({ sensitive: ["admin.cybermeters.com"] });
+    const { db, env } = scenarioEnv({ prevCert: certModule() });
+    const current = certModule({ days: 10, expiresAt: "2026-07-28" });
     await insertCertificateEvents("scan_current", "dom_1", current, env, { currentReport });
     await insertCertificateEvents("scan_current", "dom_1", current, env, { currentReport });
-    const fresh = sensitiveRows(db).filter((r) => r.id !== "older_sensitive");
-    if (fresh.length !== 1) return "same_scan_transition_duplicated";
+    if (expiryRows(db).length !== 1) return "same_scan_transition_duplicated";
   }
 
-  // ── E2E 8: a later scan after absence can emit recurrence ─────────────────
+  // ── E2E 7: a later scan after absence can emit recurrence ─────────────────
   {
-    const { db, env, reports } = scenarioEnv({
-      prevCert: certModule(),
-      priorEvents: [{ id: "older_sensitive", workspace_id: "ws_1", event_type: "certificate_sensitive_host_detected", hostname: "old.cybermeters.com" }],
-    });
-    await insertCertificateEvents("scan_current", "dom_1", certModule({ sensitive: ["admin.cybermeters.com"] }), env, { currentReport });
-    reports.set("reports/scan_current.json", report({ certificate_intelligence: certModule() }));
+    const { db, env, reports } = scenarioEnv({ prevCert: certModule() });
+    await insertCertificateEvents("scan_current", "dom_1", certModule({ days: 10, expiresAt: "2026-07-28" }), env, { currentReport });
+    reports.set("reports/scan_current.json", report({ certificate_intelligence: certModule({ days: 90, expiresAt: "2026-10-16" }) }));
     db.prepare("INSERT INTO scans (id, domain_id, domain, status, scan_quality, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
       "scan_later", "dom_1", "cybermeters.com", "completed", "complete", "2026-07-18T12:21:00.000Z"
     );
-    await insertCertificateEvents("scan_later", "dom_1", certModule({ sensitive: ["admin.cybermeters.com"] }), env, { currentReport });
-    const fresh = sensitiveRows(db).filter((r) => r.id !== "older_sensitive");
-    if (fresh.length !== 2) return "later_recurrence_after_absence_silenced";
-    if (new Set(fresh.map((r) => r.scan_id)).size !== 2) return "recurrence_scan_identity_collapsed";
+    await insertCertificateEvents("scan_later", "dom_1", certModule({ days: 10, expiresAt: "2026-07-28" }), env, { currentReport });
+    const rows = expiryRows(db);
+    if (rows.length !== 2) return "later_recurrence_after_absence_silenced";
+    if (new Set(rows.map((r) => r.scan_id)).size !== 2) return "recurrence_scan_identity_collapsed";
   }
 
-  // ── E2E 9: workspace identity prevents cross-workspace suppression/collision
+  // ── E2E 8: workspace identity prevents cross-workspace suppression/collision
   {
     const { db, env } = scenarioEnv({
       workspaces: ["ws_1", "ws_2"],
       prevCert: certModule(),
     });
-    await insertCertificateEvents("scan_current", "dom_1", certModule({ sensitive: ["admin.cybermeters.com"] }), env, { currentReport });
-    const rows = sensitiveRows(db);
+    await insertCertificateEvents("scan_current", "dom_1", certModule({ days: 10, expiresAt: "2026-07-28" }), env, { currentReport });
+    const rows = expiryRows(db);
     if (rows.length !== 2) return "different_workspaces_suppressed";
     if (new Set(rows.map((r) => r.workspace_id)).size !== 2) return "different_workspaces_collapsed";
     if (new Set(rows.map((r) => r.id)).size !== 2) return "different_workspaces_identity_collided";
   }
 
-  // ── E2E 10: event type identity prevents cross-type collision ──────────────
-  {
-    const { db, env } = scenarioEnv({ prevCert: certModule() });
-    await insertCertificateEvents(
-      "scan_current",
-      "dom_1",
-      certModule({ sensitive: ["admin.cybermeters.com"], days: 10, expiresAt: "2026-07-28", total: 80 }),
-      env,
-      { currentReport }
-    );
-    const rows = db.prepare(
-      `SELECT id, event_type FROM asset_events
-       WHERE event_type IN ('certificate_sensitive_host_detected',
-                            'certificate_expiring_soon',
-                            'certificate_growth_detected')
-       ORDER BY event_type`
-    ).all();
-    if (rows.length !== 3) return "different_event_types_collided";
-    if (new Set(rows.map((r) => r.id)).size !== 3) return "different_event_type_identity_collided";
-  }
-
   // ── Pure helper contract (finer-grained direction coverage) ───────────────
-  // Signature is order-independent (set semantics).
-  if (certSensitiveHostSignature({ issued_for_sensitive_hosts: ["b.x", "a.x"] })
-      !== certSensitiveHostSignature({ issued_for_sensitive_hosts: ["a.x", "b.x"] })) {
-    return "signature_not_order_independent";
-  }
-  // A different set yields a different signature.
-  if (certSensitiveHostSignature({ issued_for_sensitive_hosts: ["a.x"] })
-      === certSensitiveHostSignature({ issued_for_sensitive_hosts: ["a.x", "b.x"] })) {
-    return "signature_ignores_set_change";
-  }
-  // Absent condition → null signature → never emits.
-  if (certSensitiveHostSignature({ issued_for_sensitive_hosts: [] }) !== null) return "empty_set_not_null";
   if (shouldEmitCertConditionEvent(null, null, false) !== false) return "absent_condition_emitted";
-  // Present-but-unchanged with a prior event → silent.
   if (shouldEmitCertConditionEvent("a", "a", true) !== false) return "unchanged_with_prior_emitted";
-  // Present + changed signature → emit.
-  if (shouldEmitCertConditionEvent("a\nb", "a", true) !== true) return "changed_signature_silenced";
-  // Present + no prior event for this workspace → emit (first occurrence).
+  if (shouldEmitCertConditionEvent("b", "a", true) !== true) return "changed_signature_silenced";
   if (shouldEmitCertConditionEvent("a", "a", false) !== true) return "first_occurrence_silenced";
   // Expiry band + expires_at drive the signature; day countdown alone does not.
   if (certExpiringSoonSignature({ days_until_expiry: 20, expires_at: "2026-08-01" })
@@ -369,8 +300,7 @@ async function contract(mod) {
     return "expiry_band_escalation_ignored";
   }
   if (certExpiringSoonSignature({ days_until_expiry: 40, expires_at: "2026-09-01" }) !== null) return "expiry_outside_window_not_null";
-  if (certGrowthSignature({ total_certificates_seen: 40 }) !== null) return "growth_below_threshold_not_null";
-  if (certGrowthSignature({ total_certificates_seen: 60 }) === null) return "growth_above_threshold_null";
+  if ("certSensitiveHostSignature" in mod || "certGrowthSignature" in mod) return "retired_condition_signature_exported";
 
   return null;
 }
@@ -384,13 +314,13 @@ if (!process.argv.includes("--no-mutate")) {
       name: "re-emit unchanged condition (drop signature comparison)",
       from: "  return currentSignature !== previousSignature; // otherwise only on genuine transition",
       to: "  return true; // otherwise only on genuine transition",
-      expected: "unchanged_set_re_emitted",
+      expected: "unchanged_expiry_re_emitted",
     },
     {
       name: "silence genuine transition (never emit past prior)",
       from: "  if (!hasPriorEvent) return true;               // per-workspace first occurrence\n  return currentSignature !== previousSignature; // otherwise only on genuine transition",
       to: "  if (!hasPriorEvent) return true;               // per-workspace first occurrence\n  return false; // otherwise only on genuine transition",
-      expected: "genuine_new_host_silenced",
+      expected: "genuine_transition_silenced",
     },
     {
       name: "drop per-workspace first-occurrence (breaks late-join fan-out)",
@@ -399,16 +329,16 @@ if (!process.argv.includes("--no-mutate")) {
       expected: "late_join_workspace_not_served",
     },
     {
-      name: "collapse sensitive-host set to a constant (set change no longer emits)",
-      from: "  return [...new Set(hosts.map((h) => String(h)))].sort().join(\"\\n\");",
-      to: "  return \"sensitive\";",
-      expected: "genuine_new_host_silenced",
-    },
-    {
       name: "drop expires_at + band from expiry signature (countdown re-fires as change)",
       from: "  return `${band}|${certMod?.expires_at ?? \"\"}`;",
       to: "  return `${certMod?.days_until_expiry}`;",
-      expected: "expiry_countdown_re_emitted",
+      expected: "unchanged_expiry_re_emitted",
+    },
+    {
+      name: "drop the expiry window from the signature",
+      from: "  if (days == null || !(days < 30)) return null;",
+      to: "  if (days == null) return null;",
+      expected: "expiry_outside_window_not_null",
     },
     {
       name: "remove deterministic identity (random ids duplicate same scan)",
@@ -448,8 +378,8 @@ if (!process.argv.includes("--no-mutate")) {
     },
     {
       name: "remove idempotent insert",
-      from: "INSERT OR IGNORE INTO asset_events\n               (id, workspace_id, domain_id, scan_id, event_type,\n                hostname, severity, description, created_at)\n             VALUES (?, ?, ?, ?, 'certificate_sensitive_host_detected',",
-      to: "INSERT INTO asset_events\n               (id, workspace_id, domain_id, scan_id, event_type,\n                hostname, severity, description, created_at)\n             VALUES (?, ?, ?, ?, 'certificate_sensitive_host_detected',",
+      from: "INSERT OR IGNORE INTO asset_events\n               (id, workspace_id, domain_id, scan_id, event_type,\n                hostname, severity, description, created_at)\n             VALUES (?, ?, ?, ?, 'certificate_expiring_soon',",
+      to: "INSERT INTO asset_events\n               (id, workspace_id, domain_id, scan_id, event_type,\n                hostname, severity, description, created_at)\n             VALUES (?, ?, ?, ?, 'certificate_expiring_soon',",
       expected: "standing_condition_insert_not_idempotent",
     },
   ];
@@ -467,8 +397,8 @@ if (!process.argv.includes("--no-mutate")) {
   });
   hookMutations.push({
     id: repeatedAnchorId,
-    from: "INSERT OR IGNORE INTO asset_events",
-    to: "INSERT INTO asset_events",
+    from: "INSERT OR IGNORE INTO ",
+    to: "INSERT INTO ",
   });
   registerMutants(hookMutations);
 

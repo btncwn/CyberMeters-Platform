@@ -182,8 +182,12 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
     const live = ssl.network_probe?.profile === 'live_tls' && ssl.live_certificate?.collection_complete === true ? ssl.live_certificate : null;
     const liveIncomplete = ssl.certificate_evidence?.schema_version === 'external-certificate-observation-v4' && ssl.certificate_evidence.live_tls?.all_planned_endpoints_observed !== true;
     const liveObservedMs = Date.parse(ssl.network_probe?.finished_at);
-    const days_until_expiry = live ? Math.floor((Date.parse(live.not_after)-liveObservedMs)/86_400_000) : null;
-    const expires_at = live?.not_after ?? null;
+    const liveExpiryMs = live ? Date.parse(live.not_after) : Number.NaN;
+    // Expiry is usable only when both the served notAfter and the observation
+    // time are real instants; anything else stays unknown.
+    const expiryUsable = Number.isFinite(liveExpiryMs) && Number.isFinite(liveObservedMs);
+    const days_until_expiry = expiryUsable ? Math.floor((liveExpiryMs-liveObservedMs)/86_400_000) : null;
+    const expires_at = expiryUsable ? live.not_after : null;
     const tls = resolveTlsRuntimeState(ssl);
     const https_available = tls.state === TLS_RUNTIME_STATES.OBSERVED_PRESENT
       ? true
@@ -273,7 +277,7 @@ export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
       evidence_source:       live ? "live_tls" : "not_observed",
       live_certificate_verified: !!live,
       live_tls: ssl.certificate_evidence?.live_tls ?? null,
-      expiry_evidence:       live ? "usable" : "not_usable",
+      expiry_evidence:       expiryUsable ? "usable" : "not_usable",
       issued_at:             live?.not_before ?? null,
       certificate_age_days:  live ? Math.floor((liveObservedMs-Date.parse(live.not_before))/86_400_000) : null,
       expires_at,
