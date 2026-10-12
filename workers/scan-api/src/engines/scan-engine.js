@@ -66,6 +66,7 @@ import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { collectLiveTls, attachLiveTlsToSsl, liveCertificateFindings } from "./network-probe.js";
 import { collectReferencedHostnames, confirmReferencedHostnames, REFERENCED_HOSTNAME_LIMITS, referencedHostnamesNotExecuted, withConfirmedReferences } from "./referenced-hostnames.js";
+import { DISCOVERY_DEPTH_LIMITS, discoveryDepthNotExecuted, loadDiscoveryRotationIndex, runDiscoveryDepth } from "./discovery-depth.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
 import { BRUTEFORCE_MAX_NAMES, SUBDOMAIN_DISCOVERY_SOURCE, filterWildcardBruteforceResults, isSensitiveSubdomain, prioritizeExposureTargets, runBruteforceModule, runSubdomainsModule, withReferencedHostnames } from "./subdomains-scan.js";
 import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply-chain.js";
@@ -1192,7 +1193,55 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       } else {
         referencedResult = referencedHostnamesNotExecuted("invocation_not_durable");
       }
-      const discoveryHosts = withConfirmedReferences(mergedSubdomainItems, referencedResult);
+      const referencedHosts = withConfirmedReferences(mergedSubdomainItems, referencedResult);
+
+      // Deeper DNS discovery: a rotating slice of the authored word list, name
+      // variants of hosts already found and a bounded NSEC walk. Guesses need
+      // the wildcard answer to be told apart from real names, so the step does
+      // not run when the wildcard check did not finish.
+      let depthResult;
+      if (!durableInvocation) {
+        depthResult = discoveryDepthNotExecuted("invocation_not_durable");
+      } else if (subdomainsResult.incomplete === true || subdomainsResult.error) {
+        depthResult = discoveryDepthNotExecuted("wildcard_check_incomplete");
+      } else {
+        const rotation = await loadDiscoveryRotationIndex(env, { domainId, workspaceId });
+        let depthThrown = null;
+        const depthRun = await runCappedModule("discovery_depth", {
+          estimateMs: DISCOVERY_DEPTH_LIMITS.budgetMs,
+          hardMs: DISCOVERY_DEPTH_LIMITS.budgetMs,
+          fallback: () => markDeadlineDeferred(discoveryDepthNotExecuted("deadline_deferred")),
+          run: ({ accounting, signal }) => runDiscoveryDepth(domain, {
+            knownHosts: [...referencedHosts, ...knownAssetHosts],
+            discoveredHosts: referencedHosts,
+            wildcardAddresses: subdomainsResult.wildcard_dns_addresses,
+            rotationIndex: rotation.index,
+            accounting,
+            signal,
+            cache: dnsCache,
+          }),
+        });
+        depthThrown = depthRun.thrown;
+        depthResult = depthThrown ? discoveryDepthNotExecuted("lookup_step_failed") : depthRun.value;
+        if (depthResult?.wordlist) depthResult.wordlist.rotation_source = rotation.source;
+        const depthTimedOut = depthResult?.outcome === "deadline_exceeded";
+        const depthOutbound = depthThrown
+          ? (() => { depthRun.ctx?.markIncomplete?.("module_error"); return outboundAccounting.snapshot("discovery_depth"); })()
+          : depthTimedOut
+          ? abandonOutbound(depthRun.ctx, "discovery_depth", depthRun.startedMs != null ? "module_race" : "launch_gate")
+          : settleOutboundValue(depthRun.ctx, "discovery_depth", depthResult);
+        telemetry.record("discovery_depth", {
+          outcome:        telemetry.outcomeOf(depthResult),
+          timeout:        depthTimedOut,
+          error_class:    depthThrown?.name || null,
+          duration_ms:    depthRun.durationMs,
+          allocated_ms:   depthRun.startedMs != null ? depthRun.allocatedMs : 0,
+          timeout_source: depthTimedOut ? (depthRun.startedMs != null ? "module_race" : "launch_gate") : null,
+          outbound:       depthOutbound,
+          outbound_calls: depthOutbound?.outbound_measurement_complete ? depthOutbound.outbound_attempts_observed : null,
+        });
+      }
+      const discoveryHosts = withConfirmedReferences(referencedHosts, depthResult);
 
       // The subdomains module carries the discovered set, so scoring and
       // certificate intelligence see every name found in this scan.
@@ -1203,6 +1252,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         items: discoveredItems,
         sensitive: discoveredItems.filter((host) => isSensitiveSubdomain(host, domain)),
         referenced_hostnames: referencedResult,
+        discovery_depth: depthResult,
       };
       // Exposure probes the first 50 targets: high-value names (admin, VPN,
       // login, dev…) go first so a discovered admin host is never cut off by

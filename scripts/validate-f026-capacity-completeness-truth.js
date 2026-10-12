@@ -175,6 +175,7 @@ function variableOutboundBoundTruth() {
   const ssrfSource = source("workers/scan-api/src/lib/ssrf.js");
   const engineSource = source("workers/scan-api/src/engines/scan-engine.js");
   const referencedSource = source("workers/scan-api/src/engines/referenced-hostnames.js");
+  const depthSource = source("workers/scan-api/src/engines/discovery-depth.js");
 
   const mailLabelsBlock = subdomainsSource.match(/const MAIL_SUBDOMAIN_LABELS\s*=\s*\[([\s\S]*?)\];/)?.[1] || "";
   const mailLabelCount = (mailLabelsBlock.match(/"[^"]+"/g) || []).length;
@@ -186,9 +187,25 @@ function variableOutboundBoundTruth() {
   // by one DNS lookup each (capped). No discovery source is unbounded.
   const srvTargetCap = integerLiteral(subdomainsSource, /export const SRV_TARGET_CAP\s*=\s*([\d_]+)/, "SRV_TARGET_CAP");
   const referencedCheckCap = integerLiteral(referencedSource, /maxChecks:\s*([\d_]+)/, "referenced maxChecks");
+  const confirmationSource = source("workers/scan-api/src/engines/discovery-confirmation.js");
+  // Every discovery confirmation is one A question per name, in the shared helper.
+  const oneQuestionPerName = /names\.slice\(start, start \+ size\)\.map\(async \(hostname\) => \{[\s\S]{0,120}lookup\(hostname, "A"\)/.test(confirmationSource);
   const referencedCapEnforced = /const checks = pending\.slice\(0, REFERENCED_HOSTNAME_LIMITS\.maxChecks\);/.test(referencedSource) &&
-    /lookup\(candidate\.hostname, "A"\)/.test(referencedSource);
-  const discoveredCandidateCap = BRUTEFORCE_MAX_NAMES + mailLabelCount + srvTargetCap + LINKED_HOST_LIMITS.maxHosts + referencedCheckCap;
+    /lookupNames\(checks\.map\(\(candidate\) => candidate\.hostname\), lookup,/.test(referencedSource) && oneQuestionPerName;
+  // Deeper DNS discovery: the rotating word-list slice, name variants, the
+  // NSEC walk's questions and the A lookups confirming the names it lists.
+  const depthWordlistCap = integerLiteral(depthSource, /wordlistSlice:\s*([\d_]+)/, "depth wordlistSlice");
+  const depthVariantCap = integerLiteral(depthSource, /variants:\s*([\d_]+)/, "depth variants");
+  const depthNsecQueryCap = integerLiteral(depthSource, /nsecQueries:\s*([\d_]+)/, "depth nsecQueries");
+  const depthNsecConfirmCap = integerLiteral(depthSource, /nsecConfirmations:\s*([\d_]+)/, "depth nsecConfirmations");
+  const depthCapsEnforced =
+    /const rotation = wordlistRotation\(rotationIndex\);/.test(depthSource) &&
+    /deriveNameVariants\(variantInputs, \{ domain: root, max: limits\.variants \}\)/.test(depthSource) &&
+    /walkNsec\(root, nsecLookup, \{ clock, deadlineAt, maxQueries: limits\.nsecQueries \}\)/.test(depthSource) &&
+    /const nsecNames = nsecFresh\.slice\(0, limits\.nsecConfirmations\);/.test(depthSource);
+  const depthOutboundBound = depthWordlistCap + depthVariantCap + depthNsecQueryCap + depthNsecConfirmCap;
+  const discoveredCandidateCap = BRUTEFORCE_MAX_NAMES + mailLabelCount + srvTargetCap + LINKED_HOST_LIMITS.maxHosts +
+    referencedCheckCap + depthWordlistCap + depthVariantCap + depthNsecConfirmCap;
   const srvCapEnforced = /if \(srvItems\.length >= SRV_TARGET_CAP\) \{ srvTargetsDropped\+\+; continue; \}/.test(subdomainsSource);
   const knownAssetCap = integerLiteral(attackLifecycleSource, /const MAX_RECHECK_HOSTS\s*=\s*([\d_]+)/, "MAX_RECHECK_HOSTS");
   const exposureHostCap = integerLiteral(assetSource, /const targets\s*=\s*candidates\.slice\(0,\s*([\d_]+)\)/, "exposure host cap");
@@ -205,7 +222,7 @@ function variableOutboundBoundTruth() {
   const exposureOutboundBound = exposureHostCap * exposurePerHostBound;
   const takeoverHttpPerCandidateBound = takeoverRedirectHops + 1;
   const takeoverOutboundBound = takeoverHostCap + takeoverHostCap * takeoverHttpPerCandidateBound;
-  const namedVariableOutboundBound = bruteHostCap + referencedCheckCap + exposureOutboundBound + takeoverOutboundBound;
+  const namedVariableOutboundBound = bruteHostCap + referencedCheckCap + depthOutboundBound + exposureOutboundBound + takeoverOutboundBound;
   const fixedModeledEstimate = computeScanBudget(bruteHostCap).estimated_subrequests_total - bruteHostCap;
   const conservativeProfileEnvelope = fixedModeledEstimate + namedVariableOutboundBound;
   const providerCeiling = buildScanQuality(completeMod(), undefined, resolveScanCapacity({ SCAN_SUBREQUEST_LIMIT: 200 }))
@@ -220,11 +237,13 @@ function variableOutboundBoundTruth() {
   ok("(c) discovered and historical candidates are source-bounded before variable probes",
     srvTargetCap === SRV_TARGET_CAP && srvTargetCap === 50 && srvCapEnforced &&
       LINKED_HOST_LIMITS.maxHosts === 25 && referencedCheckCap === 50 && referencedCapEnforced &&
-      discoveredCandidateCap === 173 &&
+      depthWordlistCap === 200 && depthVariantCap === 100 && depthNsecQueryCap === 64 &&
+      depthNsecConfirmCap === 64 && depthCapsEnforced && depthOutboundBound === 428 &&
+      discoveredCandidateCap === 537 &&
       bruteHostCap === 56 && knownAssetCap === 50 &&
       exposureHostCap === 50 && takeoverHostCap === 100,
     JSON.stringify({ srvTargetCap, srvCapEnforced, linkedHostCap: LINKED_HOST_LIMITS.maxHosts,
-      referencedCheckCap, referencedCapEnforced, discoveredCandidateCap, bruteHostCap, knownAssetCap, exposureHostCap, takeoverHostCap }));
+      referencedCheckCap, referencedCapEnforced, depthOutboundBound, depthCapsEnforced, discoveredCandidateCap, bruteHostCap, knownAssetCap, exposureHostCap, takeoverHostCap }));
   ok("(c) exposure redirect/DNS fan-out is source-bounded",
     protocolCount === 2 && RESERVED_MAX_REDIRECT_HOPS === 3 &&
       exposureHasTwoRemovalDnsQueries && ssrfHasTwoAddressQueries &&
@@ -238,7 +257,7 @@ function variableOutboundBoundTruth() {
   ok("(c) admin_surface is derived from completed exposure evidence with zero new network I/O",
     adminIsPure, JSON.stringify({ adminStart, adminEnd }));
   ok("(c) conservative named-variable envelope stays below provider 10000 but above admission 200",
-    conservativeProfileEnvelope === 2078 &&
+    conservativeProfileEnvelope === 2506 &&
       conservativeProfileEnvelope > 200 && conservativeProfileEnvelope < providerCeiling,
     JSON.stringify({ fixedModeledEstimate, namedVariableOutboundBound, conservativeProfileEnvelope, providerCeiling }));
 }

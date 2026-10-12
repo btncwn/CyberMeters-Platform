@@ -25,6 +25,12 @@ describe('assetSourceLabel', () => {
     expect(assetSourceLabel('cors_reference')).toBe('Allowed by your website CORS policy')
   })
 
+  it('names every deeper DNS discovery source', () => {
+    expect(assetSourceLabel('dns_wordlist')).toBe('DNS lookup (extended name list)')
+    expect(assetSourceLabel('dns_name_variant')).toBe('Name pattern check')
+    expect(assetSourceLabel('dnssec_nsec')).toBe('Listed in your DNSSEC zone records')
+  })
+
   it('shows an unrecognised code as-is and an absent one as a dash', () => {
     expect(assetSourceLabel('future_source')).toBe('future_source')
     expect(assetSourceLabel('toString')).toBe('toString')

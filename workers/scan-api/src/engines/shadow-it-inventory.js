@@ -33,6 +33,7 @@ import { newCaseEventId } from "./case-workflow.js";
 import { SAAS_EXPOSURE_CATALOGUE_URLS } from "./discovery-scan.js";
 import { IDENTITY_CANONICAL_SHADOW_QUERY, buildIdentityEvidenceProjection } from "./identity-evidence-contract.js";
 import { REFERENCED_HOSTNAME_ASSET_SOURCES } from "./referenced-hostnames.js";
+import { DISCOVERY_DEPTH_ASSET_SOURCES } from "./discovery-depth.js";
 
 function newId(prefix) {
   const uuid = (globalThis.crypto?.randomUUID?.() || "").replace(/-/g, "");
@@ -145,6 +146,7 @@ const DISCOVERY_ASSET_SOURCES = new Set([
   "html_link",
   "certificate_transparency",
   ...Object.values(REFERENCED_HOSTNAME_ASSET_SOURCES),
+  ...Object.values(DISCOVERY_DEPTH_ASSET_SOURCES),
 ]);
 
 function cloudProviderMeta(token) {

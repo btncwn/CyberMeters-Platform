@@ -20,6 +20,10 @@ const SOURCE_LABELS = Object.freeze({
   csp_reference:            'Named in your Content-Security-Policy',
   link_header_reference:    'Named in a website Link header',
   cors_reference:           'Allowed by your website CORS policy',
+  // Deeper DNS discovery, confirmed by DNS.
+  dns_wordlist:             'DNS lookup (extended name list)',
+  dns_name_variant:         'Name pattern check',
+  dnssec_nsec:              'Listed in your DNSSEC zone records',
   // historical: assets discovered before certificate logs were retired.
   certificate_transparency: 'Certificate log (historical)',
 })

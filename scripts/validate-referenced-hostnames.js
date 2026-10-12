@@ -173,17 +173,20 @@ try {
 }
 ok("module issues no request except through the injected DNS lookup",
   !/\bfetch\s*\(|safeFetch|probeAsset/.test(moduleSource) && (moduleSource.match(/dnsQuery\(/g) || []).length === 1);
+ok("module confirms names through the shared discovery rule",
+  /from "\.\/discovery-confirmation\.js"/.test(moduleSource) && !/classifyDiscoveryDnsResponse/.test(moduleSource));
 
 // Relative imports are rewritten to absolute file URLs so a data: module can load them.
 const absoluteImports = (source) => source.replace(/from "\.\/([^"]+)"/g,
   (_, file) => `from "${pathToFileURL(enginePath(file)).href}"`);
 const MUTANTS = [
-  ["if (outcome === \"answer\" || outcome === \"cname_only\") {", "if (outcome !== \"nxdomain\") {", "an unconfirmed name is admitted"],
+  ["if (confirmation.status === \"confirmed\") {", "if (confirmation.status !== \"not_found\") {", "an unconfirmed name is admitted"],
   ["const checks = pending.slice(0, REFERENCED_HOSTNAME_LIMITS.maxChecks);", "const checks = pending;", "the lookup cap is removed"],
-  ["...(wildcardMatch ? { wildcard_match: true } : {}),", "", "a wildcard-shaped answer is hidden"],
+  ["const confirmation = confirmationOf(observations[index], { wildcardSet, filterWildcard: false });",
+    "const confirmation = confirmationOf(observations[index], { wildcardSet, filterWildcard: true });", "a referenced name is wildcard-filtered"],
   ["const live = ssl?.live_certificate?.collection_complete === true ? ssl.live_certificate : null;", "const live = ssl?.live_certificate ?? null;", "an incomplete live capture is trusted"],
   ["if (notChecked > 0) reasons.push(\"check_cap_reached\");", "", "a reached cap is hidden"],
-  ["else if (outcome === \"nodata\") noAddress++;\n    else lookupFailed++;", "else if (outcome === \"nodata\") noAddress++;", "failed lookups are hidden"],
+  ["else if (confirmation.status === \"no_address\") noAddress++;\n    else lookupFailed++;", "else if (confirmation.status === \"no_address\") noAddress++;", "failed lookups are hidden"],
   ["!known.has(candidate.hostname) && candidate.hostname !== root", "candidate.hostname !== root", "discovered names are looked up again"],
   ["  live_tls_san:   \"tls_certificate_name\",\n  mx:             \"mx_target\",", "  mx:             \"mx_target\",\n  live_tls_san:   \"tls_certificate_name\",", "source precedence is reordered"],
 ];
@@ -208,7 +211,7 @@ for (const code of Object.values(REFERENCED_HOSTNAME_ASSET_SOURCES)) {
 }
 const shadowSource = fs.readFileSync(enginePath("shadow-it-inventory.js"), "utf8");
 ok("Shadow IT treats every referenced asset source as discovery evidence",
-  /const DISCOVERY_ASSET_SOURCES = new Set\(\[[\s\S]*?\.\.\.Object\.values\(REFERENCED_HOSTNAME_ASSET_SOURCES\),\s*\]\);/.test(shadowSource));
+  /const DISCOVERY_ASSET_SOURCES = new Set\(\[[^\]]*?\.\.\.Object\.values\(REFERENCED_HOSTNAME_ASSET_SOURCES\),[^\]]*\]\);/.test(shadowSource));
 const { OUTBOUND_FULLY_INSTRUMENTED_MODULES } = await eng("scan-budget.js");
 ok("the lookup step's outbound calls are fully instrumented", OUTBOUND_FULLY_INSTRUMENTED_MODULES.has("referenced_hostnames"));
 

@@ -15,7 +15,7 @@ import {
   extractFromRedirectChain,
 } from "./discovery-extractors.js";
 import { extractFromSpfRecords } from "./discovery-dns-extractors.js";
-import { classifyDiscoveryDnsResponse } from "./discovery-dns-observation.js";
+import { confirmationOf, confirmedHost, lookupNames, wildcardAddressSet } from "./discovery-confirmation.js";
 
 export const REFERENCED_HOSTNAMES_VERSION = "referenced-hostnames-v1";
 
@@ -167,7 +167,6 @@ export async function confirmReferencedHostnames(domain, collected, {
   accounting = null,
   cache = null,
   signal = null,
-  observedAt = null,
   lookup = (name, type) => dnsQuery(name, type, { accounting, cache, signal }),
 } = {}) {
   const root = normalizeHostname(domain);
@@ -175,41 +174,26 @@ export async function confirmReferencedHostnames(domain, collected, {
   const pending = (collected?.candidates || []).filter((candidate) => !known.has(candidate.hostname) && candidate.hostname !== root);
   const checks = pending.slice(0, REFERENCED_HOSTNAME_LIMITS.maxChecks);
   const notChecked = pending.length - checks.length;
-  const wildcardSet = new Set(strings(wildcardAddresses).map((address) => address.toLowerCase()));
+  const wildcardSet = wildcardAddressSet(wildcardAddresses);
 
-  const outcomes = await Promise.all(checks.map(async (candidate) => {
-    let response = null, error = null;
-    try { response = await lookup(candidate.hostname, "A"); } catch (err) { error = err ?? new Error("lookup_failed"); }
-    return classifyDiscoveryDnsResponse({
-      hostname: candidate.hostname,
-      recordType: "A",
-      ...(error ? { error } : { response }),
-      observedAt,
-    });
-  }));
+  // One batch: every check runs in parallel and each DoH question carries its
+  // own timeout, so nothing is left in flight when the step returns.
+  const { observations } = await lookupNames(checks.map((candidate) => candidate.hostname), lookup, {
+    batchSize: REFERENCED_HOSTNAME_LIMITS.maxChecks,
+  });
 
   const confirmed = [];
   let notFound = 0, noAddress = 0, lookupFailed = 0;
   checks.forEach((candidate, index) => {
-    const observation = outcomes[index];
-    const outcome = observation?.outcome;
-    if (outcome === "answer" || outcome === "cname_only") {
-      const addresses = (observation.records || [])
-        .filter((record) => record.type === "A")
-        .map((record) => String(record.data).toLowerCase())
-        .sort(compare);
-      const wildcardMatch = wildcardSet.size > 0 && addresses.length === wildcardSet.size &&
-        addresses.every((address) => wildcardSet.has(address));
-      confirmed.push({
-        hostname: candidate.hostname,
+    // A referenced name is not a guess: a wildcard-shaped answer is flagged.
+    const confirmation = confirmationOf(observations[index], { wildcardSet, filterWildcard: false });
+    if (confirmation.status === "confirmed") {
+      confirmed.push(confirmedHost(candidate.hostname, confirmation, {
         sources: candidate.sources,
         asset_source: assetSourceForReferencedSources(candidate.sources),
-        ip_addresses: addresses,
-        ...(outcome === "cname_only" ? { alias_only: true } : {}),
-        ...(wildcardMatch ? { wildcard_match: true } : {}),
-      });
-    } else if (outcome === "nxdomain") notFound++;
-    else if (outcome === "nodata") noAddress++;
+      }));
+    } else if (confirmation.status === "not_found") notFound++;
+    else if (confirmation.status === "no_address") noAddress++;
     else lookupFailed++;
   });
 
