@@ -92,7 +92,7 @@ function WorkspaceSelector() {
         onClick={handleOpen}
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
       >
-        <span className="max-w-[120px] truncate">{activeName || 'Workspace'}</span>
+        <span className="max-w-[88px] sm:max-w-[120px] truncate">{activeName || 'Workspace'}</span>
         <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
@@ -413,7 +413,7 @@ export default function Layout() {
           </nav>
 
           {/* Right */}
-          <div className="sm:ml-auto w-full sm:w-auto min-w-0 flex items-center justify-between gap-2">
+          <div className="sm:ml-auto w-full sm:w-auto min-w-0 flex items-center justify-between gap-1 sm:gap-2">
             <WorkspaceSelector />
 
             <NotificationBell />
@@ -425,7 +425,7 @@ export default function Layout() {
                 navigate('/scans/new')
                 window.dispatchEvent(new CustomEvent('cybermeters:new-scan-reset'))
               }}
-              className="btn-primary whitespace-nowrap"
+              className="btn-primary whitespace-nowrap !px-3 sm:!px-5"
               aria-label="New Scan"
             >
               <span>New Scan</span>
