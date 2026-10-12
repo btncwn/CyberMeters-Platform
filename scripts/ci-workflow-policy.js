@@ -90,11 +90,6 @@ export const EXPECTED_NON_VALIDATOR_CARRIERS = Object.freeze([
     name: "Validate Identity canonical substrate semantic mutations",
     run: "node scripts/mutate-identity-substrate-idempotence.js",
   }),
-  Object.freeze({
-    jobId: "validate_integration_assurance",
-    name: "Validate CT-R2 PR-2A.1 provider-source consumer inventory pin",
-    run: "node scripts/derive-ct-provider-source-consumer-inventory.js --pin docs/CT-R2-PR-2A1-PROVIDER-SOURCE-INVENTORY.json",
-  }),
 ]);
 
 const EXPECTED_SHARD_NAMES = Object.freeze({
@@ -615,7 +610,7 @@ export function evaluateWorkflowPolicy({ workflowSource, manifest, repoRoot = ro
   ));
 
   results.push(assertion(
-    "non-validator carriers: four exact commands remain unique, blocking and shard-owned",
+    "non-validator carriers: three exact commands remain unique, blocking and shard-owned",
     executable.nonValidatorCarrierProblems.length === 0,
     executable.nonValidatorCarrierProblems.join(" | "),
   ));

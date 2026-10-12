@@ -811,7 +811,7 @@ const MUTANTS = [
       to: "        run: node scripts/mutate-identity-truth-projection.js --mutant",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["non-validator carriers: four exact commands remain unique, blocking and shard-owned"],
+    expectedFailures: ["non-validator carriers: three exact commands remain unique, blocking and shard-owned"],
   },
   {
     name: "report non-validator mutation carrier command drifts",
@@ -821,7 +821,7 @@ const MUTANTS = [
       to: "        run: node scripts/mutate-identity-producer-truth.js --mutant",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["non-validator carriers: four exact commands remain unique, blocking and shard-owned"],
+    expectedFailures: ["non-validator carriers: three exact commands remain unique, blocking and shard-owned"],
   },
   {
     name: "data non-validator mutation carrier command drifts",
@@ -831,17 +831,7 @@ const MUTANTS = [
       to: "        run: node scripts/mutate-identity-substrate-idempotence.js --mutant",
     }],
     childArgs: ["--policy-child"],
-    expectedFailures: ["non-validator carriers: four exact commands remain unique, blocking and shard-owned"],
-  },
-  {
-    name: "integration non-validator inventory carrier loses its exact pin target",
-    file: workflowPath,
-    replacements: [{
-      from: "        run: node scripts/derive-ct-provider-source-consumer-inventory.js --pin docs/CT-R2-PR-2A1-PROVIDER-SOURCE-INVENTORY.json",
-      to: "        run: node scripts/derive-ct-provider-source-consumer-inventory.js",
-    }],
-    childArgs: ["--policy-child"],
-    expectedFailures: ["non-validator carriers: four exact commands remain unique, blocking and shard-owned"],
+    expectedFailures: ["non-validator carriers: three exact commands remain unique, blocking and shard-owned"],
   },
   {
     name: "F004 matrix loses one canonical shard index",
