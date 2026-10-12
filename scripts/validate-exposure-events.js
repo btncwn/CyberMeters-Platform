@@ -189,6 +189,41 @@ const rows = (db, eventType) => db.prepare("SELECT event_type, hostname, severit
     db.prepare("SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = 'portal.example.co.uk'").get().n === 1);
 }
 
+// A probe is a check, not a sighting. A re-checked name the probe did not
+// observe keeps its last_seen; a name the probe observed (an address, an
+// existing DNS name, an HTTP response) refreshes it.
+{
+  const { db, env } = harness();
+  seedAsset(db, { hostname: "gone.example.co.uk" });
+  seedAsset(db, { hostname: "mail.example.co.uk" });
+  const lastSeen = (hostname) => db.prepare("SELECT last_seen FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = ?").get(hostname)?.last_seen ?? null;
+  const before = { gone: lastSeen("gone.example.co.uk"), mail: lastSeen("mail.example.co.uk") };
+  await runInventory(env, {
+    asset_exposure: {
+      assets: [
+        { host: "gone.example.co.uk", reachable: false, status: null, probe_status: "not_applicable" },
+        { host: "mail.example.co.uk", reachable: false, status: null, probe_status: "not_applicable" },
+      ],
+      removal_observations: [
+        { host: "gone.example.co.uk", signal_states: { dns_resolution: { state: "absent" }, http_https_service: { state: "not_observed" } } },
+        { host: "mail.example.co.uk", signal_states: { dns_resolution: { state: "observed", reason: "dns_name_without_address" }, http_https_service: { state: "not_observed" } } },
+      ],
+    },
+  });
+  ok("a re-checked name the probe did not observe keeps its last_seen", lastSeen("gone.example.co.uk") === before.gone);
+  ok("a re-checked name that still exists in DNS refreshes last_seen", lastSeen("mail.example.co.uk") !== before.mail);
+}
+{
+  const { db, env } = harness();
+  seedAsset(db, { hostname: "legacy.example.co.uk" });
+  const lastSeen = () => db.prepare("SELECT last_seen FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = 'legacy.example.co.uk'").get()?.last_seen ?? null;
+  const before = lastSeen();
+  await runInventory(env, { asset_exposure: { assets: [{ host: "legacy.example.co.uk", reachable: false, status: null }] } });
+  ok("without removal observations an unanswered probe is not a sighting", lastSeen() === before);
+  await runInventory(env, { asset_exposure: { assets: [{ host: "legacy.example.co.uk", reachable: true, status: 200 }] } });
+  ok("without removal observations an HTTP response is a sighting", lastSeen() !== before);
+}
+
 console.log(`\nExposure events: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("exposure-events validation FAILED"); process.exit(1); }
 console.log("exposure-events validation passed");

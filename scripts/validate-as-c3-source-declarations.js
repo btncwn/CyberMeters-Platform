@@ -44,7 +44,12 @@ const importers = jsFiles
   .filter((file) => file !== rel(signalRelative) && importPattern.test(fs.readFileSync(file, "utf8")))
   .map((file) => path.relative(root, file).replaceAll(path.sep, "/"))
   .sort();
+// asset-intel reads the name-without-address reason it emits; asset-inventory
+// reads the removal observation so a probe counts as a sighting only when it
+// observed the name.
 const expected = [
+  "workers/scan-api/src/engines/asset-intel.js",
+  "workers/scan-api/src/engines/asset-inventory.js",
   "workers/scan-api/src/engines/asset-lifecycle-event-support.js",
   "workers/scan-api/src/engines/attack-surface-customer-presentation.js",
   "workers/scan-api/src/engines/attack-surface-lifecycle.js",
