@@ -171,7 +171,6 @@ const withEngineFetchFixture = async (run) => {
     if (/dns\.google\/resolve|cloudflare-dns\.com\/dns-query/.test(url)) {
       return Response.json({ Status: 0, Answer: [] });
     }
-    if (/api\.certspotter\.com/.test(url)) return Response.json([]);
     if (/services\.nvd\.nist\.gov/.test(url)) return Response.json({ vulnerabilities: [] });
     return new Response("<html><title>Fixture</title></html>", {
       status: 200,
@@ -566,11 +565,6 @@ const boundaryFixtures = {
       let httpHop = 0;
       return (scheduler, input, init) => {
         const url = String(input);
-        // CertSpotter (the only CT provider) answers just inside its 4s attempt
-        // timeout; CT runs concurrently and never sets the SSL boundary.
-        if (url.includes("api.certspotter.com")) {
-          return delayedJson(scheduler, [], 3_999, init.signal);
-        }
         if (url.startsWith("https://")) {
           return delayedHttp(scheduler, 522, { server: "cloudflare" }, 9_999, init.signal);
         }
@@ -652,7 +646,6 @@ for (const [module, capMs] of Object.entries(SCAN_DURABLE_CORE_MODULE_BUDGETS)) 
     let httpHop = 0;
     failFetcher = (scheduler, input, init) => {
       const url = String(input);
-      if (url.includes("api.certspotter.com")) return delayedJson(scheduler, [], 3_999, init.signal);
       if (url.startsWith("https://")) return delayedHttp(scheduler, 522, { server: "cloudflare" }, 9_999, init.signal);
       httpHop += 1;
       return delayedHttp(scheduler, httpHop === 1 ? 301 : 200, httpHop === 1 ? { location: "http://step.example.com" } : { server: "origin" }, 9_999, init.signal);

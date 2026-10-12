@@ -4,6 +4,7 @@ import path from "node:path";
 import { webcrypto } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildDb } from "./security/lib/worker-harness.js";
+import { liveTlsSsl } from "./lib/live-tls-fixture.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -392,25 +393,24 @@ results.push(
       subdomains: { items: [], sensitive: [], sources: {} },
     }, "example.com");
     const withDetail = scanner.runCertificateIntelligenceModule({
-      ssl: { https_available: true, cert_expiry_days: 84, cert_issuer: "Google Trust Services" },
-      subdomains: { items: [], sensitive: [], sources: {} },
+      ssl: liveTlsSsl({ days: 84 }),
+      subdomains: { items: [], sensitive: [] },
     }, "example.com");
     return noDetail.certificate_risk_level === "unknown" &&
       withDetail.certificate_risk_level === "low";
   }),
   securityContract("detection_wildcard_certificate_signals_are_observations", () => {
     const result = scanner.runCertificateIntelligenceModule({
-      ssl: { https_available: true, cert_expiry_days: 90 },
+      ssl: liveTlsSsl({ days: 90 }),
       subdomains: {
         wildcard_dns: true,
         items: ["admin.example.com"],
         sensitive: ["admin.example.com"],
-        sources: { crt_sh: { count: 60 }, certspotter: { count: 60 } },
       },
       dns_bruteforce: { items: [{ hostname: "dev.example.com", wildcard_match: true }] },
     }, "example.com");
     return result.certificate_risk_level === "low" &&
-      !result.issued_for_sensitive_hosts.includes("dev.example.com") &&
+      result.suspicious_certificate_signals.length > 0 &&
       result.suspicious_certificate_signals.every((signal) => signal.severity === "info");
   }),
   securityContract("detection_admin_hostname_only_is_observation", () => {
@@ -491,25 +491,15 @@ results.push(
   }),
   securityContract("detection_shared_certificate_reduces_ownership_confidence", () => {
     const result = scanner.runCertificateIntelligenceModule({
-      ssl: {
-        https_available: true,
-        cert_subject: "example.com",
-        cert_san_names: ["example.com"],
-        cert_san_count: 1,
-        cert_raw_san_count: 4,
-        cert_wildcard_san_count: 1,
-        cert_shared_san_count: 2,
-        cert_age_days: 30,
-        ct_sources: {
-          crt_sh: { count: 1, error: null },
-          certspotter: null,
-        },
-      },
-      subdomains: { items: [], sensitive: [], sources: {} },
+      ssl: liveTlsSsl({
+        subject: "CN=example.com",
+        dnsNames: ["example.com", "*.example.com", "a.other.test", "b.other.test"],
+      }),
+      subdomains: { items: [], sensitive: [] },
     }, "example.com");
     return result.ownership.status === "shared_certificate" && result.ownership.confidence === 50 &&
-      result.san_count === 1 && result.raw_san_count === 4 && result.wildcard_san_count === 1 &&
-      result.certificate_age_days === 30 &&
+      result.san_count === 4 && result.raw_san_count === 4 && result.wildcard_san_count === 1 &&
+      result.shared_san_count === 2 && result.certificate_age_days === 30 &&
       result.suspicious_certificate_signals.find((signal) => signal.signal === "shared_certificate_observed")?.severity === "info";
   }),
   securityContract("email_remediation_dmarc_parser", () => {
@@ -1169,10 +1159,9 @@ const execRawReport = {
   started_at: "2026-06-27T09:55:00.000Z", completed_at: "2026-06-27T10:01:00.000Z",
   scan_quality: { status: "complete", modules_skipped: [], warnings: [] },
   monitoring_states: {
-    version: "signal-monitoring-state-v1",
+    version: "signal-monitoring-state-v2",
     signals: Object.fromEntries([
       "dns",
-      "certificate_transparency",
       "website_security",
       "email_protection",
       "attack_surface",

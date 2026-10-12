@@ -37,9 +37,8 @@ const eq = (name, actual, expected) =>
   ok(name, actual === expected,
     `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 const clone = (value) => structuredClone(value);
-const run = (modules, providerHealth = fixture.provider_health) =>
+const run = (modules) =>
   runCertificateIntelligenceModule(modules, fixture.domain, {
-    providerHealth,
     observedAt: fixture.observed_at,
     engineVersion: fixture.engine_version,
   });
@@ -75,10 +74,12 @@ for (const key of expectedTrustKeys) {
 }
 const authorities = Object.values(CERTIFICATE_SIGNAL_CONTRACTS)
   .flatMap((contract) => contract.authorities);
-for (const standard of ["RFC 5280", "RFC 8659", "RFC 6960", "RFC 9162"]) {
+for (const standard of ["RFC 5280", "RFC 8659", "RFC 6960"]) {
   ok(`${standard}: canonical authority is cited`,
     authorities.some((row) => row.standard_id === standard));
 }
+ok("no signal cites a certificate-log authority",
+  !authorities.some((row) => row.standard_id === "RFC 9162"));
 ok("RFC 6844 is not cited as a current authority",
   !authorities.some((row) => row.standard_id === "RFC 6844"));
 ok("TLS BR version and date are pinned",
@@ -94,8 +95,8 @@ ok("TLS BR access date is pinned",
 
 const complete = run(clone(fixture.base_modules));
 const completeSignals = complete.signal_completeness.signals;
-eq("production caller emits v2", complete.signal_completeness.model_version,
-  "certificate-signal-completeness-v2");
+eq("production caller emits v3", complete.signal_completeness.model_version,
+  "certificate-signal-completeness-v3");
 for (const key of expectedTrustKeys) {
   eq(`${key}: complete fixture is independently complete`,
     completeSignals[key].completeness_state, "monitoring_healthy");
@@ -243,42 +244,44 @@ eq("CAA lookup failure cannot claim no CAA",
 eq("CAA failure does not erase live leaf",
   caaFailure.leaf.observation, "present");
 
-const ctOnlyModules = clone(fixture.base_modules);
-ctOnlyModules.ssl.certificate_evidence.live_tls = {
+const noLeafModules = clone(fixture.base_modules);
+noLeafModules.ssl.certificate_evidence.live_tls = {
   leaf_collected: false,
   chain_collected: false,
   reason: "peer_certificate_not_exposed",
 };
-const ctOnly = run(ctOnlyModules).signal_completeness;
-eq("CT-only evidence remains explicit",
-  ctOnly.summary.ct_only, true);
-eq("CT issuance does not become a live leaf",
-  ctOnly.signals.leaf.observation, "unknown");
-eq("CT issuance does not become hostname validation",
-  ctOnly.signals.hostname_match.observation, "unknown");
-eq("CT issuance does not become trust-store validation",
-  ctOnly.signals.trust_store_validation.observation, "unknown");
-eq("CT issuance does not become revocation assurance",
-  ctOnly.signals.revocation_assurance.observation, "unknown");
-eq("independent HTTPS service evidence survives CT-only scope",
-  ctOnly.signals.active_service.observation, "present");
+const noLeaf = run(noLeafModules).signal_completeness;
+eq("without a live leaf no serving certificate is claimed",
+  noLeaf.summary.live_serving_certificate_observed, false);
+eq("without a live leaf there is no leaf observation",
+  noLeaf.signals.leaf.observation, "unknown");
+eq("without a live leaf there is no hostname validation",
+  noLeaf.signals.hostname_match.observation, "unknown");
+eq("without a live leaf there is no trust-store validation",
+  noLeaf.signals.trust_store_validation.observation, "unknown");
+eq("without a live leaf there is no revocation assurance",
+  noLeaf.signals.revocation_assurance.observation, "unknown");
+eq("independent HTTPS service evidence survives a missing leaf",
+  noLeaf.signals.active_service.observation, "present");
 
-const providersUnavailable = run(
-  clone(fixture.base_modules),
-  {
-    crt_sh: { outcome: "unavailable" },
-    certspotter: { outcome: "unavailable" },
-  },
-).signal_completeness.signals;
-eq("CT provider timeout remains scoped unavailable",
-  providersUnavailable.certificate_transparency.completeness_state,
-  "signal_unavailable");
-eq("CT timeout does not erase CAA",
-  providersUnavailable.caa.observation, "present");
-eq("CT timeout does not erase live hostname result",
-  providersUnavailable.hostname_match.value.result, "matched");
-eq("CT timeout does not erase active service",
-  providersUnavailable.active_service.observation, "present");
+// A presented chain that was not completely collected is unknown, and its
+// failure is scoped to the chain: sibling signals keep their evidence.
+const partialChainModules = clone(fixture.base_modules);
+partialChainModules.ssl.certificate_evidence.live_tls.presented_chain = {
+  collection_performed: true,
+  collection_complete: false,
+  presentation_state: "unknown",
+  intermediates: [],
+};
+const partialChain = run(partialChainModules).signal_completeness.signals;
+eq("an incompletely collected chain stays unknown",
+  partialChain.chain.observation, "unknown");
+eq("chain collection failure does not erase CAA",
+  partialChain.caa.observation, "present");
+eq("chain collection failure does not erase the live hostname result",
+  partialChain.hostname_match.value.result, "matched");
+eq("chain collection failure does not erase active service",
+  partialChain.active_service.observation, "present");
 
 const historicalOnly = buildCertificateTrustL2({
   issuer: "Current CA",
@@ -293,7 +296,7 @@ const historicalOnly = buildCertificateTrustL2({
     evidence_json: "{}",
   }],
 });
-ok("CT/history multiplicity cannot manufacture a parallel live set",
+ok("history multiplicity cannot manufacture a parallel live set",
   !historicalOnly.anomalies.some((row) => row.type === "parallel_certificate"));
 
 const realParallel = buildCertificateTrustL2({

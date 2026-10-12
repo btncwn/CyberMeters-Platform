@@ -49,7 +49,13 @@ const realFetch = globalThis.fetch;
 }
 
 // ── Faithful engine run with an outbound counter (per mode) ───────────────────
-const VARIABLE_CT_HOSTS = Array.from({ length: 300 }, (_, i) => `ct${i}.example.com`);
+// Every own-discovery source at its own cap: the whole word list resolves, one
+// SRV answer names far more targets than SRV_TARGET_CAP, and the home page links
+// far more hosts than the linked-host limit.
+const VARIABLE_SRV_HOSTS = Array.from({ length: 300 }, (_, i) => `ref${i}.example.com`);
+const VARIABLE_LINKED_HOSTS = Array.from({ length: 40 }, (_, i) => `link${i}.example.com`);
+const isFanoutSubdomain = (name) => /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.example\.com$/.test(name) &&
+  !name.startsWith("cybermeters-wildcard-check-");
 const VARIABLE_KNOWN_HOSTS = Array.from({ length: 50 }, (_, i) => `known${i}.example.com`);
 
 function respond(url, {
@@ -62,7 +68,12 @@ function respond(url, {
   if (cat === "doh") {
     let name = "", type = "A";
     try { const u = new URL(url); name = u.searchParams.get("name") || ""; type = u.searchParams.get("type") || "A"; } catch {}
-    if (variableFanout && type === "CNAME" && /^ct\d+\.example\.com$/.test(name)) {
+    if (variableFanout && type === "SRV" && name === "_autodiscover._tcp.example.com") {
+      return new Response(JSON.stringify({ Status: 0, Answer: VARIABLE_SRV_HOSTS.map(
+        (hostname) => ({ type: 33, data: `0 0 443 ${hostname}.` }),
+      ) }), { status: 200, headers: { "content-type": "application/dns-json" } });
+    }
+    if (variableFanout && type === "CNAME" && isFanoutSubdomain(name)) {
       return new Response(JSON.stringify({ Status: 0, Answer: Array.from(
         { length: takeoverAnswerMultiplicity },
         () => ({ type: 5, data: "candidate.github.io" }),
@@ -71,7 +82,7 @@ function respond(url, {
         headers: { "content-type": "application/dns-json" },
       });
     }
-    if (variableFanout && /^(?:ct|known)\d+\.example\.com$/.test(name) && (type === "A" || type === "AAAA")) {
+    if (variableFanout && isFanoutSubdomain(name) && (type === "A" || type === "AAAA")) {
       const Answer = type === "A"
         ? [{ type: 1, data: "93.184.216.34" }]
         : [{ type: 28, data: "2606:2800:220:1:248:1893:25c8:1946" }];
@@ -96,12 +107,6 @@ function respond(url, {
     }
     return new Response(JSON.stringify({ Status: 0, Answer: [] }), { status: 200, headers: { "content-type": "application/dns-json" } });
   }
-  if (cat === "ct") {
-    const rows = variableFanout
-      ? VARIABLE_CT_HOSTS.map((hostname) => ({ name_value: hostname, dns_names: [hostname] }))
-      : [{ name_value: "admin.example.com" }];
-    return new Response(JSON.stringify(rows), { status: 200, headers: { "content-type": "application/json" } });
-  }
   if (cat === "exposure") {
     if (variableFanout) {
       const parsed = new URL(url);
@@ -113,7 +118,10 @@ function respond(url, {
         });
       }
     }
-    return new Response("<title>Admin</title>", { status: 200, headers: { "content-type": "text/html", server: "nginx" } });
+    const links = variableFanout
+      ? VARIABLE_LINKED_HOSTS.map((host) => `<a href="https://${host}/">${host}</a>`).join("")
+      : "";
+    return new Response(`<title>Admin</title>${links}`, { status: 200, headers: { "content-type": "text/html", server: "nginx" } });
   }
   return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
 }
@@ -203,7 +211,10 @@ async function runEngineLedger(mode, {
     APP_VERSION: "test",
   };
   let threw = null;
-  try { await runScanEngine(`scan_${mode}`, "dom_test", "ws_test", "example.com", env); } catch (e) { threw = e; }
+  // Home-page link discovery reads only inside a durable invocation's time
+  // budget, so the max-fanout run uses the queue owner production scans use.
+  const engineOptions = variableFanout ? { executionContext: "queue" } : undefined;
+  try { await runScanEngine(`scan_${mode}`, "dom_test", "ws_test", "example.com", env, engineOptions); } catch (e) { threw = e; }
   globalThis.fetch = realFetch;
   return { counter, threw, report, snapshot };
 }
@@ -320,7 +331,8 @@ async function runEngineLedger(mode, {
 
 // ── Section E: maximum existing host-driven fan-out remains provider-bounded ─
 // This is a behavioral fixture, not a self-imposed physical 200 counter. It drives
-// the real legacy engine with 300 CT hosts, 50 historical recheck hosts, the
+// the real legacy engine with every own-discovery source at its cap (40 word-list
+// names, 50 of 300 SRV targets, 25 of 40 linked hosts), 50 historical recheck hosts, the
 // takeover 100-host cap plus adversarial 100-answer CNAME multiplicity, exposure
 // 50-host cap, and the real redirect-hop guards.
 // The observed call count must exceed the application admission/report value 200
@@ -346,6 +358,12 @@ async function runEngineLedger(mode, {
     bounded.counter.total < 10_000, `total ${bounded.counter.total}`);
   eq("max-fanout: takeover executes its existing 100-host bound",
     bounded.report?.modules?.subdomain_takeover?.totals?.checked, 100);
+  eq("max-fanout: SRV discovery keeps its target cap",
+    bounded.report?.modules?.dns_bruteforce?.srv_items?.length, 50);
+  eq("max-fanout: SRV targets beyond the cap are counted, not hidden",
+    bounded.report?.modules?.dns_bruteforce?.srv_targets_dropped, 250);
+  eq("max-fanout: linked-host discovery keeps its cap",
+    bounded.report?.modules?.technology_detection?.linked_hostnames?.length, 25);
   eq("max-fanout: takeover reports all adversarial matching candidates",
     bounded.report?.modules?.subdomain_takeover?.totals?.candidates_matched, 10_000);
   eq("max-fanout: takeover admits only the governed candidate cap",

@@ -10,7 +10,6 @@ function responseFor({ moduleState, coverageState }) {
     { module: 'ssl', label: 'TLS', attempted: true, state: moduleState },
     { module: 'headers', label: 'Headers', attempted: true, state: 'completed' },
     { module: 'email_security', label: 'Email', attempted: true, state: 'completed' },
-    { module: 'subdomains', label: 'Certificate Transparency', attempted: true, state: 'completed' },
     { module: 'technology_detection', label: 'Technology', attempted: true, state: 'completed' },
   ]
   const cyberMotDomains = [
@@ -56,7 +55,7 @@ function responseFor({ moduleState, coverageState }) {
       .map(entry => entry.module),
     module_evidence: moduleEvidence,
     monitoring_states: {
-      version: 'signal-monitoring-state-v1',
+      version: 'signal-monitoring-state-v2',
       signals: {
         dns: {
           state: 'monitoring_healthy',
@@ -69,10 +68,6 @@ function responseFor({ moduleState, coverageState }) {
         email_protection: {
           state: 'monitoring_healthy',
           message: 'Email protection checks completed normally in this run.',
-        },
-        certificate_transparency: {
-          state: 'monitoring_healthy',
-          message: 'Certificate transparency checks completed normally in this run.',
         },
       },
     },
@@ -96,7 +91,6 @@ function allProbesFailedResponse() {
     { module: 'ssl', label: 'TLS', attempted: true, state: 'unavailable' },
     { module: 'headers', label: 'Headers', attempted: true, state: 'incomplete' },
     { module: 'email_security', label: 'Email', attempted: true, state: 'unavailable' },
-    { module: 'subdomains', label: 'Certificate Transparency', attempted: true, state: 'failed' },
     { module: 'technology_detection', label: 'Technology', attempted: true, state: 'incomplete' },
   ]
   payload.modules_scanned = []

@@ -144,28 +144,13 @@ db.prepare(`
 `).run();
 
 let phase = "negative";
-const providerCalls = { crt: 0, certspotter: 0 };
+const contactedHosts = new Set();
 let goneHostHttpCalls = 0;
 const originalFetch = globalThis.fetch;
 const originalRandom = Math.random;
 globalThis.fetch = async (input) => {
   const url = new URL(String(input));
-  if (url.hostname === "crt.sh") {
-    providerCalls.crt += 1;
-    return json([
-      { name_value: "example.com\nwww.example.com\ngone.example.com" },
-    ]);
-  }
-  if (url.hostname === "api.certspotter.com") {
-    providerCalls.certspotter += 1;
-    return json([{
-      id: "ct-identity",
-      not_before: "2026-07-01T00:00:00.000Z",
-      not_after: "2026-12-01T00:00:00.000Z",
-      issuer: { name: "Trace CA" },
-      dns_names: ["example.com", "www.example.com", "gone.example.com"],
-    }]);
-  }
+  contactedHosts.add(url.hostname);
   if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
     const name = String(url.searchParams.get("name") || "").toLowerCase();
     const type = String(url.searchParams.get("type") || "A").toUpperCase();
@@ -221,7 +206,7 @@ async function run(scanId, when, mode) {
   const report = JSON.parse(reports.get(`reports/${scanId}.json`) || "{}");
   eq(`${scanId} report attaches nine-signal model`,
     report.modules?.attack_surface_signal_completeness?.model_version,
-    "attack-surface-signal-completeness-v2");
+    "attack-surface-signal-completeness-v3");
   eq(`${scanId} report retains all nine independent signals`,
     Object.keys(report.modules?.attack_surface_signal_completeness?.signals || {}).length,
     9);
@@ -279,10 +264,17 @@ try {
   eq("same-host foreign tenant remains isolated",
     db.prepare("SELECT status FROM workspace_assets WHERE id='asset-foreign'").get().status,
     "inactive");
-  // Production scans query CertSpotter as their sole CT source (ct-providers.js).
-  ok("real trace reused the shared CT provider once per scan and never contacted crt.sh",
-    providerCalls.crt === 0 && providerCalls.certspotter === 5,
-    JSON.stringify(providerCalls));
+  // Discovery is CyberMeters' own observation: every request goes to a DNS
+  // resolver, a registration-data (RDAP) service, a vulnerability feed or a
+  // host under the scanned domain — never to a third-party discovery service.
+  const ownObservationHost = (host) =>
+    ["cloudflare-dns.com", "dns.google", "dns.quad9.net"].includes(host) ||
+    /^rdap\./.test(host) || host === "rdap.org" ||
+    ["www.cisa.gov", "services.nvd.nist.gov", "raw.githubusercontent.com"].includes(host) ||
+    host === "example.com" || host.endsWith(".example.com");
+  ok("real trace discovers and rechecks hosts from its own observation only",
+    contactedHosts.has("gone.example.com") && [...contactedHosts].every(ownObservationHost),
+    JSON.stringify([...contactedHosts].sort()));
 } finally {
   globalThis.fetch = originalFetch;
   Math.random = originalRandom;

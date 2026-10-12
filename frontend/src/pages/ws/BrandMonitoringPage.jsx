@@ -46,9 +46,9 @@ function normCandidate(c) {
 }
 
 // Evidence signals that carry their own explicit badge copy — mapped here so the
-// generic humaniser never renders a raw signal key or an overclaiming phrase. A CT
-// observation means a certificate naming the host was logged; it says nothing about
-// the host being live or malicious, so the copy is deliberately factual.
+// generic humaniser never renders a raw signal key or an overclaiming phrase. The
+// historical certificate-log signal means a certificate naming the host was logged;
+// it says nothing about the host being live or malicious, so the copy is factual.
 const EVIDENCE_SIGNAL_LABELS = {
   ct_observed: 'Seen in certificate log',
   nested_host: 'Subdomain of a lookalike',

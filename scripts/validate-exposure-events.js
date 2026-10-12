@@ -170,7 +170,7 @@ const rows = (db, eventType) => db.prepare("SELECT event_type, hostname, severit
 {
   const { db, env } = harness();
   await runInventory(env, {
-    subdomains: { items: ["portal.example.co.uk"], wildcard_dns: false },
+    subdomains: { items: ["portal.example.co.uk", "vpn.example.co.uk"], wildcard_dns: false },
     dns_bruteforce: {
       items: [],
       srv_items: [
@@ -183,7 +183,8 @@ const rows = (db, eventType) => db.prepare("SELECT event_type, hostname, severit
   const sourceOf = (hostname) => db.prepare("SELECT source FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = ?").get(hostname)?.source ?? null;
   ok("SRV target persists as dns_srv", sourceOf("autodiscover.example.co.uk") === "dns_srv");
   ok("home-page link persists as html_link", sourceOf("status.example.co.uk") === "html_link");
-  ok("a CT-discovered name keeps its CT source", sourceOf("portal.example.co.uk") === "certificate_transparency");
+  ok("a name several sources found keeps the most specific source", sourceOf("portal.example.co.uk") === "dns_srv");
+  ok("a name only the merged discovery set carries persists as dns_discovery", sourceOf("vpn.example.co.uk") === "dns_discovery");
   ok("each referenced host is stored once",
     db.prepare("SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = 'portal.example.co.uk'").get().n === 1);
 }

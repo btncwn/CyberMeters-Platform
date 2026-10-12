@@ -87,10 +87,9 @@ function makeReport(scanId, domainId, domain, completedAt) {
     recommendations: [],
     scan_quality: { status: "complete", modules_skipped: [], warnings: [] },
     monitoring_states: {
-      version: "signal-monitoring-state-v1",
+      version: "signal-monitoring-state-v2",
       signals: Object.fromEntries([
         "dns",
-        "certificate_transparency",
         "website_security",
         "email_protection",
         "attack_surface",
@@ -100,7 +99,7 @@ function makeReport(scanId, domainId, domain, completedAt) {
       ].map((signal) => [signal, {
         state: "monitoring_healthy",
         message: `${signal} checks completed normally in this run.`,
-        evidence: { modules: [], incomplete_modules: [], providers: {} },
+        evidence: { modules: [], incomplete_modules: [] },
       }])),
     },
     modules: {
@@ -316,10 +315,10 @@ async function main() {
   const cert = truth.domains.find((d) => d.domain_key === "certificates_trust");
   const ce = truth.domains.find((d) => d.domain_key === "cyber_essentials_readiness");
   const shadow = truth.domains.find((d) => d.domain_key === "shadow_it_unmanaged_technology");
-  ok("certificate conclusion is CT-bounded and never claims live-certificate verification",
+  ok("certificate conclusion without a captured leaf is bounded and never claims live-certificate verification",
      cert?.live_certificate_verified === false &&
-     /No material issue in the observed Certificate Transparency evidence/.test(cert?.state_reason || "") &&
-     pdfRes.text.includes("No material issue in observed CT evidence"));
+     /the served certificate was not captured in this scan/.test(cert?.state_reason || "") &&
+     pdfRes.text.includes("No material issue in recorded evidence"));
   ok("full Cyber Essentials domain never renders healthy over the 2-of-5 external indicator",
      ce?.state !== "assessed_healthy" &&
      ce?.evidence_grade?.grade === "L0" &&

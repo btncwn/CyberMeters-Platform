@@ -52,9 +52,9 @@ const LIMITATION_BY_DOMAIN = Object.freeze({
   brand_protection:
     "Anonymous preview does not validate lookalike registrations. Unlock the watchlist after ownership verification.",
   attack_surface:
-    "Certificate Transparency hostnames are observed here; takeover, CVE/KEV and asset fan-out checks unlock after verification.",
+    "Subdomain discovery, takeover, CVE/KEV and asset checks unlock after verification.",
   certificates_trust:
-    "Certificate observations are CT/TLS based. Chain trust, OCSP and revocation remain unknown.",
+    "The served certificate is inspected in the full scan; this preview does not inspect it.",
   cyber_essentials_readiness:
     "Cyber Essentials is indicative only and needs customer input. CyberMeters does not certify organisations.",
   website_security:
@@ -108,21 +108,6 @@ function limitedFinding(finding, resolveAcademySlug) {
 }
 
 function observationSamples(domainKey, modules) {
-  if (domainKey === "attack_surface") {
-    return uniqueStrings(modules.subdomains?.items).map((name) => ({
-      title: name,
-      detail: "Observed in public Certificate Transparency data",
-      kind: "observation",
-    }));
-  }
-  if (domainKey === "certificates_trust") {
-    const names = uniqueStrings(modules.subdomains?.items);
-    return names.map((name) => ({
-      title: name,
-      detail: "Certificate Transparency hostname observed",
-      kind: "observation",
-    }));
-  }
   if (domainKey === "identity_exposure") {
     const providers = (modules.identity_discovery?.providers || [])
       .map((entry) => entry?.provider);
@@ -253,7 +238,7 @@ export function buildFreeScanPreview({
       module: "certificate_intelligence",
       state: derivedEvidenceState(
         modules.certificate_intelligence,
-        ["ssl", "subdomains"],
+        ["ssl"],
         evidenceByModule,
       ),
     },
@@ -261,7 +246,7 @@ export function buildFreeScanPreview({
       module: "identity_discovery",
       state: derivedEvidenceState(
         modules.identity_discovery,
-        ["dns", "headers", "subdomains", "technology_detection"],
+        ["dns", "headers", "technology_detection"],
         evidenceByModule,
       ),
     },

@@ -31,10 +31,7 @@ const eq = (name, actual, expected) => {
 const complete = deriveAttackSurfaceSignalCompleteness({
   subdomains: {
     items: [],
-    sources: {
-      crt_sh: { count: 0, error: null },
-      certspotter: { count: 0, error: null },
-    },
+    source: "dns_discovery",
   },
   dns_bruteforce: { checked: 23, items: [] },
   dns: { resolution_assessed: true, resolves_any: false },
@@ -64,12 +61,9 @@ eq("complete fixture never collapses to a healthy aggregate",
 const degraded = deriveAttackSurfaceSignalCompleteness({
   subdomains: {
     items: ["app.example.com"],
-    sources: {
-      crt_sh: { count: 1, error: null },
-      certspotter: { count: 0, error: "provider timeout" },
-    },
+    source: "dns_discovery",
     incomplete: true,
-    incomplete_reason: "ct_source_degraded",
+    incomplete_reason: "wildcard_check_failed",
   },
   dns: {
     resolution_assessed: true,

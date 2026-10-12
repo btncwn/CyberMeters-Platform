@@ -51,7 +51,7 @@ export const REMEDIATION_OWNER = Object.freeze([
 export const VERIFICATION_METHOD = Object.freeze([
   "dns_recheck",       // re-query DNS after the change
   "https_recheck",     // re-fetch the HTTPS endpoint / headers
-  "certificate_recheck", // re-observe the certificate via CT / probe
+  "certificate_recheck", // re-observe the certificate in a live TLS handshake
   "rescan",            // a fresh Cyber MOT confirms the evidence
   "receiver_reports",  // subsequent DMARC aggregate reports from receiving providers
   "manual_attestation",// customer confirms; product cannot observe it
@@ -472,7 +472,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     owner_type: "registrar",
     verification_method: "rescan",
     verification_evidence_requirements: "CyberMeters re-checks the candidate until it is no longer technically present; removal is confirmed by the product, not asserted by the customer.",
-    supporting_evidence_types: ["dns_lookup", "whois", "http_probe", "certificate_transparency_observation"],
+    supporting_evidence_types: ["dns_lookup", "whois", "http_probe"],
     managed_workflow_compatible: true,
     case_type: "brand_abuse",
     limitations: ["CyberMeters prepares and tracks takedowns but does not execute them; the registrar or hosting provider actions the removal."],
@@ -521,7 +521,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     owner_type: "customer_it",
     verification_method: "rescan",
     verification_evidence_requirements: "Access to the subdomain is restricted or confirmed intentional on a fresh scan.",
-    supporting_evidence_types: ["http_probe", "certificate_transparency_observation"],
+    supporting_evidence_types: ["http_probe", "dns_lookup"],
     managed_workflow_compatible: true,
     case_type: "asm_exposure",
   }),
@@ -675,8 +675,8 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     effort: "low",
     owner_type: "customer_it",
     verification_method: "certificate_recheck",
-    verification_evidence_requirements: "A valid, in-date certificate is observed.",
-    supporting_evidence_types: ["certificate_transparency_observation", "https_probe"],
+    verification_evidence_requirements: "A valid, in-date certificate is observed in a live TLS handshake.",
+    supporting_evidence_types: ["live_tls", "https_probe"],
   }),
   entry({
     remediation_id: "cert.expiry.expiring",
@@ -690,8 +690,8 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     effort: "low",
     owner_type: "customer_it",
     verification_method: "certificate_recheck",
-    verification_evidence_requirements: "A replacement certificate with a later expiry for the exact host is observed through Certificate Transparency or an HTTPS probe.",
-    supporting_evidence_types: ["certificate_transparency_observation", "https_probe"],
+    verification_evidence_requirements: "A replacement certificate with a later expiry for the exact host is observed in a live TLS handshake.",
+    supporting_evidence_types: ["live_tls", "https_probe"],
   }),
   entry({
     remediation_id: "cert.tls.install",
@@ -705,7 +705,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     owner_type: "customer_it",
     verification_method: "https_recheck",
     verification_evidence_requirements: "A valid certificate is served over HTTPS.",
-    supporting_evidence_types: ["https_probe", "certificate_transparency_observation"],
+    supporting_evidence_types: ["https_probe", "live_tls"],
   }),
   entry({
     remediation_id: "cert.hostname.match", domain_key: "certificates_trust",
@@ -714,7 +714,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     business_impact: "Clients may refuse a secure connection to this service.",
     recommended_action: "Deploy a certificate with a subject alternative name covering the hostname and run a fresh TLS check.", effort: "medium", owner_type: "customer_it",
     verification_method: "certificate_recheck",
-    verification_evidence_requirements: "A later complete live TLS observation of every planned endpoint confirms hostname coverage and validity against the named trust store. CT records or HTTP success alone cannot verify this finding.",
+    verification_evidence_requirements: "A later complete live TLS observation of every planned endpoint confirms hostname coverage and validity against the named trust store. HTTP success alone cannot verify this finding.",
     supporting_evidence_types: ["live_tls"],
     limitations: ["Certificate revocation was not assessed."],
   }),
@@ -725,7 +725,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     business_impact: "Clients may refuse a secure connection to this service.",
     recommended_action: "Check certificate dates and the deployed chain, correct the trust failure, and run a fresh TLS check.", effort: "medium", owner_type: "customer_it",
     verification_method: "certificate_recheck",
-    verification_evidence_requirements: "A later complete live TLS observation of every planned endpoint confirms hostname coverage and validity against the named trust store. CT records or HTTP success alone cannot verify this finding.",
+    verification_evidence_requirements: "A later complete live TLS observation of every planned endpoint confirms hostname coverage and validity against the named trust store. HTTP success alone cannot verify this finding.",
     supporting_evidence_types: ["live_tls"],
     limitations: ["Certificate revocation was not assessed."],
   }),
@@ -755,37 +755,40 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     owner_type: "customer_it",
     verification_method: "manual_attestation",
     verification_evidence_requirements: "Runbook coverage is an internal process control and is not externally observable.",
-    supporting_evidence_types: ["certificate_transparency_observation"],
+    supporting_evidence_types: ["live_tls"],
   }),
   entry({
     remediation_id: "cert.anomaly.review",
     domain_key: "certificates_trust",
     finding_types: ["certificate_unexpected_issuer", "certificate_unexpected_san", "certificate_unexpected_wildcard", "certificate_parallel_observed", "wildcard_dns_detected"],
     customer_title: "Review an unexpected certificate change",
-    technical_explanation: "A new issuer, SAN, wildcard or parallel certificate was observed via Certificate Transparency. This is a change signal, not proof of compromise.",
+    technical_explanation: "A new issuer, SAN, wildcard or parallel certificate was observed on the certificate the live site presented, compared with earlier observations. This is a change signal, not proof of compromise.",
     business_impact: "Unexpected certificate changes can indicate a planned renewal — or, occasionally, unauthorised issuance worth confirming.",
     recommended_action: "Confirm the change was expected and tied to a planned renewal or hosting change; review and retire any certificate coverage that is not intended.",
     effort: "low",
     owner_type: "customer_it",
     verification_method: "manual_attestation",
     verification_evidence_requirements: "The change is confirmed expected by the certificate owner; the product observes the certificate but cannot confirm intent.",
-    supporting_evidence_types: ["certificate_transparency_observation"],
-    limitations: ["Based on Certificate Transparency observation; chain, root trust, OCSP and revocation status are not verified."],
+    supporting_evidence_types: ["live_tls"],
+    limitations: ["Based on live TLS observation of the tested endpoints; OCSP and revocation status are not verified."],
   }),
+  // historical: these finding IDs were raised while certificate logs were a
+  // source. They are no longer produced; the entry keeps old reports readable.
   entry({
     remediation_id: "cert.ct_incomplete",
     domain_key: "certificates_trust",
     finding_types: ["ct_source_incomplete", "ct_sources_unavailable", "ct_source_discrepancy"],
-    customer_title: "Certificate evidence is incomplete",
-    technical_explanation: "Certificate Transparency sources were unavailable or disagreed, so the certificate picture for this scan is incomplete.",
-    business_impact: "This is a data-completeness limitation, not a confirmed problem with your certificates.",
-    recommended_action: "Review again after the next scan; Certificate Transparency source availability can vary between scans.",
+    status: "deprecated",
+    deprecated_at: "2026-10-12",
+    customer_title: "Historical certificate-source note",
+    technical_explanation: "This historical finding recorded that a certificate data source used at the time was unavailable or inconsistent. That source is no longer used, so this finding is no longer raised.",
+    business_impact: "It was a data-completeness note, not a confirmed problem with your certificates.",
+    recommended_action: "No action is needed. Every scan now checks the certificate your site presents directly.",
     effort: "low",
     owner_type: "cybermeters",
     verification_method: "unsupported",
-    verification_evidence_requirements: "Chain, root trust, OCSP, revocation and served-certificate verification require live TLS inspection, which this scan does not perform.",
-    supporting_evidence_types: ["certificate_transparency_observation"],
-    limitations: ["Certificate Transparency does not provide chain, root-trust, OCSP or revocation status; those remain unknown without live TLS inspection."],
+    verification_evidence_requirements: "Unsupported: the historical source this finding described is no longer used.",
+    supporting_evidence_types: [],
   }),
   entry({
     remediation_id: "cert.coverage_gap",
@@ -799,7 +802,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     owner_type: "customer_it",
     verification_method: "rescan",
     verification_evidence_requirements: "HTTPS coverage is observed on a fresh scan.",
-    supporting_evidence_types: ["https_probe", "certificate_transparency_observation"],
+    supporting_evidence_types: ["https_probe", "live_tls"],
   }),
   entry({
     remediation_id: "cert.intelligence.review",
@@ -813,8 +816,8 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     owner_type: "customer_it",
     verification_method: "rescan",
     verification_evidence_requirements: "The certificate signal is resolved or confirmed expected on a fresh scan.",
-    supporting_evidence_types: ["certificate_transparency_observation", "https_probe"],
-    limitations: ["Based on Certificate Transparency and HTTP evidence; chain, root trust, OCSP and revocation status are not verified."],
+    supporting_evidence_types: ["live_tls", "https_probe"],
+    limitations: ["Based on live TLS and HTTP evidence; OCSP and revocation status are not verified."],
   }),
   entry({
     remediation_id: "cert.caa.configure",
@@ -1073,7 +1076,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     owner_type: "customer_it",
     verification_method: "rescan",
     verification_evidence_requirements: "A completed scan observes the control area's external evidence supporting readiness again. This is an indicative external readiness signal — it is not a certification outcome and is not assessed by a certification body.",
-    supporting_evidence_types: ["https_probe", "http_header_probe", "certificate_transparency_observation", "dns_lookup"],
+    supporting_evidence_types: ["https_probe", "http_header_probe", "live_tls", "dns_lookup"],
     applicability: "Applies only to control areas CyberMeters can observe externally (Firewalls & Boundary Protection, Secure Configuration, Security Update Management).",
     limitations: [
       "CyberMeters does not certify Cyber Essentials. This is an indicative readiness signal from externally observable evidence only.",

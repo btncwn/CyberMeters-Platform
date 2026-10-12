@@ -26,7 +26,6 @@ function sha256(file) {
 const candidateFiles = [
   path.join(workerRoot, "src", "engines", "scan-budget.js"),
   path.join(workerRoot, "src", "engines", "dns.js"),
-  path.join(workerRoot, "src", "engines", "ct-provider-cache.js"),
   path.join(workerRoot, "src", "engines", "reserved-probe.js"),
   path.join(workerRoot, "src", "engines", "reserved-scan.js"),
   path.join(workerRoot, "src", "engines", "scan-engine.js"),

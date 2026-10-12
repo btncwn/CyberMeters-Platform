@@ -12,10 +12,10 @@
 // The raw store is referenced (current/previous observation ids), never copied,
 // and a replacement never overwrites the old certificate's evidence.
 //
-// Honesty (permanent). Only declared per-signal evidence is consumed. Current
-// production observations are CT issuance evidence; future live-TLS evidence is
-// eligible only when explicitly graded publishable by the canonical completeness
-// model. Neither path establishes chain/root/OCSP/revocation/private-key state.
+// Honesty (permanent). Only declared per-signal evidence is consumed: the
+// certificate the live TLS collector captured, eligible only when explicitly
+// graded publishable by the canonical completeness model. It does not establish
+// exact wire chain, OCSP/revocation or private-key state.
 // An unexpired certificate is NOT "fully trusted". A customer-asserted "renewed"
 // is NOT externally verified — closure requires a LATER CyberMeters observation
 // of a NEW live-serving certificate on the expected hostname(s), with acceptable
@@ -648,7 +648,7 @@ export function buildLiveTlsCaseVerificationEvidence(findingType, { current, aft
 }
 
 // New name/trust cases use the existing case machine and freshly persisted TLS
-// signals. A changed CT row or a successful HTTP response cannot close them.
+// signals. A changed stored row or a successful HTTP response cannot close them.
 async function reconcileLiveTlsFindingCases(env, workspaceId, hostname, current, now) {
   const cases = (await env.cybermeters_db.prepare(`SELECT * FROM managed_cases WHERE workspace_id = ? AND domain = ? AND case_type = 'certificate_case' AND source_finding_type IN ('certificate_hostname_mismatch', 'certificate_untrusted')`).bind(workspaceId, hostname).all().catch(() => ({results:[]}))).results || [];
   for (const kase of cases) {
@@ -1298,8 +1298,8 @@ export async function certificateLifecycleAction(env, workspaceId, id, action, o
  *
  * Three refusals, all deliberate:
  *   • no linked case                       → nothing to verify.
- *   • the registry says manual/unsupported → NOT ours to conclude. `cert.ct_incomplete` is
- *     `unsupported` (a CT blackout means we cannot see), and `cert.ca_concentration` /
+ *   • the registry says manual/unsupported → NOT ours to conclude. The historical
+ *     `cert.ct_incomplete` is `unsupported`, and `cert.ca_concentration` /
  *     `cert.anomaly.review` are `manual_attestation` — observing a new certificate says
  *     nothing about either, so the observation is recorded as history and the case waits.
  *   • the case is not awaiting verification → real, and history; not a completed remediation.

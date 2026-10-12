@@ -28,8 +28,6 @@ import { buildScanReportSnapshot } from "./report-snapshot.js";
 import { insertCertificateEvents, upsertCertificateObservation } from "./cert-events.js";
 import { runCertificateIntelligenceModule } from "./cert-intel.js";
 import { CLOUD_STORAGE_MAX_PHYSICAL_ATTEMPTS, runCloudStorageModule } from "./cloud-storage-scan.js";
-import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
-import { CT_PROVIDERS, ctFailedSources } from "./ct-providers.js";
 import { deriveSignalMonitoringStates } from "./signal-monitoring-state.js";
 import { runSaasExposureModule, runThirdPartyDiscoveryModule } from "./discovery-scan.js";
 import { buildDnsOperationalResilience } from "./dns-resilience.js";
@@ -68,7 +66,7 @@ import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { collectLiveTls, attachLiveTlsToSsl, liveCertificateFindings } from "./network-probe.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
-import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, prioritizeExposureTargets, runBruteforceModule, runSubdomainsModule, withReferencedHostnames } from "./subdomains-scan.js";
+import { BRUTEFORCE_MAX_NAMES, SUBDOMAIN_DISCOVERY_SOURCE, filterWildcardBruteforceResults, isSensitiveSubdomain, prioritizeExposureTargets, runBruteforceModule, runSubdomainsModule, withReferencedHostnames } from "./subdomains-scan.js";
 import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply-chain.js";
 import { correlateShadowItInventory } from "./shadow-it-inventory.js";
 import { correlateCertificateLifecycle } from "./certificate-lifecycle.js";
@@ -175,17 +173,14 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
   const warnings = [];
   const modulesSkipped = [];
 
-  // Sprint 10C: "subdomains" is NOT a core module.
-  // CT log lookup (CertSpotter) is an external enrichment query against
-  // third-party services. When those services are rate-limited (CertSpotter HTTP 429
-  // on shared Worker IPs) or slow, it is an external service failure — not a domain
-  // security failure. DNS, SSL, Headers, Email directly assess the domain's own config.
+  // Sprint 10C: "subdomains" (discovery) is NOT a core module. DNS, SSL,
+  // Headers, Email directly assess the domain's own config.
   const coreModules = ["dns", "ssl", "headers", "email_security", "dmarc_core"];
   const coreIncomplete = coreModules.filter((name) => modules[name]?.error);
 
   // Classify modules that actually timed out or were skipped via the CAA budget sentinel.
-  // Exclude "subdomains" — CT lookup failures are external service issues, not core
-  // scan failures; they do not degrade scan_quality status.
+  // Exclude "subdomains" — a discovery timeout is not a core scan failure and
+  // does not degrade scan_quality status through this path.
   for (const [name, value] of Object.entries(modules)) {
     if (name === "subdomains") continue;
     const error = String(value?.error || "").toLowerCase();
@@ -501,39 +496,6 @@ export async function persistSubOperationTelemetry(scanId, rows, env) {
   } catch { /* non-fatal — telemetry cannot affect scan completion or report readiness */ }
 }
 
-// CT-R1: provider-attempt telemetry is collected in memory during module execution
-// and written only after terminal scan finalization. D1 batch() is transactional:
-// any statement failure rolls back the whole bounded snapshot, so coverage can
-// never mistake a partial row set for a fully measured scan. Batch failure remains
-// non-fatal and produces zero rows for this scan.
-export async function persistCtProviderTelemetry(scanId, rows, env) {
-  const boundedRows = (rows || []).slice(0, 8);
-  if (boundedRows.length === 0) return;
-
-  try {
-    const statements = boundedRows.map((r) =>
-      env.cybermeters_db
-        .prepare(
-          `INSERT INTO ct_provider_telemetry
-             (id, scan_id, module, provider, outcome, http_status, latency_ms,
-              result_count, started_at, completed_at, completeness_impact,
-              affected_signal, cache_state, cache_age_s)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .bind(
-          createId("ctpt"), scanId, r.module, r.provider, r.outcome,
-          r.http_status ?? null, r.latency_ms, r.result_count ?? null,
-          r.started_at, r.completed_at, r.completeness_impact ? 1 : 0,
-          r.affected_signal ?? null, "miss", null
-        )
-    );
-    const results = await env.cybermeters_db.batch(statements);
-    if (results?.some((result) => result?.success === false)) {
-      throw new Error("CT provider telemetry batch did not commit");
-    }
-  } catch { /* non-fatal atomic batch — telemetry cannot affect scan completion */ }
-}
-
 // The network/enrichment modules we expect a telemetry row for. Backfilled at
 // finalization from the modules object for any not captured by the live wrapper
 // (reserved-mode results, deferred phases) so both scan modes get full coverage.
@@ -791,50 +753,6 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     reservedPhysicalCounter = opts.testOnlyPhysicalSubrequestCounter;
   }
   const dnsCache = makeDnsCache();
-  // CT policy (ct-providers.js): CertSpotter, authenticated with the SSLMate
-  // key when the Worker secret is set.
-  const ctCache = createCertificateTransparencyCache({
-    signal: deadline.signal,
-    globalDeadlineProvenance: () => deadline.globalDeadlineProvenance(),
-    remainingMs: () => deadline.remainingMs(),
-    now,
-    certspotterApiKey: env?.CERTSPOTTER_API_KEY || null,
-  });
-  // CT-R1: terminal-only, once-only provider telemetry persistence. Set the
-  // guard before snapshotting/writing so a partial non-fatal D1 failure cannot
-  // be retried into duplicate attribution. The helper refuses to run until the
-  // terminal D1 status has landed, keeping all telemetry I/O outside the
-  // executable scan envelope on both completed and failed paths.
-  let ctTelemetryPersistenceStarted = false;
-  let ctTelemetryModules = null;
-  let ctTelemetryScanQuality = null;
-  const persistCtTelemetryAfterTerminal = async () => {
-    if (
-      ctTelemetryPersistenceStarted
-      || latch.d1Written !== true
-      || (latch.status !== "completed" && latch.status !== "failed")
-    ) return false;
-
-    ctTelemetryPersistenceStarted = true;
-    try {
-      // A failure can occur before the canonical module/quality context exists.
-      // telemetrySnapshot then records genuine attempts but leaves
-      // completeness_impact false; downstream analysis reports the associated
-      // completion loss as unattributed rather than fabricating causality.
-      const completenessContextAvailable =
-        ctTelemetryModules !== null && ctTelemetryScanQuality !== null;
-      const rows = ctCache.telemetrySnapshot({
-        modules: completenessContextAvailable ? ctTelemetryModules : {},
-        scanQuality: completenessContextAvailable ? ctTelemetryScanQuality : null,
-      });
-      await persistCtProviderTelemetry(scanId, rows, env);
-      return true;
-    } catch {
-      // Telemetry is observational: snapshot or persistence failures must never
-      // change a scan's already-durable terminal state.
-      return false;
-    }
-  };
   const createChildSignal = () => {
     const controller = new AbortController();
     if (deadline.signal?.aborted) controller.abort(deadline.signal.reason);
@@ -1044,7 +962,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     if (!runningWrite.settled) return runningWrite.ceiling;
 
     // Existing identities are rechecked through the same active DNS + SSRF-safe
-    // HTTP paths. This is one bounded read and CT is only discovery provenance.
+    // HTTP paths. This is one bounded read.
     const identityRead = await runInitialCeilingAwareStep("initial_identity_read", () =>
       loadKnownAssetRecheckHosts(env, domainId, domain));
     if (!identityRead.settled) return identityRead.ceiling;
@@ -1059,7 +977,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     const reservedMode = capacity.mode === "reserved";
     if (!durableInvocation && reservedMode) deadline.arm();
 
-    // Private Cloudflare collector runs alongside the existing HTTP/CT modules.
+    // Private Cloudflare collector runs alongside the existing HTTP modules.
     // No binding means the historical capability set; a configured failed probe
     // remains explicit incomplete evidence and cannot make the report clean.
     const liveTlsPromise = env.NETWORK_PROBE?.fetch
@@ -1081,12 +999,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // skip honestly. admin_surface is derived downstream (zero network). ──
       const reserved = await runReservedScan(domain, {
         capacity,
-        ctCache,
         dnsCache,
         knownAssetHosts,
         signal: deadline.signal,
-        globalDeadlineProvenance: () => deadline.globalDeadlineProvenance(),
-        ctConsumerBudgets: {
+        moduleBudgets: {
           ssl: SCAN_MODULE_BUDGETS.ssl,
           subdomains: SCAN_MODULE_BUDGETS.subdomains,
         },
@@ -1103,11 +1019,9 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     } else {
       // ── Queue-era default path: 9 core modules in parallel under measured
       // per-module caps, then takeover and asset exposure over the merged
-      // (CT + brute-force) subdomain list. ──
+      // (name-check + referenced-host) subdomain list. ──
       const subdomainsFallback = () => markDeadlineDeferred({
-        count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
-        sources: ctFailedSources("module deadline exceeded"),
-        ct_providers: [...CT_PROVIDERS],
+        count: 0, items: [], sensitive: [], source: SUBDOMAIN_DISCOVERY_SOURCE,
         wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
       });
       const [dnsSettled, sslSettled, headersSettled, emailSettled, dmarcSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
@@ -1131,7 +1045,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           // which scoring.js reads as positive evidence of absence and turns into the
           // CRITICAL "HTTPS Not Available" finding — a second, independent path to the
           // same false claim the classifier fix closes. Not assessed is not a verdict.
-          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, tls_state: TLS_RUNTIME_STATES.UNAVAILABLE, tls_state_reason: "deadline_deferred", https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), onConsumerRelease: (cause) => ctCache.releaseConsumer?.(domain, "ssl", cause), run: ({ accounting, signal }) => runSslModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, ctCache, subOps: subOpTelemetry, now: () => certificateNowMs }) }),
+          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ http_redirect_chain: { original_url: null, final_url: null, redirect_count: 0, http_redirect_validated: false, observation_state: "not_assessed", observation_reason: "deadline_deferred", observation_completeness: "not_assessed", hop_observations: [] }, tls_state: TLS_RUNTIME_STATES.UNAVAILABLE, tls_state_reason: "deadline_deferred", https_available: null, https_probe_executed: false, https_observation_state: "not_assessed", https_observation_reason: "deadline_deferred", https_origin_status: null, https_endpoint_observations: [], incomplete: true, incomplete_reason: "https_probe_not_executed", source: "tls_probe" }), run: ({ accounting, signal }) => runSslModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, subOps: subOpTelemetry, now: () => certificateNowMs }) }),
           runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal, remainingMs }) => runHeadersModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs: durableInvocation ? remainingMs : null, subOps: subOpTelemetry }) }),
           // The email deadline fallback is the CANONICAL unassessed email result
           // owned by email-scan.js. The previous bare shape ({spf:{},dmarc:{},
@@ -1150,7 +1064,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
               now,
             }),
           }),
-          runCappedModule("subdomains",           { fallback: subdomainsFallback, onConsumerRelease: (cause) => { ctCache.releaseConsumer?.(domain, "subdomains", cause); }, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, globalDeadlineProvenance: () => deadline.globalDeadlineProvenance() }) }),
+          runCappedModule("subdomains",           { fallback: subdomainsFallback, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, subOps: subOpTelemetry }) }),
           runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal, remainingMs }) => runTechModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs: durableInvocation ? remainingMs : null }) }),
           runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ source: "rdap" }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
           runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal, cache: dnsCache }) }),
@@ -1205,9 +1119,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         );
       subdomainsResult = subdomainsSettled.status === "fulfilled" && !subdomainsSettled.value.thrown
         ? subdomainsSettled.value.value
-        : { count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
-            sources: ctFailedSources("module rejected"),
-            ct_providers: [...CT_PROVIDERS],
+        : { count: 0, items: [], sensitive: [], source: SUBDOMAIN_DISCOVERY_SOURCE,
             wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
             error: customerSafeFailure("scan/subdomains", subdomainsSettled.value?.thrown || subdomainsSettled.reason, "Subdomain module failed") };
       techResult = techSettled.status === "fulfilled" && !techSettled.value.thrown ? techSettled.value.value : { error: customerSafeFailure("scan/technology", techSettled.value?.thrown || techSettled.reason, "Technology module failed") };
@@ -1219,20 +1131,28 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
             error: customerSafeFailure("scan/dns-bruteforce", bruteforceSettled.value?.thrown || bruteforceSettled.reason, "Brute-force module failed") };
       bruteforceResult = filterWildcardBruteforceResults(rawBruteforceResult, subdomainsResult.wildcard_dns_addresses);
 
-      const ctHostnames = new Set(subdomainsResult.items);
       const bruteNewItems = (bruteforceResult.items || [])
         .filter((item) => item.wildcard_match !== true)
         .map((i) => i.hostname)
-        .filter((h) => h && !ctHostnames.has(h));
+        .filter(Boolean);
       // First-party references the word list cannot guess (SRV targets, hosts
-      // the home page links to) join discovery after CT and brute-force names.
-      const mergedSubdomainItems = withReferencedHostnames([...subdomainsResult.items, ...bruteNewItems], {
+      // the home page links to) join discovery after the name-check results.
+      const mergedSubdomainItems = withReferencedHostnames(bruteNewItems, {
         srvItems: bruteforceResult.srv_items,
         linkedHostnames: techResult?.linked_hostnames,
       });
+      // The subdomains module carries the discovered set, so scoring and
+      // certificate intelligence see every name found in this scan.
+      const discoveredItems = [...new Set(mergedSubdomainItems.map((h) => String(h).toLowerCase()))].sort();
+      subdomainsResult = {
+        ...subdomainsResult,
+        count: discoveredItems.length,
+        items: discoveredItems,
+        sensitive: discoveredItems.filter((host) => isSensitiveSubdomain(host, domain)),
+      };
       // Exposure probes the first 50 targets: high-value names (admin, VPN,
       // login, dev…) go first so a discovered admin host is never cut off by
-      // ordinary CT names, then known assets for lifecycle re-checks.
+      // ordinary names, then known assets for lifecycle re-checks.
       const exposureTargets = prioritizeExposureTargets(domain, {
         knownHosts: knownAssetHosts,
         discoveredHosts: mergedSubdomainItems,
@@ -1390,7 +1310,6 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         source:  "dns_headers_analysis", error: "enrichment failed",
       };
     }
-    ctTelemetryModules = modules;
     // Heartbeat: discovery + exposure done. An orphan cancelled after this point
     // died in scoring/enrichment/finalization, not discovery.
     await heartbeatScan(env, scanId, "discovery_complete", telemetry.rows.filter((r) => r.outcome === "ok").length);
@@ -2299,15 +2218,11 @@ function buildCanonicalUrlProfile(modules) {
     // real per-scan limit, not the platform ceiling. resolveScanCapacity is a
     // pure read of env — never guessed.
     const scanQuality = buildScanQuality(modules, persistedObservationAnchor, resolveScanCapacity(env));
-    ctTelemetryScanQuality = scanQuality;
-    // PR-5.4: backend-owned within-scan monitoring truth. Reuse the SAME
-    // per-provider snapshot that is written into execution diagnostics; no new
-    // provider call, probe, scan-quality rule or scoring input is introduced.
-    const providerHealth = ctCache.healthSnapshot();
+    // PR-5.4: backend-owned within-scan monitoring truth. No new probe,
+    // scan-quality rule or scoring input is introduced.
     const monitoringStates = deriveSignalMonitoringStates({
       modules,
       scanQuality,
-      providerHealth,
     });
 
     // Trend eligibility (partial-scan honesty): only a COMPLETE assessment is a
@@ -2336,14 +2251,13 @@ function buildCanonicalUrlProfile(modules) {
     modules.saas_exposure = runSaasExposureModule(modules);
 
     // Phase 7h: Certificate Intelligence — pure computation, zero I/O.
-    // Correlates modules.ssl + modules.subdomains (CT data) to produce
-    // expiry status, sensitive-host inventory, and suspicious signal list.
+    // Reads the live TLS certificate attached to modules.ssl and the discovered
+    // hostnames to produce expiry status and the suspicious signal list.
     modules.certificate_intelligence = runCertificateIntelligenceModule(
       modules,
       domain,
       {
         monitoringStates,
-        providerHealth,
         observedAt: startedAt,
         nowMs: certificateNowMs,
         engineVersion: env.APP_VERSION ?? "unknown",
@@ -2357,75 +2271,9 @@ function buildCanonicalUrlProfile(modules) {
       });
     }
 
-    // B2d: project only the two producer-owned, CT-bounded expiry findings into
-    // the canonical report path. This is evidence admission, not new detection:
-    // score computation has already finished, and the producer remains the sole
-    // owner of identity, severity, title and customer description.
-    const certificateIntel = modules.certificate_intelligence;
-    const certificateExpiryIds = [
-      "certificate_expiring_critical",
-      "certificate_expiring_soon",
-    ];
-    const certificateSignals = Array.isArray(certificateIntel?.suspicious_certificate_signals)
-      ? certificateIntel.suspicious_certificate_signals
-      : [];
-    const certificateEvidenceProviders = Object.keys(certificateIntel?.ct_sources || {})
-      .filter((provider) => Number(certificateIntel.ct_sources[provider]) > 0);
-    if (
-      modules.ssl?.tls_state === TLS_RUNTIME_STATES.OBSERVED_PRESENT &&
-      certificateIntel && certificateIntel.error == null &&
-      certificateIntel.evidence_source === "certificate_transparency" &&
-      certificateIntel.live_certificate_verified === false &&
-      certificateIntel.expiry_evidence === "usable" &&
-      typeof certificateIntel.expires_at === "string" &&
-      certificateIntel.expires_at.trim().length > 0 &&
-      Number.isFinite(Date.parse(certificateIntel.expires_at)) &&
-      certificateEvidenceProviders.length > 0
-    ) {
-      for (const findingId of certificateExpiryIds) {
-        const sourceRows = certificateSignals.filter((signal) => signal?.signal === findingId);
-        if (sourceRows.length !== 1 || findings.some((finding) => finding?.id === findingId)) continue;
-        const source = sourceRows[0];
-        const days = source.days_until_expiry ?? certificateIntel.days_until_expiry;
-        const exactBand = findingId === "certificate_expiring_critical"
-          ? days >= 0 && days < 14 && source.severity === "high"
-          : days >= 14 && days <= 29 && source.severity === "medium";
-        if (
-          source.finding_type !== "finding" || source.score_impact !== 0 ||
-          source.evidence_source !== "certificate_transparency" ||
-          source.live_certificate_verified !== false ||
-          source.evidence_basis !== "latest_expiring_logged_certificate" ||
-          !Number.isFinite(days) || !Number.isInteger(days) || !exactBand ||
-          typeof source.title !== "string" || source.title.trim().length === 0 ||
-          typeof source.description !== "string" || source.description.trim().length === 0
-        ) continue;
-        findings.push({
-          id: findingId,
-          module: "certificate_intelligence",
-          finding_type: "finding",
-          severity: source.severity,
-          score_impact: 0,
-          title: source.title,
-          description: source.description,
-          evidence_source: source.evidence_source,
-          evidence_basis: source.evidence_basis,
-          live_certificate_verified: false,
-          not_after: certificateIntel.expires_at,
-          days_until_expiry: days,
-          evidence: [{
-            type: "certificate_transparency",
-            basis: "latest_expiring_logged_certificate",
-            not_after: certificateIntel.expires_at,
-            days_until_expiry: days,
-            live_certificate_verified: false,
-            providers: certificateEvidenceProviders,
-          }],
-        });
-      }
-    }
-
-    // Live findings retain exact endpoint/certificate evidence. No HTTP-only or
-    // CT-only signal may enter this admission path or claim peer validation.
+    // Certificate findings come only from the live TLS collector and retain exact
+    // endpoint/certificate evidence. No HTTP-only signal may enter this admission
+    // path or claim peer validation.
     for (const signal of liveCertificateFindings(modules.ssl, domain)) {
       if (findings.some(finding => finding.id === signal.signal)) continue;
       findings.push({ ...signal, id: signal.signal, module: 'certificate_intelligence' });
@@ -2524,7 +2372,6 @@ function buildCanonicalUrlProfile(modules) {
       trigger,
       deadline,
       telemetry,
-      providerHealth,
     });
 
     // Heartbeat: entering finalization. A cancellation after this is a finalize-time
@@ -2575,7 +2422,6 @@ function buildCanonicalUrlProfile(modules) {
     // terminal finalization so a sub-operation still in flight from a
     // race-abandoned module reads honestly as `aborted`.
     await persistSubOperationTelemetry(scanId, subOpTelemetry.snapshotRows(), env);
-    await persistCtTelemetryAfterTerminal();
 
     // Shared by the 091 state persistence below AND the M5.c snapshot build
     // (Phase 8o): both must resolve the eight domains from the SAME Cyber
@@ -2720,7 +2566,7 @@ function buildCanonicalUrlProfile(modules) {
         domainId,
         domain,
         signalCompleteness: modules.attack_surface_signal_completeness,
-        assetExposure: modules.asset_exposure, subdomainDiscovery: modules.subdomains,
+        assetExposure: modules.asset_exposure,
         observedAt: completedAt,
       });
     } catch { /* non-fatal — inventory update will catch up on next scan */ }
@@ -2768,8 +2614,8 @@ function buildCanonicalUrlProfile(modules) {
       await upsertVendorInventory(domainId, modules.vendor_risk, env);
     } catch { /* non-fatal */ }
 
-    // Phase 8d: Certificate Events — fires asset_events for sensitive CT hosts,
-    // expiry warnings, and growth signals.
+    // Phase 8d: Certificate Events — fires asset_events for sensitive
+    // discovered hosts, expiry warnings, and growth signals.
     try {
       await insertCertificateEvents(scanId, domainId, modules.certificate_intelligence, env, { currentReport: report, now: () => certificateNowMs });
     } catch { /* non-fatal */ }
@@ -3103,10 +2949,7 @@ function buildCanonicalUrlProfile(modules) {
     // later error — e.g. a post-completion persistence phase throwing — must NEVER
     // downgrade it. Refuse to touch it.
     if (latch.state === "finalized") {
-      const persistFinalizedDiagnostics = async () => {
-        await persistCtTelemetryAfterTerminal();
-        return { completed: true, ceiling_exceeded: false };
-      };
+      const persistFinalizedDiagnostics = async () => ({ completed: true, ceiling_exceeded: false });
       if (durableInvocation) {
         return raceInvocationCeiling(
           "finalized_diagnostics",
@@ -3145,7 +2988,6 @@ function buildCanonicalUrlProfile(modules) {
         trigger,
         deadline,
         telemetry,
-        providerHealth: ctCache.healthSnapshot(),
       }),
     };
     await finalizeScanResult(latch, {
@@ -3157,8 +2999,6 @@ function buildCanonicalUrlProfile(modules) {
       return invocationCeilingResult("failure_terminal_finalization");
     }
     const runFailurePostTerminalWork = async () => {
-      await persistCtTelemetryAfterTerminal();
-
       // Clean outcome: durably finalized as completed (original or recovered) → no
       // failure audit needed. Otherwise emit an auditable event for the terminal state:
       //   • "failed"    — the scan genuinely failed (results could not be persisted);

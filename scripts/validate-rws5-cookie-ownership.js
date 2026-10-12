@@ -68,6 +68,7 @@ const findingsContract = await import(eng("findings.js"));
 const scoring = await import(eng("scoring.js"));
 const headersContract = await import(eng("headers-scan.js"));
 const certIntel = await import(eng("cert-intel.js"));
+const { liveTlsSsl } = await import(pathToFileURL(path.join(root, "scripts", "lib", "live-tls-fixture.mjs")).href);
 const emailAnalysis = await import(eng("email-analysis.js"));
 
 function buildDb() {
@@ -288,36 +289,32 @@ eq("score methodology version remains frozen", scoring.CYBER_METRICS_SCORE_METHO
 eq("score-bearing module order remains frozen", scoring.SCORE_BEARING_MODULES,
   ["dns", "ssl", "headers", "email_security", "asset_exposure", "subdomains", "subdomain_takeover"]);
 
-const CERTIFICATE_EXPIRY_NOW_MS = Date.UTC(2026, 7, 30, 12, 0, 0);
-const expiryNotAfterForDays = (days, skewDays = 0) => new Date(
-  CERTIFICATE_EXPIRY_NOW_MS +
-    ((Number.isFinite(days) && days >= 0 ? days : 10) + 0.5 + skewDays) * 86_400_000,
-).toISOString();
-const certificateExpiryIntel = (days, notAfter = expiryNotAfterForDays(days)) =>
+// Certificate expiry comes only from the certificate the live site presented,
+// captured by the live TLS collector at a recorded instant.
+const CERTIFICATE_EXPIRY_NOW = new Date(Date.UTC(2026, 7, 30, 12, 0, 0)).toISOString();
+const certificateExpiryIntel = (days, notAfter = null) =>
   certIntel.runCertificateIntelligenceModule({
-    ssl: { cert_expiry_days: days, cert_not_after: notAfter },
-    subdomains: { items: [], sources: {} },
-  }, "shared.example.test", { nowMs: CERTIFICATE_EXPIRY_NOW_MS });
+    ssl: liveTlsSsl({ domain: "shared.example.test", days, notAfter, finishedAt: CERTIFICATE_EXPIRY_NOW }),
+    subdomains: { items: [] },
+  }, "shared.example.test");
 const certificateExpirySignals = (days, notAfter) =>
   certificateExpiryIntel(days, notAfter).suspicious_certificate_signals || [];
-const criticalExpiryDate = expiryNotAfterForDays(10);
-const certResult = certificateExpiryIntel(10, criticalExpiryDate);
+const certResult = certificateExpiryIntel(10);
 const certSignals = certResult.suspicious_certificate_signals || [];
 const criticalCert = certSignals.find((entry) => entry.signal === "certificate_expiring_critical");
 eq("reachable certificate critical signal is high", criticalCert?.severity, "high");
 eq("reachable certificate critical signal is explicit finding", criticalCert?.finding_type, "finding");
 eq("certificate expiry critical score impact stays zero", criticalCert?.score_impact, 0);
 eq("certificate expiry critical title is producer-owned", criticalCert?.title,
-  "Logged certificate validity ends within 14 days");
-eq("certificate expiry critical description is CT-honest", criticalCert?.description,
-  `The latest-expiring currently valid certificate record returned by the available Certificate Transparency source for shared.example.test ends on ${criticalExpiryDate} (10 days). This is Certificate Transparency evidence; the certificate served by the live site was not inspected. Renew and deploy a replacement before that date, or confirm that a newer certificate is already in service.`);
-ok("certificate expiry evidence is CT-only and not live-verified",
-  criticalCert?.evidence_source === "certificate_transparency" &&
-    criticalCert?.live_certificate_verified === false &&
-    criticalCert?.evidence_basis === "latest_expiring_logged_certificate" &&
+  "The live certificate expires within 14 days");
+eq("certificate expiry critical description is live-honest", criticalCert?.description,
+  "Renew and deploy the certificate served by this endpoint before its observed expiry.");
+ok("certificate expiry evidence is the live leaf",
+  criticalCert?.evidence_source === "live_tls" &&
+    criticalCert?.live_certificate_verified === true &&
+    criticalCert?.evidence_basis === "pinned_public_address_tls_handshake" &&
+    criticalCert?.evidence?.[0]?.type === "live_tls" &&
     certResult.expiry_evidence === "usable");
-eq("certificate expiry pair accepts at most one day of independent-clock skew",
-  certificateExpiryIntel(10, expiryNotAfterForDays(10, 1)).expiry_evidence, "usable");
 eq("certificate expiry 13-day boundary emits high critical-window finding",
   certificateExpirySignals(13).find((entry) => entry.signal === "certificate_expiring_critical")?.severity, "high");
 eq("certificate expiry 14-day boundary emits medium soon finding",
@@ -326,44 +323,37 @@ eq("certificate expiry 29-day boundary emits medium soon finding",
   certificateExpirySignals(29).find((entry) => entry.signal === "certificate_expiring_soon")?.severity, "medium");
 eq("certificate expiry 30-day boundary emits no expiry finding",
   certificateExpirySignals(30).filter((entry) => entry.signal.startsWith("certificate_expir")), []);
-const soonExpiryDate = expiryNotAfterForDays(14);
-const soonCert = certificateExpirySignals(14, soonExpiryDate)
+const soonCert = certificateExpirySignals(14)
   .find((entry) => entry.signal === "certificate_expiring_soon");
 eq("certificate expiry soon title is producer-owned", soonCert?.title,
-  "Logged certificate validity ends within 30 days");
-ok("certificate expiry soon description is CT-honest",
-  soonCert?.description ===
-    `The latest-expiring currently valid certificate record returned by the available Certificate Transparency source for shared.example.test ends on ${soonExpiryDate} (14 days). This is Certificate Transparency evidence; the certificate served by the live site was not inspected. Plan renewal now so the replacement is deployed before that date.` &&
+  "The live certificate expires within 30 days");
+ok("certificate expiry soon description is live-honest",
+  soonCert?.description === "Plan renewal of the certificate served by this endpoint before its observed expiry." &&
     !soonCert.description.includes("service outage"));
-ok("certificate expiry descriptions stay within returned CT evidence scope",
-  [criticalCert, soonCert].every((entry) =>
-    entry?.description.includes("returned by the available Certificate Transparency source") &&
-    !entry.description.includes("No currently valid publicly logged certificate")));
-const invalidExpiryValues = [-1, Number.NaN, Number.POSITIVE_INFINITY, 0.5, null, "13"];
-ok("invalid certificate expiry evidence emits no signal and stays not usable",
-  invalidExpiryValues.every((days) => {
-    const result = certificateExpiryIntel(days);
-    return result.expiry_evidence === "not_usable" &&
+ok("an expired live certificate is reported as expired",
+  certificateExpirySignals(-2).some((entry) => entry.signal === "certificate_expired" && entry.severity === "high"));
+ok("unusable served expiry values emit no signal and stay not usable",
+  ["not-a-date", "", "2026-13-45T00:00:00Z"].every((notAfter) => {
+    const result = certificateExpiryIntel(10, notAfter);
+    return result.expiry_evidence === "not_usable" && result.days_until_expiry === null &&
       !result.suspicious_certificate_signals?.some((entry) => entry.signal.startsWith("certificate_expir"));
   }));
-const incoherentExpiryPairs = [
-  { days: 10, notAfter: null },
-  { days: 10, notAfter: "" },
-  { days: 10, notAfter: "   " },
-  { days: 10, notAfter: "not-a-date" },
-  { days: 10, notAfter: expiryNotAfterForDays(10, 2) },
-  { days: 10, notAfter: "2100-01-01T00:00:00Z" },
-  { days: 0, notAfter: "2026-08-29T12:00:00.000Z" },
-];
-ok("incoherent certificate expiry pairs emit no signal and stay not usable",
-  incoherentExpiryPairs.every(({ days, notAfter }) => {
-    const result = certificateExpiryIntel(days, notAfter);
-    return result.expiry_evidence === "not_usable" &&
+ok("a partially captured leaf is not a certificate",
+  (() => {
+    const ssl = liveTlsSsl({ domain: "shared.example.test", days: 10, finishedAt: CERTIFICATE_EXPIRY_NOW });
+    ssl.live_certificate = { ...ssl.live_certificate, collection_complete: false };
+    const result = certIntel.runCertificateIntelligenceModule({ ssl, subdomains: { items: [] } }, "shared.example.test");
+    return result.expiry_evidence === "not_usable" && result.live_certificate_verified === false;
+  })());
+ok("certificate intelligence reads no expiry without a live leaf",
+  (() => {
+    const result = certIntel.runCertificateIntelligenceModule({
+      ssl: { tls_state: "observed_present", https_available: true, cert_expiry_days: 10, cert_not_after: "2026-09-09T12:00:00.000Z" },
+      subdomains: { items: [] },
+    }, "shared.example.test");
+    return result.expiry_evidence === "not_usable" && result.days_until_expiry === null &&
       !result.suspicious_certificate_signals?.some((entry) => entry.signal.startsWith("certificate_expir"));
-  }));
-ok("certificate intelligence never emits scan-time expired identity",
-  [...invalidExpiryValues, 0, 13, 14, 29, 30].every((days) =>
-    !certificateExpirySignals(days).some((entry) => entry.signal === "certificate_expired")));
+  })());
 const scoreWithoutCertificateExpiry = scoring.computeScore(cspModules(
   "default-src 'self'; script-src 'self'; style-src 'self'",
 ), "shared.example.test").score;
@@ -471,7 +461,7 @@ for (const [label, row, domainKey] of [
   ok(`B3 ${label} observation owns no domain issue/count/identity`,
     state?.state !== "issue_detected" && state?.finding_count === 0 && JSON.stringify(state?.finding_ids) === "[]");
 }
-eq("current resolver version preserves the evidence-methodology boundary", domains.CYBER_MOT_RESOLVER_VERSION, "2026-10-10.1");
+eq("current resolver version preserves the evidence-methodology boundary", domains.CYBER_MOT_RESOLVER_VERSION, "2026-10-12.1");
 
 // 3. One canonical remediation identity, already Website-owned.
 const cookieEntries = remediation.REMEDIATION_REGISTRY.filter((entry) =>

@@ -33,8 +33,8 @@ function currentProducerWasReobserved(finding, currentModules) {
         module.incomplete === true || module.skipped === true || module.error != null ||
         module.outcome === "deadline_exceeded" ||
         module.tls_state !== TLS_RUNTIME_STATES.OBSERVED_PRESENT ||
-        module.evidence_source !== "certificate_transparency" ||
-        module.live_certificate_verified !== false || module.expiry_evidence !== "usable") {
+        module.evidence_source !== "live_tls" ||
+        module.live_certificate_verified !== true || module.expiry_evidence !== "usable") {
       return false;
     }
     const expiresAtMs = typeof module.expires_at === "string" && module.expires_at.trim()
@@ -44,11 +44,9 @@ function currentProducerWasReobserved(finding, currentModules) {
       module.signal_completeness?.signals?.expiry?.provenance?.observed_at || "",
     );
     const days = module.days_until_expiry;
-    const ctCounts = Object.values(module.ct_sources || {});
     return Number.isFinite(observedAtMs) && Number.isFinite(expiresAtMs) &&
       expiresAtMs > observedAtMs && Number.isFinite(days) && Number.isInteger(days) && days >= 0 &&
-      Math.abs(Math.floor((expiresAtMs - observedAtMs) / 86_400_000) - days) <= 1 &&
-      ctCounts.some((count) => typeof count === "number" && count > 0);
+      Math.abs(Math.floor((expiresAtMs - observedAtMs) / 86_400_000) - days) <= 1;
   }
   const module = currentModules?.[finding?.module];
   if (!module || typeof module !== "object") return false;

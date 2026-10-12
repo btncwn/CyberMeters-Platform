@@ -28,8 +28,8 @@ export async function collectLiveTls(env,{domain,scanId,workspaceId,requestId,si
   catch{return {receipt:null,error:signal?.aborted?'live_tls_aborted':'live_tls_unavailable'};}
 }
 
-// Preserve all historic CT fields. The live certificate is additive and bound
-// to the exact endpoint/receipt; it never upgrades HTTP or CT measurements.
+// Preserve every SSL module field. The live certificate is additive and bound
+// to the exact endpoint/receipt; it never upgrades HTTP measurements.
 export function attachLiveTlsToSsl(ssl,result){
   const previous=ssl&&typeof ssl==='object'?ssl:{};
   const receipt=result?.receipt;

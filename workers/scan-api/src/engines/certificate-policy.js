@@ -5,9 +5,9 @@
 // different cut-offs; the managed lifecycle centralises them here so the customer
 // sees ONE consistent renewal story. Deterministic, pure, side-effect free.
 //
-// Honesty: `days_remaining` is computed from the externally-OBSERVED expiry
-// (Certificate Transparency `not_after`). It says nothing about chain, root, OCSP, revocation
-// or private-key state — those remain unknown without live TLS.
+// Honesty: `days_remaining` is computed from the externally-OBSERVED expiry (the
+// `not_after` of the certificate the live site presented). It says nothing about OCSP,
+// revocation or private-key state — those remain unknown.
 
 // Canonical renewal bands, widest-remaining first. A certificate falls in the
 // FIRST band whose `min_days` it meets (expired is the floor).

@@ -165,7 +165,7 @@ export function identityVendorRiskEvidenceStatus(row = {}) {
   const sources = getVendorSources(row).map((value) => String(value).toLowerCase());
   const independentSource = sources.some((value) =>
     value !== "identity_discovery" &&
-    !["cname", "spf", "mx", "csp", "server", "certificate_transparency", "dns_bruteforce", "dns_mx", "unknown"].includes(value));
+    !["cname", "spf", "mx", "csp", "server", "dns_discovery", "certificate_transparency", "dns_bruteforce", "dns_mx", "unknown"].includes(value));
   const identityOnly = modules.size > 0 && [...modules].every((value) => value === "identity_discovery") && !independentSource;
   return identityOnly ? "relationship_only" : "independent_risk_evidence";
 }

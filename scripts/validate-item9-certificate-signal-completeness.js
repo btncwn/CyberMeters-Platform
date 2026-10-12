@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 //
 // Item 9 P1: deterministic proof for the pure per-signal certificate evidence
-// contract. This deliberately does not call runScanEngine: P1 has no production
-// caller, and the first real engine trace belongs to P2.
+// contract. This deliberately does not call runScanEngine; the real engine
+// traces belong to P2 onwards. Certificate facts come only from the live TLS
+// leaf: stored certificate fields from an earlier scan never fill a signal.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { liveTlsSsl } from "./lib/live-tls-fixture.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const root = path.join(path.dirname(scriptPath), "..");
@@ -33,17 +35,6 @@ const INLINE_STATES = `const SIGNAL_MONITORING_STATES = Object.freeze({
 });`;
 
 function mutateSource(source) {
-  if (mutation === "ct-zero-becomes-wildcard") {
-    const mutated = source.replaceAll(
-      "ssl.cert_wildcard_san_count > 0",
-      "ssl.cert_wildcard_san_count >= 0"
-    );
-    if (mutated === source) {
-      throw new Error(`mutation anchor missing: ${mutation}`);
-    }
-    return mutated;
-  }
-
   const mutations = {
     "collapse-siblings": [
       "signals[signal] = resolveOneSignal(signal, evidenceBySignal?.[signal], {",
@@ -59,16 +50,19 @@ function mutateSource(source) {
     value = false;
   } else if (`,
     ],
-    "ct-promotes-live-leaf": [
-      `    leaf: evidence({
-      completeness_state: SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
-      observation: CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
-      observation_scope: "live_tls",`,
-      `    leaf: evidence({
-      completeness_state: ctPositiveState,
-      observation: CERTIFICATE_OBSERVATION_STATES.PRESENT,
-      value: { certificate_identity: ssl.cert_subject },
-      observation_scope: "live_tls",`,
+    "stored-fields-fill-issuer": [
+      `    issuer: liveLeafSignal({
+      collected: trust.leafCollected && Boolean(cleanString(trust.leaf.issuer)),
+      value: cleanString(trust.leaf?.issuer) || null,`,
+      `    issuer: liveLeafSignal({
+      collected: Boolean(cleanString(trust.leaf?.issuer || ssl.cert_issuer)),
+      value: cleanString(trust.leaf?.issuer || ssl.cert_issuer) || null,`,
+    ],
+    "wildcard-without-leaf": [
+      `    wildcard: liveLeafSignal({
+      collected: trust.leafCollected,`,
+      `    wildcard: liveLeafSignal({
+      collected: true,`,
     ],
     "history-promotes-parallel-set": [
       `    parallel_certificate_set: evidence({
@@ -87,7 +81,7 @@ function mutateSource(source) {
         observations: [
           {
             protected_hostname: "example.com",
-            source: "historical_ct",
+            source: "historical_observation",
             endpoint_context: "history-row-a",
             certificate_identity: "sha256:history-a",
             observed_at: "2026-07-26T10:00:00.000Z",
@@ -95,7 +89,7 @@ function mutateSource(source) {
           },
           {
             protected_hostname: "example.com",
-            source: "historical_ct",
+            source: "historical_observation",
             endpoint_context: "history-row-b",
             certificate_identity: "sha256:history-b",
             observed_at: "2026-07-26T10:00:01.000Z",
@@ -135,11 +129,18 @@ function mutateSource(source) {
 
 async function loadModel() {
   if (!mutation) return import(pathToFileURL(modelPath).href);
-  const source = fs.readFileSync(modelPath, "utf8")
+  // data: modules cannot resolve relative imports, so both are rewritten; a
+  // missed rewrite would crash the mutant at load, which is not a kill.
+  const original = fs.readFileSync(modelPath, "utf8");
+  const tlsImport = 'from "./tls-evidence.js";';
+  if (!original.includes(tlsImport)) throw new Error("tls-evidence import anchor missing");
+  const source = original
     .replace(
       'import { SIGNAL_MONITORING_STATES } from "./signal-monitoring-state.js";',
       INLINE_STATES
-    );
+    )
+    .replace(tlsImport, `from "${pathToFileURL(path.join(path.dirname(modelPath), "tls-evidence.js")).href}";`);
+  if (source.includes('from "./')) throw new Error("unresolved relative import in mutant");
   const mutated = mutateSource(source);
   return import(
     `data:text/javascript;base64,${Buffer.from(mutated).toString("base64")}#${mutation}`
@@ -169,15 +170,20 @@ const derive = (evidenceBySignal) => deriveCertificateSignalCompleteness({
   engineVersion: fixture.engine_version,
 });
 
-// ── The original nine-signal P1 vocabulary remains stable; later Item 9 depth
-// adds independent signals additively after this prefix. ─────────────────────
-const P1_SIGNAL_KEYS = CERTIFICATE_SIGNAL_KEYS.slice(0, 9);
-eq("the model retains the nine original independent signals", P1_SIGNAL_KEYS.length, 9);
+// ── The eight live/serving signals of the original P1 vocabulary remain a
+// stable prefix; later Item 9 depth adds independent signals after it. ───────
+const P1_SIGNAL_KEYS = CERTIFICATE_SIGNAL_KEYS.slice(0, 8);
+eq("the model retains the eight original independent signals", P1_SIGNAL_KEYS.length, 8);
 eq(
   "the simultaneous signal has the canonical unambiguous name",
-  P1_SIGNAL_KEYS[7],
+  P1_SIGNAL_KEYS[6],
   "parallel_certificate_set"
 );
+ok("no signal depends on an external certificate log",
+  !CERTIFICATE_SIGNAL_KEYS.includes("certificate_transparency") &&
+    Object.values(CERTIFICATE_SIGNAL_CONTRACTS).every((contract) =>
+      contract.observation_scope !== "ct_issuance" &&
+      contract.authorities.every((authority) => authority.standard_id !== "RFC 9162")));
 for (const signal of P1_SIGNAL_KEYS) {
   const contract = CERTIFICATE_SIGNAL_CONTRACTS[signal];
   ok(`${signal}: contract exists`, Boolean(contract));
@@ -247,16 +253,16 @@ for (const signal of ["leaf", "san", "issuer", "expiry", "wildcard", "active_ser
   eq(`${signal}: reliable sibling remains complete`,
     mixed.signals[signal].completeness_state, "monitoring_healthy");
 }
-eq("degraded CT remains independently degraded",
-  mixed.signals.certificate_transparency.completeness_state, "monitoring_degraded");
-eq("degraded positive CT evidence stays visible",
-  mixed.signals.certificate_transparency.observation, "present");
+eq("degraded CAA remains independently degraded",
+  mixed.signals.caa.completeness_state, "monitoring_degraded");
+eq("degraded positive CAA evidence stays visible",
+  mixed.signals.caa.observation, "present");
 eq("complete wildcard absence remains an honest absence",
   mixed.signals.wildcard.observation, "absent");
 eq("parallel set reports simultaneous multiplicity without a risk verdict",
   mixed.signals.parallel_certificate_set.observation, "present");
 ok("parallel set has two non-identical identities",
-  new Set(mixed.signals.parallel_certificate_set.value.observations.map(
+  new Set((mixed.signals.parallel_certificate_set.value?.observations || []).map(
     (row) => row.certificate_identity
   )).size === 2
 );
@@ -278,21 +284,18 @@ eq("missing OCSP remains isolated to revocation assurance",
   mixed.assurance_families.revocation_assurance.stapled_ocsp, "unknown");
 eq("missing OCSP does not erase expiry", mixed.signals.expiry.observation, "present");
 const degradedWithoutProvenance = derive({
-  certificate_transparency: {
+  caa: {
     completeness_state: "monitoring_degraded",
     observation: "present",
-    value: {
-      crt_sh: "unavailable",
-      certspotter: "available"
-    },
+    value: { present: true, records: ["0 issue \"ca.example\""] },
     achieved_grade: "L1"
   }
 });
 eq("degraded positive evidence without full provenance fails closed",
-  degradedWithoutProvenance.signals.certificate_transparency.completeness_state,
+  degradedWithoutProvenance.signals.caa.completeness_state,
   "evidence_incomplete");
 eq("unprovenanced positive evidence becomes unknown",
-  degradedWithoutProvenance.signals.certificate_transparency.observation, "unknown");
+  degradedWithoutProvenance.signals.caa.observation, "unknown");
 
 // ── Trust results fail closed without a declared trust-store context ─────────
 const chainBase = {
@@ -349,54 +352,57 @@ eq("parallel observations outside the SSL cap are not called simultaneous",
   unboundedWindow.signals.parallel_certificate_set.completeness_state,
   "evidence_incomplete");
 
-// ── Existing CT/history fields cannot manufacture live serving evidence ─────
-const current = deriveCertificateSignalCompletenessFromModules({
-  ...fixture.current_modules_ct_only,
+// ── Stored certificate fields cannot manufacture live serving evidence ──────
+const stored = deriveCertificateSignalCompletenessFromModules({
+  ...fixture.stored_certificate_fields_without_live_leaf,
   observedAt: fixture.observed_at,
   engineVersion: fixture.engine_version,
 });
-eq("CT projection cannot become live leaf",
-  current.signals.leaf.observation, "unknown");
-eq("current modules do not contain a live chain",
-  current.signals.chain.observation, "unknown");
+eq("stored certificate fields cannot become a live leaf",
+  stored.signals.leaf.observation, "unknown");
+eq("stored modules do not contain a live chain",
+  stored.signals.chain.observation, "unknown");
 eq("historical parallel flags cannot complete simultaneous endpoint evidence",
-  current.signals.parallel_certificate_set.completeness_state,
+  stored.signals.parallel_certificate_set.completeness_state,
   "evidence_incomplete");
 eq("historical parallel flags cannot claim simultaneous multiplicity",
-  current.signals.parallel_certificate_set.observation, "unknown");
-eq("CT issuer is retained only as scoped issuance evidence",
-  current.signals.issuer.observation_scope, "ct_issuance");
-eq("live HTTP-service observation stays independent of CT-only certificate identity",
-  current.signals.active_service.observation, "present");
-const ctWithoutWildcardModules = structuredClone(fixture.current_modules_ct_only);
-ctWithoutWildcardModules.modules.ssl.cert_wildcard_san_count = 0;
-ctWithoutWildcardModules.modules.ssl.cert_san_names = ["example.com"];
-const ctWithoutWildcard = deriveCertificateSignalCompletenessFromModules({
-  ...ctWithoutWildcardModules,
-  observedAt: fixture.observed_at,
-  engineVersion: fixture.engine_version,
-});
-eq("zero wildcard count on one selected CT issuance does not prove wildcard absence",
-  ctWithoutWildcard.signals.wildcard.completeness_state, "evidence_incomplete");
-eq("zero wildcard count on one selected CT issuance remains unknown",
-  ctWithoutWildcard.signals.wildcard.observation, "unknown");
+  stored.signals.parallel_certificate_set.observation, "unknown");
+for (const signal of ["san", "issuer", "expiry", "wildcard"]) {
+  eq(`stored ${signal} cannot become a live ${signal} observation`,
+    stored.signals[signal].observation, "unknown");
+  eq(`stored ${signal} keeps the live TLS scope`,
+    stored.signals[signal].observation_scope, "live_tls");
+}
+eq("live HTTP-service observation stays independent of the missing leaf",
+  stored.signals.active_service.observation, "present");
+eq("the summary states that no live serving certificate was observed",
+  stored.summary.live_serving_certificate_observed, false);
 
-const providersTimedOut = deriveCertificateSignalCompletenessFromModules({
-  ...fixture.current_modules_ct_only,
-  providerHealth: {
-    crt_sh: { outcome: "unavailable" },
-    certspotter: { outcome: "unavailable" }
-  },
+// ── A live leaf fills the certificate signals from the served certificate ────
+const liveModules = (options) => ({
+  modules: { ssl: liveTlsSsl({ domain: "example.com", ...options }, { https_probe_executed: true, https_available: true, tls_state: "observed_present" }) },
   observedAt: fixture.observed_at,
   engineVersion: fixture.engine_version,
 });
-eq("both CT providers unavailable stays signal_unavailable",
-  providersTimedOut.signals.certificate_transparency.completeness_state,
-  "signal_unavailable");
-eq("provider timeout never becomes false CT absence",
-  providersTimedOut.signals.certificate_transparency.observation, "unknown");
-eq("CT provider timeout does not erase active-service evidence",
-  providersTimedOut.signals.active_service.observation, "present");
+const live = deriveCertificateSignalCompletenessFromModules(
+  liveModules({ dnsNames: ["example.com", "*.example.com"], issuer: "CN=Fixture Live CA" }),
+);
+eq("a live leaf is a complete leaf observation", live.signals.leaf.completeness_state, "monitoring_healthy");
+eq("a live leaf issuer is the served certificate's issuer",
+  live.signals.issuer.value, "CN=Fixture Live CA");
+eq("a wildcard SAN on the served certificate is present",
+  live.signals.wildcard.observation, "present");
+ok("live SANs come from the served certificate",
+  JSON.stringify(live.signals.san.value) === JSON.stringify(["example.com", "*.example.com"]));
+eq("the summary states the live serving certificate was observed",
+  live.summary.live_serving_certificate_observed, true);
+const liveWithoutWildcard = deriveCertificateSignalCompletenessFromModules(
+  liveModules({ dnsNames: ["example.com"] }),
+);
+eq("a complete live leaf without a wildcard SAN proves wildcard absence on that certificate",
+  liveWithoutWildcard.signals.wildcard.observation, "absent");
+eq("live wildcard absence is complete evidence",
+  liveWithoutWildcard.signals.wildcard.completeness_state, "monitoring_healthy");
 
 console.log(
   `\nItem 9 certificate signal completeness: ${pass}/${pass + fail} assertions passed`

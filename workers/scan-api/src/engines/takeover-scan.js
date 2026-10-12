@@ -248,7 +248,7 @@ const TAKEOVER_FINGERPRINTS = [
  * unclaimed resources on known hosting platforms.
  *
  * Requires modules.subdomains.items as input — always runs after subdomain
- * discovery so no extra CT lookups are needed.
+ * discovery so no extra discovery lookups are needed.
  */
 // ── Canonical takeover predicate (detector + verifier share this) ─────────────
 // `risks` is the ONE authoritative statement of "a takeover risk is confirmed here":

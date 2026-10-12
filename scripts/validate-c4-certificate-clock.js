@@ -8,6 +8,7 @@ import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { splitStatements, isToleratedStatement } from "./lib/migration-apply-tolerated.js";
+import { liveTlsProbeBinding } from "./lib/live-tls-fixture.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RealDate = Date;
@@ -19,9 +20,8 @@ globalThis.Date = class extends RealDate {
 };
 const NOW = "2026-07-27T13:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
-const EXPIRY = "2026-11-01T00:00:00.000Z";
-const START = "2026-07-01T00:00:00.000Z";
-const DAY = 86_400_000;
+// The live certificate expires 40 days after the collector's observation.
+const LIVE_DAYS = 40;
 let passed = 0;
 let failed = 0;
 async function test(name, run) {
@@ -33,32 +33,17 @@ async function test(name, run) {
 }
 
 try {
-  const { resolveCertificateTransparency } = await import("../workers/scan-api/src/engines/ssl-scan.js");
   const { buildCertificateTrustL2 } = await import("../workers/scan-api/src/engines/cert-trust-l2.js");
   const { runScanEngine } = await import("../workers/scan-api/src/engines/scan-engine.js");
   const { insertCertificateEvents } = await import("../workers/scan-api/src/engines/cert-events.js");
 
-  function cache(provider, expiry = EXPIRY) {
-    return { get: async (_domain, requested) => ({
-      status: requested === provider ? "available" : "unavailable",
-      error: requested === provider ? null : "fixture unavailable",
-      data: requested !== provider ? null : [{
-        not_before: START, not_after: expiry,
-        issuer: { name: "C4 CA" },
-        dns_names: ["example.com", "admin.example.com"],
-      }],
-    }) };
-  }
-  // No live fetch is permitted, even on an unexpected branch.
+  // No live fetch is permitted, even on an unexpected branch: DNS answers are
+  // synthetic and every other request gets a static page.
   globalThis.fetch = async (input) => {
     const url = new URL(String(input));
     const json = (body, status = 200) => new Response(JSON.stringify(body), {
       status, headers: { "content-type": "application/json" },
     });
-    if (url.hostname === "api.certspotter.com") return json([{
-      not_before: START, not_after: EXPIRY, issuer: { name: "C4 CA" },
-      dns_names: ["example.com", "admin.example.com"],
-    }]);
     if (["cloudflare-dns.com", "dns.google"].includes(url.hostname)) {
       return json({ Status: 0, Answer: url.searchParams.get("type") === "A"
         && url.searchParams.get("name") === "example.com"
@@ -68,25 +53,6 @@ try {
       headers: { "content-type": "text/html" },
     });
   };
-
-  for (const provider of ["certspotter"]) {
-    await test(`C4 ${provider}: injected instant selects certificate; strict boundary`, async () => {
-      let calls = 0;
-      const selected = await resolveCertificateTransparency("example.com", {
-        ctCache: cache(provider), now: () => { calls++; return NOW_MS + (calls - 1) * DAY; },
-      });
-      assert.equal(selected.cert_not_after, EXPIRY, "injected July clock must retain November certificate");
-      assert.equal(calls, 1, "resolver samples injected clock exactly once");
-      assert.equal(selected.cert_expiry_days, Math.floor((Date.parse(EXPIRY) - NOW_MS) / DAY));
-      assert.equal(selected.cert_age_days, Math.floor((NOW_MS - Date.parse(START)) / DAY));
-      const equal = await resolveCertificateTransparency("example.com", {
-        ctCache: cache(provider), now: () => Date.parse(EXPIRY),
-      });
-      assert.equal(equal.cert_not_after, null, "not_after == now must remain excluded");
-      const defaultClock = await resolveCertificateTransparency("example.com", { ctCache: cache(provider) });
-      assert.equal(defaultClock.cert_not_after, null, "default November clock excludes expired certificate");
-    });
-  }
 
   await test("C4 trust L2: injected read instant and wall-clock default", () => {
     const cert = { expires_at: "2026-07-29T13:00:00.000Z", issuer: "C4 CA", subject: "example.com" };
@@ -133,6 +99,7 @@ try {
       delete: async key => { objects.delete(key); }, head: async () => null, list: async () => ({ objects: [] }),
     },
     SCAN_CAPACITY_MODE: "legacy", SCAN_SUBREQUEST_LIMIT: "200", SCAN_DEADLINE_MS: "115000", APP_VERSION: "c4-clock-regression",
+    NETWORK_PROBE: liveTlsProbeBinding({ days: LIVE_DAYS }),
   };
   db.exec("INSERT INTO users (id,email) VALUES ('c4-user','owner@example.com'); INSERT INTO workspaces (id,name) VALUES ('c4-ws','C4'); INSERT INTO domains (id,user_id,domain) VALUES ('c4-domain','c4-user','example.com'); INSERT INTO workspace_domains (workspace_id,domain_id) VALUES ('c4-ws','c4-domain')");
   db.prepare("INSERT INTO scans (id,workspace_id,domain_id,domain,status,created_at) VALUES ('c4-scan','c4-ws','c4-domain','example.com','running',?)").run(NOW);
@@ -141,10 +108,12 @@ try {
   });
   const reports = [...objects.values()].map(v => { try { return JSON.parse(v); } catch { return null; } });
   const report = reports.find(r => r?.modules?.certificate_intelligence);
-  await test("C4 engine: CT and cert-intel share evaluation instant", () => {
+  await test("C4 engine: cert-intel evaluates expiry at the collector's observation instant", () => {
     assert.ok(report, "engine must persist a report");
-    assert.equal(report.modules.ssl.cert_not_after, EXPIRY, "engine must pass scan clock to SSL");
-    assert.equal(report.modules.certificate_intelligence.expiry_evidence, "usable", "cert-intel must use CT evaluation instant");
+    const ci = report.modules.certificate_intelligence;
+    assert.equal(ci.evidence_source, "live_tls", "certificate must come from the live TLS collector");
+    assert.equal(ci.expiry_evidence, "usable", "cert-intel must use the collector observation instant");
+    assert.equal(ci.days_until_expiry, LIVE_DAYS, "expiry days are measured from the receipt, not the scan or process clock");
   });
   await test("C4 engine: observation producer and lifecycle consumer share scan time", () => {
     const observation = db.prepare("SELECT * FROM certificate_observations WHERE workspace_id='c4-ws'").get();
@@ -157,10 +126,10 @@ try {
     assert.equal(lifecycle.updated_at, NOW);
   });
 
-  // A separate comparable-report fixture isolates event timestamps from CT
-  // selection failure. It does not change the engine trace's quality or evidence.
+  // A separate comparable-report fixture isolates event timestamps from the
+  // engine trace. It does not change the engine trace's quality or evidence.
   await test("C4 certificate events: injected production time", async () => {
-    const cert = { issuer: "C4 CA", subject: "example.com", issued_for_sensitive_hosts: [], days_until_expiry: 5, expires_at: "2026-08-01T13:00:00.000Z" };
+    const cert = { issuer: "C4 CA", subject: "example.com", days_until_expiry: 5, expires_at: "2026-08-01T13:00:00.000Z" };
     const current = { scan_quality: { status: "complete" }, timeline_trust: { asset_timeline_producer_version: "asset-timeline-trust-v1" }, modules: { certificate_intelligence: cert } };
     db.prepare("INSERT INTO scans (id,workspace_id,domain_id,domain,status,scan_quality,created_at) VALUES ('c4-event-baseline','c4-ws','c4-domain','example.com','completed','complete',?)").run("2026-07-27T13:30:00.000Z");
     objects.set("reports/c4-event-baseline.json", JSON.stringify({ ...current, modules: { certificate_intelligence: { ...cert, days_until_expiry: 60 } } }));

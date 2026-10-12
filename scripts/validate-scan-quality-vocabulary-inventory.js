@@ -46,8 +46,12 @@ const EXPECTED = Object.freeze({
     // assessment_quality !== complete. All previous sites remain; SQL and
     // governance sets are unchanged (exact e2ab1b65 -> cf27ecb5 multiset diff).
     // Website workflow: one additional non-complete evidence presentation guard.
-    comparison_occurrences: 51,
-    source_file_count: 23,
+    // Certificate logs retired: 51 -> 49 across 23 -> 22 files. The deleted
+    // provider-cache module's telemetry guard and the scan engine's telemetry
+    // scan-quality alias left with that source; every other delta in the
+    // two-tree --dump-current diff is a line shift.
+    comparison_occurrences: 49,
+    source_file_count: 22,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
     // AS-B2 SUCCESSION: counts UNCHANGED (48 across 22 files). The KEV/CVE score
@@ -83,7 +87,7 @@ const EXPECTED = Object.freeze({
     // (file/kind/operator/status/access/snippet), deliberately excluding line
     // and AST-offset positions. The count and duplicate multiplicity remain
     // pinned, so real additions/removals still fail while line-only edits do not.
-    fingerprint: "ec965f68217184e961090be056e0c559cd599bb6c06b2ed4abf4ba5411554202",
+    fingerprint: "9f62eeb52381ad5b88ba24428701695650df42927b39a7f52f118ff1fb06f682",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -92,13 +96,14 @@ const EXPECTED = Object.freeze({
     source_file_count: 15,
     // The QA-benchmark admin gate shifts workspace-insights.js source lines;
     // all 35 predicate snippets and 26 query sites remain unchanged.
-    // CertSpotter-only CT: historical-scan.js reads CT counts provider-generically
-    // (two lines shorter), moving its one static/query-sink site 200 -> 198. A
-    // two-tree --dump-current diff (05214f78 vs this tree) shows no SQL site,
-    // predicate or sink added or removed; only these two digests move.
-    fingerprint: "d3ad621db04b641e8943e02756e33f920b68d37ef6bb793ca1df36ebead0d73d",
+    // A single-source CT read in historical-scan.js moved its one static/query-sink
+    // site 200 -> 198; no SQL site, predicate or sink was added or removed.
+    // Certificate logs retired: the same file and the scan engine shift their
+    // SQL sites again; the two-tree --dump-current diff shows every SQL site,
+    // static site and sink unchanged apart from position.
+    fingerprint: "c7947dcaf35b3ea5e92c2ea1cac5d2b091d9dd0c19731fc9e88f721d194dd078",
     resolved_query_sink_count: 19,
-    resolved_query_sink_fingerprint: "69ed004ef2d48c978551db9d81602d90b92b254fc5885e58275ef100471c937c",
+    resolved_query_sink_fingerprint: "84f1eca55a6261292e80d534461d026e8f29e669f615cbec178a37bc3e41d4e6",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -118,13 +123,15 @@ const EXPECTED = Object.freeze({
     // child-process comparisons and the presentation assertion moved within
     // validate-phase5-evidence-honesty.js; exact line keys were re-derived on
     // the final tree. No governance or product comparison changed membership.
-    // CertSpotter-only CT: 84 -> 85 (same 32 files). The first-success
-    // validator's single "degraded" assertion became two: a lost CertSpotter
-    // grades partial and an answered one complete. Every other delta in the
-    // two-tree --dump-current diff is a line shift (scan-deadline,
-    // verify-live-ct-blackout-acceptance); runtime comparisons are unchanged.
-    comparison_occurrences: 85,
-    source_file_count: 32,
+    // Single-source CT: 84 -> 85 (same 32 files). The first-success validator's
+    // single "degraded" assertion became two (lost source partial, answered
+    // source complete); every other delta was a line shift.
+    // Certificate logs retired: 85 -> 80 across 32 -> 29 files, exactly the
+    // five comparisons of the three deleted certificate-log scripts (telemetry
+    // analysis 2, first-success 2, live blackout acceptance 1). Every other
+    // delta in the two-tree --dump-current diff is a line shift.
+    comparison_occurrences: 80,
+    source_file_count: 29,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
     // the successor validator. Nothing was added to or removed from the runtime set.
@@ -143,9 +150,11 @@ const EXPECTED = Object.freeze({
     // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
     // Subtracting these two sites reproduces the preceding exact fingerprint;
     // runtime, SQL and direct-read inventories are unchanged.
-    fingerprint: "c52a0751eec5ead3302d8a4018516137a2b67b6e2aa359736f840f72fe6b0c1a",
+    fingerprint: "bcf24f42886f6c039b66c10ad15d9caaf1191f18e39d17363d027d51988809de",
   },
-  runtime_source_file_count: 33,
+  // Certificate logs retired: the deleted provider-cache module leaves the
+  // runtime source set, 33 -> 32.
+  runtime_source_file_count: 32,
   direct: {
     // D1 SUCCESSION: count unchanged at 92; fingerprint moves because the
     // asm-cases read now flows through the shared predicate.
@@ -187,7 +196,9 @@ const EXPECTED = Object.freeze({
     // Two-tree inventory comparison confirms no removed sites or SQL changes.
     // Report snapshot history adds one read (frontend/src/lib/reportSnapshotDisplay.js):
     // a snapshot's recorded scan_quality shown as text, unknown values → "not recorded".
-    runtime: { occurrence_count: 107, source_file_count: 38, fingerprint: "f7db5f99ee0e2152f1a83d58db2634afb58fd7d73a4e1daa08a284d0cbf5ad82" },
+    // Certificate logs retired: 107 -> 106 across 38 -> 37 files, exactly the
+    // deleted provider-cache module's destructured scanQuality read.
+    runtime: { occurrence_count: 106, source_file_count: 37, fingerprint: "98f96303a9035d229b54c5647b10138e123d20fcd02778db89c9fc27018c6e6c" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
@@ -206,14 +217,14 @@ const EXPECTED = Object.freeze({
     // counter validator. Direct-read identity is now the same line-stable exact
     // semantic multiset used above; additions/removals still move count/digest.
     // PR #484 adds the same regression's one direct scan_quality read.
-    // CertSpotter-only CT: 124 -> 125 (same 41 files), additive only. The CT
-    // blackout validator's partial-outage fixture became two fixtures (a stored
-    // two-provider record and a current CertSpotter-only record), each passing
-    // report.scan_quality; no read was removed and runtime reads are unchanged.
-    // The overlap telemetry module and its engine-trace validator were removed
-    // with the retired CT provider: 125 -> 123 across 41 -> 40 files, exactly that validator's two
-    // reads. The remaining deltas are line shifts (ct-r1 telemetry, scan-deadline).
-    governance: { occurrence_count: 123, source_file_count: 40, fingerprint: "ccd42d64b8c3976c9c6b24dbea7a3b72dd9b1fe35611aab9d45ac2acf7362acc" },
+    // Single-source CT: 124 -> 125 (same 41 files), additive only: the blackout
+    // validator's partial-outage fixture became two fixtures, each passing
+    // report.scan_quality. The overlap telemetry module and its engine-trace
+    // validator were then removed: 125 -> 123 across 41 -> 40 files.
+    // Certificate logs retired: 123 -> 114 across 40 -> 35 files, exactly the
+    // nine reads of the five deleted certificate-log scripts. Every other delta
+    // in the two-tree --dump-current diff is a line shift.
+    governance: { occurrence_count: 114, source_file_count: 35, fingerprint: "8f6b0aa99ae27b350fdbbbe28268b77f67b8eb6097a75734dd93508412cebab6" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
@@ -281,14 +292,13 @@ const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
     "omit a blank coverage fact after the adjacent null guard"],
 ]);
 // The signal-monitoring-state entry is the same reviewed presentation assertion;
-// only its line moved (257 -> 301) when that validator's CT fixtures followed
-// CertSpotter-only CT (loader rewrite in 1a62725d, then the single-provider and
-// historical two-provider fixtures above it).
+// only its line moves (257 -> 301 -> 276) as that validator's fixtures above it
+// change; it now proves module-owned degraded evidence.
 const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
   "scripts/validate-phase5-evidence-honesty.js:234:presentation.quality === \"partial\"",
-  "scripts/validate-signal-monitoring-state.js:301:degraded.quality === \"degraded\"",
+  "scripts/validate-signal-monitoring-state.js:276:degraded.quality === \"degraded\"",
 ]);
 
 let passed = 0;

@@ -295,19 +295,10 @@ function d1Stub({ fail = false } = {}) {
   telem.record("subdomain_takeover", { outcome: "deadline_exceeded", timeout: true, duration_ms: 900, allocated_ms: 950, timeout_source: "module_race" });
   telem.record("cve_intelligence", { outcome: "ok", duration_ms: 400, outbound_calls: 2 });
 
-  const providerHealth = {
-    certspotter: {
-      outcome: "available",
-      attempts: 2,
-      latency_ms: 225,
-      final_error: null,
-    },
-  };
   const diag = buildExecutionDiagnostics({
     executionContext: "queue",
     deadline: dl,
     telemetry: telem,
-    providerHealth,
   });
   eq("diagnostics version stamped", diag.version, SCAN_EXECUTION_DIAGNOSTICS_VERSION);
   eq("execution_context passthrough", diag.execution_context, "queue");
@@ -325,10 +316,8 @@ function d1Stub({ fail = false } = {}) {
   eq("allocated_ms surfaced", diag.modules[2].allocated_ms, 950);
   eq("outbound_calls surfaced", diag.modules[3].outbound_calls, 2);
   eq("no timeout → timeout_source null", diag.modules[0].timeout_source, null);
-  eq("provider health outcome surfaced", diag.provider_health.certspotter.outcome, "available");
-  eq("provider health attempts surfaced", diag.provider_health.certspotter.attempts, 2);
-  eq("provider health latency surfaced", diag.provider_health.certspotter.latency_ms, 225);
-  eq("provider health final error surfaced", diag.provider_health.certspotter.final_error, null);
+  ok("diagnostics carry no third-party provider health",
+    !Object.prototype.hasOwnProperty.call(diag, "provider_health"));
 
   // PR-B1A: advisory trigger origin — additive, passthrough, fail-safe null.
   const trigDiag = buildExecutionDiagnostics({ executionContext: "queue", trigger: "scheduled", deadline: dl, telemetry: telem });
@@ -339,7 +328,6 @@ function d1Stub({ fail = false } = {}) {
   eq("missing context fails safe to null", empty.execution_context, null);
   eq("missing trigger fails safe to null (PR-B1A)", empty.trigger, null);
   eq("missing deadline → null budget", empty.deadline_budget_ms, null);
-  eq("missing provider health → empty object", JSON.stringify(empty.provider_health), "{}");
   eq("missing telemetry → empty modules", empty.modules.length, 0);
 }
 
@@ -372,11 +360,12 @@ function d1Stub({ fail = false } = {}) {
   // PR-B1A: advisory origin is validated with the same fail-safe pattern.
   ok("engine whitelists trigger origins (fail-safe null)",
     /opts\.trigger === "manual" \|\| opts\.trigger === "scheduled"/.test(engineSrc));
-  ok("completed report embeds execution_diagnostics with CT provider health",
-    /const providerHealth = ctCache\.healthSnapshot\(\);/.test(engineSrc) &&
-      /report\.execution_diagnostics = buildExecutionDiagnostics\(\{[\s\S]{0,220}providerHealth,[\s\S]{0,30}\}\);/.test(engineSrc));
-  ok("failed report embeds execution_diagnostics with CT provider health",
-    /execution_diagnostics: buildExecutionDiagnostics\(\{[\s\S]{0,220}providerHealth: ctCache\.healthSnapshot\(\),[\s\S]{0,30}\}\),/.test(engineSrc));
+  ok("completed report embeds execution_diagnostics",
+    /report\.execution_diagnostics = buildExecutionDiagnostics\(\{\s*executionContext,\s*trigger,\s*deadline,\s*telemetry,\s*\}\);/.test(engineSrc));
+  ok("failed report embeds execution_diagnostics",
+    /execution_diagnostics: buildExecutionDiagnostics\(\{\s*executionContext,\s*trigger,\s*deadline,\s*telemetry,\s*\}\),/.test(engineSrc));
+  ok("no report diagnostics carry third-party provider health",
+    !/providerHealth|healthSnapshot/.test(engineSrc));
   ok("finalisation wall time recorded as D1 pseudo-row",
     /telemetry\.record\("scan_finalisation", \{ outcome: "ok", duration_ms: now\(\) - finalizeStartedMs \}\)/.test(engineSrc));
   ok("queue call site passes executionContext queue (+ advisory trigger, PR-B1A)",
@@ -576,16 +565,13 @@ function d1Stub({ fail = false } = {}) {
     await runSslModule("example.com", { accounting: ctx });
   }, async (url) => {
     const u = String(url);
-    if (u.startsWith("https://api.certspotter.com/")) {
-      return jsonResponse([{ not_after: "2999-01-01T00:00:00Z", not_before: "2026-01-01T00:00:00Z", issuer: { name: "Test CA" }, dns_names: ["example.com"] }]);
-    }
     if (u === "https://example.com") return new Response("", { status: 200 });
     if (u === "http://example.com") return new Response("", { status: 301, headers: { location: "https://example.com" } });
     return new Response("", { status: 200 });
   });
   ctx.markSettled();
-  // CertSpotter is the only CT provider: one CT attempt + HTTPS + HTTP.
-  eq("C1B SSL CertSpotter + HTTPS + HTTP attempts counted", acct.snapshot("ssl").outbound_attempts_observed, 3);
+  // HTTPS + HTTP; certificate facts come from the separate live TLS collector.
+  eq("C1B SSL HTTPS + HTTP attempts counted", acct.snapshot("ssl").outbound_attempts_observed, 2);
 }
 
 {
@@ -595,17 +581,14 @@ function d1Stub({ fail = false } = {}) {
     await runSslModule("example.com", { accounting: ctx });
   }, async (url) => {
     const u = String(url);
-    if (u.startsWith("https://api.certspotter.com/")) {
-      return jsonResponse([{ not_after: "2999-01-01T00:00:00Z", not_before: "2026-01-01T00:00:00Z", dns_names: ["example.com"], issuer: { name: "Test CA" } }]);
-    }
     if (u === "https://example.com") return new Response("", { status: 200 });
     if (u === "http://example.com") return new Response("", { status: 301, headers: { location: "http://www.example.com" } });
     if (u === "http://www.example.com/") return new Response("", { status: 301, headers: { location: "https://www.example.com" } });
     return new Response("", { status: 200 });
   });
   ctx.markSettled();
-  // One CertSpotter attempt + HTTPS + HTTP hop 1 + explicit HTTP hop 2.
-  eq("C1B SSL CertSpotter evidence and explicit redirect hop counted", acct.snapshot("ssl").outbound_attempts_observed, 4);
+  // HTTPS + HTTP hop 1 + explicit HTTP hop 2.
+  eq("C1B SSL explicit redirect hop counted", acct.snapshot("ssl").outbound_attempts_observed, 3);
 }
 
 {
@@ -616,14 +599,11 @@ function d1Stub({ fail = false } = {}) {
   }, async (url) => {
     const u = String(url);
     if (u.includes("dns-query")) return jsonResponse({ Status: 0, Answer: [] });
-    if (u.startsWith("https://api.certspotter.com/")) {
-      return jsonResponse([{ not_after: "2999-01-01T00:00:00Z", not_before: "2026-01-01T00:00:00Z", issuer: { name: "Test CA" }, dns_names: ["www.example.com", "api.example.com", "app.example.com"] }]);
-    }
     return jsonResponse([]);
   });
   ctx.markSettled();
-  // Wildcard A + AAAA + the one CertSpotter attempt.
-  eq("C1B subdomain wildcard DNS + CertSpotter counted", acct.snapshot("subdomains").outbound_attempts_observed, 3);
+  // Wildcard A + AAAA; discovery queries no external source.
+  eq("C1B subdomain wildcard DNS counted", acct.snapshot("subdomains").outbound_attempts_observed, 2);
 }
 
 {
@@ -869,24 +849,15 @@ function d1Stub({ fail = false } = {}) {
     (s) => s.replace('settled?.status === "fulfilled" && telemetry.outcomeOf(settled.value) === "ok"', "true"));
   const sslSrc = src("workers", "scan-api", "src", "engines", "ssl-scan.js");
   const subdomainsSrc = src("workers", "scan-api", "src", "engines", "subdomains-scan.js");
-  const ctCacheSrc = src("workers", "scan-api", "src", "engines", "ct-provider-cache.js");
   const cloudSrc = src("workers", "scan-api", "src", "engines", "cloud-storage-scan.js");
   const httpSrc = src("workers", "scan-api", "src", "lib", "http.js");
   const reservedProbeSrc = src("workers", "scan-api", "src", "engines", "reserved-probe.js");
   sourceGuard("C1B SSL safeFetch leaves carry accounting", sslSrc,
     (s) => /safeFetch\(`https:\/\/\$\{domain\}`,[\s\S]{0,140}accounting/.test(s) && /safeFetch\(httpOrigUrl,[\s\S]{0,120}accounting/.test(s) && /safeFetch\(loc1,[\s\S]{0,120}accounting/.test(s),
     (s) => s.replace(/,\s*accounting/g, ""));
-  sourceGuard("C1B shared CT provider fetches are counted", ctCacheSrc,
-    (s) => /accounting\?\.assertCanIssue\?\.\(\)/.test(s) &&
-      /accounting\?\.recordAttempt\?\.\(\)/.test(s) &&
-      /accounting\?\.recordCompleted\?\.\(\)/.test(s) &&
-      /accounting\?\.recordError\?\.\(err\)/.test(s),
-    (s) => s.replace("  accounting?.recordAttempt?.();", ""));
-  sourceGuard("C1B subdomain CT and wildcard DNS carry accounting", subdomainsSrc,
+  sourceGuard("C1B subdomain wildcard DNS carries accounting", subdomainsSrc,
     (s) => /dnsQuery\(wildcardHost, "A", \{ accounting, cache \}\)/.test(s) &&
-      /dnsQuery\(wildcardHost, "AAAA", \{ accounting, cache \}\)/.test(s) &&
-      /raceCertificateTransparencyFirstSuccess\(\{[\s\S]{0,160}ctCache,[\s\S]{0,80}domain,[\s\S]{0,80}module: "subdomains",[\s\S]{0,80}accounting,[\s\S]{0,80}signal: opts\.signal/.test(s) &&
-      /wrapProviderWait: \(provider, promise\) => timedSubOp\(`ct_wait_\$\{provider\}`/.test(s),
+      /dnsQuery\(wildcardHost, "AAAA", \{ accounting, cache \}\)/.test(s),
     (s) => s.replace('dnsQuery(wildcardHost, "A", { accounting, cache })', 'dnsQuery(wildcardHost, "A", { cache })'));
   sourceGuard("C1B brute-force DNS leaves carry accounting", subdomainsSrc,
     (s) => /dnsQuery\(host, "A", \{ accounting, cache \}\)/.test(s) && /dnsQuery\(host, "MX", \{ accounting, cache \}\)/.test(s),
@@ -896,8 +867,8 @@ function d1Stub({ fail = false } = {}) {
       && /getRes = await safeFetch\(listUrl, \{[\s\S]{0,220}accounting,[\s\S]{0,160}dnsResolver,[\s\S]{0,120}dnsCache: cache/.test(s),
     (s) => s.replace(/(const getRes = await safeFetch\(listUrl, \{[\s\S]{0,180})\s*accounting,\n/, "$1"));
   sourceGuard("C1B scan-engine threads module contexts", engineSrc,
-    (s) => /runSslModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, ctCache, subOps: subOpTelemetry, now: \(\) => certificateNowMs \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache, subOps: subOpTelemetry, globalDeadlineProvenance: \(\) => deadline\.globalDeadlineProvenance\(\) \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal, cache: dnsCache \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal, cache: dnsCache \}\)/.test(s),
-    (s) => s.replace('runSslModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, ctCache, subOps: subOpTelemetry, now: () => certificateNowMs })', "runSslModule(domain)"));
+    (s) => /runSslModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, subOps: subOpTelemetry, now: \(\) => certificateNowMs \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, subOps: subOpTelemetry \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal, cache: dnsCache \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal, cache: dnsCache \}\)/.test(s),
+    (s) => s.replace('runSslModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, subOps: subOpTelemetry, now: () => certificateNowMs })', "runSslModule(domain)"));
   sourceGuard("C1B complete-set includes newly covered modules", budgetSrc,
     (s) => ["ssl", "subdomains", "dns_bruteforce", "cloud_storage_discovery"].every((m) => s.includes(`"${m}"`)),
     (s) => s.replace('"cloud_storage_discovery",', ""));
@@ -919,14 +890,13 @@ function d1Stub({ fail = false } = {}) {
   sourceGuard("B2 incomplete outbound counts remain D1 null", budgetSrc,
     (s) => /outbound_measurement_complete \? snap\.outbound_attempts_observed : null/.test(s),
     (s) => s.replace("outbound_measurement_complete ? snap.outbound_attempts_observed : null", "outbound_attempts_observed"));
-  sourceGuard("B2 native counted fetches preserve caller and module signals", ctCacheSrc + "\n" + cloudSrc + "\n" + httpSrc,
-    (s) => (s.match(/function combineSignals\(/g) || []).length >= 3 &&
-      /combineSignals\(signal, accounting\?\.signal, timeoutSignal\(timeoutMs\)\)/.test(s) &&
+  sourceGuard("B2 native counted fetches preserve caller and module signals", cloudSrc + "\n" + httpSrc,
+    (s) => (s.match(/function combineSignals\(/g) || []).length >= 2 &&
       /combineSignals\(opts\.signal, AbortSignal\.timeout\(6_000\)\)/.test(s) &&
       /combineSignals\(fetchOptions\.signal, accounting\?\.signal, AbortSignal\.timeout\(10_000\)\)/.test(s),
     (s) => s.replace(
-      "combineSignals(signal, accounting?.signal, timeoutSignal(timeoutMs))",
-      "signal || accounting?.signal || timeoutSignal(timeoutMs)"
+      "combineSignals(fetchOptions.signal, accounting?.signal, AbortSignal.timeout(10_000))",
+      "fetchOptions.signal || accounting?.signal || AbortSignal.timeout(10_000)"
     ));
   sourceGuard("B2 Queue/Cron entry or legacy reserved mode arms deadline and binds every physical GET", engineSrc + "\n" + budgetSrc + "\n" + reservedProbeSrc,
     (s) => /if \(durableInvocation\) deadline\.arm\(\);/.test(s)

@@ -243,7 +243,7 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   const extObs = allLimits.find((l) => l.startsWith("External observation only"));
   const passive = allLimits.find((l) => l.startsWith("Passive external check only"));
   ok("copy: canonical Attack-Surface limitation is ASCII with a semicolon",
-     extObs === "External observation only; no internal-network discovery. Subdomain coverage depends on public Certificate Transparency logs (certificates that have not expired), DNS name checks and links found on the website.");
+     extObs === "External observation only; no internal-network discovery. Subdomain discovery covers the names CyberMeters checks in DNS, names in DNS records and links found on the website; it is not a complete inventory.");
   ok("copy: canonical Website-Security limitation is ASCII with a semicolon",
      passive === "Passive external check only; no active, authenticated or intrusive testing.");
   ok("copy: no non-ASCII in either flagged limitation (no em/en dash to strip)",

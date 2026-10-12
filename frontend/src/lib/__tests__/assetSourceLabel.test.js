@@ -3,13 +3,14 @@ import { assetSourceLabel } from '../assetSourceLabel'
 
 describe('assetSourceLabel', () => {
   it('names every discovery source in customer words', () => {
-    expect(assetSourceLabel('certificate_transparency')).toBe('Certificate Transparency')
+    expect(assetSourceLabel('dns_discovery')).toBe('DNS discovery')
     expect(assetSourceLabel('dns_bruteforce')).toBe('DNS lookup')
     expect(assetSourceLabel('dns_mx')).toBe('Mail (MX) record')
     expect(assetSourceLabel('dns_srv')).toBe('Service (SRV) record')
     expect(assetSourceLabel('html_link')).toBe('Linked from your website')
     expect(assetSourceLabel('exposure_probe')).toBe('Web exposure check')
     expect(assetSourceLabel('scan_root')).toBe('Scanned domain')
+    expect(assetSourceLabel('certificate_transparency')).toBe('Certificate log (historical)')
   })
 
   it('shows an unrecognised code as-is and an absent one as a dash', () => {

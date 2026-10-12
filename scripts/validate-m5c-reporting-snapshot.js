@@ -249,8 +249,8 @@ async function main() {
      JSON.stringify(snap1?.methodology?.ce_question_set_versions) === JSON.stringify(["2026-07-16"]) &&
      snap1?.methodology?.remediation_registry_fingerprint === remediationRegistryFingerprint());
   ok("current resolver methodology stamp is independently pinned",
-     CYBER_MOT_RESOLVER_VERSION === "2026-10-10.1" &&
-     snap1?.methodology?.cyber_mot_resolver_version === "2026-10-10.1");
+     CYBER_MOT_RESOLVER_VERSION === "2026-10-12.1" &&
+     snap1?.methodology?.cyber_mot_resolver_version === "2026-10-12.1");
   ok("B3 does not move the Cyber Metrics score methodology stamp",
      CYBER_METRICS_SCORE_METHODOLOGY_VERSION === "2026-08-26.1" &&
      snap1?.methodology?.cyber_metrics_score_methodology_version === "2026-08-26.1");
@@ -367,9 +367,9 @@ async function main() {
      favourableCeDomain?.evidence_grade?.grade === "L0" &&
      /2 of 5/.test(favourableCeDomain?.state_reason || ""));
   const certDomain = snap1?.domains?.find((d) => d.domain_key === "certificates_trust");
-  ok("Certificates & Trust records CT-only scope and never claims the observed cert is live",
+  ok("Certificates & Trust without a captured leaf is bounded and never claims a live certificate",
      certDomain?.live_certificate_verified === false &&
-     /observed Certificate Transparency evidence/.test(certDomain?.state_reason || "") &&
+     /the served certificate was not captured in this scan/.test(certDomain?.state_reason || "") &&
      certDomain?.evidence_grade?.grade === "L1" &&
      certDomain?.evidence_grade?.limits?.some((limit) => /OCSP/.test(limit)));
   const gradeRank = Object.fromEntries(EVIDENCE_GRADES.map((grade, rank) => [grade, rank]));
@@ -899,7 +899,7 @@ async function main() {
   ok("new B3 snapshot observation cannot acquire domain issue authority from severity",
      !b3Website?.finding_ids?.includes("csp_weak_policy"));
   ok("new B3 snapshot stamps resolver and score methodologies independently",
-     b3Snapshot.methodology?.cyber_mot_resolver_version === "2026-10-10.1" &&
+     b3Snapshot.methodology?.cyber_mot_resolver_version === "2026-10-12.1" &&
      b3Snapshot.methodology?.cyber_metrics_score_methodology_version === "2026-08-26.1");
 
   // ── Report ──────────────────────────────────────────────────────────────────

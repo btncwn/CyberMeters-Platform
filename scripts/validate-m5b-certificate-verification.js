@@ -71,7 +71,6 @@ const caseFor = (remediation_id) => ({
     "cert.caa.configure":       { method: "dns_recheck",         support: "automated" },
     "cert.ca_concentration":    { method: "manual_attestation",  support: "manual" },
     "cert.anomaly.review":      { method: "manual_attestation",  support: "manual" },
-    "cert.ct_incomplete":       { method: "unsupported",         support: "unsupported" },
   };
   const active = registry.REMEDIATION_REGISTRY.filter((e) => e.domain_key === "certificates_trust" && e.status === "active");
   eq("every active Certificates & Trust remediation is mapped in this suite",
@@ -84,6 +83,11 @@ const caseFor = (remediation_id) => ({
     eq(`${id}: registry verification_method`, entry.verification_method, e.method);
     eq(`${id}: derived case support`, model.verificationSupportForCase(caseFor(id)), e.support);
   }
+  // historical: cases opened from the retired certificate-source finding still
+  // resolve to their deprecated entry, which nothing can verify.
+  const retired = registry.getRemediationById("cert.ct_incomplete");
+  eq("the retired certificate-source entry is deprecated", retired?.status, "deprecated");
+  eq("the retired certificate-source entry stays unsupported", retired?.verification_method, "unsupported");
   // The domain really is the diverse one — this is WHY a blanket answer is wrong here.
   const methods = new Set(active.map((e) => e.verification_method));
   ok("Certificates & Trust genuinely holds many verification methods (a blanket is wrong)",
@@ -113,16 +117,17 @@ const caseFor = (remediation_id) => ({
 }
 
 // ════ 3. WHAT NOTHING CAN VERIFY, NOBODY VERIFIES ═══════════════════════════
-// A Certificate Transparency blackout means we cannot see. The registry says `unsupported`,
-// so neither a customer NOR the system may conclude it.
+// A historical case from the retired certificate-source finding described a
+// source CyberMeters no longer uses. The registry says `unsupported`, so neither
+// a customer NOR the system may conclude it.
 {
   const ct = caseFor("cert.ct_incomplete");
   eq("cert.ct_incomplete derives 'unsupported'", model.verificationSupportForCase(ct), "unsupported");
   const byCustomer = model.canTransitionCase({
     case: ct, target_status: "verified",
-    actor: { actor_type: "customer", actor_id: "u1" }, evidence: attestation("CT looks fine to me."),
+    actor: { actor_type: "customer", actor_id: "u1" }, evidence: attestation("The old source looks fine to me."),
   });
-  ok("a customer cannot attest a CT blackout resolved", !byCustomer.ok);
+  ok("a customer cannot attest a retired certificate-source finding resolved", !byCustomer.ok);
   eq("refused as unsupported", byCustomer.code, "verify_unsupported");
 
   const bySystem = model.canTransitionCase({
@@ -133,7 +138,7 @@ const caseFor = (remediation_id) => ({
       observation: { note: "a new certificate appeared" },
     },
   });
-  ok("not even CyberMeters can verify a CT blackout", !bySystem.ok);
+  ok("not even CyberMeters can verify a retired certificate-source finding", !bySystem.ok);
   eq("also refused as unsupported", bySystem.code, "verify_unsupported");
 }
 
@@ -309,7 +314,7 @@ function seedReplacement(db, { remediation_id = "cert.expiry.expired", distinct 
   const db = buildDb(); const env = { cybermeters_db: makeD1(db) };
   const h = seedReplacement(db, { remediation_id: "cert.ct_incomplete" });
   await certLifecycle.certificateLifecycleAction(env, "ws1", "cl-1", "request_verification", { actor_id: "u1" });
-  ok("a CT-blackout case is not verified by observing a new certificate", h.kase().status !== "verified");
+  ok("a retired certificate-source case is not verified by observing a new certificate", h.kase().status !== "verified");
   eq("recorded as unsupported", JSON.parse(h.events().filter((e) => e.action === "replacement_observed_not_verifying")[0].detail_json).verification_state, "unsupported");
 }
 {
@@ -370,8 +375,8 @@ for (const [id, findingType] of [
   eq(`${id}: verification retains measured endpoint evidence`, healthy.endpoint_checks, [endpoint]);
   ok(`${id}: live verification does not claim revocation or exact wire-chain proof`,
     healthy.unknown_signals.includes("revocation") && healthy.unknown_signals.includes("exact_wire_presented_chain"));
-  eq(`${id}: CT-only evidence remains inconclusive`, verify(i => {
-    for (const s of Object.values(i.signals)) s.observation_scope = "certificate_transparency";
+  eq(`${id}: evidence outside the live TLS scope remains inconclusive`, verify(i => {
+    for (const s of Object.values(i.signals)) s.observation_scope = "historical_observation";
   }).verification_result, "inconclusive");
   eq(`${id}: HTTP success without TLS signals remains inconclusive`, verify(i => { i.signals = {}; }).verification_result, "inconclusive");
   eq(`${id}: skipped endpoints prevent verification`, verify(i => { i.signals.leaf.value.all_planned_endpoints_observed = false; }).verification_result, "inconclusive");

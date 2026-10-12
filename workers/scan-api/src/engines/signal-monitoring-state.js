@@ -5,9 +5,7 @@
 // one state per signal. It does not probe, score, compare with an earlier scan,
 // or change scan_quality. Missing or unrecognised evidence fails closed.
 
-import { CT_PROVIDERS, ctProvidersUsed } from "./ct-providers.js";
-
-export const SIGNAL_MONITORING_STATE_VERSION = "signal-monitoring-state-v1";
+export const SIGNAL_MONITORING_STATE_VERSION = "signal-monitoring-state-v2";
 
 export const SIGNAL_MONITORING_STATES = Object.freeze({
   MONITORING_HEALTHY:  "monitoring_healthy",
@@ -17,21 +15,15 @@ export const SIGNAL_MONITORING_STATES = Object.freeze({
 });
 
 // Canonical evidence ownership. Signal names are stable customer-facing areas;
-// module/provider names remain evidence pointers, not customer verdicts.
+// module names remain evidence pointers, not customer verdicts. Every signal is
+// produced by CyberMeters' own observation; no signal depends on a third-party
+// data provider.
 export const SIGNAL_MONITORING_DEFINITIONS = Object.freeze({
   dns: Object.freeze({
     modules: Object.freeze(["dns"]),
-    providers: Object.freeze([]),
-  }),
-  certificate_transparency: Object.freeze({
-    modules: Object.freeze(["subdomains"]),
-    providers: CT_PROVIDERS,
-    // A recorded result names the providers it actually used (ct-providers.js).
-    providers_recorded_by: "subdomains",
   }),
   website_security: Object.freeze({
     modules: Object.freeze(["ssl", "headers"]),
-    providers: Object.freeze([]),
   }),
   email_protection: Object.freeze({
     modules: Object.freeze([
@@ -39,7 +31,6 @@ export const SIGNAL_MONITORING_DEFINITIONS = Object.freeze({
       "dmarc_core",
       "email_security_intelligence",
     ]),
-    providers: Object.freeze([]),
   }),
   attack_surface: Object.freeze({
     modules: Object.freeze([
@@ -48,22 +39,18 @@ export const SIGNAL_MONITORING_DEFINITIONS = Object.freeze({
       "asset_exposure",
       "cloud_storage_discovery",
     ]),
-    providers: Object.freeze([]),
   }),
   technology_visibility: Object.freeze({
     modules: Object.freeze(["technology_detection"]),
-    providers: Object.freeze([]),
   }),
   vulnerability_intelligence: Object.freeze({
     modules: Object.freeze([
       "cve_intelligence",
       "known_exploited_vulnerabilities",
     ]),
-    providers: Object.freeze([]),
   }),
   registration_data: Object.freeze({
     modules: Object.freeze(["whois_intelligence"]),
-    providers: Object.freeze([]),
   }),
 });
 
@@ -76,12 +63,6 @@ export const SIGNAL_MONITORING_WORDING = Object.freeze({
     monitoring_degraded: "We could not fully verify DNS data in this run.",
     signal_unavailable:  "DNS data was unavailable in this run.",
     evidence_incomplete: "DNS checks did not complete in this run.",
-  }),
-  certificate_transparency: Object.freeze({
-    monitoring_healthy:  "Certificate transparency checks completed normally in this run.",
-    monitoring_degraded: "We could not fully verify certificate transparency data in this run.",
-    signal_unavailable:  "Certificate transparency data was unavailable in this run.",
-    evidence_incomplete: "Certificate transparency checks did not complete in this run.",
   }),
   website_security: Object.freeze({
     monitoring_healthy:  "Website security checks completed normally in this run.",
@@ -145,9 +126,6 @@ export function normalizeSignalMonitoringStates(monitoringStates) {
       evidence: raw?.evidence ?? {
         modules: [...definition.modules],
         incomplete_modules: [...definition.modules],
-        providers: Object.fromEntries(
-          definition.providers.map((provider) => [provider, "unknown"])
-        ),
       },
     };
   }
@@ -160,8 +138,8 @@ export function normalizeSignalMonitoringStates(monitoringStates) {
 // Aggregate a declared set of signal dependencies without turning monitoring
 // health into a security verdict. The result answers only whether the evidence
 // coverage required by a consumer was complete. State precedence is deliberately
-// fail-closed: incomplete provenance outranks explicit provider unavailability,
-// which outranks partial degradation.
+// fail-closed: incomplete provenance outranks explicit unavailability, which
+// outranks partial degradation.
 export function resolveSignalMonitoringCoverage(monitoringStates, signalNames = []) {
   const names = [...new Set(
     (Array.isArray(signalNames) ? signalNames : [])
@@ -266,74 +244,21 @@ function combineModuleStates(states) {
   return SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
 }
 
-function providerEvidenceState(providerNames, providerHealth) {
-  if (providerNames.length === 0) return null;
-  const outcomes = providerNames.map((provider) => providerHealth?.[provider]?.outcome ?? null);
-  const available = outcomes.filter((outcome) => outcome === "available").length;
-  const unavailable = outcomes.filter((outcome) => outcome === "unavailable").length;
-  const unknown = outcomes.length - available - unavailable;
-
-  // No provider telemetry means the signal's evidence did not complete. If at
-  // least one provider explicitly failed and no fallback produced evidence, the
-  // signal itself was unavailable even when a second provider was not recorded.
-  if (available === 0 && unavailable === 0) {
-    return SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
-  }
-  if (available === 0 && unavailable > 0) {
-    return SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE;
-  }
-  if (unknown > 0) {
-    return SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
-  }
-  if (unavailable > 0) {
-    return SIGNAL_MONITORING_STATES.MONITORING_DEGRADED;
-  }
-  return SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
-}
-
-// The providers a signal depends on in THIS scan. A provider-backed signal whose
-// owning module records its providers uses that record, so a stored result is
-// read with the providers it actually queried; a provider it did not query is
-// not missing evidence.
-function signalProviders(definition, modules) {
-  if (definition.providers.length === 0 || !definition.providers_recorded_by) return definition.providers;
-  return ctProvidersUsed(modules?.[definition.providers_recorded_by]);
-}
-
-function resolveSignalState(definition, modules, skipped, providerHealth, providers = definition.providers) {
-  const moduleStates = definition.modules.map((moduleName) =>
-    moduleEvidenceState(modules, moduleName, skipped)
+function resolveSignalState(definition, modules, skipped) {
+  return combineModuleStates(
+    definition.modules.map((moduleName) => moduleEvidenceState(modules, moduleName, skipped))
   );
-  const combinedModules = combineModuleStates(moduleStates);
-  const providerState = providerEvidenceState(providers, providerHealth);
-  // For an explicitly provider-backed signal, preserve the provider-specific
-  // cause even when its owning module is also (correctly) marked incomplete.
-  // Otherwise a total provider blackout would be flattened to the less useful
-  // evidence_incomplete state and the canonical signal_unavailable fact would
-  // be lost before persistence.
-  if (
-    providerState === SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE ||
-    providerState === SIGNAL_MONITORING_STATES.MONITORING_DEGRADED
-  ) {
-    return providerState;
-  }
-  if (combinedModules !== SIGNAL_MONITORING_STATES.MONITORING_HEALTHY) {
-    return combinedModules;
-  }
-  return providerState ?? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
 }
 
 export function deriveSignalMonitoringStates({
   modules = {},
   scanQuality = null,
-  providerHealth = {},
 } = {}) {
   const skipped = skippedModuleNames(scanQuality);
   const signals = {};
 
   for (const [signal, definition] of Object.entries(SIGNAL_MONITORING_DEFINITIONS)) {
-    const providers = signalProviders(definition, modules || {});
-    const state = resolveSignalState(definition, modules || {}, skipped, providerHealth || {}, providers);
+    const state = resolveSignalState(definition, modules || {}, skipped);
     const incompleteModules = definition.modules.filter((moduleName) =>
       moduleEvidenceState(modules || {}, moduleName, skipped) ===
         SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE
@@ -345,12 +270,6 @@ export function deriveSignalMonitoringStates({
       evidence: {
         modules: [...definition.modules],
         incomplete_modules: incompleteModules,
-        providers: Object.fromEntries(
-          providers.map((provider) => [
-            provider,
-            providerHealth?.[provider]?.outcome ?? "unknown",
-          ])
-        ),
       },
     };
   }

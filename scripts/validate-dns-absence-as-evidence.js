@@ -262,7 +262,6 @@ async function trace({ seed = false, engine = null, slowResolution = true } = {}
       }
       return answer();
     }
-    if (host === "crt.sh" || host === "api.certspotter.com") return json([]);
     return new Response("<html></html>", { status: 200, headers: { server: "nginx", "content-type": "text/html" } });
   };
   console.error = () => {};

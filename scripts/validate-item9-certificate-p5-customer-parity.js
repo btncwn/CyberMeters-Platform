@@ -53,7 +53,6 @@ const clone = (value) => structuredClone(value);
 const NOW = "2026-07-26T15:00:00.000Z";
 const run = (modules) =>
   runCertificateIntelligenceModule(modules, trustFixture.domain, {
-    providerHealth: trustFixture.provider_health,
     observedAt: NOW,
     nowMs: Date.parse(NOW),
     engineVersion: trustFixture.engine_version,
@@ -126,26 +125,29 @@ for (const sibling of ["leaf", "san", "issuer", "expiry", "active_service"]) {
     noRevocation.signals[sibling].state, "observed");
 }
 
-const ctOnlyModules = clone(trustFixture.base_modules);
-ctOnlyModules.ssl.certificate_evidence.live_tls = {
+const noLeafModules = clone(trustFixture.base_modules);
+noLeafModules.ssl.certificate_evidence.live_tls = {
   leaf_collected: false,
   chain_collected: false,
   reason: "peer_certificate_not_exposed",
 };
-const ctOnly = buildCertificateCustomerPresentation({
-  signalCompleteness: run(ctOnlyModules).signal_completeness,
+const noLeaf = buildCertificateCustomerPresentation({
+  signalCompleteness: run(noLeafModules).signal_completeness,
 });
-eq("CT-only summary remains explicit", ctOnly.summary.ct_only, true);
-ok("CT-only customer copy refuses live-serving promotion",
-  ctOnly.summary.live_tls_certificate.message.includes(
-    fixture.ct_only_live_message_fragment,
-  ));
-ok("CT-only does not promote live leaf",
-  ctOnly.signals.leaf.state !== "observed");
-ok("CT-only does not promote hostname match",
-  ctOnly.signals.hostname_match.state !== "observed");
-ok("CT-only does not promote trust-store validation",
-  ctOnly.signals.trust_store_validation.state !== "observed");
+ok("a new presentation carries no certificate-log summary fields",
+  !Object.prototype.hasOwnProperty.call(noLeaf.summary, "ct_only") &&
+    !Object.prototype.hasOwnProperty.call(noLeaf.summary, "ct_issuance"));
+ok("no-leaf customer copy draws no conclusion",
+  noLeaf.summary.live_tls_certificate.state !== "observed" &&
+    noLeaf.summary.live_tls_certificate.message.includes(
+      fixture.no_leaf_live_message_fragment,
+    ));
+ok("a missing leaf is not presented as a live leaf",
+  noLeaf.signals.leaf.state !== "observed");
+ok("a missing leaf does not promote hostname match",
+  noLeaf.signals.hostname_match.state !== "observed");
+ok("a missing leaf does not promote trust-store validation",
+  noLeaf.signals.trust_store_validation.state !== "observed");
 
 const previousModel = clone(completeModel);
 previousModel.signals.leaf.value.certificate_identity =
@@ -237,15 +239,15 @@ const snapshot = composeSnapshot({
 });
 eq("new snapshot stores additive certificate presentation",
   snapshot.certificate_assurance.schema,
-  "certificate-customer-presentation-v1");
+  "certificate-customer-presentation-v2");
 eq("snapshot freezes relationship precedence",
   snapshot.certificate_assurance.relationship.relationship,
   fixture.relationship.expected_precedence);
 eq("snapshot lifecycle is recorded", snapshot.certificate_assurance.lifecycle.status,
   "recorded");
 
-// New snapshots describe admitted live measurements without regrading CT
-// coverage or turning a scoped trust-store result into universal verification.
+// New snapshots describe admitted live measurements without turning a scoped
+// trust-store result into universal verification.
 const liveModules = clone(trustFixture.base_modules);
 const liveCarrier = liveModules.ssl.certificate_evidence.live_tls;
 delete liveCarrier.presented_chain;
@@ -292,42 +294,34 @@ incompleteEndpoints.ssl.certificate_evidence.live_tls.all_planned_endpoints_obse
 ok("partial endpoint coverage stays explicit alongside an observed live leaf",
   certificateDomain(snapshotForModules(incompleteEndpoints)).limitations.includes("Not all planned live TLS endpoints were observed."));
 
-const ctOnlySnapshotModules = clone(liveModules);
-delete ctOnlySnapshotModules.ssl.certificate_evidence.live_tls;
-const ctOnlySnapshot = snapshotForModules(ctOnlySnapshotModules);
-const ctOnlyBefore = JSON.stringify(ctOnlySnapshot);
-const ctOnlyDomain = certificateDomain(ctOnlySnapshot);
-eq("CT-only domain preserves its original evidence basis", ctOnlyDomain.evidence_grade.basis,
-  "Certificate Transparency (RFC 9162) records that a certificate or precertificate was logged; it does not establish which certificate a server currently presents.");
-ok("CT-only domain retains its original unmeasured trust caveat",
-  ctOnlyDomain.limitations.includes("Analysis is based on Certificate Transparency logs. Chain validity, root trust, OCSP and revocation status are not checked and remain unknown."));
+const noLeafSnapshotModules = clone(liveModules);
+delete noLeafSnapshotModules.ssl.certificate_evidence.live_tls;
+const noLeafSnapshot = snapshotForModules(noLeafSnapshotModules);
+const noLeafBefore = JSON.stringify(noLeafSnapshot);
+const noLeafDomain = certificateDomain(noLeafSnapshot);
+eq("a domain without a live leaf states that no certificate fact is asserted", noLeafDomain.evidence_grade.basis,
+  "No certificate was captured from a live TLS handshake in this scan, so no certificate fact is asserted.");
+ok("a domain without a live leaf is not assessed healthy",
+  noLeafDomain.state !== "assessed_healthy");
 const unadmittedReport = clone(report);
 unadmittedReport.modules.certificate_intelligence.signal_completeness.signals.leaf.publishable = false;
 const unadmitted = composeSnapshot({ snapshotId: "unadmitted", workspaceId: "ws-fixture", domainId: "dom-fixture", scanId: "unadmitted", domain: fixture.domain, report: unadmittedReport, caseRows: [], questionSetVersions: [] });
 ok("an unpublished live signal cannot authorize live summary wording",
   !certificateDomain(unadmitted).evidence_grade.basis.includes("leaf certificate was captured"));
 
-const blackoutModules = clone(liveModules);
-blackoutModules.ssl.ct_sources = {};
-blackoutModules.subdomains = { ...(blackoutModules.subdomains || {}), sources: {} };
-for (const provider of ["crt_sh", "certspotter"]) {
-  blackoutModules.ssl.ct_sources[provider] = { error: "provider unavailable", count: 0 };
-  blackoutModules.subdomains.sources[provider] = { error: "provider unavailable", count: 0 };
-}
-const blackoutIntelligence = runCertificateIntelligenceModule(blackoutModules, trustFixture.domain, {
-  observedAt: NOW, nowMs: Date.parse(NOW), engineVersion: trustFixture.engine_version,
-});
-const blackoutReport = { ...clone(report), scan_quality: { status: "degraded", modules_skipped: [] },
-  modules: { ...blackoutModules, certificate_intelligence: blackoutIntelligence } };
-const blackout = composeSnapshot({ snapshotId: "blackout-live", workspaceId: "ws-fixture", domainId: "dom-fixture", scanId: "blackout-live", domain: fixture.domain, report: blackoutReport, caseRows: [], questionSetVersions: [] });
-eq("CT provider blackout still caps live-summary domain grade at L0", certificateDomain(blackout).evidence_grade.grade, "L0");
-ok("CT provider blackout cannot become assessed healthy from a live leaf", certificateDomain(blackout).state !== "assessed_healthy");
-ok("CT blackout still describes the separately admitted live measurement", certificateDomain(blackout).evidence_grade.basis.includes("was performed: valid"));
+// A degraded scan keeps the admitted live measurement visible but cannot lift
+// the domain conclusion above L0 or into a healthy state.
+const degradedReport = { ...clone(report), scan_quality: { status: "degraded", modules_skipped: [] },
+  modules: { ...clone(liveModules), certificate_intelligence: run(liveModules) } };
+const degraded = composeSnapshot({ snapshotId: "degraded-live", workspaceId: "ws-fixture", domainId: "dom-fixture", scanId: "degraded-live", domain: fixture.domain, report: degradedReport, caseRows: [], questionSetVersions: [] });
+eq("a degraded scan caps the live-summary domain grade at L0", certificateDomain(degraded).evidence_grade.grade, "L0");
+ok("a degraded scan cannot become assessed healthy from a live leaf", certificateDomain(degraded).state !== "assessed_healthy");
+ok("a degraded scan still describes the separately admitted live measurement", certificateDomain(degraded).evidence_grade.basis.includes("was performed: valid"));
 
 const liveFinding = { id: "certificate_untrusted", title: "Measured trust failure", module: "certificate_intelligence", severity: "high", finding_type: "finding",
   evidence: [{ type: "live_tls", certificate_identity: liveCarrier.leaf_certificate.certificate_identity }] };
 const findingSnapshot = snapshotForModules(invalidTrust, [liveFinding]);
-ok("a retained matching live finding uses live rather than CT evidence provenance",
+ok("a retained matching live finding uses its retained live evidence provenance",
   findingSnapshot.observed_findings[0]?.evidence_grade.basis.includes("endpoint evidence retained with this finding") &&
   !findingSnapshot.observed_findings[0]?.evidence_grade.limits.some(x => x.includes("root trust, OCSP and revocation were not verified")));
 const foreignFinding = { ...liveFinding, evidence: [{ type: "live_tls", certificate_identity: "unbound-leaf" }] };
@@ -368,7 +362,7 @@ ok("mixed endpoint domain summary still describes only its selected matched leaf
 ok("real mismatch finding references its different endpoint identity and result", mismatchFinding?.evidence_ref.count === 1 && mismatchSource?.evidence.some(item => item.certificate_identity === "sha256:current-mismatch" && item.hostname_match === "mismatched"));
 ok("mixed endpoint finding cannot borrow the selected leaf hostname outcome", mismatchFinding?.evidence_grade.basis.includes("endpoint evidence retained with this finding") && !mismatchFinding.evidence_grade.basis.includes("Hostname matching was performed: matched"));
 ok("mixed endpoint finding cannot borrow a selected trust-store verdict", mismatchFinding?.evidence_grade.basis.includes("not inferred from the selected summary leaf") && !mismatchFinding.evidence_grade.basis.includes("was performed: invalid"));
-eq("new live compositions do not mutate a previously composed CT-only snapshot", JSON.stringify(ctOnlySnapshot), ctOnlyBefore);
+eq("new live compositions do not mutate a previously composed no-leaf snapshot", JSON.stringify(noLeafSnapshot), noLeafBefore);
 
 const apiProjection = certificateAssuranceApiProjection(snapshot);
 const read = {
@@ -394,7 +388,6 @@ const pdfText = new TextDecoder().decode(
 );
 for (const phrase of [
   "Certificate Evidence & Trust",
-  "CT issuance",
   "Live TLS certificate",
   "Declared trust-store validation",
   "OCSP / revocation assurance",
@@ -515,10 +508,10 @@ const certificateRouteSource = fs.readFileSync(path.join(
   "routes",
   "attack-surface.js",
 ), "utf8");
-ok("presentation adapter introduces no CT/network lookup",
-  !/\bfetch\s*\(|crt\.sh|certspotter/i.test(presentationSource));
-ok("certificate UI no longer labels CT evidence healthy",
-  !/CT evidence healthy/i.test(certificatesPageSource));
+ok("presentation adapter introduces no network lookup",
+  !/\bfetch\s*\(/.test(presentationSource));
+ok("certificate UI labels no certificate-log evidence healthy",
+  !/(?:CT|log) evidence healthy/i.test(certificatesPageSource));
 ok("certificate UI renders the backend-owned presentation",
   /CertificateAssuranceSummary/.test(certificatesPageSource));
 ok("snapshot addition is additive and no historical backfill exists",

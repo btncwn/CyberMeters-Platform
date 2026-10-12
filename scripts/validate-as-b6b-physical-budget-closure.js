@@ -27,7 +27,6 @@ const {
 } = await engine("scan-budget.js");
 const { makeReservedProbeFetch } = await engine("reserved-probe.js");
 const { dnsQuery, dnsQueryGoogle, dnsQueryQuad9 } = await engine("dns.js");
-const { createCertificateTransparencyCache } = await engine("ct-provider-cache.js");
 const { probeAsset } = await engine("asset-intel.js");
 const { runCriticalPrefixDiscovery, runReservedScan } = await engine("reserved-scan.js");
 const { runScanEngine } = await engine("scan-engine.js");
@@ -62,7 +61,6 @@ const dnsJson = (answers = []) => new Response(
 function requestKind(value) {
   const url = String(value);
   if (/cloudflare-dns\.com\/dns-query|dns\.google\/resolve|dns\.quad9\.net\/dns-query/.test(url)) return "dns";
-  if (/api\.certspotter\.com/.test(url)) return "ct";
   if (/nvd\.nist\.gov|cisa\.gov|githubusercontent\.com/.test(url)) return "intelligence";
   return "http";
 }
@@ -261,54 +259,6 @@ function observingAccounting(counter, category) {
       && ordinaryFailureResult?.incomplete !== true,
     JSON.stringify({ calls: ordinaryFailureCalls, result: ordinaryFailureResult }),
   );
-
-  const ctCounter = new PhysicalSubrequestCounter({ limit: 50, safetyMargin: 0 });
-  const ctObservation = observingAccounting(ctCounter, "ct-certspotter");
-  const ctCalls = [];
-  const ctCache = createCertificateTransparencyCache({
-    accounting: ctObservation.accounting,
-    fetcher: makeSingleHopRedirectFetcher(
-      ctCalls,
-      () => new Response("[]", { status: 200, headers: { "content-type": "application/json" } }),
-    ),
-    policies: {
-      certspotter: { timeoutMs: 1_000, maxAttempts: 2, backoffMs: 0 },
-    },
-    timeoutSignal: () => undefined,
-    sleep: async () => {},
-  });
-  const ctResult = await ctCache.get("example.com", "certspotter", {
-    accounting: ctObservation.accounting,
-    module: "subdomains",
-  });
-  const ctRows = ctCache.telemetrySnapshot({
-    modules: {
-      subdomains: {
-        incomplete: true,
-        incomplete_reason: "ct_sources_unavailable",
-        sources: { certspotter: { error: "redirect_refused" } },
-      },
-    },
-    scanQuality: { status: "partial" },
-  });
-  const ctHealth = ctCache.healthSnapshot().certspotter;
-  ok(
-    "ASB6B_CT_REDIRECT_REFUSED_UNAVAILABLE",
-    ctCalls.length === 1
-      && ctCalls[0]?.redirect === "manual"
-      && ctCounter.issued === 1
-      && ctCounter.denied === 0
-      && ctResult?.status === "unavailable"
-      && ctResult?.error === "redirect_refused"
-      && ctResult?.physical_attempt_state === "terminal_failure"
-      && ctHealth?.outcome === "unavailable"
-      && ctHealth?.attempts === 1
-      && ctHealth?.final_error === "redirect_refused"
-      && ctRows.length === 1
-      && ctRows[0]?.redirect_disposition === "redirect_refused"
-      && !/timeout|budget/i.test(JSON.stringify({ result: ctResult, health: ctHealth, rows: ctRows })),
-    JSON.stringify({ calls: ctCalls, issued: ctCounter.issued, denied: ctCounter.denied, result: ctResult, health: ctHealth, rows: ctRows }),
-  );
 }
 
 // 1) The hard boundary is inclusive: physical attempts 1..50 issue; candidate 51
@@ -422,7 +372,6 @@ function nextRedirect(url) {
       if (type === "AAAA") return dnsJson([{ type: 28, data: PUBLIC_AAAA }]);
       return dnsJson([]);
     }
-    if (kind === "ct") return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
     if (kind === "http") {
       const parsed = new URL(url);
       const redirect = nextRedirect(url);
@@ -544,7 +493,6 @@ async function runEnginePhysicalProvenanceFixture(scanId, counter) {
       if (type === "AAAA") return dnsJson([{ type: 28, data: PUBLIC_AAAA }]);
       return dnsJson([]);
     }
-    if (kind === "ct") return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
     if (kind === "http") {
       const hostname = new URL(url).hostname;
       return hostname === "admin.example.com"
@@ -631,7 +579,6 @@ async function runEnginePhysicalProvenanceFixture(scanId, counter) {
       if (type === "AAAA") return dnsJson([{ type: 28, data: PUBLIC_AAAA }]);
       return dnsJson([]);
     }
-    if (kind === "ct") return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
     if (kind === "http") return html("Public Site");
     return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
   };
@@ -723,7 +670,6 @@ async function runEnginePhysicalProvenanceFixture(scanId, counter) {
           if (type === "AAAA") return dnsJson([{ type: 28, data: PUBLIC_AAAA }]);
           return dnsJson([]);
         }
-        if (kind === "ct") return Response.json([]);
         if (/rdap\./.test(url) || kind === "intelligence") return Response.json({});
         return html("Public Site");
       };

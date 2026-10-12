@@ -1389,8 +1389,8 @@ export async function attackSurfaceRoutes(rctx) {
     // GET /api/workspaces/:id/certificates
     //   Returns latest certificate_intelligence per domain in workspace.
     //   Each entry: { domain, certificate_risk_level, days_until_expiry,
-    //     expires_at, total_certificates_seen, issued_for_sensitive_hosts,
-    //     wildcard_dns, suspicious_certificate_signals, ct_sources }
+    //     expires_at, wildcard_dns, suspicious_certificate_signals,
+    //     signal_completeness, live_tls, certificate_assurance, … }
     //
     // GET /api/workspaces/:id/certificates/timeline
     //   Returns certificate-related asset_events from the last 90 days,
@@ -1652,11 +1652,8 @@ export async function attackSurfaceRoutes(rctx) {
 	          },
 	          self_signed:                  ci.self_signed ?? detectSelfSignedCertificate(ci.issuer || null, ci.subject || null),
 	          ca_concentration:             caConcentrationByDomain.get(scanRows[i]?.domain_id) || ci.ca_concentration || buildCaConcentrationAnalytics(ci.issuer ? [ci.issuer] : []),
-	          total_certificates_seen:      ci.total_certificates_seen,
-	          issued_for_sensitive_hosts:   ci.issued_for_sensitive_hosts || [],
           wildcard_dns:                 ci.wildcard_dns,
           wildcard_warning:             ci.wildcard_warning || null,
-          ct_sources:                   ci.ct_sources || {},
           suspicious_certificate_signals: ci.suspicious_certificate_signals || [],
           signal_completeness:           ci.signal_completeness || null,
           live_tls:                      ci.live_tls || null,

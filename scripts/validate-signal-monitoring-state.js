@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 //
 // Item 5 / PR-5.4: canonical within-scan per-signal monitoring states and
-// customer wording. Proves all four states, CT provider semantics (CertSpotter
-// only; stored two-provider records keep their recorded meaning),
+// customer wording. Proves all four states from CyberMeters' own module
+// evidence (no third-party provider participates),
 // module-incomplete attribution, PR-5.1 coarse fallback, complete-copy stability,
 // backend report exposure, and four executable mutation directions. CI-blocking.
 // Node 24+.
@@ -19,30 +19,28 @@ const presentationPath = path.join(worker, "engines", "assessment-presentation.j
 const mutation = process.argv.find((arg) => arg.startsWith("--mutation="))?.split("=")[1] ?? null;
 
 async function loadStateModule() {
-  if (mutation !== "collapse-states" && mutation !== "drop-ct-attribution" &&
-      mutation !== "ignore-recorded-ct-providers") {
+  if (mutation !== "collapse-states" && mutation !== "ignore-module-outcome" &&
+      mutation !== "partial-unavailable-reads-healthy") {
     return import(pathToFileURL(statePath).href);
   }
 
   const source = fs.readFileSync(statePath, "utf8");
-  // drop-ct-attribution: the CT definition no longer depends on any provider.
-  // ignore-recorded-ct-providers: a stored result is read with the current
-  // provider set instead of the providers it recorded.
+  // ignore-module-outcome: an unavailable module outcome reads as healthy.
+  // partial-unavailable-reads-healthy: a signal with some unavailable modules
+  // is no longer degraded.
   const mutated = mutation === "collapse-states"
     ? source
       .replace('MONITORING_DEGRADED: "monitoring_degraded"', 'MONITORING_DEGRADED: "monitoring_healthy"')
       .replace('SIGNAL_UNAVAILABLE:  "signal_unavailable"', 'SIGNAL_UNAVAILABLE:  "monitoring_healthy"')
       .replace('EVIDENCE_INCOMPLETE: "evidence_incomplete"', 'EVIDENCE_INCOMPLETE: "monitoring_healthy"')
-    : mutation === "drop-ct-attribution"
+    : mutation === "ignore-module-outcome"
       ? source.replace(
-        "    providers: CT_PROVIDERS,\n",
-        "    providers: Object.freeze([]),\n"
+        'if (value.outcome === "unavailable" || value.unavailable === true) {',
+        "if (false) {"
       )
-      : source.replace('    providers_recorded_by: "subdomains",\n', "");
+      : source.replace("    unavailable > 0 ||\n", "");
   if (mutated === source) throw new Error(`state mutation target missing: ${mutation}`);
-  const linked = mutated.replace('from "./ct-providers.js";',
-    `from "${pathToFileURL(path.join(worker, "engines", "ct-providers.js")).href}";`);
-  return import(`data:text/javascript;base64,${Buffer.from(linked).toString("base64")}#${mutation}`);
+  return import(`data:text/javascript;base64,${Buffer.from(mutated).toString("base64")}#${mutation}`);
 }
 
 async function loadPresentationModule() {
@@ -118,14 +116,9 @@ const completeQuality = {
   warnings: [],
   modules_skipped: [],
 };
-// CertSpotter is the only CT provider (ct-providers.js).
-const fullProviderHealth = {
-  certspotter: provider("available"),
-};
 const derive = (overrides = {}) => deriveSignalMonitoringStates({
   modules: overrides.modules ?? completeModules(),
   scanQuality: overrides.scanQuality ?? completeQuality,
-  providerHealth: overrides.providerHealth ?? fullProviderHealth,
 });
 
 // ── Vocabulary and canonical wording coverage ───────────────────────────────
@@ -156,73 +149,53 @@ const derive = (overrides = {}) => deriveSignalMonitoringStates({
 }
 
 // ── Required state fixtures ─────────────────────────────────────────────────
-// A current scan has one CT provider, so CT is healthy, unavailable or
-// incomplete. monitoring_degraded comes only from a stored two-provider record
-// (undeclared providers; the retired provider under a neutral key), which is
-// read with the providers it recorded and keeps its partial-outage meaning.
-const historicalTwoProviderModules = () => ({
-  ...completeModules(),
-  subdomains: {
-    sources: {
-      retired_provider: { count: 0, error: "provider unavailable" },
-      certspotter: { count: 3, error: null },
-    },
-  },
-});
-const degradedCt = derive({
-  modules: historicalTwoProviderModules(),
-  providerHealth: {
-    retired_provider: provider("unavailable"),
-    certspotter: provider("available"),
-  },
-});
+// Every signal is CyberMeters' own observation. A signal is degraded when some
+// of its modules report an unavailable or degraded outcome, unavailable when all
+// of them do, and no third-party provider participates in any state.
+const degradedModules = completeModules();
+degradedModules.dmarc_core = { core_completeness: "complete", outcome: "unavailable" };
+const degradedEmail = derive({ modules: degradedModules });
 {
-  const ct = degradedCt.signals.certificate_transparency;
-  eq("historical two-provider record: one provider unavailable + CertSpotter available → CT monitoring_degraded",
-    ct.state, "monitoring_degraded");
-  ok("degraded CT carries CT-specific wording",
-    ct.message.includes("certificate transparency") &&
-      ct.message.includes("could not fully verify"));
-  ok("degraded CT never reads healthy",
-    ct.state !== "monitoring_healthy" && !/completed normally/i.test(ct.message));
-  eq("degraded CT exposes the recorded provider's unavailable evidence",
-    ct.evidence.providers.retired_provider, "unavailable");
-  eq("degraded CT exposes CertSpotter available evidence",
-    ct.evidence.providers.certspotter, "available");
+  const email = degradedEmail.signals.email_protection;
+  eq("one of three email modules unavailable → email_protection monitoring_degraded",
+    email.state, "monitoring_degraded");
+  ok("degraded email carries email-specific wording",
+    email.message.includes("email protection") &&
+      email.message.includes("could not fully verify"));
+  ok("degraded email never reads healthy",
+    email.state !== "monitoring_healthy" && !/completed normally/i.test(email.message));
+  ok("degraded email evidence names its modules and no provider",
+    JSON.stringify(email.evidence.modules) ===
+      JSON.stringify(["email_security", "dmarc_core", "email_security_intelligence"]) &&
+      !("providers" in email.evidence));
 }
 
-const unavailableCt = derive({
-  providerHealth: {
-    certspotter: provider("unavailable"),
-  },
-});
+const unavailableModules = completeModules();
+unavailableModules.whois_intelligence = { outcome: "unavailable" };
+const unavailableRegistration = derive({ modules: unavailableModules });
 {
-  const ct = unavailableCt.signals.certificate_transparency;
-  eq("CertSpotter unavailable → CT signal_unavailable",
-    ct.state, "signal_unavailable");
-  ok("unavailable CT wording is explicit and never healthy",
-    /unavailable/i.test(ct.message) && !/completed normally/i.test(ct.message));
+  const registration = unavailableRegistration.signals.registration_data;
+  eq("every registration module unavailable → registration_data signal_unavailable",
+    registration.state, "signal_unavailable");
+  ok("unavailable registration wording is explicit and never healthy",
+    /unavailable/i.test(registration.message) && !/completed normally/i.test(registration.message));
 }
 
-// A current record declares CertSpotter as its only provider. A provider the
-// scan never queried (even one with a stale health row) is not missing
-// evidence, and the evidence names only the provider that was queried.
+// No signal depends on a third-party data provider, and the resolver ignores
+// any provider health it is handed.
 {
-  const declared = completeModules();
-  declared.subdomains = {
-    sources: { certspotter: { count: 3, error: null } },
-    ct_providers: ["certspotter"],
-  };
-  const ct = derive({
-    modules: declared,
-    providerHealth: {
-      retired_provider: provider("unavailable"),
-      certspotter: provider("available"),
-    },
-  }).signals.certificate_transparency;
-  eq("current record: CertSpotter available → CT monitoring_healthy", ct.state, "monitoring_healthy");
-  eq("current record: CT evidence names only CertSpotter",
-    JSON.stringify(ct.evidence.providers), JSON.stringify({ certspotter: "available" }));
+  ok("no signal declares a provider dependency",
+    Object.values(SIGNAL_MONITORING_DEFINITIONS).every((definition) =>
+      !("providers" in definition)));
+  ok("no signal is named for an external log source",
+    !Object.keys(SIGNAL_MONITORING_DEFINITIONS).some((name) => /transparency|provider/i.test(name)));
+  const withHealth = deriveSignalMonitoringStates({
+    modules: completeModules(),
+    scanQuality: completeQuality,
+    providerHealth: { unrelated: provider("unavailable") },
+  });
+  ok("provider health handed to the resolver changes nothing",
+    Object.values(withHealth.signals).every((entry) => entry.state === "monitoring_healthy"));
 }
 
 const incompleteModules = completeModules();
@@ -260,13 +233,15 @@ const allComplete = derive();
       entry.state === "monitoring_healthy"
     ));
   ok("canonical state output is versioned",
-    allComplete.version === "signal-monitoring-state-v1");
+    allComplete.version === "signal-monitoring-state-v2");
 }
 
-// Missing provider telemetry is evidence-incomplete, never a false healthy.
+// A module that left no evidence is evidence-incomplete, never a false healthy.
 {
-  const missing = derive({ providerHealth: {} }).signals.certificate_transparency;
-  eq("missing CT telemetry fails closed", missing.state, "evidence_incomplete");
+  const missingModules = completeModules();
+  delete missingModules.whois_intelligence;
+  const missing = derive({ modules: missingModules }).signals.registration_data;
+  eq("missing module evidence fails closed", missing.state, "evidence_incomplete");
 }
 
 // ── Scan-completion presentation ────────────────────────────────────────────
@@ -291,11 +266,11 @@ const allComplete = derive();
     score: 95,
     riskLevel: "excellent",
     scanQuality: "complete",
-    monitoringStates: degradedCt,
+    monitoringStates: degradedEmail,
   });
-  ok("attributable degraded CT upgrades completion copy",
+  ok("attributable degraded email upgrades completion copy",
     degraded.message.includes(
-      "We could not fully verify certificate transparency data in this run. Other checks completed normally."
+      "We could not fully verify email protection data in this run. Other checks completed normally."
     ));
   ok("degraded monitoring coverage-caps score/rating semantics",
     degraded.quality === "degraded" &&
@@ -309,11 +284,11 @@ const allComplete = derive();
     score: 95,
     riskLevel: "excellent",
     scanQuality: "degraded",
-    monitoringStates: degradedCt,
+    monitoringStates: degradedEmail,
   });
-  ok("degraded-quality scan uses the attributable CT wording",
+  ok("degraded-quality scan uses the attributable email wording",
     degradedQuality.message.includes(
-      "We could not fully verify certificate transparency data in this run."
+      "We could not fully verify email protection data in this run."
     ));
   ok("degraded-quality score remains provisional",
     degradedQuality.message.includes("Score: 95 (provisional)") &&
@@ -324,13 +299,13 @@ const allComplete = derive();
     score: 95,
     riskLevel: "excellent",
     scanQuality: "complete",
-    monitoringStates: unavailableCt,
+    monitoringStates: unavailableRegistration,
   });
   ok("signal-unavailable completion copy names the unavailable signal",
-    unavailable.message.includes("Certificate transparency data was unavailable in this run."));
+    unavailable.message.includes("Domain-registration data was unavailable in this run."));
   ok("signal-unavailable completion copy never reads healthy",
     unavailable.disclosure != null &&
-      !unavailable.disclosure.includes("Certificate transparency checks completed normally"));
+      !unavailable.disclosure.includes("Domain-registration data checks completed normally"));
 
   const partialSpecific = buildScanCompletionPresentation({
     domain: "example.com",
@@ -367,12 +342,12 @@ const allComplete = derive();
 
   ok("scan engine imports the canonical state resolver",
     /import \{ deriveSignalMonitoringStates \} from "\.\/signal-monitoring-state\.js";/.test(engine));
-  ok("scan engine derives states from modules, scan quality and CT provider health",
-    /deriveSignalMonitoringStates\(\{\s*modules,\s*scanQuality,\s*providerHealth,\s*\}\)/.test(engine));
+  ok("scan engine derives states from modules and scan quality only",
+    /deriveSignalMonitoringStates\(\{\s*modules,\s*scanQuality,\s*\}\)/.test(engine));
   ok("completed R2 report exposes canonical monitoring_states",
     /monitoring_states:\s+monitoringStates/.test(engine));
-  ok("completed diagnostics reuse the identical provider snapshot",
-    /const providerHealth = ctCache\.healthSnapshot\(\);[\s\S]{0,800}providerHealth,\s*\}\);/.test(engine));
+  ok("completed diagnostics carry no provider snapshot",
+    !/providerHealth/.test(engine));
   ok("atomic audit completion presentation receives canonical monitoring states",
     /monitoring_states:\s*report\?\.monitoring_states\s*\?\?\s*null/.test(engine) &&
       /scanCompletionAuditStatement\(env,\s*latch\.completion\)/.test(engine) &&
@@ -391,10 +366,11 @@ const allComplete = derive();
 if (!mutation) {
   for (const [name, expectedFailure] of [
     ["collapse-states", "FAIL the canonical model exposes four distinct states"],
-    ["drop-ct-attribution", "FAIL CertSpotter unavailable → CT signal_unavailable"],
-    ["ignore-recorded-ct-providers",
-      "FAIL historical two-provider record: one provider unavailable + CertSpotter available → CT monitoring_degraded"],
-    ["present-degraded-as-healthy", "FAIL attributable degraded CT upgrades completion copy"],
+    ["ignore-module-outcome",
+      "FAIL every registration module unavailable → registration_data signal_unavailable"],
+    ["partial-unavailable-reads-healthy",
+      "FAIL one of three email modules unavailable → email_protection monitoring_degraded"],
+    ["present-degraded-as-healthy", "FAIL attributable degraded email upgrades completion copy"],
   ]) {
     const run = spawnSync(process.execPath, [scriptPath, `--mutation=${name}`], {
       cwd: root,

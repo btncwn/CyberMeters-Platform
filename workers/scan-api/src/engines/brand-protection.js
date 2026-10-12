@@ -125,16 +125,17 @@ export function scoreBrandCandidateRisk(candidate = {}) {
     if (candidate.mixed_script === true) { score += 6; reasons.push("mixed_script"); }
     if (candidate.whole_script_confusable === true) { score += 8; reasons.push("whole_script_confusable"); }
   }
-  // A certificate NAMING this host was observed in a public CT log — real external
-  // evidence the host was provisioned, stronger than a pure generated permutation.
+  // historical: a stored candidate can record that a certificate naming this host
+  // was observed in a public certificate log — real external evidence the host
+  // was provisioned. Nothing sets this flag for new candidates.
   const ctObserved = candidate.ct_observed === true;
   if (ctObserved) { score += 12; reasons.push("observed_in_certificate_log"); }
 
   // Registration-reality gate. String similarity alone does not make a threat:
   // an unregistered permutation nobody has taken is a watchlist item, not a
   // high-risk lookalike. A candidate escapes the watchlist cap only when it is
-  // confirmed live (DNS resolves or MX present) OR a certificate for it was
-  // logged in CT (strong evidence it was provisioned) — or a human classified it.
+  // confirmed live (DNS resolves or MX present) OR (historical) a certificate for it
+  // was logged — or a human classified it.
   const confirmedLive = candidate.dns_active === true || candidate.mx_present === true;
   if (classification === "unreviewed") {
     if (!confirmedLive && !ctObserved) {
@@ -148,8 +149,8 @@ export function scoreBrandCandidateRisk(candidate = {}) {
     } else if (ctObserved && !confirmedLive) {
       // A logged certificate is strong, but reserve "critical" for a lookalike
       // confirmed live and mail/serving-capable. For IDN homographs, the frozen
-      // Item 8 corroboration contract keeps bare CT presence at low until an
-      // activity check succeeds; CT proves naming/provisioning, not live abuse.
+      // Item 8 corroboration contract keeps bare certificate-log presence at low
+      // until an activity check succeeds; it proves naming, not live abuse.
       score = Math.min(score, idnHomograph ? 39 : 84);
       reasons.push("certificate_observed_not_yet_live");
       if (idnHomograph) reasons.push("idn_candidate_not_yet_live");

@@ -119,19 +119,19 @@ function buildEvidenceFromFields(finding) {
   if (id.startsWith("subdomain_sensitive_")) {
     const sub = id.replace("subdomain_sensitive_", "").replace(/_/g, ".");
     return [{
-      type:   "certificate_transparency",
-      label:  "Subdomain discovered in CT logs",
+      type:   "subdomain_discovery",
+      label:  "Subdomain name observed",
       value:  sub,
-      source: "certificate_transparency_log",
+      source: "subdomain_discovery",
     }];
   }
 
   if (id === "subdomains_large_attack_surface") {
     return [{
-      type:   "certificate_transparency",
-      label:  "Subdomain count from CT logs",
+      type:   "subdomain_discovery",
+      label:  "Subdomain names observed",
       value:  description,
-      source: "certificate_transparency_log",
+      source: "subdomain_discovery",
     }];
   }
 

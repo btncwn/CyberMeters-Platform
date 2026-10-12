@@ -48,7 +48,7 @@ const FINDING_CONFIDENCE_SCORES = {
   email_missing_spf:               90, // direct DNS TXT lookup
   email_dkim_not_detected:         60, // fallback default; finding sets 60/70/80 dynamically based on provider
   // ── Subdomains ───────────────────────────────────────────────────────────
-  subdomains_large_attack_surface: 60, // CT inventory count is observed, reachability is not confirmed
+  subdomains_large_attack_surface: 60, // name count is observed, reachability is not confirmed
   // ── Subdomain takeover ───────────────────────────────────────────────────
   subdomain_takeover:              90, // CNAME suffix + body fingerprint — dual signal
   // ── Asset exposure ───────────────────────────────────────────────────────

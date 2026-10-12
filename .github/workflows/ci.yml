@@ -328,9 +328,6 @@ jobs:
       - name: Validate Candidate A semantic mutations (exact v2 kill sets + invalid-kill controls)
         run: node scripts/validate-cert-shared-san-candidate-a-mutations.js
 
-      - name: Validate CT provider resilience (timeouts + bounded retry + health telemetry + mutations)
-        run: node scripts/validate-ct-provider-resilience.js
-
       - name: Validate free-scan evidence honesty (FAILED/PARTIAL fixtures + real route-to-UI trace)
         run: node scripts/validate-free-scan-false-healthy.js
 
@@ -383,12 +380,6 @@ jobs:
 
       - name: Validate sub-operation timing telemetry load-bearing mutations
         run: node scripts/validate-subop-timing-telemetry-mutations.js
-
-      - name: Validate CT-R1 provider telemetry load-bearing mutations
-        run: node scripts/validate-ct-r1-provider-telemetry-mutations.js
-
-      - name: Validate CT-R2 PR-3 structural first-success-wins semantics
-        run: node scripts/validate-ct-first-success-wins.js
 
       - name: Validate brand typosquat generator (TLD substitution / credential keywords / family quotas / speculative-risk honesty)
         run: node scripts/validate-brand-typosquat.js
@@ -688,9 +679,6 @@ jobs:
       - name: Validate report-copy live triage mutations (named source mutants D1-D4)
         run: node scripts/validate-report-copy-live-triage-mutations.js
 
-      - name: Validate CT blackout evidence honesty (domain coverage + score/BRI/PDF + mutation)
-        run: node scripts/validate-ct-blackout-evidence-honesty.js
-
       - name: Validate Item 10 P2 production fixtures (complete + degraded + provider-timeout + deadline)
         run: node scripts/validate-item10-attack-surface-p2-fixtures.js
 
@@ -755,12 +743,6 @@ jobs:
 
       - name: Validate C4 certificate clock injection and strict expiry boundary
         run: node scripts/validate-c4-certificate-clock.js
-
-      - name: Validate CT-R1 faithful runScanEngine finalization trace
-        run: node scripts/validate-ct-r1-provider-telemetry-engine-trace.js
-
-      - name: Validate CT-R2 PR-3 first-success-wins semantic mutations
-        run: node scripts/validate-ct-first-success-wins-mutations.js
 
       - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
         run: node scripts/validate-hosted-tls-rpt.js
@@ -1023,8 +1005,8 @@ jobs:
       - name: Validate subdomain sensitive names (production names are never scored as sensitive)
         run: node scripts/validate-subdomain-sensitive-names.js
 
-      - name: Validate Certificate Transparency production policy (CertSpotter only, crt.sh never contacted)
-        run: node scripts/validate-ct-certspotter-only.js
+      - name: Validate own-observation discovery (no third-party certificate-log service; live TLS only)
+        run: node scripts/validate-own-observation-discovery.js
 
       - name: Validate website signed-in scanning (vault, sign-in session, profiles)
         run: node scripts/validate-website-sign-in.js
@@ -1086,9 +1068,6 @@ jobs:
       - name: Validate Phase-5 incomplete-evidence false-healthy P1 (engine/customer + pinned mutants)
         run: node scripts/validate-phase5-evidence-honesty.js
 
-      - name: Validate shared per-scan CT provider cache (dedup + unavailable isolation + mutations)
-        run: node scripts/validate-shared-ct-provider-cache.js
-
       - name: Validate shared-SAN honesty mutations (initial zero + unmeasured ownership + invalid-kill controls)
         run: node scripts/validate-cert-shared-san-honesty-mutations.js
 
@@ -1100,12 +1079,6 @@ jobs:
 
       - name: Validate Item 10 Attack Surface per-signal completeness and removal-policy mutations
         run: node scripts/validate-item10-attack-surface-p1-mutations.js
-
-      - name: Validate PR-2B-1 CT asset lifecycle scope (degraded defer + healthy unchanged + provider control)
-        run: node scripts/validate-ct-asset-lifecycle-scope.js
-
-      - name: Validate PR-2B-1 CT asset lifecycle scope mutations
-        run: node scripts/validate-ct-asset-lifecycle-scope-mutations.js
 
       - name: Validate Item 10 P3 asset lifecycle and canonical ASM case close/reopen
         run: node scripts/validate-item10-attack-surface-p3-lifecycle-cases.js
@@ -1242,9 +1215,6 @@ jobs:
 
       - name: Validate D1 I11A-C3 successor (degraded never verifies + snapshot-once read stability)
         run: node scripts/validate-d1-i11a-c3-successor.js
-
-      - name: Validate D1 Option D joint rollback
-        run: node scripts/validate-d1-option-d-joint-rollback.js
 
       - name: Validate provisional domain-score workspace API contract
         run: node scripts/validate-provisional-score-labeling-api.js
@@ -1485,10 +1455,7 @@ jobs:
       - name: Validate bounded Phase-5 historical evidence reads (1,200-row concurrency/read cap + aggregates/BRS)
         run: node scripts/validate-phase5-evidence-read-bounds.js
 
-      - name: Validate SSL concurrent CT lookup (reachability ∥ crt.sh/certspotter — max not sum, evidence preserved)
-        run: node scripts/validate-ssl-concurrent-ct.js
-
-      - name: Validate shared-SAN measurement and ownership honesty (CertSpotter-only + crt.sh measured + blackout)
+      - name: Validate shared-SAN measurement and ownership honesty (live leaf and historical records)
         run: node scripts/validate-cert-shared-san-honesty.js
 
       - name: Validate Candidate A self-relative email-Worker closure invariance (F12)
@@ -1535,9 +1502,6 @@ jobs:
 
       - name: Validate sub-operation timing telemetry (Track B — measurement only, fail-safe)
         run: node scripts/validate-subop-timing-telemetry.js
-
-      - name: Validate CT-R1 provider telemetry (fixtures + schema + analyzer + governance)
-        run: node scripts/validate-ct-r1-provider-telemetry.js
 
       - name: Validate brand DNS enrichment (tri-state truth + auto lifecycle + shared helper)
         run: node scripts/validate-brand-dns-enrichment.js
@@ -1742,9 +1706,6 @@ jobs:
 
       - name: Validate Item 9 P3 faithful multi-scan runScanEngine trace (renewal + dedupe + CT/live honesty)
         run: node scripts/validate-item9-certificate-p3-engine-trace.js
-
-      - name: Validate CT-R2 PR-2A.1 provider-source consumer inventory pin
-        run: node scripts/derive-ct-provider-source-consumer-inventory.js --pin docs/CT-R2-PR-2A1-PROVIDER-SOURCE-INVENTORY.json
 
       - name: Validate TLS-RPT ingestion (parse + inbound routing + dedup + isolation)
         run: node scripts/validate-tlsrpt-ingest.js

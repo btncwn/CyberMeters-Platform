@@ -37,14 +37,14 @@ const eq = (n, g, w) => ok(n, JSON.stringify(g) === JSON.stringify(w), `got ${JS
 const OBSERVED = "2026-08-18T01:00:00Z";
 // A fully built, validated record (what the contract validates).
 const validDeg = () => buildDegradation({
-  module: "subdomains", dependency: "ct_provider:crt_sh", reason: "fetch failed",
-  fallbackSource: "ct_provider:certspotter", fallbackCount: 2, observedAt: OBSERVED,
+  module: "subdomains", dependency: "discovery_source:retired_a", reason: "fetch failed",
+  fallbackSource: "discovery_source:retired_b", fallbackCount: 2, observedAt: OBSERVED,
 });
 // The deterministic FACTS a module actually emits — no wall-clock stamp, so module
 // output stays byte-identical across runs. The engine stamps it centrally.
 const validFacts = () => ({
-  module: "subdomains", dependency: "ct_provider:crt_sh", reason: "fetch failed",
-  fallback_source: "ct_provider:certspotter", fallback_count: 2,
+  module: "subdomains", dependency: "discovery_source:retired_a", reason: "fetch failed",
+  fallback_source: "discovery_source:retired_b", fallback_count: 2,
 });
 
 // ── GATE 1 — the structured contract itself ─────────────────────────────────
@@ -67,8 +67,8 @@ const validFacts = () => ({
   // A non-publishable or empty fallback cannot support degraded.
   ok("G1_NON_PUBLISHABLE_FALLBACK_IS_INVALID", isValidDegradation({ ...d, fallback_publishable: false }) === false);
   ok("G1_ZERO_FALLBACK_COUNT_IS_INVALID",
-    buildDegradation({ module: "subdomains", dependency: "ct_provider:crt_sh", reason: "x",
-      fallbackSource: "ct_provider:certspotter", fallbackCount: 0, observedAt: OBSERVED }) === null);
+    buildDegradation({ module: "subdomains", dependency: "discovery_source:retired_a", reason: "x",
+      fallbackSource: "discovery_source:retired_b", fallbackCount: 0, observedAt: OBSERVED }) === null);
   ok("G1_NON_ISO_OBSERVED_AT_IS_INVALID", isValidDegradation({ ...d, observed_at: "yesterday" }) === false);
 }
 
@@ -142,8 +142,8 @@ const validFacts = () => ({
 // Each row asserts ONE claim, so no assertion can pass for a second reason.
 {
   const facts = () => ({
-    module: "subdomains", dependency: "ct_provider:crt_sh", reason: "fetch failed",
-    fallback_source: "ct_provider:certspotter", fallback_count: 2,
+    module: "subdomains", dependency: "discovery_source:retired_a", reason: "fetch failed",
+    fallback_source: "discovery_source:retired_b", fallback_count: 2,
   });
   const withAnchor = (anchor) => buildScanQuality(
     { dns: {}, subdomains: { degradations: [facts()] } }, anchor);

@@ -55,8 +55,8 @@ const PERSISTED_ANCHOR = "2026-08-18T01:00:00Z";
 {
   // Deterministic module FACTS; the engine stamps observed_at centrally.
   const facts = {
-    module: "subdomains", dependency: "ct_provider:crt_sh", reason: "fetch failed",
-    fallback_source: "ct_provider:certspotter", fallback_count: 2,
+    module: "subdomains", dependency: "discovery_source:retired_a", reason: "fetch failed",
+    fallback_source: "discovery_source:retired_b", fallback_count: 2,
   };
   const quality = buildScanQuality({ dns: {}, headers: {}, subdomains: { degradations: [facts] } }, PERSISTED_ANCHOR);
   ok("C3S_E2E_GOVERNED_SCAN_IS_DEGRADED", quality.status === "degraded", `got ${quality.status}`);

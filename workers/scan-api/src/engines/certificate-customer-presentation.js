@@ -15,7 +15,12 @@ import {
 } from "./certificate-signal-completeness.js";
 
 export const CERTIFICATE_CUSTOMER_PRESENTATION_SCHEMA =
-  "certificate-customer-presentation-v1";
+  "certificate-customer-presentation-v2";
+// Snapshots frozen under an earlier schema are returned exactly as recorded.
+const RECORDED_PRESENTATION_SCHEMAS = new Set([
+  "certificate-customer-presentation-v1",
+  CERTIFICATE_CUSTOMER_PRESENTATION_SCHEMA,
+]);
 
 export const CERTIFICATE_CUSTOMER_STATES = Object.freeze([
   "observed",
@@ -31,7 +36,6 @@ const SIGNAL_META = Object.freeze({
   san: ["Certificate hostnames (SAN)", "external_tls_validation"],
   issuer: ["Certificate issuer", "external_tls_validation"],
   expiry: ["Certificate validity end", "external_tls_validation"],
-  certificate_transparency: ["Certificate Transparency issuance", "certificate_transparency"],
   wildcard: ["Wildcard certificate identifier", "external_tls_validation"],
   parallel_certificate_set: ["Simultaneous live certificate set", "external_tls_validation"],
   active_service: ["Active HTTPS service", "active_service_observation"],
@@ -96,9 +100,6 @@ function trustStoreName(value) {
 
 function observedMessage(key, signal) {
   const value = signal?.value;
-  if (key === "certificate_transparency") {
-    return "CT issuance observed. This records certificate logging; it does not show which certificate is served live.";
-  }
   if (key === "leaf") {
     return "A leaf certificate was observed from a live TLS endpoint. This alone does not establish hostname match, chain validity, revocation status or trust-store acceptance.";
   }
@@ -147,15 +148,12 @@ function observedMessage(key, signal) {
     return "Multiple non-identical certificates were observed simultaneously for the protected hostname across recorded live endpoint contexts. Multiplicity alone is not a fault or maliciousness conclusion.";
   }
   if (key === "expiry") {
-    return "A certificate validity end was observed in the declared evidence scope. An in-date certificate alone does not establish verified trust.";
+    return "A certificate validity end was observed on the certificate the live site presented. An in-date certificate alone does not establish verified trust.";
   }
   return `${SIGNAL_META[key]?.[0] || key} evidence was observed in the declared scope.`;
 }
 
 function absentMessage(key) {
-  if (key === "certificate_transparency") {
-    return "The completed CT provider checks did not return an issuance observation in the checked sources. This is not proof that no certificate was issued.";
-  }
   if (key === "caa") {
     return "The completed CAA lookup did not observe a CAA record. This is an issuance-policy observation, not a live trust result.";
   }
@@ -349,22 +347,14 @@ export function buildCertificateRelationshipPresentation({
   };
 }
 
-function summaryFor(signals, signalCompleteness) {
-  const ct = signals.certificate_transparency;
+function summaryFor(signals) {
   const liveLeaf = signals.leaf;
   const trust = signals.trust_store_validation;
   const revocation = signals.revocation_assurance;
-  const ctOnly = signalCompleteness?.summary?.ct_only === true;
   return {
-    ct_issuance: {
-      state: ct.state,
-      message: ct.customer_message,
-    },
     live_tls_certificate: {
       state: liveLeaf.state,
-      message: ctOnly && liveLeaf.state !== "observed"
-        ? "CT issuance was observed, but a live TLS leaf certificate was not observed. CT evidence does not establish live serving."
-        : liveLeaf.customer_message,
+      message: liveLeaf.customer_message,
     },
     trust_store_validation: {
       state: trust.state,
@@ -374,7 +364,6 @@ function summaryFor(signals, signalCompleteness) {
       state: revocation.state,
       message: revocation.customer_message,
     },
-    ct_only: ctOnly,
     trust_ceiling:
       "An unexpired certificate alone does not establish hostname correctness, complete chain validity, revocation status, declared trust-store acceptance, private-key security, internal keystore health or complete internal certificate inventory.",
   };
@@ -404,7 +393,7 @@ export function buildCertificateCustomerPresentation({
     model_version: canonical?.model_version || null,
     signal_order: [...CERTIFICATE_SIGNAL_KEYS],
     signals,
-    summary: summaryFor(signals, canonical),
+    summary: summaryFor(signals),
     relationship: buildCertificateRelationshipPresentation({
       lifecycle,
       currentSignalCompleteness: canonical,
@@ -417,14 +406,14 @@ export function buildCertificateCustomerPresentation({
       complete_internal_certificate_inventory: "unknown",
       absence_of_key_compromise: "unknown",
       customer_message:
-        "External TLS, DNS and CT evidence does not assess private-key security, internal keystore health, complete internal inventory or absence of key compromise.",
+        "External TLS and DNS evidence does not assess private-key security, internal keystore health, complete internal inventory or absence of key compromise.",
     },
     historical_notice: presentInModel
       ? null
       : (absenceReason ||
         "Per-signal certificate assurance was not recorded in this historical snapshot. Missing fields are not interpreted as favourable results."),
     scope_note:
-      "Certificate evidence is reported per signal and per observation scope. CT issuance, active HTTPS, live-presented certificate, trust-store validation and revocation assurance are separate facts.",
+      "Certificate evidence is reported per signal and per observation scope. Active HTTPS, the live-presented certificate, hostname match, trust-store validation and revocation assurance are separate facts.",
   };
 }
 
@@ -454,7 +443,7 @@ export function buildCertificateLifecycleAssurance(row) {
 export function certificateAssuranceFromSnapshot(snapshot) {
   const recorded = snapshot?.certificate_assurance;
   if (
-    recorded?.schema === CERTIFICATE_CUSTOMER_PRESENTATION_SCHEMA &&
+    RECORDED_PRESENTATION_SCHEMAS.has(recorded?.schema) &&
     recorded?.signals
   ) {
     return recorded;

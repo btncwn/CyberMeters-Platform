@@ -66,7 +66,7 @@ function reportFixture() {
       modules_skipped: ['asset_exposure'],
       skipped_score_bearing_modules: ['asset_exposure'],
       monitoring_degraded_signals: [
-        { signal: 'certificate_transparency', state: 'signal_unavailable', message: 'Provider evidence was unavailable.' },
+        { signal: 'attack_surface', state: 'signal_unavailable', message: 'Attack-surface data was unavailable in this run.' },
       ],
     },
     cyber_mot_domains: CYBER_MOT_DISPLAY_ORDER.map((domain) => ({
@@ -99,10 +99,9 @@ function reportFixture() {
 }
 
 const healthyMonitoring = () => ({
-  version: 'signal-monitoring-state-v1',
+  version: 'signal-monitoring-state-v2',
   signals: Object.fromEntries([
     'dns',
-    'certificate_transparency',
     'website_security',
     'email_protection',
     'attack_surface',
@@ -559,7 +558,7 @@ describe('ExecutiveReportV2 report-first corrective', () => {
   it('keeps resolver and score methodology stamps independent and historical snapshot bytes immutable', () => {
     const current = b3ReportFixture('version-stamps', { findings: [hstsFinding] })
     expect(current.report.methodology).toMatchObject({
-      cyber_mot_resolver_version: '2026-10-10.1',
+      cyber_mot_resolver_version: '2026-10-12.1',
       cyber_metrics_score_methodology_version: '2026-08-26.1',
     })
 
@@ -710,25 +709,25 @@ describe('ExecutiveReportV2 report-first corrective', () => {
   })
 
   it('renders the real S4 certificate finding and never derives it from raw module diagnostics', () => {
-    const proof = loadB2bCustomerProof('b2d-cx')
+    const proof = loadB2bCustomerProof('live-cert-cx')
     const positiveCases = [
       {
         candidate: proof.cert13,
         id: 'certificate_expiring_critical',
         severity: 'high',
-        title: 'Logged certificate validity ends within 14 days',
+        title: 'The live certificate expires within 14 days',
       },
       {
         candidate: proof.cert14,
         id: 'certificate_expiring_soon',
         severity: 'medium',
-        title: 'Logged certificate validity ends within 30 days',
+        title: 'The live certificate expires within 30 days',
       },
       {
         candidate: proof.cert29,
         id: 'certificate_expiring_soon',
         severity: 'medium',
-        title: 'Logged certificate validity ends within 30 days',
+        title: 'The live certificate expires within 30 days',
       },
     ]
 
@@ -785,7 +784,12 @@ describe('ExecutiveReportV2 report-first corrective', () => {
       rendered.unmount()
     }
 
+    // Raw producer diagnostics appended by a caller must never become a
+    // finding: the component renders only the backend-owned contract.
+    const rawSignals = proof.cert13.producer_signals
+    expect(rawSignals.length).toBeGreaterThan(0)
     for (const candidate of [proof.cert30, proof.tlsUnavailable]) {
+      expect(candidate.producer_signals).toHaveLength(0)
       expect(candidate.snapshot_cert_findings).toHaveLength(0)
       expect(candidate.snapshot_cert_observations).toHaveLength(0)
       expect(candidate.cert_actions).toHaveLength(0)
@@ -793,8 +797,8 @@ describe('ExecutiveReportV2 report-first corrective', () => {
         ...candidate.executive,
         modules: {
           certificate_intelligence: {
-            producer_signals: candidate.producer_signals,
-            module_evidence: candidate.module_evidence,
+            producer_signals: rawSignals,
+            module_evidence: proof.cert13.module_evidence,
           },
         },
       }
@@ -802,9 +806,9 @@ describe('ExecutiveReportV2 report-first corrective', () => {
       const domainRow = screen.getByText('Certificates & Trust')
         .closest('.flex.items-start.justify-between')
       expect(within(domainRow).queryByText('Issue detected')).not.toBeInTheDocument()
-      expect(screen.queryByText('Logged certificate validity ends within 14 days'))
+      expect(screen.queryByText('The live certificate expires within 14 days'))
         .not.toBeInTheDocument()
-      expect(screen.queryByText('Logged certificate validity ends within 30 days'))
+      expect(screen.queryByText('The live certificate expires within 30 days'))
         .not.toBeInTheDocument()
       expect(screen.queryByText('Renew the certificate before expiry')).not.toBeInTheDocument()
       rendered.unmount()

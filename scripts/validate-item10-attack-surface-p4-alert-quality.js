@@ -219,7 +219,7 @@ const incidentRemoval = evaluateAssetAlertEligibility(
   incidentEvidence,
 );
 eq(
-  "14 Jul CT blackout cannot alert a removal claim",
+  "14 Jul discovery outage cannot alert a removal claim",
   incidentRemoval.eligible_events.length,
   0,
 );
@@ -285,6 +285,34 @@ const confirmedCounts = assetAlertCounts(
   confirmedDecision.record,
 );
 ok("genuine confirmed removal is alert-worthy", assetAlertWorthy(confirmedCounts));
+
+// Removal needs every active source. The same three observations with the
+// HTTP/HTTPS source missing from their recorded detail cannot confirm removal.
+const singleSourceObservations = confirmed.observations.map((row) => {
+  const detail = typeof row.source_detail_json === "string"
+    ? JSON.parse(row.source_detail_json)
+    : row.source_detail_json;
+  return {
+    ...row,
+    source_detail_json: JSON.stringify({
+      ...detail,
+      active_sources: (detail?.active_sources || []).filter((source) => source !== "http_https_service"),
+    }),
+  };
+});
+const singleSourceDecision = evaluateAssetAlertEligibility(
+  [confirmed.event],
+  {
+    lifecycle_status: "available",
+    signal_states: {},
+    lifecycle_observations: singleSourceObservations,
+  },
+);
+eq(
+  "removal without every active source is withheld",
+  singleSourceDecision.eligible_events.length,
+  0,
+);
 eq("confirmed removal is information severity", assetAlertSeverity(confirmedCounts), "info");
 
 const reappearedEvent = {
@@ -358,7 +386,7 @@ const siblingDecision = evaluateAssetAlertEligibility(siblingEvents, {
   lifecycle_observations: [],
 });
 eq(
-  "CT-unavailable sibling does not suppress admin/takeover claims",
+  "discovery-unavailable sibling does not suppress admin/takeover claims",
   siblingDecision.eligible_events.length,
   2,
 );

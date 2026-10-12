@@ -2,8 +2,8 @@
 // Item 9 P4 — faithful production runScanEngine proof.
 //
 // Reuses the P2 in-memory D1/R2 harness because that harness already exercises
-// the real production caller, shared CT cache, provider isolation, budget
-// telemetry, persistence fan-out, tenant isolation, soft-delete and purge order.
+// the real production caller, the live TLS collector, budget telemetry,
+// persistence fan-out, tenant isolation, soft-delete and purge order.
 // P4 extends that harness with trust-signal assertions; this wrapper makes the
 // P4 proof an explicit CI capability without duplicating a second scan harness.
 import path from "node:path";
@@ -30,5 +30,5 @@ if (result.status !== 0) {
 
 console.log(
   "Item 9 P4 faithful runScanEngine trace passed " +
-  "(real caller, v2 trust signals, budget, shared CT and tenant persistence)",
+  "(real caller, live TLS trust signals, budget and tenant persistence)",
 );

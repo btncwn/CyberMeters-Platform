@@ -195,11 +195,12 @@ const originalCaseId = kase.id;
 
 let phase = "negative";
 let goneHostHttpCalls = 0;
-const providerCalls = { crt: 0, certspotter: 0 };
+const contactedHosts = new Set();
 const originalFetch = globalThis.fetch;
 const originalRandom = Math.random;
 globalThis.fetch = async (input) => {
   const url = new URL(String(input));
+  contactedHosts.add(url.hostname);
   if (
     url.hostname === "www.cisa.gov" &&
     url.pathname.endsWith("known_exploited_vulnerabilities.json")
@@ -211,22 +212,6 @@ globalThis.fetch = async (input) => {
       count: 0,
       vulnerabilities: [],
     });
-  }
-  if (url.hostname === "crt.sh") {
-    providerCalls.crt += 1;
-    return json([
-      { name_value: "example.com\nwww.example.com\ngone.example.com" },
-    ]);
-  }
-  if (url.hostname === "api.certspotter.com") {
-    providerCalls.certspotter += 1;
-    return json([{
-      id: "ct-identity",
-      not_before: "2026-07-01T00:00:00.000Z",
-      not_after: "2099-12-31T23:59:59.000Z",
-      issuer: { name: "Trace CA" },
-      dns_names: ["example.com", "www.example.com", "gone.example.com"],
-    }]);
   }
   if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
     const name = String(url.searchParams.get("name") || "").toLowerCase();
@@ -381,10 +366,17 @@ try {
   eq("case alerts record initial unknown and later observed issue",
     db.prepare("SELECT COUNT(*) AS n FROM managed_case_events WHERE case_id=? AND action='monitoring_changed'").get(originalCaseId).n,
     2);
-  // Production scans query CertSpotter as their sole CT source (ct-providers.js).
-  ok("real trace reuses the shared CT provider exactly once per scan and never contacts crt.sh",
-    providerCalls.crt === 0 && providerCalls.certspotter === 6,
-    JSON.stringify(providerCalls));
+  // Discovery is CyberMeters' own observation: every request goes to a DNS
+  // resolver, a registration-data (RDAP) service, a vulnerability feed or a
+  // host under the scanned domain — never to a third-party discovery service.
+  const ownObservationHost = (host) =>
+    ["cloudflare-dns.com", "dns.google", "dns.quad9.net"].includes(host) ||
+    /^rdap\./.test(host) || host === "rdap.org" ||
+    ["www.cisa.gov", "services.nvd.nist.gov", "raw.githubusercontent.com"].includes(host) ||
+    host === "example.com" || host.endsWith(".example.com");
+  ok("real trace discovers and rechecks hosts from its own observation only",
+    contactedHosts.has("gone.example.com") && [...contactedHosts].every(ownObservationHost),
+    JSON.stringify([...contactedHosts].sort()));
 
   eq("legacy waitUntil executable envelope remains 19,000 ms",
     SCAN_DEADLINE_DEFAULTS.budgetMs, 19_000);

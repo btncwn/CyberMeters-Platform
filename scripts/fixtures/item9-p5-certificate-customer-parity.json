@@ -2,7 +2,7 @@
   "observed_at": "2026-07-26T15:00:00.000Z",
   "built_at": "2026-07-26T15:01:00.000Z",
   "domain": "example.com",
-  "expected_signal_count": 15,
+  "expected_signal_count": 14,
   "expected_customer_states": [
     "observed",
     "not_observed",
@@ -14,11 +14,10 @@
     "RFC 5280",
     "RFC 8659",
     "RFC 6960",
-    "RFC 9162",
     "CA/Browser Forum TLS Baseline Requirements"
   ],
   "legacy_notice_fragment": "not recorded in this historical snapshot",
-  "ct_only_live_message_fragment": "does not establish live serving",
+  "no_leaf_live_message_fragment": "No negative or favourable conclusion is inferred",
   "relationship": {
     "previous_identity": "sha256:fixture-previous",
     "current_identity": "sha256:fixture-current",

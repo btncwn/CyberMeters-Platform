@@ -77,9 +77,9 @@ const signal = ({
   }],
 });
 const model = (signals) => ({
-  model_version: "certificate-signal-completeness-v2",
+  model_version: "certificate-signal-completeness-v3",
   signals,
-  summary: { ct_only: false },
+  summary: {},
 });
 
 await withMutant(
@@ -100,24 +100,18 @@ await withMutant(
 
 await withMutant(
   (source) => source.replace(
-    `state: liveLeaf.state,
-      message: ctOnly && liveLeaf.state !== "observed"`,
-    `state: ctOnly ? "observed" : liveLeaf.state,
-      message: ctOnly && liveLeaf.state !== "observed"`,
+    `      state: liveLeaf.state,
+      message: liveLeaf.customer_message,`,
+    `      state: "observed",
+      message: liveLeaf.customer_message,`,
   ),
   async (mutant) => {
     const result = mutant.buildCertificateCustomerPresentation({
-      signalCompleteness: {
-        ...model({
-          certificate_transparency: signal({
-            observation_scope: "ct_issuance",
-          }),
-          leaf: signal({ observation: "unknown", value: null }),
-        }),
-        summary: { ct_only: true },
-      },
+      signalCompleteness: model({
+        leaf: signal({ observation: "unknown", value: null }),
+      }),
     });
-    ok("MUTANT CT-only becomes live-serving and makes parity fixture red",
+    ok("MUTANT summary claims a live leaf the signal never observed and makes parity fixture red",
       result.summary.live_tls_certificate.state === "observed");
   },
 );
@@ -182,9 +176,9 @@ await withMutant(
     `return buildCertificateCustomerPresentation({ absenceReason: reason });`,
     `return buildCertificateCustomerPresentation({
     signalCompleteness: {
-      model_version: "certificate-signal-completeness-v2",
+      model_version: "certificate-signal-completeness-v3",
       signals: {},
-      summary: { ct_only: false },
+      summary: {},
     },
     absenceReason: reason,
   });`,

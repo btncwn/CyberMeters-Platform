@@ -33,10 +33,9 @@ const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info']
 
 const LOADING_STEPS = [
   'Checking public DNS evidence',
-  'Reviewing TLS and certificate signals',
+  'Reviewing HTTPS reachability',
   'Reading passive website headers',
   'Checking email-authentication evidence',
-  'Reading Certificate Transparency records',
   'Observing public technology signals',
 ]
 
@@ -45,7 +44,6 @@ const MODULE_LABELS = {
   ssl: 'TLS',
   headers: 'Headers',
   email_security: 'Email',
-  subdomains: 'Certificate Transparency',
   technology_detection: 'Technology',
 }
 
@@ -377,7 +375,7 @@ export default function FreeScanPage() {
           </section>
 
           <p className="fm-honesty-note">
-            DKIM uses common selectors. Certificate analysis is CT/TLS-only. Brand is watchlist-only.
+            DKIM uses common selectors. The served certificate is inspected in the full scan, not in this preview. Brand is watchlist-only.
             Cyber Essentials is indicative. Website checks are passive and external.
           </p>
         </main>

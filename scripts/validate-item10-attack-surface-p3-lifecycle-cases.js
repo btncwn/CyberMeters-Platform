@@ -119,7 +119,7 @@ function signalCompleteness() {
           ? "ct_identity_observed"
           : "fixture_not_assessed",
         evidence_count: key === "subdomain_discovery" ? 1 : 0,
-        sources: key === "subdomain_discovery" ? ["crt_sh"] : [],
+        sources: key === "subdomain_discovery" ? ["dns_bruteforce"] : [],
         limitations: [],
       },
     ])),

@@ -1,6 +1,6 @@
 // ── Reserved-mode scan orchestration (Tier-1, SCAN_CAPACITY_MODE=reserved) ─────
 // A separated flow that reserves the customer-critical DMARC core before the
-// exposure envelope and before heavy DNS-posture / DKIM-sweep / CT /
+// exposure envelope and before heavy DNS-posture / DKIM-sweep /
 // brute-force modules can consume the ~50-class Worker subrequest budget. The
 // legacy path (default) does not import or execute any of this.
 //
@@ -20,47 +20,34 @@ import { runEmailModule } from "./email-scan.js";
 import { runDmarcbisCore, unavailableDmarcbisCore } from "./dmarcbis-production.js";
 import { runHeadersModule } from "./headers-scan.js";
 import { makeReservedProbeFetch } from "./reserved-probe.js";
-import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
-import { CT_PROVIDERS, ctFailedSources } from "./ct-providers.js";
 import {
   CRITICAL_PREFIXES_MANDATORY, MODULE_SUBREQUEST_COST, PhysicalSubrequestCounter,
   SubrequestBudget, isSubrequestBudgetExhaustedError,
   computeExposureCap, deferredCapacityAsset, makeDnsCache, skippedModuleResult,
 } from "./scan-budget.js";
 import { runSslModule } from "./ssl-scan.js";
-import { filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
+import { SUBDOMAIN_DISCOVERY_SOURCE, filterWildcardBruteforceResults, isSensitiveSubdomain, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
 import { runTakeoverModule } from "./takeover-scan.js";
 import { runTechModule } from "./tech-scan.js";
 import { runWhoisModule } from "./whois-scan.js";
 
 function hasAnswer(ans) { return !!ans && Array.isArray(ans.Answer) && ans.Answer.length > 0; }
 
-const RESERVED_PLATFORM_ABORT_WORDING =
-  "CyberMeters did not observe the provider result within the scan's global execution window.";
-
-function reservedSslCtFallback(cause) {
-  const error = cause === "scan_global_deadline"
-    ? RESERVED_PLATFORM_ABORT_WORDING
-    : "module deadline exceeded";
+function reservedSslFallback(cause) {
   return {
     incomplete: true,
     incomplete_reason: cause,
     outcome: "deadline_exceeded",
-    ct_sources: ctFailedSources(error),
     source: "tls_probe",
   };
 }
 
-function reservedSubdomainsCtFallback(cause) {
-  const error = cause === "scan_global_deadline"
-    ? RESERVED_PLATFORM_ABORT_WORDING
-    : "module deadline exceeded";
+function reservedSubdomainsFallback(cause) {
   return {
     count: 0,
     items: [],
     sensitive: [],
-    sources: ctFailedSources(error),
-    ct_providers: [...CT_PROVIDERS],
+    source: SUBDOMAIN_DISCOVERY_SOURCE,
     wildcard_dns: false,
     wildcard_dns_addresses: [],
     incomplete: true,
@@ -86,29 +73,23 @@ function combineConsumerSignals(...signals) {
   return controller.signal;
 }
 
-export async function runReservedCtConsumer(domain, module, {
-  ctCache,
+// One reserved-mode module under its own budget. The module budget or the
+// scan-global deadline ends this module's wait and aborts its own signal; the
+// fallback then states the cause instead of reading as an observation.
+export async function runReservedBoundedModule({
   signal = null,
-  globalDeadlineProvenance = null,
   budgetMs,
   run,
   fallback,
   setTimer = setTimeout,
   clearTimer = clearTimeout,
 } = {}) {
-  if (!ctCache || typeof run !== "function" || typeof fallback !== "function") {
-    throw new TypeError("Reserved CT consumer requires cache, run and fallback");
+  if (typeof run !== "function" || typeof fallback !== "function") {
+    throw new TypeError("Reserved bounded module requires run and fallback");
   }
   const controller = new AbortController();
   const consumerSignal = combineConsumerSignals(signal, controller.signal);
-  let released = false;
-  const release = (cause) => {
-    if (released) return;
-    released = true;
-    ctCache.releaseConsumer?.(domain, module, cause);
-  };
   const boundaryValue = (cause) => {
-    release(cause);
     if (!controller.signal.aborted) controller.abort(cause);
     return { boundary: true, value: fallback(cause) };
   };
@@ -132,7 +113,6 @@ export async function runReservedCtConsumer(domain, module, {
   const winner = await Promise.race([work, boundary]);
   if (timer != null) clearTimer(timer);
   removeGlobalAbort?.();
-  if (!winner.boundary) release(winner.error ? "consumer_error" : "consumer_completed");
   if (winner.error) throw winner.error;
   return winner.value;
 }
@@ -182,7 +162,7 @@ export async function runCriticalPrefixDiscovery(
   };
 }
 
-export function prioritiseExposureHosts(domain, { knownHosts = [], criticalHits = [], ctHosts = [], bruteHosts = [] } = {}) {
+export function prioritiseExposureHosts(domain, { knownHosts = [], criticalHits = [], bruteHosts = [] } = {}) {
   const ordered = [];
   const seen = new Set();
   const add = (host, src) => {
@@ -193,10 +173,9 @@ export function prioritiseExposureHosts(domain, { knownHosts = [], criticalHits 
   add(`www.${domain}`, "www");
   for (const h of criticalHits) add(h, "critical_prefix");
   // Critical-prefix hits are the customer-critical AS-B6 signal. Known-asset
-  // rechecks remain ahead of passive/expansive CT and brute-force candidates but
+  // rechecks remain ahead of brute-force candidates but
   // cannot consume the critical-prefix envelope before a new hit is probed.
   for (const h of knownHosts) add(h, "known_asset");
-  for (const h of ctHosts) add(h, "ct");
   for (const h of bruteHosts) add(h, "brute");
   return ordered;
 }
@@ -341,12 +320,10 @@ async function gateModule(
 // ── Full reserved scan: produces the complete network-module set (real or skipped) ──
 export async function runReservedScan(domain, {
   capacity,
-  ctCache = null,
   dnsCache: suppliedDnsCache = null,
   knownAssetHosts = [],
   signal = null,
-  globalDeadlineProvenance = null,
-  ctConsumerBudgets = null,
+  moduleBudgets = null,
   now = Date.now,
 } = {}) {
   const budget = new SubrequestBudget({ limit: capacity.limit, safetyMargin: capacity.safetyMargin });
@@ -355,13 +332,9 @@ export async function runReservedScan(domain, {
     safetyMargin: capacity.safetyMargin,
   });
   const dnsCache = suppliedDnsCache || makeDnsCache();
-  const sharedCtCache = ctCache || createCertificateTransparencyCache({
-    signal,
-    globalDeadlineProvenance,
-  });
-  const reservedCtBudgets = {
-    ssl: Math.max(1, Number(ctConsumerBudgets?.ssl) || 9_000),
-    subdomains: Math.max(1, Number(ctConsumerBudgets?.subdomains) || 12_000),
+  const reservedModuleBudgets = {
+    ssl: Math.max(1, Number(moduleBudgets?.ssl) || 9_000),
+    subdomains: Math.max(1, Number(moduleBudgets?.subdomains) || 12_000),
   };
 
   // Stage 1: minimal root/www discovery (A only) — enough to know the domain resolves
@@ -427,7 +400,7 @@ export async function runReservedScan(domain, {
     }
   }
 
-  // Stage 3: critical-prefix discovery (deterministic, CT-independent). 8 A lookups.
+  // Stage 3: critical-prefix discovery (deterministic). 8 A lookups.
   let criticalPrefixResult;
   const criticalCost = CRITICAL_PREFIXES_MANDATORY.length;
   if (signal?.aborted) {
@@ -466,7 +439,7 @@ export async function runReservedScan(domain, {
     );
   }
 
-  // Stage 4: prioritise (root → www → critical). CT is NOT here — it is post-exposure.
+  // Stage 4: prioritise (root → www → critical).
   const ordered = prioritiseExposureHosts(domain, {
     knownHosts: knownAssetHosts,
     criticalHits: criticalPrefixResult.items,
@@ -510,51 +483,58 @@ export async function runReservedScan(domain, {
 
   // Stage 6: remaining modules, budget-gated (customer-critical exposure already done).
   const dns                  = await gateModule(budget, physicalCounter, "dns", (accounting) => runDnsModule(domain, { accounting, cache: dnsCache }), { resolves }, signal);
-  const ssl                  = await gateModule(budget, physicalCounter, "ssl", (accounting) => runReservedCtConsumer(domain, "ssl", {
-    ctCache: sharedCtCache,
+  const ssl                  = await gateModule(budget, physicalCounter, "ssl", (accounting) => runReservedBoundedModule({
     signal,
-    globalDeadlineProvenance,
-    budgetMs: reservedCtBudgets.ssl,
-    run: (consumerSignal) => runSslModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, ctCache: sharedCtCache, signal: consumerSignal }),
-    fallback: reservedSslCtFallback,
-  }), {}, signal, reservedSslCtFallback("scan_global_deadline"));
+    budgetMs: reservedModuleBudgets.ssl,
+    run: (moduleSignal) => runSslModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal: moduleSignal }),
+    fallback: reservedSslFallback,
+  }), {}, signal, reservedSslFallback("scan_global_deadline"));
   const headers              = await gateModule(budget, physicalCounter, "headers", (accounting) => runHeadersModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal }), {}, signal);
   const email_security       = await gateModule(budget, physicalCounter, "email_security", (accounting) => runEmailModule(domain, {
     accounting,
     cache: dnsCache,
     dmarcOwnedByCore: true,
   }), {}, signal);
-  const subdomains           = await gateModule(budget, physicalCounter, "subdomains", (accounting) => runReservedCtConsumer(domain, "subdomains", {
-    ctCache: sharedCtCache,
+  const wildcardCheck        = await gateModule(budget, physicalCounter, "subdomains", (accounting) => runReservedBoundedModule({
     signal,
-    globalDeadlineProvenance,
-    budgetMs: reservedCtBudgets.subdomains,
-    run: (consumerSignal) => runSubdomainsModule(domain, {
+    budgetMs: reservedModuleBudgets.subdomains,
+    run: (moduleSignal) => runSubdomainsModule(domain, {
       accounting,
       cache: dnsCache,
-      ctCache: sharedCtCache,
-      signal: consumerSignal,
-      globalSignal: signal,
-      globalDeadlineProvenance,
+      signal: moduleSignal,
     }),
-    fallback: reservedSubdomainsCtFallback,
+    fallback: reservedSubdomainsFallback,
   }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] }, signal,
-  reservedSubdomainsCtFallback("scan_global_deadline"));
+  reservedSubdomainsFallback("scan_global_deadline"));
   const technology_detection = await gateModule(budget, physicalCounter, "technology_detection", (accounting) => runTechModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal }), {}, signal);
   const whois_intelligence   = await gateModule(budget, physicalCounter, "whois_intelligence", (accounting) => runWhoisModule(domain, { accounting, signal }), {}, signal);
 
-  // Takeover + brute-force use the discovered host list.
-  const ctItems = Array.isArray(subdomains?.items) ? subdomains.items : [];
-  const ctSet = new Set(ctItems.map((h) => String(h).toLowerCase()));
-  const mergedSubdomainItems = [
-    ...ctItems,
-    ...criticalPrefixResult.items.filter((h) => !ctSet.has(String(h).toLowerCase())),
-  ];
+  // Takeover uses the discovered host list: the critical-prefix names found
+  // above (the reserved path's own DNS discovery).
+  const mergedSubdomainItems = [...new Set(
+    (criticalPrefixResult.items || []).map((h) => String(h).toLowerCase()),
+  )].sort();
   const subdomain_takeover = await gateModule(budget, physicalCounter, "subdomain_takeover", (accounting) => runTakeoverModule(domain, mergedSubdomainItems, { accounting, cache: dnsCache, signal }), { checked: 0, potential_risks: 0, risks: [] }, signal);
   const dns_bruteforce = await gateModule(budget, physicalCounter, "dns_bruteforce", async (accounting) => {
     const raw = await runBruteforceModule(domain, { accounting, cache: dnsCache, signal });
-    return filterWildcardBruteforceResults(raw, subdomains?.wildcard_dns_addresses || []);
+    return filterWildcardBruteforceResults(raw, wildcardCheck?.wildcard_dns_addresses || []);
   }, { checked: 0, found: 0, items: [] }, signal);
+
+  // The subdomains module carries the discovered set: critical-prefix names plus
+  // brute-force names that are not wildcard answers.
+  const discoveredItems = [...new Set([
+    ...mergedSubdomainItems,
+    ...(dns_bruteforce?.items || [])
+      .filter((item) => item?.wildcard_match !== true)
+      .map((item) => String(item?.hostname || "").toLowerCase())
+      .filter(Boolean),
+  ])].sort();
+  const subdomains = {
+    ...wildcardCheck,
+    count: discoveredItems.length,
+    items: discoveredItems,
+    sensitive: discoveredItems.filter((host) => isSensitiveSubdomain(host, domain)),
+  };
 
   // Annotate + dedupe exposure now that takeover cname_observations are available.
   assetExposureResult = annotateExposureInfrastructure(assetExposureResult, subdomain_takeover?.cname_observations);

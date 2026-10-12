@@ -65,8 +65,8 @@ describe('ruleLabel', () => {
   })
 
   it('never claims a specific certificate story the evidence may not tell', () => {
-    // The cert family of a rule also matches standing conditions (sensitive
-    // hostname in CT, expiring soon) — a title claiming "new or changed
+    // The cert family of a rule also matches standing conditions (e.g. a
+    // certificate expiring soon) — a title claiming "new or changed
     // certificate" would say more than the evidence. (A6 P3, 20 Jul 2026.)
     for (const key of Object.keys(RULE_LABELS)) {
       expect(RULE_LABELS[key].toLowerCase()).not.toContain('new or changed certificate')
@@ -88,7 +88,7 @@ describe('eventTypeLabel — evidence subtype tells the same story as the produc
 
   it('a standing sensitive-host condition is never presented as a new or changed certificate', () => {
     const label = eventTypeLabel('certificate_sensitive_host_detected')
-    expect(label).toBe('Sensitive hostname observed in certificate-transparency logs')
+    expect(label).toBe('Sensitive hostname observed in a certificate log (historical)')
     expect(label.toLowerCase()).not.toContain('new')
     expect(label.toLowerCase()).not.toContain('changed')
   })

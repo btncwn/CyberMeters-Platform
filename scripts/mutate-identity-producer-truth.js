@@ -140,7 +140,7 @@ const MUTANTS = [
   },
   {
     id: "U2-M09", target: "scan", expected: [
-      "U2-B3-CT01", "U2-B3-DNS01", "U2-B3-BOTH01", "U2-B3-MX01",
+      "U2-B3-DISC01", "U2-B3-DNS01", "U2-B3-BOTH01", "U2-B3-MX01",
       "U2-B3-EMPTY01", "U2-B3-FAIL01", "U2-B3-DEAD01", "U2-B3-NOREACH01",
     ], controls: ["U2-POS-02"], fresh_process: true,
     replacements: [
@@ -170,10 +170,10 @@ const MUTANTS = [
     ],
   },
   {
-    id: "U2-M10", target: "scan", expected: ["U2-B3-EMPTY01"], controls: ["U2-B3-CT01", "U2-B3-DNS01"], fresh_process: true,
+    id: "U2-M10", target: "scan", expected: ["U2-B3-EMPTY01"], controls: ["U2-B3-DISC01", "U2-B3-DNS01"], fresh_process: true,
     replacements: [{
       from: 'source: mailOnly ? "dns_mx" : "dns_bruteforce",',
-      to: 'source: mailOnly ? "dns_mx" : addresses.length > 0 ? "dns_bruteforce" : "certificate_transparency",',
+      to: 'source: mailOnly ? "dns_mx" : addresses.length > 0 ? "dns_bruteforce" : "dns_discovery",',
     }],
   },
   {
@@ -184,7 +184,7 @@ const MUTANTS = [
     }],
   },
   {
-    id: "U2-M12", target: "contract", expected: ["U2-B3-CT01", "U2-B3-FAIL01", "U2-B3-ABS01"], controls: ["U2-B3-DNS01", "U2-B3-MX01"], fresh_process: true,
+    id: "U2-M12", target: "contract", expected: ["U2-B3-DISC01", "U2-B3-FAIL01", "U2-B3-ABS01"], controls: ["U2-B3-DNS01", "U2-B3-MX01"], fresh_process: true,
     replacements: [{ from: '  let status = "not_evaluated";', to: '  let status = ["not", "resolved"].join("_");' }],
   },
   {
@@ -195,7 +195,7 @@ const MUTANTS = [
     }],
   },
   {
-    id: "U2-M14", target: "contract", expected: ["U2-B3-CT01", "U2-B3-TIME01"], controls: ["U2-B3-DNS01", "U2-B3-MX01"], fresh_process: true,
+    id: "U2-M14", target: "contract", expected: ["U2-B3-DISC01", "U2-B3-TIME01"], controls: ["U2-B3-DNS01", "U2-B3-MX01"], fresh_process: true,
     replacements: [{
       from: `    measured_at: status === "resolved" || status === "mx_only"
       ? supporting.map((item) => normalizeIdentityObservedAt(item.observed_at)).find(Boolean) ?? null
@@ -230,7 +230,7 @@ const MUTANTS = [
     replacements: [{ from: "confidence:         90,", to: "confidence:         confidenceDetail," }],
   },
   {
-    id: "U2-M18", target: "contract", expected: ["U2-B3-DNS01", "U2-B3-NOREACH01"], controls: ["U2-B3-CT01"], fresh_process: true,
+    id: "U2-M18", target: "contract", expected: ["U2-B3-DNS01", "U2-B3-NOREACH01"], controls: ["U2-B3-DISC01"], fresh_process: true,
     replacements: [{
       from: '      status: "not_evaluated",',
       to: '      status: resolution.status === "resolved" ? "reachable" : "not_evaluated",',

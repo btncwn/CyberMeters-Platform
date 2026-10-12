@@ -266,7 +266,9 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
   );
   const riskSignals = certificateRiskFields.risk_signals;
   const informationalObservations = certificateRiskFields.informational_observations;
-  const ctSourcesUnavailable = informationalObservations.some(
+  // historical: reports recorded while certificate logs were a source can carry
+  // an unavailable-source observation; certificate health stays unknown for them.
+  const historicalCertificateSourceUnavailable = informationalObservations.some(
     (signal) => signal.signal === "ct_sources_unavailable",
   );
   const tpaTotal       = report?.modules?.third_party_assets?.total ?? 0;
@@ -341,10 +343,10 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     if (adminEvidence === 'assessed_healthy') good.push('No exposed admin or management surfaces detected.');
     else noteNeutral(adminEvidence, 'Admin surface exposure');   // unavailable/not_assessed → neutral; null (legacy) → silent, never "none detected"
   }
-  if (canSayHealthy(certStateB) && !ctSourcesUnavailable &&
+  if (canSayHealthy(certStateB) && !historicalCertificateSourceUnavailable &&
       riskSignals.length === 0 && informationalObservations.length === 0) {
     good.push('Certificate health looks normal — no suspicious signals detected.');
-  } else if (!canSayHealthy(certStateB) || ctSourcesUnavailable) {
+  } else if (!canSayHealthy(certStateB) || historicalCertificateSourceUnavailable) {
     noteNeutral(scorecardBehaviour(certStateB), 'Certificate health');   // null/unavailable/not_assessed → neutral, never "looks normal"; issue handled by the urgent line
   }
 
@@ -526,14 +528,15 @@ export function buildScorecardSections(scorecard) {
   const classificationsMalformed =
     (Object.hasOwn(cr, "risk_signals") && !riskSignalsValid) ||
     (Object.hasOwn(cr, "informational_observations") && !informationalObservationsValid);
-  const ctSourcesUnavailable = infoObs.some(
+  // historical: see historicalCertificateSourceUnavailable above.
+  const historicalCertificateSourceUnavailable = infoObs.some(
     (signal) => signal.signal === "ct_sources_unavailable",
   );
-  const certificateFallbackStatus = ctSourcesUnavailable || classificationsMalformed ||
+  const certificateFallbackStatus = historicalCertificateSourceUnavailable || classificationsMalformed ||
       !hasCertificateRisksObject
     ? "unknown"
     : sectionStatus(certState, 'warning');
-  const certificateFallbackSummary = ctSourcesUnavailable || classificationsMalformed ||
+  const certificateFallbackSummary = historicalCertificateSourceUnavailable || classificationsMalformed ||
       !hasCertificateRisksObject
     ? neutralSummary("unavailable", "Certificate health")
     : !classificationsRecorded && canSayHealthy(certState)
@@ -611,9 +614,9 @@ export function buildScorecardSections(scorecard) {
       summary: riskCount > 0 || cr.risk_level === 'critical' || cr.risk_level === 'high'
         ? `Certificate risk is ${cr.risk_level || 'elevated'}.` +
           (riskCount > 0 ? ` ${riskCount} suspicious signal${riskCount !== 1 ? 's' : ''} detected.` : '')
-        : infoCount > 0 && canSayHealthy(certState) && !ctSourcesUnavailable
+        : infoCount > 0 && canSayHealthy(certState) && !historicalCertificateSourceUnavailable
           ? certificateInformationSummary(infoObs)
-        : classificationsRecorded && canSayHealthy(certState) && !ctSourcesUnavailable
+        : classificationsRecorded && canSayHealthy(certState) && !historicalCertificateSourceUnavailable
           ? 'Certificate health looks normal — no suspicious signals detected.'
         : certificateFallbackSummary,
       data: scorecard.certificate_risks,

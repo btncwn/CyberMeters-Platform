@@ -10,10 +10,9 @@
 // presented as healthy.
 import { SIGNAL_MONITORING_STATES } from "./signal-monitoring-state.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
-import { ctProvidersUsed } from "./ct-providers.js";
 
 export const CERTIFICATE_SIGNAL_COMPLETENESS_VERSION =
-  "certificate-signal-completeness-v2";
+  "certificate-signal-completeness-v3";
 export const MAX_PARALLEL_OBSERVATION_WINDOW_MS = 9_000;
 
 export const CERTIFICATE_SIGNAL_KEYS = Object.freeze([
@@ -22,7 +21,6 @@ export const CERTIFICATE_SIGNAL_KEYS = Object.freeze([
   "san",
   "issuer",
   "expiry",
-  "certificate_transparency",
   "wildcard",
   "parallel_certificate_set",
   "active_service",
@@ -43,6 +41,7 @@ export const CERTIFICATE_OBSERVATION_STATES = Object.freeze({
 export const CERTIFICATE_OBSERVATION_SCOPES = Object.freeze([
   "live_tls",
   "live_tls_endpoint_set",
+  // Read-only: stored v1/v2 reports carry this scope; nothing produces it now.
   "ct_issuance",
   "dns_policy",
   "historical_observation",
@@ -181,15 +180,6 @@ const RFC_9525_WILDCARD = authority({
     "Constrains wildcard identifiers; wildcard presence alone is not a trust verdict.",
   url: "https://www.rfc-editor.org/rfc/rfc9525.html#section-7.1",
 });
-const RFC_9162_CT = authority({
-  standard_id: "RFC 9162",
-  standard_version: "December 2021",
-  section: "§§3–4",
-  requirement_type: "protocol_definition",
-  interpretation:
-    "Defines CT certificate/precertificate logging; a log entry does not prove live service presentation.",
-  url: "https://www.rfc-editor.org/rfc/rfc9162.html",
-});
 const RFC_8659_CAA = authority({
   standard_id: "RFC 8659",
   standard_version: "November 2019",
@@ -207,15 +197,6 @@ const RFC_6960_OCSP = authority({
   interpretation:
     "Defines signed OCSP responses, good/revoked/unknown status and response-time validity semantics; an absent or unvalidated response is not a good status.",
   url: "https://www.rfc-editor.org/rfc/rfc6960.html",
-});
-const RFC_6962_CT_LEGACY = authority({
-  standard_id: "RFC 6962",
-  standard_version: "June 2013",
-  section: "§3.1",
-  requirement_type: "obsolete_protocol_definition",
-  interpretation:
-    "Legacy CT v1 definition, obsoleted by RFC 9162; retained because provider data can include v1 log entries.",
-  url: "https://www.rfc-editor.org/rfc/rfc6962.html#section-3.1",
 });
 const CABF_TLS_BR = authority({
   standard_id: "CA/Browser Forum TLS Baseline Requirements",
@@ -312,13 +293,13 @@ export const CERTIFICATE_SIGNAL_CONTRACTS = Object.freeze({
     observable_ceiling: "L5",
     beta_target: "L4",
     minimum_publishable: "L2",
-    degrade_behavior: "show_unknown_never_substitute_ct",
+    degrade_behavior: "show_unknown_never_substitute_historical",
     required_corroboration: ["independent-source"],
     source_type: "normative_protocol",
     observation_scope: "live_tls",
     authorities: [RFC_5280_LEAF, RFC_8446_CERTIFICATE, CABF_TLS_BR],
     limitations: [
-      "A CT entry is issuance evidence and cannot identify the leaf certificate currently served.",
+      "Only the certificate presented in a live TLS handshake identifies the leaf currently served.",
       "Leaf observation does not by itself prove chain validity, root trust, revocation status or private-key security.",
     ],
     assurance_family: "external_tls_validation",
@@ -345,10 +326,10 @@ export const CERTIFICATE_SIGNAL_CONTRACTS = Object.freeze({
     degrade_behavior: "retain_scoped_positive_never_infer_absence",
     required_corroboration: ["independent-source"],
     source_type: "normative_protocol",
-    observation_scope: "ct_issuance",
+    observation_scope: "live_tls",
     authorities: [RFC_5280_SAN, RFC_9525_IDENTITY, CABF_TLS_BR],
     limitations: [
-      "CT SANs describe a logged issuance unless separately observed on the live service.",
+      "SANs are read from the certificate presented by the live service; no live handshake means no SAN evidence.",
       "SAN presence alone does not establish hostname match, intended ownership or safe service configuration.",
     ],
     assurance_family: "external_tls_validation",
@@ -360,7 +341,7 @@ export const CERTIFICATE_SIGNAL_CONTRACTS = Object.freeze({
     degrade_behavior: "retain_scoped_positive_never_infer_trust",
     required_corroboration: ["independent-source"],
     source_type: "normative_protocol",
-    observation_scope: "ct_issuance",
+    observation_scope: "live_tls",
     authorities: [RFC_5280_ISSUER, CABF_TLS_BR],
     limitations: [
       "Issuer text is an observed certificate field, not proof of a valid path to a trusted root.",
@@ -375,28 +356,13 @@ export const CERTIFICATE_SIGNAL_CONTRACTS = Object.freeze({
     degrade_behavior: "retain_scoped_date_never_infer_live_deployment",
     required_corroboration: ["independent-source"],
     source_type: "normative_protocol",
-    observation_scope: "ct_issuance",
+    observation_scope: "live_tls",
     authorities: [RFC_5280_VALIDITY, CABF_TLS_BR],
     limitations: [
-      "A CT notAfter value describes the logged certificate and does not prove that certificate is currently served.",
+      "notAfter is read from the certificate presented by the live service at observation time.",
       "An in-date certificate does not establish chain validity, root trust, OCSP, revocation or private-key security.",
     ],
     assurance_family: "external_tls_validation",
-  }),
-  certificate_transparency: contract({
-    observable_ceiling: "L5",
-    beta_target: "L2",
-    minimum_publishable: "L1",
-    degrade_behavior: "show_provider_degraded_or_unavailable",
-    required_corroboration: ["independent-path"],
-    source_type: "normative_protocol",
-    observation_scope: "ct_issuance",
-    authorities: [RFC_9162_CT, RFC_6962_CT_LEGACY],
-    limitations: [
-      "CT records certificate or precertificate logging and does not prove live service presentation.",
-      "CT search providers are aggregation paths; scans query CertSpotter, which covers certificates that have not expired. A provider failure is surfaced and never averaged into a healthy result.",
-    ],
-    assurance_family: "certificate_transparency",
   }),
   wildcard: contract({
     observable_ceiling: "L5",
@@ -405,11 +371,11 @@ export const CERTIFICATE_SIGNAL_CONTRACTS = Object.freeze({
     degrade_behavior: "retain_scoped_positive_never_infer_live_use",
     required_corroboration: ["independent-source"],
     source_type: "normative_protocol",
-    observation_scope: "ct_issuance",
+    observation_scope: "live_tls",
     authorities: [RFC_5280_SAN, RFC_9525_WILDCARD, CABF_TLS_BR],
     limitations: [
       "RFC 5280 defines subjectAltName but does not define wildcard matching semantics.",
-      "A wildcard in CT is issuance evidence and does not prove that the certificate is served or unsafe.",
+      "A wildcard SAN on the served certificate is not by itself unsafe.",
     ],
     assurance_family: "external_tls_validation",
   }),
@@ -423,7 +389,7 @@ export const CERTIFICATE_SIGNAL_CONTRACTS = Object.freeze({
     observation_scope: "live_tls_endpoint_set",
     authorities: [RFC_5280_LEAF, RFC_8446_CERTIFICATE, PARALLEL_PRODUCT_POLICY],
     limitations: [
-      "Historical observations and multiple CT issuances cannot establish simultaneous serving.",
+      "Historical observations cannot establish simultaneous serving.",
       "Multiplicity alone is not a misconfiguration, attack, compromise or maliciousness verdict.",
     ],
     assurance_family: "external_tls_validation",
@@ -470,7 +436,6 @@ export const CERTIFICATE_SIGNAL_CONTRACTS = Object.freeze({
     authorities: [RFC_5280_SAN, RFC_9525_IDENTITY, CABF_TLS_BR, TRUST_SIGNAL_PRODUCT_POLICY],
     limitations: [
       "Hostname matching requires the identifiers from the certificate presented by the live endpoint.",
-      "CT SANs cannot establish whether the live service presents a matching or mismatching certificate.",
     ],
     assurance_family: "external_tls_validation",
   }),
@@ -986,7 +951,7 @@ export function deriveCertificateSignalCompleteness({
         internal_certificate_inventory: CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
         absence_of_key_compromise: CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
         limitation:
-          "External handshakes, CT records and expiry data cannot establish internal private-key, keystore or inventory assurance.",
+          "External handshakes and expiry data cannot establish internal private-key, keystore or inventory assurance.",
       },
       revocation_assurance: {
         model_supported: true,
@@ -1021,66 +986,11 @@ export function deriveCertificateSignalCompleteness({
       live_chain_assessed:
         signals.chain.observation_scope === "live_tls" &&
         signals.chain.observation !== CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
-      ct_issuance_observed:
-        signals.certificate_transparency.observation_scope === "ct_issuance" &&
-        signals.certificate_transparency.observation === CERTIFICATE_OBSERVATION_STATES.PRESENT,
       live_serving_certificate_observed:
         signals.leaf.observation_scope === "live_tls" &&
         signals.leaf.observation === CERTIFICATE_OBSERVATION_STATES.PRESENT,
-      ct_only:
-        signals.certificate_transparency.observation_scope === "ct_issuance" &&
-        signals.certificate_transparency.observation === CERTIFICATE_OBSERVATION_STATES.PRESENT &&
-        !(
-          signals.leaf.observation_scope === "live_tls" &&
-          signals.leaf.observation === CERTIFICATE_OBSERVATION_STATES.PRESENT
-        ),
     },
   };
-}
-
-// The CT providers the scan recorded (ct-providers.js); a provider with no
-// recorded outcome is never healthy.
-function providerStateFromHealth(providerHealth = {}, providers = ctProvidersUsed(null)) {
-  const outcomes = providers.map(
-    (provider) => providerHealth?.[provider]?.outcome ?? null
-  );
-  const available = outcomes.filter((value) => value === "available").length;
-  const unavailable = outcomes.filter((value) => value === "unavailable").length;
-  if (available === providers.length) return SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
-  if (available > 0 && unavailable > 0) return SIGNAL_MONITORING_STATES.MONITORING_DEGRADED;
-  if (available === 0 && unavailable > 0) return SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE;
-  return SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
-}
-
-function providerStateFromModules(modules = {}) {
-  const subSources = modules?.subdomains?.sources || {};
-  const sslSources = modules?.ssl?.ct_sources || {};
-  const providers = ctProvidersUsed(modules?.subdomains);
-  const statuses = providers.map((provider) => {
-    const row = subSources?.[provider] ?? sslSources?.[provider] ?? null;
-    if (!row) return null;
-    return cleanString(row.error) ? "unavailable" : "available";
-  });
-  const available = statuses.filter((value) => value === "available").length;
-  const unavailable = statuses.filter((value) => value === "unavailable").length;
-  if (available === providers.length) return SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
-  if (available > 0 && unavailable > 0) return SIGNAL_MONITORING_STATES.MONITORING_DEGRADED;
-  if (available === 0 && unavailable > 0) return SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE;
-  return SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
-}
-
-function currentCtState({ monitoringStates, providerHealth, modules }) {
-  const canonical = monitoringStates?.signals?.certificate_transparency?.state;
-  if (COMPLETENESS_STATES.has(canonical)) return canonical;
-  // Without a recorded subdomains result, the providers are the ones whose
-  // health was recorded.
-  const healthProviders = Object.keys(providerHealth || {});
-  const providers = modules?.subdomains || healthProviders.length === 0
-    ? ctProvidersUsed(modules?.subdomains)
-    : healthProviders;
-  const health = providerStateFromHealth(providerHealth, providers);
-  if (health !== SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE) return health;
-  return providerStateFromModules(modules);
 }
 
 function evidence({
@@ -1296,31 +1206,42 @@ function liveTrustEvidence({
 }
 
 // Pure compatibility adapter for deterministic tests and the production caller.
-// The adapter consumes explicitly declared live-TLS evidence when a compatible
-// collector supplies it. Current Cloudflare fetches expose only CT issuance and
-// HTTP reachability, so the default production path remains honestly unknown
-// for peer-certificate, chain, hostname, trust-store and revocation signals.
+// Certificate facts come only from the live TLS collector: without a captured
+// leaf, the SAN, issuer, expiry and wildcard signals stay unknown and are never
+// filled from another source.
+function liveLeafSignal({ collected, value, method }) {
+  return evidence({
+    completeness_state: collected
+      ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
+      : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
+    observation: collected
+      ? (value === false
+        ? CERTIFICATE_OBSERVATION_STATES.ABSENT
+        : CERTIFICATE_OBSERVATION_STATES.PRESENT)
+      : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+    value: collected ? value : null,
+    observation_scope: "live_tls",
+    achieved_grade: collected ? "L3" : "L0",
+    source_type: "normative_protocol",
+    source: collected ? "cloudflare_container_node_tls" : "not_collected",
+    method: collected ? method : "live_tls_leaf_not_available",
+    reasons: collected
+      ? []
+      : ["The current scan modules did not capture the leaf certificate served in a TLS handshake."],
+  });
+}
+
 export function deriveCertificateSignalCompletenessFromModules({
   modules = {},
-  monitoringStates = null,
-  providerHealth = null,
   observedAt = null,
   engineVersion = null,
 } = {}) {
   const ssl = modules?.ssl || {};
   const tls = resolveTlsRuntimeState(ssl);
   const trust = liveTrustEvidence({ ssl, modules, observedAt });
-  const ctState = currentCtState({ monitoringStates, providerHealth, modules });
-  const selectedCtCertificate = Boolean(
-    cleanString(ssl.cert_not_after) ||
-    cleanString(ssl.cert_issuer) ||
-    cleanString(ssl.cert_subject)
-  );
-  const ctPositiveState = selectedCtCertificate
-    ? ctState
-    : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
-  const ctSource = "shared_ct_provider_cache";
-  const ctMethod = "logged_issuance_projection";
+  const leafDnsNames = trust.leafCollected && Array.isArray(trust.leaf.dns_names)
+    ? trust.leaf.dns_names.map((name) => cleanString(name)).filter(Boolean)
+    : [];
   const evidenceBySignal = {
     leaf: evidence({
       completeness_state: trust.leafCollected
@@ -1367,79 +1288,25 @@ export function deriveCertificateSignalCompletenessFromModules({
         ? []
         : ["The current scan modules did not capture a live presented chain."],
     }),
-    san: evidence({
-      completeness_state: trust.leafCollected ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY : (Array.isArray(ssl.cert_san_names) && selectedCtCertificate ? ctPositiveState : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE),
-      observation: trust.leafCollected || (Array.isArray(ssl.cert_san_names) && selectedCtCertificate) ? CERTIFICATE_OBSERVATION_STATES.PRESENT : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
-      value: trust.leafCollected ? (Array.isArray(trust.leaf.dns_names) ? [...trust.leaf.dns_names] : []) : (Array.isArray(ssl.cert_san_names) ? [...ssl.cert_san_names] : null),
-      observation_scope: trust.leafCollected ? "live_tls" : "ct_issuance",
-      achieved_grade: trust.leafCollected ? "L3" : "L1",
-      source_type: "normative_protocol",
-      source: trust.leafCollected ? "cloudflare_container_node_tls" : ctSource,
-      method: trust.leafCollected ? "peer_x509_san" : `${ctMethod}_san`,
+    san: liveLeafSignal({
+      collected: trust.leafCollected,
+      value: [...leafDnsNames],
+      method: "peer_x509_san",
     }),
-    issuer: evidence({
-      completeness_state: trust.leafCollected ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY : (cleanString(ssl.cert_issuer) ? ctPositiveState : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE),
-      observation: trust.leafCollected || (cleanString(ssl.cert_issuer)) ? CERTIFICATE_OBSERVATION_STATES.PRESENT : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
-      value: trust.leafCollected ? (trust.leaf.issuer) : (cleanString(ssl.cert_issuer) || null),
-      observation_scope: trust.leafCollected ? "live_tls" : "ct_issuance",
-      achieved_grade: trust.leafCollected ? "L3" : "L1",
-      source_type: "normative_protocol",
-      source: trust.leafCollected ? "cloudflare_container_node_tls" : ctSource,
-      method: trust.leafCollected ? "peer_x509_issuer" : `${ctMethod}_issuer`,
+    issuer: liveLeafSignal({
+      collected: trust.leafCollected && Boolean(cleanString(trust.leaf.issuer)),
+      value: cleanString(trust.leaf?.issuer) || null,
+      method: "peer_x509_issuer",
     }),
-    expiry: evidence({
-      completeness_state: trust.leafCollected ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY : (cleanString(ssl.cert_not_after) ? ctPositiveState : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE),
-      observation: trust.leafCollected || (cleanString(ssl.cert_not_after)) ? CERTIFICATE_OBSERVATION_STATES.PRESENT : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
-      value: trust.leafCollected ? (trust.leaf.not_after) : (cleanString(ssl.cert_not_after) || null),
-      observation_scope: trust.leafCollected ? "live_tls" : "ct_issuance",
-      achieved_grade: trust.leafCollected ? "L3" : "L1",
-      source_type: "normative_protocol",
-      source: trust.leafCollected ? "cloudflare_container_node_tls" : ctSource,
-      method: trust.leafCollected ? "peer_x509_validity" : `${ctMethod}_validity`,
+    expiry: liveLeafSignal({
+      collected: trust.leafCollected && Boolean(cleanString(trust.leaf.not_after)),
+      value: cleanString(trust.leaf?.not_after) || null,
+      method: "peer_x509_validity",
     }),
-    certificate_transparency: evidence({
-      completeness_state: ctState,
-      observation: ctState === SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE ||
-        ctState === SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE
-        ? CERTIFICATE_OBSERVATION_STATES.UNKNOWN
-        : CERTIFICATE_OBSERVATION_STATES.PRESENT,
-      value: Object.fromEntries(ctProvidersUsed(modules?.subdomains).map((provider) => [
-        provider,
-        providerHealth?.[provider]?.outcome ??
-          (cleanString(modules?.subdomains?.sources?.[provider]?.error) ? "unavailable" : "available"),
-      ])),
-      observation_scope: "ct_issuance",
-      achieved_grade: "L1",
-      source_type: "normative_protocol",
-      source: ctSource,
-      method: "shared_provider_query",
-      corroboration_status:
-        ctState === SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
-          ? "independent-path"
-          : "none",
-    }),
-    wildcard: evidence({
-      completeness_state:
-        Number.isFinite(ssl.cert_wildcard_san_count) &&
-        ssl.cert_wildcard_san_count > 0
-        ? ctPositiveState
-        : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
-      observation:
-        Number.isFinite(ssl.cert_wildcard_san_count) &&
-        ssl.cert_wildcard_san_count > 0 &&
-        selectedCtCertificate
-        ? CERTIFICATE_OBSERVATION_STATES.PRESENT
-        : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
-      value:
-        Number.isFinite(ssl.cert_wildcard_san_count) &&
-        ssl.cert_wildcard_san_count > 0
-        ? true
-        : null,
-      observation_scope: "ct_issuance",
-      achieved_grade: "L1",
-      source_type: "normative_protocol",
-      source: ctSource,
-      method: `${ctMethod}_wildcard_san`,
+    wildcard: liveLeafSignal({
+      collected: trust.leafCollected,
+      value: leafDnsNames.some((name) => name.startsWith("*.")),
+      method: "peer_x509_wildcard_san",
     }),
     parallel_certificate_set: evidence({
       completeness_state: SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
@@ -1454,7 +1321,7 @@ export function deriveCertificateSignalCompletenessFromModules({
         "Current modules do not contain simultaneous endpoint/context observations for multiple non-identical certificates.",
       ],
       limitations: [
-        "CT issuance multiplicity and historical observations cannot complete this signal.",
+        "Historical observations cannot complete this signal.",
       ],
     }),
     active_service: evidence({

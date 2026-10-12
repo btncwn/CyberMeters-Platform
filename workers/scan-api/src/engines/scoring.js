@@ -849,7 +849,7 @@ export function computeScore(modules, domain) {
     // Sprint 9D: three-tier confidence based on available validation evidence.
     // Tier 1 — HTTP confirmed (asset_exposure reachable):   confidence 80 / good
     // Tier 2 — DNS confirmed (dns_bruteforce resolved):     confidence 70 / partial
-    // Tier 3 — CT log only (no validation):                 confidence 60 / weak
+    // Tier 3 — named in a DNS record or site link only:     confidence 60 / weak
     const reachableSubdomains = new Set(
       (modules.asset_exposure?.assets || [])
         .filter(a => a.reachable)
@@ -881,7 +881,7 @@ export function computeScore(modules, domain) {
         severity = "info";
         scoreImpact = 0;
         title = "Potentially Sensitive Subdomain Name Observed";
-        description = `The name "${sub}" was observed in Certificate Transparency data and responded through wildcard DNS behavior. The response may be a shared wildcard endpoint, so customer ownership and a distinct exposed service were not confirmed.`;
+        description = `The name "${sub}" was found by CyberMeters' discovery and responded through wildcard DNS behavior. The response may be a shared wildcard endpoint, so customer ownership and a distinct exposed service were not confirmed.`;
       } else if (bruteDnsSubdomains.has(sub)) {
         subConf = 70;
         subVQ = "partial";
@@ -895,7 +895,7 @@ export function computeScore(modules, domain) {
         severity = "info";
         scoreImpact = 0;
         title = "Potentially Sensitive Subdomain Name Observed";
-        description = `The name "${sub}" was observed only in Certificate Transparency logs. No HTTP probe, takeover risk, or public service was confirmed. This observation should be reviewed, not treated as confirmed exposure.`;
+        description = `The name "${sub}" was found only in a DNS record or a link on the site. No DNS address, HTTP response, takeover risk or public service was confirmed. This observation should be reviewed, not treated as confirmed exposure.`;
       }
       const sensitiveFinding = {
         id:                `subdomain_sensitive_${sub.replace(/\./g, "_")}`,
@@ -907,7 +907,7 @@ export function computeScore(modules, domain) {
         description,
         score_impact:      scoreImpact,
         evidence: {
-          evidence_type:               scoreImpact < 0 ? "http_probe" : "certificate_transparency_observation",
+          evidence_type:               scoreImpact < 0 ? "http_probe" : "dns_discovery_observation",
           probe_target:                sub,
           observed_value:              scoreImpact < 0
             ? `${sub} responded to an HTTP probe`
@@ -915,7 +915,7 @@ export function computeScore(modules, domain) {
           expected_value:              scoreImpact < 0
             ? "Sensitive-looking service is not publicly reachable or has appropriate access controls"
             : "Independent DNS or HTTP evidence before classifying as exposure",
-          source:                      scoreImpact < 0 ? "cloudflare_workers_fetch" : "certificate_transparency",
+          source:                      scoreImpact < 0 ? "cloudflare_workers_fetch" : "dns_discovery",
           checked_at:                  evidenceTime,
           manual_verification_command: `curl -sSI --max-time 10 https://${sub}`,
         },
@@ -943,18 +943,18 @@ export function computeScore(modules, domain) {
         severity:     "info",
         confidence:   60,
         validation_quality: "weak",
-        title:        "Large Certificate Inventory Observed",
-        description:  `${subMod.count} subdomain names were observed in Certificate Transparency logs for ${domain}. A larger inventory requires asset ownership and lifecycle tracking, but CT volume alone does not indicate that the domain is unsafe or that these services are currently reachable.`,
+        title:        "Large Subdomain Inventory Observed",
+        description:  `${subMod.count} subdomain names were found by CyberMeters' discovery for ${domain}. A larger inventory requires asset ownership and lifecycle tracking, but the number of names alone does not indicate that the domain is unsafe or that these services are currently reachable.`,
         score_impact: 0,
         finding_type: "observation",
         evidence: {
-          evidence_type:               "certificate_transparency_observation",
+          evidence_type:               "dns_discovery_observation",
           probe_target:                domain,
-          observed_value:              `${subMod.count} names observed in Certificate Transparency logs`,
+          observed_value:              `${subMod.count} names found by DNS discovery, DNS records and site links`,
           expected_value:              "Reachability or exposure evidence before applying score impact",
-          source:                      "certificate_transparency",
+          source:                      "dns_discovery",
           checked_at:                  evidenceTime,
-          manual_verification_command: `curl -s "https://api.certspotter.com/v1/issuances?domain=${domain}&include_subdomains=true&expand=dns_names"`,
+          manual_verification_command: `dig +short A ${subMod.items?.[0] || domain}`,
         },
       });
     }

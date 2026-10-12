@@ -1,24 +1,22 @@
 #!/usr/bin/env node
 // Item 9 P2 — deterministic production-module integration and deadline fixtures.
 //
-// Exercises the real SSL, shared CT cache, subdomain and certificate-intelligence
-// modules. Network edges are deterministic fixtures; no production caller is
-// replaced and no external domain/CT/TLS action occurs.
+// Exercises the real SSL, live TLS collector client, subdomain discovery and
+// certificate-intelligence modules. Network edges are deterministic fixtures; no
+// production caller is replaced and no external domain/TLS action occurs.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runCertificateIntelligenceModule } from "../workers/scan-api/src/engines/cert-intel.js";
-import {
-  createCertificateTransparencyCache,
-  CT_PROVIDER_POLICIES,
-} from "../workers/scan-api/src/engines/ct-provider-cache.js";
+import { attachLiveTlsToSsl, collectLiveTls } from "../workers/scan-api/src/engines/network-probe.js";
 import {
   MODULE_SUBREQUEST_COST,
   SCAN_MODULE_BUDGETS,
 } from "../workers/scan-api/src/engines/scan-budget.js";
 import { runSslModule } from "../workers/scan-api/src/engines/ssl-scan.js";
 import { runSubdomainsModule } from "../workers/scan-api/src/engines/subdomains-scan.js";
+import { liveTlsProbeBinding } from "./lib/live-tls-fixture.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixture = JSON.parse(fs.readFileSync(path.join(
@@ -31,7 +29,6 @@ const NOW = "2026-07-26T12:00:00.000Z";
 const realDateNow = Date.now;
 const realFetch = globalThis.fetch;
 const realRandom = Math.random;
-const realConsoleError = console.error;
 let pass = 0;
 let fail = 0;
 
@@ -47,25 +44,6 @@ const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), 
   status,
   headers: { "content-type": "application/json" },
 });
-
-// CertSpotter is the only CT provider (ct-providers.js). It returns issuances
-// that have not expired; the longest-lived one covering the apex is selected.
-const certSpotterCertificates = [
-  {
-    id: "spot-current",
-    not_before: "2026-07-02T00:00:00.000Z",
-    not_after: "2026-11-01T00:00:00.000Z",
-    issuer: { name: "Fixture Current CA" },
-    dns_names: ["example.com", "api.example.com", "*.example.com"],
-  },
-  {
-    id: "spot-older",
-    not_before: "2026-01-01T00:00:00.000Z",
-    not_after: "2026-08-01T00:00:00.000Z",
-    issuer: { name: "Fixture Older CA" },
-    dns_names: ["example.com", "old.example.com"],
-  },
-];
 
 function accounting(limit) {
   const counters = { attempts: 0, completed: 0, errors: 0 };
@@ -83,74 +61,53 @@ function accounting(limit) {
   };
 }
 
-function timeoutSignal(ms) {
-  const controller = new AbortController();
-  setTimeout(
-    () => controller.abort(new DOMException("provider timed out", "TimeoutError")),
-    Math.min(ms, 5),
-  );
-  return controller.signal;
-}
-
-function providerFixture(mode, calls) {
-  return async (input, { signal } = {}) => {
-    const url = new URL(String(input));
-    // Any CT fetch that is not CertSpotter is recorded and refused, so a
-    // reintroduced provider shows up as a call rather than as evidence.
-    if (url.hostname !== "api.certspotter.com") {
-      calls.other += 1;
-      return jsonResponse({}, 503);
-    }
-    calls.certspotter += 1;
-    const outcome = mode.certspotter;
-    if (outcome === "timeout") {
-      return new Promise((_resolve, reject) => {
-        signal?.addEventListener(
-          "abort",
-          () => reject(signal.reason),
-          { once: true },
-        );
-      });
-    }
-    if (outcome === "unavailable") return jsonResponse({}, 403);
-    return jsonResponse(certSpotterCertificates);
+// The collector binding for each scenario: a served certificate, a refused
+// request, or a request that never answers before the scan aborts it.
+function collectorFor(mode) {
+  if (mode === "observed") {
+    return liveTlsProbeBinding({
+      days: 98,
+      issuer: "CN=Fixture Current CA",
+      dnsNames: ["example.com", "api.example.com", "*.example.com"],
+    });
+  }
+  const calls = [];
+  return {
+    calls,
+    fetch: (_url, init) => {
+      calls.push(JSON.parse(init.body));
+      if (mode === "unavailable") return Promise.reject(new TypeError("collector refused"));
+      return new Promise(() => {});
+    },
   };
 }
 
 async function runScenario(scenario) {
-  const calls = { certspotter: 0, other: 0 };
   const sslAccounting = accounting(fixture.module_subrequest_cap);
   const subdomainAccounting = accounting(MODULE_SUBREQUEST_COST.subdomains);
-  const policies = {
-    ...CT_PROVIDER_POLICIES,
-    certspotter: {
-      ...CT_PROVIDER_POLICIES.certspotter,
-      timeoutMs: 5,
-      maxAttempts: 1,
-      backoffMs: 0,
-    },
-  };
-  const cache = createCertificateTransparencyCache({
-    fetcher: providerFixture(scenario, calls),
-    policies,
-    remainingMs: () => fixture.module_budget_ms,
-    now: realDateNow,
-    timeoutSignal,
-  });
+  const collector = collectorFor(scenario.collector);
+  const controller = new AbortController();
+  if (scenario.collector === "timeout") setTimeout(() => controller.abort("deadline"), 5);
   const started = realDateNow();
-  const [ssl, subdomains] = await Promise.all([
+  const [sslHttp, subdomains, liveTls] = await Promise.all([
     runSslModule("example.com", {
       accounting: sslAccounting,
-      ctCache: cache,
       now: () => Date.parse(NOW),
     }),
     runSubdomainsModule("example.com", {
       accounting: subdomainAccounting,
-      ctCache: cache,
+      cache: new Map(),
+    }),
+    collectLiveTls({ NETWORK_PROBE: collector }, {
+      domain: "example.com",
+      scanId: "scan-item9-p2",
+      workspaceId: "ws-item9-p2",
+      requestId: "probe-item9-p2",
+      signal: controller.signal,
     }),
   ]);
   const elapsedMs = realDateNow() - started;
-  const providerHealth = cache.healthSnapshot();
+  const ssl = attachLiveTlsToSsl(sslHttp, liveTls);
   const modules = {
     ssl,
     subdomains,
@@ -165,30 +122,23 @@ async function runScenario(scenario) {
     modules,
     "example.com",
     {
-      providerHealth,
       observedAt: NOW,
       engineVersion: "item9-p2-fixture",
     },
   );
   return {
-    calls,
+    collector,
     elapsedMs,
     sslAccounting,
     subdomainAccounting,
     ssl,
     subdomains,
-    providerHealth,
     intelligence,
   };
 }
 
 Date.now = () => Date.parse(NOW);
 Math.random = () => 0.123456789;
-console.error = (...args) => {
-  if (!String(args[0] || "").startsWith("[scan/ct/")) {
-    realConsoleError(...args);
-  }
-};
 globalThis.fetch = async (input) => {
   const url = new URL(String(input));
   if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
@@ -218,24 +168,24 @@ try {
     eq(`${prefix}: P1 model is attached in the production certificate engine`,
       result.intelligence.signal_completeness.model_version,
       fixture.model_version);
-    eq(`${prefix}: one shared CertSpotter logical lookup`,
-      result.calls.certspotter, 1);
-    eq(`${prefix}: no other CT provider is contacted`,
-      result.calls.other, 0);
-    ok(`${prefix}: SSL and subdomains record CertSpotter as their only CT source`,
-      JSON.stringify(Object.keys(result.ssl.ct_sources || {})) === JSON.stringify(["certspotter"]) &&
-        JSON.stringify(Object.keys(result.subdomains.sources || {})) === JSON.stringify(["certspotter"]) &&
-        JSON.stringify(result.subdomains.ct_providers) === JSON.stringify(["certspotter"]),
-      JSON.stringify({ ssl: result.ssl.ct_sources, subdomains: result.subdomains.sources }));
+    eq(`${prefix}: the live TLS collector is asked exactly once`,
+      result.collector.calls.length, 1);
+    ok(`${prefix}: SSL and subdomains carry no external certificate-log source`,
+      !("ct_sources" in result.ssl) && !("sources" in result.subdomains) &&
+        result.subdomains.source === "dns_discovery",
+      JSON.stringify({ ssl: Object.keys(result.ssl), subdomains: result.subdomains.source }));
     ok(`${prefix}: executable deadline stays inside 9 seconds`,
       result.elapsedMs < fixture.module_budget_ms,
       `elapsed ${result.elapsedMs}ms`);
     ok(`${prefix}: SSL stays within six subrequests`,
       result.sslAccounting.counters.attempts <= fixture.module_subrequest_cap,
       `attempts ${result.sslAccounting.counters.attempts}`);
-    eq(`${prefix}: CT completeness`,
-      signals.certificate_transparency.completeness_state,
-      scenario.expected_ct_state);
+    eq(`${prefix}: SSL states why the live leaf is missing`,
+      result.ssl.incomplete_reason ?? null,
+      scenario.expected_ssl_incomplete_reason);
+    eq(`${prefix}: live leaf completeness`,
+      signals.leaf.completeness_state,
+      scenario.expected_leaf_state);
     eq(`${prefix}: issuer completeness`,
       signals.issuer.completeness_state,
       scenario.expected_issuer_state);
@@ -245,48 +195,41 @@ try {
     eq(`${prefix}: independently reliable active-service observation survives`,
       signals.active_service.observation,
       scenario.expected_active_service_observation);
-    eq(`${prefix}: CT never promotes live leaf`,
-      signals.leaf.observation, "unknown");
-    eq(`${prefix}: CT never promotes live chain`,
+    eq(`${prefix}: a leaf without a presented chain never claims a chain`,
       signals.chain.observation, "unknown");
-    eq(`${prefix}: CT/historical multiplicity never promotes parallel set`,
+    eq(`${prefix}: historical multiplicity never promotes parallel set`,
       signals.parallel_certificate_set.observation, "unknown");
     eq(`${prefix}: parallel collection remains explicitly unperformed`,
       result.ssl.certificate_evidence.parallel_certificate_set.collection_performed,
       false);
-    eq(`${prefix}: incomplete CT never fabricates a no-HTTPS alert`,
+    eq(`${prefix}: a missing leaf never fabricates a no-HTTPS alert`,
       result.intelligence.suspicious_certificate_signals
         .some((signal) => signal.signal === "no_https"),
       false);
   }
 
   const complete = results.get("complete");
-  // CertSpotter supplies the selected certificate: the longest-lived current
-  // issuance, its complete DNS SAN list measured, and no subject claimed.
-  eq("complete: CertSpotter issuance supplies the selected certificate",
-    complete.ssl.cert_issuer, "Fixture Current CA");
-  eq("complete: shared SAN is measured from the CertSpotter issuance",
-    complete.ssl.cert_shared_san_count, 0);
-  eq("complete: no certificate subject is claimed from an issuance",
-    complete.ssl.cert_subject, null);
-  // A CertSpotter failure leaves no CT source, so subdomain discovery is
-  // honestly incomplete rather than a "no subdomains" conclusion.
-  for (const name of ["provider-unavailable", "provider-timeout"]) {
-    const { subdomains } = results.get(name);
-    ok(`${name}: subdomain discovery is incomplete when CertSpotter fails`,
-      subdomains.incomplete === true &&
-        subdomains.incomplete_reason === "ct_sources_unavailable" &&
-        subdomains.error == null &&
-        /^CT source failed — certspotter: /.test(String(subdomains.ct_error || "")) &&
-        !("degradations" in subdomains),
-      JSON.stringify({
-        incomplete: subdomains.incomplete,
-        incomplete_reason: subdomains.incomplete_reason,
-        ct_error: subdomains.ct_error,
-      }));
+  eq("complete: the issuer is the served certificate's issuer",
+    complete.intelligence.issuer, "CN=Fixture Current CA");
+  eq("complete: certificate intelligence is attributed to the live leaf",
+    complete.intelligence.evidence_source, "live_tls");
+  eq("complete: expiry is measured from the collector observation",
+    complete.intelligence.days_until_expiry, 98);
+  // Without a captured leaf the certificate is honestly not observed, and the
+  // reason is the collector's, never a guess from another source.
+  for (const name of ["collector-unavailable", "collector-timeout"]) {
+    const { intelligence, subdomains } = results.get(name);
+    ok(`${name}: certificate intelligence is incomplete, not healthy`,
+      intelligence.incomplete === true &&
+        intelligence.evidence_source === "not_observed" &&
+        intelligence.live_certificate_verified === false,
+      JSON.stringify({ incomplete: intelligence.incomplete, reason: intelligence.incomplete_reason }));
+    ok(`${name}: subdomain discovery is unaffected by the collector`,
+      subdomains.incomplete !== true && subdomains.source === "dns_discovery",
+      JSON.stringify(subdomains));
   }
 
-  const ctOnly = runCertificateIntelligenceModule(
+  const serviceUnexecuted = runCertificateIntelligenceModule(
     {
       ssl: {
         ...complete.ssl,
@@ -297,19 +240,16 @@ try {
     },
     "example.com",
     {
-      providerHealth: complete.providerHealth,
       observedAt: NOW,
       engineVersion: "item9-p2-fixture",
     },
   );
-  eq("CT-only issuer remains an issuance observation",
-    ctOnly.signal_completeness.signals.issuer.observation, "present");
-  eq("CT-only data never upgrades active-service",
-    ctOnly.signal_completeness.signals.active_service.observation, "unknown");
-  eq("CT-only data never upgrades leaf",
-    ctOnly.signal_completeness.signals.leaf.observation, "unknown");
+  eq("the live leaf issuer stays observed when the HTTP probe did not run",
+    serviceUnexecuted.signal_completeness.signals.issuer.observation, "present");
+  eq("an unexecuted HTTP probe never upgrades active-service",
+    serviceUnexecuted.signal_completeness.signals.active_service.observation, "unknown");
   eq("an unexecuted service probe never fabricates no-HTTPS",
-    ctOnly.suspicious_certificate_signals
+    serviceUnexecuted.suspicious_certificate_signals
       .some((signal) => signal.signal === "no_https"),
     false);
 
@@ -333,7 +273,6 @@ try {
     },
     "example.com",
     {
-      providerHealth: complete.providerHealth,
       observedAt: NOW,
       engineVersion: "item9-p2-fixture",
     },
@@ -341,13 +280,12 @@ try {
   eq("observed service absence is scoped to active-service",
     serviceAbsent.signal_completeness.signals.active_service.observation,
     "absent");
-  eq("observed service absence does not erase CT issuer",
+  eq("observed service absence does not erase the live leaf issuer",
     serviceAbsent.signal_completeness.signals.issuer.observation, "present");
 } finally {
   Date.now = realDateNow;
   globalThis.fetch = realFetch;
   Math.random = realRandom;
-  console.error = realConsoleError;
 }
 
 console.log(`\nItem 9 P2 integration fixtures: ${pass} passed, ${fail} failed`);

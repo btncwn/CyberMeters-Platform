@@ -2,13 +2,14 @@
 // Item 9 P3 — faithful multi-scan runScanEngine renewal lifecycle trace.
 //
 // The real production engine runs three times. Only network edges are fixtures:
-// scan 1 observes an at-risk CT issuance, scan 2 observes a changed replacement,
-// scan 3 re-observes the same replacement. The trace proves production lifecycle
-// integration, append-only relationships, dedupe and CT-only non-verification.
+// scan 1's live TLS handshake serves an at-risk certificate, scan 2 serves a
+// changed replacement, scan 3 serves the same replacement again. The trace
+// proves production lifecycle integration, append-only relationships and dedupe.
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { liveTlsProbeBinding } from "./lib/live-tls-fixture.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { runScanEngine } = await import(pathToFileURL(path.join(
@@ -99,30 +100,12 @@ const clockMs = Date.now();
 const oldNotAfter = new Date(clockMs + (6 * DAY)).toISOString();
 const newNotAfter = new Date(clockMs + (365 * DAY)).toISOString();
 let scanPhase = 1;
-const providerCalls = { crt_sh: 0, certspotter: 0 };
 let outboundCalls = 0;
 const realFetch = globalThis.fetch;
 const realRandom = Math.random;
 globalThis.fetch = async (input) => {
   outboundCalls++;
   const url = new URL(String(input));
-  if (url.hostname === "crt.sh") {
-    providerCalls.crt_sh++;
-    return jsonResponse({}, 403);
-  }
-  if (url.hostname === "api.certspotter.com") {
-    providerCalls.certspotter++;
-    const replacement = scanPhase >= 2;
-    return jsonResponse([{
-      id: replacement ? "replacement-issued" : "baseline-issued",
-      not_before: new Date(clockMs - (30 * DAY)).toISOString(),
-      not_after: replacement ? newNotAfter : oldNotAfter,
-      issuer: { name: replacement ? "Trace Renewal CA" : "Trace Baseline CA" },
-      dns_names: replacement
-        ? ["example.com", "www.example.com", "api.example.com", "*.example.com"]
-        : ["example.com", "www.example.com"],
-    }]);
-  }
   if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
     const name = String(url.searchParams.get("name") || "").toLowerCase();
     const type = String(url.searchParams.get("type") || "A").toUpperCase();
@@ -147,6 +130,20 @@ const env = {
   SCAN_SUBREQUEST_LIMIT: "200",
   SCAN_DEADLINE_MS: "115000",
   APP_VERSION: "item9-p3-engine-trace",
+  // Scan 1 serves the baseline certificate; scans 2 and 3 serve its replacement.
+  NETWORK_PROBE: liveTlsProbeBinding(() => {
+    const replacement = scanPhase >= 2;
+    return {
+      domain: "example.com",
+      identity: replacement ? "b" : "a",
+      notBefore: new Date(clockMs - (30 * DAY)).toISOString(),
+      notAfter: replacement ? newNotAfter : oldNotAfter,
+      issuer: replacement ? "CN=Trace Renewal CA" : "CN=Trace Baseline CA",
+      dnsNames: replacement
+        ? ["example.com", "www.example.com", "api.example.com", "*.example.com"]
+        : ["example.com", "www.example.com"],
+    };
+  }),
 };
 
 db.prepare("INSERT INTO users (id,email) VALUES ('usr','owner@example.com')").run();
@@ -210,9 +207,9 @@ try {
     1
   );
   eq(
-    "scan 1 CT leaf remains unknown",
+    "scan 1 observes the served leaf",
     firstReport.modules?.certificate_intelligence?.signal_completeness?.signals?.leaf?.observation,
-    "unknown"
+    "present"
   );
 
   // Ensure the second persistence timestamp sorts after the first even on a very
@@ -256,22 +253,22 @@ try {
   ok("relationship names current observation", Boolean(relation.current_observation_id));
 
   eq(
-    "CT-only replacement is not product-verified",
+    "an observed replacement alone does not mark the lifecycle verified",
     secondLifecycle.verification_status,
     "not_verified"
   );
   eq(
-    "CT-only replacement cannot close the case",
+    "an observed replacement alone does not close the case",
     db.prepare("SELECT status FROM managed_cases WHERE id=?").get(secondLifecycle.linked_case_id).status,
     "detected"
   );
   eq(
-    "scan 2 still refuses a live leaf claim",
+    "scan 2 observes the replacement leaf",
     secondReport.modules?.certificate_intelligence?.signal_completeness?.signals?.leaf?.observation,
-    "unknown"
+    "present"
   );
   eq(
-    "historical/CT multiplicity still refuses parallel_certificate_set",
+    "certificates seen across scans never form a parallel_certificate_set",
     secondReport.modules?.certificate_intelligence?.signal_completeness
       ?.signals?.parallel_certificate_set?.observation,
     "unknown"
@@ -302,7 +299,7 @@ try {
     relationshipBeforeThird
   );
   eq(
-    "scan 3 still does not turn CT re-observation into live verification",
+    "scan 3 re-observation alone does not mark the lifecycle verified",
     db.prepare("SELECT verification_status FROM certificate_lifecycle WHERE id=?").get(secondLifecycle.id).verification_status,
     "not_verified"
   );
@@ -312,14 +309,12 @@ try {
     1
   );
   eq(
-    "scan 3 CT signal remains scoped to issuance",
+    "scan 3 expiry is scoped to the live TLS observation",
     thirdReport.modules?.certificate_intelligence?.signal_completeness?.signals?.expiry?.observation_scope,
-    "ct_issuance"
+    "live_tls"
   );
 
-  // Production scans query CertSpotter as their sole CT source (ct-providers.js).
-  eq("real scans never contact crt.sh", providerCalls.crt_sh, 0);
-  eq("one shared CertSpotter lookup per real scan", providerCalls.certspotter, 3);
+  eq("one live TLS collector request per real scan", env.NETWORK_PROBE.calls.length, 3);
   ok("real engine exercised network edges", outboundCalls > 0);
 
   for (const report of [firstReport, secondReport, thirdReport]) {

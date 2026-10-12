@@ -36,7 +36,7 @@ export function toneClass(tone) {
 // The backend owns what each rule means; these are human titles for display.
 // The cert half of a rule says "a certificate signal", never "a new or changed
 // certificate": the rule's cert family also matches standing conditions
-// (sensitive hostname in CT, expiring soon), so a more specific claim in the
+// (e.g. a certificate expiring soon), so a more specific claim in the
 // title could say more than the evidence. The exact observation is named per
 // evidence row via EVENT_TYPE_LABELS below.
 export const RULE_LABELS = {
@@ -204,9 +204,8 @@ export function producerFamilyLabel(family) {
 // ── Evidence event subtypes (presentation only) ──────────────────────────────
 // Each label states exactly what the producer records — no more, no other — so
 // the heading and the evidence tell the same story. A standing condition (e.g.
-// a sensitive hostname observed in certificate-transparency logs) is never
-// presented as a new or changed certificate. Internal enum values are never
-// rendered raw.
+// a certificate expiring soon) is never presented as a new or changed
+// certificate. Internal enum values are never rendered raw.
 export const EVENT_TYPE_LABELS = {
   // asset family (asset-inventory + exposed-service events)
   new_asset_discovered: 'New asset discovered',
@@ -226,8 +225,10 @@ export const EVENT_TYPE_LABELS = {
   certificate_new_detected: 'New certificate detected',
   certificate_new_san_detected: 'New certificate hostname detected',
   certificate_new_issuer_detected: 'Certificate issuer changed',
-  certificate_growth_detected: 'Certificate hostname count grew',
-  certificate_sensitive_host_detected: 'Sensitive hostname observed in certificate-transparency logs',
+  // historical: these two subtypes are no longer produced; stored rows keep
+  // rendering in honest words.
+  certificate_growth_detected: 'Certificate hostname count grew (historical)',
+  certificate_sensitive_host_detected: 'Sensitive hostname observed in a certificate log (historical)',
   certificate_expiring_soon: 'Certificate expiring soon',
   // other producers
   email_sender_new_source: 'New sending source observed',

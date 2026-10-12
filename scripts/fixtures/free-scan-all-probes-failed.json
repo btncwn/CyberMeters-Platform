@@ -30,10 +30,6 @@
         }
       }
     },
-    "subdomains": {
-      "kind": "rejected",
-      "reason": "fixture CT provider timeout"
-    },
     "technology_detection": {
       "kind": "fulfilled",
       "value": {

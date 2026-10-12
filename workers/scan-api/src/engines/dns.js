@@ -39,7 +39,7 @@ function refuseProviderRedirect(response, accounting, provider) {
 }
 
 // Invocation-scoped question dedupe. The promise is inserted before it is
-// awaited, matching the shared CT-cache law: concurrent DNS/Email/DMARC
+// awaited: concurrent DNS/Email/DMARC
 // consumers share one physical provider attempt. Rejections are deliberately
 // cached as rejections for this invocation; a failed lookup must not be retried
 // by a second consumer and then misrepresented as one coherent observation.

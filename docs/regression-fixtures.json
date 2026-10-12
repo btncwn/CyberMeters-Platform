@@ -994,8 +994,8 @@
       ]
     },
     {
-      "scenario": "ct_only_sensitive_subdomain_observation",
-      "description": "A sensitive-looking name seen only in CT logs must remain an unscored observation",
+      "scenario": "record_or_link_only_sensitive_subdomain_observation",
+      "description": "A sensitive-looking name found only in a DNS record or site link must remain an unscored observation",
       "domain": "fixture.cybermeters.test",
       "mock_modules": {
         "dns": { "resolves": true, "has_mx": true },
@@ -1023,7 +1023,7 @@
         "finding_type": "observation",
         "title": "Potentially Sensitive Subdomain Name Observed",
         "description_contains": [
-          "only in Certificate Transparency logs",
+          "only in a DNS record or a link on the site",
           "not treated as confirmed exposure"
         ]
       },
@@ -1069,8 +1069,8 @@
       "expected_score": 95
     },
     {
-      "scenario": "large_ct_inventory_observation",
-      "description": "A large CT inventory alone must not reduce the Cyber Metrics Score",
+      "scenario": "large_discovered_inventory_observation",
+      "description": "A large discovered inventory alone must not reduce the Cyber Metrics Score",
       "domain": "fixture.cybermeters.test",
       "mock_modules": {
         "dns": { "resolves": true, "has_mx": true },
@@ -1091,9 +1091,9 @@
         "confidence": 60,
         "score_impact": 0,
         "finding_type": "observation",
-        "title": "Large Certificate Inventory Observed",
+        "title": "Large Subdomain Inventory Observed",
         "description_contains": [
-          "CT volume alone does not indicate that the domain is unsafe"
+          "the number of names alone does not indicate that the domain is unsafe"
         ]
       },
       "expected_score": 100

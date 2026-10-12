@@ -323,7 +323,7 @@ export async function runCloudStorageModule(domain, modules, opts = {}) {
     // ── 1. Scan subdomain hostnames ───────────────────────────────────────
     const subItems = modules?.subdomains?.items || [];
     for (const hostname of subItems) {
-      addCandidate(detectCloudStorageCandidateFromValue(hostname, "ct_subdomain", hostname, "certificate transparency hostname"));
+      addCandidate(detectCloudStorageCandidateFromValue(hostname, "discovered_subdomain", hostname, "discovered hostname"));
     }
     for (const obs of modules?.subdomain_takeover?.cname_observations || []) {
       addCandidate(detectCloudStorageCandidateFromValue(obs.cname, "cname", obs.host, `CNAME ${obs.host} -> ${obs.cname}`));

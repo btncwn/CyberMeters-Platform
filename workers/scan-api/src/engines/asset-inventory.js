@@ -28,22 +28,6 @@ function normalizeIpAddressList(value) {
   return raw.split(",").map((item) => item.trim()).filter(Boolean).sort().join(", ");
 }
 
-// Historical CT-completeness predicate retained for compatibility validators and
-// older report interpretation. Item 10 P2 no longer uses this predicate to mutate
-// asset lifecycle: CT/passive discovery cannot advance confirmed removal.
-export function subdomainDiscoveryComplete(modules) {
-  const sub = modules?.subdomains;
-  if (!sub) return false;                        // no discovery module → cannot anchor disappearance
-  if (sub.error) return false;                   // module-level failure (e.g. module rejected)
-  if (sub.ct_error) return false;                // every CT source failed → items collapsed
-  const sources = sub.sources || {};
-  // Any CT source that errored → partial coverage.
-  if (Object.values(sources).some((source) => source?.error)) return false;
-  const bf = modules?.dns_bruteforce;
-  if (bf?.error) return false;                   // brute-force feeder timed out/failed
-  return true;
-}
-
 function hostnameFromRedirectTarget(value) {
   const raw = normalizeInventoryValue(value);
   if (!raw) return "";
@@ -87,7 +71,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
 
   const allAssets = [];
 
-  // Root domain is always an asset, even if CT/bruteforce finds nothing.
+  // Root domain is always an asset, even if discovery finds nothing.
   // This prevents inventory from staying empty for domains with no discovered subdomains.
   const _rootHost = normalizeHostname(domain);
   if (_rootHost) allAssets.push({
@@ -98,20 +82,6 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
     risk_level: null,
     cloud:      null,
   });
-
-  // CT-discovered subdomains
-  for (const hostname of modules?.subdomains?.items || []) {
-    const h = normalizeHostname(hostname);
-    if (!h) continue;
-    allAssets.push({
-      hostname:   h,
-      asset_type: "subdomain",
-      source:     "certificate_transparency",
-      wildcard:   wildcardDns ? 1 : 0,
-      risk_level: null,
-      cloud:      null,
-    });
-  }
 
   // DNS brute-force
   for (const item of modules?.dns_bruteforce?.items || []) {
@@ -150,6 +120,21 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
       asset_type: "subdomain",
       source:     "html_link",
       wildcard:   0,
+      risk_level: null,
+      cloud:      null,
+    });
+  }
+  // The merged discovery set (modules.subdomains.items) also carries names the
+  // critical-prefix DNS checks found. It comes last so a more specific source
+  // above keeps precedence in the dedupe below.
+  for (const hostname of modules?.subdomains?.items || []) {
+    const h = normalizeHostname(hostname);
+    if (!h) continue;
+    allAssets.push({
+      hostname:   h,
+      asset_type: "subdomain",
+      source:     "dns_discovery",
+      wildcard:   wildcardDns ? 1 : 0,
       risk_level: null,
       cloud:      null,
     });
@@ -210,7 +195,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
   }
 
   // ── Deduplicate allAssets by hostname ────────────────────────────────────
-  // CT and DNS brute-force can both discover the same hostname.  Duplicate
+  // Several discovery sources can name the same hostname.  Duplicate
   // entries would produce two INSERTs with the same (workspace_id, hostname),
   // violating the UNIQUE constraint and failing the entire D1 batch silently.
   // Keep first occurrence; merge extra fields (ip_addresses, cloud, risk_level)
@@ -341,7 +326,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
               .bind(
                 assetId, workspace_id, domainId, asset.hostname,
                 asset.asset_type ?? "subdomain",
-                asset.source ?? "certificate_transparency",
+                asset.source ?? "dns_discovery",
                 now, now,
                 asset.wildcard ?? 0,
                 asset.ip_addresses ?? null,
@@ -365,7 +350,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
                 .bind(
                   createId("evt"), workspace_id, domainId, assetId, scanId,
                   asset.hostname,
-                  `New asset discovered: ${asset.hostname} (${asset.source ?? "ct"})`,
+                  `New asset discovered: ${asset.hostname} (${asset.source ?? "dns_discovery"})`,
                   now
                 )
             );
@@ -513,7 +498,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
             .bind(
               createId("evt"), workspace_id, domainId,
               scanId, domain,
-              `Wildcard DNS detected for ${domain} — CT results may include false positives`,
+              `Wildcard DNS detected for ${domain} — names that resolve through the wildcard may not be distinct services`,
               now
             )
         );

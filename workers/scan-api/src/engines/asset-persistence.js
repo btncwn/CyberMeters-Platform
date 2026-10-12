@@ -45,8 +45,8 @@ function evidenceKey(item) {
 
 /**
  * Merge durable Brand evidence without dropping unrelated observations.
- * Scalar product signals are singletons; CT observation metadata is an
- * append-only, bounded set keyed by its stable upstream identity.
+ * Scalar product signals are singletons; historical certificate-log observation
+ * metadata is an append-only, bounded set keyed by its stable upstream identity.
  */
 export function mergeBrandCandidateEvidence(existingValue, incomingValue) {
   const out = safeJsonArray(existingValue)
@@ -136,7 +136,7 @@ function runChanges(result) {
 }
 
 /**
- * Canonical persistence for generated and CT Brand candidate observations.
+ * Canonical persistence for Brand candidate observations.
  * One successful INSERT or guarded UPDATE carries the whole state transition,
  * so an error cannot leave a positive-evidence half-state.
  */

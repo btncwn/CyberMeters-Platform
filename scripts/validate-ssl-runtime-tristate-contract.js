@@ -18,6 +18,10 @@ const tlsModule = await import(eng("tls-evidence.js"));
 const { computeScore } = await import(eng("scoring.js"));
 const { computeSecurityPosture } = await import(eng("posture-scoring.js"));
 const { runCertificateIntelligenceModule } = await import(eng("cert-intel.js"));
+const { attachLiveTlsToSsl } = await import(eng("network-probe.js"));
+const { liveTlsReceipt } = await import(
+  pathToFileURL(path.join(ROOT, "scripts", "lib", "live-tls-fixture.mjs")).href
+);
 const { deriveCertificateSignalCompletenessFromModules } = await import(
   eng("certificate-signal-completeness.js")
 );
@@ -190,10 +194,7 @@ const baseModules = (ssl) => ({
   email_security: { applicability: { applicable: false } },
   subdomains: {
     items: [],
-    sources: {
-      crt_sh: { count: 1, error: null },
-      certspotter: { count: 1, error: null },
-    },
+    source: "dns_discovery",
   },
 });
 const scoreFor = (ssl) => computeScore(baseModules(ssl), DOMAIN);
@@ -253,30 +254,28 @@ equal("posture.positive_absence.score_delta", unavailablePosture.score - positiv
 check("posture.positive_absence.action", positivePosture.remediations.some((value) => value.remediation_id === "cert.tls.install"));
 
 // Certificate intelligence, active-service completeness and ownership/confidence.
-const certModules = (ssl) => ({
-  ...baseModules({
-    ...ssl,
-    cert_issuer: "Fixture CA",
-    cert_subject: DOMAIN,
-    cert_san_names: [DOMAIN],
-    cert_san_count: 1,
-    cert_raw_san_count: 1,
-    cert_shared_san_count: 0,
-    cert_wildcard_san_count: 0,
-    ct_sources: { crt_sh: { count: 1, error: null }, certspotter: { count: 1, error: null } },
+// Certificate facts come only from a live TLS leaf; the present-state module
+// carries one, the unavailable-state module does not.
+const certModules = (ssl) => ({ ...baseModules(ssl) });
+const withLiveLeaf = (ssl) => attachLiveTlsToSsl(ssl, {
+  receipt: liveTlsReceipt({
+    domain: DOMAIN,
+    finishedAt: "2026-08-09T12:00:00.000Z",
+    days: 90,
+    dnsNames: [DOMAIN],
   }),
 });
 const ciUnavailable = runCertificateIntelligenceModule(certModules(unavailable.bare_false), DOMAIN, {
   observedAt: "2026-08-09T12:00:00.000Z", engineVersion: "contract",
 });
-const ciPresent = runCertificateIntelligenceModule(certModules(observedPresent()), DOMAIN, {
+const ciPresent = runCertificateIntelligenceModule(certModules(withLiveLeaf(observedPresent())), DOMAIN, {
   observedAt: "2026-08-09T12:00:00.000Z", engineVersion: "contract",
 });
 const ciAbsent = runCertificateIntelligenceModule(certModules(positivelyAbsent()), DOMAIN, {
   observedAt: "2026-08-09T12:00:00.000Z", engineVersion: "contract",
 });
 equal("cert.unavailable.status", ciUnavailable.certificate_status, "unknown");
-equal("cert.unavailable.risk", ciUnavailable.certificate_risk_level, "low");
+equal("cert.unavailable.risk", ciUnavailable.certificate_risk_level, "unknown");
 check("cert.unavailable.no_no_https", !ciUnavailable.suspicious_certificate_signals.some((signal) => signal.signal === "no_https"));
 equal("cert.unavailable.ownership", ciUnavailable.ownership.status, "unknown");
 equal("cert.unavailable.ownership_confidence", ciUnavailable.ownership.confidence, null);

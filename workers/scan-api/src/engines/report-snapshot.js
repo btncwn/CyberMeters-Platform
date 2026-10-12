@@ -63,7 +63,7 @@ import {
 } from "./dmarc-state.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
-export const SNAPSHOT_BUILDER_VERSION = "2026-08-12.1";
+export const SNAPSHOT_BUILDER_VERSION = "2026-10-12.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
 
@@ -157,9 +157,9 @@ const DOMAIN_EVIDENCE_BASIS = Object.freeze({
   brand_protection:
     "One external candidate observation under CyberMeters product policy. A lookalike candidate is not proof of abuse.",
   attack_surface:
-    "Single external observations from Certificate Transparency (RFC 9162), DNS (RFC 1035) and HTTP (RFC 9110), evaluated under CyberMeters product policy.",
+    "Single external DNS (RFC 1035) and HTTP (RFC 9110) observations made by CyberMeters itself, evaluated under CyberMeters product policy. Hostname discovery is bounded to the names it checks and finds; it is not a complete inventory.",
   certificates_trust:
-    "Certificate Transparency (RFC 9162) records that a certificate or precertificate was logged; it does not establish which certificate a server currently presents.",
+    "The certificate presented in a live TLS handshake that CyberMeters performed. It applies only to the endpoints and observation time recorded in the scan.",
   cyber_essentials_readiness:
     "CyberMeters external indicator over 2 of 5 Cyber Essentials control areas, combined with customer attestation for internally observable controls. This is product policy, not NCSC/IASME scheme conformance.",
   website_security:
@@ -186,7 +186,7 @@ function liveCertificateSnapshotEvidence(report) {
     ["valid", "invalid"].includes(trust.value?.validation_result)
     ? trust.value.validation_result : null;
   const limits = [
-    "Live TLS results apply only to the endpoints and observation time recorded in this scan; Certificate Transparency coverage is assessed separately.",
+    "Live TLS results apply only to the endpoints and observation time recorded in this scan.",
     "Runtime issuer-chain metadata is not proof of the exact certificate chain sent on the wire.",
   ];
   if (!admitted(signals?.revocation_assurance)) {
@@ -260,10 +260,10 @@ function findingEvidenceGrade(finding, report) {
       limits.push(...live.limits);
     } else {
       basis = sourceType === "product_policy"
-        ? "CyberMeters product-policy threshold applied to a Certificate Transparency observation under RFC 9162."
-        : "Certificate Transparency observation under RFC 9162.";
+        ? "CyberMeters product-policy threshold applied to a certificate observation without retained live TLS evidence."
+        : "Certificate observation without retained live TLS evidence.";
       limits.push(
-        "Certificate Transparency proves logging, not which certificate is live; chain validity, root trust, OCSP and revocation were not verified."
+        "No live TLS evidence was retained with this finding; chain validity, root trust, OCSP and revocation were not verified."
       );
     }
   } else if (/^(header_|https_|redirect_|canonical_|ssl_|tech_)/.test(id)) {
@@ -300,8 +300,12 @@ function domainEvidenceGrade(entry, report) {
     "Single external observations evaluated under CyberMeters product policy.";
 
   if (entry?.domain_key === "certificates_trust") {
+    // Without a captured live leaf there is no certificate fact to describe;
+    // the basis says so instead of describing a handshake that did not yield one.
     const live = liveCertificateSnapshotEvidence(report);
-    if (live) basis = live.basis;
+    basis = live
+      ? live.basis
+      : "No certificate was captured from a live TLS handshake in this scan, so no certificate fact is asserted.";
   }
 
   if (entry?.domain_key === "email_protection") {
@@ -875,15 +879,15 @@ export function composeSnapshot({
     if (d.domain_key === "certificates_trust") {
       const live = liveCertificateSnapshotEvidence(reportForCustomer);
       // Per-signal observations never become a blanket domain-level verified
-      // claim. CT-only snapshots retain their existing wording and bytes.
+      // claim. Stored snapshots are never rewritten.
       entry.live_certificate_verified = false;
       if (live) {
-        const ctOnlyLimits = CYBER_MOT_DOMAINS.find((definition) => definition.domain_key === "certificates_trust").limitations;
-        entry.limitations = [...entry.limitations.filter((limit) => !ctOnlyLimits.includes(limit)), ...live.limits];
+        const domainLimits = CYBER_MOT_DOMAINS.find((definition) => definition.domain_key === "certificates_trust").limitations;
+        entry.limitations = [...entry.limitations.filter((limit) => !domainLimits.includes(limit)), ...live.limits];
       } else if (entry.state === "assessed_healthy") {
-        entry.summary = "No material issue in the observed Certificate Transparency evidence.";
+        entry.summary = "No material issue in the recorded certificate evidence; the served certificate was not captured in this scan.";
         entry.state_reason = entry.summary;
-        entry.conclusion_label = "No material issue in observed CT evidence";
+        entry.conclusion_label = "No material issue in recorded evidence";
       }
     }
     entry.evidence_grade = domainEvidenceGrade(entry, report);

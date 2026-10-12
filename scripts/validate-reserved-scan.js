@@ -3,7 +3,7 @@
 // Reserved-mode two-stage discovery + dynamic exposure proof (Tier-1 Commit 3).
 //
 // Proves the reserved orchestration: the DMARC core reservation precedes
-// exposure, critical-prefix discovery is CT-independent, the dynamic exposure
+// exposure, critical-prefix discovery needs no external data source, the dynamic exposure
 // cap remains final authority, deferred capacity is honest, and the invocation
 // DNS cache is shared. Legacy remains the default. Node 24+.
 //
@@ -34,7 +34,7 @@ function mockFetch(handler) {
 // ── 0. legacy is the default ──────────────────────────────────────────────────
 eq("default capacity mode is legacy", resolveScanCapacity({}).mode, "legacy");
 
-// ── 1. reserved discovers admin.<domain> with CT disabled ─────────────────────
+// ── 1. reserved discovers admin.<domain> from its own DNS questions ───────────
 {
   const cache = makeDnsCache();
   const calls = mockFetch((url) => url.includes("cloudflare-dns.com") ? dohAnswer(/name=admin\./.test(url) ? ["1.2.3.4"] : []) : html200());
@@ -42,8 +42,8 @@ eq("default capacity mode is legacy", resolveScanCapacity({}).mode, "legacy");
   ok("critical-prefix discovers admin.example.com", cp.items.includes("admin.example.com"));
   ok("critical-prefix single-resolver only (no google/quad9)", calls.every((u) => !u.includes("dns.google") && !u.includes("quad9")));
   eq("critical-prefix checks 8 mandatory prefixes", cp.checked, 8);
-  const ordered = prioritiseExposureHosts("example.com", { criticalHits: cp.items, ctHosts: [] });
-  ok("admin discoverable/ordered without any CT host", ordered.some((h) => h.host === "admin.example.com" && h.src === "critical_prefix"));
+  const ordered = prioritiseExposureHosts("example.com", { criticalHits: cp.items, bruteHosts: [] });
+  ok("admin discoverable/ordered without any other discovered host", ordered.some((h) => h.host === "admin.example.com" && h.src === "critical_prefix"));
 }
 
 // ── 2. DNS cache: no duplicate admin|A or www|A lookup ────────────────────────
@@ -68,10 +68,11 @@ eq("default capacity mode is legacy", resolveScanCapacity({}).mode, "legacy");
   const consumedBeforeExposure = 20;
   const cap = computeExposureCap({ limit: 50, safetyMargin: 5, consumed: consumedBeforeExposure, perHostCost: 2 });
   eq("DMARC-first reserved ledger leaves a 12-host projected cap", cap, 12);
-  const ord = prioritiseExposureHosts("bbb.co.uk", { criticalHits: ["admin.bbb.co.uk"], ctHosts: ["email.bbb.co.uk", "www.email.bbb.co.uk"] });
+  const ord = prioritiseExposureHosts("bbb.co.uk", { criticalHits: ["admin.bbb.co.uk"], bruteHosts: ["email.bbb.co.uk", "www.email.bbb.co.uk"] });
   ok("priority order: root, www first", ord[0].host === "bbb.co.uk" && ord[1].host === "www.bbb.co.uk");
-  ok("critical-prefix (admin) ordered before CT-only hosts", ord.findIndex((h) => h.src === "critical_prefix") < ord.findIndex((h) => h.src === "ct"));
-  ok("CT-only hosts are last in priority", ord.slice(-2).every((h) => h.src === "ct"));
+  ok("critical-prefix (admin) ordered before other discovered hosts", ord.findIndex((h) => h.src === "critical_prefix") < ord.findIndex((h) => h.src === "brute"));
+  ok("other discovered hosts are last in priority", ord.slice(-2).every((h) => h.src === "brute"));
+  ok("no host is attributed to an external log source", ord.every((h) => h.src !== "ct"));
 }
 
 // ── 4. 25 assets → honest deferred_capacity; cap is the final authority ────────

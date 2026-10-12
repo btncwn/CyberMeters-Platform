@@ -6,10 +6,10 @@
 // orchestration change (per docs/SCAN-SUBREQUEST-CAPACITY-FIX-BRIEF.md, commit
 // f226790). It provides:
 //   (1) SubrequestCounter — counts every external fetch, each redirect hop, DoH
-//       calls, CT requests, exposure requests, HTTP fallbacks, and optional
+//       calls, exposure requests, HTTP fallbacks, and optional
 //       enrichment calls, and throws "Too many subrequests…" past the limit
 //       (mirroring the Cloudflare runtime).
-//   (2) classifyRequest(url) — categorises an outbound URL (doh/ct/kev/nvd/rdap/
+//   (2) classifyRequest(url) — categorises an outbound URL (doh/kev/nvd/rdap/
 //       exposure) so the ledger is auditable.
 //   (3) computeExposurePlan(...) — the dynamic-cap reference model:
 //       usable = limit - safety_margin
@@ -17,8 +17,10 @@
 //       host_cap = floor(exposure_budget / per_host_cost)
 //       with priority ordering and deferred_capacity overflow.
 //
-// Fixtures assert the approved ledger for CT hit / miss / unavailable, 1/5/25
-// assets, redirecting hosts, and configured limits 50 and 1000.
+// Fixtures assert the approved ledger for the core reservation, a pre-exposure
+// overrun, referenced hosts absent, 1/5/25 assets, redirecting hosts, and
+// configured limits 50 and 1000. Discovery is CyberMeters' own observation, so
+// no external data source changes the reservation.
 //
 // Tier-2/3 will replace the reference model here with imports from the production
 // budget primitives; these ledger assertions are the fixed contract those
@@ -44,15 +46,16 @@ const MAX_PROBE_REDIRECT_HOPS = 3;  // a single host consumes <= 4 external subr
 // order is asserted separately by validate-reserved-scan.js and now reserves
 // DMARC core before exposure; this constant remains the pre-existing comparison
 // model for the original capacity episode.
-const CORE_CT_INDEPENDENT    = 9 + 8 + 4 + 4 + 10; // = 35
-const CT_COST                = { hit: 0, unavailable: 0, miss: 4 };
+const CORE_RESERVATION       = 9 + 8 + 4 + 4 + 10; // = 35
+// A pre-exposure overrun (retries, a slow resolver) consumes extra budget that
+// exposure must then absorb without dropping a critical host.
+const PRE_EXPOSURE_OVERRUN   = 4;
 
 // ── (2) URL classifier ────────────────────────────────────────────────────────
 function classifyRequest(url) {
   let host;
   try { host = new URL(url).hostname; } catch { return "other"; }
   if (/(^|\.)cloudflare-dns\.com$|(^|\.)dns\.google$|(^|\.)dns\.quad9\.net$/.test(host)) return "doh";
-  if (/(^|\.)crt\.sh$|(^|\.)certspotter\.com$/.test(host)) return "ct";
   if (/(^|\.)cisa\.gov$/.test(host)) return "kev";
   if (/(^|\.)nvd\.nist\.gov$/.test(host)) return "nvd";
   if (/(^|\.)rdap\./.test(host) || /(^|\.)rdap\.org$/.test(host)) return "rdap";
@@ -93,7 +96,7 @@ class SubrequestCounter {
 }
 
 // ── (3) Dynamic exposure-cap reference model ──────────────────────────────────
-// hosts: array in PRIORITY order — [root, www, ...critical-prefix, ...ct/mx, ...brute]
+// hosts: array in PRIORITY order — [root, www, ...critical-prefix, ...referenced/mx, ...brute]
 function computeExposurePlan({ limit = DEFAULT_LIMIT, safetyMargin = SAFETY_MARGIN, consumed, perHostCost = PER_HOST_COST, hosts }) {
   const usable = limit - safetyMargin;
   const exposureBudget = Math.max(0, usable - consumed);
@@ -107,20 +110,21 @@ function computeExposurePlan({ limit = DEFAULT_LIMIT, safetyMargin = SAFETY_MARG
   };
 }
 
-// Standard-profile projected consumption before exposure, by CT state.
-function projectedConsumed(ctState) {
-  return CORE_CT_INDEPENDENT + (CT_COST[ctState] ?? 0);
+// Standard-profile projected consumption before exposure.
+function projectedConsumed({ overrun = 0 } = {}) {
+  return CORE_RESERVATION + overrun;
 }
 
-// BBB host set (priority order). admin/root/www are CT-independent; email hosts are CT-only.
+// BBB host set (priority order). admin/root/www come from the word list; the
+// email hosts are referenced (a link or SRV target) and rank after them.
 const BBB_ALL = [
   { host: "blackbullbarbers.co.uk", src: "root" },
   { host: "www.blackbullbarbers.co.uk", src: "www" },
   { host: "admin.blackbullbarbers.co.uk", src: "critical_prefix" },
-  { host: "email.blackbullbarbers.co.uk", src: "ct" },
-  { host: "www.email.blackbullbarbers.co.uk", src: "ct" },
+  { host: "email.blackbullbarbers.co.uk", src: "referenced" },
+  { host: "www.email.blackbullbarbers.co.uk", src: "referenced" },
 ];
-const BBB_DETERMINISTIC = BBB_ALL.filter((h) => h.src !== "ct"); // discoverable without CT
+const BBB_DETERMINISTIC = BBB_ALL.filter((h) => h.src !== "referenced"); // no reference observed
 
 // Only run the fixtures when executed directly (so later commits can import the
 // counter/classifier/model without side effects).
@@ -130,56 +134,56 @@ if (isMain) runFixtures();
 
 function runFixtures() {
 console.log("── ledger constants ──");
-eq("core CT-independent reservation = 35", CORE_CT_INDEPENDENT, 35);
+eq("core reservation = 35", CORE_RESERVATION, 35);
 eq("usable budget = 45", DEFAULT_LIMIT - SAFETY_MARGIN, 45);
 
-// ── Fixture A: CT cache hit → cap 5, all 5 BBB probed ─────────────────────────
+// ── Fixture A: core reservation → cap 5, all 5 BBB probed ─────────────────────
 {
-  const consumed = projectedConsumed("hit");
+  const consumed = projectedConsumed();
   const plan = computeExposurePlan({ consumed, hosts: BBB_ALL });
-  eq("CT hit: consumed", consumed, 35);
-  eq("CT hit: exposure_budget", plan.exposureBudget, 10);
-  eq("CT hit: host_cap", plan.hostCap, 5);
-  eq("CT hit: probed count", plan.probed.length, 5);
-  eq("CT hit: deferred count", plan.deferred.length, 0);
-  ok("CT hit: admin probed", plan.probed.some((h) => h.host === "admin.blackbullbarbers.co.uk"));
+  eq("core: consumed", consumed, 35);
+  eq("core: exposure_budget", plan.exposureBudget, 10);
+  eq("core: host_cap", plan.hostCap, 5);
+  eq("core: probed count", plan.probed.length, 5);
+  eq("core: deferred count", plan.deferred.length, 0);
+  ok("core: admin probed", plan.probed.some((h) => h.host === "admin.blackbullbarbers.co.uk"));
 }
 
-// ── Fixture B: CT fresh miss (fetched) → cap 3, admin+root+www probed, 2 deferred ─
+// ── Fixture B: pre-exposure overrun → cap 3, admin+root+www probed, 2 deferred ─
 {
-  const consumed = projectedConsumed("miss");
+  const consumed = projectedConsumed({ overrun: PRE_EXPOSURE_OVERRUN });
   const plan = computeExposurePlan({ consumed, hosts: BBB_ALL });
-  eq("CT miss: consumed", consumed, 39);
-  eq("CT miss: exposure_budget", plan.exposureBudget, 6);
-  eq("CT miss: host_cap", plan.hostCap, 3);
-  eq("CT miss: probed count", plan.probed.length, 3);
-  eq("CT miss: deferred count", plan.deferred.length, 2);
-  ok("CT miss: admin still probed (critical priority)", plan.probed.some((h) => h.host === "admin.blackbullbarbers.co.uk"));
-  ok("CT miss: deferred are CT-only hosts", plan.deferred.every((h) => h.host.includes("email")));
-  ok("CT miss: deferred marked deferred_capacity + reachable null",
+  eq("overrun: consumed", consumed, 39);
+  eq("overrun: exposure_budget", plan.exposureBudget, 6);
+  eq("overrun: host_cap", plan.hostCap, 3);
+  eq("overrun: probed count", plan.probed.length, 3);
+  eq("overrun: deferred count", plan.deferred.length, 2);
+  ok("overrun: admin still probed (critical priority)", plan.probed.some((h) => h.host === "admin.blackbullbarbers.co.uk"));
+  ok("overrun: deferred are the referenced hosts", plan.deferred.every((h) => h.host.includes("email")));
+  ok("overrun: deferred marked deferred_capacity + reachable null",
      plan.deferred.every((h) => h.probe_status === "deferred_capacity" && h.reachable === null));
 }
 
-// ── Fixture C: CT unavailable → only deterministic hosts discovered, all probed ─
+// ── Fixture C: no reference observed → only word-list hosts discovered, all probed ─
 {
-  const consumed = projectedConsumed("unavailable");
+  const consumed = projectedConsumed();
   const plan = computeExposurePlan({ consumed, hosts: BBB_DETERMINISTIC });
-  eq("CT unavailable: consumed", consumed, 35);
-  eq("CT unavailable: host_cap", plan.hostCap, 5);
-  eq("CT unavailable: discovered+probed", plan.probed.length, 3);
-  eq("CT unavailable: deferred", plan.deferred.length, 0);
-  ok("CT unavailable: admin discovered without CT", plan.probed.some((h) => h.host === "admin.blackbullbarbers.co.uk"));
+  eq("word list only: consumed", consumed, 35);
+  eq("word list only: host_cap", plan.hostCap, 5);
+  eq("word list only: discovered+probed", plan.probed.length, 3);
+  eq("word list only: deferred", plan.deferred.length, 0);
+  ok("word list only: admin discovered", plan.probed.some((h) => h.host === "admin.blackbullbarbers.co.uk"));
 }
 
-// ── Fixture D: 1 / 5 / 25 assets (CT hit) with actual remaining budget ────────
+// ── Fixture D: 1 / 5 / 25 assets with actual remaining budget ─────────────────
 function nHosts(n) {
-  // priority: root, www, then critical/ct/brute fillers
+  // priority: root, www, then critical/referenced/brute fillers
   const hosts = [{ host: "root", src: "root" }, { host: "www", src: "www" }, { host: "admin", src: "critical_prefix" }];
   for (let i = hosts.length; i < n; i++) hosts.push({ host: `h${i}`, src: "brute" });
   return hosts.slice(0, n);
 }
 {
-  const consumed = projectedConsumed("hit");
+  const consumed = projectedConsumed();
   const p1 = computeExposurePlan({ consumed, hosts: nHosts(1) });
   eq("1 asset: probed", p1.probed.length, 1);
   eq("1 asset: deferred", p1.deferred.length, 0);
@@ -218,7 +222,6 @@ function nHosts(n) {
 {
   eq("classify DoH", classifyRequest("https://cloudflare-dns.com/dns-query?name=x"), "doh");
   eq("classify DoH google", classifyRequest("https://dns.google/resolve?name=x"), "doh");
-  eq("classify CT crt.sh", classifyRequest("https://crt.sh/?q=x"), "ct");
   eq("classify KEV", classifyRequest("https://www.cisa.gov/feeds/known_exploited_vulnerabilities.json"), "kev");
   eq("classify NVD", classifyRequest("https://services.nvd.nist.gov/rest/json/x"), "nvd");
   eq("classify exposure host", classifyRequest("https://admin.blackbullbarbers.co.uk"), "exposure");
@@ -234,11 +237,11 @@ function nHosts(n) {
 // ── Fixture G: configured limit 50 vs 1000 ────────────────────────────────────
 {
   // Under 50: 25 assets are capped to 5.
-  const p50 = computeExposurePlan({ limit: 50, consumed: projectedConsumed("hit"), hosts: nHosts(25) });
+  const p50 = computeExposurePlan({ limit: 50, consumed: projectedConsumed(), hosts: nHosts(25) });
   eq("limit 50: 25 assets capped", p50.probed.length, 5);
 
   // Under 1000: cap is large enough to probe all 25.
-  const p1000 = computeExposurePlan({ limit: 1000, consumed: projectedConsumed("hit"), hosts: nHosts(25) });
+  const p1000 = computeExposurePlan({ limit: 1000, consumed: projectedConsumed(), hosts: nHosts(25) });
   ok("limit 1000: 25 assets all probed", p1000.probed.length === 25 && p1000.deferred.length === 0,
      `probed ${p1000.probed.length}`);
 
@@ -261,7 +264,7 @@ function nHosts(n) {
   c.recordProbe("https://admin.blackbullbarbers.co.uk", { hops: 0 });  // exposure probe (1)
   // admin_surface derived from exposure evidence → 0 additional
   eq("verification profile: ~3 subrequests (resolve + probe, C_h budget)", c.total <= 3, true);
-  eq("verification: no CT/KEV/NVD/enrichment", (c.byCategory.ct || 0) + (c.byCategory.kev || 0) + (c.byCategory.nvd || 0), 0);
+  eq("verification: no KEV/NVD/enrichment", (c.byCategory.kev || 0) + (c.byCategory.nvd || 0), 0);
 }
 
 // ── Fixture I: production primitives satisfy the contract (Commit 2) ──────────
@@ -279,10 +282,10 @@ function nHosts(n) {
   eq("prod: junk limit falls back to 50", resolveScanCapacity({ SCAN_SUBREQUEST_LIMIT: "abc" }).limit, 50);
   eq("prod: unknown mode falls back to legacy", resolveScanCapacity({ SCAN_CAPACITY_MODE: "wild" }).mode, "legacy");
 
-  // computeExposureCap matches the reference plan for every CT state.
+  // computeExposureCap matches the reference plan for the core reservation and an overrun.
   const c = resolveScanCapacity({});
-  eq("prod: cap CT hit = 5", computeExposureCap({ limit: c.limit, safetyMargin: c.safetyMargin, consumed: 35, perHostCost: c.perHostCost }), 5);
-  eq("prod: cap CT miss = 3", computeExposureCap({ limit: c.limit, safetyMargin: c.safetyMargin, consumed: 39, perHostCost: c.perHostCost }), 3);
+  eq("prod: cap core = 5", computeExposureCap({ limit: c.limit, safetyMargin: c.safetyMargin, consumed: 35, perHostCost: c.perHostCost }), 5);
+  eq("prod: cap overrun = 3", computeExposureCap({ limit: c.limit, safetyMargin: c.safetyMargin, consumed: 39, perHostCost: c.perHostCost }), 3);
   eq("prod: cap over budget = 0", computeExposureCap({ limit: 50, safetyMargin: 5, consumed: 45, perHostCost: 2 }), 0);
   eq("prod: cap limit 1000 large", computeExposureCap({ limit: 1000, safetyMargin: 5, consumed: 35, perHostCost: 2 }) >= 25, true);
 
@@ -317,4 +320,4 @@ if (fail > 0) process.exit(1);
 
 // Exported for later commits' harness reuse (kept side-effect free on import via guard).
 export { SubrequestCounter, classifyRequest, computeExposurePlan, projectedConsumed,
-         DEFAULT_LIMIT, SAFETY_MARGIN, PER_HOST_COST, MAX_PROBE_REDIRECT_HOPS, CORE_CT_INDEPENDENT };
+         DEFAULT_LIMIT, SAFETY_MARGIN, PER_HOST_COST, MAX_PROBE_REDIRECT_HOPS, CORE_RESERVATION };

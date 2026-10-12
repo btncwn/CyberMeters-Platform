@@ -17,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { liveTlsProbeBinding } from "./lib/live-tls-fixture.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engUrl = (f) => pathToFileURL(path.join(root, "workers/scan-api/src/engines", f)).href;
@@ -94,6 +95,8 @@ async function trace(httpMode, { seed = false, deadlineMs = "115000" } = {}) {
     cybermeters_db: makeD1(db), cybermeters_reports: makeR2(store),
     SCAN_CAPACITY_MODE: "legacy", SCAN_SUBREQUEST_LIMIT: "200",
     SCAN_DEADLINE_MS: deadlineMs, APP_VERSION: "pra2-trace",
+    // The TLS handshake is a sibling signal independent of the HTTP redirect.
+    NETWORK_PROBE: liveTlsProbeBinding({ days: 90 }),
   };
   db.prepare("INSERT INTO users (id, email) VALUES ('usr','o@example.com')").run();
   db.prepare("INSERT INTO workspaces (id, name, deleted_at) VALUES ('ws','PR-A2',NULL)").run();
@@ -121,11 +124,6 @@ async function trace(httpMode, { seed = false, deadlineMs = "115000" } = {}) {
     if (host === "services.nvd.nist.gov") {
       return json({ resultsPerPage: 0, totalResults: 0, vulnerabilities: [] });
     }
-    if (host === "crt.sh") return json([]);
-    if (host === "api.certspotter.com") return json([{
-      id: "c1", not_before: "2026-06-27T00:00:00.000Z", not_after: "2099-12-31T23:59:59.000Z",
-      issuer: { name: "PR-A2 Fixture CA" }, dns_names: ["example.com", "www.example.com"],
-    }]);
     if (host === "cloudflare-dns.com" || host === "dns.google") {
       const name = String(url.searchParams.get("name") || "").toLowerCase();
       const type = String(url.searchParams.get("type") || "A").toUpperCase();
@@ -192,9 +190,10 @@ ok("T1: scan_quality is partial (report + D1)",
   ok('T1: …and does NOT say "Assessed — no material issue observed"',
     !/Assessed — no material issue observed/.test(String(ws.summary || "")), String(ws.summary));
 }
-ok("T1: independently reliable sibling CT evidence remains publishable",
-  (edgeT.ssl.cert_not_after || edgeT.ssl.cert_issuer) != null,
-  JSON.stringify({ na: edgeT.ssl.cert_not_after, iss: edgeT.ssl.cert_issuer }));
+ok("T1: independently reliable sibling live TLS evidence remains publishable",
+  edgeT.ssl.live_certificate?.collection_complete === true &&
+    typeof edgeT.ssl.live_certificate?.certificate_identity === "string",
+  JSON.stringify(edgeT.ssl.live_certificate ?? null));
 
 // ── T2 — genuine origin, genuinely no redirect (positive control) ───────────
 console.log("\n── T2. genuine origin without a redirect (positive control) ──");

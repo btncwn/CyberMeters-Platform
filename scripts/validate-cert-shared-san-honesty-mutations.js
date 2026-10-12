@@ -15,16 +15,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers/scan-api/src/engines");
 const validator = path.join(root, "scripts/validate-cert-shared-san-honesty.js");
-// CertSpotter-only CT: the fallback-only case (CertSpotter never measured) no
-// longer exists. The contract now proves CertSpotter measures the shared SAN,
-// claims no subject, and leaves the count unmeasured when no certificate was
-// selected; 41 -> 51 assertions.
-const ASSERTION_TOTAL = 51;
+// The shared-SAN measurement comes only from the live leaf; stored records keep
+// their historical sentinel precedence.
+const ASSERTION_TOTAL = 42;
 const targets = Object.freeze({
-  ssl: {
-    sourcePath: path.join(engines, "ssl-scan.js"),
-    envName: "PR2A2_SSL_MODULE_URL",
-  },
   certIntel: {
     sourcePath: path.join(engines, "cert-intel.js"),
     envName: "PR2A2_CERT_INTEL_MODULE_URL",
@@ -33,62 +27,30 @@ const targets = Object.freeze({
 
 const semanticMutants = Object.freeze([
   {
-    // An eager producer zero beside a provider that answered with issuances is
-    // indistinguishable from a measurement downstream, so the producer-level
-    // null is the guard: the unselected case's ownership flips with it.
-    id: "FABRICATE_SHARED_SAN_INITIAL_ZERO",
-    target: "ssl",
-    from: "  let cert_shared_san_count = null;",
-    to: "  let cert_shared_san_count = 0;",
-    expectedFailures: [
-      "UNSELECTED_SSL_SHARED_SAN_NULL",
-      "UNSELECTED_MODULE_SHARED_SAN_NULL",
-      "UNSELECTED_OWNERSHIP_UNKNOWN",
-      "UNSELECTED_OWNERSHIP_NOT_ASSESSED",
-      "UNSELECTED_OWNERSHIP_REASON",
-      "UNSELECTED_CUSTOMER_OWNED_NULL",
-      "UNSELECTED_CONFIDENCE_NULL",
-      "UNSELECTED_BRITISH_NOT_ASSESSED_WORDING",
-      "BLACKOUT_SSL_SHARED_SAN_NULL",
-    ],
-  },
-  {
+    // Treating every count as measured turns "not observed" into a zero that
+    // reads as ownership evidence downstream.
     id: "DERIVE_OWNERSHIP_FROM_UNMEASURED_COUNT",
     target: "certIntel",
     from: `  const measured = sharedSanMeasured(ssl);
-  const sharedSanCount = measured ? ssl.cert_shared_san_count : null;`,
+  const sharedSanCount = measured ? facts.sharedSanCount : null;`,
     to: `  const measured = true;
-  const sharedSanCount = Number(ssl?.cert_shared_san_count || 0);`,
+  const sharedSanCount = Number(facts.sharedSanCount || 0);`,
     expectedFailures: [
-      "UNSELECTED_MODULE_SHARED_SAN_NULL",
-      "UNSELECTED_OWNERSHIP_UNKNOWN",
-      "UNSELECTED_OWNERSHIP_NOT_ASSESSED",
-      "UNSELECTED_OWNERSHIP_REASON",
-      "UNSELECTED_CUSTOMER_OWNED_NULL",
-      "UNSELECTED_CONFIDENCE_NULL",
-      "UNSELECTED_BRITISH_NOT_ASSESSED_WORDING",
-      "BLACKOUT_MODULE_SHARED_SAN_NULL",
-      "BLACKOUT_OWNERSHIP_UNKNOWN",
+      "NOT_OBSERVED_SHARED_SAN_NULL",
+      "NOT_OBSERVED_OWNERSHIP_UNKNOWN",
+      "NOT_OBSERVED_OWNERSHIP_NOT_ASSESSED",
+      "NOT_OBSERVED_OWNERSHIP_REASON",
+      "NOT_OBSERVED_CUSTOMER_OWNED_NULL",
+      "NOT_OBSERVED_CONFIDENCE_NULL",
+      "NOT_OBSERVED_BRITISH_NOT_ASSESSED_WORDING",
+      "COLLECTOR_FAILURE_SHARED_SAN_NULL",
+      "COLLECTOR_FAILURE_OWNERSHIP_UNKNOWN",
+      "PARTIAL_RECEIPT_SHARED_SAN_NULL",
       "SENTINEL_ERROR_DOMINATES_ZERO",
       "SENTINEL_ERROR_BLOCKS_CUSTOMER_OWNED",
       "SENTINEL_ERROR_BLOCKS_CONFIDENCE",
       "SENTINEL_EMPTY_ANSWER_DOMINATES_ZERO",
       "MISSING_SOURCE_DOMINATES_ZERO",
-    ],
-  },
-  {
-    // A CertSpotter issuance has no subject. Recording the scanned domain in its
-    // place would let ownership rest on a placeholder instead of the
-    // certificate's own names.
-    id: "PLACEHOLDER_SUBJECT_CLAIMED",
-    target: "ssl",
-    from: "        cert_subject   = null;",
-    to: "        cert_subject   = domain;",
-    expectedFailures: [
-      "CS_NO_SUBJECT_CLAIMED",
-      "CS_OWNERSHIP_RESTS_ON_CUSTOMER_SAN",
-      "WILDCARD_ONLY_STATUS_UNCERTAIN",
-      "WILDCARD_ONLY_NOT_CUSTOMER_OWNED",
     ],
   },
   {
@@ -98,6 +60,32 @@ const semanticMutants = Object.freeze([
     to: "source && source.error == null && Number.isInteger(source.count) && source.count >= 0,",
     expectedFailures: [
       "SENTINEL_EMPTY_ANSWER_DOMINATES_ZERO",
+    ],
+  },
+  {
+    // A customer wildcard counted as a foreign name makes the customer's own
+    // certificate read as shared.
+    id: "COUNT_CUSTOMER_WILDCARD_AS_SHARED",
+    target: "certIntel",
+    from: String.raw`!normalizeDiscoveredHostname(name.replace(/^\*\./, ""), root)).length,`,
+    to: `!normalizeDiscoveredHostname(name, root)).length,`,
+    expectedFailures: [
+      "LIVE_WILDCARD_MEASURED_ZERO",
+      "LIVE_WILDCARD_STATUS",
+      "LIVE_WILDCARD_NO_SUBJECT_UNCERTAIN",
+    ],
+  },
+  {
+    // Recording the scanned domain as the subject lets ownership rest on a
+    // placeholder instead of the served certificate's own names.
+    id: "PLACEHOLDER_SUBJECT_CLAIMED",
+    target: "certIntel",
+    from: "      subject: subjectCommonName(live.subject),",
+    to: "      subject: root,",
+    expectedFailures: [
+      "LIVE_OWNERSHIP_RESTS_ON_CUSTOMER_SAN",
+      "LIVE_WILDCARD_NO_SUBJECT_UNCERTAIN",
+      "LIVE_WILDCARD_NO_SUBJECT_NOT_CUSTOMER_OWNED",
     ],
   },
 ]);
@@ -283,7 +271,7 @@ try {
     ...canonicalFailures.map((id) => `validate-b-scorecard-canonical.js:${id}`),
   ];
   const expected = [
-    "validate-cert-shared-san-honesty.js:BLACKOUT_RISK_UNKNOWN_UNCHANGED",
+    "validate-cert-shared-san-honesty.js:NOT_OBSERVED_INFO_SIGNAL_KEEPS_RISK_UNKNOWN",
     "validate-regression-fixtures.js:detection_wildcard_certificate_signals_are_observations",
     "validate-b-scorecard-canonical.js:SAN_B_F12",
     "validate-b-scorecard-canonical.js:SAN_B_F13",
@@ -313,7 +301,7 @@ try {
 try {
   const result = executeMutant({
     id: "SYNTAX_FAILURE_REJECTED",
-    target: "ssl",
+    target: "certIntel",
     mutate: (source) => `${source}\nthis is not valid JavaScript !\n`,
   });
   if (!result.normalAssertionExit && result.actualFailures.length === 0) {
@@ -354,11 +342,11 @@ try {
   const expected = semanticMutants[0].expectedFailures;
   const result = executeMutant({
     id: "WRONG_REASON_FAILURE_REJECTED",
-    target: "ssl",
+    target: "certIntel",
     mutate: (source) => replaceExactly(
       source,
-      "        cert_subject   = null;",
-      "        cert_subject   = \"wrong-reason.example\";",
+      "      subject: subjectCommonName(live.subject),",
+      "      subject: \"wrong-reason.example\",",
       "WRONG_REASON_FAILURE_REJECTED",
     ),
   });

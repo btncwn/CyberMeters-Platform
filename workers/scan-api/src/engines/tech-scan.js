@@ -19,8 +19,7 @@ function looksVersioned(s) {
 }
 
 // ── Hosts the home page links to ──────────────────────────────────────────
-// A wildcard certificate keeps a host out of Certificate Transparency and a
-// word list only finds common names; the site's own links name the rest
+// A word list only finds common names; the site's own links name the rest
 // (portal., status., careers.…). Read only when the runner supplies remaining
 // time (Queue/Cron) and that time comfortably covers the window, bounded in
 // bytes and time, and never alters the 4 KB snippet the technology markers
