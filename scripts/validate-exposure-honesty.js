@@ -171,7 +171,7 @@ ok("gate → CAN verify on a genuine complete scan (happy path unchanged)",
 
   const engineSrc = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/scan-engine.js"), "utf8");
   ok("wiring: production exposure targets come from prioritizeExposureTargets",
-    /const exposureTargets = prioritizeExposureTargets\(domain, \{\s*knownHosts: knownAssetHosts,\s*discoveredHosts: mergedSubdomainItems,\s*\}\);/.test(engineSrc)
+    /const exposureTargets = prioritizeExposureTargets\(domain, \{\s*knownHosts: knownAssetHosts,\s*discoveredHosts: discoveryHosts,\s*\}\);/.test(engineSrc)
       && /runExposureModule\(domain, exposureTargets,/.test(engineSrc));
 }
 

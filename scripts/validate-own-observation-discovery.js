@@ -195,7 +195,7 @@ ok("an empty finished discovery is not_observed under bounded coverage",
   discovery.state === "not_observed" && discovery.reason === "bounded_discovery_no_hostname" && discovery.coverage_state === "bounded",
   JSON.stringify(discovery));
 ok("discovery sources are CyberMeters' own observations",
-  discovery.sources.every((source) => ["dns_bruteforce", "dns_srv", "html_link"].includes(source)), JSON.stringify(discovery.sources));
+  discovery.sources.every((source) => ["dns_bruteforce", "dns_srv", "html_link", "referenced_hostnames"].includes(source)), JSON.stringify(discovery.sources));
 const failedWildcard = deriveAttackSurfaceSignalCompleteness({
   subdomains: { items: [], count: 0, incomplete: true, incomplete_reason: "wildcard_check_failed", error: null },
   dns_bruteforce: { items: [], checked: 40, error: null },
