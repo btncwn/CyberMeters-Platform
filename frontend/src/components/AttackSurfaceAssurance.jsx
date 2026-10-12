@@ -1,27 +1,52 @@
 import { AlertTriangle, Bell, Radar } from 'lucide-react'
 
+// Customer names for the asset event types an alert decision refers to. The
+// decision itself (eligible or withheld, and why) stays backend-owned.
+const ALERT_EVENT_NAMES = {
+  new_asset_discovered: 'New asset',
+  asset_reappeared: 'Asset seen again',
+  asset_no_longer_seen: 'No longer externally observed',
+  takeover_risk_detected: 'Possible subdomain takeover',
+  wildcard_dns_detected: 'Wildcard DNS',
+  cloud_storage_detected: 'Cloud storage',
+}
+
+// Notes that several signals share (the observation caveat, an unrecorded
+// coverage limit) are shown once under the signals instead of on every row.
+function sharedSignalNotes(signals) {
+  const notes = []
+  for (const signal of signals) {
+    for (const note of [signal.caveat, signal.coverage_message]) {
+      if (note && !notes.includes(note)) notes.push(note)
+    }
+  }
+  return notes
+}
+
+function signalText(signal) {
+  return typeof signal.statement === 'string' && signal.statement
+    ? signal.statement
+    : signal.customer_message
+}
+
 function AssuranceProjection({ presentation }) {
   if (!presentation) return null
   const signals = (presentation.signal_order || [])
     .map(key => presentation.signals?.[key])
     .filter(Boolean)
+  const notes = sharedSignalNotes(signals.filter(signal => typeof signal.statement === 'string' && signal.statement))
   const lifecycle = presentation.lifecycle || {}
   const alertEligibility = presentation.alert_eligibility || {}
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white p-4 space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-bold text-gray-900">
-            {presentation.domain_id ? `Attack Surface evidence · ${presentation.domain_id}` : 'Attack Surface evidence'}
-          </h3>
-          {presentation.scope_note && (
-            <p className="mt-1 text-xs leading-relaxed text-gray-500">{presentation.scope_note}</p>
-          )}
-        </div>
-        <span className="rounded-full bg-gray-50 px-2 py-1 text-[12px] font-semibold text-gray-500">
-          {presentation.schema}
-        </span>
+      <div>
+        <h3 className="text-sm font-bold text-gray-900">
+          {presentation.domain ? `Attack Surface evidence · ${presentation.domain}` : 'Attack Surface evidence'}
+        </h3>
+        <p className="mt-1 text-xs leading-relaxed text-gray-500">
+          Each check is reported on its own. A check that could not run or did not finish is shown as such, never as a clean result.
+        </p>
       </div>
 
       {presentation.historical_notice && (
@@ -38,11 +63,17 @@ function AssuranceProjection({ presentation }) {
               <span className="text-[12px] font-semibold text-gray-500">{signal.state_label}</span>
             </div>
             <p className="mt-1 text-[13px] leading-relaxed text-gray-500">
-              {signal.customer_message}
+              {signalText(signal)}
             </p>
           </div>
         ))}
       </div>
+
+      {notes.length > 0 && (
+        <ul className="space-y-0.5 text-[12px] leading-relaxed text-gray-400" aria-label="Notes that apply to these checks">
+          {notes.map(note => <li key={note}>{note}</li>)}
+        </ul>
+      )}
 
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="rounded-lg border border-gray-100 p-3">
@@ -57,7 +88,7 @@ function AssuranceProjection({ presentation }) {
             <div key={record.asset_id || record.hostname} className="mt-2 rounded bg-gray-50 px-2.5 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="mono text-[13px] font-semibold text-gray-700">
-                  {record.hostname || record.asset_id}
+                  {record.hostname || 'Unnamed asset'}
                 </span>
                 <span className="text-[12px] font-semibold text-gray-600">
                   {record.lifecycle_state_label}
@@ -83,24 +114,17 @@ function AssuranceProjection({ presentation }) {
             <div key={`${decision.event_type}-${decision.reason_code}-${index}`} className="mt-2 rounded bg-gray-50 px-2.5 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-[13px] font-semibold text-gray-700">
-                  {decision.event_type}
+                  {ALERT_EVENT_NAMES[decision.event_type] || 'Asset change'}
                 </span>
                 <span className="text-[12px] font-semibold text-gray-600">
                   {decision.eligible ? 'Alert eligible' : 'Alert withheld'}
                 </span>
               </div>
-              <p className="mt-1 text-[12px] text-gray-400">{decision.reason_code}</p>
               <p className="mt-1 text-[13px] text-gray-500">{decision.reason_message}</p>
             </div>
           ))}
         </div>
       </div>
-
-      <p className="text-[12px] text-gray-400">
-        Model versions — signals: {presentation.model_versions?.signal_completeness || 'not recorded'};
-        {' '}lifecycle: {presentation.model_versions?.lifecycle_policy || 'not recorded'};
-        {' '}alert eligibility: {presentation.model_versions?.alert_eligibility || 'not recorded'}.
-      </p>
     </div>
   )
 }
@@ -133,7 +157,7 @@ export default function AttackSurfaceAssurance({ presentations, coverage = null 
       )}
       {rows.map((presentation, index) => (
         <AssuranceProjection
-          key={presentation.domain_id || `${presentation.schema}-${index}`}
+          key={presentation.domain_id || `presentation-${index}`}
           presentation={presentation}
         />
       ))}

@@ -50,6 +50,44 @@ ok("the root domain itself is never sensitive", !isSensitiveSubdomain(DOMAIN, DO
     finding?.severity === "medium" && finding?.score_impact === -5, JSON.stringify(finding));
 }
 
+// The evidence wording follows how the name was confirmed. Every discovery
+// source that admits a name only when DNS answers for it counts as DNS
+// confirmation; only an unconfirmed SRV target or site link reads as "found
+// only in a DNS record or a link". A wildcard-shaped answer never confirms.
+{
+  const unreachable = (host, sources) => computeScore({
+    subdomains: { items: [host], sensitive: [host], wildcard_dns: false, ...sources },
+    asset_exposure: { assets: [] },
+  }, DOMAIN);
+  const sensitiveFinding = (result) =>
+    (result.findings || []).find((f) => String(f.id).startsWith("subdomain_sensitive_"));
+  const confirmedBy = {
+    customer_hostnames: "customer-listed",
+    referenced_hostnames: "referenced",
+    discovery_depth: "discovery-depth",
+  };
+  for (const [key, label] of Object.entries(confirmedBy)) {
+    const host = `staging.${DOMAIN}`;
+    const result = sensitiveFinding(unreachable(host, {
+      [key]: { confirmed: [{ hostname: host, ip_addresses: ["192.0.2.10"] }] },
+    }));
+    ok(`a ${label} name that DNS answered reads as resolved in DNS`,
+      /resolved in DNS/.test(result?.description || "") && !/found only in a DNS record/.test(result?.description || ""),
+      result?.description);
+    ok(`a ${label} DNS-confirmed name stays unscored without an HTTP response`,
+      result?.score_impact === 0 && result?.severity === "low", JSON.stringify(result));
+    const wildcard = sensitiveFinding(unreachable(host, {
+      [key]: { confirmed: [{ hostname: host, ip_addresses: ["192.0.2.10"], wildcard_match: true }] },
+    }));
+    ok(`a ${label} wildcard-shaped answer is not DNS confirmation`,
+      /found only in a DNS record/.test(wildcard?.description || ""), wildcard?.description);
+  }
+  const linkedOnly = sensitiveFinding(unreachable(`dev.${DOMAIN}`, {}));
+  ok("an unconfirmed name keeps the weakest wording",
+    /found only in a DNS record or a link/.test(linkedOnly?.description || "") && linkedOnly?.severity === "info",
+    linkedOnly?.description);
+}
+
 console.log(`\nSubdomain sensitive names: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("subdomain sensitive-name validation FAILED"); process.exit(1); }
 console.log("subdomain sensitive-name validation passed");

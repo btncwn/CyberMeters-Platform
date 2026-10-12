@@ -53,8 +53,56 @@ describe('AttackSurfaceAssurance', () => {
     expect(screen.getByText('Observed')).toBeInTheDocument()
     expect(screen.getByText(/Migration 102 lifecycle fields are not recorded/i)).toBeInTheDocument()
     expect(screen.getByText('Alert withheld')).toBeInTheDocument()
-    expect(screen.getByText('withheld_reappearance_predecessor_unconfirmed')).toBeInTheDocument()
+    expect(screen.getByText('Asset seen again')).toBeInTheDocument()
+    expect(screen.getByText('The earlier disappearance was not confirmed.')).toBeInTheDocument()
     expect(screen.queryByText(/^Healthy$/i)).not.toBeInTheDocument()
+  })
+
+  it('never shows internal identifiers, codes or model versions', () => {
+    render(<AttackSurfaceAssurance presentations={[base]} />)
+    expect(screen.getByText('Attack Surface evidence')).toBeInTheDocument()
+    expect(screen.queryByText(/dom1/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/attack-surface-customer-presentation-v1/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/withheld_reappearance_predecessor_unconfirmed/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/asset_reappeared/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Model versions/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/attack-surface-signal-completeness-v1/)).not.toBeInTheDocument()
+  })
+
+  it('titles the evidence by its domain name', () => {
+    render(<AttackSurfaceAssurance presentations={[{ ...base, domain: 'example.com' }]} />)
+    expect(screen.getByText('Attack Surface evidence · example.com')).toBeInTheDocument()
+  })
+
+  it('states each check once and a shared note only once', () => {
+    const caveat = 'Detection alone does not establish maliciousness or compromise.'
+    const coverage = 'Coverage was not recorded for this scan. No completeness conclusion is inferred.'
+    const split = {
+      ...base,
+      signals: {
+        subdomain_discovery: {
+          ...base.signals.subdomain_discovery,
+          state: 'observed',
+          state_label: 'Observed',
+          customer_message: `Subdomain discovery evidence was observed in the recorded scope. ${caveat} ${coverage}`,
+          statement: 'Subdomain discovery evidence was observed in the recorded scope.',
+          caveat,
+          coverage_message: coverage,
+        },
+        dns_resolution: {
+          ...base.signals.dns_resolution,
+          customer_message: `DNS resolution evidence was observed in the recorded scope. ${caveat} ${coverage}`,
+          statement: 'DNS resolution evidence was observed in the recorded scope.',
+          caveat,
+          coverage_message: coverage,
+        },
+      },
+    }
+    render(<AttackSurfaceAssurance presentations={[split]} />)
+    expect(screen.getByText('Subdomain discovery evidence was observed in the recorded scope.')).toBeInTheDocument()
+    expect(screen.getByText('DNS resolution evidence was observed in the recorded scope.')).toBeInTheDocument()
+    expect(screen.getAllByText(caveat)).toHaveLength(1)
+    expect(screen.getAllByText(coverage)).toHaveLength(1)
   })
 
   it('shows an explicit notice instead of an empty healthy panel', () => {

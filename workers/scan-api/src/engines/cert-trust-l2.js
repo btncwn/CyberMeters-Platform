@@ -342,7 +342,6 @@ export function buildCertificateTrustL2(cert, options = {}) {
   const anomalies = buildAnomalies(current, rows);
   for (const anomaly of anomalies) {
     addFinding(findings, {
-      observed_via: via,
       ...anomaly,
       observed_via: anomaly.type === "parallel_certificate"
         ? "live_tls_endpoint_set"
