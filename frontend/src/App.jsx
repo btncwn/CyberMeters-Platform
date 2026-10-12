@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
 import ChunkErrorBoundary from './components/ChunkErrorBoundary'
 import MaintenanceOverlay from './components/MaintenanceOverlay'
+import MailtoAssist from './components/MailtoAssist'
 import ProtectedRoute from './components/ProtectedRoute'
 
 // ── Fallback Spinner Component ───────────────────────────────────────────
@@ -257,6 +258,7 @@ export default function App() {
           <AppRoutes />
         </ChunkErrorBoundary>
         <MaintenanceOverlay />
+        <MailtoAssist />
       </AuthProvider>
     </BrowserRouter>
   )

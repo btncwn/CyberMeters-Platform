@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Mail, Globe, Lock, ArrowRight, ShieldCheck, Check, Search,
-  MonitorCheck, KeyRound, Boxes, ClipboardList, Layers, PackageX, FileKey2, EyeOff,
+  Globe, ArrowRight, Check, Layers, PackageX, FileKey2, EyeOff,
 } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import IrisGlobe from '../components/landing/IrisGlobe'
@@ -15,56 +14,56 @@ const CONTACT = 'mailto:hello@cybermeters.com'
 // actually asks. Identity colours come from the shared domain palette.
 const SERVICES = [
   {
-    icon: KeyRound, name: 'Identity Exposure',
+    name: 'Identity Exposure',
     q: 'What is visible about our business identities?',
     copy: 'Review identity-provider relationships, identity-facing hostnames and measured endpoints. HTTP evidence is shown where collected. This is not employee breach or dark-web monitoring.',
     tags: ['Provider relationships', 'Identity-facing hostnames', 'Measured endpoints'],
     key: 'identity',
   },
   {
-    icon: Search, name: 'Attack Surface',
+    name: 'Attack Surface',
     q: 'What of mine is exposed to the internet?',
     copy: 'See discovered subdomains and exposed services. Review the evidence, track changes and recheck after a fix.',
     tags: ['Asset inventory', 'Subdomains', 'Takeover risk'],
     key: 'surface',
   },
   {
-    icon: Mail, name: 'Email Protection',
+    name: 'Email Protection',
     q: 'Can attackers send email as me?',
     copy: 'Review SPF, DKIM and DMARC in plain English. Connect email reports to see sending sources and plan your next policy change.',
     tags: ['DMARC setup', 'Sender inventory', 'Email reports'],
     key: 'email',
   },
   {
-    icon: MonitorCheck, name: 'Website Security',
+    name: 'Website Security',
     q: 'Is my website configured safely?',
     copy: 'HTTPS, redirects, security headers, cookie flags and visible website configuration issues in one place.',
     tags: ['HTTPS', 'Headers', 'Cookies'],
     key: 'website',
   },
   {
-    icon: Boxes, name: 'Shadow IT & Unmanaged Technology',
+    name: 'Shadow IT & Unmanaged Technology',
     q: 'Which outside tools are visible?',
     copy: 'Externally observed SaaS, vendors, third-party scripts and unmanaged technology signals for review.',
     tags: ['SaaS signals', 'Vendors', 'Scripts'],
     key: 'shadow_it',
   },
   {
-    icon: Lock, name: 'Certificates & Trust',
+    name: 'Certificates & Trust',
     q: 'Will my site quietly break trust?',
     copy: 'Track certificate expiry and review live TLS evidence, including hostname matching and checks against the recorded trust store.',
     tags: ['Expiry alerts', 'TLS posture', 'HTTPS trust'],
     key: 'certs',
   },
   {
-    icon: ShieldCheck, name: 'Brand Protection',
+    name: 'Brand Protection',
     q: 'Is anyone impersonating my brand?',
     copy: 'Review lookalike domain candidates and the evidence behind them. Decide which need attention and track the next action.',
     tags: ['Lookalike domains', 'Impersonation', 'Classification'],
     key: 'brand',
   },
   {
-    icon: ClipboardList, name: 'Cyber Essentials Readiness',
+    name: 'Cyber Essentials Readiness',
     q: 'How ready are we for Cyber Essentials?',
     copy: 'Evidence-led readiness support that combines externally observable signals with saved questionnaire answers.',
     tags: ['Readiness gaps', 'Evidence', 'Actions'],
@@ -345,15 +344,11 @@ export default function PublicLandingPage() {
           <SectionHeading id="areas-title" center title="Eight areas in one workspace" lead="Start with a bounded, honest external snapshot. The report separates observed issues from missing evidence, so you can decide what needs attention." />
           <div className="mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             {SERVICES.map(s => {
-              const Icon = s.icon
               const c = SERVICE_COLORS[s.key]
               return (
                 <article key={s.name} className="flex flex-col rounded-[12px] border bg-white p-6 transition-shadow hover:shadow-[0_18px_40px_-24px_rgba(18,26,46,.45)]" style={{ borderColor: c.ring }}>
-                  <div className="w-12 h-12 rounded-[10px] grid place-items-center" style={{ background: c.chip, color: c.icon }}>
-                    <Icon className="w-6 h-6" aria-hidden="true" />
-                  </div>
-                  <h3 className="font-cm font-normal mt-5 text-[24px] leading-[1.15] text-[#121A2E]">{s.name}</h3>
-                  <p className="mt-3 text-[15px] font-semibold leading-snug" style={{ color: c.text }}>{s.q}</p>
+                  <h3 className="font-cm font-normal text-[32px] leading-[1.08] text-[#121A2E]">{s.name}</h3>
+                  <p className="mt-4 text-[17px] font-semibold leading-snug" style={{ color: c.text }}>{s.q}</p>
                   <p className="mt-3 text-[16px] leading-[1.55] text-[#46506A]">{s.copy}</p>
                   <ul className="mt-auto pt-5 flex flex-wrap gap-2">
                     {s.tags.map(t => (
