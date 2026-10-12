@@ -2,7 +2,7 @@
 //
 // Backend patterns: every regex literal starting ^\/api\/ and every "/api/…"
 // string in the Worker's router (index.js + routes/**). Frontend calls: every
-// path passed to request()/requestBlob()/signInCall() and every `${BASE}/…` template in
+// path passed to request()/requestBlob()/outcomeCall() and every `${BASE}/…` template in
 // frontend/src (tests excluded). A template placeholder after "/" stands for
 // a path segment; any other placeholder (a query string or optional suffix)
 // is dropped, as is everything after "?".
@@ -76,7 +76,7 @@ function sampleOf(ts, node) {
 }
 
 // API helpers in frontend/src/api.js and the argument index that holds the path.
-const PATH_HELPERS = new Map([["request", 0], ["requestBlob", 0], ["signInCall", 1]]);
+const PATH_HELPERS = new Map([["request", 0], ["requestBlob", 0], ["outcomeCall", 1]]);
 
 export function extractFrontendCalls(root, ts, files = null) {
   const list = files || walk(path.join(root, "frontend/src"));

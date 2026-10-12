@@ -24,6 +24,7 @@ const SOURCE_LABELS = Object.freeze({
   dns_wordlist:             'DNS lookup (extended name list)',
   dns_name_variant:         'Name pattern check',
   dnssec_nsec:              'Listed in your DNSSEC zone records',
+  customer_list:            'Listed by you',
   // historical: assets discovered before certificate logs were retired.
   certificate_transparency: 'Certificate log (historical)',
 })

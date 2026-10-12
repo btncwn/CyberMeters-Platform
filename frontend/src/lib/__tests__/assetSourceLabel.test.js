@@ -31,6 +31,10 @@ describe('assetSourceLabel', () => {
     expect(assetSourceLabel('dnssec_nsec')).toBe('Listed in your DNSSEC zone records')
   })
 
+  it('names hostnames the customer listed', () => {
+    expect(assetSourceLabel('customer_list')).toBe('Listed by you')
+  })
+
   it('shows an unrecognised code as-is and an absent one as a dash', () => {
     expect(assetSourceLabel('future_source')).toBe('future_source')
     expect(assetSourceLabel('toString')).toBe('toString')

@@ -67,6 +67,7 @@ import { runSslModule } from "./ssl-scan.js";
 import { collectLiveTls, attachLiveTlsToSsl, liveCertificateFindings } from "./network-probe.js";
 import { collectReferencedHostnames, confirmReferencedHostnames, REFERENCED_HOSTNAME_LIMITS, referencedHostnamesNotExecuted, withConfirmedReferences } from "./referenced-hostnames.js";
 import { DISCOVERY_DEPTH_LIMITS, discoveryDepthNotExecuted, loadDiscoveryRotationIndex, runDiscoveryDepth } from "./discovery-depth.js";
+import { confirmListedHostnames, customerHostnamesNotExecuted, HOSTNAME_LIST_LIMITS, loadActiveHostnames } from "./discovery-hostname-list.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
 import { BRUTEFORCE_MAX_NAMES, SUBDOMAIN_DISCOVERY_SOURCE, filterWildcardBruteforceResults, isSensitiveSubdomain, prioritizeExposureTargets, runBruteforceModule, runSubdomainsModule, withReferencedHostnames } from "./subdomains-scan.js";
 import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply-chain.js";
@@ -1195,6 +1196,55 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       }
       const referencedHosts = withConfirmedReferences(mergedSubdomainItems, referencedResult);
 
+      // Hostnames the customer listed for this verified domain (migration 117):
+      // each is asked about, and joins discovery only when DNS answers for it.
+      let customerResult;
+      if (!durableInvocation) {
+        customerResult = customerHostnamesNotExecuted("invocation_not_durable");
+      } else {
+        const listedHostnames = await loadActiveHostnames(env, { workspaceId, domainId, domain });
+        if (listedHostnames === null) {
+          customerResult = customerHostnamesNotExecuted("list_unavailable");
+        } else if (listedHostnames.length === 0) {
+          customerResult = customerHostnamesNotExecuted("no_list");
+        } else {
+          let customerThrown = null;
+          const customerRun = await runCappedModule("customer_hostnames", {
+            estimateMs: HOSTNAME_LIST_LIMITS.budgetMs,
+            hardMs: HOSTNAME_LIST_LIMITS.budgetMs,
+            fallback: () => markDeadlineDeferred(customerHostnamesNotExecuted("deadline_deferred", listedHostnames.length)),
+            run: ({ accounting, signal }) => confirmListedHostnames(domain, listedHostnames, {
+              exclude: referencedHosts,
+              wildcardAddresses: subdomainsResult.wildcard_dns_addresses,
+              accounting,
+              signal,
+              cache: dnsCache,
+            }),
+          });
+          customerThrown = customerRun.thrown;
+          customerResult = customerThrown
+            ? customerHostnamesNotExecuted("lookup_step_failed", listedHostnames.length)
+            : customerRun.value;
+          const customerTimedOut = customerResult?.outcome === "deadline_exceeded";
+          const customerOutbound = customerThrown
+            ? (() => { customerRun.ctx?.markIncomplete?.("module_error"); return outboundAccounting.snapshot("customer_hostnames"); })()
+            : customerTimedOut
+            ? abandonOutbound(customerRun.ctx, "customer_hostnames", customerRun.startedMs != null ? "module_race" : "launch_gate")
+            : settleOutboundValue(customerRun.ctx, "customer_hostnames", customerResult);
+          telemetry.record("customer_hostnames", {
+            outcome:        telemetry.outcomeOf(customerResult),
+            timeout:        customerTimedOut,
+            error_class:    customerThrown?.name || null,
+            duration_ms:    customerRun.durationMs,
+            allocated_ms:   customerRun.startedMs != null ? customerRun.allocatedMs : 0,
+            timeout_source: customerTimedOut ? (customerRun.startedMs != null ? "module_race" : "launch_gate") : null,
+            outbound:       customerOutbound,
+            outbound_calls: customerOutbound?.outbound_measurement_complete ? customerOutbound.outbound_attempts_observed : null,
+          });
+        }
+      }
+      const listedHosts = withConfirmedReferences(referencedHosts, customerResult);
+
       // Deeper DNS discovery: a rotating slice of the authored word list, name
       // variants of hosts already found and a bounded NSEC walk. Guesses need
       // the wildcard answer to be told apart from real names, so the step does
@@ -1212,8 +1262,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           hardMs: DISCOVERY_DEPTH_LIMITS.budgetMs,
           fallback: () => markDeadlineDeferred(discoveryDepthNotExecuted("deadline_deferred")),
           run: ({ accounting, signal }) => runDiscoveryDepth(domain, {
-            knownHosts: [...referencedHosts, ...knownAssetHosts],
-            discoveredHosts: referencedHosts,
+            knownHosts: [...listedHosts, ...knownAssetHosts],
+            discoveredHosts: listedHosts,
             wildcardAddresses: subdomainsResult.wildcard_dns_addresses,
             rotationIndex: rotation.index,
             accounting,
@@ -1241,7 +1291,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           outbound_calls: depthOutbound?.outbound_measurement_complete ? depthOutbound.outbound_attempts_observed : null,
         });
       }
-      const discoveryHosts = withConfirmedReferences(referencedHosts, depthResult);
+      const discoveryHosts = withConfirmedReferences(listedHosts, depthResult);
 
       // The subdomains module carries the discovered set, so scoring and
       // certificate intelligence see every name found in this scan.
@@ -1252,6 +1302,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         items: discoveredItems,
         sensitive: discoveredItems.filter((host) => isSensitiveSubdomain(host, domain)),
         referenced_hostnames: referencedResult,
+        customer_hostnames: customerResult,
         discovery_depth: depthResult,
       };
       // Exposure probes the first 50 targets: high-value names (admin, VPN,

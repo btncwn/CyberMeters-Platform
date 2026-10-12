@@ -11,12 +11,12 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 106
-- **classified:** 106
-- **tenant owned tables:** 102
+- **schema tables:** 107
+- **classified:** 107
+- **tenant owned tables:** 103
 - **infra or identity tables:** 4
 - **unclassified:** 0
-- **resource classes:** 37
+- **resource classes:** 38
 - **classes with dynamic coverage:** 17
 
 ## The 12 invariants
@@ -41,6 +41,7 @@ data cannot be silently omitted.
 | identity_workforce_response | identity | direct(workspace_id) | 2 | — | — |
 | identity_public_sources | identity | direct(workspace_id) | 1 | — | — |
 | dns_provider_remediation | email | direct(workspace_id) | 2 | — | — |
+| hostname_lists | attack_surface | direct(workspace_id) | 1 | — | — |
 | network_assets | attack_surface | direct(workspace_id) | 3 | — | — |
 | workspaces | core | account(owner_user_id) | 1 | ✓ | ✓ |
 | workspace_memberships | core | direct(workspace_id) | 1 | ✓ | ✓ |
@@ -83,6 +84,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 - **identity_workforce_response:** Dedicated production-router controls in validate-identity-workforce.js cover tenant and role boundaries, immutable targets, one-attempt claims, uncertain outcomes, secret exclusion and purge; provider contracts are tested separately without live calls.
 - **identity_public_sources:** Masked evidence only. Dedicated production-router coverage in validate-identity-public-secrets.js verifies roles, domain authority, SSRF denial, post-fetch revocation, storage and tenant isolation.
 - **dns_provider_remediation:** Workspace/domain-owned encrypted connections and saved DNS changes. Dedicated production-entry coverage lives in scripts/validate-dns-remediation.js; not part of the general two-tenant/property harness.
+- **hostname_lists:** Customer hostname lists (mig 117): workspace_id + domain_id scoped; writes need domain:import on a live workspace and a domain verified in it, re-checked inside the write SQL; foreign and unverified domains refused alike; scan reads join the verified link and a live workspace and re-check scope; purged with the workspace (validate-discovery-hostname-list).
 - **network_assets:** Explicit attested public IP/CIDR scope; actual route/role, two-tenant denial, immutable receipt and queue identity coverage in validate-network-assets.js; purge and queue wiring in validate-network-integration.js.
 - **asset_events:** written by scan/cron; read via /assets + posture; workspace_id-scoped; isolation proven at the assets read surface + static audit
 - **findings:** scan_id-scoped; reachable only through /scans/:id ownership-gated report surfaces
@@ -130,6 +132,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `cyber_essentials_events` | direct(workspace_id) | cyber_essentials |
 | `cyber_mot_domain_states` | direct(workspace_id) | posture_state |
 | `deletion_requests` | direct(workspace_id) | deletion_lifecycle |
+| `discovery_hostname_lists` | direct(workspace_id) | hostname_lists |
 | `dmarc_aggregate_records` | direct(workspace_id) | email_protection |
 | `dmarc_aggregate_reports` | direct(workspace_id) | email_protection |
 | `dmarc_change_requests` | direct(workspace_id) | email_protection |
