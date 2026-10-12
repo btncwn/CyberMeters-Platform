@@ -16,6 +16,7 @@ const stable = (value) => JSON.stringify(value);
 const clone = (value) => structuredClone(value);
 
 const { runScanEngine } = await import(moduleUrl("workers/scan-api/src/engines/scan-engine.js"));
+const { liveTlsProbeBinding, liveTlsSsl } = await import(moduleUrl("scripts/lib/live-tls-fixture.mjs"));
 const { scanRoutes } = await import(moduleUrl("workers/scan-api/src/routes/scans.js"));
 const { runCertificateIntelligenceModule } = await import(
   moduleUrl("workers/scan-api/src/engines/cert-intel.js"));
@@ -59,10 +60,9 @@ function projectedIntelligence(modules, domain = "example.com") {
   });
 }
 
-// Stored records are read with the providers they recorded, so the default
-// models a historical record whose measuring CT provider has since been retired
-// (a neutral key, not a live provider). `ctSources` overrides the whole map,
-// e.g. a current CertSpotter-only record or a historical two-provider record.
+// historical: stored records from earlier scans carry the source map they
+// recorded (neutral keys here). `ctSources` overrides the whole map, e.g. a
+// single-source record or a two-source record.
 function storedModules({
   version = "external-certificate-observation-v2",
   includeEvidence = true,
@@ -82,7 +82,7 @@ function storedModules({
     cert_san_names: sans,
     cert_wildcard_san_count: wildcard,
     cert_shared_san_count: raw,
-    ct_sources: ctSources ?? { retired_provider: { count: ctCount, error: ctError } },
+    ct_sources: ctSources ?? { provider_a: { count: ctCount, error: ctError } },
   };
   if (includeEvidence) ssl.certificate_evidence = { schema_version: version };
   return {
@@ -107,8 +107,8 @@ const legacyAssessment = legacyProjected?.shared_san_assessment;
 // legacy gate (not the provider name) is what keeps an eager zero unproven.
 const legacyTwoProviderAssessment = assessment(storedModules({
   ctSources: {
-    retired_provider: { count: 0, error: "provider unavailable" },
-    certspotter: { count: 4, error: null },
+    provider_a: { count: 0, error: "provider unavailable" },
+    provider_b: { count: 4, error: null },
   },
 }));
 fixture("F01",
@@ -142,10 +142,10 @@ const brokenV3 = storedModules({
   ctError: "provider unavailable",
 });
 const brokenAssessment = assessment(brokenV3);
-// The same error sentinel on a current CertSpotter-only record.
+// The same error sentinel on a single-source record.
 const brokenCertSpotterAssessment = assessment(storedModules({
   version: "external-certificate-observation-v3",
-  ctSources: { certspotter: { count: 5, error: "provider unavailable" } },
+  ctSources: { provider_b: { count: 5, error: "provider unavailable" } },
 }));
 fixture("F06",
   brokenAssessment?.measurement_state === "unmeasured" &&
@@ -159,14 +159,14 @@ const nullV3 = storedModules({
   version: "external-certificate-observation-v3", raw: null,
   rawOwned: null, rawConfidence: null,
 });
-// A historical two-provider v3 record in which CertSpotter answered only as a
-// fallback: that branch never wrote the count, so it stays unmeasured.
+// A two-source v3 record whose second source answered only as a fallback: that
+// branch never wrote the count, so it stays unmeasured.
 const fallbackNullV3 = storedModules({
   version: "external-certificate-observation-v3", raw: null,
   rawOwned: null, rawConfidence: null,
   ctSources: {
-    retired_provider: { count: 0, error: "provider unavailable" },
-    certspotter: { count: 3, error: null },
+    provider_a: { count: 0, error: "provider unavailable" },
+    provider_b: { count: 3, error: null },
   },
 });
 fixture("F07",
@@ -274,6 +274,9 @@ async function runEngineScenario({ name, domain, commonName, names, expected }) 
     SCAN_SUBREQUEST_LIMIT: "200",
     SCAN_DEADLINE_MS: "115000",
     APP_VERSION: "candidate-a-engine-fixture",
+    // The live TLS collector presents the certificate: `commonName` is its
+    // subject and `names` its complete DNS SAN list.
+    NETWORK_PROBE: liveTlsProbeBinding({ subject: `CN=${commonName}`, dnsNames: names }),
   };
   const scanId = `scan-candidate-a-${name}`;
   const domainId = `domain-candidate-a-${name}`;
@@ -293,22 +296,8 @@ async function runEngineScenario({ name, domain, commonName, names, expected }) 
 
   const realFetch = globalThis.fetch;
   const realRandom = Math.random;
-  // Scans query CertSpotter as their sole CT source (ct-providers.js); its
-  // issuance carries the certificate's complete DNS SAN list but no subject, so
-  // `commonName` never reaches the engine and no subject is claimed.
-  let certSpotterCalls = 0;
   globalThis.fetch = async (input) => {
     const url = new URL(String(input));
-    if (url.hostname === "api.certspotter.com") {
-      certSpotterCalls += 1;
-      return jsonResponse([{
-        id: `certspotter-${name}`,
-        dns_names: names,
-        issuer: { name: "Candidate A Fixture CA" },
-        not_before: "2026-08-01T00:00:00.000Z",
-        not_after: "2099-08-01T00:00:00.000Z",
-      }]);
-    }
     if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
       return jsonResponse({ Status: 0, Answer: url.searchParams.get("type") === "A" ? [{ type: 1, data: "93.184.216.34" }] : [] });
     }
@@ -349,17 +338,17 @@ async function runEngineScenario({ name, domain, commonName, names, expected }) 
     return { response, body: await response.json() };
   };
   const route = await callReport();
-  return { db, store, trace, env, scanId, domainId, domain, engineError, rawBytes, report, route, callReport, expected, certSpotterCalls };
+  return { db, store, trace, env, scanId, domainId, domain, engineError, rawBytes, report, route, callReport, expected };
 }
 
-// The single-provider truth for a fresh engine record: CertSpotter was queried,
-// it is the only CT source the SSL record names, and no certificate subject is
-// claimed from an issuance that carries none.
-function certSpotterOnlyRecord(scenario) {
+// A fresh engine record measures from the live leaf only: the collector was
+// asked once, the served certificate is recorded, and no retired raw field
+// appears.
+function liveLeafRecord(scenario) {
   const ssl = scenario.report.modules?.ssl || {};
-  return scenario.certSpotterCalls > 0 &&
-    JSON.stringify(Object.keys(ssl.ct_sources || {})) === JSON.stringify(["certspotter"]) &&
-    ssl.cert_subject === null;
+  return scenario.env.NETWORK_PROBE.calls.length === 1 &&
+    ssl.live_certificate?.collection_complete === true &&
+    !("ct_sources" in ssl) && !("cert_shared_san_count" in ssl) && !("cert_subject" in ssl);
 }
 
 const scenarios = [];
@@ -393,8 +382,7 @@ fixture("F04", zeroScenarios.every((scenario) => {
   const projected = scenario.route.body?.modules?.certificate_intelligence?.shared_san_assessment;
   const rawStillSame = scenario.store.get(`reports/${scenario.scanId}.json`) === scenario.rawBytes;
   return scenario.engineError == null && scenario.route.response.status === 200 && rawStillSame &&
-    certSpotterOnlyRecord(scenario) &&
-    scenario.report.modules?.ssl?.cert_shared_san_count === 0 &&
+    liveLeafRecord(scenario) &&
     projected?.measurement_state === scenario.expected.state &&
     projected?.ownership_status === scenario.expected.status &&
     projected?.confidence === scenario.expected.confidence &&
@@ -406,22 +394,26 @@ const positive = scenarios[3];
 const positiveProjected = positive.route.body?.modules?.certificate_intelligence?.shared_san_assessment;
 fixture("F05",
   positive.engineError == null && positive.route.response.status === 200 &&
-  certSpotterOnlyRecord(positive) &&
-  positive.report.modules?.ssl?.cert_shared_san_count === 1 &&
+  liveLeafRecord(positive) &&
   positiveProjected?.measurement_state === "measured_positive" &&
   positiveProjected?.ownership_status === "shared_certificate" &&
   positiveProjected?.confidence === 50 && positiveProjected?.customer_owned === false &&
   positiveProjected?.shared_san_count === 1);
 
+// The SSL module's own evidence block (everything except the attached live TLS
+// observation) stays byte-stable; the live attachment declares schema v4.
+// Retiring certificate logs removed only the block's ct_projection entry.
 const evidence = scenarios[0].report.modules?.ssl?.certificate_evidence || {};
+const { live_tls: attachedLiveTls, ...evidenceBase } = evidence;
 const evidenceV2 = {
-  ...evidence,
+  ...evidenceBase,
   schema_version: "external-certificate-observation-v2",
   observed_at: "<engine-observed-at>",
 };
-const GOLDEN_EVIDENCE_V2 = "69a96451e093f41bc0be77233dbc4a0f21a368d177710310e53bc0848b97cca4";
+const GOLDEN_EVIDENCE_V2 = "ebd729ca330d48054f328f52a71f87625535f179e1aa255af5a8dc4f83baffa0";
 fixture("F10",
-  evidence.schema_version === "external-certificate-observation-v3" &&
+  evidence.schema_version === "external-certificate-observation-v4" &&
+  attachedLiveTls?.leaf_collected === true &&
   hash(stable(evidenceV2)) === GOLDEN_EVIDENCE_V2);
 
 function parityReport(projection = undefined) {
@@ -533,8 +525,12 @@ const parity = states.map(parityOutputs);
 // names only certspotter) and the asset-removal policy's passive_sources_excluded.
 // With only those two lists restored both previous hashes reproduce exactly;
 // the provider list alone restores F14, and F13 also needs the policy list.
-const GOLDEN_F13 = "1ae9c6da70766c4289637918744fdd96f206f35f593117df612e0bd2882dcde9";
-const GOLDEN_F14 = "10afaf0924b3faf7a5d55b1e306a437c721e17e30f6d74c31a3960e2f318beb0";
+// Retiring certificate logs moves the methodology stamps (resolver, monitoring,
+// certificate and attack-surface completeness versions, registry fingerprint,
+// snapshot builder) and the Attack Surface / Certificates wording; all five SAN
+// projection states still produce identical outputs.
+const GOLDEN_F13 = "658dda3cf8c08cd6dfb44d5b05cfa20847d099181c65c697f18d82969e9a9a08";
+const GOLDEN_F14 = "f21336e22ded348110b69c17470c3ba30389a1a416d9f7de624da6fcba1e1678";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
@@ -596,27 +592,20 @@ const unavailableIntel = runCertificateIntelligenceModule({
   ssl: {
     cert_san_count: null, cert_raw_san_count: null,
     cert_wildcard_san_count: null, cert_shared_san_count: null,
-    ct_sources: { certspotter: { count: 0, error: "unavailable" } },
+    ct_sources: { provider_a: { count: 0, error: "unavailable" } },
   },
 }, "example.com");
 fixture("F18",
   unavailableIntel.san_count === 0 && unavailableIntel.raw_san_count === 0 &&
   unavailableIntel.wildcard_san_count === 0 && unavailableIntel.shared_san_count === null);
 
-const CANDIDATE_EXPIRY_NOW_MS = Date.UTC(2026, 7, 30, 12, 0, 0);
-const candidateExpiryNotAfter = (days, skewDays = 0) => new Date(
-  CANDIDATE_EXPIRY_NOW_MS +
-    ((Number.isFinite(days) && days >= 0 ? days : 10) + 0.5 + skewDays) * 86_400_000,
-).toISOString();
-const expiryIntel = (days, notAfter = candidateExpiryNotAfter(days)) => runCertificateIntelligenceModule({
-  ssl: {
-    https_available: true,
-    cert_expiry_days: days,
-    cert_not_after: notAfter,
-    cert_issuer: "Candidate A Fixture CA",
-  },
-  subdomains: { items: [], sources: {} },
-}, "example.com", { nowMs: CANDIDATE_EXPIRY_NOW_MS });
+const CANDIDATE_EXPIRY_NOW = new Date(Date.UTC(2026, 7, 30, 12, 0, 0)).toISOString();
+// Expiry comes only from the served certificate's notAfter, observed by the
+// live TLS collector at a recorded instant.
+const expiryIntel = (days, notAfter = null) => runCertificateIntelligenceModule({
+  ssl: liveTlsSsl({ days, notAfter, finishedAt: CANDIDATE_EXPIRY_NOW }),
+  subdomains: { items: [] },
+}, "example.com");
 const expiryRows = (days, notAfter) => expiryIntel(days, notAfter).suspicious_certificate_signals
   .filter((signal) => signal.signal.startsWith("certificate_expir"));
 fixture("F22",
@@ -635,43 +624,43 @@ fixture("F24",
   expiryRows(29)[0]?.severity === "medium");
 fixture("F25", expiryRows(30).length === 0);
 fixture("F26",
-  [-1, Number.NaN, Number.POSITIVE_INFINITY, 0.5, null, "13"].every((days) => {
-    const result = expiryIntel(days);
-    return result.expiry_evidence === "not_usable" && expiryRows(days).length === 0;
+  ["not-a-date", "", "2026-13-45T00:00:00Z"].every((notAfter) => {
+    const result = expiryIntel(10, notAfter);
+    return result.expiry_evidence === "not_usable" && result.days_until_expiry === null &&
+      expiryRows(10, notAfter).length === 0;
   }));
 fixture("F27",
-  [-1, 0, 13, 14, 29, 30].every((days) =>
+  [0, 13, 14, 29, 30].every((days) =>
     !expiryIntel(days).suspicious_certificate_signals
-      .some((signal) => signal.signal === "certificate_expired")));
+      .some((signal) => signal.signal === "certificate_expired")) &&
+  expiryIntel(-2).suspicious_certificate_signals
+    .some((signal) => signal.signal === "certificate_expired" && signal.severity === "high"));
 const criticalExpiry = expiryRows(13)[0];
 const soonExpiry = expiryRows(14)[0];
 fixture("F28",
   expiryIntel(13).expiry_evidence === "usable" &&
-  criticalExpiry?.evidence_source === "certificate_transparency" &&
-  criticalExpiry?.live_certificate_verified === false &&
-  criticalExpiry?.evidence_basis === "latest_expiring_logged_certificate" &&
-  criticalExpiry?.title === "Logged certificate validity ends within 14 days" &&
-  soonExpiry?.title === "Logged certificate validity ends within 30 days");
+  criticalExpiry?.evidence_source === "live_tls" &&
+  criticalExpiry?.live_certificate_verified === true &&
+  criticalExpiry?.evidence_basis === "pinned_public_address_tls_handshake" &&
+  criticalExpiry?.title === "The live certificate expires within 14 days" &&
+  soonExpiry?.title === "The live certificate expires within 30 days");
 fixture("F29",
   [criticalExpiry, soonExpiry].every((signal) =>
-    signal?.description?.includes("Certificate Transparency") &&
-    signal.description.includes("returned by the available Certificate Transparency source") &&
-    !signal.description.includes("No currently valid publicly logged certificate") &&
-    signal.description.includes("not inspected") &&
+    signal?.description?.includes("served by this endpoint") &&
     !signal.description.includes("service outage")));
 fixture("F30",
-  [
-    null,
-    "",
-    "   ",
-    "not-a-date",
-    candidateExpiryNotAfter(10, 2),
-    "2100-01-01T00:00:00Z",
-    "2026-08-29T12:00:00.000Z",
-  ].every((notAfter) => {
-    const result = expiryIntel(10, notAfter);
-    return result.expiry_evidence === "not_usable" && expiryRows(10, notAfter).length === 0;
-  }));
+  (() => {
+    const result = runCertificateIntelligenceModule({
+      ssl: {
+        tls_state: "observed_present", https_available: true,
+        cert_expiry_days: 10, cert_not_after: "2026-09-09T12:00:00.000Z", cert_issuer: "Stored CA",
+      },
+      subdomains: { items: [] },
+    }, "example.com");
+    return result.expiry_evidence === "not_usable" && result.days_until_expiry === null &&
+      result.issuer === null &&
+      result.suspicious_certificate_signals.every((signal) => !signal.signal.startsWith("certificate_expir"));
+  })());
 
 function p2Guard() {
   const sslFile = source("workers", "scan-api", "src", "engines", "ssl-scan.js");
