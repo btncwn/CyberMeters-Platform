@@ -87,8 +87,8 @@ function respond(url, {
     }
     if (variableFanout && isFanoutSubdomain(name) && (type === "A" || type === "AAAA")) {
       const Answer = type === "A"
-        ? [{ type: 1, data: "93.184.216.34" }]
-        : [{ type: 28, data: "2606:2800:220:1:248:1893:25c8:1946" }];
+        ? [{ name, type: 1, TTL: 60, data: "93.184.216.34" }]
+        : [{ name, type: 28, TTL: 60, data: "2606:2800:220:1:248:1893:25c8:1946" }];
       return new Response(JSON.stringify({ Status: 0, Answer }), { status: 200, headers: { "content-type": "application/dns-json" } });
     }
     if (type === "A" && /^(?:example\.com|(?:www|admin)\.example\.com)$/.test(name)) return new Response(JSON.stringify({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] }), { status: 200, headers: { "content-type": "application/dns-json" } });
@@ -342,7 +342,8 @@ async function runEngineLedger(mode, {
 // This is a behavioral fixture, not a self-imposed physical 200 counter. It drives
 // the real legacy engine with every own-discovery source at its cap (40 word-list
 // names, 50 of 300 SRV targets, 25 of 40 linked hosts, 50 of 60 referenced
-// names), 50 historical recheck hosts, the
+// names, a 200-name rotating word-list slice and 100 name variants), 50
+// historical recheck hosts, the
 // takeover 100-host cap plus adversarial 100-answer CNAME multiplicity, exposure
 // 50-host cap, and the real redirect-hop guards.
 // The observed call count must exceed the application admission/report value 200
@@ -383,6 +384,24 @@ async function runEngineLedger(mode, {
     referenced?.executed === true && referenced?.incomplete === true &&
       referenced?.incomplete_reason === "check_cap_reached",
     JSON.stringify({ executed: referenced?.executed, incomplete: referenced?.incomplete, reason: referenced?.incomplete_reason }));
+  eq("max-fanout: every checked referenced name that DNS answers for is confirmed",
+    referenced?.confirmed?.length, 50);
+  const depth = bounded.report?.modules?.subdomains?.discovery_depth;
+  ok("max-fanout: the word-list slice checks at most its 200 names",
+    depth?.executed === true && depth?.wordlist?.checked > 0 && depth.wordlist.checked <= 200 &&
+      depth.wordlist.found === depth.wordlist.checked,
+    JSON.stringify(depth?.wordlist));
+  ok("max-fanout: name variants check at most their 100 names",
+    depth?.variants?.derived === 100 && depth.variants.checked > 0 && depth.variants.checked <= 100,
+    JSON.stringify(depth?.variants));
+  eq("max-fanout: an unsigned zone stops the NSEC walk after one question",
+    depth?.nsec?.queries, 1);
+  const sliceQuestions = bounded.counter.dnsQuestions
+    .filter((question) => question.type === "A" && /^accounts(?:-[a-z0-9]+)?\.example\.com$/.test(question.name))
+    .map((question) => question.name);
+  ok("max-fanout: discovery depth asks each word-list name once",
+    sliceQuestions.length > 0 && new Set(sliceQuestions).size === sliceQuestions.length,
+    `${sliceQuestions.length} questions, ${new Set(sliceQuestions).size} names`);
   eq("max-fanout: each referenced name costs at most one DNS question",
     bounded.counter.dnsQuestions.filter((question) => /^csp\d+\.example\.com$/.test(question.name) && question.type === "A").length, 50);
   eq("max-fanout: takeover reports all adversarial matching candidates",
