@@ -232,7 +232,8 @@ const EXPECTED = Object.freeze({
   // Trial PDF admission shifts source locations; all 23 existing projection SQL texts and multiplicities are unchanged.
   // Maturity history (domain JOIN) and workspace restore shift source positions only.
   // Hostname-list routes and the domain-unlink cascade shift source positions only.
-  sql_reads: { projection_occurrences: 23, fingerprint: "79d449db91ba0b90f5727e2e8224a14e7dc931506fd38f4fe8a65fe4db03ac6e" },
+  // Asset lifecycle labels and counts in the assets route shift source positions only.
+  sql_reads: { projection_occurrences: 23, fingerprint: "f0a9af64145715d61d3265c7bfe6575c8a45787fd9483739fe7d6806999bf4af" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

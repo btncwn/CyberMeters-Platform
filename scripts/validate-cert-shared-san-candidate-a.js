@@ -529,7 +529,10 @@ const parity = states.map(parityOutputs);
 // Without a captured live leaf the Certificates & Trust evidence basis now
 // states that no certificate fact is asserted; with only that sentence reverted
 // both previous hashes (658dda3c…, f21336e2…) reproduce exactly.
-const GOLDEN_F13 = "333f92db83dda7c46b676eecda21070e4a1d8304308a9d4f05b593a3ccd67b32";
+// Each Attack Surface signal gains three additive presentation fields
+// (statement, caveat, coverage_message); with only those fields removed the
+// previous F13 hash (333f92db…) reproduces exactly and F14 is unchanged.
+const GOLDEN_F13 = "6605b94fc426d5db924e3bffdf835f899321c67607eac5164928beeebea963d7";
 const GOLDEN_F14 = "aff8c25fb24ad7dc04883b188b7e72c3f5abca3b34b5706638183ce57bf07465";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
