@@ -1008,6 +1008,33 @@ jobs:
       - name: Validate own-observation discovery (no third-party certificate-log service; live TLS only)
         run: node scripts/validate-own-observation-discovery.js
 
+      - name: Validate asset recheck rotation
+        run: node scripts/validate-asset-recheck-rotation.js
+
+      - name: Validate DNS evidence extractors
+        run: node scripts/validate-discovery-dns-extractors.js
+
+      - name: Validate DNS observation semantics
+        run: node scripts/validate-discovery-dns-observation.js
+
+      - name: Validate discovery evidence extractors
+        run: node scripts/validate-discovery-extractors.js
+
+      - name: Validate inventory imports
+        run: node scripts/validate-discovery-inventory-import.js
+
+      - name: Validate discovery scope and relationships
+        run: node scripts/validate-discovery-scope-relations.js
+
+      - name: Validate discovery wordlist and variants
+        run: node scripts/validate-discovery-wordlist.js
+
+      - name: Validate hostname candidates
+        run: node scripts/validate-hostname-candidates.js
+
+      - name: Validate bounded NSEC walking
+        run: node scripts/validate-nsec-walk.js
+
       - name: Validate website signed-in scanning (vault, sign-in session, profiles)
         run: node scripts/validate-website-sign-in.js
 
