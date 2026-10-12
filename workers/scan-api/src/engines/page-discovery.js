@@ -25,6 +25,7 @@
 
 import { safeFetch } from "../lib/http.js";
 import { SECURITY_HEADERS } from "./security-headers-config.js";
+import { extractFromJavaScript, extractFromRobotsTxt, extractFromSitemapXml, mergeCandidateSets } from "./discovery-extractors.js";
 
 export const PAGE_DISCOVERY_VERSION = "2026-10-11.3";
 
@@ -563,6 +564,17 @@ export function setCookiesOf(headers) {
  * Returns { source, version, coverage, partial_reasons, homepage_url, limits,
  *           counts, sources, pages[] } — never `incomplete`.
  */
+// At most this many referenced hostnames travel in the module result.
+export const PAGE_HOSTNAME_REFERENCE_CAP = 100;
+
+function hostnameReferences(sets) {
+  const merged = mergeCandidateSets(...sets);
+  return {
+    candidates: merged.candidates.slice(0, PAGE_HOSTNAME_REFERENCE_CAP),
+    truncated: merged.truncated || merged.candidates.length > PAGE_HOSTNAME_REFERENCE_CAP,
+  };
+}
+
 export async function runPageDiscoveryModule(domain, opts = {}) {
   // Limits may only be TIGHTENED by a caller (tests use this); never loosened.
   const L = { ...PAGE_DISCOVERY_LIMITS };
@@ -578,6 +590,9 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
   const javascript = { scripts_read: 0, paths_found: 0, api_paths_found: 0 };
   const jsUnique = new Set();
   let jsChecked = 0, jsSeen = 0;
+  // Hostnames under the domain that robots.txt, the sitemaps and the scripts
+  // read here name. Candidates only: the engine confirms them by DNS.
+  const referenceSets = [];
 
   const timeLeft = () => (typeof opts.remainingMs === "function" ? opts.remainingMs() : Infinity);
   const canFetch = () => {
@@ -636,6 +651,7 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
     },
     sources,
     javascript: { ...javascript, paths_checked: jsChecked, paths_seen: jsSeen },
+    hostname_references: hostnameReferences(referenceSets),
     pages,
   });
 
@@ -703,7 +719,9 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
   if (canFetch()) {
     const robots = await get(new URL("/robots.txt", homeUrl).toString());
     if (robots && robots.status === 200 && fromSite(robots, hosts)) {
-      for (const sm of parseRobotsSitemaps(await readBoundedText(robots, 32_768))) {
+      const robotsText = await readBoundedText(robots, 32_768);
+      referenceSets.push(extractFromRobotsTxt(robotsText, { domain }));
+      for (const sm of parseRobotsSitemaps(robotsText)) {
         const u = toSitemapUrl(sm, homeUrl, hosts);
         if (u) { sitemapUrls.push(u); sources.robots_sitemaps++; }
       }
@@ -717,7 +735,9 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
     sitemapsFetched++;
     const res = await get(smUrl);
     if (!res || res.status !== 200 || !fromSite(res, hosts)) { await cancelBody(res); continue; }
-    const { isIndex, locs } = parseSitemap(await readBoundedText(res, L.sitemapBytes));
+    const sitemapText = await readBoundedText(res, L.sitemapBytes);
+    referenceSets.push(extractFromSitemapXml(sitemapText, { domain }));
+    const { isIndex, locs } = parseSitemap(sitemapText);
     if (isIndex) {
       for (const loc of locs.slice(0, 3)) { const u = toSitemapUrl(loc, homeUrl, hosts); if (u) sitemapQueue.push(u); }
       continue;
@@ -735,7 +755,9 @@ export async function runPageDiscoveryModule(domain, opts = {}) {
     const res = await get(scriptUrl);
     if (!res || res.status !== 200 || !fromSite(res, hosts)) { await cancelBody(res); continue; }
     javascript.scripts_read++;
-    const found = extractJsPaths(await readBoundedText(res, L.scriptBytes), L.maxJsPaths);
+    const scriptText = await readBoundedText(res, L.scriptBytes);
+    referenceSets.push(extractFromJavaScript(scriptText, { domain }));
+    const found = extractJsPaths(scriptText, L.maxJsPaths);
     for (const p of found) {
       const key = normalizePath(p);
       if (jsUnique.has(key)) continue;

@@ -168,6 +168,21 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
       ip_addresses: JSON.stringify(Array.isArray(item.ip_addresses) ? item.ip_addresses : []),
     });
   }
+  // Hostnames the site's own robots.txt, sitemaps and scripts name,
+  // confirmed by DNS after page discovery.
+  for (const item of modules?.subdomains?.page_references?.confirmed || []) {
+    const h = normalizeHostname(item?.hostname);
+    if (!h || typeof item?.asset_source !== "string") continue;
+    allAssets.push({
+      hostname:     h,
+      asset_type:   "subdomain",
+      source:       item.asset_source,
+      wildcard:     item.wildcard_match ? 1 : 0,
+      risk_level:   null,
+      cloud:        null,
+      ip_addresses: JSON.stringify(Array.isArray(item.ip_addresses) ? item.ip_addresses : []),
+    });
+  }
   // The merged discovery set (modules.subdomains.items) also carries names the
   // critical-prefix DNS checks found. It comes last so a more specific source
   // above keeps precedence in the dedupe below.

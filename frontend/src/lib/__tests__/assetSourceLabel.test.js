@@ -36,6 +36,12 @@ describe('assetSourceLabel', () => {
     expect(assetSourceLabel('customer_list')).toBe('Listed by you')
   })
 
+  it('names hostnames the site\'s own files name', () => {
+    expect(assetSourceLabel('robots_reference')).toBe('Named in your robots.txt')
+    expect(assetSourceLabel('sitemap_reference')).toBe('Listed in your sitemap')
+    expect(assetSourceLabel('script_reference')).toBe("Named in your website's scripts")
+  })
+
   it('shows an unrecognised code as-is and an absent one as a dash', () => {
     expect(assetSourceLabel('future_source')).toBe('future_source')
     expect(assetSourceLabel('toString')).toBe('toString')

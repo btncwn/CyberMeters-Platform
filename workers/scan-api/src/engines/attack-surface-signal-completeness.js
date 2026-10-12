@@ -84,7 +84,8 @@ function signal(state, reason, {
 // (technology_detection), names the domain's own configuration points at,
 // confirmed by DNS (referenced_hostnames), and the rotating word list, name
 // variants and NSEC walk (discovery_depth) and names the customer listed
-// (customer_hostnames), merged into modules.subdomains
+// (customer_hostnames) and names the site's own files name (page_references),
+// merged into modules.subdomains
 // together with the wildcard check that decides which wordlist answers are
 // real. A fixed wordlist can never prove that no other hostname exists, so
 // coverage is always bounded.
@@ -109,24 +110,31 @@ function resolveSubdomainDiscovery(modules) {
   });
   const subItems = Array.isArray(sub?.items) ? sub.items : [];
   const bruteItems = Array.isArray(brute?.items) ? brute.items : [];
+  // Names confirmed after page discovery live beside the discovered set.
+  const pageConfirmed = sub?.page_references?.executed === true && Array.isArray(sub.page_references.confirmed)
+    ? sub.page_references.confirmed.map((item) => item?.hostname).filter(Boolean)
+    : [];
   const observedCount = new Set([
     ...subItems,
     ...bruteItems
       .filter((item) => item?.wildcard_match !== true)
       .map((item) => item?.hostname)
       .filter(Boolean),
+    ...pageConfirmed,
   ].map((host) => String(host).toLowerCase())).size;
   // Names the customer's own configuration points at, confirmed by DNS. They
   // count as a source only when the lookups ran in this scan.
   const referenced = sub?.referenced_hostnames?.executed === true ? sub.referenced_hostnames : null;
   const depth = sub?.discovery_depth?.executed === true ? sub.discovery_depth : null;
   const listed = sub?.customer_hostnames?.executed === true ? sub.customer_hostnames : null;
+  const pageRefs = sub?.page_references?.executed === true ? sub.page_references : null;
   const sources = [
     ...(brute && !moduleNotAssessed(brute) ? ["dns_bruteforce", "dns_srv"] : []),
     ...(tech && !moduleNotAssessed(tech) ? ["html_link"] : []),
     ...(referenced ? ["referenced_hostnames"] : []),
     ...(depth ? ["discovery_depth"] : []),
     ...(listed ? ["customer_hostnames"] : []),
+    ...(pageRefs ? ["page_references"] : []),
   ];
   const limitations = [
     sub?.incomplete_reason,
@@ -134,6 +142,7 @@ function resolveSubdomainDiscovery(modules) {
     referenced?.incomplete_reason ? `referenced_hostnames_${referenced.incomplete_reason}` : null,
     depth?.incomplete_reason ? `discovery_depth_${depth.incomplete_reason}` : null,
     listed?.incomplete_reason ? `customer_hostnames_${listed.incomplete_reason}` : null,
+    pageRefs?.incomplete_reason ? `page_references_${pageRefs.incomplete_reason}` : null,
   ];
 
   if (observedCount > 0) {
