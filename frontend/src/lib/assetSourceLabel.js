@@ -26,6 +26,10 @@ const SOURCE_LABELS = Object.freeze({
   dns_name_variant:         'Name pattern check',
   dnssec_nsec:              'Listed in your DNSSEC zone records',
   customer_list:            'Listed by you',
+  // Named in the site's own files, confirmed by DNS.
+  robots_reference:         'Named in your robots.txt',
+  sitemap_reference:        'Listed in your sitemap',
+  script_reference:         "Named in your website's scripts",
   // historical: assets discovered before certificate logs were retired.
   certificate_transparency: 'Certificate log (historical)',
 })

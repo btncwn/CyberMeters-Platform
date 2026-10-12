@@ -68,6 +68,7 @@ import { collectLiveTls, attachLiveTlsToSsl, liveCertificateFindings } from "./n
 import { collectReferencedHostnames, confirmReferencedHostnames, REFERENCED_HOSTNAME_LIMITS, referencedHostnamesNotExecuted, withConfirmedReferences } from "./referenced-hostnames.js";
 import { DISCOVERY_DEPTH_LIMITS, discoveryDepthNotExecuted, loadDiscoveryRotationIndex, runDiscoveryDepth } from "./discovery-depth.js";
 import { confirmListedHostnames, customerHostnamesNotExecuted, HOSTNAME_LIST_LIMITS, loadActiveHostnames } from "./discovery-hostname-list.js";
+import { confirmPageReferences, PAGE_REFERENCE_LIMITS, pageReferencesNotExecuted, pendingPageReferences } from "./page-references.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
 import { BRUTEFORCE_MAX_NAMES, SUBDOMAIN_DISCOVERY_SOURCE, filterWildcardBruteforceResults, isSensitiveSubdomain, prioritizeExposureTargets, runBruteforceModule, runSubdomainsModule, withReferencedHostnames } from "./subdomains-scan.js";
 import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply-chain.js";
@@ -2115,6 +2116,53 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           });
         } catch { /* telemetry is observational only */ }
       }
+    }
+
+    // Phase 7a-i: hostnames the site's own robots.txt, sitemaps and scripts
+    // name (engines/page-references.js). They arrive after this scan's
+    // takeover and exposure checks, so a name DNS confirms joins the inventory
+    // now and gets those checks from the next scan's inventory re-check.
+    if (modules.subdomains && typeof modules.subdomains === "object") {
+      const pending = pendingPageReferences(domain, modules.page_discovery?.hostname_references,
+        [...(modules.subdomains.items || []), ...knownAssetHosts]);
+      let pageReferences;
+      if (!durableInvocation) {
+        pageReferences = pageReferencesNotExecuted("invocation_not_durable");
+      } else if (pending.length === 0) {
+        pageReferences = pageReferencesNotExecuted("no_references");
+      } else {
+        const refRun = await runCappedModule("page_references", {
+          estimateMs: PAGE_REFERENCE_LIMITS.budgetMs,
+          hardMs: PAGE_REFERENCE_LIMITS.budgetMs,
+          fallback: () => markDeadlineDeferred(pageReferencesNotExecuted("deadline_deferred", pending.length)),
+          run: ({ accounting, signal }) => confirmPageReferences(pending, {
+            wildcardAddresses: modules.subdomains.wildcard_dns_addresses,
+            accounting,
+            signal,
+            cache: dnsCache,
+          }),
+        });
+        pageReferences = refRun.thrown ? pageReferencesNotExecuted("lookup_step_failed", pending.length) : refRun.value;
+        const refTimedOut = pageReferences?.outcome === "deadline_exceeded";
+        try {
+          const refOutbound = refRun.thrown
+            ? (() => { refRun.ctx?.markIncomplete?.("module_error"); return outboundAccounting.snapshot("page_references"); })()
+            : refTimedOut
+            ? abandonOutbound(refRun.ctx, "page_references", refRun.startedMs != null ? "module_race" : "launch_gate")
+            : settleOutboundValue(refRun.ctx, "page_references", pageReferences);
+          telemetry.record("page_references", {
+            outcome:        telemetry.outcomeOf(pageReferences),
+            timeout:        refTimedOut,
+            error_class:    refRun.thrown?.name || null,
+            duration_ms:    refRun.durationMs,
+            allocated_ms:   refRun.startedMs != null ? refRun.allocatedMs : 0,
+            timeout_source: refTimedOut ? (refRun.startedMs != null ? "module_race" : "launch_gate") : null,
+            outbound:       refOutbound,
+            outbound_calls: refOutbound?.outbound_measurement_complete ? refOutbound.outbound_attempts_observed : null,
+          });
+        } catch { /* telemetry is observational only */ }
+      }
+      modules.subdomains = { ...modules.subdomains, page_references: pageReferences };
     }
 
     // Phase 7a-ii: Website Security findings from the site's own SIGN-IN pages

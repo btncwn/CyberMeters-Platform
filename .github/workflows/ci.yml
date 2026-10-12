@@ -1020,6 +1020,9 @@ jobs:
       - name: Validate known-host re-check rotation and takeover over the inventory
         run: node scripts/validate-discovery-recheck.js
 
+      - name: Validate page references (robots.txt, sitemap and script hostnames; DNS-confirmed, bounded)
+        run: node scripts/validate-page-references.js
+
       - name: Validate asset recheck rotation
         run: node scripts/validate-asset-recheck-rotation.js
 

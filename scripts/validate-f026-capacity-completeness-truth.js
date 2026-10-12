@@ -177,6 +177,7 @@ function variableOutboundBoundTruth() {
   const referencedSource = source("workers/scan-api/src/engines/referenced-hostnames.js");
   const depthSource = source("workers/scan-api/src/engines/discovery-depth.js");
   const listSource = source("workers/scan-api/src/engines/discovery-hostname-list.js");
+  const pageRefSource = source("workers/scan-api/src/engines/page-references.js");
   const importSource = source("workers/scan-api/src/engines/discovery-inventory-import.js");
 
   const mailLabelsBlock = subdomainsSource.match(/const MAIL_SUBDOMAIN_LABELS\s*=\s*\[([\s\S]*?)\];/)?.[1] || "";
@@ -212,8 +213,12 @@ function variableOutboundBoundTruth() {
   const listCapEnforced = /maxHostnames: DISCOVERY_IMPORT_LIMITS\.maxCandidates,/.test(listSource) &&
     /return \[\.\.\.names\]\.sort\(\)\.slice\(0, HOSTNAME_LIST_LIMITS\.maxHostnames\);/.test(listSource) &&
     /lookupNames\(pending, lookup,/.test(listSource);
+  // Names the site's own files name, confirmed after page discovery.
+  const pageRefCap = integerLiteral(pageRefSource, /maxChecks:\s*([\d_]+)/, "page reference maxChecks");
+  const pageRefCapEnforced = /const checks = list\.slice\(0, PAGE_REFERENCE_LIMITS\.maxChecks\);/.test(pageRefSource) &&
+    /lookupNames\(checks\.map\(\(item\) => item\.hostname\), lookup,/.test(pageRefSource);
   const discoveredCandidateCap = BRUTEFORCE_MAX_NAMES + mailLabelCount + srvTargetCap + LINKED_HOST_LIMITS.maxHosts +
-    referencedCheckCap + depthWordlistCap + depthVariantCap + depthNsecConfirmCap + listCap;
+    referencedCheckCap + depthWordlistCap + depthVariantCap + depthNsecConfirmCap + listCap + pageRefCap;
   const srvCapEnforced = /if \(srvItems\.length >= SRV_TARGET_CAP\) \{ srvTargetsDropped\+\+; continue; \}/.test(subdomainsSource);
   const knownAssetCap = integerLiteral(attackLifecycleSource, /const MAX_RECHECK_HOSTS\s*=\s*([\d_]+)/, "MAX_RECHECK_HOSTS");
   const exposureHostCap = integerLiteral(assetSource, /const targets\s*=\s*candidates\.slice\(0,\s*([\d_]+)\)/, "exposure host cap");
@@ -230,7 +235,7 @@ function variableOutboundBoundTruth() {
   const exposureOutboundBound = exposureHostCap * exposurePerHostBound;
   const takeoverHttpPerCandidateBound = takeoverRedirectHops + 1;
   const takeoverOutboundBound = takeoverHostCap + takeoverHostCap * takeoverHttpPerCandidateBound;
-  const namedVariableOutboundBound = bruteHostCap + referencedCheckCap + depthOutboundBound + listCap + exposureOutboundBound + takeoverOutboundBound;
+  const namedVariableOutboundBound = bruteHostCap + referencedCheckCap + depthOutboundBound + listCap + pageRefCap + exposureOutboundBound + takeoverOutboundBound;
   const fixedModeledEstimate = computeScanBudget(bruteHostCap).estimated_subrequests_total - bruteHostCap;
   const conservativeProfileEnvelope = fixedModeledEstimate + namedVariableOutboundBound;
   const providerCeiling = buildScanQuality(completeMod(), undefined, resolveScanCapacity({ SCAN_SUBREQUEST_LIMIT: 200 }))
@@ -247,12 +252,12 @@ function variableOutboundBoundTruth() {
       LINKED_HOST_LIMITS.maxHosts === 25 && referencedCheckCap === 50 && referencedCapEnforced &&
       depthWordlistCap === 200 && depthVariantCap === 100 && depthNsecQueryCap === 64 &&
       depthNsecConfirmCap === 64 && depthCapsEnforced && depthOutboundBound === 428 &&
-      listCap === 200 && listCapEnforced &&
-      discoveredCandidateCap === 737 &&
+      listCap === 200 && listCapEnforced && pageRefCap === 50 && pageRefCapEnforced &&
+      discoveredCandidateCap === 787 &&
       bruteHostCap === 56 && knownAssetCap === 50 &&
       exposureHostCap === 50 && takeoverHostCap === 100,
     JSON.stringify({ srvTargetCap, srvCapEnforced, linkedHostCap: LINKED_HOST_LIMITS.maxHosts,
-      referencedCheckCap, referencedCapEnforced, depthOutboundBound, depthCapsEnforced, listCap, listCapEnforced, discoveredCandidateCap, bruteHostCap, knownAssetCap, exposureHostCap, takeoverHostCap }));
+      referencedCheckCap, referencedCapEnforced, depthOutboundBound, depthCapsEnforced, listCap, listCapEnforced, pageRefCap, pageRefCapEnforced, discoveredCandidateCap, bruteHostCap, knownAssetCap, exposureHostCap, takeoverHostCap }));
   ok("(c) exposure redirect/DNS fan-out is source-bounded",
     protocolCount === 2 && RESERVED_MAX_REDIRECT_HOPS === 3 &&
       exposureHasTwoRemovalDnsQueries && ssrfHasTwoAddressQueries &&
@@ -266,7 +271,7 @@ function variableOutboundBoundTruth() {
   ok("(c) admin_surface is derived from completed exposure evidence with zero new network I/O",
     adminIsPure, JSON.stringify({ adminStart, adminEnd }));
   ok("(c) conservative named-variable envelope stays below provider 10000 but above admission 200",
-    conservativeProfileEnvelope === 2706 &&
+    conservativeProfileEnvelope === 2756 &&
       conservativeProfileEnvelope > 200 && conservativeProfileEnvelope < providerCeiling,
     JSON.stringify({ fixedModeledEstimate, namedVariableOutboundBound, conservativeProfileEnvelope, providerCeiling }));
 }
