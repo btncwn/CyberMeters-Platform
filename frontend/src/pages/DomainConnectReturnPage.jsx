@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { ShieldCheck, Clock, XCircle } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import { isAuthoritativeVerified } from '../lib/newScanVerification'
@@ -80,7 +79,6 @@ export default function DomainConnectReturnPage({ intervalMs = INTERVAL_MS }) {
         )}
         {status === 'verified' && (
           <>
-            <ShieldCheck className="w-10 h-10 text-brand-600 mx-auto" />
             <h1 className="text-lg font-semibold text-gray-900">Domain ownership verified</h1>
             <p className="text-sm text-gray-500">You can now run your Cyber MOT.</p>
             <div className="flex flex-wrap justify-center gap-2 pt-2">
@@ -91,7 +89,6 @@ export default function DomainConnectReturnPage({ intervalMs = INTERVAL_MS }) {
         )}
         {status === 'pending' && (
           <>
-            <Clock className="w-10 h-10 text-amber-500 mx-auto" />
             <h1 className="text-lg font-semibold text-gray-900">Your record is still being published</h1>
             <p className="text-sm text-gray-500">
               This usually takes under a minute, occasionally longer. CyberMeters also re-checks pending
@@ -105,7 +102,6 @@ export default function DomainConnectReturnPage({ intervalMs = INTERVAL_MS }) {
         )}
         {status === 'cancelled' && (
           <>
-            <XCircle className="w-10 h-10 text-gray-400 mx-auto" />
             <h1 className="text-lg font-semibold text-gray-900">No changes were made</h1>
             <p className="text-sm text-gray-500">
               The DNS change was cancelled at your provider. You can try again or add the TXT record yourself.
@@ -115,7 +111,6 @@ export default function DomainConnectReturnPage({ intervalMs = INTERVAL_MS }) {
         )}
         {status === 'invalid' && (
           <>
-            <XCircle className="w-10 h-10 text-gray-400 mx-auto" />
             <h1 className="text-lg font-semibold text-gray-900">We couldn&rsquo;t match this link to a domain</h1>
             <p className="text-sm text-gray-500">Start verification again from the domain page.</p>
             <Link to="/scans/new" className="btn-primary inline-flex">Go to New Scan</Link>

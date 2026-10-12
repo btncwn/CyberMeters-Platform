@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { RotateCcw, Trash2, CheckCircle, AlertTriangle } from 'lucide-react'
+import { RotateCcw } from 'lucide-react'
 import { api } from '../api'
 import { parseServerDate } from '../utils/dates'
 
@@ -74,7 +74,6 @@ export default function DeletedWorkspacesPanel({ justDeleted = null, onRestored 
     <section aria-label="Recently deleted workspaces" className="space-y-3">
       {restored && (
         <div role="status" className="rounded-xl border border-green-100 bg-green-50 p-4 flex items-start gap-3">
-          <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
           <div className="text-sm">
             <p className="font-semibold text-green-800">“{restored.name}” was restored.</p>
             <p className="text-green-700 mt-0.5">
@@ -101,7 +100,7 @@ export default function DeletedWorkspacesPanel({ justDeleted = null, onRestored 
             disabled={!!busyId}
             className="btn-secondary self-start sm:self-auto"
           >
-            <RotateCcw className={`w-4 h-4 ${busyId === justDeletedItem.id ? 'animate-spin' : ''}`} />
+            {busyId === justDeletedItem.id && <RotateCcw className="w-4 h-4 animate-spin" />}
             {busyId === justDeletedItem.id ? 'Restoring…' : 'Undo delete'}
           </button>
         </div>
@@ -109,16 +108,12 @@ export default function DeletedWorkspacesPanel({ justDeleted = null, onRestored 
 
       {(loadError || others.length > 0) && (
         <div className="card p-5">
-          <div className="flex items-center gap-2 mb-1">
-            <Trash2 className="w-4 h-4 text-gray-400" />
-            <h2 className="text-sm font-bold text-gray-900">Recently deleted</h2>
-          </div>
+          <h2 className="text-sm font-bold text-gray-900 mb-1">Recently deleted</h2>
           <p className="text-xs text-gray-500 mb-3">
             Deleted workspaces can be restored before permanent deletion. Restoring switches monitoring back on for the domains still in the workspace, within your plan's limits.
           </p>
           {loadError ? (
             <div className="flex items-center gap-2 text-sm text-red-700">
-              <AlertTriangle className="w-4 h-4" />
               <span>Deleted workspaces could not be loaded.</span>
               <button type="button" onClick={load} className="underline font-semibold">Retry</button>
             </div>
@@ -142,7 +137,7 @@ export default function DeletedWorkspacesPanel({ justDeleted = null, onRestored 
                     className="btn-secondary self-start sm:self-auto"
                     aria-label={`Restore ${ws.name}`}
                   >
-                    <RotateCcw className={`w-4 h-4 ${busyId === ws.id ? 'animate-spin' : ''}`} />
+                    {busyId === ws.id && <RotateCcw className="w-4 h-4 animate-spin" />}
                     {busyId === ws.id ? 'Restoring…' : 'Restore'}
                   </button>
                 </li>

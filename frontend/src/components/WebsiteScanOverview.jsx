@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRightLeft, Cookie, FileText, Lock, MonitorCheck } from 'lucide-react'
 import { api } from '../api'
 import { parseServerDate } from '../utils/dates'
 import { scanQualityMeta, toneClass } from '../lib/websiteSecurityDisplay'
@@ -27,16 +26,16 @@ function observations(report) {
     && Array.isArray(headers.present) && Array.isArray(headers.missing)
   const cookieData = headers?.accessible === true && cookies && !cookies.error && ['found', 'insecure_count', 'no_httponly', 'no_samesite'].every((key) => count(cookies[key]))
   return [
-    { title: 'HTTPS access', icon: Lock,
+    { title: 'HTTPS access',
       value: ssl?.https_probe_executed === false ? 'Not confirmed' : ssl?.https_available === true ? 'Response observed' : ssl?.https_available === false ? 'Not reachable in this scan' : 'Not confirmed',
       note: ssl?.www_fallback_used ? 'Response came from the www host. See the report for the exact endpoint.' : 'HTTPS availability at the time of this scan.' },
-    { title: 'HTTP → HTTPS', icon: ArrowRightLeft,
+    { title: 'HTTP → HTTPS',
       value: redirect === true ? 'Redirect observed' : redirect === false ? 'No redirect observed' : 'Not confirmed',
       note: 'Whether the HTTP request moved to HTTPS.' },
-    { title: 'Security headers', icon: FileText,
+    { title: 'Security headers',
       value: headerData ? `${headers.present.length} present · ${headers.missing.length} missing` : 'Not confirmed',
       note: 'Presence alone does not prove a strong policy. See the recorded values.' },
-    { title: 'Cookie attributes', icon: Cookie,
+    { title: 'Cookie attributes',
       value: cookieData ? (cookies.found ? `${cookies.found} cookies observed` : 'No cookies observed') : 'Not confirmed',
       note: cookieData && cookies.found ? `Without Secure: ${cookies.insecure_count} · HttpOnly: ${cookies.no_httponly} · SameSite: ${cookies.no_samesite}` : 'Checks Secure, HttpOnly and SameSite on observed cookies; absence does not prove a fix.' },
   ]
@@ -91,10 +90,7 @@ export default function WebsiteScanOverview({ workspaceId, refresh = 0 }) {
   return (
     <section aria-label="Website scan overview" className="card mb-8 overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-100 px-6 py-5">
-        <div className="flex items-center gap-3">
-          <span className="rounded-xl p-3" style={{ backgroundColor: colors.chip, color: colors.icon }}><MonitorCheck className="h-6 w-6" aria-hidden="true" /></span>
-          <div><p className="text-sm font-semibold" style={{ color: colors.text }}>Website protection overview</p><h2 className="section-title mt-1">What did the latest scan observe?</h2></div>
-        </div>
+        <div><p className="text-sm font-semibold" style={{ color: colors.text }}>Website protection overview</p><h2 className="section-title mt-1">What did the latest scan observe?</h2></div>
         {latest.size > 1 && <label className="max-w-full text-sm text-gray-600">Recent scan site
           <select className="input mt-1 block max-w-full text-base" value={scan.domain} onChange={(event) => setSelectedDomain(event.target.value)}>
             {[...latest.keys()].map((domain) => <option key={domain} value={domain}>{domain}</option>)}
@@ -116,8 +112,8 @@ export default function WebsiteScanOverview({ workspaceId, refresh = 0 }) {
                 {domainState?.conclusion_label && <p className="mt-4 text-base font-medium text-gray-700">{domainState.conclusion_label}</p>}
               </>}
         <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {observations(report).map(({ title, icon: Icon, value, note }) => <div key={title} className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-            <h3 className="flex items-center gap-2 text-base font-semibold text-gray-900"><Icon className="h-5 w-5 shrink-0" style={{ color: colors.icon }} aria-hidden="true" />{title}</h3>
+          {observations(report).map(({ title, value, note }) => <div key={title} className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+            <h3 className="text-base font-semibold text-gray-900">{title}</h3>
             <p className="mt-3 text-base font-semibold text-gray-800">{loading || reportPending ? 'Loading…' : value}</p>
             <p className="mt-2 text-sm leading-relaxed text-gray-600">{note}</p>
           </div>)}

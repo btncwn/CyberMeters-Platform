@@ -14,7 +14,7 @@
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle, X, ChevronRight, Briefcase, Globe, ScanLine, BarChart2 } from 'lucide-react'
+import { X } from 'lucide-react'
 
 const DISMISS_KEY = 'cybermeters_onboarding_dismissed'
 
@@ -22,7 +22,7 @@ function StepDot({ done, active, number }) {
   if (done) {
     return (
       <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0">
-        <CheckCircle className="w-4 h-4 text-white" />
+        <span className="text-xs font-bold text-white">{number}</span>
       </div>
     )
   }
@@ -52,7 +52,6 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
       number:  1,
       label:   'Create Workspace',
       detail:  'Set up your first monitoring workspace.',
-      icon:    Briefcase,
       done:    hasWorkspace,
       href:    '/onboarding',
       cta:     'Create',
@@ -61,7 +60,6 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
       number:  2,
       label:   'Add Domain',
       detail:  'Add the domain you want to monitor.',
-      icon:    Globe,
       done:    hasDomain,
       href:    hasWorkspace ? '/ws/dashboard' : '/onboarding',
       cta:     'Add domain',
@@ -70,7 +68,6 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
       number:  3,
       label:   'Run Scan',
       detail:  'Launch your first security assessment.',
-      icon:    ScanLine,
       done:    hasCompletedScan,
       href:    '/scans/new',
       cta:     'Start scan',
@@ -79,7 +76,6 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
       number:  4,
       label:   'Review Results',
       detail:  'Explore findings, score and asset inventory.',
-      icon:    BarChart2,
       done:    hasCompletedScan,
       href:    '/scans',
       cta:     'View results',
@@ -102,9 +98,11 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
       <div className="flex items-start justify-between gap-4 mb-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2.5 mb-1">
-            <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${allDone ? 'bg-brand-600' : 'bg-gray-900'}`}>
-              {allDone ? <CheckCircle className="w-4 h-4 text-white" /> : <span className="text-xs font-bold text-white">{doneCount + 1}</span>}
-            </div>
+            {!allDone && (
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 bg-gray-900">
+                <span className="text-xs font-bold text-white">{doneCount + 1}</span>
+              </div>
+            )}
             <p className="text-sm font-bold text-gray-900">
               {allDone ? 'Setup complete' : 'Getting started with CyberMeters'}
             </p>
@@ -114,7 +112,7 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
               </span>
             )}
           </div>
-          <p className="text-xs text-gray-500 pl-[38px]">
+          <p className={`text-xs text-gray-500 ${allDone ? '' : 'pl-[38px]'}`}>
             {allDone
               ? 'You\'ve completed the onboarding steps. Your first scan results are ready.'
               : `Step ${doneCount + 1} of ${steps.length} — ${activeStep?.label}`}
@@ -123,6 +121,7 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
         <button
           onClick={dismiss}
           title="Dismiss"
+          aria-label="Dismiss"
           className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
         >
           <X className="w-4 h-4" />
@@ -169,7 +168,6 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
                   className="self-start ml-9 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 transition-colors"
                 >
                   {step.cta}
-                  <ChevronRight className="w-3 h-3" />
                 </Link>
               )}
             </div>

@@ -7,7 +7,7 @@
 // choices and shows the result honestly. Assignment does not imply remediation
 // or verification — it only records who is accountable.
 import { useEffect, useState } from 'react'
-import { UserCircle2, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { api } from '../api'
 
 function memberLabel(m) {
@@ -64,7 +64,6 @@ export default function OwnerPicker({ wsId, caseId, caseRow, canManage = false, 
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
-        <UserCircle2 className="w-4 h-4 text-slate-400" />
         <span className="text-sm font-medium text-slate-800">Accountable owner</span>
       </div>
 

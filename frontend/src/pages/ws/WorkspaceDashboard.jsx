@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  BarChart2, Shield, Server, AlertTriangle, ShieldAlert, ScanLine,
+  BarChart2, Shield, Server, AlertTriangle,
   Package2, Zap, Tag, Terminal,
-  Globe, Upload, Plus, FileText, Clock, CheckCircle, Activity,
-  ShieldCheck, Copy, ExternalLink, ChevronDown, ChevronUp, Wifi,
+  Globe, FileText, Clock, Activity,
+  ShieldCheck, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import {
   AreaChart, Area,
@@ -42,9 +42,6 @@ function HealthBadge({ status }) {
   }[status] ?? 'bg-gray-50 text-gray-500 border-gray-100'
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${cfg}`}>
-      {status === 'healthy' && <CheckCircle className="w-3 h-3" />}
-      {status === 'warning' && <Clock className="w-3 h-3" />}
-      {status === 'stale'   && <AlertTriangle className="w-3 h-3" />}
       {({
         healthy: 'Monitoring: recent',
         warning: 'Monitoring: scan overdue',
@@ -73,7 +70,6 @@ function CopyButton({ text }) {
       title="Copy to clipboard"
       className="ml-1.5 inline-flex items-center gap-1 text-xs text-gray-400 hover:text-brand-600 transition-colors"
     >
-      {copied ? <CheckCircle className="w-3.5 h-3.5 text-brand-500" /> : <Copy className="w-3.5 h-3.5" />}
       {copied ? 'Copied' : 'Copy'}
     </button>
   )
@@ -94,7 +90,7 @@ function WizardStep({ n, label, active, done }) {
         active ? 'bg-brand-600 text-white' :
                  'bg-gray-100 text-gray-400'
       }`}>
-        {done ? <CheckCircle className="w-3.5 h-3.5" /> : n}
+        {n}
       </div>
       <span className={`text-xs font-medium hidden sm:block ${active ? 'text-gray-900' : done ? 'text-brand-600' : 'text-gray-400'}`}>
         {label}
@@ -204,16 +200,11 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
         onClick={() => setExpanded(v => !v)}
         className="w-full flex items-center justify-between px-6 py-4 border-b border-amber-100 hover:bg-amber-50/40 transition-colors text-left"
       >
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
-            <ShieldCheck className="w-4 h-4 text-amber-500" />
-          </div>
-          <div>
-            <p className="font-semibold text-gray-900 text-sm">Domain Ownership Verification</p>
-            <p className="text-xs text-amber-600">
-              {actionable.length} domain{actionable.length !== 1 ? 's' : ''} require verification
-            </p>
-          </div>
+        <div>
+          <p className="font-semibold text-gray-900 text-sm">Domain Ownership Verification</p>
+          <p className="text-xs text-amber-600">
+            {actionable.length} domain{actionable.length !== 1 ? 's' : ''} require verification
+          </p>
         </div>
         {expanded
           ? <ChevronUp className="w-4 h-4 text-gray-400" />
@@ -306,7 +297,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                       >
                         {generating
                           ? <><Activity className="w-4 h-4 animate-spin" /> Generating…</>
-                          : <><ShieldCheck className="w-4 h-4" /> Get Verification Instructions</>
+                          : 'Get Verification Instructions'
                         }
                       </button>
                       {genError && <p className="mt-2 text-xs text-red-500">{genError}</p>}
@@ -361,7 +352,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                     >
                       {checking
                         ? <><Activity className="w-4 h-4 animate-spin" /> Checking…</>
-                        : <><Wifi className="w-4 h-4" /> Check DNS</>
+                        : 'Check DNS'
                       }
                     </button>
                   )}
@@ -374,7 +365,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                   >
                     {verifying
                       ? <><Activity className="w-4 h-4 animate-spin" /> Verifying…</>
-                      : <><ShieldCheck className="w-4 h-4" /> Verify Ownership</>
+                      : 'Verify Ownership'
                     }
                   </button>
                   <span className="text-xs text-gray-400">Checks both DNS and HTML</span>
@@ -388,10 +379,6 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                         ? 'bg-amber-50 border-amber-100 text-amber-700'
                         : 'bg-gray-50 border-gray-100 text-gray-500'
                     }`}>
-                      {dnsResult.matches
-                        ? <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-brand-500" />
-                        : <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                      }
                       <div>
                         {dnsResult.matches
                           ? <p className="font-medium">DNS record found and matches — ready to verify!</p>
@@ -412,10 +399,6 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                         ? 'bg-brand-50 border-brand-100 text-brand-700'
                         : 'bg-red-50 border-red-100 text-red-600'
                     }`}>
-                      {verifyResult.success
-                        ? <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                        : <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                      }
                       <div>
                         <p className="font-medium">{verifyResult.success ? 'Verified!' : 'Verification failed'}</p>
                         <p className="text-xs opacity-80 mt-0.5">{verifyResult.message}</p>
@@ -464,9 +447,6 @@ function OnboardingWidget({ wsId, onDone }) {
 
   return (
     <div className="card p-10 text-center max-w-xl mx-auto">
-      <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center mx-auto mb-5">
-        <Globe className="w-7 h-7 text-brand-600" />
-      </div>
       <h2 className="text-xl font-bold text-gray-900 mb-2">Add your first domain</h2>
       <p className="text-sm text-gray-400 mb-8">
         Enter one domain to get started, or import a list to monitor your entire attack surface.
@@ -490,7 +470,7 @@ function OnboardingWidget({ wsId, onDone }) {
           >
             {importing
               ? <Activity className="w-4 h-4 animate-spin" />
-              : <><Plus className="w-4 h-4" /> Start Monitoring</>
+              : 'Start Monitoring'
             }
           </button>
         </div>
@@ -512,7 +492,7 @@ function OnboardingWidget({ wsId, onDone }) {
           >
             {importing
               ? <><Activity className="w-4 h-4 animate-spin" /> Importing…</>
-              : <><Upload className="w-4 h-4" /> Import &amp; Start Monitoring</>
+              : 'Import & Start Monitoring'
             }
           </button>
         </div>
@@ -529,7 +509,6 @@ function OnboardingWidget({ wsId, onDone }) {
 
       {importResult && (
         <div className="mt-5 p-4 bg-brand-50 rounded-xl text-sm text-brand-700">
-          <CheckCircle className="w-4 h-4 inline mr-1.5" />
           {importResult.imported} domain{importResult.imported !== 1 ? 's' : ''} added
           {importResult.skipped > 0 && ` · ${importResult.skipped} already existed`}
           {importResult.invalid > 0 && ` · ${importResult.invalid} invalid`}
@@ -538,7 +517,6 @@ function OnboardingWidget({ wsId, onDone }) {
 
       {importError && (
         <div className="mt-5 p-4 bg-red-50 rounded-xl text-sm text-red-600">
-          <AlertTriangle className="w-4 h-4 inline mr-1.5" />
           {importError}
         </div>
       )}
@@ -703,9 +681,6 @@ export default function WorkspaceDashboard() {
             <div className="mb-8 space-y-4">
               {/* Hero CTA */}
               <div className="card p-8 flex flex-col sm:flex-row sm:items-center gap-6">
-                <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center flex-shrink-0">
-                  <ScanLine className="w-7 h-7 text-brand-600" />
-                </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-base font-bold text-gray-900 mb-1">Run your first Cyber MOT</p>
                   <p className="text-sm text-gray-500 leading-relaxed">
@@ -714,22 +689,21 @@ export default function WorkspaceDashboard() {
                   </p>
                 </div>
                 <a href="/scans/new" className="btn-primary flex-shrink-0 inline-flex items-center gap-2">
-                  <Plus className="w-4 h-4" /> Start Scan
+                  Start Scan
                 </a>
               </div>
               {/* What a scan checks */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {[
-                  { icon: Shield,        label: 'DNS & SSL',           desc: 'Certificate validity, DNS hygiene, resolver agreement'   },
-                  { icon: ShieldAlert,   label: 'Security Headers',    desc: 'CSP, HSTS, X-Frame-Options and 6 other header controls'  },
-                  { icon: AlertTriangle, label: 'Email Security',      desc: 'SPF, DKIM, DMARC — misconfiguration is phishing risk'    },
-                  { icon: Server,        label: 'Subdomain Discovery', desc: 'Map your full attack surface including forgotten assets'  },
-                  { icon: Activity,      label: 'Asset Exposure',      desc: 'Open admin panels, dev environments and cloud leakage'   },
-                  { icon: BarChart2,     label: 'Risk Score',          desc: 'Single 0–100 Cyber Metrics Score with drill-down detail' },
-                ].map(({ icon: Icon, label, desc }) => (
+                  { label: 'DNS & SSL',           desc: 'Certificate validity, DNS hygiene, resolver agreement'   },
+                  { label: 'Security Headers',    desc: 'CSP, HSTS, X-Frame-Options and 6 other header controls'  },
+                  { label: 'Email Security',      desc: 'SPF, DKIM, DMARC — misconfiguration is phishing risk'    },
+                  { label: 'Subdomain Discovery', desc: 'Map your full attack surface including forgotten assets'  },
+                  { label: 'Asset Exposure',      desc: 'Open admin panels, dev environments and cloud leakage'   },
+                  { label: 'Risk Score',          desc: 'Single 0–100 Cyber Metrics Score with drill-down detail' },
+                ].map(({ label, desc }) => (
                   <div key={label} className="card p-4">
                     <div className="flex items-center gap-2 mb-2">
-                      <Icon className="w-4 h-4 text-brand-500 flex-shrink-0" />
                       <span className="text-xs font-semibold text-gray-900">{label}</span>
                     </div>
                     <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
@@ -821,11 +795,10 @@ export default function WorkspaceDashboard() {
               ) : (
                 /* No executive summary — prompt to generate a report */
                 <div className="card p-10 text-center">
-                  <FileText className="w-10 h-10 text-gray-200 mx-auto mb-3" />
                   <p className="text-gray-500 font-medium mb-1">No executive summary yet.</p>
                   <p className="text-sm text-gray-400 mb-5">Generate your first executive report to see an AI-powered summary here.</p>
                   <a href="/ws/reports" className="btn-secondary mx-auto inline-flex items-center gap-2">
-                    <FileText className="w-4 h-4" /> Generate Report
+                    Generate Report
                   </a>
                 </div>
               )}

@@ -1,15 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  AlertCircle,
-  ArrowRight,
-  CheckCircle2,
-  ClipboardCheck,
-  HelpCircle,
-  Loader2,
-  RefreshCw,
-  Save,
-  ShieldCheck,
-} from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { api } from '../../api'
 import {
   readinessMeta as ceReadinessMeta, coverageMeta as ceCoverageMeta,
@@ -245,7 +235,6 @@ function ControlResultCard({ control, readinessNotAssessed = false }) {
       {!readinessNotAssessed && control.contradiction && (
         <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 p-3">
           <div className="flex gap-2">
-            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
             <p className="text-sm leading-relaxed text-amber-800">{control.contradiction.message}</p>
           </div>
         </div>
@@ -271,16 +260,14 @@ function ControlResultCard({ control, readinessNotAssessed = false }) {
       {(measuredGaps.length > 0 || selfGaps.length > 0) && (
         <div className="mt-4">
           <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-400">Gap analysis</p>
-          <ul className="space-y-2">
+          <ul className="list-disc pl-5 space-y-2">
             {measuredGaps.map((gap, index) => (
-              <li key={`measured-${index}`} className="flex gap-2 text-sm leading-relaxed text-gray-600">
-                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+              <li key={`measured-${index}`} className="text-sm leading-relaxed text-gray-600">
                 <span>{gap}</span>
               </li>
             ))}
             {selfGaps.map((gap, index) => (
-              <li key={`self-${gap}-${index}`} className="flex gap-2 text-sm leading-relaxed text-gray-600">
-                <HelpCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-500" />
+              <li key={`self-${gap}-${index}`} className="text-sm leading-relaxed text-gray-600">
                 <span>Self-declared answer needs review: {String(gap).replace(/_/g, ' ')}</span>
               </li>
             ))}
@@ -298,7 +285,6 @@ function PriorityGaps({ readiness }) {
         <h2 className="font-semibold text-gray-900">Priority gaps to review</h2>
         <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
           <div className="flex gap-3">
-            <HelpCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-500" />
             <p className="text-sm leading-relaxed text-gray-700">
               Readiness cannot currently be assessed for this workspace. Priority gaps will appear when current external evidence is available for assessment.
             </p>
@@ -335,7 +321,6 @@ function PriorityGaps({ readiness }) {
           {gaps.map((gap, index) => (
             <li key={`${gap.control || 'gap'}-${index}`} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
               <div className="flex gap-3">
-                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wide text-gray-400">{gap.source}{gap.control ? ` · ${gap.control}` : ''}</p>
                   <p className="mt-1 text-sm leading-relaxed text-gray-600">{gap.text}</p>
@@ -347,7 +332,6 @@ function PriorityGaps({ readiness }) {
       ) : (
         <div className="mt-4 rounded-xl border border-brand-100 bg-brand-50 p-4">
           <div className="flex gap-3">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-600" />
             <p className="text-sm leading-relaxed text-brand-800">
               No major readiness gaps found. Review the self-declared areas carefully and keep evidence before starting the formal Cyber Essentials process.
             </p>
@@ -499,7 +483,6 @@ function ResultSummary({ readiness }) {
     <section className={`rounded-2xl border p-5 ${overallTone(readiness)}`}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
-          <ShieldCheck className="mt-0.5 h-7 w-7 flex-shrink-0" />
           <div>
             <p className="text-sm font-bold uppercase tracking-wide opacity-70">External readiness indicator</p>
             <h2 className="mt-1 text-2xl font-bold">
@@ -648,7 +631,6 @@ export default function WorkspaceCyberEssentialsPage() {
 
         <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50 p-4">
           <div className="flex gap-3">
-            <HelpCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600" />
             <p className="text-sm leading-relaxed text-blue-800">
               Some controls can be supported by Cyber MOT evidence. Others depend on your internal users, devices and processes, so they must be self-declared.
             </p>
@@ -668,13 +650,11 @@ export default function WorkspaceCyberEssentialsPage() {
               ))
             ) : (
               <div className="card p-6 text-center">
-                <ClipboardCheck className="mx-auto h-10 w-10 text-gray-300" />
-                <h2 className="mt-3 text-base font-bold text-gray-900">No readiness questions available</h2>
+                <h2 className="text-base font-bold text-gray-900">No readiness questions available</h2>
                 <p className="mx-auto mt-2 max-w-lg text-sm text-gray-500">
                   CyberMeters could not load the Cyber Essentials question set for this workspace. Try again in a moment.
                 </p>
                 <button type="button" onClick={load} className="btn-secondary mt-5">
-                  <RefreshCw className="h-4 w-4" />
                   Retry
                 </button>
               </div>
@@ -694,7 +674,7 @@ export default function WorkspaceCyberEssentialsPage() {
                     <p className="text-xs text-gray-500">Readiness output refreshes after save.</p>
                   </div>
                   <button type="button" onClick={saveAnswers} disabled={saving} className="btn-primary disabled:cursor-not-allowed disabled:opacity-50">
-                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                     {saving ? 'Saving...' : 'Save answers'}
                   </button>
                 </div>
@@ -719,8 +699,7 @@ export default function WorkspaceCyberEssentialsPage() {
               </div>
             ) : (
               <div className="card p-6 text-center">
-                <ShieldCheck className="mx-auto h-10 w-10 text-gray-300" />
-                <h2 className="mt-3 text-base font-bold text-gray-900">Readiness result not available yet</h2>
+                <h2 className="text-base font-bold text-gray-900">Readiness result not available yet</h2>
                 <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-gray-500">
                   Save your answers to refresh the workspace Cyber Essentials readiness view.
                 </p>
@@ -734,7 +713,6 @@ export default function WorkspaceCyberEssentialsPage() {
 
             <div className="rounded-2xl border border-gray-200 bg-white p-5">
               <div className="flex items-start gap-3">
-                <HelpCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-gray-400" />
                 <p className="text-sm leading-relaxed text-gray-600">{FINAL_DISCLAIMER}</p>
               </div>
             </div>

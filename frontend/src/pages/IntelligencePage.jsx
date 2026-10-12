@@ -1,12 +1,7 @@
 import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import {
-  Brain, Briefcase, CheckCircle, XCircle, AlertCircle, AlertTriangle,
-  Shield, ShieldAlert, Mail, Cpu, Bug, Flame, RefreshCw,
-  ChevronRight, TrendingUp, TrendingDown, Info, Globe, Lock, History,
-  ExternalLink,
-} from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
@@ -89,15 +84,10 @@ const CVE_SEV_STYLE = {
 
 // ── Shared primitives ─────────────────────────────────────────────────────────
 
-function SectionHeader({ icon: Icon, title, aside, iconBg = 'bg-brand-100', iconColor = 'text-brand-700' }) {
+function SectionHeader({ title, aside }) {
   return (
     <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-gray-50/80">
-      <div className="flex items-center gap-2">
-        <div className={`w-6 h-6 rounded-md ${iconBg} flex items-center justify-center flex-shrink-0`}>
-          <Icon className={`w-3.5 h-3.5 ${iconColor}`} />
-        </div>
-        <h2 className="text-sm font-bold text-gray-900">{title}</h2>
-      </div>
+      <h2 className="text-sm font-bold text-gray-900">{title}</h2>
       {aside && <div className="flex-shrink-0">{aside}</div>}
     </div>
   )
@@ -106,19 +96,16 @@ function SectionHeader({ icon: Icon, title, aside, iconBg = 'bg-brand-100', icon
 function StatusPill({ value, trueLabel = 'Yes', falseLabel = 'No' }) {
   return value
     ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full">
-        <CheckCircle className="w-3 h-3" />{trueLabel}
+        {trueLabel}
       </span>
     : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">
-        <XCircle className="w-3 h-3" />{falseLabel}
+        {falseLabel}
       </span>
 }
 
-function EmptyState({ icon: Icon = Info, title, subtitle }) {
+function EmptyState({ title, subtitle }) {
   return (
     <div className="flex flex-col items-center gap-2 py-10 text-center px-6">
-      <div className="w-10 h-10 rounded-2xl bg-gray-100 flex items-center justify-center">
-        <Icon className="w-5 h-5 text-gray-300" />
-      </div>
       <p className="text-sm font-semibold text-gray-500">{title}</p>
       {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
     </div>
@@ -185,9 +172,6 @@ function NoWorkspaceState() {
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8">
       <div className="card p-12 flex flex-col items-center text-center gap-4">
-        <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center">
-          <Brain className="w-7 h-7 text-brand-600" />
-        </div>
         <div>
           <h3 className="text-base font-bold text-gray-900 mb-1">No workspace selected</h3>
           <p className="text-sm text-gray-400 max-w-xs">
@@ -195,7 +179,6 @@ function NoWorkspaceState() {
           </p>
         </div>
         <Link to="/workspaces" className="btn-primary">
-          <Briefcase className="w-4 h-4" />
           Go to Workspaces
         </Link>
       </div>
@@ -358,9 +341,8 @@ function HistoricalComparisonSection({ changes, assessment, scanQuality }) {
   if (changes.comparable !== true) {
     return (
       <div className="card overflow-hidden">
-        <SectionHeader icon={History} title="Changes Since Last Scan" iconBg="bg-amber-50" iconColor="text-amber-600" />
+        <SectionHeader title="Changes Since Last Scan" />
         <div className="px-5 py-5 flex items-start gap-2.5 text-sm text-gray-500">
-          <AlertCircle className="w-4 h-4 flex-shrink-0 text-amber-500 mt-0.5" />
           <div>
             <p className="font-semibold text-gray-700">Not comparable</p>
             <p className="text-xs text-gray-500 mt-1 leading-relaxed">
@@ -403,7 +385,7 @@ function HistoricalComparisonSection({ changes, assessment, scanQuality }) {
 
   return (
     <div className="card overflow-hidden">
-      <SectionHeader icon={History} title="Changes Since Last Scan" iconBg="bg-blue-50" iconColor="text-blue-600" />
+      <SectionHeader title="Changes Since Last Scan" />
       {previousScore != null && currentScore != null && (
         <div className="px-5 py-4 flex items-center justify-between gap-4 border-b border-gray-100">
           <p className="text-sm font-semibold text-gray-900">Score Comparison</p>
@@ -421,7 +403,6 @@ function HistoricalComparisonSection({ changes, assessment, scanQuality }) {
       )}
       {noChanges && (
         <div className="px-5 py-4 flex items-center gap-2 text-sm text-gray-500">
-          <CheckCircle className="w-4 h-4 text-brand-500 flex-shrink-0" />
           No changes detected since the previous comparable assessment.
         </div>
       )}
@@ -452,8 +433,8 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
   if (!risk || risk.error) {
     return (
       <div className="card overflow-hidden">
-        <SectionHeader icon={TrendingUp} title="Risk Intelligence" iconBg="bg-red-50" iconColor="text-red-500" />
-        <EmptyState icon={Info} title="No risk data" subtitle={risk?.error} />
+        <SectionHeader title="Risk Intelligence" />
+        <EmptyState title="No risk data" subtitle={risk?.error} />
       </div>
     )
   }
@@ -468,22 +449,11 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
   const counts   = risk.finding_counts || {}
   const cats     = risk.risk_categories || {}
 
-  const catIcons = {
-    'Data Security':  { icon: Lock,          bg: 'bg-red-50',    color: 'text-red-500'    },
-    'Web Security':   { icon: Globe,         bg: 'bg-orange-50', color: 'text-orange-500' },
-    'Brand Risk':     { icon: AlertTriangle, bg: 'bg-amber-50',  color: 'text-amber-500'  },
-    'Availability':   { icon: TrendingDown,  bg: 'bg-blue-50',   color: 'text-blue-500'   },
-    'Reconnaissance': { icon: Bug,           bg: 'bg-purple-50', color: 'text-purple-500' },
-    'Other':          { icon: Info,          bg: 'bg-gray-100',  color: 'text-gray-400'   },
-  }
 
   return (
     <div className="card overflow-hidden">
       <SectionHeader
-        icon={TrendingUp}
         title="Risk Intelligence"
-        iconBg="bg-red-50"
-        iconColor="text-red-500"
         aside={riskLevel ? (
           <span className={`text-xs font-bold px-3 py-1 rounded-full border ${lvlStyle.pill}`}>
             {riskLevel} Risk
@@ -525,16 +495,11 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
       {Object.entries(cats).length > 0 && (
         <div className="divide-y divide-gray-50">
           {Object.entries(cats).map(([cat, items]) => {
-            const cfg    = catIcons[cat] || catIcons.Other
-            const CatIcon = cfg.icon
             const shown  = items.slice(0, 5)
             const more   = items.length - shown.length
             return (
               <div key={cat} className="px-5 py-4">
                 <div className="flex items-center gap-2 mb-3">
-                  <div className={`w-5 h-5 rounded-md ${cfg.bg} flex items-center justify-center`}>
-                    <CatIcon className={`w-3 h-3 ${cfg.color}`} />
-                  </div>
                   <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">{cat}</span>
                   <span className="text-xs text-gray-300 ml-auto">{items.length} finding{items.length !== 1 ? 's' : ''}</span>
                 </div>
@@ -609,8 +574,8 @@ function RemediationSection({ plan, assessmentMessage = null }) {
   if (!plan || plan.error) {
     return (
       <div className="card overflow-hidden">
-        <SectionHeader icon={Shield} title="Remediation Plan" iconBg="bg-orange-50" iconColor="text-orange-500" />
-        <EmptyState icon={Info} title="No remediation plan" subtitle={plan?.error} />
+        <SectionHeader title="Remediation Plan" />
+        <EmptyState title="No remediation plan" subtitle={plan?.error} />
       </div>
     )
   }
@@ -626,10 +591,7 @@ function RemediationSection({ plan, assessmentMessage = null }) {
   return (
     <div className="card overflow-hidden">
       <SectionHeader
-        icon={Shield}
         title="Remediation Plan"
-        iconBg="bg-orange-50"
-        iconColor="text-orange-500"
         aside={<span className="text-xs text-gray-400">{summary.total ?? 0} total actions</span>}
       />
 
@@ -663,12 +625,10 @@ function RemediationSection({ plan, assessmentMessage = null }) {
           <div className="flex items-center gap-2 py-6 justify-center text-sm text-gray-400">
             {plan.incomplete ? (
               <>
-                <Info className="w-4 h-4 text-amber-500" />
                 {assessmentMessage || 'Assessment incomplete'}
               </>
             ) : (
               <>
-                <CheckCircle className="w-4 h-4 text-brand-500" />
                 No {activeTab.toUpperCase()} items
               </>
             )}
@@ -704,9 +664,8 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
   if (!intel || intel.error || !isPhase5EvidenceAvailable(intel)) {
     return (
       <div className="card overflow-hidden">
-        <SectionHeader icon={Mail} title="Email Security Intelligence" iconBg="bg-blue-50" iconColor="text-blue-600" />
+        <SectionHeader title="Email Security Intelligence" />
         <EmptyState
-          icon={Mail}
           title="No email intelligence data"
           subtitle={!isPhase5EvidenceAvailable(intel) ? assessmentMessage : intel?.error}
         />
@@ -735,10 +694,7 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
   return (
     <div className="card overflow-hidden">
       <SectionHeader
-        icon={Mail}
         title="Email Security Intelligence"
-        iconBg="bg-blue-50"
-        iconColor="text-blue-600"
         aside={
           <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${bizBadgeCls}`}>
             {bizRisk || '—'} Business Risk
@@ -823,10 +779,9 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
       {intel.strengths?.length > 0 && (
         <div className="px-5 py-3 border-t border-gray-100 bg-brand-50/40">
           <p className="text-[12px] font-bold text-brand-700 uppercase tracking-widest mb-2">Strengths</p>
-          <ul className="space-y-1">
+          <ul className="list-disc pl-5 space-y-1">
             {intel.strengths.map((s, i) => (
-              <li key={i} className="flex items-start gap-1.5 text-xs text-brand-800">
-                <CheckCircle className="w-3 h-3 flex-shrink-0 mt-0.5 text-brand-600" />
+              <li key={i} className="text-xs text-brand-800">
                 {s}
               </li>
             ))}
@@ -842,12 +797,8 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
           </div>
           {intel.business_impacts.map((imp, i) => {
             const rlBadge = { CRITICAL: 'badge-critical', HIGH: 'badge-high', MEDIUM: 'badge-medium', LOW: 'badge-low' }
-            const iconCls = imp.risk_level === 'CRITICAL' ? 'text-red-500'
-                          : imp.risk_level === 'HIGH'     ? 'text-orange-500'
-                          : imp.risk_level === 'MEDIUM'   ? 'text-amber-500' : 'text-blue-400'
             return (
               <div key={i} className="px-5 py-3 flex items-start gap-3 border-t border-gray-50">
-                <AlertCircle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${iconCls}`} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start gap-2 justify-between">
                     <p className="text-xs font-semibold text-gray-800">{imp.technical}</p>
@@ -914,8 +865,8 @@ function TechDetectionSection({ tech }) {
   if (!tech || tech.error) {
     return (
       <div className="card overflow-hidden">
-        <SectionHeader icon={Cpu} title="Technology Stack" iconBg="bg-purple-50" iconColor="text-purple-600" />
-        <EmptyState icon={Cpu} title="No technology data" subtitle={tech?.error} />
+        <SectionHeader title="Technology Stack" />
+        <EmptyState title="No technology data" subtitle={tech?.error} />
       </div>
     )
   }
@@ -935,10 +886,7 @@ function TechDetectionSection({ tech }) {
   return (
     <div className="card overflow-hidden">
       <SectionHeader
-        icon={Cpu}
         title="Technology Stack"
-        iconBg="bg-purple-50"
-        iconColor="text-purple-600"
         aside={<span className="text-xs text-gray-400">{techs.length} detected</span>}
       />
 
@@ -980,7 +928,6 @@ function TechDetectionSection({ tech }) {
           </div>
           {tech.info_findings.map((f, i) => (
             <div key={i} className="px-5 py-3 border-t border-gray-50 flex items-start gap-3">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-xs font-semibold text-gray-800">{f.title}</p>
                 <p className="text-[13px] text-gray-400 mt-0.5 leading-relaxed">{f.description}</p>
@@ -999,9 +946,8 @@ function CveIntelSection({ cve, assessmentMessage = null }) {
   if (!cve || cve.error || !isPhase5EvidenceAvailable(cve)) {
     return (
       <div className="card overflow-hidden">
-        <SectionHeader icon={Bug} title="CVE Intelligence" iconBg="bg-red-50" iconColor="text-red-500" />
+        <SectionHeader title="CVE Intelligence" />
         <EmptyState
-          icon={Bug}
           title="No CVE data"
           subtitle={!isPhase5EvidenceAvailable(cve)
             ? (cve?.customer_message || assessmentMessage)
@@ -1017,10 +963,7 @@ function CveIntelSection({ cve, assessmentMessage = null }) {
   return (
     <div className="card overflow-hidden">
       <SectionHeader
-        icon={Bug}
         title="CVE Intelligence"
-        iconBg="bg-red-50"
-        iconColor="text-red-500"
         aside={
           <div className="flex items-center gap-3 text-xs">
             {(cve.critical_count ?? 0) > 0 && (
@@ -1044,7 +987,6 @@ function CveIntelSection({ cve, assessmentMessage = null }) {
 
       {checked.length === 0 ? (
         <EmptyState
-          icon={CheckCircle}
           title="No technologies matched CVE allow-list"
           subtitle="Technology detection did not identify any software in the CVE query list."
         />
@@ -1065,7 +1007,6 @@ function CveIntelSection({ cve, assessmentMessage = null }) {
                   </div>
                 ) : cves.length === 0 ? (
                   <div className="px-5 py-3 flex items-center gap-2 text-xs text-brand-600">
-                    <CheckCircle className="w-3.5 h-3.5" />
                     No HIGH+ CVEs found for this technology
                   </div>
                 ) : (
@@ -1105,9 +1046,8 @@ function KevSection({ kev, assessmentMessage = null }) {
   if (!kev || kev.error || !isPhase5EvidenceAvailable(kev)) {
     return (
       <div className="card overflow-hidden">
-        <SectionHeader icon={Flame} title="CISA KEV Matches" iconBg="bg-red-50" iconColor="text-red-500" />
+        <SectionHeader title="CISA KEV Matches" />
         <EmptyState
-          icon={Flame}
           title="No KEV data"
           subtitle={!isPhase5EvidenceAvailable(kev) ? assessmentMessage : kev?.error}
         />
@@ -1120,15 +1060,12 @@ function KevSection({ kev, assessmentMessage = null }) {
   return (
     <div className="card overflow-hidden">
       <SectionHeader
-        icon={Flame}
         title="CISA KEV Matches"
-        iconBg="bg-red-50"
-        iconColor="text-red-500"
         aside={
           matches.length > 0
             ? <span className="badge-critical">{matches.length} match{matches.length !== 1 ? 'es' : ''}</span>
             : <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600">
-                <CheckCircle className="w-3.5 h-3.5" />No matches
+                No matches
               </span>
         }
       />
@@ -1140,9 +1077,6 @@ function KevSection({ kev, assessmentMessage = null }) {
 
       {matches.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-8 text-center px-5">
-          <div className="w-9 h-9 rounded-2xl bg-brand-50 flex items-center justify-center">
-            <CheckCircle className="w-5 h-5 text-brand-600" />
-          </div>
           <p className="text-sm font-semibold text-gray-700">No KEV matches</p>
           <p className="text-xs text-gray-400 leading-relaxed">
             Detected technologies did not match any entries in the CISA Known Exploited Vulnerabilities catalog.
@@ -1153,7 +1087,6 @@ function KevSection({ kev, assessmentMessage = null }) {
           {matches.map((m, i) => (
             <li key={m.cve_id || i} className="px-5 py-4">
               <div className="flex items-start gap-3">
-                <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
                     <span className="text-xs font-bold mono text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded">
@@ -1266,9 +1199,6 @@ export default function IntelligencePage() {
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <div className="w-7 h-7 rounded-lg bg-brand-50 flex items-center justify-center">
-              <Brain className="w-4 h-4 text-brand-600" />
-            </div>
             <h1 className="text-xl font-bold text-gray-900">Intelligence Dashboard</h1>
           </div>
           <p className="text-sm text-gray-400">
@@ -1293,7 +1223,7 @@ export default function IntelligencePage() {
             </select>
           )}
           <button onClick={() => load(true)} disabled={refreshing} className="btn-secondary">
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
             Refresh
           </button>
         </div>
@@ -1312,15 +1242,11 @@ export default function IntelligencePage() {
       {/* No completed scans */}
       {!loading && !error && scans.length === 0 && (
         <div className="card p-12 flex flex-col items-center text-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center">
-            <Brain className="w-7 h-7 text-gray-400" />
-          </div>
           <div>
             <h3 className="text-base font-bold text-gray-900 mb-1">No completed scans</h3>
             <p className="text-sm text-gray-400">Run a scan in this workspace to see intelligence data.</p>
           </div>
           <button onClick={() => navigate('/scans/new')} className="btn-primary">
-            <ChevronRight className="w-4 h-4" />
             Start a Scan
           </button>
         </div>
@@ -1332,7 +1258,6 @@ export default function IntelligencePage() {
           {/* Scan context strip */}
           {storedScanObj && (
             <div className="flex items-center gap-3 text-sm bg-white border border-gray-100 rounded-xl px-4 py-2.5 shadow-sm">
-              <Globe className="w-4 h-4 text-gray-400 flex-shrink-0" />
               <span className="font-semibold text-gray-800">{contextDomain}</span>
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${assessmentPresentation.band.pill}`}>
                 {assessmentPresentation.band.label}
@@ -1347,7 +1272,7 @@ export default function IntelligencePage() {
                 {parseServerDate(storedScanObj.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
               </span>
               <Link to={`/scans/${storedScanObj.id}`} className="btn-ghost ml-auto text-xs gap-1">
-                Full Report <ExternalLink className="w-3 h-3" />
+                Full Report
               </Link>
             </div>
           )}

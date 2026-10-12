@@ -1,5 +1,4 @@
 import { Link } from 'react-router-dom'
-import { Shield } from 'lucide-react'
 
 function Section({ title, children }) {
   return (
@@ -17,9 +16,6 @@ export default function DpaPage() {
 
         {/* Brand */}
         <Link to="/" className="inline-flex items-center gap-2 group mb-8">
-          <div className="w-7 h-7 rounded-md bg-brand-600 flex items-center justify-center">
-            <Shield className="w-4 h-4 text-white" strokeWidth={2.5} />
-          </div>
           <span className="font-bold text-gray-900 text-sm group-hover:text-brand-700 transition-colors">CyberMeters</span>
         </Link>
 

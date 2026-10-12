@@ -1,9 +1,5 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  Mail, Radar, Globe, Lock, ArrowRight, Sparkles, CheckCircle, ClipboardCheck,
-  MonitorCheck, KeyRound, Boxes,
-} from 'lucide-react'
 import { api } from '../api'
 import { useWorkspace } from '../hooks/useWorkspace'
 
@@ -15,61 +11,57 @@ import { useWorkspace } from '../hooks/useWorkspace'
 
 const SERVICES = [
   {
-    key: 'identity', icon: KeyRound, title: 'Identity Exposure',
+    key: 'identity', title: 'Identity Exposure',
     copy: 'Review provider relationships, possible identity-facing hostnames and measured endpoints supported by HTTP evidence.',
     cta: 'Open Identity Exposure', to: '/ws/identity-exposure',
   },
   {
-    key: 'surface', icon: Globe, title: 'Attack Surface',
+    key: 'surface', title: 'Attack Surface',
     copy: 'Discover exposed domains, subdomains, assets, admin surfaces and risky external signals.',
     cta: 'Open Attack Surface', to: '/assets',
   },
   {
-    key: 'email', icon: Mail, title: 'Email Protection',
+    key: 'email', title: 'Email Protection',
     copy: 'Protect against spoofing, invoice fraud and supplier impersonation using DMARC, sender intelligence and BEC Exposure.',
     cta: 'Open Email Protection', to: '/ws/email-protection',
   },
   {
-    key: 'website', icon: MonitorCheck, title: 'Website Security',
+    key: 'website', title: 'Website Security',
     copy: 'Check HTTPS, redirects, headers, cookie flags and externally visible website configuration.',
     cta: 'Open Website Security', to: '/ws/website-security',
   },
   {
-    key: 'shadow_it', icon: Boxes, title: 'Shadow IT & Unmanaged Technology',
+    key: 'shadow_it', title: 'Shadow IT & Unmanaged Technology',
     copy: 'Track externally observed SaaS, vendors, scripts and unmanaged technology signals.',
     cta: 'Open Shadow IT', to: '/ws/shadow-it',
   },
   {
-    key: 'certs', icon: Lock, title: 'Certificates & Trust',
+    key: 'certs', title: 'Certificates & Trust',
     copy: 'Track HTTPS, TLS and certificate expiry so trust failures do not surprise the business.',
     cta: 'Open Certificates & Trust', to: '/ws/certificates',
   },
   {
-    key: 'brand', icon: Radar, title: 'Brand Protection',
+    key: 'brand', title: 'Brand Protection',
     copy: 'Find lookalike domains and classify impersonation candidates before they are used for fraud.',
     cta: 'Open Brand Protection', to: '/ws/brand-monitoring',
   },
   {
-    key: 'cyber_essentials', icon: ClipboardCheck, title: 'Cyber Essentials Readiness',
+    key: 'cyber_essentials', title: 'Cyber Essentials Readiness',
     copy: 'Review externally observable evidence and saved answers against the readiness workflow.',
     cta: 'Open Cyber Essentials', to: '/ws/cyber-essentials',
   },
 ]
 
 function ServiceCard({ service }) {
-  const Icon = service.icon
   return (
     <Link
       to={service.to}
       className="group card p-6 flex flex-col items-start hover:border-brand-200 hover:shadow-card-md transition-all hover:-translate-y-0.5"
     >
-      <div className="w-12 h-12 rounded-xl bg-brand-50 ring-1 ring-brand-100 flex items-center justify-center mb-4 group-hover:bg-brand-600 transition-colors">
-        <Icon className="w-6 h-6 text-brand-600 group-hover:text-white transition-colors" />
-      </div>
       <h2 className="text-lg font-bold text-gray-900">{service.title}</h2>
       <p className="text-sm text-gray-500 mt-1.5 leading-relaxed flex-1">{service.copy}</p>
       <span className="mt-5 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-brand-200 text-brand-700 text-sm font-semibold bg-white group-hover:bg-brand-600 group-hover:text-white group-hover:border-brand-600 shadow-btn transition-all">
-        {service.cta} <ArrowRight className="w-4 h-4" />
+        {service.cta}
       </span>
     </Link>
   )
@@ -84,12 +76,9 @@ const STEP_STATUS = {
 }
 function StepRow({ n, title, explanation, status, actionLabel, to }) {
   const s = STEP_STATUS[status] || STEP_STATUS.recommended
-  const done = status === 'done'
   return (
     <li className="flex items-start gap-3 py-3">
-      {done
-        ? <CheckCircle className="w-5 h-5 text-brand-600 flex-shrink-0 mt-0.5" />
-        : <span className="w-5 h-5 rounded-full border border-gray-300 text-[13px] font-bold text-gray-400 flex items-center justify-center flex-shrink-0 mt-0.5">{n}</span>}
+      <span className="w-5 h-5 rounded-full border border-gray-300 text-[13px] font-bold text-gray-400 flex items-center justify-center flex-shrink-0 mt-0.5">{n}</span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold text-gray-900">{title}</p>
@@ -168,14 +157,11 @@ export default function ServiceLauncher() {
 
         {/* 2 · Recommended next action — the clearest section */}
         <div className="card p-5 border-brand-100 bg-brand-50/40 flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-white border border-brand-100 flex items-center justify-center flex-shrink-0">
-            <Sparkles className="w-5 h-5 text-brand-600" />
-          </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide">Recommended next step</p>
             <p className="text-sm text-gray-800 mt-0.5 leading-relaxed">{next.text}</p>
           </div>
-          <Link to={next.to} className="btn-primary text-sm flex-shrink-0">{next.cta} <ArrowRight className="w-4 h-4" /></Link>
+          <Link to={next.to} className="btn-primary text-sm flex-shrink-0">{next.cta}</Link>
         </div>
 
         {/* 3 · Cyber MOT domains */}

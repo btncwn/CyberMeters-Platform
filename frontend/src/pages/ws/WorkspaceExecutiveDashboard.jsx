@@ -1,12 +1,6 @@
 import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import {
-  TrendingUp, TrendingDown, Minus,
-  ShieldCheck, AlertTriangle, AlertOctagon, Globe,
-  CheckCircle2, Layers, FileBarChart2, Clock,
-  Zap, Eye, ChevronRight,
-} from 'lucide-react'
-import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts'
@@ -29,12 +23,6 @@ const SEV_COLORS = {
 const SCORE_COLOR = (s) =>
   metaForScore(s).color
 
-function scoreIconBg(score) {
-  if (score == null || score === '') return 'bg-gray-50'
-  const bg = metaForScore(score).pill.split(' ').find(c => c.startsWith('bg-'))
-  return bg || 'bg-gray-50'
-}
-
 // Maps score-derived posture rating values to display labels (Security Rating system).
 // Kept separate from finding severity (critical/high/medium/low) which uses RiskBadge.
 const RATING_LABEL = {
@@ -56,13 +44,10 @@ function riskLabel(rating) {
 
 // Label-led metric card (meaning first, number second) — matches the shared
 // StatCard hierarchy used across the app.
-function SummaryCard({ label, value, sub, Icon, color = 'text-gray-800', iconBg = 'bg-gray-100' }) {
+function SummaryCard({ label, value, sub, color = 'text-gray-800' }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-200/80 shadow-card p-5">
       <div className="flex items-start gap-2">
-        <div className={`w-7 h-7 rounded-lg ${iconBg} flex items-center justify-center flex-shrink-0`}>
-          <Icon className={`w-4 h-4 ${color}`} />
-        </div>
         <p className="text-sm font-semibold text-gray-900 leading-snug">{label}</p>
       </div>
       {sub && <p className="text-xs text-gray-500 mt-1 leading-snug">{sub}</p>}
@@ -209,8 +194,6 @@ function TopRisksTable({ risks }) {
 
 function ChangesWidget({ changes }) {
   const { score_current, score_previous, score_delta, score_direction, new_assets_7d } = changes ?? {}
-  const DeltaIcon = score_direction === 'up' ? TrendingUp
-    : score_direction === 'down' ? TrendingDown : Minus
   const deltaColor = score_direction === 'up' ? 'text-green-600'
     : score_direction === 'down' ? 'text-red-500' : 'text-gray-400'
 
@@ -219,7 +202,6 @@ function ChangesWidget({ changes }) {
       <div className="bg-gray-50 rounded-lg p-4">
         <p className="text-xs text-gray-500 mb-1">Score Change</p>
         <div className="flex items-center gap-2">
-          <DeltaIcon className={`w-5 h-5 ${deltaColor}`} />
           <span className={`text-xl font-bold ${deltaColor}`}>
             {score_delta != null ? `${score_delta > 0 ? '+' : ''}${score_delta}` : '—'}
           </span>
@@ -258,7 +240,6 @@ function RemBucket({ label, items, accent }) {
         <ul className="space-y-2">
           {items.map((item, i) => (
             <li key={i} className="flex items-start gap-2 text-sm">
-              <ChevronRight className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${accentCls.text}`} />
               <div>
                 <p className="text-gray-800 font-medium leading-tight">{item.title}</p>
                 {item.domain && <p className="text-gray-400 text-xs font-mono">{item.domain}</p>}
@@ -277,18 +258,17 @@ function RemBucket({ label, items, accent }) {
 
 function KpiBar({ kpis }) {
   const items = [
-    { label: 'Verification Rate', value: kpis?.verification_rate != null ? `${kpis.verification_rate}%` : '—', Icon: CheckCircle2 },
-    { label: 'Avg Score',         value: kpis?.average_score ?? '—',        Icon: ShieldCheck    },
-    { label: 'Critical Risks',    value: kpis?.critical_risks ?? 0,          Icon: AlertOctagon   },
-    { label: 'Reports Generated', value: kpis?.reports_generated ?? 0,       Icon: FileBarChart2  },
-    { label: 'Assets Tracked',    value: kpis?.assets_discovered ?? 0,       Icon: Layers         },
+    { label: 'Verification Rate', value: kpis?.verification_rate != null ? `${kpis.verification_rate}%` : '—' },
+    { label: 'Avg Score',         value: kpis?.average_score ?? '—' },
+    { label: 'Critical Risks',    value: kpis?.critical_risks ?? 0 },
+    { label: 'Reports Generated', value: kpis?.reports_generated ?? 0 },
+    { label: 'Assets Tracked',    value: kpis?.assets_discovered ?? 0 },
   ]
   return (
     <div className="bg-white rounded-xl border border-gray-200">
       <div className="grid grid-cols-5 divide-x divide-gray-100">
-        {items.map(({ label, value, Icon }) => (
+        {items.map(({ label, value }) => (
           <div key={label} className="flex flex-col items-center py-4 px-3 text-center">
-            <Icon className="w-4 h-4 text-brand-500 mb-1.5" />
             <span className="text-xl font-bold text-gray-900">{value}</span>
             <span className="text-[12px] text-gray-400 uppercase tracking-wide mt-0.5">{label}</span>
           </div>
@@ -341,7 +321,6 @@ export default function WorkspaceExecutiveDashboard() {
         </div>
         {gen && (
           <div className="flex items-center gap-1.5 text-xs text-gray-400">
-            <Clock className="w-3.5 h-3.5" />
             Updated {parseServerDate(gen).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
           </div>
         )}
@@ -356,33 +335,25 @@ export default function WorkspaceExecutiveDashboard() {
           label="Security Score"
           value={s.security_score ?? '—'}
           sub={s.risk_level ? `Rating: ${riskLabel(s.risk_level)}` : undefined}
-          Icon={ShieldCheck}
           color={metaForScore(s.security_score).text}
-          iconBg={scoreIconBg(s.security_score)}
         />
         <SummaryCard
           label="Domains"
           value={s.domains ?? 0}
           sub={`${s.verified_domains ?? 0} verified (${s.verification_rate ?? 0}%)`}
-          Icon={Globe}
           color="text-blue-700"
-          iconBg="bg-blue-50"
         />
         <SummaryCard
           label="Critical Findings"
           value={s.critical_findings ?? 0}
           sub="Last 30 days"
-          Icon={AlertOctagon}
           color={s.critical_findings > 0 ? 'text-red-700' : 'text-gray-500'}
-          iconBg={s.critical_findings > 0 ? 'bg-red-50' : 'bg-gray-50'}
         />
         <SummaryCard
           label="High Findings"
           value={s.high_findings ?? 0}
           sub="Last 30 days"
-          Icon={AlertTriangle}
           color={s.high_findings > 0 ? 'text-orange-700' : 'text-gray-500'}
-          iconBg={s.high_findings > 0 ? 'bg-orange-50' : 'bg-gray-50'}
         />
       </div>
 
@@ -390,7 +361,6 @@ export default function WorkspaceExecutiveDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-5">
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h2 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-brand-500" />
             Security Score Trend
           </h2>
           <ScoreTrendChart trend={data?.score_trend} />
@@ -398,7 +368,6 @@ export default function WorkspaceExecutiveDashboard() {
 
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h2 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <Eye className="w-4 h-4 text-brand-500" />
             Risk Distribution (30d)
           </h2>
           <RiskDistPie dist={data?.risk_distribution} />
@@ -409,7 +378,6 @@ export default function WorkspaceExecutiveDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-5">
         <div className="md:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
           <h2 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <AlertOctagon className="w-4 h-4 text-red-500" />
             Top 10 Risks
           </h2>
           <TopRisksTable risks={data?.top_risks} />
@@ -417,13 +385,11 @@ export default function WorkspaceExecutiveDashboard() {
 
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h2 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <Zap className="w-4 h-4 text-amber-500" />
             Changes Since Last Scan
           </h2>
           <ChangesWidget changes={data?.changes} />
           {s.last_scan_at && (
             <p className="text-xs text-gray-400 mt-4 flex items-center gap-1">
-              <Clock className="w-3 h-3" />
               Last scan: {parseServerDate(s.last_scan_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric', year: 'numeric' })}
               {s.last_scan_domain && ` · ${s.last_scan_domain}`}
             </p>
@@ -434,7 +400,6 @@ export default function WorkspaceExecutiveDashboard() {
       {/* Remediation priorities */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 mt-5">
         <h2 className="text-sm font-semibold text-gray-800 mb-5 flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-brand-500" />
           Remediation Priorities
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
-  Tag, ShieldAlert, AlertTriangle, CheckCircle, Info, RefreshCw, Eye, X,
-  ChevronDown, ChevronRight, Globe, Search, Pencil, ArrowRight, Radar,
+  ShieldAlert, RefreshCw, Eye, X,
+  ChevronDown, ChevronRight, Globe, Search,
 } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
@@ -129,9 +129,8 @@ function Toast({ toast, onClose }) {
   const ok = toast.kind === 'ok'
   return (
     <div className={`fixed bottom-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl border text-sm shadow-card-md ${ok ? 'bg-brand-50 border-brand-100 text-brand-800' : 'bg-red-50 border-red-100 text-red-700'}`}>
-      {ok ? <CheckCircle className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
       <span>{toast.msg}</span>
-      <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X className="w-4 h-4" /></button>
+      <button onClick={onClose} className="text-gray-400 hover:text-gray-700" aria-label="Dismiss"><X className="w-4 h-4" /></button>
     </div>
   )
 }
@@ -192,16 +191,16 @@ function CandidateRow({ c, busy, onClassify }) {
               <div>
                 <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Evidence</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {badges.map(b => <span key={b} className="inline-flex items-center gap-1 text-[13px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md"><Eye className="w-3 h-3 text-gray-400" />{b}</span>)}
+                  {badges.map(b => <span key={b} className="inline-flex items-center gap-1 text-[13px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md">{b}</span>)}
                 </div>
               </div>
             )}
             {c._reasons.length > 0 && (
               <div>
                 <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Risk reasons</p>
-                <ul className="space-y-1">
+                <ul className="list-disc pl-5 space-y-1">
                   {c._reasons.map((r, i) => (
-                    <li key={i} className="text-xs text-gray-600 flex items-start gap-1.5"><AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />{typeof r === 'object' ? (r.label || r.message || JSON.stringify(r)) : r}</li>
+                    <li key={i} className="text-xs text-gray-600">{typeof r === 'object' ? (r.label || r.message || JSON.stringify(r)) : r}</li>
                   ))}
                 </ul>
               </div>
@@ -297,7 +296,7 @@ function ProtectedBrand({ profile, editing, setEditing, onSave, saving }) {
           <span className="eyebrow">Protected brand</span>
           <h2 className="section-title mt-1">{profile?.brand_name || profile?.primary_domain || 'Your brand'}</h2>
         </div>
-        <button onClick={() => setEditing(true)} className="btn-secondary text-sm flex-shrink-0"><Pencil className="w-4 h-4" /> Edit</button>
+        <button onClick={() => setEditing(true)} className="btn-secondary text-sm flex-shrink-0">Edit</button>
       </div>
 
       {!profile ? (
@@ -308,7 +307,6 @@ function ProtectedBrand({ profile, editing, setEditing, onSave, saving }) {
         <>
           {profile.inferred && (
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-900 flex gap-2">
-              <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
               CyberMeters is currently inferring brand monitoring from your workspace domains.
             </div>
           )}
@@ -592,10 +590,10 @@ export default function BrandMonitoringPage() {
 
   const actions = useMemo(() => {
     const a = []
-    if (metrics.highRisk > 0)   a.push({ icon: ShieldAlert, tone: 'bad',  text: `Review ${metrics.highRisk} high-risk lookalike domain${metrics.highRisk === 1 ? '' : 's'}.`, to: 'high' })
-    if (metrics.unreviewed > 0) a.push({ icon: Search,      tone: 'warn', text: `Classify ${metrics.unreviewed} unreviewed candidate${metrics.unreviewed === 1 ? '' : 's'}.`, to: 'unreviewed' })
-    if (metrics.suspicious > 0) a.push({ icon: Eye,         tone: 'warn', text: `Keep monitoring ${metrics.suspicious} suspicious domain${metrics.suspicious === 1 ? '' : 's'}.`, to: 'suspicious' })
-    if (metrics.unreviewed > 0) a.push({ icon: CheckCircle, tone: 'info', text: 'Mark owned domains and false positives to reduce noise.', to: '' })
+    if (metrics.highRisk > 0)   a.push({ text: `Review ${metrics.highRisk} high-risk lookalike domain${metrics.highRisk === 1 ? '' : 's'}.`, to: 'high' })
+    if (metrics.unreviewed > 0) a.push({ text: `Classify ${metrics.unreviewed} unreviewed candidate${metrics.unreviewed === 1 ? '' : 's'}.`, to: 'unreviewed' })
+    if (metrics.suspicious > 0) a.push({ text: `Keep monitoring ${metrics.suspicious} suspicious domain${metrics.suspicious === 1 ? '' : 's'}.`, to: 'suspicious' })
+    if (metrics.unreviewed > 0) a.push({ text: 'Mark owned domains and false positives to reduce noise.', to: '' })
     return a
   }, [metrics])
 
@@ -607,17 +605,14 @@ export default function BrandMonitoringPage() {
 
       {/* 1 · Hero */}
       <div className="card p-6 mb-6 flex flex-col lg:flex-row lg:items-center gap-5">
-        <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: SERVICE_COLORS.brand.chip }}>
-          <Radar className="w-6 h-6" style={{ color: SERVICE_COLORS.brand.icon }} />
-        </div>
         <div className="flex-1 min-w-0">
           <span className="eyebrow" style={{ color: SERVICE_COLORS.brand.text }}>Brand Protection</span>
           <h1 className="page-title">Brand Protection</h1>
           <p className="page-subtitle">Monitor lookalike domains, typosquats, impersonation risk and brand-abuse signals.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3 flex-shrink-0">
-          <button onClick={scrollToQueue} className="btn-primary text-sm"><ShieldAlert className="w-4 h-4" /> Review suspicious domains</button>
-          <button onClick={() => setEditing(true)} className="btn-secondary text-sm"><Pencil className="w-4 h-4" /> Update protected brand</button>
+          <button onClick={scrollToQueue} className="btn-primary text-sm">Review suspicious domains</button>
+          <button onClick={() => setEditing(true)} className="btn-secondary text-sm">Update protected brand</button>
         </div>
       </div>
 
@@ -645,11 +640,7 @@ export default function BrandMonitoringPage() {
             {actions.map((a, i) => (
               <button key={i} onClick={() => { if (a.to !== undefined) setFilter(a.to); scrollToQueue() }}
                 className="card p-4 flex items-center gap-3 text-left hover:border-brand-200 hover:shadow-card-md transition-all">
-                <span className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${a.tone === 'bad' ? 'bg-red-50 text-red-600' : a.tone === 'warn' ? 'bg-amber-50 text-amber-600' : 'bg-brand-50 text-brand-600'}`}>
-                  <a.icon className="w-4 h-4" />
-                </span>
                 <span className="text-sm text-gray-700 flex-1">{a.text}</span>
-                <ArrowRight className="w-4 h-4 text-gray-300" />
               </button>
             ))}
           </div>
@@ -683,7 +674,6 @@ export default function BrandMonitoringPage() {
 
         {filtered.length === 0 ? (
           <div className="py-14 text-center">
-            <Globe className="w-10 h-10 text-gray-200 mx-auto mb-3" />
             <p className="text-sm font-medium text-gray-600">{candidates.length === 0 ? 'No lookalike domains found yet.' : 'No candidates match this filter.'}</p>
             <p className="text-xs text-gray-400 mt-1">{candidates.length === 0 ? 'CyberMeters will continue monitoring brand-abuse signals as new scans run.' : 'Try a different filter above.'}</p>
           </div>

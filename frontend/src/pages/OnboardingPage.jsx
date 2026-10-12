@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import {
-  AlertTriangle, ArrowRight, Briefcase, Check, CheckCircle, Copy, FileText,
-  Globe, RefreshCw, ScanLine, ShieldCheck,
-} from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import { PENDING_SIGNUP_DOMAIN_KEY } from '../utils/signupDomainHandoff'
@@ -34,7 +31,7 @@ function StepCard({ number, title, done, active, children }) {
         <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
           done ? 'bg-brand-50 text-brand-600' : active ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-400'
         }`}>
-          {done ? <CheckCircle className="w-5 h-5" /> : <span className="text-sm font-bold">{number}</span>}
+          <span className="text-sm font-bold">{number}</span>
         </div>
         <div className="flex-1 min-w-0">
           <h2 className="text-base font-bold text-gray-900">{title}</h2>
@@ -45,14 +42,12 @@ function StepCard({ number, title, done, active, children }) {
   )
 }
 
-function ProgressItem({ icon: Icon, label, done }) {
+function ProgressItem({ label, done }) {
   return (
     <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${
       done ? 'border-brand-100 bg-brand-50 text-brand-700' : 'border-gray-100 bg-white text-gray-400'
     }`}>
-      <Icon className="w-4 h-4" />
       <span className="font-medium">{label}</span>
-      {done && <CheckCircle className="w-4 h-4 ml-auto" />}
     </div>
   )
 }
@@ -72,7 +67,6 @@ function CopyButton({ value }) {
       onClick={handleCopy}
       className="flex items-center gap-1 text-[12px] font-semibold text-gray-400 hover:text-brand-600 transition-colors"
     >
-      {copied ? <Check className="w-3 h-3 text-brand-600" /> : <Copy className="w-3 h-3" />}
       {copied ? 'Copied' : 'Copy'}
     </button>
   )
@@ -282,17 +276,16 @@ export default function OnboardingPage() {
 
       {error && (
         <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           {error}
         </div>
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
-        <ProgressItem icon={Briefcase} label="Workspace" done={steps.workspace} />
-        <ProgressItem icon={Globe} label="Domain" done={steps.domain} />
-        <ProgressItem icon={ShieldCheck} label="Verification" done={steps.verification} />
-        <ProgressItem icon={ScanLine} label="Scan" done={steps.scan} />
-        <ProgressItem icon={FileText} label="Report" done={steps.report} />
+        <ProgressItem label="Workspace" done={steps.workspace} />
+        <ProgressItem label="Domain" done={steps.domain} />
+        <ProgressItem label="Verification" done={steps.verification} />
+        <ProgressItem label="Scan" done={steps.scan} />
+        <ProgressItem label="Report" done={steps.report} />
       </div>
 
       <StepCard number={1} title="Create Workspace" done={steps.workspace} active={activeStep === 1}>
@@ -404,7 +397,7 @@ export default function OnboardingPage() {
           <button onClick={runFirstScan} className="btn-primary" disabled={actionLoading === 'scan'}>
             {actionLoading === 'scan'
               ? <><RefreshCw className="w-4 h-4 animate-spin" /> Starting...</>
-              : <><ScanLine className="w-4 h-4" /> Run First Cyber MOT</>
+              : 'Run First Cyber MOT'
             }
           </button>
         )}
@@ -424,7 +417,7 @@ export default function OnboardingPage() {
             <div className="flex flex-wrap gap-2">
               {scanIdOf(completedScan) && (
                 <Link to={`/scans/${scanIdOf(completedScan)}`} className="btn-primary">
-                  Open Executive Report <ArrowRight className="w-4 h-4" />
+                  Open Executive Report
                 </Link>
               )}
               <button onClick={() => navigate('/dashboard')} className="btn-secondary">

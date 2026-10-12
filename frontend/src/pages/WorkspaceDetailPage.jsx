@@ -1,12 +1,7 @@
 import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import {
-  RefreshCw, Briefcase, Globe, ScanLine, BarChart2,
-  Plus, X, Trash2, ChevronLeft, Clock, Zap, CheckCircle,
-  FileDown, Server, AlertTriangle, Cloud, Activity, Layers,
-  ArrowRight, Shield,
-} from 'lucide-react'
+import { RefreshCw, Globe, ScanLine, BarChart2, X, Trash2, Clock } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
@@ -81,6 +76,7 @@ function AddDomainModal({ workspaceId, onAdded, onClose }) {
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
@@ -96,9 +92,8 @@ function AddDomainModal({ workspaceId, onAdded, onClose }) {
           <div>
             <label className="label block mb-1.5">Domain</label>
             <div className="relative">
-              <Globe className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               <input
-                className="input pl-10"
+                className="input"
                 placeholder="example.com"
                 value={domain}
                 onChange={e => setDomain(e.target.value)}
@@ -172,6 +167,7 @@ function DeleteWorkspaceModal({ workspaceId, workspaceName, onClose, onDeleted }
             onClick={onClose}
             disabled={loading}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-40"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
@@ -211,7 +207,6 @@ function DeleteWorkspaceModal({ workspaceId, workspaceName, onClose, onDeleted }
               disabled={!nameMatches || loading}
               className="flex-1 justify-center inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Trash2 className="w-4 h-4" />
               {loading ? 'Deleting…' : 'Delete workspace'}
             </button>
             <button type="button" onClick={onClose} disabled={loading} className="btn-secondary disabled:opacity-40">
@@ -434,14 +429,10 @@ export default function WorkspaceDetailPage() {
           to="/workspaces"
           className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition-colors mb-3"
         >
-          <ChevronLeft className="w-4 h-4" />
           Workspaces
         </Link>
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
-              <Briefcase className="w-5 h-5 text-brand-600" />
-            </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">{workspace?.name}</h1>
               <p className="text-xs text-gray-400 mt-0.5">Workspace ID: <span className="mono">{id}</span></p>
@@ -449,7 +440,7 @@ export default function WorkspaceDetailPage() {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => load(true)} disabled={refreshing} className="btn-secondary">
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
               Refresh
             </button>
             <button
@@ -460,11 +451,10 @@ export default function WorkspaceDetailPage() {
             >
               {exporting
                 ? <><RefreshCw className="w-4 h-4 animate-spin" />Generating…</>
-                : <><FileDown className="w-4 h-4" />Export PDF</>
+                : 'Export PDF'
               }
             </button>
             <button onClick={() => setShowAdd(true)} className="btn-primary">
-              <Plus className="w-4 h-4" />
               Add Domain
             </button>
           </div>
@@ -481,7 +471,6 @@ export default function WorkspaceDetailPage() {
       {/* Retained-history notice — zero currently-monitored domains. */}
       {noCurrentMonitoring && hasRetainedHistory && (
         <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-800">
-          <Activity className="w-4 h-4 mt-0.5 flex-shrink-0" />
           <span>
             No domains are currently monitored in this workspace. Historical scan and asset evidence
             is retained below — it reflects past activity, not current monitoring.
@@ -529,9 +518,6 @@ export default function WorkspaceDetailPage() {
         <div className="card p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
-                <Server className="w-4 h-4 text-brand-600" />
-              </div>
               <span className="text-sm font-semibold text-gray-900">
                 {noCurrentMonitoring ? 'Asset Inventory (historical — retained)' : 'Asset Inventory'}
               </span>
@@ -541,23 +527,19 @@ export default function WorkspaceDetailPage() {
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-600 hover:text-brand-700 transition-colors"
             >
               View Assets
-              <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
             {[
-              { icon: Layers,        label: 'Total',          value: assetSummary.total_assets,          ic: 'text-brand-600',  bg: 'bg-brand-50'  },
-              { icon: Shield,        label: 'Active',         value: assetSummary.active_assets,         ic: 'text-green-600',  bg: 'bg-green-50'  },
-              { icon: Activity,      label: 'Inactive',       value: assetSummary.inactive_assets,       ic: 'text-gray-400',   bg: 'bg-gray-100'  },
-              { icon: Server,        label: 'Subdomains',     value: assetSummary.subdomains,            ic: 'text-blue-600',   bg: 'bg-blue-50'   },
-              { icon: Globe,         label: 'Exposed',        value: assetSummary.exposed_services,      ic: 'text-amber-600',  bg: 'bg-amber-50'  },
-              { icon: Cloud,         label: 'Cloud',          value: assetSummary.cloud_storage_assets,  ic: 'text-purple-600', bg: 'bg-purple-50' },
-              { icon: AlertTriangle, label: 'Takeover Risks', value: assetSummary.takeover_risks,        ic: 'text-red-600',    bg: 'bg-red-50'    },
-            ].map(({ icon: Icon, label, value, ic, bg }) => (
+              { label: 'Total', value: assetSummary.total_assets },
+              { label: 'Active', value: assetSummary.active_assets },
+              { label: 'Inactive', value: assetSummary.inactive_assets },
+              { label: 'Subdomains', value: assetSummary.subdomains },
+              { label: 'Exposed', value: assetSummary.exposed_services },
+              { label: 'Cloud', value: assetSummary.cloud_storage_assets },
+              { label: 'Takeover Risks', value: assetSummary.takeover_risks },
+            ].map(({ label, value }) => (
               <div key={label} className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-gray-50">
-                <div className={`w-7 h-7 rounded-lg ${bg} flex items-center justify-center flex-shrink-0`}>
-                  <Icon className={`w-3.5 h-3.5 ${ic}`} />
-                </div>
                 <div className="min-w-0">
                   <div className="text-lg font-bold text-gray-900 leading-none">{value ?? '—'}</div>
                   <div className="text-[12px] text-gray-400 mt-0.5 truncate">{label}</div>
@@ -578,22 +560,17 @@ export default function WorkspaceDetailPage() {
             </p>
           </div>
           <button onClick={() => setShowAdd(true)} className="btn-ghost text-brand-600">
-            <Plus className="w-3.5 h-3.5" />
             Add Domain
           </button>
         </div>
 
         {domains.length === 0 ? (
           <div className="px-6 py-12 flex flex-col items-center text-center">
-            <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center mb-3">
-              <Globe className="w-6 h-6 text-gray-400" />
-            </div>
             <h3 className="font-semibold text-gray-700 mb-1">No domains yet</h3>
             <p className="text-sm text-gray-400 mb-4">
               Add a domain to start tracking its security posture.
             </p>
             <button onClick={() => setShowAdd(true)} className="btn-secondary">
-              <Plus className="w-4 h-4" />
               Add your first domain
             </button>
           </div>
@@ -617,7 +594,6 @@ export default function WorkspaceDetailPage() {
                     {/* Domain */}
                     <td>
                       <div className="flex items-center gap-2">
-                        <Globe className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
                         <span className="mono font-medium text-gray-900 text-sm">{d.domain}</span>
                       </div>
                     </td>
@@ -653,7 +629,6 @@ export default function WorkspaceDetailPage() {
                           </span>
                         ) : dState === 'queued' ? (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand-700 bg-brand-50 rounded-lg">
-                            <CheckCircle className="w-3 h-3" />
                             Queued
                           </span>
                         ) : (
@@ -661,7 +636,6 @@ export default function WorkspaceDetailPage() {
                             onClick={() => handleScanNow(d.domain)}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg transition-colors"
                           >
-                            <Zap className="w-3 h-3" />
                             Scan Now
                           </button>
                         )}
@@ -682,6 +656,7 @@ export default function WorkspaceDetailPage() {
                           disabled={isRemoving}
                           className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
                           title="Remove from workspace"
+                          aria-label="Remove from workspace"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -713,7 +688,6 @@ export default function WorkspaceDetailPage() {
               onClick={() => setShowDelete(true)}
               className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-100 transition-colors"
             >
-              <Trash2 className="w-4 h-4" />
               Delete Workspace
             </button>
           </div>

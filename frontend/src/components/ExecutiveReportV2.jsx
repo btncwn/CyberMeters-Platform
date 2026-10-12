@@ -1,7 +1,6 @@
 import CyberMotDomains from './CyberMotDomains'
 import DmarcPolicyEvidenceCard from './DmarcPolicyEvidenceCard'
 import CertificateAssuranceSummary from './CertificateAssuranceSummary'
-import { Minus, CheckCircle, Target, FileText, Lock, Eye, Info } from 'lucide-react'
 import { bandMeta } from '../lib/score-presentation'
 import {
   HOW_TO_READ_REPORT,
@@ -191,7 +190,6 @@ function ItemList({ items, muted = false, emptyLabel }) {
   if (sorted.length === 0) {
     return (
       <div className="flex items-center gap-2 px-6 py-6 text-sm text-gray-400">
-        <CheckCircle className="w-4 h-4 text-brand-500 flex-shrink-0" />
         {emptyLabel}
       </div>
     )
@@ -207,7 +205,6 @@ function ActionList({ items }) {
   if (!items?.length) {
     return (
       <div className="flex items-center gap-2 px-6 py-6 text-sm text-gray-400">
-        <CheckCircle className="w-4 h-4 text-brand-500 flex-shrink-0" />
         No recommended actions for this assessment.
       </div>
     )
@@ -231,7 +228,7 @@ function ActionList({ items }) {
             )}
             {item.verification_ceiling && (
               <p className="text-[13px] text-gray-400 mt-1 inline-flex items-center gap-1">
-                <Lock className="w-3 h-3" /> {item.verification_ceiling}
+                {item.verification_ceiling}
               </p>
             )}
           </div>
@@ -307,11 +304,10 @@ const MODULE_TEXT = Object.freeze({
   admin_surface_detection: 'admin page checks',
 })
 
-function SectionCard({ icon: Icon, title, count, children }) {
+function SectionCard({ title, count, children }) {
   return (
     <section className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
       <header className="flex items-center gap-2 px-6 pt-5 pb-3">
-        <Icon className="w-4 h-4 text-brand-600" />
         <h3 className="text-sm font-bold text-gray-900">{title}</h3>
         {count != null && <span className="text-xs text-gray-400 font-semibold">({count})</span>}
       </header>
@@ -328,9 +324,6 @@ export default function ExecutiveReportV2({ report }) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6" role="status">
         <div className="flex items-start gap-3">
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white text-slate-500 shadow-sm">
-            <Info className="h-4 w-4" />
-          </div>
           <div>
             <h2 className="text-sm font-bold text-slate-900">Historical scan report</h2>
             <p className="mt-1 text-sm leading-relaxed text-slate-600">
@@ -392,7 +385,7 @@ export default function ExecutiveReportV2({ report }) {
       </div>
 
       {priorityActions.length > 0 && (
-        <SectionCard icon={Target} title="Priority Actions" count={priorityActions.length}>
+        <SectionCard title="Priority Actions" count={priorityActions.length}>
           <ActionList items={priorityActions} />
         </SectionCard>
       )}
@@ -412,15 +405,15 @@ export default function ExecutiveReportV2({ report }) {
         />
       )}
 
-      <SectionCard icon={FileText} title="Observed Findings" count={summary.observed_findings_count ?? report.observed_findings?.length ?? 0}>
+      <SectionCard title="Observed Findings" count={summary.observed_findings_count ?? report.observed_findings?.length ?? 0}>
         <ItemList items={report.observed_findings} emptyLabel="No material findings were observed in this assessment." />
       </SectionCard>
 
-      <SectionCard icon={Eye} title="Observations" count={summary.observations_count ?? report.observations?.length ?? 0}>
+      <SectionCard title="Observations" count={summary.observations_count ?? report.observations?.length ?? 0}>
         <ItemList items={report.observations} muted emptyLabel="No additional observations." />
       </SectionCard>
 
-      <SectionCard icon={Target} title="Recommended Actions" count={report.remediation_actions?.length ?? 0}>
+      <SectionCard title="Recommended Actions" count={report.remediation_actions?.length ?? 0}>
         <ActionList items={report.remediation_actions} />
       </SectionCard>
 
@@ -451,10 +444,10 @@ export default function ExecutiveReportV2({ report }) {
         <p className="text-[13px] text-gray-400">
           Resolver {methodology.cyber_mot_resolver_version || '—'} · Score methodology {methodology.cyber_metrics_score_methodology_version || '—'} · Risk indicator methodology {methodology.business_risk_methodology_version || '—'}
         </p>
-        <ul className="mt-2 space-y-1">
+        <ul className="mt-2 list-disc pl-5 space-y-1">
           {(report.limitations || []).map((l, i) => (
-            <li key={i} className="text-[13px] text-gray-400 leading-relaxed flex gap-1.5">
-              <Minus className="w-3 h-3 flex-shrink-0 mt-0.5" />{customerEvidenceText(l)}
+            <li key={i} className="text-[13px] text-gray-400 leading-relaxed">
+              {customerEvidenceText(l)}
             </li>
           ))}
         </ul>

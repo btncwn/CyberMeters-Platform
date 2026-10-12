@@ -1,14 +1,7 @@
 import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
-import {
-  ArrowLeft, RefreshCw, Globe, Hash, AlertCircle, ScanLine, Download,
-  ChevronRight, Shield, FileText, CheckCircle, XCircle, Mail,
-  Lock, Server, Clock, History, ChevronDown, Terminal,
-  TrendingDown, TrendingUp, Minus, GraduationCap,
-  User, Zap, Target, Terminal as TerminalIcon, Copy, Check as CheckIcon, Eye,
-  Sparkles, SlidersHorizontal, ShieldOff, Undo2,
-} from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import { getAcademyArticleForFinding } from '../data/academy'
 import { buildRemediationIntelligence, PRIORITY_LABELS } from '../data/remediation'
@@ -90,13 +83,10 @@ function getFindingType(f) {
 
 // ── Components ───────────────────────────────────────────────────────────────
 
-function SectionHeader({ icon: Icon, title, aside }) {
+function SectionHeader({ title, aside }) {
   return (
     <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50">
       <div className="flex items-center gap-2.5">
-        <div className="w-6 h-6 rounded-md bg-brand-100 flex items-center justify-center">
-          <Icon className="w-3.5 h-3.5 text-brand-700" />
-        </div>
         <h2 className="text-sm font-bold text-gray-900">{title}</h2>
       </div>
       {aside && <div>{aside}</div>}
@@ -189,7 +179,6 @@ function EvidencePanel({ evidence }) {
   return (
     <div className="mt-2 rounded-xl border border-gray-100 bg-gray-50 overflow-hidden">
       <div className="px-3 py-2 bg-gray-100 border-b border-gray-200 flex items-center gap-1.5">
-        <Terminal className="w-3 h-3 text-gray-400" />
         <span className="text-[12px] font-semibold text-gray-500 uppercase tracking-wide">Evidence</span>
       </div>
       {items.map((item, idx) => {
@@ -262,10 +251,6 @@ function CopyButton({ text }) {
       className="flex items-center gap-1 text-[12px] text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0"
       title="Copy value"
     >
-      {copied
-        ? <CheckIcon className="w-3 h-3 text-brand-500" />
-        : <Copy className="w-3 h-3" />
-      }
       {copied ? 'Copied' : 'Copy'}
     </button>
   )
@@ -289,19 +274,16 @@ function RemediationPanel({ rem }) {
         )}
         {sla && (
           <span className="flex items-center gap-1 text-[12px] text-gray-500">
-            <Clock className="w-3 h-3 text-gray-400" />
             Fix within {sla}
           </span>
         )}
         {rem.owner && (
           <span className="flex items-center gap-1 text-[12px] text-gray-500">
-            <User className="w-3 h-3 text-gray-400" />
             {rem.owner}
           </span>
         )}
         {rem.effort && rem.effort !== '—' && (
           <span className="flex items-center gap-1 text-[12px] text-gray-500">
-            <Zap className="w-3 h-3 text-gray-400" />
             {rem.effort}
           </span>
         )}
@@ -443,7 +425,6 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
                 to={`/academy/${academySlug}`}
                 className="flex items-center gap-1 text-[12px] font-semibold text-brand-600 hover:text-brand-800 transition-colors"
               >
-                <GraduationCap className="w-3 h-3" />
                 Learn more
               </Link>
             )}
@@ -454,7 +435,6 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
                 onClick={() => setRemOpen(o => !o)}
                 className={`flex items-center gap-1 text-[12px] font-semibold transition-colors ${remOpen ? 'text-brand-700' : 'text-gray-500 hover:text-brand-700'}`}
               >
-                <Target className="w-3 h-3" />
                 {remOpen ? 'Hide remediation' : 'How to fix'}
               </button>
             )}
@@ -465,7 +445,6 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
                 onClick={() => setWaiveOpen(o => !o)}
                 className={`flex items-center gap-1 text-[12px] font-semibold transition-colors ${waiveOpen ? 'text-gray-700' : 'text-gray-400 hover:text-gray-700'}`}
               >
-                <ShieldOff className="w-3 h-3" />
                 Accept risk
               </button>
             )}
@@ -476,7 +455,6 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
                 onClick={() => setOpen(o => !o)}
                 className="flex items-center gap-1 text-[12px] text-brand-600 font-semibold hover:text-brand-800 transition-colors ml-auto"
               >
-                <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
                 {open ? 'Hide evidence' : 'Show evidence'}
               </button>
             )}
@@ -514,7 +492,6 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
           {/* Phase 6 — Low confidence warning: always visible, not inside panel */}
           {isLowConf && (
             <div className="mt-2 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
-              <AlertCircle className="w-3 h-3 text-amber-500 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-[12px] font-bold text-amber-700">Needs Verification</p>
                 <p className="text-[12px] text-amber-600 leading-relaxed mt-0.5">
@@ -547,9 +524,6 @@ function FindingsPanel({ findings, isObservation = false, onWaive = null }) {
   if (sorted.length === 0) {
     return (
       <div className="flex flex-col items-center gap-3 py-10 text-center">
-        <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center">
-          <CheckCircle className="w-5 h-5 text-brand-600" />
-        </div>
         <p className="text-sm font-semibold text-gray-700">No findings detected</p>
         <p className="text-xs text-gray-400">This domain passed all checks.</p>
       </div>
@@ -575,7 +549,6 @@ function WaivedFindingsPanel({ findings, waivers, onUnwaive }) {
         const w = waivers[f.id] || {}
         return (
           <li key={f.id} className="flex items-start gap-3 px-6 py-3.5">
-            <ShieldOff className="w-4 h-4 text-gray-300 flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-sm font-semibold text-gray-500 line-through decoration-gray-300">{f.title}</p>
@@ -598,7 +571,6 @@ function WaivedFindingsPanel({ findings, waivers, onUnwaive }) {
                 disabled={restoring === f.id}
                 className="flex items-center gap-1 text-[13px] font-semibold text-brand-700 hover:text-brand-800 flex-shrink-0 mt-0.5 disabled:opacity-50"
               >
-                <Undo2 className="w-3 h-3" />
                 {restoring === f.id ? 'Restoring…' : 'Restore'}
               </button>
             )}
@@ -644,10 +616,10 @@ function CheckRow({ label, value, trueLabel = 'Yes', falseLabel = 'No' }) {
         ? <span className="text-xs text-gray-300">—</span>
         : value
           ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full">
-              <CheckCircle className="w-3 h-3" /> {trueLabel}
+              {trueLabel}
             </span>
           : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">
-              <XCircle className="w-3 h-3" /> {falseLabel}
+              {falseLabel}
             </span>
       }
     </div>
@@ -739,8 +711,8 @@ function HeadersPanel({ headers, httpsAvailable }) {
             <div className="flex items-center justify-between mb-0.5">
               <span className="text-sm text-gray-700 font-medium">{HEADER_LABELS[h]}</span>
               {present
-                ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full"><CheckCircle className="w-3 h-3" />Present</span>
-                : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full"><XCircle className="w-3 h-3" />Missing</span>
+                ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full">Present</span>
+                : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">Missing</span>
               }
             </div>
             {val && <p className="text-[13px] text-gray-400 mono mt-1 break-all">{val}</p>}
@@ -782,8 +754,8 @@ function EmailPanel({ email, dmarcPresentation = null }) {
         <div className="flex items-center justify-between mb-0.5">
           <span className="text-sm text-gray-700 font-medium">SPF Record</span>
           {spf?.present
-            ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full"><CheckCircle className="w-3 h-3" />Present</span>
-            : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full"><XCircle className="w-3 h-3" />Missing</span>
+            ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full">Present</span>
+            : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">Missing</span>
           }
         </div>
         {spf?.record && <p className="text-[13px] text-gray-400 mono mt-1 break-all">{spf.record}</p>}
@@ -810,8 +782,8 @@ function EmailPanel({ email, dmarcPresentation = null }) {
               </span>
             )}
             {dmarc?.present
-              ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full"><CheckCircle className="w-3 h-3" />Present</span>
-              : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full"><XCircle className="w-3 h-3" />Missing</span>
+              ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full">Present</span>
+              : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">Missing</span>
             }
           </div>
         </div>
@@ -832,8 +804,8 @@ function EmailPanel({ email, dmarcPresentation = null }) {
         <div className="flex items-center justify-between mb-0.5">
           <span className="text-sm text-gray-700 font-medium">DKIM Signing</span>
           {dkim?.present
-            ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full"><CheckCircle className="w-3 h-3" />Detected</span>
-            : <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full"><AlertCircle className="w-3 h-3" />Not detected</span>
+            ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full">Detected</span>
+            : <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">Not detected</span>
           }
         </div>
         {dkim?.selector && (
@@ -938,7 +910,6 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
   if (changes.has_previous === false) {
     return (
       <div className="px-6 py-5 flex items-center gap-2.5 text-sm text-gray-400">
-        <History className="w-4 h-4 flex-shrink-0 text-gray-300" />
         First scan for this domain — no historical data to compare against.
       </div>
     )
@@ -947,7 +918,6 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
   if (changes.comparable !== true) {
     return (
       <div className="px-6 py-5 flex items-start gap-2.5 text-sm text-gray-500">
-        <AlertCircle className="w-4 h-4 flex-shrink-0 text-amber-500 mt-0.5" />
         <div>
           <p className="font-semibold text-gray-700">Not comparable</p>
           <p className="text-xs text-gray-500 mt-1 leading-relaxed">
@@ -1002,7 +972,6 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
 
       {noChanges ? (
         <div className="px-6 py-4 flex items-center gap-2 text-sm text-gray-400">
-          <CheckCircle className="w-4 h-4 text-brand-500 flex-shrink-0" />
           No changes detected since the previous scan.
         </div>
       ) : (
@@ -1066,8 +1035,6 @@ function BusinessRiskCard({ businessRisk }) {
     score >= 40 ? 'text-amber-600'  :
                   'text-red-600'
 
-  const TrendIcon = score >= 70 ? TrendingUp : score >= 40 ? Minus : TrendingDown
-
   const CAT_LABELS = {
     email_trust:             'Email Trust',
     website_trust:           'Website Trust',
@@ -1083,7 +1050,6 @@ function BusinessRiskCard({ businessRisk }) {
   return (
     <div className="card overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
-        <TrendIcon className={`w-4 h-4 ${scoreColor}`} />
         <h3 className="text-sm font-bold text-gray-900">Business Risk Score</h3>
       </div>
 
@@ -1201,7 +1167,6 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
 
       {showQualityWarning && (
         <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 flex items-start gap-3 text-sm text-amber-800">
-          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
           <div>
             <p className="font-semibold">Scan coverage {scan_quality.status}</p>
             {skippedModules.length > 0 && (
@@ -1230,14 +1195,14 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
 
       {/* Findings — actionable, score-impacting (Sprint 10A) */}
       <div className="card overflow-hidden">
-        <SectionHeader icon={AlertCircle} title={`Findings (${actionableFindings.length})`} />
+        <SectionHeader title={`Findings (${actionableFindings.length})`} />
         <FindingsPanel findings={actionableFindings} onWaive={onWaive} />
       </div>
 
       {/* Accepted risks — waived findings, visible and restorable */}
       {waivedFindings.length > 0 && (
         <div className="card overflow-hidden">
-          <SectionHeader icon={ShieldOff} title={`Accepted risks (${waivedFindings.length})`} />
+          <SectionHeader title={`Accepted risks (${waivedFindings.length})`} />
           <WaivedFindingsPanel findings={waivedFindings} waivers={waivers} onUnwaive={onUnwaive} />
         </div>
       )}
@@ -1245,21 +1210,21 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
       {/* Observations — informational, no score impact (Sprint 10A) */}
       {observations.length > 0 && (
         <div className="card overflow-hidden">
-          <SectionHeader icon={Eye} title={`Observations (${observations.length})`} />
+          <SectionHeader title={`Observations (${observations.length})`} />
           <FindingsPanel findings={observations} isObservation={true} />
         </div>
       )}
 
       {/* Recommendations */}
       <div className="card overflow-hidden">
-        <SectionHeader icon={Shield} title={`Recommended Actions (${recommendations?.length ?? 0})`} />
+        <SectionHeader title={`Recommended Actions (${recommendations?.length ?? 0})`} />
         <RecommendationsPanel recommendations={recommendations} />
       </div>
 
       {/* Changes Since Last Scan */}
       {modules?.historical_changes && (
         <div className="card overflow-hidden">
-          <SectionHeader icon={History} title="Changes Since Last Scan" />
+          <SectionHeader title="Changes Since Last Scan" />
           <ChangesPanel
             changes={modules.historical_changes}
             assessment={assessment}
@@ -1270,27 +1235,27 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
 
       {/* DNS */}
       <div className="card overflow-hidden">
-        <SectionHeader icon={Server} title="DNS Analysis" />
+        <SectionHeader title="DNS Analysis" />
         <DnsPanel dns={modules?.dns} />
       </div>
 
       {/* SSL */}
       <div id="website-evidence" className="card overflow-hidden scroll-mt-24">
-        <SectionHeader icon={Lock} title="SSL / HTTPS" />
+        <SectionHeader title="SSL / HTTPS" />
         <SslPanel ssl={modules?.ssl} />
         {modules?.ssl?.certificate_evidence?.live_tls && <div className="p-4"><LiveTlsEvidence evidence={modules.ssl.certificate_evidence.live_tls} /></div>}
       </div>
 
       {/* Security Headers */}
       <div className="card overflow-hidden">
-        <SectionHeader icon={FileText} title="Security Headers" />
+        <SectionHeader title="Security Headers" />
         <HeadersPanel headers={modules?.headers} httpsAvailable={modules?.ssl?.https_available === true} />
         <WebsiteResponseEvidence headers={modules?.headers} />
       </div>
 
       {/* Email Security */}
       <div className="card overflow-hidden">
-        <SectionHeader icon={Mail} title="Email Security (SPF · DMARC · DKIM)" />
+        <SectionHeader title="Email Security (SPF · DMARC · DKIM)" />
         <EmailPanel
           email={modules?.email_security}
           dmarcPresentation={report?.dmarc_policy_presentation}
@@ -1596,7 +1561,6 @@ export default function ScanDetail() {
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
       <Link to="/scans" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-600 transition-colors font-medium">
-        <ArrowLeft className="w-4 h-4" />
         Back to Scans
       </Link>
 
@@ -1623,17 +1587,15 @@ export default function ScanDetail() {
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <button onClick={() => navigate(`/domain/${encodeURIComponent(scan.domain)}/history`)} className="btn-secondary">
-                <Globe className="w-4 h-4" />
                 Domain History
               </button>
               {scan.status === 'completed' && isReportReady(reportAvailability) && (
                 <button onClick={handleDownloadPdf} disabled={downloadingPdf} className="btn-secondary">
-                  <Download className={`w-4 h-4 ${downloadingPdf ? 'animate-pulse' : ''}`} />
                   {downloadingPdf ? 'Preparing…' : 'Download Technical PDF'}
                 </button>
               )}
               <button onClick={() => load(true)} disabled={refreshing} className="btn-secondary">
-                <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
                 Refresh
               </button>
             </div>
@@ -1701,7 +1663,7 @@ export default function ScanDetail() {
                   <div className="space-y-4">
                     {pdfError && (
                       <div className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
-                        <AlertCircle className="w-4 h-4 flex-shrink-0" /> {pdfError}
+                        {pdfError}
                       </div>
                     )}
                     {/* Report view switcher — only shown when BOTH views loaded, so the
@@ -1716,7 +1678,7 @@ export default function ScanDetail() {
                           }`}
                           aria-pressed={reportTab === 'executive'}
                         >
-                          <Sparkles className="w-4 h-4" /> Executive Report
+                          Executive Report
                         </button>
                         <button
                           onClick={() => setReportTab('technical')}
@@ -1725,7 +1687,7 @@ export default function ScanDetail() {
                           }`}
                           aria-pressed={reportTab === 'technical'}
                         >
-                          <SlidersHorizontal className="w-4 h-4" /> Technical Details
+                          Technical Details
                         </button>
                       </div>
                     )}
@@ -1742,7 +1704,6 @@ export default function ScanDetail() {
                 ) : null
               ) : scan.status === 'failed' ? (
                 <div className="card flex flex-col sm:flex-row sm:items-start gap-3 px-6 py-6">
-                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-500" />
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-sm text-gray-900">This scan didn't finish</p>
                     <p className="text-sm text-gray-500 mt-1">
@@ -1750,15 +1711,12 @@ export default function ScanDetail() {
                       running a new scan for <span className="font-medium text-gray-700">{scan.domain}</span> normally resolves it.
                     </p>
                     <button onClick={() => navigate('/scans/new')} className="btn-primary mt-4">
-                      <ScanLine className="w-4 h-4" /> Run a new scan
+                      Run a new scan
                     </button>
                   </div>
                 </div>
               ) : (
                 <div className="card flex flex-col items-center gap-4 py-20 text-center">
-                  <div className="w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center">
-                    <ScanLine className="w-5 h-5 text-brand-600" />
-                  </div>
                   <div>
                     <p className="text-sm font-bold text-gray-900">Scan in progress</p>
                     <p className="text-xs text-gray-400 mt-1">Results will appear here once complete</p>
@@ -1773,7 +1731,7 @@ export default function ScanDetail() {
 
               {/* Scan info */}
               <div className="card overflow-hidden">
-                <SectionHeader icon={Hash} title="Scan Information" />
+                <SectionHeader title="Scan Information" />
                 <div>
                   <KV label="Scan ID"   value={<span className="mono text-xs text-brand-600">{scan.id}</span>} />
                   <KV label="Domain"    value={scan.domain} />
@@ -1810,17 +1768,13 @@ export default function ScanDetail() {
                 </div>
                 <div className="divide-y divide-gray-50">
                   {[
-                    { icon: Globe,    label: 'View domain history',    action: () => navigate(`/domain/${encodeURIComponent(scan.domain)}/history`), color: 'bg-blue-50 text-blue-600'   },
-                    { icon: ScanLine, label: 'Scan this domain again', action: () => navigate('/scans/new'), color: 'bg-brand-50 text-brand-600'  },
-                    { icon: Clock,    label: 'Back to all scans',      action: () => navigate('/scans'),     color: 'bg-gray-100 text-gray-500'   },
-                    { icon: Shield,   label: 'Back to dashboard',      action: () => navigate('/dashboard'), color: 'bg-gray-100 text-gray-500'   },
-                  ].map(({ icon: Icon, label, action, color }) => (
+                    { label: 'View domain history',    action: () => navigate(`/domain/${encodeURIComponent(scan.domain)}/history`) },
+                    { label: 'Scan this domain again', action: () => navigate('/scans/new') },
+                    { label: 'Back to all scans',      action: () => navigate('/scans') },
+                    { label: 'Back to dashboard',      action: () => navigate('/dashboard') },
+                  ].map(({ label, action }) => (
                     <button key={label} onClick={action} className="w-full flex items-center gap-3 px-6 py-3.5 text-sm text-gray-700 hover:bg-brand-50 transition-colors group">
-                      <div className={`w-7 h-7 rounded-lg ${color} flex items-center justify-center`}>
-                        <Icon className="w-3.5 h-3.5" />
-                      </div>
                       <span className="flex-1 text-left">{label}</span>
-                      <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-500" />
                     </button>
                   ))}
                 </div>

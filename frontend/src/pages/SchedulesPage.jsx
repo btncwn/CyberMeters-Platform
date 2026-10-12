@@ -1,9 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  RefreshCw, Calendar, Globe, Clock, Trash2,
-  Plus, CheckCircle, Info, ScanLine,
-} from 'lucide-react'
+import { RefreshCw, Calendar, Trash2 } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
@@ -65,23 +62,17 @@ function AddScheduleForm({ onCreated }) {
 
   return (
     <form onSubmit={handleSubmit} className="card p-6 space-y-5">
-      <div className="flex items-center gap-2.5 mb-1">
-        <div className="w-7 h-7 rounded-lg bg-brand-100 flex items-center justify-center">
-          <Plus className="w-3.5 h-3.5 text-brand-700" />
-        </div>
-        <h2 className="text-sm font-bold text-gray-900">Add Scheduled Scan</h2>
-      </div>
+      <h2 className="text-sm font-bold text-gray-900 mb-1">Add Scheduled Scan</h2>
 
       <div>
         <label className="label mb-1.5 block">Domain</label>
         <div className="relative">
-          <Globe className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
             value={domain}
             onChange={e => setDomain(e.target.value)}
             placeholder="example.com"
-            className="input pl-10"
+            className="input"
             disabled={loading}
             spellCheck={false}
             autoCapitalize="off"
@@ -115,13 +106,11 @@ function AddScheduleForm({ onCreated }) {
                 onChange={() => setFrequency(f)}
                 className="sr-only"
               />
-              <Clock className="w-4 h-4 flex-shrink-0" />
               <span className="text-sm font-semibold capitalize">{FREQ_LABELS[f]}</span>
             </label>
           ))}
         </div>
-        <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
-          <Info className="w-3 h-3" />
+        <p className="text-xs text-gray-400 mt-1.5">
           {frequency === 'daily' ? 'Runs once every 24 hours.' : 'Runs once every 7 days.'}
         </p>
       </div>
@@ -134,8 +123,8 @@ function AddScheduleForm({ onCreated }) {
         className="btn-primary w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {loading   ? <><Spinner size="sm" /><span>Scheduling…</span></> :
-         success   ? <><CheckCircle className="w-4 h-4" /><span>Schedule added</span></> :
-                     <><Calendar className="w-4 h-4" /><span>Add Schedule</span></>}
+         success   ? <span>Schedule added</span> :
+                     <span>Add Schedule</span>}
       </button>
     </form>
   )
@@ -189,13 +178,8 @@ export default function SchedulesPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2.5 mb-1">
-            <div className="w-8 h-8 rounded-xl bg-brand-50 flex items-center justify-center">
-              <Calendar className="w-4 h-4 text-brand-600" />
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">Scheduled Scans</h1>
-          </div>
-          <p className="text-sm text-gray-400 mt-0.5 ml-10">
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">Scheduled Scans</h1>
+          <p className="text-sm text-gray-400 mt-0.5">
             {schedules.length > 0
               ? `${schedules.length} domain${schedules.length !== 1 ? 's' : ''} monitored automatically`
               : 'Set up automatic recurring scans for your domains'}
@@ -207,11 +191,10 @@ export default function SchedulesPage() {
             disabled={refreshing}
             className="btn-secondary"
           >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
             Refresh
           </button>
           <Link to="/scans/new" className="btn-primary">
-            <ScanLine className="w-4 h-4" />
             Manual Scan
           </Link>
         </div>
@@ -273,9 +256,6 @@ export default function SchedulesPage() {
                     <tr key={s.id}>
                       <td>
                         <div className="flex items-center gap-2.5">
-                          <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                            <Globe className="w-3.5 h-3.5 text-gray-400" />
-                          </div>
                           <div>
                             <p className="font-semibold text-gray-900">{s.domain}</p>
                             <p className="mono text-[13px] text-gray-300 truncate max-w-[180px]">{s.id}</p>
@@ -287,13 +267,11 @@ export default function SchedulesPage() {
                       </td>
                       <td>
                         <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                          <Clock className="w-3.5 h-3.5 flex-shrink-0" />
                           {formatDate(s.last_run_at)}
                         </div>
                       </td>
                       <td>
                         <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                          <Clock className="w-3.5 h-3.5 flex-shrink-0 text-brand-400" />
                           {formatDate(s.next_run_at)}
                         </div>
                       </td>
@@ -304,6 +282,7 @@ export default function SchedulesPage() {
                             disabled={deleting === s.id}
                             className="btn-ghost text-xs text-red-500 hover:text-red-700 hover:bg-red-50 disabled:opacity-40"
                             title="Delete schedule"
+                            aria-label="Delete schedule"
                           >
                             {deleting === s.id
                               ? <Spinner size="sm" />

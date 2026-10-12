@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { RefreshCw, ScanLine, Globe, Clock, ChevronRight, CheckCircle, XCircle, Shield, AlertTriangle, TrendingUp } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import StatusBadge from '../components/StatusBadge'
 import Spinner from '../components/Spinner'
@@ -61,11 +61,10 @@ export default function ScansPage() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => load(true)} disabled={refreshing} className="btn-secondary">
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
             Refresh
           </button>
           <Link to="/scans/new" className="btn-primary">
-            <ScanLine className="w-4 h-4" />
             New Scan
           </Link>
         </div>
@@ -80,9 +79,6 @@ export default function ScansPage() {
           <div className="p-8 space-y-6">
             {/* Hero */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-5">
-              <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center flex-shrink-0">
-                <ScanLine className="w-7 h-7 text-brand-600" />
-              </div>
               <div className="flex-1 min-w-0">
                 <p className="text-base font-bold text-gray-900 mb-1">No scans yet</p>
                 <p className="text-sm text-gray-500 leading-relaxed">
@@ -92,20 +88,17 @@ export default function ScansPage() {
                 </p>
               </div>
               <Link to="/scans/new" className="btn-primary flex-shrink-0 inline-flex items-center gap-2">
-                <ScanLine className="w-4 h-4" /> New Scan
+                New Scan
               </Link>
             </div>
             {/* What you get */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-gray-100 pt-6">
               {[
-                { icon: Shield,        color: 'bg-brand-50 text-brand-600', title: 'Cyber Metrics Score', desc: 'A single 0–100 score summarising your external posture'               },
-                { icon: AlertTriangle, color: 'bg-red-50 text-red-500',     title: 'Observed Findings',   desc: 'Issues ranked by severity — Critical, High, Medium, Low'              },
-                { icon: TrendingUp,    color: 'bg-purple-50 text-purple-600', title: 'Trend History',     desc: 'Compare scores over time and track remediation progress'              },
-              ].map(({ icon: Icon, color, title, desc }) => (
+                { title: 'Cyber Metrics Score', desc: 'A single 0–100 score summarising your external posture'               },
+                { title: 'Observed Findings',   desc: 'Issues ranked by severity — Critical, High, Medium, Low'              },
+                { title: 'Trend History',     desc: 'Compare scores over time and track remediation progress'              },
+              ].map(({ title, desc }) => (
                 <div key={title} className="flex items-start gap-3 p-4 rounded-xl bg-gray-50/60">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${color}`}>
-                    <Icon className="w-4 h-4" />
-                  </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{title}</p>
                     <p className="text-xs text-gray-400 leading-relaxed mt-0.5">{desc}</p>
@@ -133,9 +126,6 @@ export default function ScansPage() {
                 >
                   <td>
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                        <Globe className="w-3.5 h-3.5 text-gray-400" />
-                      </div>
                       <div>
                         <p className="font-semibold text-gray-900">{scan.domain}</p>
                         <p className="mono text-[13px] text-gray-300 truncate max-w-[200px]">{scan.id}</p>
@@ -145,7 +135,6 @@ export default function ScansPage() {
                   <td><StatusBadge status={scan.status} /></td>
                   <td>
                     <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                      <Clock className="w-3.5 h-3.5" />
                       {formatDate(scan.created_at)}
                     </div>
                   </td>
@@ -157,7 +146,6 @@ export default function ScansPage() {
                       >
                         History
                       </button>
-                      <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-500 transition-colors" />
                     </div>
                   </td>
                 </tr>

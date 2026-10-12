@@ -1,27 +1,22 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Layers, Mail, Users, Headphones, MessageSquare, Megaphone, ShoppingCart } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import RiskBadge from '../../components/RiskBadge'
 
 const CAT_META = {
-  email:         { label: 'Email',         icon: Mail,          color: 'bg-blue-50 text-blue-700'    },
-  crm:           { label: 'CRM',           icon: Users,         color: 'bg-purple-50 text-purple-700' },
-  support:       { label: 'Support',       icon: Headphones,    color: 'bg-amber-50 text-amber-700'  },
-  collaboration: { label: 'Collaboration', icon: MessageSquare, color: 'bg-brand-50 text-brand-700'  },
-  marketing:     { label: 'Marketing',     icon: Megaphone,     color: 'bg-pink-50 text-pink-700'    },
-  ecommerce:     { label: 'E-commerce',    icon: ShoppingCart,  color: 'bg-orange-50 text-orange-700' },
+  email:         { label: 'Email'         },
+  crm:           { label: 'CRM'           },
+  support:       { label: 'Support'       },
+  collaboration: { label: 'Collaboration' },
+  marketing:     { label: 'Marketing'     },
+  ecommerce:     { label: 'E-commerce'    },
 }
 
 function AssetCard({ asset }) {
-  const meta = CAT_META[asset.category] ?? { label: asset.category, icon: Layers, color: 'bg-gray-50 text-gray-700' }
-  const Icon = meta.icon
+  const meta = CAT_META[asset.category] ?? { label: asset.category }
   return (
     <div className="card p-4 flex items-start gap-3">
-      <div className={`w-9 h-9 rounded-xl ${meta.color} flex items-center justify-center flex-shrink-0`}>
-        <Icon className="w-[18px] h-[18px]" />
-      </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="font-semibold text-sm text-gray-900">{asset.name}</p>
@@ -76,7 +71,6 @@ export default function ThirdPartyPage() {
 
       {assets.length === 0 ? (
         <div className="card py-16 text-center">
-          <Layers className="w-10 h-10 text-gray-200 mx-auto mb-3" />
           <p className="text-sm text-gray-400">No third-party SaaS services detected yet.</p>
           <p className="text-xs text-gray-300 mt-1">Run a scan to discover external dependencies.</p>
         </div>

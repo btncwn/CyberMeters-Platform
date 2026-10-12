@@ -10,7 +10,7 @@
  * critical only, blue = informational.
  *
  * Props (backward-compatible):
- *   icon         Lucide icon component
+ *   icon         Accepted for compatibility; not drawn (no decorative icons).
  *   label        Title — leads the card (wraps, never harshly truncated)
  *   value        Supporting numeric/string value
  *   explanation  Optional short context line (carries meaning; reads before value)
@@ -18,10 +18,9 @@
  *   danger       Boolean — critical (red)
  *   warning      Boolean — needs review (amber)
  *   tone         Optional 'info' (blue) | 'neutral' (gray) for categories
- *   iconColor    Optional explicit icon colour override
+ *   iconColor    Accepted for compatibility; unused.
  */
 export default function StatCard({
-  icon: Icon,
   label,
   value,
   explanation,
@@ -29,7 +28,6 @@ export default function StatCard({
   danger  = false,
   warning = false,
   tone,
-  iconColor,
 }) {
   const t = danger ? 'danger' : warning ? 'warning' : (tone || 'default')
   const T = {
@@ -42,12 +40,9 @@ export default function StatCard({
 
   return (
     <div className={`card p-5 ${T.accent}`}>
-      {/* TEXT ON TOP — the label leads (larger than the number), dark + semibold,
-         with a subtle icon. Wraps freely. */}
-      <div className="flex items-start gap-2">
-        {Icon && <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${iconColor || T.icon}`} />}
-        <p className="text-[15px] font-semibold text-gray-900 leading-snug">{label}</p>
-      </div>
+      {/* TEXT ON TOP — the label leads (larger than the number), dark + semibold.
+         Wraps freely. */}
+      <p className="text-[16px] font-semibold text-gray-900 leading-snug">{label}</p>
       {explanation && <p className="text-xs text-gray-500 mt-1 leading-snug">{explanation}</p>}
       {sub && <p className="text-xs text-gray-500 mt-0.5 leading-snug">{sub}</p>}
       {/* NUMBER AT THE BOTTOM, and deliberately SMALLER than the label — it

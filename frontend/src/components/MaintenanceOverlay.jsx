@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
 import { BASE } from '../api'
-import { Wrench } from 'lucide-react'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Full-screen planned-maintenance overlay. Shows when any API call returns the
@@ -49,9 +48,6 @@ export default function MaintenanceOverlay() {
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-gray-50 px-6" role="alertdialog" aria-modal="true" aria-label="Scheduled maintenance">
       <div className="max-w-md w-full text-center">
-        <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50">
-          <Wrench className="h-7 w-7 text-brand-600" />
-        </div>
         <h1 className="text-2xl font-bold text-gray-900">Scheduled maintenance</h1>
         <p className="mt-3 text-gray-600 leading-relaxed">
           CyberMeters is undergoing brief scheduled maintenance and will be back

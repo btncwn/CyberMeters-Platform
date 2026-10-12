@@ -18,12 +18,7 @@ import { parseServerDate } from '../utils/dates'
  */
 import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import {
-  CreditCard, Clock, CheckCircle, ArrowRight, Shield,
-  Zap, Globe, Users, Calendar, BarChart2, FileText,
-  Bell, AlertTriangle, Star, Lock, ChevronRight,
-  RefreshCw, Building2, Mail,
-} from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
 
 // ── Plan display config (visual only) ────────────────────────────────────────
@@ -88,21 +83,21 @@ function statusCfg(s) {
 
 // Feature gate display config
 const GATE_DISPLAY = [
-  { key: 'scheduled_scans', icon: Calendar, label: 'Scheduled scans'         },
-  { key: 'alerts',          icon: Bell,     label: 'Email & in-app alerts'   },
-  { key: 'pdf_reports',     icon: FileText, label: 'PDF report export'       },
-  { key: 'multi_workspace', icon: Building2,label: 'Multiple workspaces'     },
-  { key: 'team_members',    icon: Users,    label: 'Team member invitations' },
-  { key: 'business_risk_score', icon: BarChart2, label: 'Business Risk Score' },
-  { key: 'cyber_essentials',    icon: Shield,    label: 'Cyber Essentials Readiness' },
+  { key: 'scheduled_scans', label: 'Scheduled scans'         },
+  { key: 'alerts',          label: 'Email & in-app alerts'   },
+  { key: 'pdf_reports',     label: 'PDF report export'       },
+  { key: 'multi_workspace', label: 'Multiple workspaces'     },
+  { key: 'team_members',    label: 'Team member invitations' },
+  { key: 'business_risk_score', label: 'Business Risk Score' },
+  { key: 'cyber_essentials',    label: 'Cyber Essentials Readiness' },
   // vendor_risk gates the live third-party technology surface; the retired
   // vendor-risk marketing claim must not be advertised — the honest label
   // states only what external observation actually provides.
-  { key: 'vendor_risk',         icon: Globe,     label: 'Third-party technology detection' },
-  { key: 'executive_dashboard', icon: Star,      label: 'Executive Risk Dashboard'   },
-  { key: 'audit_logs',          icon: CheckCircle, label: 'Workspace Audit Logs'     },
-  { key: 'portfolio_monitoring',icon: BarChart2, label: 'Portfolio Monitoring'       },
-  { key: 'white_label',         icon: FileText,  label: 'White-label reports'        },
+  { key: 'vendor_risk',         label: 'Third-party technology detection' },
+  { key: 'executive_dashboard', label: 'Executive Risk Dashboard'   },
+  { key: 'audit_logs',          label: 'Workspace Audit Logs'     },
+  { key: 'portfolio_monitoring',label: 'Portfolio Monitoring'       },
+  { key: 'white_label',         label: 'White-label reports'        },
 ]
 
 // Upgrade path from each plan
@@ -140,9 +135,6 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
     <div className={`rounded-2xl border p-5 ${bg}`}>
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <div className={`mt-0.5 w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${urgent ? 'bg-red-100' : warning ? 'bg-amber-100' : 'bg-blue-100'}`}>
-            <Clock className={`w-4 h-4 ${urgent ? 'text-red-600' : warning ? 'text-amber-600' : 'text-blue-600'}`} />
-          </div>
           <div>
             <p className={`text-sm font-bold ${textH}`}>
               {urgent
@@ -160,7 +152,6 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
           className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white rounded-xl transition-colors ${btnBg}`}
         >
           Upgrade now
-          <ArrowRight className="w-3 h-3" />
         </button>
       </div>
 
@@ -258,8 +249,8 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
           {checkoutLoading
             ? <><RefreshCw className="w-4 h-4 animate-spin" /> {portalPlanChange ? 'Opening billing portal…' : 'Opening checkout…'}</>
             : portalPlanChange
-              ? <><span>Change plan in billing portal</span><ArrowRight className="w-4 h-4" /></>
-              : <><span>Upgrade to {PLAN_META[upgradeTo]?.label}</span><ArrowRight className="w-4 h-4" /></>
+              ? <span>Change plan in billing portal</span>
+              : <span>Upgrade to {PLAN_META[upgradeTo]?.label}</span>
           }
         </button>
       )}
@@ -268,13 +259,11 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
           href="mailto:hello@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry"
           className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors"
         >
-          <Mail className="w-4 h-4" />
           Contact Sales for MSP
         </a>
       )}
       {!upgradeTo && (
         <div className="flex items-center gap-2 text-xs text-green-600 font-semibold">
-          <CheckCircle className="w-4 h-4" />
           You're on our top plan
         </div>
       )}
@@ -290,9 +279,9 @@ function LimitsGrid({ limits }) {
     // Customer-facing value metric is monitored domains — lead with it. Internal
     // enforcement quotas (workspaces, scans/month, scheduled scans) are not
     // customer-facing plan value and are no longer rendered here.
-    { label: 'Monitored domains', value: limits.domains,      icon: Globe },
-    { label: 'Team members',      value: limits.users,        icon: Users },
-    { label: 'Report history (days)', value: limits.history_days, icon: Clock },
+    { label: 'Monitored domains', value: limits.domains },
+    { label: 'Team members',      value: limits.users },
+    { label: 'Report history (days)', value: limits.history_days },
   ]
   function fmt(v) {
     if (v === undefined || v === null) return '—'
@@ -301,10 +290,9 @@ function LimitsGrid({ limits }) {
   }
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-      {items.map(({ label, value, icon: Icon }) => (
+      {items.map(({ label, value }) => (
         <div key={label} className="bg-white border border-gray-200/80 rounded-xl p-3 text-center">
           {/* Label on top (larger); number below and smaller. */}
-          <Icon className="w-4 h-4 text-gray-300 mx-auto mb-1.5" />
           <p className="text-sm font-semibold text-gray-900 leading-snug">{label}</p>
           <p className="text-xs font-bold text-gray-600 mt-1 tabular-nums">{fmt(value)}</p>
         </div>
@@ -320,7 +308,7 @@ function FeatureChecklist({ features }) {
   const featureSet = new Set(features)
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      {GATE_DISPLAY.map(({ key, icon: Icon, label }) => {
+      {GATE_DISPLAY.map(({ key, label }) => {
         const has = featureSet.has(key)
         return (
           <div
@@ -329,11 +317,7 @@ function FeatureChecklist({ features }) {
               has ? 'text-gray-700' : 'text-gray-300'
             }`}
           >
-            {has
-              ? <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-              : <Lock className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
-            }
-            <Icon className={`w-3 h-3 flex-shrink-0 ${has ? 'text-gray-400' : 'text-gray-200'}`} />
+            <span className="sr-only">{has ? 'Included: ' : 'Not included: '}</span>
             {label}
           </div>
         )
@@ -354,9 +338,6 @@ function UpgradePrompt({ plan, onUpgrade, checkoutLoading, livePlans }) {
   return (
     <div className="bg-gray-900 rounded-2xl p-6">
       <div className="flex items-start gap-3 mb-4">
-        <div className="w-10 h-10 rounded-xl bg-brand-500/20 flex items-center justify-center flex-shrink-0">
-          <Zap className="w-5 h-5 text-brand-400" />
-        </div>
         <div>
           <h3 className="text-base font-bold text-white mb-1">
             {plan === 'free'
@@ -379,7 +360,7 @@ function UpgradePrompt({ plan, onUpgrade, checkoutLoading, livePlans }) {
           >
             {checkoutLoading
               ? <><RefreshCw className="w-4 h-4 animate-spin" /> Opening checkout…</>
-              : <><span>Upgrade to {PLAN_META[upgradeTo]?.label}</span><ArrowRight className="w-4 h-4" /></>
+              : <span>Upgrade to {PLAN_META[upgradeTo]?.label}</span>
             }
           </button>
         ) : (
@@ -387,7 +368,6 @@ function UpgradePrompt({ plan, onUpgrade, checkoutLoading, livePlans }) {
             href="mailto:hello@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry"
             className="flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-brand-600 hover:bg-brand-500 rounded-xl transition-colors"
           >
-            <Mail className="w-4 h-4" />
             Contact Sales for MSP
           </a>
         )}
@@ -396,7 +376,6 @@ function UpgradePrompt({ plan, onUpgrade, checkoutLoading, livePlans }) {
           className="flex items-center justify-center gap-1.5 px-5 py-2.5 text-sm font-semibold text-gray-400 hover:text-white bg-white/10 hover:bg-white/20 rounded-xl transition-colors"
         >
           Compare all plans
-          <ChevronRight className="w-3.5 h-3.5" />
         </Link>
       </div>
       <p className="text-[12px] text-gray-500 mt-3">No credit card required to start a trial · Cancel anytime</p>
@@ -599,7 +578,6 @@ export default function SubscriptionPage() {
   if (!workspaceId) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-10 text-center">
-        <Building2 className="w-10 h-10 text-gray-300 mx-auto mb-3" />
         <h2 className="text-base font-bold text-gray-700 mb-1">No active workspace</h2>
         <p className="text-sm text-gray-400">Select a workspace to view subscription details.</p>
       </div>
@@ -612,7 +590,6 @@ export default function SubscriptionPage() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-10">
         <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-100 px-4 py-3 rounded-xl">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           {error}
         </div>
       </div>
@@ -627,9 +604,6 @@ export default function SubscriptionPage() {
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center">
-            <CreditCard className="w-5 h-5 text-brand-600" />
-          </div>
           <div>
             <h1 className="text-lg font-black text-gray-900">Subscription</h1>
             <p className="text-xs text-gray-400">Manage your plan and billing</p>
@@ -642,10 +616,8 @@ export default function SubscriptionPage() {
             disabled={portalLoading}
             className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-gray-600 bg-white border border-gray-200 hover:border-gray-300 hover:text-gray-800 rounded-xl transition-colors disabled:opacity-50"
           >
-            {portalLoading ? (
+            {portalLoading && (
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <CreditCard className="w-3.5 h-3.5" />
             )}
             Manage Billing
           </button>
@@ -664,7 +636,6 @@ export default function SubscriptionPage() {
       )}
       {activation === 'active' && (
         <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-2xl px-4 py-3" role="status">
-          <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
           <div>
             <p className="text-sm font-bold text-green-800">Payment received — your {meta.label} plan is active.</p>
             <p className="text-xs text-green-600 mt-0.5">Your plan features are available now.</p>
@@ -673,7 +644,6 @@ export default function SubscriptionPage() {
       )}
       {activation === 'pending' && (
         <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3" role="alert">
-          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-bold text-amber-900">Your checkout finished, but your plan isn't active yet.</p>
             <p className="text-xs text-amber-800 mt-0.5">
@@ -686,7 +656,6 @@ export default function SubscriptionPage() {
       )}
       {stripeCanceled && (
         <div className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3">
-          <AlertTriangle className="w-4 h-4 text-gray-400 flex-shrink-0" />
           <p className="text-sm text-gray-600">Checkout cancelled — no changes were made.</p>
         </div>
       )}
@@ -694,13 +663,11 @@ export default function SubscriptionPage() {
       {/* ── Checkout / portal error banners ── */}
       {checkoutError && (
         <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-          <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-red-700">{checkoutError}</p>
         </div>
       )}
       {portalError && (
         <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-          <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-red-700">{portalError}</p>
         </div>
       )}
@@ -708,7 +675,6 @@ export default function SubscriptionPage() {
       {/* ── Payment grace period — plan still active while Stripe retries ── */}
       {graceActive && (
         <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4">
-          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-amber-800">Payment issue — your plan is still active</p>
             <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
@@ -718,7 +684,7 @@ export default function SubscriptionPage() {
             </p>
             <button onClick={handleManageBilling} disabled={portalLoading}
               className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors disabled:opacity-50">
-              {portalLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
+              {portalLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
               Update payment method
             </button>
           </div>
@@ -728,7 +694,6 @@ export default function SubscriptionPage() {
       {/* ── Post-grace downgrade — payment never collected ── */}
       {pastDueExpired && (
         <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-2xl p-4">
-          <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-red-800">Your workspace moved to the Free plan</p>
             <p className="text-xs text-red-700 mt-0.5 leading-relaxed">
@@ -737,7 +702,7 @@ export default function SubscriptionPage() {
             </p>
             <button onClick={handleManageBilling} disabled={portalLoading}
               className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50">
-              {portalLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
+              {portalLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
               Update payment method
             </button>
           </div>
@@ -747,7 +712,6 @@ export default function SubscriptionPage() {
       {/* ── Scheduled cancellation — access continues until period end ── */}
       {cancelScheduled && (
         <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-2xl p-4">
-          <AlertTriangle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-blue-800">Your subscription is scheduled to cancel</p>
             <p className="text-xs text-blue-700 mt-0.5 leading-relaxed">
@@ -757,7 +721,7 @@ export default function SubscriptionPage() {
             </p>
             <button onClick={handleManageBilling} disabled={portalLoading}
               className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-white border border-blue-200 hover:border-blue-300 rounded-lg transition-colors disabled:opacity-50">
-              {portalLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
+              {portalLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
               Resume subscription
             </button>
           </div>
@@ -776,7 +740,6 @@ export default function SubscriptionPage() {
       {/* ── Trial expired banner ── */}
       {!trialActive && !subscriptionActive && status === 'trialing' && (
         <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4">
-          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-bold text-amber-800">Your trial has ended</p>
             <p className="text-xs text-amber-600 mt-0.5">
@@ -824,7 +787,6 @@ export default function SubscriptionPage() {
       {/* ── Trial tip (when still in trial) ── */}
       {trialActive && (
         <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 flex items-start gap-3">
-          <Shield className="w-5 h-5 text-brand-600 flex-shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-bold text-brand-800 mb-1">You're on the 14-day full trial</p>
             <p className="text-xs text-brand-600 leading-relaxed">
@@ -842,7 +804,6 @@ export default function SubscriptionPage() {
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-gray-700 transition-colors"
         >
           Compare all plans and pricing
-          <ChevronRight className="w-3 h-3" />
         </Link>
       </div>
 

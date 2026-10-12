@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Cloud, ExternalLink } from 'lucide-react'
+import { Cloud } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -17,7 +17,7 @@ const COLUMNS = [
       {row.url && (
         <a href={row.url} target="_blank" rel="noopener noreferrer"
            className="text-xs text-brand-600 hover:underline flex items-center gap-1 mt-0.5">
-          <ExternalLink className="w-3 h-3" />{row.url}
+          {row.url}
         </a>
       )}
     </div>

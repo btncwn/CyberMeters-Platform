@@ -1,12 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import {
-  RefreshCw, AlertTriangle, ShieldAlert, Eye, Wifi,
-  Globe, CheckCircle, XCircle, AlertCircle, ChevronRight,
-  ArrowUpRight, ScanLine, Clock, TrendingUp, Briefcase,
-  Mail, Lock, Tag, ArrowRight, Sparkles, ClipboardCheck,
-  MonitorCheck, KeyRound, Boxes,
-} from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import OnboardingProgress  from '../components/OnboardingProgress'
@@ -208,15 +202,12 @@ const EXPOSURE_STYLES = {
   brand:  { bg: 'bg-brand-50',  icon: 'text-brand-600',  val: 'text-brand-700'  },
 }
 
-function ExposureCard({ icon: Icon, label, value, color }) {
+function ExposureCard({ label, value, color }) {
   const s = EXPOSURE_STYLES[color]
   return (
     <div className="card p-5">
       {/* Label leads on top; the number sits below and is smaller. */}
       <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-xl ${s.bg} flex items-center justify-center flex-shrink-0`}>
-          <Icon className={`w-5 h-5 ${s.icon}`} />
-        </div>
         <p className="text-[15px] font-semibold text-gray-900 leading-snug">{label}</p>
       </div>
       <p className={`text-[14px] font-bold mt-2.5 tabular-nums ${s.val}`}>{value}</p>
@@ -252,7 +243,6 @@ function TrendChart({ points }) {
   if (!points || points.length < 2) {
     return (
       <div className="h-36 flex flex-col items-center justify-center gap-2 text-gray-300 text-sm">
-        <TrendingUp className="w-6 h-6" />
         Run more scans to see trend data
       </div>
     )
@@ -286,7 +276,7 @@ function TrendChart({ points }) {
         <circle key={i} cx={c.x} cy={c.y} r="4" fill="#00876A" stroke="white" strokeWidth="2" />
       ))}
       {points.map((p, i) => (
-        <text key={i} x={coords[i].x} y={H - 1} textAnchor="middle" fontSize="11" fill="#9CA3AF" fontFamily="Inter,sans-serif">
+        <text key={i} x={coords[i].x} y={H - 1} textAnchor="middle" fontSize="11" fill="#9CA3AF" fontFamily="'Computer Modern Text',Georgia,serif">
           {p.label}
         </text>
       ))}
@@ -320,9 +310,6 @@ function CreateFirstWorkspaceState() {
 
       {/* Hero banner */}
       <div className="card p-10 flex flex-col items-center text-center mb-6">
-        <div className="w-16 h-16 rounded-2xl bg-brand-50 flex items-center justify-center mb-5">
-          <Briefcase className="w-8 h-8 text-brand-600" />
-        </div>
         <h2 className="text-xl font-bold text-gray-900 mb-2">Create your first workspace</h2>
         <p className="text-sm text-gray-400 mb-2 max-w-md leading-relaxed">
           A workspace holds the domains, scans, and reports for one organisation or client.
@@ -331,11 +318,9 @@ function CreateFirstWorkspaceState() {
         <p className="text-xs text-gray-300 mb-8">Takes less than a minute · No credit card required</p>
         <div className="flex flex-wrap items-center justify-center gap-3">
           <Link to="/onboarding" className="btn-primary">
-            <ChevronRight className="w-4 h-4" />
             Get Started
           </Link>
           <Link to="/workspaces" className="btn-secondary">
-            <Briefcase className="w-4 h-4" />
             Go to Workspaces
           </Link>
         </div>
@@ -345,28 +330,19 @@ function CreateFirstWorkspaceState() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
           {
-            icon:  ShieldAlert,
-            color: 'bg-red-50 text-red-500',
             title: 'Attack Surface Visibility',
             desc:  'Discover subdomains, exposed services, and cloud assets across your entire digital footprint.',
           },
           {
-            icon:  TrendingUp,
-            color: 'bg-brand-50 text-brand-600',
             title: 'Continuous Risk Scoring',
             desc:  'Your Cyber Metrics Score updates with each scan — track improvement over time.',
           },
           {
-            icon:  Eye,
-            color: 'bg-purple-50 text-purple-600',
             title: 'Executive Reporting',
             desc:  'One-click PDF reports for stakeholders, clients, and compliance requirements.',
           },
-        ].map(({ icon: Icon, color, title, desc }) => (
+        ].map(({ title, desc }) => (
           <div key={title} className="card p-5">
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${color}`}>
-              <Icon className="w-4 h-4" />
-            </div>
             <p className="text-sm font-semibold text-gray-900 mb-1">{title}</p>
             <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
           </div>
@@ -389,9 +365,6 @@ function SelectWorkspaceState() {
         </div>
       </div>
       <div className="card p-12 flex flex-col items-center text-center">
-        <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center mb-4">
-          <Briefcase className="w-7 h-7 text-brand-600" />
-        </div>
         <h3 className="text-lg font-semibold text-gray-900 mb-2">No workspace selected</h3>
         <p className="text-sm text-gray-400 mb-6 max-w-sm">
           The dashboard is scoped to a workspace. Select one from the workspace selector in the top nav,
@@ -399,11 +372,9 @@ function SelectWorkspaceState() {
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3">
           <Link to="/workspaces" className="btn-primary">
-            <Briefcase className="w-4 h-4" />
             Go to Workspaces
           </Link>
           <Link to="/onboarding" className="btn-secondary">
-            <ChevronRight className="w-4 h-4" />
             Get Started Guide
           </Link>
         </div>
@@ -420,16 +391,12 @@ const SERVICE_THEME = SERVICE_COLORS
 
 const titleCase = (s) => (s ? String(s).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—')
 
-function ServiceKpiCard({ icon: Icon, title, to, cta, accentTone, kpis, fallback, status, theme }) {
+function ServiceKpiCard({ title, to, cta, accentTone, kpis, fallback, status, theme }) {
   const accent = accentTone === 'bad' ? 'accent-danger' : accentTone === 'warn' ? 'accent-warning' : ''
   return (
     <div className={`card p-5 flex flex-col relative overflow-hidden ${accent}`}>
       {theme && <span className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: theme.icon, opacity: 0.85 }} />}
       <div className="flex items-center gap-2 mb-3">
-        <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={theme ? { background: theme.chip } : undefined}>
-          <Icon className={`w-4 h-4 ${theme ? '' : 'text-brand-600'}`} style={theme ? { color: theme.icon } : undefined} />
-        </div>
         <h3 className="text-sm font-bold text-gray-900">{title}</h3>
       </div>
       {status && (
@@ -448,7 +415,7 @@ function ServiceKpiCard({ icon: Icon, title, to, cta, accentTone, kpis, fallback
         <p className="text-xs text-gray-500 leading-relaxed flex-1">{fallback}</p>
       )}
       <Link to={to} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-brand-700 hover:text-brand-800">
-        {cta} <ArrowRight className="w-4 h-4" />
+        {cta}
       </Link>
     </div>
   )
@@ -608,7 +575,6 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 mb-2">
             {activeWorkspaceName && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-gray-200 shadow-card text-xs font-semibold text-gray-700">
-                <Briefcase className="w-3.5 h-3.5 text-brand-600" />
                 {activeWorkspaceName}
               </span>
             )}
@@ -627,7 +593,6 @@ export default function Dashboard() {
             Refresh
           </button>
           <Link to="/scans/new" className="btn-primary">
-            <ScanLine className="w-4 h-4" />
             New Scan
           </Link>
         </div>
@@ -635,7 +600,6 @@ export default function Dashboard() {
 
       {error && (
         <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
           {error}
         </div>
       )}
@@ -698,28 +662,28 @@ export default function Dashboard() {
             <div>
               <h2 className="section-title mb-3">Your Cyber MOT domains</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <ServiceKpiCard icon={KeyRound} title="Identity Exposure" to="/ws/identity-exposure" cta="Review Identity Exposure"
+                <ServiceKpiCard title="Identity Exposure" to="/ws/identity-exposure" cta="Review Identity Exposure"
                   theme={SERVICE_THEME.identity} status="Externally observed"
                   fallback="Review observed identity-provider relationships and identity-facing hostnames. Endpoint reachability is shown only with HTTP evidence." />
-                <ServiceKpiCard icon={Globe} title="Attack Surface" to="/assets" cta="Review Attack Surface"
+                <ServiceKpiCard title="Attack Surface" to="/assets" cta="Review Attack Surface"
                   theme={SERVICE_THEME.surface} kpis={surfaceKpis} accentTone={critical > 0 ? 'bad' : high > 0 ? 'warn' : ''}
                   fallback="Run your first external scan to discover exposed assets." />
-                <ServiceKpiCard icon={Mail} title="Email Protection" to="/ws/email-protection" cta="Open Email Protection"
+                <ServiceKpiCard title="Email Protection" to="/ws/email-protection" cta="Open Email Protection"
                   theme={SERVICE_THEME.email} status="Not measured"
                   fallback="Connect DMARC reporting to measure impersonation exposure." />
-                <ServiceKpiCard icon={MonitorCheck} title="Website Security" to="/ws/website-security" cta="Review Website Security"
+                <ServiceKpiCard title="Website Security" to="/ws/website-security" cta="Review Website Security"
                   theme={SERVICE_THEME.website} status="Externally observed"
                   fallback="Review HTTPS, redirects, headers and cookie flag evidence." />
-                <ServiceKpiCard icon={Boxes} title="Shadow IT & Unmanaged Technology" to="/ws/shadow-it" cta="Review Shadow IT"
+                <ServiceKpiCard title="Shadow IT & Unmanaged Technology" to="/ws/shadow-it" cta="Review Shadow IT"
                   theme={SERVICE_THEME.shadow_it} status="Externally observed"
                   fallback="Review SaaS, vendor, script and unmanaged technology observations." />
-                <ServiceKpiCard icon={Lock} title="Certificates & Trust" to="/ws/certificates" cta="Review Certificates"
+                <ServiceKpiCard title="Certificates & Trust" to="/ws/certificates" cta="Review Certificates"
                   theme={SERVICE_THEME.certs} kpis={certKpis} accentTone={cr && ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : ''}
                   fallback="Review certificate expiry and HTTPS trust posture." />
-                <ServiceKpiCard icon={Tag} title="Brand Protection" to="/ws/brand-monitoring" cta="Review Brand Protection"
+                <ServiceKpiCard title="Brand Protection" to="/ws/brand-monitoring" cta="Review Brand Protection"
                   theme={SERVICE_THEME.brand} kpis={brandKpis} accentTone={brand && (brand.high ?? 0) > 0 ? 'bad' : ''}
                   fallback="Add a protected brand profile to monitor lookalike domains." />
-                <ServiceKpiCard icon={ClipboardCheck} title="Cyber Essentials Readiness" to="/ws/cyber-essentials" cta="Review Readiness"
+                <ServiceKpiCard title="Cyber Essentials Readiness" to="/ws/cyber-essentials" cta="Review Readiness"
                   theme={SERVICE_THEME.cyber_essentials} status="Evidence-led"
                   fallback="Review readiness evidence and saved questionnaire answers." />
               </div>
@@ -727,14 +691,11 @@ export default function Dashboard() {
 
             {/* Recommended next action */}
             <div className="card p-5 border-brand-100 bg-brand-50/40 flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-white border border-brand-100 flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-5 h-5 text-brand-600" />
-              </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide">Recommended next action</p>
                 <p className="text-sm text-gray-800 mt-0.5 leading-relaxed">{rec.text}</p>
               </div>
-              <Link to={rec.to} className="btn-primary text-sm flex-shrink-0">{rec.cta} <ArrowRight className="w-4 h-4" /></Link>
+              <Link to={rec.to} className="btn-primary text-sm flex-shrink-0">{rec.cta}</Link>
             </div>
 
             {/* Posture overview */}
@@ -770,9 +731,6 @@ export default function Dashboard() {
       {domainCount === 0 && (
         <div className="card p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-brand-100 bg-brand-50/40">
           <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-xl bg-brand-100 flex items-center justify-center flex-shrink-0">
-              <Globe className="w-4 h-4 text-brand-600" />
-            </div>
             <div>
               <p className="text-sm font-bold text-gray-900">Add your first domain</p>
               <p className="text-sm text-gray-500 mt-0.5">
@@ -783,7 +741,7 @@ export default function Dashboard() {
             </div>
           </div>
           <Link to="/ws/dashboard" className="btn-primary flex-shrink-0">
-            Add Domain <ChevronRight className="w-4 h-4" />
+            Add Domain
           </Link>
         </div>
       )}
@@ -820,11 +778,11 @@ export default function Dashboard() {
             <div className="mt-6 flex flex-wrap items-center gap-3">
               {report ? (
                 <Link to={`/scans/${report.scan_id}`} className="btn-primary">
-                  View Executive Report <ChevronRight className="w-4 h-4" />
+                  View Executive Report
                 </Link>
               ) : (
                 <Link to="/scans/new" className="btn-primary">
-                  <ScanLine className="w-4 h-4" /> Run your first Cyber MOT
+                  Run your first Cyber MOT
                 </Link>
               )}
               <Link to="/scans" className="btn-secondary">View all scans</Link>
@@ -836,18 +794,15 @@ export default function Dashboard() {
       {/* ── KPI tiles ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Total Scans',     value: scans.length,         sub: 'all time',         icon: ScanLine,    tint: 'bg-brand-50 text-brand-600'   },
-          { label: 'Completed',       value: ins.completed.length, sub: 'successful',       icon: CheckCircle, tint: 'bg-brand-50 text-brand-600'   },
-          { label: 'Active Scans',    value: ins.active,           sub: 'currently running', icon: Wifi,       tint: 'bg-blue-50 text-blue-600'     },
-          { label: 'Domains Tracked', value: ins.domains.length,   sub: 'unique domains',   icon: Globe,       tint: 'bg-gray-100 text-gray-500'    },
-        ].map(({ label, value, sub, icon: Icon, tint }) => (
+          { label: 'Total Scans',     value: scans.length,         sub: 'all time' },
+          { label: 'Completed',       value: ins.completed.length, sub: 'successful' },
+          { label: 'Active Scans',    value: ins.active,           sub: 'currently running' },
+          { label: 'Domains Tracked', value: ins.domains.length,   sub: 'unique domains' },
+        ].map(({ label, value, sub }) => (
           <div key={label} className="stat-tile">
-            {/* Text on top: label leads, with a subtle icon on the right. */}
+            {/* Text on top: label leads. */}
             <div className="flex items-start justify-between gap-2">
               <span className="text-[15px] font-semibold text-gray-900 leading-snug">{label}</span>
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${tint}`}>
-                <Icon className="w-4 h-4" />
-              </div>
             </div>
             <span className="text-xs text-gray-500">{sub}</span>
             {/* Number at the bottom, smaller than the label — it supports. */}
@@ -863,13 +818,13 @@ export default function Dashboard() {
             <span className="eyebrow">Risk at a glance</span>
             <h2 className="section-title mt-1.5">Exposure Overview</h2>
           </div>
-          <Link to="/scans" className="btn-ghost text-xs">View all <ChevronRight className="w-3.5 h-3.5" /></Link>
+          <Link to="/scans" className="btn-ghost text-xs">View all</Link>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <ExposureCard icon={ShieldAlert}   label="Critical Findings"  value={ins.criticalCount}         color="red"    />
-          <ExposureCard icon={AlertTriangle} label="High Risk Findings"  value={ins.highCount}             color="orange" />
-          <ExposureCard icon={Eye}           label="Domains Tracked"     value={ins.domains.length}        color="amber"  />
-          <ExposureCard icon={Wifi}          label="Scans In Progress"   value={ins.active}                color="brand"  />
+          <ExposureCard label="Critical Findings"  value={ins.criticalCount}         color="red"    />
+          <ExposureCard label="High Risk Findings"  value={ins.highCount}             color="orange" />
+          <ExposureCard label="Domains Tracked"     value={ins.domains.length}        color="amber"  />
+          <ExposureCard label="Scans In Progress"   value={ins.active}                color="brand"  />
         </div>
       </section>
 
@@ -903,16 +858,13 @@ export default function Dashboard() {
             <h2 className="text-base font-bold text-gray-900">Top Findings</h2>
             {report && (
               <Link to={`/scans/${report.scan_id}`} className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1">
-                Executive Report <ChevronRight className="w-3 h-3" />
+                Executive Report
               </Link>
             )}
           </div>
           {ins.findings.length === 0 ? (
             ins.scanQuality === 'complete' ? (
               <div className="flex flex-col items-center gap-3 py-12 text-center px-6">
-                <div className="w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center">
-                  <CheckCircle className="w-6 h-6 text-brand-600" />
-                </div>
                 <p className="text-sm font-semibold text-gray-900">No findings</p>
                 <p className="text-xs text-gray-400">All checks passed on the latest complete scan</p>
               </div>
@@ -959,7 +911,6 @@ export default function Dashboard() {
             </p>
           </div>
           <span className="flex items-center gap-1.5 text-xs text-brand-600 font-semibold">
-            <TrendingUp className="w-3.5 h-3.5" />
             Last {ins.trend.length} scans
           </span>
         </div>
@@ -988,7 +939,7 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <Link to={action.href} className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors">
-                  {action.cta} <ArrowUpRight className="w-3.5 h-3.5" />
+                  {action.cta}
                 </Link>
               </div>
             ))}
@@ -1004,7 +955,7 @@ export default function Dashboard() {
         <div className="card overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
             <h2 className="text-base font-bold text-gray-900">Recent Scans</h2>
-            <Link to="/scans" className="btn-ghost text-xs">View all <ChevronRight className="w-3.5 h-3.5" /></Link>
+            <Link to="/scans" className="btn-ghost text-xs">View all</Link>
           </div>
           <ul className="divide-y divide-gray-50">
             {scans.slice(0, 5).map(scan => (
@@ -1013,24 +964,15 @@ export default function Dashboard() {
                 onClick={() => navigate(`/scans/${scan.id}`)}
                 className="flex items-center gap-4 px-6 py-3.5 hover:bg-gray-50 cursor-pointer transition-colors group"
               >
-                <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                  <Globe className="w-3.5 h-3.5 text-gray-400" />
-                </div>
                 <span className="text-sm font-semibold text-gray-900 flex-1 truncate">{scan.domain}</span>
                 {/* Show real score if available */}
                 {scan.score != null && (
                   <span className="text-sm font-bold text-brand-600 flex-shrink-0">{scan.score}</span>
                 )}
                 <span className="flex items-center gap-1.5 text-xs text-gray-500">
-                  {scan.status === 'completed'
-                    ? <CheckCircle className="w-4 h-4 text-brand-600" />
-                    : scan.status === 'failed'
-                      ? <XCircle className="w-4 h-4 text-red-500" />
-                      : <Clock className="w-4 h-4 text-amber-400" />}
                   <span className="capitalize">{scan.status}</span>
                 </span>
                 <span className="text-xs text-gray-400 hidden sm:block flex-shrink-0">{formatDate(scan.created_at)}</span>
-                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-500 transition-colors flex-shrink-0" />
               </li>
             ))}
           </ul>

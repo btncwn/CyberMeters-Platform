@@ -1,9 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import {
-  Globe, Network, Mail, Lock, AlertTriangle, Activity,
-  RefreshCw, ChevronDown, Clock, ShieldAlert, ClipboardCheck,
-  MonitorCheck, KeyRound, Boxes,
-} from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import AttackSurfaceAssurance from './AttackSurfaceAssurance'
 import { assetLifecycleClaimDisplay } from '../lib/assetLifecycleClaimDisplay'
@@ -12,28 +8,9 @@ import { assetLifecycleClaimDisplay } from '../lib/assetLifecycleClaimDisplay'
 // Exposure Timeline feed — the chronological "what changed" stream that turns a
 // one-time scan into a subscription product. Consumes GET /exposure/feed, whose
 // events are already enriched server-side with `category`, `title`, and a
-// customer-safe `description` (before → after). The UI only maps category → icon
-// and severity → badge; it never re-derives labels.
+// customer-safe `description` (before → after). The UI only maps severity →
+// badge; it never re-derives labels.
 // ─────────────────────────────────────────────────────────────────────────────
-
-const CATEGORY_CONFIG = {
-  asset:       { icon: Globe,         color: 'text-teal-600',  bg: 'bg-teal-50'  },
-  dns:         { icon: Network,       color: 'text-teal-600',  bg: 'bg-teal-50'  },
-  email:       { icon: Mail,          color: 'text-blue-600',  bg: 'bg-blue-50'  },
-  certificate: { icon: Lock,          color: 'text-sky-600',   bg: 'bg-sky-50'   },
-  exposure:    { icon: AlertTriangle, color: 'text-amber-600', bg: 'bg-amber-50' },
-  email_protection:               { icon: Mail,           color: 'text-blue-600',    bg: 'bg-blue-50' },
-  brand_protection:               { icon: ShieldAlert,    color: 'text-red-600',     bg: 'bg-red-50' },
-  attack_surface:                 { icon: Globe,          color: 'text-teal-600',    bg: 'bg-teal-50' },
-  certificates_trust:             { icon: Lock,           color: 'text-sky-600',     bg: 'bg-sky-50' },
-  cyber_essentials_readiness:     { icon: ClipboardCheck, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-  website_security:               { icon: MonitorCheck,   color: 'text-amber-600',   bg: 'bg-amber-50' },
-  identity_exposure:              { icon: KeyRound,       color: 'text-indigo-600',  bg: 'bg-indigo-50' },
-  shadow_it_unmanaged_technology: { icon: Boxes,          color: 'text-purple-600',  bg: 'bg-purple-50' },
-}
-function categoryConfig(cat) {
-  return CATEGORY_CONFIG[cat] ?? { icon: Activity, color: 'text-gray-400', bg: 'bg-gray-100' }
-}
 
 const SEVERITY_STYLE = {
   info:     'bg-gray-100 text-gray-500',
@@ -110,13 +87,9 @@ function groupByDay(events) {
 
 function EventRow({ event }) {
   const claimDisplay = assetLifecycleClaimDisplay(event)
-  const { icon: Icon, color, bg } = categoryConfig(event.category)
   const sev = SEVERITY_STYLE[event.severity] ?? SEVERITY_STYLE.info
   return (
     <div className="flex items-start gap-3 py-3 border-b border-gray-50 last:border-0">
-      <div className={`w-8 h-8 rounded-full ${bg} flex items-center justify-center flex-shrink-0`}>
-        <Icon className={`w-4 h-4 ${color}`} />
-      </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold text-gray-900 leading-snug">{claimDisplay.title}</p>
@@ -191,12 +164,9 @@ export default function ExposureTimeline({ workspaceId }) {
       <div className="card p-6">
       {/* Header + filters */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-2">
-          <Clock className="w-4 h-4 text-brand-600" />
-          <h2 className="text-sm font-semibold text-gray-900">
-            Changes{total != null ? ` · ${total}` : ''}
-          </h2>
-        </div>
+        <h2 className="text-sm font-semibold text-gray-900">
+          Changes{total != null ? ` · ${total}` : ''}
+        </h2>
         <div className="flex items-center gap-2">
           <select
             value={severity}
@@ -210,6 +180,7 @@ export default function ExposureTimeline({ workspaceId }) {
             disabled={loading}
             className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-40"
             title="Refresh"
+            aria-label="Refresh"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -238,7 +209,6 @@ export default function ExposureTimeline({ workspaceId }) {
       {/* First-run / empty state — explains the subscription value, doesn't scold */}
       {!loading && !error && events.length === 0 && (
         <div className="py-10 text-center">
-          <Clock className="w-8 h-8 text-gray-200 mx-auto mb-3" />
           <p className="text-sm font-medium text-gray-500">No changes recorded yet</p>
           <p className="text-xs text-gray-400 mt-1 max-w-xs mx-auto leading-relaxed">
             Your exposure timeline builds as we re-scan your domains — check back after the next scan
@@ -261,7 +231,7 @@ export default function ExposureTimeline({ workspaceId }) {
           disabled={loading}
           className="mt-3 w-full flex items-center justify-center gap-1.5 py-2 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-40"
         >
-          {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <><ChevronDown className="w-3.5 h-3.5" /> Load more</>}
+          {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Load more'}
         </button>
       )}
 

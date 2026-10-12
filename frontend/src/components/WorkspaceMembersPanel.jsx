@@ -14,27 +14,22 @@ import { parseServerDate } from '../utils/dates'
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import {
-  Users, UserPlus, Trash2, Crown, Shield,
-  Eye, ScanLine, AlertTriangle, RefreshCw,
-} from 'lucide-react'
+import { Trash2, RefreshCw } from 'lucide-react'
 import { api } from '../api'
 
 // ── Role display helpers ─────────────────────────────────────────────────────
 
 const ROLE_CFG = {
-  owner:   { label: 'Owner',   icon: Crown,    bg: 'bg-amber-50',  text: 'text-amber-700',  border: 'border-amber-200' },
-  admin:   { label: 'Admin',   icon: Shield,   bg: 'bg-brand-50',  text: 'text-brand-700',  border: 'border-brand-200' },
-  analyst: { label: 'Analyst', icon: ScanLine, bg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-blue-200'  },
-  viewer:  { label: 'Viewer',  icon: Eye,      bg: 'bg-gray-50',   text: 'text-gray-600',   border: 'border-gray-200'  },
+  owner:   { label: 'Owner',   bg: 'bg-amber-50',  text: 'text-amber-700',  border: 'border-amber-200' },
+  admin:   { label: 'Admin',   bg: 'bg-brand-50',  text: 'text-brand-700',  border: 'border-brand-200' },
+  analyst: { label: 'Analyst', bg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-blue-200'  },
+  viewer:  { label: 'Viewer',  bg: 'bg-gray-50',   text: 'text-gray-600',   border: 'border-gray-200'  },
 }
 
 function RoleBadge({ role }) {
   const cfg = ROLE_CFG[role] ?? ROLE_CFG.viewer
-  const Icon = cfg.icon
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[13px] font-semibold ${cfg.bg} ${cfg.text} ${cfg.border}`}>
-      <Icon className="w-3 h-3" />
       {cfg.label}
     </span>
   )
@@ -135,7 +130,6 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Users className="w-4 h-4 text-brand-600" />
           <h3 className="font-semibold text-gray-900 text-sm">Team Members</h3>
           {members.length > 0 && (
             <span className="px-1.5 py-0.5 rounded-full text-[12px] font-bold bg-gray-100 text-gray-500">
@@ -148,6 +142,7 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
           disabled={loading}
           className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
           title="Refresh"
+          aria-label="Refresh"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
@@ -156,7 +151,6 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
       {/* Error */}
       {error && (
         <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100 mb-4">
-          <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
           <p className="text-xs text-red-600">{error}</p>
         </div>
       )}
@@ -198,6 +192,7 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
                       onClick={() => handleRemove(m.id)}
                       disabled={removingId === m.id}
                       title="Remove member"
+                      aria-label="Remove member"
                       className="w-6 h-6 flex items-center justify-center rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -259,7 +254,6 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
                 disabled={adding || !addEmail.trim()}
                 className="btn-primary flex items-center gap-1.5 flex-shrink-0 disabled:opacity-50"
               >
-                <UserPlus className="w-4 h-4" />
                 {adding ? 'Inviting…' : 'Invite'}
               </button>
             </div>

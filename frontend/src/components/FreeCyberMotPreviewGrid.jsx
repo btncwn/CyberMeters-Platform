@@ -1,27 +1,4 @@
-import {
-  BadgeCheck,
-  Building2,
-  CloudCog,
-  Fingerprint,
-  Globe2,
-  KeyRound,
-  LockKeyhole,
-  MailCheck,
-  Radar,
-  ShieldCheck,
-} from 'lucide-react'
 import { DOMAIN_STATE_LABELS } from '../lib/freeScanPresentation'
-
-const DOMAIN_ICONS = {
-  email_protection: MailCheck,
-  brand_protection: BadgeCheck,
-  attack_surface: Radar,
-  certificates_trust: KeyRound,
-  cyber_essentials_readiness: ShieldCheck,
-  website_security: Globe2,
-  identity_exposure: Fingerprint,
-  shadow_it_unmanaged_technology: CloudCog,
-}
 
 function countCopy(domain) {
   if (!Number.isFinite(domain.headline_count)) return 'Unlock to assess'
@@ -60,7 +37,6 @@ export default function FreeCyberMotPreviewGrid({ domains = [] }) {
 
       <div className="fm-domain-grid">
         {domains.map((domain) => {
-          const Icon = DOMAIN_ICONS[domain.domain_key] || Building2
           const stateKey = domain.display_state || domain.state
           return (
             <article
@@ -69,7 +45,6 @@ export default function FreeCyberMotPreviewGrid({ domains = [] }) {
               key={domain.domain_key}
             >
               <div className="fm-domain-card__top">
-                <div className="fm-domain-icon" aria-hidden="true"><Icon /></div>
                 <span className="fm-state-chip">
                   {DOMAIN_STATE_LABELS[stateKey] || 'Evidence incomplete'}
                 </span>
@@ -91,7 +66,6 @@ export default function FreeCyberMotPreviewGrid({ domains = [] }) {
 
               {(domain.locked_count > 0 || domain.unlock_required) && (
                 <div className="fm-domain-lock">
-                  <LockKeyhole aria-hidden="true" />
                   <span>
                     {domain.locked_count > 0
                       ? `+${domain.locked_count} more — unlock with trial`

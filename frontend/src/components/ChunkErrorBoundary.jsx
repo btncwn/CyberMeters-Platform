@@ -1,6 +1,5 @@
 import { Component } from 'react'
 import { useLocation } from 'react-router-dom'
-import { RefreshCw, WifiOff } from 'lucide-react'
 
 // ── Stale-deploy recovery ──────────────────────────────────────────────────
 //
@@ -157,11 +156,6 @@ class ChunkBoundaryInner extends Component {
     return (
       <div className="min-h-[60vh] flex items-center justify-center px-6">
         <div className="card max-w-md w-full p-8 text-center">
-          <div className="w-12 h-12 rounded-xl bg-brand-50 flex items-center justify-center mx-auto mb-4">
-            {offline
-              ? <WifiOff className="w-6 h-6 text-brand-600" />
-              : <RefreshCw className="w-6 h-6 text-brand-600" />}
-          </div>
           <h1 className="text-lg font-bold text-gray-900 mb-2">
             {staleChunk ? 'A new version of CyberMeters is available' : 'Something went wrong'}
           </h1>
@@ -173,7 +167,6 @@ class ChunkBoundaryInner extends Component {
                 : 'An unexpected error occurred while displaying this page. Reloading usually resolves it.'}
           </p>
           <button onClick={this.handleManualReload} className="btn-primary mx-auto">
-            <RefreshCw className="w-4 h-4" />
             Reload page
           </button>
         </div>

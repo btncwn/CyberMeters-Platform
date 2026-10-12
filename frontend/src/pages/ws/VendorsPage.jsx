@@ -1,6 +1,6 @@
 import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
-import { Package2, RefreshCw } from 'lucide-react'
+import { Package2 } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -96,7 +96,7 @@ export default function VendorsPage() {
           <p className="text-sm text-gray-400 mt-0.5">{wsName}</p>
         </div>
         <button onClick={() => load()} className="btn-ghost">
-          <RefreshCw className="w-4 h-4" /> Refresh
+          Refresh
         </button>
       </div>
 

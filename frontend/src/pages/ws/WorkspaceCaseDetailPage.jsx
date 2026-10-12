@@ -7,7 +7,6 @@
 // honest label comes from the shared caseDisplay vocabulary.
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, ExternalLink, Clock, FileSearch, MapPin, RefreshCw, ShieldCheck, Info, AlertTriangle } from 'lucide-react'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -151,7 +150,6 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
   return (
     <div className={CARD}>
       <div className="flex items-center gap-2 mb-3">
-        <ArrowRight className="w-4 h-4 text-slate-400" />
         <h2 className="text-sm font-semibold text-slate-800">Next action</h2>
       </div>
 
@@ -181,7 +179,6 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
 
           {selected.requires_owner && (
             <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
-              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
               <p className="text-sm text-amber-800">Assign an owner in the Owner section above before moving this case to Assigned.</p>
             </div>
           )}
@@ -214,7 +211,6 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
           {selected.requires_attestation && (
             <div className="space-y-2">
               <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-3">
-                <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
                 <p className="text-sm text-blue-800">
                   {ATTESTED_LABEL}. This records your confirmation only — it is never presented as CyberMeters-verified.
                 </p>
@@ -295,7 +291,7 @@ export default function WorkspaceCaseDetailPage() {
       {c && (
         <div className="space-y-5">
           <button onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">
-            <ArrowLeft className="w-4 h-4" /> Back
+            Back
           </button>
 
           {/* ── Header ─────────────────────────────────────────────────── */}
@@ -326,7 +322,6 @@ export default function WorkspaceCaseDetailPage() {
           {/* ── Observed evidence & affected resource ──────────────────── */}
           <div className={CARD}>
             <div className="flex items-center gap-2 mb-3">
-              <FileSearch className="w-4 h-4 text-slate-400" />
               <h2 className="text-sm font-semibold text-slate-800">Observed evidence</h2>
             </div>
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
@@ -335,7 +330,7 @@ export default function WorkspaceCaseDetailPage() {
                 <dd className="text-slate-700 font-mono text-xs mt-0.5 break-all">{c.source_finding_type || c.source_finding_id || '—'}</dd>
               </div>
               <div>
-                <dt className="text-xs text-slate-400 flex items-center gap-1"><MapPin className="w-3 h-3" /> Affected resource</dt>
+                <dt className="text-xs text-slate-400 flex items-center gap-1">Affected resource</dt>
                 <dd className="text-slate-700 mt-0.5 break-all">{c.asset_ref || c.domain || '—'}</dd>
               </div>
               <div>
@@ -376,7 +371,6 @@ export default function WorkspaceCaseDetailPage() {
           {/* ── Remediation state & verification honesty ───────────────── */}
           <div className={CARD}>
             <div className="flex items-center gap-2 mb-3">
-              <ShieldCheck className="w-4 h-4 text-slate-400" />
               <h2 className="text-sm font-semibold text-slate-800">Remediation &amp; verification</h2>
             </div>
             <p className="text-sm text-slate-600 mb-3">
@@ -392,7 +386,6 @@ export default function WorkspaceCaseDetailPage() {
               const tone = support.tone === 'green' && !settled ? 'slate' : support.tone
               return (
                 <div className={`rounded-lg border px-3 py-2.5 text-xs flex gap-2 ${SUPPORT_TONE[tone]}`}>
-                  <Info className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>{support.text}</span>
                 </div>
               )
@@ -433,7 +426,6 @@ export default function WorkspaceCaseDetailPage() {
               the re-observation counter describes only automatic recurrences. */}
           <div className={CARD}>
             <div className="flex items-center gap-2 mb-2">
-              <RefreshCw className="w-4 h-4 text-slate-400" />
               <h2 className="text-sm font-semibold text-slate-800">Recurrence</h2>
             </div>
             {(() => {
@@ -465,7 +457,6 @@ export default function WorkspaceCaseDetailPage() {
           {/* ── Append-only history ────────────────────────────────────── */}
           <div className={CARD}>
             <div className="flex items-center gap-2 mb-3">
-              <Clock className="w-4 h-4 text-slate-400" />
               <h2 className="text-sm font-semibold text-slate-800">History</h2>
             </div>
             {events.length === 0 ? (
@@ -490,7 +481,7 @@ export default function WorkspaceCaseDetailPage() {
             <div className={`${CARD} flex items-center justify-between gap-3`}>
               <p className="text-sm text-slate-600">Domain-specific actions (evidence bundles, takedown, renewal and verification) live in the domain workflow.</p>
               <Link to={dmeta.route} className="btn-secondary text-sm px-3 py-1.5 inline-flex items-center gap-1.5 whitespace-nowrap">
-                {dmeta.actionLabel} <ExternalLink className="w-3.5 h-3.5" />
+                {dmeta.actionLabel}
               </Link>
             </div>
           )}

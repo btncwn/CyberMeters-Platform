@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ClipboardList, Layers3 } from 'lucide-react'
 import { api } from '../api'
 import { PORTFOLIO_MATURITY_STATE_TEXT, attentionReasons, portfolioMaturityRows } from '../lib/portfolioMaturityDisplay'
 
@@ -31,7 +30,6 @@ export function PortfolioExecutiveSummary() {
   return (
     <section className="card p-6 mb-8" aria-label="Portfolio summary">
       <div className="flex items-center gap-2 mb-2">
-        <ClipboardList className="w-4 h-4 text-gray-500" />
         <h2 className="text-sm font-semibold text-gray-900">Portfolio summary</h2>
         {data?.partial_failure && <span className="text-xs rounded px-2 py-0.5 bg-amber-50 text-amber-800">Partial</span>}
       </div>
@@ -62,10 +60,7 @@ export function PortfolioMaturity() {
   const stateText = data ? PORTFOLIO_MATURITY_STATE_TEXT[data.portfolio_state] : null
   return (
     <section className="card p-6 mb-8" aria-label="Managed maturity across customers">
-      <div className="flex items-center gap-2 mb-1">
-        <Layers3 className="w-4 h-4 text-gray-500" />
-        <h2 className="text-sm font-semibold text-gray-900">Managed maturity across customers</h2>
-      </div>
+      <h2 className="text-sm font-semibold text-gray-900 mb-1">Managed maturity across customers</h2>
       <p className="text-xs text-gray-500 mb-3 max-w-3xl">
         Each domain shows the least mature customer: the portfolio is only as far along as the customer furthest behind.
         Customers without a completed assessment count as not established.

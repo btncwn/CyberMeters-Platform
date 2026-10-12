@@ -18,10 +18,7 @@ import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import {
-  Users, UserPlus, Mail, Shield, Trash2, RefreshCw,
-  ChevronDown, CheckCircle, Clock, AlertTriangle, X,
-} from 'lucide-react'
+import { RefreshCw, ChevronDown } from 'lucide-react'
 import { api } from '../../api'
 import Spinner from '../../components/Spinner'
 import ErrorAlert from '../../components/ErrorAlert'
@@ -92,9 +89,6 @@ function InviteForm({ workspaceId, callerRole, onSuccess }) {
   return (
     <div className="card p-6">
       <div className="flex items-center gap-2.5 mb-5">
-        <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center">
-          <UserPlus className="w-4 h-4 text-brand-600" />
-        </div>
         <div>
           <p className="text-sm font-bold text-gray-900">Invite a team member</p>
           <p className="text-xs text-gray-400">They'll receive a link to accept via email.</p>
@@ -102,7 +96,7 @@ function InviteForm({ workspaceId, callerRole, onSuccess }) {
       </div>
 
       {error   && <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-100 text-sm text-red-700">{error}</div>}
-      {success && <div className="mb-4 p-3 rounded-lg bg-brand-50 border border-brand-100 text-sm text-brand-700 flex items-center gap-2"><CheckCircle className="w-4 h-4 flex-shrink-0" />{success}</div>}
+      {success && <div className="mb-4 p-3 rounded-lg bg-brand-50 border border-brand-100 text-sm text-brand-700 flex items-center gap-2">{success}</div>}
 
       <form onSubmit={submit} className="flex flex-col sm:flex-row gap-3">
         <input
@@ -128,7 +122,7 @@ function InviteForm({ workspaceId, callerRole, onSuccess }) {
           <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
         </div>
         <button type="submit" className="btn-primary flex-shrink-0" disabled={saving}>
-          {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+          {saving && <RefreshCw className="w-4 h-4 animate-spin" />}
           {saving ? 'Sending…' : 'Send Invite'}
         </button>
       </form>
@@ -264,7 +258,6 @@ export default function WorkspaceMembersPage() {
     return (
       <div className="max-w-screen-xl mx-auto px-6 py-8">
         <div className="card p-12 text-center">
-          <Users className="w-10 h-10 text-gray-200 mx-auto mb-3" />
           <p className="text-sm font-semibold text-gray-900 mb-1">No workspace selected</p>
           <p className="text-xs text-gray-400 mb-4">Select a workspace to manage team members.</p>
           <button onClick={() => navigate('/workspaces')} className="btn-primary mx-auto">Go to Workspaces</button>
@@ -286,7 +279,7 @@ export default function WorkspaceMembersPage() {
           </p>
         </div>
         <button onClick={() => load(true)} disabled={refreshing} className="btn-secondary">
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
           Refresh
         </button>
       </div>
@@ -305,16 +298,12 @@ export default function WorkspaceMembersPage() {
           {/* ── 2. Members list ── */}
           <div className="card overflow-hidden">
             <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100">
-              <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center">
-                <Users className="w-3.5 h-3.5 text-gray-500" />
-              </div>
               <p className="text-sm font-bold text-gray-900">Members</p>
               <span className="text-xs text-gray-400 ml-auto">{members.length} total</span>
             </div>
 
             {members.length === 0 ? (
               <div className="py-16 text-center">
-                <Users className="w-8 h-8 text-gray-200 mx-auto mb-3" />
                 <p className="text-sm text-gray-400">No members found.</p>
               </div>
             ) : (
@@ -382,9 +371,7 @@ export default function WorkspaceMembersPage() {
                                 className="inline-flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50"
                                 title="Remove member"
                               >
-                                {removingId === member.id
-                                  ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                  : <Trash2 className="w-3.5 h-3.5" />}
+                                {removingId === member.id && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                                 Remove
                               </button>
                             )}
@@ -402,16 +389,12 @@ export default function WorkspaceMembersPage() {
           {isAdminPlus(callerRole) && (
             <div className="card overflow-hidden">
               <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100">
-                <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center">
-                  <Mail className="w-3.5 h-3.5 text-amber-600" />
-                </div>
                 <p className="text-sm font-bold text-gray-900">Pending Invitations</p>
                 <span className="text-xs text-gray-400 ml-auto">{invitations.length} pending</span>
               </div>
 
               {invitations.length === 0 ? (
                 <div className="py-12 text-center">
-                  <CheckCircle className="w-8 h-8 text-gray-200 mx-auto mb-3" />
                   <p className="text-sm text-gray-400">No pending invitations.</p>
                 </div>
               ) : (
@@ -430,9 +413,6 @@ export default function WorkspaceMembersPage() {
                       <tr key={inv.id} className="hover:bg-gray-50/40 transition-colors">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-full bg-amber-50 flex items-center justify-center flex-shrink-0">
-                              <Mail className="w-3.5 h-3.5 text-amber-500" />
-                            </div>
                             <span className="text-sm text-gray-700">{inv.email}</span>
                           </div>
                         </td>
@@ -445,7 +425,6 @@ export default function WorkspaceMembersPage() {
                             parseServerDate(inv.expires_at) < new Date(Date.now() + 24 * 3600000)
                               ? 'text-amber-600' : 'text-gray-400'
                           }`}>
-                            <Clock className="w-3 h-3" />
                             {formatDate(inv.expires_at)}
                           </span>
                         </td>
@@ -456,9 +435,7 @@ export default function WorkspaceMembersPage() {
                             className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50"
                             title="Cancel invitation"
                           >
-                            {cancellingId === inv.id
-                              ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              : <X className="w-3.5 h-3.5" />}
+                            {cancellingId === inv.id && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                             Cancel
                           </button>
                         </td>
@@ -473,7 +450,6 @@ export default function WorkspaceMembersPage() {
           {/* Read-only notice for non-admins */}
           {callerRole && !isAdminPlus(callerRole) && (
             <div className="card p-4 flex items-start gap-3 border-amber-100 bg-amber-50/40">
-              <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm font-semibold text-gray-900">Read-only view</p>
                 <p className="text-xs text-gray-500 mt-0.5">

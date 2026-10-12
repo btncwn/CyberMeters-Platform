@@ -515,7 +515,16 @@ async function checkFrontendParity() {
     "frontend/src/components/ActivityTimeline.jsx",
   ]) {
     const src = getSource(file);
-    for (const key of CANONICAL_KEYS) ok(`G: ${file} maps ${key}`, src.includes(key));
+    // A surface maps all eight domains either inline or through the shared
+    // canonical label map (founder, 12 Oct: domain shown as text, not icons).
+    const viaSharedLabels = /import\s*\{[^}]*\bDOMAIN_KEY_LABELS\b[^}]*\}\s*from\s*['"][./]*lib\/caseDisplay['"]/.test(src)
+      && /DOMAIN_KEY_LABELS\[/.test(src);
+    for (const key of CANONICAL_KEYS) ok(`G: ${file} maps ${key}`, src.includes(key) || viaSharedLabels);
+  }
+  {
+    const caseDisplay = getSource("frontend/src/lib/caseDisplay.js");
+    const block = caseDisplay.slice(caseDisplay.indexOf("export const DOMAIN_KEY_LABELS"), caseDisplay.indexOf("export function domainKeyLabel"));
+    for (const key of CANONICAL_KEYS) ok(`G: shared DOMAIN_KEY_LABELS maps ${key}`, block.includes(`${key}:`));
   }
   const bell = getSource("frontend/src/components/NotificationBell.jsx");
   const notificationsPage = getSource("frontend/src/pages/NotificationsPage.jsx");

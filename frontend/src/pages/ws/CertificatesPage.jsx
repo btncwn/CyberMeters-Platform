@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Lock, AlertTriangle, XCircle, ShieldCheck, Clock, ScanLine, Mail,
+  Lock, AlertTriangle, XCircle, ShieldCheck, Clock,
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -107,17 +107,16 @@ function bucketCounts(certs) {
 
 function ActionCard({ severity, title, body }) {
   const cfg = {
-    critical: { bar: 'bg-red-500',   chip: 'bg-red-50 text-red-700 border-red-100',     icon: XCircle },
-    high:     { bar: 'bg-amber-500', chip: 'bg-amber-50 text-amber-700 border-amber-100', icon: AlertTriangle },
-    medium:   { bar: 'bg-amber-400', chip: 'bg-amber-50 text-amber-700 border-amber-100', icon: AlertTriangle },
-  }[severity] || { bar: 'bg-gray-300', chip: 'bg-gray-50 text-gray-600 border-gray-200', icon: AlertTriangle }
-  const Icon = cfg.icon
+    critical: { bar: 'bg-red-500',   chip: 'bg-red-50 text-red-700 border-red-100' },
+    high:     { bar: 'bg-amber-500', chip: 'bg-amber-50 text-amber-700 border-amber-100' },
+    medium:   { bar: 'bg-amber-400', chip: 'bg-amber-50 text-amber-700 border-amber-100' },
+  }[severity] || { bar: 'bg-gray-300', chip: 'bg-gray-50 text-gray-600 border-gray-200' }
   return (
     <div className="card p-4 flex gap-3">
       <div className={`w-1 rounded-full ${cfg.bar} flex-shrink-0`} />
       <div className="flex-1">
         <div className="flex items-center justify-between gap-2 mb-1">
-          <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><Icon className="w-4 h-4 text-gray-400" /> {title}</h3>
+          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
           <span className={`text-[12px] uppercase font-bold px-2 py-0.5 rounded-full border ${cfg.chip}`}>{severity}</span>
         </div>
         <p className="text-xs text-gray-500 leading-relaxed">{body}</p>
@@ -126,12 +125,11 @@ function ActionCard({ severity, title, body }) {
   )
 }
 
-function TrustTile({ icon: Icon, label, status, tone, hint, to }) {
+function TrustTile({ label, status, tone, hint, to }) {
   const cls = tone === 'ok' ? 'text-brand-600' : tone === 'bad' ? 'text-red-500' : tone === 'warn' ? 'text-amber-500' : tone === 'info' ? 'text-blue-600' : 'text-gray-400'
   const inner = (
     <div className="card p-4 h-full hover:shadow-card-md transition-shadow">
-      <div className="flex items-center gap-2 mb-1.5">
-        <Icon className={`w-4 h-4 ${cls}`} />
+      <div className="mb-1.5">
         <span className="text-sm font-semibold text-gray-800">{label}</span>
       </div>
       <p className={`text-sm font-medium ${cls}`}>{status}</p>
@@ -238,9 +236,6 @@ export default function CertificatesPage() {
 
       {/* 1 · Hero / module header */}
       <div className="card p-6 mb-6 flex flex-col lg:flex-row lg:items-center gap-5">
-        <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: '#DBEDFB' }}>
-          <ShieldCheck className="w-6 h-6" style={{ color: '#1685C9' }} />
-        </div>
         <div className="flex-1 min-w-0">
           <span className="eyebrow" style={{ color: '#0F689F' }}>Certificates &amp; Trust</span>
           <h1 className="text-2xl font-bold text-gray-900 leading-tight">Certificates &amp; Trust</h1>
@@ -250,23 +245,20 @@ export default function CertificatesPage() {
         </div>
         <div className="flex flex-wrap items-center gap-3 flex-shrink-0">
           <button onClick={scrollToIssues} className="btn-primary text-sm" disabled={!hasData}>
-            <ShieldCheck className="w-4 h-4" /> Review certificate risks
+            Review certificate risks
           </button>
-          <Link to="/scans/new" className="btn-secondary text-sm"><ScanLine className="w-4 h-4" /> Run scan</Link>
+          <Link to="/scans/new" className="btn-secondary text-sm">Run scan</Link>
         </div>
       </div>
 
       {!hasData && !loading ? (
         /* 8 · Empty state */
         <div className="card p-10 text-center mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center mx-auto mb-4">
-            <Lock className="w-7 h-7 text-brand-600" />
-          </div>
           <p className="text-base font-bold text-gray-900 mb-1">Run a scan to start certificate and trust monitoring</p>
           <p className="text-sm text-gray-500 max-w-md mx-auto mb-5">
             CyberMeters records certificate issuance and available live HTTPS evidence, tracks expiry risk and keeps unavailable trust signals explicit.
           </p>
-          <Link to="/scans/new" className="btn-primary mx-auto inline-flex"><ScanLine className="w-4 h-4" /> Run scan</Link>
+          <Link to="/scans/new" className="btn-primary mx-auto inline-flex">Run scan</Link>
         </div>
       ) : (
         <>
@@ -325,9 +317,9 @@ export default function CertificatesPage() {
               Active HTTPS, the live-presented certificate, hostname match, chain evidence, declared trust-store validation and revocation assurance are separate observations.
             </p>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
-              <TrustTile icon={Clock}       label="Certificate expiry"      status={expiryTile.status} tone={expiryTile.tone} hint="Expiry across monitored hosts" />
-              <TrustTile icon={Mail}        label="MTA-STS"                 status="Checked in Email Protection" tone="na" hint="Mail transport policy" to="/ws/email-protection" />
-              <TrustTile icon={Mail}        label="TLS-RPT"                 status="Checked in Email Protection" tone="na" hint="TLS reporting readiness" to="/ws/email-protection" />
+              <TrustTile label="Certificate expiry"      status={expiryTile.status} tone={expiryTile.tone} hint="Expiry across monitored hosts" />
+              <TrustTile label="MTA-STS"                 status="Checked in Email Protection" tone="na" hint="Mail transport policy" to="/ws/email-protection" />
+              <TrustTile label="TLS-RPT"                 status="Checked in Email Protection" tone="na" hint="TLS reporting readiness" to="/ws/email-protection" />
             </div>
             <div className="space-y-3">
               {certs.map((cert, index) => (

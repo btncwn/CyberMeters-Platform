@@ -1,7 +1,7 @@
 import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import {
-  ShieldAlert, RefreshCw, Globe, Lock, User, Key,
+  ShieldAlert, RefreshCw, Globe,
   Wifi, Building2,
 } from 'lucide-react'
 import { api } from '../../api'
@@ -16,21 +16,19 @@ import IdentityPublicSourcesCard from '../../components/IdentityPublicSourcesCar
 // ── Identity type configuration ───────────────────────────────────────────────
 
 const IDENTITY_TYPE_CONFIG = {
-  sso:           { label: 'SSO Portal',          icon: Key,        color: 'text-red-600    bg-red-50    border-red-100'    },
-  vpn:           { label: 'VPN Portal',           icon: Wifi,       color: 'text-orange-600 bg-orange-50 border-orange-100' },
-  idp:           { label: 'Identity Provider',    icon: Building2,  color: 'text-purple-600 bg-purple-50 border-purple-100' },
-  admin_login:   { label: 'Admin Login',          icon: User,       color: 'text-amber-600  bg-amber-50  border-amber-100'  },
-  login_portal:  { label: 'Login Portal',         icon: Lock,       color: 'text-blue-600   bg-blue-50   border-blue-100'   },
-  oauth:         { label: 'OAuth Endpoint',       icon: Key,        color: 'text-indigo-600 bg-indigo-50 border-indigo-100' },
-  saml:          { label: 'SAML Endpoint',        icon: ShieldAlert,color: 'text-rose-600   bg-rose-50   border-rose-100'   },
-  remote_access: { label: 'Remote Access',        icon: Globe,      color: 'text-cyan-600   bg-cyan-50   border-cyan-100'   },
+  sso:           { label: 'SSO Portal' },
+  vpn:           { label: 'VPN Portal' },
+  idp:           { label: 'Identity Provider' },
+  admin_login:   { label: 'Admin Login' },
+  login_portal:  { label: 'Login Portal' },
+  oauth:         { label: 'OAuth Endpoint' },
+  saml:          { label: 'SAML Endpoint' },
+  remote_access: { label: 'Remote Access' },
 }
 
 function getConfig(identity_type) {
   return IDENTITY_TYPE_CONFIG[identity_type] ?? {
     label: identity_type ?? 'Unknown',
-    icon: ShieldAlert,
-    color: 'text-gray-600 bg-gray-50 border-gray-100',
   }
 }
 
@@ -38,23 +36,17 @@ function getConfig(identity_type) {
 
 function IdentityAssetCard({ asset }) {
   const cfg  = getConfig(asset.identity_type)
-  const Icon = cfg.icon
   const claim = asset.identity_claim
   const claimMeta = identityClaimMeta(claim)
 
   return (
     <div className="card p-5">
       <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-lg border flex items-center justify-center flex-shrink-0 ${cfg.color}`}>
-            <Icon className="w-4 h-4" />
-          </div>
-          <div className="min-w-0">
-            <p className="font-semibold text-gray-900 text-sm truncate">
-              {asset.provider ?? asset.hostname ?? cfg.label}
-            </p>
-            <p className="text-xs text-gray-400 capitalize mt-0.5">{cfg.label}</p>
-          </div>
+        <div className="min-w-0">
+          <p className="font-semibold text-gray-900 text-sm truncate">
+            {asset.provider ?? asset.hostname ?? cfg.label}
+          </p>
+          <p className="text-xs text-gray-400 capitalize mt-0.5">{cfg.label}</p>
         </div>
         <span className={`text-[13px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${toneClass(claimMeta.tone)}`}>
           {claimMeta.label}
@@ -165,7 +157,7 @@ export default function WorkspaceIdentityPage() {
           disabled={loading}
           className="btn-secondary flex items-center gap-2 text-sm"
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
           Refresh
         </button>
       </div>
@@ -230,7 +222,6 @@ export default function WorkspaceIdentityPage() {
       {/* Empty state */}
       {assets.length === 0 && !loading ? (
         <div className="card py-16 text-center">
-          <ShieldAlert className="w-10 h-10 text-gray-200 mx-auto mb-3" />
           <p className="text-sm font-medium text-gray-500 mb-1">No identity assets discovered yet</p>
           <p className="text-xs text-gray-400">
             Identity assets are detected during domain scans. Run a scan to populate this inventory.

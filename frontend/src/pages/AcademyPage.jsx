@@ -1,22 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  GraduationCap, Search, Clock, ArrowRight, BookOpen,
-  Radar, Mail, Globe, Lock, Shield, AlertTriangle, Cloud,
-  Users, Layers, Briefcase, Link as LinkIcon,
-} from 'lucide-react'
 import { CATEGORIES, ARTICLES, getFeaturedArticles, searchArticles, getArticlesByCategory } from '../data/academy'
-
-// ── Icon resolver ──────────────────────────────────────────────────────────────
-const ICON_MAP = {
-  Radar, Mail, Globe, Lock, Shield, AlertTriangle,
-  Cloud, Users, Layers, Briefcase, Link: LinkIcon,
-}
-
-function CategoryIcon({ name, className = 'w-5 h-5' }) {
-  const Icon = ICON_MAP[name] || BookOpen
-  return <Icon className={className} />
-}
 
 // ── Colour helpers ─────────────────────────────────────────────────────────────
 const COLOR_CLASSES = {
@@ -50,7 +34,6 @@ function ArticleCard({ article }) {
     >
       <div className="flex items-start justify-between gap-2">
         <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[13px] font-semibold ${c.badge}`}>
-          <CategoryIcon name={cat?.icon} className="w-3 h-3" />
           {cat?.label || article.category}
         </span>
         {article.featured && (
@@ -71,11 +54,10 @@ function ArticleCard({ article }) {
 
       <div className="flex items-center gap-3 mt-auto pt-1">
         <span className="flex items-center gap-1 text-[13px] text-gray-400">
-          <Clock className="w-3 h-3" />
           {article.readTime} min read
         </span>
         <span className="ml-auto flex items-center gap-1 text-[13px] font-semibold text-brand-600 opacity-0 group-hover:opacity-100 transition-opacity">
-          Read <ArrowRight className="w-3 h-3" />
+          Read
         </span>
       </div>
     </Link>
@@ -92,10 +74,6 @@ function FeaturedCard({ article }) {
       to={`/academy/${article.slug}`}
       className="group relative flex flex-col bg-white rounded-xl border border-gray-100 hover:border-brand-200 hover:shadow-md transition-all p-6 gap-4"
     >
-      <div className={`w-10 h-10 rounded-xl ${c.bg} flex items-center justify-center flex-shrink-0`}>
-        <CategoryIcon name={cat?.icon} className={`w-5 h-5 ${c.icon}`} />
-      </div>
-
       <div>
         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-semibold uppercase tracking-wider ${c.badge} mb-2`}>
           {cat?.label}
@@ -109,10 +87,9 @@ function FeaturedCard({ article }) {
       </div>
 
       <div className="flex items-center gap-2 mt-auto">
-        <Clock className="w-3.5 h-3.5 text-gray-400" />
         <span className="text-xs text-gray-400">{article.readTime} min read</span>
         <span className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-brand-600">
-          Read article <ArrowRight className="w-3.5 h-3.5" />
+          Read article
         </span>
       </div>
     </Link>
@@ -131,7 +108,6 @@ function CategoryPill({ cat, active, onClick }) {
           : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100 bg-white border border-gray-200'
         }`}
     >
-      <CategoryIcon name={cat.icon} className="w-3.5 h-3.5" />
       {cat.label}
     </button>
   )
@@ -160,9 +136,6 @@ export default function AcademyPage() {
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-xl bg-brand-600 flex items-center justify-center">
-            <GraduationCap className="w-5 h-5 text-white" />
-          </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900">CyberMeters Academy</h1>
             <p className="text-sm text-gray-500">Security knowledge base — findings, remediation, and detection explained.</p>
@@ -171,13 +144,12 @@ export default function AcademyPage() {
 
         {/* Search */}
         <div className="relative max-w-md mt-5">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
             placeholder="Search articles…"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            className="w-full pl-4 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
           {query && (
             <button
@@ -250,7 +222,6 @@ export default function AcademyPage() {
 
         {displayArticles.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
-            <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-30" />
             <p className="text-sm">No articles found.</p>
           </div>
         ) : (

@@ -1,9 +1,7 @@
 import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import {
-  RefreshCw, Briefcase, Globe, Plus, ChevronRight, X, Shield, TrendingUp, FileText,
-} from 'lucide-react'
+import { RefreshCw, X } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
@@ -53,6 +51,7 @@ function CreateWorkspaceModal({ onCreated, onClose }) {
           <h2 className="text-lg font-bold text-gray-900">New Workspace</h2>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
           >
             <X className="w-4 h-4" />
@@ -168,7 +167,6 @@ export default function WorkspacesPage() {
             Refresh
           </button>
           <button onClick={() => setShowCreate(true)} className="btn-primary">
-            <Plus className="w-4 h-4" />
             New Workspace
           </button>
         </div>
@@ -183,9 +181,6 @@ export default function WorkspacesPage() {
         <div className="space-y-4">
           {/* Hero */}
           <div className="card p-10 flex flex-col items-center text-center">
-            <div className="w-16 h-16 rounded-2xl bg-brand-50 flex items-center justify-center mb-5">
-              <Briefcase className="w-8 h-8 text-brand-600" />
-            </div>
             <h3 className="text-xl font-bold text-gray-900 mb-2">Create your first workspace</h3>
             <p className="text-sm text-gray-400 mb-1 max-w-md leading-relaxed">
               A workspace is a container for one organisation or client — holding its domains, scans,
@@ -195,11 +190,9 @@ export default function WorkspacesPage() {
             <p className="text-xs text-gray-300 mb-8">Takes less than a minute</p>
             <div className="flex flex-wrap items-center justify-center gap-3">
               <button onClick={() => navigate('/onboarding')} className="btn-primary">
-                <ChevronRight className="w-4 h-4" />
                 Get Started Guide
               </button>
               <button onClick={() => setShowCreate(true)} className="btn-secondary">
-                <Plus className="w-4 h-4" />
                 Create Workspace
               </button>
             </div>
@@ -207,14 +200,11 @@ export default function WorkspacesPage() {
           {/* What workspaces give you */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { icon: Globe,     color: 'bg-brand-50 text-brand-600',   title: 'Domain Management', desc: 'Add and verify domains. CyberMeters tracks ownership and monitors for unauthorised changes.'         },
-              { icon: Shield,    color: 'bg-red-50 text-red-500',        title: 'Cyber MOT monitoring', desc: 'Run on-demand or scheduled Cyber MOT checks to monitor your domains from the outside.'          },
-              { icon: FileText,  color: 'bg-purple-50 text-purple-600', title: 'Executive Reports',  desc: 'Generate PDF risk reports for clients, stakeholders, or compliance purposes in one click.'        },
-            ].map(({ icon: Icon, color, title, desc }) => (
+              { title: 'Domain Management', desc: 'Add and verify domains. CyberMeters tracks ownership and monitors for unauthorised changes.'         },
+              { title: 'Cyber MOT monitoring', desc: 'Run on-demand or scheduled Cyber MOT checks to monitor your domains from the outside.'          },
+              { title: 'Executive Reports',  desc: 'Generate PDF risk reports for clients, stakeholders, or compliance purposes in one click.'        },
+            ].map(({ title, desc }) => (
               <div key={title} className="card p-5">
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${color}`}>
-                  <Icon className="w-4 h-4" />
-                </div>
                 <p className="text-sm font-semibold text-gray-900 mb-1">{title}</p>
                 <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
               </div>
@@ -232,11 +222,8 @@ export default function WorkspacesPage() {
               onClick={() => openWorkspace(ws)}
               className="card p-5 text-left hover:shadow-md transition-all cursor-pointer group"
             >
-              {/* Icon + name */}
+              {/* Name */}
               <div className="flex items-start gap-3 mb-4">
-                <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center flex-shrink-0">
-                  <Briefcase className="w-[18px] h-[18px] text-brand-600" />
-                </div>
                 <div className="min-w-0 flex-1">
                   <h3 className="font-semibold text-gray-900 truncate group-hover:text-brand-700 transition-colors text-base">
                     {ws.name}
@@ -249,9 +236,7 @@ export default function WorkspacesPage() {
 
               {/* Footer CTA */}
               <div className="flex items-center text-xs font-semibold text-brand-600 group-hover:text-brand-700 transition-colors">
-                <Globe className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
                 View domains &amp; scores
-                <ChevronRight className="w-3.5 h-3.5 ml-auto transition-transform group-hover:translate-x-0.5" />
               </div>
             </button>
           ))}

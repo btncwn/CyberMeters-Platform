@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ChevronDown, FolderOpen, RefreshCw, ScanLine } from 'lucide-react'
+import { ChevronDown, RefreshCw } from 'lucide-react'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -136,8 +136,8 @@ function WebsiteSecurityContent({ workspaceId, workspaceName }) {
           <p className="mt-1 text-sm text-gray-500">{workspaceName || 'Workspace'}</p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <Link className="btn-primary" to="/scans/new"><ScanLine className="h-4 w-4" />Run a scan</Link>
-          <Link className="btn-secondary" to={CASES}><FolderOpen className="h-4 w-4" />Managed cases</Link>
+          <Link className="btn-primary" to="/scans/new">Run a scan</Link>
+          <Link className="btn-secondary" to={CASES}>Managed cases</Link>
           <button type="button" className="btn-ghost" aria-label="Refresh website security" onClick={() => setRefresh((value) => value + 1)}><RefreshCw className="h-5 w-5" /></button>
         </div>
       </header>

@@ -1,4 +1,3 @@
-import { Clock } from 'lucide-react'
 import { useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import ExposureTimeline from '../components/ExposureTimeline'
@@ -37,7 +36,6 @@ export default function ExposureTimelinePage() {
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
       <div>
         <div className="flex items-center gap-2">
-          <Clock className="w-5 h-5 text-brand-600" />
           <h1 className="text-xl font-bold text-gray-900">Exposure Timeline</h1>
         </div>
         <p className="text-sm text-gray-500 mt-1">

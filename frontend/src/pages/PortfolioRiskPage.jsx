@@ -1,10 +1,7 @@
 import { parseServerDate } from '../utils/dates'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import {
-  AlertTriangle, ArrowRight, CheckCircle2, GitBranch,
-  RefreshCw, Shield, TrendingDown, TrendingUp, Users,
-} from 'lucide-react'
+import { AlertTriangle, ArrowRight, Shield, Users } from 'lucide-react'
 import { api } from '../api'
 import StatCard from '../components/StatCard'
 import RiskBadge from '../components/RiskBadge'
@@ -29,12 +26,6 @@ function ScoreBar({ score, band, max = 100 }) {
       <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: riskBandHex(band) }} />
     </div>
   )
-}
-
-function TrendIcon({ trend }) {
-  if (trend === 'improving')     return <TrendingUp   className="w-3.5 h-3.5 text-brand-500" />
-  if (trend === 'deteriorating') return <TrendingDown  className="w-3.5 h-3.5 text-red-500" />
-  return <span className="w-3.5 h-3.5 inline-block rounded-full bg-gray-200" />
 }
 
 function DeltaChip({ delta }) {
@@ -136,7 +127,6 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
               <td className="py-2.5 pr-2 text-gray-300 text-xs font-medium">{i + 1}</td>
               <td className="py-2.5 pr-4">
                 <div className="flex items-center gap-2">
-                  <TrendIcon trend={r.trend} />
                   <span className="font-medium text-gray-800">{r.workspace_name}</span>
                 </div>
                 <ScoreBar score={r.brs_score} band={r.risk_band} />
@@ -173,6 +163,7 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
                 <button
                   onClick={() => onWorkspaceClick(r.workspace_id)}
                   className="text-gray-300 hover:text-brand-600 transition-colors"
+                  aria-label={`Open ${r.workspace_name}`}
                 >
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
@@ -190,7 +181,6 @@ function AlertsList({ alerts }) {
   if (!alerts?.length) {
     return (
       <div className="flex items-center gap-2 text-sm text-brand-600 py-3">
-        <CheckCircle2 className="w-4 h-4" />
         No active portfolio alerts.
       </div>
     )
@@ -218,7 +208,7 @@ function TrendSection({ trending }) {
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1">
-          <TrendingUp className="w-3.5 h-3.5 text-brand-500" /> Improving
+          Improving
         </h3>
         {improving.length === 0
           ? <p className="text-xs text-gray-400">No workspaces improving this month.</p>
@@ -236,7 +226,7 @@ function TrendSection({ trending }) {
       </div>
       <div>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1">
-          <TrendingDown className="w-3.5 h-3.5 text-red-500" /> Deteriorating
+          Deteriorating
         </h3>
         {deteriorating.length === 0
           ? <p className="text-xs text-gray-400">No workspaces deteriorating this month.</p>
@@ -342,7 +332,6 @@ export default function PortfolioRiskPage() {
     return (
       <div className="p-8">
         <div className="card p-6 border border-red-100 bg-red-50 flex items-center gap-3 text-red-700">
-          <AlertTriangle className="w-5 h-5 flex-shrink-0" />
           <div>
             <p className="font-semibold">Failed to load portfolio risk</p>
             <p className="text-sm mt-0.5">{error.message ?? String(error)}</p>
@@ -372,7 +361,7 @@ export default function PortfolioRiskPage() {
             Domain state &amp; trend →
           </Link>
           <button onClick={load} className="btn-ghost flex items-center gap-1.5">
-            <RefreshCw className="w-4 h-4" /> Refresh
+            Refresh
           </button>
         </div>
       </div>
@@ -456,7 +445,6 @@ export default function PortfolioRiskPage() {
             {/* Alerts */}
             <div className="card p-6 lg:col-span-2">
               <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-500" />
                 Portfolio Alerts
                 {data.portfolio_alerts?.length > 0 && (
                   <span className="ml-auto text-xs font-bold bg-red-50 text-red-700 px-2 py-0.5 rounded-full">
@@ -484,7 +472,6 @@ export default function PortfolioRiskPage() {
 
             <div className="card p-6">
               <h2 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
-                <GitBranch className="w-4 h-4 text-gray-400" />
                 Shared Vendor Dependencies
               </h2>
               <p className="text-xs text-gray-400 mb-4">
@@ -505,7 +492,6 @@ export default function PortfolioRiskPage() {
 
       {!data && !loading && !error && (
         <div className="card p-12 text-center">
-          <Shield className="w-10 h-10 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 font-medium">No portfolio risk data yet</p>
           <p className="text-sm text-gray-400 mt-1">Add workspaces and run scans to generate portfolio intelligence.</p>
         </div>

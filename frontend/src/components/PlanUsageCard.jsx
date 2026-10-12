@@ -31,7 +31,6 @@
  * for PlanGate to render the upgrade wall. Any other error falls through.
  */
 
-import { Lock, Zap, ArrowRight, TrendingUp, FileText, Globe } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 // ── Plan display config ──────────────────────────────────────────────────────
@@ -83,7 +82,7 @@ export function PlanBadge({ plan }) {
 
 // ── UsageBar ─────────────────────────────────────────────────────────────────
 
-function UsageBar({ icon: Icon, label, used, limit, note }) {
+function UsageBar({ label, used, limit, note }) {
   const infinite = limit >= 999999
   const pct      = infinite ? 0 : limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
   const near     = pct >= 80
@@ -94,7 +93,6 @@ function UsageBar({ icon: Icon, label, used, limit, note }) {
     <div className="py-2.5 border-b border-gray-50 last:border-0">
       <div className="flex items-center justify-between mb-1.5">
         <span className="flex items-center gap-1.5 text-xs text-gray-600">
-          {Icon && <Icon className="w-3 h-3 text-gray-400" />}
           {label}
           {note && <span className="text-gray-400">{note}</span>}
         </span>
@@ -131,28 +129,22 @@ export function PlanUsageCard({ planLimits, className = '' }) {
     <div className={`card ${className}`}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-        <div className="flex items-center gap-2">
-          <Zap className="w-4 h-4 text-brand-500" />
-          <span className="text-sm font-semibold text-gray-900">Plan Usage</span>
-        </div>
+        <span className="text-sm font-semibold text-gray-900">Plan Usage</span>
         <PlanBadge plan={plan} />
       </div>
 
       {/* Usage meters */}
       <UsageBar
-        icon={Globe}
         label="Workspaces"
         used={usage.workspaces ?? 0}
         limit={limits.workspaces ?? 1}
       />
       <UsageBar
-        icon={TrendingUp}
         label="Scans this month"
         used={usage.scans_this_month ?? 0}
         limit={limits.scans_per_month ?? 5}
       />
       <UsageBar
-        icon={FileText}
         label="Reports this month"
         used={usage.reports_this_month ?? 0}
         limit={limits.reports_per_month ?? 3}
@@ -165,7 +157,6 @@ export function PlanUsageCard({ planLimits, className = '' }) {
           className="mt-4 w-full flex items-center justify-between px-3 py-2 rounded-lg bg-brand-50 hover:bg-brand-100 transition-colors group"
         >
           <span className="text-xs font-semibold text-brand-700">Upgrade your plan</span>
-          <ArrowRight className="w-3.5 h-3.5 text-brand-500 group-hover:translate-x-0.5 transition-transform" />
         </button>
       )}
     </div>
@@ -208,11 +199,6 @@ export function PlanGate({ error, children, feature: featureOverride, requiredPl
   return (
     <div className="flex items-start justify-center min-h-[55vh] pt-16">
       <div className="max-w-md w-full text-center">
-        {/* Lock icon */}
-        <div className="w-16 h-16 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto mb-6">
-          <Lock className="w-7 h-7 text-gray-400" />
-        </div>
-
         {/* Heading */}
         <h2 className="text-xl font-bold text-gray-900 mb-2">
           {featureLabel} requires an upgrade
@@ -245,7 +231,6 @@ export function PlanGate({ error, children, feature: featureOverride, requiredPl
           onClick={() => navigate('/billing')}
           className="btn-primary w-full flex items-center justify-center gap-2 mb-3"
         >
-          <Zap className="w-4 h-4" />
           Upgrade to {planCfg.label}
         </button>
         <button

@@ -1,10 +1,7 @@
 import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { useWorkspace } from '../../hooks/useWorkspace'
-import {
-  ClipboardList, Search, Filter, Download, ChevronLeft,
-  ChevronRight, AlertTriangle, RefreshCw, User, Tag, Calendar,
-} from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import { api } from '../../api'
 
@@ -158,7 +155,6 @@ export default function WorkspaceAuditLogPage() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-              <ClipboardList className="w-5 h-5 text-brand-600" />
               Audit Log
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
@@ -171,7 +167,6 @@ export default function WorkspaceAuditLogPage() {
               disabled={!!exporting}
               className="btn-secondary flex items-center gap-1.5 text-sm"
             >
-              <Download className="w-4 h-4" />
               {exporting === 'csv' ? 'Exporting…' : 'Export CSV'}
             </button>
             <button
@@ -179,7 +174,6 @@ export default function WorkspaceAuditLogPage() {
               disabled={!!exporting}
               className="btn-secondary flex items-center gap-1.5 text-sm"
             >
-              <Download className="w-4 h-4" />
               {exporting === 'json' ? 'Exporting…' : 'Export JSON'}
             </button>
             <button
@@ -187,6 +181,7 @@ export default function WorkspaceAuditLogPage() {
               disabled={loading}
               className="btn-secondary p-2"
               title="Refresh"
+              aria-label="Refresh"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
@@ -196,7 +191,6 @@ export default function WorkspaceAuditLogPage() {
         {/* Filters */}
         <div className="card p-4 space-y-3">
           <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-            <Filter className="w-3.5 h-3.5" />
             Filters
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -226,7 +220,7 @@ export default function WorkspaceAuditLogPage() {
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">
-                <Calendar className="w-3 h-3 inline mr-1" />From
+                From
               </label>
               <input
                 type="date"
@@ -237,7 +231,7 @@ export default function WorkspaceAuditLogPage() {
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">
-                <Calendar className="w-3 h-3 inline mr-1" />To
+                To
               </label>
               <input
                 type="date"
@@ -249,10 +243,9 @@ export default function WorkspaceAuditLogPage() {
           </div>
           <form onSubmit={applySearch} className="flex items-center gap-2">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               <input
                 type="text"
-                className="input pl-9 text-sm"
+                className="input text-sm"
                 placeholder="Search event type, entity, description…"
                 value={searchInput}
                 onChange={e => setSearchInput(e.target.value)}
@@ -270,7 +263,6 @@ export default function WorkspaceAuditLogPage() {
         {/* Error */}
         {error && (
           <div className="flex items-center gap-2.5 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
-            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
             {error}
           </div>
         )}
@@ -296,10 +288,10 @@ export default function WorkspaceAuditLogPage() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-44">Time</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Event</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-40">
-                    <span className="flex items-center gap-1"><User className="w-3 h-3" />Actor</span>
+                    Actor
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-36">
-                    <span className="flex items-center gap-1"><Tag className="w-3 h-3" />Entity</span>
+                    Entity
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Details</th>
                 </tr>
@@ -366,7 +358,6 @@ export default function WorkspaceAuditLogPage() {
                 disabled={offset === 0 || loading}
                 className="btn-secondary flex items-center gap-1 text-sm disabled:opacity-40"
               >
-                <ChevronLeft className="w-4 h-4" />
                 Previous
               </button>
               <span className="text-xs text-gray-500">
@@ -378,7 +369,6 @@ export default function WorkspaceAuditLogPage() {
                 className="btn-secondary flex items-center gap-1 text-sm disabled:opacity-40"
               >
                 Next
-                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           )}

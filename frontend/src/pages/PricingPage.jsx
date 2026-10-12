@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Check, ArrowRight, Loader2, AlertTriangle, RefreshCw } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -195,14 +195,12 @@ export default function PricingPage() {
 
         {loadError && !loading && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-6 py-8 text-center">
-            <AlertTriangle className="w-6 h-6 text-amber-500 mx-auto mb-3" />
             <p className="text-sm font-semibold text-amber-800 mb-1">Live pricing is temporarily unavailable</p>
             <p className="text-sm text-amber-700 mb-4">
               We only show prices confirmed by our billing system, so nothing is displayed right now.
               Please try again in a moment.
             </p>
             <button onClick={load} className="inline-flex items-center gap-2 btn-secondary py-2">
-              <RefreshCw className="w-4 h-4" />
               Retry
             </button>
           </div>
@@ -232,10 +230,9 @@ export default function PricingPage() {
                   </div>
                 </div>
 
-                <ul className="mt-5 space-y-2 flex-1">
+                <ul className="mt-5 list-disc pl-5 space-y-2 flex-1">
                   {planFeatures(plan).map(feature => (
-                    <li key={feature} className="flex items-start gap-2 text-sm text-gray-600">
-                      <Check className="w-4 h-4 text-brand-600 mt-0.5 flex-shrink-0" />
+                    <li key={feature} className="text-sm text-gray-600">
                       <span>{feature}</span>
                     </li>
                   ))}
@@ -249,10 +246,7 @@ export default function PricingPage() {
                   {checkoutPlan === plan.key ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <>
-                      {plan.key === 'free' ? 'Start free trial' : plan.key === 'enterprise' ? 'Contact Sales' : 'Start Checkout'}
-                      <ArrowRight className="w-4 h-4" />
-                    </>
+                    plan.key === 'free' ? 'Start free trial' : plan.key === 'enterprise' ? 'Contact Sales' : 'Start Checkout'
                   )}
                 </button>
               </section>

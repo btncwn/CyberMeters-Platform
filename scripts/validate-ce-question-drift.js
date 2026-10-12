@@ -119,9 +119,11 @@ const pageSrc = fs.readFileSync(PAGE, "utf8");
 // Build the page's derived CONTROLS the same way the page does, and prove every rendered word
 // comes from the shared set.
 {
+  // Founder, 12 Oct: the controls are shown as text only; the former per-control
+  // icons must not come back, on the page or in the shared data.
   const ICONS = ["ShieldCheck", "Lock", "UserCheck", "ShieldAlert", "RefreshCw"];
-  ok("icons stay local to the page (they are React components, not data)",
-    ICONS.every((i) => pageSrc.includes(i)));
+  ok("controls render as text, without the former decorative icons",
+    !ICONS.some((i) => new RegExp(`<${i}\\b`).test(pageSrc)));
   ok("no icon or React dependency leaked into the shared data module",
     !/ShieldCheck|lucide|from ['"]react/i.test(stripJs(fs.readFileSync(path.join(root, "shared", "cyber-essentials-questions.js"), "utf8"))));
   ok("the shared module is pure data (no imports at all)",

@@ -98,7 +98,6 @@ export default function RelatedChangesList({ workspaceId }) {
   return (
     <section aria-label="Related changes">
       <div className="rounded-xl border border-slate-200 bg-brand-50/40 px-4 py-3 mb-5 flex items-start gap-2.5">
-        <GitCompareArrows className="w-4 h-4 text-brand-600 flex-shrink-0 mt-0.5" aria-hidden="true" />
         <div className="text-xs text-slate-600 leading-relaxed space-y-1">
           <p>{HONESTY_NOTE}</p>
           <p>{scopeNote || WORKSPACE_SCOPE_NOTE}</p>
