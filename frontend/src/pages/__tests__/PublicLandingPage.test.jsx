@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import PublicLandingPage from '../PublicLandingPage'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
@@ -94,6 +94,55 @@ describe('PublicLandingPage', () => {
     for (const link of screen.getAllByRole('link', { name: 'About' })) expect(link).toHaveAttribute('href', '/about')
     for (const link of screen.getAllByRole('link', { name: 'Trust & Security' })) expect(link).toHaveAttribute('href', '/trust')
     expect(screen.queryByText(/Designed and developed by Turhan Acar/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('PublicLandingPage product story', () => {
+  it('shows the product right after the first screen, with a direct link to it', () => {
+    renderLanding()
+    expect(screen.getByRole('link', { name: 'See a sample result first' })).toHaveAttribute('href', '#product')
+    const product = document.getElementById('product')
+    expect(product).not.toBeNull()
+    expect(within(product).getByRole('figure', { name: 'Sample report layout' })).toBeInTheDocument()
+    // The product view comes before the walkthrough and the eight areas.
+    const order = ['product', 'tour', 'areas', 'how', 'trust', 'start', 'faq'].map(id => document.getElementById(id))
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
+  })
+
+  it('keeps every area scannable and opens its details on request', () => {
+    renderLanding()
+    const toggles = screen.getAllByRole('button', { name: 'What it checks' })
+    expect(toggles).toHaveLength(8)
+    const email = toggles[2]
+    expect(email).toHaveAttribute('aria-expanded', 'false')
+    expect(document.getElementById('area-email')).not.toBeVisible()
+    fireEvent.click(email)
+    expect(email).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText(/Review SPF, DKIM and DMARC in plain English/)).toBeVisible()
+  })
+
+  it('keeps the free check, the trial and paid plans apart, with honest labels', () => {
+    renderLanding()
+    expect(screen.getByRole('link', { name: 'Check a domain now' })).toHaveAttribute('href', '/free-scan')
+    expect(screen.getByRole('link', { name: 'Start my 14-day trial' })).toHaveAttribute('href', 'https://app.cybermeters.com/signup')
+    for (const link of screen.getAllByRole('link', { name: 'See pricing' })) expect(link).toHaveAttribute('href', '/pricing')
+  })
+
+  it('answers the questions that stop people starting, without promising fixes', () => {
+    renderLanding()
+    expect(screen.getByText('Will CyberMeters change my DNS or fix things for me?')).toBeInTheDocument()
+    expect(screen.getByText(/Your DNS, email or IT provider makes the change/)).toBeInTheDocument()
+  })
+
+  it('opens the main navigation on small screens', () => {
+    renderLanding()
+    const toggle = screen.getByRole('button', { name: 'Menu' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(toggle)
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveAttribute('aria-expanded', 'true')
+    expect(document.getElementById('landing-menu')).toBeInTheDocument()
   })
 })
 
