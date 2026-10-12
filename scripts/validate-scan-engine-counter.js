@@ -57,6 +57,9 @@ const VARIABLE_LINKED_HOSTS = Array.from({ length: 40 }, (_, i) => `link${i}.exa
 const isFanoutSubdomain = (name) => /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.example\.com$/.test(name) &&
   !name.startsWith("cybermeters-wildcard-check-");
 const VARIABLE_KNOWN_HOSTS = Array.from({ length: 50 }, (_, i) => `known${i}.example.com`);
+// The site's own Content-Security-Policy names more in-scope hosts than the
+// referenced-hostname lookup cap.
+const VARIABLE_REFERENCED_HOSTS = Array.from({ length: 60 }, (_, i) => `csp${i}.example.com`);
 
 function respond(url, {
   dmarcRua = false,
@@ -121,7 +124,13 @@ function respond(url, {
     const links = variableFanout
       ? VARIABLE_LINKED_HOSTS.map((host) => `<a href="https://${host}/">${host}</a>`).join("")
       : "";
-    return new Response(`<title>Admin</title>${links}`, { status: 200, headers: { "content-type": "text/html", server: "nginx" } });
+    return new Response(`<title>Admin</title>${links}`, { status: 200, headers: {
+      "content-type": "text/html",
+      server: "nginx",
+      ...(variableFanout ? {
+        "content-security-policy": `default-src 'self' ${VARIABLE_REFERENCED_HOSTS.map((host) => `https://${host}`).join(" ")}`,
+      } : {}),
+    } });
   }
   return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
 }
@@ -332,7 +341,8 @@ async function runEngineLedger(mode, {
 // ── Section E: maximum existing host-driven fan-out remains provider-bounded ─
 // This is a behavioral fixture, not a self-imposed physical 200 counter. It drives
 // the real legacy engine with every own-discovery source at its cap (40 word-list
-// names, 50 of 300 SRV targets, 25 of 40 linked hosts), 50 historical recheck hosts, the
+// names, 50 of 300 SRV targets, 25 of 40 linked hosts, 50 of 60 referenced
+// names), 50 historical recheck hosts, the
 // takeover 100-host cap plus adversarial 100-answer CNAME multiplicity, exposure
 // 50-host cap, and the real redirect-hop guards.
 // The observed call count must exceed the application admission/report value 200
@@ -364,6 +374,17 @@ async function runEngineLedger(mode, {
     bounded.report?.modules?.dns_bruteforce?.srv_targets_dropped, 250);
   eq("max-fanout: linked-host discovery keeps its cap",
     bounded.report?.modules?.technology_detection?.linked_hostnames?.length, 25);
+  const referenced = bounded.report?.modules?.subdomains?.referenced_hostnames;
+  eq("max-fanout: referenced-hostname lookups keep their cap",
+    referenced?.checked, 50);
+  eq("max-fanout: referenced names beyond the cap are counted, not hidden",
+    referenced?.not_checked, 10);
+  ok("max-fanout: the referenced cap makes the step incomplete, not complete",
+    referenced?.executed === true && referenced?.incomplete === true &&
+      referenced?.incomplete_reason === "check_cap_reached",
+    JSON.stringify({ executed: referenced?.executed, incomplete: referenced?.incomplete, reason: referenced?.incomplete_reason }));
+  eq("max-fanout: each referenced name costs at most one DNS question",
+    bounded.counter.dnsQuestions.filter((question) => /^csp\d+\.example\.com$/.test(question.name) && question.type === "A").length, 50);
   eq("max-fanout: takeover reports all adversarial matching candidates",
     bounded.report?.modules?.subdomain_takeover?.totals?.candidates_matched, 10_000);
   eq("max-fanout: takeover admits only the governed candidate cap",

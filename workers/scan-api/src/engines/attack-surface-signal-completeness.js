@@ -80,10 +80,12 @@ function signal(state, reason, {
 }
 
 // Discovery is CyberMeters' own observation only: the bounded DNS wordlist and
-// SRV lookups (dns_bruteforce) plus hostnames the site's own pages link to
-// (technology_detection), merged into modules.subdomains together with the
-// wildcard check that decides which wordlist answers are real. A fixed wordlist
-// can never prove that no other hostname exists, so coverage is always bounded.
+// SRV lookups (dns_bruteforce), hostnames the site's own pages link to
+// (technology_detection) and names the domain's own configuration points at,
+// confirmed by DNS (referenced_hostnames), merged into modules.subdomains
+// together with the wildcard check that decides which wordlist answers are
+// real. A fixed wordlist can never prove that no other hostname exists, so
+// coverage is always bounded.
 function discoveryCoverage(brute) {
   const checked = Number(brute?.checked);
   return {
@@ -112,13 +114,18 @@ function resolveSubdomainDiscovery(modules) {
       .map((item) => item?.hostname)
       .filter(Boolean),
   ].map((host) => String(host).toLowerCase())).size;
+  // Names the customer's own configuration points at, confirmed by DNS. They
+  // count as a source only when the lookups ran in this scan.
+  const referenced = sub?.referenced_hostnames?.executed === true ? sub.referenced_hostnames : null;
   const sources = [
     ...(brute && !moduleNotAssessed(brute) ? ["dns_bruteforce", "dns_srv"] : []),
     ...(tech && !moduleNotAssessed(tech) ? ["html_link"] : []),
+    ...(referenced ? ["referenced_hostnames"] : []),
   ];
   const limitations = [
     sub?.incomplete_reason,
     brute?.incomplete_reason,
+    referenced?.incomplete_reason ? `referenced_hostnames_${referenced.incomplete_reason}` : null,
   ];
 
   if (observedCount > 0) {

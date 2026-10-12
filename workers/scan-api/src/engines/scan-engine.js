@@ -65,6 +65,7 @@ import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccount
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { collectLiveTls, attachLiveTlsToSsl, liveCertificateFindings } from "./network-probe.js";
+import { collectReferencedHostnames, confirmReferencedHostnames, REFERENCED_HOSTNAME_LIMITS, referencedHostnamesNotExecuted, withConfirmedReferences } from "./referenced-hostnames.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
 import { BRUTEFORCE_MAX_NAMES, SUBDOMAIN_DISCOVERY_SOURCE, filterWildcardBruteforceResults, isSensitiveSubdomain, prioritizeExposureTargets, runBruteforceModule, runSubdomainsModule, withReferencedHostnames } from "./subdomains-scan.js";
 import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply-chain.js";
@@ -1141,21 +1142,74 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         srvItems: bruteforceResult.srv_items,
         linkedHostnames: techResult?.linked_hostnames,
       });
+      // Names the customer's own configuration points at (live certificate,
+      // website headers and redirects, MX/NS/SPF/DMARC records) join discovery
+      // once DNS answers for them. Only durable invocations run the lookups; the
+      // compact waitUntil path records that the step did not run.
+      let referencedResult;
+      if (durableInvocation) {
+        const liveTlsEarly = liveTlsPromise ? await liveTlsPromise : null;
+        const referencedEvidence = collectReferencedHostnames(domain, {
+          ssl: liveTlsEarly ? attachLiveTlsToSsl(sslResult, liveTlsEarly) : sslResult,
+          headers: headersResult,
+          dns: dnsResult,
+          spfRecord: emailResult?.spf?.record ?? null,
+          dmarcRecord: applyDmarcbisEmailCompatibilityProjection(domain, { ...(emailResult || {}) }, dmarcCoreResult)?.dmarc?.record ?? null,
+        });
+        let referencedThrown = null;
+        const referencedRun = await runCappedModule("referenced_hostnames", {
+          estimateMs: REFERENCED_HOSTNAME_LIMITS.budgetMs,
+          hardMs: REFERENCED_HOSTNAME_LIMITS.budgetMs,
+          fallback: () => markDeadlineDeferred(referencedHostnamesNotExecuted("deadline_deferred", referencedEvidence)),
+          run: ({ accounting, signal }) => confirmReferencedHostnames(domain, referencedEvidence, {
+            exclude: mergedSubdomainItems,
+            wildcardAddresses: subdomainsResult.wildcard_dns_addresses,
+            accounting,
+            signal,
+            cache: dnsCache,
+          }),
+        });
+        referencedThrown = referencedRun.thrown;
+        referencedResult = referencedThrown
+          ? referencedHostnamesNotExecuted("lookup_step_failed", referencedEvidence)
+          : referencedRun.value;
+        const referencedTimedOut = referencedResult?.outcome === "deadline_exceeded";
+        const referencedOutbound = referencedThrown
+          ? (() => { referencedRun.ctx?.markIncomplete?.("module_error"); return outboundAccounting.snapshot("referenced_hostnames"); })()
+          : referencedTimedOut
+          ? abandonOutbound(referencedRun.ctx, "referenced_hostnames", referencedRun.startedMs != null ? "module_race" : "launch_gate")
+          : settleOutboundValue(referencedRun.ctx, "referenced_hostnames", referencedResult);
+        telemetry.record("referenced_hostnames", {
+          outcome:        telemetry.outcomeOf(referencedResult),
+          timeout:        referencedTimedOut,
+          error_class:    referencedThrown?.name || null,
+          duration_ms:    referencedRun.durationMs,
+          allocated_ms:   referencedRun.startedMs != null ? referencedRun.allocatedMs : 0,
+          timeout_source: referencedTimedOut ? (referencedRun.startedMs != null ? "module_race" : "launch_gate") : null,
+          outbound:       referencedOutbound,
+          outbound_calls: referencedOutbound?.outbound_measurement_complete ? referencedOutbound.outbound_attempts_observed : null,
+        });
+      } else {
+        referencedResult = referencedHostnamesNotExecuted("invocation_not_durable");
+      }
+      const discoveryHosts = withConfirmedReferences(mergedSubdomainItems, referencedResult);
+
       // The subdomains module carries the discovered set, so scoring and
       // certificate intelligence see every name found in this scan.
-      const discoveredItems = [...new Set(mergedSubdomainItems.map((h) => String(h).toLowerCase()))].sort();
+      const discoveredItems = [...new Set(discoveryHosts.map((h) => String(h).toLowerCase()))].sort();
       subdomainsResult = {
         ...subdomainsResult,
         count: discoveredItems.length,
         items: discoveredItems,
         sensitive: discoveredItems.filter((host) => isSensitiveSubdomain(host, domain)),
+        referenced_hostnames: referencedResult,
       };
       // Exposure probes the first 50 targets: high-value names (admin, VPN,
       // login, dev…) go first so a discovered admin host is never cut off by
       // ordinary names, then known assets for lifecycle re-checks.
       const exposureTargets = prioritizeExposureTargets(domain, {
         knownHosts: knownAssetHosts,
-        discoveredHosts: mergedSubdomainItems,
+        discoveredHosts: discoveryHosts,
       });
 
       // Takeover: canRun() gates the launch; raceModuleDeadline BOUNDS the run so an
@@ -1167,7 +1221,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       try {
         const takeoverRun = await runCappedModule("subdomain_takeover", {
           fallback: () => markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" }),
-          run: ({ accounting, signal }) => runTakeoverModule(domain, mergedSubdomainItems, { accounting, signal, cache: dnsCache }),
+          run: ({ accounting, signal }) => runTakeoverModule(domain, discoveryHosts, { accounting, signal, cache: dnsCache }),
         });
         takeoverThrown = takeoverRun.thrown;
         takeoverResult = takeoverThrown

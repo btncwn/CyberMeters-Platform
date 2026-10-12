@@ -1008,6 +1008,9 @@ jobs:
       - name: Validate own-observation discovery (no third-party certificate-log service; live TLS only)
         run: node scripts/validate-own-observation-discovery.js
 
+      - name: Validate referenced hostnames (own configuration names, DNS-confirmed, bounded, engine trace)
+        run: node scripts/validate-referenced-hostnames.js
+
       - name: Validate asset recheck rotation
         run: node scripts/validate-asset-recheck-rotation.js
 
