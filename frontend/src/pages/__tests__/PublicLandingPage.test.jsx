@@ -3,7 +3,7 @@ import { render, screen, within, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import PublicLandingPage from '../PublicLandingPage'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
-import { EXAMPLE_FINDINGS, paintIris } from '../../components/landing/IrisGlobe'
+import IrisGlobe, { EXAMPLE_FINDINGS, paintIris } from '../../components/landing/IrisGlobe'
 
 function renderLanding() {
   return render(<MemoryRouter><PublicLandingPage /></MemoryRouter>)
@@ -149,6 +149,12 @@ describe('PublicLandingPage product story', () => {
 describe('IrisGlobe illustration', () => {
   it('only uses canonical area names for its example findings', () => {
     for (const f of EXAMPLE_FINDINGS) expect(CANONICAL).toContain(f.area)
+  })
+
+  it('keeps its full size in a narrow row, so the iris turns about its own centre', () => {
+    const { container } = render(<IrisGlobe size={448} />)
+    const eye = container.querySelector('.cm-eye')
+    expect(eye).toHaveStyle({ width: '448px', height: '448px', flexShrink: '0' })
   })
 
   it('draws nothing when the browser has no 2D canvas', () => {
