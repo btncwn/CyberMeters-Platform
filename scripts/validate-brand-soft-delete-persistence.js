@@ -7,8 +7,8 @@
 // generated scan persistence, manual/scheduled DNS and HTTP enrichment, profile
 // loading/linking, case production, audit production, route/profile/
 // classification writes, and domain-removal lifecycle writes. (The passive
-// Certificate Transparency producer was removed with crt.sh; candidates it
-// stored earlier remain and are covered by the same persistence guards.)
+// certificate-log producer has been removed; candidates it stored earlier
+// remain and are covered by the same persistence guards.)
 // Static inventory assertions pin the private route/case/link statements that
 // cannot be invoked in isolation without weakening their real authorization path.
 import fs from "node:fs";

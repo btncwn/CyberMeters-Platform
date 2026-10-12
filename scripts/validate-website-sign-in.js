@@ -762,7 +762,6 @@ function richApp(extra = {}) {
   globalThis.fetch = async (input2, init) => {
     const url = new URL(String(input2));
     const j = (b) => new Response(JSON.stringify(b), { status: 200, headers: { "content-type": "application/json" } });
-    if (url.hostname === "crt.sh" || url.hostname === "api.certspotter.com") return j([]);
     if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
       const name = String(url.searchParams.get("name") || "").toLowerCase();
       const type = String(url.searchParams.get("type") || "A").toUpperCase();

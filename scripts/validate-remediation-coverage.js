@@ -130,7 +130,10 @@ ok("all other remediation identities remain version 1",
 // sign-in page conditions add three (web.signin.form_offsite / form_http / cookie_secure);
 // the home-page availability observations add two (web.homepage.not_served / unavailable).
 ok("registry has exactly 74 entries including live TLS, sign-in page and home-page remediations", REMEDIATION_REGISTRY.length === 74);
-ok("registry fingerprint including live TLS, sign-in forms and home page is exact", remediationRegistryFingerprint() === "r74-05b42c41", remediationRegistryFingerprint());
+// Certificate logs retired: evidence types and wording move to the live TLS
+// observation and cert.ct_incomplete becomes a deprecated historical entry, so
+// the fingerprint moves r74-05b42c41 -> r74-ad711388 with the count unchanged.
+ok("registry fingerprint including live TLS, sign-in forms and home page is exact", remediationRegistryFingerprint() === "r74-ad711388", remediationRegistryFingerprint());
 ok("certificate_expiring_critical maps to expiring, never expired",
   resolveRemediation({ finding_type: "certificate_expiring_critical" }).remediation_id === "cert.expiry.expiring"
   && !byId.get("cert.expiry.expired")?.finding_types.includes("certificate_expiring_critical"));

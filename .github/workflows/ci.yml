@@ -1455,7 +1455,7 @@ jobs:
       - name: Validate bounded Phase-5 historical evidence reads (1,200-row concurrency/read cap + aggregates/BRS)
         run: node scripts/validate-phase5-evidence-read-bounds.js
 
-      - name: Validate shared-SAN measurement and ownership honesty (CertSpotter-only + crt.sh measured + blackout)
+      - name: Validate shared-SAN measurement and ownership honesty (live leaf and historical records)
         run: node scripts/validate-cert-shared-san-honesty.js
 
       - name: Validate Candidate A self-relative email-Worker closure invariance (F12)

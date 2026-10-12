@@ -121,11 +121,11 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `/^\/api\/workspaces\/([^/` | 930 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `/^\/api\/workspaces\/([^/` | 1038 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `(none)` | 1401 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 1697 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 1802 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 1934 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 2079 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 2181 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 1694 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 1799 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 1931 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 2076 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 2178 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/auth.js`
 
@@ -153,11 +153,11 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| POST | `/api/free-scan` | 74 | public-or-global | public | — |
-| GET | `/^\/api\/workspaces\/([^/` | 309 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `/api/plans` | 377 | public-or-global | public | — |
-| POST | `/^\/api\/workspaces\/([^/` | 419 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| POST | `/^\/api\/workspaces\/([^/` | 700 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/api/free-scan` | 71 | public-or-global | public | — |
+| GET | `/^\/api\/workspaces\/([^/` | 294 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/api/plans` | 362 | public-or-global | public | — |
+| POST | `/^\/api\/workspaces\/([^/` | 404 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^/` | 685 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/brand.js`
 

@@ -194,10 +194,7 @@ const baseModules = (ssl) => ({
   email_security: { applicability: { applicable: false } },
   subdomains: {
     items: [],
-    sources: {
-      crt_sh: { count: 1, error: null },
-      certspotter: { count: 1, error: null },
-    },
+    source: "dns_discovery",
   },
 });
 const scoreFor = (ssl) => computeScore(baseModules(ssl), DOMAIN);

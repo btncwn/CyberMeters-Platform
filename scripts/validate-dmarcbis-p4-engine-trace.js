@@ -140,12 +140,6 @@ globalThis.fetch = async (input) => {
       headers: { "content-type": "application/dns-json" },
     });
   }
-  if (url.hostname === "crt.sh") {
-    return new Response("[]", {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
-  }
   return new Response("<html><title>Example</title></html>", {
     status: 200,
     headers: {

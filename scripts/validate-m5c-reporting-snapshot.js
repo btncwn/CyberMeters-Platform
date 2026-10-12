@@ -367,9 +367,9 @@ async function main() {
      favourableCeDomain?.evidence_grade?.grade === "L0" &&
      /2 of 5/.test(favourableCeDomain?.state_reason || ""));
   const certDomain = snap1?.domains?.find((d) => d.domain_key === "certificates_trust");
-  ok("Certificates & Trust records CT-only scope and never claims the observed cert is live",
+  ok("Certificates & Trust without a captured leaf is bounded and never claims a live certificate",
      certDomain?.live_certificate_verified === false &&
-     /observed Certificate Transparency evidence/.test(certDomain?.state_reason || "") &&
+     /the served certificate was not captured in this scan/.test(certDomain?.state_reason || "") &&
      certDomain?.evidence_grade?.grade === "L1" &&
      certDomain?.evidence_grade?.limits?.some((limit) => /OCSP/.test(limit)));
   const gradeRank = Object.fromEntries(EVIDENCE_GRADES.map((grade, rank) => [grade, rank]));

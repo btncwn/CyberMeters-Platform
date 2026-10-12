@@ -102,12 +102,9 @@ eq("state vocabulary is unique", new Set(ATTACK_SURFACE_SIGNAL_STATES).size, 6);
 const mixed = deriveAttackSurfaceSignalCompleteness({
   subdomains: {
     items: ["app.example.com"],
-    sources: {
-      crt_sh: { count: 1, error: null },
-      certspotter: { count: 0, error: "provider unavailable" },
-    },
+    source: "dns_discovery",
     incomplete: true,
-    incomplete_reason: "ct_source_degraded",
+    incomplete_reason: "wildcard_check_failed",
   },
   dns_bruteforce: { checked: 23, items: [], error: null },
   dns: {
@@ -199,10 +196,7 @@ eq("legacy DNS zero without the authoritative contract is incomplete",
 const cleanNegative = deriveAttackSurfaceSignalCompleteness({
   subdomains: {
     items: [],
-    sources: {
-      crt_sh: { count: 0, error: null },
-      certspotter: { count: 0, error: null },
-    },
+    source: "dns_discovery",
   },
   dns_bruteforce: { checked: 23, items: [], error: null },
   asset_exposure: {

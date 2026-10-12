@@ -40,7 +40,7 @@ const unsupportedIds = [
 function datum({ precision = "label_boundary", subject = "provider_identification", resolution = "not_evaluated" } = {}) {
   return {
     schema_version: "identity_evidence.v2",
-    source: subject === "provider_identification" ? "cname" : "certificate_transparency",
+    source: subject === "provider_identification" ? "cname" : "dns_discovery",
     value: subject === "provider_identification" ? "login.microsoftonline.com" : "login.example.com",
     provenance: { producer: "identity_discovery", module: subject === "provider_identification" ? "subdomain_takeover" : "subdomains", path: "fixture" },
     match_precision: precision,
@@ -91,7 +91,7 @@ function cleanComplete() {
       certificate_intelligence: {}, brand_monitoring: {}, identity_discovery: { detected: true, high_risk_count: 4 },
       saas_exposure: { count: 2 }, technology_detection: { count: 5 },
     },
-    monitoring_states: { version: "signal-monitoring-state-v1", signals: { certificate_transparency: { state: "monitoring_healthy", message: "complete", evidence: { modules: ["subdomains"], incomplete_modules: [], providers: { crt_sh: "available" } } } } },
+    monitoring_states: { version: "signal-monitoring-state-v2", signals: { dns: { state: "monitoring_healthy", message: "complete", evidence: { modules: ["dns"], incomplete_modules: [] } } } },
     findings: [],
   };
 }

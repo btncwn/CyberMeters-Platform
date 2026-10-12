@@ -666,8 +666,6 @@ async function catchAllRun({ echo, realPages = {} }) {
     globalThis.fetch = async (input) => {
       const url = new URL(String(input));
       const host = url.hostname;
-      if (host === "crt.sh") return j([]);
-      if (host === "api.certspotter.com") return j([]);
       if (host === "cloudflare-dns.com" || host === "dns.google") {
         const name = String(url.searchParams.get("name") || "").toLowerCase();
         const type = String(url.searchParams.get("type") || "A").toUpperCase();

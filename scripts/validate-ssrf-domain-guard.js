@@ -132,7 +132,6 @@ const safeModuleResults = {
     dkim: { present: true, selectors_probed: ["selector1"] },
     dmarc: { present: true, policy: "reject", record: "v=DMARC1; p=reject" },
   },
-  subdomains: { count: 0, items: [], sensitive: [], sources: {} },
   technology_detection: { status_code: 200, technologies: [], external_scripts: [] },
 };
 
@@ -233,8 +232,8 @@ eq("resolver unavailability returns an explicit verification code",
 for (const addressMode of ["a_only", "aaaa_only"]) {
   const singleFamily = await runDirectPreview({ addressMode });
   eq(`${addressMode} public domain is admitted`, singleFamily.status, 200);
-  eq(`${addressMode} public domain launches the six bounded modules`,
-    singleFamily.moduleCalls, 6);
+  eq(`${addressMode} public domain launches the five bounded modules`,
+    singleFamily.moduleCalls, 5);
 }
 const noAddress = await runDirectPreview({ addressMode: "none" });
 eq("both-families NODATA remains fail-closed", noAddress.status, 503);
@@ -258,7 +257,7 @@ for (const [operation, expectedCalls] of [
 }
 
 const allowedPreview = await runDirectPreview();
-eq("allowed preview runs all six bounded modules", allowedPreview.moduleCalls, 6);
+eq("allowed preview runs all five bounded modules", allowedPreview.moduleCalls, 5);
 eq("allowed preview evaluates all three throttles", allowedPreview.rateCalls.length, 3);
 eq("allowed preview returns persistence:none", allowedPreview.body.persistence, "none");
 eq("allowed preview touches no D1/R2 scan/report persistence", allowedPreview.storageTouches, 0);
@@ -272,9 +271,8 @@ ok("remaining-time carrier is bounded by the public 20s deadline",
 eq("DNS and email share one per-snapshot DNS cache",
   allowedPreview.moduleOptions.dns?.cache,
   allowedPreview.moduleOptions.email_security?.cache);
-eq("TLS and subdomains share one per-snapshot CT cache",
-  allowedPreview.moduleOptions.ssl?.ctCache,
-  allowedPreview.moduleOptions.subdomains?.ctCache);
+ok("the free preview launches no subdomain discovery",
+  !Object.prototype.hasOwnProperty.call(allowedPreview.moduleOptions, "subdomains"));
 for (const module of ["ssl", "headers", "technology_detection"]) {
   ok(`${module} receives the strict per-hop DNS resolver`,
     typeof allowedPreview.moduleOptions[module]?.dnsResolver === "function");

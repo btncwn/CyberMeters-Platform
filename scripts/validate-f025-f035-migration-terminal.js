@@ -159,8 +159,10 @@ ok("G2 validate-migrations.js is not an unconditional swallower", !off.includes(
 ok("G3 this closure validator is not an unconditional swallower", !off.includes("scripts/validate-f025-f035-migration-terminal.js"));
 // 117 -> 116: the retired CT overlap engine-trace validator left the set;
 // no file was added.
-const EXPECTED_BLANKET_COUNT = 116;
-const EXPECTED_BLANKET_SHA256 = "bba63b0f9c55ea96858843feef10cd9e6d180e2a0c8401ef1efcef5713e7a240";
+// 116 -> 114: two retired certificate-log validators left the set; no file
+// was added.
+const EXPECTED_BLANKET_COUNT = 114;
+const EXPECTED_BLANKET_SHA256 = "18df89093a684b126767591f65681d243d366a3ce5079dcb792ae96bee174e1f";
 ok("G4 blanket-catch residual set is pinned and non-growing (breadth-guard)",
   off.length <= EXPECTED_BLANKET_COUNT && shaHex(off.join("\n")) === EXPECTED_BLANKET_SHA256);
 if (process.env.F025_DEBUG) console.log(`  offenders=${off.length} sha=${shaHex(off.join("\n"))}`);

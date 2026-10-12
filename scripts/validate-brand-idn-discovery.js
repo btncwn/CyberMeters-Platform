@@ -5,8 +5,8 @@
 // additive API evidence, fail-honest customer wording, and the generated-scan
 // persistence path for IDN candidates.
 //
-// The passive Certificate Transparency keyword discovery that PR-B originally
-// added was removed together with crt.sh. Candidates it stored earlier keep
+// The passive certificate-log keyword discovery that PR-B originally added has
+// been removed. Candidates it stored earlier keep
 // their `ct_observed` evidence; this file proves a generated scan re-observing
 // such a row keeps that evidence, its history and the customer's decision.
 import path from "node:path";
@@ -178,7 +178,7 @@ ok("customer surface calls no removed Brand discovery route",
     JSON.stringify(["certificate_observed_not_yet_live", "unrelated_customer_context"]),
     JSON.stringify([
       { signal: "ct_observed", value: true },
-      { signal: "ct_observation", value: { source: "crt.sh", entry_id: "501", serial_number: "AA501" } },
+      { signal: "ct_observation", value: { source: "certificate_log", entry_id: "501", serial_number: "AA501" } },
       { signal: "unrelated_historical_evidence", value: "retain" },
     ]),
     "unreviewed", NOW, "2026-01-02T00:00:00Z", NOW, NOW);

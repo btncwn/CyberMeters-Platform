@@ -5,9 +5,9 @@
 // with exactly the pinned assertion names: no syntax/load/wrong-reason kill is
 // accepted.
 //
-// The original single mutant (customer-owned IDN exclusion in the passive CT
-// filter) targeted code removed with crt.sh. These mutants target the live
-// code paths the validator still proves.
+// The original single mutant (customer-owned IDN exclusion in the passive
+// certificate-log filter) targeted code that has been removed. These mutants
+// target the live code paths the validator still proves.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
