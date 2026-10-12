@@ -116,8 +116,8 @@ function fixtures(lib) {
     assert.ok(result.candidates.every(item => JSON.stringify(item.sources) === '["txt"]'));
   });
   check('TXT structured domains including quoted values', () => same(hosts(txt(lib, 'DOMAIN = A.EXAMPLE.COM.; hostname="b.example.com"\nhostname=\'c.example.com\'')), ['a.example.com', 'b.example.com', 'c.example.com']));
-  check('TXT arbitrary text and bare dotted tokens are not evidence', () => same(hosts(txt(lib, ['api.example.com', 'a long token api.example.com here', 'token=api.example.com', 'google-site-verification=api.example.com', 'MS=ms123456', 'v=DKIM1; p=api.example.com', 'include:api.example.com'])), []));
-  check('TXT skips URLs embedded in unknown values and prose', () => same(hosts(txt(lib, ['google-site-verification=https://api.example.com/', 'visit https://api.example.com/', '{"hostname":"api.example.com"}', 'redirect=https://api.example.com/'])), []));
+  check('TXT arbitrary text and bare dotted tokens are not evidence', () => same(hosts(txt(lib, ['api.example.com', 'a long token api.example.com here', 'token=api.example.com', 'site-verification=api.example.com', 'verification=token123456', 'v=DKIM1; p=api.example.com', 'include:api.example.com'])), []));
+  check('TXT skips URLs embedded in unknown values and prose', () => same(hosts(txt(lib, ['site-verification=https://api.example.com/', 'visit https://api.example.com/', '{"hostname":"api.example.com"}', 'redirect=https://api.example.com/'])), []));
   check('TXT quoted verification content cannot smuggle explicit fields', () => same(hosts(txt(lib, 'token="opaque; hostname=api.example.com; uri=https://auth.example.com/"')), []));
   check('TXT unterminated quotes do not expose trailing keys', () => same(hosts(txt(lib, 'token="opaque; hostname=api.example.com')), []));
   check('TXT quotes preserve URL path separators', () => one(txt(lib, 'url="https://api.example.com/path;part"'), 'api.example.com', 'txt'));

@@ -22,11 +22,11 @@ ok('wordlist is immutable between requests', Object.isFrozen(list));
 for (const label of [
   'api', 'auth', 'sso', 'vpn', 'mail', 'smtp', 'webmail', 'autodiscover',
   'dev', 'staging', 'test', 'uat', 'qa', 'beta', 'admin', 'portal', 'cdn',
-  'static', 'assets', 'git', 'gitlab', 'jenkins', 'ci', 'grafana', 'kibana',
+  'static', 'assets', 'git', 'repositories', 'builds', 'ci', 'charts', 'logsearch',
   'status', 'docs', 'help', 'support', 'shop', 'pay', 'billing', 'm', 'mobile',
   'app', 'apps', 'eu', 'us', 'uk', 'de', 'fr', 'internal', 'intranet', 'extranet',
-  'remote', 'citrix', 'owa', 'exchange', 'sharepoint', 's3', 'backup', 'db',
-  'sql', 'mysql', 'redis', 'elastic', 'monitor', 'api-staging', 'mail-eu', 'app1',
+  'remote', 'desktops', 'webaccess', 'mailbox', 'documents', 'objects', 'backup', 'db',
+  'sql', 'relational', 'memory', 'index', 'monitor', 'api-staging', 'mail-eu', 'app1',
 ]) ok(`common authored label ${label} is included`, list.includes(label));
 
 const slices = [];

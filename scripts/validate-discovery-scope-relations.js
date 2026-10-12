@@ -222,7 +222,7 @@ function fixtures(lib) {
 
 try {
   let checks = fixtures(api);
-  const noIo = /\b(?:fetch|connect|setTimeout|setInterval)\s*\(|\b(?:import|require)\s*\(|from\s*["'](?:node:|cloudflare:|https?:)|\b(?:Date\.now|Math\.random)\s*\(/;
+  const noIo = /\b(?:fetch|connect|setTimeout|setInterval)\s*\(|\b(?:import|require)\s*\(|from\s*["'](?!\.{1,2}\/)|\b(?:Date\.now|Math\.random)\s*\(/;
   assert.ok(!noIo.test(source), 'routing module has no I/O or ambient time/randomness'); checks++;
   assert.ok(!noIo.test(helperSource), 'shared normalizer dependency has no I/O or ambient state'); checks++;
   assert.deepEqual([...source.matchAll(/from\s*['"]([^'"]+)['"]/g)].map(match => match[1]), ['./hostname-candidates.js'], 'only shared pure helper imported'); checks++;

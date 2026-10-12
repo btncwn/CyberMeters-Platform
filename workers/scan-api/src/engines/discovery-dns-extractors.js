@@ -177,7 +177,7 @@ function txtFields(record) {
 //   url=<absolute URL>, uri=<absolute URL>.
 // Keys are case-insensitive. A whole value may be single/double quoted. We do
 // not search prose, JSON, arbitrary key values, token strings or bare hostnames.
-// Thus google-site-verification=api.example.com is never hostname evidence.
+// Thus site-verification=api.example.com is never hostname evidence.
 export function extractFromTxtRecords(records, options = {}) {
   const ctx = context(options), rows = list(records, ctx);
   for (let i = 0; i < rows.length; i++) {
