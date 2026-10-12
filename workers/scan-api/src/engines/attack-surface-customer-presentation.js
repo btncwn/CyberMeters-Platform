@@ -195,6 +195,28 @@ function coverageMessage(key, coverageState, coverage) {
   return "A declared coverage limit was reached. Evidence beyond that limit was not assessed and no completeness conclusion is inferred.";
 }
 
+// The observation caveat closes several signal messages. It is the same
+// sentence on every signal that carries it, so surfaces that show many signals
+// at once can state it once instead of on every row. `customer_message` keeps
+// the full sentence for reports and snapshots.
+const OBSERVATION_CAVEAT =
+  "Detection alone does not establish maliciousness or compromise.";
+
+function splitObservationCaveat(message) {
+  const suffix = ` ${OBSERVATION_CAVEAT}`;
+  return message.endsWith(suffix)
+    ? { statement: message.slice(0, -suffix.length), caveat: OBSERVATION_CAVEAT }
+    : { statement: message, caveat: null };
+}
+
+// The customer label for a lifecycle state, from the same vocabulary the
+// presentation uses. Unknown or missing states read as not assessed.
+export function attackSurfaceLifecycleStateLabel(state) {
+  return LIFECYCLE_STATE_LABELS[
+    LIFECYCLE_STATE_SET.has(state) ? state : "not_assessed"
+  ];
+}
+
 function presentSignal(key, rawSignal, presentInModel) {
   const raw = asObject(rawSignal);
   const validState = SIGNAL_STATE_SET.has(raw?.state);
@@ -210,6 +232,7 @@ function presentSignal(key, rawSignal, presentInModel) {
     raw?.reason,
   );
   const boundedMessage = coverageMessage(key, coverageState, coverage);
+  const { statement, caveat } = splitObservationCaveat(baseMessage);
   return {
     signal_key: key,
     label: SIGNAL_META[key] || key,
@@ -217,6 +240,9 @@ function presentSignal(key, rawSignal, presentInModel) {
     state,
     state_label: SIGNAL_STATE_LABELS[state],
     customer_message: [baseMessage, boundedMessage].filter(Boolean).join(" "),
+    statement,
+    caveat,
+    coverage_message: boundedMessage || null,
     reason: raw?.reason || null,
     evidence_count: Number.isFinite(Number(raw?.evidence_count))
       ? Number(raw.evidence_count)
@@ -332,10 +358,10 @@ function lifecyclePresentation(records, absenceReason) {
     records: projected,
     customer_message: recorded
       ? (projected.length
-          ? "Asset lifecycle states were recorded separately from the legacy active/inactive inventory status."
+          ? "Whether each asset is still seen from outside, judged across repeated scans rather than a single one."
           : "The lifecycle model was available, but no asset lifecycle record was present for this scope.")
       : (absenceReason ||
-        "Asset lifecycle evidence was not recorded. Legacy active/inactive status is not interpreted as confirmed removal or observation."),
+        "Asset lifecycle evidence was not recorded. An asset's inventory status is not read as observation or as confirmed absence."),
   };
 }
 
