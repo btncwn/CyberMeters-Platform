@@ -93,7 +93,7 @@ function deriveInsights(scans, report) {
   if (scans.length === 0) {
     actions.push({ id: 'a1', priority: 1, title: 'Start your first Cyber MOT',  desc: 'Add a domain to see what is visible from outside and get a plain-English fix list.',   cta: 'Start Cyber MOT', href: '/scans/new' })
   } else if (failed > 0) {
-    actions.push({ id: 'a2', priority: 1, title: 'Investigate failed scans',      desc: `${failed} scan(s) returned errors. Review and retry to ensure full coverage.`, cta: 'View Scans', href: '/scans' })
+    actions.push({ id: 'a2', priority: 1, title: 'Investigate failed scans',      desc: `${failed} scan${failed !== 1 ? 's' : ''} stopped with an error, so ${failed !== 1 ? 'their' : 'its'} checks did not finish. Review and run ${failed !== 1 ? 'them' : 'it'} again.`, cta: 'View Scans', href: '/scans' })
   }
   if (domains.length > 0) {
     actions.push({ id: 'a3', priority: 2, title: 'Schedule regular assessments',  desc: 'Enable weekly automated scans to track your security posture over time.', cta: 'Configure',  href: '/settings' })
@@ -118,6 +118,8 @@ function deriveInsights(scans, report) {
 
   return {
     score, riskLevel, postureProvisional, postureEstablished, completed, failed, active, domains,
+    // A finished run whose checks did not all complete is counted, never hidden.
+    partialCompleted: completed.filter(s => ['partial', 'degraded'].includes(s.scan_quality)).length,
     healthCategories, findings, trend, actions,
     scanQuality: authoritative?.scan_quality ?? latest?.scan_quality ?? null,
     criticalCount, highCount,
@@ -331,7 +333,7 @@ function CreateFirstWorkspaceState() {
         {[
           {
             title: 'Attack Surface Visibility',
-            desc:  'Discover subdomains, exposed services, and cloud assets across your entire digital footprint.',
+            desc:  'Find subdomains, exposed services and cloud assets linked to your domains.',
           },
           {
             title: 'Continuous Risk Scoring',
@@ -656,7 +658,7 @@ export default function Dashboard() {
                 shown as healthy and no domain silently disappears. */}
             <CyberMotDomains
               domains={motDomains.length ? motDomains : report?.cyber_mot_domains}
-              subtitle="Your full Cyber MOT coverage — every domain, one honest state." />
+              subtitle="All eight Cyber MOT areas, each with what the latest scan could establish." />
 
             {/* Domain shortcut cards */}
             <div>
@@ -770,7 +772,7 @@ export default function Dashboard() {
                 : ins.score === null
                 ? 'Run your first Cyber MOT to generate your Cyber Metrics Score and reveal your external security posture.'
                 : ['excellent', 'good'].includes(scoreBand(ins.score))
-                  ? 'Your external security posture is well protected. Keep monitoring to catch new exposure as it appears.'
+                  ? 'No serious issue was found in what the latest complete scan checked. Keep monitoring to catch new exposure as it appears.'
                   : scoreBand(ins.score) === 'moderate'
                     ? `Moderate exposure detected. ${ins.findings.length} issue${ins.findings.length !== 1 ? 's' : ''} require attention to strengthen your posture.`
                     : 'Serious exposures detected. Prioritise the findings below — immediate action is recommended.'}
@@ -795,7 +797,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Total Scans',     value: scans.length,         sub: 'all time' },
-          { label: 'Completed',       value: ins.completed.length, sub: 'successful' },
+          { label: 'Completed',       value: ins.completed.length, sub: ins.partialCompleted > 0 ? `${ins.partialCompleted} with partial results` : 'finished runs' },
           { label: 'Active Scans',    value: ins.active,           sub: 'currently running' },
           { label: 'Domains Tracked', value: ins.domains.length,   sub: 'unique domains' },
         ].map(({ label, value, sub }) => (
@@ -866,7 +868,7 @@ export default function Dashboard() {
             ins.scanQuality === 'complete' ? (
               <div className="flex flex-col items-center gap-3 py-12 text-center px-6">
                 <p className="text-sm font-semibold text-gray-900">No findings</p>
-                <p className="text-xs text-gray-400">All checks passed on the latest complete scan</p>
+                <p className="text-xs text-gray-400">Nothing was found in what the latest complete scan checked. That is not proof of no risk.</p>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-3 py-12 text-center px-6">

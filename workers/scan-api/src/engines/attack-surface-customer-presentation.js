@@ -196,7 +196,11 @@ function coverageMessage(key, coverageState, coverage) {
     }
   }
   if (key === "subdomain_discovery") {
-    return "Discovery is bounded by its sources and declared limits. Hostnames beyond them were not assessed; no completeness conclusion is drawn from the retained set.";
+    const budget = coverage?.question_budget;
+    const asked = budget && Number.isSafeInteger(budget.total) && Number.isSafeInteger(budget.spent)
+      ? ` This scan asked ${budget.spent} of its ${budget.total} DNS questions${budget.reached === true ? " and ran out before every candidate name was tried" : ""}.`
+      : "";
+    return `Discovery is bounded by its sources and declared limits.${asked} Hostnames beyond them were not assessed; no completeness conclusion is drawn from the retained set.`;
   }
   return "A declared coverage limit was reached. Evidence beyond that limit was not assessed and no completeness conclusion is inferred.";
 }

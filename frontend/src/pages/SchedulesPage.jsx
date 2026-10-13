@@ -217,7 +217,7 @@ export default function SchedulesPage() {
               </li>
               <li className="flex items-start gap-2">
                 <span className="w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-[12px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
-                CyberMeters automatically runs a full scan on schedule.
+                CyberMeters runs a scan on the schedule you set.
               </li>
               <li className="flex items-start gap-2">
                 <span className="w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-[12px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</span>

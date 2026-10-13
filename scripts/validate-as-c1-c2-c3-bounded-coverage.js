@@ -308,6 +308,34 @@ try {
       JSON.stringify(found.sources) === JSON.stringify(["dns_bruteforce", "dns_srv", "html_link"]),
     JSON.stringify({ discovered, sources: found.sources }),
   );
+
+  // Discovery's fixed DNS-question budget is stated to the customer: how many
+  // questions the scan asked, and whether it ran out before every candidate.
+  const budgetModules = (reached) => ({
+    dns_bruteforce: wordlistComplete([{ hostname: "www.example.com" }]),
+    subdomains: {
+      items: ["www.example.com"],
+      discovery_budget: {
+        version: "discovery-question-budget-v1", total: 786, spent: reached ? 786 : 412,
+        remaining: reached ? 0 : 374, by_source: {}, refused: reached ? { discovery_depth: 12 } : {},
+      },
+    },
+  });
+  const presentDiscovery = (modules) => presentationModule.buildAttackSurfaceCustomerPresentation({
+    signalCompleteness: signalModule.deriveAttackSurfaceSignalCompleteness(modules),
+  }).signals.subdomain_discovery;
+  const asked = presentDiscovery(budgetModules(false));
+  const ranOut = presentDiscovery(budgetModules(true));
+  const noBudget = presentDiscovery({ dns_bruteforce: wordlistComplete([{ hostname: "www.example.com" }]), subdomains: { items: ["www.example.com"] } });
+  check(
+    "F_DISCOVERY_QUESTION_BUDGET_IS_STATED",
+    asked.coverage?.question_budget?.spent === 412 && asked.coverage?.question_budget?.reached === false &&
+      / This scan asked 412 of its 786 DNS questions\. /.test(asked.customer_message) && !/ran out/.test(asked.customer_message) &&
+      ranOut.coverage?.question_budget?.reached === true &&
+      /asked 786 of its 786 DNS questions and ran out before every candidate name was tried\./.test(ranOut.customer_message) &&
+      !/DNS questions/.test(noBudget.customer_message) && noBudget.coverage?.question_budget === undefined,
+    JSON.stringify({ asked: asked.customer_message, ranOut: ranOut.customer_message, noBudget: noBudget.customer_message }),
+  );
 } finally {
   globalThis.fetch = originalFetch;
   globalThis.setTimeout = originalSetTimeout;

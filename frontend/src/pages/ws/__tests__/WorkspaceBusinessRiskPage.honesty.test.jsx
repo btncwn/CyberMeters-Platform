@@ -71,7 +71,7 @@ describe('WorkspaceBusinessRiskPage partial-scan honesty', () => {
     await renderPage(partialPayload)
     await waitFor(() => expect(screen.getByText('No current grade or risk band is shown.')).toBeInTheDocument())
     expect(screen.queryByText('Category Breakdown')).not.toBeInTheDocument()
-    expect(screen.queryByText('No issues detected')).not.toBeInTheDocument()
+    expect(screen.queryByText(/No issue found/)).not.toBeInTheDocument()
     expect(screen.getByText(/Historical\/stale/)).toBeInTheDocument()
   })
 

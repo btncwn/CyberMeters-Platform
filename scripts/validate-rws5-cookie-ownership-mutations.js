@@ -557,7 +557,7 @@ const MUTATIONS = Object.freeze([
   {
     id: "M-S4CX-6-frontend-certificate-derivation",
     file: "frontend/src/components/ExecutiveReportV2.jsx",
-    anchor: '        <ItemList items={report.observed_findings} emptyLabel="No material findings were observed in this assessment." />',
+    anchor: '        <ItemList items={report.observed_findings} emptyLabel={observedFindingsEmptyLabel(report)} />',
     replacement: `        <ItemList
           items={report.modules?.certificate_intelligence?.producer_signals?.length
             ? [...(report.observed_findings || []), {
@@ -567,7 +567,7 @@ const MUTATIONS = Object.freeze([
                 severity: "high",
               }]
             : report.observed_findings}
-          emptyLabel="No material findings were observed in this assessment."
+          emptyLabel={observedFindingsEmptyLabel(report)}
         />`,
     s4cxFrontendProbe: true,
   },

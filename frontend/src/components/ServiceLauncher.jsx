@@ -133,7 +133,7 @@ export default function ServiceLauncher() {
     { n: 3, title: 'Connect DMARC reporting', explanation: 'Start receiving reports on who is sending email using your domain.', status: hasScan ? 'recommended' : 'waiting', actionLabel: 'Set up', to: '/ws/email-protection' },
     { n: 4, title: 'Review BEC Exposure', explanation: 'See how exposed your domain is to spoofing and invoice fraud.', status: hasScan ? 'recommended' : 'waiting', actionLabel: 'Review', to: '/ws/email-protection' },
     { n: 5, title: 'Review Brand Protection candidates', explanation: 'Find lookalike domains that could impersonate your brand.', status: hasScan ? 'recommended' : 'waiting', actionLabel: 'Review', to: '/ws/brand-monitoring' },
-    { n: 6, title: 'Schedule monitoring', explanation: 'Keep scans running automatically so nothing slips.', status: 'recommended', actionLabel: 'Schedule', to: '/schedules' },
+    { n: 6, title: 'Schedule monitoring', explanation: 'Keep scans running on a schedule so new exposure is found sooner.', status: 'recommended', actionLabel: 'Schedule', to: '/schedules' },
   ]
 
   return (

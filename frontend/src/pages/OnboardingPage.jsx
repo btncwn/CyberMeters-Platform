@@ -29,7 +29,7 @@ const STEP_WHY = {
   1: 'A workspace keeps one business’s domains, results and team together.',
   2: 'CyberMeters checks this domain from the outside. Nothing is installed on your systems.',
   3: 'Full findings are shown only to someone who controls the domain. One DNS TXT record proves it and changes nothing else.',
-  4: 'The first full check reviews every area for your domain.',
+  4: 'The first scan checks what CyberMeters can see of your domain from outside.',
   5: 'Your report shows what was observed, what needs attention and what could not be assessed.',
 }
 
@@ -201,6 +201,8 @@ export default function OnboardingPage() {
   const activeStep = !steps.workspace ? 1 : !steps.domain ? 2 : !steps.verification ? 3 : !steps.scan ? 4 : 5
   const selectedDomainName = domainNameOf(selectedDomain)
   const scanFinished = completedScan?.status === 'completed'
+  const firstResultsPartial = scanFinished && ['partial', 'degraded'].includes(completedScan?.scan_quality)
+  const firstResultsSettled = scanFinished && !firstResultsPartial
 
   async function createWorkspace(e) {
     e.preventDefault()
@@ -455,16 +457,29 @@ export default function OnboardingPage() {
       <StepCard number={5} title="Open Executive Report" done={steps.report} active={activeStep === 5}>
         {steps.scan ? (
           <div className="space-y-4">
-            <div className={`rounded-xl border p-4 ${scanFinished ? 'border-brand-100 bg-brand-50' : 'border-amber-100 bg-amber-50'}`}>
-              <p className={`text-sm font-semibold ${scanFinished ? 'text-brand-800' : 'text-amber-800'}`}>
-                {scanFinished ? 'Your first results are ready.' : 'Your first check has started.'}
+            {/* A finished run is not the same as checks that all completed: a
+                partial first scan says so instead of reading as a clean result. */}
+            <div className={`rounded-xl border p-4 ${firstResultsSettled ? 'border-brand-100 bg-brand-50' : 'border-amber-100 bg-amber-50'}`}>
+              <p className={`text-sm font-semibold ${firstResultsSettled ? 'text-brand-800' : 'text-amber-800'}`}>
+                {!scanFinished
+                  ? 'Your first check has started.'
+                  : firstResultsPartial
+                    ? 'Your first results are ready, but some checks did not complete.'
+                    : 'Your first results are ready.'}
               </p>
-              <p className={`text-xs mt-1 ${scanFinished ? 'text-brand-700' : 'text-amber-800'}`}>
-                {scanFinished
-                  ? 'Your Executive Report translates the technical evidence into a clear risk summary.'
-                  : 'Results fill in as each area finishes. The report shows which areas are still being checked.'}
+              <p className={`text-xs mt-1 ${firstResultsSettled ? 'text-brand-700' : 'text-amber-800'}`}>
+                {!scanFinished
+                  ? 'Results fill in as each area finishes. The report shows which areas are still being checked.'
+                  : firstResultsPartial
+                    ? 'The report says which areas could not be assessed. The next scan checks them again.'
+                    : 'Your Executive Report translates the technical evidence into a clear risk summary.'}
               </p>
             </div>
+            {scanFinished && (
+              <p className="text-sm text-gray-600">
+                Start with the first action the report lists. When it is fixed, mark it done: the next scan re-checks it and says whether the fix is confirmed.
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
               {scanIdOf(completedScan) && (
                 <Link to={`/scans/${scanIdOf(completedScan)}`} className="btn-primary">

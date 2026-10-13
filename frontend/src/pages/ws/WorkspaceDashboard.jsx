@@ -449,7 +449,7 @@ function OnboardingWidget({ wsId, onDone }) {
     <div className="card p-10 text-center max-w-xl mx-auto">
       <h2 className="text-xl font-bold text-gray-900 mb-2">Add your first domain</h2>
       <p className="text-sm text-gray-400 mb-8">
-        Enter one domain to get started, or import a list to monitor your entire attack surface.
+        Enter one domain to get started, or import a list of the domains you own.
       </p>
 
       {!showBulk ? (
@@ -698,7 +698,7 @@ export default function WorkspaceDashboard() {
                   { label: 'DNS & SSL',           desc: 'Certificate validity, DNS hygiene, resolver agreement'   },
                   { label: 'Security Headers',    desc: 'CSP, HSTS, X-Frame-Options and 6 other header controls'  },
                   { label: 'Email Security',      desc: 'SPF, DKIM, DMARC — misconfiguration is phishing risk'    },
-                  { label: 'Subdomain Discovery', desc: 'Map your full attack surface including forgotten assets'  },
+                  { label: 'Subdomain Discovery', desc: 'Names linked to your domain, including forgotten ones'    },
                   { label: 'Asset Exposure',      desc: 'Open admin panels, dev environments and cloud leakage'   },
                   { label: 'Risk Score',          desc: 'Single 0–100 Cyber Metrics Score with drill-down detail' },
                 ].map(({ label, desc }) => (

@@ -18,7 +18,7 @@ const FEATURES = [
   },
   {
     title: 'Assets',
-    desc: 'Every subdomain, certificate, cloud service, and admin panel discovered during scanning.',
+    desc: 'The subdomains, certificates, cloud services and admin pages found during scanning.',
   },
   {
     title: 'Findings',

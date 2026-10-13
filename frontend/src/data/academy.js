@@ -89,18 +89,18 @@ export const ARTICLES = [
       {
         heading: 'What CyberMeters Detects',
         blocks: [
-          p('CyberMeters performs continuous ASM across your registered domains. Each scan identifies:'),
+          p('CyberMeters runs ASM scans of your verified domains, when you ask and on the schedule you set. Each scan looks for:'),
           li([
             'Subdomains discovered via DNS enumeration, DNS records and links on your website',
             'HTTP and HTTPS services responding on discovered hosts, with technology fingerprinting',
             'Exposed administrative interfaces and login pages',
             'Dangling DNS records pointing to decommissioned cloud resources',
-            'SSL/TLS certificate health, expiry dates, and chain issues',
+            'The certificate your website presents: whether it matches the name, when it expires and whether it is trusted',
             'Email security posture (SPF, DMARC, DKIM)',
             'Security header configuration across web-facing endpoints',
-            'Cloud storage misconfigurations and public bucket exposure',
+            'Cloud storage your website or DNS points to, and whether it can be read publicly',
           ]),
-          p('All findings are scored by severity and enriched with confidence ratings, evidence chains, and remediation guidance. The platform tracks asset changes over time so new exposures are detected within 24 hours of introduction.'),
+          p('All findings are scored by severity and come with confidence ratings, evidence and remediation guidance. The platform tracks asset changes from scan to scan, so new exposure is found on the next scan after it appears. A scan sees what is visible from the internet at that moment; names nothing points to, and services that answer only some networks, can be missed.'),
         ],
       },
       {

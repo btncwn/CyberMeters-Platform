@@ -42,7 +42,7 @@ function NextSteps({ domain }) {
     ['Confirm your email', 'We send a link to activate your account.'],
     ['Add your domain', domain ? 'The domain from your free check is kept for you.' : 'The domain you want CyberMeters to check.'],
     ['Prove you own it', 'Add one DNS TXT record. It changes nothing else.'],
-    ['See your first full check', 'Each area says what was observed, what needs attention and what could not be assessed.'],
+    ['See your first results', 'Each area says what was observed, what needs attention and what could not be assessed.'],
   ]
   return (
     <div className="card p-6 sm:p-8">

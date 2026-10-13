@@ -377,8 +377,10 @@ function buildDigestEmailCore(wsName, changes, origin, workspaceId = null) {
       return { subject, text, html };
     }
     const subject = `Your CyberMeters week — all quiet on ${name}`;
-    const text = `No changes to your internet-facing exposure this week. Your security posture is stable — we'll keep watching and let you know the moment something changes.\n\nView your timeline: ${link}`;
-    const html = `<h2>All quiet this week</h2><p>No changes to ${esc(name)}'s internet-facing exposure this week. Your security posture is stable — we'll keep watching.</p><p><a href="${link}">View your timeline →</a></p>`;
+    // Bounded to what the week's complete scans checked; a scan sees changes
+    // when it runs, not the moment they happen.
+    const text = `This week's complete scans saw no change to your internet-facing exposure. Your security posture is stable in what CyberMeters checks; we'll tell you when a scan sees something change.\n\nView your timeline: ${link}`;
+    const html = `<h2>All quiet this week</h2><p>This week's complete scans saw no change to ${esc(name)}'s internet-facing exposure. Your security posture is stable in what CyberMeters checks; we'll tell you when a scan sees something change.</p><p><a href="${link}">View your timeline →</a></p>`;
     return { subject, text, html };
   }
 

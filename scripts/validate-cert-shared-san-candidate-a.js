@@ -544,7 +544,11 @@ const parity = states.map(parityOutputs);
 // gains "inventory_changes_only" (17 -> 18 codes). A field-by-field snapshot
 // diff against the previous tree shows only that list; the executive report
 // carries the snapshot, the PDFs and F14 are unchanged.
-const GOLDEN_F13 = "d8c01e6401a17be691bd391deef6966a4ae485e4695f9fde960766d5d04add2c";
+// Honest coverage wording: the scorecard's Security Findings summary for zero
+// critical/high findings no longer says "Clean scan" and is bounded to what the
+// scan checked. A field-by-field diff against the previous tree shows only that
+// one summary string; the snapshot, executive report, PDFs and F14 are unchanged.
+const GOLDEN_F13 = "e69ec51baa9912f81c30dfb7bf2b1eaea95471bf27916fb76b93cccca05c0725";
 const GOLDEN_F14 = "72312ba653dbae06ec51c8f638625bea74f6682ca8d3f45179e06046708ce389";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));

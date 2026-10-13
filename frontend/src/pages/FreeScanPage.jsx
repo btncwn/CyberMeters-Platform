@@ -239,7 +239,7 @@ export default function FreeScanPage() {
             <div className="fm-shell fm-hero__grid">
               <div>
                 <span className="fm-kicker">Free Cyber MOT</span>
-                <h1>See your whole external attack surface — before an attacker does.</h1>
+                <h1>See what your domain shows the internet — before an attacker does.</h1>
                 <p className="fm-hero__lede">
                   One bounded snapshot of honest public signals for your domain.
                   Deep takeover and asset checks unlock only after account and domain verification.
@@ -366,7 +366,7 @@ export default function FreeScanPage() {
             <ol className="fm-cta__steps">
               <li>Create your account</li>
               <li>Add one DNS TXT record to verify {result.domain}</li>
-              <li>See every finding with the steps to fix it</li>
+              <li>See each finding with the steps to fix it</li>
             </ol>
             <Link to={signupPath(result.domain)} className="fm-button">
               Start my 14-day trial

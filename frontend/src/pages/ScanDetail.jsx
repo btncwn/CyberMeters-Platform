@@ -516,16 +516,34 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
   )
 }
 
-function FindingsPanel({ findings, isObservation = false, onWaive = null }) {
+// Whether every check of a finished scan completed, from the backend's
+// scan_quality. Shown beside the run status, never folded into it.
+const CHECKS_COMPLETION = {
+  complete: { label: 'All completed', cls: 'text-gray-700' },
+  partial:  { label: 'Some did not complete', cls: 'text-amber-800' },
+  degraded: { label: 'Some did not complete', cls: 'text-amber-800' },
+}
+
+function ChecksCompletion({ quality }) {
+  const meta = CHECKS_COMPLETION[String(quality || '').toLowerCase()] || { label: 'Not recorded', cls: 'text-gray-500' }
+  return <span className={`text-xs font-semibold ${meta.cls}`}>{meta.label}</span>
+}
+
+function FindingsPanel({ findings, isObservation = false, onWaive = null, checksComplete = false }) {
   const sorted = [...(findings || [])].sort(
     (a, b) => (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9)
   )
 
   if (sorted.length === 0) {
+    // No finding covers only what was checked; it is never a statement of no risk.
     return (
       <div className="flex flex-col items-center gap-3 py-10 text-center">
-        <p className="text-sm font-semibold text-gray-700">No findings detected</p>
-        <p className="text-xs text-gray-400">This domain passed all checks.</p>
+        <p className="text-sm font-semibold text-gray-700">{checksComplete ? 'No findings detected' : 'No findings recorded'}</p>
+        <p className="text-xs text-gray-400">
+          {checksComplete
+            ? 'Nothing was found in the checks this scan ran. That is not proof of no risk.'
+            : 'Some checks did not complete, so this is not a clean result.'}
+        </p>
       </div>
     )
   }
@@ -1196,7 +1214,7 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
       {/* Findings — actionable, score-impacting (Sprint 10A) */}
       <div className="card overflow-hidden">
         <SectionHeader title={`Findings (${actionableFindings.length})`} />
-        <FindingsPanel findings={actionableFindings} onWaive={onWaive} />
+        <FindingsPanel findings={actionableFindings} onWaive={onWaive} checksComplete={scan_quality?.status === 'complete'} />
       </div>
 
       {/* Accepted risks — waived findings, visible and restorable */}
@@ -1581,7 +1599,7 @@ export default function ScanDetail() {
             <div className="min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <h1 className="text-xl font-bold text-gray-900 truncate">{scan.domain}</h1>
-                <StatusBadge status={scan.status} />
+                <StatusBadge status={scan.status} quality={scan.scan_quality} />
               </div>
               <p className="mono text-xs text-gray-500">{scan.id}</p>
             </div>
@@ -1735,10 +1753,12 @@ export default function ScanDetail() {
                 <div>
                   <KV label="Scan ID"   value={<span className="mono text-xs text-brand-600">{scan.id}</span>} />
                   <KV label="Domain"    value={scan.domain} />
+                  {/* The run finishing and its checks all completing are two facts. */}
                   <KV label="Status"    value={<StatusBadge status={scan.status} />} />
+                  {scan.status === 'completed' && <KV label="Checks" value={<ChecksCompletion quality={scan.scan_quality} />} />}
                   <KV label={assessment?.provisional === true && assessmentScore !== null ? 'Provisional Score' : 'Score'} value={
                     assessmentScore !== null
-                      ? <span className="font-bold text-brand-600">{assessmentScore} / 100</span>
+                      ? <span className={`font-bold ${assessment?.provisional === true ? 'text-gray-700' : 'text-brand-600'}`}>{assessmentScore} / 100</span>
                       : '—'
                   } />
                   <KV label={assessmentBandLabel({
