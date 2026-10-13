@@ -99,13 +99,13 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `/api/admin/subscriptions` | 592 | admin | ✓ | isPlatformAdmin, requireAuth |
 | GET | `/api/account/api-tokens` | 639 | account | ✓ | requireAuth |
 | POST | `/api/account/api-tokens` | 661 | account | ✓ | requireAuth, requireWorkspaceAccess |
-| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 723 | account | ✓ | requireAuth |
-| GET | `/api/account/login-history` | 761 | account | ✓ | requireAuth |
-| GET | `/api/account/sessions` | 820 | account | ✓ | requireAuth |
-| POST | `/^\/api\/account\/sessions\/([^/` | 870 | account | ✓ | requireAuth |
-| GET | `/api/account/export` | 916 | account | ✓ | requireAuth |
-| POST | `/api/account/delete-request` | 1012 | account | ✓ | requireAuth |
-| GET | `/api/platform/accuracy` | 1048 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 732 | account | ✓ | requireAuth |
+| GET | `/api/account/login-history` | 770 | account | ✓ | requireAuth |
+| GET | `/api/account/sessions` | 829 | account | ✓ | requireAuth |
+| POST | `/^\/api\/account\/sessions\/([^/` | 879 | account | ✓ | requireAuth |
+| GET | `/api/account/export` | 925 | account | ✓ | requireAuth |
+| POST | `/api/account/delete-request` | 1021 | account | ✓ | requireAuth |
+| GET | `/api/platform/accuracy` | 1057 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
 
 ### `workers/scan-api/src/routes/attack-surface.js`
 
