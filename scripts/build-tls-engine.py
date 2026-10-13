@@ -13,6 +13,7 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+import sys
 import tarfile
 import urllib.request
 
@@ -31,8 +32,15 @@ def sha256(path):
 def run(command, cwd, log, env=None):
     with log.open('ab') as output:
         output.write(('\n' + ' '.join(map(str, command)) + '\n').encode())
-        subprocess.run(list(map(str, command)), cwd=cwd, env=env,
-                       stdout=output, stderr=subprocess.STDOUT, check=True)
+        try:
+            subprocess.run(list(map(str, command)), cwd=cwd, env=env,
+                           stdout=output, stderr=subprocess.STDOUT, check=True)
+        except subprocess.CalledProcessError:
+            output.flush()
+            with log.open('rb') as diagnostic:
+                diagnostic.seek(max(0, diagnostic.seek(0, 2) - 8192))
+                print(diagnostic.read().decode('utf8', 'replace'), file=sys.stderr)
+            raise
 
 
 def write_catalog(build):
