@@ -12,6 +12,21 @@
 #include <stdio.h>
 static unsigned char ocsp_der[65536];
 static long ocsp_len;
+static SSL_CTX *alternate_ctx;
+static const char *alternate_hostname;
+static int choose_sni(SSL *ssl,int *alert,void *unused) {
+    (void)alert;(void)unused;
+    const char *requested=SSL_get_servername(ssl,TLSEXT_NAMETYPE_host_name);
+    if(requested&&alternate_ctx&&!strcmp(requested,alternate_hostname))SSL_set_SSL_CTX(ssl,alternate_ctx);
+    return SSL_TLSEXT_ERR_OK;
+}
+static int choose_alpn(SSL *ssl,const unsigned char **out,unsigned char *outlen,
+                       const unsigned char *in,unsigned int inlen,void *unused) {
+    (void)ssl;(void)unused;
+    static const unsigned char h2[]={2,'h','2'};
+    return SSL_select_next_proto((unsigned char **)out,outlen,h2,sizeof(h2),in,inlen)==OPENSSL_NPN_NEGOTIATED
+      ? SSL_TLSEXT_ERR_OK : SSL_TLSEXT_ERR_NOACK;
+}
 static int staple(SSL *ssl,void *unused) {
     (void)unused;
     unsigned char *copy=OPENSSL_malloc((size_t)ocsp_len);
@@ -39,7 +54,19 @@ int main(int argc,char **argv) {
     SSL_CTX_set_max_proto_version(ctx,!strcmp(protocol,"both")?TLS1_3_VERSION:v);
 #endif
     if(!ctx||!SSL_CTX_use_certificate_chain_file(ctx,argv[2])||!SSL_CTX_use_PrivateKey_file(ctx,argv[3],SSL_FILETYPE_PEM))return 3;
-    if(argc>6) {
+    if(argc>9) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+        alternate_ctx=SSL_CTX_new(SSLv23_server_method());
+#else
+        alternate_ctx=SSL_CTX_new(TLS_server_method());
+#endif
+        if(!alternate_ctx||!SSL_CTX_use_certificate_chain_file(alternate_ctx,argv[7])||
+           !SSL_CTX_use_PrivateKey_file(alternate_ctx,argv[8],SSL_FILETYPE_PEM))return 7;
+        alternate_hostname=argv[9];
+        SSL_CTX_set_tlsext_servername_callback(ctx,choose_sni);
+    }
+    SSL_CTX_set_alpn_select_cb(ctx,choose_alpn,NULL);
+    if(argc>6&&strcmp(argv[6],"-")) {
         FILE *source=fopen(argv[6],"rb");
         if(!source)return 6;
         ocsp_len=(long)fread(ocsp_der,1,sizeof(ocsp_der),source);

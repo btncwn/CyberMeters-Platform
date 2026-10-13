@@ -129,14 +129,15 @@ def bridge(binary, arguments, port=None, mutate=None, abort=False):
 
 
 @contextlib.contextmanager
-def server(openssl, certificate, key, protocol, extra=(), staple=None):
+def server(openssl, certificate, key, protocol, extra=(), staple=None, alternate=None):
     with socket.socket() as reservation:
         reservation.bind(('127.0.0.1', 0))
         port = reservation.getsockname()[1]
     family = 'modern' if 'modern' in str(openssl) else 'legacy'
     args = [BUILD / 'bin' / ('fixture-server-' + family), str(port), certificate, key, protocol]
-    if extra or staple: args.append(extra[1] if extra else 'ALL:eNULL:!PSK:!SRP')
-    if staple: args.append(staple)
+    if extra or staple or alternate: args.append(extra[1] if extra else 'ALL:eNULL:!PSK:!SRP')
+    if staple or alternate: args.append(staple or '-')
+    if alternate: args.extend(alternate)
     child = subprocess.Popen(list(map(str, args)), stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
@@ -178,6 +179,17 @@ class BaselineTests(unittest.TestCase):
                           'basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,digitalSignature,keyEncipherment\n')
         run([cls.modern, 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256',
              '-days', '2', '-config', config, '-out', cls.cert, '-keyout', cls.key])
+        cls.alternate_cert = cls.fixture / 'alternate.pem'
+        cls.alternate_key = cls.fixture / 'alternate.key'
+        alternate_config = cls.fixture / 'alternate.cnf'
+        alternate_config.write_text('[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n'
+                                    '[dn]\nCN=other.example.org\n[ext]\n'
+                                    'subjectAltName=DNS:other.example.org\n'
+                                    'basicConstraints=critical,CA:TRUE\n'
+                                    'keyUsage=critical,keyCertSign,digitalSignature,keyEncipherment\n')
+        run([cls.modern, 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256',
+             '-days', '2', '-config', alternate_config,
+             '-out', cls.alternate_cert, '-keyout', cls.alternate_key])
         cls.expired_cert, cls.expired_key = cls.fixture / 'expired.pem', cls.fixture / 'expired.key'
         cls.future_cert, cls.future_key = cls.fixture / 'future.pem', cls.fixture / 'future.key'
         cls.unrelated_cert, cls.unrelated_key = cls.fixture / 'unrelated.pem', cls.fixture / 'unrelated.key'
@@ -301,6 +313,27 @@ class BaselineTests(unittest.TestCase):
             result = self.assess('tls1_2', port, family='modern')
         self.assertEqual(result['state'], 'accepted', result)
         self.assertTrue(result['extensions']['ems'])
+
+    def test_authorized_sni_and_alpn_are_sent_and_observed(self):
+        with server(self.modern, self.cert, self.key, 'tls1_2') as port:
+            result = self.assess('tls1_2', port, family='modern',
+                                 extra=['--alpn', 'h2-http1'])
+        self.assertEqual(result['state'], 'accepted', result)
+        self.assertTrue(result['negotiated']['sni_sent'])
+        self.assertEqual(result['negotiated']['alpn'], 'h2')
+
+    def test_same_ip_selects_different_certificates_by_sni(self):
+        alternate=(self.alternate_cert,self.alternate_key,'other.example.org')
+        with server(self.modern,self.cert,self.key,'tls1_2',alternate=alternate) as port:
+            primary=self.assess('tls1_2',port,family='modern',control='certificate')
+            other=self.assess('tls1_2',port,family='modern',control='certificate',
+                              hostname='other.example.org',trust=self.alternate_cert)
+        self.assertEqual(primary['state'],'accepted',primary)
+        self.assertEqual(other['state'],'accepted',other)
+        self.assertNotEqual(primary['certificates']['offered_chain'][0]['sha256'],
+                            other['certificates']['offered_chain'][0]['sha256'])
+        self.assertEqual(other['certificates']['trust'],'valid')
+        self.assertTrue(other['certificates']['hostname'])
 
     def test_session_resumption_requires_a_second_finished_handshake(self):
         for protocol, family in [('tls1_2', 'legacy'), ('tls1_3', 'modern')]:

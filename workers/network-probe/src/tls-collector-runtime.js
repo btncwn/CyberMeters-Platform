@@ -16,7 +16,6 @@ const MAX_WIRE_OVERREAD = 65536;
 const CONNECTION_BINARY = Object.freeze({
   legacy: '/opt/cybermeters/tls-baseline-legacy',
   modern: '/opt/cybermeters/tls-baseline-modern',
-  active: '/opt/cybermeters/tls-active-legacy',
 });
 const activeControls = new Set(['heartbleed', 'robot', 'ccs']);
 const productControl = Object.freeze({ protocol:'handshake',cipher:'handshake',key_exchange:'handshake',certificate:'certificate',ocsp:'certificate',compression:'compression',secure_renegotiation:'renegotiation',fallback_scsv:'fallback',extended_master_secret:'handshake',session_resumption:'resumption',early_data:'resumption',sni_alpn:'handshake',heartbleed:'heartbleed',robot:'robot',ccs:'ccs' });
@@ -144,7 +143,7 @@ async function starttls(socket, application, budget, signal) {
   } catch (error) { reader.detach(); throw error; }
 }
 function engineCommand(input, check, maxConnections) {
-  const binary = activeControls.has(check.control) ? CONNECTION_BINARY.active
+  const binary = activeControls.has(check.control) ? CONNECTION_BINARY.legacy
     : check.protocol === 'tls1_3' ? CONNECTION_BINARY.modern
     : check.control === 'cipher' || ['ssl2','ssl3','tls1','tls1_1'].includes(check.protocol) ? CONNECTION_BINARY.legacy : CONNECTION_BINARY.modern;
   const args = ['--control',productControl[check.control],'--protocol',check.protocol,'--max-connections',String(maxConnections),

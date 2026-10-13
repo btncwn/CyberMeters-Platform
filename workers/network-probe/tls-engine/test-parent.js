@@ -25,7 +25,6 @@ let source=readFileSync(join(root,'workers/network-probe/src/tls-collector-runti
 for(const [from,to] of [
   ['/opt/cybermeters/tls-baseline-legacy',join(build,'bin/tls-baseline-legacy')],
   ['/opt/cybermeters/tls-baseline-modern',join(build,'bin/tls-baseline-modern')],
-  ['/opt/cybermeters/tls-active-legacy',join(build,'bin/tls-baseline-legacy')],
   ['/opt/cybermeters/trust/ca-bundle.pem',certificate],
 ])source=source.replaceAll(from,to);
 source=source.replace('!publicAddress(endpoint.address)',"!(endpoint.address === '127.0.0.1' || endpoint.address === '127.0.0.2')");
@@ -34,6 +33,7 @@ const {__runTlsCollector}=await import('data:text/javascript,'+encodeURIComponen
 
 const context=createSecureContext({cert:readFileSync(certificate),key:readFileSync(key),minVersion:'TLSv1.2',maxVersion:'TLSv1.3'});
 const sockets=new Set();
+const extraServers=[];
 const server=createServer(socket=>{
   sockets.add(socket);socket.once('close',()=>sockets.delete(socket));
   socket.on('error',()=>{});
@@ -54,6 +54,39 @@ const server=createServer(socket=>{
   socket.on('data',onData);
 });
 const close=()=>new Promise(resolve=>server.close(resolve));
+async function checkMailUpgrade(request,application,variant='valid') {
+  const mail=createServer(socket=>{
+    sockets.add(socket);socket.once('close',()=>sockets.delete(socket));socket.on('error',()=>{});
+    socket.write(application==='imap'?'* OK local fixture ready\r\n':'+OK local fixture ready\r\n');
+    let phase='capability';
+    const onData=chunk=>{
+      const line=chunk.toString('ascii');
+      if(application==='imap'&&phase==='capability'&&line==='a001 CAPABILITY\r\n'){
+        phase='upgrade';socket.write(variant==='missing'?'* CAPABILITY IMAP4rev1\r\na001 OK ready\r\n':
+          '* CAPABILITY IMAP4rev1 STARTTLS\r\na001 OK ready\r\n');
+      }else if((application==='imap'&&line==='a002 STARTTLS\r\n')||(application==='pop3'&&line==='STLS\r\n')){
+        socket.off('data',onData);
+        if(variant==='rejected'){socket.end('-ERR STLS unavailable\r\n');return;}
+        socket.write(application==='imap'?'a002 OK Go ahead\r\n':'+OK Go ahead\r\n',()=>{
+          const secure=new TLSSocket(socket,{isServer:true,secureContext:context});
+          secure.on('error',()=>{});
+        });
+      }else socket.destroy();
+    };
+    socket.on('data',onData);
+  });
+  extraServers.push(mail);
+  await new Promise((resolve,reject)=>mail.once('error',reject).listen(0,'127.0.0.1',resolve));
+  const input={...request,request_id:`local_parent_${application}_${variant}`,endpoint:{...request.endpoint,
+    port:mail.address().port,application_protocol:application},deadline_at:new Date(Date.now()+20000).toISOString()};
+  const raw=await __runTlsCollector(input);
+  if(variant==='valid')assert.equal(raw.results[0].engine_result?.state,'accepted',JSON.stringify(raw.results[0]));
+  else assert.notEqual(raw.results[0].engine_result?.state,'accepted',JSON.stringify(raw.results[0]));
+  assert(raw.telemetry.bytes_sent>raw.results[0].engine_result.telemetry.bytes_sent,
+    `${application} upgrade bytes must be charged`);
+  const projected=projectTlsCollectorReceipt(input,raw,{requireSandbox:false});
+  assert.equal(projected.results[0].state,variant==='valid'?'accepted':'uncertain');
+}
 try{
   await new Promise((resolve,reject)=>server.once('error',reject).listen(0,'127.0.0.1',resolve));
   const port=server.address().port;
@@ -81,5 +114,16 @@ try{
   const blocked=await __runTlsCollector(changed);
   assert.equal(blocked.results[0].reason,'dns_authority_changed');
   assert.equal(blocked.telemetry.connections,0);
-  console.log('TLS parent: real SMTP STARTTLS, TLS 1.3 cipher routing, physical accounting and DNS escape block passed');
-}finally{for(const socket of sockets)socket.destroy();await close();rmSync(directory,{recursive:true,force:true});}
+  const unavailable={...request,request_id:'local_parent_special_unavailable',
+    checks:[{control:'heartbleed',protocol:'tls1_2',cipher_id:null}],
+    deadline_at:new Date(Date.now()+20000).toISOString()};
+  const noActive=await __runTlsCollector(unavailable);
+  assert.equal(noActive.results[0].engine_result?.state,'unexecutable');
+  assert.equal(noActive.results[0].engine_result?.reason,'control_unavailable');
+  assert.equal(noActive.telemetry.connections,0);
+  await checkMailUpgrade(request,'imap');
+  await checkMailUpgrade(request,'pop3');
+  await checkMailUpgrade(request,'imap','missing');
+  await checkMailUpgrade(request,'pop3','rejected');
+  console.log('TLS parent: real SMTP/IMAP/POP3 STARTTLS with refusal cases, TLS 1.3 cipher routing, physical accounting and DNS escape block passed');
+}finally{for(const socket of sockets)socket.destroy();await close();for(const mail of extraServers)await new Promise(resolve=>mail.close(resolve));rmSync(directory,{recursive:true,force:true});}
