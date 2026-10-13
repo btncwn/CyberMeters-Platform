@@ -171,7 +171,7 @@ export async function workspaceMembersRoutes(rctx) {
           .prepare(
             `SELECT COUNT(*) AS cnt FROM workspace_invitations
              WHERE workspace_id = ? AND status = 'pending'
-               AND expires_at > datetime('now')`
+               AND julianday(expires_at) > julianday('now')`
           )
           .bind(workspaceId)
           .first();
@@ -208,7 +208,7 @@ export async function workspaceMembersRoutes(rctx) {
           .prepare(
             `SELECT id FROM workspace_invitations
              WHERE workspace_id = ? AND email = ? AND status = 'pending'
-               AND expires_at > datetime('now')
+               AND julianday(expires_at) > julianday('now')
              LIMIT 1`
           )
           .bind(workspaceId, email)

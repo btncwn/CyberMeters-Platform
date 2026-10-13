@@ -93,6 +93,31 @@ async function main() {
     // The issued token authenticates; a forged one does not.
     ok("issued token authenticates", await isLive(call, raw1));
     ok("a forged/random token does not authenticate", !(await isLive(call, "cmforged_" + "x".repeat(40))));
+
+    // Expiry is compared as a time. ISO text compared with SQLite's
+    // datetime('now') text kept a session alive until the end of its expiry day.
+    const earlierToday = new Date().toISOString().slice(0, 10) + "T00:00:00.000Z";
+    const later = new Date(Date.now() + 3600e3).toISOString();
+    for (const [id, raw, at] of [["sToday", "tok-expired-today", earlierToday], ["sLater", "tok-later", later], ["sJunk", "tok-junk", "not-a-date"]]) {
+      seed.raw("INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES (?, 'uSess', ?, ?)", id, await hashToken(raw), at);
+    }
+    ok("a session that expired earlier today no longer authenticates", !(await isLive(call, "tok-expired-today")));
+    ok("a session expiring later authenticates (positive control)", await isLive(call, "tok-later"));
+    ok("a session with an unreadable expiry does not authenticate", !(await isLive(call, "tok-junk")));
+    ok("an expired session is not listed as active", !JSON.stringify((await call("GET", "/api/account/sessions", raw1)).data ?? "").includes("sToday"));
+
+    const apiLive = async (raw) => (await call("GET", "/api/workspaces", raw)).status === 200;
+    for (const [id, raw, at] of [["atToday", "cm_expired_today_" + "x".repeat(24), earlierToday], ["atLater", "cm_later_" + "x".repeat(32), later], ["atJunk", "cm_junk_" + "x".repeat(32), "next year"]]) {
+      seed.raw("INSERT INTO api_tokens (id, user_id, name, token_hash, expires_at, status) VALUES (?, 'uSess', ?, ?, ?, 'active')", id, id, await hashToken(raw), at);
+    }
+    ok("an API token that expired earlier today is refused", !(await apiLive("cm_expired_today_" + "x".repeat(24))));
+    ok("an API token expiring later works (positive control)", await apiLive("cm_later_" + "x".repeat(32)));
+    ok("an API token with unreadable expiry text is refused, not kept forever", !(await apiLive("cm_junk_" + "x".repeat(32))));
+    const badExpiry = await call("POST", "/api/account/api-tokens", raw1, { name: "t", expires_at: "next year" });
+    const pastExpiry = await call("POST", "/api/account/api-tokens", raw1, { name: "t", expires_at: "2000-01-01T00:00:00Z" });
+    ok("creating an API token with unreadable or past expiry is refused (400)", badExpiry.status === 400 && pastExpiry.status === 400);
+    const goodExpiry = await call("POST", "/api/account/api-tokens", raw1, { name: "t", expires_at: later });
+    ok("a future expiry passes validation (positive control)", goodExpiry.status !== 400);
   }
 
   // ── B3: logout (per-device) + password reset (all sessions) ────────────────
