@@ -669,7 +669,16 @@ export async function accountRoutes(rctx) {
       const name        = (body.name || "").trim();
       const scope       = (body.scope || "read").trim();
       const workspaceId = body.workspace_id ? String(body.workspace_id).trim() : null;
-      const expiresAt   = body.expires_at   ? String(body.expires_at).trim()   : null;
+      // Stored as ISO 8601 and compared as a time. Text that does not parse
+      // would otherwise never expire, so it is refused.
+      let expiresAt = null;
+      if (body.expires_at != null && String(body.expires_at).trim() !== "") {
+        const at = Date.parse(String(body.expires_at).trim());
+        if (!Number.isFinite(at) || at <= Date.now()) {
+          return json({ error: "expires_at must be a future date and time" }, 400);
+        }
+        expiresAt = new Date(at).toISOString();
+      }
 
       if (!name) return json({ error: "name is required" }, 400);
       if (name.length > 120) return json({ error: "name is too long" }, 400);
@@ -831,7 +840,7 @@ export async function accountRoutes(rctx) {
           .prepare(
             `SELECT id, created_at, last_seen_at, ip_address, user_agent, token_hash, expires_at
              FROM user_sessions
-             WHERE user_id = ? AND expires_at > datetime('now')
+             WHERE user_id = ? AND julianday(expires_at) > julianday('now')
              ORDER BY created_at DESC`
           )
           .bind(user.id)

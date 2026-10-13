@@ -177,7 +177,7 @@ async function requireAuth(request, env) {
            JOIN users u ON u.id = t.user_id
            WHERE t.token_hash = ?
              AND t.status = 'active'
-             AND (t.expires_at IS NULL OR t.expires_at > datetime('now'))
+             AND (t.expires_at IS NULL OR julianday(t.expires_at) > julianday('now'))
            LIMIT 1`
         )
         .bind(tokenHash)
@@ -206,7 +206,7 @@ async function requireAuth(request, env) {
         `SELECT s.id AS session_id, s.user_id, u.id, u.email, u.name, u.plan, u.status
          FROM user_sessions s
          JOIN users u ON u.id = s.user_id
-         WHERE s.token_hash = ? AND s.expires_at > datetime('now')`
+         WHERE s.token_hash = ? AND julianday(s.expires_at) > julianday('now')`
       )
       .bind(tokenHash)
       .first();
