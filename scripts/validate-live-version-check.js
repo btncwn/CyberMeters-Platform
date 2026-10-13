@@ -35,6 +35,7 @@ const index = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "ind
 ok("worker: /health reports a full-SHA commit or null", /commit:\s+\/\^\[0-9a-f\]\{40\}\$\/\.test\(String\(env\.GIT_COMMIT \|\| ""\)\) \? env\.GIT_COMMIT : null/.test(index));
 const deploy = fs.readFileSync(path.join(root, "scripts", "deploy-scan-api.sh"), "utf8");
 ok("worker: deploy script stamps the commit it is built from", /commit=\$\(git -C "\$root" rev-parse HEAD\)/.test(deploy) && /wrangler deploy --var "GIT_COMMIT:\$commit"/.test(deploy));
+ok("worker: deploy script tags the Cloudflare version with the same commit", /short=\$\(printf '%s' "\$commit" \| cut -c1-12\)/.test(deploy) && /--tag "\$short" --message "\$message"/.test(deploy));
 ok("worker: deploy script refuses uncommitted Worker sources (the stamp must be true)", /status --porcelain -- workers\/scan-api shared\)" \]; then[\s\S]*?exit 1/.test(deploy) && /^set -eu$/m.test(deploy));
 // workers/scan-api/package.json is SHA-pinned by the install-script policy — the stamp lives in the script instead.
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "workers", "scan-api", "package.json"), "utf8"));
