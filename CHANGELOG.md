@@ -7,6 +7,36 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## RECORDED AFTER THE FACT — baseline reconciliation — 13 October 2026
+
+Before the shared-content release, read-only Cloudflare inspection found API
+`a1070ab8-302b-43a6-a7de-a0472c130477`, email
+`b29fac30-dd1b-4ab2-ae99-0092b7580192`, and private probe
+`108b7685-00f4-45d8-8f2f-d00090692793` active. API/email report
+`2026.10.13-fair-scan-queue.7f244a7b6910`; the API does not report a Git commit.
+The missing source identity was reconciled against a fresh Wrangler 4.148.0
+build of `a227d1fd5d09e3386d2e15e3e6ae1bfcb8ee72ab`:
+
+- API payload: 5,221,083 bytes, SHA-256
+  `625cca16a85814229a7295914755339706480671b9a980ca13ab2432cb5a86df`;
+- email payload: 821,479 bytes, SHA-256
+  `694d0ab5bccf6e7fb234bfa86ea8553f32d5577f469d151bc62321cec76712f5`;
+- probe payload: 28,808 bytes, SHA-256
+  `487e46eba2cbbb2613368680eee15ab57d8925c154ad09fffc8b70c551d655ab`.
+
+Probe bytes match unchanged. API/email match after replacing only ten
+build-machine dependency path strings with the deployed relative paths.
+This establishes byte-equivalent source, not which historical checkout made
+the deployment. The three active Worker versions are available rollback
+targets. No Worker was deployed during this reconciliation.
+
+Pages automatically published PR #597's merge `4d100202` as deployment
+`e37c5d0d-fdac-426a-addf-3a23b1567273`; its previous deployment is
+`e7bc4e10-33bb-4b0d-a0da-5ce1cbceafe4` at `a227d1fd`. Main CI
+38432381204 passed. Migration 119's two tables were absent, so the exposure
+backend was not deployed or live-accepted. API readiness confirmed D1/R2
+health; this does not claim a successful exposure scan or customer workflow.
+
 ## v2026.10.11-2 — page discovery, signed-in scanning and product wiring — 11 October 2026
 
 Website Security now checks up to 15 important pages per durable scan. Pages

@@ -2,10 +2,13 @@ import { EXPOSURE_CATALOG_VERSION, EXPOSURE_RULES, RULES_BY_ID } from './catalog
 import { isSafeExposurePath, isRulePathAllowed, sha256Text } from './redaction.js';
 
 // Paths here are candidates. Host references never create authorization or trigger a fetch.
-export function discoverExposureReferences({origin, paths = [], urls = [], body = '', headers = {}} = {}) {
+export function discoverExposureReferences({origin, paths = [], urls = [], body = '', headers = {}, maxBytes = 32768} = {}) {
   let base; try { base = new URL(origin); } catch { return {paths: [], discoveredHosts: []}; }
   const candidates = [...paths, ...urls];
-  const text = typeof body === 'string' ? body.slice(0,32768) : '';
+  // Reuse a larger body only when another bounded reader already obtained it.
+  // This affects reference extraction, never the 32KiB exposure evidence cap.
+  const limit=Number.isSafeInteger(maxBytes)?Math.min(262144,Math.max(0,maxBytes)):32768;
+  const text = typeof body === 'string' ? body.slice(0,limit) : '';
   for (const match of text.matchAll(/(?:href|src)\s*=\s*["']([^"'<>\s]+)["']|sourceMappingURL\s*=\s*([^\s*]+)|<loc>\s*([^<\s]+)\s*<\/loc>|^(?:Allow|Disallow|Sitemap):\s*(\S+)/gmi)) candidates.push(match[1] || match[2] || match[3] || match[4] || match[5]);
   for (const key of ['sourcemap', 'x-sourcemap', 'SourceMap', 'X-SourceMap']) if (headers[key]) candidates.push(headers[key]);
   try {
@@ -56,7 +59,8 @@ export function planExposureChecks({origin, observations = {}, previousFindings 
     try { const u = new URL(f.url, base); if (u.origin === base.origin && !u.search && !u.hash && !u.username && !u.password) add(rule, u.pathname, 'previous_finding', 100); } catch { /* No reconstructable retest endpoint. */ }
   }
   for (const rule of EXPOSURE_RULES) {
-    const techBoost = technologies && /(?:git|svn|php|spring|jenkins|grafana|elasticsearch|couchdb|prometheus|ignition)/.test(technologies) && technologies.split(/[^a-z]+/).some(t=>t.length > 2 && rule.id.includes(t)) ? 3 : 0;
+    const related={php:['runtime-debug','backup-source','application-config','package-auth'],spring:['actuator-env','prometheus-metrics','application-config'],jenkins:['admin-data','admin-interface'],grafana:['admin-data','admin-interface']};
+    const techBoost = technologies.split(/[^a-z]+/).some(t=>t.length>2&&(rule.id.includes(t)||related[t]?.includes(rule.id))) ? 3 : 0;
     rule.paths.forEach((path,index)=>add(rule, path, 'catalog', 20 + techBoost - Math.min(index, 15)));
   }
   for (const path of refs.paths) {
