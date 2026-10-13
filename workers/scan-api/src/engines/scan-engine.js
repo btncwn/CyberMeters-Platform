@@ -70,7 +70,8 @@ import { DISCOVERY_DEPTH_LIMITS, discoveryDepthNotExecuted, loadDiscoveryRotatio
 import { confirmListedHostnames, customerHostnamesNotExecuted, HOSTNAME_LIST_LIMITS, loadActiveHostnames } from "./discovery-hostname-list.js";
 import { confirmPageReferences, PAGE_REFERENCE_LIMITS, pageReferencesNotExecuted, pendingPageReferences } from "./page-references.js";
 import { resolveTlsRuntimeState, TLS_RUNTIME_STATES } from "./tls-evidence.js";
-import { BRUTEFORCE_MAX_NAMES, SUBDOMAIN_DISCOVERY_SOURCE, filterWildcardBruteforceResults, isSensitiveSubdomain, prioritizeExposureTargets, runBruteforceModule, runSubdomainsModule, withReferencedHostnames } from "./subdomains-scan.js";
+import { BRUTEFORCE_MAX_NAMES, SUBDOMAIN_DISCOVERY_SOURCE, filterWildcardBruteforceResults, isSensitiveSubdomain, prioritizeExposureTargets, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
+import { createDiscoveryQuestionBudget } from "./discovery-confirmation.js";
 import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply-chain.js";
 import { correlateShadowItInventory } from "./shadow-it-inventory.js";
 import { correlateCertificateLifecycle } from "./certificate-lifecycle.js";
@@ -757,6 +758,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     reservedPhysicalCounter = opts.testOnlyPhysicalSubrequestCounter;
   }
   const dnsCache = makeDnsCache();
+  // Every discovery DNS question of this scan — wildcard check, fixed name
+  // check, references, customer list, word list, variants, NSEC walk and page
+  // references — spends one shared budget (discovery-confirmation.js).
+  const discoveryBudget = createDiscoveryQuestionBudget();
   const createChildSignal = () => {
     const controller = new AbortController();
     if (deadline.signal?.aborted) controller.abort(deadline.signal.reason);
@@ -1026,7 +1031,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // (name-check + referenced-host) subdomain list. ──
       const subdomainsFallback = () => markDeadlineDeferred({
         count: 0, items: [], sensitive: [], source: SUBDOMAIN_DISCOVERY_SOURCE,
-        wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
+        wildcard_dns: false, wildcard_dns_addresses: [], wildcard_dns_ipv6_addresses: [], wildcard_test_host: null, wildcard_warning: null,
       });
       const [dnsSettled, sslSettled, headersSettled, emailSettled, dmarcSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
         await Promise.allSettled([
@@ -1068,10 +1073,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
               now,
             }),
           }),
-          runCappedModule("subdomains",           { fallback: subdomainsFallback, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, subOps: subOpTelemetry }) }),
+          runCappedModule("subdomains",           { fallback: subdomainsFallback, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, subOps: subOpTelemetry, budget: discoveryBudget }) }),
           runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal, remainingMs }) => runTechModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs: durableInvocation ? remainingMs : null }) }),
           runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ source: "rdap" }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
-          runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal, cache: dnsCache }) }),
+          runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal, cache: dnsCache, budget: discoveryBudget }) }),
         ]);
       const settledValue = (s) => s.status === "fulfilled" ? s.value : null;
       for (const [module, settled] of [
@@ -1124,7 +1129,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       subdomainsResult = subdomainsSettled.status === "fulfilled" && !subdomainsSettled.value.thrown
         ? subdomainsSettled.value.value
         : { count: 0, items: [], sensitive: [], source: SUBDOMAIN_DISCOVERY_SOURCE,
-            wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
+            wildcard_dns: false, wildcard_dns_addresses: [], wildcard_dns_ipv6_addresses: [], wildcard_test_host: null, wildcard_warning: null,
             error: customerSafeFailure("scan/subdomains", subdomainsSettled.value?.thrown || subdomainsSettled.reason, "Subdomain module failed") };
       techResult = techSettled.status === "fulfilled" && !techSettled.value.thrown ? techSettled.value.value : { error: customerSafeFailure("scan/technology", techSettled.value?.thrown || techSettled.reason, "Technology module failed") };
       whoisResult = whoisSettled.status === "fulfilled" && !whoisSettled.value.thrown ? whoisSettled.value.value : { error: customerSafeFailure("scan/whois", whoisSettled.value?.thrown || whoisSettled.reason, "WHOIS module failed") };
@@ -1133,18 +1138,19 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         ? bruteforceSettled.value.value
         : { checked: 0, found: 0, items: [], source: "dns_bruteforce",
             error: customerSafeFailure("scan/dns-bruteforce", bruteforceSettled.value?.thrown || bruteforceSettled.reason, "Brute-force module failed") };
-      bruteforceResult = filterWildcardBruteforceResults(rawBruteforceResult, subdomainsResult.wildcard_dns_addresses);
+      bruteforceResult = filterWildcardBruteforceResults(rawBruteforceResult, subdomainsResult.wildcard_dns_addresses, subdomainsResult.wildcard_dns_ipv6_addresses);
+      // Page references are read late in the scan; hold their share of the
+      // discovery budget so earlier guesses cannot spend it.
+      discoveryBudget.reserve("page_references", 2 * PAGE_REFERENCE_LIMITS.maxChecks);
 
       const bruteNewItems = (bruteforceResult.items || [])
         .filter((item) => item.wildcard_match !== true)
         .map((i) => i.hostname)
         .filter(Boolean);
       // First-party references the word list cannot guess (SRV targets, hosts
-      // the home page links to) join discovery after the name-check results.
-      const mergedSubdomainItems = withReferencedHostnames(bruteNewItems, {
-        srvItems: bruteforceResult.srv_items,
-        linkedHostnames: techResult?.linked_hostnames,
-      });
+      // the home page links to) are configuration references like the others
+      // below: each joins discovery only when DNS answers for it.
+      const mergedSubdomainItems = bruteNewItems;
       // Names the customer's own configuration points at (live certificate,
       // website headers and redirects, MX/NS/SPF/DMARC records) join discovery
       // once DNS answers for them. Only durable invocations run the lookups; the
@@ -1159,6 +1165,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           spfRecord: emailResult?.spf?.record ?? null,
           dmarcRecord: applyDmarcbisEmailCompatibilityProjection(domain, { ...(emailResult || {}) }, dmarcCoreResult)?.dmarc?.record ?? null,
           bimiRecord: emailResult?._bimi_record ?? null,
+          srvTargets: bruteforceResult.srv_items,
+          linkedHostnames: techResult?.linked_hostnames,
         });
         let referencedThrown = null;
         const referencedRun = await runCappedModule("referenced_hostnames", {
@@ -1168,6 +1176,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           run: ({ accounting, signal }) => confirmReferencedHostnames(domain, referencedEvidence, {
             exclude: mergedSubdomainItems,
             wildcardAddresses: subdomainsResult.wildcard_dns_addresses,
+            wildcardIpv6Addresses: subdomainsResult.wildcard_dns_ipv6_addresses,
+            budget: discoveryBudget,
             accounting,
             signal,
             cache: dnsCache,
@@ -1215,9 +1225,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
             estimateMs: HOSTNAME_LIST_LIMITS.budgetMs,
             hardMs: HOSTNAME_LIST_LIMITS.budgetMs,
             fallback: () => markDeadlineDeferred(customerHostnamesNotExecuted("deadline_deferred", listedHostnames.length)),
+            // Listed names this scan already re-checks (known inventory) are
+            // not asked twice: the inventory re-check covers them.
             run: ({ accounting, signal }) => confirmListedHostnames(domain, listedHostnames, {
-              exclude: referencedHosts,
+              exclude: [...referencedHosts, ...knownAssetHosts],
               wildcardAddresses: subdomainsResult.wildcard_dns_addresses,
+              wildcardIpv6Addresses: subdomainsResult.wildcard_dns_ipv6_addresses,
+              budget: discoveryBudget,
               accounting,
               signal,
               cache: dnsCache,
@@ -1267,7 +1281,9 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
             knownHosts: [...listedHosts, ...knownAssetHosts],
             discoveredHosts: listedHosts,
             wildcardAddresses: subdomainsResult.wildcard_dns_addresses,
+            wildcardIpv6Addresses: subdomainsResult.wildcard_dns_ipv6_addresses,
             rotationIndex: rotation.index,
+            budget: discoveryBudget,
             accounting,
             signal,
             cache: dnsCache,
@@ -2137,6 +2153,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           fallback: () => markDeadlineDeferred(pageReferencesNotExecuted("deadline_deferred", pending.length)),
           run: ({ accounting, signal }) => confirmPageReferences(pending, {
             wildcardAddresses: modules.subdomains.wildcard_dns_addresses,
+            wildcardIpv6Addresses: modules.subdomains.wildcard_dns_ipv6_addresses,
+            budget: discoveryBudget,
             accounting,
             signal,
             cache: dnsCache,
@@ -2162,7 +2180,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           });
         } catch { /* telemetry is observational only */ }
       }
-      modules.subdomains = { ...modules.subdomains, page_references: pageReferences };
+      // What every discovery DNS question of this scan was spent on.
+      modules.subdomains = { ...modules.subdomains, page_references: pageReferences, discovery_budget: discoveryBudget.snapshot() };
     }
 
     // Phase 7a-ii: Website Security findings from the site's own SIGN-IN pages

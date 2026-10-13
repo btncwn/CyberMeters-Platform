@@ -613,7 +613,9 @@ function d1Stub({ fail = false } = {}) {
     await runBruteforceModule("example.com", { accounting: ctx });
   }, async () => jsonResponse({ Status: 0, Answer: [] }));
   ctx.markSettled();
-  eq("C1B DNS brute-force A + MX + SRV calls counted", acct.snapshot("dns_bruteforce").outbound_attempts_observed, 56);
+  // Each fixed name is asked for both address families (40 A + 40 AAAA), plus
+  // 8 MX and 8 SRV questions.
+  eq("C1B DNS brute-force A + AAAA + MX + SRV calls counted", acct.snapshot("dns_bruteforce").outbound_attempts_observed, 96);
 }
 
 {
@@ -859,15 +861,16 @@ function d1Stub({ fail = false } = {}) {
     (s) => /dnsQuery\(wildcardHost, "A", \{ accounting, cache \}\)/.test(s) &&
       /dnsQuery\(wildcardHost, "AAAA", \{ accounting, cache \}\)/.test(s),
     (s) => s.replace('dnsQuery(wildcardHost, "A", { accounting, cache })', 'dnsQuery(wildcardHost, "A", { cache })'));
+  // Every brute-force question (A, AAAA, MX, SRV) goes through one lookup.
   sourceGuard("C1B brute-force DNS leaves carry accounting", subdomainsSrc,
-    (s) => /dnsQuery\(host, "A", \{ accounting, cache \}\)/.test(s) && /dnsQuery\(host, "MX", \{ accounting, cache \}\)/.test(s),
-    (s) => s.replace('dnsQuery(host, "MX", { accounting, cache })', 'dnsQuery(host, "MX", { cache })'));
+    (s) => /: \(name, type\) => dnsQuery\(name, type, \{ accounting, cache \}\);/.test(s),
+    (s) => s.replace("(name, type) => dnsQuery(name, type, { accounting, cache })", "(name, type) => dnsQuery(name, type, { cache })"));
   sourceGuard("F041 cloud-storage DNS and HTTP share the safeFetch accounting boundary", cloudSrc,
     (s) => /headRes = await safeFetch\(headUrl, \{[\s\S]{0,220}accounting,[\s\S]{0,160}dnsResolver,[\s\S]{0,120}dnsCache: cache/.test(s)
       && /getRes = await safeFetch\(listUrl, \{[\s\S]{0,220}accounting,[\s\S]{0,160}dnsResolver,[\s\S]{0,120}dnsCache: cache/.test(s),
     (s) => s.replace(/(const getRes = await safeFetch\(listUrl, \{[\s\S]{0,180})\s*accounting,\n/, "$1"));
   sourceGuard("C1B scan-engine threads module contexts", engineSrc,
-    (s) => /runSslModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, subOps: subOpTelemetry, now: \(\) => certificateNowMs \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, subOps: subOpTelemetry \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal, cache: dnsCache \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal, cache: dnsCache \}\)/.test(s),
+    (s) => /runSslModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, subOps: subOpTelemetry, now: \(\) => certificateNowMs \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, subOps: subOpTelemetry, budget: discoveryBudget \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal, cache: dnsCache, budget: discoveryBudget \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal, cache: dnsCache \}\)/.test(s),
     (s) => s.replace('runSslModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, subOps: subOpTelemetry, now: () => certificateNowMs })', "runSslModule(domain)"));
   sourceGuard("C1B complete-set includes newly covered modules", budgetSrc,
     (s) => ["ssl", "subdomains", "dns_bruteforce", "cloud_storage_discovery"].every((m) => s.includes(`"${m}"`)),

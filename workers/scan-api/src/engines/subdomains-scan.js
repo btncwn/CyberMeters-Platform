@@ -4,6 +4,7 @@
 // and home-page links under the scanned domain, plus sensitive-label
 // classification.
 import { dnsQuery } from "./dns.js";
+import { confirmationOf, confirmedHost, lookupNames, tallyConfirmation, wildcardAddressSet } from "./discovery-confirmation.js";
 
 /**
  * Subdomain names whose presence suggests a development, staging, or
@@ -118,6 +119,7 @@ export async function runSubdomainsModule(domain, opts = {}) {
     source:             SUBDOMAIN_DISCOVERY_SOURCE,
     wildcard_dns:       false,
     wildcard_dns_addresses: [],
+    wildcard_dns_ipv6_addresses: [],
     wildcard_test_host: wildcardHost,
     wildcard_warning:   null,
     incomplete:         true,
@@ -125,6 +127,8 @@ export async function runSubdomainsModule(domain, opts = {}) {
     error:              null,
   });
 
+  // The two wildcard questions are the first discovery questions of a scan.
+  opts.budget?.take?.("wildcard_check", 2);
   try {
     const work = Promise.allSettled([
       timedSubOp("wildcard_dns_a", dnsQuery(wildcardHost, "A", { accounting, cache })),
@@ -146,12 +150,14 @@ export async function runSubdomainsModule(domain, opts = {}) {
           .map((answer) => String(answer.data || "").toLowerCase())
           .filter(Boolean)
       )].sort();
-      const wildcardDnsAddresses = [...new Set(
-        aAnswers
-          .filter((answer) => answer.type === 1)
+      const familyAnswers = (answers, type) => [...new Set(
+        answers
+          .filter((answer) => answer.type === type)
           .map((answer) => String(answer.data || "").toLowerCase())
           .filter(Boolean)
       )].sort();
+      const wildcardDnsAddresses = familyAnswers(aAnswers, 1);
+      const wildcardDnsIpv6Addresses = familyAnswers(aaaaAnswers, 28);
       const wildcardDns = wildcardDnsAnswers.length > 0;
       return {
         count:              0,
@@ -160,6 +166,7 @@ export async function runSubdomainsModule(domain, opts = {}) {
         source:             SUBDOMAIN_DISCOVERY_SOURCE,
         wildcard_dns:       wildcardDns,
         wildcard_dns_addresses: wildcardDnsAddresses,
+        wildcard_dns_ipv6_addresses: wildcardDnsIpv6Addresses,
         wildcard_test_host: wildcardHost,
         wildcard_warning:   wildcardDns
           ? "Wildcard DNS detected. Subdomain discovery results may include false positives."
@@ -282,7 +289,10 @@ export function srvTargetsUnder(domain, answers = []) {
 }
 
 // SRV targets and hosts the home page links to, appended after the names the
-// word list found. Discovery order is kept; nothing is duplicated.
+// word list found. Discovery order is kept; nothing is duplicated. The scan
+// engine no longer merges them unconfirmed: they are configuration references
+// and join discovery through the shared DNS confirmation like every other
+// reference (referenced-hostnames.js). Kept for older callers.
 export function withReferencedHostnames(discovered = [], { srvItems = [], linkedHostnames = [] } = {}) {
   const base = Array.isArray(discovered) ? discovered : [];
   const seen = new Set(base);
@@ -300,14 +310,19 @@ export function withReferencedHostnames(discovered = [], { srvItems = [], linked
 }
 
 /**
- * Probe the wordlist against `domain` via DoH A-record lookups.
- * Returns any names that resolve, with source = "dns_bruteforce".
- * Hard-capped at BRUTEFORCE_TIMEOUT_MS — returns whatever has resolved by then.
+ * Ask the fixed name list about `domain`, A and AAAA per name, through the
+ * shared confirmation rule. A name joins only when DNS answers for it (an
+ * address in either family, or an alias); NXDOMAIN, NODATA and failed lookups
+ * are counted, never admitted. Hard-capped at BRUTEFORCE_TIMEOUT_MS.
  */
 export async function runBruteforceModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
   const cache = opts.cache || null;
+  const budget = opts.budget || null;
   const HARD_CAP_MS = BRUTEFORCE_TIMEOUT_MS;
+  const lookup = typeof opts.lookup === "function"
+    ? opts.lookup
+    : (name, type) => dnsQuery(name, type, { accounting, cache });
 
   const empty = (error = null) => ({
     checked: 0,
@@ -320,28 +335,26 @@ export async function runBruteforceModule(domain, opts = {}) {
   try {
     const candidates = BRUTE_FORCE_WORDLIST.slice(0, BRUTEFORCE_MAX_NAMES).map((label) => `${label}.${domain}`);
 
-    const settled = await Promise.race([
-      Promise.allSettled(
-        candidates.map((host) =>
-          dnsQuery(host, "A", { accounting, cache }).then((r) => ({ host, answers: r.Answer || [] }))
-        )
-      ),
-      // Hard cap: resolve with an empty-array sentinel so the race always resolves
-      new Promise((resolve) => setTimeout(() => resolve([]), HARD_CAP_MS)),
+    let capTimer;
+    const asked = await Promise.race([
+      lookupNames(candidates, lookup, { batchSize: candidates.length, budget, source: "fixed_name_check", mode: "parallel" }),
+      // Hard cap: resolve with a sentinel so the race always resolves
+      new Promise((resolve) => { capTimer = setTimeout(() => resolve(null), HARD_CAP_MS); }),
     ]);
+    clearTimeout(capTimer);
 
-    // If the timeout fired, `settled` is [] (not an allSettled array)
-    if (!Array.isArray(settled) || settled.length === 0) {
+    // If the timeout fired, nothing below the cap is trusted as complete.
+    if (!asked) {
       return { checked: candidates.length, found: 0, items: [], source: "dns_bruteforce", error: "timed out" };
     }
 
     const found = [];
-    for (const s of settled) {
-      if (s.status !== "fulfilled") continue;
-      const { host, answers } = s.value;
-      if (answers && answers.length > 0) {
-        const ips = answers.filter((a) => a.type === 1).map((a) => a.data);
-        found.push({ hostname: host, ip_addresses: ips, source: "dns_bruteforce" });
+    const counts = {};
+    for (const observation of asked.observations) {
+      const confirmation = confirmationOf(observation);
+      tallyConfirmation(counts, confirmation);
+      if (confirmation.status === "confirmed") {
+        found.push(confirmedHost(observation.hostname, confirmation, { source: "dns_bruteforce" }));
       }
     }
 
@@ -351,31 +364,39 @@ export async function runBruteforceModule(domain, opts = {}) {
     const foundHosts = new Set(found.map((f) => f.hostname));
     const mailCandidates = MAIL_SUBDOMAIN_LABELS
       .map((label) => `${label}.${domain}`)
-      .filter((host) => !foundHosts.has(host));
-    const srvNames = SRV_DISCOVERY_LABELS.map((label) => `${label}.${domain}`);
+      .filter((host) => !foundHosts.has(host))
+      .filter((host) => !budget || budget.take("fixed_name_check", 1));
+    const srvNames = SRV_DISCOVERY_LABELS.map((label) => `${label}.${domain}`)
+      .filter((name) => !budget || budget.take("fixed_name_check", 1));
     const srvItems = [];
     let srvAnswered = 0;
     let srvTargetsDropped = 0;
     try {
+      let passTimer;
       const secondPass = await Promise.race([
         Promise.allSettled([
           ...mailCandidates.map((host) =>
-            dnsQuery(host, "MX", { accounting, cache }).then((r) => ({ kind: "mx", host, answers: r.Answer || [] }))
+            lookup(host, "MX").then((r) => ({ kind: "mx", host, answers: r?.Answer || [], status: r?.Status }))
           ),
           ...srvNames.map((name) =>
-            dnsQuery(name, "SRV", { accounting, cache }).then((r) => ({ kind: "srv", host: name, answers: r.Answer || [] }))
+            lookup(name, "SRV").then((r) => ({ kind: "srv", host: name, answers: r?.Answer || [] }))
           ),
         ]),
-        new Promise((resolve) => setTimeout(() => resolve([]), HARD_CAP_MS)),
+        new Promise((resolve) => { passTimer = setTimeout(() => resolve([]), HARD_CAP_MS); }),
       ]);
+      clearTimeout(passTimer);
       if (Array.isArray(secondPass)) {
         const srvHosts = new Set();
         for (const s of secondPass) {
           if (s.status !== "fulfilled") continue;
           const { kind, host, answers } = s.value;
           if (kind === "mx") {
-            if (answers && answers.length > 0) {
-              found.push({ hostname: host, ip_addresses: [], source: "dns_mx", mail_only: true });
+            // A mail exchanger answer for the name itself: the name exists
+            // and receives mail, with no address of its own.
+            const mx = (answers || []).filter((answer) => answer?.type === 15);
+            if (s.value.status === 0 && mx.length > 0) {
+              found.push({ hostname: host, ip_addresses: [], source: "dns_mx", mail_only: true,
+                dns: { MX: { outcome: "answer", exchanges: mx.map((answer) => String(answer.data).toLowerCase()).slice(0, 10) } } });
             }
             continue;
           }
@@ -394,8 +415,14 @@ export async function runBruteforceModule(domain, opts = {}) {
       checked: candidates.length + mailCandidates.length + srvNames.length,
       found:   found.length,
       items:   found,
-      // SRV targets are kept apart from `items` (whose sources downstream
-      // consumers already classify); the engine merges them into discovery.
+      // What the fixed name check's DNS answers said, by outcome and family.
+      not_found: counts.not_found || 0,
+      no_address: counts.no_address || 0,
+      lookup_failed: counts.lookup_failed || 0,
+      not_asked: (counts.not_asked || 0) + asked.unasked_budget,
+      families: counts.families || { ipv4_only: 0, ipv6_only: 0, dual_stack: 0, alias_only: 0 },
+      // SRV targets are references, not discoveries: the engine confirms each
+      // one by DNS with the other configuration references before it counts.
       srv_items: srvItems,
       srv_checked: srvNames.length,
       srv_answered: srvAnswered,
@@ -408,16 +435,22 @@ export async function runBruteforceModule(domain, opts = {}) {
   }
 }
 
-export function filterWildcardBruteforceResults(result, wildcardAddresses = []) {
-  const wildcardSet = new Set((wildcardAddresses || []).map((value) => String(value).toLowerCase()));
-  if (wildcardSet.size === 0 || !Array.isArray(result?.items)) return result;
+export function filterWildcardBruteforceResults(result, wildcardAddresses = [], wildcardIpv6Addresses = []) {
+  const lowerSet = (values) => new Set((values || []).map((value) => String(value).toLowerCase()));
+  const wildcardA = lowerSet(wildcardAddresses);
+  const wildcardAAAA = lowerSet(wildcardIpv6Addresses);
+  if ((wildcardA.size === 0 && wildcardAAAA.size === 0) || !Array.isArray(result?.items)) return result;
 
+  const same = (addresses, set) => addresses.length === set.size && addresses.every((address) => set.has(address));
   const items = [];
   const wildcardObservations = [];
   for (const item of result.items) {
     const addresses = [...new Set((item.ip_addresses || []).map((value) => String(value).toLowerCase()))].sort();
-    const exactWildcardMatch = addresses.length === wildcardSet.size &&
-      addresses.every((address) => wildcardSet.has(address));
+    // A name the wildcard answered carries exactly the wildcard's addresses in
+    // every family. Older items (A only) are compared on their A addresses.
+    const exactWildcardMatch = addresses.length > 0 &&
+      same(addresses.filter((address) => !address.includes(":")), wildcardA) &&
+      (item.dns ? same(addresses.filter((address) => address.includes(":")), wildcardAAAA) : true);
     if (!exactWildcardMatch) {
       items.push(item);
       continue;

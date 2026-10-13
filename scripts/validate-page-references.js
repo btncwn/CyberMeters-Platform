@@ -85,13 +85,13 @@ async function fixtures(api) {
   const asked = [];
   const result = await api.confirmPageReferences(pending, {
     wildcardAddresses: ["198.51.100.9"],
-    lookup: async (name) => {
-      asked.push(name);
+    lookup: async (name, type) => {
+      asked.push(`${type} ${name}`);
       if (name === "assets.acme.test") throw new Error("network down");
       return name === "legacy.acme.test" ? answer(name, "198.51.100.9") : answer(name, "203.0.113.90");
     },
   });
-  assert.deepEqual(asked, ["legacy.acme.test", "shop.acme.test", "assets.acme.test"], "one question per pending name"); checks++;
+  assert.deepEqual([...asked].sort(), ["A assets.acme.test", "A legacy.acme.test", "A shop.acme.test", "AAAA assets.acme.test", "AAAA legacy.acme.test", "AAAA shop.acme.test"], "A and AAAA for each pending name"); checks++;
   assert.deepEqual(result.confirmed.map((item) => [item.hostname, item.asset_source]),
     [["legacy.acme.test", "robots_reference"], ["shop.acme.test", "sitemap_reference"]], "confirmed names keep their most specific source"); checks++;
   assert.equal(result.confirmed[0].wildcard_match, true, "a wildcard-shaped answer is flagged, not filtered"); checks++;
@@ -99,7 +99,12 @@ async function fixtures(api) {
   const many = Array.from({ length: 70 }, (_, i) => ({ hostname: `n${i}.acme.test`, sources: ["javascript"] }));
   let questions = 0;
   const capped = await api.confirmPageReferences(many, { lookup: async (name) => { questions++; return answer(name, "203.0.113.91"); } });
-  assert.ok(questions === 50 && capped.not_checked === 20 && capped.incomplete_reason === "check_cap_reached", "at most 50 questions; the rest are counted"); checks++;
+  assert.ok(questions === 100 && capped.not_checked === 20 && capped.incomplete_reason === "check_cap_reached", "at most 50 names, two questions each; the rest are counted"); checks++;
+  const { createDiscoveryQuestionBudget } = await import(pathToFileURL(enginePath("discovery-confirmation.js")).href);
+  const tight = createDiscoveryQuestionBudget({ total: 10 });
+  let budgetQuestions = 0;
+  const budgeted = await api.confirmPageReferences(many, { budget: tight, lookup: async (name) => { budgetQuestions++; return answer(name, "203.0.113.91"); } });
+  assert.ok(budgetQuestions === 10 && budgeted.not_asked === 45 && (budgeted.incomplete_reasons || []).includes("question_budget_reached"), "the shared budget bounds the questions and the rest are stated"); checks++;
   const none = api.pageReferencesNotExecuted("no_references");
   assert.ok(none.incomplete === false && none.confirmed.length === 0, "no references is not a gap"); checks++;
   assert.equal(api.pageReferencesNotExecuted("invocation_not_durable").incomplete, true, "a step that did not run says so"); checks++;
@@ -112,11 +117,11 @@ const dataUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).t
 const absoluteImports = (source) => source.replace(/from "\.\/([^"]+)"/g, (_, file) => `from "${pathToFileURL(enginePath(file)).href}"`);
 const MUTANTS = [
   ["const checks = list.slice(0, PAGE_REFERENCE_LIMITS.maxChecks);", "const checks = list;", "the lookup cap is removed"],
-  ["const confirmation = confirmationOf(observations[index], { wildcardSet, filterWildcard: false });",
-    "const confirmation = confirmationOf(observations[index], { wildcardSet, filterWildcard: true });", "named names are wildcard-filtered"],
+  ["const confirmation = confirmationOf(observation, { wildcardSet, filterWildcard: false });",
+    "const confirmation = confirmationOf(observation, { wildcardSet, filterWildcard: true });", "named names are wildcard-filtered"],
   ["if (!root || !hostname || hostname === root || !hostname.endsWith(`.${root}`) || seen.has(hostname)) continue;",
     "if (!hostname || seen.has(hostname)) continue;", "the scope guard is removed"],
-  ["if (counts.lookup_failed > 0) reasons.push(\"lookup_failed\");", "", "failed lookups are hidden"],
+  ["if ((counts.lookup_failed || 0) > 0) reasons.push(\"lookup_failed\");", "", "failed lookups are hidden"],
   ["  robots_txt: \"robots_reference\",\n  sitemap:    \"sitemap_reference\",", "  sitemap:    \"sitemap_reference\",\n  robots_txt: \"robots_reference\",", "source precedence is reordered"],
 ];
 for (const [before, after, label] of MUTANTS) {

@@ -38,9 +38,11 @@ function scopedHostname(hostname, root) {
 // One bounded read per scan, never one read per asset. Soft-deleted workspaces
 // are excluded before a hostname can become an outbound probe target.
 //
-// The names checked least recently come first: a name's recency is the later
-// of when discovery last saw it and when it was last re-checked (within the
-// observation window). An inventory larger than the cap therefore rotates
+// The names checked least recently come first: a name's recency is when it was
+// last actually re-checked (within the observation window). Every scan writes
+// a lifecycle row for every asset, including the names it did not check
+// (observation "not_assessed"); those rows are not checks, so they never move
+// a name back in the queue. An inventory larger than the cap therefore rotates
 // through every name over successive scans instead of re-checking the same
 // alphabetical first names every time; ties fall back to hostname order.
 export const RECHECK_OBSERVATION_WINDOW_DAYS = 30;
@@ -53,7 +55,7 @@ export async function loadKnownAssetRecheckHosts(env, domainId, domain, { now = 
     const result = await env.cybermeters_db
       .prepare(
         `SELECT wa.hostname,
-                MAX(COALESCE(MAX(wa.last_seen), ''), COALESCE(MAX(alo.observed_at), '')) AS last_checked
+                COALESCE(MAX(alo.observed_at), '') AS last_checked
          FROM workspace_assets wa
          JOIN workspace_domains wd
            ON wd.workspace_id = wa.workspace_id AND wd.domain_id = ?
@@ -61,6 +63,7 @@ export async function loadKnownAssetRecheckHosts(env, domainId, domain, { now = 
            ON w.id = wa.workspace_id AND w.deleted_at IS NULL
          LEFT JOIN asset_lifecycle_observations alo
            ON alo.workspace_id = wa.workspace_id AND alo.asset_id = wa.id AND alo.observed_at >= ?
+          AND alo.observation_state <> 'not_assessed'
          WHERE wa.hostname LIKE ? AND wa.hostname <> ?
          GROUP BY wa.hostname
          ORDER BY last_checked, wa.hostname

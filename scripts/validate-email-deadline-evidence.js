@@ -248,10 +248,18 @@ function mockFetch(variant, { onLateResolve = null } = {}) {
         if (name === "_dmarc.example.com" && type === "TXT") return json({ Status: 0, Answer: [{ type: 16, data: `"${dmarcRecord}"` }] });
         return json({ Status: 0, Answer: [] });
       };
+      // Real DoH answers name the owner of every record; discovery's DNS
+      // classifier reads an answer only for the name that was asked.
+      const owned = async () => {
+        const response = answer();
+        const body = await response.clone().json().catch(() => null);
+        if (!Array.isArray(body?.Answer) || body.Answer.every((record) => record.name)) return response;
+        return json({ ...body, Answer: body.Answer.map((record) => ({ name, ...record })) });
+      };
       if (variant === "deferred-email" && (name.includes("._domainkey.") || name.startsWith("default._bimi."))) {
-        return new Promise((res) => setTimeout(() => res(answer()), 1_500));
+        return new Promise((res) => setTimeout(() => res(owned()), 1_500));
       }
-      return answer();
+      return owned();
     }
     if (host === "services.nvd.nist.gov") {
       if (variant === "slow-cve") {
