@@ -884,7 +884,7 @@ export const ARTICLES = [
           li([
             'Third-party software components detected in web page source (JavaScript libraries, CDN-hosted scripts)',
             'Software vendors identified in DNS, SSL certificates, and HTTP headers',
-            'Known vulnerable vendor components detected in use (matched against public CVE data)',
+            'Software versions that servers publish in their responses (reported as a disclosure, not as a confirmed vulnerability)',
             'Vendor infrastructure changes that may indicate compromise (new IP, new certificate, DNS change)',
             'MSP-managed infrastructure identified in your workspace (shared certificates, management platforms)',
           ]),

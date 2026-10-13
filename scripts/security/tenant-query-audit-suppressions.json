@@ -165,20 +165,6 @@
       "contract": "The D1 row is ownership-scoped before its r2_key is used; the key is bound to the workspace by construction (reports/snapshots/<workspace>/...)."
     },
     {
-      "fingerprint": "80179f34260b",
-      "file": "workers/scan-api/src/engines/vuln-intel.js",
-      "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.get(KEV_CACHE_KEY) \u2014 the CISA Known-Exploited-Vulnerabilities catalogue is global reference data cached once for the whole platform.",
-      "contract": "Global reference cache; contains no tenant data, so a constant key is correct."
-    },
-    {
-      "fingerprint": "900ddb005c28",
-      "file": "workers/scan-api/src/engines/vuln-intel.js",
-      "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.put(KEV_CACHE_KEY) \u2014 writes the global KEV catalogue cache.",
-      "contract": "Global reference cache; no tenant data."
-    },
-    {
       "fingerprint": "cc3b1cf89568",
       "file": "workers/scan-api/src/index.js",
       "detector": "r2_key_not_workspace_bound",

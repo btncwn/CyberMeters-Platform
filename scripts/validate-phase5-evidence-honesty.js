@@ -2,9 +2,9 @@
 // Phase-5 False-Healthy P1 — CI-blocking customer-output and mutation proof.
 //
 // The faithful trace delegates to validate-email-deadline-evidence's real
-// runScanEngine harness. Its deferred-intel fixture uses Queue context, completes
-// CVE + KEV, and holds only Email Intelligence past its independent bounded cap.
-// This proves a slow sibling cannot erase fulfilled Phase-5 evidence. There is no
+// runScanEngine harness: Queue context, Email Intelligence held past its bounded
+// cap, vulnerability-data modules stated outside the check pack. The isolated
+// fixtures keep proving the contract for stored historical CVE/KEV results. No
 // global-deadline manipulation, production access or external network access.
 //
 // Canonical implementation base (origin/main after PR #350):
@@ -213,12 +213,12 @@ ok("A4 only Email Intelligence and its derived risk consumer are incomplete",
     engine.scanQuality.modules_skipped.every((key) =>
       ["email_security_intelligence", "risk_intelligence", "remediation_plan"].includes(key)),
   JSON.stringify(engine.scanQuality?.modules_skipped));
-ok("A5 completed CVE sibling remains canonical publishable evidence",
-  engine.cve?.executed !== false && engine.cve?.outcome !== "deadline_exceeded" &&
-    projectedEngine.cve_intelligence.evidence_publishable === true);
-ok("A6 completed KEV sibling remains canonical publishable evidence",
-  engine.kev?.executed !== false && engine.kev?.outcome !== "deadline_exceeded" &&
-    projectedEngine.known_exploited_vulnerabilities.evidence_publishable === true);
+ok("A5 vulnerability matching is stated outside the check pack, never deferred",
+  engine.cve?.outcome === "not_in_check_pack" && engine.kev?.outcome === "not_in_check_pack");
+ok("A6 the customer projection carries the pack statement and nothing to publish",
+  projectedEngine.cve_intelligence.evidence_publishable === false &&
+    projectedEngine.known_exploited_vulnerabilities.evidence_publishable === false &&
+    /^Reported software versions are not matched/.test(projectedEngine.cve_intelligence.customer_message || ""));
 ok("A7 email-intelligence fallback is canonical non-publishable evidence",
   engine.intel?.executed === false && engine.intel?.incomplete === true &&
     engine.intel?.outcome === "deadline_exceeded" &&
@@ -335,16 +335,16 @@ console.log("\n── B. isolated producer-to-consumer fixtures ──");
     }],
   });
   const result = probe(modules);
-  ok("B18 completed positive CVE finding remains publishable",
-    result.risk.enriched_findings.some(
-      (finding) => finding.id === "cve_high_severity_detected"));
-  ok("B19 completed positive KEV finding remains publishable",
-    result.risk.enriched_findings.some(
-      (finding) => finding.id === "kev_active_exploitation"));
-  ok("B20 version-blind CVE stays informational while bounded KEV produces Moderate",
-    result.risk.overall_risk_level === "Moderate" &&
-      result.risk.enriched_findings.find(
-        (finding) => finding.id === "cve_high_severity_detected")?.severity === "informational");
+  // A stored historical module may still carry matches; a scan no longer turns
+  // outside vulnerability data into a finding, a deduction or a risk band.
+  ok("B18 outside vulnerability matches never become a risk finding",
+    !result.risk.enriched_findings.some((finding) =>
+      ["cve_high_severity_detected", "kev_active_exploitation", "known_vulnerable_component"].includes(finding.id)));
+  ok("B19 an exploited-vulnerability match never moves the score",
+    result.customer.score === 100 && result.customer.risk_level === "excellent",
+    JSON.stringify({ score: result.customer.score, band: result.customer.risk_level }));
+  ok("B20 the overall risk band comes from the scan's own findings only",
+    result.risk.overall_risk_level === "Low");
 }
 {
   const sibling = {

@@ -255,9 +255,9 @@ eq("observed reset clears qualifying progress for subsequent reconstruction",
       AND observed_at > '2026-08-01T00:00:00.000Z'
   `).get().n, 0);
 
-eq("all nine per-signal rows persist for each active scan",
+eq("all seven per-signal rows persist for each active scan",
   db.prepare("SELECT COUNT(*) AS n FROM attack_surface_signal_observations WHERE workspace_id='ws-active'").get().n,
-  6 * 9);
+  6 * 7);
 eq("soft-deleted workspace receives no signal observations",
   db.prepare("SELECT COUNT(*) AS n FROM attack_surface_signal_observations WHERE workspace_id='ws-deleted'").get().n, 0);
 eq("soft-deleted workspace receives no lifecycle observations",
@@ -546,7 +546,7 @@ eq("global signal history survives one corrupt asset predecessor",
     SELECT COUNT(*) AS n
     FROM attack_surface_signal_observations
     WHERE workspace_id='ws-corrupt-history' AND scan_id='scan-clean-3'
-  `).get().n, 9);
+  `).get().n, 7);
 ok("writer returns explicit per-asset uncertainty",
     corruptHistoryResult?.status === "uncertain" &&
     corruptHistoryResult?.limitation_codes?.includes("invalid_relevant_timestamp") &&

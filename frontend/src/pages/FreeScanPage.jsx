@@ -242,7 +242,7 @@ export default function FreeScanPage() {
                 <h1>See your whole external attack surface — before an attacker does.</h1>
                 <p className="fm-hero__lede">
                   One bounded snapshot of honest public signals for your domain.
-                  Deep takeover, CVE/KEV and asset checks unlock only after account and domain verification.
+                  Deep takeover and asset checks unlock only after account and domain verification.
                 </p>
                 <form className="fm-scan-form" onSubmit={handleScan}>
                   <label htmlFor="free-scan-domain">Business domain</label>

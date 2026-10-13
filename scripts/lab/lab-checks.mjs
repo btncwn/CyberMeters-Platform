@@ -83,6 +83,48 @@ export async function runLabChecks({ ok, root }) {
   ok("lab charlie: guesses the budget left unasked are stated, not dropped",
     charlieDepth.executed === true && (charlieDepth.not_asked === 0 || charlieDepth.incomplete_reason === "question_budget_reached"), json(charlieDepth));
 
+  // ── Outside data: a scan needs none of it (runtime audit) ───────────────────
+  // The same world scanned with every outside data service answering and with
+  // every one refused: the report, the score and the findings must not move, no
+  // vulnerability-data service may be asked at all, and the only outside
+  // service asked — the registry's RDAP — must be optional.
+  const VULNERABILITY_DATA = new Set(["nvd", "epss", "kev", "osv"]);
+  const open = await runLabWorld({ root, world: WORLDS.alpha, egress: "open", scans: 1 });
+  const blockedRun = await runLabWorld({ root, world: WORLDS.alpha, egress: "blocked", scans: 1 });
+  const openScan = open.scans[0];
+  const blockedScan = blockedRun.scans[0];
+  for (const [label, run] of [["open", open], ["blocked", blockedRun]]) {
+    const asked = Object.entries(run.scans[0].requests.outside_data || {})
+      .filter(([service]) => VULNERABILITY_DATA.has(service));
+    ok(`lab alpha (outside data ${label}): no vulnerability-data service is asked`, asked.length === 0, json(run.scans[0].requests.outside_data));
+  }
+  ok("lab alpha (outside data blocked): the scan completes, stores its report and publishes its score",
+    blockedScan.status === "completed" && blockedScan.report_stored && Number.isFinite(blockedScan.score), json({ status: blockedScan.status, score: blockedScan.score }));
+  ok("lab alpha: refusing outside data changes neither the score nor the findings",
+    blockedScan.score === openScan.score && json(blockedScan.finding_types) === json(openScan.finding_types),
+    json({ open: [openScan.score, openScan.finding_types.length], blocked: [blockedScan.score, blockedScan.finding_types.length] }));
+  const blockedReport = JSON.parse(blockedRun.r2.store.get("reports/scan_a_1.json"));
+  const whois = blockedReport.modules.whois_intelligence;
+  ok("lab alpha (outside data blocked): an unanswered registry is reported as unavailable, optional and without request URLs",
+    whois?.optional === true && whois?.outcome === "unavailable" && !whois?.error &&
+      Array.isArray(whois?.registries_asked) && whois.registries_asked.length > 0 &&
+      !/https?:\/\//.test(json(whois)), json(whois));
+  ok("lab alpha (outside data blocked): registration data never decides whether the scan completed",
+    json(blockedScan.incomplete_modules) === json(openScan.incomplete_modules) &&
+      !blockedScan.incomplete_modules.some((entry) => entry.startsWith("whois_intelligence")) &&
+      blockedReport.monitoring_states.signals.registration_data?.state === "signal_unavailable" &&
+      blockedReport.monitoring_states.signals.registration_data?.optional === true,
+    json({ open: openScan.incomplete_modules, blocked: blockedScan.incomplete_modules, registration: blockedReport.monitoring_states.signals.registration_data }));
+  ok("lab alpha: the report states its check pack, and vulnerability matching as not part of it",
+    blockedReport.check_pack?.version === "2026.10.1" &&
+      blockedReport.modules.cve_intelligence?.outcome === "not_in_check_pack" &&
+      blockedReport.modules.known_exploited_vulnerabilities?.outcome === "not_in_check_pack" &&
+      !("vulnerability_intelligence" in blockedReport.monitoring_states.signals),
+    json({ check_pack: blockedReport.check_pack?.version, cve: blockedReport.modules.cve_intelligence?.outcome }));
+  ok("lab alpha: every finding names the check and check-pack version that produced it",
+    blockedReport.findings.length > 0 && blockedReport.findings.every((finding) => finding.check?.version === "2026.10.1" && finding.check?.check_id),
+    json(blockedReport.findings.filter((finding) => !finding.check).map((finding) => finding.id)));
+
   const wildcard = await runLabWorld({ root, world: WORLDS.bravo, scans: 1 });
   ok("lab bravo: a zone that answers every name adds no guessed names", wildcard.inventory.false_positive.length === 0, json(wildcard.inventory.false_positive));
   const again = await runLabWorld({ root, world: WORLDS.bravo, scans: 1 });

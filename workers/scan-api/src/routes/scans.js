@@ -869,9 +869,9 @@ export async function scanRoutes(rctx) {
           recommendations: Array.isArray(customerReport.recommendations) ? customerReport.recommendations : [],
           scan_quality: raw.scan_quality ?? buildScanQuality(normalisedModules),
           // Completed report consumers use the immutable snapshot's canonical,
-          // fail-closed monitoring record. Raw R2 remains the fallback only for
-          // pre-snapshot compatibility.
+          // fail-closed monitoring record (raw R2 only for pre-snapshot scans).
           monitoring_states: snap.monitoring_states ?? raw.monitoring_states ?? null,
+          check_pack: raw.check_pack ?? null, // absent for scans before the check pack
           modules: {
             ...normalisedModules,
             certificate_intelligence: projectedCertificateIntelligence,

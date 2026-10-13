@@ -34,7 +34,6 @@ const {
 const { safeFetch } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "http.js")).href);
 const { dnsQuery } = await eng("dns.js");
 const { makeReservedProbeFetch } = await eng("reserved-probe.js");
-const { getKevCatalogue } = await eng("vuln-intel.js");
 const { runWhoisModule } = await eng("whois-scan.js");
 const { runHeadersModule } = await eng("headers-scan.js");
 const { runSslModule } = await eng("ssl-scan.js");
@@ -106,8 +105,8 @@ function jsonResponse(body, init = {}) {
   eq("outcomeOf skipped", telem.outcomeOf({ skipped: true }), "skipped");
   eq("outcomeOf ok", telem.outcomeOf({ matches: [] }), "ok");
   eq("outcomeOf missing", telem.outcomeOf(null), "missing");
-  telem.record("known_exploited_vulnerabilities", { outcome: "deadline_exceeded" });
-  ok("record adds a coarse row", telem.has("known_exploited_vulnerabilities"));
+  telem.record("email_security_intelligence", { outcome: "deadline_exceeded" });
+  ok("record adds a coarse row", telem.has("email_security_intelligence"));
   eq("coarse row has null duration", telem.rows[0].duration_ms, null);
 }
 
@@ -126,7 +125,7 @@ function d1Stub({ fail = false } = {}) {
 {
   const telem = createModuleTelemetry(steppingClock());
   await telem.run("dns", async () => ({ resolves: true }));
-  telem.record("known_exploited_vulnerabilities", { outcome: "deadline_exceeded" });
+  telem.record("email_security_intelligence", { outcome: "deadline_exceeded" });
 
   const env = d1Stub();
   await persistModuleTelemetry("scan_z", telem, env);
@@ -192,14 +191,14 @@ function d1Stub({ fail = false } = {}) {
   };
   const zeroCtx = makeCtx(0);
   const zeroAttempt = markPhysicalBudgetIncomplete(
-    "known_exploited_vulnerabilities",
-    { source: "cisa_kev" },
+    "email_security_intelligence",
+    { source: "email_intelligence" },
     zeroCtx,
   );
   const oneCtx = makeCtx(1);
   const afterAttempt = markPhysicalBudgetIncomplete(
-    "cve_intelligence",
-    { source: "nvd_api" },
+    "cloud_storage_discovery",
+    { source: "cloud_storage_discovery" },
     oneCtx,
   );
   const zeroSource = cappedModuleCutoffProvenance(zeroAttempt, false);
@@ -218,12 +217,12 @@ function d1Stub({ fail = false } = {}) {
     "subrequest_budget_exhausted:subrequest_budget_exhausted");
 
   const telemetry = createModuleTelemetry(steppingClock());
-  telemetry.record("known_exploited_vulnerabilities", {
+  telemetry.record("email_security_intelligence", {
     outcome: telemetry.outcomeOf(zeroAttempt),
     timeout: false,
     timeout_source: zeroSource,
   });
-  telemetry.record("cve_intelligence", {
+  telemetry.record("cloud_storage_discovery", {
     outcome: telemetry.outcomeOf(afterAttempt),
     timeout: false,
     timeout_source: afterSource,
@@ -293,7 +292,7 @@ function d1Stub({ fail = false } = {}) {
   telem.record("ssl", { outcome: "ok", duration_ms: 812 });
   telem.record("headers", { outcome: "error", timeout: true, error_class: "TimeoutError", duration_ms: 10_000 });
   telem.record("subdomain_takeover", { outcome: "deadline_exceeded", timeout: true, duration_ms: 900, allocated_ms: 950, timeout_source: "module_race" });
-  telem.record("cve_intelligence", { outcome: "ok", duration_ms: 400, outbound_calls: 2 });
+  telem.record("email_security_intelligence", { outcome: "ok", duration_ms: 400, outbound_calls: 2 });
 
   const diag = buildExecutionDiagnostics({
     executionContext: "queue",
@@ -376,8 +375,11 @@ function d1Stub({ fail = false } = {}) {
     /runScanEngine\([^)]*\{ executionContext: "waituntil" \}\)/.test(scansSrc));
   ok("old CVE technologies_checked outbound estimate removed",
     !/outbound_calls: Array\.isArray\(modules\.cve_intelligence\?\.technologies_checked\) \? modules\.cve_intelligence\.technologies_checked\.length : null/.test(engineSrc));
-  ok("CVE outbound_calls now derives from measured outbound snapshot",
-    /cveOutboundSnapshot\.outbound_measurement_complete \? cveOutboundSnapshot\.outbound_attempts_observed : null/.test(engineSrc));
+  ok("Phase-5 outbound_calls derive from the measured outbound snapshot",
+    /outbound_calls: outbound\.outbound_measurement_complete \? outbound\.outbound_attempts_observed : null/.test(engineSrc));
+  ok("no telemetry row is backfilled for modules outside the check pack",
+    !/TELEMETRY_TRACKED_MODULES = Object\.freeze\(\[[^\]]*"cve_intelligence"/.test(engineSrc) &&
+      !/TELEMETRY_TRACKED_MODULES = Object\.freeze\(\[[^\]]*"known_exploited_vulnerabilities"/.test(engineSrc));
 
   // Behaviour-neutrality direction proofs: diagnostics must remain write-only in
   // the engine (assigned into reports, never read back into any decision), and
@@ -526,20 +528,21 @@ function d1Stub({ fail = false } = {}) {
 }
 
 {
+  // A cached answer is not an outbound attempt: the per-scan DNS cache serves
+  // the second identical question without asking the resolver.
   const acct = createOutboundAccounting();
-  const ctx = acct.contextFor("known_exploited_vulnerabilities");
-  // Freeze producer and consumer to the same instant. Reading Date.now() inside
-  // obj.text() happens after getKevCatalogue captures its default clock, so a
-  // millisecond boundary can otherwise make the fixture timestamp appear future
-  // dated and exercise the stale fallback nondeterministically.
-  const kevNow = Date.parse("2026-07-23T12:00:00.000Z");
-  const env = { cybermeters_reports: { get: async () => ({ text: async () => JSON.stringify({ fetched_at_ms: kevNow, vulnerabilities: [] }) }) } };
+  const ctx = acct.contextFor("dns");
+  const cache = makeDnsCache();
   await withMockFetch(async () => {
-    const cat = await getKevCatalogue(env, { accounting: ctx, now: () => kevNow });
-    eq("C1A KEV cache source", cat.source, "r2_cache");
-  }, async () => { throw new Error("origin fetch should not happen on cache hit"); });
+    await dnsQuery("cached.example.com", "A", { cache, accounting: ctx });
+  }, async () => jsonResponse({ Status: 0, Answer: [] }));
+  const afterMiss = acct.snapshot("dns").outbound_attempts_observed;
+  await withMockFetch(async () => {
+    await dnsQuery("cached.example.com", "A", { cache, accounting: ctx });
+  }, async () => { throw new Error("resolver fetch should not happen on cache hit"); });
   ctx.markSettled();
-  eq("C1A provider cache hit excluded from outbound attempts", acct.snapshot("known_exploited_vulnerabilities").outbound_attempts_observed, 0);
+  eq("C1A cache miss counted once", afterMiss, 1);
+  eq("C1A cached answer excluded from outbound attempts", acct.snapshot("dns").outbound_attempts_observed, 1);
 }
 
 {
@@ -658,10 +661,10 @@ function d1Stub({ fail = false } = {}) {
 {
   const telem = createModuleTelemetry(steppingClock());
   const acct = createOutboundAccounting();
-  const ctx = acct.contextFor("cve_intelligence");
+  const ctx = acct.contextFor("email_security_intelligence");
   ctx.markSettled();
-  const snap = acct.snapshot("cve_intelligence");
-  telem.record("cve_intelligence", { outcome: "ok", outbound: snap, outbound_calls: snap.outbound_measurement_complete ? snap.outbound_attempts_observed : null });
+  const snap = acct.snapshot("email_security_intelligence");
+  telem.record("email_security_intelligence", { outcome: "ok", outbound: snap, outbound_calls: snap.outbound_measurement_complete ? snap.outbound_attempts_observed : null });
   const env = d1Stub();
   await persistModuleTelemetry("scan_zero", telem, env);
   eq("C1A launched measured-zero persists D1 0", env._calls[0].args[6], 0);
@@ -693,8 +696,8 @@ function d1Stub({ fail = false } = {}) {
 {
   const telem = createModuleTelemetry(steppingClock());
   const acct = createOutboundAccounting();
-  const snap = acct.snapshot("cve_intelligence");
-  telem.record("cve_intelligence", { outcome: "deadline_exceeded", outbound: snap, outbound_calls: snap.outbound_measurement_complete ? snap.outbound_attempts_observed : null });
+  const snap = acct.snapshot("email_security_intelligence");
+  telem.record("email_security_intelligence", { outcome: "deadline_exceeded", outbound: snap, outbound_calls: snap.outbound_measurement_complete ? snap.outbound_attempts_observed : null });
   const env = d1Stub();
   await persistModuleTelemetry("scan_never", telem, env);
   eq("C1A never-launched module persists D1 null", env._calls[0].args[6], null);
@@ -838,8 +841,8 @@ function d1Stub({ fail = false } = {}) {
     (s) => /finally \{\s*finishedMs = now\(\);\s*\}/.test(s)
       && /const durationMs = startedMs == null \|\| finishedMs == null[\s\S]{0,100}finishedMs - startedMs/.test(s)
       && /duration_ms: wrapped\.durationMs/.test(s)
-      && /const durationMs = run\.durationMs;/.test(s),
-    (s) => s.replace("const durationMs = run.durationMs;", "const durationMs = run.durationMs ?? 0;"));
+      && /duration_ms: emailIntelRun\.durationMs,/.test(s),
+    (s) => s.replace("duration_ms: emailIntelRun.durationMs,", "duration_ms: emailIntelRun.durationMs ?? 0,"));
   sourceGuard("C1A headers bot HEAD carries accounting", headersSrc,
     (s) => /const headRes = await safeFetch\(probeUrl, \{[\s\S]{0,180}accounting,[\s\S]{0,180}\}\);/.test(s),
     (s) => s.replace(/(const headRes = await safeFetch\(probeUrl, \{[\s\S]{0,180})\s*accounting,\n/, "$1"));
