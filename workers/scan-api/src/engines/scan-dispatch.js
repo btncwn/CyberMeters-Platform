@@ -49,6 +49,9 @@ export const TRANSIENT_RETRY_DELAY_S = 60;
 export const DISPATCH_FAILED_REASON = "dispatch_failed";
 export const DISPATCH_FAILED_CUSTOMER_MESSAGE =
   "This scan could not be started. No results were recorded. Please try again.";
+export const AUTHORITY_LOST_REASON = "authority_lost";
+export const AUTHORITY_LOST_CUSTOMER_MESSAGE =
+  "This scan did not run: the workspace or the domain's verified ownership changed after it was queued. No results were recorded.";
 export const QUEUED_PLACEHOLDER_MESSAGE =
   "Scan queued for execution. Poll GET /api/scans/:id for progress.";
 
@@ -198,6 +201,34 @@ export async function dispatchAdmittedScan(env, { scanId, domainId, workspaceId,
   }
 }
 
+// ── Current workspace/domain authority for a queued scan ─────────────────────
+// Read from the database, keyed by the SCAN ROW's ids — never the message's.
+const AUTHORITY_READ_SQL =
+  `SELECT w.deleted_at AS deleted_at, wd.domain_id AS linked_domain_id,
+          wd.verification_status AS verification_status
+   FROM workspaces w
+   LEFT JOIN workspace_domains wd
+     ON wd.workspace_id = w.id AND wd.domain_id = ?
+   WHERE w.id = ?`;
+
+function authorityLossReason(authority) {
+  if (!authority) return "workspace_missing";
+  if (authority.deleted_at) return "workspace_deleted";
+  if (authority.linked_domain_id == null) return "domain_unlinked";
+  if (authority.verification_status !== "verified") return "domain_unverified";
+  return null;
+}
+
+// The claim carries the same condition, so authority lost between the read and
+// the claim can never let the scan start.
+const CLAIM_SQL =
+  `UPDATE scans SET status = 'running', last_heartbeat_at = ?
+   WHERE id = ? AND status = 'queued'
+     AND (workspace_id IS NULL OR EXISTS (
+       SELECT 1 FROM workspaces w
+       JOIN workspace_domains wd ON wd.workspace_id = w.id AND wd.domain_id = scans.domain_id
+       WHERE w.id = scans.workspace_id AND w.deleted_at IS NULL AND wd.verification_status = 'verified'))`;
+
 // ── Consumer: process ONE delivery, returning the outcome decision ───────────
 // Exported for deterministic tests; handleScanDispatchBatch applies the
 // decision (ack/retry) to the real message. Never throws.
@@ -269,71 +300,99 @@ export async function processScanDispatchMessage(body, env, deps = {}) {
   // holds a verified link to the domain. Admission checked both, but a scan
   // can wait in the queue while the workspace is deleted, the domain removed
   // or its verification lost; such a scan is failed without running, once
-  // (the queued-only guard), and audited with the reason only.
-  if (row.workspace_id) {
-    let authority;
+  // (the queued-only guard), its queued report is replaced by a failed one,
+  // and one audit records the reason only.
+  const readAuthorityLoss = async () => authorityLossReason(
+    await env.cybermeters_db.prepare(AUTHORITY_READ_SQL).bind(row.domain_id, row.workspace_id).first()
+  );
+  const failForLostAuthority = async (reason) => {
+    let failed;
     try {
-      authority = await env.cybermeters_db
-        .prepare(
-          `SELECT w.deleted_at AS deleted_at, wd.verification_status AS verification_status
-           FROM workspaces w
-           LEFT JOIN workspace_domains wd
-             ON wd.workspace_id = w.id AND wd.domain_id = ?
-           WHERE w.id = ?`
-        )
-        .bind(row.domain_id, row.workspace_id)
-        .first();
+      failed = await env.cybermeters_db
+        .prepare(`UPDATE scans SET status = 'failed', scan_quality = NULL WHERE id = ? AND status = 'queued'`)
+        .bind(scanId)
+        .run();
+    } catch {
+      return { action: "retry", delaySeconds: TRANSIENT_RETRY_DELAY_S, outcome: "authority_fail_write_failed" };
+    }
+    // Another delivery moved the row on; it owns what happens next.
+    if ((failed?.meta?.changes ?? 0) === 0) return { action: "ack", outcome: "claim_lost" };
+    try {
+      await env.cybermeters_reports.put(
+        `reports/${scanId}.json`,
+        JSON.stringify({
+          scan_id:             scanId,
+          domain_id:           row.domain_id,
+          domain:              row.domain,
+          status:              "failed",
+          reason:              AUTHORITY_LOST_REASON,
+          cyber_metrics_score: 0,
+          risk_level:          "unknown",
+          findings:            [],
+          recommendations:     [],
+          scan_quality:        null,
+          failed_at:           new Date().toISOString(),
+          message:             AUTHORITY_LOST_CUSTOMER_MESSAGE,
+        }, null, 2),
+        { httpMetadata: { contentType: "application/json" } }
+      );
+    } catch { /* R2 unreachable — the D1 terminal owns the truth */ }
+    try {
+      await doCreateAuditEvent(env, {
+        workspace_id: row.workspace_id,
+        actor_type:   "system",
+        event_type:   "scan_authority_lost",
+        entity_type:  "scan",
+        entity_id:    scanId,
+        description:  "Queued scan not run: its workspace or domain authority changed after it was queued",
+        metadata:     { scan_id: scanId, reason },
+      });
+    } catch { /* non-fatal */ }
+    return { action: "ack", outcome: "authority_lost", reason };
+  };
+
+  if (row.workspace_id) {
+    let reason;
+    try {
+      reason = await readAuthorityLoss();
     } catch {
       return { action: "retry", delaySeconds: TRANSIENT_RETRY_DELAY_S, outcome: "d1_read_failed" };
     }
-    const reason = !authority ? "workspace_missing"
-      : authority.deleted_at ? "workspace_deleted"
-      : authority.verification_status == null ? "domain_unlinked"
-      : authority.verification_status !== "verified" ? "domain_unverified"
-      : null;
-    if (reason) {
-      let failed;
-      try {
-        failed = await env.cybermeters_db
-          .prepare(`UPDATE scans SET status = 'failed', scan_quality = NULL WHERE id = ? AND status = 'queued'`)
-          .bind(scanId)
-          .run();
-      } catch {
-        return { action: "retry", delaySeconds: TRANSIENT_RETRY_DELAY_S, outcome: "authority_fail_write_failed" };
-      }
-      if ((failed?.meta?.changes ?? 0) > 0) {
-        try {
-          await doCreateAuditEvent(env, {
-            workspace_id: row.workspace_id,
-            actor_type:   "system",
-            event_type:   "scan_authority_lost",
-            entity_type:  "scan",
-            entity_id:    scanId,
-            description:  "Queued scan not run: its workspace or domain authority changed after it was queued",
-            metadata:     { scan_id: scanId, reason },
-          });
-        } catch { /* non-fatal */ }
-      }
-      return { action: "ack", outcome: "authority_lost", reason };
-    }
+    if (reason) return failForLostAuthority(reason);
   }
 
   // ── 5. Claim CAS — the single execution gate. ─────────────────────────────
-  // Exactly one delivery flips queued→running; every other delivery (duplicate,
-  // simultaneous consumer, redelivery while an execution is in flight) loses
-  // the CAS and acks WITHOUT executing. A stale 'running' row is never
-  // reclaimed here — PR-1 recovery owns that terminalisation.
+  // Exactly one delivery flips queued→running, and only while authority still
+  // holds; every other delivery (duplicate, simultaneous consumer, redelivery
+  // while an execution is in flight) loses the CAS and acks WITHOUT executing.
+  // A stale 'running' row is never reclaimed here — PR-1 recovery owns that
+  // terminalisation.
   let claim;
   try {
     claim = await env.cybermeters_db
-      .prepare(`UPDATE scans SET status = 'running', last_heartbeat_at = ? WHERE id = ? AND status = 'queued'`)
+      .prepare(CLAIM_SQL)
       .bind(new Date().toISOString(), scanId)
       .run();
   } catch {
     return { action: "retry", delaySeconds: TRANSIENT_RETRY_DELAY_S, outcome: "claim_write_failed" };
   }
   if ((claim?.meta?.changes ?? 0) === 0) {
-    return { action: "ack", outcome: "claim_lost" };
+    if (!row.workspace_id) return { action: "ack", outcome: "claim_lost" };
+    // Lost to another delivery, or authority changed after the read above.
+    let current, reason;
+    try {
+      current = await env.cybermeters_db
+        .prepare(`SELECT status FROM scans WHERE id = ?`)
+        .bind(scanId)
+        .first();
+      reason = current?.status === "queued" ? await readAuthorityLoss() : null;
+    } catch {
+      return { action: "retry", delaySeconds: TRANSIENT_RETRY_DELAY_S, outcome: "d1_read_failed" };
+    }
+    if (current?.status !== "queued") return { action: "ack", outcome: "claim_lost" };
+    if (reason) return failForLostAuthority(reason);
+    // Still queued and authority holds again: decide on a fresh delivery.
+    return { action: "retry", delaySeconds: TRANSIENT_RETRY_DELAY_S, outcome: "authority_changed" };
   }
 
   // ── 6. Claim won: scan_started audit + queue_claimed heartbeat. ───────────

@@ -49,6 +49,8 @@ const {
   UNKNOWN_VERSION_RETRY_DELAY_S,
   TRANSIENT_RETRY_DELAY_S,
   DISPATCH_FAILED_REASON,
+  AUTHORITY_LOST_REASON,
+  AUTHORITY_LOST_CUSTOMER_MESSAGE,
   isQueueDispatchMode,
   buildScanDispatchMessage,
   dispatchAdmittedScan,
@@ -103,8 +105,9 @@ function makeConsumerHarness(rows, { workspaces = { ws_q: { deleted_at: null, li
   const state = {
     rows: rows.map((r) => ({ ...r })),
     workspaces: JSON.parse(JSON.stringify(workspaces)),
-    selects: 0, selectPoison: null, updatePoison: null, authorityPoison: null,
-    audits: [], stages: [], engineCalls: [],
+    selects: 0, selectPoison: null, updatePoison: null, authorityPoison: null, failPoison: null,
+    authorityReads: 0, onAuthorityRead: null, onScanRead: null, // (state, n) — simulate a concurrent change
+    audits: [], stages: [], engineCalls: [], r2Puts: [],
     engineBehavior: null, // async (state, call) — simulate engine effects
   };
   const db = {
@@ -116,6 +119,7 @@ function makeConsumerHarness(rows, { workspaces = { ws_q: { deleted_at: null, li
               if (/SELECT[\s\S]*FROM scans WHERE id = \?/i.test(sql)) {
                 if (state.selectPoison) throw state.selectPoison;
                 state.selects++;
+                if (state.onScanRead) state.onScanRead(state, state.selects);
                 const row = state.rows.find((r) => r.id === args[0]);
                 return row ? { ...row } : null;
               }
@@ -124,8 +128,11 @@ function makeConsumerHarness(rows, { workspaces = { ws_q: { deleted_at: null, li
               if (/FROM workspaces w[\s\S]*LEFT JOIN workspace_domains wd/i.test(sql)) {
                 if (state.authorityPoison) throw state.authorityPoison;
                 const ws = state.workspaces[args[1]];
-                if (!ws) return null;
-                return { deleted_at: ws.deleted_at ?? null, verification_status: ws.links?.[args[0]] ?? null };
+                const linked = !!ws && Object.prototype.hasOwnProperty.call(ws.links ?? {}, args[0]);
+                const result = ws ? { deleted_at: ws.deleted_at ?? null, linked_domain_id: linked ? args[0] : null, verification_status: linked ? ws.links[args[0]] : null } : null;
+                state.authorityReads++;
+                if (state.onAuthorityRead) state.onAuthorityRead(state, state.authorityReads);
+                return result;
               }
               return null;
             },
@@ -139,11 +146,18 @@ function makeConsumerHarness(rows, { workspaces = { ws_q: { deleted_at: null, li
                 const row = state.rows.find((r) => r.id === args[1]);
                 if (!row) return { meta: { changes: 0 } };
                 if (hasGuard && row.status !== "queued") return { meta: { changes: 0 } };
+                // SQL-faithful: the authority condition applies only if the SQL
+                // carries it — the scan row's own workspace and domain, live.
+                if (/EXISTS\s*\(\s*SELECT 1 FROM workspaces w/i.test(sql) && row.workspace_id) {
+                  const ws = state.workspaces[row.workspace_id];
+                  if (!ws || ws.deleted_at || ws.links?.[row.domain_id] !== "verified") return { meta: { changes: 0 } };
+                }
                 row.status = "running";
                 row.last_heartbeat_at = args[0];
                 return { meta: { changes: 1 } };
               }
               if (/UPDATE scans SET status = 'failed'/i.test(sql)) {
+                if (state.failPoison) throw state.failPoison;
                 const hasGuard = /AND\s+status\s*=\s*'queued'/i.test(sql);
                 const row = state.rows.find((r) => r.id === args[0]);
                 if (!row || (hasGuard && row.status !== "queued")) return { meta: { changes: 0 } };
@@ -158,7 +172,7 @@ function makeConsumerHarness(rows, { workspaces = { ws_q: { deleted_at: null, li
       };
     },
   };
-  const env = { cybermeters_db: db, cybermeters_reports: { get: async () => null, put: async () => {} } };
+  const env = { cybermeters_db: db, cybermeters_reports: { get: async () => null, put: async (key, body) => { state.r2Puts.push({ key, body: JSON.parse(body) }); } } };
   const deps = {
     createAuditEvent: async (_env, evt) => { state.audits.push(evt); },
     heartbeatScan: async (_env, id, stage) => { state.stages.push({ id, stage }); },
@@ -324,6 +338,7 @@ for (const [label, id, workspaces, reason] of [
   ["B14 domain unlinked while queued", "unlinked", { ws_q: { deleted_at: null, links: {} } }, "domain_unlinked"],
   ["B15 verification lost while queued", "unverified", { ws_q: { deleted_at: null, links: { dom_q: "pending" } } }, "domain_unverified"],
   ["B16 workspace row gone", "missing", {}, "workspace_missing"],
+  ["B16b link present with no verification status", "unstated", { ws_q: { deleted_at: null, links: { dom_q: null } } }, "domain_unverified"],
 ]) {
   const { env, deps, state } = makeConsumerHarness([{ ...QUEUED_ROW }], { workspaces });
   const d = await processScanDispatchMessage(msgFor(), env, deps);
@@ -333,6 +348,10 @@ for (const [label, id, workspaces, reason] of [
     state.engineCalls.length === 0 && state.rows[0].status === "failed" &&
     !state.audits.some((a) => a.event_type === "scan_started"),
     JSON.stringify(d));
+  const report = state.r2Puts.find((p) => p.key === "reports/scan_q1.json")?.body;
+  ok(`${label} → the queued report is replaced by a failed one`,
+    report?.status === "failed" && report.reason === AUTHORITY_LOST_REASON &&
+    report.message === AUTHORITY_LOST_CUSTOMER_MESSAGE && report.scan_quality === null && report.findings.length === 0);
   ok(`${label} → one audit naming only the reason`,
     lost.length === 1 && lost[0].metadata?.reason === reason && lost[0].workspace_id === "ws_q" &&
     !JSON.stringify(lost[0]).includes("queue-fixture.co.uk"));
@@ -352,6 +371,61 @@ for (const [label, id, workspaces, reason] of [
   const d = await processScanDispatchMessage(msgFor({ workspace_id: undefined }), env, deps);
   ok("B18 a scan with no workspace (free check) is not workspace-gated",
     d.outcome === "executed" && state.engineCalls.length === 1);
+}
+
+// B19-B23 — the window between the authority read and the claim, the
+// queued-only guard on the fail write, and the row (not the message) as the
+// source of the ids that are checked.
+{
+  const { env, deps, state } = makeConsumerHarness([{ ...QUEUED_ROW }]);
+  // Authority holds at the read, then the workspace is deleted before the claim.
+  state.onAuthorityRead = (s, n) => { if (n === 1) s.workspaces.ws_q.deleted_at = "2026-10-13 09:00:00"; };
+  const d = await processScanDispatchMessage(msgFor(), env, deps);
+  ok("B19 authority lost between the read and the claim → the claim refuses, scan failed unrun",
+    d.outcome === "authority_lost" && d.reason === "workspace_deleted" &&
+    state.engineCalls.length === 0 && state.rows[0].status === "failed" &&
+    !state.audits.some((a) => a.event_type === "scan_started") &&
+    state.audits.filter((a) => a.event_type === "scan_authority_lost").length === 1,
+    JSON.stringify(d));
+}
+{
+  const { env, deps, state } = makeConsumerHarness([{ ...QUEUED_ROW }]);
+  // Lost right after the read (so the claim refuses), restored before the
+  // re-check (at the status re-read): neither run nor failed on this delivery.
+  state.onAuthorityRead = (s, n) => { if (n === 1) s.workspaces.ws_q.links.dom_q = "pending"; };
+  state.onScanRead = (s, n) => { if (n === 2) s.workspaces.ws_q.links.dom_q = "verified"; };
+  const d = await processScanDispatchMessage(msgFor(), env, deps);
+  ok("B20 authority flickers across the claim → retried, never run on the stale read, never failed",
+    d.action === "retry" && d.outcome === "authority_changed" &&
+    state.engineCalls.length === 0 && state.rows[0].status === "queued");
+}
+{
+  const { env, deps, state } = makeConsumerHarness([{ ...QUEUED_ROW }], { workspaces: { ws_q: { deleted_at: "2026-10-12 10:00:00", links: { dom_q: "verified" } } } });
+  // Another delivery claims the row between the authority read and the fail write.
+  state.onAuthorityRead = (s) => { s.rows[0].status = "running"; };
+  const d = await processScanDispatchMessage(msgFor(), env, deps);
+  ok("B21 the fail write never overwrites a row another delivery moved on",
+    d.action === "ack" && d.outcome === "claim_lost" && state.rows[0].status === "running" &&
+    state.audits.length === 0 && state.r2Puts.length === 0, JSON.stringify(d));
+}
+{
+  const { env, deps, state } = makeConsumerHarness([{ ...QUEUED_ROW }], { workspaces: { ws_q: { deleted_at: null, links: { dom_q: "pending" } } } });
+  state.failPoison = new Error("D1_ERROR: network");
+  const d = await processScanDispatchMessage(msgFor(), env, deps);
+  ok("B22 the fail write itself failing → retried, not run, row still queued",
+    d.action === "retry" && d.outcome === "authority_fail_write_failed" &&
+    state.engineCalls.length === 0 && state.rows[0].status === "queued" && state.audits.length === 0);
+}
+{
+  const bare = msgFor({ workspace_id: undefined, domain_id: undefined, domain: undefined });
+  const okRun = makeConsumerHarness([{ ...QUEUED_ROW }]);
+  const d1 = await processScanDispatchMessage(bare, okRun.env, okRun.deps);
+  const lost = makeConsumerHarness([{ ...QUEUED_ROW }], { workspaces: { ws_q: { deleted_at: null, links: { dom_q: "pending" } } } });
+  const d2 = await processScanDispatchMessage(bare, lost.env, lost.deps);
+  ok("B23 a message without identity fields is checked against the ROW's workspace and domain",
+    d1.outcome === "executed" && okRun.state.engineCalls.length === 1 &&
+    d2.outcome === "authority_lost" && d2.reason === "domain_unverified",
+    `${JSON.stringify(d1)} ${JSON.stringify(d2)}`);
 }
 
 // B12 — handleScanDispatchBatch applies the decision to the real message API.
