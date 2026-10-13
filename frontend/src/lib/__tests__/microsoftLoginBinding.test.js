@@ -1,7 +1,6 @@
 import { createHash, webcrypto } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import {
-  clearMicrosoftLoginBindings,
   createMicrosoftLoginBinding,
   forgetMicrosoftLoginVerifier,
   microsoftLoginVerifiers,
@@ -40,13 +39,15 @@ describe('Microsoft sign-in browser binding', () => {
     expect(microsoftLoginVerifiers({ storage, now: 15 * 60 * 1000 + 1 })).toEqual([])
   })
 
-  it('treats unreadable storage as no verifier, and clears on request', async () => {
+  it('treats unreadable storage as no verifier, and forgets a finished sign-in', async () => {
     const storage = memoryStorage()
     storage.setItem('cm_ms_login_bindings', '{not json')
     expect(microsoftLoginVerifiers({ storage })).toEqual([])
-    await createMicrosoftLoginBinding({ storage, cryptoImpl })
-    clearMicrosoftLoginBindings({ storage })
+    const challenge = await createMicrosoftLoginBinding({ storage, cryptoImpl })
+    expect(microsoftLoginVerifiers({ storage })).toHaveLength(1)
+    await forgetMicrosoftLoginVerifier(challenge, { storage, cryptoImpl })
     expect(microsoftLoginVerifiers({ storage })).toEqual([])
+    expect(storage.getItem('cm_ms_login_bindings')).toBeNull()
   })
 
   it('fails when the browser refuses storage, so an unbound sign-in never starts', async () => {
