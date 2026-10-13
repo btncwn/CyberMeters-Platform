@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Measure discovery against the lab worlds.
 //
-//   node scripts/lab/run-discovery-lab.mjs [--root DIR] [--world alpha,bravo,charlie]
+//   node scripts/lab/run-discovery-lab.mjs [--root DIR] [--world alpha,bravo,charlie,delta,foxtrot]
 //        [--egress open|blocked] [--scans N] [--json]
 //
 // --root points at any checkout of the repository (default: this one), so an
@@ -11,7 +11,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runLabWorld } from "./lab-scan.mjs";
-import { DELTA_SCANS, deltaAt, WORLDS } from "./worlds.mjs";
+import { DELTA_SCANS, deltaAt, FOXTROT_SCANS, foxtrotAt, WORLDS } from "./worlds.mjs";
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => {
@@ -35,9 +35,14 @@ for (const name of worlds) {
       scanAs: (i) => (i === DELTA_SCANS - 1 ? "ws_d_other" : "ws_d"),
       env: { RESEND_API_KEY: "lab", ALERT_EMAIL_FROM: "alerts@lab.invalid" },
     })
-    : WORLDS[name]
-      ? await runLabWorld({ root, world: WORLDS[name], egress, scans })
-      : null;
+    : name === "foxtrot"
+      ? await runLabWorld({
+        root, worldAt: foxtrotAt, egress, scans: FOXTROT_SCANS, tenant: "f", subscription: "professional",
+        env: { RESEND_API_KEY: "lab", ALERT_EMAIL_FROM: "alerts@lab.invalid" },
+      })
+      : WORLDS[name]
+        ? await runLabWorld({ root, world: WORLDS[name], egress, scans })
+        : null;
   if (!run) throw new Error(`unknown world ${name}`);
   const { db, env, r2, log, engine_log: _engineLog, ...measurement } = run;
   results.push(measurement);

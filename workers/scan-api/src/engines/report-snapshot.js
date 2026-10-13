@@ -885,9 +885,11 @@ export function composeSnapshot({
         const domainLimits = CYBER_MOT_DOMAINS.find((definition) => definition.domain_key === "certificates_trust").limitations;
         entry.limitations = [...entry.limitations.filter((limit) => !domainLimits.includes(limit)), ...live.limits];
       } else if (entry.state === "assessed_healthy") {
-        entry.summary = "No material issue in the recorded certificate evidence; the served certificate was not captured in this scan.";
+        // A certificate that could not be read is not a certificate without a
+        // problem: no certificate result is stated.
+        entry.summary = "No certificate result: the served certificate was not captured in this scan, and the other recorded evidence showed no issue.";
         entry.state_reason = entry.summary;
-        entry.conclusion_label = "No material issue in recorded evidence";
+        entry.conclusion_label = "Served certificate not captured";
       }
     }
     entry.evidence_grade = domainEvidenceGrade(entry, report);

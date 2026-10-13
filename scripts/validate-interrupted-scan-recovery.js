@@ -78,6 +78,7 @@ const {
   RECOVERY_MIN_AGE_MS,
   RECOVERY_HEARTBEAT_STALE_MS,
   RECOVERY_BATCH_LIMIT,
+  RECOVERY_QUEUED_MAX_WAIT_MS,
   INTERRUPTED_REASON,
 } = await import(enginePath);
 const { scanCompletionAuditStatement } = await import(eventsPath);
@@ -174,7 +175,16 @@ function makeEnv({ scans, r2Objects, afterSelect = null, legacyAudits = [], fail
               }
               return { meta: { changes: 0 } };
             },
-            async first() { return null; },
+            async first() {
+              // "Is the queue still being worked through?" — running scans
+              // with a heartbeat at or after the bound instant.
+              if (/SELECT COUNT\(\*\) AS n FROM scans/i.test(sql)) {
+                const [status, since] = args;
+                const at = (v) => Date.parse(String(v).includes("T") ? String(v) : String(v).replace(" ", "T") + "Z");
+                return { n: state.scans.filter((row) => row.status === status && row.last_heartbeat_at && at(row.last_heartbeat_at) >= Date.parse(since)).length };
+              }
+              return null;
+            },
           };
         },
       };
@@ -769,6 +779,50 @@ for (const inherited of [{ status: "complete" }, { status: "partial" }]) {
   const mutantSummary = await zeroChange.recoverInterruptedScans(env, { now: NOW });
   ok("A3-R5 mutant killed: zero-change Class1 must not increment convergence",
      mutantSummary.converged_from_r2 === 1 && state.audits.length === 1);
+}
+
+// ── Queued scans waiting their turn are not lost ─────────────────────────────
+// Every scan waits in one queue in arrival order; a long queue (many scans
+// started together) holds the last of them past RECOVERY_MIN_AGE_MS. While a
+// scan is running with a fresh heartbeat, a queued scan is waiting, not lost —
+// up to RECOVERY_QUEUED_MAX_WAIT_MS. With nothing running, an old queued scan
+// has nothing ahead of it, and is recovered as before.
+{
+  const queuedRow = (id, ageMs) => ({ id, workspace_id: "ws_Q", domain_id: "dom_Q", domain: "queue.example",
+    status: "queued", created_at: sqlite(ageMs), last_heartbeat_at: null });
+  const workingRow = { id: "scan_working", workspace_id: "ws_W", domain_id: "dom_W", domain: "busy.example",
+    status: "running", created_at: sqlite(3 * 60 * 1000), last_heartbeat_at: iso(60 * 1000) };
+  const placeholder = (id) => ({ [`reports/${id}.json`]: { scan_id: id, status: "queued", findings: [] } });
+
+  {
+    const { env, state } = makeEnv({ scans: [queuedRow("scan_q_waiting", 40 * 60 * 1000), workingRow], r2Objects: placeholder("scan_q_waiting") });
+    const summary = await recoverInterruptedScans(env, { now: NOW });
+    ok("Q1 a queued scan 40 minutes old, behind a queue that is still moving, is left waiting",
+      state.scans[0].status === "queued" && summary.recovered_interrupted === 0 && summary.waiting_in_queue === 1 &&
+        state.r2Puts.length === 0 && state.audits.length === 0, JSON.stringify(summary));
+  }
+  {
+    const { env, state } = makeEnv({ scans: [queuedRow("scan_q_alone", 40 * 60 * 1000)], r2Objects: placeholder("scan_q_alone") });
+    const summary = await recoverInterruptedScans(env, { now: NOW });
+    ok("Q2 the same queued scan with nothing running is lost, and is recovered as before",
+      state.scans[0].status === "failed" && summary.recovered_interrupted === 1, JSON.stringify(summary));
+  }
+  {
+    const { env, state } = makeEnv({ scans: [queuedRow("scan_q_ancient", RECOVERY_QUEUED_MAX_WAIT_MS + 60_000), workingRow], r2Objects: placeholder("scan_q_ancient") });
+    const summary = await recoverInterruptedScans(env, { now: NOW });
+    ok("Q3 a queued scan past the longest wait is recovered even while the queue moves",
+      state.scans[0].status === "failed" && summary.recovered_interrupted === 1, JSON.stringify(summary));
+  }
+  {
+    const zombie = { ...workingRow, id: "scan_zombie", created_at: sqlite(STALE_AGE), last_heartbeat_at: iso(20 * 60 * 1000) };
+    const { env, state } = makeEnv({
+      scans: [queuedRow("scan_q_behind_zombie", 40 * 60 * 1000), zombie],
+      r2Objects: { ...placeholder("scan_q_behind_zombie"), "reports/scan_zombie.json": { scan_id: "scan_zombie", status: "running", findings: [] } },
+    });
+    const summary = await recoverInterruptedScans(env, { now: NOW });
+    ok("Q4 a run whose heartbeat went stale is not a moving queue: both it and the old queued scan are recovered",
+      state.scans.every((row) => row.status === "failed") && summary.recovered_interrupted === 2, JSON.stringify(summary));
+  }
 }
 
 console.log(`\ninterrupted-scan-recovery: ${passed} passed, ${failed} failed`);

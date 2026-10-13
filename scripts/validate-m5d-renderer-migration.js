@@ -318,7 +318,8 @@ async function main() {
   ok("certificate conclusion without a captured leaf is bounded and never claims live-certificate verification",
      cert?.live_certificate_verified === false &&
      /the served certificate was not captured in this scan/.test(cert?.state_reason || "") &&
-     pdfRes.text.includes("No material issue in recorded evidence"));
+     pdfRes.text.includes("Served certificate not captured") &&
+     !pdfRes.text.includes("No material issue in recorded evidence"));
   ok("full Cyber Essentials domain never renders healthy over the 2-of-5 external indicator",
      ce?.state !== "assessed_healthy" &&
      ce?.evidence_grade?.grade === "L0" &&

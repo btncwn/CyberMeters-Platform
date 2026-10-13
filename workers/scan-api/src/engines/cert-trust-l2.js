@@ -1,9 +1,10 @@
 // ── Certificates & Trust L2 intelligence ──
 // Compute-on-read certificate findings, renewal readiness, trust-path posture and
-// historical anomalies from the certificate the live site presented and stored
-// certificate history. This layer is deliberately honest about its limits: it
-// performs no handshake of its own, no chain validation, no OCSP/revocation
-// check and no private-key inspection.
+// anomalies between scans, from the certificate the live site presented and the
+// certificates earlier scans recorded. This layer performs no handshake of its
+// own: the scan's live TLS check records name match and trust-store validation,
+// and those are presented with the certificate evidence. Chain validity, root
+// trust and revocation stay unknown here, and no private key is inspected.
 import {
   detectSelfSignedCertificate,
   mapCertificateAuthorityOwner,
@@ -22,7 +23,7 @@ const FINDING_TYPES = new Set([
   "unknown",
 ]);
 
-const UNKNOWN_LIVE_TLS_REASON = "Unknown — requires live TLS inspection (not performed).";
+const UNKNOWN_LIVE_TLS_REASON = "Not established here: the live TLS checks are shown with the certificate evidence, and revocation is not checked.";
 
 function normaliseString(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -124,10 +125,10 @@ function buildTrustPath(cert, nowMs) {
   const expiryOk = days === null ? "unknown" : days >= 0;
 
   const reasons = [];
-  if (httpsReachable === "unknown") reasons.push("HTTPS reachability was not confirmed by a live TLS inspection.");
+  if (httpsReachable === "unknown") reasons.push("HTTPS reachability was not recorded in this certificate evidence.");
   if (redirectToHttps === "unknown") reasons.push("HTTP to HTTPS redirect posture was not available in certificate evidence.");
   if (hstsPresent === "unknown") reasons.push("HSTS posture was not available in certificate evidence.");
-  reasons.push("Certificate chain validity, trusted root and OCSP status require live TLS inspection and are not assessed here.");
+  reasons.push("This summary does not assess chain validity, root trust or revocation. The live TLS checks (name match and trust-store validation) are shown with the certificate evidence; revocation is not checked.");
 
   return {
     https_reachable: httpsReachable,
@@ -176,7 +177,7 @@ function buildRenewalReadiness(cert, rows, nowMs) {
     recommended_actions.push("Keep renewal ownership and calendar reminders current.");
   }
   if (!recentReissueObserved && rows.length > 1 && days !== null && days <= 30) {
-    recommended_actions.push("Check whether automatic renewal is working; no newer replacement certificate was observed in history.");
+    recommended_actions.push("Check whether automatic renewal is working; no newer replacement certificate was seen in earlier scans.");
   }
 
   return {
@@ -204,7 +205,7 @@ function buildAnomalies(cert, rows) {
       severity: "medium",
       confidence: "medium",
       title: "New certificate issuer observed",
-      reasons: ["The latest certificate issuer differs from previously observed certificate history."],
+      reasons: ["The latest certificate issuer differs from the issuers earlier scans recorded."],
       evidence: [certEvidence(cert, { prior_issuers: [...priorIssuers].sort() })],
       first_seen: rows.find((row) => normaliseString(row.issuer) === currentIssuer)?.first_seen || null,
       prior: [...priorIssuers].sort(),
@@ -218,7 +219,7 @@ function buildAnomalies(cert, rows) {
       severity: newSans.some((san) => san.includes("admin") || san.includes("vpn") || san.includes("sso")) ? "high" : "medium",
       confidence: "medium",
       title: "New certificate SAN observed",
-      reasons: [`${newSans.length} SAN hostname${newSans.length === 1 ? "" : "s"} were not present in prior certificate history.`],
+      reasons: [`${newSans.length} SAN hostname${newSans.length === 1 ? "" : "s"} were not on the certificates earlier scans recorded.`],
       evidence: [certEvidence(cert, { new_sans: newSans.slice(0, 20) })],
       first_seen: null,
       prior: [...priorSans].sort().slice(0, 20),
@@ -232,7 +233,7 @@ function buildAnomalies(cert, rows) {
       severity: "medium",
       confidence: "medium",
       title: "New wildcard certificate name observed",
-      reasons: ["A wildcard SAN appears on the current certificate but was not present in prior certificate history."],
+      reasons: ["A wildcard SAN appears on the current certificate but was not on the certificates earlier scans recorded."],
       evidence: [certEvidence(cert, { wildcard_sans: newWildcards })],
       first_seen: null,
       prior: [...priorSans].filter((san) => san.startsWith("*.")).sort(),
@@ -363,9 +364,9 @@ export function buildCertificateTrustL2(cert, options = {}) {
       severity: "info",
       confidence: "low",
       title: "No certificate L2 gaps found from available evidence",
-      reasons: ["The available live TLS and historical certificate evidence did not show a specific certificate gap."],
+      reasons: ["The live TLS evidence and the certificates earlier scans recorded did not show a specific certificate gap."],
       evidence: [certEvidence(current, { trust_path_limit: UNKNOWN_LIVE_TLS_REASON })],
-      remediation: ["Use live TLS inspection if you need chain, root trust, OCSP or served-certificate verification."],
+      remediation: ["Revocation and the exact chain the server sends are not checked; see the live TLS checks for name match and trust."],
     });
   }
 

@@ -5,16 +5,97 @@
 // registry, so this module has no import cycle.
 import { recordMetric } from "../lib/metrics.js";
 import { persistOperationalEvent, OPS_EVENT_TYPES } from "../lib/operational-events.js";
+import { isScheduledQueueDispatchMode } from "../engines/scan-dispatch.js";
 
 // Scheduled-scan burst controls. Each full scan fans out ~80-250 subrequests,
 // and every due scan in a tick shares the ONE Worker invocation's 1,000-
 // subrequest budget (waitUntil work does not get a fresh budget). So we cap both
 // how many are picked per tick AND how many run concurrently: peak fan-out ≈
-// CONCURRENCY × max_per_scan, kept well under 1,000. Fairness is preserved by
-// the SELECT's `ORDER BY next_run_at ASC` (oldest-due first; a picked schedule
-// advances next_run_at before running, so it moves to the back of the queue).
+// CONCURRENCY × max_per_scan, kept well under 1,000. In queue mode a pick is
+// admission + dispatch only (~20 D1 queries, measured by scripts/lab/load-lab.mjs),
+// and the same cap keeps a tick inside the invocation's 1,000-query D1 budget.
 export const SCHEDULED_SCAN_MAX_PER_TICK = 12;
 export const SCHEDULED_SCAN_CONCURRENCY = 3;
+
+// The hourly tick runs every task. The dispatch ticks between the hours run the
+// scheduled-scan dispatch alone, so a schedule waits at most ten minutes for
+// its turn and each tick hands the queue a small batch rather than one large
+// burst on the hour.
+export const HOURLY_CRON = "0 * * * *";
+export const DISPATCH_CRON = "10,20,30,40,50 * * * *";
+export const DISPATCH_TICK_MS = 10 * 60 * 1000;
+
+// Due schedules are picked one account at a time: every account's oldest due
+// schedule first (oldest account first), then every account's second, and so
+// on. An account with hundreds of schedules due at once takes its turn beside
+// accounts with one, instead of ahead of them.
+export const FAIR_DUE_SCHEDULES_SQL = `
+  SELECT id, domain, frequency, workspace_id, next_run_at, last_run_at, created_at
+  FROM (
+    SELECT ss.id, ss.domain, ss.frequency, ss.workspace_id, ss.next_run_at, ss.last_run_at, ss.created_at,
+           ROW_NUMBER() OVER (
+             PARTITION BY COALESCE(w.owner_user_id, ss.workspace_id, ss.id)
+             ORDER BY ss.next_run_at ASC, ss.id ASC
+           ) AS account_turn
+    FROM scheduled_scans ss
+    LEFT JOIN workspaces w ON w.id = ss.workspace_id
+    WHERE ss.enabled = 1
+      AND (ss.next_run_at IS NULL OR ss.next_run_at <= ?)
+  )
+  ORDER BY account_turn ASC, next_run_at ASC, id ASC
+  LIMIT ${SCHEDULED_SCAN_MAX_PER_TICK}`;
+
+// The next dispatch tick after `nowMs`: where a schedule that could not start
+// this tick goes back in line.
+export function nextDispatchTickIso(nowMs) {
+  return new Date((Math.floor(nowMs / DISPATCH_TICK_MS) + 1) * DISPATCH_TICK_MS).toISOString();
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+export const LONG_FAILING_RETRY_MS = 60 * 60 * 1000;
+
+// D1 holds both `YYYY-MM-DD HH:MM:SS` (SQLite default) and ISO strings.
+function parseScheduleTime(value) {
+  if (!value) return null;
+  const text = String(value);
+  const ms = Date.parse(text.includes("T") ? text : `${text.replace(" ", "T")}Z`);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+// Where a schedule that did not start goes back in line. Most reasons pass
+// within minutes (a scan of the domain already running, the account's waiting
+// scans), so it is retried on the next dispatch tick. A schedule that has not
+// started for two of its periods is waiting on its customer (verification
+// removed, plan ended), so it is retried hourly and leaves the ticks between
+// to schedules that can run.
+export function retryAtFor(schedule, nowMs) {
+  const periodMs = schedule?.frequency === "weekly" ? 7 * DAY_MS : DAY_MS;
+  const lastStarted = parseScheduleTime(schedule?.last_run_at) ?? parseScheduleTime(schedule?.created_at);
+  const failingLong = lastStarted == null || nowMs - lastStarted > 2 * periodMs;
+  return failingLong ? nextDispatchTickIso(nowMs + LONG_FAILING_RETRY_MS - DISPATCH_TICK_MS) : nextDispatchTickIso(nowMs);
+}
+
+// One due schedule: start it, and if it did not start — its workspace has no
+// owner, it is no longer eligible, a scan of that domain is already running,
+// or admission refused it — move it back in line (retryAtFor). Left due, it
+// would stay the oldest due schedule and be picked first on every tick, and a
+// dozen such schedules would take every slot from every account for good. The
+// write only moves a schedule whose due time this tick did not change, so a
+// schedule the trigger stamped is never touched.
+export async function dispatchDueSchedule(schedule, env, tasks, nowMs) {
+  try {
+    await tasks.triggerScheduledScan(schedule, env);
+  } finally {
+    await env.cybermeters_db
+      .prepare(
+        `UPDATE scheduled_scans SET next_run_at = ?
+         WHERE id = ? AND enabled = 1 AND next_run_at IS ?`
+      )
+      .bind(retryAtFor(schedule, nowMs), schedule.id, schedule.next_run_at ?? null)
+      .run()
+      .catch(() => { /* the schedule stays due; the next tick retries it */ });
+  }
+}
 
 // Bounded worker pool: at most `concurrency` fn(item) run at once. Per-item
 // failures are isolated — one scan can never abort another — preserving the
@@ -49,29 +130,30 @@ export async function runCronTask(env, name, fn) {
 // ── Cron Handler ──────────────────────────────────────────────────────
 export async function runScheduled(event, env, ctx, tasks) {
   const now = new Date().toISOString();
+  const dispatchOnly = event?.cron === DISPATCH_CRON;
+  // Outside queue mode a pick runs the whole scan inline, for minutes; a
+  // dispatch tick ten minutes later could pick a schedule the previous tick
+  // has not stamped yet and run it twice. Those ticks dispatch only in queue
+  // mode, where a pick is admission and a queue message.
+  if (dispatchOnly && !isScheduledQueueDispatchMode(env)) return;
 
   // F-027: durable proof the hourly cron actually ran. One idempotent event per
   // hour bucket (safe correlation id, no content), so a deadman monitor can tell
   // "cron is firing" from "cron silently stopped". Never fatal to the tick.
-  const hourBucket = now.slice(0, 13);
-  await persistOperationalEvent(env, {
-    eventType:     OPS_EVENT_TYPES.CRON_TICK,
-    correlationId: `cron:${hourBucket}`,
-    status:        "ok",
-  }).catch(() => { /* observability is best-effort; the tick's real work follows */ });
+  if (!dispatchOnly) {
+    const hourBucket = now.slice(0, 13);
+    await persistOperationalEvent(env, {
+      eventType:     OPS_EVENT_TYPES.CRON_TICK,
+      correlationId: `cron:${hourBucket}`,
+      status:        "ok",
+    }).catch(() => { /* observability is best-effort; the tick's real work follows */ });
+  }
 
   // ── Scheduled scans ────────────────────────────────────────────────────
   let result;
   try {
     result = await env.cybermeters_db
-      .prepare(
-        `SELECT id, domain, frequency, workspace_id
-         FROM scheduled_scans
-         WHERE enabled = 1
-           AND (next_run_at IS NULL OR next_run_at <= ?)
-         ORDER BY next_run_at ASC
-         LIMIT ${SCHEDULED_SCAN_MAX_PER_TICK}`
-      )
+      .prepare(FAIR_DUE_SCHEDULES_SQL)
       .bind(now)
       .all();
   } catch {
@@ -83,8 +165,10 @@ export async function runScheduled(event, env, ctx, tasks) {
   // even when many rich-domain schedules are due in the same tick.
   const dueScans = result?.results || [];
   if (dueScans.length > 0) {
-    ctx.waitUntil(runBoundedPool(dueScans, SCHEDULED_SCAN_CONCURRENCY, (schedule) => tasks.triggerScheduledScan(schedule, env)));
+    const nowMs = Date.parse(now);
+    ctx.waitUntil(runBoundedPool(dueScans, SCHEDULED_SCAN_CONCURRENCY, (schedule) => dispatchDueSchedule(schedule, env, tasks, nowMs)));
   }
+  if (dispatchOnly) return;
 
   // ── Scheduled executive reports ────────────────────────────────────────
   // Weekly on Mondays, monthly on the 1st of the month.

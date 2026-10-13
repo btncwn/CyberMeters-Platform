@@ -844,7 +844,9 @@ function sectionCertificateAssurance(w, snap, { detail = "full" } = {}) {
       const signal = assurance.signals?.[key];
       if (!signal) continue;
       w.keepTogether(28);
-      w.text(`${signal.label}: ${signal.state_label || signal.state || "Not observed"}`, {
+      // Name match, expiry and trust read as a check outcome when the snapshot
+      // recorded one; older snapshots keep their evidence state.
+      w.text(`${signal.label}: ${signal.check?.label || signal.state_label || signal.state || "Not observed"}`, {
         size: 8,
         bold: true,
       });
