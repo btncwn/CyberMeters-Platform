@@ -222,16 +222,16 @@ export function TlsAuthorizationSettings({ workspaceId }) {
   const services = current?.services || []
   if (current && current.capabilities?.assessment_available !== true) return null
   return <section id="tls-permissions" className="card p-5 mb-6 space-y-4" aria-label="TLS scan permissions">
-    <div><h2 className="text-lg font-semibold text-gray-900">TLS scan permissions</h2><p className="text-sm text-gray-600 mt-1">Normal scans assess protocols, ciphers and certificates on authorized endpoints. Special vulnerability probes require the permission below.</p></div>
+    <div><h2 className="text-lg font-semibold text-gray-900">TLS scan permissions</h2><p className="text-sm text-gray-600 mt-1">Normal scans assess protocols, ciphers and certificates on authorized endpoints. Additional services need their own scope below.</p></div>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
     {notice && <p role="status" className="text-sm text-gray-700">{notice}</p>}
     {!current ? <button type="button" className="btn-secondary text-sm" onClick={load}>Reload TLS permissions</button> : <>
-      <form onSubmit={savePermission} className="space-y-2">
+      {current.capabilities?.special_controls_available === true && <form onSubmit={savePermission} className="space-y-2">
         <label className="flex items-start gap-2 text-sm text-gray-800"><input type="checkbox" className="mt-1" checked={desired} onChange={event => setDesired(event.target.checked)} disabled={!canManage || busy} /><span>Allow bounded checks for known TLS vulnerabilities on this workspace’s authorized targets.</span></label>
-        <p className="text-xs text-gray-500">This permission is reserved for bounded Heartbleed, ROBOT and CCS checks. The current engine cannot run those checks; each remains marked “Could not execute” until separately validated. No memory harvesting, data decryption or load testing. This permission adds no domains, IP addresses or ports to your scope.</p>
+        <p className="text-xs text-gray-500">This permission is reserved for separately validated, bounded Heartbleed, ROBOT and CCS checks. No memory harvesting, data decryption or load testing. It adds no domains, IP addresses or ports to your scope.</p>
         <p className="text-xs text-gray-500">{current.authorization?.enabled ? 'Special checks are permitted.' : 'Special checks are not permitted.'} Saving this setting does not start a scan.</p>
         {canManage ? <button className="btn-secondary text-sm" disabled={busy || desired === (current.authorization?.enabled === true)}>{busy ? 'Saving…' : 'Save TLS permission'}</button> : <p className="text-xs text-gray-500">A workspace admin can change these permissions.</p>}
-      </form>
+      </form>}
       <details className="border-t border-gray-100 pt-3">
         <summary className="cursor-pointer text-sm font-semibold">Additional TLS services ({services.length})</summary>
         <p className="text-sm text-gray-600 mt-3">A verified domain does not authorize other ports or other customers on a shared IP. Add each service explicitly using a verified domain and an IP target you are authorized to test. Before a check, its current DNS address must match that target.</p>

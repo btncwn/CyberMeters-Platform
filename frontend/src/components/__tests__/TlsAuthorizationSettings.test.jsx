@@ -5,11 +5,19 @@ import {TlsAuthorizationSettings} from '../../pages/ws/CertificatesPage'
 import {api} from '../../api'
 
 vi.mock('../../api',()=>({api:{getTlsAuthorization:vi.fn(),saveTlsAuthorization:vi.fn(),authorizeTlsService:vi.fn(),revokeTlsService:vi.fn()}}))
-const permission=(change={})=>({authorization:{enabled:false,generation:0},services:[],verified_domains:[{domain_id:'domain-a',domain:'owned.example.com'}],network_targets:[{id:'target-a',target:'8.8.8.8'}],capabilities:{can_manage:true,assessment_available:true},allowed_services:{https:[443,8443],smtp:[25,587]},consent_version:'tls-special-2026-10-13',...change})
+const permission=(change={})=>({authorization:{enabled:false,generation:0},services:[],verified_domains:[{domain_id:'domain-a',domain:'owned.example.com'}],network_targets:[{id:'target-a',target:'8.8.8.8'}],capabilities:{can_manage:true,assessment_available:true,special_controls_available:true},allowed_services:{https:[443,8443],smtp:[25,587]},consent_version:'tls-special-2026-10-13',...change})
 const renderSettings=(workspaceId='workspace-a')=>render(<MemoryRouter><TlsAuthorizationSettings workspaceId={workspaceId} /></MemoryRouter>)
 beforeEach(()=>{vi.clearAllMocks();api.getTlsAuthorization.mockResolvedValue(permission());api.saveTlsAuthorization.mockResolvedValue({});api.authorizeTlsService.mockResolvedValue({});api.revokeTlsService.mockResolvedValue({})})
 
 describe('workspace TLS permissions',()=>{
+  it('keeps unavailable special probes off the customer permission screen',async()=>{
+    api.getTlsAuthorization.mockResolvedValue(permission({capabilities:{can_manage:true,assessment_available:true,special_controls_available:false}}))
+    renderSettings()
+    await screen.findByText(/Normal scans assess protocols, ciphers and certificates/)
+    expect(screen.queryByRole('checkbox',{name:/Allow bounded checks/})).not.toBeInTheDocument()
+    expect(screen.getByText(/Additional TLS services/)).toBeInTheDocument()
+    expect(api.saveTlsAuthorization).not.toHaveBeenCalled()
+  })
   it('does not offer TLS permissions while the assessment is disabled',async()=>{
     api.getTlsAuthorization.mockResolvedValue(permission({capabilities:{can_manage:true,assessment_available:false}}))
     const view=renderSettings()
@@ -22,7 +30,7 @@ describe('workspace TLS permissions',()=>{
     const toggle=await screen.findByRole('checkbox',{name:/Allow bounded checks/})
     expect(toggle).not.toBeChecked()
     expect(screen.getByText(/Normal scans assess protocols, ciphers and certificates/)).toBeInTheDocument()
-    expect(screen.getByText(/The current engine cannot run those checks/)).toBeInTheDocument()
+    expect(screen.getByText(/separately validated, bounded Heartbleed/)).toBeInTheDocument()
     expect(api.saveTlsAuthorization).not.toHaveBeenCalled()
     fireEvent.click(toggle);fireEvent.click(screen.getByRole('button',{name:'Save TLS permission'}))
     await waitFor(()=>expect(api.saveTlsAuthorization).toHaveBeenCalledWith('workspace-a',{enabled:true,authorization_confirmed:true,consent_version:'tls-special-2026-10-13'}))
@@ -35,7 +43,7 @@ describe('workspace TLS permissions',()=>{
     expect(await screen.findByRole('status')).toHaveTextContent('Running special checks must stop')
   })
   it('makes the permission read-only for viewers and does not expose service mutations',async()=>{
-    api.getTlsAuthorization.mockResolvedValue(permission({capabilities:{can_manage:false,assessment_available:true}}))
+    api.getTlsAuthorization.mockResolvedValue(permission({capabilities:{can_manage:false,assessment_available:true,special_controls_available:true}}))
     renderSettings();expect(await screen.findByRole('checkbox',{name:/Allow bounded checks/})).toBeDisabled()
     expect(screen.queryByRole('button',{name:'Save TLS permission'})).not.toBeInTheDocument()
     expect(screen.queryByRole('form',{name:'Authorize a TLS service'})).not.toBeInTheDocument()

@@ -87,7 +87,9 @@ import {
 // `2026-10-12.1`: certificate logs are no longer a source. Certificates read only
 // the certificate the live site presents; each domain's monitoring dependency is
 // the signal that actually feeds it. Cross-version trends are incomparable.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-12.1";
+// `2026-10-13.1`: measured TLS findings and incomplete deep-TLS coverage enter
+// Certificates & Trust without rewriting historical scans lacking that module.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-13.1";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -176,14 +178,14 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
   {
     domain_key: "certificates_trust",
     display_name: "Certificates & Trust",
-    description: "Certificate expiry, issuer, hostname match and trust of the certificate your live site presents.",
-    modules: ["certificate_intelligence"],
+    description: "Certificate and measured TLS configuration on the tested endpoints.",
+    modules: ["certificate_intelligence", "tls_assessment"],
     required: ["certificate_intelligence"],
-    match: (f) => /^(cert_|certificate_)/.test(f.id || "")
+    match: (f) => /^(cert_|certificate_|tls_)/.test(f.id || "")
       || ["dse_missing_caa", "dse_caa_no_issuers"].includes(f?.id)
-      || f.module === "certificate_intelligence",
+      || f.module === "certificate_intelligence" || f.module === "tls_assessment",
     maturity: "M2", managed_status: "recommendations",
-    limitations: ["Analysis covers the certificate presented to CyberMeters' live TLS check on the tested endpoints only. OCSP and revocation status are not checked and remain unknown."],
+    limitations: ["TLS conclusions apply only to the tested endpoints and completed controls. Without a valid stapled OCSP response, revocation status remains unknown; no external revocation lookup is made."],
   },
   {
     domain_key: "cyber_essentials_readiness",
@@ -241,6 +243,7 @@ function moduleAssessed(report, name, skippedSet) {
     const c = m.coverage;
     return c?.completed > 0 && !(c.pending_assets > 0) && ["pending", "blocked", "budget_exhausted", "uncertain"].every((key) => c[key] === 0);
   }
+  if (name === "tls_assessment") return m.quality === "complete" && m.coverage?.completed > 0;
   if (name === "ssl" && resolveTlsRuntimeState(m).state === TLS_RUNTIME_STATES.UNAVAILABLE) return false;
   if (m.error) return false;
   if (m.skipped === true || m.incomplete === true) return false;
@@ -252,6 +255,7 @@ function moduleAttempted(report, name, skippedSet) {
   const m = report?.modules?.[name];
   if (m == null) return skippedSet.has(name);
   if (name === "external_exposure") return !moduleAssessed(report, name, skippedSet);
+  if (name === "tls_assessment") return !moduleAssessed(report, name, skippedSet);
   if (name === "ssl" && resolveTlsRuntimeState(m).state === TLS_RUNTIME_STATES.UNAVAILABLE) return true;
   return !!(m.error || m.skipped === true || m.incomplete === true || skippedSet.has(name));
 }
@@ -413,6 +417,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     // Historical reports keep their declared scope. New reports explicitly include
     // exposure coverage; unavailable or unfinished checks cannot imply full health.
     if (d.domain_key === "website_security" && report.modules?.external_exposure) required.push("external_exposure");
+    if (d.domain_key === "certificates_trust" && report.modules?.tls_assessment) required.push("tls_assessment");
     const assessed = relevant.filter((n) => moduleAssessed(report, n, skippedSet));
     const requiredAssessedAll = required.length > 0 && required.every((n) => moduleAssessed(report, n, skippedSet));
     const requiredInsufficient = required.filter((n) => moduleAttempted(report, n, skippedSet));

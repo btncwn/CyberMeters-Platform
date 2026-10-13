@@ -63,7 +63,8 @@ const endpoint={endpoint:request.endpoint,endpoint_identity:'mail.acme.org|mail.
 const plan=buildTlsCheckPlan({endpoints:[endpoint],cipherCatalog:[{protocol:'tls1_2',name:'ECDHE-RSA-AES256-GCM-SHA384',executable:true},
   {protocol:'ssl2',name:'EXP-RC4-MD5',executable:false,reason:'engine_unsupported'}],maxChecks:100});
 assert(plan.selected.some(row=>row.check.control==='cipher'&&row.check.protocol==='tls1_2'));
-assert(plan.static_results.some(row=>row.check.control==='heartbleed'&&row.state==='not_authorized'));
+assert(plan.static_results.some(row=>row.check.control==='heartbleed'&&row.state==='unexecutable'
+  &&row.reason==='engine_capability_limit'));
 const consentedPlan=buildTlsCheckPlan({endpoints:[{...endpoint,scope:{...endpoint.scope,special_consent:true,
   consent_version:'tls-special-2026-10-13'}}],maxChecks:100});
 assert(consentedPlan.static_results.some(row=>row.check.control==='heartbleed'&&row.state==='unexecutable'

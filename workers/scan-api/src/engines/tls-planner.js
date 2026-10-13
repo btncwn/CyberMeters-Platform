@@ -135,8 +135,8 @@ export function buildTlsCheckPlan({endpoints,cipherCatalog=[],previousFindings=[
         const check = {control,protocol,cipher_id:null};
         const special = TLS_SPECIAL_CONTROLS.includes(control);
         const status = !applicableTlsControl(control,protocol) ? 'not_applicable'
-          : special && !entry.scope.special_consent ? 'not_authorized'
-          : special && !TLS_SPECIAL_CONTROLS_AVAILABLE ? 'unexecutable' : 'pending';
+          : special && !TLS_SPECIAL_CONTROLS_AVAILABLE ? 'unexecutable'
+          : special && !entry.scope.special_consent ? 'not_authorized' : 'pending';
         all.push({endpoint_index:endpointIndex,check,state:status,
           reason:status === 'unexecutable' ? 'engine_capability_limit' : status === 'pending' ? null : status});
       }

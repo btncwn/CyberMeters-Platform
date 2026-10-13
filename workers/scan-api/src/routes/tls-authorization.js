@@ -1,5 +1,6 @@
 import { createId } from '../lib/util.js';
 import { isProbeHostname, readBoundedJson } from '../../../network-probe/src/contract.js';
+import { TLS_SPECIAL_CONTROLS_AVAILABLE } from '../../../../shared/tls/catalog.js';
 
 export const TLS_SPECIAL_CONSENT_VERSION = 'tls-special-2026-10-13';
 export const TLS_SERVICE_PORTS = Object.freeze({https:[443,8443],smtp:[25,587],smtps:[465],imap:[143],imaps:[993],pop3:[110],pop3s:[995]});
@@ -12,7 +13,7 @@ export const tlsServiceProjection = row => Object.fromEntries(['id','domain_id',
 // Every scope query includes workspace_id. Authorization records never imply
 // that the registered IP currently serves this hostname: the runner proves that
 // DNS binding before each slice and never scans other tenants on a shared IP.
-export async function tlsAuthorizationRoutes(rctx) {
+export async function tlsAuthorizationRoutes(rctx, { specialControlsAvailable = TLS_SPECIAL_CONTROLS_AVAILABLE } = {}) {
   const {request,env,url,json,requireAuth,requireWorkspaceRole,serverError} = rctx;
   const match = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/tls-authorization(?:\/(services)(?:\/([^/]+)\/(revoke))?)?$/);
   if (!match) return null;
@@ -28,13 +29,13 @@ export async function tlsAuthorizationRoutes(rctx) {
     const readAuthorization = async () => tlsAuthorizationProjection(await db.prepare('SELECT * FROM workspace_tls_authorizations WHERE workspace_id=?').bind(workspaceId).first());
     const readServices = async () => (await db.prepare("SELECT * FROM workspace_tls_service_authorizations WHERE workspace_id=? AND authorization_status='active' ORDER BY authorized_at,id LIMIT 64").bind(workspaceId).all()).results.map(tlsServiceProjection);
     if (request.method === 'GET' && !serviceId) {
-      if (resource) return json({services:await readServices(),capabilities:{can_manage:canManage,assessment_available:assessmentAvailable}});
+      if (resource) return json({services:await readServices(),capabilities:{can_manage:canManage,assessment_available:assessmentAvailable,special_controls_available:specialControlsAvailable}});
       const [authorization,services,domains,targets] = await Promise.all([
         readAuthorization(),readServices(),
         db.prepare("SELECT d.id AS domain_id,d.domain FROM workspace_domains wd JOIN domains d ON d.id=wd.domain_id WHERE wd.workspace_id=? AND wd.verification_status='verified' ORDER BY d.domain").bind(workspaceId).all(),
         db.prepare("SELECT id,target FROM network_targets WHERE workspace_id=? AND authorization_status='attested' ORDER BY target,id LIMIT 32").bind(workspaceId).all(),
       ]);
-      return json({authorization,services,verified_domains:domains.results,network_targets:targets.results,capabilities:{can_manage:canManage,assessment_available:assessmentAvailable},allowed_services:TLS_SERVICE_PORTS,max_services:TLS_SERVICE_LIMIT,consent_version:TLS_SPECIAL_CONSENT_VERSION});
+      return json({authorization,services,verified_domains:domains.results,network_targets:targets.results,capabilities:{can_manage:canManage,assessment_available:assessmentAvailable,special_controls_available:specialControlsAvailable},allowed_services:TLS_SERVICE_PORTS,max_services:TLS_SERVICE_LIMIT,consent_version:TLS_SPECIAL_CONSENT_VERSION});
     }
     if (!canManage) return json({error:'Forbidden — admin role required'},403);
     if (!((request.method === 'PUT' && !resource) || (request.method === 'POST' && resource))) return json({error:'Not found'},404);
@@ -52,7 +53,7 @@ export async function tlsAuthorizationRoutes(rctx) {
     if (request.method === 'PUT' && !resource) {
       if (!strict(body,['enabled','authorization_confirmed','consent_version']) || typeof body.enabled !== 'boolean') return json({error:'invalid_tls_authorization_body'},400);
       if (body.enabled && (body.authorization_confirmed !== true || body.consent_version !== TLS_SPECIAL_CONSENT_VERSION)) return json({error:'tls_explicit_authorization_required'},400);
-      if (body.enabled && !assessmentAvailable) return json({error:'tls_assessment_unavailable'},409);
+      if (body.enabled && (!assessmentAvailable || !specialControlsAvailable)) return json({error:'tls_assessment_unavailable'},409);
       const write = db.prepare(`INSERT INTO workspace_tls_authorizations(workspace_id,enabled,generation,consent_version,authorized_by,authorized_at,revoked_by,revoked_at,updated_at)
         SELECT ?,?,1,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)
         ON CONFLICT(workspace_id) DO UPDATE SET enabled=excluded.enabled,generation=generation+1,
