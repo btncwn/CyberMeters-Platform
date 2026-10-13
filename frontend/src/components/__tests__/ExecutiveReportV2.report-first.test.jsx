@@ -564,6 +564,8 @@ describe('ExecutiveReportV2 report-first corrective', () => {
 
     const historicalSnapshot = structuredClone(current.snapshot)
     historicalSnapshot.methodology.cyber_mot_resolver_version = '2026-08-30.1'
+    // A snapshot keeps the score methodology it was built under.
+    historicalSnapshot.methodology.cyber_metrics_score_methodology_version = '2026-08-26.1'
     for (const domain of historicalSnapshot.domains) {
       domain.methodology_version = '2026-08-30.1'
       if (domain.trend) domain.trend.resolver_version = '2026-08-30.1'
@@ -579,6 +581,7 @@ describe('ExecutiveReportV2 report-first corrective', () => {
     })
     expect(JSON.stringify(historicalSnapshot)).toBe(bytesBefore)
     expect(historicalReport.methodology.cyber_mot_resolver_version).toBe('2026-08-30.1')
+    expect(historicalReport.methodology.cyber_metrics_score_methodology_version).toBe('2026-08-26.1')
 
     render(<ExecutiveReportV2 report={historicalReport} />)
     expect(screen.getByText(/Resolver 2026-08-30\.1 · Score methodology 2026-08-26\.1/)).toBeInTheDocument()
