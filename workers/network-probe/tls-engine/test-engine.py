@@ -59,6 +59,10 @@ def bridge(binary, arguments, port=None, mutate=None, abort=False):
                 raise AssertionError('child exited without result: ' + str(child.returncode))
             for key, _ in ready:
                 if key.data == 'network':
+                    # A child close frame can retire this socket earlier in the
+                    # same select batch. Ignore that now-stale readiness event.
+                    if sock is None or key.fileobj is not sock:
+                        continue
                     data = sock.recv(16384)
                     if not data:
                         events.unregister(sock)
