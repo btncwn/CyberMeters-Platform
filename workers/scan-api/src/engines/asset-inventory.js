@@ -7,6 +7,7 @@ import { collectAssetHints, hintsForAsset, mergeAssetSightings, safeLocation } f
 import { deriveRemovalObservation } from "./attack-surface-signal-completeness.js";
 import { normalizeHostname } from "./hostnames.js";
 import { createId } from "../lib/util.js";
+import { hashToken } from "../lib/auth-crypto.js";
 import { loadTimelineComparisonContext } from "./timeline-trust.js";
 
 function normalizeInventoryValue(value) {
@@ -44,11 +45,61 @@ function hostnameFromRedirectTarget(value) {
   }
 }
 
-// A stored redirect location is compared without its query, fragment or path
-// parameters: those are never kept, and a row stored before that rule must
-// not read as a redirect change.
-function comparableRedirect(value) {
-  return safeLocation(normalizeInventoryValue(value)) || normalizeInventoryValue(value);
+// Where a name's web answer finally came from, for change detection: the host
+// (with a non-default port). A different path or query is not a change of
+// where the name sends people, and neither is a scheme flip on the same host —
+// HTTPS not answering once, so only HTTP did, is an availability question, not
+// a redirect. A row stored before queries were dropped compares the same way.
+function redirectLanding(value) {
+  const location = safeLocation(normalizeInventoryValue(value));
+  if (!location) return null;
+  try {
+    const url = new URL(location);
+    return { host: url.host.toLowerCase(), origin: url.origin };
+  } catch {
+    return null;
+  }
+}
+
+function redirectChangeDescription(hostname, previous, current) {
+  const own = normalizeHostname(hostname);
+  if (previous.host === own) return `${hostname} now redirects to ${current.origin} (it previously answered on its own name)`;
+  if (current.host === own) return `${hostname} no longer redirects to ${previous.origin}; it answers on its own name`;
+  return `${hostname} now redirects to ${current.origin} (was ${previous.origin})`;
+}
+
+// One event per (workspace, scan, type, name): replaying a scan's inventory
+// step can never write the same event twice.
+async function inventoryEventId(workspaceId, scanId, eventType, hostname) {
+  const digest = await hashToken(JSON.stringify(["asset-inventory-event-v1", workspaceId, scanId, eventType, hostname]));
+  return `evt-${digest.slice(0, 32)}`;
+}
+
+function splitAddressFamilies(value) {
+  const list = normalizeIpAddressList(value).split(", ").filter(Boolean);
+  return { v4: list.filter((address) => !address.includes(":")), v6: list.filter((address) => address.includes(":")) };
+}
+
+// DNS outcomes that settle a family: its addresses, or that it has none.
+const DEFINITIVE_FAMILY_OUTCOMES = new Set(["answer", "nodata", "nxdomain", "alias", "dangling_alias"]);
+
+// The addresses to store for a name. A family this scan answered definitively
+// replaces what was stored; a family whose question failed, timed out or was
+// not asked keeps the stored addresses, so a lookup failure never reads as an
+// address change. Without per-family evidence the scan's list is used as is.
+function addressesToStore(previousRaw, currentRaw, dnsEvidence) {
+  if (currentRaw == null) return null;
+  if (!dnsEvidence?.A || !dnsEvidence?.AAAA) return currentRaw;
+  const previous = splitAddressFamilies(previousRaw);
+  const current = splitAddressFamilies(currentRaw);
+  const v4 = DEFINITIVE_FAMILY_OUTCOMES.has(dnsEvidence.A.outcome) ? current.v4 : previous.v4;
+  const v6 = DEFINITIVE_FAMILY_OUTCOMES.has(dnsEvidence.AAAA.outcome) ? current.v6 : previous.v6;
+  return JSON.stringify([...v4, ...v6].sort());
+}
+
+function takeoverKey(risk) {
+  const host = normalizeHostname(risk?.host);
+  return host ? `${host}>${normalizeHostname(risk?.cname) || ""}` : "";
 }
 
 function isExternalRedirectTarget(value, domain) {
@@ -72,6 +123,12 @@ function isExternalRedirectTarget(value, domain) {
 //
 // opts.hints: where each name was seen this scan (collectAssetHints); each
 // row's per-source first/last sighting is kept in sightings_json.
+// opts.assetEvidence: this scan's per-name evidence (buildScanAssetEvidence);
+// its per-family DNS answers decide which stored addresses a scan may replace.
+//
+// Change events need a comparable previous scan of the same workspace. A
+// standing condition (a takeover candidate, a wildcard) is announced when it
+// appears, not again on every scan while it lasts.
 
 export async function upsertAssetInventory(scanId, domainId, domain, modules, env, opts = {}) {
   const workspaceId = typeof opts.workspaceId === "string" && opts.workspaceId ? opts.workspaceId : null;
@@ -248,10 +305,13 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
     if (!h) continue;
     const existing = allAssets.find((a) => a.hostname === h);
     if (!existing && !probeObserved(asset, h)) continue;
+    // Only a probe that got an answer says where the name redirects; a failed
+    // probe's placeholder URL is not a location.
+    const answeredLocation = Number.isInteger(asset.status) ? safeLocation(asset.redirect_to ?? asset.url ?? null) : null;
     if (existing) {
       existing.ip_addresses = existing.ip_addresses ?? JSON.stringify(asset.ip ? [asset.ip] : []);
       existing.cname        = existing.cname ?? asset.cname ?? null;
-      existing.redirect_to  = safeLocation(asset.redirect_to ?? asset.url ?? null);
+      existing.redirect_to  = answeredLocation;
       existing.cloud        = existing.cloud ?? asset.infrastructure_provider ?? null;
       existing.aliases      = [...new Set([...(existing.aliases || []), ...(asset.aliases || [])])];
       existing.provider_targets = [...new Set([...(existing.provider_targets || []), ...(asset.provider_targets || [])])];
@@ -262,7 +322,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
         source:       "exposure_probe",
         wildcard:     0,
         cname:        asset.cname ?? null,
-        redirect_to:  safeLocation(asset.redirect_to ?? asset.url ?? null),
+        redirect_to:  answeredLocation,
         risk_level:   null,
         cloud:        asset.infrastructure_provider ?? null,
         aliases:      asset.aliases || [],
@@ -372,7 +432,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
           .prepare(
             `SELECT event_type, hostname FROM asset_events
              WHERE workspace_id = ? AND domain_id = ?
-               AND created_at >= datetime('now', '-24 hours')`
+               AND julianday(created_at) >= julianday('now', '-24 hours')`
           )
           .bind(workspace_id, domainId),
       ]);
@@ -434,13 +494,14 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
             stmts.push(
               env.cybermeters_db
                 .prepare(
-                  `INSERT INTO asset_events
+                  `INSERT OR IGNORE INTO asset_events
                      (id, workspace_id, domain_id, asset_id, scan_id,
                       event_type, hostname, severity, description, created_at)
                    VALUES (?,?,?,?,?,'new_asset_discovered',?,'info',?,?)`
                 )
                 .bind(
-                  createId("evt"), workspace_id, domainId, assetId, scanId,
+                  await inventoryEventId(workspace_id, scanId, "new_asset_discovered", asset.hostname),
+                  workspace_id, domainId, assetId, scanId,
                   asset.hostname,
                   `New asset discovered: ${asset.hostname} (${asset.source ?? "dns_discovery"})`,
                   now
@@ -451,8 +512,13 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
           // Existing asset — update last_seen + status. domain_id is re-linked
           // to the current domain row so rows orphaned by a domain
           // delete/re-add are adopted instead of drifting further.
+          const storedAddresses = addressesToStore(
+            existing.ip_addresses,
+            asset.ip_addresses ?? null,
+            opts.assetEvidence?.get?.(asset.hostname)?.dns ?? null,
+          );
           const previousIps = normalizeIpAddressList(existing.ip_addresses);
-          const currentIps = normalizeIpAddressList(asset.ip_addresses);
+          const currentIps = normalizeIpAddressList(storedAddresses);
           if (canEmitTimelineEvents &&
               previousIps && currentIps && previousIps !== currentIps &&
               !recentEvtSet.has(`dns_ip_changed:${asset.hostname}`)) {
@@ -460,13 +526,14 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
             stmts.push(
               env.cybermeters_db
                 .prepare(
-                  `INSERT INTO asset_events
+                  `INSERT OR IGNORE INTO asset_events
                      (id, workspace_id, domain_id, asset_id, scan_id,
                       event_type, hostname, severity, description, created_at)
                    VALUES (?,?,?,?,?,'dns_ip_changed',?,'medium',?,?)`
                 )
                 .bind(
-                  createId("evt"), workspace_id, domainId,
+                  await inventoryEventId(workspace_id, scanId, "dns_ip_changed", asset.hostname),
+                  workspace_id, domainId,
                   existing.id, scanId,
                   asset.hostname,
                   `IP address for ${asset.hostname} changed: ${previousIps} → ${currentIps}`,
@@ -484,13 +551,14 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
             stmts.push(
               env.cybermeters_db
                 .prepare(
-                  `INSERT INTO asset_events
+                  `INSERT OR IGNORE INTO asset_events
                      (id, workspace_id, domain_id, asset_id, scan_id,
                       event_type, hostname, severity, description, created_at)
                    VALUES (?,?,?,?,?,'dns_cname_changed',?,'medium',?,?)`
                 )
                 .bind(
-                  createId("evt"), workspace_id, domainId,
+                  await inventoryEventId(workspace_id, scanId, "dns_cname_changed", asset.hostname),
+                  workspace_id, domainId,
                   existing.id, scanId,
                   asset.hostname,
                   `CNAME for ${asset.hostname} changed: ${previousCname} → ${currentCname}`,
@@ -499,27 +567,28 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
             );
           }
 
-          const previousRedirect = comparableRedirect(existing.redirect_to);
-          const currentRedirect = comparableRedirect(asset.redirect_to);
+          const previousRedirect = redirectLanding(existing.redirect_to);
+          const currentRedirect = redirectLanding(asset.redirect_to);
           if (canEmitTimelineEvents &&
-              previousRedirect && currentRedirect && previousRedirect !== currentRedirect &&
+              previousRedirect && currentRedirect && previousRedirect.host !== currentRedirect.host &&
               !recentEvtSet.has(`dns_redirect_changed:${asset.hostname}`)) {
-            const redirectSeverity = isExternalRedirectTarget(currentRedirect, domain) ? "high" : "low";
+            const redirectSeverity = isExternalRedirectTarget(currentRedirect.origin, domain) ? "high" : "low";
             recentEvtSet.add(`dns_redirect_changed:${asset.hostname}`);
             stmts.push(
               env.cybermeters_db
                 .prepare(
-                  `INSERT INTO asset_events
+                  `INSERT OR IGNORE INTO asset_events
                      (id, workspace_id, domain_id, asset_id, scan_id,
                       event_type, hostname, severity, description, created_at)
                    VALUES (?,?,?,?,?,'dns_redirect_changed',?,?,?,?)`
                 )
                 .bind(
-                  createId("evt"), workspace_id, domainId,
+                  await inventoryEventId(workspace_id, scanId, "dns_redirect_changed", asset.hostname),
+                  workspace_id, domainId,
                   existing.id, scanId,
                   asset.hostname,
                   redirectSeverity,
-                  `${asset.hostname} now redirects to ${currentRedirect} (was ${previousRedirect})`,
+                  redirectChangeDescription(asset.hostname, previousRedirect, currentRedirect),
                   now
                 )
             );
@@ -544,7 +613,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
                 now, domainId,
                 asset.risk_level ?? null,
                 asset.cloud ?? null,
-                asset.ip_addresses ?? null,
+                storedAddresses,
                 asset.cname ?? null,
                 asset.redirect_to ?? null,
                 buildAssetInventoryMetadata(asset),
@@ -556,20 +625,26 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
         }
       }
 
-      // Takeover risk events
+      // Takeover risk events: a candidate the previous comparable scan did not
+      // have. One that persists was announced when it appeared.
       if (canEmitTimelineEvents) {
+        const previousTakeovers = new Set((comparison.previousReport?.modules?.subdomain_takeover?.risks || [])
+          .map(takeoverKey).filter(Boolean));
         for (const risk of modules?.subdomain_takeover?.risks || []) {
+          const key = takeoverKey(risk);
+          if (!key || previousTakeovers.has(key)) continue;
           const existingAsset = existingMap.get(risk.host) ?? { id: null };
           stmts.push(
             env.cybermeters_db
               .prepare(
-                `INSERT INTO asset_events
+                `INSERT OR IGNORE INTO asset_events
                    (id, workspace_id, domain_id, asset_id, scan_id,
                     event_type, hostname, severity, description, created_at)
                  VALUES (?,?,?,?,?,'takeover_risk_detected',?,'high',?,?)`
               )
               .bind(
-                createId("evt"), workspace_id, domainId,
+                await inventoryEventId(workspace_id, scanId, "takeover_risk_detected", key),
+                workspace_id, domainId,
                 existingAsset.id ?? null, scanId,
                 risk.host,
                 `Subdomain takeover risk: ${risk.host} → ${risk.cname} (${risk.provider ?? risk.service})`,
@@ -579,18 +654,21 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
         }
       }
 
-      // Wildcard DNS event (once per scan per workspace, if detected)
-      if (canEmitTimelineEvents && wildcardDns) {
+      // Wildcard DNS event: when the zone starts answering every name, not on
+      // every scan while it does.
+      if (canEmitTimelineEvents && wildcardDns &&
+          comparison.previousReport?.modules?.subdomains?.wildcard_dns !== true) {
         stmts.push(
           env.cybermeters_db
             .prepare(
-              `INSERT INTO asset_events
+              `INSERT OR IGNORE INTO asset_events
                  (id, workspace_id, domain_id, asset_id, scan_id,
                   event_type, hostname, severity, description, created_at)
                VALUES (?,?,?,null,?,'wildcard_dns_detected',?,'info',?,?)`
             )
             .bind(
-              createId("evt"), workspace_id, domainId,
+              await inventoryEventId(workspace_id, scanId, "wildcard_dns_detected", domain),
+              workspace_id, domainId,
               scanId, domain,
               `Wildcard DNS detected for ${domain} — names that resolve through the wildcard may not be distinct services`,
               now

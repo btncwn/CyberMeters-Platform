@@ -39,13 +39,6 @@
       "contract": "The helper is called from scan finalization, exposes no response data, and every event lookup/write is subsequently bound to the enumerated workspace_id."
     },
     {
-      "fingerprint": "fc55c142286e",
-      "file": "workers/scan-api/src/engines/posture-events.js",
-      "detector": "workspace_domain_scope_missing",
-      "reason": "Posture-event production fans a completed scan's domain evidence out to every workspace linked to that canonical domain_id.",
-      "contract": "This background path returns no tenant data; dedupe reads and event writes are scoped by each enumerated workspace_id plus domain_id."
-    },
-    {
       "fingerprint": "81185dfea7a0",
       "file": "workers/scan-api/src/engines/scan-engine.js",
       "detector": "workspace_domain_scope_missing",
@@ -107,13 +100,6 @@
       "detector": "global_latest_fallback",
       "reason": "F-027 intentionally selects the newest platform-health event by type for the internal /ready and deadman freshness checks; it is not a customer or tenant read.",
       "contract": "The only callers request cron_tick and backup_completed, whose producers write platform-level workspace_id NULL rows. The projection is limited to safe token/count/time columns and computeOperationalHealth reduces it to freshness booleans; no operational-event row is returned through a tenant surface. Changing the callers, event types or projection requires re-review."
-    },
-    {
-      "fingerprint": "6133f9493061",
-      "file": "workers/scan-api/src/engines/timeline-trust.js",
-      "detector": "global_latest_fallback",
-      "reason": "Previous-scan lookup within a single domain during scan finalize. Filtered by domain_id, which is the domain currently being scanned for the owning workspace; timeline-trust runs inside the scan pipeline for that workspace's own domain.",
-      "contract": "domain_id is caller/workspace-validated before the scan runs; the ORDER-BY-LIMIT-1 selects the prior scan of the same owned domain, never a cross-tenant row."
     },
     {
       "fingerprint": "b5d38a008910",

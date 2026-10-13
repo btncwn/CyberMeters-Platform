@@ -8,6 +8,7 @@ import { customerSafeFailure } from "../lib/errors.js";
 import { createAuditEvent, createNotificationsForDomain, scanCompletionAuditStatement } from "../lib/events.js";
 import { json, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { createId } from "../lib/util.js";
+import { hashToken } from "../lib/auth-crypto.js";
 import { redactedJson } from "../lib/redact.js";
 import { processAlertsForWorkspace } from "./alerts.js";
 import { createManagedAsmCasesForScan, verifyManagedAsmCasesForScan } from "./asm-cases.js";
@@ -2733,13 +2734,16 @@ function buildCanonicalUrlProfile(modules) {
     // Uses D1 batch() to minimise round-trips.
     // Only the scanning workspace's inventory is written; each name carries
     // where it was seen and this scan's evidence for it.
+    let assetEvidence = null;
     try {
       const assetHints = collectAssetHints(domain, modules, evidenceHints);
+      assetEvidence = buildScanAssetEvidence({ domain, modules, findings: normalizedFindings, hints: assetHints });
       await upsertAssetInventory(scanId, domainId, domain, modules, env, {
         currentReport: report,
         observedAt: completedAt,
         workspaceId,
         hints: assetHints,
+        assetEvidence,
       });
       await persistAttackSurfaceLifecycle({
         env,
@@ -2749,7 +2753,7 @@ function buildCanonicalUrlProfile(modules) {
         workspaceId,
         signalCompleteness: modules.attack_surface_signal_completeness,
         assetExposure: modules.asset_exposure,
-        assetEvidence: buildScanAssetEvidence({ domain, modules, findings: normalizedFindings, hints: assetHints }),
+        assetEvidence,
         observedAt: completedAt,
       });
     } catch { /* non-fatal — inventory update will catch up on next scan */ }
@@ -3062,7 +3066,7 @@ function buildCanonicalUrlProfile(modules) {
     // Reads asset_events written by Phase 8, deduped via asset_alert_records.
     // Fully non-fatal — swallows all errors.
     try {
-      await sendAssetChangeAlert(domainId, domain, scanId, env, scanQuality?.status);
+      await sendAssetChangeAlert(domainId, domain, scanId, env, scanQuality?.status, { modules, assetEvidence, observedAt: completedAt });
     } catch { /* non-fatal */ }
 
     // Phase 10: Notification Events — create in-app notifications for scan
@@ -3243,6 +3247,11 @@ function buildCanonicalUrlProfile(modules) {
   );
 }
 
+// One asset_event per admin surface that the workspace's previous comparable
+// scan did not have (host + product): a surface that stays reachable is
+// announced when it appears, not on every scan. Written for the scanning
+// workspace only, live and still linked to the domain; the event id is fixed
+// per (workspace, scan, host, product), so a replay writes nothing twice.
 export async function insertAdminSurfaceEvents(scanId, domainId, adminModule, env, opts = {}) {
   const actionableServices = (adminModule?.services || [])
     .filter((service) => service.finding_type !== "observation");
@@ -3253,12 +3262,33 @@ export async function insertAdminSurfaceEvents(scanId, domainId, adminModule, en
     currentReport: opts.currentReport,
   }).catch(() => ({ comparable: false }));
   if (!comparison.comparable) return;
+  const scanWorkspaceId = comparison.currentScan?.workspace_id ?? null;
+  if (!scanWorkspaceId) return;
+
+  const surfaceKey = (service) => {
+    const hostname = String(service?.hostname || "").trim().toLowerCase();
+    const product = String(service?.product || "").trim().toLowerCase();
+    return hostname && product ? `${hostname}::${product}` : "";
+  };
+  const previousSurfaces = new Set((comparison.previousReport?.modules?.admin_surface_detection?.services || [])
+    .filter((service) => service?.finding_type !== "observation")
+    .map(surfaceKey)
+    .filter(Boolean));
+  const newServices = actionableServices.filter((service) => {
+    const key = surfaceKey(service);
+    return key && !previousSurfaces.has(key);
+  });
+  if (newServices.length === 0) return;
 
   let wsRows;
   try {
     const r = await env.cybermeters_db
-      .prepare(`SELECT workspace_id FROM workspace_domains WHERE domain_id = ?`)
-      .bind(domainId)
+      .prepare(
+        `SELECT wd.workspace_id FROM workspace_domains wd
+         JOIN workspaces w ON w.id = wd.workspace_id
+         WHERE wd.domain_id = ? AND wd.workspace_id = ? AND w.deleted_at IS NULL`
+      )
+      .bind(domainId, scanWorkspaceId)
       .all();
     wsRows = r.results || [];
   } catch {
@@ -3269,23 +3299,24 @@ export async function insertAdminSurfaceEvents(scanId, domainId, adminModule, en
   const now = new Date().toISOString();
 
   for (const { workspace_id } of wsRows) {
-    for (const svc of actionableServices) {
+    for (const svc of newServices) {
       try {
         // Resolve asset_id if the asset was already upserted by upsertAssetInventory
         const assetRow = await env.cybermeters_db
           .prepare(`SELECT id FROM workspace_assets WHERE workspace_id = ? AND hostname = ?`)
           .bind(workspace_id, svc.hostname)
           .first();
+        const digest = await hashToken(JSON.stringify(["admin-surface-event-v1", workspace_id, scanId, surfaceKey(svc)]));
 
         await env.cybermeters_db
           .prepare(
-            `INSERT INTO asset_events
+            `INSERT OR IGNORE INTO asset_events
                (id, workspace_id, domain_id, asset_id, scan_id,
                 event_type, hostname, severity, description, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .bind(
-            createId("evt"),
+            `evt-${digest.slice(0, 32)}`,
             workspace_id,
             domainId,
             assetRow?.id ?? null,
@@ -3305,6 +3336,7 @@ export async function insertAdminSurfaceEvents(scanId, domainId, adminModule, en
     scan_id:      scanId,
     domain_id:    domainId,
     detected:     adminModule.detected,
+    new_surfaces: newServices.length,
     workspaces:   wsRows.length,
   }));
 }

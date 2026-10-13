@@ -117,6 +117,8 @@ const ALERT_REASON_MESSAGES = Object.freeze({
     "The earlier disappearance was not confirmed, so a reappearance claim was withheld.",
   withheld_all_claims_unsupported:
     "All alert claims were withheld because their recorded evidence did not support them.",
+  inventory_changes_only:
+    "Every supported change in this scan was an inventory change (a new name, a name confirmed no longer seen, or a renewed certificate). It was recorded in the inventory; a notification is sent only for a notable change.",
 });
 
 function asObject(value) {
