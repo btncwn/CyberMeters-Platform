@@ -55,6 +55,11 @@ const ACTIONABLE = [
   "certificate_expiring_critical", "certificate_expiring_soon",
   // live TLS — network-probe.js literal add(...) calls
   "certificate_expired", "certificate_hostname_mismatch", "certificate_untrusted",
+  // deep TLS — tls-findings.js produces endpoint- and engine-scoped IDs.
+  "tls_legacy_protocol", "tls_weak_cipher", "tls_weak_key_exchange", "tls_no_forward_secrecy",
+  "tls_heartbleed_confirmed", "tls_robot_confirmed", "tls_ccs_confirmed",
+  "tls_certificate_hostname", "tls_certificate_trust", "tls_weak_certificate_key",
+  "tls_weak_certificate_signature", "tls_ocsp_revoked", "tls_compression_enabled",
   // certificates — cert-trust-l2.js `type:` values
   "expired", "expiring_soon", "self_signed", "unexpected_issuer", "unexpected_san", "unexpected_wildcard",
   // whois — whois-scan.js
@@ -132,14 +137,14 @@ ok("all other remediation identities remain version 1",
 // The original 67 records are unchanged; live hostname/trust findings add two;
 // sign-in page conditions add three (web.signin.form_offsite / form_http / cookie_secure);
 // the home-page availability observations add two (web.homepage.not_served / unavailable).
-ok("registry has exactly 96 entries including 22 bounded public-content rules", REMEDIATION_REGISTRY.length === 96);
+ok("registry has exactly 109 entries including 13 deep TLS controls", REMEDIATION_REGISTRY.length === 109);
 // Certificate logs retired: evidence types and wording move to the live TLS
 // observation and cert.ct_incomplete becomes a deprecated historical entry, so
 // the fingerprint moves r74-05b42c41 -> r74-ad711388 with the count unchanged.
 // Outside vulnerability data retired (check-pack.js): asm.vuln.kev and
 // asm.vuln.cve become deprecated historical entries, r74-ad711388 -> r74-c8030e1a.
 // The 22 local public-content rules add canonical remediations; legacy entries stay unchanged.
-ok("registry fingerprint including bounded public-content rules is exact", remediationRegistryFingerprint() === "r96-d432058a", remediationRegistryFingerprint());
+ok("registry fingerprint including deep TLS controls is exact", remediationRegistryFingerprint() === "r109-de4d1155", remediationRegistryFingerprint());
 ok("vulnerability-database remediations are historical only",
   ["asm.vuln.kev", "asm.vuln.cve"].every((id) => byId.get(id)?.status === "deprecated"));
 ok("certificate_expiring_critical maps to expiring, never expired",
@@ -163,7 +168,7 @@ ok("cookie remediation names SameSite and preserves zero-cookie inconclusive sem
 const EMITTER_FILES = [
   "scoring.js", "email-intel.js", "email-analysis.js", "cloud-storage-scan.js",
   "asset-intel.js", "tech-scan.js", "whois-scan.js", "cert-trust-l2.js", "scan-engine.js",
-  "network-probe.js", "signin-page-findings.js", "website-availability.js", "exposure-findings.js",
+  "network-probe.js", "signin-page-findings.js", "website-availability.js", "exposure-findings.js", "tls-findings.js",
 ];
 // Literals that appear as id:/type: but are NOT finding types (evidence types,
 // module names, classifications, hosted-service ids, workflow states…).
@@ -173,7 +178,7 @@ const NON_FINDING = new Set([
   "canonical_url_probe", "http_header_probe", "dns_mx_lookup", "dns_txt_lookup",
   "certificate_transparency", "certificate_transparency_observation", "supporting_infrastructure_observation",
   "http_fingerprint_observation", "http_probe", "whois", "self_attestation", "scan_findings",
-  "technology_kev_correlation", "reported_version_cpe_match", "live_tls",
+  "technology_kev_correlation", "reported_version_cpe_match", "live_tls", "tls_endpoint_measurement",
   "identity_discovery", "saas_exposure", "supporting_infrastructure_observation",
   // finding_type CLASS values (not ids)
   "finding", "observation",
@@ -193,6 +198,9 @@ function emitterIds(file, src) {
   // fail classification until explicitly mapped or declared informational.
   if (file === "network-probe.js") {
     for (const m of src.matchAll(/\badd\s*\(\s*["'`]([a-z][a-z0-9_]+)["'`]/g)) ids.push(m[1]);
+  }
+  if (file === "tls-findings.js") {
+    for (const m of src.matchAll(/\bmake\s*\(\s*['"](tls_[a-z_]+)['"]/g)) ids.push(m[1]);
   }
   return ids;
 }

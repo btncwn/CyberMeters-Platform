@@ -6,6 +6,10 @@ import { planExposureChecks } from '../../../../shared/exposure/discovery.js';
 import { EXPOSURE_LIMITS, validateExposureRequest, validateExposureReceipt } from '../../../network-probe/src/exposure-contract.js';
 import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/contract.js';
 import { WEBSITE_CONTENT_LIMITS, validateWebsiteContentRequest, validateWebsiteContentReceipt } from '../../../network-probe/src/website-content-contract.js';
+import { TLS_SLICE_LIMITS, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
+import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
+import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
+import { buildTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized } from './tls-planner.js';
 
 export const EXPOSURE_JOB_LIMITS = Object.freeze({
   hosts:4, checks:1024, requests:1024, bytes:64*1024*1024,
@@ -17,6 +21,20 @@ const terminal = state => ['complete','cancelled','budget_exhausted'].includes(s
 const changed = result => result?.meta?.changes === 1;
 const json = (value, fallback) => { try { return JSON.parse(value); } catch { return fallback; } };
 const messageFor = row => ({kind:'external_exposure',v:1,scan_id:row.scan_id,workspace_id:row.workspace_id});
+function priorTlsRiskChecks(previousPlan) {
+  const tls=previousPlan?.tls;
+  if(!Array.isArray(tls?.results)||!Array.isArray(tls.endpoints))return [];
+  return tls.results.filter(row => row?.state === 'accepted' && row.evidence?.authenticated_finished === true &&
+    (row.control === 'protocol' && tlsProtocolRisk(row.protocol) ||
+      row.control === 'cipher' && isWeakTlsCipher(row.cipher_id) ||
+      row.control === 'key_exchange' && (row.evidence?.negotiated?.pfs === false ||
+        Number.isInteger(row.evidence?.negotiated?.group_bits) && row.evidence.negotiated.group_bits < 2048) ||
+      row.control === 'certificate' && (row.evidence?.certificates?.trust === 'invalid' || row.evidence?.certificates?.hostname === false) ||
+      row.control === 'compression' && row.evidence?.extensions?.compression === true))
+    .map(row => ({endpoint_identity:tls.endpoints[row.endpoint_index]?.endpoint_identity,
+      control:row.control,protocol:row.protocol,cipher_id:row.cipher_id||null}))
+    .filter(row=>row.endpoint_identity);
+}
 const AUTHORITY = `EXISTS(SELECT 1 FROM scans s JOIN workspaces w ON w.id=s.workspace_id
   JOIN workspace_domains wd ON wd.workspace_id=s.workspace_id AND wd.domain_id=s.domain_id
   WHERE s.id=external_exposure_jobs.scan_id AND s.workspace_id=external_exposure_jobs.workspace_id
@@ -77,19 +95,31 @@ async function createJob(env, scan, now, dispatch) {
   const plan={content_state:'pending',retest_checks:previousFindings,checks:checks.slice(0,EXPOSURE_JOB_LIMITS.checks),hosts,
     pending_assets:Math.max(0,(assetCount?.total||0)-hosts.filter(host=>candidates.some(a=>a.hostname===host)).length),discovered_hosts:[],
     omitted_checks:Math.max(0,checks.length-EXPOSURE_JOB_LIMITS.checks),catalog_version:'1'};
+  if(env.EXPOSURE_SCAN_MODE!=='evidence-v1'){
+    plan.content_state='not_requested';plan.checks=[];plan.omitted_checks=0;
+  }
+  if(env.TLS_ASSESSMENT_MODE==='evidence-v1'){
+    const endpoints=await loadTlsEndpoints(env,scan);
+    const tlsPlan=buildTlsCheckPlan({endpoints:endpoints.endpoints,cipherCatalog:TLS_CIPHER_CATALOG,
+      previousFindings:priorTlsRiskChecks(json(previous?.plan_json,{})),scanId:scan.id,maxChecks:512});
+    plan.tls={...tlsPlan,endpoints:endpoints.endpoints,gaps:endpoints.gaps,scope_generation:endpoints.scope_generation,
+      omitted_services:endpoints.omitted_services,results:[],state:'pending'};
+  }
   await db.prepare(`INSERT OR IGNORE INTO external_exposure_jobs
     (scan_id,workspace_id,domain_id,domain,plan_json,dispatch_json,created_ms,deadline_ms,updated_at)
     SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM scans s JOIN workspaces w ON w.id=s.workspace_id
       JOIN workspace_domains wd ON wd.workspace_id=s.workspace_id AND wd.domain_id=s.domain_id
       WHERE s.id=? AND s.workspace_id=? AND s.domain_id=? AND s.status='queued'
       AND w.deleted_at IS NULL AND wd.verification_status='verified')`)
-    .bind(scan.id,scan.workspace_id,scan.domain_id,scan.domain,JSON.stringify(plan),JSON.stringify(dispatch),now,now+EXPOSURE_JOB_LIMITS.completionMs,new Date(now).toISOString(),scan.id,scan.workspace_id,scan.domain_id).run();
+    .bind(scan.id,scan.workspace_id,scan.domain_id,scan.domain,JSON.stringify(plan),JSON.stringify(dispatch),now,
+      now+(env.TLS_ASSESSMENT_MODE==='evidence-v1'?30*60*1000:EXPOSURE_JOB_LIMITS.completionMs),
+      new Date(now).toISOString(),scan.id,scan.workspace_id,scan.domain_id).run();
 }
 
 // Called before the ordinary scan claim. Free/unverified scans never enter this
 // feature. Configuration is explicit so rollout requires migration 119 first.
 export async function ensureExposureReady(env,scan,body={}) {
-  if(env.EXPOSURE_SCAN_MODE!=='evidence-v1'||!scan.workspace_id||scan.status!=='queued')return true;
+  if((env.EXPOSURE_SCAN_MODE!=='evidence-v1'&&env.TLS_ASSESSMENT_MODE!=='evidence-v1')||!scan.workspace_id||scan.status!=='queued')return true;
   const now=Date.now();
   let row=await env.cybermeters_db.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=? AND workspace_id=?').bind(scan.id,scan.workspace_id).first();
   if(!row){await createJob(env,scan,now,{trigger:body.trigger==='scheduled'?'scheduled':'manual',...(typeof body.scheduled_scan_id==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(body.scheduled_scan_id)?{scheduled_scan_id:body.scheduled_scan_id}:{}),...(typeof body.user_id==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(body.user_id)?{user_id:body.user_id}:{})});row=await env.cybermeters_db.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=? AND workspace_id=?').bind(scan.id,scan.workspace_id).first();}
@@ -159,6 +189,25 @@ export async function collectWebsiteContent(env,input,{signal}={}) {
   }finally{signal?.removeEventListener('abort',abortListener);}
 }
 
+export async function collectTlsAssessment(env,input,{signal}={}) {
+  if(!validateTlsAssessmentRequest(input).ok)throw new Error('invalid_tls_request');
+  if(!env.NETWORK_PROBE?.fetch)throw new Error('collector_unavailable');
+  const controller=new AbortController();
+  const abort=()=>controller.abort();
+  signal?.addEventListener('abort',abort,{once:true});
+  const timer=setTimeout(abort,Math.max(1,Date.parse(input.deadline_at)-Date.now()));
+  try{
+    if(signal?.aborted)throw new Error('collector_aborted');
+    const response=await env.NETWORK_PROBE.fetch('https://network-probe.internal/tls-assessment',{
+      method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input),signal:controller.signal,
+    });
+    if(!response.ok){await response.body?.cancel();throw new Error('collector_unavailable');}
+    const receipt=await readBoundedJson(response.body,TLS_SLICE_LIMITS.responseBytes);
+    if(controller.signal.aborted||!validateTlsAssessmentReceipt(input,receipt).ok)throw new Error('invalid_tls_receipt');
+    return receipt;
+  }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
+}
+
 // Reference planning is pure and bounded. A body already evaluated in this scan
 // is not downloaded by the exposure phase again, even when its outcome was
 // uncertain. That uncertainty remains visible and cannot clear an old finding.
@@ -197,6 +246,111 @@ export function mergeWebsiteContentPlan(plan,receipt,domain) {
   return plan;
 }
 
+function nextTlsChecks(plan) {
+  const tls=plan.tls,first=tls?.selected?.[tls.cursor];
+  if(!first)return [];
+  const batch=[];
+  for(const row of tls.selected.slice(tls.cursor,tls.cursor+TLS_SLICE_LIMITS.checks)){
+    if(row.endpoint_index!==first.endpoint_index)break;
+    batch.push(row);
+  }
+  return batch;
+}
+
+async function storeUnrunTlsSlice(env,row,plan,items,state,reason,now) {
+  const tls=plan.tls,oldCursor=tls.cursor;
+  for(const item of items)tls.results.push({endpoint_index:item.endpoint_index,...item.check,state,reason,observed_at:new Date(now).toISOString(),engine:null,evidence:null,physical_telemetry:{connections:0,bytes_sent:0,bytes_received:0,duration_ms:0}});
+  tls.cursor+=items.length;
+  const complete=tls.cursor>=tls.selected.length;
+  tls.state=complete?'complete':'pending';
+  const result=await env.cybermeters_db.prepare(`UPDATE external_exposure_jobs SET plan_json=?,state=?,updated_at=?
+    WHERE scan_id=? AND workspace_id=? AND state IN ('pending','running') AND lease_until<=?
+      AND CAST(json_extract(plan_json,'$.tls.cursor') AS INTEGER)=? AND ${AUTHORITY}`)
+    .bind(JSON.stringify(plan),complete?'complete':'pending',new Date(now).toISOString(),row.scan_id,row.workspace_id,now,oldCursor).run();
+  if(!changed(result))return {action:'retry',delaySeconds:30,outcome:'tls_fence_lost'};
+  if(complete)await resumeDomain(env,row);else await env.SCAN_QUEUE.send(messageFor(row));
+  return {action:'ack',outcome:reason};
+}
+
+async function processTlsSlice(env,row,plan,now,deps={}) {
+  const tls=plan.tls,items=nextTlsChecks(plan),entry=tls.endpoints[items[0]?.endpoint_index];
+  if(!items.length||!entry)return finishWithoutProbe(env,row,'complete','tls_complete',now);
+  const scan={id:row.scan_id,workspace_id:row.workspace_id,domain_id:row.domain_id,domain:row.domain};
+  if(!await tlsScopeStillAuthorized(env,scan,entry))
+    return storeUnrunTlsSlice(env,row,plan,items,'not_authorized','scope_changed',now);
+  const endpoint=await refreshTlsEndpoint(entry,{lookup:deps.lookupTlsDns}).catch(()=>null);
+  if(!endpoint)return storeUnrunTlsSlice(env,row,plan,items,'uncertain','dns_authority_changed',now);
+  const token=crypto.randomUUID().replaceAll('-',''),db=env.cybermeters_db;
+  const reservationRequests=TLS_SLICE_LIMITS.connections;
+  const reservationBytes=TLS_SLICE_LIMITS.bytes+TLS_SLICE_LIMITS.overreadBytes;
+  const claimed=await db.prepare(`UPDATE external_exposure_jobs SET state='running',lease_token=?,lease_until=?,
+    charged_requests=charged_requests+?,charged_bytes=charged_bytes+?,attempts=attempts+1,
+    unknown_attempts=unknown_attempts+CASE WHEN state='running' THEN 1 ELSE 0 END,updated_at=?
+    WHERE scan_id=? AND workspace_id=? AND cursor=? AND state IN ('pending','running') AND lease_until<=?
+      AND CAST(json_extract(plan_json,'$.tls.cursor') AS INTEGER)=?
+      AND charged_requests+?<=? AND charged_bytes+?<=? AND ${AUTHORITY}
+      AND NOT EXISTS(SELECT 1 FROM external_exposure_jobs j WHERE j.workspace_id=external_exposure_jobs.workspace_id
+        AND j.scan_id<>external_exposure_jobs.scan_id AND j.lease_until>?)
+      AND (SELECT COALESCE(SUM(j.charged_requests),0) FROM external_exposure_jobs j
+        WHERE j.workspace_id=external_exposure_jobs.workspace_id AND j.created_ms>=?)+?<=?
+      AND (SELECT COALESCE(SUM(j.charged_bytes),0) FROM external_exposure_jobs j
+        WHERE j.workspace_id=external_exposure_jobs.workspace_id AND j.created_ms>=?)+?<=?`)
+    .bind(token,now+EXPOSURE_JOB_LIMITS.leaseMs,reservationRequests,reservationBytes,new Date(now).toISOString(),
+      row.scan_id,row.workspace_id,row.cursor,now,tls.cursor,reservationRequests,EXPOSURE_JOB_LIMITS.requests,
+      reservationBytes,EXPOSURE_JOB_LIMITS.bytes,now,now-EXPOSURE_JOB_LIMITS.windowMs,reservationRequests,
+      EXPOSURE_JOB_LIMITS.workspaceRequests,now-EXPOSURE_JOB_LIMITS.windowMs,reservationBytes,EXPOSURE_JOB_LIMITS.workspaceBytes).run();
+  if(!changed(claimed)){
+    const active=await db.prepare('SELECT scan_id FROM external_exposure_jobs WHERE workspace_id=? AND lease_until>? LIMIT 1').bind(row.workspace_id,now).first();
+    if(active)return deferBusy(env,row,'tenant_busy');
+    return finishWithoutProbe(env,row,'budget_exhausted','tls_network_budget',now);
+  }
+  const controller=new AbortController();
+  const remaining=Math.min(TLS_SLICE_LIMITS.durationMs,row.deadline_ms-now);
+  const timer=setTimeout(()=>controller.abort(),remaining);
+  let polling=false;
+  const watchdog=setInterval(async()=>{
+    if(polling)return;polling=true;
+    try{if(!await canRun(env,row)||!await tlsScopeStillAuthorized(env,scan,entry))controller.abort();}
+    catch{controller.abort();}finally{polling=false;}
+  },1000);
+  const input={schema_version:'tls-assessment-request-v1',request_id:token,workspace_id:row.workspace_id,scan_id:row.scan_id,
+    domain_id:row.domain_id,domain:row.domain,endpoint,scope:entry.scope,checks:items.map(item=>item.check),
+    deadline_at:new Date(now+remaining).toISOString(),max_connections:reservationRequests,max_bytes:TLS_SLICE_LIMITS.bytes};
+  try{
+    const receipt=await (deps.collectTlsAssessment||collectTlsAssessment)(env,input,{signal:controller.signal});
+    if(controller.signal.aborted||!validateTlsAssessmentReceipt(input,receipt,{now:deps.now?.()??Date.now()}).ok)throw new Error('invalid_receipt');
+    const t=receipt.telemetry,actualBytes=t.bytes_sent+t.bytes_received;
+    if(actualBytes>reservationBytes)throw new Error('unbounded_receipt');
+    const costs=json(row.costs_json,{});
+    costs.requests=(costs.requests||0)+t.connections;
+    costs.bytes_wire=(costs.bytes_wire||0)+actualBytes;
+    costs.duration_ms=(costs.duration_ms||0)+t.duration_ms;
+    costs.tls_connections=(costs.tls_connections||0)+t.connections;
+    costs.tls_bytes_sent=(costs.tls_bytes_sent||0)+t.bytes_sent;
+    costs.tls_bytes_received=(costs.tls_bytes_received||0)+t.bytes_received;
+    costs.tls_duration_ms=(costs.tls_duration_ms||0)+t.duration_ms;
+    tls.results.push(...receipt.results.map(result=>({endpoint_index:items[0].endpoint_index,...result})));
+    tls.cursor+=items.length;
+    tls.state=tls.cursor>=tls.selected.length?'complete':'pending';
+    const state=tls.state==='complete'?'complete':'pending';
+    const stored=await db.prepare(`UPDATE external_exposure_jobs SET state=?,plan_json=?,costs_json=?,
+      charged_requests=charged_requests-?+?,charged_bytes=charged_bytes-?+?,lease_token=NULL,lease_until=0,updated_at=?
+      WHERE scan_id=? AND workspace_id=? AND lease_token=? AND lease_until>? AND ${AUTHORITY}`)
+      .bind(state,JSON.stringify(plan),JSON.stringify(costs),reservationRequests,t.connections,reservationBytes,actualBytes,
+        receipt.finished_at,row.scan_id,row.workspace_id,token,deps.now?.()??Date.now()).run();
+    if(!changed(stored))return {action:'retry',delaySeconds:30,outcome:'tls_fence_lost'};
+    if(state==='complete')await resumeDomain(env,row);else await env.SCAN_QUEUE.send(messageFor(row));
+    return {action:'ack',outcome:state};
+  }catch{
+    const active=await canRun(env,row).catch(()=>false);
+    await db.prepare(`UPDATE external_exposure_jobs SET state=?,failure_count=failure_count+1,unknown_attempts=unknown_attempts+1,
+      lease_token=NULL,lease_until=0,updated_at=? WHERE scan_id=? AND workspace_id=? AND lease_token=?`)
+      .bind(active?'pending':'cancelled',new Date(deps.now?.()??Date.now()).toISOString(),row.scan_id,row.workspace_id,token).run();
+    if(!active){await resumeDomain(env,row);return {action:'ack',outcome:'cancelled'};}
+    return {action:'retry',delaySeconds:5,outcome:'tls_uncertain_attempt_charged'};
+  }finally{clearTimeout(timer);clearInterval(watchdog);}
+}
+
 export async function processExposureMessage(body,env,deps={}) {
   if(body?.kind!=='external_exposure'||body.v!==1||typeof body.scan_id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(body.scan_id))return {action:'ack',outcome:'malformed'};
   const db=env.cybermeters_db,now=deps.now?.()??Date.now();
@@ -210,7 +364,10 @@ export async function processExposureMessage(body,env,deps={}) {
     return finishWithoutProbe(env,row,'budget_exhausted','completion_budget',now);
   const plan=json(row.plan_json,{checks:[]});
   const contentPhase=plan.content_state==='pending';
-  if(!contentPhase&&row.cursor>=plan.checks.length)return finishWithoutProbe(env,row,'complete','complete',now);
+  if(!contentPhase&&row.cursor>=plan.checks.length){
+    if(plan.tls?.selected?.length>plan.tls.cursor)return processTlsSlice(env,row,plan,now,deps);
+    return finishWithoutProbe(env,row,'complete','complete',now);
+  }
   const origin=contentPhase?`https://${row.domain}`:new URL(plan.checks[row.cursor].url).origin;
   const checks=[];
   for(const check of contentPhase?[]:plan.checks.slice(row.cursor,row.cursor+EXPOSURE_LIMITS.checks)){
@@ -281,7 +438,8 @@ export async function processExposureMessage(body,env,deps={}) {
       plan.checks.push({rule_id:candidate.ruleId,url:candidate.url});
     }
     if(!contentPhase)plan.discovered_hosts=[...new Set([...(plan.discovered_hosts||[]),...(receipt.discoveries?.hosts||[])])].filter(h=>safeHost(h,row.domain)).slice(0,128);
-    const cursor=contentPhase?0:row.cursor+checks.length,state=cursor>=plan.checks.length?'complete':'pending';
+    const cursor=contentPhase?0:row.cursor+checks.length;
+    const state=cursor>=plan.checks.length && (!plan.tls || plan.tls.cursor>=plan.tls.selected.length)?'complete':'pending';
     // Receipt + progress + refund are one atomic, fenced commit. A late result
     // from a replaced process cannot refund its already-charged reservation.
     const stored=await db.prepare(`UPDATE external_exposure_jobs SET state=?,cursor=?,plan_json=?,results_json=?,costs_json=?,
@@ -316,6 +474,7 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
   const row=await env.cybermeters_db.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=? AND workspace_id=?').bind(scanId,workspaceId).first();
   if(!row)return null;
   const plan=json(row.plan_json,{checks:[]}),results=json(row.results_json,[]);
+  if(plan.content_state==='not_requested')return null;
   const reason=row.state==='cancelled'?'authority_lost':row.state==='budget_exhausted'?'budget_exhausted':'queued';
   const pending=plan.checks.slice(row.cursor).map(c=>({...c,identity:exposureIdentity(c.rule_id,c.url),state:reason,comparable:false,finding:null,reason,observed_at:null}));
   const checks=[...results,...pending];
@@ -332,4 +491,39 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
     page_discovery:plan.content_state==='complete'?plan.page_discovery:null,
     coverage,checks,hostname_references:{candidates:(plan.discovered_hosts||[]).map(hostname=>({hostname,sources:['exposure_content']}))},costs:{...json(row.costs_json,{}),charged_requests:row.charged_requests,charged_bytes:row.charged_bytes,
       unknown_attempts:row.unknown_attempts,attempts:row.attempts},observed_at:row.updated_at};
+}
+
+export async function readTlsAssessmentForScan(env,{workspaceId,scanId}) {
+  if(!workspaceId)return null;
+  const row=await env.cybermeters_db.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=? AND workspace_id=?').bind(scanId,workspaceId).first();
+  const tls=json(row?.plan_json,{}).tls;
+  if(!tls)return null;
+  const pendingState=row.state==='cancelled'?'not_authorized':row.state==='budget_exhausted'?'uncertain':'uncertain';
+  const pendingReason=row.state==='cancelled'?'authority_lost':row.state==='budget_exhausted'?'budget_exhausted':'pending';
+  const all=[...tls.static_results,...tls.results,...tls.selected.slice(tls.cursor).map(item=>({endpoint_index:item.endpoint_index,...item.check,
+    state:pendingState,reason:pendingReason,observed_at:null,engine:null,evidence:null,
+    physical_telemetry:{connections:0,bytes_sent:0,bytes_received:0,duration_ms:0}}))];
+  const endpoints=tls.endpoints.map((entry,index)=>({
+    ...entry.endpoint,endpoint_identity:entry.endpoint_identity,scope:entry.scope,
+    checks:all.filter(item=>item.endpoint_index===index).map(({endpoint_index,check,...rest})=>({...(check||{}),...rest,
+      endpoint_identity:entry.endpoint_identity})),
+  }));
+  const coverage={planned:all.length+(tls.omitted_checks||0),completed:0,uncertain:0,unexecutable:0,not_authorized:0,not_applicable:0,
+    omitted_checks:tls.omitted_checks||0,omitted_services:tls.omitted_services||0,endpoint_gaps:tls.gaps.length};
+  for(const item of all){
+    if(['accepted','rejected'].includes(item.state))coverage.completed++;
+    else if(item.state==='not_authorized')coverage.not_authorized++;
+    else if(item.state==='not_applicable')coverage.not_applicable++;
+    else if(item.state==='unexecutable')coverage.unexecutable++;
+    else coverage.uncertain++;
+  }
+  const costs=json(row.costs_json,{});
+  const quality=row.state==='complete'&&coverage.uncertain===0&&coverage.unexecutable===0&&coverage.not_authorized===0&&
+    coverage.omitted_checks===0&&coverage.omitted_services===0&&coverage.endpoint_gaps===0?'complete':'partial';
+  return {source:'tls_assessment',version:tls.profile_version,policy_version:tls.policy_version,quality,coverage,endpoints,
+    gaps:tls.gaps,costs:{connections:costs.tls_connections||0,bytes_sent:costs.tls_bytes_sent||0,
+      bytes_received:costs.tls_bytes_received||0,duration_ms:costs.tls_duration_ms||0,
+      charged_connections:row.charged_requests,charged_bytes:row.charged_bytes,unknown_attempts:row.unknown_attempts,
+      attempts:row.attempts},limitations:['tcp_tls_only_quic_not_assessed','observed_endpoint_not_origin_inference','no_external_revocation_fetch'],
+    observed_at:row.updated_at,findings:[]};
 }

@@ -412,10 +412,12 @@ export default function NewScan() {
                 )}
 
                 <p className="text-center text-xs text-gray-400 leading-relaxed">
-                  Scans are non-intrusive and read-only — we only inspect publicly available data
-                  (DNS, certificates, public web signals), the same information any visitor can see.
+                  Scans inspect public DNS, web signals and TLS connections, including supported
+                  protocols and ciphers. Bounded checks for known TLS vulnerabilities run only with
+                  your workspace’s additional permission.
                   Only scan domains you own or are authorised to assess; you are responsible for
-                  ensuring you have the right to scan a domain.
+                  ensuring you have the right to scan a domain.{' '}
+                  <Link to="/ws/certificates#tls-permissions" className="underline">Manage TLS permissions</Link>
                 </p>
               </form>
             </>

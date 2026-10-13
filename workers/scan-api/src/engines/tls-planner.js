@@ -1,0 +1,170 @@
+import { dnsQuery } from './dns.js';
+import { isPublicProbeAddress, isProbeHostname } from '../../../network-probe/src/contract.js';
+import { TLS_PROFILE_VERSION, TLS_POLICY_VERSION, TLS_PROTOCOLS, TLS_SPECIAL_CONSENT_VERSION, TLS_SPECIAL_CONTROLS, applicableTlsControl, isTlsService, tlsEndpointIdentity } from '../../../../shared/tls/catalog.js';
+
+const MAX_SERVICES_PER_SCAN = 4;
+const MAX_ENDPOINTS_PER_SCAN = 8;
+const MAX_CHECKS_PER_SCAN = 1024;
+const MAX_DNS_ADDRESSES = 16;
+const id = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value);
+const canonicalAddress = value => {
+  if (!isPublicProbeAddress(value)) return null;
+  if (value.includes(':')) { try { return new URL(`http://[${value}]/`).hostname.slice(1,-1); } catch { return null; } }
+  return value;
+};
+const safeHostname = (host,domain) => isProbeHostname(host) && (host === domain || host.endsWith('.' + domain));
+const offset = (seed,count) => count ? [...seed].reduce((sum,char) => (sum * 31 + char.charCodeAt(0)) >>> 0,0) % count : 0;
+const rotate = (values,seed) => values.length ? [...values.slice(offset(seed,values.length)),...values.slice(0,offset(seed,values.length))] : [];
+
+export function parseTlsDnsAnswers(results, hostname) {
+  const addresses = [];
+  for (const [type,response] of results) {
+    if (response?.Status !== 0 || !Array.isArray(response.Answer)) continue;
+    const allowedNames = new Set([hostname]);
+    for (let depth=0; depth<8; depth++) {
+      let expanded=false;
+      for (const answer of response.Answer) {
+        const owner=String(answer.name||'').replace(/\.$/,'').toLowerCase();
+        const target=String(answer.data||'').replace(/\.$/,'').toLowerCase();
+        if (answer.type === 5 && allowedNames.has(owner) && isProbeHostname(target) && !allowedNames.has(target)) {
+          allowedNames.add(target); expanded=true;
+        }
+      }
+      if (!expanded) break;
+    }
+    for (const answer of response.Answer) {
+      if (answer.type !== (type === 'A' ? 1 : 28) || typeof answer.data !== 'string' ||
+          typeof answer.name !== 'string' || !allowedNames.has(answer.name.replace(/\.$/,'').toLowerCase())) continue;
+      const normalized = canonicalAddress(answer.data);
+      if (normalized) addresses.push(normalized);
+    }
+  }
+  return [...new Set(addresses)].slice(0,MAX_DNS_ADDRESSES);
+}
+
+function selectAddresses(addresses,scanId,hostname) {
+  const v4 = rotate(addresses.filter(x => !x.includes(':')).sort(),scanId+hostname+'4');
+  const v6 = rotate(addresses.filter(x => x.includes(':')).sort(),scanId+hostname+'6');
+  return [v4[0],v6[0],v4[1],v6[1]].filter(Boolean);
+}
+
+export async function loadTlsEndpoints(env,scan,{lookup = dnsQuery,now = () => Date.now()} = {}) {
+  if (!id(scan.workspace_id) || !id(scan.domain_id) || !id(scan.id) || !isProbeHostname(scan.domain)) throw new Error('invalid_scan');
+  const db = env.cybermeters_db;
+  const auth = await db.prepare(`SELECT enabled,generation,consent_version FROM workspace_tls_authorizations WHERE workspace_id=?`).bind(scan.workspace_id).first();
+  const consent = auth?.enabled === 1 && auth.consent_version === TLS_SPECIAL_CONSENT_VERSION;
+  const generation = Number.isSafeInteger(auth?.generation) ? auth.generation : 0;
+  const services = await db.prepare(`SELECT a.id,a.domain_id,a.hostname,a.sni,a.port,a.application_protocol,a.network_target_id,
+      t.addresses_json,t.authorization_status AS target_authorization_status,w.deleted_at,d.verification_status
+    FROM workspace_tls_service_authorizations a
+    JOIN network_targets t ON t.id=a.network_target_id AND t.workspace_id=a.workspace_id
+    JOIN workspace_domains d ON d.workspace_id=a.workspace_id AND d.domain_id=a.domain_id
+    JOIN workspaces w ON w.id=a.workspace_id
+    WHERE a.workspace_id=? AND a.authorization_status='active' ORDER BY a.authorized_at,a.id LIMIT 64`).bind(scan.workspace_id).all();
+  const selected = rotate((services.results||[]).filter(row => row.domain_id === scan.domain_id &&
+    row.deleted_at === null && row.verification_status === 'verified' && row.target_authorization_status === 'attested' &&
+    safeHostname(row.hostname,scan.domain) && row.sni === row.hostname && isTlsService(row.port,row.application_protocol)),scan.id)
+    .slice(0,MAX_SERVICES_PER_SCAN-1);
+  const candidates = [{ hostname:scan.domain,sni:scan.domain,port:443,application_protocol:'https',kind:'standard_https',service_authorization_id:null,allowed_addresses:null },
+    ...selected.map(row => ({ ...row,kind:'authorized_service',service_authorization_id:row.id,
+      allowed_addresses:(() => { try { const list=JSON.parse(row.addresses_json);return Array.isArray(list)?new Set(list.map(canonicalAddress).filter(Boolean)):new Set(); } catch { return new Set(); } })() }))];
+  const endpoints = [], gaps = [];
+  for (const candidate of candidates) {
+    let dns;
+    try {
+      const answers = await Promise.allSettled(['A','AAAA'].map(type => lookup(candidate.hostname,type)));
+      dns = parseTlsDnsAnswers(answers.map((r,index) => [['A','AAAA'][index],r.status === 'fulfilled' ? r.value : null]),candidate.hostname);
+    } catch { dns = []; }
+    if (candidate.allowed_addresses) dns = dns.filter(address => candidate.allowed_addresses.has(address));
+    const selectedAddresses = selectAddresses(dns,scan.id,candidate.hostname);
+    if (!selectedAddresses.length) {
+      gaps.push({hostname:candidate.hostname,port:candidate.port,application_protocol:candidate.application_protocol,
+        reason:candidate.allowed_addresses ? 'dns_target_mismatch_or_unavailable' : 'dns_unavailable'});
+      continue;
+    }
+    const observed = new Date(now()).toISOString();
+    for (const address of selectedAddresses) {
+      if (endpoints.length >= MAX_ENDPOINTS_PER_SCAN) { gaps.push({hostname:candidate.hostname,port:candidate.port,
+        application_protocol:candidate.application_protocol,reason:'endpoint_limit'}); break; }
+      const endpoint = {hostname:candidate.hostname,sni:candidate.sni,address,port:candidate.port,transport:'tcp',
+        application_protocol:candidate.application_protocol,dns_addresses:dns,dns_observed_at:observed};
+      endpoints.push({endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),
+        scope:{kind:candidate.kind,service_authorization_id:candidate.service_authorization_id,generation,
+          special_consent:consent,consent_version:consent?TLS_SPECIAL_CONSENT_VERSION:null}});
+    }
+  }
+  return {endpoints,gaps,scope_generation:generation,special_consent:consent,omitted_services:Math.max(0,(services.results||[]).length-selected.length)};
+}
+
+export async function refreshTlsEndpoint(entry,{lookup = dnsQuery,now = () => Date.now()} = {}) {
+  if (!entry?.endpoint || !isPublicProbeAddress(entry.endpoint.address)) return null;
+  const answers = await Promise.allSettled(['A','AAAA'].map(type => lookup(entry.endpoint.hostname,type)));
+  const addresses = parseTlsDnsAnswers(answers.map((r,index) => [['A','AAAA'][index],r.status === 'fulfilled' ? r.value : null]),entry.endpoint.hostname);
+  if (!addresses.includes(entry.endpoint.address)) return null;
+  return { ...entry.endpoint,dns_addresses:addresses,dns_observed_at:new Date(now()).toISOString() };
+}
+
+export async function tlsScopeStillAuthorized(env,scan,entry) {
+  const db=env.cybermeters_db;
+  const base=await db.prepare(`SELECT w.id AS workspace_id,d.domain_id,a.generation,a.enabled,a.consent_version
+    FROM workspaces w JOIN workspace_domains d ON d.workspace_id=w.id AND d.domain_id=? AND d.verification_status='verified'
+    LEFT JOIN workspace_tls_authorizations a ON a.workspace_id=w.id
+    WHERE w.id=? AND w.deleted_at IS NULL`).bind(scan.domain_id,scan.workspace_id).first();
+  if (!base) return false;
+  if (Number(base?.generation||0) !== entry.scope.generation) return false;
+  if (entry.scope.special_consent && (base?.enabled !== 1 || base?.consent_version !== TLS_SPECIAL_CONSENT_VERSION)) return false;
+  if (entry.scope.kind === 'standard_https') return entry.endpoint.hostname === scan.domain && entry.endpoint.port === 443 && entry.endpoint.application_protocol === 'https';
+  const service=await db.prepare(`SELECT a.id,t.addresses_json FROM workspace_tls_service_authorizations a
+    JOIN network_targets t ON t.id=a.network_target_id AND t.workspace_id=a.workspace_id AND t.authorization_status='attested'
+    WHERE a.id=? AND a.workspace_id=? AND a.domain_id=? AND a.authorization_status='active'
+      AND a.hostname=? AND a.sni=? AND a.port=? AND a.application_protocol=?`)
+    .bind(entry.scope.service_authorization_id,scan.workspace_id,scan.domain_id,entry.endpoint.hostname,entry.endpoint.sni,
+      entry.endpoint.port,entry.endpoint.application_protocol).first();
+  if (!service) return false;
+  try { return JSON.parse(service.addresses_json).map(canonicalAddress).includes(entry.endpoint.address); }
+  catch { return false; }
+}
+
+const productControls = ['protocol','key_exchange','certificate','ocsp','compression','secure_renegotiation','fallback_scsv','extended_master_secret','session_resumption','early_data','sni_alpn',...TLS_SPECIAL_CONTROLS];
+export function buildTlsCheckPlan({endpoints,cipherCatalog=[],previousFindings=[],scanId='',maxChecks=MAX_CHECKS_PER_SCAN}) {
+  const all = [];
+  for (let endpointIndex = 0; endpointIndex < endpoints.length; endpointIndex++) {
+    const entry = endpoints[endpointIndex];
+    for (const protocol of TLS_PROTOCOLS) {
+      for (const control of productControls) {
+        const check = {control,protocol,cipher_id:null};
+        const status = !applicableTlsControl(control,protocol) ? 'not_applicable'
+          : TLS_SPECIAL_CONTROLS.includes(control) && !entry.scope.special_consent ? 'not_authorized' : 'pending';
+        all.push({endpoint_index:endpointIndex,check,state:status,reason:status === 'pending' ? null : status});
+      }
+      const ciphers = cipherCatalog.filter(row => row.protocol === protocol && typeof row.name === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(row.name));
+      for (const cipher of ciphers) all.push({endpoint_index:endpointIndex,
+        check:{control:'cipher',protocol,cipher_id:cipher.name},state:cipher.executable ? 'pending' : 'unexecutable',
+        reason:cipher.executable ? null : (cipher.reason === 'requires_credentials' ? 'requires_credentials' : 'engine_unsupported')});
+      if (!ciphers.length) all.push({endpoint_index:endpointIndex,check:{control:'cipher',protocol,cipher_id:null},
+        state:'unexecutable',reason:'cipher_catalog_unavailable'});
+    }
+  }
+  const priority = new Set(previousFindings.map(row => `${row.endpoint_identity}|${row.control}|${row.protocol}|${row.cipher_id||''}`));
+  const pending = all.filter(row => row.state === 'pending');
+  const key = row => `${endpoints[row.endpoint_index].endpoint_identity}|${row.check.control}|${row.check.protocol}|${row.check.cipher_id||''}`;
+  const retests = pending.filter(row => priority.has(key(row)));
+  const buckets = endpoints.map((endpoint,index) => {
+    const rows=pending.filter(row => row.endpoint_index === index && !priority.has(key(row)));
+    const protocols=rows.filter(row => row.check.control === 'protocol');
+    const controls=rotate(rows.filter(row => row.check.control !== 'protocol' && row.check.control !== 'cipher'),scanId+endpoint.endpoint_identity+'controls');
+    const ciphers=rotate(rows.filter(row => row.check.control === 'cipher'),scanId+endpoint.endpoint_identity+'ciphers');
+    const mixed=[...protocols];
+    while(controls.length||ciphers.length){
+      if(controls.length)mixed.push(controls.shift());
+      for(let n=0;n<2&&ciphers.length;n++)mixed.push(ciphers.shift());
+    }
+    return mixed;
+  });
+  const ordered = [...retests];
+  while (buckets.some(bucket => bucket.length)) for (const bucket of buckets) if (bucket.length) ordered.push(...bucket.splice(0,8));
+  const selected = ordered.slice(0,Math.max(0,Math.min(maxChecks,MAX_CHECKS_PER_SCAN)));
+  const omitted = Math.max(0,pending.length-selected.length);
+  return {profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,selected,static_results:all.filter(row => row.state !== 'pending'),
+    pending_total:pending.length,omitted_checks:omitted,cursor:0,scan_id:scanId};
+}

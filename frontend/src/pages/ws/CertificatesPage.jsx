@@ -162,6 +162,93 @@ function FindingPill({ finding }) {
   )
 }
 
+const SERVICE_LABELS = { https: 'HTTPS', smtp: 'SMTP with STARTTLS', smtps: 'SMTP over TLS', imap: 'IMAP with STARTTLS', imaps: 'IMAP over TLS', pop3: 'POP3 with STARTTLS', pop3s: 'POP3 over TLS' }
+const EMPTY_SERVICE = { domain_id: '', hostname: '', network_target_id: '', protocol: 'https:443' }
+
+// One workspace permission for the bounded special controls; service scope is
+// separately declared. Neither action starts a scan or authorizes a shared IP.
+export function TlsAuthorizationSettings({ workspaceId }) {
+  const [data, setData] = useState(null)
+  const [desired, setDesired] = useState(false)
+  const [service, setService] = useState(EMPTY_SERVICE)
+  const [attested, setAttested] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [notice, setNotice] = useState(null)
+  const scope = useRef(workspaceId)
+  scope.current = workspaceId
+  const latest = useRef(0)
+  const load = useCallback(async () => {
+    const ticket = ++latest.current
+    try {
+      const result = await api.getTlsAuthorization(workspaceId)
+      if (ticket !== latest.current || scope.current !== workspaceId) return
+      setData({ ...result, workspaceId }); setDesired(result.authorization?.enabled === true); setError(null)
+    } catch {
+      if (ticket === latest.current && scope.current === workspaceId) setError('TLS permissions could not be loaded. Try again.')
+    }
+  }, [workspaceId])
+  useEffect(() => {
+    setData(null); setService(EMPTY_SERVICE); setAttested(false); setNotice(null); setError(null); setBusy(false)
+    load()
+    return () => { latest.current++ }
+  }, [load])
+  const current = data?.workspaceId === workspaceId ? data : null
+  const canManage = current?.capabilities?.can_manage === true
+  async function mutate(operation, message) {
+    const requestedWorkspace = workspaceId
+    setBusy(true); setError(null); setNotice(null)
+    try {
+      await operation()
+      if (scope.current !== requestedWorkspace) return
+      setNotice(message); setService(EMPTY_SERVICE); setAttested(false)
+      await load()
+    } catch (failure) {
+      if (scope.current === requestedWorkspace) setError(failure?.message || 'The permission could not be saved. Try again.')
+    } finally { if (scope.current === requestedWorkspace) setBusy(false) }
+  }
+  function savePermission(event) {
+    event.preventDefault()
+    if (!canManage || !current || busy) return
+    mutate(() => api.saveTlsAuthorization(workspaceId, { enabled: desired, ...(desired ? { authorization_confirmed: true, consent_version: current.consent_version } : {}) }), desired ? 'Permission saved for this workspace. No scan was started.' : 'Special TLS permission revoked. Running special checks must stop; recorded evidence remains available.')
+  }
+  function addService(event) {
+    event.preventDefault()
+    if (!canManage || !attested || busy) return
+    const [application_protocol, rawPort] = service.protocol.split(':')
+    const hostname = service.hostname.trim().toLowerCase()
+    mutate(() => api.authorizeTlsService(workspaceId, { domain_id: service.domain_id, hostname, sni: hostname, port: Number(rawPort), application_protocol, network_target_id: service.network_target_id, authorization_confirmed: true }), 'Service scope saved. No scan was started.')
+  }
+  const services = current?.services || []
+  return <section id="tls-permissions" className="card p-5 mb-6 space-y-4" aria-label="TLS scan permissions">
+    <div><h2 className="text-lg font-semibold text-gray-900">TLS scan permissions</h2><p className="text-sm text-gray-600 mt-1">Normal scans assess protocols, ciphers and certificates on authorized endpoints. Special vulnerability probes require the permission below.</p></div>
+    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+    {notice && <p role="status" className="text-sm text-gray-700">{notice}</p>}
+    {!current ? <button type="button" className="btn-secondary text-sm" onClick={load}>Reload TLS permissions</button> : <>
+      <form onSubmit={savePermission} className="space-y-2">
+        <label className="flex items-start gap-2 text-sm text-gray-800"><input type="checkbox" className="mt-1" checked={desired} onChange={event => setDesired(event.target.checked)} disabled={!canManage || busy} /><span>Allow bounded checks for known TLS vulnerabilities on this workspace’s authorized targets.</span></label>
+        <p className="text-xs text-gray-500">Includes Heartbleed, ROBOT and CCS injection checks with connection and time limits. No memory harvesting, data decryption or load testing. This permission adds no domains, IP addresses or ports to your scope.</p>
+        <p className="text-xs text-gray-500">{current.authorization?.enabled ? 'Special checks are permitted.' : 'Special checks are not permitted.'} Saving this setting does not start a scan.</p>
+        {canManage ? <button className="btn-secondary text-sm" disabled={busy || desired === (current.authorization?.enabled === true)}>{busy ? 'Saving…' : 'Save TLS permission'}</button> : <p className="text-xs text-gray-500">A workspace admin can change these permissions.</p>}
+      </form>
+      <details className="border-t border-gray-100 pt-3">
+        <summary className="cursor-pointer text-sm font-semibold">Additional TLS services ({services.length})</summary>
+        <p className="text-sm text-gray-600 mt-3">A verified domain does not authorize other ports or other customers on a shared IP. Add each service explicitly using a verified domain and an IP target you are authorized to test. Before a check, its current DNS address must match that target.</p>
+        {services.length > 0 && <ul className="divide-y divide-gray-100 mt-3" aria-label="Authorized TLS services">{services.map(row => <li key={row.id} className="py-2 flex flex-wrap justify-between gap-2 text-sm"><span>{row.hostname}:{row.port} · {SERVICE_LABELS[row.application_protocol] || row.application_protocol}<span className="block text-xs text-gray-500">SNI: {row.sni}</span></span>{canManage && <button className="btn-secondary text-xs" type="button" disabled={busy} onClick={() => mutate(() => api.revokeTlsService(workspaceId, row.id), 'Service permission revoked. Recorded evidence remains available.')} aria-label={`Revoke ${row.hostname}:${row.port}`}>Revoke</button>}</li>)}</ul>}
+        {canManage && <form onSubmit={addService} className="mt-4 grid gap-3 sm:grid-cols-2" aria-label="Authorize a TLS service">
+          <label className="text-sm">Verified domain<select className="input mt-1" aria-label="Verified domain" required value={service.domain_id} onChange={event => setService(previous => ({ ...previous, domain_id: event.target.value, hostname: current.verified_domains?.find(row => row.domain_id === event.target.value)?.domain || '' }))} disabled={busy}><option value="">Choose domain</option>{(current.verified_domains || []).map(row => <option key={row.domain_id} value={row.domain_id}>{row.domain}</option>)}</select></label>
+          <label className="text-sm">Service hostname<input className="input mt-1" required maxLength={253} value={service.hostname} onChange={event => setService(previous => ({ ...previous, hostname: event.target.value }))} disabled={busy} /><span className="text-xs text-gray-500">This same name is sent as SNI.</span></label>
+          <label className="text-sm">Service and port<select className="input mt-1" value={service.protocol} onChange={event => setService(previous => ({ ...previous, protocol: event.target.value }))} disabled={busy}>{Object.entries(current.allowed_services || {}).flatMap(([application, ports]) => ports.map(port => <option key={`${application}:${port}`} value={`${application}:${port}`}>{SERVICE_LABELS[application] || application} · {port}</option>))}</select></label>
+          <label className="text-sm">Authorized IP target<select className="input mt-1" aria-label="Authorized IP target" required value={service.network_target_id} onChange={event => setService(previous => ({ ...previous, network_target_id: event.target.value }))} disabled={busy}><option value="">Choose target</option>{(current.network_targets || []).map(row => <option key={row.id} value={row.id}>{row.target}</option>)}</select></label>
+          <p className="text-xs text-gray-500 sm:col-span-2">Manage public IP targets under <Link to="/assets" className="underline">Network assets</Link>. Certificate names and shared hosting do not establish permission.</p>
+          <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" className="mt-1" checked={attested} onChange={event => setAttested(event.target.checked)} disabled={busy} /><span>I am authorized to test this hostname and selected service on this IP target.</span></label>
+          <button className="btn-secondary text-sm justify-center" disabled={busy || !attested || !service.domain_id || !service.hostname.trim() || !service.network_target_id}>Authorize service</button>
+        </form>}
+      </details>
+    </>}
+  </section>
+}
+
 export default function CertificatesPage() {
   const { wsId, wsName } = useWorkspace()
   const [certs, setCerts]     = useState([])
@@ -255,6 +342,8 @@ export default function CertificatesPage() {
           <Link to="/scans/new" className="btn-secondary text-sm">Run scan</Link>
         </div>
       </div>
+
+      <TlsAuthorizationSettings key={wsId} workspaceId={wsId} />
 
       {!hasData && !loading ? (
         /* 8 · Empty state */

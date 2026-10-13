@@ -101,6 +101,34 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     limitations: [rule.evidence.uncertain, "No authentication bypass, credential validity, data modification or code execution is attempted."],
     introduced_at: "2026-10-13",
   })),
+  ...[
+    ["tls_legacy_protocol", "Disable the observed legacy TLS version", "Remove this protocol version from the measured service after checking client compatibility."],
+    ["tls_weak_cipher", "Remove the accepted weak cipher", "Remove the observed cipher from this service while retaining a current interoperable suite."],
+    ["tls_weak_key_exchange", "Strengthen the measured key exchange", "Configure a current key exchange group on this service."],
+    ["tls_no_forward_secrecy", "Enable forward-secret key exchange", "Offer and prefer a forward-secret key exchange on this service."],
+    ["tls_heartbleed_confirmed", "Correct the confirmed Heartbleed behaviour", "Update or reconfigure the affected TLS implementation and repeat the bounded control."],
+    ["tls_robot_confirmed", "Correct the confirmed ROBOT behaviour", "Update or reconfigure the affected TLS implementation and repeat the bounded control."],
+    ["tls_ccs_confirmed", "Correct the confirmed CCS behaviour", "Update or reconfigure the affected TLS implementation and repeat the bounded control."],
+    ["tls_certificate_hostname", "Correct the measured TLS service hostname", "Deploy a certificate whose names cover the measured service hostname."],
+    ["tls_certificate_trust", "Correct the observed certificate trust failure", "Correct the offered chain or certificate configuration for this service."],
+    ["tls_weak_certificate_key", "Replace the certificate with a suitable key", "Replace the certificate with one using a current key size and verify the deployed chain."],
+    ["tls_weak_certificate_signature", "Replace the certificate with a current signature", "Replace the certificate with one signed using a current algorithm and verify the deployed chain."],
+    ["tls_ocsp_revoked", "Replace the revoked certificate", "Replace the affected certificate and correct its stapled OCSP response on this service."],
+    ["tls_compression_enabled", "Disable TLS compression", "Disable TLS-level compression on the measured service."],
+  ].map(([findingType, title, action]) => entry({
+    remediation_id: `tls.endpoint.${findingType.slice(4)}`,
+    domain_key: "certificates_trust",
+    finding_types: [findingType],
+    customer_title: title,
+    technical_explanation: "A bounded live TLS control observed this condition on the recorded hostname, SNI, IP, port and application protocol.",
+    business_impact: "Clients connecting to this endpoint may encounter weaker transport protection or reject its certificate.",
+    recommended_action: action,
+    verification_method: "certificate_recheck",
+    verification_evidence_requirements: "Repeat the exact control on the same reachable endpoint with the same engine build and policy profile. A complete negative result is required; timeout, blocking, missing coverage and tool changes do not verify remediation.",
+    supporting_evidence_types: ["tls_endpoint_measurement"],
+    limitations: ["This finding applies only to the observed TCP endpoint and does not attest to an origin behind a CDN or to QUIC."],
+    introduced_at: "2026-10-13",
+  })),
   // ─────────────────────────── EMAIL PROTECTION ──────────────────────────────
   entry({
     remediation_id: "email.dmarc.publish",
@@ -1401,6 +1429,8 @@ function normalizeFindingType(rawType) {
   if (!ft) return "";
   const exposure = /^(external_exposure_[a-z][a-z0-9-]+)__[a-f0-9]{64}$/.exec(ft);
   if (exposure) return exposure[1];
+  const tls = /^(tls_[a-z_]+)__[a-f0-9]{64}$/.exec(ft);
+  if (tls) return tls[1];
   if (ft.startsWith("subdomain_sensitive_")) return "subdomain_sensitive";
   return ft;
 }
