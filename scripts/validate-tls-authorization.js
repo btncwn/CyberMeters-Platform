@@ -21,7 +21,7 @@ let networkCalls = 0;
 const noNetwork = () => {networkCalls++;throw new Error('unexpected_network');};
 let beforeBatch;
 const db = {prepare,batch:async statements=>{if(beforeBatch){const change=beforeBatch;beforeBatch=null;change();}sql.exec('BEGIN');try{const result=[];for(const s of statements)result.push(await s.run());sql.exec('COMMIT');return result;}catch(error){sql.exec('ROLLBACK');throw error;}}};
-const env = {cybermeters_db:db,SCAN_QUEUE:{send:noNetwork},NETWORK_PROBE:{fetch:noNetwork}};
+const env = {cybermeters_db:db,TLS_ASSESSMENT_MODE:'evidence-v1',SCAN_QUEUE:{send:noNetwork},NETWORK_PROBE:{fetch:noNetwork}};
 let assertions=0;
 const check=(actual,expected)=>{assert.deepEqual(actual,expected);assertions++;};
 const enable={enabled:true,authorization_confirmed:true,consent_version:TLS_SPECIAL_CONSENT_VERSION};
@@ -35,6 +35,12 @@ async function request(method='GET',path='',body,options={}) {
 }
 let response=await request();
 check(response.status,200);check(response.body.authorization.enabled,false);check(response.body.authorization.generation,0);
+check(response.body.capabilities.assessment_available,true);
+env.TLS_ASSESSMENT_MODE='disabled';
+check((await request()).body.capabilities.assessment_available,false);
+check((await request('PUT','',enable)).status,409);
+check((await request('POST','/services',service)).status,409);
+env.TLS_ASSESSMENT_MODE='evidence-v1';
 check(response.body.verified_domains,[{domain_id:'domain_a',domain:'owned.example.com'}]);check(response.body.network_targets,[{id:'target_a',target:'8.8.8.8'}]);
 check((await request('GET','',undefined,{anonymous:true})).status,401);
 check((await request('GET','',undefined,{workspace:'b'})).status,403);

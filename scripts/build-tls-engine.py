@@ -96,6 +96,11 @@ def main():
                     if not dest.is_relative_to(build) or member.isdev():
                         raise RuntimeError('unsafe archive member')
                 tar.extractall(build, filter='data')
+        license_copy = ENGINE / source['license_file']
+        source_license = source_dir / ('LICENSE' if identity == 'legacy' else 'LICENSE.txt')
+        if (sha256(license_copy) != source['license_sha256']
+                or sha256(source_license) != source['license_sha256']):
+            raise RuntimeError('pinned source license mismatch: ' + identity)
         system, machine = platform.system(), platform.machine()
         if identity == 'legacy':
             target = ('BSD-generic64' if system == 'Darwin' else

@@ -1,5 +1,5 @@
 import { isProbeHostname, isPublicProbeAddress } from './contract.js';
-import { TLS_CONTROLS, TLS_PROTOCOLS, TLS_SLICE_LIMITS, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONSENT_VERSION, applicableTlsControl, isTlsService, tlsEndpointIdentity, tlsEngineControl } from '../../../shared/tls/catalog.js';
+import { TLS_CONTROLS, TLS_PROTOCOLS, TLS_SLICE_LIMITS, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONSENT_VERSION, TLS_TRUST_BUNDLE, applicableTlsControl, isTlsService, tlsEndpointIdentity, tlsEngineControl } from '../../../shared/tls/catalog.js';
 
 const id = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value);
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(key => keys.includes(key));
@@ -58,6 +58,7 @@ export function tlsAssessmentLimitations(input) {
     'tcp_tls_only_quic_not_assessed',
     'observed_endpoint_not_origin_inference',
     'no_external_revocation_fetch',
+    'mozilla_name_constraints_not_preserved',
     ...(input.endpoint.application_protocol !== 'https' ? ['authorized_service_only'] : []),
   ];
 }
@@ -160,6 +161,9 @@ function projectTlsResult(check, raw, { requireSandbox }) {
   const engine = raw.engine_result;
   const checked = validateTlsEngineResult(engine,check,{requireSandbox});
   if (!checked.ok) throw new Error(checked.reason);
+  if (requireSandbox && engine.certificates &&
+      engine.certificates.trust_bundle_sha256 !== TLS_TRUST_BUNDLE.sha256)
+    throw new Error('trust_snapshot_mismatch');
   if (engine.telemetry.connections > pt.connections || engine.telemetry.bytes_sent > pt.bytes_sent ||
       engine.telemetry.bytes_received > pt.bytes_received) throw new Error('engine_cost_conflict');
   if (['accepted','rejected'].includes(engine.state) &&

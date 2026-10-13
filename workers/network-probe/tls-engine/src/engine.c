@@ -478,7 +478,7 @@ static void negotiated_json(SSL *s) {
     const SSL_CIPHER *cipher=SSL_get_current_cipher(s);const char *version=protocol_name(SSL_version(s));
     const char *name=cipher?SSL_CIPHER_get_name(cipher):NULL;
     if(!name||!version||!identifier(name,96)){append("null");return;}
-    EVP_PKEY *key=NULL;int bits=0,pfs=0;const char *group=NULL;
+    EVP_PKEY *key=NULL;int bits=0,pfs=-1;const char *group=NULL;
     if(SSL_get_server_tmp_key(s,&key)==1&&key) {
         bits=EVP_PKEY_bits(key);pfs=EVP_PKEY_base_id(key)==EVP_PKEY_DH||EVP_PKEY_base_id(key)==EVP_PKEY_EC;
 #if !CM_LEGACY
@@ -494,7 +494,15 @@ static void negotiated_json(SSL *s) {
         else if(EVP_PKEY_base_id(key)==EVP_PKEY_X448)group="X448";
 #endif
     }
-    if(!strcmp(version,"tls1_3"))pfs=key!=NULL;
+    /* Only a verified static-RSA key exchange proves absent forward secrecy.
+     * The legacy bit comes from pinned 1.0.2u ssl_locl.h (SSL_kRSA=0x1). */
+    if(pfs<0) {
+#if CM_LEGACY
+        if(cipher->algorithm_mkey&0x00000001UL)pfs=0;
+#else
+        if(SSL_CIPHER_get_kx_nid(cipher)==NID_kx_rsa)pfs=0;
+#endif
+    }
     append("{\"version\":\"%s\",\"cipher\":\"%s\",\"cipher_bits\":%d,\"group\":",version,name,SSL_CIPHER_get_bits(cipher,NULL));
     if(group&&identifier(group,64))append("\"%s\"",group);else append("null");
     append(",\"group_bits\":");if(bits>0&&bits<=16384)append("%d",bits);else append("null");
@@ -509,10 +517,10 @@ static void extensions_json(SSL *s) {
     /* This release does not offer EMS. Null is not server rejection. */
 #else
     if(strcmp(opt.protocol,"tls1_3"))ems=SSL_get_extms_support(s);
-    SSL_SESSION *session=SSL_get_session(s);if(session)early=SSL_SESSION_get_max_early_data(session);
+    if(new_session)early=SSL_SESSION_get_max_early_data(new_session);
 #endif
     append("{\"ems\":%s,\"compression\":%s,\"secure_renegotiation\":%s,\"fallback_scsv\":%s,\"session_reused\":%s,\"early_data_max\":",boolean(ems),boolean(SSL_get_current_compression(s)!=NULL),boolean(!strcmp(opt.protocol,"ssl2")?-1:(int)SSL_get_secure_renegotiation_support(s)),boolean(!strcmp(opt.control,"fallback")?peer_alert==86:-1),boolean(SSL_session_reused(s)));
-    if(!strcmp(opt.protocol,"tls1_3"))append("%u",early);else append("null");
+    if(!strcmp(opt.protocol,"tls1_3")&&new_session)append("%u",early);else append("null");
     append(",\"renegotiation_completed\":%s}",boolean(reneg_completed));
 }
 static int cipher_compatible(const SSL_CIPHER *c) {

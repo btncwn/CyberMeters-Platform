@@ -24,16 +24,17 @@ export async function tlsAuthorizationRoutes(rctx) {
   try {
     if (!await db.prepare('SELECT id FROM workspaces WHERE id=? AND deleted_at IS NULL').bind(workspaceId).first()) return json({error:'Workspace not found'},404);
     const canManage = !!await requireWorkspaceRole(user,workspaceId,'domain:import',env);
+    const assessmentAvailable = env.TLS_ASSESSMENT_MODE === 'evidence-v1';
     const readAuthorization = async () => tlsAuthorizationProjection(await db.prepare('SELECT * FROM workspace_tls_authorizations WHERE workspace_id=?').bind(workspaceId).first());
     const readServices = async () => (await db.prepare("SELECT * FROM workspace_tls_service_authorizations WHERE workspace_id=? AND authorization_status='active' ORDER BY authorized_at,id LIMIT 64").bind(workspaceId).all()).results.map(tlsServiceProjection);
     if (request.method === 'GET' && !serviceId) {
-      if (resource) return json({services:await readServices(),capabilities:{can_manage:canManage}});
+      if (resource) return json({services:await readServices(),capabilities:{can_manage:canManage,assessment_available:assessmentAvailable}});
       const [authorization,services,domains,targets] = await Promise.all([
         readAuthorization(),readServices(),
         db.prepare("SELECT d.id AS domain_id,d.domain FROM workspace_domains wd JOIN domains d ON d.id=wd.domain_id WHERE wd.workspace_id=? AND wd.verification_status='verified' ORDER BY d.domain").bind(workspaceId).all(),
         db.prepare("SELECT id,target FROM network_targets WHERE workspace_id=? AND authorization_status='attested' ORDER BY target,id LIMIT 32").bind(workspaceId).all(),
       ]);
-      return json({authorization,services,verified_domains:domains.results,network_targets:targets.results,capabilities:{can_manage:canManage},allowed_services:TLS_SERVICE_PORTS,max_services:TLS_SERVICE_LIMIT,consent_version:TLS_SPECIAL_CONSENT_VERSION});
+      return json({authorization,services,verified_domains:domains.results,network_targets:targets.results,capabilities:{can_manage:canManage,assessment_available:assessmentAvailable},allowed_services:TLS_SERVICE_PORTS,max_services:TLS_SERVICE_LIMIT,consent_version:TLS_SPECIAL_CONSENT_VERSION});
     }
     if (!canManage) return json({error:'Forbidden — admin role required'},403);
     if (!((request.method === 'PUT' && !resource) || (request.method === 'POST' && resource))) return json({error:'Not found'},404);
@@ -51,6 +52,7 @@ export async function tlsAuthorizationRoutes(rctx) {
     if (request.method === 'PUT' && !resource) {
       if (!strict(body,['enabled','authorization_confirmed','consent_version']) || typeof body.enabled !== 'boolean') return json({error:'invalid_tls_authorization_body'},400);
       if (body.enabled && (body.authorization_confirmed !== true || body.consent_version !== TLS_SPECIAL_CONSENT_VERSION)) return json({error:'tls_explicit_authorization_required'},400);
+      if (body.enabled && !assessmentAvailable) return json({error:'tls_assessment_unavailable'},409);
       const write = db.prepare(`INSERT INTO workspace_tls_authorizations(workspace_id,enabled,generation,consent_version,authorized_by,authorized_at,revoked_by,revoked_at,updated_at)
         SELECT ?,?,1,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)
         ON CONFLICT(workspace_id) DO UPDATE SET enabled=excluded.enabled,generation=generation+1,
@@ -75,6 +77,7 @@ export async function tlsAuthorizationRoutes(rctx) {
     }
     if (!strict(body,['domain_id','hostname','sni','port','application_protocol','network_target_id','authorization_confirmed']) || !identifier(body.domain_id) || !identifier(body.network_target_id) || !isProbeHostname(body.hostname) || body.sni !== body.hostname || !Object.hasOwn(TLS_SERVICE_PORTS,body.application_protocol) || !TLS_SERVICE_PORTS[body.application_protocol].includes(body.port)) return json({error:'invalid_tls_service'},400);
     if (body.authorization_confirmed !== true) return json({error:'tls_service_authorization_required'},400);
+    if (!assessmentAvailable) return json({error:'tls_assessment_unavailable'},409);
     const domain = await db.prepare("SELECT d.domain FROM workspace_domains wd JOIN domains d ON d.id=wd.domain_id WHERE wd.workspace_id=? AND wd.domain_id=? AND wd.verification_status='verified'").bind(workspaceId,body.domain_id).first();
     if (!domain || !(body.hostname === domain.domain || body.hostname.endsWith('.'+domain.domain))) return json({error:'tls_service_scope_invalid'},400);
     const id = createId('tlsservice');

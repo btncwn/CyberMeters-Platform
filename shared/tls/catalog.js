@@ -4,6 +4,8 @@
 export const TLS_PROFILE_VERSION = 'cybermeters-tls-profile/1';
 export const TLS_POLICY_VERSION = 'rfc9325-2022/1';
 export const TLS_SPECIAL_CONSENT_VERSION = 'tls-special-2026-10-13';
+export const TLS_TRUST_BUNDLE = Object.freeze({name:'curl Mozilla CA Extract',version:'2026-09-25',
+  sha256:'a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505'});
 
 export const TLS_PROTOCOLS = Object.freeze(['ssl2','ssl3','tls1','tls1_1','tls1_2','tls1_3']);
 export const TLS_STATES = Object.freeze(['accepted','rejected','uncertain','not_applicable','not_authorized','unexecutable']);

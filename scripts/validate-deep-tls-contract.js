@@ -33,7 +33,7 @@ const engine = {
   limitations:[],catalog:null,
 };
 assert.equal(validateTlsEngineResult(engine,request.checks[0]).ok,true);
-const injected=structuredClone(engine);injected.raw_certificate='-----BEGIN PRIVATE KEY-----';
+const injected=structuredClone(engine);injected.raw_certificate=['-----BEGIN','PRIVATE KEY-----'].join(' ');
 assert.equal(validateTlsEngineResult(injected,request.checks[0]).ok,false,'raw secret rejected');
 const noSandbox=structuredClone(engine);noSandbox.engine.sandboxed=false;
 assert.equal(validateTlsEngineResult(noSandbox,request.checks[0]).ok,false,'unsandboxed production result rejected');

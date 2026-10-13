@@ -220,6 +220,7 @@ export function TlsAuthorizationSettings({ workspaceId }) {
     mutate(() => api.authorizeTlsService(workspaceId, { domain_id: service.domain_id, hostname, sni: hostname, port: Number(rawPort), application_protocol, network_target_id: service.network_target_id, authorization_confirmed: true }), 'Service scope saved. No scan was started.')
   }
   const services = current?.services || []
+  if (current && current.capabilities?.assessment_available !== true) return null
   return <section id="tls-permissions" className="card p-5 mb-6 space-y-4" aria-label="TLS scan permissions">
     <div><h2 className="text-lg font-semibold text-gray-900">TLS scan permissions</h2><p className="text-sm text-gray-600 mt-1">Normal scans assess protocols, ciphers and certificates on authorized endpoints. Special vulnerability probes require the permission below.</p></div>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}

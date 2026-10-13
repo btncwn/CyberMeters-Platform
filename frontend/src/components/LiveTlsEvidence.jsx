@@ -2,8 +2,8 @@ import { parseServerDate } from '../utils/dates'
 
 const text = value => typeof value === 'string' && value.trim() ? value : 'Not recorded'
 const time = value => {
-  if (typeof value !== 'string') return 'Not recorded'
-  const parsed = parseServerDate(value)
+  if (typeof value !== 'string' && !(Number.isSafeInteger(value) && value >= 0)) return 'Not recorded'
+  const parsed = typeof value === 'number' ? new Date(value * 1000) : parseServerDate(value)
   return Number.isFinite(parsed?.getTime()) ? `${parsed.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' })} UTC` : 'Not recorded'
 }
 const stateLabels = { open: 'Open', closed: 'Closed', timeout: 'Timed out', error: 'Measurement failed', not_run: 'Not run' }
@@ -47,7 +47,7 @@ function TlsControlDetail({ row }) {
       <details className="text-xs"><summary className="cursor-pointer font-medium">Built trust path ({trusted ? `${trusted.length} recorded` : 'not recorded'})</summary>{trusted && <ol className="mt-2 space-y-1">{trusted.map((fingerprint, index) => <li key={`${fingerprint}-${index}`} className="break-all">{index + 1}. {text(fingerprint)}</li>)}</ol>}<p className="mt-1 text-gray-500">This path can include certificates from the scanner’s trust store. The server-offered chain is listed separately.</p></details>
     </div>}
     {evidence.ocsp && <StapledOcsp value={evidence.ocsp} />}
-    {extensions && <dl className="grid gap-2 sm:grid-cols-2">{[['ems','Extended master secret'],['compression','Compression'],['secure_renegotiation','Secure renegotiation'],['fallback_scsv','Fallback protection'],['session_reused','Session resumed'],['renegotiation_completed','Bounded renegotiation completed']].filter(([key]) => Object.hasOwn(extensions,key)).map(([key,label]) => <Field key={key} label={label}>{yesNo(extensions[key])}</Field>)}{Object.hasOwn(extensions,'early_data_max') && <Field label="Advertised early-data limit">{number(extensions.early_data_max)} bytes</Field>}</dl>}
+    {extensions && <dl className="grid gap-2 sm:grid-cols-2">{[['ems','Extended master secret'],['compression','Compression'],['secure_renegotiation','Secure renegotiation'],['fallback_scsv','Fallback protection'],['session_reused','Session resumed'],['renegotiation_completed','Bounded renegotiation completed']].filter(([key]) => Object.hasOwn(extensions,key)).map(([key,label]) => <Field key={key} label={label}>{yesNo(extensions[key])}</Field>)}{Number.isSafeInteger(extensions.early_data_max) && <Field label="Advertised early-data limit">{number(extensions.early_data_max)} bytes</Field>}</dl>}
     {vulnerability && <div className="text-xs space-y-1"><p className="font-medium">Vulnerability test: {{confirmed:'Confirmed by the recorded test',not_observed:'Not observed in this test',unknown:'Unknown'}[vulnerability.status] || 'Unknown'}</p><p>Profile: {text(vulnerability.profile)} · Vectors completed: {number(vulnerability.completed_vectors)} / {number(vulnerability.planned_vectors)}</p></div>}
   </div>
 }

@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/.build
+frontend
+sources
+docs
+database
+sbom
+reports
+screenshots
+dist
+build

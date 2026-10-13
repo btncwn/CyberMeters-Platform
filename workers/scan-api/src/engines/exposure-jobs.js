@@ -6,7 +6,7 @@ import { planExposureChecks } from '../../../../shared/exposure/discovery.js';
 import { EXPOSURE_LIMITS, validateExposureRequest, validateExposureReceipt } from '../../../network-probe/src/exposure-contract.js';
 import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/contract.js';
 import { WEBSITE_CONTENT_LIMITS, validateWebsiteContentRequest, validateWebsiteContentReceipt } from '../../../network-probe/src/website-content-contract.js';
-import { TLS_SLICE_LIMITS, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
+import { TLS_SLICE_LIMITS, TLS_TRUST_BUNDLE, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
 import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
 import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
 import { buildTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized } from './tls-planner.js';
@@ -92,9 +92,11 @@ async function createJob(env, scan, now, dispatch) {
     const planned=planExposureChecks({origin,observations,previousFindings:previousFindings.map(r=>({ruleId:r.rule_id,url:r.url}))});
     for(const check of planned.checks||[])checks.push({rule_id:check.ruleId||check.rule_id,url:check.url});
   }
-  const plan={content_state:'pending',retest_checks:previousFindings,checks:checks.slice(0,EXPOSURE_JOB_LIMITS.checks),hosts,
+  const exposureCheckLimit=env.TLS_ASSESSMENT_MODE==='evidence-v1'?384:EXPOSURE_JOB_LIMITS.checks;
+  const plan={content_state:'pending',retest_checks:previousFindings,checks:checks.slice(0,exposureCheckLimit),hosts,
+    exposure_check_limit:exposureCheckLimit,
     pending_assets:Math.max(0,(assetCount?.total||0)-hosts.filter(host=>candidates.some(a=>a.hostname===host)).length),discovered_hosts:[],
-    omitted_checks:Math.max(0,checks.length-EXPOSURE_JOB_LIMITS.checks),catalog_version:'1'};
+    omitted_checks:Math.max(0,checks.length-exposureCheckLimit),catalog_version:'1'};
   if(env.EXPOSURE_SCAN_MODE!=='evidence-v1'){
     plan.content_state='not_requested';plan.checks=[];plan.omitted_checks=0;
   }
@@ -235,7 +237,7 @@ export function mergeWebsiteContentPlan(plan,receipt,domain) {
   const baseline=retained.filter(c=>!retests.has(c.rule_id+'|'+c.url))
     .sort((a,b)=>(priorities.get(b.rule_id+'|'+b.url)||0)-(priorities.get(a.rule_id+'|'+a.url)||0));
   const ordered=[...retained.filter(c=>retests.has(c.rule_id+'|'+c.url)),...candidates,...baseline];
-  const allowance=Math.max(0,EXPOSURE_JOB_LIMITS.checks-receipt.results.length);
+  const allowance=Math.max(0,(plan.exposure_check_limit||EXPOSURE_JOB_LIMITS.checks)-receipt.results.length);
   plan.omitted_checks=(plan.omitted_checks||0)+Math.max(0,ordered.length-allowance);
   plan.checks=ordered.slice(0,allowance);
   plan.retest_checks=unresolvedExposureChecks(plan.retest_checks||[],receipt.results);
@@ -521,7 +523,8 @@ export async function readTlsAssessmentForScan(env,{workspaceId,scanId}) {
   const quality=row.state==='complete'&&coverage.uncertain===0&&coverage.unexecutable===0&&coverage.not_authorized===0&&
     coverage.omitted_checks===0&&coverage.omitted_services===0&&coverage.endpoint_gaps===0?'complete':'partial';
   return {source:'tls_assessment',version:tls.profile_version,policy_version:tls.policy_version,quality,coverage,endpoints,
-    gaps:tls.gaps,costs:{connections:costs.tls_connections||0,bytes_sent:costs.tls_bytes_sent||0,
+    gaps:tls.gaps,trust_store_context:TLS_TRUST_BUNDLE,
+    costs:{connections:costs.tls_connections||0,bytes_sent:costs.tls_bytes_sent||0,
       bytes_received:costs.tls_bytes_received||0,duration_ms:costs.tls_duration_ms||0,
       charged_connections:row.charged_requests,charged_bytes:row.charged_bytes,unknown_attempts:row.unknown_attempts,
       attempts:row.attempts},limitations:['tcp_tls_only_quic_not_assessed','observed_endpoint_not_origin_inference','no_external_revocation_fetch'],

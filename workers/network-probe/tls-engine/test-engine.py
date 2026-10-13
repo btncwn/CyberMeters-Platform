@@ -2,10 +2,12 @@
 """Loopback-only integration rigs. Never imports or probes customer targets."""
 import argparse
 import contextlib
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
+import platform
 import selectors
 import socket
 import struct
@@ -158,7 +160,8 @@ class BaselineTests(unittest.TestCase):
         for family in ['legacy','modern']:
             prefix = BUILD / ('install-' + family)
             lib = prefix / ('lib64' if (prefix / 'lib64/libssl.a').exists() else 'lib')
-            run(['cc', '-Wno-deprecated-declarations', '-I' + str(prefix / 'include'), ENGINE / 'src/fixture-server.c', lib / 'libssl.a', lib / 'libcrypto.a', '-lpthread', '-o', BUILD / 'bin' / ('fixture-server-' + family)])
+            linker = ['-lpthread', *(['-ldl'] if platform.system() == 'Linux' else [])]
+            run(['cc', '-Wno-deprecated-declarations', '-I' + str(prefix / 'include'), ENGINE / 'src/fixture-server.c', lib / 'libssl.a', lib / 'libcrypto.a', *linker, '-o', BUILD / 'bin' / ('fixture-server-' + family)])
         cls.directory = tempfile.TemporaryDirectory(prefix='tls-rig-', dir=BUILD)
         cls.fixture = Path(cls.directory.name)
         cls.legacy = BUILD / 'install-legacy/bin/openssl'
@@ -171,16 +174,31 @@ class BaselineTests(unittest.TestCase):
                           'basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,digitalSignature,keyEncipherment\n')
         run([cls.modern, 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256',
              '-days', '2', '-config', config, '-out', cls.cert, '-keyout', cls.key])
+        cls.expired_cert, cls.expired_key = cls.fixture / 'expired.pem', cls.fixture / 'expired.key'
+        cls.future_cert, cls.future_key = cls.fixture / 'future.pem', cls.fixture / 'future.key'
+        cls.unrelated_cert, cls.unrelated_key = cls.fixture / 'unrelated.pem', cls.fixture / 'unrelated.key'
+        now = datetime.now(timezone.utc)
+        stamp = lambda days: (now + timedelta(days=days)).strftime('%Y%m%d%H%M%SZ')
+        for certificate, key, before, after in [
+            (cls.expired_cert, cls.expired_key, stamp(-3), stamp(-1)),
+            (cls.future_cert, cls.future_key, stamp(1), stamp(3)),
+            (cls.unrelated_cert, cls.unrelated_key, stamp(-1), stamp(2)),
+        ]:
+            run([cls.modern, 'genpkey', '-algorithm', 'RSA', '-pkeyopt', 'rsa_keygen_bits:2048', '-out', key])
+            run([cls.modern, 'x509', '-new', '-key', key, '-subj', '/CN=localhost',
+                 '-not_before', before, '-not_after', after, '-extfile', config,
+                 '-extensions', 'ext', '-out', certificate])
 
     @classmethod
     def tearDownClass(cls):
         cls.directory.cleanup()
 
-    def assess(self, protocol, port=None, control='handshake', family=None, extra=(), **kwargs):
+    def assess(self, protocol, port=None, control='handshake', family=None, extra=(),
+               hostname='localhost', trust=None, **kwargs):
         family = family or ('modern' if protocol == 'tls1_3' else 'legacy')
         return bridge(BUILD / 'bin' / ('tls-baseline-' + family),
-                      ['--protocol', protocol, '--control', control, '--hostname', 'localhost',
-                       '--trust-bundle', str(self.cert), '--timeout-ms', '5000', *extra], port, **kwargs)
+                      ['--protocol', protocol, '--control', control, '--hostname', hostname,
+                       '--trust-bundle', str(trust or self.cert), '--timeout-ms', '5000', *extra], port, **kwargs)
 
     def test_six_protocols_finished_and_exact_trust(self):
         for protocol in ['ssl2', 'ssl3', 'tls1', 'tls1_1', 'tls1_2', 'tls1_3']:
@@ -209,6 +227,18 @@ class BaselineTests(unittest.TestCase):
                 self.assertEqual(result['state'], 'accepted', result)
                 self.assertTrue(result['authenticated_finished'])
                 self.assertEqual(result['negotiated']['cipher'], cipher['name'])
+
+    def test_weak_cipher_and_key_exchange_are_observed(self):
+        for cipher, expected_pfs in [('RC4-SHA', False),
+                                     ('DES-CBC3-SHA', False),
+                                     ('ECDHE-RSA-AES128-GCM-SHA256', True)]:
+            with self.subTest(cipher=cipher):
+                with server(self.legacy, self.cert, self.key, 'tls1_2', ['-cipher', cipher]) as port:
+                    result = self.assess('tls1_2', port, extra=['--cipher', cipher])
+                self.assertEqual(result['state'], 'accepted', result)
+                self.assertTrue(result['authenticated_finished'])
+                self.assertEqual(result['negotiated']['cipher'], cipher)
+                self.assertEqual(result['negotiated']['pfs'], expected_pfs)
 
     def test_incompatible_cipher_does_not_contact_peer(self):
         result = self.assess('ssl3', extra=['--cipher', 'AES128-GCM-SHA256'])
@@ -248,6 +278,29 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(older['state'], 'accepted', older)
         self.assertEqual(newer['negotiated']['version'], 'tls1_3')
         self.assertEqual(older['negotiated']['version'], 'tls1_2')
+
+    def test_certificate_hostname_and_trust_are_independent(self):
+        with server(self.modern, self.cert, self.key, 'tls1_2') as port:
+            wrong_name = self.assess('tls1_2', port, family='modern', control='certificate', hostname='other.example.org')
+            untrusted = self.assess('tls1_2', port, family='modern', control='certificate', trust=self.unrelated_cert)
+        self.assertEqual(wrong_name['state'], 'accepted')
+        self.assertFalse(wrong_name['certificates']['hostname'])
+        self.assertEqual(wrong_name['certificates']['trust'], 'valid')
+        self.assertTrue(untrusted['certificates']['hostname'])
+        self.assertEqual(untrusted['certificates']['trust'], 'invalid')
+
+    def test_expired_and_not_yet_valid_certificates_are_distinct(self):
+        for certificate, key, expected in [
+            (self.expired_cert, self.expired_key, 'expired'),
+            (self.future_cert, self.future_key, 'not_yet_valid'),
+        ]:
+            with self.subTest(expected=expected):
+                with server(self.modern, certificate, key, 'tls1_2') as port:
+                    result = self.assess('tls1_2', port, family='modern', control='certificate', trust=certificate)
+                self.assertEqual(result['state'], 'accepted')
+                self.assertEqual(result['certificates']['trust'], 'invalid')
+                self.assertFalse(result['certificates']['dates'])
+                self.assertEqual(result['certificates']['reason'], expected)
 
 
 if __name__ == '__main__':
