@@ -3,11 +3,12 @@ import { landVectors } from './worldDots'
 
 // Hero illustration for the public website: an eye whose pupil is a turning
 // globe — continents, major cities and the routes between them — with example
-// findings surfacing as it turns. The eye watches the visitor: it darts
-// towards the pointer, flinches and glitches when a finding appears, and
-// shudders while the page scrolls. Everything is drawn in code and every
-// motion stops under reduced motion. Only the illustration moves; page text
-// and forms never do.
+// findings surfacing as it turns. With a mouse, the eye darts towards the
+// pointer, flinches and glitches when a finding appears, and shudders while the
+// page scrolls. On phones and tablets it stays calm instead: it keeps looking
+// at the viewer as the device tilts, and looks at wherever the screen is
+// touched. Everything is drawn in code and every motion stops under reduced
+// motion. Only the illustration moves; page text and forms never do.
 //
 // The findings are illustrative copy, never live data. The page captions the
 // illustration as an example.
@@ -55,6 +56,9 @@ function mulberry32(seed) {
 }
 
 const reducedMotion = () => Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+// Phones and tablets: a touch screen is the main input and nothing hovers.
+const touchScreen = () => Boolean(window.matchMedia?.('(hover: none) and (pointer: coarse)').matches)
+const clamp1 = v => Math.max(-1, Math.min(1, v))
 
 function context(canvas, cssSize, maxDpr) {
   const ctx = canvas?.getContext?.('2d')
@@ -395,6 +399,8 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
     if (!ctx) return undefined
     const scene = buildScene()
     const still = reducedMotion()
+    // Phones and tablets get a calm eye: no shaking, glitching or twitching.
+    const calm = touchScreen()
     const baseTilt = 0.42
     let tilt = baseTilt
     const maxActive = size < 700 ? 1 : 2
@@ -426,6 +432,12 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
     let extraRot = 0
     let lastScroll = window.scrollY
     let lastScrollAt = last
+    // Calm mode: where the screen was last touched, and how the device is tilted.
+    let touchDir = { x: 0, y: 0 }
+    let touchAt = -1e9
+    let tiltDir = null
+    let tiltAt = -1e9
+    let tiltBase = null
 
     // With page text to the left of the eye, findings on the right half of the
     // globe are preferred so their labels open away from the text.
@@ -453,7 +465,7 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
         if (!el) return
         const spot = placed.find(p => p.i === i)
         if (!spot) { el.style.opacity = '0'; return }
-        const age = now - (activatedAt[i] ?? -1e9)
+        const age = calm ? 1e9 : now - (activatedAt[i] ?? -1e9)
         const flicker = age < 260 ? [1, 0.1, 0.9, 0.2, 1, 0.5][Math.floor(age / 45)] ?? 1 : 1
         // The fade is switched off while a new label flickers in.
         el.style.transition = age < 260 ? 'none' : ''
@@ -493,6 +505,36 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
         cancelAnimationFrame(id)
         window.removeEventListener('resize', drawStill)
       }
+    }
+
+    // Calm frame for touch screens. The pupil looks where the screen was just
+    // touched; otherwise it keeps looking at the viewer as the device tilts,
+    // like an eye holding someone's gaze while its head moves.
+    const calmFrame = (now) => {
+      const dt = Math.min(64, now - last)
+      last = now
+      const touching = now - touchAt < 1800
+      const tilting = tiltDir && now - tiltAt < 1200
+      const target = touching ? touchDir : tilting ? tiltDir : { x: 0, y: 0 }
+      // Turn the world towards where the eye is looking; settle back when idle.
+      spinOffTarget = target.x * 0.9
+      tiltOffTarget = Math.max(-0.4, Math.min(0.4, target.y * 0.4))
+      spinOff += (spinOffTarget - spinOff) * Math.min(1, dt * 0.004)
+      tiltOff += (tiltOffTarget - tiltOff) * Math.min(1, dt * 0.004)
+      spin += dt * 0.00011
+      tilt = baseTilt + tiltOff
+      if (now >= nextSwitch) { pickNext(now); nextSwitch = now + 2600 }
+      // Smooth pursuit, no darting.
+      const follow = Math.min(1, dt * (touching ? 0.012 : 0.006))
+      gaze.x += (target.x * maxGaze - gaze.x) * follow
+      gaze.y += (target.y * maxGaze - gaze.y) * follow
+      // The iris travels most of the way with the pupil, so the globe always
+      // stays inside the pupil.
+      if (irisWrapRef.current) irisWrapRef.current.style.transform = `translate3d(${(gaze.x * 0.7).toFixed(2)}px, ${(gaze.y * 0.7).toFixed(2)}px, 0)`
+      if (pupilRef.current) pupilRef.current.style.transform = `translate3d(${gaze.x.toFixed(2)}px, ${gaze.y.toFixed(2)}px, 0)`
+      const sp = (now - flinchAt) / 820
+      draw(now, { glitch: 0, shock: sp < 1 ? sp : -1, packets: true })
+      raf = visible && !document.hidden ? requestAnimationFrame(calmFrame) : 0
     }
 
     const frame = (now) => {
@@ -563,7 +605,44 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
       raf = visible && !document.hidden ? requestAnimationFrame(frame) : 0
     }
 
-    const start = () => { if (!raf && visible && !document.hidden) { last = performance.now(); raf = requestAnimationFrame(frame) } }
+    const start = () => { if (!raf && visible && !document.hidden) { last = performance.now(); raf = requestAnimationFrame(calm ? calmFrame : frame) } }
+    // Touch: look at the point that was touched (and follow a dragging finger).
+    const onTouch = (e) => {
+      if (e.pointerType === 'mouse') return
+      const r = rootRef.current?.getBoundingClientRect()
+      if (!r) return
+      const dx = e.clientX - (r.left + r.width / 2)
+      const dy = e.clientY - (r.top + r.height / 2)
+      const dist = Math.hypot(dx, dy) || 1
+      const reach = Math.min(1, dist / 160)
+      touchDir = { x: (dx / dist) * reach, y: (dy / dist) * reach }
+      touchAt = performance.now()
+    }
+    // Tilt: the angle the device is held at slowly becomes the neutral point,
+    // so the eye responds to turning the phone, not to how it is held.
+    const onTilt = (e) => {
+      if (e.beta == null || e.gamma == null) return
+      const angle = window.screen?.orientation?.angle ?? window.orientation ?? 0
+      let x = e.gamma
+      let y = e.beta
+      if (angle === 90) { x = e.beta; y = -e.gamma } else if (angle === -90 || angle === 270) { x = -e.beta; y = e.gamma } else if (angle === 180) { x = -e.gamma; y = -e.beta }
+      if (!tiltBase || Math.abs(x - tiltBase.x) > 60 || Math.abs(y - tiltBase.y) > 60) tiltBase = { x, y }
+      tiltBase.x += (x - tiltBase.x) * 0.006
+      tiltBase.y += (y - tiltBase.y) * 0.006
+      // Turning the phone one way moves the pupil the other way, so it keeps
+      // facing the viewer.
+      tiltDir = { x: clamp1(-(x - tiltBase.x) / 18), y: clamp1((y - tiltBase.y) / 18) }
+      tiltAt = performance.now()
+    }
+    // iPhone and iPad only share motion data after the visitor allows it, and
+    // only in answer to a tap, so the eye asks when it is tapped — never unasked.
+    let motionAsked = false
+    const askForMotion = () => {
+      const D = window.DeviceOrientationEvent
+      if (motionAsked || typeof D?.requestPermission !== 'function') return
+      motionAsked = true
+      D.requestPermission().then(state => { if (state === 'granted') window.addEventListener('deviceorientation', onTilt) }).catch(() => {})
+    }
     const onPointer = (e) => {
       const r = rootRef.current?.getBoundingClientRect()
       if (!r) return
@@ -589,10 +668,18 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
       scrollEnergy = Math.min(1, scrollEnergy + v * 0.18)
     }
     const io = new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; start() })
-    if (rootRef.current) io.observe(rootRef.current)
+    const root = rootRef.current
+    if (root) io.observe(root)
     document.addEventListener('visibilitychange', start)
-    window.addEventListener('pointermove', onPointer, { passive: true })
-    window.addEventListener('scroll', onScroll, { passive: true })
+    if (calm) {
+      window.addEventListener('pointerdown', onTouch, { passive: true })
+      window.addEventListener('pointermove', onTouch, { passive: true })
+      if (typeof window.DeviceOrientationEvent?.requestPermission === 'function') root?.addEventListener('click', askForMotion)
+      else window.addEventListener('deviceorientation', onTilt)
+    } else {
+      window.addEventListener('pointermove', onPointer, { passive: true })
+      window.addEventListener('scroll', onScroll, { passive: true })
+    }
     start()
     return () => {
       cancelAnimationFrame(raf)
@@ -600,12 +687,16 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
       document.removeEventListener('visibilitychange', start)
       window.removeEventListener('pointermove', onPointer)
       window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('pointerdown', onTouch)
+      window.removeEventListener('pointermove', onTouch)
+      window.removeEventListener('deviceorientation', onTilt)
+      root?.removeEventListener('click', askForMotion)
     }
   }, [globeBox, globeR, size, labels, preferRight, avoidRef])
 
   const offset = (size - globeBox) / 2
   return (
-    <div ref={rootRef} className={`cm-eye relative ${className}`} style={{ width: size, height: size, ...style }} aria-hidden="true">
+    <div ref={rootRef} className={`cm-eye relative ${className}`} style={{ width: size, height: size, flexShrink: 0, ...style }} aria-hidden="true">
       <div ref={shakeRef} className="absolute inset-0">
         <div ref={irisWrapRef} className="absolute inset-0">
           <canvas ref={irisRef} className="cm-iris absolute inset-0" style={{ width: size, height: size }} />

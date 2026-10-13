@@ -50,6 +50,11 @@ let a = await probeAsset("down.example");
 ok("genuine failure → reachable:false", a.reachable === false);
 ok("genuine failure → NOT flagged not_executed", a.probe_status === undefined && a.reason === undefined);
 ok("genuine failure → status null", a.status === null);
+ok("genuine failure → each protocol attempt says the connection failed",
+  JSON.stringify(a.attempts) === JSON.stringify([
+    { protocol: "https", port: 443, outcome: "connection_failed" },
+    { protocol: "http", port: 80, outcome: "connection_failed" },
+  ]));
 
 // ── 2. probeAsset — subrequest exhaustion → reachable:null / not_executed ──────
 setFetch(budgetError);
@@ -57,12 +62,16 @@ a = await probeAsset("starved.example");
 ok("exhaustion → reachable:null (NOT false)", a.reachable === null);
 ok("exhaustion → probe_status not_executed", a.probe_status === "not_executed");
 ok("exhaustion → reason subrequest_budget_exhausted", a.reason === "subrequest_budget_exhausted");
+ok("exhaustion → attempts say no request was made, never a failed connection",
+  a.attempts.length === 2 && a.attempts.every((attempt) => attempt.outcome === "not_run_budget"));
 
 // ── 3. probeAsset — ordinary success unchanged (no new fields) ────────────────
 setFetch(html200);
 a = await probeAsset("up.example");
 ok("success → reachable:true", a.reachable === true && a.status === 200);
 ok("success → no probe_status/reason leak (shape unchanged)", a.probe_status === undefined && a.reason === undefined);
+ok("success → the answering protocol and port are recorded, no URL",
+  JSON.stringify(a.attempts) === JSON.stringify([{ protocol: "https", port: 443, outcome: "responded", status: 200 }]));
 
 // ── 4. runExposureModule — all starved → incomplete + notice, reachable 0 ─────
 setFetch(budgetError);
@@ -82,6 +91,24 @@ ok("module (genuine fail) → reachable 0", mod.reachable === 0);
 setFetch(html200);
 mod = await runExposureModule("example.com", ["a.example.com"]);
 ok("module (success) → reachable > 0, not incomplete", mod.reachable === 1 && !mod.incomplete);
+ok("module (success) → an answer without its owner name is never read as an address in the evidence",
+  mod.removal_observations?.[0]?.dns?.A?.outcome === "invalid" && mod.removal_observations[0].dns.A.addresses.length === 0);
+setFetch(async (value) => {
+  const url = new URL(String(value?.url || value));
+  if (["cloudflare-dns.com", "dns.google"].includes(url.hostname)) {
+    const name = url.searchParams.get("name");
+    return Response.json(url.searchParams.get("type") === "A"
+      ? { Status: 0, Answer: [{ name, type: 1, TTL: 60, data: "93.184.216.34" }] }
+      : { Status: 0, Answer: [] });
+  }
+  return html200();
+}, true);
+mod = await runExposureModule("example.com", ["a.example.com"]);
+const dnsEvidence = mod.removal_observations?.[0]?.dns;
+ok("module (success) → the re-check keeps what each address family answered, beside the removal signal",
+  dnsEvidence?.source === "web_check" && JSON.stringify(dnsEvidence.A) === JSON.stringify({ outcome: "answer", addresses: ["93.184.216.34"] }) &&
+    dnsEvidence.AAAA?.outcome === "nodata" &&
+    mod.removal_observations[0].signal_states?.dns_resolution?.state === "observed");
 
 globalThis.fetch = realFetch;
 
@@ -226,7 +253,8 @@ ok("gate → CAN verify on a genuine complete scan (happy path unchanged)",
   globalThis.fetch = async (value) => {
     const url = new URL(String(value));
     if (url.searchParams.get("type") === "SRV") throw new Error("resolver down");
-    return doh(url.searchParams.get("name") === "www.example.com" ? [{ type: 1, data: "203.0.113.5" }] : []);
+    return doh(url.searchParams.get("name") === "www.example.com" && url.searchParams.get("type") === "A"
+      ? [{ name: "www.example.com", type: 1, data: "203.0.113.5" }] : []);
   };
   const srvDown = await runBruteforceModule("example.com", { cache: new Map() });
   globalThis.fetch = realFetch;
@@ -325,8 +353,12 @@ ok("gate → CAN verify on a genuine complete scan (happy path unchanged)",
     JSON.stringify(withReferencedHostnames(["a.example.com"], { srvItems: undefined, linkedHostnames: undefined })) === JSON.stringify(["a.example.com"]));
 
   const engineSrc = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/scan-engine.js"), "utf8");
-  ok("wiring: production discovery appends SRV targets and home-page links",
-    /const mergedSubdomainItems = withReferencedHostnames\(bruteNewItems, \{\s*srvItems: bruteforceResult\.srv_items,\s*linkedHostnames: techResult\?\.linked_hostnames,\s*\}\);/.test(engineSrc));
+  // SRV targets and home-page links are configuration references: they join
+  // discovery only through the referenced-hostname step, once DNS answers.
+  ok("wiring: production discovery confirms SRV targets and home-page links by DNS before they join",
+    /const mergedSubdomainItems = bruteNewItems;/.test(engineSrc) &&
+      /srvTargets: bruteforceResult\.srv_items,\s*linkedHostnames: techResult\?\.linked_hostnames,/.test(engineSrc) &&
+      !/withReferencedHostnames\(bruteNewItems/.test(engineSrc));
   ok("wiring: only durable runs give the technology module remaining time",
     /runTechModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs: durableInvocation \? remainingMs : null \}\)/.test(engineSrc));
 }

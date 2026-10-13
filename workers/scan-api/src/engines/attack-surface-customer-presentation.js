@@ -13,9 +13,12 @@
 import {
   ASSET_REMOVAL_CONFIRMATION_POLICY,
   ATTACK_SURFACE_SIGNAL_COMPLETENESS_VERSION,
-  ATTACK_SURFACE_SIGNAL_KEYS,
   ATTACK_SURFACE_SIGNAL_STATES,
+  attackSurfaceSignalKeysFor,
 } from "./attack-surface-signal-completeness.js";
+
+// The last signal model recorded before the check pack (it carried cve/kev).
+const LEGACY_SIGNAL_MODEL_VERSION = "attack-surface-signal-completeness-v3";
 import {
   ASSET_ALERT_ELIGIBILITY_REASON_CODES,
   ASSET_ALERT_ELIGIBILITY_VERSION,
@@ -61,6 +64,7 @@ const SIGNAL_META = Object.freeze({
   technology: "Technology",
   exposure_admin_surface: "Exposure / admin surface",
   takeover_candidate: "Takeover candidate",
+  // Recorded by models before v4 only; kept so stored assurance stays readable.
   cve: "CVE",
   kev: "Known Exploited Vulnerability (KEV)",
   cloud_storage: "Cloud storage",
@@ -113,6 +117,8 @@ const ALERT_REASON_MESSAGES = Object.freeze({
     "The earlier disappearance was not confirmed, so a reappearance claim was withheld.",
   withheld_all_claims_unsupported:
     "All alert claims were withheld because their recorded evidence did not support them.",
+  inventory_changes_only:
+    "Every supported change in this scan was an inventory change (a new name, a name confirmed no longer seen, or a renewed certificate). It was recorded in the inventory; a notification is sent only for a notable change.",
 });
 
 function asObject(value) {
@@ -373,11 +379,18 @@ export function buildAttackSurfaceCustomerPresentation({
   lifecycleAbsenceReason = null,
   alertAbsenceReason = null,
   asOf = null,
+  // A report or snapshot recorded before the check pack existed. When it holds
+  // no signal model, its not-recorded notice keeps the signal set of its time.
+  recordedBeforeCheckPack = false,
 } = {}) {
   const canonical = asObject(signalCompleteness);
   const signalInput = asObject(canonical?.signals);
+  // A stored model is presented with the signals it was recorded with.
+  const signalKeys = attackSurfaceSignalKeysFor(
+    canonical?.model_version ?? (recordedBeforeCheckPack ? LEGACY_SIGNAL_MODEL_VERSION : null),
+  );
   const signals = {};
-  for (const key of ATTACK_SURFACE_SIGNAL_KEYS) {
+  for (const key of signalKeys) {
     signals[key] = presentSignal(
       key,
       signalInput?.[key],
@@ -430,7 +443,7 @@ export function buildAttackSurfaceCustomerPresentation({
       lifecycle: [...ATTACK_SURFACE_CUSTOMER_LIFECYCLE_STATES],
       last_observation: [...ATTACK_SURFACE_CUSTOMER_OBSERVATION_STATES],
     },
-    signal_order: [...ATTACK_SURFACE_SIGNAL_KEYS],
+    signal_order: [...signalKeys],
     signals,
     lifecycle: {
       ...lifecycle,
@@ -474,6 +487,7 @@ export function attackSurfaceAssuranceFromSnapshot(snapshot) {
     absenceReason: reason,
     lifecycleAbsenceReason: reason,
     alertAbsenceReason: reason,
+    recordedBeforeCheckPack: snapshot?.methodology?.check_pack_version == null,
   });
 }
 

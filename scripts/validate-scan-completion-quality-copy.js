@@ -177,9 +177,14 @@ const assetArgs = [
 
 {
   const complete = buildAssetAlertEmail(...assetArgs, "complete");
+  // Pinned again when the raw workspace id left the email's first line; the
+  // rest of the counts-only email (used for alerts recorded before change
+  // records) is unchanged.
   eq("complete asset-alert email is byte-unchanged",
     sha256(complete),
-    "bd35f9e4dc33e49178c09a7db273ff29f05524b9bcb5d930a5109e9dca995642");
+    "f55666fc0914b7e013cabc11ae135087d514df7cbdfc78e92ebcde80a55a5e4f");
+  ok("the asset-alert email never shows the raw workspace id",
+    !complete.text.includes("workspace_1") && !complete.html.includes("workspace_1"));
   ok("complete asset-alert email has no quality caveat",
     !complete.text.includes("results may be incomplete") && !complete.html.includes("results may be incomplete"));
 
@@ -229,7 +234,7 @@ const lifecycleArgs = {
   });
 
   ok("scan engine passes quality to asset email delivery",
-    /sendAssetChangeAlert\([^)]*scanQuality\?\.status\)/.test(scanEngine));
+    /sendAssetChangeAlert\([^)]*scanQuality\?\.status[,)]/.test(scanEngine));
   ok("scan engine passes quality to in-app notification delivery",
     /createNotificationsForDomain\([\s\S]{0,260}scanQuality\?\.status,\s*monitoringStates,\s*\)/.test(scanEngine));
   ok("atomic scan-completed audit writer uses canonical completion copy",

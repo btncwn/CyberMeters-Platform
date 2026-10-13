@@ -126,8 +126,8 @@ const mutants = [
     id: "ASB6B-M-phase5-telemetry-provenance",
     name: "phase5-telemetry-provenance",
     file: path.join("workers", "scan-api", "src", "engines", "scan-engine.js"),
-    before: "          timeout_source: run.timeoutSource,",
-    after: "          timeout_source: null,",
+    before: "        timeout_source: emailIntelRun.timeoutSource,",
+    after: "        timeout_source: null,",
     expected: "ASB6B_LIVE_PHASE5_TELEMETRY_PHYSICAL_PROVENANCE",
   },
 ];

@@ -18,13 +18,6 @@
       "contract": "The caller supplies the canonical scan domain_id; delivery targets are restricted to returned live links, and the scan's own workspace_id further constrains scan-specific email delivery."
     },
     {
-      "fingerprint": "61d07532a94e",
-      "file": "workers/scan-api/src/engines/asset-inventory.js",
-      "detector": "workspace_domain_scope_missing",
-      "reason": "Scan-finalization inventory persistence intentionally fans the domain observation out to every live workspace linked to the canonical scan domain_id.",
-      "contract": "This is a background write path with no customer response; every subsequent inventory read/write is bound to the enumerated workspace_id and the same domain_id."
-    },
-    {
       "fingerprint": "3752b75baedb",
       "file": "workers/scan-api/src/engines/asset-persistence.js",
       "detector": "workspace_domain_scope_missing",
@@ -39,25 +32,11 @@
       "contract": "This background producer returns no customer data; the join excludes soft-deleted workspaces, and every atomic asset/vendor statement rechecks active state and binds the enumerated workspace_id plus canonical domain_id."
     },
     {
-      "fingerprint": "dbd9bd8f2322",
-      "file": "workers/scan-api/src/engines/attack-surface-lifecycle.js",
-      "detector": "workspace_domain_scope_missing",
-      "reason": "The attack-surface lifecycle producer intentionally enumerates every live workspace linked to the completed scan's domain_id.",
-      "contract": "It is a background, post-scan writer; every observation/history batch is scoped to the enumerated workspace_id and canonical domain_id."
-    },
-    {
       "fingerprint": "3721dc67d699",
       "file": "workers/scan-api/src/engines/cert-events.js",
       "detector": "workspace_domain_scope_missing",
       "reason": "Certificate condition production intentionally enumerates all live workspace links for the scan's canonical domain_id.",
       "contract": "The helper is called from scan finalization, exposes no response data, and every event lookup/write is subsequently bound to the enumerated workspace_id."
-    },
-    {
-      "fingerprint": "fc55c142286e",
-      "file": "workers/scan-api/src/engines/posture-events.js",
-      "detector": "workspace_domain_scope_missing",
-      "reason": "Posture-event production fans a completed scan's domain evidence out to every workspace linked to that canonical domain_id.",
-      "contract": "This background path returns no tenant data; dedupe reads and event writes are scoped by each enumerated workspace_id plus domain_id."
     },
     {
       "fingerprint": "81185dfea7a0",
@@ -123,13 +102,6 @@
       "contract": "The only callers request cron_tick and backup_completed, whose producers write platform-level workspace_id NULL rows. The projection is limited to safe token/count/time columns and computeOperationalHealth reduces it to freshness booleans; no operational-event row is returned through a tenant surface. Changing the callers, event types or projection requires re-review."
     },
     {
-      "fingerprint": "6133f9493061",
-      "file": "workers/scan-api/src/engines/timeline-trust.js",
-      "detector": "global_latest_fallback",
-      "reason": "Previous-scan lookup within a single domain during scan finalize. Filtered by domain_id, which is the domain currently being scanned for the owning workspace; timeline-trust runs inside the scan pipeline for that workspace's own domain.",
-      "contract": "domain_id is caller/workspace-validated before the scan runs; the ORDER-BY-LIMIT-1 selects the prior scan of the same owned domain, never a cross-tenant row."
-    },
-    {
       "fingerprint": "b5d38a008910",
       "file": "workers/scan-api/src/routes/account.js",
       "detector": "global_latest_fallback",
@@ -163,20 +135,6 @@
       "detector": "r2_key_not_workspace_bound",
       "reason": "R2.get(row.r2_key) where row is a scan_report_snapshots row already fetched under workspace/scan scope; r2_key is the tenant-prefixed object key stored on that row.",
       "contract": "The D1 row is ownership-scoped before its r2_key is used; the key is bound to the workspace by construction (reports/snapshots/<workspace>/...)."
-    },
-    {
-      "fingerprint": "80179f34260b",
-      "file": "workers/scan-api/src/engines/vuln-intel.js",
-      "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.get(KEV_CACHE_KEY) \u2014 the CISA Known-Exploited-Vulnerabilities catalogue is global reference data cached once for the whole platform.",
-      "contract": "Global reference cache; contains no tenant data, so a constant key is correct."
-    },
-    {
-      "fingerprint": "900ddb005c28",
-      "file": "workers/scan-api/src/engines/vuln-intel.js",
-      "detector": "r2_key_not_workspace_bound",
-      "reason": "R2.put(KEV_CACHE_KEY) \u2014 writes the global KEV catalogue cache.",
-      "contract": "Global reference cache; no tenant data."
     },
     {
       "fingerprint": "cc3b1cf89568",

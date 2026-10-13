@@ -24,6 +24,7 @@ import { resolveScanCapacity } from "../workers/scan-api/src/engines/scan-budget
 import { BRUTEFORCE_MAX_NAMES, SRV_TARGET_CAP } from "../workers/scan-api/src/engines/subdomains-scan.js";
 import { LINKED_HOST_LIMITS } from "../workers/scan-api/src/engines/tech-scan.js";
 import { RESERVED_MAX_REDIRECT_HOPS } from "../workers/scan-api/src/engines/reserved-probe.js";
+import { DISCOVERY_DNS_QUESTION_BUDGET } from "../workers/scan-api/src/engines/discovery-confirmation.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
@@ -191,10 +192,13 @@ function variableOutboundBoundTruth() {
   const srvTargetCap = integerLiteral(subdomainsSource, /export const SRV_TARGET_CAP\s*=\s*([\d_]+)/, "SRV_TARGET_CAP");
   const referencedCheckCap = integerLiteral(referencedSource, /maxChecks:\s*([\d_]+)/, "referenced maxChecks");
   const confirmationSource = source("workers/scan-api/src/engines/discovery-confirmation.js");
-  // Every discovery confirmation is one A question per name, in the shared helper.
-  const oneQuestionPerName = /names\.slice\(start, start \+ size\)\.map\(async \(hostname\) => \{[\s\S]{0,120}lookup\(hostname, "A"\)/.test(confirmationSource);
+  // Every discovery confirmation asks A and AAAA per name in the shared
+  // helper, and every question is charged to the scan's one discovery budget.
+  const questionsCharged = /if \(mode === "parallel"\) \{\s*const both = !budget \|\| budget\.take\(source, 2\);/.test(confirmationSource) &&
+    /if \(budget && !budget\.take\(source, 1\)\) return \{ hostname, A: null, AAAA: null, not_asked: "budget" \};/.test(confirmationSource) &&
+    /if \(budget && !budget\.take\(source, 1\)\) return \{ hostname, A, AAAA: null, aaaa_skipped: "budget" \};/.test(confirmationSource);
   const referencedCapEnforced = /const checks = pending\.slice\(0, REFERENCED_HOSTNAME_LIMITS\.maxChecks\);/.test(referencedSource) &&
-    /lookupNames\(checks\.map\(\(candidate\) => candidate\.hostname\), lookup,/.test(referencedSource) && oneQuestionPerName;
+    /lookupNames\(checks\.map\(\(candidate\) => candidate\.hostname\), lookup,/.test(referencedSource) && questionsCharged;
   // Deeper DNS discovery: the rotating word-list slice, name variants, the
   // NSEC walk's questions and the A lookups confirming the names it lists.
   const depthWordlistCap = integerLiteral(depthSource, /wordlistSlice:\s*([\d_]+)/, "depth wordlistSlice");
@@ -204,7 +208,8 @@ function variableOutboundBoundTruth() {
   const depthCapsEnforced =
     /const rotation = wordlistRotation\(rotationIndex\);/.test(depthSource) &&
     /deriveNameVariants\(variantInputs, \{ domain: root, max: limits\.variants \}\)/.test(depthSource) &&
-    /walkNsec\(root, nsecLookup, \{ clock, deadlineAt, maxQueries: limits\.nsecQueries \}\)/.test(depthSource) &&
+    /walkNsec\(root, nsecLookup, \{ clock, deadlineAt, maxQueries: limits\.nsecQueries, budget \}\)/.test(depthSource) &&
+    /if \(budget && !budget\.take\("discovery_depth", 1\)\) \{ outcome = "question_budget_reached"; break; \}/.test(depthSource) &&
     /const nsecNames = nsecFresh\.slice\(0, limits\.nsecConfirmations\);/.test(depthSource);
   const depthOutboundBound = depthWordlistCap + depthVariantCap + depthNsecQueryCap + depthNsecConfirmCap;
   // Customer hostname lists: one A question per stored name, and a stored list
@@ -235,7 +240,18 @@ function variableOutboundBoundTruth() {
   const exposureOutboundBound = exposureHostCap * exposurePerHostBound;
   const takeoverHttpPerCandidateBound = takeoverRedirectHops + 1;
   const takeoverOutboundBound = takeoverHostCap + takeoverHostCap * takeoverHttpPerCandidateBound;
-  const namedVariableOutboundBound = bruteHostCap + referencedCheckCap + depthOutboundBound + listCap + pageRefCap + exposureOutboundBound + takeoverOutboundBound;
+  // Discovery's DNS questions are bounded by one shared budget, not by the
+  // per-source name caps: a name can now cost two questions (A and AAAA).
+  // The budget is the old per-source question total, so the envelope holds.
+  const discoveryQuestionSourcesShareBudget =
+    (engineSource.match(/budget: discoveryBudget/g) || []).length >= 6 &&
+    /const discoveryBudget = createDiscoveryQuestionBudget\(\);/.test(engineSource) &&
+    /opts\.budget\?\.take\?\.\("wildcard_check", 2\);/.test(subdomainsSource) &&
+    /\.filter\(\(host\) => !budget \|\| budget\.take\("fixed_name_check", 1\)\);/.test(subdomainsSource) &&
+    /\.filter\(\(name\) => !budget \|\| budget\.take\("fixed_name_check", 1\)\);/.test(subdomainsSource);
+  const wildcardCheckQuestions = 2;
+  const discoveryQuestionBound = DISCOVERY_DNS_QUESTION_BUDGET - wildcardCheckQuestions;
+  const namedVariableOutboundBound = discoveryQuestionBound + exposureOutboundBound + takeoverOutboundBound;
   const fixedModeledEstimate = computeScanBudget(bruteHostCap).estimated_subrequests_total - bruteHostCap;
   const conservativeProfileEnvelope = fixedModeledEstimate + namedVariableOutboundBound;
   const providerCeiling = buildScanQuality(completeMod(), undefined, resolveScanCapacity({ SCAN_SUBREQUEST_LIMIT: 200 }))
@@ -253,11 +269,12 @@ function variableOutboundBoundTruth() {
       depthWordlistCap === 200 && depthVariantCap === 100 && depthNsecQueryCap === 64 &&
       depthNsecConfirmCap === 64 && depthCapsEnforced && depthOutboundBound === 428 &&
       listCap === 200 && listCapEnforced && pageRefCap === 50 && pageRefCapEnforced &&
-      discoveredCandidateCap === 787 &&
+      discoveredCandidateCap === 787 && discoveryQuestionSourcesShareBudget &&
+      DISCOVERY_DNS_QUESTION_BUDGET === wildcardCheckQuestions + bruteHostCap + referencedCheckCap + depthOutboundBound + listCap + pageRefCap &&
       bruteHostCap === 56 && knownAssetCap === 50 &&
       exposureHostCap === 50 && takeoverHostCap === 100,
     JSON.stringify({ srvTargetCap, srvCapEnforced, linkedHostCap: LINKED_HOST_LIMITS.maxHosts,
-      referencedCheckCap, referencedCapEnforced, depthOutboundBound, depthCapsEnforced, listCap, listCapEnforced, pageRefCap, pageRefCapEnforced, discoveredCandidateCap, bruteHostCap, knownAssetCap, exposureHostCap, takeoverHostCap }));
+      referencedCheckCap, referencedCapEnforced, depthOutboundBound, depthCapsEnforced, listCap, listCapEnforced, pageRefCap, pageRefCapEnforced, discoveredCandidateCap, discoveryQuestionSourcesShareBudget, discoveryQuestionBudget: DISCOVERY_DNS_QUESTION_BUDGET, bruteHostCap, knownAssetCap, exposureHostCap, takeoverHostCap }));
   ok("(c) exposure redirect/DNS fan-out is source-bounded",
     protocolCount === 2 && RESERVED_MAX_REDIRECT_HOPS === 3 &&
       exposureHasTwoRemovalDnsQueries && ssrfHasTwoAddressQueries &&

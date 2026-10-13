@@ -218,5 +218,11 @@ ok("free preview runs no discovery module",
 const { MODULE_SUBREQUEST_COST } = await import(eng("scan-budget.js"));
 ok("discovery wildcard check is budgeted at two DNS questions", MODULE_SUBREQUEST_COST.subdomains === 2, String(MODULE_SUBREQUEST_COST.subdomains));
 
+// ── 9. The whole scan against the lab's stand-in internet ───────────────────
+// scripts/lab/: a fake DNS/HTTP/TLS world that records every request and fails
+// closed for anything it does not know, driving the real engine and storage.
+const { runLabChecks } = await import(pathToFileURL(path.join(root, "scripts", "lab", "lab-checks.mjs")).href);
+await runLabChecks({ ok, root });
+
 console.log(`\nown-observation discovery: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

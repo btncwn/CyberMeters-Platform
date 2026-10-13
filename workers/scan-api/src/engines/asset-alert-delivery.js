@@ -4,11 +4,13 @@
 // Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 import {
   ASSET_ALERT_EVENTS,
+  ASSET_ALERT_INVENTORY_ONLY_REASON,
   ASSET_ALERT_WITHHELD_REASON,
   assetAlertCounts,
   assetAlertSeverity,
   assetAlertWorthy,
   buildAssetAlertEmail,
+  buildAssetChangeRecords,
   evaluateAssetAlertEligibility,
 } from "./asset-alerts.js";
 import { deliverWorkspaceAlert, sendTenantAlertEmail } from "./alerts.js";
@@ -127,6 +129,7 @@ async function recordWithheldAlertDecision(
   workspaceId,
   scanId,
   eligibility,
+  reasonCode = ASSET_ALERT_WITHHELD_REASON,
 ) {
   try {
     await env.cybermeters_db
@@ -135,25 +138,48 @@ async function recordWithheldAlertDecision(
          SET status = 'skipped', error = ?
          WHERE id = ? AND workspace_id = ? AND scan_id = ?`
       )
-      .bind(ASSET_ALERT_WITHHELD_REASON, recordId, workspaceId, scanId)
+      .bind(reasonCode, recordId, workspaceId, scanId)
       .run();
-    console.info("[asset-alert] claims withheld", JSON.stringify({
+    console.info("[asset-alert] not notified", JSON.stringify({
       workspace_id: workspaceId,
       scan_id: scanId,
-      reason_code: ASSET_ALERT_WITHHELD_REASON,
+      reason_code: reasonCode,
       decisions: eligibility.record.withheld,
     }));
   } catch (error) {
     console.error("[asset-alert] withheld decision not recorded", JSON.stringify({
       workspace_id: workspaceId,
       scan_id: scanId,
-      reason_code: ASSET_ALERT_WITHHELD_REASON,
+      reason_code: reasonCode,
       error_type: error?.name || "Error",
     }));
   }
 }
 
-export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQuality = null) {
+// When the workspace's previous completed scan of the domain ran, for the
+// "before" side of a change. Best effort: an unknown time is left out.
+async function previousScanCompletedAt(env, { domainId, workspaceId, scanId }) {
+  try {
+    const row = await env.cybermeters_db
+      .prepare(
+        `SELECT p.created_at FROM scans p
+         JOIN scans s ON s.id = ?
+         WHERE p.domain_id = ? AND p.workspace_id = ? AND p.status = 'completed'
+           AND p.id != s.id AND p.created_at < s.created_at
+         ORDER BY p.created_at DESC, p.id DESC LIMIT 1`
+      )
+      .bind(scanId, domainId, workspaceId)
+      .first();
+    return row?.created_at ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// opts (all optional, from the scan engine): `modules` and `assetEvidence`
+// (this scan's per-name evidence) describe each change; `observedAt` is when
+// the scan completed.
+export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQuality = null, opts = {}) {
   try {
     // Find all LIVE workspaces that own this domain. A soft-deleted workspace is
     // treated as nonexistent: it receives no email, no channel fan-out and no
@@ -169,11 +195,10 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQu
     const workspaceIds = (wsResult.results || []).map((r) => r.workspace_id);
     if (workspaceIds.length === 0) return;
 
-    // Alert emails are scoped to the workspace the scan belongs to. Inventory
-    // events are still written for every linked workspace (visible in-app),
-    // but emailing each of them re-announces one scan several times to the
-    // same owner and puts one workspace's scan id inside another workspace's
-    // alert. Scans without a workspace (legacy rows) keep the old fan-out.
+    // Only the workspace the scan belongs to is notified: its own inventory
+    // and its own previous scan are what changed. Another workspace linked to
+    // the same domain is never told about this scan, and a scan with no
+    // workspace notifies nobody.
     const scanRow = await env.cybermeters_db
       .prepare(`SELECT workspace_id, scan_quality FROM scans WHERE id = ?`)
       .bind(scanId)
@@ -183,7 +208,7 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQu
     const persistedScanQuality = scanRow?.scan_quality ?? scanQuality;
     const alertTargets = scanWorkspaceId && workspaceIds.includes(scanWorkspaceId)
       ? [scanWorkspaceId]
-      : workspaceIds;
+      : [];
 
     // Fetch the scan's asset events plus recent same-domain context so presentation
     // collapse can suppress short-lived remove/reappear churn without mutating rows.
@@ -193,7 +218,7 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQu
                 hostname, severity, created_at
          FROM asset_events
          WHERE scan_id = ?
-            OR (domain_id = ? AND scan_id IS NOT NULL AND created_at >= datetime('now', '-24 hours'))`
+            OR (domain_id = ? AND scan_id IS NOT NULL AND julianday(created_at) >= julianday('now', '-24 hours'))`
       )
       .bind(scanId, domainId)
       .all();
@@ -243,7 +268,22 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQu
           eligibility.record,
         );
         const worthy = assetAlertWorthy(counts);
-        const severity = worthy ? assetAlertSeverity(counts) : "info";
+        // What changed, with before/now, evidence and the recommended action.
+        // Stored with the record, so a retried email says the same.
+        const details = worthy
+          ? {
+            ...buildAssetChangeRecords(eligibility.eligible_events, {
+              modules: opts.modules ?? null,
+              evidenceByHost: opts.assetEvidence ?? null,
+              observedAt: opts.observedAt ?? null,
+              previousScanAt: await previousScanCompletedAt(env, { domainId, workspaceId: workspace_id, scanId }),
+              domain,
+            }),
+          }
+          : null;
+        // The most severe change decides the notification's severity; the
+        // event counts are the fallback.
+        const severity = worthy ? (details?.severity || assetAlertSeverity(counts)) : "info";
         const eligibleHostnamesByType = hostnamesByType(
           eligibility.eligible_events,
         );
@@ -251,6 +291,7 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQu
         // Collect top hostnames — prioritise high-severity event types
         const topHostnames = [
           ...(eligibleHostnamesByType.takeover_risk_detected || []),
+          ...(eligibleHostnamesByType.admin_surface_detected || []),
           ...(eligibleHostnamesByType.new_asset_discovered   || []),
           ...(eligibleHostnamesByType.certificate_new_san_detected || []),
           ...(eligibleHostnamesByType.certificate_new_detected || []),
@@ -277,7 +318,7 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQu
             scanId,
             domain,
             severity,
-            JSON.stringify(counts),
+            JSON.stringify(details ? { ...counts, _changes: details } : counts),
             JSON.stringify(topHostnames),
             now
           )
@@ -287,12 +328,15 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQu
         if (!insert.meta || insert.meta.changes === 0) continue;
 
         if (!worthy) {
+          // Supported inventory changes are recorded, not notified; otherwise
+          // every claim was withheld for lack of evidence.
           await recordWithheldAlertDecision(
             env,
             recId,
             workspace_id,
             scanId,
             eligibility,
+            eligibility.eligible_events.length > 0 ? ASSET_ALERT_INVENTORY_ONLY_REASON : ASSET_ALERT_WITHHELD_REASON,
           );
           continue;
         }
@@ -308,6 +352,7 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQu
           severity,
           frontendOrigin ? `${frontendOrigin}/assets` : null,
           persistedScanQuality,
+          details ? { ...details, settings_url: frontendOrigin ? `${frontendOrigin}/settings` : null } : null,
         );
         // Tenant alert: recipients come from THIS workspace (verified, live) — never
         // the operator fallback. No verified audience => skipped + recorded, not sent.
@@ -411,6 +456,7 @@ export async function retryFailedAssetAlerts(env) {
         try { topHostnames = JSON.parse(row.top_hostnames || "[]") || []; } catch { /* hostname list is optional */ }
 
         const frontendOrigin = getEmailFrontendOrigin(env);
+        const details = counts?._changes && typeof counts._changes === "object" ? counts._changes : null;
         const { subject, text, html } = buildAssetAlertEmail(
           row.domain,
           row.workspace_id,
@@ -420,6 +466,7 @@ export async function retryFailedAssetAlerts(env) {
           row.severity || "info",
           frontendOrigin ? `${frontendOrigin}/assets` : null,
           row.scan_quality ?? null,
+          details ? { ...details, settings_url: frontendOrigin ? `${frontendOrigin}/settings` : null } : null,
         );
         const delivery = await sendTenantAlertEmail(env, row.workspace_id, { subject, text, html, fromKey: "ALERT_EMAIL_FROM", severity: row.severity || "info" });
         // A missing verified audience is not a transient failure — retrying it forever

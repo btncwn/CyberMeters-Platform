@@ -231,7 +231,7 @@ const MUTATIONS = [
   {
     name: "M-D3 buildScanQuality stops honouring the canonical module-incompleteness contract",
     target: SCAN_ENGINE,
-    from: "    .filter(([, value]) => value?.incomplete === true)",
+    from: "    .filter(([name, value]) => value?.incomplete === true && !isOptionalEvidence(name, value))",
     to: "      .filter(() => false)",
     check: (mod) => {
       const q = mod.buildScanQuality({ ssl: { incomplete: true, incomplete_reason: "https_origin_not_observed" } });

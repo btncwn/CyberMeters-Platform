@@ -4,7 +4,7 @@
 //
 // Pins four confirmed P2 fixes so a future refactor cannot silently revert them:
 //
-//   F-2  Microsoft SSO enforces MFA. The callback issues an mfa_challenges token
+//   F-2  Microsoft SSO enforces MFA. The exchange issues an mfa_challenges token
 //        (never a session) when the account has MFA enabled, and completes through
 //        the same POST /api/auth/mfa/challenge endpoint as password login. Without
 //        this, an MFA-enabled account signs in via SSO with the second factor
@@ -49,37 +49,60 @@ function guard(name, src, predicate, mutate) {
 
 // ── F-2 SSO MFA enforcement ───────────────────────────────────────────────────
 
-// The MFA challenge is handed to the frontend as a challenge token (never a
-// session) and this gate sits BEFORE session creation in the callback.
-const ssoGatePayload = "JSON.stringify({ mfa_required: true, challenge_token: challengeRaw })";
+// The callback never mints a session or a challenge: it issues a one-time code
+// bound to the starting browser. The exchange releases that code and, for an
+// MFA account, returns a challenge token (never a session) — the MFA gate sits
+// BEFORE session creation in the exchange.
+const exchangeBlock = (s) => {
+  const start = s.indexOf('url.pathname === "/api/auth/exchange"');
+  const end = s.indexOf("// ── POST /api/auth/forgot-password", start);
+  return start === -1 || end === -1 ? "" : s.slice(start, end);
+};
 guard(
-  "F-2 SSO callback issues an MFA challenge instead of a session",
+  "F-2 SSO exchange issues an MFA challenge instead of a session",
   authSrc,
   (s) => {
-    const gate = s.indexOf(ssoGatePayload);
-    const session = s.indexOf("── 5. Create session ─");
-    return gate !== -1 && session !== -1 && gate < session
-      && /if \(user\.mfa_enabled\) \{[\s\S]*?INSERT INTO mfa_challenges[\s\S]*?return Response\.redirect/.test(s);
+    const block = exchangeBlock(s);
+    const gate = block.indexOf("if (user.mfa_enabled) {");
+    const challenge = block.indexOf("return json({ mfa_required: true, challenge_token: challengeRaw");
+    const session = block.indexOf("INSERT INTO user_sessions");
+    return gate !== -1 && challenge > gate && session > challenge
+      && /if \(user\.mfa_enabled\) \{[\s\S]*?INSERT INTO mfa_challenges[\s\S]*?return json\(\{ mfa_required: true/.test(block);
   },
-  // Reversion: drop the SSO MFA gate block (identified by its unique OTC payload).
-  (s) => s.replace(ssoGatePayload, "JSON.stringify({ token, userId: 'x' })"),
+  // Reversion: drop the exchange's MFA gate.
+  (s) => {
+    const block = exchangeBlock(s);
+    return s.replace(block, block.replace("if (user.mfa_enabled) {", "if (false) {"));
+  },
 );
 
-// The gate can only fire if the callback reads mfa_enabled — pin it on all three
-// user lookups (oid match, email auto-link, refreshed row).
+// The callback creates neither a session nor a challenge before the browser
+// binding is proven at the exchange.
+guard(
+  "F-2 SSO callback mints no session or challenge",
+  authSrc,
+  (s) => {
+    const start = s.indexOf('url.pathname === "/api/auth/microsoft/callback"');
+    const end = s.indexOf('url.pathname === "/api/auth/exchange"');
+    const block = start === -1 || end === -1 ? "" : s.slice(start, end);
+    return block.includes("'ms_exchange'") && !block.includes("INSERT INTO user_sessions") && !block.includes("INSERT INTO mfa_challenges");
+  },
+  (s) => s.replace("      // ── 5. Issue a one-time result bound to the starting browser", "      await env.cybermeters_db.prepare(`INSERT INTO user_sessions (id) VALUES ('x')`).run();\n      // ── 5. Issue a one-time result bound to the starting browser"),
+);
+
+// The gate can only fire if the account's MFA state is read — pin it on the
+// callback's oid lookup and on the exchange's user read.
 guard(
   "F-2 callback selects mfa_enabled (oid lookup)",
   authSrc,
   (s) => /SELECT id, email, name, plan, status, mfa_enabled FROM users WHERE microsoft_oid = \?/.test(s),
   (s) => s.replace("status, mfa_enabled FROM users WHERE microsoft_oid", "status FROM users WHERE microsoft_oid"),
 );
-
-// The OTC exchange returns the challenge (not a session) for the MFA handoff.
 guard(
-  "F-2 exchange returns the MFA challenge branch",
+  "F-2 exchange reads the account's current MFA state",
   authSrc,
-  (s) => /if \(payload\.mfa_required && payload\.challenge_token\) \{[\s\S]*?mfa_required: true, challenge_token: payload\.challenge_token/.test(s),
-  (s) => s.replace("payload.mfa_required && payload.challenge_token", "false && payload.challenge_token"),
+  (s) => /SELECT id, email, name, status, mfa_enabled FROM users WHERE id = \? LIMIT 1/.test(exchangeBlock(s)),
+  (s) => s.replace("SELECT id, email, name, status, mfa_enabled FROM users WHERE id = ? LIMIT 1", "SELECT id, email, name, status FROM users WHERE id = ? LIMIT 1"),
 );
 
 // ── F-1 Password reset revokes API tokens ─────────────────────────────────────

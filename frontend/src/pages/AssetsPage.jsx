@@ -9,6 +9,7 @@ import StatCard from '../components/StatCard'
 import AttackSurfaceAssurance from '../components/AttackSurfaceAssurance'
 import NetworkAssetsPanel from '../components/NetworkAssetsPanel'
 import HostnameListPanel from '../components/HostnameListPanel'
+import AssetEvidence from '../components/AssetEvidence'
 import { assetLifecycleClaimDisplay, projectedCountDisplay } from '../lib/assetLifecycleClaimDisplay'
 import { assetSourceLabel } from '../lib/assetSourceLabel'
 
@@ -218,11 +219,14 @@ function ManagedCasesPanel({ workspaceId }) {
                   </button>
                 )}
                 {item.status === 'verification_requested' && (
-                  <p className="rounded-lg bg-purple-50 px-3 py-2 text-xs text-purple-700">CyberMeters will verify this on the next Cyber MOT.</p>
+                  <p className="rounded-lg bg-purple-50 px-3 py-2 text-xs text-purple-700">CyberMeters re-checks the affected host on each complete scan and closes the case only when the problem is gone.</p>
                 )}
                 {item.status === 'resolved' && (
                   <p className="rounded-lg bg-green-50 px-3 py-2 text-xs text-green-700">Verified resolved by CyberMeters.</p>
                 )}
+                <Link to={`/ws/cases/${encodeURIComponent(item.id)}`} className="block text-xs text-brand-600 hover:underline">
+                  What to do, and what the last re-check found
+                </Link>
               </div>
             </div>
           </div>
@@ -365,6 +369,9 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
                   )
                 })()}
               </div>
+
+              {/* Why the name is listed and what was measured for it */}
+              <AssetEvidence evidence={data.evidence} />
 
               {/* Events */}
               {data.events.length > 0 && (

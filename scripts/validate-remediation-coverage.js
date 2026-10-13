@@ -133,7 +133,11 @@ ok("registry has exactly 74 entries including live TLS, sign-in page and home-pa
 // Certificate logs retired: evidence types and wording move to the live TLS
 // observation and cert.ct_incomplete becomes a deprecated historical entry, so
 // the fingerprint moves r74-05b42c41 -> r74-ad711388 with the count unchanged.
-ok("registry fingerprint including live TLS, sign-in forms and home page is exact", remediationRegistryFingerprint() === "r74-ad711388", remediationRegistryFingerprint());
+// Outside vulnerability data retired (check-pack.js): asm.vuln.kev and
+// asm.vuln.cve become deprecated historical entries, r74-ad711388 -> r74-c8030e1a.
+ok("registry fingerprint including live TLS, sign-in forms and home page is exact", remediationRegistryFingerprint() === "r74-c8030e1a", remediationRegistryFingerprint());
+ok("vulnerability-database remediations are historical only",
+  ["asm.vuln.kev", "asm.vuln.cve"].every((id) => byId.get(id)?.status === "deprecated"));
 ok("certificate_expiring_critical maps to expiring, never expired",
   resolveRemediation({ finding_type: "certificate_expiring_critical" }).remediation_id === "cert.expiry.expiring"
   && !byId.get("cert.expiry.expired")?.finding_types.includes("certificate_expiring_critical"));

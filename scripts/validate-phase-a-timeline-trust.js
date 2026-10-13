@@ -121,14 +121,14 @@ const asset = (db, hostname) => db.prepare("SELECT hostname, status, last_seen F
 // Positive: comparable complete scans with the same producer stamp may emit.
 {
   const { db, env } = harness();
-  await upsertAssetInventory("scan_current", "dom_1", "blackbullbarbers.co.uk", modulesWithAdmin(), env, { currentReport });
+  await upsertAssetInventory("scan_current", "dom_1", "blackbullbarbers.co.uk", modulesWithAdmin(), env, { currentReport, workspaceId: "ws_1" });
   ok("positive comparable path emits customer asset event", events(db).some((e) => e.event_type === "new_asset_discovered" && e.hostname === "admin.blackbullbarbers.co.uk"));
 }
 
 // Negative: insufficient history is an operator diagnostic, not a customer event.
 {
   const { db, env } = harness({ previous: null });
-  await upsertAssetInventory("scan_current", "dom_1", "blackbullbarbers.co.uk", modulesWithAdmin(), env, { currentReport });
+  await upsertAssetInventory("scan_current", "dom_1", "blackbullbarbers.co.uk", modulesWithAdmin(), env, { currentReport, workspaceId: "ws_1" });
   eq("insufficient_history emits no customer asset_events", events(db).length, 0);
   ok("insufficient_history still preserves observed inventory", !!asset(db, "admin.blackbullbarbers.co.uk"));
 }
@@ -136,7 +136,7 @@ const asset = (db, hostname) => db.prepare("SELECT hostname, status, last_seen F
 // Cross-version: a methodology/producer shift is not a posture change.
 {
   const { db, env } = harness({ previous: report({ version: "legacy-unversioned-producer" }) });
-  await upsertAssetInventory("scan_current", "dom_1", "blackbullbarbers.co.uk", modulesWithAdmin(), env, { currentReport });
+  await upsertAssetInventory("scan_current", "dom_1", "blackbullbarbers.co.uk", modulesWithAdmin(), env, { currentReport, workspaceId: "ws_1" });
   eq("cross-version scans emit no customer asset_events", events(db).length, 0);
 }
 
@@ -146,7 +146,7 @@ const asset = (db, hostname) => db.prepare("SELECT hostname, status, last_seen F
     currentQuality: "partial",
     existingAsset: { hostname: "old.blackbullbarbers.co.uk", status: "active", last_seen: "2026-07-15T10:00:00.000Z" },
   });
-  await upsertAssetInventory("scan_current", "dom_1", "blackbullbarbers.co.uk", modulesWithRoot(), env, { currentReport: report({ quality: "partial" }) });
+  await upsertAssetInventory("scan_current", "dom_1", "blackbullbarbers.co.uk", modulesWithRoot(), env, { currentReport: report({ quality: "partial" }), workspaceId: "ws_1" });
   eq("unavailable current scan emits no customer asset_events", events(db).length, 0);
   eq("unavailable current scan does not mark missing evidence inactive", asset(db, "old.blackbullbarbers.co.uk")?.status, "active");
 }
@@ -169,7 +169,7 @@ const asset = (db, hostname) => db.prepare("SELECT hostname, status, last_seen F
              'scan_root', '2026-07-17T10:00:00.000Z', '2026-07-17T10:00:00.000Z',
              'active', 0, '2026-07-17T10:00:00.000Z', '2026-07-17T10:00:00.000Z')`
   ).run();
-  await upsertAssetInventory("scan_current", "dom_1", "blackbullbarbers.co.uk", modulesWithAdmin(), env, { currentReport });
+  await upsertAssetInventory("scan_current", "dom_1", "blackbullbarbers.co.uk", modulesWithAdmin(), env, { currentReport, workspaceId: "ws_1" });
   eq("stable-state comparable scan emits no asset_events", events(db).length, 0);
 }
 

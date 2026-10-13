@@ -2,7 +2,15 @@ import { useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import AuthShell from '../components/AuthShell'
 import { useAuth } from '../context/AuthContext'
-import { api, BASE } from '../api'
+import { api } from '../api'
+import { startMicrosoftSignIn } from '../lib/microsoftLoginBinding'
+
+// The API sends a failed Microsoft sign-in back here with ?ms_error. Its text is
+// never echoed: a link could carry any wording.
+const MICROSOFT_SIGN_IN_FAILED = 'Microsoft sign-in did not complete. Please try again.'
+// A second-factor challenge is spent by any attempt, right or wrong, so a
+// failed code always returns to the first step for a fresh challenge.
+const SECOND_FACTOR_FAILED = 'That code was not accepted. For your security, please sign in again.'
 
 export default function LoginPage() {
   const navigate  = useNavigate()
@@ -18,8 +26,21 @@ export default function LoginPage() {
   // ── Step 1: password ──
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
-  const [error,    setError]    = useState(null)
+  const [error,    setError]    = useState(() =>
+    new URLSearchParams(location.search).has('ms_error') ? MICROSOFT_SIGN_IN_FAILED : null)
   const [loading,  setLoading]  = useState(false)
+
+  // Microsoft sign-in is bound to this browser before leaving for Microsoft.
+  async function handleMicrosoftSignIn() {
+    setError(null)
+    try {
+      await startMicrosoftSignIn({ start: api.startMicrosoftSignIn })
+    } catch (err) {
+      setError(err?.status
+        ? 'Microsoft sign-in could not be started. Please try again.'
+        : 'Microsoft sign-in needs this site to store data in your browser. Allow site data and try again.')
+    }
+  }
 
   // ── Email verification flow ──
   const [verificationRequired, setVerificationRequired] = useState(false)
@@ -87,9 +108,9 @@ export default function LoginPage() {
     try {
       const data = await api.mfaChallenge(challengeToken, mfaCode.replace(/\s/g, ''))
       await navigateAfterLogin(data.token, data.user)
-    } catch (err) {
-      setError(err.message || 'Verification failed')
-      setMfaCode('')
+    } catch {
+      resetToPassword()
+      setError(SECOND_FACTOR_FAILED)
     } finally {
       setLoading(false)
     }
@@ -103,9 +124,9 @@ export default function LoginPage() {
     try {
       const data = await api.mfaRecoveryCode(challengeToken, recoveryCode.trim())
       await navigateAfterLogin(data.token, data.user)
-    } catch (err) {
-      setError(err.message || 'Recovery code invalid')
-      setRecoveryCode('')
+    } catch {
+      resetToPassword()
+      setError(SECOND_FACTOR_FAILED)
     } finally {
       setLoading(false)
     }
@@ -238,8 +259,9 @@ export default function LoginPage() {
             </div>
 
             {/* ── Continue with Microsoft ── */}
-            <a
-              href={`${BASE}/auth/microsoft/login`}
+            <button
+              type="button"
+              onClick={handleMicrosoftSignIn}
               className="flex items-center justify-center gap-2.5 w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-colors"
             >
               {/* Microsoft logo mark */}
@@ -250,7 +272,7 @@ export default function LoginPage() {
                 <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
               </svg>
               Continue with Microsoft
-            </a>
+            </button>
           </>
         )}
 

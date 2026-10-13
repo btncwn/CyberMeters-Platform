@@ -285,7 +285,7 @@ eq("CSP non-200 response admits no weak-policy result", cspFinding("script-src '
 eq("shared CSP classifier identifies style-only weakness",
   headersContract.classifyCspPolicy("script-src 'self'; style-src 'unsafe-inline'")?.classification, "weak_style_only");
 
-eq("score methodology version remains frozen", scoring.CYBER_METRICS_SCORE_METHODOLOGY_VERSION, "2026-08-26.1");
+eq("score methodology version remains frozen", scoring.CYBER_METRICS_SCORE_METHODOLOGY_VERSION, "2026-10-13.1");
 eq("score-bearing module order remains frozen", scoring.SCORE_BEARING_MODULES,
   ["dns", "ssl", "headers", "email_security", "asset_exposure", "subdomains", "subdomain_takeover"]);
 
