@@ -57,6 +57,8 @@ static size_t json_len;
 static const char *limitations[12];
 static unsigned limitation_count;
 static SSL_SESSION *new_session;
+static uint32_t observed_early_data_max;
+static int observed_early_data;
 
 static uint64_t now_ms(void) {
     struct timespec t;
@@ -275,6 +277,12 @@ static void assess_resumption(SSL_CTX *ctx,SSL **ssl,BIO **wire) {
        ||(!strcmp(opt.protocol,"tls1_3")&&!SSL_SESSION_is_resumable(new_session))
 #endif
     ){state="uncertain";reason="ticket_not_received";return;}
+#if !CM_LEGACY
+    if(!strcmp(opt.protocol,"tls1_3")) {
+        observed_early_data_max=SSL_SESSION_get_max_early_data(new_session);
+        observed_early_data=1;
+    }
+#endif
     ERR_clear_error();
     if(SSL_shutdown(*ssl)<0||!drain(*wire)){state="uncertain";reason="handshake_failed";return;}
     const char *previous_reason=reason;
@@ -378,9 +386,20 @@ static void load_trust(void) {
     if(trust_store&&X509_STORE_load_locations(trust_store,opt.trust,NULL)==1)trust_loaded=1;
     else {trust_hash[0]=0;limit("no_trust_snapshot");}
 }
+static int leap_year(int year) {
+    return year%4==0&&(year%100!=0||year%400==0);
+}
+static int64_t days_from_civil(int year,int month,int day) {
+    year-=month<=2;
+    int era=(year>=0?year:year-399)/400;
+    unsigned year_of_era=(unsigned)(year-era*400);
+    unsigned day_of_year=(153U*(unsigned)(month+(month>2?-3:9))+2)/5+(unsigned)day-1;
+    unsigned year_day=year_of_era*365+year_of_era/4-year_of_era/100+day_of_year;
+    return (int64_t)era*146097+year_day-719468;
+}
 /* ASN.1 UTC and generalized time parsing; no locale or timezone dependency. */
 static int asn1_epoch(const ASN1_TIME *value,int64_t *epoch) {
-    struct tm t={0};const unsigned char *s;int n,year=0,pos=0;
+    const unsigned char *s;int n,year=0,pos=0;
     if(!value)return 0;
     s=ASN1_STRING_data((ASN1_STRING *)value);
     n=ASN1_STRING_length(value);
@@ -390,15 +409,16 @@ static int asn1_epoch(const ASN1_TIME *value,int64_t *epoch) {
     if(generalized){year=(s[0]-'0')*1000+(s[1]-'0')*100;pos=2;}
     year+=(s[pos]-'0')*10+s[pos+1]-'0';pos+=2;
     if(!generalized)year+=year<50?2000:1900;
-    t.tm_year=year-1900;t.tm_mon=(s[pos]-'0')*10+s[pos+1]-'0'-1;pos+=2;
-    t.tm_mday=(s[pos]-'0')*10+s[pos+1]-'0';pos+=2;
-    t.tm_hour=(s[pos]-'0')*10+s[pos+1]-'0';pos+=2;
-    t.tm_min=(s[pos]-'0')*10+s[pos+1]-'0';pos+=2;
-    t.tm_sec=(s[pos]-'0')*10+s[pos+1]-'0';
-    if(t.tm_mon<0||t.tm_mon>11||t.tm_mday<1||t.tm_mday>31||t.tm_hour>23||t.tm_min>59||t.tm_sec>59)return 0;
-    struct tm copy=t;time_t result=timegm(&t);
-    if(t.tm_year!=copy.tm_year||t.tm_mon!=copy.tm_mon||t.tm_mday!=copy.tm_mday)return 0;
-    *epoch=(int64_t)result;return 1;
+    int month=(s[pos]-'0')*10+s[pos+1]-'0';pos+=2;
+    int day=(s[pos]-'0')*10+s[pos+1]-'0';pos+=2;
+    int hour=(s[pos]-'0')*10+s[pos+1]-'0';pos+=2;
+    int minute=(s[pos]-'0')*10+s[pos+1]-'0';pos+=2;
+    int second=(s[pos]-'0')*10+s[pos+1]-'0';
+    static const int month_days[]={0,31,28,31,30,31,30,31,31,30,31,30,31};
+    if(year<1||year>9999||month<1||month>12||day<1||day>month_days[month]+(month==2&&leap_year(year))
+       ||hour>23||minute>59||second>59)return 0;
+    *epoch=days_from_civil(year,month,day)*86400+hour*3600+minute*60+second;
+    return 1;
 }
 static void time_json(const ASN1_TIME *t) {int64_t v;if(asn1_epoch(t,&v))append("%lld",(long long)v);else append("null");}
 static void digest_cert(X509 *cert,char output[65]) {
@@ -572,7 +592,9 @@ static void extensions_json(SSL *s) {
 #endif
     /* This build never offers compression; absence in a handshake is unknown. */
     append("{\"ems\":%s,\"compression\":%s,\"secure_renegotiation\":%s,\"fallback_scsv\":%s,\"session_reused\":%s,\"early_data_max\":",boolean(ems),boolean(SSL_get_current_compression(s)!=NULL?1:-1),boolean(!strcmp(opt.protocol,"ssl2")?-1:(int)SSL_get_secure_renegotiation_support(s)),boolean(!strcmp(opt.control,"fallback")?peer_alert==86:-1),boolean(SSL_session_reused(s)));
-    if(!strcmp(opt.protocol,"tls1_3")&&new_session)append("%u",early);else append("null");
+    if(!strcmp(opt.protocol,"tls1_3")&&observed_early_data)append("%u",observed_early_data_max);
+    else if(!strcmp(opt.protocol,"tls1_3")&&new_session)append("%u",early);
+    else append("null");
     append(",\"renegotiation_completed\":%s}",boolean(reneg_completed));
 }
 static int cipher_compatible(const SSL_CIPHER *c) {

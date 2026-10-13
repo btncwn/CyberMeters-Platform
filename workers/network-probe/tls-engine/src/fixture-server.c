@@ -22,7 +22,7 @@ int main(int argc,char **argv) {
     ctx=SSL_CTX_new(m);
 #else
     OPENSSL_init_ssl(OPENSSL_INIT_NO_LOAD_CONFIG,NULL);ctx=SSL_CTX_new(TLS_server_method());
-    int v=!strcmp(protocol,"tls1_3")?TLS1_3_VERSION:TLS1_2_VERSION;
+    int v=(!strcmp(protocol,"tls1_3")||!strcmp(protocol,"tls1_3_early"))?TLS1_3_VERSION:TLS1_2_VERSION;
     SSL_CTX_set_min_proto_version(ctx,v);
     SSL_CTX_set_max_proto_version(ctx,!strcmp(protocol,"both")?TLS1_3_VERSION:v);
 #endif
@@ -37,6 +37,7 @@ int main(int argc,char **argv) {
     SSL_CTX_set_session_cache_mode(ctx,SSL_SESS_CACHE_SERVER);
 #if OPENSSL_VERSION_NUMBER >= 0x10101000L
     SSL_CTX_set_num_tickets(ctx,2);
+    if(!strcmp(protocol,"tls1_3_early"))SSL_CTX_set_max_early_data(ctx,1024);
 #endif
     int fd=socket(AF_INET,SOCK_STREAM,0),yes=1;setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(yes));
     struct sockaddr_in address={0};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);address.sin_port=htons((unsigned short)atoi(argv[1]));

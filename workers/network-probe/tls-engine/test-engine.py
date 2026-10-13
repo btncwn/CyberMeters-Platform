@@ -276,6 +276,14 @@ class BaselineTests(unittest.TestCase):
                 self.assertTrue(result['extensions']['session_reused'])
                 self.assertEqual(result['telemetry']['connections'], 2)
 
+    def test_early_data_capacity_is_observed_without_sending_application_data(self):
+        with server(self.modern, self.cert, self.key, 'tls1_3_early') as port:
+            result = self.assess('tls1_3', port, control='resumption', family='modern',
+                                 extra=['--max-connections', '2'])
+        self.assertIn(result['state'], ['accepted', 'rejected'], result)
+        self.assertEqual(result['extensions']['early_data_max'], 1024)
+        self.assertEqual(result['telemetry']['connections'], 2)
+
     def test_one_bounded_client_renegotiation(self):
         with server(self.legacy, self.cert, self.key, 'tls1_2') as port:
             result = self.assess('tls1_2', port, control='renegotiation')
