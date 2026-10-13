@@ -113,9 +113,12 @@ const EXPECTED = Object.freeze({
     // Certificate logs retired: the same file and the scan engine shift their
     // SQL sites again; the two-tree --dump-current diff shows every SQL site,
     // static site and sink unchanged apart from position.
-    fingerprint: "9ef8ad125899773ec633aa62576aefa97447c30eeedd3e5de3541f40ea584f98",
+    // Deep TLS historical retest added four lines before the existing
+    // historical-scan.js query. The two-tree dump shows only its line
+    // moving 196 -> 200; predicate text, count and classification are equal.
+    fingerprint: "2204ed5f41bafc935ff73e10f54c54a0972d57b4c205b119a9b6ec692109354b",
     resolved_query_sink_count: 20,
-    resolved_query_sink_fingerprint: "4ffef8f79a535d8be3cff7b5ffc46b337ffc7b208b5991806506ca666d9adfee",
+    resolved_query_sink_fingerprint: "86e8b1f031a81fec8236321fffb58b4b891081469445e8be9937814b23f14fdd",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1

@@ -27,14 +27,15 @@ for(const [from,to] of [
   ['/opt/cybermeters/tls-baseline-modern',join(build,'bin/tls-baseline-modern')],
   ['/opt/cybermeters/trust/ca-bundle.pem',certificate],
 ])source=source.replaceAll(from,to);
-source=source.replace('!publicAddress(endpoint.address)',"!(endpoint.address === '127.0.0.1' || endpoint.address === '127.0.0.2')");
-source=source.replace('resolve4(endpoint.hostname), resolve6(endpoint.hostname)',"Promise.resolve(['127.0.0.1']), Promise.resolve([])");
+source=source.replace('!publicAddress(endpoint.address)',"!(endpoint.address === '127.0.0.1' || endpoint.address === '127.0.0.2' || endpoint.address === '::1')");
+source=source.replace('resolve4(endpoint.hostname), resolve6(endpoint.hostname)',"Promise.resolve(['127.0.0.1']), Promise.resolve(['::1'])");
 const {__runTlsCollector}=await import('data:text/javascript,'+encodeURIComponent(source));
 
 const context=createSecureContext({cert:readFileSync(certificate),key:readFileSync(key),minVersion:'TLSv1.2',maxVersion:'TLSv1.3'});
+const context6=createSecureContext({cert:readFileSync(certificate),key:readFileSync(key),minVersion:'TLSv1.2',maxVersion:'TLSv1.2'});
 const sockets=new Set();
 const extraServers=[];
-const server=createServer(socket=>{
+function smtpSocket(socket,tlsContext) {
   sockets.add(socket);socket.once('close',()=>sockets.delete(socket));
   socket.on('error',()=>{});
   socket.write('220 local fixture ready\r\n');
@@ -46,13 +47,14 @@ const server=createServer(socket=>{
     }else if(phase==='starttls'&&line==='STARTTLS\r\n'){
       phase='tls';socket.off('data',onData);
       socket.write('220 Go ahead\r\n',()=>{
-        const secure=new TLSSocket(socket,{isServer:true,secureContext:context});
+        const secure=new TLSSocket(socket,{isServer:true,secureContext:tlsContext});
         secure.on('error',()=>{});
       });
     }else socket.destroy();
   };
   socket.on('data',onData);
-});
+}
+const server=createServer(socket=>smtpSocket(socket,context));
 const close=()=>new Promise(resolve=>server.close(resolve));
 async function checkMailUpgrade(request,application,variant='valid') {
   const mail=createServer(socket=>{
@@ -109,6 +111,18 @@ try{
   assert.equal(raw13.results[0].engine_result?.engine?.family,'modern');
   assert.equal(raw13.results[0].engine_result?.negotiated?.cipher,'TLS_AES_128_GCM_SHA256');
   assert.equal(projectTlsCollectorReceipt(tls13,raw13,{requireSandbox:false}).results[0].state,'accepted');
+  const ipv6=createServer(socket=>smtpSocket(socket,context6));
+  extraServers.push(ipv6);
+  await new Promise((resolve,reject)=>ipv6.once('error',reject).listen(0,'::1',resolve));
+  const v6={...tls13,request_id:'local_parent_ipv6_difference',endpoint:{...tls13.endpoint,
+    address:'::1',dns_addresses:['::1'],port:ipv6.address().port},
+    checks:[{control:'protocol',protocol:'tls1_3',cipher_id:null}],
+    deadline_at:new Date(Date.now()+20000).toISOString()};
+  const raw6=await __runTlsCollector(v6);
+  assert.equal(raw6.results[0].engine_result?.state,'rejected',JSON.stringify(raw6.results[0]));
+  assert.equal(raw6.results[0].engine_result?.reason,'protocol_version_rejected');
+  assert.equal(raw6.telemetry.connections,1);
+  assert.equal(projectTlsCollectorReceipt(v6,raw6,{requireSandbox:false}).results[0].state,'rejected');
   const changed={...request,request_id:'local_parent_2',endpoint:{...request.endpoint,address:'127.0.0.2',dns_addresses:['127.0.0.2']},
     deadline_at:new Date(Date.now()+20000).toISOString()};
   const blocked=await __runTlsCollector(changed);
@@ -125,5 +139,5 @@ try{
   await checkMailUpgrade(request,'pop3');
   await checkMailUpgrade(request,'imap','missing');
   await checkMailUpgrade(request,'pop3','rejected');
-  console.log('TLS parent: real SMTP/IMAP/POP3 STARTTLS with refusal cases, TLS 1.3 cipher routing, physical accounting and DNS escape block passed');
+  console.log('TLS parent: SMTP/IMAP/POP3 STARTTLS refusal cases, IPv4/IPv6 TLS divergence, TLS 1.3 cipher routing, physical accounting and DNS escape block passed');
 }finally{for(const socket of sockets)socket.destroy();await close();for(const mail of extraServers)await new Promise(resolve=>mail.close(resolve));rmSync(directory,{recursive:true,force:true});}

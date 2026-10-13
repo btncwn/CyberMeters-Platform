@@ -40,6 +40,8 @@ static int cm_sandbox(void) {
         CM_ALLOW(munmap), CM_ALLOW(mprotect), CM_ALLOW(madvise),
         CM_ALLOW(clock_gettime), CM_ALLOW(gettimeofday), CM_ALLOW(getpid),
         CM_ALLOW(gettid), CM_ALLOW(futex), CM_ALLOW(getrandom),
+        /* glibc may query memory size during OpenSSL allocation on Linux. */
+        CM_ALLOW(sysinfo),
         CM_ALLOW(rt_sigaction), CM_ALLOW(rt_sigprocmask), CM_ALLOW(rt_sigreturn),
         CM_ALLOW(sigaltstack), CM_ALLOW(ppoll), CM_ALLOW(sched_yield),
 #if defined(__x86_64__)
