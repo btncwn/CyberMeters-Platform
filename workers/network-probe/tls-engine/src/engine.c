@@ -248,6 +248,51 @@ static int start_tls(SSL_CTX *ctx,SSL_SESSION *session,SSL **out,BIO **wire) {
     if(!connect_parent())return 0;
     return do_handshake(s,*wire);
 }
+static void receive_ticket(SSL *ssl,BIO *wire) {
+#if !CM_LEGACY
+    if(strcmp(opt.protocol,"tls1_3")||(new_session&&SSL_SESSION_is_resumable(new_session)))return;
+    uint64_t original_deadline=deadline, ticket_deadline=now_ms()+1000;
+    if(ticket_deadline<deadline)deadline=ticket_deadline;
+    for(int attempt=0;attempt<4&&connected&&now_ms()<deadline;attempt++) {
+        unsigned char byte;
+        ERR_clear_error();
+        int ret=SSL_read(ssl,&byte,1),error=SSL_get_error(ssl,ret);
+        if(!drain(wire)||ret>0)break;
+        if(error==SSL_ERROR_WANT_READ) {
+            if(!receive(wire))break;
+        } else if(error!=SSL_ERROR_WANT_WRITE)break;
+        if(new_session&&SSL_SESSION_is_resumable(new_session))break;
+    }
+    deadline=original_deadline;
+#else
+    (void)ssl;(void)wire;
+#endif
+}
+static void assess_resumption(SSL_CTX *ctx,SSL **ssl,BIO **wire) {
+    receive_ticket(*ssl,*wire);
+    if(!new_session
+#if !CM_LEGACY
+       ||(!strcmp(opt.protocol,"tls1_3")&&!SSL_SESSION_is_resumable(new_session))
+#endif
+    ){state="uncertain";reason="ticket_not_received";return;}
+    ERR_clear_error();
+    if(SSL_shutdown(*ssl)<0||!drain(*wire)){state="uncertain";reason="handshake_failed";return;}
+    const char *previous_reason=reason;
+    close_parent();reason=previous_reason;
+    SSL_free(*ssl);BIO_free(*wire);*ssl=NULL;*wire=NULL;finished=0;
+    if(start_tls(ctx,new_session,ssl,wire)) {
+        finished=1;
+        if(SSL_session_reused(*ssl)){state="accepted";reason="resumption_completed";}
+        else {state="rejected";reason="resumption_declined";}
+    } else {state="uncertain";if(peer_alert)reason="peer_alert";}
+}
+static void assess_renegotiation(SSL *ssl,BIO *wire) {
+    long before=SSL_total_renegotiations(ssl);
+    if(SSL_renegotiate(ssl)!=1){state="uncertain";reason="control_unavailable";limit("engine_capability_limit");return;}
+    if(do_handshake(ssl,wire)&&SSL_total_renegotiations(ssl)>before) {
+        reneg_completed=1;state="accepted";reason="renegotiation_completed";
+    } else {state="uncertain";}
+}
 static const char *protocol_name(int version) {
     switch(version) {
 #ifdef SSL2_VERSION
@@ -600,7 +645,8 @@ int main(int argc,char **argv) {
     if(!strcmp(opt.control,"renegotiation")&&!strcmp(opt.protocol,"tls1_3")) {state="not_applicable";reason="protocol_not_applicable";goto done;}
     if(start_tls(ctx,NULL,&ssl,&wire)) {
         finished=1;state="accepted";reason="handshake_completed";
-        if(!strcmp(opt.control,"renegotiation")||!strcmp(opt.control,"resumption")){state="unexecutable";reason="control_unavailable";limit("engine_capability_limit");}
+        if(!strcmp(opt.control,"renegotiation"))assess_renegotiation(ssl,wire);
+        else if(!strcmp(opt.control,"resumption"))assess_resumption(ctx,&ssl,&wire);
     } else if(peer_alert){
         if(peer_alert==86&&!strcmp(opt.control,"fallback")){state="rejected";reason="fallback_rejected";}
         else if(peer_alert==70&&(!strcmp(opt.control,"handshake")||!strcmp(opt.control,"certificate"))){

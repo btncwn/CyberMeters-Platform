@@ -34,6 +34,10 @@ int main(int argc,char **argv) {
     SSL_CTX_set_security_level(ctx,0);
 #endif
     unsigned char sid[]={1,2,3};SSL_CTX_set_session_id_context(ctx,sid,sizeof(sid));
+    SSL_CTX_set_session_cache_mode(ctx,SSL_SESS_CACHE_SERVER);
+#if OPENSSL_VERSION_NUMBER >= 0x10101000L
+    SSL_CTX_set_num_tickets(ctx,2);
+#endif
     int fd=socket(AF_INET,SOCK_STREAM,0),yes=1;setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(yes));
     struct sockaddr_in address={0};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);address.sin_port=htons((unsigned short)atoi(argv[1]));
     if(bind(fd,(struct sockaddr *)&address,sizeof(address))||listen(fd,8))return 4;

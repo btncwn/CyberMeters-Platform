@@ -263,6 +263,27 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(result['state'], 'accepted', result)
         self.assertTrue(result['extensions']['ems'])
 
+    def test_session_resumption_requires_a_second_finished_handshake(self):
+        for protocol, family in [('tls1_2', 'legacy'), ('tls1_3', 'modern')]:
+            with self.subTest(protocol=protocol):
+                openssl = self.legacy if family == 'legacy' else self.modern
+                with server(openssl, self.cert, self.key, protocol) as port:
+                    result = self.assess(protocol, port, control='resumption', family=family,
+                                         extra=['--max-connections', '2'])
+                self.assertEqual(result['state'], 'accepted', result)
+                self.assertEqual(result['reason'], 'resumption_completed')
+                self.assertTrue(result['authenticated_finished'])
+                self.assertTrue(result['extensions']['session_reused'])
+                self.assertEqual(result['telemetry']['connections'], 2)
+
+    def test_one_bounded_client_renegotiation(self):
+        with server(self.legacy, self.cert, self.key, 'tls1_2') as port:
+            result = self.assess('tls1_2', port, control='renegotiation')
+        self.assertEqual(result['state'], 'accepted', result)
+        self.assertEqual(result['reason'], 'renegotiation_completed')
+        self.assertTrue(result['extensions']['renegotiation_completed'])
+        self.assertEqual(result['telemetry']['connections'], 1)
+
     def test_unoffered_compression_is_not_a_clean_result(self):
         result = self.assess('tls1_2', control='compression')
         self.assertEqual(result['state'], 'unexecutable')

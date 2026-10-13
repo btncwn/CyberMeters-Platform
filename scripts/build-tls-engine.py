@@ -93,9 +93,9 @@ def main():
         if not archive.exists():
             partial = archive.with_suffix('.download')
             if identity == 'legacy':
-                response = urllib.request.urlopen('https://github.com/openssl/openssl/releases/download/OpenSSL_1_0_2u/openssl-1.0.2u.tar.gz', timeout=60)
+                response = urllib.request.urlopen('https://github.com/openssl/openssl/releases/download/OpenSSL_1_0_2u/openssl-1.0.2u.tar.gz', timeout=60)  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- literal pinned URL, verified against manifest and archive SHA-256
             else:
-                response = urllib.request.urlopen('https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz', timeout=60)
+                response = urllib.request.urlopen('https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz', timeout=60)  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- literal pinned URL, verified against manifest and archive SHA-256
             with response, partial.open('wb') as out:
                 shutil.copyfileobj(response, out)
             if sha256(partial) != source['sha256']:
