@@ -6,7 +6,11 @@
 
 import { formatSpfAuthorizationDescriptionForDisplay } from "./spf-resolver.js";
 
-export const ASSET_TIMELINE_PRODUCER_VERSION = "asset-timeline-trust-v1";
+// v2: discovery confirms both address families, so stored address lists gain
+// IPv6 addresses and names that DNS never answered for stop being admitted.
+// A v1 scan is not compared with a v2 scan: the first v2 scan re-establishes
+// the baseline instead of reporting the measurement change as asset changes.
+export const ASSET_TIMELINE_PRODUCER_VERSION = "asset-timeline-trust-v2";
 
 export const TIMELINE_COMPARISON_STATUS = Object.freeze({
   COMPARABLE: "comparable",

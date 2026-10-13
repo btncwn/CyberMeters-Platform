@@ -108,7 +108,7 @@ async function fixtures(api) {
   assert.equal(api.assetSourceForReferencedSources(["cors_header", "spf"]), "spf_reference", "source precedence: SPF before CORS"); checks++;
   assert.equal(api.assetSourceForReferencedSources(["unknown"]), null, "source precedence: unknown sources record nothing"); checks++;
 
-  // Confirmation outcomes, one DNS question per name.
+  // Confirmation outcomes, both address questions per name.
   const responses = new Map([
     ["billing.example.com", dohAnswer("billing.example.com", "203.0.113.10")],
     ["www.example.com", dohAnswer("www.example.com", "203.0.113.11")],
@@ -127,8 +127,8 @@ async function fixtures(api) {
   const result = await api.confirmReferencedHostnames("example.com", collected, {
     exclude: ["www.example.com"], wildcardAddresses: ["198.51.100.7"], lookup,
   });
-  assert.equal(asked.length, EXPECTED_ORDER.length - 1, "confirmation: exactly one question per name not already discovered"); checks++;
-  assert.ok(asked.every((q) => q.startsWith("A ")) && !asked.includes("A www.example.com"), "confirmation: A questions only, discovered names skipped"); checks++;
+  assert.equal(asked.length, 2 * (EXPECTED_ORDER.length - 1), "confirmation: A and AAAA for each name not already discovered"); checks++;
+  assert.ok(asked.every((q) => q.startsWith("A ") || q.startsWith("AAAA ")) && !asked.some((q) => q.endsWith(" www.example.com")), "confirmation: address questions only, discovered names skipped"); checks++;
   assert.deepEqual(result.confirmed.map((item) => [item.hostname, item.asset_source]), [
     ["billing.example.com", "tls_certificate_name"],
     ["mail.example.com", "mx_target"],
@@ -141,6 +141,19 @@ async function fixtures(api) {
   assert.equal(result.no_address, 1, "confirmation: NOERROR without an address is counted as no address"); checks++;
   assert.equal(result.lookup_failed, 2, "confirmation: SERVFAIL and transport failures are counted as failed lookups"); checks++;
   assert.ok(result.executed === true && result.incomplete === true && result.incomplete_reason === "lookup_failed", "confirmation: failed lookups leave the step incomplete"); checks++;
+  assert.equal(result.confirmed[0].dns?.A?.outcome, "answer", "confirmation: each family's outcome is kept"); checks++;
+
+  // IPv6: a name with only an AAAA answer is confirmed with that address; a
+  // dangling alias (the alias target does not exist) is kept as the name it is.
+  const v6 = await api.confirmReferencedHostnames("example.com", {
+    candidates: [{ hostname: "v6.example.com", sources: ["ns"] }, { hostname: "old.example.com", sources: ["csp"] }], evidence_inputs: ["ns", "csp"],
+  }, {
+    lookup: async (name, type) => (name === "v6.example.com"
+      ? (type === "AAAA" ? { Status: 0, Answer: [{ name, type: 28, TTL: 60, data: "2001:db8::6" }] } : { Status: 0, Answer: [] })
+      : { Status: 3, Answer: [{ name, type: 5, TTL: 60, data: "deleted.provider.test." }] }),
+  });
+  assert.deepEqual(v6.confirmed.map((item) => [item.hostname, item.ip_addresses]), [["v6.example.com", ["2001:db8::6"]], ["old.example.com", []]], "confirmation: an IPv6-only name and a dangling alias are both confirmed"); checks++;
+  assert.ok(v6.confirmed[1].dangling_alias === true && v6.families.ipv6_only === 1, "confirmation: the dangling alias and the IPv6-only family are stated"); checks++;
   assert.equal(result.checked + result.not_checked, result.candidates_found, "confirmation: every candidate is either checked or counted"); checks++;
 
   const many = { candidates: Array.from({ length: 60 }, (_, i) => ({ hostname: `n${String(i).padStart(2, "0")}.example.com`, sources: ["csp"] })), evidence_inputs: ["csp"] };
@@ -148,7 +161,7 @@ async function fixtures(api) {
   const capped = await api.confirmReferencedHostnames("example.com", many, {
     lookup: async (name) => { questions++; return dohAnswer(name, "203.0.113.20"); },
   });
-  assert.equal(questions, 50, "cap: at most 50 DNS questions"); checks++;
+  assert.equal(questions, 100, "cap: at most 50 names, two questions each"); checks++;
   assert.ok(capped.checked === 50 && capped.not_checked === 10 && capped.confirmed.length === 50, "cap: the remainder is counted, not checked"); checks++;
   assert.equal(capped.incomplete_reason, "check_cap_reached", "cap: a reached cap is stated"); checks++;
 
@@ -184,13 +197,13 @@ const absoluteImports = (source) => source.replace(/from "\.\/([^"]+)"/g,
 const MUTANTS = [
   ["if (confirmation.status === \"confirmed\") {", "if (confirmation.status !== \"not_found\") {", "an unconfirmed name is admitted"],
   ["const checks = pending.slice(0, REFERENCED_HOSTNAME_LIMITS.maxChecks);", "const checks = pending;", "the lookup cap is removed"],
-  ["const confirmation = confirmationOf(observations[index], { wildcardSet, filterWildcard: false });",
-    "const confirmation = confirmationOf(observations[index], { wildcardSet, filterWildcard: true });", "a referenced name is wildcard-filtered"],
+  ["const confirmation = confirmationOf(observation, { wildcardSet, filterWildcard: false });",
+    "const confirmation = confirmationOf(observation, { wildcardSet, filterWildcard: true });", "a referenced name is wildcard-filtered"],
   ["const live = ssl?.live_certificate?.collection_complete === true ? ssl.live_certificate : null;", "const live = ssl?.live_certificate ?? null;", "an incomplete live capture is trusted"],
   ["if (notChecked > 0) reasons.push(\"check_cap_reached\");", "", "a reached cap is hidden"],
-  ["else if (confirmation.status === \"no_address\") noAddress++;\n    else lookupFailed++;", "else if (confirmation.status === \"no_address\") noAddress++;", "failed lookups are hidden"],
+  ["lookup_failed: counts.lookup_failed || 0,", "lookup_failed: 0,", "failed lookups are hidden"],
   ["!known.has(candidate.hostname) && candidate.hostname !== root", "candidate.hostname !== root", "discovered names are looked up again"],
-  ["  live_tls_san:   \"tls_certificate_name\",\n  mx:             \"mx_target\",", "  mx:             \"mx_target\",\n  live_tls_san:   \"tls_certificate_name\",", "source precedence is reordered"],
+  ["  live_tls_san:     \"tls_certificate_name\",\n  mx:               \"mx_target\",", "  mx:               \"mx_target\",\n  live_tls_san:     \"tls_certificate_name\",", "source precedence is reordered"],
 ];
 for (const [before, after, label] of MUTANTS) {
   ok(`mutant anchor is unique: ${label}`, moduleSource.split(before).length === 2);
@@ -329,13 +342,13 @@ ok("durable: the inventory records each confirmed name with its specific source"
     durable.inserts.some((row) => row.hostname === "static.example.com" && row.source === "csp_reference") &&
     !durable.inserts.some((row) => row.hostname === "retired.example.com"),
   JSON.stringify(durable.inserts));
-ok("durable: each referenced name was asked about once",
+ok("durable: each referenced name was asked about once per family",
   ["billing.example.com", "static.example.com", "retired.example.com"].every((host) =>
-    durable.dnsQuestions.filter((q) => q === `A ${host}`).length === 1),
+    durable.dnsQuestions.filter((q) => q === `A ${host}`).length === 1 && durable.dnsQuestions.filter((q) => q === `AAAA ${host}`).length <= 1),
   durable.dnsQuestions.filter((q) => /(billing|static|retired)\./.test(q)).join(", "));
 const telemetryRow = (durable.report?.execution_diagnostics?.modules || []).find((row) => row?.module === "referenced_hostnames");
 ok("durable: the lookup step has its own measured telemetry row",
-  telemetryRow?.outbound_measurement_complete === true && telemetryRow?.outbound_attempts_observed === 3, JSON.stringify(telemetryRow));
+  telemetryRow?.outbound_measurement_complete === true && telemetryRow?.outbound_attempts_observed === 6, JSON.stringify(telemetryRow));
 ok("durable: discovery names the referenced step as a source",
   (durable.report?.modules?.attack_surface_signal_completeness?.signals?.subdomain_discovery?.sources || []).includes("referenced_hostnames"),
   JSON.stringify(durable.report?.modules?.attack_surface_signal_completeness?.signals?.subdomain_discovery));

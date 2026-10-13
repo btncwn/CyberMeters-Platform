@@ -208,7 +208,8 @@ async function confirmationFixtures(api) {
           : { Status: 3, Answer: [] };
       },
     });
-  assert.deepEqual(asked.sort(), ["flaky.acme.test", "mx-only.acme.test", "old.acme.test", "portal.acme.test", "vpn.acme.test", "wild.acme.test"], "only in-scope names not already discovered are asked"); checks++;
+  assert.deepEqual([...new Set(asked)].sort(), ["flaky.acme.test", "mx-only.acme.test", "old.acme.test", "portal.acme.test", "vpn.acme.test", "wild.acme.test"], "only in-scope names not already discovered are asked"); checks++;
+  assert.equal(asked.length, 12, "each asked name gets both address questions"); checks++;
   assert.deepEqual(result.confirmed.map((item) => [item.hostname, item.source]),
     [["portal.acme.test", "customer_list"], ["vpn.acme.test", "customer_list"], ["wild.acme.test", "customer_list"]], "only names DNS answers for are confirmed"); checks++;
   assert.equal(result.confirmed.find((item) => item.hostname === "wild.acme.test")?.wildcard_match, true, "a listed name with a wildcard-shaped answer is flagged, not filtered"); checks++;
@@ -236,7 +237,7 @@ const MUTANTS = [
   ["const confirmation = confirmationOf(observation, { wildcardSet, filterWildcard: false });",
     "const confirmation = confirmationOf(observation, { wildcardSet, filterWildcard: true });", "listed names are wildcard-filtered"],
   ["const pending = listed.filter((hostname) => !known.has(hostname));", "const pending = listed;", "discovered names are asked again"],
-  ["if (unasked > 0) reasons.push(\"time_budget_reached\");", "", "names left unasked are hidden"],
+  ["if (unaskedTime > 0) reasons.push(\"time_budget_reached\");", "", "names left unasked are hidden"],
   ["const gap = reason !== \"no_list\";", "const gap = false;", "a step that did not run is not a gap"],
 ];
 for (const [before, after, label] of MUTANTS) {

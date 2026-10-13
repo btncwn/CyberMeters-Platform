@@ -56,6 +56,33 @@ export async function runLabChecks({ ok, root }) {
     ok(`lab ${world.name}: every request stays inside the lab`, run.unexpected_hosts.length === 0, json(run.unexpected_hosts));
     ok(`lab ${world.name}: discovery asks DNS through the lab resolver only`, scan.requests.dns_questions > 0, json(scan.requests.by_kind));
   }
+  // ── Discovery accuracy: both address families, nothing unconfirmed ───────────
+  const alphaRun = await runLabWorld({ root, world: WORLDS.alpha, scans: 1 });
+  const inv = alphaRun.inventory;
+  ok("lab alpha: every real, named host is found — IPv6-only names included", inv.missed.length === 0, json(inv.missed));
+  ok("lab alpha: no name DNS never answered for is listed (stale links, dangling SRV targets)", inv.false_positive.length === 0, json(inv.false_positive));
+  ok("lab alpha: dual-stack and IPv6-only names keep the addresses of each family",
+    Object.values(inv.families).every((family) => family.A.ok && family.AAAA.ok), json(inv.families));
+  ok("lab alpha: an alias target outside the domain is never an asset",
+    !inv.rows.some((row) => row.hostname === "cmlab-alpha.apphost-lab.net"), json(inv.rows.map((row) => row.hostname)));
+  const alphaScan = alphaRun.scans[0];
+  ok("lab alpha: names whose lookups failed are counted as unknown, not as absent",
+    alphaScan.discovery.customer?.lookup_failed === 2 && alphaScan.discovery.customer?.not_found === 1, json(alphaScan.discovery.customer));
+  const report = JSON.parse(alphaRun.r2.store.get("reports/scan_a_1.json"));
+  const budget = report.modules.subdomains.discovery_budget;
+  ok("lab alpha: every discovery question is charged to one budget that is never exceeded",
+    budget?.total === 786 && budget.spent > 0 && budget.spent <= budget.total &&
+      Object.values(budget.by_source).reduce((a, b) => a + b, 0) === budget.spent, json(budget));
+  const halfv6 = report.modules.subdomains.customer_hostnames.confirmed.find((row) => row.hostname === "halfv6.cmlab-alpha.co.uk");
+  ok("lab alpha: a name whose AAAA lookup fails keeps its IPv4 address and states the uncertainty",
+    json(halfv6?.ip_addresses) === json(["34.120.10.10"]) && json(halfv6?.dns?.uncertain) === json(["AAAA"]), json(halfv6));
+  const charlieRun = await runLabWorld({ root, world: WORLDS.charlie, scans: 1 });
+  ok("lab charlie: every listed name DNS answers for is found, IPv6-only names included",
+    charlieRun.inventory.missed.length === 0, json(charlieRun.inventory.missed.slice(0, 5)));
+  const charlieDepth = charlieRun.scans[0].discovery.depth;
+  ok("lab charlie: guesses the budget left unasked are stated, not dropped",
+    charlieDepth.executed === true && (charlieDepth.not_asked === 0 || charlieDepth.incomplete_reason === "question_budget_reached"), json(charlieDepth));
+
   const wildcard = await runLabWorld({ root, world: WORLDS.bravo, scans: 1 });
   ok("lab bravo: a zone that answers every name adds no guessed names", wildcard.inventory.false_positive.length === 0, json(wildcard.inventory.false_positive));
   const again = await runLabWorld({ root, world: WORLDS.bravo, scans: 1 });

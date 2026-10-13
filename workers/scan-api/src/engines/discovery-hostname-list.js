@@ -2,12 +2,13 @@
 // A workspace admin may list hostnames under a verified domain — a plain list,
 // a CSV with a hostname column or a DNS zone file. Only in-scope names are
 // kept (at most 200); the uploaded text is never stored. Every durable scan
-// asks DNS about each listed name, and a name joins discovery only when DNS
-// answers for it: a list is a set of candidates, never a set of findings.
+// asks DNS about each listed name (A and AAAA), and a name joins discovery only
+// when DNS answers for it: a list is a set of candidates, never a set of
+// findings.
 import { dnsQuery } from "./dns.js";
 import { DISCOVERY_IMPORT_LIMITS, importDiscoveryInventory } from "./discovery-inventory-import.js";
 import { classifyHostname, normalizeHostname } from "./hostname-candidates.js";
-import { confirmationOf, confirmedHost, lookupNames, wildcardAddressSet } from "./discovery-confirmation.js";
+import { confirmationOf, confirmedHost, lookupNames, tallyConfirmation, wildcardAddressSet } from "./discovery-confirmation.js";
 import { createId } from "../lib/util.js";
 
 export const HOSTNAME_LIST_VERSION = "customer-hostnames-v1";
@@ -206,6 +207,8 @@ export function customerHostnamesNotExecuted(reason, listed = 0) {
 export async function confirmListedHostnames(domain, hostnames, {
   exclude = [],
   wildcardAddresses = [],
+  wildcardIpv6Addresses = [],
+  budget = null,
   accounting = null,
   cache = null,
   signal = null,
@@ -215,23 +218,28 @@ export async function confirmListedHostnames(domain, hostnames, {
   const listed = inScope(Array.isArray(hostnames) ? hostnames : [], domain);
   const known = new Set((Array.isArray(exclude) ? exclude : []).map((host) => normalizeHostname(host)).filter(Boolean));
   const pending = listed.filter((hostname) => !known.has(hostname));
-  const { observations, unasked } = await lookupNames(pending, lookup, {
+  const { observations, unasked_time: unaskedTime, unasked_budget: unaskedBudget } = await lookupNames(pending, lookup, {
     clock,
     deadlineAt: clock() + HOSTNAME_LIST_LIMITS.softBudgetMs,
     batchSize: HOSTNAME_LIST_LIMITS.batchSize,
+    budget,
+    source: "customer_hostnames",
+    mode: "parallel",
   });
-  const wildcardSet = wildcardAddressSet(wildcardAddresses);
+  const wildcardSet = wildcardAddressSet(wildcardAddresses, wildcardIpv6Addresses);
   const confirmed = [];
-  const counts = { not_found: 0, no_address: 0, lookup_failed: 0 };
+  const counts = {};
   for (const observation of observations) {
     const confirmation = confirmationOf(observation, { wildcardSet, filterWildcard: false });
+    tallyConfirmation(counts, confirmation);
     if (confirmation.status === "confirmed") {
       confirmed.push(confirmedHost(observation.hostname, confirmation, { source: HOSTNAME_LIST_ASSET_SOURCE }));
-    } else counts[confirmation.status]++;
+    }
   }
   const reasons = [];
-  if (unasked > 0) reasons.push("time_budget_reached");
-  if (counts.lookup_failed > 0) reasons.push("lookup_failed");
+  if (unaskedTime > 0) reasons.push("time_budget_reached");
+  if (unaskedBudget > 0) reasons.push("question_budget_reached");
+  if ((counts.lookup_failed || 0) > 0) reasons.push("lookup_failed");
   return {
     version: HOSTNAME_LIST_VERSION,
     executed: true,
@@ -239,9 +247,12 @@ export async function confirmListedHostnames(domain, hostnames, {
     listed: listed.length,
     already_discovered: listed.length - pending.length,
     checked: observations.length,
-    not_asked: unasked,
+    not_asked: unaskedTime + unaskedBudget,
     confirmed,
-    ...counts,
+    not_found: counts.not_found || 0,
+    no_address: counts.no_address || 0,
+    lookup_failed: counts.lookup_failed || 0,
+    families: counts.families || { ipv4_only: 0, ipv6_only: 0, dual_stack: 0, alias_only: 0 },
     incomplete: reasons.length > 0,
     incomplete_reason: reasons[0] ?? null,
     ...(reasons.length > 1 ? { incomplete_reasons: reasons } : {}),

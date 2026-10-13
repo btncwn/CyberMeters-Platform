@@ -99,32 +99,9 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
     });
   }
 
-  // First-party references: SRV record targets and hosts the home page links
-  // to. A name already found above keeps its earlier source (dedupe below).
-  for (const item of modules?.dns_bruteforce?.srv_items || []) {
-    const h = normalizeHostname(item?.hostname);
-    if (!h) continue;
-    allAssets.push({
-      hostname:   h,
-      asset_type: "subdomain",
-      source:     "dns_srv",
-      wildcard:   0,
-      risk_level: null,
-      cloud:      null,
-    });
-  }
-  for (const hostname of modules?.technology_detection?.linked_hostnames || []) {
-    const h = normalizeHostname(hostname);
-    if (!h) continue;
-    allAssets.push({
-      hostname:   h,
-      asset_type: "subdomain",
-      source:     "html_link",
-      wildcard:   0,
-      risk_level: null,
-      cloud:      null,
-    });
-  }
+  // SRV record targets and hosts the home page links to are references, not
+  // discoveries: they arrive below with the other configuration references,
+  // and only when DNS answered for them (sources dns_srv / html_link).
   // Names the customer's own configuration points at, confirmed by DNS. Each
   // keeps the most specific place it was named (certificate, MX/NS, SPF…).
   for (const item of modules?.subdomains?.referenced_hostnames?.confirmed || []) {

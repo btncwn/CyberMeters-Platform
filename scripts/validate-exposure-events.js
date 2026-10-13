@@ -165,24 +165,38 @@ const rows = (db, eventType) => db.prepare("SELECT event_type, hostname, severit
   ok("second IP change within 24h is deduped", rows(db, "dns_ip_changed").length === 1);
 }
 
-// 7. First-party references persist with their own source; a name another
-//    source already found keeps that source, and a third party is never added.
+// 7. Configuration references (SRV targets, hosts the home page links to)
+//    persist only once DNS answered for them, with their own source; a
+//    reference DNS never confirmed is not an asset; a name another source
+//    already found keeps the most specific source; a third party is never added.
 {
   const { db, env } = harness();
   await runInventory(env, {
-    subdomains: { items: ["portal.example.co.uk", "vpn.example.co.uk"], wildcard_dns: false },
+    subdomains: {
+      items: ["portal.example.co.uk", "vpn.example.co.uk"],
+      wildcard_dns: false,
+      referenced_hostnames: {
+        confirmed: [
+          { hostname: "autodiscover.example.co.uk", asset_source: "dns_srv", ip_addresses: ["192.0.2.10"] },
+          { hostname: "status.example.co.uk", asset_source: "html_link", ip_addresses: ["192.0.2.11"] },
+          { hostname: "portal.example.co.uk", asset_source: "dns_srv", ip_addresses: ["192.0.2.12"] },
+        ],
+      },
+    },
     dns_bruteforce: {
       items: [],
       srv_items: [
-        { hostname: "autodiscover.example.co.uk", source: "dns_srv", record: "_autodiscover._tcp.example.co.uk" },
-        { hostname: "portal.example.co.uk", source: "dns_srv", record: "_sip._tls.example.co.uk" },
+        { hostname: "stale-target.example.co.uk", source: "dns_srv", record: "_sip._tls.example.co.uk" },
       ],
     },
-    technology_detection: { linked_hostnames: ["status.example.co.uk", "portal.example.co.uk"] },
+    technology_detection: { linked_hostnames: ["old-link.example.co.uk", "partner.example.org"] },
   });
   const sourceOf = (hostname) => db.prepare("SELECT source FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = ?").get(hostname)?.source ?? null;
-  ok("SRV target persists as dns_srv", sourceOf("autodiscover.example.co.uk") === "dns_srv");
-  ok("home-page link persists as html_link", sourceOf("status.example.co.uk") === "html_link");
+  ok("SRV target confirmed by DNS persists as dns_srv", sourceOf("autodiscover.example.co.uk") === "dns_srv");
+  ok("home-page link confirmed by DNS persists as html_link", sourceOf("status.example.co.uk") === "html_link");
+  ok("an SRV target or link DNS never confirmed is not an asset",
+    sourceOf("stale-target.example.co.uk") === null && sourceOf("old-link.example.co.uk") === null);
+  ok("a link to another organisation's domain is never an asset", sourceOf("partner.example.org") === null);
   ok("a name several sources found keeps the most specific source", sourceOf("portal.example.co.uk") === "dns_srv");
   ok("a name only the merged discovery set carries persists as dns_discovery", sourceOf("vpn.example.co.uk") === "dns_discovery");
   ok("each referenced host is stored once",

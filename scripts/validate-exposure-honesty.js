@@ -226,7 +226,8 @@ ok("gate → CAN verify on a genuine complete scan (happy path unchanged)",
   globalThis.fetch = async (value) => {
     const url = new URL(String(value));
     if (url.searchParams.get("type") === "SRV") throw new Error("resolver down");
-    return doh(url.searchParams.get("name") === "www.example.com" ? [{ type: 1, data: "203.0.113.5" }] : []);
+    return doh(url.searchParams.get("name") === "www.example.com" && url.searchParams.get("type") === "A"
+      ? [{ name: "www.example.com", type: 1, data: "203.0.113.5" }] : []);
   };
   const srvDown = await runBruteforceModule("example.com", { cache: new Map() });
   globalThis.fetch = realFetch;
@@ -325,8 +326,12 @@ ok("gate → CAN verify on a genuine complete scan (happy path unchanged)",
     JSON.stringify(withReferencedHostnames(["a.example.com"], { srvItems: undefined, linkedHostnames: undefined })) === JSON.stringify(["a.example.com"]));
 
   const engineSrc = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/scan-engine.js"), "utf8");
-  ok("wiring: production discovery appends SRV targets and home-page links",
-    /const mergedSubdomainItems = withReferencedHostnames\(bruteNewItems, \{\s*srvItems: bruteforceResult\.srv_items,\s*linkedHostnames: techResult\?\.linked_hostnames,\s*\}\);/.test(engineSrc));
+  // SRV targets and home-page links are configuration references: they join
+  // discovery only through the referenced-hostname step, once DNS answers.
+  ok("wiring: production discovery confirms SRV targets and home-page links by DNS before they join",
+    /const mergedSubdomainItems = bruteNewItems;/.test(engineSrc) &&
+      /srvTargets: bruteforceResult\.srv_items,\s*linkedHostnames: techResult\?\.linked_hostnames,/.test(engineSrc) &&
+      !/withReferencedHostnames\(bruteNewItems/.test(engineSrc));
   ok("wiring: only durable runs give the technology module remaining time",
     /runTechModule\(domain, \{ dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs: durableInvocation \? remainingMs : null \}\)/.test(engineSrc));
 }

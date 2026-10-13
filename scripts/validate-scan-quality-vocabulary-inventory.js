@@ -235,7 +235,8 @@ const EXPECTED = Object.freeze({
   // Maturity history (domain JOIN) and workspace restore shift source positions only.
   // Hostname-list routes and the domain-unlink cascade shift source positions only.
   // Asset lifecycle labels and counts in the assets route shift source positions only.
-  sql_reads: { projection_occurrences: 23, fingerprint: "f0a9af64145715d61d3265c7bfe6575c8a45787fd9483739fe7d6806999bf4af" },
+  // One discovery question budget across sources (scan engine) shifts source positions only.
+  sql_reads: { projection_occurrences: 23, fingerprint: "7dec0e9543480c44922c37ecbe90b5dfa04f38ad26252b4afcbfef5778bc6a54" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
