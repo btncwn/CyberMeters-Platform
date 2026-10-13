@@ -334,7 +334,7 @@ const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   // The lab's measurements: the certificate world's unreachable-certificate scan
   // is partial, and the load lab counts partial scans. Both read the quality the
   // engine recorded; neither decides a status.
-  "scripts/lab/lab-checks.mjs:408:fox.scans[4].quality === \"partial\"",
+  "scripts/lab/lab-checks.mjs:409:fox.scans[4].quality === \"partial\"",
   "scripts/lab/load-lab.mjs:944:j.quality === \"partial\"",
 ]);
 
