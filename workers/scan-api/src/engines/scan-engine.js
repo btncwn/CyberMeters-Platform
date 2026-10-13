@@ -82,6 +82,8 @@ import { evaluateWebsiteSecurityForScan } from "./website-security-lifecycle.js"
 import { PAGE_DISCOVERY_VERSION, runPageDiscoveryModule } from "./page-discovery.js";
 import { persistWebsitePagesForScan } from "./website-pages.js";
 import { signInPageFindings } from "./signin-page-findings.js";
+import { readExposureForScan } from "./exposure-jobs.js";
+import { externalExposureModule } from "./exposure-findings.js";
 import { homePageAvailabilityFindings } from "./website-availability.js";
 
 import { SIGNED_IN_SCAN_VERSION, runSignedInScan, signedInSummary } from "./website-signed-in-scan.js";
@@ -2079,12 +2081,28 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       }
     }
 
+    // Durable exposure slices finish before the domain scan is claimed. This read
+    // performs no target requests; one canonical projection feeds the frozen report,
+    // Website lifecycle, cases and alerts, without changing CMS weights.
+    let exposureReceipt = null;
+    if (workspaceId) {
+      try { exposureReceipt = await readExposureForScan(env, { workspaceId, scanId }); } catch { /* unavailable is explicit below */ }
+    }
+    // Unrequested exposure coverage is outside free/legacy scan scope. Only an
+    // expected durable job can contribute an explicit unavailable coverage gap.
+    if (exposureReceipt || (workspaceId && durableInvocation && env.EXPOSURE_SCAN_MODE === "evidence-v1")) {
+      modules.external_exposure = externalExposureModule(exposureReceipt);
+    }
+
     // Phase 7a-i: hostnames the site's own robots.txt, sitemaps and scripts
     // name (engines/page-references.js). They arrive after this scan's
     // takeover and exposure checks, so a name DNS confirms joins the inventory
     // now and gets those checks from the next scan's inventory re-check.
     if (modules.subdomains && typeof modules.subdomains === "object") {
-      const pending = pendingPageReferences(domain, modules.page_discovery?.hostname_references,
+      const pending = pendingPageReferences(domain, { candidates: [
+        ...(modules.page_discovery?.hostname_references?.candidates || []),
+        ...(modules.external_exposure?.hostname_references?.candidates || []),
+      ] },
         [...(modules.subdomains.items || []), ...knownAssetHosts]);
       let pageReferences;
       if (!durableInvocation) {
@@ -2137,6 +2155,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     try {
       for (const f of signInPageFindings(modules.page_discovery, { domain, checkedAt: new Date(now()).toISOString() })) findings.push(f);
     } catch { /* non-fatal: an observation must not break the scan */ }
+
+    findings.push(...(modules.external_exposure?.findings || []));
 
     // Phase 7a-iii: is a website actually served? (engines/website-availability.js)
     // An observation only, built from the headers module's own home-page GET and

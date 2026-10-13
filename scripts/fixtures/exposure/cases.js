@@ -1,0 +1,60 @@
+// Synthetic values only. These bodies are local acceptance fixtures, never target data.
+const secret = 'CmFixture-7391-SecretValue';
+const positives = {
+  'env-config': `APP_ENV=production\nDB_HOST=database.internal\nDB_PASSWORD=${secret}\n`,
+  'application-config': JSON.stringify({database:{host:'db.internal',password:secret}}),
+  'package-auth': `registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=cmFixture_7391_opaqueToken\n`,
+  'git-metadata': '[core]\nrepositoryformatversion = 0\nbare = false\n[remote "origin"]\nurl = https://example.test/repo.git\n',
+  'svn-metadata': '12\n\ndir\n721\nhttps://example.test/svn/project\nhttps://example.test/svn\n',
+  'project-metadata': JSON.stringify({version:'0.2.0',configurations:[{name:'server',type:'node',request:'launch',program:'server.js'}]}),
+  'database-export': '-- MySQL dump 10.13\nCREATE TABLE `accounts` (`id` int, `name` varchar(40));\nINSERT INTO `accounts` VALUES (1,\'synthetic user\');\n',
+  'backup-archive': 'PK\x03\x04\x14\x00' + '\x00'.repeat(24) + 'fixture archive header only',
+  'directory-listing': '<html><title>Index of /backup/</title><h1>Index of /backup/</h1><table><tr><td><a href="site.zip">site.zip</a></td></tr></table></html>',
+  'backup-source': '<?php\n$db_host = "database.internal";\nfunction connect_database() { return $db_host; }\n?>',
+  'runtime-debug': '<html><title>phpinfo()</title><table><tr><td>PHP Version 8.3.1</td></tr><tr><td>Loaded Configuration File</td><td>/etc/php/php.ini</td></tr><tr><td>PHP Extension Build</td><td>API20230831</td></tr></table></html>',
+  'exposed-log': '192.0.2.1 - - [13/Oct/2026:10:00:00 +0000] "GET /account HTTP/1.1" 200 415\n192.0.2.2 - - [13/Oct/2026:10:01:00 +0000] "GET /admin HTTP/1.1" 401 152\n',
+  'admin-interface': '<html><title>Grafana administration</title><body><form action="/login"><input name="user"><input type="password" name="pass"><button>Sign in</button></form></body></html>',
+  'admin-data': JSON.stringify({nodeDescription:'built-in node',numExecutors:2,jobs:[{name:'synthetic-job',color:'blue'}]}),
+  'prometheus-metrics': '# HELP process_cpu_seconds_total Total CPU seconds.\n# TYPE process_cpu_seconds_total counter\nprocess_cpu_seconds_total 154.6\n',
+  'actuator-env': JSON.stringify({activeProfiles:['prod'],propertySources:[{name:'systemEnvironment',properties:{DATABASE_PASSWORD:{value:'******',origin:'environment'}}}]}),
+  'client-secret': `window.config = { client_secret: "${secret}" };`,
+  'source-map': JSON.stringify({version:3,sources:['webpack:///src/main.js'],names:[],mappings:'AAAA',sourcesContent:['export function runView() { return "synthetic source"; }']}),
+  'api-schema': JSON.stringify({openapi:'3.0.3',info:{title:'Synthetic API',version:'1'},paths:{'/metrics':{get:{}},'/delete-account':{get:{}},'/env.js':{get:{}}},servers:[{url:'https://external.example.test'}]}),
+  'elasticsearch-indices': 'green open synthetic-index abcdefgh 1 0 42 0 15kb 15kb\n',
+  'couchdb-databases': '["_users","_replicator","synthetic-records"]',
+  'ignition-health': '{"can_execute_commands":true}',
+};
+const negatives = {
+  'env-config': 'APP_ENV=production\nPUBLIC_API_URL=https://api.example.test\nDB_PASSWORD=changeme\n',
+  'application-config': '{"database":{"host":"localhost","password":"********"}}',
+  'package-auth': '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n',
+  'git-metadata': '[core]\nThis is an example\n',
+  'svn-metadata': 'This document mentions .svn-base and a svn:// reference.',
+  'project-metadata': '{"theme":"dark","fontSize":14}',
+  'database-export': 'Documentation: CREATE TABLE explains how to create a table.',
+  'backup-archive': 'PK is a normal text abbreviation, not an archive.',
+  'directory-listing': '<html><title>Index of our backup documentation</title><p>How backups work</p></html>',
+  'backup-source': '<html><body>A file called index.php.bak is discussed here.</body></html>',
+  'runtime-debug': '<html><title>PHP Version documentation</title><p>Configure PHP Extension support.</p></html>',
+  'exposed-log': 'Documentation says the log contains "GET /" entries.',
+  'admin-interface': '<html><title>Welcome</title><body><a href="/admin/">Administration</a></body></html>',
+  'admin-data': '{"jobs":[],"message":"login required"}',
+  'prometheus-metrics': '# TYPE example gauge\nexample 1\n',
+  'actuator-env': '{"status":"UP"}',
+  'client-secret': 'window.config = {NEXT_PUBLIC_SUPABASE_ANON_KEY:"eyJ-public-anonymous-browser-value",stripe_publishable_key:"pk_live_1234567890abcdefghij",client_id:"CmFixture-7391-PublicId"};',
+  'source-map': '{"version":3,"sources":["main.js"],"mappings":42}',
+  'api-schema': '{"title":"Swagger documentation","paths":"none"}',
+  'elasticsearch-indices': '{"name":"cluster","version":{"number":"8.0.0"}}',
+  'couchdb-databases': '["a public list","another entry"]',
+  'ignition-health': '{"can_execute_commands":false}',
+};
+const observed = new Set(['admin-interface','api-schema']);
+export const EXPOSURE_FIXTURES = Object.freeze(Object.keys(positives).flatMap(ruleId => [
+  {id:`${ruleId}-positive`,ruleId,status:200,body:positives[ruleId],expectedState:observed.has(ruleId)?'observed':'finding',polarity:'positive'},
+  {id:`${ruleId}-negative`,ruleId,status:200,body:negatives[ruleId],expectedState:'not_found',polarity:'negative'},
+]));
+export const EXPOSURE_CONTROL_FIXTURES = Object.freeze([
+  {status:404,body:'<html><title>Not found</title><body>No such page 291</body></html>'},
+  {status:404,body:'<html><title>Not found</title><body>No such page 839</body></html>'},
+]);
+export const EXPOSURE_SYNTHETIC_SECRET = secret;

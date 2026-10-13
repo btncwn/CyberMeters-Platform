@@ -37,6 +37,7 @@
 import { runScanEngine, heartbeatScan } from "./scan-engine.js";
 import { createAuditEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
+import { ensureExposureReady } from "./exposure-jobs.js";
 
 export const SCAN_DISPATCH_MESSAGE_VERSION = 1;
 
@@ -359,6 +360,16 @@ export async function processScanDispatchMessage(body, env, deps = {}) {
       return { action: "retry", delaySeconds: TRANSIENT_RETRY_DELAY_S, outcome: "d1_read_failed" };
     }
     if (reason) return failForLostAuthority(reason);
+  }
+
+  // Deep HTTP checks run in durable, metered slices before the scan's single
+  // execution claim. Redelivery never resets their persisted cursor or budget.
+  try {
+    if (!await (deps.ensureExposureReady ?? ensureExposureReady)(env, row, body)) {
+      return { action: "ack", outcome: "exposure_continuation_queued" };
+    }
+  } catch {
+    return { action: "retry", delaySeconds: TRANSIENT_RETRY_DELAY_S, outcome: "exposure_dispatch_unavailable" };
   }
 
   // ── 5. Claim CAS — the single execution gate. ─────────────────────────────

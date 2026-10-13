@@ -200,10 +200,10 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     domain_key: "website_security",
     display_name: "Website Security",
     description: "Passive external website health — HTTPS, redirects, security headers and DNS availability.",
-    modules: ["headers", "ssl", "dns"],
+    modules: ["headers", "ssl", "dns", "external_exposure"],
     required: ["headers", "ssl"],
     match: (f) => isCookieFindingType(f?.id)
-      || /^(csp_|dse_hsts_|header_|https_|redirect_|canonical_|ssl_|tech_)/.test(f?.id || ""),
+      || /^(external_exposure_|csp_|dse_hsts_|header_|https_|redirect_|canonical_|ssl_|tech_)/.test(f?.id || ""),
     maturity: "M2", managed_status: "recommendations",
     limitations: ["Passive external check only; no active, authenticated or intrusive testing."],
   },
@@ -237,6 +237,10 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
 function moduleAssessed(report, name, skippedSet) {
   const m = report?.modules?.[name];
   if (m == null) return false;
+  if (name === "external_exposure") {
+    const c = m.coverage;
+    return c?.completed > 0 && !(c.pending_assets > 0) && ["pending", "blocked", "budget_exhausted", "uncertain"].every((key) => c[key] === 0);
+  }
   if (name === "ssl" && resolveTlsRuntimeState(m).state === TLS_RUNTIME_STATES.UNAVAILABLE) return false;
   if (m.error) return false;
   if (m.skipped === true || m.incomplete === true) return false;
@@ -247,6 +251,7 @@ function moduleAttempted(report, name, skippedSet) {
   // Attempted-but-insufficient: present but errored/skipped/incomplete.
   const m = report?.modules?.[name];
   if (m == null) return skippedSet.has(name);
+  if (name === "external_exposure") return !moduleAssessed(report, name, skippedSet);
   if (name === "ssl" && resolveTlsRuntimeState(m).state === TLS_RUNTIME_STATES.UNAVAILABLE) return true;
   return !!(m.error || m.skipped === true || m.incomplete === true || skippedSet.has(name));
 }
@@ -404,7 +409,10 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     // subdomain "healthy off missing evidence" hole for Attack Surface, and stops
     // Website/Identity/Certs/Brand from reading healthy when their evidence is absent).
     const relevant = d.modules;
-    const required = Array.isArray(d.required) && d.required.length ? d.required : relevant;
+    const required = [...(Array.isArray(d.required) && d.required.length ? d.required : relevant)];
+    // Historical reports keep their declared scope. New reports explicitly include
+    // exposure coverage; unavailable or unfinished checks cannot imply full health.
+    if (d.domain_key === "website_security" && report.modules?.external_exposure) required.push("external_exposure");
     const assessed = relevant.filter((n) => moduleAssessed(report, n, skippedSet));
     const requiredAssessedAll = required.length > 0 && required.every((n) => moduleAssessed(report, n, skippedSet));
     const requiredInsufficient = required.filter((n) => moduleAttempted(report, n, skippedSet));

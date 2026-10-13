@@ -204,6 +204,7 @@ const RECURRENCE_SEVERITY = Object.freeze({
     browser_protection_missing:    INHERIT_SEVERITY,
     browser_protection_malformed:  INHERIT_SEVERITY,
     credential_form_exposed:       INHERIT_SEVERITY,
+    external_content_exposed:      INHERIT_SEVERITY,
   }),
   // ── Cyber Essentials Readiness (corrective phase) ─────────────────────────
   // FIXED at medium, and deliberately NOT inherited — the opposite reasoning to
@@ -383,6 +384,10 @@ const RECURRENCE_COPY = Object.freeze({
     insecure_redirect: Object.freeze({
       what_changed: (entity) =>
         `A completed origin HTTP observation found that requests to ${entity} were not redirected to HTTPS.`,
+    }),
+    external_content_exposed: Object.freeze({
+      what_changed: (entity) =>
+        `A bounded public-content check observed an exposure condition on ${entity}. Only cleaned structural indicators are retained; no credential or unauthorised operation was tested.`,
     }),
     credential_form_exposed: Object.freeze({
       what_changed: (entity) =>

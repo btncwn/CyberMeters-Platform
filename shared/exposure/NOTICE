@@ -1,0 +1,24 @@
+CyberMeters exposure catalog 2026.10.13.1
+
+The local evaluator and discovery implementation were written for CyberMeters.
+No Lynceus implementation code or upstream Nuclei YAML template is shipped or
+executed. The user-supplied Lynceus dast_nuclei adapter and its 44-entry general
+lock were reviewed for pinned admission, evidence minimization and stable
+identity principles. Lynceus licensing was not established; no code was copied.
+
+All 44 Nuclei template files at ProjectDiscovery/nuclei-templates commit
+f8b8b8dcd70d93826c3767e1829ef8243af9f03b were fetched for development-time review
+and matched their locked byte lengths and SHA-256 values. Source facts, IDs,
+paths, fingerprints and individual dispositions are recorded in source-review.json.
+The upstream MIT notice is retained in LICENSE.nuclei-templates for attribution.
+Production never downloads these templates, runs Nuclei or contacts telemetry
+or external callback/token-validation services. No dependencies were added.
+
+Methodology references (reviewed by the implementation task):
+https://wstg.owasp.org/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management/04-Review_Old_Backup_and_Unreferenced_Files_for_Sensitive_Information/
+https://wstg.owasp.org/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management/05-Enumerate_Infrastructure_and_Application_Admin_Interfaces/
+
+The upstream lock's 187 maximum request declaration is not runtime measurement.
+CyberMeters measures physical requests, redirects, retries, bytes and time in
+its bounded collector and continuation jobs. The catalog's per-rule ceilings
+are declarations enforced within those independently accounted job budgets.

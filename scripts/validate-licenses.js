@@ -8,6 +8,7 @@
 // locally it reads the committed snapshots. CI-blocking.
 //
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -75,6 +76,31 @@ for (const rel of sbomFiles) {
     if (okAll) pass++;
     else { violations.push({ rel, name, version: comp.version, lic: exprs.join(", ") }); fail++; }
   }
+}
+
+// Versioned exposure-rule provenance is part of the same blocking policy.
+// Upstream YAML is reviewed as reference data only; no unknown-licensed Lynceus
+// implementation is imported and no unreviewed template is shipped/executed.
+try {
+  const directory = path.join(root, "shared/exposure");
+  const review = JSON.parse(fs.readFileSync(path.join(directory, "source-review.json"), "utf8"));
+  const license = fs.readFileSync(path.join(directory, "LICENSE.nuclei-templates"));
+  const digest = createHash("sha256").update(license).digest("hex");
+  const valid = review.schema === "cybermeters-exposure-source-review/1"
+    && review.lynceus?.code_imported === false
+    && expressionAllowed(review.upstream?.license || "")
+    && review.upstream?.license_file === "LICENSE.nuclei-templates"
+    && review.upstream?.license_sha256 === digest
+    && review.upstream?.templates_executed === false
+    && Array.isArray(review.dependencies_added) && review.dependencies_added.length === 0
+    && Array.isArray(review.templates) && review.templates.length === review.upstream?.templates_reviewed
+    && review.templates.every(item => item.template_shipped === false
+      && item.sha256 === item.reviewed_source_sha256 && item.bytes === item.reviewed_source_bytes);
+  if (!valid) throw new Error("exposure provenance/license drift");
+  pass++;
+} catch {
+  violations.push({ rel: "shared/exposure/source-review.json", name: "exposure-control-provenance", version: "1", lic: "<missing, changed or unapproved>" });
+  fail++;
 }
 
 if (violations.length) {

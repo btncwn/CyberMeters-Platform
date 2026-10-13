@@ -11,9 +11,9 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 107
-- **classified:** 107
-- **tenant owned tables:** 103
+- **schema tables:** 109
+- **classified:** 109
+- **tenant owned tables:** 105
 - **infra or identity tables:** 4
 - **unclassified:** 0
 - **resource classes:** 38
@@ -62,7 +62,7 @@ data cannot be silently omitted.
 | brand | brand | direct(workspace_id) | 4 | ✓ | ✓ |
 | email_protection | email | direct(workspace_id) | 11 | — | — |
 | cyber_essentials | cyber_essentials | direct(workspace_id) | 3 | — | — |
-| website_security | website | direct(workspace_id) | 7 | — | — |
+| website_security | website | direct(workspace_id) | 9 | — | — |
 | shadow_it | shadow_it | direct(workspace_id) | 7 | ✓ | — |
 | posture_state | reporting | direct(workspace_id) | 4 | ✓ | — |
 | related_changes | correlation | direct(workspace_id) | 2 | — | — |
@@ -94,7 +94,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 - **identity_exposure:** foreign/anon denial on /identity-surfaces with owner positive control in validate-tenant-isolation-extended.js; plus the dedicated validate-identity-exposure.js
 - **email_protection:** workspace_id-scoped; ingest is endpoint-key gated (key binds workspace); read surfaces harness-covered via /maturity + email-protection routes
 - **cyber_essentials:** workspace_id-scoped; read surfaces exist; write is answer-versioned (validate-ce-answer-versioning)
-- **website_security:** workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle); page inventory (mig 115) is workspace_id + domain_id scoped, written only for live verified workspaces, read via the workspace-gated pages route, purged with the workspace (validate-website-page-discovery); sign-in profiles + attempts (mig 116) are workspace_id + domain_id scoped, secrets AES-GCM-bound to workspace/domain/profile, owner/admin-session writes, deleted with the domain link and the workspace (validate-website-sign-in)
+- **website_security:** workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle); page inventory (mig 115) is workspace_id + domain_id scoped, written only for live verified workspaces, read via the workspace-gated pages route, purged with the workspace (validate-website-page-discovery); sign-in profiles + attempts (mig 116) are workspace_id + domain_id scoped, secrets AES-GCM-bound to workspace/domain/profile, owner/admin-session writes, deleted with the domain link and the workspace (validate-website-sign-in); exposure execution and visitation state (mig 119) are workspace_id + domain_id scoped, claims and results require a live verified queued scan, private Queue identity and two-tenant receipt isolation are exercised by validate-exposure-queue, and both tables are included in workspace purge
 - **related_changes:** M6 B1 deterministic Related Changes (mig 098); both workspace_id-scoped (evidence carries a denormalised workspace_id); read/feedback/case surface is workspace_id-filtered and role-gated; isolation proven by validate-m6-b1-related-changes + the static tenant-query audit, purge by validate-purge-completeness
 - **api_tokens:** workspace_id + user_id scoped; account route ownership-gated
 - **report_branding:** workspace_branding is workspace_id-scoped (per-workspace co-brand logo); msp_branding_profiles is owner_user_id-scoped (MSP white-label profile, usable only for the MSP's own portfolio); isolation proven by validate-report-branding-v2 + the static audit; logos stored in R2 under tenant-prefixed, content-addressed keys
@@ -143,6 +143,8 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `domains` | user(user_id) | domains |
 | `email_protection_events` | direct(workspace_id) | email_protection |
 | `email_sender_sources` | direct(workspace_id) | email_protection |
+| `external_exposure_jobs` | direct(workspace_id) | website_security |
+| `external_exposure_visits` | direct(workspace_id) | website_security |
 | `finding_waivers` | direct(workspace_id) | remediation_waivers |
 | `findings` | via_scan(scan_id) | findings |
 | `hidden_assets` | via_scan(scan_id) | assets |

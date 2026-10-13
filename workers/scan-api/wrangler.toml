@@ -106,9 +106,11 @@ max_retries = 5
 # RESEND_API_KEY must be set as a Wrangler secret (never committed):
 #   wrangler secret put RESEND_API_KEY
 [vars]
+# Requires migration 119; set to disabled for rollback. Continuations still drain.
+EXPOSURE_SCAN_MODE = "evidence-v1"
 # Human-readable release version, surfaced by GET /health. Bump on each
 # production release (date-based: YYYY.MM.DD).
-APP_VERSION = "2026.10.13-fair-scan-queue.7f244a7b6910"
+APP_VERSION = "2026.10.13-exposure.737d0fb981cd"
 # DNS_PROVIDER_KEY is a dedicated versioned encryption key ring, staged as a
 # Worker secret. Never put its value here or reuse an authentication key.
 # WEBSITE_AUTH_KEY is the separate key ring for signed-in scanning credentials

@@ -30,6 +30,7 @@ const SOURCE_LABELS = Object.freeze({
   robots_reference:         'Named in your robots.txt',
   sitemap_reference:        'Listed in your sitemap',
   script_reference:         "Named in your website's scripts",
+  content_reference:        "Named in your public website content",
   // historical: assets discovered before certificate logs were retired.
   certificate_transparency: 'Certificate log (historical)',
 })

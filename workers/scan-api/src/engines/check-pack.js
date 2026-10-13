@@ -14,8 +14,9 @@
 // A software version a server reports is a fact about the response, not a
 // confirmed vulnerability: it can be patched without changing, or be false.
 import { findingRemediation } from "./remediation-registry.js";
+import { EXPOSURE_RULES } from "../../../../shared/exposure/catalog.js";
 
-export const CHECK_PACK_VERSION = "2026.10.1";
+export const CHECK_PACK_VERSION = "2026.10.13.1";
 
 // Services outside the scanned domain that a scan still talks to. Both speak a
 // public protocol about the customer's own domain; neither is a data broker.
@@ -55,6 +56,14 @@ export const NOT_IN_CHECK_PACK = Object.freeze([
 // Checks whose observation rule is stated here. Every other finding a scan can
 // raise reads its observation from its registry entry (see checkForFinding).
 const CHECKS = Object.freeze([
+  ...EXPOSURE_RULES.map((rule) => Object.freeze({
+    id: `public_content.${rule.id}`,
+    finding_types: [`external_exposure_${rule.id}`],
+    observation: rule.evidence.positive,
+    evidence: "Safe affected URL, rule version, cleaned structural indicators and observation time. No raw response or secret value is retained.",
+    limitation: rule.evidence.uncertain,
+    recheck: "Repeat the same rule at the exact original URL. Only a successful comparable response can establish that the condition is no longer observed.",
+  })),
   Object.freeze({
     id: "discovery.dns_name",
     finding_types: [],
@@ -157,7 +166,8 @@ export function getCheck(id) {
  */
 export function checkForFinding(finding) {
   const type = String(finding?.id ?? finding?.finding_type ?? "");
-  const stated = BY_FINDING_TYPE.get(type);
+  const canonicalType = type.replace(/(__[a-f0-9]{64})$/, "");
+  const stated = BY_FINDING_TYPE.get(canonicalType);
   const remediation = findingRemediation(finding);
   if (stated) {
     return {

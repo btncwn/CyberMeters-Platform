@@ -753,7 +753,9 @@
         "website_page_events",
         "website_page_discovery_runs",
         "website_sign_in_profiles",
-        "website_sign_in_attempts"
+        "website_sign_in_attempts",
+        "external_exposure_jobs",
+        "external_exposure_visits"
       ],
       "ownership": {
         "website_security_conditions": {
@@ -783,13 +785,21 @@
         "website_sign_in_attempts": {
           "model": "direct",
           "column": "workspace_id"
+        },
+        "external_exposure_jobs": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "external_exposure_visits": {
+          "model": "direct",
+          "column": "workspace_id"
         }
       },
       "non_tenant": false,
       "coverage": {
         "dynamic_harness": false,
         "property_based": false,
-        "note": "workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle); page inventory (mig 115) is workspace_id + domain_id scoped, written only for live verified workspaces, read via the workspace-gated pages route, purged with the workspace (validate-website-page-discovery); sign-in profiles + attempts (mig 116) are workspace_id + domain_id scoped, secrets AES-GCM-bound to workspace/domain/profile, owner/admin-session writes, deleted with the domain link and the workspace (validate-website-sign-in)"
+        "note": "workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle); page inventory (mig 115) is workspace_id + domain_id scoped, written only for live verified workspaces, read via the workspace-gated pages route, purged with the workspace (validate-website-page-discovery); sign-in profiles + attempts (mig 116) are workspace_id + domain_id scoped, secrets AES-GCM-bound to workspace/domain/profile, owner/admin-session writes, deleted with the domain link and the workspace (validate-website-sign-in); exposure execution and visitation state (mig 119) are workspace_id + domain_id scoped, claims and results require a live verified queued scan, private Queue identity and two-tenant receipt isolation are exercised by validate-exposure-queue, and both tables are included in workspace purge"
       }
     },
     {
@@ -1175,6 +1185,8 @@
     "domains": "domains",
     "email_protection_events": "email_protection",
     "email_sender_sources": "email_protection",
+    "external_exposure_jobs": "website_security",
+    "external_exposure_visits": "website_security",
     "finding_waivers": "remediation_waivers",
     "findings": "findings",
     "hidden_assets": "assets",
@@ -1250,9 +1262,9 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 107,
-    "classified": 107,
-    "tenant_owned_tables": 103,
+    "schema_tables": 109,
+    "classified": 109,
+    "tenant_owned_tables": 105,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
     "resource_classes": 38,

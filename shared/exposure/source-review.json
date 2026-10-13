@@ -1,0 +1,1190 @@
+{
+  "schema": "cybermeters-exposure-source-review/1",
+  "catalog_version": "2026.10.13.1",
+  "reviewed_at": "2026-10-13",
+  "lynceus": {
+    "source": "user-supplied Lynceus ZIP, local read-only reference",
+    "adapter_sha256": "cf967666388a24dd20256654440f0502667ce33310e963b7bdfb222730bc9bea",
+    "lock_sha256": "0ec9b6a07d3ee2c02c04912114218973559f90ea45986f8ce20138dad2576f2b",
+    "code_imported": false,
+    "license": "not-established; no Lynceus code imported"
+  },
+  "upstream": {
+    "source": "https://github.com/projectdiscovery/nuclei-templates",
+    "commit": "f8b8b8dcd70d93826c3767e1829ef8243af9f03b",
+    "tag": "v10.5.0",
+    "license": "MIT",
+    "license_sha256": "5fa6644d2dd1987a79c06f4af210d2cf8cfc4ee799999029d0f9980c9cf95a2c",
+    "license_file": "LICENSE.nuclei-templates",
+    "templates_reviewed": 44,
+    "declared_max_requests": 187,
+    "declared_max_requests_is_measured_cost": false,
+    "templates_executed": false
+  },
+  "dependencies_added": [],
+  "templates": [
+    {
+      "bytes": 3315,
+      "id": "http-missing-security-headers",
+      "path": "http/misconfiguration/http-missing-security-headers.yaml",
+      "severity": "info",
+      "sha256": "7f45803f73ac6810b9b302df6be2c472a82d9164a7807328614efa83e6eac275",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/misconfiguration/http-missing-security-headers.yaml",
+      "reviewed_source_sha256": "7f45803f73ac6810b9b302df6be2c472a82d9164a7807328614efa83e6eac275",
+      "reviewed_source_bytes": 3315,
+      "disposition": "existing_coverage",
+      "replacement_rules": [],
+      "reason": "Use existing Website Security header evidence; missing headers alone do not become a new content-exposure finding.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": []
+    },
+    {
+      "bytes": 1230,
+      "id": "xss-deprecated-header",
+      "path": "http/misconfiguration/xss-deprecated-header.yaml",
+      "severity": "info",
+      "sha256": "822c031eba6b554d9fd932f57dccd90ca766e7e6a3fb37147d566542ba3795f0",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/misconfiguration/xss-deprecated-header.yaml",
+      "reviewed_source_sha256": "822c031eba6b554d9fd932f57dccd90ca766e7e6a3fb37147d566542ba3795f0",
+      "reviewed_source_bytes": 1230,
+      "disposition": "excluded",
+      "replacement_rules": [],
+      "reason": "Legacy header preference is not sensitive-content evidence and duplicating header policy would risk contradictory guidance.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": []
+    },
+    {
+      "bytes": 1012,
+      "id": "server-status",
+      "path": "http/misconfiguration/server-status.yaml",
+      "severity": "info",
+      "sha256": "540d4cc923eb76f1291b5f2e33a4aabda9c2c1f44ad2c58576bcbd4cfe755950",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/misconfiguration/server-status.yaml",
+      "reviewed_source_sha256": "540d4cc923eb76f1291b5f2e33a4aabda9c2c1f44ad2c58576bcbd4cfe755950",
+      "reviewed_source_bytes": 1012,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "runtime-debug"
+      ],
+      "reason": "Title alone is insufficient; require runtime server/workload fields.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "runtime-debug",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 866,
+      "id": "express-stack-trace",
+      "path": "http/misconfiguration/express-stack-trace.yaml",
+      "severity": "low",
+      "sha256": "91b8493cd1feb24863b45386ee668edd67f9e7312c81d6dd429966d880d3b896",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/misconfiguration/express-stack-trace.yaml",
+      "reviewed_source_sha256": "91b8493cd1feb24863b45386ee668edd67f9e7312c81d6dd429966d880d3b896",
+      "reviewed_source_bytes": 866,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "runtime-debug"
+      ],
+      "reason": "Require two source-bearing stack frames; reuse observed error content without requesting exploit payloads.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "runtime-debug",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 802,
+      "id": "laravel-debug-enabled",
+      "path": "http/misconfiguration/laravel-debug-enabled.yaml",
+      "severity": "medium",
+      "sha256": "5751d831d1c953edbe2efbf0e11db4b93958b641f1b1d22d46d531dd6beab3b7",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/misconfiguration/laravel-debug-enabled.yaml",
+      "reviewed_source_sha256": "5751d831d1c953edbe2efbf0e11db4b93958b641f1b1d22d46d531dd6beab3b7",
+      "reviewed_source_bytes": 802,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "ignition-health"
+      ],
+      "reason": "Require parsed JSON boolean true; report only self-declared debug capability, never command execution.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "ignition-health",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1358,
+      "id": "laravel-debugbar-exposure",
+      "path": "http/misconfiguration/laravel-debugbar-exposure.yaml",
+      "severity": "medium",
+      "sha256": "3c69fd6036a8ff96b4deb8b5efdb26b6c84609c50619c3abccf48c2182084039",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/misconfiguration/laravel-debugbar-exposure.yaml",
+      "reviewed_source_sha256": "3c69fd6036a8ff96b4deb8b5efdb26b6c84609c50619c3abccf48c2182084039",
+      "reviewed_source_bytes": 1358,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "runtime-debug"
+      ],
+      "reason": "Require structured debug records with metadata and query/exception/message payload structure, not the word debugbar.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "runtime-debug",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1282,
+      "id": "php-debugbar-exposure",
+      "path": "http/misconfiguration/php-debugbar-exposure.yaml",
+      "severity": "high",
+      "sha256": "5c080076c2ad0e99184ded78e0e30a1c7fdbc6bc8cffafa2ea586b9e26a3968e",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/misconfiguration/php-debugbar-exposure.yaml",
+      "reviewed_source_sha256": "5c080076c2ad0e99184ded78e0e30a1c7fdbc6bc8cffafa2ea586b9e26a3968e",
+      "reviewed_source_bytes": 1282,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "runtime-debug"
+      ],
+      "reason": "Header names/widgets alone do not confirm sensitive data; require real diagnostic record structure.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "runtime-debug",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 983,
+      "id": "phpcli-stack-trace",
+      "path": "http/misconfiguration/phpcli-stack-trace.yaml",
+      "severity": "info",
+      "sha256": "f96e9a12f73fa1667b39ab446da397e77b4ace258859efdddfdd928fa8076cd8",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/misconfiguration/phpcli-stack-trace.yaml",
+      "reviewed_source_sha256": "f96e9a12f73fa1667b39ab446da397e77b4ace258859efdddfdd928fa8076cd8",
+      "reviewed_source_bytes": 983,
+      "disposition": "excluded",
+      "replacement_rules": [],
+      "reason": "A PHP server 404 template is not a stack trace or sensitive runtime disclosure. Genuine stack frames covered separately.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": []
+    },
+    {
+      "bytes": 837,
+      "id": "aspx-debug-mode",
+      "path": "http/misconfiguration/aspx-debug-mode.yaml",
+      "severity": "medium",
+      "sha256": "ff65c87e2c7aede27211bd6aea041d1656e5b6bce64dcf3e81ddd7a9799bf6c0",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/misconfiguration/aspx-debug-mode.yaml",
+      "reviewed_source_sha256": "ff65c87e2c7aede27211bd6aea041d1656e5b6bce64dcf3e81ddd7a9799bf6c0",
+      "reviewed_source_bytes": 837,
+      "disposition": "excluded",
+      "replacement_rules": [],
+      "reason": "DEBUG method with Command: stop-debug is an operation, prohibited by this bounded read-only work order.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": []
+    },
+    {
+      "bytes": 1237,
+      "id": "git-config",
+      "path": "http/exposures/configs/git-config.yaml",
+      "severity": "medium",
+      "sha256": "bd8bdfa0b5ed5bf4d3712edb793adfd0987d9282e51c6f7d673bf14b9e4dd524",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/git-config.yaml",
+      "reviewed_source_sha256": "bd8bdfa0b5ed5bf4d3712edb793adfd0987d9282e51c6f7d673bf14b9e4dd524",
+      "reviewed_source_bytes": 1237,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "git-metadata"
+      ],
+      "reason": "Require valid Git section/directive or ref/index structure; never persist extracted URL credentials.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "git-metadata",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1350,
+      "id": "git-config-nginxoffbyslash",
+      "path": "http/exposures/configs/git-config-nginxoffbyslash.yaml",
+      "severity": "medium",
+      "sha256": "eaf2c1458fc663e538cf3eaaf31c455611f182df3765be285e57c55010069d69",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/git-config-nginxoffbyslash.yaml",
+      "reviewed_source_sha256": "eaf2c1458fc663e538cf3eaaf31c455611f182df3765be285e57c55010069d69",
+      "reviewed_source_bytes": 1350,
+      "disposition": "excluded",
+      "replacement_rules": [],
+      "reason": "Alias traversal path manipulation is outside finite safe content discovery; ordinary Git metadata checks remain active.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": []
+    },
+    {
+      "bytes": 1888,
+      "id": "laravel-env",
+      "path": "http/exposures/configs/laravel-env.yaml",
+      "severity": "high",
+      "sha256": "37566f5fb1764be65072836390d4ff3f40af4917ecf00bdb08dbfcf862bb09c7",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/laravel-env.yaml",
+      "reviewed_source_sha256": "37566f5fb1764be65072836390d4ff3f40af4917ecf00bdb08dbfcf862bb09c7",
+      "reviewed_source_bytes": 1888,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "env-config"
+      ],
+      "reason": "Require multiple assignments and a non-placeholder sensitive value; public settings and examples are negatives.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "env-config",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1120,
+      "id": "codeigniter-env",
+      "path": "http/exposures/configs/codeigniter-env.yaml",
+      "severity": "high",
+      "sha256": "aec8c2d2c10842f7e05b8cda92958e65cd76de182080193d7699d390b2a189c5",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/codeigniter-env.yaml",
+      "reviewed_source_sha256": "aec8c2d2c10842f7e05b8cda92958e65cd76de182080193d7699d390b2a189c5",
+      "reviewed_source_bytes": 1120,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "env-config"
+      ],
+      "reason": "Shared environment parser requires format plus sensitivity, not an APP/DB keyword.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "env-config",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1417,
+      "id": "docker-compose-config",
+      "path": "http/exposures/configs/docker-compose-config.yaml",
+      "severity": "medium",
+      "sha256": "b2603cd2bf3fdb6f74a835746774894d8dc21b7cb21c9b679eaba293213a0fb0",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/docker-compose-config.yaml",
+      "reviewed_source_sha256": "b2603cd2bf3fdb6f74a835746774894d8dc21b7cb21c9b679eaba293213a0fb0",
+      "reviewed_source_bytes": 1417,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "application-config"
+      ],
+      "reason": "YAML service shape alone is insufficient; require credential or private operational setting.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "application-config",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 959,
+      "id": "web-config",
+      "path": "http/exposures/configs/web-config.yaml",
+      "severity": "low",
+      "sha256": "586eca74cac8b401eb9f1c1a3066fb3ae4116d6b2d838722b809be010970e1fd",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/web-config.yaml",
+      "reviewed_source_sha256": "586eca74cac8b401eb9f1c1a3066fb3ae4116d6b2d838722b809be010970e1fd",
+      "reviewed_source_bytes": 959,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "application-config"
+      ],
+      "reason": "Direct path only; no traversal. Configuration shape plus sensitivity required.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "application-config",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1208,
+      "id": "package-json",
+      "path": "http/exposures/configs/package-json.yaml",
+      "severity": "low",
+      "sha256": "55992232b5a1dd8f931e88574cca7d238f9a387b26e68d49a81f886136aaa842",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/package-json.yaml",
+      "reviewed_source_sha256": "55992232b5a1dd8f931e88574cca7d238f9a387b26e68d49a81f886136aaa842",
+      "reviewed_source_bytes": 1208,
+      "disposition": "observation_only",
+      "replacement_rules": [
+        "project-metadata"
+      ],
+      "reason": "Parse manifest structure and record an observation; name/version alone is not a vulnerability.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "project-metadata",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 904,
+      "id": "htpasswd-detection",
+      "path": "http/exposures/configs/htpasswd-detection.yaml",
+      "severity": "high",
+      "sha256": "c3237fd7d8caf732c23396451209d45cc9138e05632feb54afc1d056fcdd8c01",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/htpasswd-detection.yaml",
+      "reviewed_source_sha256": "c3237fd7d8caf732c23396451209d45cc9138e05632feb54afc1d056fcdd8c01",
+      "reviewed_source_bytes": 904,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "package-auth"
+      ],
+      "reason": "Require a complete supported password-hash record, not a hash-prefix substring.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "package-auth",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 948,
+      "id": "nginx-config",
+      "path": "http/exposures/configs/nginx-config.yaml",
+      "severity": "info",
+      "sha256": "e4c8c0208a3d7c6e21cc164990998d19646988ec5a8aeea7d2b428300cf56c0e",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/nginx-config.yaml",
+      "reviewed_source_sha256": "e4c8c0208a3d7c6e21cc164990998d19646988ec5a8aeea7d2b428300cf56c0e",
+      "reviewed_source_bytes": 948,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "application-config"
+      ],
+      "reason": "Require server/config grammar plus secret or private upstream routing.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "application-config",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1017,
+      "id": "apache-config",
+      "path": "http/exposures/configs/apache-config.yaml",
+      "severity": "medium",
+      "sha256": "09425476e1f0fc1bc0710cd575255d82f09d3204ca73e2431a27b097dd6e412a",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/apache-config.yaml",
+      "reviewed_source_sha256": "09425476e1f0fc1bc0710cd575255d82f09d3204ca73e2431a27b097dd6e412a",
+      "reviewed_source_bytes": 1017,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "application-config"
+      ],
+      "reason": "Require VirtualHost/server grammar plus sensitive operational setting, not arbitrary XML tags.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "application-config",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1262,
+      "id": "aws-credentials",
+      "path": "http/exposures/configs/aws-credentials.yaml",
+      "severity": "high",
+      "sha256": "c269f281e873a7fad391eb3f1f41b054c99537101ff2efc13dd4937be984b093",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/aws-credentials.yaml",
+      "reviewed_source_sha256": "c269f281e873a7fad391eb3f1f41b054c99537101ff2efc13dd4937be984b093",
+      "reviewed_source_bytes": 1262,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "env-config"
+      ],
+      "reason": "Require structured assignments plus sensitive material; access key identifiers alone do not establish a secret.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "env-config",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1887,
+      "id": "phpinfo-files",
+      "path": "http/exposures/configs/phpinfo-files.yaml",
+      "severity": "low",
+      "sha256": "8cbe8c980a71099bcaf84f195bf46fef9b24b3b7caa8476f713a4c01ed044a31",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/phpinfo-files.yaml",
+      "reviewed_source_sha256": "8cbe8c980a71099bcaf84f195bf46fef9b24b3b7caa8476f713a4c01ed044a31",
+      "reviewed_source_bytes": 1887,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "runtime-debug"
+      ],
+      "reason": "Require runtime HTML table and configuration indicators. Action/query variants excluded.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "runtime-debug",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 992,
+      "id": "exposed-svn",
+      "path": "http/exposures/configs/exposed-svn.yaml",
+      "severity": "medium",
+      "sha256": "4f99844c8a34d0d418b1b56a708199f157c66b94f91dc551ed0fb73556c80192",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/exposed-svn.yaml",
+      "reviewed_source_sha256": "4f99844c8a34d0d418b1b56a708199f157c66b94f91dc551ed0fb73556c80192",
+      "reviewed_source_bytes": 992,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "svn-metadata"
+      ],
+      "reason": "Require entries file grammar or working-copy database header/schema, not a svn keyword.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "svn-metadata",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1271,
+      "id": "composer-config",
+      "path": "http/exposures/configs/composer-config.yaml",
+      "severity": "info",
+      "sha256": "01631377e15e83ed6306d7c02105a3b3d78f388e7393a733f4a354f1a1baf572",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/composer-config.yaml",
+      "reviewed_source_sha256": "01631377e15e83ed6306d7c02105a3b3d78f388e7393a733f4a354f1a1baf572",
+      "reviewed_source_bytes": 1271,
+      "disposition": "observation_only",
+      "replacement_rules": [
+        "project-metadata"
+      ],
+      "reason": "Public manifest metadata is an observation; package credentials handled by package-auth.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "project-metadata",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1430,
+      "id": "javascript-env-config",
+      "path": "http/exposures/configs/javascript-env-config.yaml",
+      "severity": "low",
+      "sha256": "2fceac23b596f13f82ce15d70fece48eeb0e3d8e5518726d97441199acc11ed7",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/javascript-env-config.yaml",
+      "reviewed_source_sha256": "2fceac23b596f13f82ce15d70fece48eeb0e3d8e5518726d97441199acc11ed7",
+      "reviewed_source_bytes": 1430,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "client-secret"
+      ],
+      "reason": "Do not match VERSION/KEY/TOKEN keywords alone. Require private/privileged credential indicators.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "client-secret",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 2404,
+      "id": "nextjs-vite-public-env",
+      "path": "http/exposures/configs/nextjs-vite-public-env.yaml",
+      "severity": "medium",
+      "sha256": "aff6911d2c82669e39f087a791afc5589a33187694f6db27ce0b5a6695c7dcde",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/configs/nextjs-vite-public-env.yaml",
+      "reviewed_source_sha256": "aff6911d2c82669e39f087a791afc5589a33187694f6db27ce0b5a6695c7dcde",
+      "reviewed_source_bytes": 2404,
+      "disposition": "replaced",
+      "replacement_rules": [
+        "client-secret"
+      ],
+      "reason": "Supabase anon keys and NEXT_PUBLIC/VITE public settings are expected client data; only secret-shaped values qualify.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "client-secret",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1292,
+      "id": "ds-store-file",
+      "path": "http/exposures/files/ds-store-file.yaml",
+      "severity": "low",
+      "sha256": "eeaa88a701796f263e8e4c32a5d16ae3e18b2cc97d65338632e4ac8b9e49b7a8",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/files/ds-store-file.yaml",
+      "reviewed_source_sha256": "eeaa88a701796f263e8e4c32a5d16ae3e18b2cc97d65338632e4ac8b9e49b7a8",
+      "reviewed_source_bytes": 1292,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "project-metadata"
+      ],
+      "reason": "Require header at byte zero and minimum structure; report metadata header only without decoding file entries.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "project-metadata",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1028,
+      "id": "npmrc-authtoken",
+      "path": "http/exposures/files/npmrc-authtoken.yaml",
+      "severity": "info",
+      "sha256": "dbeb9ec6ee2942bbf37c31c7c7e977413a7f5d773e07d71fc01dcca132d5fee4",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/files/npmrc-authtoken.yaml",
+      "reviewed_source_sha256": "dbeb9ec6ee2942bbf37c31c7c7e977413a7f5d773e07d71fc01dcca132d5fee4",
+      "reviewed_source_bytes": 1028,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "package-auth"
+      ],
+      "reason": "Require auth assignment and a non-placeholder value; variable references are negative.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "package-auth",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1056,
+      "id": "composer-auth-json",
+      "path": "http/exposures/files/composer-auth-json.yaml",
+      "severity": "low",
+      "sha256": "7b36ca1acbed8363c7a0dc7919e5e61401f9cec77d110c543034bf869b47cf45",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/files/composer-auth-json.yaml",
+      "reviewed_source_sha256": "7b36ca1acbed8363c7a0dc7919e5e61401f9cec77d110c543034bf869b47cf45",
+      "reviewed_source_bytes": 1056,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "package-auth"
+      ],
+      "reason": "Parse known auth JSON structure and non-placeholder credential values, not github.com keyword.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "package-auth",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1781,
+      "id": "vscode-settings",
+      "path": "http/exposures/files/vscode-settings.yaml",
+      "severity": "low",
+      "sha256": "b9a01c7a9e31977e29e87ff1b538c2e36184a0fcaa04b9e4cf3a9a14c13f6ac1",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/files/vscode-settings.yaml",
+      "reviewed_source_sha256": "b9a01c7a9e31977e29e87ff1b538c2e36184a0fcaa04b9e4cf3a9a14c13f6ac1",
+      "reviewed_source_bytes": 1781,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "project-metadata"
+      ],
+      "reason": "Parse actual editor/launch/task configuration structure; generic JSON is negative.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "project-metadata",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 871,
+      "id": "idea-folder-exposure",
+      "path": "http/exposures/files/idea-folder-exposure.yaml",
+      "severity": "info",
+      "sha256": "77431f8c738fcc76b54c687fb9d068feb9cf7267f4da613de14e19d21112f8e0",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/files/idea-folder-exposure.yaml",
+      "reviewed_source_sha256": "77431f8c738fcc76b54c687fb9d068feb9cf7267f4da613de14e19d21112f8e0",
+      "reviewed_source_bytes": 871,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "project-metadata"
+      ],
+      "reason": "Require IDE project/component structure; generic XML is negative.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "project-metadata",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1269,
+      "id": "svn-wc-db",
+      "path": "http/exposures/files/svn-wc-db.yaml",
+      "severity": "medium",
+      "sha256": "727fc0f9c77e03494caa8fe4affffe6c88bb5ac84506345ddfd3ce62c962a056",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/files/svn-wc-db.yaml",
+      "reviewed_source_sha256": "727fc0f9c77e03494caa8fe4affffe6c88bb5ac84506345ddfd3ce62c962a056",
+      "reviewed_source_bytes": 1269,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "svn-metadata"
+      ],
+      "reason": "Require SQLite header and multiple SVN table identifiers within bounded prefix.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "svn-metadata",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 996,
+      "id": "reactapp-env-js",
+      "path": "http/exposures/files/reactapp-env-js.yaml",
+      "severity": "unknown",
+      "sha256": "ba4b61ffd6953cb96f328ba9a868d2845aa577e5af5b5ec02049b8cbe7ef7e1a",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/files/reactapp-env-js.yaml",
+      "reviewed_source_sha256": "ba4b61ffd6953cb96f328ba9a868d2845aa577e5af5b5ec02049b8cbe7ef7e1a",
+      "reviewed_source_bytes": 996,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "client-secret"
+      ],
+      "reason": "REACT_APP prefix alone is expected public client configuration; secret context required.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "client-secret",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1556,
+      "id": "javascript-env",
+      "path": "http/exposures/files/javascript-env.yaml",
+      "severity": "low",
+      "sha256": "d8bc4bf519d99376160cebf6c396724218b1b94953ccd439f6762950269bb3da",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/files/javascript-env.yaml",
+      "reviewed_source_sha256": "d8bc4bf519d99376160cebf6c396724218b1b94953ccd439f6762950269bb3da",
+      "reviewed_source_bytes": 1556,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "client-secret"
+      ],
+      "reason": "Consolidated client content rules distinguish actual private/credential patterns from public settings.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "client-secret",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 917,
+      "id": "sendgrid-env",
+      "path": "http/exposures/files/sendgrid-env.yaml",
+      "severity": "medium",
+      "sha256": "d1ffde49569724f30f4d8f261ccd67a4f2feb9a9f70e781ddd490ed8240d88d6",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/files/sendgrid-env.yaml",
+      "reviewed_source_sha256": "d1ffde49569724f30f4d8f261ccd67a4f2feb9a9f70e781ddd490ed8240d88d6",
+      "reviewed_source_bytes": 917,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "env-config",
+        "client-secret"
+      ],
+      "reason": "Require successful readable config/client format with assigned provider-shaped secret and negative controls; never validate token externally.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "env-config",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        },
+        {
+          "rule_id": "client-secret",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1538,
+      "id": "mysql-dump",
+      "path": "http/exposures/backups/mysql-dump.yaml",
+      "severity": "medium",
+      "sha256": "d326825e95ddcb0d6348f276c9c47bbe06a6b0ee1129f1dd77fce1deafc3aace",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/backups/mysql-dump.yaml",
+      "reviewed_source_sha256": "d326825e95ddcb0d6348f276c9c47bbe06a6b0ee1129f1dd77fce1deafc3aace",
+      "reviewed_source_bytes": 1538,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "database-export"
+      ],
+      "reason": "Require coherent export header plus SQL grammar or multiple SQL statements; bounded content only.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "database-export",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1509,
+      "id": "sql-server-dump",
+      "path": "http/exposures/backups/sql-server-dump.yaml",
+      "severity": "medium",
+      "sha256": "792c1c23d9c19ea231c9a47606b7bbb437d281e6f3d173a354818c53bc94e12d",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/backups/sql-server-dump.yaml",
+      "reviewed_source_sha256": "792c1c23d9c19ea231c9a47606b7bbb437d281e6f3d173a354818c53bc94e12d",
+      "reviewed_source_bytes": 1509,
+      "disposition": "limited_claim",
+      "replacement_rules": [
+        "backup-archive"
+      ],
+      "reason": "TAPE plus header structure establishes a container only; do not claim database content from magic bytes.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "backup-archive",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 888,
+      "id": "backup-directory-listing",
+      "path": "http/exposures/backups/backup-directory-listing.yaml",
+      "severity": "low",
+      "sha256": "8fc24c56ee2d244ab988743c0b1cc83c083996ffd1f03d292d8aa27f78ee7760",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/backups/backup-directory-listing.yaml",
+      "reviewed_source_sha256": "8fc24c56ee2d244ab988743c0b1cc83c083996ffd1f03d292d8aa27f78ee7760",
+      "reviewed_source_bytes": 888,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "directory-listing"
+      ],
+      "reason": "Require directory index structure and actual backup/export links; title alone insufficient.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "directory-listing",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 870,
+      "id": "access-log-file",
+      "path": "http/exposures/logs/access-log-file.yaml",
+      "severity": "low",
+      "sha256": "a430840266baf865ee83b4116f5c6f7b8294cedf68bf29441632402c0f88d690",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/logs/access-log-file.yaml",
+      "reviewed_source_sha256": "a430840266baf865ee83b4116f5c6f7b8294cedf68bf29441632402c0f88d690",
+      "reviewed_source_bytes": 870,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "exposed-log"
+      ],
+      "reason": "Require multiple complete request log records; never retain IPs, paths or raw records.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "exposed-log",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 1159,
+      "id": "development-logs",
+      "path": "http/exposures/logs/development-logs.yaml",
+      "severity": "info",
+      "sha256": "2917febaea0ad0d7d8da3d836c9be2f4ed7e789b656a326a08086d242184c275",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/logs/development-logs.yaml",
+      "reviewed_source_sha256": "2917febaea0ad0d7d8da3d836c9be2f4ed7e789b656a326a08086d242184c275",
+      "reviewed_source_bytes": 1159,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "exposed-log"
+      ],
+      "reason": "Require multiple timestamped operational records rather than static documentation keywords.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "exposed-log",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 848,
+      "id": "django-debug-exposure",
+      "path": "http/exposures/logs/django-debug-exposure.yaml",
+      "severity": "high",
+      "sha256": "a13302f7f831336ce007feaf82b7575816d25e057a33fd53cb26cadb5fa81894",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/logs/django-debug-exposure.yaml",
+      "reviewed_source_sha256": "a13302f7f831336ce007feaf82b7575816d25e057a33fd53cb26cadb5fa81894",
+      "reviewed_source_bytes": 848,
+      "disposition": "excluded",
+      "replacement_rules": [],
+      "reason": "POST to an authentication route intentionally triggers errors and is outside safe content reads. Observed runtime traces evaluated without this trigger.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": []
+    },
+    {
+      "bytes": 1240,
+      "id": "elmah-log-file",
+      "path": "http/exposures/logs/elmah-log-file.yaml",
+      "severity": "high",
+      "sha256": "4e7e4a3bd57f85b48532d516f737fe1b8c5409d3a3b44de59be7fa742f1b1a4c",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/logs/elmah-log-file.yaml",
+      "reviewed_source_sha256": "4e7e4a3bd57f85b48532d516f737fe1b8c5409d3a3b44de59be7fa742f1b1a4c",
+      "reviewed_source_bytes": 1240,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "runtime-debug"
+      ],
+      "reason": "Require error table, exception information and dated operational records.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "runtime-debug",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 72411,
+      "id": "credentials-disclosure",
+      "path": "http/exposures/tokens/generic/credentials-disclosure.yaml",
+      "severity": "unknown",
+      "sha256": "708cc47e8a4899fe9fbc45764b971b1cdf50da6fe8e57a453caac38313e00976",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/tokens/generic/credentials-disclosure.yaml",
+      "reviewed_source_sha256": "708cc47e8a4899fe9fbc45764b971b1cdf50da6fe8e57a453caac38313e00976",
+      "reviewed_source_bytes": 72411,
+      "disposition": "replaced",
+      "replacement_rules": [
+        "client-secret",
+        "env-config",
+        "application-config"
+      ],
+      "reason": "689 broad extractors include public keys and identifiers. Replaced with bounded format/context/sensitivity evaluation; no extracted values retained.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "client-secret",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        },
+        {
+          "rule_id": "env-config",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        },
+        {
+          "rule_id": "application-config",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 555,
+      "id": "jdbc-connection-string",
+      "path": "http/exposures/tokens/generic/jdbc-connection-string.yaml",
+      "severity": "unknown",
+      "sha256": "963df3e436ecb4e593a15b1b1a705d6d28d647430fb697f2a9dbaf268a57d350",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/tokens/generic/jdbc-connection-string.yaml",
+      "reviewed_source_sha256": "963df3e436ecb4e593a15b1b1a705d6d28d647430fb697f2a9dbaf268a57d350",
+      "reviewed_source_bytes": 555,
+      "disposition": "strengthened",
+      "replacement_rules": [
+        "application-config",
+        "client-secret"
+      ],
+      "reason": "Connection URL alone is not sensitive; require explicit credential-bearing connection string.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": [
+        {
+          "rule_id": "application-config",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        },
+        {
+          "rule_id": "client-secret",
+          "requests": 3,
+          "redirects": 2,
+          "retries": 0,
+          "bytes": 32768,
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "bytes": 550,
+      "id": "jwt-token",
+      "path": "http/exposures/tokens/generic/jwt-token.yaml",
+      "severity": "unknown",
+      "sha256": "5779c669e0de643a52c4b17a5d039f2a9766f50a197fa7a2452d5b3f91cae13a",
+      "source_url": "https://github.com/projectdiscovery/nuclei-templates/blob/f8b8b8dcd70d93826c3767e1829ef8243af9f03b/http/exposures/tokens/generic/jwt-token.yaml",
+      "reviewed_source_sha256": "5779c669e0de643a52c4b17a5d039f2a9766f50a197fa7a2452d5b3f91cae13a",
+      "reviewed_source_bytes": 550,
+      "disposition": "excluded",
+      "replacement_rules": [],
+      "reason": "Generic JWT shape cannot distinguish expected anonymous/session/public material and would mislabel public browser tokens. No validation APIs called.",
+      "template_shipped": false,
+      "upstream_runtime_cost": "unmeasured; the lock declares only an aggregate ceiling",
+      "replacement_max_cost": []
+    }
+  ],
+  "local_additions": [
+    "backup-source",
+    "admin-interface",
+    "admin-data",
+    "prometheus-metrics",
+    "actuator-env",
+    "source-map",
+    "api-schema",
+    "elasticsearch-indices",
+    "couchdb-databases"
+  ],
+  "limitations": [
+    "No archive expansion, repository reconstruction, token validation, command execution, authentication attempts, callback services or CVE attribution.",
+    "Uncertain/incomplete reads cannot confirm absence; some long files may be missed within bounded byte limits.",
+    "API references create scoped safe candidates only; documentation alone is not a vulnerability."
+  ]
+}
