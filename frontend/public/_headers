@@ -46,7 +46,7 @@
   ! Expires
   Cache-Control: public, max-age=86400
 
-/og-image.png
+/og-image-v2.png
   ! Cache-Control
   ! Pragma
   ! Expires
