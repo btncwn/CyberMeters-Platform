@@ -224,7 +224,9 @@ const EXPECTED = Object.freeze({
     // Certificate logs retired: 123 -> 114 across 40 -> 35 files, exactly the
     // nine reads of the five deleted certificate-log scripts. Every other delta
     // in the two-tree --dump-current diff is a line shift.
-    governance: { occurrence_count: 114, source_file_count: 35, fingerprint: "8f6b0aa99ae27b350fdbbbe28268b77f67b8eb6097a75734dd93508412cebab6" },
+    // Discovery lab: 114 -> 115 across 35 -> 36 files, additive only — the one
+    // read in scripts/lab/lab-scan.mjs that reports each lab scan's quality.
+    governance: { occurrence_count: 115, source_file_count: 36, fingerprint: "9be3f16adba80ed819d368e9dc8e660de93c5c7aa702ed13338c8ffedc61df5f" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
