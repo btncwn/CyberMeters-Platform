@@ -1,0 +1,47 @@
+{
+  "schema_version": "shared-content-local-acceptance-v1",
+  "measured_at": "2026-10-13T17:01:18.729Z",
+  "scope": "Real TLS over company-controlled loopback; injected public DNS and mapped verified peer. No live customer endpoint or Cloudflare cost claim.",
+  "byte_metric": "Delivered encoded and decoded HTTP response body bytes; excludes HTTP headers and TCP/TLS overhead.",
+  "telemetry": {
+    "requests": 12,
+    "redirects": 0,
+    "retries": 0,
+    "bytes_wire": 763,
+    "bytes_decoded": 763,
+    "duration_ms": 56,
+    "byte_limit_exceeded": false,
+    "controls_completed": 2
+  },
+  "physical_connections": 12,
+  "shared_paths": [
+    {
+      "path": "/",
+      "physical_gets": 1
+    },
+    {
+      "path": "/robots.txt",
+      "physical_gets": 1
+    },
+    {
+      "path": "/sitemap.xml",
+      "physical_gets": 1
+    },
+    {
+      "path": "/app.js",
+      "physical_gets": 1
+    },
+    {
+      "path": "/admin",
+      "physical_gets": 1
+    }
+  ],
+  "pages": 6,
+  "rule_results": 4,
+  "findings": 1,
+  "uncertain": 0,
+  "process_user_cpu_ms": 69.598,
+  "process_system_cpu_ms": 6.021,
+  "process_peak_rss_kib": 70992,
+  "resource_scope": "Node test process CPU during this collector call; process peak RSS includes fixture/runtime initialization."
+}

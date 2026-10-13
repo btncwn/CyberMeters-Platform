@@ -2034,6 +2034,14 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       findings.push(f);
     }
 
+    // The private content/exposure job finishes before the domain scan claim.
+    // Read it once: the page projection and content rules describe the SAME
+    // physical responses, with all network costs charged to that job.
+    let exposureReceipt = null;
+    if (workspaceId) {
+      try { exposureReceipt = await readExposureForScan(env, { workspaceId, scanId }); } catch { /* unavailable is explicit below */ }
+    }
+
     // Phase 7a: Website important-page discovery (engines/page-discovery.js).
     // Bounded passive GETs of the site's own pages (homepage links, sitemap,
     // a short well-known list; max 15 pages) on the scanned host only. Durable
@@ -2046,6 +2054,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       const notRun = (reason) => ({ source: "page_discovery", version: PAGE_DISCOVERY_VERSION, coverage: "not_run", partial_reasons: [reason], pages: [] });
       if (!durableInvocation) {
         modules.page_discovery = notRun("not_durable_execution");
+      } else if (exposureReceipt?.page_discovery) {
+        modules.page_discovery = exposureReceipt.page_discovery;
       } else if (reservedMode) {
         modules.page_discovery = notRun("reserved_capacity_mode");
       } else if (!deadline.canRun(PAGE_DISCOVERY_BUDGET_MS + PAGE_DISCOVERY_POST_TERMINAL_RESERVE_MS)) {
@@ -2081,13 +2091,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       }
     }
 
-    // Durable exposure slices finish before the domain scan is claimed. This read
-    // performs no target requests; one canonical projection feeds the frozen report,
+    // One canonical projection feeds the frozen report,
     // Website lifecycle, cases and alerts, without changing CMS weights.
-    let exposureReceipt = null;
-    if (workspaceId) {
-      try { exposureReceipt = await readExposureForScan(env, { workspaceId, scanId }); } catch { /* unavailable is explicit below */ }
-    }
     // Unrequested exposure coverage is outside free/legacy scan scope. Only an
     // expected durable job can contribute an explicit unavailable coverage gap.
     if (exposureReceipt || (workspaceId && durableInvocation && env.EXPOSURE_SCAN_MODE === "evidence-v1")) {

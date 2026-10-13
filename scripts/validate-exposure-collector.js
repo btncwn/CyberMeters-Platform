@@ -22,9 +22,11 @@ process.once('exit',()=>rmSync(scratch,{recursive:true,force:true}));
 const config=resolve(scratch,'wrangler.toml'),bundle=resolve(scratch,'bundle');
 writeFileSync(config,`name="cybermeters-exposure-local-validation"\nmain=${JSON.stringify(resolve(root,'workers/network-probe/src/index.js'))}\ncompatibility_date="2026-10-09"\ncompatibility_flags=["enable_request_signal"]\nworkers_dev=false\npreview_urls=false\n[[containers]]\nclass_name="NetworkProbeContainer"\nscheduling_policy="durable_object"\n[[durable_objects.bindings]]\nname="PROBE_CONTAINERS"\nclass_name="NetworkProbeContainer"\n[exports.NetworkProbeContainer]\ntype="durable-object"\nstorage="sqlite"\n`);
 const buildEnv={...process.env,XDG_CONFIG_HOME:resolve(scratch,'config'),WRANGLER_SEND_METRICS:'false'};
+const program=spawnSync(process.execPath,['scripts/build-website-content-program.js','--check'],{cwd:root,env:buildEnv,stdio:'inherit',timeout:60000});
+if(program.status!==0)process.exit(program.status||1);
 const built=spawnSync(process.execPath,[resolve(root,'workers/scan-api/node_modules/wrangler/bin/wrangler.js'),'versions','upload','--dry-run','--config',config,'--outdir',bundle],{cwd:root,env:buildEnv,stdio:'inherit',timeout:60000});
 if(built.status!==0)process.exit(built.status||1);
-const tested=spawnSync(process.execPath,['--test','workers/network-probe/test/exposure-collector.test.js'],{cwd:root,env:{...buildEnv,EXPOSURE_PROBE_BUNDLE:resolve(bundle,'index.js')},stdio:'inherit',timeout:60000});
+const tested=spawnSync(process.execPath,['--test','workers/network-probe/test/exposure-collector.test.js','workers/network-probe/test/website-content.test.js'],{cwd:root,env:{...buildEnv,EXPOSURE_PROBE_BUNDLE:resolve(bundle,'index.js'),CYBERMETERS_CONTENT_METRICS_PATH:resolve(root,'artifacts/exposure-content-acceptance.json')},stdio:'inherit',timeout:90000});
 if(tested.status!==0){process.exitCode=1;}else{
   const records=[];
   const totals={baseline:{requests:0,bytes_wire:0,duration_ms:0,tp:0,fp:0,fn:0,tn:0},candidate:{requests:0,bytes_wire:0,bytes_decoded:0,duration_ms:0,tp:0,fp:0,fn:0,tn:0,uncertain:0}};

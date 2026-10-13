@@ -5,6 +5,7 @@ import { exposureIdentity } from '../../../../shared/exposure/redaction.js';
 import { planExposureChecks } from '../../../../shared/exposure/discovery.js';
 import { EXPOSURE_LIMITS, validateExposureRequest, validateExposureReceipt } from '../../../network-probe/src/exposure-contract.js';
 import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/contract.js';
+import { WEBSITE_CONTENT_LIMITS, validateWebsiteContentRequest, validateWebsiteContentReceipt } from '../../../network-probe/src/website-content-contract.js';
 
 export const EXPOSURE_JOB_LIMITS = Object.freeze({
   hosts:4, checks:1024, requests:1024, bytes:64*1024*1024,
@@ -73,7 +74,7 @@ async function createJob(env, scan, now, dispatch) {
     const planned=planExposureChecks({origin,observations,previousFindings:previousFindings.map(r=>({ruleId:r.rule_id,url:r.url}))});
     for(const check of planned.checks||[])checks.push({rule_id:check.ruleId||check.rule_id,url:check.url});
   }
-  const plan={retest_checks:previousFindings,checks:checks.slice(0,EXPOSURE_JOB_LIMITS.checks),hosts,
+  const plan={content_state:'pending',retest_checks:previousFindings,checks:checks.slice(0,EXPOSURE_JOB_LIMITS.checks),hosts,
     pending_assets:Math.max(0,(assetCount?.total||0)-hosts.filter(host=>candidates.some(a=>a.hostname===host)).length),discovered_hosts:[],
     omitted_checks:Math.max(0,checks.length-EXPOSURE_JOB_LIMITS.checks),catalog_version:'1'};
   await db.prepare(`INSERT OR IGNORE INTO external_exposure_jobs
@@ -136,6 +137,66 @@ export async function collectExposure(env,input,{signal}={}) {
   return receipt;
 }
 
+// Public-page discovery runs once in the same private collector/budget ledger.
+// Only the cleaned page projection, rule outcomes and candidate paths cross
+// this boundary; response bodies, cookies and headers remain process-local.
+export async function collectWebsiteContent(env,input,{signal}={}) {
+  if(!validateWebsiteContentRequest(input).ok)throw new Error('invalid_content_request');
+  if(!env.NETWORK_PROBE?.fetch)throw new Error('collector_unavailable');
+  let abortListener;
+  const abort=new Promise((_,reject)=>{
+    abortListener=()=>reject(new Error('collector_aborted'));
+    if(signal?.aborted)abortListener();else signal?.addEventListener('abort',abortListener,{once:true});
+  });
+  try{
+    const response=await Promise.race([abort,env.NETWORK_PROBE.fetch('https://network-probe.internal/website-content',{
+      method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input),signal,
+    })]);
+    if(!response.ok){await response.body?.cancel();throw new Error('collector_unavailable');}
+    const receipt=await Promise.race([abort,readBoundedJson(response.body,WEBSITE_CONTENT_LIMITS.responseBytes)]);
+    if(signal?.aborted||!validateWebsiteContentReceipt(input,receipt).ok)throw new Error('invalid_content_receipt');
+    return receipt;
+  }finally{signal?.removeEventListener('abort',abortListener);}
+}
+
+// Reference planning is pure and bounded. A body already evaluated in this scan
+// is not downloaded by the exposure phase again, even when its outcome was
+// uncertain. That uncertainty remains visible and cannot clear an old finding.
+export function mergeWebsiteContentPlan(plan,receipt,domain) {
+  const readKeys=new Set(receipt.results.map(r=>r.rule_id+'|'+r.url));
+  const retained=plan.checks.filter(c=>!readKeys.has(c.rule_id+'|'+c.url));
+  const candidates=[];
+  const seen=new Set(retained.map(c=>c.rule_id+'|'+c.url));
+  const priorities=new Map();
+  for(const observed of receipt.discoveries){
+    const url=new URL(observed.origin);
+    if(!safeHost(url.hostname,domain))continue;
+    const next=planExposureChecks({origin:observed.origin,observations:{paths:observed.paths,technologies:observed.technologies}});
+    for(const c of next.checks){
+      priorities.set(c.ruleId+'|'+c.url,c.priority);
+      if(c.source==='catalog')continue;
+      const key=c.ruleId+'|'+c.url;
+      if(readKeys.has(key)||seen.has(key))continue;
+      seen.add(key);candidates.push({rule_id:c.ruleId,url:c.url});
+    }
+  }
+  // Previously positive retests stay first. Freshly observed references then
+  // precede the baseline catalogue instead of starving behind it.
+  const retests=new Set((plan.retest_checks||[]).map(c=>c.rule_id+'|'+c.url));
+  const baseline=retained.filter(c=>!retests.has(c.rule_id+'|'+c.url))
+    .sort((a,b)=>(priorities.get(b.rule_id+'|'+b.url)||0)-(priorities.get(a.rule_id+'|'+a.url)||0));
+  const ordered=[...retained.filter(c=>retests.has(c.rule_id+'|'+c.url)),...candidates,...baseline];
+  const allowance=Math.max(0,EXPOSURE_JOB_LIMITS.checks-receipt.results.length);
+  plan.omitted_checks=(plan.omitted_checks||0)+Math.max(0,ordered.length-allowance);
+  plan.checks=ordered.slice(0,allowance);
+  plan.retest_checks=unresolvedExposureChecks(plan.retest_checks||[],receipt.results);
+  plan.discovered_hosts=[...new Set([...(plan.discovered_hosts||[]),...receipt.discoveries.flatMap(d=>d.hosts)])]
+    .filter(h=>safeHost(h,domain)).slice(0,128);
+  plan.page_discovery=receipt.page_discovery;
+  plan.content_state='complete';
+  return plan;
+}
+
 export async function processExposureMessage(body,env,deps={}) {
   if(body?.kind!=='external_exposure'||body.v!==1||typeof body.scan_id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(body.scan_id))return {action:'ack',outcome:'malformed'};
   const db=env.cybermeters_db,now=deps.now?.()??Date.now();
@@ -148,14 +209,17 @@ export async function processExposureMessage(body,env,deps={}) {
   if(now>=row.deadline_ms||row.attempts>=EXPOSURE_JOB_LIMITS.attempts||row.failure_count>=EXPOSURE_JOB_LIMITS.failures)
     return finishWithoutProbe(env,row,'budget_exhausted','completion_budget',now);
   const plan=json(row.plan_json,{checks:[]});
-  if(row.cursor>=plan.checks.length)return finishWithoutProbe(env,row,'complete','complete',now);
-  const origin=new URL(plan.checks[row.cursor].url).origin;
+  const contentPhase=plan.content_state==='pending';
+  if(!contentPhase&&row.cursor>=plan.checks.length)return finishWithoutProbe(env,row,'complete','complete',now);
+  const origin=contentPhase?`https://${row.domain}`:new URL(plan.checks[row.cursor].url).origin;
   const checks=[];
-  for(const check of plan.checks.slice(row.cursor,row.cursor+EXPOSURE_LIMITS.checks)){
+  for(const check of contentPhase?[]:plan.checks.slice(row.cursor,row.cursor+EXPOSURE_LIMITS.checks)){
     if(new URL(check.url).origin!==origin)break;checks.push(check);
   }
   const token=crypto.randomUUID().replaceAll('-','');
-  const reservationRequests=EXPOSURE_LIMITS.requests, reservationBytes=EXPOSURE_JOB_LIMITS.byteReservation;
+  const limits=contentPhase?WEBSITE_CONTENT_LIMITS:EXPOSURE_LIMITS;
+  const reservationRequests=limits.requests, reservationBytes=contentPhase
+    ?WEBSITE_CONTENT_LIMITS.bytes+WEBSITE_CONTENT_LIMITS.overreadBytes:EXPOSURE_JOB_LIMITS.byteReservation;
   // This single conditional write serialises both per-job and tenant-window
   // budgets; no read-then-increment race. A crashed prior lease stays charged.
   const claimed=await db.prepare(`UPDATE external_exposure_jobs SET state='running',lease_token=?,lease_until=?,
@@ -183,19 +247,20 @@ export async function processExposureMessage(body,env,deps={}) {
     VALUES(?,?,?,?,?) ON CONFLICT(workspace_id,domain_id,hostname) DO UPDATE SET last_attempt_ms=excluded.last_attempt_ms,last_scan_id=excluded.last_scan_id`)
     .bind(row.workspace_id,row.domain_id,new URL(origin).hostname,now,row.scan_id).run();
   const controller=new AbortController();
-  const remaining=Math.min(EXPOSURE_LIMITS.durationMs,row.deadline_ms-now);
+  const remaining=Math.min(limits.durationMs,row.deadline_ms-now);
   const timer=setTimeout(()=>controller.abort(),remaining);
   let polling=false;
   const watchdog=setInterval(async()=>{
     if(polling)return;polling=true;
     try{if(!await canRun(env,row))controller.abort();}catch{controller.abort();}finally{polling=false;}
   },250);
-  const input={schema_version:'exposure-request-v1',request_id:token,workspace_id:row.workspace_id,scan_id:row.scan_id,
-    origin,deadline_at:new Date(now+remaining).toISOString(),checks,max_requests:reservationRequests,max_bytes:EXPOSURE_LIMITS.bytes};
+  const input={schema_version:contentPhase?'website-content-request-v1':'exposure-request-v1',request_id:token,workspace_id:row.workspace_id,scan_id:row.scan_id,
+    ...(contentPhase?{domain:row.domain}:{origin,checks}),deadline_at:new Date(now+remaining).toISOString(),max_requests:reservationRequests,max_bytes:limits.bytes};
   let receipt;
   try{
-    receipt=await (deps.collect||collectExposure)(env,input,{signal:controller.signal});
-    if(controller.signal.aborted||!validateExposureReceipt(input,receipt,{now:deps.now?.()??Date.now()}).ok)throw new Error('invalid_receipt');
+    receipt=await (contentPhase?(deps.collectWebsiteContent||collectWebsiteContent):(deps.collect||collectExposure))(env,input,{signal:controller.signal});
+    const validate=contentPhase?validateWebsiteContentReceipt:validateExposureReceipt;
+    if(controller.signal.aborted||!validate(input,receipt,{now:deps.now?.()??Date.now()}).ok)throw new Error('invalid_receipt');
     const t=receipt.telemetry;
     if(Math.max(t.bytes_wire,t.bytes_decoded)>reservationBytes)throw new Error('unbounded_receipt');
     const costs=json(row.costs_json,{});
@@ -205,8 +270,9 @@ export async function processExposureMessage(body,env,deps={}) {
     // Reuse references extracted during the bounded read; never fetch a URL
     // merely because an API document lists it. Only catalog-compatible passive
     // candidates are admitted, and every addition shares the original budget.
+    if(contentPhase)mergeWebsiteContentPlan(plan,receipt,row.domain);
     const seen=new Set(plan.checks.map(c=>c.rule_id+'|'+c.url));
-    const next=receipt.discoveries?.paths?.length?planExposureChecks({origin,observations:{paths:receipt.discoveries.paths}}):{checks:[]};
+    const next=!contentPhase&&receipt.discoveries?.paths?.length?planExposureChecks({origin,observations:{paths:receipt.discoveries.paths}}):{checks:[]};
     for(const candidate of next.checks||[]){
       if(candidate.source==='catalog')continue;
       const key=candidate.ruleId+'|'+candidate.url;
@@ -214,8 +280,8 @@ export async function processExposureMessage(body,env,deps={}) {
       if(plan.checks.length>=EXPOSURE_JOB_LIMITS.checks){plan.omitted_checks=(plan.omitted_checks||0)+1;continue;}
       plan.checks.push({rule_id:candidate.ruleId,url:candidate.url});
     }
-    plan.discovered_hosts=[...new Set([...(plan.discovered_hosts||[]),...(receipt.discoveries?.hosts||[])])].filter(h=>safeHost(h,row.domain)).slice(0,128);
-    const cursor=row.cursor+checks.length,state=cursor>=plan.checks.length?'complete':'pending';
+    if(!contentPhase)plan.discovered_hosts=[...new Set([...(plan.discovered_hosts||[]),...(receipt.discoveries?.hosts||[])])].filter(h=>safeHost(h,row.domain)).slice(0,128);
+    const cursor=contentPhase?0:row.cursor+checks.length,state=cursor>=plan.checks.length?'complete':'pending';
     // Receipt + progress + refund are one atomic, fenced commit. A late result
     // from a replaced process cannot refund its already-charged reservation.
     const stored=await db.prepare(`UPDATE external_exposure_jobs SET state=?,cursor=?,plan_json=?,results_json=?,costs_json=?,
@@ -263,6 +329,7 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
     else coverage.uncertain++;
   }
   return {source:'external_exposure',version:'1',quality:row.state==='complete'&&checks.every(r=>r.comparable)?'complete':'partial',
+    page_discovery:plan.content_state==='complete'?plan.page_discovery:null,
     coverage,checks,hostname_references:{candidates:(plan.discovered_hosts||[]).map(hostname=>({hostname,sources:['exposure_content']}))},costs:{...json(row.costs_json,{}),charged_requests:row.charged_requests,charged_bytes:row.charged_bytes,
       unknown_attempts:row.unknown_attempts,attempts:row.attempts},observed_at:row.updated_at};
 }

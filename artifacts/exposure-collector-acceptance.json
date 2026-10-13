@@ -1,6 +1,6 @@
 {
   "schema_version": "exposure-local-acceptance-v1",
-  "measured_at": "2026-10-13T15:26:54.739Z",
+  "measured_at": "2026-10-13T17:00:22.383Z",
   "source_baseline": "asset-intel.js probeAsset + runAdminSurfaceModule at a227d1fd",
   "corpus_size": 44,
   "active_rules": 22,
@@ -11,7 +11,7 @@
   "baseline": {
     "requests": 44,
     "bytes_wire": 938,
-    "duration_ms": 26.168,
+    "duration_ms": 28.233,
     "tp": 0,
     "fp": 1,
     "fn": 20,
@@ -23,7 +23,7 @@
     "requests": 132,
     "bytes_wire": 4451,
     "bytes_decoded": 4451,
-    "duration_ms": 80,
+    "duration_ms": 85,
     "tp": 20,
     "fp": 0,
     "fn": 0,
@@ -42,7 +42,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 8.469
+        "duration_ms": 10.209
       },
       "candidate": {
         "requests": 3,
@@ -50,7 +50,7 @@
         "retries": 0,
         "bytes_wire": 102,
         "bytes_decoded": 102,
-        "duration_ms": 6,
+        "duration_ms": 7,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -64,7 +64,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 1.039
+        "duration_ms": 1.173
       },
       "candidate": {
         "requests": 3,
@@ -72,7 +72,7 @@
         "retries": 0,
         "bytes_wire": 98,
         "bytes_decoded": 98,
-        "duration_ms": 3,
+        "duration_ms": 2,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -86,7 +86,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.56
+        "duration_ms": 0.572
       },
       "candidate": {
         "requests": 3,
@@ -94,7 +94,7 @@
         "retries": 0,
         "bytes_wire": 93,
         "bytes_decoded": 93,
-        "duration_ms": 3,
+        "duration_ms": 2,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -108,7 +108,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.524
+        "duration_ms": 0.937
       },
       "candidate": {
         "requests": 3,
@@ -116,7 +116,7 @@
         "retries": 0,
         "bytes_wire": 73,
         "bytes_decoded": 73,
-        "duration_ms": 3,
+        "duration_ms": 1,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -130,7 +130,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.489
+        "duration_ms": 0.416
       },
       "candidate": {
         "requests": 3,
@@ -174,7 +174,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.388
+        "duration_ms": 0.403
       },
       "candidate": {
         "requests": 3,
@@ -196,7 +196,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.365
+        "duration_ms": 0.435
       },
       "candidate": {
         "requests": 3,
@@ -204,7 +204,7 @@
         "retries": 0,
         "bytes_wire": 44,
         "bytes_decoded": 44,
-        "duration_ms": 2,
+        "duration_ms": 4,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -218,7 +218,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.406
+        "duration_ms": 0.477
       },
       "candidate": {
         "requests": 3,
@@ -240,7 +240,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.438
+        "duration_ms": 0.443
       },
       "candidate": {
         "requests": 3,
@@ -262,7 +262,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.374
+        "duration_ms": 0.412
       },
       "candidate": {
         "requests": 3,
@@ -270,7 +270,7 @@
         "retries": 0,
         "bytes_wire": 129,
         "bytes_decoded": 129,
-        "duration_ms": 1,
+        "duration_ms": 2,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -284,7 +284,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.358
+        "duration_ms": 0.378
       },
       "candidate": {
         "requests": 3,
@@ -292,7 +292,7 @@
         "retries": 0,
         "bytes_wire": 48,
         "bytes_decoded": 48,
-        "duration_ms": 1,
+        "duration_ms": 2,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -306,7 +306,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.39
+        "duration_ms": 0.359
       },
       "candidate": {
         "requests": 3,
@@ -328,7 +328,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.351
+        "duration_ms": 0.35
       },
       "candidate": {
         "requests": 3,
@@ -372,7 +372,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.334
+        "duration_ms": 0.34
       },
       "candidate": {
         "requests": 3,
@@ -380,7 +380,7 @@
         "retries": 0,
         "bytes_wire": 67,
         "bytes_decoded": 67,
-        "duration_ms": 2,
+        "duration_ms": 1,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -394,7 +394,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 135,
-        "duration_ms": 1.028
+        "duration_ms": 1.052
       },
       "candidate": {
         "requests": 3,
@@ -416,7 +416,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 84,
-        "duration_ms": 0.419
+        "duration_ms": 0.423
       },
       "candidate": {
         "requests": 3,
@@ -424,7 +424,7 @@
         "retries": 0,
         "bytes_wire": 102,
         "bytes_decoded": 102,
-        "duration_ms": 2,
+        "duration_ms": 1,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -438,7 +438,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 89,
-        "duration_ms": 0.359
+        "duration_ms": 0.388
       },
       "candidate": {
         "requests": 3,
@@ -460,7 +460,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 72,
-        "duration_ms": 0.392
+        "duration_ms": 0.406
       },
       "candidate": {
         "requests": 3,
@@ -482,7 +482,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 212,
-        "duration_ms": 0.392
+        "duration_ms": 0.401
       },
       "candidate": {
         "requests": 3,
@@ -504,7 +504,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 92,
-        "duration_ms": 1.07
+        "duration_ms": 0.418
       },
       "candidate": {
         "requests": 3,
@@ -512,7 +512,7 @@
         "retries": 0,
         "bytes_wire": 110,
         "bytes_decoded": 110,
-        "duration_ms": 3,
+        "duration_ms": 2,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -526,7 +526,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.311
+        "duration_ms": 0.361
       },
       "candidate": {
         "requests": 3,
@@ -548,7 +548,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.331
+        "duration_ms": 0.372
       },
       "candidate": {
         "requests": 3,
@@ -570,7 +570,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 170,
-        "duration_ms": 0.494
+        "duration_ms": 0.534
       },
       "candidate": {
         "requests": 3,
@@ -592,7 +592,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 84,
-        "duration_ms": 0.363
+        "duration_ms": 0.394
       },
       "candidate": {
         "requests": 3,
@@ -614,7 +614,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.331
+        "duration_ms": 0.332
       },
       "candidate": {
         "requests": 3,
@@ -622,7 +622,7 @@
         "retries": 0,
         "bytes_wire": 119,
         "bytes_decoded": 119,
-        "duration_ms": 2,
+        "duration_ms": 3,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -636,7 +636,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.327
+        "duration_ms": 0.348
       },
       "candidate": {
         "requests": 3,
@@ -644,7 +644,7 @@
         "retries": 0,
         "bytes_wire": 56,
         "bytes_decoded": 56,
-        "duration_ms": 1,
+        "duration_ms": 2,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -658,7 +658,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.316
+        "duration_ms": 0.345
       },
       "candidate": {
         "requests": 3,
@@ -666,7 +666,7 @@
         "retries": 0,
         "bytes_wire": 143,
         "bytes_decoded": 143,
-        "duration_ms": 1,
+        "duration_ms": 2,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -680,7 +680,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.327
+        "duration_ms": 0.33
       },
       "candidate": {
         "requests": 3,
@@ -688,7 +688,7 @@
         "retries": 0,
         "bytes_wire": 49,
         "bytes_decoded": 49,
-        "duration_ms": 1,
+        "duration_ms": 2,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -702,7 +702,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.326
+        "duration_ms": 0.289
       },
       "candidate": {
         "requests": 3,
@@ -710,7 +710,7 @@
         "retries": 0,
         "bytes_wire": 171,
         "bytes_decoded": 171,
-        "duration_ms": 1,
+        "duration_ms": 2,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -724,7 +724,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.308
+        "duration_ms": 0.35
       },
       "candidate": {
         "requests": 3,
@@ -746,7 +746,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.311
+        "duration_ms": 0.319
       },
       "candidate": {
         "requests": 3,
@@ -768,7 +768,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.297
+        "duration_ms": 0.263
       },
       "candidate": {
         "requests": 3,
@@ -790,7 +790,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.324
+        "duration_ms": 0.337
       },
       "candidate": {
         "requests": 3,
@@ -798,7 +798,7 @@
         "retries": 0,
         "bytes_wire": 177,
         "bytes_decoded": 177,
-        "duration_ms": 1,
+        "duration_ms": 2,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -812,7 +812,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.332
+        "duration_ms": 0.325
       },
       "candidate": {
         "requests": 3,
@@ -820,7 +820,7 @@
         "retries": 0,
         "bytes_wire": 67,
         "bytes_decoded": 67,
-        "duration_ms": 2,
+        "duration_ms": 1,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -834,7 +834,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.308
+        "duration_ms": 0.34
       },
       "candidate": {
         "requests": 3,
@@ -856,7 +856,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.311
+        "duration_ms": 0.327
       },
       "candidate": {
         "requests": 3,
@@ -878,7 +878,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.303
+        "duration_ms": 0.315
       },
       "candidate": {
         "requests": 3,
@@ -900,7 +900,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.347
+        "duration_ms": 0.353
       },
       "candidate": {
         "requests": 3,
@@ -922,7 +922,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.329
+        "duration_ms": 0.328
       },
       "candidate": {
         "requests": 3,
@@ -930,7 +930,7 @@
         "retries": 0,
         "bytes_wire": 62,
         "bytes_decoded": 62,
-        "duration_ms": 2,
+        "duration_ms": 1,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -966,7 +966,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.306
+        "duration_ms": 0.309
       },
       "candidate": {
         "requests": 3,
@@ -974,7 +974,7 @@
         "retries": 0,
         "bytes_wire": 47,
         "bytes_decoded": 47,
-        "duration_ms": 1,
+        "duration_ms": 3,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
@@ -988,7 +988,7 @@
       "baseline": {
         "requests": 1,
         "bytes_wire": 0,
-        "duration_ms": 0.364
+        "duration_ms": 0.313
       },
       "candidate": {
         "requests": 3,
@@ -996,7 +996,7 @@
         "retries": 0,
         "bytes_wire": 48,
         "bytes_decoded": 48,
-        "duration_ms": 1,
+        "duration_ms": 2,
         "byte_limit_exceeded": false,
         "controls_completed": 2
       }
