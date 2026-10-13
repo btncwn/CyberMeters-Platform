@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { setup } from './lib/password-screening-fixture.js';
 import { buildEntries, digest, MAX_LENGTH, MIN_LENGTH } from './build-common-password-list.js';
 import { COMMON_PASSWORD_LIST } from '../workers/scan-api/src/lib/common-passwords-data.js';
-import { createCommonPasswordChecker, newPasswordRejection } from '../workers/scan-api/src/lib/common-passwords.js';
+import { createCommonPasswordChecker, newPasswordRejection, normalisePasswordForList } from '../workers/scan-api/src/lib/common-passwords.js';
 import { authRoutes } from '../workers/scan-api/src/routes/auth.js';
 import { verifyPassword, hashPassword } from '../workers/scan-api/src/lib/password.js';
 
@@ -19,10 +19,24 @@ const test = async (name, fn) => { await fn(); passed++; console.log('PASS ' + n
 let outbound = 0;
 globalThis.fetch = async (url) => { outbound++; throw new Error(`Unexpected outbound call: ${url}`); };
 
+// Pinned here as well as in the generated file: the file checking itself would
+// accept any list with a recomputed digest, so a changed list must also change
+// these values, in review.
+const PINNED_LIST = Object.freeze({
+  version: '2026-10-13.1',
+  count: 46146,
+  sha256: '5317c0f2a6e1f0fc07f230f6a6df0f9badad9ee81774242c9fb8319b180876a8',
+  source_sha256: '424a3e03a17df0a2bc2b3ca749d81b04e79d59cb7aeec8876a5a3f308d0caf51',
+});
+
 const entries = COMMON_PASSWORD_LIST.entries.split('\n');
 const common = entries[0];
 const clear = 'Synthetic test password 2026!';
 assert.ok(!entries.includes(clear.normalize('NFKC').toLowerCase()), 'fixture password must not be on the list');
+
+await test('the bundled list is the pinned one: version, count, SHA-256 and source SHA-256', async () => {
+  for (const [key, value] of Object.entries(PINNED_LIST)) assert.equal(COMMON_PASSWORD_LIST[key], value, key);
+});
 
 await test('the bundled list verifies: count, SHA-256, length bounds, lowercase, sorted and unique', async () => {
   assert.equal(entries.length, COMMON_PASSWORD_LIST.count);
@@ -32,8 +46,19 @@ await test('the bundled list verifies: count, SHA-256, length bounds, lowercase,
   assert.deepEqual(buildEntries(COMMON_PASSWORD_LIST.entries), entries, 'rebuilding the list from itself changes nothing');
   for (const entry of entries) {
     assert.ok(entry.length >= MIN_LENGTH && entry.length <= MAX_LENGTH, `length bound: ${entry.length}`);
-    assert.equal(entry, entry.normalize('NFKC').toLowerCase());
+    assert.equal(entry, normalisePasswordForList(entry));
   }
+});
+
+await test('invisible characters cannot hide a listed password', async () => {
+  const check = createCommonPasswordChecker(COMMON_PASSWORD_LIST);
+  const mid = Math.floor(common.length / 2);
+  for (const hidden of ['\u200B', '\u00AD', '\u200D', '\u2060', '\uFEFF', '\uFE0F', '\u180E']) {
+    assert.equal(await check(common.slice(0, mid) + hidden + common.slice(mid)), 'common', `U+${hidden.codePointAt(0).toString(16)}`);
+    assert.equal(await check(hidden + common + hidden), 'common');
+  }
+  assert.equal(await check(common.replace(/[a-z0-9]/, (c) => String.fromCodePoint(c.codePointAt(0) + 0xFEE0))), 'common', 'fullwidth');
+  assert.equal(await check(clear + '\u200B'), 'not_listed');
 });
 
 await test('listed passwords are refused in any letter case; others pass', async () => {

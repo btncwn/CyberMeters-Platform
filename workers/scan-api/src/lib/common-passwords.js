@@ -10,8 +10,13 @@
 // refused with a temporary error rather than accepted unchecked.
 import { COMMON_PASSWORD_LIST } from "./common-passwords-data.js";
 
+// NFKC folds look-alike forms (fullwidth, ligatures); invisible format and
+// default-ignorable characters (zero-width space, soft hyphen, joiners,
+// variation selectors) are removed so they cannot hide a listed password.
+const INVISIBLE = /[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu;
+
 export function normalisePasswordForList(password) {
-  return String(password).normalize("NFKC").toLowerCase();
+  return String(password).normalize("NFKC").replace(INVISIBLE, "").toLowerCase();
 }
 
 async function sha256Hex(text) {
