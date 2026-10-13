@@ -13,6 +13,7 @@ import socket
 import struct
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 
@@ -262,13 +263,41 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(result['state'], 'accepted', result)
         self.assertTrue(result['extensions']['ems'])
 
+    def test_unoffered_compression_is_not_a_clean_result(self):
+        result = self.assess('tls1_2', control='compression')
+        self.assertEqual(result['state'], 'unexecutable')
+        self.assertEqual(result['telemetry']['connections'], 0)
+        self.assertIn('compression_not_offered', result['limitations'])
+        with server(self.modern, self.cert, self.key, 'tls1_2') as port:
+            handshake = self.assess('tls1_2', port, family='modern')
+        self.assertIsNone(handshake['extensions']['compression'])
+
     def test_version_rejection_is_not_engine_unsupported(self):
         with server(self.modern, self.cert, self.key, 'tls1_3') as port:
             result = self.assess('tls1_2', port, family='modern')
         self.assertEqual(result['state'], 'rejected', result)
-        self.assertEqual(result['reason'], 'peer_alert')
+        self.assertEqual(result['reason'], 'protocol_version_rejected')
         self.assertFalse(result['authenticated_finished'])
         self.assertGreater(result['telemetry']['connections'], 0)
+
+    def test_unrelated_fatal_alert_is_uncertain(self):
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1', 0))
+            listener.listen(1)
+            port = listener.getsockname()[1]
+            def answer():
+                with listener.accept()[0] as peer:
+                    peer.settimeout(2)
+                    peer.recv(4096)
+                    peer.sendall(bytes.fromhex('15030300020250'))  # fatal internal_error
+            worker = threading.Thread(target=answer, daemon=True)
+            worker.start()
+            result = self.assess('tls1_2', port, family='modern')
+            worker.join(timeout=2)
+            self.assertFalse(worker.is_alive())
+        self.assertEqual(result['state'], 'uncertain')
+        self.assertEqual(result['reason'], 'peer_alert')
+        self.assertFalse(result['authenticated_finished'])
 
     def test_tls13_success_does_not_hide_tls12_acceptance(self):
         with server(self.modern, self.cert, self.key, 'both') as port:

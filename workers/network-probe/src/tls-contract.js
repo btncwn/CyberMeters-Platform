@@ -65,7 +65,7 @@ export function tlsAssessmentLimitations(input) {
 
 const enums = Object.freeze({
   state: ['accepted','rejected','uncertain','not_applicable','unexecutable'],
-  reason: ['catalog_ready','handshake_completed','peer_alert','fallback_rejected','transport_eof','transport_timeout','budget_exhausted','aborted','malformed_ipc','handshake_failed','certificate_limit','engine_error','cipher_unavailable','protocol_unavailable','requires_credentials','control_unavailable','group_unavailable','renegotiation_completed','renegotiation_refused','resumption_completed','resumption_declined','ticket_not_received','heartbeat_unavailable','active_confirmed','active_not_observed','active_inconclusive','protocol_not_applicable'],
+  reason: ['catalog_ready','handshake_completed','peer_alert','protocol_version_rejected','fallback_rejected','transport_eof','transport_timeout','budget_exhausted','aborted','malformed_ipc','handshake_failed','certificate_limit','engine_error','cipher_unavailable','protocol_unavailable','requires_credentials','control_unavailable','group_unavailable','renegotiation_completed','renegotiation_refused','resumption_completed','resumption_declined','ticket_not_received','heartbeat_unavailable','active_confirmed','active_not_observed','active_inconclusive','protocol_not_applicable'],
   trust: ['valid','invalid','unknown'],
   trust_reason: ['trusted','issuer_missing','self_signed','expired','not_yet_valid','signature_invalid','invalid_purpose','unsupported_algorithm','trust_unknown','chain_limit'],
   ocsp: ['absent','good','revoked','unknown','invalid'],
@@ -99,9 +99,9 @@ export function validateTlsEngineResult(value, check, { requireSandbox = true } 
       !choice(e.version,['1.0.2u','3.5.9']) || !hash(e.build_id) || typeof e.sandboxed !== 'boolean' ||
       (requireSandbox && !e.sandboxed) || (e.family === 'modern' ? e.version !== '3.5.9' : e.version !== '1.0.2u')) return fail('engine_identity');
   if (TLS_SPECIAL_CONTROLS.includes(check.control) !== (e.family === 'active_legacy')) return fail('engine_family');
-  if (check.control === 'cipher' && e.family !== 'legacy') return fail('cipher_engine');
+  if (check.control === 'cipher' && e.family !== (check.protocol === 'tls1_3' ? 'modern' : 'legacy')) return fail('cipher_engine');
   if (value.state === 'accepted' && !value.authenticated_finished && !TLS_SPECIAL_CONTROLS.includes(check.control)) return fail('unproved_acceptance');
-  if (value.state === 'rejected' && !['peer_alert','fallback_rejected','renegotiation_refused','resumption_declined','active_not_observed'].includes(value.reason)) return fail('unproved_rejection');
+  if (value.state === 'rejected' && !['protocol_version_rejected','fallback_rejected','renegotiation_refused','resumption_declined','active_not_observed'].includes(value.reason)) return fail('unproved_rejection');
   const v = value.vulnerability;
   if (v !== null && (!keys(v,['status','profile','completed_vectors','planned_vectors']) ||
       !choice(v.status,['confirmed','not_observed','unknown']) || !choice(v.profile,['heartbleed-minimal-v1','robot-finite-v1','ccs-finished-v1']) ||

@@ -519,7 +519,8 @@ static void extensions_json(SSL *s) {
     if(strcmp(opt.protocol,"tls1_3"))ems=SSL_get_extms_support(s);
     if(new_session)early=SSL_SESSION_get_max_early_data(new_session);
 #endif
-    append("{\"ems\":%s,\"compression\":%s,\"secure_renegotiation\":%s,\"fallback_scsv\":%s,\"session_reused\":%s,\"early_data_max\":",boolean(ems),boolean(SSL_get_current_compression(s)!=NULL),boolean(!strcmp(opt.protocol,"ssl2")?-1:(int)SSL_get_secure_renegotiation_support(s)),boolean(!strcmp(opt.control,"fallback")?peer_alert==86:-1),boolean(SSL_session_reused(s)));
+    /* This build never offers compression; absence in a handshake is unknown. */
+    append("{\"ems\":%s,\"compression\":%s,\"secure_renegotiation\":%s,\"fallback_scsv\":%s,\"session_reused\":%s,\"early_data_max\":",boolean(ems),boolean(SSL_get_current_compression(s)!=NULL?1:-1),boolean(!strcmp(opt.protocol,"ssl2")?-1:(int)SSL_get_secure_renegotiation_support(s)),boolean(!strcmp(opt.control,"fallback")?peer_alert==86:-1),boolean(SSL_session_reused(s)));
     if(!strcmp(opt.protocol,"tls1_3")&&new_session)append("%u",early);else append("null");
     append(",\"renegotiation_completed\":%s}",boolean(reneg_completed));
 }
@@ -586,6 +587,7 @@ int main(int argc,char **argv) {
     if(!strcmp(opt.protocol,"ssl2")){limit("ssl2_export_unavailable");limit("ssl2_single_des_unavailable");}
     if(!ctx)goto done;
     if(!strcmp(opt.control,"catalog")){state="accepted";reason="catalog_ready";goto done;}
+    if(!strcmp(opt.control,"compression")){state="unexecutable";reason="control_unavailable";limit("compression_not_offered");goto done;}
     if(!strcmp(opt.control,"heartbleed")||!strcmp(opt.control,"robot")||!strcmp(opt.control,"ccs")) {
         state="unexecutable";reason="control_unavailable";limit("engine_capability_limit");goto done;
     }
@@ -593,7 +595,12 @@ int main(int argc,char **argv) {
     if(start_tls(ctx,NULL,&ssl,&wire)) {
         finished=1;state="accepted";reason="handshake_completed";
         if(!strcmp(opt.control,"renegotiation")||!strcmp(opt.control,"resumption")){state="unexecutable";reason="control_unavailable";limit("engine_capability_limit");}
-    } else if(peer_alert){state="rejected";reason=peer_alert==86&&!strcmp(opt.control,"fallback")?"fallback_rejected":"peer_alert";}
+    } else if(peer_alert){
+        if(peer_alert==86&&!strcmp(opt.control,"fallback")){state="rejected";reason="fallback_rejected";}
+        else if(peer_alert==70&&(!strcmp(opt.control,"handshake")||!strcmp(opt.control,"certificate"))){
+            state="rejected";reason="protocol_version_rejected";
+        } else {state="uncertain";reason="peer_alert";}
+    }
     if(connected){const char *saved=reason;close_parent();reason=saved;}
  done:
     result(ctx,ssl);SSL_free(ssl);BIO_free(wire);SSL_CTX_free(ctx);SSL_SESSION_free(new_session);X509_STORE_free(trust_store);

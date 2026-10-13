@@ -6,7 +6,7 @@ import { planExposureChecks } from '../../../../shared/exposure/discovery.js';
 import { EXPOSURE_LIMITS, validateExposureRequest, validateExposureReceipt } from '../../../network-probe/src/exposure-contract.js';
 import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/contract.js';
 import { WEBSITE_CONTENT_LIMITS, validateWebsiteContentRequest, validateWebsiteContentReceipt } from '../../../network-probe/src/website-content-contract.js';
-import { TLS_SLICE_LIMITS, TLS_TRUST_BUNDLE, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
+import { TLS_SLICE_LIMITS, TLS_TRUST_BUNDLE, TLS_SPECIAL_CONSENT_VERSION, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
 import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
 import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
 import { buildTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized } from './tls-planner.js';
@@ -40,6 +40,24 @@ const AUTHORITY = `EXISTS(SELECT 1 FROM scans s JOIN workspaces w ON w.id=s.work
   WHERE s.id=external_exposure_jobs.scan_id AND s.workspace_id=external_exposure_jobs.workspace_id
   AND s.domain_id=external_exposure_jobs.domain_id AND s.domain=external_exposure_jobs.domain
   AND s.status='queued' AND w.deleted_at IS NULL AND wd.verification_status='verified')`;
+// The TLS permission generation and service scope must still hold in the same
+// SQLite statement that reserves network budget and the statement that stores
+// evidence. An asynchronous DNS lookup or collector can otherwise outlive a
+// revocation between the JavaScript precheck and commit.
+const TLS_SCOPE_FENCE = `COALESCE((SELECT a.generation FROM workspace_tls_authorizations a
+    WHERE a.workspace_id=external_exposure_jobs.workspace_id),0)=?
+  AND (?=0 OR EXISTS(SELECT 1 FROM workspace_tls_authorizations a
+    WHERE a.workspace_id=external_exposure_jobs.workspace_id AND a.enabled=1 AND a.consent_version=?))
+  AND (?='standard_https' OR EXISTS(SELECT 1 FROM workspace_tls_service_authorizations sa
+    JOIN network_targets t ON t.id=sa.network_target_id AND t.workspace_id=sa.workspace_id
+    WHERE sa.id=? AND sa.workspace_id=external_exposure_jobs.workspace_id
+      AND sa.domain_id=external_exposure_jobs.domain_id AND sa.authorization_status='active'
+      AND sa.hostname=? AND sa.sni=? AND sa.port=? AND sa.application_protocol=?
+      AND t.authorization_status='attested'
+      AND EXISTS(SELECT 1 FROM json_each(t.addresses_json) WHERE value=?)))`;
+const tlsScopeParams = entry => [entry.scope.generation,entry.scope.special_consent?1:0,TLS_SPECIAL_CONSENT_VERSION,
+  entry.scope.kind,entry.scope.service_authorization_id,entry.endpoint.hostname,entry.endpoint.sni,
+  entry.endpoint.port,entry.endpoint.application_protocol,entry.endpoint.address];
 
 // A bounded preference (one hour) cannot indefinitely outrank an ageing asset.
 // Never-checked and previously exposed assets receive a head start, not a
@@ -196,15 +214,18 @@ export async function collectTlsAssessment(env,input,{signal}={}) {
   if(!env.NETWORK_PROBE?.fetch)throw new Error('collector_unavailable');
   const controller=new AbortController();
   const abort=()=>controller.abort();
+  const aborted=new Promise((_,reject)=>controller.signal.addEventListener('abort',()=>reject(new Error('collector_aborted')),{once:true}));
   signal?.addEventListener('abort',abort,{once:true});
   const timer=setTimeout(abort,Math.max(1,Date.parse(input.deadline_at)-Date.now()));
   try{
     if(signal?.aborted)throw new Error('collector_aborted');
-    const response=await env.NETWORK_PROBE.fetch('https://network-probe.internal/tls-assessment',{
+    const pending=env.NETWORK_PROBE.fetch('https://network-probe.internal/tls-assessment',{
       method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input),signal:controller.signal,
     });
+    pending.then(response=>{if(controller.signal.aborted)response.body?.cancel().catch(()=>{});}).catch(()=>{});
+    const response=await Promise.race([pending,aborted]);
     if(!response.ok){await response.body?.cancel();throw new Error('collector_unavailable');}
-    const receipt=await readBoundedJson(response.body,TLS_SLICE_LIMITS.responseBytes);
+    const receipt=await Promise.race([readBoundedJson(response.body,TLS_SLICE_LIMITS.responseBytes),aborted]);
     if(controller.signal.aborted||!validateTlsAssessmentReceipt(input,receipt).ok)throw new Error('invalid_tls_receipt');
     return receipt;
   }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
@@ -282,6 +303,8 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
     return storeUnrunTlsSlice(env,row,plan,items,'not_authorized','scope_changed',now);
   const endpoint=await refreshTlsEndpoint(entry,{lookup:deps.lookupTlsDns}).catch(()=>null);
   if(!endpoint)return storeUnrunTlsSlice(env,row,plan,items,'uncertain','dns_authority_changed',now);
+  if(!await tlsScopeStillAuthorized(env,scan,entry))
+    return storeUnrunTlsSlice(env,row,plan,items,'not_authorized','scope_changed',now);
   const token=crypto.randomUUID().replaceAll('-',''),db=env.cybermeters_db;
   const reservationRequests=TLS_SLICE_LIMITS.connections;
   const reservationBytes=TLS_SLICE_LIMITS.bytes+TLS_SLICE_LIMITS.overreadBytes;
@@ -296,11 +319,13 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
       AND (SELECT COALESCE(SUM(j.charged_requests),0) FROM external_exposure_jobs j
         WHERE j.workspace_id=external_exposure_jobs.workspace_id AND j.created_ms>=?)+?<=?
       AND (SELECT COALESCE(SUM(j.charged_bytes),0) FROM external_exposure_jobs j
-        WHERE j.workspace_id=external_exposure_jobs.workspace_id AND j.created_ms>=?)+?<=?`)
+        WHERE j.workspace_id=external_exposure_jobs.workspace_id AND j.created_ms>=?)+?<=?
+      AND ${TLS_SCOPE_FENCE}`)
     .bind(token,now+EXPOSURE_JOB_LIMITS.leaseMs,reservationRequests,reservationBytes,new Date(now).toISOString(),
       row.scan_id,row.workspace_id,row.cursor,now,tls.cursor,reservationRequests,EXPOSURE_JOB_LIMITS.requests,
       reservationBytes,EXPOSURE_JOB_LIMITS.bytes,now,now-EXPOSURE_JOB_LIMITS.windowMs,reservationRequests,
-      EXPOSURE_JOB_LIMITS.workspaceRequests,now-EXPOSURE_JOB_LIMITS.windowMs,reservationBytes,EXPOSURE_JOB_LIMITS.workspaceBytes).run();
+      EXPOSURE_JOB_LIMITS.workspaceRequests,now-EXPOSURE_JOB_LIMITS.windowMs,reservationBytes,EXPOSURE_JOB_LIMITS.workspaceBytes,
+      ...tlsScopeParams(entry)).run();
   if(!changed(claimed)){
     const active=await db.prepare('SELECT scan_id FROM external_exposure_jobs WHERE workspace_id=? AND lease_until>? LIMIT 1').bind(row.workspace_id,now).first();
     if(active)return deferBusy(env,row,'tenant_busy');
@@ -319,6 +344,7 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
     domain_id:row.domain_id,domain:row.domain,endpoint,scope:entry.scope,checks:items.map(item=>item.check),
     deadline_at:new Date(now+remaining).toISOString(),max_connections:reservationRequests,max_bytes:TLS_SLICE_LIMITS.bytes};
   try{
+    if(!await tlsScopeStillAuthorized(env,scan,entry))throw new Error('tls_scope_revoked');
     const receipt=await (deps.collectTlsAssessment||collectTlsAssessment)(env,input,{signal:controller.signal});
     if(controller.signal.aborted||!validateTlsAssessmentReceipt(input,receipt,{now:deps.now?.()??Date.now()}).ok)throw new Error('invalid_receipt');
     const t=receipt.telemetry,actualBytes=t.bytes_sent+t.bytes_received;
@@ -337,9 +363,10 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
     const state=tls.state==='complete'?'complete':'pending';
     const stored=await db.prepare(`UPDATE external_exposure_jobs SET state=?,plan_json=?,costs_json=?,
       charged_requests=charged_requests-?+?,charged_bytes=charged_bytes-?+?,lease_token=NULL,lease_until=0,updated_at=?
-      WHERE scan_id=? AND workspace_id=? AND lease_token=? AND lease_until>? AND ${AUTHORITY}`)
+      WHERE scan_id=? AND workspace_id=? AND lease_token=? AND lease_until>? AND ${AUTHORITY}
+        AND ${TLS_SCOPE_FENCE}`)
       .bind(state,JSON.stringify(plan),JSON.stringify(costs),reservationRequests,t.connections,reservationBytes,actualBytes,
-        receipt.finished_at,row.scan_id,row.workspace_id,token,deps.now?.()??Date.now()).run();
+        receipt.finished_at,row.scan_id,row.workspace_id,token,deps.now?.()??Date.now(),...tlsScopeParams(entry)).run();
     if(!changed(stored))return {action:'retry',delaySeconds:30,outcome:'tls_fence_lost'};
     if(state==='complete')await resumeDomain(env,row);else await env.SCAN_QUEUE.send(messageFor(row));
     return {action:'ack',outcome:state};

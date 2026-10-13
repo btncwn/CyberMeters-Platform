@@ -9,6 +9,12 @@ const weakKeyExchange = negotiated => {
   if(!Number.isInteger(bits)||bits<1||!group)return false;
   return /^(?:x25519|x448|secp|prime|p-\d)/i.test(group) ? bits<224 : bits<2048;
 };
+const strongCertificateKey = leaf => (leaf.key_type==='RSA'&&leaf.key_bits>=2048)
+  || (leaf.key_type==='EC'&&leaf.key_bits>=224)
+  || (leaf.key_type==='ED25519'&&leaf.key_bits>=256)
+  || (leaf.key_type==='ED448'&&leaf.key_bits>=456);
+const strongCertificateSignature = leaf => ['rsa_sha256','rsa_sha384','rsa_sha512',
+  'ecdsa_sha256','ecdsa_sha384','ecdsa_sha512','ed25519','ed448'].includes(leaf.signature_algorithm);
 const conditionKey = (type,endpoint,row,detail='') => {
   const engine=row.engine;
   if(!engine?.build_id)return null;
@@ -116,8 +122,14 @@ export function evaluateTlsCondition(id,assessment) {
         if(conditionKey(type,endpoint,row,detail)!==id)continue;
         if(!reachable)return {state:'deferred',reason:'endpoint_not_reachable'};
         if(row.state==='uncertain'||row.state==='unexecutable'||row.state==='not_authorized'||row.state==='not_applicable')return {state:'deferred',reason:'exact_tls_check_inconclusive'};
-        if(type==='tls_legacy_protocol'||type==='tls_weak_cipher')
-          return row.state==='rejected' ? {state:'clear',reason:'exact_tls_condition_retested'} : {state:'present',reason:'tls_condition_still_observed'};
+        if(type==='tls_legacy_protocol')
+          return row.control==='protocol'&&row.state==='rejected'&&row.reason==='protocol_version_rejected'
+            ? {state:'clear',reason:'exact_tls_condition_retested'}
+            : positive(row)?{state:'present',reason:'tls_condition_still_observed'}:{state:'deferred',reason:'protocol_retest_inconclusive'};
+        if(type==='tls_weak_cipher')
+          return positive(row)&&row.evidence?.negotiated?.cipher===row.cipher_id
+            ? {state:'present',reason:'tls_condition_still_observed'}
+            : {state:'deferred',reason:'cipher_retest_inconclusive'};
         if(type==='tls_weak_key_exchange')return positive(row) && row.evidence?.negotiated?.group &&
           Number.isInteger(row.evidence.negotiated.group_bits) && !weakKeyExchange(row.evidence.negotiated)
           ? {state:'clear',reason:'key_exchange_retested'} : {state:'deferred',reason:'key_exchange_retest_inconclusive'};
@@ -130,6 +142,8 @@ export function evaluateTlsCondition(id,assessment) {
           return v?.status==='not_observed'&&v.completed_vectors===v.planned_vectors
             ? {state:'clear',reason:'exact_active_profile_retested'} : {state:'deferred',reason:'active_retest_inconclusive'};
         }
+        if(['tls_certificate_hostname','tls_certificate_trust','tls_ocsp_revoked','tls_weak_certificate_key','tls_weak_certificate_signature'].includes(type)
+          && !positive(row))return {state:'deferred',reason:'certificate_retest_inconclusive'};
         if(type==='tls_certificate_hostname')return row.evidence?.certificates?.hostname===true?{state:'clear',reason:'hostname_retested'}:{state:'deferred',reason:'hostname_retest_inconclusive'};
         if(type==='tls_certificate_trust')return row.evidence?.certificates?.trust==='valid'?{state:'clear',reason:'trust_retested'}:{state:'deferred',reason:'trust_retest_inconclusive'};
         if(type==='tls_ocsp_revoked')return row.evidence?.ocsp?.state==='good'&&row.evidence.ocsp.signature_valid&&row.evidence.ocsp.cert_id_match&&row.evidence.ocsp.fresh
@@ -139,10 +153,14 @@ export function evaluateTlsCondition(id,assessment) {
         if(type==='tls_weak_certificate_key'){
           const weak=((leaf.key_type==='RSA'||leaf.key_type==='DSA')&&leaf.key_bits>0&&leaf.key_bits<2048)||
             (leaf.key_type==='EC'&&leaf.key_bits>0&&leaf.key_bits<224);
-          return weak?{state:'present',reason:'weak_key_still_observed'}:{state:'clear',reason:'certificate_key_retested'};
+          return weak?{state:'present',reason:'weak_key_still_observed'}
+            : strongCertificateKey(leaf)?{state:'clear',reason:'certificate_key_retested'}
+            : {state:'deferred',reason:'certificate_key_unknown'};
         }
         if(type==='tls_weak_certificate_signature')return ['rsa_md5','rsa_sha1','ecdsa_sha1','dsa_sha1'].includes(leaf.signature_algorithm)
-          ?{state:'present',reason:'weak_signature_still_observed'}:{state:'clear',reason:'certificate_signature_retested'};
+          ?{state:'present',reason:'weak_signature_still_observed'}
+          :strongCertificateSignature(leaf)?{state:'clear',reason:'certificate_signature_retested'}
+          :{state:'deferred',reason:'certificate_signature_unknown'};
         return {state:'deferred',reason:'exact_tls_check_inconclusive'};
       }
     }

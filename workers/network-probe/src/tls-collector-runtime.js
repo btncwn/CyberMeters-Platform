@@ -145,6 +145,7 @@ async function starttls(socket, application, budget, signal) {
 }
 function engineCommand(input, check, maxConnections) {
   const binary = activeControls.has(check.control) ? CONNECTION_BINARY.active
+    : check.protocol === 'tls1_3' ? CONNECTION_BINARY.modern
     : check.control === 'cipher' || ['ssl2','ssl3','tls1','tls1_1'].includes(check.protocol) ? CONNECTION_BINARY.legacy : CONNECTION_BINARY.modern;
   const args = ['--control',productControl[check.control],'--protocol',check.protocol,'--max-connections',String(maxConnections),
     '--hostname',input.endpoint.sni,'--alpn',input.endpoint.application_protocol === 'https' ? 'h2-http1' : 'none',

@@ -32,7 +32,7 @@ source=source.replace('!publicAddress(endpoint.address)',"!(endpoint.address ===
 source=source.replace('resolve4(endpoint.hostname), resolve6(endpoint.hostname)',"Promise.resolve(['127.0.0.1']), Promise.resolve([])");
 const {__runTlsCollector}=await import('data:text/javascript,'+encodeURIComponent(source));
 
-const context=createSecureContext({cert:readFileSync(certificate),key:readFileSync(key),minVersion:'TLSv1.2',maxVersion:'TLSv1.2'});
+const context=createSecureContext({cert:readFileSync(certificate),key:readFileSync(key),minVersion:'TLSv1.2',maxVersion:'TLSv1.3'});
 const sockets=new Set();
 const server=createServer(socket=>{
   sockets.add(socket);socket.once('close',()=>sockets.delete(socket));
@@ -70,10 +70,16 @@ try{
   assert(raw.telemetry.bytes_sent>raw.results[0].engine_result.telemetry.bytes_sent,'SMTP bytes must be charged');
   const receipt=projectTlsCollectorReceipt(request,raw,{requireSandbox:false});
   assert.equal(receipt.results[0].state,'accepted');
+  const tls13={...request,request_id:'local_parent_tls13',checks:[{control:'cipher',protocol:'tls1_3',cipher_id:'TLS_AES_128_GCM_SHA256'}],
+    deadline_at:new Date(Date.now()+20000).toISOString()};
+  const raw13=await __runTlsCollector(tls13);
+  assert.equal(raw13.results[0].engine_result?.engine?.family,'modern');
+  assert.equal(raw13.results[0].engine_result?.negotiated?.cipher,'TLS_AES_128_GCM_SHA256');
+  assert.equal(projectTlsCollectorReceipt(tls13,raw13,{requireSandbox:false}).results[0].state,'accepted');
   const changed={...request,request_id:'local_parent_2',endpoint:{...request.endpoint,address:'127.0.0.2',dns_addresses:['127.0.0.2']},
     deadline_at:new Date(Date.now()+20000).toISOString()};
   const blocked=await __runTlsCollector(changed);
   assert.equal(blocked.results[0].reason,'dns_authority_changed');
   assert.equal(blocked.telemetry.connections,0);
-  console.log('TLS parent: real SMTP STARTTLS handshake, physical accounting and DNS escape block passed');
+  console.log('TLS parent: real SMTP STARTTLS, TLS 1.3 cipher routing, physical accounting and DNS escape block passed');
 }finally{for(const socket of sockets)socket.destroy();await close();rmSync(directory,{recursive:true,force:true});}

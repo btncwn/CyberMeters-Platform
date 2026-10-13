@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { validateTlsAssessmentRequest, projectTlsCollectorReceipt, validateTlsAssessmentReceipt, validateTlsEngineResult } from '../workers/network-probe/src/tls-contract.js';
 import { parseTlsDnsAnswers, buildTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
+import { collectTlsAssessment } from '../workers/scan-api/src/engines/exposure-jobs.js';
 
 const now = Date.now();
 const iso = offset => new Date(now + offset).toISOString();
@@ -65,4 +66,11 @@ assert(plan.selected.some(row=>row.check.control==='cipher'&&row.check.protocol=
 assert(plan.static_results.some(row=>row.check.control==='heartbleed'&&row.state==='not_authorized'));
 assert(plan.static_results.some(row=>row.check.control==='early_data'&&row.check.protocol==='tls1_2'&&row.state==='not_applicable'));
 assert(plan.static_results.some(row=>row.check.control==='cipher'&&row.check.protocol==='ssl2'&&row.state==='unexecutable'));
+const stop=new AbortController();
+const hung=collectTlsAssessment({NETWORK_PROBE:{fetch:()=>new Promise(()=>{})}},request,{signal:stop.signal});
+const abortTimer=setTimeout(()=>stop.abort(),5);
+let guardTimer;
+try {
+  await assert.rejects(Promise.race([hung,new Promise((_,reject)=>{guardTimer=setTimeout(()=>reject(new Error('abort_not_bounded')),1000);})]),/collector_aborted/);
+} finally {clearTimeout(abortTimer);clearTimeout(guardTimer);}
 console.log('Deep TLS contract: endpoint scope, consent, physical proof and redaction passed');
