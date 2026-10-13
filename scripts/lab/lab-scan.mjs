@@ -140,6 +140,22 @@ export function seedTenant(db, { userId, workspaceId, domainId, domain, customer
   }
 }
 
+// Another workspace of the same owner, linked to the same verified domain row:
+// the case where one scan must never write or read another workspace's assets.
+export function seedLinkedWorkspace(db, { userId, workspaceId, domainId, customerList = [], createdAt }) {
+  db.prepare("INSERT INTO workspaces (id, name, owner_user_id, created_at) VALUES (?, ?, ?, ?)").run(workspaceId, `Lab ${workspaceId}`, userId, createdAt);
+  db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES (?, ?, ?, 'owner')").run(`wm_${workspaceId}`, workspaceId, userId);
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id, verification_status, verification_method, verified_at) VALUES (?, ?, 'verified', 'dns_txt', ?)")
+    .run(workspaceId, domainId, createdAt);
+  if (customerList.length) {
+    db.prepare(`INSERT INTO discovery_hostname_lists
+        (id, workspace_id, domain_id, status, import_format, hostnames_json, hostname_count, entries_examined,
+         out_of_scope_count, rejected_count, truncated, rejected_reasons_json, created_by, created_at)
+      VALUES (?, ?, ?, 'active', 'list', ?, ?, ?, 0, 0, 0, '[]', ?, ?)`)
+      .run(`dhl_${workspaceId}`, workspaceId, domainId, JSON.stringify(customerList), customerList.length, customerList.length, userId, createdAt);
+  }
+}
+
 const parse = (value, fallback) => { try { return JSON.parse(value); } catch { return fallback; } };
 const sorted = (values) => [...values].sort();
 
@@ -232,9 +248,11 @@ function scanSummary(db, r2, scanId) {
 /**
  * Run `scans` consecutive scans of one world for one tenant. Returns the
  * inventory measurement after the last scan, a summary of every scan and the
- * request accounting split per scan.
+ * request accounting split per scan. `linkedWorkspaces` adds other workspaces
+ * of the same owner on the same domain row; `scanAs(i)` names the workspace
+ * that runs scan i (the tenant's own by default).
  */
-export async function runLabWorld({ root, world, egress = "open", scans = 2, startAt = "2026-10-01T09:00:00.000Z", tenant = "a", quiet = true }) {
+export async function runLabWorld({ root, world, egress = "open", scans = 2, startAt = "2026-10-01T09:00:00.000Z", tenant = "a", quiet = true, linkedWorkspaces = [], scanAs = null }) {
   const db = await buildLabDb(root);
   const counters = { reads: 0, writes: 0 };
   const r2Counters = { reads: 0, writes: 0 };
@@ -243,6 +261,9 @@ export async function runLabWorld({ root, world, egress = "open", scans = 2, sta
   const { runScanEngine } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "scan-engine.js")).href);
   const ids = { userId: `usr_${tenant}`, workspaceId: `ws_${tenant}`, domainId: `dom_${tenant}` };
   seedTenant(db, { ...ids, domain: world.domain, customerList: world.customerList || [], createdAt: startAt });
+  for (const linked of linkedWorkspaces) {
+    seedLinkedWorkspace(db, { userId: ids.userId, domainId: ids.domainId, createdAt: startAt, ...linked });
+  }
   const env = {
     cybermeters_db: labD1(db, counters),
     cybermeters_reports: r2,
@@ -268,13 +289,14 @@ export async function runLabWorld({ root, world, egress = "open", scans = 2, sta
       clock.set(at);
       const wallStart = clock.real();
       const scanId = `scan_${tenant}_${i + 1}`;
+      const scanWorkspaceId = typeof scanAs === "function" ? scanAs(i) : ids.workspaceId;
       db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, status, created_at) VALUES (?, ?, ?, ?, 'queued', ?)")
-        .run(scanId, ids.workspaceId, ids.domainId, world.domain, new Date(at).toISOString());
+        .run(scanId, scanWorkspaceId, ids.domainId, world.domain, new Date(at).toISOString());
       const logStart = lab.log.length;
       const before = { ...counters }, r2Before = { ...r2Counters };
       let error = null;
       try {
-        await runScanEngine(scanId, ids.domainId, ids.workspaceId, world.domain, env, {
+        await runScanEngine(scanId, ids.domainId, scanWorkspaceId, world.domain, env, {
           now: () => Date.now(),
           executionContext: "queue",
           trigger: "manual",
@@ -282,11 +304,13 @@ export async function runLabWorld({ root, world, egress = "open", scans = 2, sta
       } catch (caught) { error = caught?.message || String(caught); }
       runs.push({
         scan_id: scanId,
+        workspace_id: scanWorkspaceId,
         at: new Date(at).toISOString(),
         elapsed_ms: clock.real() - wallStart,
         error,
         ...scanSummary(db, r2, scanId),
         requests: summarizeRequests(lab.log.slice(logStart)),
+        log_range: [logStart, lab.log.length],
         storage: { d1_reads: counters.reads - before.reads, d1_writes: counters.writes - before.writes, r2_reads: r2Counters.reads - r2Before.reads, r2_writes: r2Counters.writes - r2Before.writes },
       });
     }
@@ -304,6 +328,7 @@ export async function runLabWorld({ root, world, egress = "open", scans = 2, sta
     unexpected_hosts: sorted(new Set(lab.log.filter((e) => e.kind === "unexpected").map((e) => e.host))),
     engine_log: engineLog,
     db,
+    env,
     r2,
     log: lab.log,
   };

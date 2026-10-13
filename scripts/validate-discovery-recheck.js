@@ -14,6 +14,9 @@
 //   • a name discovery saw but no scan checked is still due;
 //   • re-check observations outside the window do not count, deleted
 //     workspaces and the root never become targets, and ties are stable;
+//   • only the scanning workspace's own inventory is re-checked: another
+//     workspace linked to the same domain never contributes a target, and a
+//     scan without a workspace re-checks nothing;
 //   • a scan asks the takeover CNAME question for inventory hosts that this
 //     scan did not rediscover.
 import fs from "node:fs";
@@ -50,16 +53,17 @@ db.exec(`
   CREATE TABLE workspace_domains (workspace_id TEXT, domain_id TEXT);
   CREATE TABLE workspace_assets (id TEXT PRIMARY KEY, workspace_id TEXT, domain_id TEXT, hostname TEXT, last_seen TEXT);
   CREATE TABLE asset_lifecycle_observations (id TEXT PRIMARY KEY, workspace_id TEXT, asset_id TEXT, observation_state TEXT, observed_at TEXT);
-  INSERT INTO workspaces VALUES ('ws', NULL), ('ws_gone', '2026-10-01T00:00:00.000Z');
-  INSERT INTO workspace_domains VALUES ('ws', 'dom'), ('ws_gone', 'dom');
+  INSERT INTO workspaces VALUES ('ws', NULL), ('ws_gone', '2026-10-01T00:00:00.000Z'), ('ws_other', NULL);
+  INSERT INTO workspace_domains VALUES ('ws', 'dom'), ('ws_gone', 'dom'), ('ws_other', 'dom');
 `);
 // 60 known names, all last seen by discovery 10 days ago.
 const insertAsset = db.prepare("INSERT INTO workspace_assets VALUES (?, ?, 'dom', ?, ?)");
 for (let i = 0; i < 60; i++) insertAsset.run(`a${i}`, "ws", `h${String(i).padStart(2, "0")}.example.com`, iso(10));
 insertAsset.run("root", "ws", "example.com", iso(40));
 insertAsset.run("deleted", "ws_gone", "only-deleted.example.com", iso(50));
+insertAsset.run("other", "ws_other", "listed-by-other.example.com", iso(60));
 const env = { cybermeters_db: d1(db) };
-const load = () => loadKnownAssetRecheckHosts(env, "dom", "example.com", { now: NOW });
+const load = () => loadKnownAssetRecheckHosts(env, "dom", "example.com", { now: NOW, workspaceId: "ws" });
 const observe = (hosts, daysAgo, state = "observed") => {
   const insert = db.prepare("INSERT INTO asset_lifecycle_observations VALUES (?, 'ws', ?, ?, ?)");
   for (const host of hosts) {
@@ -72,6 +76,13 @@ const allHosts = Array.from({ length: 60 }, (_, i) => `h${String(i).padStart(2, 
 const first = await load();
 eq("cap: at most 50 names", first.length, 50);
 ok("scope: never the root, never a deleted workspace's name", !first.includes("example.com") && !first.includes("only-deleted.example.com"));
+ok("workspace: another workspace's name on the same domain is never a target", !first.includes("listed-by-other.example.com"));
+eq("workspace: the other workspace re-checks only its own inventory",
+  await loadKnownAssetRecheckHosts(env, "dom", "example.com", { now: NOW, workspaceId: "ws_other" }), ["listed-by-other.example.com"]);
+eq("workspace: a deleted workspace re-checks nothing",
+  await loadKnownAssetRecheckHosts(env, "dom", "example.com", { now: NOW, workspaceId: "ws_gone" }), []);
+eq("workspace: without a workspace nothing is re-checked",
+  await loadKnownAssetRecheckHosts(env, "dom", "example.com", { now: NOW }), []);
 eq("ties: equal recency falls back to hostname order", first.slice(0, 3), ["h00.example.com", "h01.example.com", "h02.example.com"]);
 
 // Scan 1 (two days ago) re-checks its 50; scan 2 must start with the 10 it
@@ -112,7 +123,7 @@ for (let scan = 0; scan < 3; scan++) {
 const fifth = await load();
 eq("rotation: names only ever written as not assessed come first", fifth.slice(0, 10), allHosts.slice(50));
 eq("failure: a failed read yields no targets, not an error",
-  await loadKnownAssetRecheckHosts({ cybermeters_db: { prepare: () => { throw new Error("d1 down"); } } }, "dom", "example.com"), []);
+  await loadKnownAssetRecheckHosts({ cybermeters_db: { prepare: () => { throw new Error("d1 down"); } } }, "dom", "example.com", { workspaceId: "ws" }), []);
 
 // ── Engine: every known host gets the takeover CNAME question ───────────────
 const { runScanEngine } = await import(src("engines", "scan-engine.js"));

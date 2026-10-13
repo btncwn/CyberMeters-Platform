@@ -2,6 +2,9 @@
 //
 // Exposure-timeline regression: asset inventory emits DNS-level change events
 // when an existing asset's IP, CNAME or redirect target changes between scans.
+// Also: only the scanning workspace's inventory is written, each row keeps the
+// first and last time every source named it, and a redirect location is kept
+// without its query, fragment or path parameters.
 // Drives upsertAssetInventory against a real in-memory SQLite schema
 // (schema.sql + migrations) via the same D1 adapter pattern used by the
 // request-pipeline harness. Requires Node 24+ (node:sqlite). CI-blocking.
@@ -84,13 +87,13 @@ function seedAsset(db, { hostname = "www.example.co.uk", ip_addresses = null, cn
   ).run(`asset_${hostname.replace(/[^a-z0-9]+/gi, "_")}`, hostname, ip_addresses, cname, redirect_to);
 }
 
-async function runInventory(env, modules) {
-  await upsertAssetInventory("scan_1", "dom_1", "example.co.uk", {
+async function runInventory(env, modules, opts = {}) {
+  return upsertAssetInventory(opts.scanId ?? "scan_1", "dom_1", "example.co.uk", {
     subdomains: { items: [], wildcard_dns: false },
     dns_bruteforce: { items: [] },
     asset_exposure: { assets: [] },
     ...modules,
-  }, env, { currentReport: report() });
+  }, env, { currentReport: report(), workspaceId: "ws_1", ...opts });
 }
 
 const rows = (db, eventType) => db.prepare("SELECT event_type, hostname, severity, description FROM asset_events WHERE event_type = ? ORDER BY created_at").all(eventType);
@@ -236,6 +239,88 @@ const rows = (db, eventType) => db.prepare("SELECT event_type, hostname, severit
   ok("without removal observations an unanswered probe is not a sighting", lastSeen() === before);
   await runInventory(env, { asset_exposure: { assets: [{ host: "legacy.example.co.uk", reachable: true, status: 200 }] } });
   ok("without removal observations an HTTP response is a sighting", lastSeen() !== before);
+}
+
+// 8. Only the scanning workspace is written. Another workspace linked to the
+//    same domain keeps its own inventory; nothing is written without one.
+{
+  const { db, env } = harness();
+  db.prepare("INSERT INTO workspaces (id, name) VALUES (?, ?)").run("ws_2", "Other");
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?, ?)").run("ws_2", "dom_1");
+  const result = await runInventory(env, {
+    subdomains: {
+      items: ["private.example.co.uk"],
+      wildcard_dns: false,
+      customer_hostnames: { confirmed: [{ hostname: "private.example.co.uk", source: "customer_list", ip_addresses: ["192.0.2.20"] }] },
+    },
+  });
+  const count = (workspace) => db.prepare("SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ?").get(workspace).n;
+  ok("the scanning workspace's inventory is written", result?.written === true && count("ws_1") === 2);
+  ok("a name one workspace listed never reaches another workspace on the same domain", count("ws_2") === 0);
+  const unbound = await upsertAssetInventory("scan_1", "dom_1", "example.co.uk", {
+    subdomains: { items: ["another.example.co.uk"], wildcard_dns: false }, dns_bruteforce: { items: [] }, asset_exposure: { assets: [] },
+  }, env, { currentReport: report() });
+  ok("without a workspace nothing is written", unbound?.written === false && unbound?.reason === "no_workspace" &&
+    db.prepare("SELECT COUNT(*) AS n FROM workspace_assets WHERE hostname = 'another.example.co.uk'").get().n === 0);
+  db.prepare("UPDATE workspaces SET deleted_at = datetime('now') WHERE id = 'ws_1'").run();
+  const deleted = await runInventory(env, { subdomains: { items: ["late.example.co.uk"], wildcard_dns: false } });
+  ok("a deleted workspace is not written", deleted?.written === false &&
+    db.prepare("SELECT COUNT(*) AS n FROM workspace_assets WHERE hostname = 'late.example.co.uk'").get().n === 0);
+}
+
+// 9. Each row keeps where it was seen, per source: first and last time.
+{
+  const { db, env } = harness();
+  const sightings = (hostname) => JSON.parse(db.prepare("SELECT sightings_json FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = ?").get(hostname)?.sightings_json ?? "null");
+  const seen = {
+    subdomains: {
+      items: ["app.example.co.uk"],
+      wildcard_dns: false,
+      referenced_hostnames: { confirmed: [{ hostname: "app.example.co.uk", asset_source: "tls_certificate_name", sources: ["live_tls_san", "csp"], ip_addresses: ["192.0.2.30"] }] },
+    },
+    dns_bruteforce: { items: [{ hostname: "app.example.co.uk", ip_addresses: ["192.0.2.30"] }] },
+  };
+  await runInventory(env, seen, { observedAt: "2026-07-18T10:00:00.000Z" });
+  const first = sightings("app.example.co.uk");
+  ok("a new name records every source that named it",
+    JSON.stringify(Object.keys(first?.sources || {}).sort()) === JSON.stringify(["csp_reference", "dns_bruteforce", "tls_certificate_name"]));
+  ok("a new name's record starts with the scan that found it",
+    first?.recorded_since === "2026-07-18T10:00:00.000Z" && first?.sources?.dns_bruteforce?.first_scan_id === "scan_1");
+  await runInventory(env, { dns_bruteforce: { items: [{ hostname: "app.example.co.uk", ip_addresses: ["192.0.2.30"] }] } },
+    { observedAt: "2026-07-19T10:00:00.000Z", scanId: "scan_2" });
+  const second = sightings("app.example.co.uk");
+  ok("a later scan moves only the sources that named the name again",
+    second?.sources?.dns_bruteforce?.first_seen_at === "2026-07-18T10:00:00.000Z" &&
+      second?.sources?.dns_bruteforce?.last_seen_at === "2026-07-19T10:00:00.000Z" &&
+      second?.sources?.dns_bruteforce?.last_scan_id === "scan_2" &&
+      second?.sources?.tls_certificate_name?.last_seen_at === "2026-07-18T10:00:00.000Z");
+  await runInventory(env, seen, { observedAt: "2026-07-18T10:00:00.000Z" });
+  ok("replaying an older scan never moves a sighting backwards",
+    sightings("app.example.co.uk")?.sources?.dns_bruteforce?.last_seen_at === "2026-07-19T10:00:00.000Z");
+  seedAsset(db, { hostname: "legacy.example.co.uk" });
+  await runInventory(env, { asset_exposure: { assets: [{ host: "legacy.example.co.uk", reachable: true, status: 200 }] } },
+    { observedAt: "2026-07-20T10:00:00.000Z", scanId: "scan_3" });
+  ok("a row recorded before sightings gets none invented when no source names it", sightings("legacy.example.co.uk") === null);
+  await runInventory(env, { dns_bruteforce: { items: [{ hostname: "legacy.example.co.uk", ip_addresses: ["192.0.2.31"] }] } },
+    { observedAt: "2026-07-21T10:00:00.000Z", scanId: "scan_4" });
+  const legacy = sightings("legacy.example.co.uk");
+  ok("its record starts the first time a source names it, and says so",
+    legacy?.recorded_since === "2026-07-21T10:00:00.000Z" && Object.keys(legacy?.sources || {}).join() === "dns_bruteforce");
+}
+
+// 10. A redirect location is kept without its query, fragment or path
+//     parameters; an old row stored with them is compared without them.
+{
+  const { db, env } = harness();
+  seedAsset(db, { hostname: "login.example.co.uk", redirect_to: "https://idp.example.co.uk/authorize?state=OLDSECRET#x" });
+  await runInventory(env, {
+    asset_exposure: { assets: [{ host: "login.example.co.uk", redirect_to: "https://idp.example.co.uk/authorize;jsessionid=ABC?state=NEWSECRET&code=123#frag" }] },
+  });
+  const stored = db.prepare("SELECT redirect_to FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = 'login.example.co.uk'").get().redirect_to;
+  ok("the stored redirect keeps scheme, host and path only", stored === "https://idp.example.co.uk/authorize");
+  ok("a query that changed is not a redirect change", rows(db, "dns_redirect_changed").length === 0);
+  ok("no secret reaches the inventory or its events",
+    !/SECRET|code=|jsessionid/.test(JSON.stringify(db.prepare("SELECT * FROM workspace_assets").all()) + JSON.stringify(db.prepare("SELECT * FROM asset_events").all())));
 }
 
 console.log(`\nExposure events: ${pass}/${pass + fail} passed`);

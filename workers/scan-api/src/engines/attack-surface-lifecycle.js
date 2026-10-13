@@ -13,6 +13,7 @@ import {
 import { normalizeHostname } from "./hostnames.js";
 import { createId } from "../lib/util.js";
 import { hashToken } from "../lib/auth-crypto.js";
+import { evidenceNotCheckedThisScan } from "./asset-evidence.js";
 import {
   compareLifecycleObservationOrder,
   isDecisionRelevantLifecycleObservation,
@@ -35,8 +36,10 @@ function scopedHostname(hostname, root) {
   return host && (host === root || host.endsWith(`.${root}`)) ? host : "";
 }
 
-// One bounded read per scan, never one read per asset. Soft-deleted workspaces
-// are excluded before a hostname can become an outbound probe target.
+// One bounded read per scan, never one read per asset, from the scanning
+// workspace's own inventory only: another workspace linked to the same domain
+// never contributes a probe target. A soft-deleted or unlinked workspace, or a
+// scan with no workspace, re-checks nothing.
 //
 // The names checked least recently come first: a name's recency is when it was
 // last actually re-checked (within the observation window). Every scan writes
@@ -47,9 +50,9 @@ function scopedHostname(hostname, root) {
 // alphabetical first names every time; ties fall back to hostname order.
 export const RECHECK_OBSERVATION_WINDOW_DAYS = 30;
 
-export async function loadKnownAssetRecheckHosts(env, domainId, domain, { now = Date.now() } = {}) {
+export async function loadKnownAssetRecheckHosts(env, domainId, domain, { now = Date.now(), workspaceId = null } = {}) {
   const root = normalizeHostname(domain);
-  if (!root || !env?.cybermeters_db) return [];
+  if (!root || !env?.cybermeters_db || typeof workspaceId !== "string" || !workspaceId) return [];
   const windowStart = new Date(now - RECHECK_OBSERVATION_WINDOW_DAYS * 86_400_000).toISOString();
   try {
     const result = await env.cybermeters_db
@@ -64,12 +67,12 @@ export async function loadKnownAssetRecheckHosts(env, domainId, domain, { now = 
          LEFT JOIN asset_lifecycle_observations alo
            ON alo.workspace_id = wa.workspace_id AND alo.asset_id = wa.id AND alo.observed_at >= ?
           AND alo.observation_state <> 'not_assessed'
-         WHERE wa.hostname LIKE ? AND wa.hostname <> ?
+         WHERE wa.workspace_id = ? AND wa.hostname LIKE ? AND wa.hostname <> ?
          GROUP BY wa.hostname
          ORDER BY last_checked, wa.hostname
          LIMIT ?`
       )
-      .bind(domainId, windowStart, `%.${root}`, root, MAX_RECHECK_HOSTS)
+      .bind(domainId, windowStart, workspaceId, `%.${root}`, root, MAX_RECHECK_HOSTS)
       .all();
     return (result.results || [])
       .map((row) => scopedHostname(row.hostname, root))
@@ -165,19 +168,25 @@ async function deterministicAssetEventId(workspaceId, assetId, scanId, eventType
   return `evt-${digest.slice(0, 32)}`;
 }
 
-// Writes all global signal rows and all per-asset rows for one workspace in one
-// D1 batch. Reads are bounded per workspace, not per asset; each scan/asset pair
-// is idempotent through a real UNIQUE constraint.
+// Writes all global signal rows and all per-asset rows for the scanning
+// workspace in one D1 batch. Reads are bounded per workspace, not per asset;
+// each scan/asset pair is idempotent through a real UNIQUE constraint. Each
+// asset row carries this scan's evidence for the name (assetEvidence, from
+// buildScanAssetEvidence) beside its removal signals. Only the workspace that
+// ran the scan is written, and only while it is live and linked to the domain.
 export async function persistAttackSurfaceLifecycle({
   env,
   scanId,
   domainId,
   domain,
+  workspaceId,
   signalCompleteness,
   assetExposure,
+  assetEvidence = null,
   observedAt,
 }) {
   if (!env?.cybermeters_db || !scanId || !domainId || !signalCompleteness) return;
+  if (typeof workspaceId !== "string" || !workspaceId) return;
   const root = normalizeHostname(domain);
   const timestampInput = observedAt == null
     ? new Date().toISOString()
@@ -200,9 +209,9 @@ export async function persistAttackSurfaceLifecycle({
       `SELECT wd.workspace_id
        FROM workspace_domains wd
        JOIN workspaces w ON w.id = wd.workspace_id
-       WHERE wd.domain_id = ? AND w.deleted_at IS NULL`
+       WHERE wd.domain_id = ? AND wd.workspace_id = ? AND w.deleted_at IS NULL`
     )
-    .bind(domainId)
+    .bind(domainId, workspaceId)
     .all();
 
   const observationByHost = new Map(
@@ -211,6 +220,7 @@ export async function persistAttackSurfaceLifecycle({
       .filter(([hostname]) => Boolean(hostname)),
   );
 
+  // At most one row: the scanning workspace, confirmed live and linked.
   for (const { workspace_id: workspaceId } of workspaceResult.results || []) {
     const [assetResult, historyResult] = await env.cybermeters_db.batch([
       env.cybermeters_db
@@ -357,6 +367,10 @@ export async function persistAttackSurfaceLifecycle({
               http_https_service: evidence.signal_states.http_https_service,
               active_sources: evidence.active_sources,
               passive_sources: [],
+              // Why the name is listed and what this scan measured for it.
+              ...(assetEvidence instanceof Map ? {
+                evidence: assetEvidence.get(normalizeHostname(asset.hostname)) ?? evidenceNotCheckedThisScan(),
+              } : {}),
             }, {}),
             now,
           )

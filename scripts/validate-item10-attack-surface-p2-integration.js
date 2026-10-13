@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 // Item 10 P2 — deterministic production lifecycle/persistence integration.
+// Includes: only the scanning workspace is written or re-checked (another live
+// workspace linked to the same domain is never touched), and each asset row
+// carries this scan's evidence for the name.
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -160,11 +163,13 @@ db.exec(`
   INSERT INTO workspaces (id, deleted_at) VALUES
     ('ws-active', NULL),
     ('ws-deleted', '2026-07-01T00:00:00.000Z'),
-    ('ws-foreign', NULL);
+    ('ws-foreign', NULL),
+    ('ws-sibling', NULL);
   INSERT INTO workspace_domains (workspace_id, domain_id) VALUES
     ('ws-active', 'dom'),
     ('ws-deleted', 'dom'),
-    ('ws-foreign', 'dom-foreign');
+    ('ws-foreign', 'dom-foreign'),
+    ('ws-sibling', 'dom');
   INSERT INTO workspace_assets
     (id, workspace_id, domain_id, hostname, status, updated_at)
   VALUES
@@ -173,16 +178,19 @@ db.exec(`
     ('asset-extra-2', 'ws-active', 'dom', 'two.example.com', 'active', '2026-07-01T00:00:00.000Z'),
     ('asset-root', 'ws-active', 'dom', 'example.com', 'active', '2026-07-01T00:00:00.000Z'),
     ('asset-deleted', 'ws-deleted', 'dom', 'gone.example.com', 'active', '2026-07-01T00:00:00.000Z'),
+    ('asset-sibling', 'ws-sibling', 'dom', 'sibling-only.example.com', 'active', '2026-07-01T00:00:00.000Z'),
     ('asset-foreign', 'ws-foreign', 'dom-foreign', 'gone.example.com', 'inactive', '2026-07-01T00:00:00.000Z');
 `);
 const counters = { reads: 0, batches: 0 };
 const env = { cybermeters_db: makeD1(db, counters) };
 
-const known = await loadKnownAssetRecheckHosts(env, "dom", "example.com");
+const known = await loadKnownAssetRecheckHosts(env, "dom", "example.com", { workspaceId: "ws-active" });
 ok("known-host recheck is bounded and excludes root",
   known.includes("gone.example.com") && !known.includes("example.com"));
 ok("soft-deleted tenant does not add a duplicate outbound target",
   known.filter((host) => host === "gone.example.com").length === 1);
+ok("another workspace on the same domain adds no re-check target",
+  !known.includes("sibling-only.example.com"));
 
 async function persist(scanId, observedAt, rows, subdomainState = "observed") {
   const readsBefore = counters.reads;
@@ -191,6 +199,7 @@ async function persist(scanId, observedAt, rows, subdomainState = "observed") {
     scanId,
     domainId: "dom",
     domain: "example.com",
+    workspaceId: "ws-active",
     signalCompleteness: signalCompleteness(subdomainState),
     assetExposure: { removal_observations: rows },
     observedAt,
@@ -264,6 +273,12 @@ eq("soft-deleted workspace receives no lifecycle observations",
   db.prepare("SELECT COUNT(*) AS n FROM asset_lifecycle_observations WHERE workspace_id='ws-deleted'").get().n, 0);
 eq("foreign tenant row remains untouched",
   db.prepare("SELECT status FROM workspace_assets WHERE id='asset-foreign'").get().status, "inactive");
+eq("another live workspace on the same domain receives no signal observations",
+  db.prepare("SELECT COUNT(*) AS n FROM attack_surface_signal_observations WHERE workspace_id='ws-sibling'").get().n, 0);
+eq("another live workspace on the same domain receives no lifecycle observations",
+  db.prepare("SELECT COUNT(*) AS n FROM asset_lifecycle_observations WHERE workspace_id='ws-sibling'").get().n, 0);
+eq("another live workspace's asset keeps its lifecycle untouched",
+  db.prepare("SELECT lifecycle_state FROM workspace_assets WHERE id='asset-sibling'").get().lifecycle_state, "not_assessed");
 eq("root identity never enters removal confirmation",
   db.prepare("SELECT lifecycle_state FROM workspace_assets WHERE id='asset-root'").get().lifecycle_state,
   "not_assessed");
@@ -341,6 +356,7 @@ await persistAttackSurfaceLifecycle({
   scanId: "scan-day-3",
   domainId: "dom-ordering",
   domain: "example.com",
+  workspaceId: "ws-ordering",
   signalCompleteness: signalCompleteness(),
   assetExposure: {
     removal_observations: [
@@ -395,6 +411,7 @@ await persistAttackSurfaceLifecycle({
   scanId: "scan-mixed-time-3",
   domainId: "dom-mixed-time",
   domain: "example.com",
+  workspaceId: "ws-mixed-time",
   signalCompleteness: signalCompleteness(),
   assetExposure: {
     removal_observations: [negative("mixed-time.example.com")],
@@ -492,6 +509,7 @@ try {
     scanId: "scan-clean-3",
     domainId: "dom-corrupt-history",
     domain: "example.com",
+    workspaceId: "ws-corrupt-history",
     signalCompleteness: signalCompleteness(),
     assetExposure: {
       removal_observations: [
@@ -565,6 +583,7 @@ try {
     scanId: "scan-invalid-writer-time",
     domainId: "dom-corrupt-history",
     domain: "example.com",
+    workspaceId: "ws-corrupt-history",
     signalCompleteness: signalCompleteness(),
     assetExposure: { removal_observations: [negative("clean.example.com")] },
     observedAt: "not-a-writer-timestamp",
@@ -590,6 +609,58 @@ eq("invalid writer timestamp creates no falsely timed global signal observation"
     WHERE scan_id='scan-invalid-writer-time'
   `).get().n, 0);
 corruptDb.close();
+
+// Evidence: each asset row carries this scan's evidence for the name; a name
+// the scan did not touch says what was not checked. Without a workspace, or
+// for a workspace not linked to the domain, nothing is written.
+const evidenceDb = buildDb();
+evidenceDb.exec(`
+  INSERT INTO workspaces (id, deleted_at) VALUES ('ws-evidence', NULL), ('ws-unlinked', NULL);
+  INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws-evidence', 'dom-evidence');
+  INSERT INTO workspace_assets (id, workspace_id, domain_id, hostname, status, updated_at) VALUES
+    ('asset-measured', 'ws-evidence', 'dom-evidence', 'app.example.com', 'active', '2026-07-01T00:00:00.000Z'),
+    ('asset-untouched', 'ws-evidence', 'dom-evidence', 'quiet.example.com', 'active', '2026-07-01T00:00:00.000Z');
+`);
+const evidenceEnv = { cybermeters_db: makeD1(evidenceDb, { reads: 0, batches: 0 }) };
+const measured = {
+  version: "asset-evidence-v1",
+  named_by: ["dns_bruteforce"],
+  dns: { source: "web_check", A: { outcome: "answer", addresses: ["192.0.2.7"] }, AAAA: { outcome: "nodata", addresses: [] } },
+  service: { source: "web_check", attempts: [{ protocol: "https", port: 443, outcome: "responded", status: 200 }], address_family: "not_recorded" },
+  findings: [],
+  not_checked: [],
+};
+const evidenceRun = (overrides = {}) => persistAttackSurfaceLifecycle({
+  env: evidenceEnv,
+  scanId: "scan-evidence",
+  domainId: "dom-evidence",
+  domain: "example.com",
+  workspaceId: "ws-evidence",
+  signalCompleteness: signalCompleteness(),
+  assetExposure: { removal_observations: [observed("app.example.com")] },
+  assetEvidence: new Map([["app.example.com", measured]]),
+  observedAt: "2026-08-10T00:00:00.000Z",
+  ...overrides,
+});
+await evidenceRun({ workspaceId: null, scanId: "scan-no-workspace" });
+await evidenceRun({ workspaceId: "ws-unlinked", scanId: "scan-unlinked" });
+eq("without a workspace, or for one not linked to the domain, nothing is written",
+  evidenceDb.prepare("SELECT COUNT(*) AS n FROM asset_lifecycle_observations").get().n +
+    evidenceDb.prepare("SELECT COUNT(*) AS n FROM attack_surface_signal_observations").get().n, 0);
+await evidenceRun();
+const storedDetail = (assetId) => JSON.parse(evidenceDb.prepare(
+  "SELECT source_detail_json FROM asset_lifecycle_observations WHERE asset_id = ? AND scan_id = 'scan-evidence'",
+).get(assetId)?.source_detail_json || "{}");
+eq("a measured name carries this scan's evidence beside its removal signals",
+  JSON.stringify(storedDetail("asset-measured").evidence), JSON.stringify(measured));
+ok("removal signals are unchanged by the evidence",
+  storedDetail("asset-measured").dns_resolution?.state === "observed" &&
+    storedDetail("asset-measured").http_https_service?.state === "observed");
+const untouched = storedDetail("asset-untouched").evidence;
+ok("a name the scan did not touch says DNS and the web were not checked",
+  untouched?.version === "asset-evidence-v1" && untouched.dns === null && untouched.service === null &&
+    JSON.stringify(untouched.not_checked.map((gap) => gap.part)) === JSON.stringify(["dns", "service"]));
+evidenceDb.close();
 
 const indexSource = fs.readFileSync(path.join(root, "workers/scan-api/src/index.js"), "utf8");
 ok("purge removes lifecycle children before workspace_assets",

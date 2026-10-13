@@ -18,13 +18,6 @@
       "contract": "The caller supplies the canonical scan domain_id; delivery targets are restricted to returned live links, and the scan's own workspace_id further constrains scan-specific email delivery."
     },
     {
-      "fingerprint": "61d07532a94e",
-      "file": "workers/scan-api/src/engines/asset-inventory.js",
-      "detector": "workspace_domain_scope_missing",
-      "reason": "Scan-finalization inventory persistence intentionally fans the domain observation out to every live workspace linked to the canonical scan domain_id.",
-      "contract": "This is a background write path with no customer response; every subsequent inventory read/write is bound to the enumerated workspace_id and the same domain_id."
-    },
-    {
       "fingerprint": "3752b75baedb",
       "file": "workers/scan-api/src/engines/asset-persistence.js",
       "detector": "workspace_domain_scope_missing",
@@ -37,13 +30,6 @@
       "detector": "workspace_domain_scope_missing",
       "reason": "Identity persistence intentionally enumerates every active workspace linked to the completed scan's canonical domain_id before applying the observation.",
       "contract": "This background producer returns no customer data; the join excludes soft-deleted workspaces, and every atomic asset/vendor statement rechecks active state and binds the enumerated workspace_id plus canonical domain_id."
-    },
-    {
-      "fingerprint": "dbd9bd8f2322",
-      "file": "workers/scan-api/src/engines/attack-surface-lifecycle.js",
-      "detector": "workspace_domain_scope_missing",
-      "reason": "The attack-surface lifecycle producer intentionally enumerates every live workspace linked to the completed scan's domain_id.",
-      "contract": "It is a background, post-scan writer; every observation/history batch is scoped to the enumerated workspace_id and canonical domain_id."
     },
     {
       "fingerprint": "3721dc67d699",

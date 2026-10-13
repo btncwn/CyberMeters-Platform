@@ -14,6 +14,7 @@ import {
 } from "./phase5-evidence.js";
 import { coverageStateFromTruncation } from "./bounded-coverage.js";
 import { DNS_NAME_WITHOUT_ADDRESS } from "./attack-surface-signal-completeness.js";
+import { exposureDnsEvidence } from "./dns-family-evidence.js";
 
 // ── Module 7: Asset Exposure Engine ──────────────────────────────────────────
 
@@ -185,6 +186,12 @@ export async function probeAsset(host, opts = {}) {
   let budgetExhausted = false;   // a probe attempt was starved, not genuinely failed
   let dnsUnavailable = false;   // DNS preflight never established a safe target
   let timedOut = false;          // the probe started but never got an answer (not assessed)
+  // What each protocol attempt did, in order: the protocol and port asked,
+  // and whether it answered (and where the answer finally came from) or why
+  // not. No URL path, query or body is kept here.
+  const attempts = [];
+  const attempt = (proto, outcome, extra = {}) =>
+    attempts.push({ protocol: proto, port: proto === "https" ? 443 : 80, outcome, ...extra });
   for (const proto of ["https", "http"]) {
     const url = `${proto}://${host}`;
     let res = null;
@@ -199,16 +206,18 @@ export async function probeAsset(host, opts = {}) {
       else if (err?.code === "dns_resolution_unavailable") dnsUnavailable = true;
       else if (err?.code === "dns_no_address") {
         if (proto === "https" && err.dns_stage === "initial" && err.dns_evidence?.host === normalizeHostname(host)) {
+          attempt(proto, "no_address");
           return { host, url, status: null, reachable: null,
             probe_status: "not_applicable", reason: "authoritative_no_address", http_assessed: false,
-            dns_evidence: err.dns_evidence, title: null, server: null, content_type: null, tech: [] };
+            dns_evidence: err.dns_evidence, title: null, server: null, content_type: null, tech: [], attempts };
         }
         dnsUnavailable = true; // earlier HTTP attempts or redirect absence are not N/A
       }
+      attempt(proto, probeFailureOutcome(err));
       continue;
     }
     // A known blocked target returns null in both default and reserved probers.
-    if (!res) continue;
+    if (!res) { attempt(proto, "blocked"); continue; }
 
     const status      = res.status;
     const reachable   = status < 500;
@@ -237,11 +246,18 @@ export async function probeAsset(host, opts = {}) {
       void res.body?.cancel().catch(() => {});
     }
 
+    const ended = probeEndpoint(res.url);
+    attempt(proto, "responded", {
+      status,
+      ...(ended && (ended.host !== normalizeHostname(host) || ended.protocol !== proto || ended.port !== (proto === "https" ? 443 : 80))
+        ? { ended_at: ended } : {}),
+    });
     return {
       host,
       url:          res.url || url,
       status,
       reachable,
+      attempts,
       // A 5xx means the host answered but with a server error — it EXISTS and serves,
       // but we could not content-assess it (an admin panel could sit behind the error).
       // Per the contract "HTTP 5xx must not confirm absence or health": mark it so the
@@ -287,6 +303,7 @@ export async function probeAsset(host, opts = {}) {
       server:       null,
       content_type: null,
       tech:         [],
+      attempts,
     };
   }
 
@@ -305,6 +322,7 @@ export async function probeAsset(host, opts = {}) {
       server:       null,
       content_type: null,
       tech:         [],
+      attempts,
     };
   }
 
@@ -319,7 +337,33 @@ export async function probeAsset(host, opts = {}) {
     server:       null,
     content_type: null,
     tech:         [],
+    attempts,
   };
+}
+
+// Why one protocol attempt got no answer, in the evidence vocabulary.
+function probeFailureOutcome(err) {
+  if (isSubrequestBudgetError(err)) return "not_run_budget";
+  if (isProbeTimeout(err)) return "timeout";
+  if (err?.code === "dns_resolution_unavailable") return "dns_unavailable";
+  if (err?.code === "dns_no_address") return err.dns_stage === "initial" ? "dns_unavailable" : "redirect_unresolved";
+  return "connection_failed";
+}
+
+// Where a web answer finally came from: protocol, host and port only.
+function probeEndpoint(value) {
+  try {
+    const parsed = new URL(String(value || ""));
+    const protocol = parsed.protocol.replace(":", "");
+    if (protocol !== "https" && protocol !== "http") return null;
+    return {
+      protocol,
+      host: normalizeHostname(parsed.hostname),
+      port: parsed.port ? Number(parsed.port) : protocol === "https" ? 443 : 80,
+    };
+  } catch {
+    return null;
+  }
 }
 
 const PROVIDER_INFRASTRUCTURE_PATTERNS = [
@@ -657,6 +701,8 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
           dns_resolution: dnsRemovalSignal([a, aaaa]),
           http_https_service: httpRemovalSignal(asset),
         },
+        // The same answers per address family, for the asset's evidence.
+        dns: exposureDnsEvidence(host, a, aaaa),
         // Discovery may select a target, but it is deliberately not an active
         // confirmation source and is never recorded in this list.
         active_sources: ["dns_resolution", "http_https_service"],

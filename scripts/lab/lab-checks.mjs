@@ -5,11 +5,14 @@
 // block runs the real scan engine against each world and holds the invariants
 // that already hold today. Gaps the lab measures but the product does not yet
 // close are reported by scripts/lab/run-discovery-lab.mjs, not asserted here.
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { createLabWorld } from "./lab-world.mjs";
 import { runLabWorld } from "./lab-scan.mjs";
 import { WORLDS } from "./worlds.mjs";
 
 const json = (value) => JSON.stringify(value);
+const parse = (value) => { try { return JSON.parse(value); } catch { return null; } };
 
 export async function runLabChecks({ ok, root }) {
   // ── The stand-in internet answers like the real one ─────────────────────────
@@ -124,6 +127,87 @@ export async function runLabChecks({ ok, root }) {
   ok("lab alpha: every finding names the check and check-pack version that produced it",
     blockedReport.findings.length > 0 && blockedReport.findings.every((finding) => finding.check?.version === "2026.10.1" && finding.check?.check_id),
     json(blockedReport.findings.filter((finding) => !finding.check).map((finding) => finding.id)));
+
+  // ── Evidence: why each name is listed, measured separately ──────────────────
+  // Hint, scope, DNS answer, service answer and finding are separate facts
+  // for every name, recorded per workspace and per scan; nothing a page or a
+  // script carried in a query string is kept.
+  const host = (label) => (label ? `${label}.${WORLDS.alpha.domain}` : WORLDS.alpha.domain);
+  const evidenceOf = (run, hostname, workspaceId = "ws_a") => parse(run.db.prepare(
+    `SELECT alo.source_detail_json FROM asset_lifecycle_observations alo
+       JOIN workspace_assets wa ON wa.id = alo.asset_id AND wa.workspace_id = alo.workspace_id
+      WHERE wa.workspace_id = ? AND wa.hostname = ?
+      ORDER BY alo.observed_at DESC LIMIT 1`).get(workspaceId, hostname)?.source_detail_json)?.evidence ?? null;
+  const assetRow = (run, hostname, workspaceId = "ws_a") =>
+    run.db.prepare("SELECT * FROM workspace_assets WHERE workspace_id = ? AND hostname = ?").get(workspaceId, hostname);
+  const adminEvidence = evidenceOf(alphaRun, host("admin"));
+  ok("lab alpha evidence: an admin page names the protocol and port that answered and the finding's measurement",
+    json(adminEvidence?.service?.attempts?.[0]) === json({ protocol: "https", port: 443, outcome: "responded", status: 200 }) &&
+      adminEvidence.findings.length > 0 &&
+      adminEvidence.findings.every((finding) => finding.check_id && finding.check_version === "2026.10.1" && finding.measured?.kind !== "not_recorded"),
+    json(adminEvidence));
+  const v6Evidence = evidenceOf(alphaRun, host("v6only"));
+  ok("lab alpha evidence: a name the certificate names is listed with that hint and its IPv6-only DNS answer",
+    v6Evidence?.named_by?.includes("tls_certificate_name") &&
+      v6Evidence.dns?.A?.outcome === "nodata" && json(v6Evidence.dns?.AAAA?.addresses) === json(["2a05:d014:9:1::6"]),
+    json(v6Evidence));
+  ok("lab alpha evidence: an IPv6 address is not taken as proof the service answers over IPv6",
+    v6Evidence?.service?.address_family === "not_recorded" && v6Evidence.not_checked.some((gap) => gap.part === "service_ipv6"),
+    json(v6Evidence?.not_checked));
+  const appEvidence = evidenceOf(alphaRun, host("app"));
+  ok("lab alpha evidence: every place a name was seen is kept — a header and a DNS name list",
+    appEvidence?.named_by?.includes("csp_reference") && appEvidence.named_by.some((source) => ["dns_bruteforce", "dns_wordlist"].includes(source)),
+    json(appEvidence?.named_by));
+  const appSightings = parse(assetRow(alphaRun, host("app"))?.sightings_json);
+  ok("lab alpha evidence: the asset row keeps first and last sighting per source from its first scan",
+    Object.keys(appSightings?.sources || {}).length >= 2 && appSightings.recorded_since === assetRow(alphaRun, host("app")).first_seen,
+    json(appSightings));
+  ok("lab alpha evidence: a name only the customer listed says so",
+    evidenceOf(alphaRun, host("listed-v6"))?.named_by?.includes("customer_list"), json(evidenceOf(alphaRun, host("listed-v6"))));
+  ok("lab alpha evidence: a family whose lookup failed is kept as uncertain beside the address found",
+    json(evidenceOf(alphaRun, host("halfv6"))?.dns?.uncertain) === json(["AAAA"]), json(evidenceOf(alphaRun, host("halfv6"))?.dns));
+  const rootEvidence = evidenceOf(alphaRun, host(""));
+  ok("lab alpha evidence: the domain itself carries its own DNS and web answer",
+    json(rootEvidence?.named_by) === json(["scan_root"]) && rootEvidence.dns?.A?.outcome === "answer" &&
+      rootEvidence.service?.attempts?.[0]?.protocol === "https" && rootEvidence.service.attempts[0].outcome === "responded",
+    json(rootEvidence));
+  const storedText = json(alphaRun.db.prepare("SELECT source_detail_json FROM asset_lifecycle_observations").all()) +
+    json(alphaRun.db.prepare("SELECT sightings_json, redirect_to, metadata_json FROM workspace_assets").all());
+  ok("lab alpha evidence: no query string, session value or page body is stored with the evidence",
+    !/lab-session|session=|<html|<form/i.test(storedText), storedText.match(/.{0,40}(lab-session|session=|<html|<form).{0,40}/i)?.[0] ?? "");
+  const { loadAssetEvidence } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "asset-evidence.js")).href);
+  const adminView = await loadAssetEvidence(alphaRun.env, "ws_a", assetRow(alphaRun, host("admin")));
+  ok("lab alpha evidence: the asset view states scope, DNS, the answering service, findings and what was not checked",
+    adminView.status === "recorded" && adminView.scope?.state === "in_scope" && /verified with a DNS TXT record/.test(adminView.scope.label) &&
+      adminView.dns?.status === "checked" && adminView.service?.attempts?.[0]?.label === "Answered with HTTP 200" &&
+      adminView.findings?.items?.length > 0 && adminView.findings.items.every((finding) => finding.measured_label && finding.rule) &&
+      adminView.not_checked.some((gap) => gap.part === "other_ports"),
+    json(adminView));
+  const foreignView = await loadAssetEvidence(alphaRun.env, "ws_elsewhere", assetRow(alphaRun, host("admin")));
+  ok("lab alpha evidence: another workspace reading the same asset id gets no evidence",
+    foreignView.status !== "recorded" && foreignView.dns?.status !== "checked", json(foreignView));
+
+  // ── Workspaces sharing a domain never share assets or evidence ──────────────
+  // Two workspaces of one owner on the same domain row: the first has a
+  // customer list, the second none. Each scan writes and re-checks only its own
+  // workspace's inventory.
+  const shared = await runLabWorld({
+    root, world: WORLDS.alpha, scans: 2, tenant: "s",
+    linkedWorkspaces: [{ workspaceId: "ws_s_other" }],
+    scanAs: (i) => (i === 0 ? "ws_s" : "ws_s_other"),
+  });
+  const names = (workspaceId) => shared.db.prepare("SELECT hostname FROM workspace_assets WHERE workspace_id = ? ORDER BY hostname").all(workspaceId).map((row) => row.hostname);
+  const scansWriting = (workspaceId) => shared.db.prepare("SELECT DISTINCT scan_id FROM asset_lifecycle_observations WHERE workspace_id = ? ORDER BY scan_id").all(workspaceId).map((row) => row.scan_id);
+  ok("lab shared domain: a name only one workspace listed never appears in the other's inventory",
+    names("ws_s").includes(host("listed-v6")) && !names("ws_s_other").includes(host("listed-v6")),
+    json({ first: names("ws_s").length, other: names("ws_s_other") }));
+  ok("lab shared domain: each workspace's evidence comes only from its own scans",
+    json(scansWriting("ws_s")) === json(["scan_s_1"]) && json(scansWriting("ws_s_other")) === json(["scan_s_2"]),
+    json({ first: scansWriting("ws_s"), other: scansWriting("ws_s_other") }));
+  const secondScanLog = shared.log.slice(...shared.scans[1].log_range);
+  ok("lab shared domain: the other workspace's scan never asks about a name only the first listed",
+    !secondScanLog.some((entry) => entry.name === host("listed-v6") || entry.host === host("listed-v6")),
+    json(secondScanLog.filter((entry) => entry.name === host("listed-v6") || entry.host === host("listed-v6")).slice(0, 3)));
 
   const wildcard = await runLabWorld({ root, world: WORLDS.bravo, scans: 1 });
   ok("lab bravo: a zone that answers every name adds no guessed names", wildcard.inventory.false_positive.length === 0, json(wildcard.inventory.false_positive));
