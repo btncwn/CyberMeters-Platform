@@ -8,6 +8,9 @@ import { startMicrosoftSignIn } from '../lib/microsoftLoginBinding'
 // The API sends a failed Microsoft sign-in back here with ?ms_error. Its text is
 // never echoed: a link could carry any wording.
 const MICROSOFT_SIGN_IN_FAILED = 'Microsoft sign-in did not complete. Please try again.'
+// A second-factor challenge is spent by any attempt, right or wrong, so a
+// failed code always returns to the first step for a fresh challenge.
+const SECOND_FACTOR_FAILED = 'That code was not accepted. For your security, please sign in again.'
 
 export default function LoginPage() {
   const navigate  = useNavigate()
@@ -105,9 +108,9 @@ export default function LoginPage() {
     try {
       const data = await api.mfaChallenge(challengeToken, mfaCode.replace(/\s/g, ''))
       await navigateAfterLogin(data.token, data.user)
-    } catch (err) {
-      setError(err.message || 'Verification failed')
-      setMfaCode('')
+    } catch {
+      resetToPassword()
+      setError(SECOND_FACTOR_FAILED)
     } finally {
       setLoading(false)
     }
@@ -121,9 +124,9 @@ export default function LoginPage() {
     try {
       const data = await api.mfaRecoveryCode(challengeToken, recoveryCode.trim())
       await navigateAfterLogin(data.token, data.user)
-    } catch (err) {
-      setError(err.message || 'Recovery code invalid')
-      setRecoveryCode('')
+    } catch {
+      resetToPassword()
+      setError(SECOND_FACTOR_FAILED)
     } finally {
       setLoading(false)
     }

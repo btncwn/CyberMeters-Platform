@@ -137,4 +137,129 @@ function interleaveOnce(env, { sqlIncludes, method, after = false }, action) {
   check("late setup cannot overwrite the enabled factor", () => { assert.equal(hasEnrollmentMaterial(lateSetup), false); assert.deepEqual(f.state(), winnerState); assert.equal(f.events("mfa_setup_started"), 1); });
   f.db.close();
 }
+
+// ── Sign-in with a second factor: each challenge and each recovery code is
+// spent exactly once, even when requests race. Races run a second real request
+// at the D1 boundary of the first, on real SQLite storage.
+async function enrolled() {
+  const f = await fixture();
+  const setup = await f.setup();
+  const secret = setup.data.secret_base32;
+  const enabled = await f.verify(secret);
+  let n = 0;
+  const challenge = async ({ expired = false } = {}) => {
+    const raw = `cmfa_test_${n++}_${Math.random().toString(36).slice(2)}`;
+    const expires = new Date(Date.now() + (expired ? -60_000 : 600_000)).toISOString();
+    f.db.prepare("INSERT INTO mfa_challenges (id, user_id, challenge_hash, expires_at) VALUES (?, 'uEnrollment', ?, ?)")
+      .run(`mfach_test_${n}`, await mod.hashToken(raw), expires);
+    return raw;
+  };
+  return {
+    ...f, secret, codes: enabled.data.recovery_codes, challenge,
+    recover: (challenge_token, recovery_code) => f.call("POST", "/api/auth/mfa/recovery-code", null, { challenge_token, recovery_code }),
+    totp: async (challenge_token, code) => f.call("POST", "/api/auth/mfa/challenge", null, { challenge_token, code: code ?? await codeFor(secret) }),
+    sessions: () => f.db.prepare("SELECT COUNT(*) AS n FROM user_sessions WHERE user_id = 'uEnrollment'").get().n,
+    storedCodes: () => JSON.parse(f.state().mfa_recovery_codes_hash_json || "[]").length,
+  };
+}
+const SPEND = "SET mfa_recovery_codes_hash_json = ?, last_login_at";
+
+// One code, two challenges, racing: at most one session.
+{
+  const f = await enrolled();
+  const [c1, c2] = [await f.challenge(), await f.challenge()];
+  const code = f.codes[0], before = f.sessions(), stored = f.storedCodes();
+  let nested;
+  const hook = interleaveOnce(f.env, { sqlIncludes: SPEND, method: "run" }, async () => { nested = await f.recover(c2, code); });
+  const outer = await f.recover(c1, code);
+  hook.restore();
+  check("one recovery code racing on two challenges signs in once", () => {
+    assert.equal(hook.fired(), 1);
+    assert.deepEqual([outer.status, nested.status].sort(), [200, 401]);
+    assert.equal(f.sessions(), before + 1);
+    assert.equal(f.storedCodes(), stored - 1);
+  });
+  f.db.close();
+}
+
+// Two codes racing: both sign in and both stay spent.
+{
+  const f = await enrolled();
+  const [c1, c2, c3, c4] = [await f.challenge(), await f.challenge(), await f.challenge(), await f.challenge()];
+  const [a, b] = f.codes, stored = f.storedCodes();
+  let nested;
+  const hook = interleaveOnce(f.env, { sqlIncludes: SPEND, method: "run" }, async () => { nested = await f.recover(c2, b); });
+  const outer = await f.recover(c1, a);
+  hook.restore();
+  check("two codes racing both sign in", () => { assert.equal(hook.fired(), 1); assert.equal(outer.status, 200); assert.equal(nested.status, 200); });
+  check("neither racing code is restored by the other's write", () => assert.equal(f.storedCodes(), stored - 2));
+  const [againA, againB] = [await f.recover(c3, a), await f.recover(c4, b)];
+  check("both spent codes are refused afterwards", () => { assert.equal(againA.status, 401); assert.equal(againB.status, 401); });
+  f.db.close();
+}
+
+// One challenge cannot be used twice, whatever the second code is.
+{
+  const f = await enrolled();
+  const c1 = await f.challenge();
+  const first = await f.recover(c1, f.codes[0]);
+  const second = await f.recover(c1, f.codes[1]);
+  check("a challenge used with one code refuses another", () => { assert.equal(first.status, 200); assert.equal(second.status, 401); });
+  const before = f.sessions();
+  const c2 = await f.challenge();
+  let nested;
+  const hook = interleaveOnce(f.env, { sqlIncludes: "UPDATE mfa_challenges SET used_at", method: "run" }, async () => { nested = await f.totp(c2); });
+  const outer = await f.totp(c2);
+  hook.restore();
+  check("one authenticator challenge submitted twice at once signs in once", () => {
+    assert.equal(hook.fired(), 1);
+    assert.deepEqual([outer.status, nested.status].sort(), [200, 401]);
+    assert.equal(f.sessions(), before + 1);
+  });
+  f.db.close();
+}
+
+// Expired challenge, suspended account and wrong code are refused; a wrong
+// code still spends the challenge.
+{
+  const f = await enrolled();
+  const expiredRecovery = await f.recover(await f.challenge({ expired: true }), f.codes[0]);
+  const expiredTotp = await f.totp(await f.challenge({ expired: true }));
+  check("an expired challenge is refused", () => { assert.equal(expiredRecovery.status, 401); assert.equal(expiredTotp.status, 401); });
+  const wrong = await f.challenge();
+  const wrongCode = await f.recover(wrong, "AAAA-BBBB-CCCC");
+  const retry = await f.recover(wrong, f.codes[0]);
+  check("a wrong code is refused and spends the challenge", () => { assert.equal(wrongCode.status, 401); assert.equal(retry.status, 401); });
+  f.db.prepare("UPDATE users SET status = 'suspended' WHERE id = 'uEnrollment'").run();
+  const stored = f.storedCodes();
+  const suspended = await f.recover(await f.challenge(), f.codes[0]);
+  check("a suspended account is refused without spending a code", () => { assert.equal(suspended.status, 403); assert.equal(f.storedCodes(), stored); });
+  f.db.close();
+}
+
+// A failure after the code is spent never makes it valid again, and never
+// yields a session.
+{
+  const f = await enrolled();
+  const d1 = f.env.cybermeters_db, prepare = d1.prepare;
+  let thrown = 0;
+  d1.prepare = function (sql) {
+    const statement = prepare.call(d1, sql);
+    if (!sql.includes("INSERT INTO user_sessions")) return statement;
+    const wrap = (st) => ({ ...st, bind: (...args) => wrap(st.bind(...args)), run: async (...args) => { if (!thrown++) throw new Error("D1 unavailable"); return st.run(...args); } });
+    return wrap(statement);
+  };
+  const before = f.sessions(), stored = f.storedCodes();
+  const failed = await f.recover(await f.challenge(), f.codes[0]);
+  d1.prepare = prepare;
+  check("a storage failure after spending yields no session", () => { assert.equal(thrown, 1); assert.equal(failed.status, 500); assert.equal(f.sessions(), before); });
+  const reuse = await f.recover(await f.challenge(), f.codes[0]);
+  check("the spent code stays spent", () => { assert.equal(f.storedCodes(), stored - 1); assert.equal(reuse.status, 401); });
+  const totp = await f.totp(await f.challenge());
+  check("authenticator sign-in still works", () => { assert.equal(totp.status, 200); assert.ok(totp.data.token); });
+  const recovered = await f.recover(await f.challenge(), f.codes[1]);
+  check("an unspent recovery code still works", () => { assert.equal(recovered.status, 200); assert.ok(recovered.data.token); });
+  f.db.close();
+}
+
 console.log(`\nMFA enrollment integrity: ${passed}/${passed} passed`);

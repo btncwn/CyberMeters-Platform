@@ -27,6 +27,7 @@ vi.mock('../../api', () => ({
     exchangeOAuthCode: vi.fn(),
     startMicrosoftSignIn: vi.fn(),
     mfaChallenge: vi.fn(),
+    mfaRecoveryCode: vi.fn(),
     getWorkspaces: vi.fn(),
   },
 }))
@@ -52,6 +53,7 @@ beforeEach(() => {
   startSpy.mockReset()
   api.exchangeOAuthCode.mockReset()
   api.mfaChallenge.mockReset()
+  api.mfaRecoveryCode.mockReset()
   api.getWorkspaces.mockReset()
   localStorage.clear()
 })
@@ -147,6 +149,36 @@ describe('F-2 SSO MFA — LoginPage', () => {
 
     await waitFor(() => expect(api.mfaChallenge).toHaveBeenCalled())
     expect(api.mfaChallenge).toHaveBeenCalledWith('cmfa_abc', '123456')
+  })
+
+  it('a refused code returns to the first step for a fresh challenge (the old one is spent)', async () => {
+    api.mfaChallenge.mockRejectedValue(new Error('Invalid verification code'))
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/login', state: { mfaChallengeToken: 'cmfa_abc' } }]}>
+        <LoginPage />
+      </MemoryRouter>
+    )
+    fireEvent.change(screen.getByPlaceholderText('000000'), { target: { value: '654321' } })
+    fireEvent.click(screen.getByRole('button', { name: /Verify/i }))
+    expect(await screen.findByText(/please sign in again/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Two-factor authentication/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Sign in$/i })).toBeInTheDocument()
+    expect(loginSpy).not.toHaveBeenCalled()
+  })
+
+  it('a refused recovery code also returns to the first step', async () => {
+    api.mfaRecoveryCode.mockRejectedValue(new Error('Invalid recovery code'))
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/login', state: { mfaChallengeToken: 'cmfa_abc' } }]}>
+        <LoginPage />
+      </MemoryRouter>
+    )
+    fireEvent.click(screen.getByRole('button', { name: /recovery code/i }))
+    fireEvent.change(screen.getByLabelText(/Recovery code/i), { target: { value: 'ABCD-EFGH' } })
+    fireEvent.click(screen.getByRole('button', { name: /Verify recovery code/i }))
+    expect(await screen.findByText(/please sign in again/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/Recovery code/i)).not.toBeInTheDocument()
+    expect(loginSpy).not.toHaveBeenCalled()
   })
 
   it('binds the browser before leaving for Microsoft', async () => {

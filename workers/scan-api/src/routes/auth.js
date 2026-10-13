@@ -22,6 +22,55 @@ export async function authRoutes(rctx) {
   const { request, env, url, json, serverError,
           requireAuth, consumeApiRateLimit, rateLimitScopeId } = rctx;
 
+  // Mark an MFA challenge used if — and only if — it is still unused and in
+  // date. True only for the single request whose UPDATE changed the row.
+  const claimMfaChallenge = async (challengeId) => {
+    const result = await env.cybermeters_db
+      .prepare(
+        `UPDATE mfa_challenges SET used_at = datetime('now')
+         WHERE id = ? AND used_at IS NULL AND expires_at > ?`
+      )
+      .bind(challengeId, new Date().toISOString())
+      .run();
+    return result?.meta?.changes === 1;
+  };
+
+  // Spend one recovery code. Returns the remaining hashes once this request's
+  // compare-and-swap has removed the code, or null when the code is not (or no
+  // longer) in the stored list. The matching hash is found once; a lost race
+  // re-checks that exact hash against the fresh list, so no extra hashing.
+  const consumeRecoveryCode = async (userId, submittedCode, storedJson) => {
+    const first = await verifyRecoveryCode(submittedCode, storedJson);
+    if (!first.valid) return null;
+    let stored = storedJson;
+    let hashes = JSON.parse(storedJson);
+    const matched = hashes.find((hash) => !first.remainingHashes.includes(hash));
+    if (!matched) return null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const index = hashes.indexOf(matched);
+      if (index === -1) return null;
+      const remaining = hashes.filter((_, i) => i !== index);
+      const swap = await env.cybermeters_db
+        .prepare(
+          `UPDATE users
+           SET mfa_recovery_codes_hash_json = ?, last_login_at = datetime('now'), mfa_last_verified_at = datetime('now')
+           WHERE id = ? AND mfa_enabled = 1 AND mfa_recovery_codes_hash_json = ?`
+        )
+        .bind(JSON.stringify(remaining), userId, stored)
+        .run();
+      if (swap?.meta?.changes === 1) return remaining;
+      const fresh = await env.cybermeters_db
+        .prepare("SELECT mfa_recovery_codes_hash_json, mfa_enabled FROM users WHERE id = ? LIMIT 1")
+        .bind(userId)
+        .first();
+      if (!fresh?.mfa_enabled || !fresh.mfa_recovery_codes_hash_json) return null;
+      stored = fresh.mfa_recovery_codes_hash_json;
+      try { hashes = JSON.parse(stored); } catch { return null; }
+      if (!Array.isArray(hashes)) return null;
+    }
+    return null;
+  };
+
     // ── POST /api/auth/signup ────────────────────────────────────────────
     if (request.method === "POST" && url.pathname === "/api/auth/signup") {
       let body;
@@ -1456,14 +1505,16 @@ export async function authRoutes(rctx) {
 
         const _mfaIp = request.headers.get("CF-Connecting-IP") || null;
         const _mfaUa = request.headers.get("User-Agent") || null;
+
+        // Claim the challenge before checking the code, whatever the outcome
+        // (prevents retries). Only the request whose conditional UPDATE changes
+        // the row continues, so concurrent submissions cannot both sign in.
+        if (!(await claimMfaChallenge(challenge.id))) {
+          return json({ error: "Challenge token already used" }, 401);
+        }
+
         const base32Secret = await decryptTotpSecret(challenge.totp_secret, env);
         const valid = await verifyTotp(base32Secret, code);
-
-        // Mark challenge used regardless of outcome (prevent retry attacks)
-        await env.cybermeters_db
-          .prepare("UPDATE mfa_challenges SET used_at = datetime('now') WHERE id = ?")
-          .bind(challenge.id)
-          .run();
 
         if (!valid) {
           await createAuditEvent(env, {
@@ -1552,13 +1603,19 @@ export async function authRoutes(rctx) {
         if (challenge.status === "suspended")             return json({ error: "Account suspended. Contact support." }, 403);
         if (!challenge.mfa_enabled)                       return json({ error: "MFA is not enabled for this account" }, 400);
 
-        const { valid, remainingHashes } = await verifyRecoveryCode(submittedCode, challenge.mfa_recovery_codes_hash_json);
+        // Claim the challenge first, whatever the outcome (single use).
+        if (!(await claimMfaChallenge(challenge.id))) {
+          return json({ error: "Challenge token already used" }, 401);
+        }
 
-        // Mark challenge used regardless of outcome
-        await env.cybermeters_db
-          .prepare("UPDATE mfa_challenges SET used_at = datetime('now') WHERE id = ?")
-          .bind(challenge.id)
-          .run();
+        // Consume the code with a compare-and-swap on the stored list: the
+        // UPDATE applies only if the list is still exactly the one this request
+        // read. A request that loses a race re-reads the list; its code counts
+        // only if that exact hash is still there, so two requests can never
+        // both spend one code, and one request can never restore a code another
+        // has spent. No session exists until a swap has changed the row.
+        const remainingHashes = await consumeRecoveryCode(challenge.user_id, submittedCode, challenge.mfa_recovery_codes_hash_json);
+        const valid = Array.isArray(remainingHashes);
 
         if (!valid) {
           await createAuditEvent(env, {
@@ -1571,12 +1628,6 @@ export async function authRoutes(rctx) {
           }).catch(() => {});
           return json({ error: "Invalid recovery code" }, 401);
         }
-
-        // Consume the used code — update stored hashes
-        await env.cybermeters_db
-          .prepare("UPDATE users SET mfa_recovery_codes_hash_json = ?, last_login_at = datetime('now'), mfa_last_verified_at = datetime('now') WHERE id = ?")
-          .bind(JSON.stringify(remainingHashes), challenge.user_id)
-          .run();
 
         // Create session
         const { raw: token, hash: tokenHash } = await generateSessionToken();
