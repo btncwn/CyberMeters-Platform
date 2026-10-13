@@ -553,8 +553,12 @@ const parity = states.map(parityOutputs);
 // which has no captured leaf, all three read "Not checked"; a field-by-field
 // diff shows only those three fields (in the snapshot and the executive report
 // that carries it). The PDFs and F14 are unchanged.
-const GOLDEN_F13 = "c0d9588af6bbcbeafe340655663c028525febd29e85ef4a43613bcb9f59118d3";
-const GOLDEN_F14 = "72312ba653dbae06ec51c8f638625bea74f6682ca8d3f45179e06046708ce389";
+// The 22 public-content remediation entries move only the frozen registry stamp
+// r74-c8030e1a -> r96-d432058a. Replacing that one snapshot field with the old
+// value reproduces both previous golden hashes exactly, including rendered PDFs.
+// Finding, score, coverage and all five SAN projection states remain unchanged.
+const GOLDEN_F13 = "ce5111b4987587e69954821bf6e82b64c98355f3b7cc0dcbeac457186cb22314";
+const GOLDEN_F14 = "0bc040bcc81dafb7ae9d983e5f0f9020dc0e106a387811d800f7fac36155f975";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

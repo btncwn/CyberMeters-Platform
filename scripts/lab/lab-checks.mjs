@@ -9,6 +9,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createLabWorld } from "./lab-world.mjs";
 import { runLabWorld } from "./lab-scan.mjs";
+import { CHECK_PACK_VERSION } from "../../workers/scan-api/src/engines/check-pack.js";
 import { DELTA_SCANS, deltaAt, ECHO_SCANS, echoAt, FOXTROT_SCANS, foxtrotAt, WORLDS } from "./worlds.mjs";
 
 const json = (value) => JSON.stringify(value);
@@ -119,13 +120,13 @@ export async function runLabChecks({ ok, root }) {
       blockedReport.monitoring_states.signals.registration_data?.optional === true,
     json({ open: openScan.incomplete_modules, blocked: blockedScan.incomplete_modules, registration: blockedReport.monitoring_states.signals.registration_data }));
   ok("lab alpha: the report states its check pack, and vulnerability matching as not part of it",
-    blockedReport.check_pack?.version === "2026.10.1" &&
+    blockedReport.check_pack?.version === CHECK_PACK_VERSION &&
       blockedReport.modules.cve_intelligence?.outcome === "not_in_check_pack" &&
       blockedReport.modules.known_exploited_vulnerabilities?.outcome === "not_in_check_pack" &&
       !("vulnerability_intelligence" in blockedReport.monitoring_states.signals),
     json({ check_pack: blockedReport.check_pack?.version, cve: blockedReport.modules.cve_intelligence?.outcome }));
   ok("lab alpha: every finding names the check and check-pack version that produced it",
-    blockedReport.findings.length > 0 && blockedReport.findings.every((finding) => finding.check?.version === "2026.10.1" && finding.check?.check_id),
+    blockedReport.findings.length > 0 && blockedReport.findings.every((finding) => finding.check?.version === CHECK_PACK_VERSION && finding.check?.check_id),
     json(blockedReport.findings.filter((finding) => !finding.check).map((finding) => finding.id)));
 
   // ── Evidence: why each name is listed, measured separately ──────────────────
@@ -144,7 +145,7 @@ export async function runLabChecks({ ok, root }) {
   ok("lab alpha evidence: an admin page names the protocol and port that answered and the finding's measurement",
     json(adminEvidence?.service?.attempts?.[0]) === json({ protocol: "https", port: 443, outcome: "responded", status: 200 }) &&
       adminEvidence.findings.length > 0 &&
-      adminEvidence.findings.every((finding) => finding.check_id && finding.check_version === "2026.10.1" && finding.measured?.kind !== "not_recorded"),
+      adminEvidence.findings.every((finding) => finding.check_id && finding.check_version === CHECK_PACK_VERSION && finding.measured?.kind !== "not_recorded"),
     json(adminEvidence));
   const v6Evidence = evidenceOf(alphaRun, host("v6only"));
   ok("lab alpha evidence: a name the certificate names is listed with that hint and its IPv6-only DNS answer",
