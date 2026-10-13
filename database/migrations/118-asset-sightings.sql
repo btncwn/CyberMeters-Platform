@@ -1,0 +1,31 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Migration 118: Attack Surface — where each asset was seen, per source
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+-- Additive only. One nullable JSON column on workspace_assets recording, for
+-- each place a scan saw the name (the site's certificate, a DNS record, a
+-- page, the customer's own list, a word list…), the first and last time and
+-- scan that saw it there:
+--
+--   {"version":"asset-sightings-v1","recorded_since":"…",
+--    "sources":{"tls_certificate_name":{"first_seen_at":"…","last_seen_at":"…",
+--                                       "first_scan_id":"…","last_scan_id":"…"}}}
+--
+-- Bounded: at most 32 sources per asset. Written only by the scan of the
+-- workspace that owns the row (engines/asset-inventory.js). Existing rows stay
+-- NULL — no sighting is invented for them; the first scan after this migration
+-- starts their record and the asset view says so ("recorded since").
+--
+-- The per-scan evidence (DNS per address family, which protocol and port
+-- answered, findings and their measurements, what was not checked) lives in
+-- the existing asset_lifecycle_observations.source_detail_json under
+-- "evidence"; it needs no schema change.
+--
+-- Rollback: leave the column; roll back application code (no reader/writer =
+-- inert). Purge: the column goes with its workspace_assets row.
+--
+-- Apply:
+--   wrangler d1 execute cybermeters-db --remote \
+--     --file=database/migrations/118-asset-sightings.sql
+
+ALTER TABLE workspace_assets ADD COLUMN sightings_json TEXT;

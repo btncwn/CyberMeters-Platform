@@ -71,9 +71,9 @@ const {
   SIGNAL_MONITORING_DEFINITIONS,
   SIGNAL_MONITORING_STATES,
   SIGNAL_MONITORING_WORDING,
-  deriveSignalMonitoringStates,
+  deriveSignalMonitoringStates, normalizeSignalMonitoringStates, requiredMonitoringSignals,
 } = stateModel;
-const { buildScanCompletionPresentation } = presentation;
+const { buildScanCompletionPresentation, resolveAssessmentPresentation } = presentation;
 
 let pass = 0;
 let fail = 0;
@@ -233,7 +233,7 @@ const allComplete = derive();
       entry.state === "monitoring_healthy"
     ));
   ok("canonical state output is versioned",
-    allComplete.version === "signal-monitoring-state-v2");
+    allComplete.version === "signal-monitoring-state-v3");
 }
 
 // A module that left no evidence is evidence-incomplete, never a false healthy.
@@ -301,11 +301,14 @@ const allComplete = derive();
     scanQuality: "complete",
     monitoringStates: unavailableRegistration,
   });
-  ok("signal-unavailable completion copy names the unavailable signal",
-    unavailable.message.includes("Domain-registration data was unavailable in this run."));
-  ok("signal-unavailable completion copy never reads healthy",
-    unavailable.disclosure != null &&
-      !unavailable.disclosure.includes("Domain-registration data checks completed normally"));
+  // Registration data is optional: a registry that did not answer is stated on
+  // its own signal and never caveats the scan's required checks.
+  eq("an unanswered registry leaves a complete scan's completion copy unqualified",
+    unavailable.message, "Score: 95 · excellent risk");
+  ok("an unanswered registry adds no completion disclosure and keeps the scan complete",
+    unavailable.disclosure == null && unavailable.complete === true);
+  ok("the registration signal still states its own unavailability",
+    unavailableRegistration.signals.registration_data.message === "Domain-registration data was unavailable in this run.");
 
   const partialSpecific = buildScanCompletionPresentation({
     domain: "example.com",
@@ -360,6 +363,45 @@ const allComplete = derive();
     2);
   ok("no migration 100 was created",
     !fs.existsSync(path.join(root, "database", "migrations", "100-signal-monitoring-state.sql")));
+}
+
+// ── v3: outside vulnerability data gone, registration data optional ────────
+{
+  ok("no signal reads outside vulnerability data (check-pack.js)",
+    !("vulnerability_intelligence" in SIGNAL_MONITORING_DEFINITIONS) &&
+      !("vulnerability_intelligence" in allComplete.signals));
+  ok("registration data is reported as optional, never required",
+    SIGNAL_MONITORING_DEFINITIONS.registration_data?.optional === true &&
+      allComplete.signals.registration_data?.optional === true &&
+      !requiredMonitoringSignals(allComplete).includes("registration_data"));
+}
+
+// A stored v2 payload is read against the signals it was recorded with, so a
+// historical scan whose vulnerability-intelligence evidence was incomplete
+// reads exactly as it did: required, and coverage-limiting.
+{
+  const legacy = {
+    version: "signal-monitoring-state-v2",
+    signals: Object.fromEntries([
+      "dns", "website_security", "email_protection", "attack_surface",
+      "technology_visibility", "vulnerability_intelligence", "registration_data",
+    ].map((signal) => [signal, {
+      state: signal === "vulnerability_intelligence" ? "evidence_incomplete" : "monitoring_healthy",
+      message: `${signal} message`,
+      evidence: { modules: [], incomplete_modules: [] },
+    }])),
+  };
+  const normalised = normalizeSignalMonitoringStates(legacy);
+  ok("a v2 payload keeps its vulnerability-intelligence signal",
+    normalised.signals.vulnerability_intelligence?.state === "evidence_incomplete");
+  ok("a v2 payload keeps every signal required, registration data included",
+    requiredMonitoringSignals(legacy).includes("vulnerability_intelligence") &&
+      requiredMonitoringSignals(legacy).includes("registration_data"));
+  const legacyAssessment = resolveAssessmentPresentation({
+    score: 90, scanQuality: "complete", status: "completed", monitoringStates: legacy,
+  });
+  ok("a v2 scan with incomplete vulnerability evidence stays coverage-limited",
+    legacyAssessment.provisional === true && legacyAssessment.authoritative === false);
 }
 
 // Each named mutation must make the same behavioural contract red.

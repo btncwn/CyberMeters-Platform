@@ -13,7 +13,6 @@ import { classifyCspPolicy, classifyHeaderStrength } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
 import { SECURITY_HEADERS } from "./security-headers-config.js";
 import { resolveRemediation } from "./remediation-registry.js";
-import { maySupportDefectConclusion } from "../lib/serviceability.js";
 import {
   isHttpRedirectPositivelyAbsent,
   resolveTlsRuntimeState,
@@ -1240,86 +1239,6 @@ export function resolveCanonicalScanScore(storedScore, reportScore) {
   return Number.isFinite(reportValue) ? reportValue : 0;
 }
 
-// AS-B2 canonical Stage-1 policy. A CISA KEV catalogue keyword match does NOT
-// prove the deployed version is vulnerable. It is therefore a bounded medium
-// risk signal, and only when the matched technology fingerprint came from a
-// canonically serviceable origin response. Plain, version-blind CVE matches are
-// informational and score-neutral. One technology is charged once even when
-// several KEV rows match it; the total is capped at two technologies.
-export const KEV_CVE_SCORE_WEIGHTS = Object.freeze({
-  kev_per_technology: -5,
-  kev_total_cap:      -10,
-  cve_critical:        0,
-  cve_high:            0,
-});
-
-// Canonical KEV/CVE deduction for the customer Cyber Metrics Score. Single source of
-// truth (consumed by resolvePhase5CustomerAssessment, which owns the customer score
-// post-phase5; the asset-intel display notes read the per-note magnitude it stamps).
-// Evidence-floor discipline (P1 class):
-//   • gated by the phase5 publishable contract — an unexecuted/incomplete KEV or CVE
-//     module contributes NOTHING (no impact, never a guessed deduction);
-//   • impact applies ONLY to matched evidence (KEV matches present; CVE critical/high
-//     counts > 0). Unmeasured technologies (partial coverage) never add impact — the
-//     weight is per matched-severity, not scaled by unmeasured breadth.
-export function computeKevCveDeduction({ modules = {}, evidence = {} } = {}) {
-  // Defense-in-depth evidence-floor: no deduction unless the WHOLE phase5 evidence
-  // contract is complete. A score is a conclusion over a completed assessment; an
-  // incomplete scan never earns a KEV/CVE deduction, whatever a single surface says.
-  const neutral = { total: 0, kev: 0, cve: 0, scored_matches: [], matched_technologies: [] };
-  if (evidence?.complete !== true) return neutral;
-  const publishable = evidence?.publishable || {};
-  const technology = modules?.technology_detection || {};
-  if (publishable.kev !== true ||
-      !maySupportDefectConclusion(technology.serviceability_contract)) return neutral;
-
-  const fingerprints = new Map(
-    (Array.isArray(technology.technology_fingerprints) ? technology.technology_fingerprints : [])
-      .filter((row) => row?.technology)
-      .map((row) => [String(row.technology).toLowerCase(), row]),
-  );
-  const byTechnology = new Map();
-  for (const match of (modules?.known_exploited_vulnerabilities?.matches || [])) {
-    const key = String(match?.matched_technology || "").toLowerCase();
-    const fingerprint = fingerprints.get(key);
-    if (!key || !fingerprint || byTechnology.has(key)) continue;
-    byTechnology.set(key, {
-      cve_id: match.cve_id || null,
-      matched_technology: fingerprint.technology,
-      fingerprint_source: fingerprint.source || match.fingerprint_source || null,
-      fingerprint_confidence: Number.isFinite(Number(fingerprint.confidence))
-        ? Number(fingerprint.confidence) : null,
-      version_confirmed: false,
-    });
-  }
-  const scoredMatches = [...byTechnology.values()].slice(0, 2);
-  const kev = Math.max(
-    KEV_CVE_SCORE_WEIGHTS.kev_total_cap,
-    scoredMatches.length * KEV_CVE_SCORE_WEIGHTS.kev_per_technology,
-  );
-  return {
-    total: kev,
-    kev,
-    cve: 0,
-    scored_matches: scoredMatches,
-    matched_technologies: scoredMatches.map((row) => row.matched_technology),
-  };
-}
-
-// Canonical customer-score adjustment for KEV/CVE evidence. This is the SINGLE owner
-// of the score arithmetic AND the band mapping — the clamp [0,100] and the risk-band
-// derivation both live here, next to CYBER_METRICS_SCORE_BANDS, so no consumer restates
-// a threshold or re-derives a display band outside this engine (M5.e single-owner law).
-// Callers pass the raw phase5 score + modules/evidence and receive the adjusted score,
-// its canonical band, and the per-severity deduction for honest display stamping.
-export function applyKevCveDeduction({ score, modules = {}, evidence = {} } = {}) {
-  const deduction = computeKevCveDeduction({ modules, evidence });
-  // Fail closed: a non-finite score publishes nothing rather than a NaN band.
-  if (!Number.isFinite(score)) return { score: null, riskLevel: null, deduction };
-  const adjustedScore = Math.max(0, Math.min(100, score + deduction.total));
-  return { score: adjustedScore, riskLevel: riskLevelForScore(adjustedScore), deduction };
-}
-
 // Methodology stamp for the Cyber Metrics Score (M5.c). The value dates the CURRENT
 // deduction weights + band cutoffs; bump it whenever either changes, so a persisted
 // snapshot can refuse to present a methodology change as posture movement
@@ -1334,7 +1253,12 @@ export function applyKevCveDeduction({ score, modules = {}, evidence = {} } = {}
 // serviceability-confirmed technology, capped at -10; version-blind CVE matches
 // are informational. The new stamp prevents historical policy changes from
 // being presented as posture movement.
-export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-08-26.1";
+// 2026-10-13.1 — outside vulnerability data is no longer part of a scan
+// (check-pack.js): reported software is not matched against vulnerability
+// databases or exploited-vulnerability catalogues, so no such match can move
+// the score. Scores persisted under earlier stamps keep the deduction they
+// were finalised with; read-time projection never recomputes it.
+export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-10-13.1";
 
 // The modules whose findings move computeScore(). If any of these was skipped or
 // never ran, the customer score is a conclusion over an incomplete assessment and

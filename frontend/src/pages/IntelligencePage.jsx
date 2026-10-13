@@ -7,6 +7,7 @@ import { api } from '../api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import {
+  isNotInCheckPack,
   isPhase5EvidenceAvailable,
   phase5KnownCount,
 } from '../lib/phase5EvidencePresentation'
@@ -263,19 +264,21 @@ function SummaryBar({ assessment, domain, emailIntel, remPlan, kev, cve }) {
       sub:     'Immediate',
       color:   p1Count == null ? '#9CA3AF' : (p1Count > 0 ? '#DC2626' : '#00876A'),
     },
-    {
+    // A scan whose check pack does not use outside vulnerability data has no
+    // CVE / KEV figure to show; the tile appears only for scans that did.
+    ...(isNotInCheckPack(cve) ? [] : [{
       label:   'CVE / KEV',
       value:   cveTotal == null ? '—' : String(cveTotal),
       sub:     kevCount == null ? 'Assessment incomplete' : (kevCount > 0 ? `+${kevCount} in CISA KEV` : 'High+ severity'),
       color:   cveTotal == null ? '#9CA3AF' : (cveTotal > 0 ? (cveCrit > 0 ? '#DC2626' : '#EA580C') : '#00876A'),
       kevBadge: kevCount > 0,
       kevCount,
-    },
+    }]),
   ]
 
   return (
     <div className="card-md overflow-hidden">
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px bg-gray-100">
+      <div className={`grid grid-cols-2 sm:grid-cols-3 ${stats.length === 6 ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-px bg-gray-100`}>
         {stats.map((s, i) => (
           <div key={i} className="bg-white flex flex-col items-center justify-center py-5 px-3 gap-1 text-center">
             <span className="label text-[12px] text-gray-400">{s.label}</span>
@@ -942,7 +945,43 @@ function TechDetectionSection({ tech }) {
 
 // ── Section: CVE Intelligence ─────────────────────────────────────────────────
 
-function CveIntelSection({ cve, assessmentMessage = null }) {
+// Shown for scans whose check pack does not use outside vulnerability data.
+// Every statement comes from the backend (the module results and the report's
+// check pack); nothing here is derived.
+function OutsideVulnerabilityDataNote({ cve, kev, checkPack = null }) {
+  const statements = [cve?.customer_message, kev?.customer_message].filter(Boolean)
+  const services = Array.isArray(checkPack?.outside_sources)
+    ? checkPack.outside_sources.filter((source) => source?.what)
+    : []
+  return (
+    <div className="card overflow-hidden">
+      <SectionHeader title="Outside vulnerability data" />
+      <div className="px-5 py-4 space-y-2">
+        {statements.map((statement) => (
+          <p key={statement} className="text-[13px] text-gray-600 leading-relaxed">{statement}</p>
+        ))}
+        {services.length > 0 && (
+          <div className="pt-1">
+            <p className="text-[13px] font-semibold text-gray-700">Services outside your domain this scan asked</p>
+            <ul className="mt-1 space-y-1">
+              {services.map((source) => (
+                <li key={source.id} className="text-[13px] text-gray-600 leading-relaxed">
+                  {source.what} <span className="text-gray-400">({source.required ? 'required' : 'optional'})</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {cve?.check_pack_version && (
+          <p className="text-[12px] text-gray-400">Check version {cve.check_pack_version}</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CveIntelSection({ cve, kev = null, checkPack = null, assessmentMessage = null }) {
+  if (isNotInCheckPack(cve)) return <OutsideVulnerabilityDataNote cve={cve} kev={kev} checkPack={checkPack} />
   if (!cve || cve.error || !isPhase5EvidenceAvailable(cve)) {
     return (
       <div className="card overflow-hidden">
@@ -1043,6 +1082,8 @@ function CveIntelSection({ cve, assessmentMessage = null }) {
 // ── Section: Known Exploited Vulnerabilities (CISA KEV) ──────────────────────
 
 function KevSection({ kev, assessmentMessage = null }) {
+  // Stated together with the CVE note; no separate card.
+  if (isNotInCheckPack(kev)) return null
   if (!kev || kev.error || !isPhase5EvidenceAvailable(kev)) {
     return (
       <div className="card overflow-hidden">
@@ -1311,6 +1352,8 @@ export default function IntelligencePage() {
               />
               <CveIntelSection
                 cve={modules.cve_intelligence}
+                kev={modules.known_exploited_vulnerabilities}
+                checkPack={report.check_pack}
                 assessmentMessage={report.assessment?.message}
               />
             </div>

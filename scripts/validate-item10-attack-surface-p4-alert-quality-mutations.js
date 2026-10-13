@@ -41,15 +41,15 @@ const EXPECTED_MUTANT_IDENTITIES = Object.freeze([
   "canonical ordering drops bytewise scan_id tie-break",
   "withheld alert records no reason",
   "migration-102 absence globally silences mapped alerts",
+  "inventory changes notify on their own",
 ]);
-const EXPECTED_MUTANT_COUNT = 6;
-const EXPECTED_VALIDATOR_ASSERTIONS = 46;
+const EXPECTED_MUTANT_COUNT = 7;
+const EXPECTED_VALIDATOR_ASSERTIONS = 60;
 const EXPECTED_FAILURES = Object.freeze({
   "count-only eligibility re-alerts the 15 Jul replay": [
     "bytewise scan_id tie keeps the producer-faithful P4 reappearance eligible",
     "14 Jul discovery outage cannot alert a removal claim",
     "14 Jul removal has a declared reason",
-    "14 Jul removal produces no alert-worthy eligible count",
     "15 Jul recovery cannot alert reappearance after unconfirmed disappearance",
     "15 Jul reappearance has a declared reason",
     "15 Jul replay produces no alert-worthy eligible count",
@@ -60,6 +60,7 @@ const EXPECTED_FAILURES = Object.freeze({
     "withheld record is bounded and machine-inspectable",
     "withheld-only row records the frozen aggregate reason",
     "withheld reason remains inspectable in existing event_counts JSON",
+    "full delivery trace remains bounded across initial, replay and withheld scans",
   ],
   "blanket scan-level gate kills healthy siblings": [
     "discovery-unavailable sibling does not suppress admin/takeover claims",
@@ -84,6 +85,11 @@ const EXPECTED_FAILURES = Object.freeze({
     "absent-model fallback is explicitly labelled",
     "absent migration still routes independent admin event to canonical delivery",
     "entitlement suppression proves delivery gate was reached",
+  ],
+  "inventory changes notify on their own": [
+    "genuine confirmed removal is eligible but not a notification on its own",
+    "a new name alone is an inventory change, never a notification",
+    "a renewed certificate alone is never a notification",
   ],
 });
 
@@ -248,6 +254,7 @@ runMutant("withheld alert records no reason", {
             workspace_id,
             scanId,
             eligibility,
+            eligibility.eligible_events.length > 0 ? ASSET_ALERT_INVENTORY_ONLY_REASON : ASSET_ALERT_WITHHELD_REASON,
           );`,
     "          await Promise.resolve();",
     "withheld decision recording",
@@ -266,6 +273,15 @@ runMutant("migration-102 absence globally silences mapped alerts", {
       reason_code: "withheld_signal_not_supported",
     };`,
     "absent-model event fallback",
+  ),
+});
+
+runMutant("inventory changes notify on their own", {
+  mutateAlerts: (source) => mutateRequired(
+    source,
+    "  return [...ASSET_NOTABLE_EVENTS].some((eventType) => (counts?.[eventType] || 0) > 0);",
+    "  return [...ASSET_NOTABLE_EVENTS, ...ASSET_INVENTORY_EVENTS].some((eventType) => (counts?.[eventType] || 0) > 0);",
+    "inventory changes notify",
   ),
 });
 

@@ -1278,6 +1278,7 @@ const METHODOLOGY_LABELS = Object.freeze({
   ce_question_set_version: "Cyber Essentials current question set",
   remediation_registry_fingerprint: "Canonical remediation registry fingerprint",
   ce_question_set_versions: "Cyber Essentials answered question set versions",
+  check_pack_version: "Check pack",
 });
 
 function methodologyLabel(key) {

@@ -1,8 +1,7 @@
 // ── Attack surface routes ──
-// Workspace asset inventory (list/events/summary/timeline/detail), alert
-// feed/summary, security-posture (+timeline) and vendor intelligence
-// endpoints. Extracted near-verbatim from index.js (router split, Phase 2
-// PR #16). Receives the per-request routeCtx from index.js; returns a
+// Workspace asset inventory (list/events/summary/timeline/detail with per-asset
+// evidence), alert feed/summary, security-posture (+timeline) and vendor
+// intelligence endpoints, split from index.js (Phase 2 PR #16). Returns a
 // Response when a route matches, or null so the main router continues.
 import { buildCaConcentrationAnalytics, buildCertificateLifecycleIntelligence, detectSelfSignedCertificate, mapCertificateAuthorityOwner, normalizeCertificateIssuer } from "../engines/cert-analysis.js";
 import { buildCertificateTrustL2 } from "../engines/cert-trust-l2.js";
@@ -30,6 +29,7 @@ import {
   projectLifecycleCollectionForCustomer,
   summariseLifecycleClaimProjection,
 } from "../engines/asset-lifecycle-event-support.js";
+import { loadAssetEvidence } from "../engines/asset-evidence.js";
 
 // Projection is assembled before customer-facing collapse. Legacy counters are
 // copied unchanged; unsupported/uncertain projected lifecycle rows contribute
@@ -920,10 +920,7 @@ export async function attackSurfaceRoutes(rctx) {
       {
         const assetId = sub.slice(1);   // strip leading "/"
         try {
-          const assetResult = await loadAssetPresentationRows(env, wsId, {
-            assetId,
-            limit: 1,
-          });
+          const assetResult = await loadAssetPresentationRows(env, wsId, { assetId, limit: 1 });
           const asset = assetResult.rows[0] || null;
           if (!asset) return json({ error: "Asset not found" }, 404);
 
@@ -955,6 +952,9 @@ export async function attackSurfaceRoutes(rctx) {
               ...asset,
               attack_surface_assurance: attackSurfaceAssurance,
             },
+            // Why the name is listed and what was measured for it, from this
+            // workspace's own scans only (engines/asset-evidence.js).
+            evidence: await loadAssetEvidence(env, wsId, asset),
             events: projected.events,
             lifecycle_claim_projection: projected.summary,
             attack_surface_assurance: attackSurfaceAssurance,

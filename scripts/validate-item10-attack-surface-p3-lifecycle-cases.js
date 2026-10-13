@@ -329,6 +329,7 @@ async function persist(scanId, observedAt, rows) {
     scanId,
     domainId: "dom",
     domain,
+    workspaceId: "ws",
     signalCompleteness: signalCompleteness(),
     assetExposure: { removal_observations: rows },
     observedAt,

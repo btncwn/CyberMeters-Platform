@@ -40,7 +40,7 @@ import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, buildDkimDetail, buildDmarcPolicy
 import { runEmailModule } from "./engines/email-scan.js";
 import { runTechModule } from "./engines/tech-scan.js";
 import { runWhoisModule } from "./engines/whois-scan.js";
-import { runCveModule, runKevModule } from "./engines/vuln-intel.js";
+// Outside vulnerability data is not part of a scan (engines/check-pack.js).
 import { runTakeoverModule } from "./engines/takeover-scan.js";
 import { filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./engines/subdomains-scan.js";
 import { hostnameFromValue, runCloudStorageModule } from "./engines/cloud-storage-scan.js";

@@ -63,7 +63,7 @@ import {
 } from "./dmarc-state.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
-export const SNAPSHOT_BUILDER_VERSION = "2026-10-12.1";
+export const SNAPSHOT_BUILDER_VERSION = "2026-10-13.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
 
@@ -973,6 +973,7 @@ export function composeSnapshot({
   const attackSurfaceAssurance = buildAttackSurfaceCustomerPresentation({
     signalCompleteness:
       report?.modules?.attack_surface_signal_completeness ?? null,
+    recordedBeforeCheckPack: !report?.check_pack,
     lifecycleRecords: reconstruction
       ? null
       : attackSurfaceLifecycleRecords,
@@ -1012,6 +1013,8 @@ export function composeSnapshot({
       ce_question_set_version: CE_QUESTION_SET_VERSION,
       remediation_registry_fingerprint: remediationRegistryFingerprint(),
       ce_question_set_versions: questionSetVersions ?? [],
+      // The check pack the scan itself recorded; null for scans that predate it.
+      check_pack_version: report?.check_pack?.version ?? null,
     },
     overall: {
       // The ONLY customer-facing numeric called "score" (one-score rule).

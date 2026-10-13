@@ -11,6 +11,7 @@ import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import OwnerPicker from '../../components/OwnerPicker'
+import CaseGuidance from '../../components/CaseGuidance'
 import {
   phaseMeta, phaseClass, domainKeyLabel,
   ATTESTED_LABEL, EXTERNAL_EVIDENCE_LABEL,
@@ -357,6 +358,10 @@ export default function WorkspaceCaseDetailPage() {
               )}
             </dl>
           </div>
+
+          {/* ── What to do, how the fix is checked, last re-check, closure ─ */}
+          {/* Backend-owned (engines/case-guidance.js), rendered verbatim. */}
+          <CaseGuidance guidance={c.guidance} />
 
           {c.verification_support === 'automated' && c.domain && (
             <div className="flex flex-wrap items-center gap-3">

@@ -384,11 +384,14 @@ const lastD1Status = (env) => { const w = env._d1[env._d1.length - 1]; return w 
     eq(`${executionContext}: 115s leaves zero executable budget`, dl.remainingMs(), 0);
     eq(`${executionContext}: reserve remains available at executable cutoff`, dl.totalRemainingMs(), 5_000);
   }
-  eq("durable CVE cap covers three 10s leaves plus pacing", SCAN_DURABLE_PHASE5_MODULE_BUDGETS.cve_intelligence, 32_000);
-  eq("durable KEV cap covers its 10s effective HTTP leaf", SCAN_DURABLE_PHASE5_MODULE_BUDGETS.known_exploited_vulnerabilities, 12_000);
+  // Phase 5 runs one module: outside vulnerability data is not part of the
+  // check pack, so no durable cap exists for it.
+  ok("no durable cap exists for outside vulnerability-data modules",
+    !Object.hasOwn(SCAN_DURABLE_PHASE5_MODULE_BUDGETS, "cve_intelligence") &&
+      !Object.hasOwn(SCAN_DURABLE_PHASE5_MODULE_BUDGETS, "known_exploited_vulnerabilities"));
   eq("durable Email Intelligence cap covers 10s/6s parallel leaves", SCAN_DURABLE_PHASE5_MODULE_BUDGETS.email_security_intelligence, 12_000);
-  eq("durable Phase-5 launch estimate is max, not sum",
-    Math.max(...Object.values(SCAN_DURABLE_PHASE5_MODULE_BUDGETS)), 32_000);
+  eq("durable Phase-5 launch estimate is the Email Intelligence cap",
+    Math.max(...Object.values(SCAN_DURABLE_PHASE5_MODULE_BUDGETS)), 12_000);
   ok("durable Phase-5 max leaves global finalization headroom",
     Math.max(...Object.values(SCAN_DURABLE_PHASE5_MODULE_BUDGETS))
       < SCAN_DURABLE_INVOCATION_DEADLINE_DEFAULTS.budgetMs);
@@ -1427,14 +1430,13 @@ await withEngineFetchFixture(async (fetchCount) => {
   ok("engine uses a capped-module runner for network phases", /runCappedModule/.test(src));
   ok("legacy phase5 remains bounded by the 1s shared cap",
     /hardMs: SCAN_MODULE_BUDGETS\.phase5_intelligence/.test(src));
-  ok("queue/cron Phase-5 launch admission uses max durable cap, not sum",
-    /Math\.max\(\.\.\.Object\.values\(SCAN_DURABLE_PHASE5_MODULE_BUDGETS\)\)/.test(src));
-  ok("queue/cron Phase-5 runs three independently capped modules",
-    (src.match(/runCappedModule\("(?:cve_intelligence|known_exploited_vulnerabilities|email_security_intelligence)"/g) || []).length === 3);
-  ok("each durable Phase-5 result is recorded independently",
-    /recordDurablePhase5\("cve_intelligence", cveRun\)/.test(src)
-      && /recordDurablePhase5\("known_exploited_vulnerabilities", kevRun\)/.test(src)
-      && /recordDurablePhase5\("email_security_intelligence", emailIntelRun\)/.test(src));
+  ok("queue/cron Phase-5 launch admission uses the durable Email Intelligence cap",
+    /\? SCAN_DURABLE_PHASE5_MODULE_BUDGETS\.email_security_intelligence\s*: SCAN_MODULE_BUDGETS\.phase5_intelligence;/.test(src));
+  ok("queue/cron Phase-5 runs one capped module and launches nothing for outside data",
+    (src.match(/runCappedModule\("(?:cve_intelligence|known_exploited_vulnerabilities|email_security_intelligence)"/g) || []).length === 1 &&
+      /runCappedModule\("email_security_intelligence"/.test(src));
+  ok("the durable Phase-5 result is recorded with its own measured duration",
+    /telemetry\.record\("email_security_intelligence", \{[\s\S]{0,200}duration_ms: emailIntelRun\.durationMs,/.test(src));
   ok("default Queue/Cron arms the whole-invocation watchdog at engine entry",
     durableArmIndex > deadlineIndex && durableArmIndex < initialD1Index);
   ok("legacy reserved mode still owns its explicit watchdog without double-arming durable runs",

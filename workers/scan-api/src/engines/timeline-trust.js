@@ -83,7 +83,7 @@ export function assessTimelineComparison({ currentReport, previousReport, curren
   if (!previousScan || !previousReport) {
     return comparison(
       TIMELINE_COMPARISON_STATUS.INSUFFICIENT_HISTORY,
-      "No previous report with producer provenance exists for this domain.",
+      "No previous report with producer provenance exists for this domain in this workspace.",
       { current_scan_quality: currentQuality ?? null, previous_scan_quality: previousQuality ?? null }
     );
   }
@@ -122,13 +122,20 @@ export function assessTimelineComparison({ currentReport, previousReport, curren
   );
 }
 
+// The baseline is the same workspace's last complete scan of the domain.
+// Every workspace keeps its own inventory, so another workspace's scan of the
+// same domain is never a baseline: a workspace's first complete scan of a
+// domain is its starting inventory, not a burst of changes. A partial scan in
+// between is skipped, never used: its missing answers cannot anchor a change,
+// and a change that appears right after it is still compared with the last
+// full observation instead of being absorbed unannounced.
 export async function loadTimelineComparisonContext(env, { scanId, domainId, currentReport } = {}) {
   if (!env?.cybermeters_db || !scanId || !domainId) {
     return comparison(TIMELINE_COMPARISON_STATUS.UNAVAILABLE, "Timeline comparison inputs are incomplete.");
   }
 
   const currentScan = await env.cybermeters_db
-    .prepare("SELECT id, scan_quality, created_at FROM scans WHERE id = ?")
+    .prepare("SELECT id, workspace_id, scan_quality, created_at FROM scans WHERE id = ?")
     .bind(scanId)
     .first()
     .catch(() => null);
@@ -138,16 +145,16 @@ export async function loadTimelineComparisonContext(env, { scanId, domainId, cur
 
   const previousScan = await env.cybermeters_db
     .prepare(
-      `SELECT id, scan_quality, created_at FROM scans
-       WHERE domain_id = ? AND status = 'completed' AND id != ?
-         AND (created_at < ? OR ? IS NULL)
+      `SELECT id, workspace_id, scan_quality, created_at FROM scans
+       WHERE domain_id = ? AND workspace_id IS ? AND status = 'completed' AND scan_quality = 'complete'
+         AND id != ? AND (created_at < ? OR ? IS NULL)
        ORDER BY created_at DESC, id DESC LIMIT 1`
     )
-    .bind(domainId, scanId, currentScan.created_at ?? null, currentScan.created_at ?? null)
+    .bind(domainId, currentScan.workspace_id ?? null, scanId, currentScan.created_at ?? null, currentScan.created_at ?? null)
     .first()
     .catch(() => null);
   if (!previousScan?.id) {
-    return comparison(TIMELINE_COMPARISON_STATUS.INSUFFICIENT_HISTORY, "Only one completed scan exists for this domain.", { currentScan });
+    return comparison(TIMELINE_COMPARISON_STATUS.INSUFFICIENT_HISTORY, "This is the workspace's first complete scan of this domain; it is the starting inventory.", { currentScan });
   }
 
   const previousReport = await env.cybermeters_reports

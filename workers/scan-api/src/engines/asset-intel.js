@@ -12,9 +12,9 @@ import {
   PHASE5_INCOMPLETE_REASON,
   resolvePhase5EvidenceContract,
 } from "./phase5-evidence.js";
-import { isPublishableModuleEvidence } from "./scan-budget.js";
 import { coverageStateFromTruncation } from "./bounded-coverage.js";
 import { DNS_NAME_WITHOUT_ADDRESS } from "./attack-surface-signal-completeness.js";
+import { exposureDnsEvidence } from "./dns-family-evidence.js";
 
 // ── Module 7: Asset Exposure Engine ──────────────────────────────────────────
 
@@ -186,6 +186,12 @@ export async function probeAsset(host, opts = {}) {
   let budgetExhausted = false;   // a probe attempt was starved, not genuinely failed
   let dnsUnavailable = false;   // DNS preflight never established a safe target
   let timedOut = false;          // the probe started but never got an answer (not assessed)
+  // What each protocol attempt did, in order: the protocol and port asked,
+  // and whether it answered (and where the answer finally came from) or why
+  // not. No URL path, query or body is kept here.
+  const attempts = [];
+  const attempt = (proto, outcome, extra = {}) =>
+    attempts.push({ protocol: proto, port: proto === "https" ? 443 : 80, outcome, ...extra });
   for (const proto of ["https", "http"]) {
     const url = `${proto}://${host}`;
     let res = null;
@@ -200,16 +206,18 @@ export async function probeAsset(host, opts = {}) {
       else if (err?.code === "dns_resolution_unavailable") dnsUnavailable = true;
       else if (err?.code === "dns_no_address") {
         if (proto === "https" && err.dns_stage === "initial" && err.dns_evidence?.host === normalizeHostname(host)) {
+          attempt(proto, "no_address");
           return { host, url, status: null, reachable: null,
             probe_status: "not_applicable", reason: "authoritative_no_address", http_assessed: false,
-            dns_evidence: err.dns_evidence, title: null, server: null, content_type: null, tech: [] };
+            dns_evidence: err.dns_evidence, title: null, server: null, content_type: null, tech: [], attempts };
         }
         dnsUnavailable = true; // earlier HTTP attempts or redirect absence are not N/A
       }
+      attempt(proto, probeFailureOutcome(err));
       continue;
     }
     // A known blocked target returns null in both default and reserved probers.
-    if (!res) continue;
+    if (!res) { attempt(proto, "blocked"); continue; }
 
     const status      = res.status;
     const reachable   = status < 500;
@@ -238,11 +246,18 @@ export async function probeAsset(host, opts = {}) {
       void res.body?.cancel().catch(() => {});
     }
 
+    const ended = probeEndpoint(res.url);
+    attempt(proto, "responded", {
+      status,
+      ...(ended && (ended.host !== normalizeHostname(host) || ended.protocol !== proto || ended.port !== (proto === "https" ? 443 : 80))
+        ? { ended_at: ended } : {}),
+    });
     return {
       host,
       url:          res.url || url,
       status,
       reachable,
+      attempts,
       // A 5xx means the host answered but with a server error — it EXISTS and serves,
       // but we could not content-assess it (an admin panel could sit behind the error).
       // Per the contract "HTTP 5xx must not confirm absence or health": mark it so the
@@ -288,6 +303,7 @@ export async function probeAsset(host, opts = {}) {
       server:       null,
       content_type: null,
       tech:         [],
+      attempts,
     };
   }
 
@@ -306,6 +322,7 @@ export async function probeAsset(host, opts = {}) {
       server:       null,
       content_type: null,
       tech:         [],
+      attempts,
     };
   }
 
@@ -320,7 +337,33 @@ export async function probeAsset(host, opts = {}) {
     server:       null,
     content_type: null,
     tech:         [],
+    attempts,
   };
+}
+
+// Why one protocol attempt got no answer, in the evidence vocabulary.
+function probeFailureOutcome(err) {
+  if (isSubrequestBudgetError(err)) return "not_run_budget";
+  if (isProbeTimeout(err)) return "timeout";
+  if (err?.code === "dns_resolution_unavailable") return "dns_unavailable";
+  if (err?.code === "dns_no_address") return err.dns_stage === "initial" ? "dns_unavailable" : "redirect_unresolved";
+  return "connection_failed";
+}
+
+// Where a web answer finally came from: protocol, host and port only.
+function probeEndpoint(value) {
+  try {
+    const parsed = new URL(String(value || ""));
+    const protocol = parsed.protocol.replace(":", "");
+    if (protocol !== "https" && protocol !== "http") return null;
+    return {
+      protocol,
+      host: normalizeHostname(parsed.hostname),
+      port: parsed.port ? Number(parsed.port) : protocol === "https" ? 443 : 80,
+    };
+  } catch {
+    return null;
+  }
 }
 
 const PROVIDER_INFRASTRUCTURE_PATTERNS = [
@@ -658,6 +701,8 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
           dns_resolution: dnsRemovalSignal([a, aaaa]),
           http_https_service: httpRemovalSignal(asset),
         },
+        // The same answers per address family, for the asset's evidence.
+        dns: exposureDnsEvidence(host, a, aaaa),
         // Discovery may select a target, but it is deliberately not an active
         // confirmation source and is never recorded in this list.
         active_sources: ["dns_resolution", "http_https_service"],
@@ -946,7 +991,6 @@ export function runAdminSurfaceModule(modules) {
 // ── Intelligence Module: Risk Engine ─────────────────────────────────────────
 // Ported from risk_engine.py — maps findings to business risk categories with
 // improved business-impact language.  Pure computation, no I/O.
-// Adds a KEV business-impact summary when kev matches are present.
 
 /** Per-finding business-impact annotations keyed by finding id */
 const RISK_CATEGORY_MAP = {
@@ -965,8 +1009,8 @@ const RISK_CATEGORY_MAP = {
   "email_weak_dmarc":                   { category: "Brand Risk",      impact: "DMARC monitoring provides visibility, but receivers are not instructed to quarantine or reject alignment failures." },
   "email_no_dkim":                      { category: "Brand Risk",      impact: "DKIM could not be verified using common selectors; a signed email sample or known selector is needed for confirmation." },
   "subdomain_takeover_risk":            { category: "Data Security",   impact: "Attackers can claim unclaimed DNS targets and serve malicious content or phishing pages under your trusted domain, bypassing browser security controls." },
-  "tech_xpoweredby_version_disclosure": { category: "Reconnaissance",  impact: "Version disclosure accelerates targeted exploitation by eliminating attacker reconnaissance time for known CVEs." },
-  "tech_server_version_disclosure":     { category: "Reconnaissance",  impact: "Exposed server version enables immediate targeting of known CVEs specific to your software revision." },
+  "tech_xpoweredby_version_disclosure": { category: "Reconnaissance",  impact: "A published version number lets anyone look up the vulnerabilities announced for that release. The number is what the server says; it is not a confirmed vulnerability." },
+  "tech_server_version_disclosure":     { category: "Reconnaissance",  impact: "A published server version lets anyone look up the vulnerabilities announced for that release. The number is what the server says; it is not a confirmed vulnerability." },
 };
 
 /** Default business impact narratives by severity when no specific mapping exists */
@@ -1013,150 +1057,13 @@ export function runRiskModule(findings, modules) {
     categories[category].push(enriched);
   }
 
-  // AS-B2 canonical customer finding. Only the exact technology matches that
-  // the single score owner charged are published here; raw catalogue breadth
-  // and version-blind CVE rows never masquerade as deployed vulnerabilities.
-  const kevMatches = phase5Evidence.publishable.kev
-    ? (modules.known_exploited_vulnerabilities?.matches || [])
-    : [];
-  const appliedKevEvidence = Array.isArray(
-    modules.known_exploited_vulnerabilities?.score_evidence_applied,
-  ) ? modules.known_exploited_vulnerabilities.score_evidence_applied : [];
-  if (kevMatches.length > 0 && appliedKevEvidence.length > 0) {
-    const technologies = appliedKevEvidence.map((row) => row.matched_technology);
-    const cveIds = appliedKevEvidence.map((row) => row.cve_id).filter(Boolean);
-    const appliedImpact = modules.known_exploited_vulnerabilities?.score_impact_applied ?? 0;
-    const confidenceValues = appliedKevEvidence
-      .map((row) => Number(row.fingerprint_confidence)).filter(Number.isFinite);
-    const confidence = confidenceValues.length ? Math.min(...confidenceValues) : null;
-    const kevNote = {
-      id:             "kev_active_exploitation",
-      module:         "known_exploited_vulnerabilities",
-      finding_type:   "finding",
-      severity:       "medium",
-      confidence:     Number.isFinite(confidence) ? confidence : null,
-      title:          "Detected technology has known-exploited vulnerabilities (version unconfirmed)",
-      description:    `CISA KEV catalogue entries matched the serviceability-confirmed technology fingerprint${technologies.length === 1 ? "" : "s"} ${technologies.join(", ")}. Matched KEV identifier${cveIds.length === 1 ? "" : "s"}: ${cveIds.join(", ") || "not supplied"}. The deployed product version was not confirmed, so this is a bounded technology-level risk signal, not proof that the deployed version is vulnerable.`,
-      business_impact:"A technology fingerprint overlaps the CISA Known Exploited Vulnerabilities catalogue. Confirm the deployed version and apply vendor remediation where applicable.",
-      risk_category:  "Data Security",
-      // Display-only mirror of the single score owner; this finding is appended
-      // after scoring and is never re-summed.
-      score_impact:   appliedImpact,
-      matched_technologies: technologies,
-      matched_cve_ids: cveIds,
-      version_confirmed: false,
-      evidence: appliedKevEvidence.map((row) => ({
-        type: "technology_kev_correlation",
-        label: row.matched_technology,
-        value: row.cve_id,
-        source: `http_fingerprint:${row.fingerprint_source || "unknown"}+cisa_kev`,
-        expected_value: "No serviceability-confirmed technology/KEV catalogue correlation",
-        fingerprint_confidence: row.fingerprint_confidence,
-        version_confirmed: false,
-      })),
-    };
-    enrichedFindings.unshift(kevNote);
-    customerFindings.unshift(kevNote);
-    categories["Data Security"].unshift(kevNote);
-    mediumCount++;
-  }
-
-  // CVE intelligence summary
-  const cveIntel = phase5Evidence.publishable.cve
-    ? (modules.cve_intelligence || {})
-    : {};
-  if ((cveIntel.critical_count || 0) > 0 || (cveIntel.high_count || 0) > 0) {
-    const unavailableTechnologies = Object.entries(cveIntel.lookup_statuses ?? {})
-      .filter(([, row]) => !["complete", "available", "completed"].includes(row?.status))
-      .map(([technology]) => technology);
-    const partialCoverage = cveIntel.cve_coverage === "partial";
-    const limitationText = partialCoverage && unavailableTechnologies.length
-      ? ` Coverage is incomplete because CVE evidence for ${unavailableTechnologies.join(", ")} could not be retrieved.`
-      : "";
-    const cveNote = {
-      id:             "cve_high_severity_detected",
-      module:         "cve_intelligence",
-      finding_type:   "observation",
-      severity:       "informational",
-      title:          `${cveIntel.total_cves} CVE catalogue match${cveIntel.total_cves !== 1 ? "es" : ""} observed (deployed versions unconfirmed)`,
-      description:    `Completed NVD lookups matched ${cveIntel.total_cves} catalogue record(s): ${cveIntel.critical_count || 0} critical, ${cveIntel.high_count || 0} high severity. The deployed product versions were not confirmed, so these rows are informational and do not prove exposure.${limitationText}`,
-      business_impact:"Catalogue correlation identifies technologies that warrant version verification. Confirm the deployed versions before assigning vulnerability impact or remediation priority.",
-      risk_category:  "Data Security",
-      // Version-blind NVD keyword matches are informative only. They cannot
-      // move the score until deployed-version applicability is proven.
-      score_impact:   0,
-      ...(partialCoverage ? {
-        coverage_limitation: {
-          state: "partial",
-          unmeasured_technologies: unavailableTechnologies,
-        },
-      } : {}),
-    };
-    enrichedFindings.push(cveNote);
-    customerFindings.push(cveNote);
-    categories["Data Security"].push(cveNote);
-  }
-
-  // Reported-version CVE evidence. The version comes from a response header
-  // and is matched to NVD applicability statements; KEV and EPSS order it.
-  // Observation-only (score 0) until a score-methodology revision admits it:
-  // distributions backport fixes without changing the reported version.
-  const versionResults = phase5Evidence.publishable.cve ? (cveIntel.version_results || {}) : {};
-  const versionRows = Object.entries(versionResults)
-    .filter(([, list]) => Array.isArray(list) && list.length > 0)
-    .map(([tech, list]) => ({ tech, list, evidence: cveIntel.version_evidence?.[tech] || {} }));
-  if (versionRows.length > 0) {
-    const PRODUCT_LABELS = { nginx: "nginx", openresty: "OpenResty", apache: "Apache HTTP Server", iis: "Microsoft IIS", php: "PHP", lighttpd: "lighttpd" };
-    const SOURCE_LABELS = { server_header: "Server header", x_powered_by_header: "X-Powered-By header" };
-    const productText = (row) => `${PRODUCT_LABELS[row.tech] || row.tech} ${row.evidence.version}`;
-    const matchedTotal = versionRows.reduce((sum, row) => sum + (Number(row.evidence.matched) || row.list.length), 0);
-    const kevTotal = versionRows.reduce((sum, row) => sum + row.list.filter((c) => c.kev === true).length, 0);
-    const ranked = versionRows.flatMap((row) => row.list.map((c) => ({ ...c, product: productText(row) })))
-      .sort((a, b) => Number(b.kev === true) - Number(a.kev === true) || (b.epss ?? -1) - (a.epss ?? -1) || (b.cvss_score ?? -1) - (a.cvss_score ?? -1));
-    const describe = (c) => `${c.cve_id} (${c.product}${c.cvss_score != null ? `, CVSS ${c.cvss_score}` : ""}${c.kev === true ? ", known to be exploited" : ""}${c.epss_percentile != null ? `, exploitation likelihood in the top ${Math.max(1, Math.round((1 - c.epss_percentile) * 100))}%` : ""})`;
-    const platforms = versionRows.map((row) => row.evidence.platform_hint).filter(Boolean);
-    const vulnWord = (n) => `published vulnerabilit${n === 1 ? "y" : "ies"}`;
-    const versionNote = {
-      id:             "known_vulnerable_component",
-      module:         "cve_intelligence",
-      finding_type:   "observation",
-      severity:       "informational",
-      title:          versionRows.length === 1
-        ? `${productText(versionRows[0])} (reported) is listed as affected by ${matchedTotal} ${vulnWord(matchedTotal)}${kevTotal ? `, ${kevTotal} known to be exploited` : ""}`
-        : `${versionRows.length} reported software versions are listed as affected by ${matchedTotal} ${vulnWord(matchedTotal)}${kevTotal ? `, ${kevTotal} known to be exploited` : ""}`,
-      description:    `${versionRows.map((row) => `The ${SOURCE_LABELS[row.evidence.source] || "response"} reports ${productText(row)}`).join("; ")}. NVD lists these versions inside the affected range of ${matchedTotal} ${vulnWord(matchedTotal)}. Highest priority: ${ranked.slice(0, 3).map(describe).join("; ")}. The version is what the server reports: Linux distributions often backport security fixes without changing it${platforms.length ? ` (reported platform: ${[...new Set(platforms)].join(", ")})` : ""}, so confirm the installed patch level with whoever manages this server before treating these as open.`,
-      business_impact: kevTotal
-        ? "At least one listed vulnerability is on CISA's Known Exploited Vulnerabilities list, meaning attackers are using it now. Confirm the patch level of this software first."
-        : "Publicly listed vulnerabilities in reported software versions are a common entry point. Confirm the patch level and update where it is behind.",
-      risk_category:  "Data Security",
-      score_impact:   0,
-      reported_versions: versionRows.map((row) => ({ technology: row.tech, version: row.evidence.version, source: row.evidence.source, cpe: row.evidence.cpe, matched: Number(row.evidence.matched) || row.list.length })),
-      matched_cves:   ranked.slice(0, 10).map((c) => ({ cve_id: c.cve_id, product: c.product, cvss_score: c.cvss_score ?? null, severity: c.severity, kev: c.kev ?? null, epss: c.epss ?? null, epss_percentile: c.epss_percentile ?? null })),
-      evidence:       versionRows.map((row) => ({
-        type: "reported_version_cpe_match",
-        value: row.evidence.cpe,
-        source: `${row.evidence.source || "response_header"}+nvd_cpe`,
-        version_confirmed: false,
-      })),
-      ...(cveIntel.epss_status && cveIntel.epss_status !== "complete" || cveIntel.kev_status && cveIntel.kev_status !== "complete" ? {
-        coverage_limitation: {
-          state: "partial",
-          epss: cveIntel.epss_status || null,
-          kev: cveIntel.kev_status || null,
-        },
-      } : {}),
-    };
-    enrichedFindings.push(versionNote);
-    customerFindings.push(versionNote);
-    categories["Data Security"].push(versionNote);
-  }
-
   // Build overall risk narrative
   let overallRisk, narrative;
   if (!phase5Evidence.complete) {
     // Preserve every trustworthy sibling/positive finding above, but withhold
-    // the overall conclusion: an incomplete CVE, KEV or email-intelligence
-    // assessment cannot prove Low (or any other complete risk band).
+    // the overall conclusion: an incomplete email-intelligence assessment (or,
+    // in a stored historical scan, an incomplete vulnerability-data module)
+    // cannot prove Low (or any other complete risk band).
     overallRisk = null;
     narrative = null;
   } else if (criticalCount > 0) {
@@ -1196,38 +1103,21 @@ export function runRiskModule(findings, modules) {
 // ── Intelligence Module: Remediation Prioritization ──────────────────────────
 // Ported from remediation_prioritization.py — converts findings into a P1/P2/P3
 // remediation roadmap keyed for the executive PDF report.
-// KEV matches always become P1 regardless of CVSS.
-// Subdomain takeover risks also escalate to P1 (attacker can serve content under
+// Subdomain takeover risks escalate to P1 (attacker can serve content under
 // the domain).
 
 /**
- * Generate a prioritised remediation plan from findings, KEV matches, and
- * takeover risks.  Pure computation, no I/O.
+ * Generate a prioritised remediation plan from findings and takeover risks.
+ * Pure computation, no I/O. Every input is the scan's own observation, so the
+ * plan is complete whenever the scan produced it.
  * Ported from remediation_prioritization.generate_remediation_plan().
  */
-export function runRemediationModule(findings, kevModule, takeoverModule) {
-  const kevEvidencePublishable = isPublishableModuleEvidence(kevModule);
-  const p1 = [];  // Immediate — version-confirmed Critical + Takeover
+export function runRemediationModule(findings, takeoverModule) {
+  const p1 = [];  // Immediate — Critical + Takeover
   const p2 = [];  // High priority — High severity
   const p3 = [];  // Planned — Medium + Low
 
-  // 1. Stage-1 KEV technology correlations are version-unconfirmed medium risk,
-  // not proof that the deployed product is vulnerable. Use only the exact
-  // evidence charged by the score owner and place version verification in the
-  // planned lane. Stage 2 (AS-B5) may promote an in-range, version-confirmed KEV.
-  for (const match of (kevEvidencePublishable
-    ? (kevModule?.score_evidence_applied || []) : [])) {
-    p3.push({
-      title:    `Verify deployed version for ${match.cve_id || "KEV catalogue match"} on ${match.matched_technology}`,
-      reason:   "The serviceability-confirmed technology fingerprint matches a CISA KEV catalogue entry, but the deployed version is unconfirmed.",
-      action:   "Confirm the deployed version and apply the vendor remediation only if the affected version range applies.",
-      source:   "cisa_kev_technology_correlation",
-      cve_id:   match.cve_id || null,
-      due_date: null,
-    });
-  }
-
-  // 2. Subdomain takeover risks → P1 (attacker-controlled content under your domain)
+  // 1. Subdomain takeover risks → P1 (attacker-controlled content under your domain)
   for (const risk of (takeoverModule?.risks || [])) {
     const host = risk.subdomain || risk.hostname || risk.cname || "unknown";
     p1.push({
@@ -1238,7 +1128,7 @@ export function runRemediationModule(findings, kevModule, takeoverModule) {
     });
   }
 
-  // 3. Scan findings by severity
+  // 2. Scan findings by severity
   for (const f of findings) {
     const sev = (f.severity || "").toLowerCase();
     if (sev === "informational") continue;  // Informational items not actionable enough for roadmap
@@ -1255,7 +1145,7 @@ export function runRemediationModule(findings, kevModule, takeoverModule) {
     else if (sev === "medium" || sev === "low") p3.push(item);
   }
 
-  // De-duplicate by title (KEV items may overlap with CVE findings from computeScore)
+  // De-duplicate by title
   const dedup = (list) => {
     const seen = new Set();
     return list.filter(item => {
@@ -1279,9 +1169,5 @@ export function runRemediationModule(findings, kevModule, takeoverModule) {
       p3_count: cleanP3.length,
       total:    cleanP1.length + cleanP2.length + cleanP3.length,
     },
-    ...(kevEvidencePublishable ? {} : {
-      incomplete: true,
-      incomplete_reason: PHASE5_INCOMPLETE_REASON,
-    }),
   };
 }

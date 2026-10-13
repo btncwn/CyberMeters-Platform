@@ -204,12 +204,12 @@ async function run(scanId, when, mode) {
     db.prepare("SELECT status FROM scans WHERE id=?").get(scanId)?.status,
     "completed");
   const report = JSON.parse(reports.get(`reports/${scanId}.json`) || "{}");
-  eq(`${scanId} report attaches nine-signal model`,
+  eq(`${scanId} report attaches the seven-signal model`,
     report.modules?.attack_surface_signal_completeness?.model_version,
-    "attack-surface-signal-completeness-v3");
-  eq(`${scanId} report retains all nine independent signals`,
+    "attack-surface-signal-completeness-v4");
+  eq(`${scanId} report retains all seven independent signals`,
     Object.keys(report.modules?.attack_surface_signal_completeness?.signals || {}).length,
-    9);
+    7);
   return report;
 }
 

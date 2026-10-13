@@ -5,8 +5,10 @@
 // evidence. The state vocabulary is closed and non-overlapping.
 import { normalizeBoundedCoverageState } from "./bounded-coverage.js";
 
+// v4: the vulnerability-database (cve) and exploited-catalogue (kev) signals
+// are gone — outside vulnerability data is not part of the check pack.
 export const ATTACK_SURFACE_SIGNAL_COMPLETENESS_VERSION =
-  "attack-surface-signal-completeness-v3";
+  "attack-surface-signal-completeness-v4";
 
 export const ATTACK_SURFACE_SIGNAL_STATES = Object.freeze([
   "observed",
@@ -24,10 +26,33 @@ export const ATTACK_SURFACE_SIGNAL_KEYS = Object.freeze([
   "technology",
   "exposure_admin_surface",
   "takeover_candidate",
+  "cloud_storage",
+]);
+
+// The signal set recorded by v1–v3 models. A stored model is always presented
+// with the signals it was recorded with.
+const LEGACY_ATTACK_SURFACE_SIGNAL_KEYS = Object.freeze([
+  "subdomain_discovery",
+  "dns_resolution",
+  "http_https_service",
+  "technology",
+  "exposure_admin_surface",
+  "takeover_candidate",
   "cve",
   "kev",
   "cloud_storage",
 ]);
+const LEGACY_SIGNAL_COMPLETENESS_VERSIONS = new Set([
+  "attack-surface-signal-completeness-v1",
+  "attack-surface-signal-completeness-v2",
+  "attack-surface-signal-completeness-v3",
+]);
+
+export function attackSurfaceSignalKeysFor(modelVersion) {
+  return LEGACY_SIGNAL_COMPLETENESS_VERSIONS.has(modelVersion)
+    ? LEGACY_ATTACK_SURFACE_SIGNAL_KEYS
+    : ATTACK_SURFACE_SIGNAL_KEYS;
+}
 
 const STATE_SET = new Set(ATTACK_SURFACE_SIGNAL_STATES);
 const ACTIVE_REMOVAL_SOURCES = Object.freeze([
@@ -440,148 +465,6 @@ function resolveTakeoverCandidate(modules) {
   });
 }
 
-function resolveCve(modules, technologySignal) {
-  const cve = modules?.cve_intelligence;
-  if (finiteCount(cve?.total_cves) > 0) {
-    const unavailableTechnologies = Object.entries(cve?.lookup_statuses ?? {})
-      .filter(([, row]) => !["complete", "available", "completed"].includes(row?.status))
-      .map(([technology]) => technology);
-    return signal("observed", "cve_observed", {
-      evidence_count: finiteCount(cve.total_cves),
-      sources: ["nvd_api"],
-      limitations: cve?.cve_coverage === "partial"
-        ? unavailableTechnologies.map((technology) => `${technology}_cve_lookup_unavailable`)
-        : [],
-    });
-  }
-  if (moduleNotAssessed(cve)) {
-    return signal("not_assessed", "cve_not_evaluated", { sources: ["nvd_api"] });
-  }
-  if (cve.error) {
-    return signal("unavailable", "cve_provider_unavailable", {
-      sources: ["nvd_api"],
-    });
-  }
-  if (cve.cve_coverage === "dependency_unavailable") {
-    return signal("incomplete", "technology_dependency_incomplete", {
-      sources: ["nvd_api", "technology_detection"],
-      limitations: [cve.incomplete_reason],
-    });
-  }
-  if (cve.cve_coverage === "unavailable") {
-    return signal("unavailable", "all_cve_lookups_unavailable", {
-      sources: ["nvd_api"],
-      limitations: [cve.incomplete_reason],
-    });
-  }
-  if (cve.cve_coverage === "partial") {
-    return signal("incomplete", "some_cve_lookups_unavailable", {
-      sources: ["nvd_api"],
-      limitations: Object.entries(cve.lookup_statuses ?? {})
-        .filter(([, row]) => !["complete", "available", "completed"].includes(row?.status))
-        .map(([technology]) => `${technology}_cve_lookup_unavailable`),
-    });
-  }
-  if (cve.cve_coverage === "complete") {
-    return signal("not_observed", "complete_cve_lookup_no_match", {
-      sources: ["nvd_api"],
-    });
-  }
-  if (cve.cve_coverage === "not_applicable") {
-    return signal("not_observed", "no_supported_technology_for_cve_lookup", {
-      sources: ["nvd_api", "technology_detection"],
-    });
-  }
-  if (cve.incomplete === true) {
-    return signal("incomplete", "cve_evidence_incomplete", {
-      sources: ["nvd_api"],
-      limitations: [cve.incomplete_reason],
-    });
-  }
-  if (["unavailable", "incomplete"].includes(technologySignal.state)) {
-    return signal("incomplete", "technology_dependency_incomplete", {
-      sources: ["nvd_api", "technology_detection"],
-    });
-  }
-  if (!Array.isArray(cve.technologies_checked)) {
-    return signal("incomplete", "cve_completion_not_recorded", {
-      sources: ["nvd_api"],
-    });
-  }
-
-  const lookupStatuses = cve.lookup_statuses || {};
-  const lookupRows = Object.values(lookupStatuses);
-  if (lookupRows.length > 0) {
-    const failed = lookupRows.filter((row) =>
-      !["complete", "available"].includes(row?.status)
-    );
-    if (failed.length === lookupRows.length) {
-      return signal("unavailable", "all_cve_lookups_unavailable", {
-        sources: ["nvd_api"],
-      });
-    }
-    if (failed.length > 0) {
-      return signal("incomplete", "some_cve_lookups_unavailable", {
-        sources: ["nvd_api"],
-      });
-    }
-    return signal("not_observed", "complete_cve_lookup_no_match", {
-      sources: ["nvd_api"],
-    });
-  }
-
-  if (count(cve.technologies_checked) > 0) {
-    // Current production lookupCvesForTechnology returns [] for both a valid
-    // zero-result response and every provider/network failure. Until P2 records
-    // per-technology outcomes, that zero can never be called not_observed.
-    return signal("incomplete", "cve_provider_outcome_not_recorded", {
-      sources: ["nvd_api"],
-    });
-  }
-  return signal("not_observed", "no_supported_technology_for_cve_lookup", {
-    sources: ["nvd_api", "technology_detection"],
-  });
-}
-
-function resolveKev(modules, technologySignal) {
-  const kev = modules?.known_exploited_vulnerabilities;
-  if (finiteCount(kev?.matched) > 0 || count(kev?.matches) > 0) {
-    return signal("observed", "kev_observed", {
-      evidence_count: Math.max(finiteCount(kev?.matched), count(kev?.matches)),
-      sources: ["cisa_kev"],
-      limitations: kev?.catalogue_stale ? ["catalogue_stale"] : [],
-    });
-  }
-  if (moduleNotAssessed(kev)) {
-    return signal("not_assessed", "kev_not_evaluated", { sources: ["cisa_kev"] });
-  }
-  if (kev.error || kev.catalogue_source === "unavailable") {
-    return signal("unavailable", "kev_catalogue_unavailable", {
-      sources: ["cisa_kev"],
-    });
-  }
-  if (kev.incomplete === true) {
-    return signal("incomplete", "kev_evidence_incomplete", {
-      sources: ["cisa_kev"],
-      limitations: [kev.incomplete_reason],
-    });
-  }
-  if (["unavailable", "incomplete"].includes(technologySignal.state)) {
-    return signal("incomplete", "technology_dependency_incomplete", {
-      sources: ["cisa_kev", "technology_detection"],
-    });
-  }
-  if (!Number.isFinite(Number(kev.checked)) || !kev.catalogue_source) {
-    return signal("incomplete", "kev_completion_not_recorded", {
-      sources: ["cisa_kev"],
-    });
-  }
-  return signal("not_observed", "complete_kev_correlation_no_match", {
-    sources: ["cisa_kev"],
-    limitations: kev?.catalogue_stale ? ["catalogue_stale"] : [],
-  });
-}
-
 function resolveCloudStorage(modules, dependencies) {
   const cloud = modules?.cloud_storage_discovery;
   const observedCount = Math.max(
@@ -642,8 +525,6 @@ export function deriveAttackSurfaceSignalCompleteness(modules = {}) {
   signals.technology = resolveTechnology(modules);
   signals.exposure_admin_surface = resolveExposureAdminSurface(modules);
   signals.takeover_candidate = resolveTakeoverCandidate(modules);
-  signals.cve = resolveCve(modules, signals.technology);
-  signals.kev = resolveKev(modules, signals.technology);
   signals.cloud_storage = resolveCloudStorage(modules, [
     signals.subdomain_discovery,
     signals.http_https_service,
