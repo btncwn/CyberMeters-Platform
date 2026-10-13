@@ -21,6 +21,8 @@ import {
   runManagedVerificationProbe,
 } from "./managed-verification.js";
 import { evaluateCookieObservation, isCookieFindingType } from "./cookie-observation.js";
+import { assessExposureRecheck, isHttpAssetRecheck } from "./exposure-recheck.js";
+import { caseGuidance } from "./case-guidance.js";
 import { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES } from "./asm-case-machine.js";
 import { canTransitionCase, assignCaseOwner, createManagedCase } from "./managed-case-model.js";
 import { classifyAsmCaseTraceability } from "./attack-surface-customer-presentation.js";
@@ -296,13 +298,16 @@ async function updateCaseStatus(env, caseRow, to, ctx = {}) {
   if (Number(write?.meta?.changes ?? 1) !== 1) {
     return { ok: false, code: "transition_conflict", error: "Case changed before this transition could be persisted." };
   }
+  const detail = ctx.detail || { reason: ctx.reason || null };
   await writeCaseEvent(env, next, {
     actor_type: ctx.actor_type || "system",
     actor_id: ctx.actor_id || null,
     from_status: caseRow.status,
     to_status: to,
     action: ctx.action || "transition",
-    detail: ctx.detail || { reason: ctx.reason || null },
+    // The structured evidence a verified transition was accepted on is kept
+    // with it: method, result, evidence type, observation time and observation.
+    detail: ctx.evidence ? { ...detail, verification_evidence: ctx.evidence } : detail,
     dedupe_key: ctx.dedupe_key || null,
   });
   return { ok: true, case: next };
@@ -354,6 +359,19 @@ export async function getManagedCase(env, workspaceId, caseId) {
     .prepare(`SELECT * FROM managed_cases WHERE id = ? AND workspace_id = ?`)
     .bind(caseId, workspaceId)
     .first();
+}
+
+// The case page's guidance for any case (engines/case-guidance.js). Lives here
+// because only this module knows which Attack Surface cases are re-checked host
+// by host. Read-only; a failure omits the guidance rather than failing the page.
+export function caseGuidanceForRow(row, { phase = null, support = null, events = [] } = {}) {
+  try {
+    const findingType = row?.source_finding_type || row?.finding_id;
+    const hostRecheck = row?.case_type === ASM_CASE_TYPE && !isCookieFindingType(findingType) && isHttpAssetRecheck(findingType);
+    return caseGuidance(row, { phase, support, events, hostRecheck });
+  } catch {
+    return null;
+  }
 }
 
 // ── ASM case traceability derivation (pre-Item11 blocker 3) ──────────────────
@@ -471,6 +489,51 @@ async function openCaseForFinding(env, { workspaceId, domainId, scanId, domain, 
     return { opened: false, case: existing };
   }
 
+  // Earlier cases for this finding that are no longer open, latest first. A
+  // finding your team marked as not a real problem stays closed while every host
+  // it is seen on is one your team marked. A finding seen again after a closure
+  // opens a new case that links back to the latest closed one, and that one
+  // records it was seen again, so no earlier evidence or history is lost. (A
+  // closed case is not reopened in place: `closed` is terminal in the canonical
+  // case model.)
+  const earlier = await env.cybermeters_db
+    .prepare(`SELECT * FROM managed_cases
+              WHERE workspace_id = ? AND domain = ? AND finding_id = ?
+                AND status IN ('false_positive', 'closed')
+              ORDER BY COALESCE(closed_at, updated_at) DESC, id DESC
+              LIMIT 20`)
+    .bind(workspaceId, domain, finding.id)
+    .all()
+    .then((result) => result?.results || [])
+    .catch(() => []);
+  const markedCases = earlier
+    .filter((row) => row.status === "false_positive")
+    .map((row) => {
+      const rowEvidence = parseJson(row.evidence_json, null);
+      return { row, hosts: verificationHostsForCase(row, rowEvidence?.finding || {}, rowEvidence) };
+    });
+  if (markedCases.length > 0) {
+    const marked = new Set(markedCases.flatMap((item) => item.hosts));
+    const fresh = affectedHostsForFinding(finding, domain);
+    if (fresh.length > 0 && fresh.every((host) => marked.has(host))) {
+      // Recorded on the latest marked case that covers one of these hosts.
+      const target = (markedCases.find((item) => item.hosts.some((host) => fresh.includes(host))) || markedCases[0]).row;
+      await writeCaseEvent(env, target, {
+        actor_type: "system",
+        from_status: target.status,
+        to_status: target.status,
+        action: "seen_again_marked_not_a_problem",
+        detail: { scan_id: scanId, affected_hosts: fresh },
+        dedupe_key: scanId,
+      }).catch(() => {});
+      return { opened: false, case: null, suppressed: "marked_not_a_problem" };
+    }
+  }
+  const previous = earlier[0] || null;
+  const previousCase = previous
+    ? { id: previous.id, status: previous.status, closed_at: previous.closed_at || previous.updated_at || null }
+    : null;
+
   // ASM now uses the universal creation primitive as required by the shared
   // managed-case substrate. The registry supplies ASM's `open` initial state,
   // canonical remediation linkage, tenant/domain eligibility and durable dedupe.
@@ -486,12 +549,22 @@ async function openCaseForFinding(env, { workspaceId, domainId, scanId, domain, 
     title: finding.title || "Review external exposure",
     summary: finding.description || null,
     severity: finding.severity || "medium",
-    evidence: { scan_id: scanId, domain_id: domainId, finding },
+    evidence: { scan_id: scanId, domain_id: domainId, finding, ...(previousCase ? { previous_case: previousCase } : {}) },
     recommended_actions: recommendationSnapshot(finding, recommendations),
     actor: { actor_type: "system", actor_id: null },
   });
   if (!created.ok || !created.case) return { opened: false, case: null, code: created.code };
   if (!created.created) return { opened: false, case: created.case };
+  if (previousCase) {
+    await writeCaseEvent(env, previous, {
+      actor_type: "system",
+      from_status: previous.status,
+      to_status: previous.status,
+      action: "seen_again",
+      detail: { scan_id: scanId, new_case_id: created.case.id },
+      dedupe_key: scanId,
+    }).catch(() => {});
+  }
   await emitCaseLifecycleAlert(env, created.case, {
     domain_key: "attack_surface",
     recurrence: "case_opened",
@@ -600,17 +673,28 @@ export function moduleCompletionGate(modules, scanQuality) {
   // shape is supported, not hypothetical. Verification now requires quality to be
   // EXPLICITLY authoritative; absence and unrecognised values fail closed.
   const qualityAuthoritative = isAuthoritativeQuality(observedQualityStatus);
+  // The DNS-absence rule above marks both exposure modules incomplete for the
+  // whole domain. A case re-checked host by host (engines/exposure-recheck.js)
+  // decides a name that no longer resolves on that host alone — only the
+  // removal policy can close it — so for such a case the exposure modules count
+  // as complete unless they are incomplete for a reason of their own.
+  const completeApartFromDnsAbsence = (name) => {
+    if (name !== "asset_exposure" && name !== "admin_surface_detection") return false;
+    const record = modules?.[name];
+    return Boolean(record) && !record.error && record.incomplete !== true && record.skipped !== true;
+  };
   return {
     incomplete,
     scanPartial,
     qualityAuthoritative,
     haveEvidence,
-    canVerify(relevantModule) {
+    canVerify(relevantModule, { perHostDnsAbsence = false } = {}) {
       if (!haveEvidence) return false;              // no completeness evidence → never verify
       if (!qualityAuthoritative) return false;      // unknown/absent/unrecognised → never verify
       if (scanPartial) return false;
       if (!relevantModule) return false;            // unknown detecting module → cannot prove it ran
-      if (incomplete.has(relevantModule)) return false;
+      if (incomplete.has(relevantModule) &&
+          !(perHostDnsAbsence === true && completeApartFromDnsAbsence(relevantModule))) return false;
       return Object.prototype.hasOwnProperty.call(modules || {}, relevantModule); // must have run
     },
   };
@@ -757,6 +841,9 @@ export async function verifyManagedAsmCasesForScan(
     modules = null,
     scanQuality = null,
     scanPublished = false,
+    // When the scan observed (its completion time): the observation time of
+    // any verification evidence it produces.
+    observedAt = null,
   } = {},
 ) {
   try {
@@ -840,7 +927,11 @@ export async function verifyManagedAsmCasesForScan(
       // shown to have actually re-checked this exposure's module. Defer and retry on
       // the next complete scan.
       const relevantModule = relevantModuleForCase(row);
-      if (!gate.canVerify(relevantModule)) {
+      // A management-page exposure is re-checked host by host: the scan must
+      // re-test the old problem on every affected host (exposure-recheck.js).
+      const caseFindingType = row.source_finding_type || row.finding_id;
+      const hostRecheck = !isCookieFindingType(caseFindingType) && isHttpAssetRecheck(caseFindingType);
+      if (!gate.canVerify(relevantModule, { perHostDnsAbsence: hostRecheck })) {
         const reason = !gate.haveEvidence ? "no_completeness_evidence"
           : gate.scanPartial ? "scan_partial"
           : !relevantModule ? "unknown_detecting_module"
@@ -856,14 +947,61 @@ export async function verifyManagedAsmCasesForScan(
       }
       const caseEvidence = parseJson(row.evidence_json, null);
       const hosts = verificationHostsForCase(row, caseEvidence?.finding || {}, caseEvidence);
-      const lifecycleDecision = assessAssetLifecycleCaseVerification({
-        caseRow: row,
-        hosts,
-        observations: currentLifecycleRows,
-        scanId,
-        scanQuality,
-        scanPublished,
-      });
+      let recheck = null;
+      let lifecycleDecision = { applicable: false, decision: "module_specific" };
+      if (hostRecheck) {
+        recheck = assessExposureRecheck({
+          findingType: caseFindingType,
+          hosts,
+          assets: modules?.asset_exposure?.assets || [],
+          // A name that no longer resolves closes only through the removal policy.
+          removalFor: (host) => {
+            const removal = assessAssetLifecycleCaseVerification({
+              caseRow: row,
+              hosts: [host],
+              observations: currentLifecycleRows,
+              scanId,
+              scanQuality,
+              scanPublished,
+            });
+            if (!removal.applicable) return { verified: false, reason: "no_lifecycle_record" };
+            return removal.decision === "verified_removed"
+              ? { verified: true, observation: removal.evidence?.observations?.[0] ?? null }
+              : { verified: false, reason: removal.reason };
+          },
+        });
+        if (recheck.decision === "deferred") {
+          await deferManagedAsmCase(env, row, {
+            scanId,
+            module: relevantModule,
+            reason: recheck.reason,
+            detail: { recheck },
+          });
+          deferred++;
+          continue;
+        }
+        // Every host confirmed removed: the case closes on the canonical
+        // lifecycle evidence, recorded as before.
+        if (recheck.decision === "verified" && recheck.hosts.every((host) => host.outcome === "confirmed_removed")) {
+          lifecycleDecision = assessAssetLifecycleCaseVerification({
+            caseRow: row,
+            hosts,
+            observations: currentLifecycleRows,
+            scanId,
+            scanQuality,
+            scanPublished,
+          });
+        }
+      } else {
+        lifecycleDecision = assessAssetLifecycleCaseVerification({
+          caseRow: row,
+          hosts,
+          observations: currentLifecycleRows,
+          scanId,
+          scanQuality,
+          scanPublished,
+        });
+      }
       if (lifecycleDecision.applicable && lifecycleDecision.decision === "deferred") {
         await deferManagedAsmCase(env, row, {
           scanId,
@@ -900,7 +1038,7 @@ export async function verifyManagedAsmCasesForScan(
         }
         stillPresent = cookie.state === "present";
       } else {
-        stillPresent = present.has(current.finding_id);
+        stillPresent = present.has(current.finding_id) || recheck?.decision === "still_present";
       }
       const verificationDomainKey = managedVerificationDomainKey(current.source_finding_type || current.finding_id);
       if (stillPresent) {
@@ -908,7 +1046,7 @@ export async function verifyManagedAsmCasesForScan(
           actor_type: "system",
           action: "verification_failed",
           reason: "CyberMeters still observed this exposure in the latest Cyber MOT.",
-          detail: { scan_id: scanId, expected: "finding_absent", observed: "finding_present" },
+          detail: { scan_id: scanId, expected: "finding_absent", observed: "finding_present", ...(recheck ? { recheck } : {}) },
         });
         if (failure.ok) {
           failed++;
@@ -922,6 +1060,7 @@ export async function verifyManagedAsmCasesForScan(
         const lifecycleEvidence = lifecycleDecision.decision === "verified_removed"
           ? lifecycleDecision.evidence
           : null;
+        const evidenceObservedAt = Number.isFinite(Date.parse(observedAt)) ? new Date(Date.parse(observedAt)).toISOString() : new Date().toISOString();
         const ok = await updateCaseStatus(env, current, "resolved", {
           actor_type: "system",
           action: "verified_resolved",
@@ -930,23 +1069,34 @@ export async function verifyManagedAsmCasesForScan(
             expected: "finding_absent",
             observed: "finding_absent",
             lifecycle: lifecycleEvidence,
+            ...(recheck ? { recheck } : {}),
           },
           // Structured verification evidence (module-completeness already gated
           // above, so this is a re-check of the specific exposure, not a bare scan).
-          evidence: {
-            verification_method: "rescan",
-            verification_result: "fixed",
-            evidence_type: lifecycleEvidence
-              ? "asset_lifecycle_reobservation"
-              : "scan_absence",
-            observed_at: new Date().toISOString(),
-            observation: lifecycleEvidence || {
-              scan_id: scanId,
-              finding_id: current.finding_id,
-              absent: true,
-              module_complete: true,
+          evidence: recheck
+            ? {
+              verification_method: "rescan",
+              verification_result: "fixed",
+              evidence_type: recheck.hosts.every((host) => host.outcome === "confirmed_removed")
+                ? "asset_lifecycle_reobservation"
+                : "host_reobservation",
+              observed_at: evidenceObservedAt,
+              observation: { scan_id: scanId, finding_id: current.finding_id, recheck, ...(lifecycleEvidence ? { lifecycle: lifecycleEvidence } : {}) },
+            }
+            : {
+              verification_method: "rescan",
+              verification_result: "fixed",
+              evidence_type: lifecycleEvidence
+                ? "asset_lifecycle_reobservation"
+                : "scan_absence",
+              observed_at: evidenceObservedAt,
+              observation: lifecycleEvidence || {
+                scan_id: scanId,
+                finding_id: current.finding_id,
+                absent: true,
+                module_complete: true,
+              },
             },
-          },
         });
         if (ok.ok) {
           resolved++;

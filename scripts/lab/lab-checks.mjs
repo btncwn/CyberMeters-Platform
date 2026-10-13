@@ -9,7 +9,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createLabWorld } from "./lab-world.mjs";
 import { runLabWorld } from "./lab-scan.mjs";
-import { DELTA_SCANS, deltaAt, WORLDS } from "./worlds.mjs";
+import { DELTA_SCANS, deltaAt, ECHO_SCANS, echoAt, WORLDS } from "./worlds.mjs";
 
 const json = (value) => JSON.stringify(value);
 const parse = (value) => { try { return JSON.parse(value); } catch { return null; } };
@@ -305,6 +305,75 @@ export async function runLabChecks({ ok, root }) {
       delta.db.prepare("SELECT DISTINCT workspace_id FROM asset_alert_records").all().every((row) => row.workspace_id === "ws_d") &&
       delta.db.prepare("SELECT COUNT(*) AS n FROM asset_events WHERE workspace_id = 'ws_d_other'").get().n === 0,
     json(allChangeEmails));
+
+  // ── Closing a case only on a re-test of the problem ─────────────────────────
+  // Echo (worlds.mjs): an exposed management tool. After each scan the customer
+  // does what the product asks — take the case, name an owner, mark the fix done
+  // — through the same engine functions the API routes call. Only a scan that
+  // re-tests the old problem on the host may close it.
+  const asmCases = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "asm-cases.js")).href);
+  const echoHost = `admin.${(echoAt(0)).domain}`;
+  const echo = await runLabWorld({
+    root, worldAt: echoAt, scans: ECHO_SCANS, tenant: "e",
+    afterScan: async (i, { env }) => {
+      for (const listed of await asmCases.listManagedCases(env, "ws_e")) {
+        let row = await asmCases.getManagedCase(env, "ws_e", listed.id);
+        const customer = async (to, extra = {}) => {
+          const moved = await asmCases.transitionManagedCase(env, row, to, { actor_type: "customer", actor_id: "usr_e", ...extra });
+          if (moved.ok) row = moved.case;
+        };
+        if (row.status === "open") await customer("triage");
+        if (row.status === "triage") {
+          const assigned = await asmCases.assignManagedCaseOwner(env, row, { owner_type: "team", owner_ref: "IT", assigned_by: "customer", actor_id: "usr_e" });
+          if (assigned.ok) row = assigned.case;
+        }
+        if (row.status === "owner_assigned" || row.status === "verification_failed") await customer("remediation_in_progress");
+        if (row.status === "remediation_in_progress") await customer("verification_requested", { action: "fix_completed" });
+        // A customer statement can never close it.
+        await customer("resolved");
+      }
+    },
+  });
+  const echoCases = echo.db.prepare("SELECT * FROM managed_cases WHERE workspace_id = 'ws_e' AND finding_id = 'asset_exposure_sensitive_tool'").all();
+  const echoCase = echoCases[0];
+  const echoEvents = echoCase ? echo.db.prepare("SELECT * FROM managed_case_events WHERE case_id = ? ORDER BY rowid").all(echoCase.id)
+    .map((event) => ({ ...event, detail: parse(event.detail_json) })) : [];
+  const forScan = (n, action) => echoEvents.find((event) => event.action === action && event.detail?.scan_id === `scan_e_${n}`);
+  const deferralOf = (n) => forScan(n, "verification_deferred");
+  ok("lab echo: every scan completes inside the lab, and one case is opened for the exposed tool",
+    echo.scans.every((scan) => scan.status === "completed" && !scan.error) && echo.unexpected_hosts.length === 0 &&
+      echoCases.length === 1 && echoCase.asset_ref === echoHost,
+    json({ scans: echo.scans.map((scan) => [scan.scan_id, scan.status]), cases: echoCases.map((row) => [row.finding_id, row.status]) }));
+  ok("lab echo: a scan that timed out on the host does not close the case",
+    deferralOf(2)?.detail?.reason === "scan_partial", json(deferralOf(2)?.detail));
+  ok("lab echo: a refused connection does not close the case",
+    deferralOf(3)?.detail?.reason === "affected_host_no_answer" && deferralOf(3)?.detail?.recheck?.hosts?.[0]?.outcome === "no_answer",
+    json(deferralOf(3)?.detail));
+  ok("lab echo: a filter answering 403 does not close the case",
+    deferralOf(4)?.detail?.reason === "affected_host_access_restricted" && deferralOf(4)?.detail?.recheck?.hosts?.[0]?.status === 403,
+    json(deferralOf(4)?.detail));
+  const fixed = forScan(5, "verified_resolved");
+  const fixedEvidence = fixed?.detail?.verification_evidence;
+  const scan5 = echo.scans[4];
+  ok("lab echo: the host sending visitors to the main site closes the case on that re-test, with dated evidence",
+    fixed?.actor_type === "system" && fixedEvidence?.verification_method === "rescan" && fixedEvidence?.evidence_type === "host_reobservation" &&
+      Date.parse(fixedEvidence?.observed_at) >= Date.parse(scan5.at) &&
+      fixedEvidence?.observation?.recheck?.hosts?.[0]?.outcome === "answered_without_tool" &&
+      fixedEvidence?.observation?.recheck?.hosts?.[0]?.ended_at?.host === echoAt(0).domain,
+    json(fixed?.detail));
+  ok("lab echo: the tool coming back reopens the same case and keeps its history",
+    echoCases.length === 1 && Number(echoCase.reopened_count) === 1 && Boolean(forScan(6, "reopened")) &&
+      echoEvents.findIndex((event) => event.action === "verified_resolved") < echoEvents.findIndex((event) => event.action === "reopened"),
+    json(echoEvents.map((event) => [event.action, event.detail?.scan_id])));
+  ok("lab echo: a name that stopped resolving closes only once its removal is confirmed and re-observed",
+    [7, 8, 9].every((n) => deferralOf(n)?.detail?.reason === "affected_host_name_not_resolving") &&
+      forScan(10, "verified_resolved")?.detail?.verification_evidence?.evidence_type === "asset_lifecycle_reobservation" &&
+      echoCase.status === "resolved",
+    json([7, 8, 9, 10].map((n) => deferralOf(n)?.detail?.recheck?.hosts?.[0] ?? forScan(n, "verified_resolved")?.detail?.recheck?.hosts?.[0])));
+  ok("lab echo: no customer statement ever closed the case",
+    echoEvents.filter((event) => event.to_status === "resolved").every((event) => event.actor_type === "system") &&
+      echoEvents.filter((event) => event.to_status === "resolved").length === 2,
+    json(echoEvents.filter((event) => event.to_status === "resolved").map((event) => [event.actor_type, event.action])));
 
   const wildcard = await runLabWorld({ root, world: WORLDS.bravo, scans: 1 });
   ok("lab bravo: a zone that answers every name adds no guessed names", wildcard.inventory.false_positive.length === 0, json(wildcard.inventory.false_positive));
