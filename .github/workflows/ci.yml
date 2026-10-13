@@ -141,8 +141,8 @@ jobs:
       - name: Validate known-email checks tenant isolation and private provider quota
         run: node scripts/validate-identity-breach-checks.js
 
-      - name: Validate private breached-password checks and reset isolation
-        run: node scripts/validate-pwned-passwords.js
+      - name: Validate local common-password screening and reset isolation
+        run: node scripts/validate-common-passwords.js
 
       - name: Validate scoped DNS connections and reversible changes
         run: node scripts/validate-dns-remediation.js

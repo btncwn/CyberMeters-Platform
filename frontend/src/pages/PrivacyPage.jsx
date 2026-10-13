@@ -20,7 +20,7 @@ export default function PrivacyPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Privacy Policy</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: 10 October 2026 — Version 1.4</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 13 October 2026 — Version 1.5</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             Turhan Acar, a sole trader trading as CyberMeters ("<strong>we</strong>", "<strong>us</strong>", "<strong>our</strong>") is committed to protecting the personal data of our customers and the individuals associated with them. This Privacy Policy explains what data we collect, how we use it, and your rights in relation to it.
           </p>
@@ -128,7 +128,7 @@ export default function PrivacyPage() {
             </div>
             <p className="mt-3"><strong className="text-gray-800">Microsoft (customer-selected identity provider).</strong> If you choose Microsoft sign-in, Microsoft Entra ID authenticates you under Microsoft's terms and your organisation's tenant settings; we receive your name, email address and tenant identifier. Separately, when an administrator uses their own Entra application for identity observations or session response, we send that application's credentials to Microsoft's token endpoint and the target account identifier and requested operation to Microsoft Graph. We receive the requested account observations or operation result. The stated concern, VIP label, public-source findings and other workspace records are not sent to Microsoft. These optional operations use the customer's Microsoft service and permissions.</p>
             <p>We do not share your personal data for advertising or marketing by these providers.</p>
-            <p>When you choose a new CyberMeters password, we check it using Have I Been Pwned's free Pwned Passwords service. Only the first five characters of a password hash are sent; your email address, full password and full hash are not sent. This check does not monitor employees' email addresses or passwords used on other services.</p>
+            <p>When you choose a new CyberMeters password, we check it against a list of commonly used passwords that is built into CyberMeters. The check runs on our own servers: no part of your password, or of its hash, is sent to anyone else. This check does not monitor employees' email addresses or passwords used on other services.</p>
           </Section>
 
           <Section title="8. International Data Transfers">

@@ -5,10 +5,14 @@ export function setup() {
   const db = buildDb();
   db.exec('PRAGMA foreign_keys=ON');
   let fault = null;
+  // Optional async hook awaited before a single-row read, so a test can hold
+  // a request at a known point (a barrier) or change state between steps.
+  let pause = null;
   const statement = (sql, args = []) => ({
     sql, args,
     bind: (...bound) => statement(sql, bound),
     first: async () => {
+      if (pause) await pause(sql);
       if (fault?.(sql)) throw new Error('storage');
       return db.prepare(sql).get(...args) || null;
     },
@@ -47,5 +51,5 @@ export function setup() {
     json: (body, status = 200) => Response.json(body, { status }),
     serverError: () => Response.json({ error: 'Unavailable' }, { status: 500 }),
   });
-  return { db, env, context, setFault: value => { fault = value; } };
+  return { db, env, context, setFault: value => { fault = value; }, setPause: value => { pause = value; } };
 }
