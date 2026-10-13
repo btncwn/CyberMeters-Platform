@@ -109,7 +109,8 @@ static int args(int argc,char **argv) {
         else if(!strcmp(k,"--max-connections")) {bit=128;if(!number(v,64,&opt.max_connections))return 0;}
         else if(!strcmp(k,"--trust-bundle")) {bit=256;opt.trust=v;if(v[0]!='/'||strlen(v)>1024)return 0;}
         else return 0;
-        if(seen&bit)return 0;seen|=bit;
+        if(seen&bit)return 0;
+        seen|=bit;
     }
     return 1;
 }
@@ -335,7 +336,9 @@ static void load_trust(void) {
 /* ASN.1 UTC and generalized time parsing; no locale or timezone dependency. */
 static int asn1_epoch(const ASN1_TIME *value,int64_t *epoch) {
     struct tm t={0};const unsigned char *s;int n,year=0,pos=0;
-    if(!value)return 0;s=ASN1_STRING_data((ASN1_STRING *)value);n=ASN1_STRING_length(value);
+    if(!value)return 0;
+    s=ASN1_STRING_data((ASN1_STRING *)value);
+    n=ASN1_STRING_length(value);
     int generalized=ASN1_STRING_type((ASN1_STRING *)value)==V_ASN1_GENERALIZEDTIME;
     if(n!=(generalized?15:13)||s[n-1]!='Z')return 0;
     for(int i=0;i<n-1;i++)if(!isdigit(s[i]))return 0;
@@ -386,7 +389,10 @@ static void certificate_json(X509 *x) {
     char digest[65],spki[65];unsigned char bytes[32],*der=NULL;EVP_PKEY *key=X509_get_pubkey(x);
     int n=i2d_X509_PUBKEY(X509_get_X509_PUBKEY(x),&der);
     digest_cert(x,digest);
-    if(n<=0||!der)_exit(4);SHA256(der,(size_t)n,bytes);OPENSSL_free(der);hex(bytes,32,spki);
+    if(n<=0||!der)_exit(4);
+    SHA256(der,(size_t)n,bytes);
+    OPENSSL_free(der);
+    hex(bytes,32,spki);
     int bits=key?EVP_PKEY_bits(key):0;if(bits<0||bits>16384)bits=0;
     int self=X509_NAME_cmp(X509_get_subject_name(x),X509_get_issuer_name(x))==0&&key&&X509_verify(x,key)==1;
     append("{\"sha256\":\"%s\",\"spki_sha256\":\"%s\",\"not_before\":",digest,spki);time_json(X509_get_notBefore(x));
