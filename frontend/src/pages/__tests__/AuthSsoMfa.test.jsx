@@ -25,25 +25,40 @@ vi.mock('../../api', () => ({
   BASE: 'http://test',
   api: {
     exchangeOAuthCode: vi.fn(),
+    startMicrosoftSignIn: vi.fn(),
     mfaChallenge: vi.fn(),
     getWorkspaces: vi.fn(),
   },
 }))
+const startSpy = vi.fn()
+vi.mock('../../lib/microsoftLoginBinding', async (orig) => {
+  const actual = await orig()
+  return { ...actual, startMicrosoftSignIn: (...args) => startSpy(...args) }
+})
 
 import { api } from '../../api'
 import MicrosoftCallbackPage from '../MicrosoftCallbackPage'
 import LoginPage from '../LoginPage'
 
+// A sign-in this browser started: the verifier the exchange must present.
+const VERIFIER = 'v'.repeat(43)
+function storeBinding() {
+  localStorage.setItem('cm_ms_login_bindings', JSON.stringify([{ verifier: VERIFIER, at: Date.now() }]))
+}
+
 beforeEach(() => {
   navigateSpy.mockReset()
   loginSpy.mockReset()
+  startSpy.mockReset()
   api.exchangeOAuthCode.mockReset()
   api.mfaChallenge.mockReset()
   api.getWorkspaces.mockReset()
+  localStorage.clear()
 })
 
 describe('F-2 SSO MFA — MicrosoftCallbackPage', () => {
   it('hands the challenge to /login and does NOT create a session when MFA is required', async () => {
+    storeBinding()
     api.exchangeOAuthCode.mockResolvedValue({ mfa_required: true, challenge_token: 'cmfa_abc' })
 
     render(
@@ -62,6 +77,7 @@ describe('F-2 SSO MFA — MicrosoftCallbackPage', () => {
   })
 
   it('still logs in normally when no MFA is required (non-regression)', async () => {
+    storeBinding()
     api.exchangeOAuthCode.mockResolvedValue({ token: 't', id: 'u1', email: 'a@b.com', name: 'A', plan: 'free' })
     api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'w1' }] })
 
@@ -73,6 +89,41 @@ describe('F-2 SSO MFA — MicrosoftCallbackPage', () => {
 
     await waitFor(() => expect(loginSpy).toHaveBeenCalled())
     expect(loginSpy).toHaveBeenCalledWith('t', expect.objectContaining({ id: 'u1', email: 'a@b.com' }))
+    // The browser proves it started the sign-in with its stored verifier.
+    expect(api.exchangeOAuthCode).toHaveBeenCalledWith('otc123', [VERIFIER])
+  })
+
+  it('does not exchange a code this browser did not start', async () => {
+    render(
+      <MemoryRouter initialEntries={['/auth/microsoft/callback?otc=otc123']}>
+        <MicrosoftCallbackPage />
+      </MemoryRouter>
+    )
+    expect(await screen.findByText(/started in another browser/i)).toBeInTheDocument()
+    expect(api.exchangeOAuthCode).not.toHaveBeenCalled()
+    expect(loginSpy).not.toHaveBeenCalled()
+  })
+
+  it('leaves the existing session alone when the exchange is refused', async () => {
+    storeBinding()
+    api.exchangeOAuthCode.mockRejectedValue(new Error('401'))
+    render(
+      <MemoryRouter initialEntries={['/auth/microsoft/callback?otc=otc123']}>
+        <MicrosoftCallbackPage />
+      </MemoryRouter>
+    )
+    expect(await screen.findByText(/could not be completed in this browser/i)).toBeInTheDocument()
+    expect(loginSpy).not.toHaveBeenCalled()
+  })
+
+  it('never echoes error text from the URL', async () => {
+    render(
+      <MemoryRouter initialEntries={['/auth/microsoft/callback?ms_error=Call%20support%20on%200800']}>
+        <MicrosoftCallbackPage />
+      </MemoryRouter>
+    )
+    expect(await screen.findByText(/did not complete/i)).toBeInTheDocument()
+    expect(screen.queryByText(/0800/)).not.toBeInTheDocument()
   })
 })
 
@@ -96,6 +147,49 @@ describe('F-2 SSO MFA — LoginPage', () => {
 
     await waitFor(() => expect(api.mfaChallenge).toHaveBeenCalled())
     expect(api.mfaChallenge).toHaveBeenCalledWith('cmfa_abc', '123456')
+  })
+
+  it('binds the browser before leaving for Microsoft', async () => {
+    startSpy.mockResolvedValue(undefined)
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <LoginPage />
+      </MemoryRouter>
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Continue with Microsoft/i }))
+    await waitFor(() => expect(startSpy).toHaveBeenCalledWith({ start: api.startMicrosoftSignIn }))
+  })
+
+  it('explains when the browser cannot store the binding', async () => {
+    startSpy.mockRejectedValue(new Error('blocked'))
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <LoginPage />
+      </MemoryRouter>
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Continue with Microsoft/i }))
+    expect(await screen.findByText(/store data in your browser/i)).toBeInTheDocument()
+  })
+
+  it('explains when the API refuses to start sign-in', async () => {
+    startSpy.mockRejectedValue(Object.assign(new Error('refused'), { status: 503 }))
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <LoginPage />
+      </MemoryRouter>
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Continue with Microsoft/i }))
+    expect(await screen.findByText(/could not be started/i)).toBeInTheDocument()
+  })
+
+  it('shows a fixed message for a failed Microsoft sign-in, never the URL text', () => {
+    render(
+      <MemoryRouter initialEntries={['/login?ms_error=Call%20support%20on%200800']}>
+        <LoginPage />
+      </MemoryRouter>
+    )
+    expect(screen.getByText(/Microsoft sign-in did not complete/i)).toBeInTheDocument()
+    expect(screen.queryByText(/0800/)).not.toBeInTheDocument()
   })
 
   it('shows the password form (not MFA) for a normal visit with no handoff state', () => {

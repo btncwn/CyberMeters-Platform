@@ -42,9 +42,9 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 288,
+    "total": 289,
     "authed": 258,
-    "public_unauthed": 30,
+    "public_unauthed": 31,
     "sensitive_scope_gaps": 0,
     "by_scope": {
       "email": {
@@ -60,7 +60,7 @@
         "authed": 61
       },
       "public-or-global": {
-        "total": 38,
+        "total": 39,
         "authed": 20
       },
       "account": {
@@ -928,6 +928,17 @@
       "scope_helpers": [],
       "authed": false,
       "public_reason": "authentication endpoint — pre-auth by definition"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/microsoft/start",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "SSO/OAuth — provider-token gated"
     },
     {
       "method": "POST",
