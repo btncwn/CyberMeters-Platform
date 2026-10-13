@@ -10,6 +10,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+static unsigned char ocsp_der[65536];
+static long ocsp_len;
+static int staple(SSL *ssl,void *unused) {
+    (void)unused;
+    unsigned char *copy=OPENSSL_malloc((size_t)ocsp_len);
+    if(!copy)return SSL_TLSEXT_ERR_ALERT_FATAL;
+    memcpy(copy,ocsp_der,(size_t)ocsp_len);
+    if(!SSL_set_tlsext_status_ocsp_resp(ssl,copy,(int)ocsp_len)) {
+        OPENSSL_free(copy);return SSL_TLSEXT_ERR_ALERT_FATAL;
+    }
+    return SSL_TLSEXT_ERR_OK;
+}
 int main(int argc,char **argv) {
     if(argc<5)return 2;
     const char *protocol=argv[4];SSL_CTX *ctx=NULL;
@@ -27,6 +39,15 @@ int main(int argc,char **argv) {
     SSL_CTX_set_max_proto_version(ctx,!strcmp(protocol,"both")?TLS1_3_VERSION:v);
 #endif
     if(!ctx||!SSL_CTX_use_certificate_chain_file(ctx,argv[2])||!SSL_CTX_use_PrivateKey_file(ctx,argv[3],SSL_FILETYPE_PEM))return 3;
+    if(argc>6) {
+        FILE *source=fopen(argv[6],"rb");
+        if(!source)return 6;
+        ocsp_len=(long)fread(ocsp_der,1,sizeof(ocsp_der),source);
+        int oversized=fgetc(source)!=EOF;
+        fclose(source);
+        if(ocsp_len<=0||oversized)return 6;
+        SSL_CTX_set_tlsext_status_cb(ctx,staple);
+    }
     SSL_CTX_set_cipher_list(ctx,argc>5?argv[5]:"ALL:eNULL:!PSK:!SRP");
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
     SSL_CTX_set_ecdh_auto(ctx,1);

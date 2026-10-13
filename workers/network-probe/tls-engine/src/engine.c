@@ -643,6 +643,10 @@ static void result(SSL_CTX *ctx,SSL *ssl) {
 }
 int main(int argc,char **argv) {
     if(!args(argc,argv))return 2;
+    /* OpenSSL's certificate-time helpers may consult libc time-zone state after
+     * seccomp is installed. A literal UTC rule keeps that path file-free. */
+    if(setenv("TZ","UTC0",1)!=0)return 3;
+    tzset();
     started=now_ms();deadline=started+opt.timeout;evaluated=time(NULL);signal(SIGPIPE,SIG_IGN);
 #if CM_LEGACY
     SSL_library_init();OpenSSL_add_all_algorithms();

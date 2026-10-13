@@ -12,6 +12,7 @@ import selectors
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -128,13 +129,14 @@ def bridge(binary, arguments, port=None, mutate=None, abort=False):
 
 
 @contextlib.contextmanager
-def server(openssl, certificate, key, protocol, extra=()):
+def server(openssl, certificate, key, protocol, extra=(), staple=None):
     with socket.socket() as reservation:
         reservation.bind(('127.0.0.1', 0))
         port = reservation.getsockname()[1]
     family = 'modern' if 'modern' in str(openssl) else 'legacy'
     args = [BUILD / 'bin' / ('fixture-server-' + family), str(port), certificate, key, protocol]
-    if extra: args.append(extra[1])
+    if extra or staple: args.append(extra[1] if extra else 'ALL:eNULL:!PSK:!SRP')
+    if staple: args.append(staple)
     child = subprocess.Popen(list(map(str, args)), stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
@@ -158,6 +160,7 @@ def server(openssl, certificate, key, protocol, extra=()):
 class BaselineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.measurements = []
         for family in ['legacy','modern']:
             prefix = BUILD / ('install-' + family)
             lib = prefix / ('lib64' if (prefix / 'lib64/libssl.a').exists() else 'lib')
@@ -189,17 +192,53 @@ class BaselineTests(unittest.TestCase):
             run([cls.modern, 'x509', '-new', '-key', key, '-subj', '/CN=localhost',
                  '-not_before', before, '-not_after', after, '-extfile', config,
                  '-extensions', 'ext', '-out', certificate])
+        serial = run([cls.modern, 'x509', '-in', cls.cert, '-serial', '-noout']).stdout.decode().strip().split('=', 1)[1]
+        expiry = (now + timedelta(days=2)).strftime('%y%m%d%H%M%SZ')
+        revoked_at = (now - timedelta(hours=1)).strftime('%y%m%d%H%M%SZ')
+        cls.ocsp = {}
+        for status, index_line in [
+            ('good', f'V\t{expiry}\t\t{serial}\tunknown\t/CN=localhost\n'),
+            ('revoked', f'R\t{expiry}\t{revoked_at}\t{serial}\tunknown\t/CN=localhost\n'),
+        ]:
+            index = cls.fixture / f'{status}.index'
+            index.write_text(index_line)
+            output = cls.fixture / f'{status}.der'
+            run([cls.modern, 'ocsp', '-index', index, '-CA', cls.cert, '-rsigner', cls.cert,
+                 '-rkey', cls.key, '-issuer', cls.cert, '-serial', '0x' + serial,
+                 '-respout', output, '-ndays', '1'])
+            cls.ocsp[status] = output
+        bad = cls.fixture / 'bad-signature.der'
+        run([cls.modern, 'ocsp', '-index', cls.fixture / 'good.index', '-CA', cls.cert,
+             '-rsigner', cls.cert, '-rkey', cls.key, '-issuer', cls.cert,
+             '-serial', '0x' + serial, '-respout', bad, '-ndays', '1', '-badsig'])
+        cls.ocsp['bad_signature'] = bad
 
     @classmethod
     def tearDownClass(cls):
+        samples = cls.measurements
+        durations = sorted(row['telemetry']['duration_ms'] for row in samples)
+        if durations:
+            print('TLS loopback cost: ' + json.dumps({
+                'real_checks': len(samples),
+                'accepted': sum(row['state'] == 'accepted' for row in samples),
+                'uncertain': sum(row['state'] == 'uncertain' for row in samples),
+                'connections': sum(row['telemetry']['connections'] for row in samples),
+                'bytes_sent': sum(row['telemetry']['bytes_sent'] for row in samples),
+                'bytes_received': sum(row['telemetry']['bytes_received'] for row in samples),
+                'duration_ms': {'min': durations[0], 'median': durations[len(durations)//2],
+                                'p95': durations[(95*len(durations)-1)//100], 'max': durations[-1]},
+            }, sort_keys=True), file=sys.stderr)
         cls.directory.cleanup()
 
     def assess(self, protocol, port=None, control='handshake', family=None, extra=(),
                hostname='localhost', trust=None, **kwargs):
         family = family or ('modern' if protocol == 'tls1_3' else 'legacy')
-        return bridge(BUILD / 'bin' / ('tls-baseline-' + family),
-                      ['--protocol', protocol, '--control', control, '--hostname', hostname,
-                       '--trust-bundle', str(trust or self.cert), '--timeout-ms', '5000', *extra], port, **kwargs)
+        result = bridge(BUILD / 'bin' / ('tls-baseline-' + family),
+                        ['--protocol', protocol, '--control', control, '--hostname', hostname,
+                         '--trust-bundle', str(trust or self.cert), '--timeout-ms', '5000', *extra], port, **kwargs)
+        if port is not None:
+            self.measurements.append(result)
+        return result
 
     def test_six_protocols_finished_and_exact_trust(self):
         for protocol in ['ssl2', 'ssl3', 'tls1', 'tls1_1', 'tls1_2', 'tls1_3']:
@@ -283,6 +322,19 @@ class BaselineTests(unittest.TestCase):
         self.assertIn(result['state'], ['accepted', 'rejected'], result)
         self.assertEqual(result['extensions']['early_data_max'], 1024)
         self.assertEqual(result['telemetry']['connections'], 2)
+
+    def test_stapled_ocsp_status_and_signature_are_verified(self):
+        for fixture, expected in [('good', 'good'), ('revoked', 'revoked'),
+                                  ('bad_signature', 'invalid')]:
+            with self.subTest(fixture=fixture):
+                with server(self.modern, self.cert, self.key, 'tls1_2',
+                            staple=self.ocsp[fixture]) as port:
+                    result = self.assess('tls1_2', port, family='modern', control='certificate')
+                self.assertEqual(result['state'], 'accepted', result)
+                self.assertEqual(result['ocsp']['state'], expected, result)
+                self.assertTrue(result['ocsp']['cert_id_match'])
+                self.assertTrue(result['ocsp']['fresh'])
+                self.assertEqual(result['ocsp']['signature_valid'], fixture != 'bad_signature')
 
     def test_one_bounded_client_renegotiation(self):
         with server(self.legacy, self.cert, self.key, 'tls1_2') as port:
