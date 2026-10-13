@@ -399,10 +399,10 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `(none)` | 30 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `(none)` | 40 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| PUT | `(none)` | 40 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| PUT | `(none)` | 52 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 31 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 41 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| PUT | `(none)` | 41 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| PUT | `(none)` | 53 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/website-security.js`
 
