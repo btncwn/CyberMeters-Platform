@@ -30,6 +30,21 @@ export function outsideDataLabel(host) {
   return OUTSIDE_DATA_HOST_PATTERNS.find((pattern) => pattern.test(host))?.label ?? null;
 }
 
+// Addresses the public internet cannot reach. Cloudflare's network cannot
+// connect to them either, so the lab refuses them the same way — and records
+// the attempt, so a check can tell the product's own guard from the platform's.
+export function isPrivateAddress(value) {
+  const ip = String(value || "").toLowerCase().replace(/^\[|\]$/g, "");
+  const v4 = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    return a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
+      (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+  }
+  if (ip.includes(":")) return ip === "::1" || /^f[cd]/.test(ip) || /^fe[89ab]/.test(ip);
+  return false;
+}
+
 const TYPE_CODES = Object.freeze({ A: 1, NS: 2, CNAME: 5, SOA: 6, MX: 15, TXT: 16, AAAA: 28, SRV: 33, DS: 43, RRSIG: 46, NSEC: 47, DNSKEY: 48, CAA: 257 });
 const lower = (value) => String(value || "").toLowerCase().replace(/\.$/, "");
 const fqdn = (value) => `${lower(value)}.`;
@@ -229,6 +244,12 @@ export function createLabWorld(world, { egress = "open", root = DEFAULT_ROOT, lo
 
     const site = sites.get(host);
     const underLabZone = apexes.some((apex) => host === apex || host.endsWith(`.${apex}`));
+    const literal = /^[\d.]+$/.test(host) || host.includes(":") || host.startsWith("[");
+    if (isPrivateAddress(host) || (!literal && addressesOf(host).length > 0 && addressesOf(host).every(isPrivateAddress))) {
+      entry.kind = "private_refused";
+      entry.outcome = "refused";
+      throw new TypeError("fetch failed: address not reachable from the public internet");
+    }
     if (site || underLabZone || exists(host) || wildcardFor(host)) {
       entry.kind = "target";
       if (site?.timeout) { entry.outcome = "timeout"; throw timeoutError(); }
@@ -240,7 +261,26 @@ export function createLabWorld(world, { egress = "open", root = DEFAULT_ROOT, lo
       const body = method === "HEAD" || status === 204 || status === 304 ? null
         : typeof page.body === "function" ? page.body(url) : (page.body ?? "");
       if (typeof body === "string" && body.length > (world.maxBodyBytes ?? Infinity)) entry.oversized = true;
-      return new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", ...(page.headers || {}) } });
+      const headers = { "content-type": "text/html; charset=utf-8", ...(page.headers || {}) };
+      if (typeof body === "string" && body.length > (world.streamOver ?? Infinity)) {
+        // A large page is served as a stream, and the lab counts the bytes the
+        // reader actually pulled (give or take one chunk read ahead).
+        const bytes = new TextEncoder().encode(body);
+        let offset = 0;
+        entry.body_bytes = bytes.length;
+        entry.bytes_served = 0;
+        const stream = new ReadableStream({
+          pull(controller) {
+            if (offset >= bytes.length) { controller.close(); return; }
+            const chunk = bytes.subarray(offset, offset + 65_536);
+            offset += chunk.length;
+            entry.bytes_served = offset;
+            controller.enqueue(chunk);
+          },
+        }, { highWaterMark: 0 });
+        return new Response(stream, { status, headers });
+      }
+      return new Response(body, { status, headers });
     }
 
     entry.kind = "unexpected";

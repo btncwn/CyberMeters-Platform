@@ -13,7 +13,10 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const { runScheduled, runBoundedPool, SCHEDULED_SCAN_CONCURRENCY, SCHEDULED_SCAN_MAX_PER_TICK } = await import(
+const {
+  runScheduled, runBoundedPool, SCHEDULED_SCAN_CONCURRENCY, SCHEDULED_SCAN_MAX_PER_TICK,
+  HOURLY_CRON, DISPATCH_CRON, DISPATCH_TICK_MS, nextDispatchTickIso, retryAtFor, LONG_FAILING_RETRY_MS,
+} = await import(
   pathToFileURL(path.join(root, "workers", "scan-api", "src", "cron", "scheduled.js")).href
 );
 
@@ -143,6 +146,113 @@ ok("isolation: scheduled scan still dispatched", iso.triggerScheduledScan === 1)
   let completed = 0;
   await runBoundedPool([1, 2, 3, 4], 2, async (n) => { if (n === 2) throw new Error("boom"); completed++; });
   ok("bounded pool isolates a failing item (others still run)", completed === 3);
+}
+
+// ── Fair, unblockable scheduling ─────────────────────────────────────────────
+// Runs the real runScheduled against the real schema with a trigger that does
+// what the real one does to the schedule row: a schedule it starts gets its
+// next run stamped; one it skips (not eligible, already scanning) is left alone.
+async function tickAt(db, atMs, { cron = HOURLY_CRON, skip = () => false, calls = {}, env: extra = { SCHEDULED_DISPATCH_MODE: "queue" } } = {}) {
+  const env = { cybermeters_db: makeD1(db), ...extra };
+  const started = [];
+  const tasks = {
+    ...makeTasks(calls),
+    triggerScheduledScan: async (schedule) => {
+      calls.triggerScheduledScan = (calls.triggerScheduledScan || 0) + 1;
+      if (skip(schedule)) return;
+      started.push(schedule.id);
+      db.prepare("UPDATE scheduled_scans SET last_run_at = ?, next_run_at = ? WHERE id = ?")
+        .run(new Date(atMs).toISOString(), new Date(atMs + 864e5).toISOString(), schedule.id);
+    },
+  };
+  const promises = [];
+  const ctx = { waitUntil: (p) => promises.push(Promise.resolve(p).catch(() => {})) };
+  const RealDate = Date;
+  class FakeDate extends RealDate {
+    constructor(...args) { if (args.length === 0) super(atMs); else super(...args); }
+    static now() { return atMs; }
+  }
+  globalThis.Date = FakeDate;
+  try { await runScheduled({ cron }, env, ctx, tasks); await Promise.all(promises); } finally { globalThis.Date = RealDate; }
+  return started;
+}
+function scheduleDb() {
+  const db = buildDb();
+  db.exec("DELETE FROM scheduled_scans");
+  return db;
+}
+const T0 = Date.UTC(2026, 0, 6, 2, 0, 0);
+// A daily schedule that last started a day before it fell due, unless told otherwise.
+const seedSchedule = (db, id, owner, dueMs, { lastRunMs = dueMs - 864e5 } = {}) => {
+  db.prepare("INSERT OR IGNORE INTO workspaces (id, name, owner_user_id) VALUES (?, ?, ?)").run(`ws_${owner}`, owner, owner);
+  db.prepare("INSERT INTO scheduled_scans (id, domain, enabled, next_run_at, last_run_at, workspace_id, frequency, created_at) VALUES (?, ?, 1, ?, ?, ?, 'daily', ?)")
+    .run(id, `${id}.example.com`, new Date(dueMs).toISOString(), lastRunMs == null ? null : new Date(lastRunMs).toISOString(), `ws_${owner}`, new Date(T0 - 30 * 864e5).toISOString());
+};
+
+// One customer with many schedules due first never takes every place.
+{
+  const db = scheduleDb();
+  for (let i = 0; i < 30; i++) seedSchedule(db, `big_${i}`, "u_big", T0 - 3_600_000 + i);
+  for (let i = 0; i < 5; i++) seedSchedule(db, `small_${i}`, `u_small_${i}`, T0 - 60_000 + i);
+  const started = await tickAt(db, T0);
+  ok("fair: a tick starts no more than its cap", started.length === SCHEDULED_SCAN_MAX_PER_TICK);
+  ok("fair: every customer with a due schedule gets a turn in the same tick, behind one big customer's older backlog",
+    [0, 1, 2, 3, 4].every((i) => started.includes(`small_${i}`)));
+  ok("fair: the big customer's remaining turns go oldest first",
+    started.filter((id) => id.startsWith("big_")).join() === Array.from({ length: SCHEDULED_SCAN_MAX_PER_TICK - 5 }, (_, i) => `big_${i}`).join());
+}
+
+// Schedules that can no longer start (verification removed, trial ended) never
+// hold the places of schedules that can.
+{
+  const db = scheduleDb();
+  const stuck = Array.from({ length: SCHEDULED_SCAN_MAX_PER_TICK + 3 }, (_, i) => `stuck_${i}`);
+  // Last started four days ago: waiting on their customers.
+  stuck.forEach((id, i) => seedSchedule(db, id, `u_stuck_${i}`, T0 - 3 * 864e5 + i, { lastRunMs: T0 - 4 * 864e5 }));
+  seedSchedule(db, "runnable", "u_runnable", T0 - 60_000);
+  seedSchedule(db, "busy", "u_busy", T0 - 120_000);
+  const skip = (schedule) => schedule.id.startsWith("stuck_") || schedule.id === "busy";
+  const first = await tickAt(db, T0, { skip });
+  const firstStuck = db.prepare("SELECT next_run_at FROM scheduled_scans WHERE id = 'stuck_0'").get().next_run_at;
+  const second = await tickAt(db, T0 + DISPATCH_TICK_MS, { cron: DISPATCH_CRON, skip });
+  const busyRetry = db.prepare("SELECT next_run_at FROM scheduled_scans WHERE id = 'busy'").get().next_run_at;
+  ok("unblockable: a schedule that has not started for two days is moved back an hour, not left first in line",
+    Date.parse(firstStuck) === T0 + LONG_FAILING_RETRY_MS && firstStuck === retryAtFor({ frequency: "daily", last_run_at: new Date(T0 - 4 * 864e5).toISOString() }, T0), firstStuck);
+  ok("unblockable: a schedule that ran yesterday and could not start now (its domain already scanning) is retried on the next dispatch tick",
+    busyRetry === nextDispatchTickIso(T0 + DISPATCH_TICK_MS) && Date.parse(busyRetry) === T0 + 2 * DISPATCH_TICK_MS, busyRetry);
+  ok("unblockable: a runnable schedule behind a full tick of stuck ones starts on the next tick",
+    first.length === 0 && second.includes("runnable"), JSON.stringify({ first, second }));
+  ok("unblockable: a stuck schedule stays enabled and due — it is retried, never dropped",
+    db.prepare("SELECT COUNT(*) AS n FROM scheduled_scans WHERE id LIKE 'stuck_%' AND enabled = 1").get().n === stuck.length);
+  const stamped = db.prepare("SELECT next_run_at FROM scheduled_scans WHERE id = 'runnable'").get().next_run_at;
+  ok("unblockable: a schedule the trigger started keeps the next run it was stamped with",
+    stamped === new Date(T0 + DISPATCH_TICK_MS + 864e5).toISOString(), stamped);
+}
+
+// The dispatch ticks between the hours dispatch scheduled scans and nothing else.
+{
+  const db = scheduleDb();
+  seedSchedule(db, "due", "u_due", T0 - 60_000);
+  const calls = {};
+  const started = await tickAt(db, T0 + DISPATCH_TICK_MS, { cron: DISPATCH_CRON, calls });
+  ok("dispatch tick: dispatches the due schedule", calls.triggerScheduledScan === 1 && started.includes("due"));
+  ok("dispatch tick: runs no other cron task", ALWAYS.every((t) => !calls[t]) && !calls.cleanupExpiredReports && !calls.opsHealthHeartbeat);
+  // Outside queue mode a pick runs the scan inline for minutes; a dispatch tick
+  // could pick a schedule the previous tick has not stamped yet.
+  const legacyCalls = {};
+  const legacyDb = scheduleDb();
+  seedSchedule(legacyDb, "due", "u_due", T0 - 60_000);
+  await tickAt(legacyDb, T0 + DISPATCH_TICK_MS, { cron: DISPATCH_CRON, calls: legacyCalls, env: {} });
+  const hourly = await tickAt(legacyDb, T0 + 6 * DISPATCH_TICK_MS, { calls: {}, env: {} });
+  ok("dispatch tick: outside queue mode it dispatches nothing; the hourly tick still does",
+    !legacyCalls.triggerScheduledScan && hourly.includes("due"), JSON.stringify({ legacyCalls, hourly }));
+  ok("next dispatch tick is the next ten-minute boundary",
+    nextDispatchTickIso(Date.UTC(2026, 0, 6, 10, 7, 30)) === "2026-01-06T10:10:00.000Z" &&
+      nextDispatchTickIso(Date.UTC(2026, 0, 6, 10, 50, 0)) === "2026-01-06T11:00:00.000Z");
+  const toml = fs.readFileSync(path.join(root, "workers", "scan-api", "wrangler.toml"), "utf8");
+  ok("the Worker's cron triggers are exactly the hourly tick and the dispatch ticks the code expects",
+    toml.includes(`crons = ["${HOURLY_CRON}", "${DISPATCH_CRON}"]`) &&
+      DISPATCH_CRON.split(" ")[0].split(",").map(Number).every((m) => m % (DISPATCH_TICK_MS / 60_000) === 0));
 }
 
 console.log(`\nCron orchestration: ${pass}/${pass + fail} passed`);

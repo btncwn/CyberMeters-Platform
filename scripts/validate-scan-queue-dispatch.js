@@ -703,7 +703,7 @@ ok("E2d cutover flag is present and ON (SCAN_DISPATCH_MODE = \"queue\")",
 ok("E2e custom-domain route and cron unchanged",
   /pattern = "api\.cybermeters\.com"/.test(wranglerSrc) &&
   /custom_domain = true/.test(wranglerSrc) &&
-  /crons = \["0 \* \* \* \*"\]/.test(wranglerSrc));
+  /crons = \["0 \* \* \* \*", "10,20,30,40,50 \* \* \* \*"\]/.test(wranglerSrc));
 
 // E3 — migration 099 already guards the queued state (real index, real DB):
 // two queued admissions for one (workspace, domain) cannot coexist.
