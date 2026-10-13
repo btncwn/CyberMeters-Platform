@@ -19,6 +19,10 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / 'workers/network-probe/tls-engine'
+SOURCE_URLS = {
+    'legacy': 'https://github.com/openssl/openssl/releases/download/OpenSSL_1_0_2u/openssl-1.0.2u.tar.gz',
+    'modern': 'https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz',
+}
 
 
 def sha256(path):
@@ -81,12 +85,18 @@ def main():
     manifest = json.loads((ENGINE / 'sources.json').read_text())
     for source in manifest['sources']:
         identity = source['id']
+        if identity not in SOURCE_URLS or source['url'] != SOURCE_URLS[identity]:
+            raise RuntimeError('unexpected source URL')
         if args.engine not in ('all', identity):
             continue
         archive = build / ('openssl-' + source['version'] + '.tar.gz')
         if not archive.exists():
             partial = archive.with_suffix('.download')
-            with urllib.request.urlopen(source['url'], timeout=60) as response, partial.open('wb') as out:
+            if identity == 'legacy':
+                response = urllib.request.urlopen('https://github.com/openssl/openssl/releases/download/OpenSSL_1_0_2u/openssl-1.0.2u.tar.gz', timeout=60)
+            else:
+                response = urllib.request.urlopen('https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz', timeout=60)
+            with response, partial.open('wb') as out:
                 shutil.copyfileobj(response, out)
             if sha256(partial) != source['sha256']:
                 partial.unlink()
