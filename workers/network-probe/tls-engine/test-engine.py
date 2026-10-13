@@ -413,6 +413,19 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(result['extensions']['early_data_max'], 1024)
         self.assertEqual(result['telemetry']['connections'], 2)
 
+    def test_fallback_scsv_protected_and_supported_paths(self):
+        with server(self.modern, self.cert, self.key, 'both') as port:
+            protected = self.assess('tls1_2', port, control='fallback', family='modern')
+        self.assertEqual(protected['state'], 'rejected', protected)
+        self.assertEqual(protected['reason'], 'fallback_rejected')
+        self.assertFalse(protected['authenticated_finished'])
+        self.assertEqual(protected['telemetry']['connections'], 1)
+        with server(self.modern, self.cert, self.key, 'tls1_2') as port:
+            supported = self.assess('tls1_2', port, control='fallback', family='modern')
+        self.assertEqual(supported['state'], 'accepted', supported)
+        self.assertTrue(supported['authenticated_finished'])
+        self.assertEqual(supported['telemetry']['connections'], 1)
+
     def test_stapled_ocsp_status_and_signature_are_verified(self):
         for fixture, expected in [('good', 'good'), ('revoked', 'revoked'),
                                   ('bad_signature', 'invalid'), ('stale', 'invalid')]:

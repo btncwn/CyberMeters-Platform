@@ -22,6 +22,7 @@ describe('workspace TLS permissions',()=>{
     const toggle=await screen.findByRole('checkbox',{name:/Allow bounded checks/})
     expect(toggle).not.toBeChecked()
     expect(screen.getByText(/Normal scans assess protocols, ciphers and certificates/)).toBeInTheDocument()
+    expect(screen.getByText(/The current engine cannot run those checks/)).toBeInTheDocument()
     expect(api.saveTlsAuthorization).not.toHaveBeenCalled()
     fireEvent.click(toggle);fireEvent.click(screen.getByRole('button',{name:'Save TLS permission'}))
     await waitFor(()=>expect(api.saveTlsAuthorization).toHaveBeenCalledWith('workspace-a',{enabled:true,authorization_confirmed:true,consent_version:'tls-special-2026-10-13'}))
