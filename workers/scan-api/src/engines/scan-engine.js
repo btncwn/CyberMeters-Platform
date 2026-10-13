@@ -16,6 +16,7 @@ import { annotateExposureInfrastructure, deduplicateExposureAssets, runAdminSurf
 import { buildDseFindings } from "./dse-findings.js";
 import { upsertAssetInventory } from "./asset-inventory.js";
 import { loadKnownAssetRecheckHosts, persistAttackSurfaceLifecycle } from "./attack-surface-lifecycle.js";
+import { buildScanAssetEvidence, collectAssetHints } from "./asset-evidence.js";
 import { deriveAttackSurfaceSignalCompleteness } from "./attack-surface-signal-completeness.js";
 import { upsertBrandAssets, upsertIdentityAssets } from "./asset-persistence.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
@@ -984,9 +985,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // Existing identities are rechecked through the same active DNS + SSRF-safe
     // HTTP paths. This is one bounded read.
     const identityRead = await runInitialCeilingAwareStep("initial_identity_read", () =>
-      loadKnownAssetRecheckHosts(env, domainId, domain));
+      loadKnownAssetRecheckHosts(env, domainId, domain, { workspaceId }));
     if (!identityRead.settled) return identityRead.ceiling;
     const knownAssetHosts = identityRead.value;
+    // What discovery read this scan that no module result keeps — the
+    // customer's list and every configuration reference — for the per-asset
+    // evidence written with the inventory (engines/asset-evidence.js).
+    const evidenceHints = { listedHostnames: [], referencedCandidates: [] };
 
     // Capacity mode (default "legacy" — the legacy branch below is byte-for-byte the
     // prior behaviour). "reserved" runs the separated exposure-first flow.
@@ -1179,6 +1184,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           srvTargets: bruteforceResult.srv_items,
           linkedHostnames: techResult?.linked_hostnames,
         });
+        evidenceHints.referencedCandidates = referencedEvidence.candidates;
         let referencedThrown = null;
         const referencedRun = await runCappedModule("referenced_hostnames", {
           estimateMs: REFERENCED_HOSTNAME_LIMITS.budgetMs,
@@ -1226,6 +1232,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         customerResult = customerHostnamesNotExecuted("invocation_not_durable");
       } else {
         const listedHostnames = await loadActiveHostnames(env, { workspaceId, domainId, domain });
+        if (Array.isArray(listedHostnames)) evidenceHints.listedHostnames = listedHostnames;
         if (listedHostnames === null) {
           customerResult = customerHostnamesNotExecuted("list_unavailable");
         } else if (listedHostnames.length === 0) {
@@ -2724,18 +2731,25 @@ function buildCanonicalUrlProfile(modules) {
     // Phase 8: Asset Inventory Upsert — runs AFTER completion status is written.
     // Failure here cannot leave the scan stuck in "running".
     // Uses D1 batch() to minimise round-trips.
+    // Only the scanning workspace's inventory is written; each name carries
+    // where it was seen and this scan's evidence for it.
     try {
+      const assetHints = collectAssetHints(domain, modules, evidenceHints);
       await upsertAssetInventory(scanId, domainId, domain, modules, env, {
         currentReport: report,
         observedAt: completedAt,
+        workspaceId,
+        hints: assetHints,
       });
       await persistAttackSurfaceLifecycle({
         env,
         scanId,
         domainId,
         domain,
+        workspaceId,
         signalCompleteness: modules.attack_surface_signal_completeness,
         assetExposure: modules.asset_exposure,
+        assetEvidence: buildScanAssetEvidence({ domain, modules, findings: normalizedFindings, hints: assetHints }),
         observedAt: completedAt,
       });
     } catch { /* non-fatal — inventory update will catch up on next scan */ }

@@ -3,6 +3,7 @@
 // consolidation, per-asset probe metadata). Extracted verbatim from index.js (monolith
 // decomposition, Phase 1c).
 import { buildAssetInventoryMetadata, consolidateInventoryAssetAliases, probeAsset } from "./asset-intel.js";
+import { collectAssetHints, hintsForAsset, mergeAssetSightings, safeLocation } from "./asset-evidence.js";
 import { deriveRemovalObservation } from "./attack-surface-signal-completeness.js";
 import { normalizeHostname } from "./hostnames.js";
 import { createId } from "../lib/util.js";
@@ -43,6 +44,13 @@ function hostnameFromRedirectTarget(value) {
   }
 }
 
+// A stored redirect location is compared without its query, fragment or path
+// parameters: those are never kept, and a row stored before that rule must
+// not read as a redirect change.
+function comparableRedirect(value) {
+  return safeLocation(normalizeInventoryValue(value)) || normalizeInventoryValue(value);
+}
+
 function isExternalRedirectTarget(value, domain) {
   const targetHost = hostnameFromRedirectTarget(value);
   const rootHost = normalizeHostname(domain);
@@ -55,11 +63,24 @@ function isExternalRedirectTarget(value, domain) {
 // Called AFTER the scan completion status is written to D1 so a upsert failure
 // can never leave a scan stuck in "running".
 //
-// One domain can belong to multiple workspaces — we upsert into each.
+// Only the workspace that ran the scan is written (opts.workspaceId), and only
+// while it is live and still linked to the domain. Another workspace linked to
+// the same domain keeps its own inventory from its own scans: one workspace's
+// customer list, re-checks and evidence never reach another. Without a
+// workspace nothing is written.
 // Uses D1 batch() to minimise round-trips.
+//
+// opts.hints: where each name was seen this scan (collectAssetHints); each
+// row's per-source first/last sighting is kept in sightings_json.
 
 export async function upsertAssetInventory(scanId, domainId, domain, modules, env, opts = {}) {
+  const workspaceId = typeof opts.workspaceId === "string" && opts.workspaceId ? opts.workspaceId : null;
+  if (!workspaceId) {
+    console.log("[inventory]", JSON.stringify({ domain, skipped: "no_workspace" }));
+    return { written: false, reason: "no_workspace" };
+  }
   const now = new Date(opts.observedAt || Date.now()).toISOString();
+  const hints = opts.hints instanceof Map ? opts.hints : collectAssetHints(domain, modules);
   const comparison = await loadTimelineComparisonContext(env, {
     scanId,
     domainId,
@@ -230,7 +251,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
     if (existing) {
       existing.ip_addresses = existing.ip_addresses ?? JSON.stringify(asset.ip ? [asset.ip] : []);
       existing.cname        = existing.cname ?? asset.cname ?? null;
-      existing.redirect_to  = asset.redirect_to ?? asset.url ?? null;
+      existing.redirect_to  = safeLocation(asset.redirect_to ?? asset.url ?? null);
       existing.cloud        = existing.cloud ?? asset.infrastructure_provider ?? null;
       existing.aliases      = [...new Set([...(existing.aliases || []), ...(asset.aliases || [])])];
       existing.provider_targets = [...new Set([...(existing.provider_targets || []), ...(asset.provider_targets || [])])];
@@ -241,7 +262,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
         source:       "exposure_probe",
         wildcard:     0,
         cname:        asset.cname ?? null,
-        redirect_to:  asset.redirect_to ?? asset.url ?? null,
+        redirect_to:  safeLocation(asset.redirect_to ?? asset.url ?? null),
         risk_level:   null,
         cloud:        asset.infrastructure_provider ?? null,
         aliases:      asset.aliases || [],
@@ -295,9 +316,9 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
     wildcard_dns:  wildcardDns,
   }));
 
-  if (finalAssets.length === 0) return;
+  if (finalAssets.length === 0) return { written: false, reason: "no_assets" };
 
-  // ── Look up workspaces linked to this domain ──────────────────────────────
+  // ── The scan's workspace, if it is live and still linked to the domain ─────
   let wsRows;
   try {
     const r = await env.cybermeters_db
@@ -305,14 +326,14 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
         `SELECT wd.workspace_id
          FROM workspace_domains wd
          JOIN workspaces w ON w.id = wd.workspace_id
-         WHERE wd.domain_id = ? AND w.deleted_at IS NULL`
+         WHERE wd.domain_id = ? AND wd.workspace_id = ? AND w.deleted_at IS NULL`
       )
-      .bind(domainId)
+      .bind(domainId, workspaceId)
       .all();
     wsRows = r.results || [];
   } catch (e) {
     console.error("[inventory] workspace lookup failed:", e?.message);
-    return;
+    return { written: false, reason: "workspace_lookup_failed" };
   }
 
   console.log("[inventory]", JSON.stringify({
@@ -321,9 +342,10 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
     domain_id:  domainId,
   }));
 
-  if (wsRows.length === 0) return;
+  if (wsRows.length === 0) return { written: false, reason: "workspace_not_linked" };
 
-  // ── For each workspace: diff against existing assets, batch-upsert ────────
+  let written = false;
+  // ── Diff against the workspace's existing assets, batch-upsert ─────────────
   for (const { workspace_id } of wsRows) {
     try {
       // Fetch existing assets + recent change events in a single batch round-trip.
@@ -336,10 +358,13 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
       // re-insert, freezing last_seen forever. domain_id is still included
       // so pre-normalisation rows with hostname variants keep matching.
       const rootHost = _rootHost ?? domain;
-      const [existingResult, recentEvtResult] = await env.cybermeters_db.batch([
+      // sightings_json arrives with migration 118; before it is applied the
+      // inventory is still written, without per-source sightings.
+      let sightingsColumn = true;
+      const readExisting = (withSightings) => env.cybermeters_db.batch([
         env.cybermeters_db
           .prepare(
-            `SELECT id, hostname, status, last_seen, ip_addresses, cname, redirect_to FROM workspace_assets
+            `SELECT id, hostname, status, last_seen, ip_addresses, cname, redirect_to${withSightings ? ", sightings_json" : ""} FROM workspace_assets
              WHERE workspace_id = ? AND (domain_id = ? OR hostname = ? OR hostname LIKE ?)`
           )
           .bind(workspace_id, domainId, rootHost, `%.${rootHost}`),
@@ -351,6 +376,11 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
           )
           .bind(workspace_id, domainId),
       ]);
+      const [existingResult, recentEvtResult] = await readExisting(true).catch((error) => {
+        if (!/no such column/i.test(String(error?.message || ""))) throw error;
+        sightingsColumn = false;
+        return readExisting(false);
+      });
 
       const existingMap = new Map(
         (existingResult.results || []).map((r) => [r.hostname, r])
@@ -366,6 +396,11 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
       // Upsert each discovered asset
       for (const asset of finalAssets) {
         const existing = existingMap.get(asset.hostname);
+        const sightings = mergeAssetSightings(
+          existing?.sightings_json ?? null,
+          hintsForAsset(hints, asset.hostname, asset.aliases),
+          { scanId, observedAt: now },
+        );
         if (!existing) {
           // New asset — INSERT OR IGNORE guards against any residual duplicates
           const assetId = createId("asset");
@@ -376,8 +411,8 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
                    (id, workspace_id, domain_id, hostname, asset_type, source,
                     first_seen, last_seen, status, wildcard_dns,
                     ip_addresses, cname, redirect_to, cloud_provider,
-                    risk_level, metadata_json, created_at, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,'active',?,?,?,?,?,?,?,?,?)`
+                    risk_level, metadata_json, created_at, updated_at${sightingsColumn ? ", sightings_json" : ""})
+                 VALUES (?,?,?,?,?,?,?,?,'active',?,?,?,?,?,?,?,?,?${sightingsColumn ? ",?" : ""})`
               )
               .bind(
                 assetId, workspace_id, domainId, asset.hostname,
@@ -391,7 +426,8 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
                 asset.cloud ?? null,
                 asset.risk_level ?? null,
                 buildAssetInventoryMetadata(asset),
-                now, now
+                now, now,
+                ...(sightingsColumn ? [sightings] : [])
               )
           );
           if (canEmitTimelineEvents) {
@@ -463,8 +499,8 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
             );
           }
 
-          const previousRedirect = normalizeInventoryValue(existing.redirect_to);
-          const currentRedirect = normalizeInventoryValue(asset.redirect_to);
+          const previousRedirect = comparableRedirect(existing.redirect_to);
+          const currentRedirect = comparableRedirect(asset.redirect_to);
           if (canEmitTimelineEvents &&
               previousRedirect && currentRedirect && previousRedirect !== currentRedirect &&
               !recentEvtSet.has(`dns_redirect_changed:${asset.hostname}`)) {
@@ -499,7 +535,8 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
                      ip_addresses = COALESCE(?, ip_addresses),
                      cname = COALESCE(?, cname),
                      redirect_to = COALESCE(?, redirect_to),
-                     metadata_json = COALESCE(?, metadata_json),
+                     metadata_json = COALESCE(?, metadata_json),${sightingsColumn ? `
+                     sightings_json = COALESCE(?, sightings_json),` : ""}
                      updated_at = ?
                  WHERE workspace_id = ? AND hostname = ?`
               )
@@ -511,6 +548,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
                 asset.cname ?? null,
                 asset.redirect_to ?? null,
                 buildAssetInventoryMetadata(asset),
+                ...(sightingsColumn ? [sightings] : []),
                 now,
                 workspace_id, asset.hostname
               )
@@ -574,10 +612,12 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
           throw batchErr;   // re-throw so the outer per-workspace catch sees it
         }
       }
+      written = true;
 
     } catch (e) {
-      // Per-workspace failure is non-fatal — continue with next workspace
+      // Failure is non-fatal for the scan; the next scan catches up.
       console.error("[inventory] workspace upsert error for", workspace_id, ":", e?.message);
     }
   }
+  return { written, reason: written ? null : "write_failed" };
 }

@@ -9,6 +9,7 @@ import StatCard from '../components/StatCard'
 import AttackSurfaceAssurance from '../components/AttackSurfaceAssurance'
 import NetworkAssetsPanel from '../components/NetworkAssetsPanel'
 import HostnameListPanel from '../components/HostnameListPanel'
+import AssetEvidence from '../components/AssetEvidence'
 import { assetLifecycleClaimDisplay, projectedCountDisplay } from '../lib/assetLifecycleClaimDisplay'
 import { assetSourceLabel } from '../lib/assetSourceLabel'
 
@@ -365,6 +366,9 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
                   )
                 })()}
               </div>
+
+              {/* Why the name is listed and what was measured for it */}
+              <AssetEvidence evidence={data.evidence} />
 
               {/* Events */}
               {data.events.length > 0 && (

@@ -29,7 +29,7 @@ for (const name of worlds) {
   const world = WORLDS[name];
   if (!world) throw new Error(`unknown world ${name}`);
   const run = await runLabWorld({ root, world, egress, scans });
-  const { db, r2, log, engine_log: _engineLog, ...measurement } = run;
+  const { db, env, r2, log, engine_log: _engineLog, ...measurement } = run;
   results.push(measurement);
 }
 
