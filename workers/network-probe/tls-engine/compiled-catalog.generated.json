@@ -1,0 +1,3813 @@
+{
+  "schema": "tls-compiled-catalog-v1",
+  "engines": {
+    "legacy": {
+      "version": "1.0.2u",
+      "source_sha256": "ecd0c6ffb493dd06707d38b14bb4d8c2288bb7033735606569d8f90f89669d16"
+    },
+    "modern": {
+      "version": "3.5.9",
+      "source_sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a"
+    }
+  },
+  "entries": [
+    {
+      "protocol": "ssl2",
+      "engine": "legacy",
+      "name": "IDEA-CBC-MD5",
+      "id": "050080",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl2",
+      "engine": "legacy",
+      "name": "RC2-CBC-MD5",
+      "id": "030080",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl2",
+      "engine": "legacy",
+      "name": "RC4-MD5",
+      "id": "010080",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl2",
+      "engine": "legacy",
+      "name": "DES-CBC3-MD5",
+      "id": "0700c0",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-AES256-SHA",
+      "id": "c014",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-AES256-SHA",
+      "id": "c00a",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "SRP-DSS-AES-256-CBC-SHA",
+      "id": "c022",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "SRP-RSA-AES-256-CBC-SHA",
+      "id": "c021",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "SRP-AES-256-CBC-SHA",
+      "id": "c020",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DHE-RSA-AES256-SHA",
+      "id": "0039",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DHE-DSS-AES256-SHA",
+      "id": "0038",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-RSA-AES256-SHA",
+      "id": "0037",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-DSS-AES256-SHA",
+      "id": "0036",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DHE-RSA-CAMELLIA256-SHA",
+      "id": "0088",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DHE-DSS-CAMELLIA256-SHA",
+      "id": "0087",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-RSA-CAMELLIA256-SHA",
+      "id": "0086",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-DSS-CAMELLIA256-SHA",
+      "id": "0085",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "AECDH-AES256-SHA",
+      "id": "c019",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ADH-AES256-SHA",
+      "id": "003a",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ADH-CAMELLIA256-SHA",
+      "id": "0089",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDH-RSA-AES256-SHA",
+      "id": "c00f",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-AES256-SHA",
+      "id": "c005",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "AES256-SHA",
+      "id": "0035",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "CAMELLIA256-SHA",
+      "id": "0084",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "PSK-AES256-CBC-SHA",
+      "id": "008d",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-AES128-SHA",
+      "id": "c013",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-AES128-SHA",
+      "id": "c009",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "SRP-DSS-AES-128-CBC-SHA",
+      "id": "c01f",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "SRP-RSA-AES-128-CBC-SHA",
+      "id": "c01e",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "SRP-AES-128-CBC-SHA",
+      "id": "c01d",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DHE-RSA-AES128-SHA",
+      "id": "0033",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DHE-DSS-AES128-SHA",
+      "id": "0032",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-RSA-AES128-SHA",
+      "id": "0031",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-DSS-AES128-SHA",
+      "id": "0030",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DHE-RSA-SEED-SHA",
+      "id": "009a",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DHE-DSS-SEED-SHA",
+      "id": "0099",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-RSA-SEED-SHA",
+      "id": "0098",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-DSS-SEED-SHA",
+      "id": "0097",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DHE-RSA-CAMELLIA128-SHA",
+      "id": "0045",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DHE-DSS-CAMELLIA128-SHA",
+      "id": "0044",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-RSA-CAMELLIA128-SHA",
+      "id": "0043",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-DSS-CAMELLIA128-SHA",
+      "id": "0042",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "AECDH-AES128-SHA",
+      "id": "c018",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ADH-AES128-SHA",
+      "id": "0034",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ADH-SEED-SHA",
+      "id": "009b",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ADH-CAMELLIA128-SHA",
+      "id": "0046",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDH-RSA-AES128-SHA",
+      "id": "c00e",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-AES128-SHA",
+      "id": "c004",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "AES128-SHA",
+      "id": "002f",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "SEED-SHA",
+      "id": "0096",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "CAMELLIA128-SHA",
+      "id": "0041",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "IDEA-CBC-SHA",
+      "id": "0007",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "PSK-AES128-CBC-SHA",
+      "id": "008c",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-RC4-SHA",
+      "id": "c011",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-RC4-SHA",
+      "id": "c007",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "AECDH-RC4-SHA",
+      "id": "c016",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ADH-RC4-MD5",
+      "id": "0018",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDH-RSA-RC4-SHA",
+      "id": "c00c",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-RC4-SHA",
+      "id": "c002",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "RC4-SHA",
+      "id": "0005",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "RC4-MD5",
+      "id": "0004",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "PSK-RC4-SHA",
+      "id": "008a",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-DES-CBC3-SHA",
+      "id": "c012",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-DES-CBC3-SHA",
+      "id": "c008",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "SRP-DSS-3DES-EDE-CBC-SHA",
+      "id": "c01c",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "SRP-RSA-3DES-EDE-CBC-SHA",
+      "id": "c01b",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "SRP-3DES-EDE-CBC-SHA",
+      "id": "c01a",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "EDH-RSA-DES-CBC3-SHA",
+      "id": "0016",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "EDH-DSS-DES-CBC3-SHA",
+      "id": "0013",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-RSA-DES-CBC3-SHA",
+      "id": "0010",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-DSS-DES-CBC3-SHA",
+      "id": "000d",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "AECDH-DES-CBC3-SHA",
+      "id": "c017",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ADH-DES-CBC3-SHA",
+      "id": "001b",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDH-RSA-DES-CBC3-SHA",
+      "id": "c00d",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-DES-CBC3-SHA",
+      "id": "c003",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DES-CBC3-SHA",
+      "id": "000a",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "PSK-3DES-EDE-CBC-SHA",
+      "id": "008b",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "EDH-RSA-DES-CBC-SHA",
+      "id": "0015",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "EDH-DSS-DES-CBC-SHA",
+      "id": "0012",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-RSA-DES-CBC-SHA",
+      "id": "000f",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DH-DSS-DES-CBC-SHA",
+      "id": "000c",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ADH-DES-CBC-SHA",
+      "id": "001a",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "DES-CBC-SHA",
+      "id": "0009",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "EXP-EDH-RSA-DES-CBC-SHA",
+      "id": "0014",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "EXP-EDH-DSS-DES-CBC-SHA",
+      "id": "0011",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "EXP-ADH-DES-CBC-SHA",
+      "id": "0019",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "EXP-DES-CBC-SHA",
+      "id": "0008",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "EXP-RC2-CBC-MD5",
+      "id": "0006",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "EXP-ADH-RC4-MD5",
+      "id": "0017",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "EXP-RC4-MD5",
+      "id": "0003",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-NULL-SHA",
+      "id": "c010",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-NULL-SHA",
+      "id": "c006",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "AECDH-NULL-SHA",
+      "id": "c015",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDH-RSA-NULL-SHA",
+      "id": "c00b",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-NULL-SHA",
+      "id": "c001",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "NULL-SHA",
+      "id": "0002",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "ssl3",
+      "engine": "legacy",
+      "name": "NULL-MD5",
+      "id": "0001",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-AES256-SHA",
+      "id": "c014",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-AES256-SHA",
+      "id": "c00a",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "SRP-DSS-AES-256-CBC-SHA",
+      "id": "c022",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "SRP-RSA-AES-256-CBC-SHA",
+      "id": "c021",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "SRP-AES-256-CBC-SHA",
+      "id": "c020",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DHE-RSA-AES256-SHA",
+      "id": "0039",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DHE-DSS-AES256-SHA",
+      "id": "0038",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-RSA-AES256-SHA",
+      "id": "0037",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-DSS-AES256-SHA",
+      "id": "0036",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DHE-RSA-CAMELLIA256-SHA",
+      "id": "0088",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DHE-DSS-CAMELLIA256-SHA",
+      "id": "0087",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-RSA-CAMELLIA256-SHA",
+      "id": "0086",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-DSS-CAMELLIA256-SHA",
+      "id": "0085",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "AECDH-AES256-SHA",
+      "id": "c019",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ADH-AES256-SHA",
+      "id": "003a",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ADH-CAMELLIA256-SHA",
+      "id": "0089",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDH-RSA-AES256-SHA",
+      "id": "c00f",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-AES256-SHA",
+      "id": "c005",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "AES256-SHA",
+      "id": "0035",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "CAMELLIA256-SHA",
+      "id": "0084",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "PSK-AES256-CBC-SHA",
+      "id": "008d",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-AES128-SHA",
+      "id": "c013",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-AES128-SHA",
+      "id": "c009",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "SRP-DSS-AES-128-CBC-SHA",
+      "id": "c01f",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "SRP-RSA-AES-128-CBC-SHA",
+      "id": "c01e",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "SRP-AES-128-CBC-SHA",
+      "id": "c01d",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DHE-RSA-AES128-SHA",
+      "id": "0033",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DHE-DSS-AES128-SHA",
+      "id": "0032",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-RSA-AES128-SHA",
+      "id": "0031",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-DSS-AES128-SHA",
+      "id": "0030",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DHE-RSA-SEED-SHA",
+      "id": "009a",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DHE-DSS-SEED-SHA",
+      "id": "0099",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-RSA-SEED-SHA",
+      "id": "0098",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-DSS-SEED-SHA",
+      "id": "0097",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DHE-RSA-CAMELLIA128-SHA",
+      "id": "0045",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DHE-DSS-CAMELLIA128-SHA",
+      "id": "0044",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-RSA-CAMELLIA128-SHA",
+      "id": "0043",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-DSS-CAMELLIA128-SHA",
+      "id": "0042",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "AECDH-AES128-SHA",
+      "id": "c018",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ADH-AES128-SHA",
+      "id": "0034",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ADH-SEED-SHA",
+      "id": "009b",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ADH-CAMELLIA128-SHA",
+      "id": "0046",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDH-RSA-AES128-SHA",
+      "id": "c00e",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-AES128-SHA",
+      "id": "c004",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "AES128-SHA",
+      "id": "002f",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "SEED-SHA",
+      "id": "0096",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "CAMELLIA128-SHA",
+      "id": "0041",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "IDEA-CBC-SHA",
+      "id": "0007",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "PSK-AES128-CBC-SHA",
+      "id": "008c",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-RC4-SHA",
+      "id": "c011",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-RC4-SHA",
+      "id": "c007",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "AECDH-RC4-SHA",
+      "id": "c016",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ADH-RC4-MD5",
+      "id": "0018",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDH-RSA-RC4-SHA",
+      "id": "c00c",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-RC4-SHA",
+      "id": "c002",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "RC4-SHA",
+      "id": "0005",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "RC4-MD5",
+      "id": "0004",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "PSK-RC4-SHA",
+      "id": "008a",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-DES-CBC3-SHA",
+      "id": "c012",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-DES-CBC3-SHA",
+      "id": "c008",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "SRP-DSS-3DES-EDE-CBC-SHA",
+      "id": "c01c",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "SRP-RSA-3DES-EDE-CBC-SHA",
+      "id": "c01b",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "SRP-3DES-EDE-CBC-SHA",
+      "id": "c01a",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "EDH-RSA-DES-CBC3-SHA",
+      "id": "0016",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "EDH-DSS-DES-CBC3-SHA",
+      "id": "0013",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-RSA-DES-CBC3-SHA",
+      "id": "0010",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-DSS-DES-CBC3-SHA",
+      "id": "000d",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "AECDH-DES-CBC3-SHA",
+      "id": "c017",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ADH-DES-CBC3-SHA",
+      "id": "001b",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDH-RSA-DES-CBC3-SHA",
+      "id": "c00d",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-DES-CBC3-SHA",
+      "id": "c003",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DES-CBC3-SHA",
+      "id": "000a",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "PSK-3DES-EDE-CBC-SHA",
+      "id": "008b",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "EDH-RSA-DES-CBC-SHA",
+      "id": "0015",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "EDH-DSS-DES-CBC-SHA",
+      "id": "0012",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-RSA-DES-CBC-SHA",
+      "id": "000f",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DH-DSS-DES-CBC-SHA",
+      "id": "000c",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ADH-DES-CBC-SHA",
+      "id": "001a",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "DES-CBC-SHA",
+      "id": "0009",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "EXP-EDH-RSA-DES-CBC-SHA",
+      "id": "0014",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "EXP-EDH-DSS-DES-CBC-SHA",
+      "id": "0011",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "EXP-ADH-DES-CBC-SHA",
+      "id": "0019",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "EXP-DES-CBC-SHA",
+      "id": "0008",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "EXP-RC2-CBC-MD5",
+      "id": "0006",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "EXP-ADH-RC4-MD5",
+      "id": "0017",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "EXP-RC4-MD5",
+      "id": "0003",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-NULL-SHA",
+      "id": "c010",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-NULL-SHA",
+      "id": "c006",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "AECDH-NULL-SHA",
+      "id": "c015",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDH-RSA-NULL-SHA",
+      "id": "c00b",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-NULL-SHA",
+      "id": "c001",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "NULL-SHA",
+      "id": "0002",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1",
+      "engine": "legacy",
+      "name": "NULL-MD5",
+      "id": "0001",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-AES256-SHA",
+      "id": "c014",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-AES256-SHA",
+      "id": "c00a",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "SRP-DSS-AES-256-CBC-SHA",
+      "id": "c022",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "SRP-RSA-AES-256-CBC-SHA",
+      "id": "c021",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "SRP-AES-256-CBC-SHA",
+      "id": "c020",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DHE-RSA-AES256-SHA",
+      "id": "0039",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DHE-DSS-AES256-SHA",
+      "id": "0038",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-RSA-AES256-SHA",
+      "id": "0037",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-DSS-AES256-SHA",
+      "id": "0036",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DHE-RSA-CAMELLIA256-SHA",
+      "id": "0088",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DHE-DSS-CAMELLIA256-SHA",
+      "id": "0087",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-RSA-CAMELLIA256-SHA",
+      "id": "0086",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-DSS-CAMELLIA256-SHA",
+      "id": "0085",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "AECDH-AES256-SHA",
+      "id": "c019",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ADH-AES256-SHA",
+      "id": "003a",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ADH-CAMELLIA256-SHA",
+      "id": "0089",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDH-RSA-AES256-SHA",
+      "id": "c00f",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-AES256-SHA",
+      "id": "c005",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "AES256-SHA",
+      "id": "0035",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "CAMELLIA256-SHA",
+      "id": "0084",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "PSK-AES256-CBC-SHA",
+      "id": "008d",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-AES128-SHA",
+      "id": "c013",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-AES128-SHA",
+      "id": "c009",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "SRP-DSS-AES-128-CBC-SHA",
+      "id": "c01f",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "SRP-RSA-AES-128-CBC-SHA",
+      "id": "c01e",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "SRP-AES-128-CBC-SHA",
+      "id": "c01d",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DHE-RSA-AES128-SHA",
+      "id": "0033",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DHE-DSS-AES128-SHA",
+      "id": "0032",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-RSA-AES128-SHA",
+      "id": "0031",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-DSS-AES128-SHA",
+      "id": "0030",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DHE-RSA-SEED-SHA",
+      "id": "009a",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DHE-DSS-SEED-SHA",
+      "id": "0099",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-RSA-SEED-SHA",
+      "id": "0098",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-DSS-SEED-SHA",
+      "id": "0097",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DHE-RSA-CAMELLIA128-SHA",
+      "id": "0045",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DHE-DSS-CAMELLIA128-SHA",
+      "id": "0044",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-RSA-CAMELLIA128-SHA",
+      "id": "0043",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-DSS-CAMELLIA128-SHA",
+      "id": "0042",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "AECDH-AES128-SHA",
+      "id": "c018",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ADH-AES128-SHA",
+      "id": "0034",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ADH-SEED-SHA",
+      "id": "009b",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ADH-CAMELLIA128-SHA",
+      "id": "0046",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDH-RSA-AES128-SHA",
+      "id": "c00e",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-AES128-SHA",
+      "id": "c004",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "AES128-SHA",
+      "id": "002f",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "SEED-SHA",
+      "id": "0096",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "CAMELLIA128-SHA",
+      "id": "0041",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "IDEA-CBC-SHA",
+      "id": "0007",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "PSK-AES128-CBC-SHA",
+      "id": "008c",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-RC4-SHA",
+      "id": "c011",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-RC4-SHA",
+      "id": "c007",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "AECDH-RC4-SHA",
+      "id": "c016",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ADH-RC4-MD5",
+      "id": "0018",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDH-RSA-RC4-SHA",
+      "id": "c00c",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-RC4-SHA",
+      "id": "c002",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "RC4-SHA",
+      "id": "0005",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "RC4-MD5",
+      "id": "0004",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "PSK-RC4-SHA",
+      "id": "008a",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-DES-CBC3-SHA",
+      "id": "c012",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-DES-CBC3-SHA",
+      "id": "c008",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "SRP-DSS-3DES-EDE-CBC-SHA",
+      "id": "c01c",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "SRP-RSA-3DES-EDE-CBC-SHA",
+      "id": "c01b",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "SRP-3DES-EDE-CBC-SHA",
+      "id": "c01a",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "EDH-RSA-DES-CBC3-SHA",
+      "id": "0016",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "EDH-DSS-DES-CBC3-SHA",
+      "id": "0013",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-RSA-DES-CBC3-SHA",
+      "id": "0010",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-DSS-DES-CBC3-SHA",
+      "id": "000d",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "AECDH-DES-CBC3-SHA",
+      "id": "c017",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ADH-DES-CBC3-SHA",
+      "id": "001b",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDH-RSA-DES-CBC3-SHA",
+      "id": "c00d",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-DES-CBC3-SHA",
+      "id": "c003",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DES-CBC3-SHA",
+      "id": "000a",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "PSK-3DES-EDE-CBC-SHA",
+      "id": "008b",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "EDH-RSA-DES-CBC-SHA",
+      "id": "0015",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "EDH-DSS-DES-CBC-SHA",
+      "id": "0012",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-RSA-DES-CBC-SHA",
+      "id": "000f",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DH-DSS-DES-CBC-SHA",
+      "id": "000c",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ADH-DES-CBC-SHA",
+      "id": "001a",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "DES-CBC-SHA",
+      "id": "0009",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "EXP-EDH-RSA-DES-CBC-SHA",
+      "id": "0014",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "EXP-EDH-DSS-DES-CBC-SHA",
+      "id": "0011",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "EXP-ADH-DES-CBC-SHA",
+      "id": "0019",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "EXP-DES-CBC-SHA",
+      "id": "0008",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "EXP-RC2-CBC-MD5",
+      "id": "0006",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "EXP-ADH-RC4-MD5",
+      "id": "0017",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "EXP-RC4-MD5",
+      "id": "0003",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-NULL-SHA",
+      "id": "c010",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-NULL-SHA",
+      "id": "c006",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "AECDH-NULL-SHA",
+      "id": "c015",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDH-RSA-NULL-SHA",
+      "id": "c00b",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-NULL-SHA",
+      "id": "c001",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "NULL-SHA",
+      "id": "0002",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_1",
+      "engine": "legacy",
+      "name": "NULL-MD5",
+      "id": "0001",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-AES256-GCM-SHA384",
+      "id": "c030",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-AES256-GCM-SHA384",
+      "id": "c02c",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-AES256-SHA384",
+      "id": "c028",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-AES256-SHA384",
+      "id": "c024",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-AES256-SHA",
+      "id": "c014",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-AES256-SHA",
+      "id": "c00a",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "SRP-DSS-AES-256-CBC-SHA",
+      "id": "c022",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "SRP-RSA-AES-256-CBC-SHA",
+      "id": "c021",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "SRP-AES-256-CBC-SHA",
+      "id": "c020",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-DSS-AES256-GCM-SHA384",
+      "id": "00a5",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-DSS-AES256-GCM-SHA384",
+      "id": "00a3",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-RSA-AES256-GCM-SHA384",
+      "id": "00a1",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-RSA-AES256-GCM-SHA384",
+      "id": "009f",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-RSA-AES256-SHA256",
+      "id": "006b",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-DSS-AES256-SHA256",
+      "id": "006a",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-RSA-AES256-SHA256",
+      "id": "0069",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-DSS-AES256-SHA256",
+      "id": "0068",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-RSA-AES256-SHA",
+      "id": "0039",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-DSS-AES256-SHA",
+      "id": "0038",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-RSA-AES256-SHA",
+      "id": "0037",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-DSS-AES256-SHA",
+      "id": "0036",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-RSA-CAMELLIA256-SHA",
+      "id": "0088",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-DSS-CAMELLIA256-SHA",
+      "id": "0087",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-RSA-CAMELLIA256-SHA",
+      "id": "0086",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-DSS-CAMELLIA256-SHA",
+      "id": "0085",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "AECDH-AES256-SHA",
+      "id": "c019",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ADH-AES256-GCM-SHA384",
+      "id": "00a7",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ADH-AES256-SHA256",
+      "id": "006d",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ADH-AES256-SHA",
+      "id": "003a",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ADH-CAMELLIA256-SHA",
+      "id": "0089",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-RSA-AES256-GCM-SHA384",
+      "id": "c032",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-AES256-GCM-SHA384",
+      "id": "c02e",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-RSA-AES256-SHA384",
+      "id": "c02a",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-AES256-SHA384",
+      "id": "c026",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-RSA-AES256-SHA",
+      "id": "c00f",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-AES256-SHA",
+      "id": "c005",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "AES256-GCM-SHA384",
+      "id": "009d",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "AES256-SHA256",
+      "id": "003d",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "AES256-SHA",
+      "id": "0035",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "CAMELLIA256-SHA",
+      "id": "0084",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "PSK-AES256-CBC-SHA",
+      "id": "008d",
+      "bits": 256,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-AES128-GCM-SHA256",
+      "id": "c02f",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-AES128-GCM-SHA256",
+      "id": "c02b",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-AES128-SHA256",
+      "id": "c027",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-AES128-SHA256",
+      "id": "c023",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-AES128-SHA",
+      "id": "c013",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-AES128-SHA",
+      "id": "c009",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "SRP-DSS-AES-128-CBC-SHA",
+      "id": "c01f",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "SRP-RSA-AES-128-CBC-SHA",
+      "id": "c01e",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "SRP-AES-128-CBC-SHA",
+      "id": "c01d",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-DSS-AES128-GCM-SHA256",
+      "id": "00a4",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-DSS-AES128-GCM-SHA256",
+      "id": "00a2",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-RSA-AES128-GCM-SHA256",
+      "id": "00a0",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-RSA-AES128-GCM-SHA256",
+      "id": "009e",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-RSA-AES128-SHA256",
+      "id": "0067",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-DSS-AES128-SHA256",
+      "id": "0040",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-RSA-AES128-SHA256",
+      "id": "003f",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-DSS-AES128-SHA256",
+      "id": "003e",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-RSA-AES128-SHA",
+      "id": "0033",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-DSS-AES128-SHA",
+      "id": "0032",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-RSA-AES128-SHA",
+      "id": "0031",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-DSS-AES128-SHA",
+      "id": "0030",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-RSA-SEED-SHA",
+      "id": "009a",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-DSS-SEED-SHA",
+      "id": "0099",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-RSA-SEED-SHA",
+      "id": "0098",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-DSS-SEED-SHA",
+      "id": "0097",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-RSA-CAMELLIA128-SHA",
+      "id": "0045",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DHE-DSS-CAMELLIA128-SHA",
+      "id": "0044",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-RSA-CAMELLIA128-SHA",
+      "id": "0043",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-DSS-CAMELLIA128-SHA",
+      "id": "0042",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "AECDH-AES128-SHA",
+      "id": "c018",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ADH-AES128-GCM-SHA256",
+      "id": "00a6",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ADH-AES128-SHA256",
+      "id": "006c",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ADH-AES128-SHA",
+      "id": "0034",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ADH-SEED-SHA",
+      "id": "009b",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ADH-CAMELLIA128-SHA",
+      "id": "0046",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-RSA-AES128-GCM-SHA256",
+      "id": "c031",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-AES128-GCM-SHA256",
+      "id": "c02d",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-RSA-AES128-SHA256",
+      "id": "c029",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-AES128-SHA256",
+      "id": "c025",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-RSA-AES128-SHA",
+      "id": "c00e",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-AES128-SHA",
+      "id": "c004",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "AES128-GCM-SHA256",
+      "id": "009c",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "AES128-SHA256",
+      "id": "003c",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "AES128-SHA",
+      "id": "002f",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "SEED-SHA",
+      "id": "0096",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "CAMELLIA128-SHA",
+      "id": "0041",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "IDEA-CBC-SHA",
+      "id": "0007",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "PSK-AES128-CBC-SHA",
+      "id": "008c",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-RC4-SHA",
+      "id": "c011",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-RC4-SHA",
+      "id": "c007",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "AECDH-RC4-SHA",
+      "id": "c016",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ADH-RC4-MD5",
+      "id": "0018",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-RSA-RC4-SHA",
+      "id": "c00c",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-RC4-SHA",
+      "id": "c002",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "RC4-SHA",
+      "id": "0005",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "RC4-MD5",
+      "id": "0004",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "PSK-RC4-SHA",
+      "id": "008a",
+      "bits": 128,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-DES-CBC3-SHA",
+      "id": "c012",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-DES-CBC3-SHA",
+      "id": "c008",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "SRP-DSS-3DES-EDE-CBC-SHA",
+      "id": "c01c",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "SRP-RSA-3DES-EDE-CBC-SHA",
+      "id": "c01b",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "SRP-3DES-EDE-CBC-SHA",
+      "id": "c01a",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "EDH-RSA-DES-CBC3-SHA",
+      "id": "0016",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "EDH-DSS-DES-CBC3-SHA",
+      "id": "0013",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-RSA-DES-CBC3-SHA",
+      "id": "0010",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-DSS-DES-CBC3-SHA",
+      "id": "000d",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "AECDH-DES-CBC3-SHA",
+      "id": "c017",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ADH-DES-CBC3-SHA",
+      "id": "001b",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-RSA-DES-CBC3-SHA",
+      "id": "c00d",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-DES-CBC3-SHA",
+      "id": "c003",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DES-CBC3-SHA",
+      "id": "000a",
+      "bits": 112,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "PSK-3DES-EDE-CBC-SHA",
+      "id": "008b",
+      "bits": 112,
+      "executable": false,
+      "reason": "requires_credentials"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "EDH-RSA-DES-CBC-SHA",
+      "id": "0015",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "EDH-DSS-DES-CBC-SHA",
+      "id": "0012",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-RSA-DES-CBC-SHA",
+      "id": "000f",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DH-DSS-DES-CBC-SHA",
+      "id": "000c",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ADH-DES-CBC-SHA",
+      "id": "001a",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "DES-CBC-SHA",
+      "id": "0009",
+      "bits": 56,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "EXP-EDH-RSA-DES-CBC-SHA",
+      "id": "0014",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "EXP-EDH-DSS-DES-CBC-SHA",
+      "id": "0011",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "EXP-ADH-DES-CBC-SHA",
+      "id": "0019",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "EXP-DES-CBC-SHA",
+      "id": "0008",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "EXP-RC2-CBC-MD5",
+      "id": "0006",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "EXP-ADH-RC4-MD5",
+      "id": "0017",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "EXP-RC4-MD5",
+      "id": "0003",
+      "bits": 40,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-RSA-NULL-SHA",
+      "id": "c010",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDHE-ECDSA-NULL-SHA",
+      "id": "c006",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "AECDH-NULL-SHA",
+      "id": "c015",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-RSA-NULL-SHA",
+      "id": "c00b",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "ECDH-ECDSA-NULL-SHA",
+      "id": "c001",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "NULL-SHA256",
+      "id": "003b",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "NULL-SHA",
+      "id": "0002",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_2",
+      "engine": "legacy",
+      "name": "NULL-MD5",
+      "id": "0001",
+      "bits": 0,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_3",
+      "engine": "modern",
+      "name": "TLS_AES_256_GCM_SHA384",
+      "id": "1302",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_3",
+      "engine": "modern",
+      "name": "TLS_CHACHA20_POLY1305_SHA256",
+      "id": "1303",
+      "bits": 256,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_3",
+      "engine": "modern",
+      "name": "TLS_AES_128_GCM_SHA256",
+      "id": "1301",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_3",
+      "engine": "modern",
+      "name": "TLS_AES_128_CCM_SHA256",
+      "id": "1304",
+      "bits": 128,
+      "executable": true,
+      "reason": "executable"
+    },
+    {
+      "protocol": "tls1_3",
+      "engine": "modern",
+      "name": "TLS_AES_128_CCM_8_SHA256",
+      "id": "1305",
+      "bits": 64,
+      "executable": true,
+      "reason": "executable"
+    }
+  ]
+}

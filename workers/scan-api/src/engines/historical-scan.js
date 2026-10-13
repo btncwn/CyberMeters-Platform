@@ -6,11 +6,15 @@ import { customerSafeFailure } from "../lib/errors.js";
 import { mtaStsAdmission } from "./email-analysis.js";
 import { resolvePhase5HistoricalCustomerProjection } from "./phase5-evidence.js";
 import { TLS_RUNTIME_STATES } from "./tls-evidence.js";
+import { evaluateTlsCondition } from "./tls-findings.js";
 
 const OBSERVED_DMARC_EVIDENCE_STATES = new Set(["observed_policy", "absent", "malformed"]);
 const isDmarcFindingId = (id) => /^email_(?:dmarc_|missing_dmarc$)/.test(String(id || ""));
 
 function currentProducerWasReobserved(finding, currentModules) {
+  if (/^tls_[a-z_]+__[a-f0-9]{64}$/.test(String(finding?.id || ""))) {
+    return evaluateTlsCondition(finding.id, currentModules?.tls_assessment).state === "clear";
+  }
   if (isDmarcFindingId(finding?.id)) {
     return OBSERVED_DMARC_EVIDENCE_STATES.has(
       currentModules?.email_security?.dmarc_state?.canonical_evidence_state,

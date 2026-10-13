@@ -82,8 +82,9 @@ import { evaluateWebsiteSecurityForScan } from "./website-security-lifecycle.js"
 import { PAGE_DISCOVERY_VERSION, runPageDiscoveryModule } from "./page-discovery.js";
 import { persistWebsitePagesForScan } from "./website-pages.js";
 import { signInPageFindings } from "./signin-page-findings.js";
-import { readExposureForScan } from "./exposure-jobs.js";
+import { readExposureForScan, readTlsAssessmentForScan } from "./exposure-jobs.js";
 import { externalExposureModule } from "./exposure-findings.js";
+import { tlsAssessmentFindings } from "./tls-findings.js";
 import { homePageAvailabilityFindings } from "./website-availability.js";
 
 import { SIGNED_IN_SCAN_VERSION, runSignedInScan, signedInSummary } from "./website-signed-in-scan.js";
@@ -2041,6 +2042,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     if (workspaceId) {
       try { exposureReceipt = await readExposureForScan(env, { workspaceId, scanId }); } catch { /* unavailable is explicit below */ }
     }
+    if (workspaceId && durableInvocation && env.TLS_ASSESSMENT_MODE === "evidence-v1") {
+      try {
+        modules.tls_assessment = await readTlsAssessmentForScan(env, { workspaceId, scanId });
+      } catch {
+        modules.tls_assessment = { source: "tls_assessment", quality: "unavailable", coverage: "unknown", endpoints: [], gaps: ["result_unavailable"] };
+      }
+    }
 
     // Phase 7a: Website important-page discovery (engines/page-discovery.js).
     // Bounded passive GETs of the site's own pages (homepage links, sitemap,
@@ -2162,6 +2170,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     } catch { /* non-fatal: an observation must not break the scan */ }
 
     findings.push(...(modules.external_exposure?.findings || []));
+    if (modules.tls_assessment) findings.push(...tlsAssessmentFindings(modules.tls_assessment));
 
     // Phase 7a-iii: is a website actually served? (engines/website-availability.js)
     // An observation only, built from the headers module's own home-page GET and

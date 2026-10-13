@@ -557,8 +557,18 @@ const parity = states.map(parityOutputs);
 // r74-c8030e1a -> r96-d432058a. Replacing that one snapshot field with the old
 // value reproduces both previous golden hashes exactly, including rendered PDFs.
 // Finding, score, coverage and all five SAN projection states remain unchanged.
-const GOLDEN_F13 = "ce5111b4987587e69954821bf6e82b64c98355f3b7cc0dcbeac457186cb22314";
-const GOLDEN_F14 = "0bc040bcc81dafb7ae9d983e5f0f9020dc0e106a387811d800f7fac36155f975";
+// Thirteen endpoint-TLS remediation entries advance that frozen stamp again.
+// Temporarily substituting only the predecessor remediation registry reproduces
+// both previous hashes byte-for-byte; this fixture has no live TLS finding.
+// The two new hashes therefore pin the additive registry version in every SAN
+// projection state without treating absent TLS evidence as a clean result.
+// Certificates & Trust now declares TLS assessment in its scope, bounds the
+// conclusion to completed endpoint controls, and stamps resolver 2026-10-13.1.
+// Replacing only cyber-mot-domains.js with origin/main reproduces both previous
+// hashes exactly. This fixture has no TLS module or finding, so the change is
+// methodology/scope presentation; all five SAN projection states remain equal.
+const GOLDEN_F13 = "abf6af86b64404dd7e937c0775cf0177b8f293062392d4d92f45d4e3cca571c3";
+const GOLDEN_F14 = "5aeea4a328eb5b188614d08c7e6330f01f044966979e339c7187de2cae615f66";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

@@ -188,6 +188,30 @@
       }
     },
     {
+      "class": "tls_authorizations",
+      "domain": "attack_surface",
+      "tables": [
+        "workspace_tls_authorizations",
+        "workspace_tls_service_authorizations"
+      ],
+      "ownership": {
+        "workspace_tls_authorizations": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "workspace_tls_service_authorizations": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "Workspace-owned TLS consent and exact service scopes; production-route two-tenant and role denial, revocation generation, domain/target rechecks, atomic audit rollback and no scan dispatch are covered by validate-tls-authorization.js. Queue receipt fencing and mid-flight revocation are covered by validate-deep-tls-queue.js."
+      }
+    },
+    {
       "class": "workspaces",
       "domain": "core",
       "tables": [
@@ -1258,16 +1282,18 @@
     "workspace_retention_settings": "deletion_lifecycle",
     "workspace_supply_chain_history": "shadow_it",
     "workspace_supply_chain_scores": "shadow_it",
+    "workspace_tls_authorizations": "tls_authorizations",
+    "workspace_tls_service_authorizations": "tls_authorizations",
     "workspace_vendors": "shadow_it",
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 109,
-    "classified": 109,
-    "tenant_owned_tables": 105,
+    "schema_tables": 111,
+    "classified": 111,
+    "tenant_owned_tables": 107,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
-    "resource_classes": 38,
+    "resource_classes": 39,
     "classes_with_dynamic_coverage": 17
   }
 }

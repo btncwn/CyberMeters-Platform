@@ -1,0 +1,640 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tls-engine-result-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "engine",
+    "control",
+    "protocol",
+    "state",
+    "reason",
+    "authenticated_finished",
+    "vulnerability",
+    "negotiated",
+    "certificates",
+    "ocsp",
+    "extensions",
+    "telemetry",
+    "limitations",
+    "catalog"
+  ],
+  "properties": {
+    "schema": {
+      "const": "tls-engine-result-v1"
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "version",
+        "build_id",
+        "sandboxed"
+      ],
+      "properties": {
+        "family": {
+          "enum": [
+            "legacy",
+            "modern",
+            "active_legacy"
+          ]
+        },
+        "version": {
+          "enum": [
+            "1.0.2u",
+            "3.5.9"
+          ]
+        },
+        "build_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sandboxed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "control": {
+      "enum": [
+        "catalog",
+        "handshake",
+        "certificate",
+        "renegotiation",
+        "resumption",
+        "fallback",
+        "compression",
+        "heartbleed",
+        "robot",
+        "ccs"
+      ]
+    },
+    "protocol": {
+      "enum": [
+        "ssl2",
+        "ssl3",
+        "tls1",
+        "tls1_1",
+        "tls1_2",
+        "tls1_3"
+      ]
+    },
+    "state": {
+      "enum": [
+        "accepted",
+        "rejected",
+        "uncertain",
+        "not_applicable",
+        "unexecutable"
+      ]
+    },
+    "reason": {
+      "enum": [
+        "catalog_ready",
+        "handshake_completed",
+        "peer_alert",
+        "fallback_rejected",
+        "transport_eof",
+        "transport_timeout",
+        "budget_exhausted",
+        "aborted",
+        "malformed_ipc",
+        "handshake_failed",
+        "certificate_limit",
+        "engine_error",
+        "cipher_unavailable",
+        "protocol_unavailable",
+        "requires_credentials",
+        "control_unavailable",
+        "group_unavailable",
+        "renegotiation_completed",
+        "renegotiation_refused",
+        "resumption_completed",
+        "resumption_declined",
+        "ticket_not_received",
+        "heartbeat_unavailable",
+        "active_confirmed",
+        "active_not_observed",
+        "active_inconclusive",
+        "protocol_not_applicable"
+      ]
+    },
+    "authenticated_finished": {
+      "type": "boolean"
+    },
+    "vulnerability": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "profile",
+            "completed_vectors",
+            "planned_vectors"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "confirmed",
+                "not_observed",
+                "unknown"
+              ]
+            },
+            "profile": {
+              "enum": [
+                "heartbleed-minimal-v1",
+                "robot-finite-v1",
+                "ccs-finished-v1"
+              ]
+            },
+            "completed_vectors": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 64
+            },
+            "planned_vectors": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            }
+          }
+        }
+      ]
+    },
+    "negotiated": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "cipher",
+            "cipher_bits",
+            "group",
+            "group_bits",
+            "pfs",
+            "alpn",
+            "sni_sent"
+          ],
+          "properties": {
+            "version": {
+              "enum": [
+                "ssl2",
+                "ssl3",
+                "tls1",
+                "tls1_1",
+                "tls1_2",
+                "tls1_3"
+              ]
+            },
+            "cipher": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,96}$"
+            },
+            "cipher_bits": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 512
+            },
+            "group": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            },
+            "group_bits": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 16384
+            },
+            "pfs": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "alpn": {
+              "enum": [
+                null,
+                "h2",
+                "http/1.1"
+              ]
+            },
+            "sni_sent": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "certificates": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "offered_chain",
+            "trusted_chain",
+            "trust",
+            "hostname",
+            "dates",
+            "reason",
+            "evaluation_at",
+            "trust_bundle_sha256"
+          ],
+          "properties": {
+            "offered_chain": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "$ref": "#/$defs/certificate"
+              }
+            },
+            "trusted_chain": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "trust": {
+              "enum": [
+                "valid",
+                "invalid",
+                "unknown"
+              ]
+            },
+            "hostname": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "dates": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "reason": {
+              "enum": [
+                "trusted",
+                "issuer_missing",
+                "self_signed",
+                "expired",
+                "not_yet_valid",
+                "signature_invalid",
+                "invalid_purpose",
+                "unsupported_algorithm",
+                "trust_unknown",
+                "chain_limit"
+              ]
+            },
+            "evaluation_at": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 253402300799
+            },
+            "trust_bundle_sha256": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
+      ]
+    },
+    "ocsp": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "signature_valid",
+            "cert_id_match",
+            "fresh",
+            "this_update",
+            "next_update"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "absent",
+                "good",
+                "revoked",
+                "unknown",
+                "invalid"
+              ]
+            },
+            "signature_valid": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "cert_id_match": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "fresh": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "this_update": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": -62167219200,
+              "maximum": 253402300799
+            },
+            "next_update": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": -62167219200,
+              "maximum": 253402300799
+            }
+          }
+        }
+      ]
+    },
+    "extensions": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ems",
+            "compression",
+            "secure_renegotiation",
+            "fallback_scsv",
+            "session_reused",
+            "early_data_max",
+            "renegotiation_completed"
+          ],
+          "properties": {
+            "ems": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "compression": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "secure_renegotiation": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "fallback_scsv": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "session_reused": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "early_data_max": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "renegotiation_completed": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connections",
+        "bytes_sent",
+        "bytes_received",
+        "duration_ms"
+      ],
+      "properties": {
+        "connections": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64
+        },
+        "bytes_sent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16777216
+        },
+        "bytes_received": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16777216
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 30000
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 12,
+      "items": {
+        "enum": [
+          "os_sandbox_unavailable",
+          "ssl2_export_unavailable",
+          "ssl2_single_des_unavailable",
+          "ssl2_single_certificate",
+          "compression_not_offered",
+          "no_trust_snapshot",
+          "no_stapled_ocsp",
+          "bounded_vector_profile",
+          "certificate_chain_limit",
+          "ticket_wait_limit",
+          "credential_suites_unexecutable",
+          "engine_capability_limit"
+        ]
+      }
+    },
+    "catalog": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "id",
+              "bits",
+              "executable",
+              "reason"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,96}$"
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{4,6}$"
+              },
+              "bits": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 512
+              },
+              "executable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "enum": [
+                  "executable",
+                  "requires_credentials",
+                  "engine_unsupported"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "certificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "spki_sha256",
+        "not_before",
+        "not_after",
+        "key_type",
+        "key_bits",
+        "signature_algorithm",
+        "self_signed",
+        "ca"
+      ],
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "spki_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "not_before": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": -62167219200,
+          "maximum": 253402300799
+        },
+        "not_after": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": -62167219200,
+          "maximum": 253402300799
+        },
+        "key_type": {
+          "enum": [
+            "RSA",
+            "EC",
+            "DSA",
+            "DH",
+            "ED25519",
+            "ED448",
+            "UNKNOWN"
+          ]
+        },
+        "key_bits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16384
+        },
+        "signature_algorithm": {
+          "enum": [
+            "rsa_md5",
+            "rsa_sha1",
+            "rsa_sha256",
+            "rsa_sha384",
+            "rsa_sha512",
+            "rsa_pss",
+            "ecdsa_sha1",
+            "ecdsa_sha256",
+            "ecdsa_sha384",
+            "ecdsa_sha512",
+            "dsa_sha1",
+            "dsa_sha256",
+            "ed25519",
+            "ed448",
+            "unknown"
+          ]
+        },
+        "self_signed": {
+          "type": "boolean"
+        },
+        "ca": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

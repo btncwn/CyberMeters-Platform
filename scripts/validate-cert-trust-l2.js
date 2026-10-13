@@ -259,7 +259,8 @@ async function main() {
     !/fully\s+(?:validated|verified)/i.test(pdfSrc));
   const domSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "cyber-mot-domains.js"), "utf8");
   ok("the Certificates & Trust domain limitation names what is NOT checked, verbatim",
-    domSrc.includes("on the tested endpoints only. OCSP and revocation status are not checked and remain unknown."));
+    domSrc.includes("TLS conclusions apply only to the tested endpoints and completed controls.") &&
+    domSrc.includes("Without a valid stapled OCSP response, revocation status remains unknown; no external revocation lookup is made."));
 
   console.log(`\nCertificate Trust L2: ${pass}/${pass + fail} passed`);
   if (fail) { console.error("cert-trust-l2 validation FAILED"); process.exit(1); }

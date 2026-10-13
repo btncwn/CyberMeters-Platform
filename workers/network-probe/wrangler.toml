@@ -11,6 +11,12 @@ preview_urls = false
 class_name = "NetworkProbeContainer"
 scheduling_policy = "durable_object"
 
+# The compiled TLS engines are available only when a TLS slice starts. Other
+# probe routes continue to use the Cloudflare-managed image.
+[containers.images.tls]
+dockerfile = "./tls-engine/Dockerfile"
+build_context = "../.."
+
 [[durable_objects.bindings]]
 name = "PROBE_CONTAINERS"
 class_name = "NetworkProbeContainer"

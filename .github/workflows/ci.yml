@@ -144,6 +144,30 @@ jobs:
       - name: Validate exposure finding lifecycle and honest retests
         run: node scripts/validate-exposure-lifecycle.js
 
+      - name: Validate deep TLS request and receipt contracts
+        run: node scripts/validate-deep-tls-contract.js
+
+      - name: Validate deep TLS findings and exact retests
+        run: node scripts/validate-deep-tls-findings.js
+
+      - name: Validate 1000 bounded synthetic TLS queue jobs
+        run: node scripts/validate-deep-tls-queue.js
+
+      - name: Validate TLS consent and service scope
+        run: node scripts/validate-tls-authorization.js
+
+      - name: Verify generated TLS collector and compiled cipher catalogue
+        run: |
+          node scripts/build-tls-collector.js --check
+          node scripts/build-tls-catalog.js --check
+
+      - name: Build pinned native TLS engines and test real loopback handshakes
+        run: |
+          python3 scripts/build-tls-engine.py --jobs 4
+          python3 workers/network-probe/tls-engine/test-engine.py
+          node workers/network-probe/tls-engine/test-parent.js
+          docker build --file workers/network-probe/tls-engine/Dockerfile --tag cybermeters-tls-ci:${{ github.sha }} .
+
       - name: Validate private network collector and live TLS evidence
         run: node scripts/validate-network-probe.js
 

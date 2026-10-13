@@ -11,12 +11,12 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 109
-- **classified:** 109
-- **tenant owned tables:** 105
+- **schema tables:** 111
+- **classified:** 111
+- **tenant owned tables:** 107
 - **infra or identity tables:** 4
 - **unclassified:** 0
-- **resource classes:** 38
+- **resource classes:** 39
 - **classes with dynamic coverage:** 17
 
 ## The 12 invariants
@@ -43,6 +43,7 @@ data cannot be silently omitted.
 | dns_provider_remediation | email | direct(workspace_id) | 2 | — | — |
 | hostname_lists | attack_surface | direct(workspace_id) | 1 | — | — |
 | network_assets | attack_surface | direct(workspace_id) | 3 | — | — |
+| tls_authorizations | attack_surface | direct(workspace_id) | 2 | — | — |
 | workspaces | core | account(owner_user_id) | 1 | ✓ | ✓ |
 | workspace_memberships | core | direct(workspace_id) | 1 | ✓ | ✓ |
 | invitations | core | direct(workspace_id) | 1 | ✓ | ✓ |
@@ -86,6 +87,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 - **dns_provider_remediation:** Workspace/domain-owned encrypted connections and saved DNS changes. Dedicated production-entry coverage lives in scripts/validate-dns-remediation.js; not part of the general two-tenant/property harness.
 - **hostname_lists:** Customer hostname lists (mig 117): workspace_id + domain_id scoped; writes need domain:import on a live workspace and a domain verified in it, re-checked inside the write SQL; foreign and unverified domains refused alike; scan reads join the verified link and a live workspace and re-check scope; purged with the workspace (validate-discovery-hostname-list).
 - **network_assets:** Explicit attested public IP/CIDR scope; actual route/role, two-tenant denial, immutable receipt and queue identity coverage in validate-network-assets.js; purge and queue wiring in validate-network-integration.js.
+- **tls_authorizations:** Workspace-owned TLS consent and exact service scopes; production-route two-tenant and role denial, revocation generation, domain/target rechecks, atomic audit rollback and no scan dispatch are covered by validate-tls-authorization.js. Queue receipt fencing and mid-flight revocation are covered by validate-deep-tls-queue.js.
 - **asset_events:** written by scan/cron; read via /assets + posture; workspace_id-scoped; isolation proven at the assets read surface + static audit
 - **findings:** scan_id-scoped; reachable only through /scans/:id ownership-gated report surfaces
 - **scheduled_reports:** background report producer; workspace_id-scoped writes; static-audit + background-writer property covered
@@ -216,5 +218,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `workspace_retention_settings` | direct(workspace_id) | deletion_lifecycle |
 | `workspace_supply_chain_history` | direct(workspace_id) | shadow_it |
 | `workspace_supply_chain_scores` | direct(workspace_id) | shadow_it |
+| `workspace_tls_authorizations` | direct(workspace_id) | tls_authorizations |
+| `workspace_tls_service_authorizations` | direct(workspace_id) | tls_authorizations |
 | `workspace_vendors` | direct(workspace_id) | shadow_it |
 | `workspaces` | account(owner_user_id) | workspaces |

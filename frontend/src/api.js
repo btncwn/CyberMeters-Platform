@@ -1673,6 +1673,10 @@ export const api = {
   clearHostnameList: (workspaceId, domain) =>
     outcomeCall('DELETE', `/workspaces/${encodeURIComponent(workspaceId)}/attack-surface/hostname-lists/${encodeURIComponent(domain)}`),
   getNetworkTargets: (wsId, options = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets`, options),
+  getTlsAuthorization: (wsId) => request(`/workspaces/${encodeURIComponent(wsId)}/tls-authorization`),
+  saveTlsAuthorization: (wsId, body) => request(`/workspaces/${encodeURIComponent(wsId)}/tls-authorization`, { method: 'PUT', body: JSON.stringify(body) }),
+  authorizeTlsService: (wsId, body) => request(`/workspaces/${encodeURIComponent(wsId)}/tls-authorization/services`, { method: 'POST', body: JSON.stringify(body) }),
+  revokeTlsService: (wsId, serviceId) => request(`/workspaces/${encodeURIComponent(wsId)}/tls-authorization/services/${encodeURIComponent(serviceId)}/revoke`, { method: 'POST', body: '{}' }),
   addNetworkTarget: (wsId, body) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets`, { method: 'POST', body: JSON.stringify(body) }),
   startNetworkScan: (wsId, targetId, ports) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets/${encodeURIComponent(targetId)}/scans`, { method: 'POST', body: JSON.stringify({ ports }) }),
   getNetworkScans: (wsId, options = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-scans`, options),

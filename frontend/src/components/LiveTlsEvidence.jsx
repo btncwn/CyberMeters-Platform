@@ -2,8 +2,8 @@ import { parseServerDate } from '../utils/dates'
 
 const text = value => typeof value === 'string' && value.trim() ? value : 'Not recorded'
 const time = value => {
-  if (typeof value !== 'string') return 'Not recorded'
-  const parsed = parseServerDate(value)
+  if (typeof value !== 'string' && !(Number.isSafeInteger(value) && value >= 0)) return 'Not recorded'
+  const parsed = typeof value === 'number' ? new Date(value * 1000) : parseServerDate(value)
   return Number.isFinite(parsed?.getTime()) ? `${parsed.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' })} UTC` : 'Not recorded'
 }
 const stateLabels = { open: 'Open', closed: 'Closed', timeout: 'Timed out', error: 'Measurement failed', not_run: 'Not run' }
@@ -14,6 +14,62 @@ const keyText = leaf => typeof leaf?.public_key_algorithm === 'string' && leaf.p
 
 function Field({ label, children }) {
   return <div className="min-w-0"><dt className="text-xs text-gray-500">{label}</dt><dd className="mt-0.5 text-sm text-gray-800 break-words [overflow-wrap:anywhere]">{children}</dd></div>
+}
+
+const controlStates = { accepted: 'Accepted', rejected: 'Rejected', uncertain: 'Uncertain', not_applicable: 'Not applicable', not_authorized: 'Not authorized', unexecutable: 'Could not execute' }
+const number = value => Number.isSafeInteger(value) && value >= 0 ? String(value) : 'Not recorded'
+const yesNo = value => value === true ? 'Yes' : value === false ? 'No' : 'Unknown'
+const controlName = value => typeof value === 'string' ? value.replaceAll('_', ' ').replaceAll('-', ' ') : 'Unnamed check'
+function StapledOcsp({ value }) {
+  if (!value || typeof value !== 'object') return <p className="text-xs text-gray-500">Stapled OCSP: not recorded.</p>
+  const verified = value.signature_valid === true && value.cert_id_match === true && value.fresh === true
+  const label = value.state === 'absent' ? 'No stapled response observed'
+    : verified && value.state === 'good' ? 'Good status in the verified staple'
+    : verified && value.state === 'revoked' ? 'Revoked status in the verified staple'
+    : value.state === 'invalid' ? 'Invalid or unverifiable staple' : 'Status not verified'
+  return <div className="space-y-1 text-xs"><p className="font-medium">Stapled OCSP: {label}</p><p>Signature valid: {yesNo(value.signature_valid)} · Certificate matches: {yesNo(value.cert_id_match)} · Fresh: {yesNo(value.fresh)}</p><p>This update: {time(value.this_update)} · Next update: {time(value.next_update)}</p><p className="text-gray-500">A missing or unverified staple does not establish revocation status.</p></div>
+}
+function TlsControlDetail({ row }) {
+  const evidence = row.evidence && typeof row.evidence === 'object' ? row.evidence : {}
+  const negotiated = evidence.negotiated
+  const certificates = evidence.certificates
+  const extensions = evidence.extensions
+  const vulnerability = evidence.vulnerability
+  const offered = Array.isArray(certificates?.offered_chain) ? certificates.offered_chain : null
+  const trusted = Array.isArray(certificates?.trusted_chain) ? certificates.trusted_chain : null
+  return <div className="mt-2 space-y-3">
+    <p className="text-xs text-gray-500">Observed {time(row.observed_at)} · Engine {text(row.engine?.family)} {text(row.engine?.version)} · Build {text(row.engine?.build_id)} · Sandboxed: {yesNo(row.engine?.sandboxed)}</p>
+    {row.reason && <p className="text-xs text-gray-600">Reason: {controlName(row.reason)}</p>}
+    {negotiated && <dl className="grid gap-2 sm:grid-cols-2"><Field label="Negotiated protocol / cipher">{text(negotiated.version)} / {text(negotiated.cipher)}</Field><Field label="Cipher bits">{number(negotiated.cipher_bits)}</Field><Field label="Key exchange group / bits">{text(negotiated.group)} / {number(negotiated.group_bits)}</Field><Field label="Forward secrecy observed">{yesNo(negotiated.pfs)}</Field><Field label="ALPN">{text(negotiated.alpn)}</Field><Field label="SNI sent">{typeof negotiated.sni_sent === 'boolean' ? yesNo(negotiated.sni_sent) : text(negotiated.sni_sent)}</Field></dl>}
+    {certificates && <div className="space-y-2"><dl className="grid gap-2 sm:grid-cols-3"><Field label="Certificate trust result">{{valid:'Valid',invalid:'Invalid',unknown:'Unknown'}[certificates.trust] || 'Unknown'}</Field><Field label="Hostname matched">{yesNo(certificates.hostname)}</Field><Field label="Certificate dates valid">{yesNo(certificates.dates)}</Field><Field label="Trust bundle fingerprint">{text(certificates.trust_bundle_sha256)}</Field><Field label="Certificate evaluated at">{time(certificates.evaluation_at)}</Field></dl>
+      {certificates.reason && <p className="text-xs text-gray-600">Certificate validation detail: {controlName(certificates.reason)}</p>}
+      <details className="text-xs"><summary className="cursor-pointer font-medium">Server-offered chain ({offered ? `${offered.length} recorded` : 'not recorded'})</summary>{offered && <ol className="mt-2 space-y-2">{offered.map((certificate, index) => <li key={`${certificate.sha256}-${index}`} className="break-all">{index + 1}. {text(certificate.sha256)}<span className="block">Public-key fingerprint: {text(certificate.spki_sha256)}</span><span className="block">{text(certificate.key_type)} · {number(certificate.key_bits)} bits · {text(certificate.signature_algorithm)}</span><span className="block">Valid {time(certificate.not_before)} – {time(certificate.not_after)}</span><span className="block">Self-signed: {yesNo(certificate.self_signed)} · CA: {yesNo(certificate.ca)}</span></li>)}</ol>}</details>
+      <details className="text-xs"><summary className="cursor-pointer font-medium">Built trust path ({trusted ? `${trusted.length} recorded` : 'not recorded'})</summary>{trusted && <ol className="mt-2 space-y-1">{trusted.map((fingerprint, index) => <li key={`${fingerprint}-${index}`} className="break-all">{index + 1}. {text(fingerprint)}</li>)}</ol>}<p className="mt-1 text-gray-500">This path can include certificates from the scanner’s trust store. The server-offered chain is listed separately.</p></details>
+    </div>}
+    {evidence.ocsp && <StapledOcsp value={evidence.ocsp} />}
+    {extensions && <dl className="grid gap-2 sm:grid-cols-2">{[['ems','Extended master secret'],['compression','Compression'],['secure_renegotiation','Secure renegotiation'],['fallback_scsv','Fallback protection'],['session_reused','Session resumed'],['renegotiation_completed','Bounded renegotiation completed']].filter(([key]) => Object.hasOwn(extensions,key)).map(([key,label]) => <Field key={key} label={label}>{yesNo(extensions[key])}</Field>)}{Number.isSafeInteger(extensions.early_data_max) && <Field label="Advertised early-data limit">{number(extensions.early_data_max)} bytes</Field>}</dl>}
+    {vulnerability && <div className="text-xs space-y-1"><p className="font-medium">Vulnerability test: {{confirmed:'Confirmed by the recorded test',not_observed:'Not observed in this test',unknown:'Unknown'}[vulnerability.status] || 'Unknown'}</p><p>Profile: {text(vulnerability.profile)} · Vectors completed: {number(vulnerability.completed_vectors)} / {number(vulnerability.planned_vectors)}</p></div>}
+  </div>
+}
+
+export function TlsAssessmentEvidence({ assessment }) {
+  if (!assessment || typeof assessment !== 'object') return <p className="text-xs text-gray-500">Deep TLS checks: not recorded.</p>
+  const endpoints = Array.isArray(assessment.endpoints) ? assessment.endpoints : []
+  const coverage = assessment.coverage || {}
+  const store = assessment.trust_store_context
+  const costs = assessment.costs
+  return <section className="space-y-3 border-t border-gray-100 pt-3" aria-label="TLS security assessment">
+    <h4 className="text-sm font-semibold">TLS security assessment</h4>
+    <p className="text-xs text-gray-600">Coverage: {{complete:'Complete for the recorded scope',partial:'Partial — some checks remain unresolved',not_run:'Not run'}[assessment.quality] || 'Not established'}. Results apply to the recorded endpoints and time.</p>
+    <p className="text-xs text-gray-500">Profile: {text(assessment.version)} · Policy: {text(assessment.policy_version)}</p>
+    <ul className="flex flex-wrap gap-2 text-xs" aria-label="TLS check coverage">{[['planned','Planned'],['completed','Completed'],['uncertain','Uncertain'],['unexecutable','Could not execute'],['not_authorized','Not authorized'],['not_applicable','Not applicable']].map(([key,label]) => <li key={key}>{label}: {number(coverage[key])}</li>)}</ul>
+    <p className="text-xs text-gray-500">Trust store: {store ? `${text(store.name)} · ${text(store.version)} · ${text(store.sha256)}` : 'Not recorded for this assessment'}{store?.observed_at ? ` · ${time(store.observed_at)}` : ''}</p>
+    {costs && <p className="text-xs text-gray-500">Recorded cost: {number(costs.connections)} connections · {number(costs.bytes_sent)} bytes sent · {number(costs.bytes_received)} bytes received · {number(costs.duration_ms)} ms · {number(costs.unknown_attempts)} attempts with unknown cost. Budget charged: {number(costs.charged_connections)} connections / {number(costs.charged_bytes)} bytes.</p>}
+    {!endpoints.length && <p className="text-sm text-gray-600">No endpoint checks recorded. Their TLS status remains unknown.</p>}
+    {endpoints.map((item,index) => <details key={`${item.hostname}:${item.address}:${item.port}:${index}`} className="rounded border border-gray-200 p-3"><summary className="cursor-pointer text-sm font-medium break-all">{text(item.hostname)} · {endpoint(item)} · {text(item.application_protocol)}</summary><div className="mt-2 space-y-3"><p className="text-xs text-gray-500">SNI: {text(item.sni)} · Transport: {text(item.transport)} · DNS observed {time(item.dns_observed_at)} · Assessed {time(item.observed_at)}</p>{Array.isArray(item.checks) && item.checks.length ? item.checks.map((row,checkIndex) => <details key={`${row.control}:${row.protocol}:${row.cipher_id}:${checkIndex}`} className="border-t border-gray-100 pt-2"><summary className="cursor-pointer text-sm">{controlName(row.control)}{row.protocol ? ` · ${text(row.protocol)}` : ''}{row.cipher_id ? ` · ${text(row.cipher_id)}` : ''} — {controlStates[row.state] || 'Unknown'}</summary><TlsControlDetail row={row} /></details>) : <p className="text-sm text-gray-600">No controls recorded for this endpoint.</p>}</div></details>)}
+    <p className="text-xs text-gray-500">Protocol, cipher, resumption and early-data support alone do not establish a vulnerability. QUIC is not measured by these TCP checks.</p>
+    {Array.isArray(assessment.limitations) && assessment.limitations.length > 0 && <ul className="list-disc pl-4 text-xs text-gray-500" aria-label="TLS assessment limitations">{assessment.limitations.filter(value => typeof value === 'string').map((value,index) => <li key={index}>{controlName(value)}</li>)}</ul>}
+  </section>
 }
 
 // This is an evidence view, not a second certificate verdict. A received leaf,
@@ -66,7 +122,8 @@ export default function LiveTlsEvidence({ evidence, showEndpoints = true }) {
           {runtimeChain.length ? <ol className="mt-3 space-y-3">{runtimeChain.map((certificate, index) => <li key={`${certificate.certificate_identity || 'unknown'}-${index}`} className="border-t border-gray-100 pt-2"><dl className="space-y-1"><Field label={`Certificate ${index + 1}`}>{text(certificate.certificate_identity)}</Field><Field label="Subject">{text(certificate.subject)}</Field><Field label="Issuer">{text(certificate.issuer)}</Field><Field label="Valid until">{time(certificate.not_after)}</Field></dl></li>)}</ol> : <p className="mt-2 text-xs text-gray-500">No runtime issuer certificates recorded.</p>}
         </details>
       </>}
-      <p className="text-xs text-gray-500">Exact presented chain: unknown. Revocation / OCSP status: not assessed.</p>
+      <p className="text-xs text-gray-500">{evidence.tls_assessment ? 'The live-leaf capture above does not establish the exact presented chain or revocation status. Additional measurements are shown below.' : 'Exact presented chain: unknown. Revocation / OCSP status: not assessed.'}</p>
+      <TlsAssessmentEvidence assessment={evidence.tls_assessment} />
       {endpoints.length > 0 && <div className="space-y-2"><h4 className="text-sm font-semibold">Endpoint observations ({endpoints.length})</h4>{endpoints.map((row, index) => <div key={`${row.address}:${row.port}:${index}`} className="rounded border border-gray-100 p-3 space-y-2"><p className="text-sm break-all">{endpoint(row)} — {stateLabels[row.state] || 'Not assessed'}</p>{row.tls ? <LiveTlsEvidence evidence={row.tls} showEndpoints={false} /> : <p className="text-xs text-gray-500">Live TLS was not observed for this endpoint.</p>}</div>)}</div>}
     </div>
   </details>

@@ -103,6 +103,45 @@ try {
   fail++;
 }
 
+// Native TLS binaries are outside the npm SBOMs. The legacy OpenSSL release is
+// a narrowly scoped exception to the npm allowlist: it carries BOTH the OpenSSL
+// and original SSLeay terms. Pin the exact upstream release and full notices;
+// a version or license change must receive a fresh review rather than inheriting
+// this exception. SSLyze/AGPL and Lynceus implementation code remain excluded.
+try {
+  const directory = path.join(root, "workers/network-probe/tls-engine");
+  const manifest = JSON.parse(fs.readFileSync(path.join(directory, "sources.json"), "utf8"));
+  const digest = (file) => createHash("sha256").update(fs.readFileSync(path.join(directory, file))).digest("hex");
+  const legacy = manifest.sources?.find((source) => source.id === "legacy");
+  const modern = manifest.sources?.find((source) => source.id === "modern");
+  const trust = manifest.trust_bundle;
+  const valid = manifest.schema === "tls-engine-sources-v1"
+    && manifest.private_code_imported === false
+    && manifest.sources.length === 2
+    && legacy?.version === "1.0.2u"
+    && legacy.sha256 === "ecd0c6ffb493dd06707d38b14bb4d8c2288bb7033735606569d8f90f89669d16"
+    && legacy.license === "OpenSSL"
+    && legacy.license_file === "LICENSE.openssl-1.0.2u"
+    && legacy.license_sha256 === digest(legacy.license_file)
+    && legacy.license_sha256 === "c8f60f4842bbad0353f5d81620e72b168b5638ca3a0a999f5da113b22491612e"
+    && modern?.version === "3.5.9"
+    && modern.sha256 === "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a"
+    && modern.license === "Apache-2.0"
+    && modern.license_file === "LICENSE.openssl-3.5.9"
+    && modern.license_sha256 === digest(modern.license_file)
+    && modern.license_sha256 === "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+    && trust?.license === "MPL-2.0"
+    && trust.sha256 === digest("trust/ca-bundle.pem")
+    && trust.license_file === "LICENSE.mpl-2.0"
+    && trust.license_sha256 === digest(trust.license_file)
+    && trust.license_sha256 === "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04";
+  if (!valid) throw new Error("native TLS provenance/license drift");
+  pass++;
+} catch {
+  violations.push({ rel: "tls-engine/sources.json", name: "native-tls-provenance", version: "1", lic: "<missing, changed or unapproved>" });
+  fail++;
+}
+
 if (violations.length) {
   console.log("Disallowed / unknown licenses (add a documented EXCEPTION only if genuinely safe):");
   for (const v of violations) console.log(`  ✗ [${v.rel.split("/").pop()}] ${v.name}@${v.version} → ${v.lic}`);

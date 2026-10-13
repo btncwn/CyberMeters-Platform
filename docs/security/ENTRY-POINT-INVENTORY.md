@@ -13,8 +13,8 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 289
-- **Auth-guarded:** 258
+- **Total entry points:** 293
+- **Auth-guarded:** 262
 - **Unauthenticated (public by design):** 31
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
@@ -26,7 +26,7 @@ guard without an explicit, documented public-allowlist reason.
 | portfolio | 9 | 9 |
 | preflight | 1 | 0 |
 | public-or-global | 39 | 20 |
-| unknown | 70 | 61 |
+| unknown | 74 | 65 |
 | webhook | 2 | 0 |
 | workspace | 139 | 139 |
 
@@ -71,15 +71,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2453 | preflight | public | — |
-| DELETE | `(none)` | 2459 | unknown | **GAP** | — |
-| GET | `(none)` | 2459 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2459 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2459 | unknown | **GAP** | — |
-| POST | `(none)` | 2459 | unknown | **GAP** | — |
-| PUT | `(none)` | 2459 | unknown | **GAP** | — |
-| GET | `/health` | 2464 | public-or-global | public | — |
-| GET | `/ready` | 2483 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2455 | preflight | public | — |
+| DELETE | `(none)` | 2461 | unknown | **GAP** | — |
+| GET | `(none)` | 2461 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2461 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2461 | unknown | **GAP** | — |
+| POST | `(none)` | 2461 | unknown | **GAP** | — |
+| PUT | `(none)` | 2461 | unknown | **GAP** | — |
+| GET | `/health` | 2466 | public-or-global | public | — |
+| GET | `/ready` | 2485 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -394,6 +394,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `(none)` | 37 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `(none)` | 67 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | POST | `(none)` | 79 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+
+### `workers/scan-api/src/routes/tls-authorization.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| GET | `(none)` | 31 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 41 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| PUT | `(none)` | 41 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| PUT | `(none)` | 53 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/website-security.js`
 
