@@ -434,6 +434,69 @@ ok("E8 different domain, same workspace → independently admitted (202)",
     !("detail" in leaky) && !("stack" in leaky));
 }
 
+// ── Layer G: scans waiting in the queue, per account ─────────────────────────
+// Every scan waits in one queue in arrival order. One account may have at most
+// ACCOUNT_WAITING_SCAN_LIMIT scans waiting; the cap is part of the same atomic
+// admission INSERT, so racing requests cannot overrun it.
+{
+  const usagePath = path.join(root, "workers", "scan-api", "src", "engines", "plan-usage.js");
+  const { admitDomainScan, ACCOUNT_WAITING_SCAN_LIMIT, ACCOUNT_WAITING_SCANS_CODE } = await import(pathToFileURL(usagePath).href);
+  const gdb = new DatabaseSync(":memory:", { enableForeignKeyConstraints: false });
+  const applyTo = (p2) => {
+    try { gdb.exec(fs.readFileSync(p2, "utf8")); }
+    catch (e) { if (!/duplicate|already exists|no such (table|column)/i.test(e.message)) throw e; }
+  };
+  applyTo(path.join(root, "database", "schema.sql"));
+  for (const f of migFiles) applyTo(path.join(migDir, f));
+  gdb.exec(`
+    INSERT INTO workspaces (id, name, owner_user_id) VALUES ('ws_G_big1', 'Big 1', 'user_G_big'), ('ws_G_big2', 'Big 2', 'user_G_big'), ('ws_G_small', 'Small', 'user_G_small');
+    INSERT INTO subscriptions (id, owner_user_id, plan, status, subscription_status, current_period_end)
+      VALUES ('sub_G_big', 'user_G_big', 'enterprise', 'active', 'active', '${FUTURE_ISO}'),
+             ('sub_G_small', 'user_G_small', 'professional', 'active', 'active', '${FUTURE_ISO}');
+  `);
+  const genv = { cybermeters_db: d1Adapter(gdb) };
+  const waiting = (owner) => gdb.prepare(
+    "SELECT COUNT(*) c FROM scans s JOIN workspaces w ON w.id = s.workspace_id WHERE w.owner_user_id = ? AND s.status = 'queued'").get(owner).c;
+  const admit = (id, ws, domain, status = "queued") =>
+    admitDomainScan(genv, { scanId: id, domainId: `dom_${domain}`, workspaceId: ws, domain, status, userId: "user_G_big" });
+
+  // Twenty requests at once, across two of the account's workspaces.
+  const raced = await Promise.all(Array.from({ length: 20 }, (_, i) => admit(`scan_G_${i}`, i % 2 ? "ws_G_big2" : "ws_G_big1", `g${i}.example.co.uk`)));
+  const admitted = raced.filter((r) => r === null).length;
+  ok("G1 twenty simultaneous requests from one account → exactly the cap is admitted",
+    admitted === ACCOUNT_WAITING_SCAN_LIMIT && waiting("user_G_big") === ACCOUNT_WAITING_SCAN_LIMIT, `admitted=${admitted}`);
+  const refused = raced.find((r) => r !== null);
+  ok("G2 the rest are refused with a stable code and a plain reason, and leave no row",
+    refused?.status === 429 && refused.body.code === ACCOUNT_WAITING_SCANS_CODE && refused.body.reason === ACCOUNT_WAITING_SCANS_CODE &&
+      /already waiting to start/.test(refused.body.error) && !/queue|D1|SQL/i.test(refused.body.error) &&
+      gdb.prepare("SELECT COUNT(*) c FROM scans WHERE workspace_id IN ('ws_G_big1','ws_G_big2')").get().c === ACCOUNT_WAITING_SCAN_LIMIT,
+    JSON.stringify(refused));
+  ok("G3 another account's scan is admitted while the first is at its cap",
+    (await admitDomainScan(genv, { scanId: "scan_G_small", domainId: "dom_small", workspaceId: "ws_G_small", domain: "small.example.co.uk", status: "queued", userId: "user_G_small" })) === null);
+  gdb.prepare("UPDATE scans SET status = 'running' WHERE id = 'scan_G_0'").run();
+  ok("G4 a waiting scan that starts running frees a place",
+    (await admit("scan_G_next", "ws_G_big1", "next.example.co.uk")) === null && waiting("user_G_big") === ACCOUNT_WAITING_SCAN_LIMIT);
+  ok("G5 scans started outside the queue are not counted against it",
+    (await admit("scan_G_direct", "ws_G_big2", "direct.example.co.uk", "running")) === null);
+  gdb.prepare("UPDATE scans SET status = 'completed' WHERE workspace_id = 'ws_G_big1'").run();
+  ok("G6 finished scans free their places",
+    (await admit("scan_G_after", "ws_G_big1", "after.example.co.uk")) === null);
+
+  // A schedule refused for a full queue is refused before its scan-start token
+  // is spent, so retrying every dispatch tick cannot use up the hourly limit.
+  const { evaluateScheduledScanEligibility } = await import(pathToFileURL(usagePath).href);
+  gdb.exec(`INSERT INTO workspace_domains (workspace_id, domain_id, verification_status) VALUES ('ws_G_big2', 'dom_sched', 'verified');`);
+  for (let i = 0; i < ACCOUNT_WAITING_SCAN_LIMIT; i++) await admit(`scan_G_fill_${i}`, "ws_G_big2", `fill${i}.example.co.uk`);
+  let tokens = 0;
+  const full = await evaluateScheduledScanEligibility(genv, { workspaceId: "ws_G_big2", domainId: "dom_sched", ownerUserId: "user_G_big",
+    consumeRateLimit: async () => { tokens++; return null; } });
+  gdb.prepare("UPDATE scans SET status = 'running' WHERE id = 'scan_G_fill_0'").run();
+  const room = await evaluateScheduledScanEligibility(genv, { workspaceId: "ws_G_big2", domainId: "dom_sched", ownerUserId: "user_G_big",
+    consumeRateLimit: async () => { tokens++; return null; } });
+  ok("G7 a scheduled scan refused for a full queue spends no scan-start token; with room it proceeds",
+    full.ok === false && full.reason === ACCOUNT_WAITING_SCANS_CODE && room.ok === true && tokens === 1, JSON.stringify({ full, room, tokens }));
+}
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

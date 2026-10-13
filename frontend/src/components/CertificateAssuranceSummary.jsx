@@ -9,6 +9,14 @@ const STATE_STYLE = {
   incomplete: 'border-amber-200 bg-amber-50 text-amber-800',
 }
 
+// Name match, expiry and trust are checks with a backend-owned outcome: passed,
+// failed or not checked. A check that did not run never reads as passed.
+const CHECK_STYLE = {
+  passed: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  failed: 'border-red-200 bg-red-50 text-red-800',
+  not_checked: 'border-gray-200 bg-gray-50 text-gray-600',
+}
+
 // Evidence detail is shown in customer words, the same way the PDF shows it:
 // internal policy identifiers, publication thresholds and raw provenance
 // records stay in the evidence store and are never printed.
@@ -60,9 +68,15 @@ function SignalRow({ signal, showEvidence }) {
     <div className="rounded-xl border border-slate-100 bg-white p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-semibold text-slate-800">{signal.label}</p>
-        <span className={`rounded-full border px-2 py-0.5 text-[12px] font-semibold ${STATE_STYLE[signal.state] || STATE_STYLE.not_observed}`}>
-          {stateLabel(signal)}
-        </span>
+        {signal.check?.label ? (
+          <span className={`rounded-full border px-2 py-0.5 text-[12px] font-semibold ${CHECK_STYLE[signal.check.outcome] || CHECK_STYLE.not_checked}`}>
+            {signal.check.label}
+          </span>
+        ) : (
+          <span className={`rounded-full border px-2 py-0.5 text-[12px] font-semibold ${STATE_STYLE[signal.state] || STATE_STYLE.not_observed}`}>
+            {stateLabel(signal)}
+          </span>
+        )}
       </div>
       <p className="mt-1 text-xs leading-relaxed text-slate-500">{customerEvidenceText(signal.customer_message)}</p>
       {showEvidence && (

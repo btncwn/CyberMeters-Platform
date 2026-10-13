@@ -8,6 +8,9 @@ const time = value => {
 }
 const stateLabels = { open: 'Open', closed: 'Closed', timeout: 'Timed out', error: 'Measurement failed', not_run: 'Not run' }
 const endpoint = value => value?.address ? `${value.address.includes(':') ? `[${value.address}]` : value.address}:${value.port ?? '?'}` : 'Not recorded'
+const keyText = leaf => typeof leaf?.public_key_algorithm === 'string' && leaf.public_key_algorithm
+  ? `${leaf.public_key_algorithm.toUpperCase()}${Number.isInteger(leaf.public_key_size_bits) ? ` ${leaf.public_key_size_bits}-bit` : ''}`
+  : 'Not recorded'
 
 function Field({ label, children }) {
   return <div className="min-w-0"><dt className="text-xs text-gray-500">{label}</dt><dd className="mt-0.5 text-sm text-gray-800 break-words [overflow-wrap:anywhere]">{children}</dd></div>
@@ -36,12 +39,15 @@ export default function LiveTlsEvidence({ evidence, showEndpoints = true }) {
       {evidence.all_planned_endpoints_observed === true && endpoints.length > 0 && <p className="text-sm text-gray-600">All planned endpoints were observed in this run.</p>}
       {!collected ? <p className="text-sm text-gray-600">A complete live certificate was not recorded, so the certificate currently served is unknown.</p> : <>
         <dl className="grid gap-3 sm:grid-cols-2">
-          <Field label="Endpoint">{endpoint(evidence.endpoint)}</Field>
-          <Field label="Reference hostname or address">{text(match.reference_hostname || evidence.endpoint?.hostname)}</Field>
+          <Field label="Endpoint (address and port)">{endpoint(evidence.endpoint)}</Field>
+          <Field label="Name sent (SNI)">{typeof evidence.endpoint?.hostname === 'string' && evidence.endpoint.hostname ? evidence.endpoint.hostname : 'None sent'}</Field>
+          <Field label="Name checked against">{text(match.reference_hostname || evidence.endpoint?.hostname)}</Field>
           <Field label="Observed at">{time(evidence.observed_at)}</Field>
           <Field label="Protocol / cipher">{text(evidence.protocol)} / {text(evidence.cipher)}</Field>
           <Field label="Subject">{text(leaf.subject)}</Field>
           <Field label="Issuer">{text(leaf.issuer)}</Field>
+          <Field label="Serial number">{text(leaf.serial_number)}</Field>
+          <Field label="Key">{keyText(leaf)}</Field>
           <Field label="Valid from">{time(leaf.not_before)}</Field>
           <Field label="Valid until">{time(leaf.not_after)}</Field>
           <Field label="Hostname or address match"><span className={matchResult === 'mismatched' ? 'text-red-700 font-medium' : ''}>{matchResult === 'matched' ? 'Matched the recorded identity' : matchResult === 'mismatched' ? 'Did not match the recorded identity' : 'Not established'}</span></Field>

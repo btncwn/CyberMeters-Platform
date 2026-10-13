@@ -720,7 +720,7 @@ ok("E4b scheduled producer/settlement owns no scan_completed audit writer",
 // unchanged. PR-5.5 Gate 3B now owns migration 100, so preserve PR-B1's
 // code-only invariant by proving that migration is the aggregate-email ingest
 // migration and does not touch scan/schedule Queue tables.
-ok("E5 hourly cron unchanged", /crons = \["0 \* \* \* \*"\]/.test(wranglerSrc));
+ok("E5 hourly cron unchanged; the dispatch ticks are the scheduler's own", /crons = \["0 \* \* \* \*", "10,20,30,40,50 \* \* \* \*"\]/.test(wranglerSrc));
 {
   const migration100Files = fs.readdirSync(path.join(root, "database", "migrations"))
     .filter((f) => /^100-/.test(f));

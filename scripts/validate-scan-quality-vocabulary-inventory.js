@@ -247,7 +247,9 @@ const EXPECTED = Object.freeze({
     // Discovery lab: 114 -> 115 across 35 -> 36 files, additive only — the one
     // read in scripts/lab/lab-scan.mjs that reports each lab scan's quality.
     // Queued-scan authority: 115 -> 116, the read behind that one assertion.
-    governance: { occurrence_count: 116, source_file_count: 36, fingerprint: "06668a4c98d2948e053137544cb3b59732265f781d0646121ada327b391b704b" },
+    // Load lab: 116 -> 118 across 36 -> 37 files — scripts/lab/load-lab.mjs reads
+    // each finished scan's recorded quality to report how many were partial.
+    governance: { occurrence_count: 118, source_file_count: 37, fingerprint: "06f80ea57b06a45037b186057d6b9a455c00a7e25c90840967de02eaf489d336" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
@@ -329,6 +331,11 @@ const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
   "scripts/validate-phase5-evidence-honesty.js:234:presentation.quality === \"partial\"",
   "scripts/validate-signal-monitoring-state.js:276:degraded.quality === \"degraded\"",
+  // The lab's measurements: the certificate world's unreachable-certificate scan
+  // is partial, and the load lab counts partial scans. Both read the quality the
+  // engine recorded; neither decides a status.
+  "scripts/lab/lab-checks.mjs:408:fox.scans[4].quality === \"partial\"",
+  "scripts/lab/load-lab.mjs:944:j.quality === \"partial\"",
 ]);
 
 let passed = 0;

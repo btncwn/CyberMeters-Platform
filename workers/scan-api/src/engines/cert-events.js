@@ -83,11 +83,21 @@ async function loadActiveCertificateWorkspaces(env, domainId) {
   return result.results || [];
 }
 
+// The timeline line for the expiry condition. A certificate past its end date
+// has expired; it does not "expire in -3 days".
+export function certificateExpiryDescription(days, expiresAt) {
+  const plural = (n) => `${n} day${n === 1 ? "" : "s"}`;
+  if (days < 0) return `Certificate expired ${plural(-days)} ago (${expiresAt}).`;
+  if (days === 0) return `Certificate expires within a day (${expiresAt}).`;
+  return `Certificate expires in ${plural(days)} (${expiresAt}).`;
+}
+
 /**
  * insertCertificateEvents(scanId, domainId, certMod, env)
  *
  * Event type written:
- *   certificate_expiring_soon — the live certificate expires in < 30 days
+ *   certificate_expiring_soon — the live certificate expires in < 30 days, or
+ *   has expired (the event type name is kept for every existing reader)
  */
 export async function insertCertificateEvents(scanId, domainId, certMod, env, opts = {}) {
   if (!certMod || certMod.error) return;
@@ -160,7 +170,7 @@ export async function insertCertificateEvents(scanId, domainId, certMod, env, op
             scanId,
             null,
             days < 14 ? "critical" : "medium",
-            `Certificate expires in ${days} day${days === 1 ? "" : "s"} (${certMod.expires_at}).`,
+            certificateExpiryDescription(days, certMod.expires_at),
             now
           )
           .run();

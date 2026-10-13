@@ -73,6 +73,25 @@ describe('CertificateAssuranceSummary', () => {
     expect(container).not.toHaveTextContent(/\bpassed\b/i)
   })
 
+  it('shows name, expiry and trust as checks with their outcome, and an unchecked one never as passed', () => {
+    const signals = {
+      hostname_match: { ...signal('hostname_match', 'observed'), check: { outcome: 'failed', label: 'Does not cover example.test' } },
+      expiry: { ...signal('expiry', 'observed'), check: { outcome: 'passed', label: 'In date until 2026-09-30 (12 days left when checked)' } },
+      trust_store_validation: { ...signal('trust_store_validation', 'incomplete'), check: { outcome: 'not_checked', label: 'Not checked' } },
+    }
+    render(
+      <CertificateAssuranceSummary
+        presentation={{ signal_order: Object.keys(signals), signals, summary: {}, scope_note: 'Name, expiry and trust are separate checks.' }}
+      />
+    )
+    expect(screen.getByText('Does not cover example.test')).toHaveClass('text-red-800')
+    expect(screen.getByText('In date until 2026-09-30 (12 days left when checked)')).toHaveClass('text-emerald-800')
+    expect(screen.getByText('Not checked')).toHaveClass('text-gray-600')
+    // The check outcome replaces the evidence state on these three signals.
+    expect(screen.queryByText('observed')).toBeNull()
+    expect(screen.queryByText('incomplete')).toBeNull()
+  })
+
   it('renders an explicit legacy notice without synthesising a positive result', () => {
     const missing = signal('leaf', 'not_observed')
     render(

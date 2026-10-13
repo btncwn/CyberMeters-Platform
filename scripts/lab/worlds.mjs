@@ -320,4 +320,76 @@ const ECHO_STEPS = ["tool", "timeout", "refuse", "filtered", "moved", "tool", "r
 export const ECHO_SCANS = ECHO_STEPS.length;
 export const echoAt = (i) => echoWorld({ admin: ECHO_STEPS[Math.min(i, ECHO_STEPS.length - 1)] });
 
+// Foxtrot: the website's certificate and the edges of what a scan may fetch.
+// Scan by scan (foxtrotAt) the certificate the site serves is valid; expired
+// (and so untrusted); valid but for another name; self-signed; not reachable at
+// all; then renewed. The certificate also names a host that has no DNS. The
+// page links to a host whose redirects loop, two hosts that redirect to
+// addresses on a private network, and a host whose page is several megabytes.
+// From the second scan the app moves to a new address.
+const FOXTROT = "cmlab-foxtrot.co.uk";
+const f = (label) => (label ? `${label}.${FOXTROT}` : FOXTROT);
+const FOXTROT_PADDING = "<!-- " + "x".repeat(3 * 1024 * 1024) + " -->";
+// Each certificate is a different certificate, so each has its own identity.
+const FOXTROT_CERTIFICATES = [
+  { days: 60, identity: "a" },
+  { days: -3, trust: "invalid", identity: "c" },
+  { days: 200, dnsNames: ["shop.another-lab.net"], hostnameMatch: "mismatched", identity: "d" },
+  { days: 300, trust: "invalid", issuer: `CN=${FOXTROT}`, identity: "e" },
+  null,
+  { days: 90, identity: "b" },
+];
+export const FOXTROT_SCANS = FOXTROT_CERTIFICATES.length;
+function foxtrotWorld(step = 0) {
+  const certificate = FOXTROT_CERTIFICATES[step];
+  const links = ["loop", "intranet", "intranet2", "media"].map((label) => `<a href="https://${f(label)}/">${label}</a>`).join("");
+  return {
+    name: "foxtrot",
+    domain: FOXTROT,
+    zones: {
+      [f()]: { SOA: true, A: ["34.125.0.1"], NS: [f("ns1")], MX: ["10 " + f("mail")], TXT: ["v=spf1 mx -all"] },
+      [f("ns1")]: { A: ["34.125.0.2"] },
+      [f("mail")]: { A: ["34.125.0.3"] },
+      [f("www")]: { CNAME: f() },
+      [f("app")]: { A: [step >= 1 ? "34.125.0.44" : "34.125.0.4"] },
+      [f("loop")]: { A: ["34.125.0.5"] },
+      [f("intranet")]: { A: ["34.125.0.6"] },
+      [f("intranet2")]: { A: ["34.125.0.7"] },
+      [f("internal")]: { A: ["10.20.0.8"] },
+      [f("media")]: { A: ["34.125.0.9"] },
+    },
+    sites: {
+      [f()]: {
+        routes: { "/": { status: 200, headers: { server: "nginx", "content-security-policy": `default-src 'self'; connect-src https://${f("app")}` }, body: page("Foxtrot Ltd", links + FOXTROT_PADDING) } },
+        fallback: { status: 404, body: "" },
+      },
+      [f("www")]: { fallback: { status: 301, headers: { location: `https://${FOXTROT}/` } } },
+      [f("app")]: { fallback: { status: 200, body: page("App") } },
+      [f("loop")]: { fallback: { status: 302, headers: { location: `https://${f("loop")}/again` } } },
+      [f("intranet")]: { fallback: { status: 302, headers: { location: "http://10.0.0.8/admin" } } },
+      [f("intranet2")]: { fallback: { status: 302, headers: { location: `https://${f("internal")}/` } } },
+      [f("internal")]: { fallback: { status: 200, body: page("Internal") } },
+      [f("media")]: { fallback: { status: 200, body: page("Media", FOXTROT_PADDING) } },
+      [f("mail")]: { refuse: true },
+      [f("ns1")]: { refuse: true },
+    },
+    defaultSite: { status: 404, body: "" },
+    // Pages over a megabyte are served as streams whose reading the lab counts.
+    streamOver: 1024 * 1024,
+    tls: certificate ? { [FOXTROT]: { dnsNames: [FOXTROT, f("www"), f("ghost")], ...certificate } } : {},
+    // The homepage is large too: every reader of it must stop early.
+    customerList: [],
+    truth: {
+      discoverable: ["www", "mail", "ns1", "app", "loop", "intranet", "intranet2", "media"].map(f),
+      // A name on a private network: listing it is accurate, never connecting to it is required.
+      unconfirmable: [f("internal")],
+      hidden: [],
+      decoys: [f("ghost")],
+      families: {},
+    },
+  };
+}
+export const foxtrotAt = (i) => foxtrotWorld(Math.min(i, FOXTROT_SCANS - 1));
+export const foxtrot = foxtrotAt(0);
+
 export const WORLDS = Object.freeze({ alpha, bravo, charlie });
