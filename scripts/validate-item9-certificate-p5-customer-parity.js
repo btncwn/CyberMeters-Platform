@@ -400,6 +400,14 @@ for (const phrase of [
   ok(`PDF renders certificate semantic: ${phrase}`, pdfText.includes(phrase));
 }
 ok("PDF retains RFC 5280 authority", pdfText.includes("RFC 5280"));
+// The PDF's per-signal rows read the backend check outcome for name, expiry and
+// trust (the same label the web shows), never a bare "Observed".
+for (const key of ["hostname_match", "expiry", "trust_store_validation"]) {
+  const signal = snapshot.certificate_assurance.signals[key];
+  ok(`PDF row reads the ${key} check outcome`,
+    Boolean(signal.check?.label) && pdfText.includes(pdfEsc(`${signal.label}: ${signal.check.label}`)),
+    JSON.stringify(signal.check));
+}
 ok("PDF retains product-policy distinction in customer words",
   pdfText.includes("CyberMeters product policy"));
 for (const internal of [
@@ -522,6 +530,36 @@ ok("snapshot addition is additive and no historical backfill exists",
 ok("certificate API latest-scan read is one workspace-scoped window query",
   /ROW_NUMBER\(\) OVER/.test(certificateRouteSource) &&
   /s\.workspace_id = \?/.test(certificateRouteSource));
+
+// ── Name match, expiry and trust are separate checks with an outcome ───────
+// Passed or failed only when the check ran on a captured leaf; otherwise "not
+// checked", never a pass. Only those three signals carry a check.
+const checks = presentation.signals;
+ok("a matched name, an in-date leaf and a valid trust path read as passed checks",
+  checks.hostname_match.check?.outcome === "passed" && checks.hostname_match.check?.label === "Covers example.com" &&
+    checks.expiry.check?.outcome === "passed" && checks.expiry.check?.label === "In date until 2026-11-30 (126 days left when checked)" &&
+    checks.trust_store_validation.check?.outcome === "passed" && /^Trusted by /.test(checks.trust_store_validation.check?.label || ""),
+  JSON.stringify([checks.hostname_match.check, checks.expiry.check, checks.trust_store_validation.check]));
+ok("only the name, expiry and trust signals carry a check",
+  presentation.signal_order.filter((key) => checks[key].check).join(",") === "expiry,hostname_match,trust_store_validation");
+const failingModel = clone(completeModel);
+failingModel.signals.hostname_match.value = { ...failingModel.signals.hostname_match.value, result: "mismatched" };
+failingModel.signals.trust_store_validation.value = { ...failingModel.signals.trust_store_validation.value, validation_result: "invalid" };
+failingModel.signals.expiry.value = "2026-07-20T00:00:00.000Z";
+const failing = buildCertificateCustomerPresentation({ signalCompleteness: failingModel }).signals;
+ok("a mismatched name, an expired leaf and an invalid trust path read as failed checks",
+  failing.hostname_match.check?.outcome === "failed" && failing.hostname_match.check?.label === "Does not cover example.com" &&
+    failing.expiry.check?.outcome === "failed" && failing.expiry.check?.label === "Expired on 2026-07-20" &&
+    /had passed its validity end/.test(failing.expiry.customer_message) &&
+    failing.trust_store_validation.check?.outcome === "failed" && /^Not trusted by /.test(failing.trust_store_validation.check?.label || ""),
+  JSON.stringify([failing.hostname_match.check, failing.expiry.check, failing.trust_store_validation.check]));
+const uncollected = buildCertificateCustomerPresentation({
+  signalCompleteness: run((() => { const modules = clone(trustFixture.base_modules); delete modules.ssl; return modules; })()).signal_completeness,
+}).signals;
+ok("without a captured leaf every check reads not checked, never passed",
+  ["hostname_match", "expiry", "trust_store_validation"].every((key) =>
+    uncollected[key].state !== "observed" && uncollected[key].check?.outcome === "not_checked" && uncollected[key].check?.label === "Not checked"),
+  JSON.stringify(["hostname_match", "expiry", "trust_store_validation"].map((key) => [uncollected[key].state, uncollected[key].check])));
 
 console.log(`\nItem 9 P5 customer parity: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

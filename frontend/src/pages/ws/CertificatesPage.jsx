@@ -33,6 +33,10 @@ function trustPathState(row) {
   if (assurance.summary?.ct_only === true) {
     return { label: 'Historical log record only', tone: 'info' }
   }
+  // A captured certificate that failed a check says which, from the backend's
+  // check outcome; "observed" alone never stands in for a pass.
+  if (signals.hostname_match?.check?.outcome === 'failed') return { label: 'Name does not match', tone: 'bad' }
+  if (signals.trust_store_validation?.check?.outcome === 'failed') return { label: 'Not trusted', tone: 'bad' }
   if (signals.leaf?.state === 'observed') {
     return { label: 'Live TLS certificate observed', tone: 'info' }
   }
@@ -200,8 +204,9 @@ export default function CertificatesPage() {
   const hasData      = certs.length > 0
   const expiringSoon = certs.filter(c => c.days_until_expiry != null && c.days_until_expiry < 30 && c.days_until_expiry >= 0).length
   const expired      = certs.filter(c => c.days_until_expiry != null && c.days_until_expiry < 0).length
-  const trustUnknown = certs.filter(c =>
-    c.certificate_assurance?.signals?.chain?.state !== 'observed'
+  // Certificates whose name match or trust-store check failed (backend-owned outcomes).
+  const checkFailed = certs.filter(c =>
+    ['hostname_match', 'trust_store_validation'].some(key => c.certificate_assurance?.signals?.[key]?.check?.outcome === 'failed')
   ).length
   const httpsIssues  = certs.filter(c => c.trust_path?.https_reachable === false || c.trust_path?.expiry_ok === false).length
   const needsReview  = certs.filter(c => ['high', 'critical'].includes(c.certificate_risk_level)).length
@@ -215,7 +220,7 @@ export default function CertificatesPage() {
   if (expired > 0)      actions.push({ severity: 'critical', title: 'Certificate expired', body: `${expired} certificate${expired === 1 ? '' : 's'} have expired. Renew now to restore certificate validity for affected hosts.` })
   if (expiringSoon > 0) actions.push({ severity: 'high', title: 'Certificate expiring soon', body: `${expiringSoon} certificate${expiringSoon === 1 ? '' : 's'} expire within 30 days. Schedule renewal to avoid an outage.` })
   if (httpsIssues > 0)  actions.push({ severity: 'high', title: 'HTTPS or expiry issue', body: `${httpsIssues} certificate record${httpsIssues === 1 ? '' : 's'} show HTTPS reachability or expiry evidence that needs review.` })
-  if (anomalies.length > 0) actions.push({ severity: 'medium', title: 'Certificate change needs review', body: `${anomalies.length} historical certificate change${anomalies.length === 1 ? '' : 's'} were observed across issuer, SAN or parallel-certificate evidence.` })
+  if (anomalies.length > 0) actions.push({ severity: 'medium', title: 'Certificate change needs review', body: `${anomalies.length} certificate change${anomalies.length === 1 ? ' was' : 's were'} seen between scans in issuer, SAN or parallel-certificate evidence.` })
   if (needsReview > 0)  actions.push({ severity: 'medium', title: 'Certificate evidence needs review', body: `${needsReview} certificate${needsReview === 1 ? '' : 's'} are flagged high or critical risk and should be reviewed.` })
 
   const scrollToIssues = () => issuesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -240,7 +245,7 @@ export default function CertificatesPage() {
           <span className="eyebrow" style={{ color: '#0F689F' }}>Certificates &amp; Trust</span>
           <h1 className="text-2xl font-bold text-gray-900 leading-tight">Certificates &amp; Trust</h1>
           <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-            Review certificate issuance, expiry and the live HTTPS evidence CyberMeters could observe across your workspace.
+            The certificate each website presented when CyberMeters connected: whether it matches the name, when it expires and whether it is trusted.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 flex-shrink-0">
@@ -256,7 +261,7 @@ export default function CertificatesPage() {
         <div className="card p-10 text-center mb-6">
           <p className="text-base font-bold text-gray-900 mb-1">Run a scan to start certificate and trust monitoring</p>
           <p className="text-sm text-gray-500 max-w-md mx-auto mb-5">
-            CyberMeters records certificate issuance and available live HTTPS evidence, tracks expiry risk and keeps unavailable trust signals explicit.
+            CyberMeters reads the certificate your website presents when it connects, checks its name, expiry and trust, and says which checks it could not run. Past certificates and certificates on names it did not connect to are not listed.
           </p>
           <Link to="/scans/new" className="btn-primary mx-auto inline-flex">Run scan</Link>
         </div>
@@ -267,7 +272,7 @@ export default function CertificatesPage() {
             <StatCard icon={Lock}        label="Certificates"      value={certs.length} />
             <StatCard icon={Clock}       label="Expiring (<30d)"   value={expiringSoon} warning={expiringSoon > 0} />
             <StatCard icon={XCircle}     label="Expired"           value={expired}      danger={expired > 0} />
-            <StatCard icon={AlertTriangle} label="Trust path unknown" value={trustUnknown} />
+            <StatCard icon={AlertTriangle} label="Name or trust failed" value={checkFailed} danger={checkFailed > 0} />
             <StatCard icon={ShieldCheck} label="Needs review"      value={needsReview}  warning={needsReview > 0} />
           </div>
 
@@ -339,7 +344,7 @@ export default function CertificatesPage() {
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
                   <h2 className="font-semibold text-gray-900">Certificate L2 findings</h2>
-                  <p className="text-sm text-gray-500 mt-1">Certificate changes and renewal-readiness signals from live and historical observations.</p>
+                  <p className="text-sm text-gray-500 mt-1">Certificate changes between scans and renewal signals, from the certificates CyberMeters recorded.</p>
                 </div>
                 <span className="text-sm text-gray-400">{l2Findings.length + anomalies.length} item{l2Findings.length + anomalies.length === 1 ? '' : 's'}</span>
               </div>
@@ -354,7 +359,10 @@ export default function CertificatesPage() {
           {/* 4 · Certificate inventory */}
           <div id="cert-inventory" className="card overflow-hidden mb-6 scroll-mt-20">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="font-semibold text-gray-900">Certificate inventory</h2>
+              <div>
+                <h2 className="font-semibold text-gray-900">Certificates checked</h2>
+                <p className="text-xs text-gray-500 mt-0.5">One row per monitored domain: the certificate its website presented on port 443 at the latest scan.</p>
+              </div>
               <span className="text-sm text-gray-400">{certs.length} total</span>
             </div>
             <DataTable
@@ -390,7 +398,7 @@ export default function CertificatesPage() {
           {(churn || issuerHistory.length > 0 || certTimeline.length > 0) && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="card p-5">
-                <h2 className="font-semibold text-gray-900 mb-3">Certificate churn</h2>
+                <h2 className="font-semibold text-gray-900 mb-3">New certificates seen</h2>
                 <div className="space-y-2 text-sm text-gray-600">
                   <div className="flex justify-between"><span>Last 30 days</span><span className="font-medium">{churn?.certificates_last_30_days ?? 0}</span></div>
                   <div className="flex justify-between"><span>Last 90 days</span><span className="font-medium">{churn?.certificates_last_90_days ?? 0}</span></div>
@@ -399,15 +407,15 @@ export default function CertificatesPage() {
               </div>
 
               <div className="card p-5">
-                <h2 className="font-semibold text-gray-900 mb-3">Issuer history</h2>
+                <h2 className="font-semibold text-gray-900 mb-3">Issuers seen</h2>
                 <div className="space-y-2">
                   {issuerHistory.slice(0, 5).map((issuer, idx) => (
                     <div key={`${issuer.issuer || 'unknown'}-${idx}`} className="text-sm">
                       <div className="font-medium text-gray-800">{issuer.issuer || 'Unknown issuer'}</div>
-                      <div className="text-xs text-gray-400">{issuer.certificates} certificate{issuer.certificates === 1 ? '' : 's'} observed</div>
+                      <div className="text-xs text-gray-400">{issuer.certificates} certificate{issuer.certificates === 1 ? '' : 's'} recorded</div>
                     </div>
                   ))}
-                  {issuerHistory.length === 0 && <div className="text-sm text-gray-400">No issuer history yet.</div>}
+                  {issuerHistory.length === 0 && <div className="text-sm text-gray-400">No issuers recorded yet.</div>}
                 </div>
               </div>
 

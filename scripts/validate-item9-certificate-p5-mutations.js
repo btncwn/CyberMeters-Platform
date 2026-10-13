@@ -208,6 +208,38 @@ await withMutant(
   },
 );
 
+await withMutant(
+  (source) => source.replace(
+    `  if (state !== "observed") return NOT_CHECKED;`,
+    `  if (state !== "observed") return { outcome: "passed", label: "Covers the checked name" };`,
+  ),
+  async (mutant) => {
+    const result = mutant.buildCertificateCustomerPresentation({
+      signalCompleteness: model({
+        hostname_match: signal({ observation: "unknown", completeness_state: "evidence_incomplete", value: null }),
+      }),
+    });
+    ok("MUTANT a name match that never ran reads as passed and makes the check fixture red",
+      result.signals.hostname_match.check?.outcome === "passed");
+  },
+);
+
+await withMutant(
+  (source) => source.replace(
+    `  if (timing.expired) return { outcome: "failed", label: \`Expired on \${isoDay(timing.notAfter)}\` };`,
+    "",
+  ),
+  async (mutant) => {
+    const result = mutant.buildCertificateCustomerPresentation({
+      signalCompleteness: model({
+        expiry: signal({ value: "2026-07-20T00:00:00.000Z" }),
+      }),
+    });
+    ok("MUTANT an expired leaf reads as an in-date pass and makes the check fixture red",
+      result.signals.expiry.check?.outcome === "passed");
+  },
+);
+
 console.log(`\nItem 9 P5 mutations: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
 console.log("Item 9 P5 mutation validation passed");

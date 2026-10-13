@@ -32,6 +32,18 @@ describe('Live TLS evidence presentation', () => {
     expect(container).not.toHaveTextContent('Certificate is secure')
   })
 
+  it('names the server name sent (SNI), the serial number and the key of the observed leaf', () => {
+    const evidence = fixture()
+    evidence.leaf_certificate.serial_number = '04A1B2'
+    evidence.leaf_certificate.public_key_algorithm = 'ec'
+    evidence.leaf_certificate.public_key_size_bits = 256
+    render(<LiveTlsEvidence evidence={evidence} />)
+    expect(within(screen.getByText('Name sent (SNI)').parentElement).getByText('public.example.test')).toBeInTheDocument()
+    expect(within(screen.getByText('Endpoint (address and port)').parentElement).getByText('8.8.8.8:443')).toBeInTheDocument()
+    expect(screen.getByText('04A1B2')).toBeInTheDocument()
+    expect(screen.getByText('EC 256-bit')).toBeInTheDocument()
+  })
+
   it('does not promote the runtime issuer chain or TLS success into wire-chain or revocation proof', () => {
     render(<LiveTlsEvidence evidence={fixture()} />)
     expect(screen.getByText('Runtime-observed issuer chain (1 recorded)')).toBeInTheDocument()
