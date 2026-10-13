@@ -179,6 +179,30 @@ class BaselineTests(unittest.TestCase):
                           'basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,digitalSignature,keyEncipherment\n')
         run([cls.modern, 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256',
              '-days', '2', '-config', config, '-out', cls.cert, '-keyout', cls.key])
+        cls.chain_leaf, cls.chain_key = cls.fixture / 'chain-leaf.pem', cls.fixture / 'chain-leaf.key'
+        cls.complete_chain = cls.fixture / 'chain-complete.pem'
+        intermediate = cls.fixture / 'intermediate.pem'
+        intermediate_key = cls.fixture / 'intermediate.key'
+        intermediate_request = cls.fixture / 'intermediate.csr'
+        leaf_request = cls.fixture / 'chain-leaf.csr'
+        chain_config = cls.fixture / 'chain.cnf'
+        chain_config.write_text('[intermediate]\nbasicConstraints=critical,CA:TRUE,pathlen:0\n'
+                                'keyUsage=critical,keyCertSign,cRLSign\n'
+                                '[leaf]\nbasicConstraints=critical,CA:FALSE\n'
+                                'keyUsage=critical,digitalSignature,keyEncipherment\n'
+                                'extendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost\n')
+        run([cls.modern, 'req', '-new', '-newkey', 'rsa:2048', '-nodes',
+             '-config', config, '-subj', '/CN=LocalIntermediate', '-keyout', intermediate_key,
+             '-out', intermediate_request])
+        run([cls.modern, 'x509', '-req', '-in', intermediate_request, '-CA', cls.cert,
+             '-CAkey', cls.key, '-CAcreateserial', '-days', '2', '-sha256',
+             '-extfile', chain_config, '-extensions', 'intermediate', '-out', intermediate])
+        run([cls.modern, 'req', '-new', '-newkey', 'rsa:2048', '-nodes',
+             '-config', config, '-subj', '/CN=localhost', '-keyout', cls.chain_key, '-out', leaf_request])
+        run([cls.modern, 'x509', '-req', '-in', leaf_request, '-CA', intermediate,
+             '-CAkey', intermediate_key, '-CAcreateserial', '-days', '2', '-sha256',
+             '-extfile', chain_config, '-extensions', 'leaf', '-out', cls.chain_leaf])
+        cls.complete_chain.write_bytes(cls.chain_leaf.read_bytes() + intermediate.read_bytes())
         cls.alternate_cert = cls.fixture / 'alternate.pem'
         cls.alternate_key = cls.fixture / 'alternate.key'
         alternate_config = cls.fixture / 'alternate.cnf'
@@ -464,6 +488,20 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(wrong_name['certificates']['trust'], 'valid')
         self.assertTrue(untrusted['certificates']['hostname'])
         self.assertEqual(untrusted['certificates']['trust'], 'invalid')
+
+    def test_offered_and_verified_chains_remain_distinct(self):
+        with server(self.modern, self.chain_leaf, self.chain_key, 'tls1_2') as port:
+            missing = self.assess('tls1_2', port, family='modern', control='certificate')
+        with server(self.modern, self.complete_chain, self.chain_key, 'tls1_2') as port:
+            complete = self.assess('tls1_2', port, family='modern', control='certificate')
+        self.assertEqual(missing['state'], 'accepted')
+        self.assertEqual(missing['certificates']['trust'], 'invalid')
+        self.assertEqual(len(missing['certificates']['offered_chain']), 1)
+        self.assertEqual(missing['certificates']['trusted_chain'], [])
+        self.assertEqual(complete['state'], 'accepted')
+        self.assertEqual(complete['certificates']['trust'], 'valid')
+        self.assertEqual(len(complete['certificates']['offered_chain']), 2)
+        self.assertEqual(len(complete['certificates']['trusted_chain']), 3)
 
     def test_expired_and_not_yet_valid_certificates_are_distinct(self):
         for certificate, key, expected in [
