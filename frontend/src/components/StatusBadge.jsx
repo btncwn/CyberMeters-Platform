@@ -33,8 +33,21 @@ const STATUS_CONFIG = {
 
 const DEFAULT = { label: 'Unknown', dot: 'bg-gray-300', bg: 'bg-gray-100', text: 'text-gray-500', border: 'border-gray-200' }
 
-export default function StatusBadge({ status }) {
-  const cfg = STATUS_CONFIG[status?.toLowerCase()] || DEFAULT
+// A run that finished is not the same as checks that all completed. A completed
+// scan whose quality says some checks did not complete reads as partial results,
+// never in the success colour (the backend's scan_quality decides; this only shows it).
+const PARTIAL_RESULTS = {
+  label: 'Partial results',
+  dot: 'bg-amber-500',
+  bg: 'bg-amber-50', text: 'text-amber-800', border: 'border-amber-200',
+}
+const PARTIAL_QUALITIES = new Set(['partial', 'degraded'])
+
+export default function StatusBadge({ status, quality = null }) {
+  const key = status?.toLowerCase()
+  const cfg = key === 'completed' && PARTIAL_QUALITIES.has(String(quality || '').toLowerCase())
+    ? PARTIAL_RESULTS
+    : STATUS_CONFIG[key] || DEFAULT
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-xs font-semibold ${cfg.bg} ${cfg.text} ${cfg.border}`}>
       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${cfg.dot}`} />

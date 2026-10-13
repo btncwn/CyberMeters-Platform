@@ -60,14 +60,14 @@ describe('Website scan overview — recorded evidence, independent of finding co
     await screen.findByText(/Earlier results have not been substituted/)
     expect(api.getScanReport).not.toHaveBeenCalled()
     expect(screen.getAllByText('Not confirmed')).toHaveLength(4)
-    expect(screen.queryByText('Complete evidence')).toBeNull()
+    expect(screen.queryByText('All checks completed')).toBeNull()
     expect(screen.getByRole('link', { name: 'View latest scan evidence' })).toHaveAttribute('href', '/scans/failed-new?view=technical#website-evidence')
   })
 
   it('withholds observations from skipped and incomplete probes, including derived cookie data', async () => {
     api.getScanReport.mockResolvedValue({ ...report, scan_quality: { status: 'partial', modules_skipped: ['ssl'], modules_incomplete: [{ module: 'headers' }] } })
     mount()
-    await screen.findByText('Partial evidence')
+    await screen.findByText('Some checks incomplete')
     expect(screen.getAllByText('Not confirmed')).toHaveLength(4)
     expect(screen.queryByText('2 present · 1 missing')).toBeNull()
     expect(screen.queryByText('2 cookies observed')).toBeNull()

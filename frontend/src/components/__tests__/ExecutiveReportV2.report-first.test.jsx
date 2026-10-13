@@ -285,6 +285,18 @@ describe('ExecutiveReportV2 report-first corrective', () => {
     expect(within(observationSection).getByText('Evidence grade: L0')).toBeInTheDocument()
   })
 
+  it('words an empty findings list by what was checked, and never as clean when checks did not complete', () => {
+    const partial = { ...reportFixture(), observed_findings: [] }
+    const { unmount } = render(<ExecutiveReportV2 report={partial} />)
+    expect(screen.getByText('Scan coverage was not confirmed for this assessment, so an empty list here is not a clean result.')).toBeInTheDocument()
+    expect(screen.queryByText(/No material findings were observed/)).toBeNull()
+    unmount()
+
+    const complete = { ...reportFixture(), observed_findings: [], evidence_completeness: { ...reportFixture().evidence_completeness, scan_quality: 'complete' } }
+    render(<ExecutiveReportV2 report={complete} />)
+    expect(screen.getByText('No material findings were observed in this assessment. An absence of findings does not establish an absence of risk.')).toBeInTheDocument()
+  })
+
   it('does not invent an info severity for a legacy observation with no recorded severity', () => {
     const report = reportFixture()
     delete report.observations[0].severity

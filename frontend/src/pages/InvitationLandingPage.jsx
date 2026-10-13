@@ -49,7 +49,7 @@ const ROLE_DESCRIPTIONS = {
 const BENEFITS = [
   {
     title: 'Shared Security Monitoring',
-    desc: 'Scheduled, continuous monitoring across all domains in your workspace — shared with the whole team.',
+    desc: 'Scheduled scans of the domains in your workspace, shared with the whole team.',
   },
   {
     title: 'Executive Reporting',
@@ -57,7 +57,7 @@ const BENEFITS = [
   },
   {
     title: 'Asset Inventory',
-    desc: 'Track every subdomain, certificate, cloud service, and exposed admin surface.',
+    desc: 'Track the subdomains, certificates, cloud services and admin pages CyberMeters finds.',
   },
   {
     title: 'Historical Tracking',

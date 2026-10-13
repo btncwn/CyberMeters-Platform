@@ -50,8 +50,15 @@ const EXPECTED = Object.freeze({
     // provider-cache module's telemetry guard and the scan engine's telemetry
     // scan-quality alias left with that source; every other delta in the
     // two-tree --dump-current diff is a line shift.
-    comparison_occurrences: 49,
-    source_file_count: 22,
+    // Honest coverage: 49 -> 53 across 22 -> 23 files, four presentation reads
+    // of the backend's recorded quality and nothing else (two-tree
+    // --dump-counts diff against the previous step): the Executive Report's
+    // empty-findings wording reads evidence_completeness.scan_quality ===
+    // 'complete'; the scan page's sidebar reads scan_quality.status ===
+    // 'complete'; the dashboard and onboarding count 'partial'/'degraded'
+    // completed scans (the new source file). No gate added; SQL unchanged.
+    comparison_occurrences: 53,
+    source_file_count: 23,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
     // AS-B2 SUCCESSION: counts UNCHANGED (48 across 22 files). The KEV/CVE score
@@ -87,7 +94,7 @@ const EXPECTED = Object.freeze({
     // (file/kind/operator/status/access/snippet), deliberately excluding line
     // and AST-offset positions. The count and duplicate multiplicity remain
     // pinned, so real additions/removals still fail while line-only edits do not.
-    fingerprint: "9f62eeb52381ad5b88ba24428701695650df42927b39a7f52f118ff1fb06f682",
+    fingerprint: "bd4a9b81f054573a3c5a94ecd81532c1718be2d323cc0a900158bf663192cd7c",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -159,7 +166,8 @@ const EXPECTED = Object.freeze({
   },
   // Certificate logs retired: the deleted provider-cache module leaves the
   // runtime source set, 33 -> 32.
-  runtime_source_file_count: 32,
+  // Honest coverage: OnboardingPage.jsx joins the runtime set, 32 -> 33.
+  runtime_source_file_count: 33,
   direct: {
     // D1 SUCCESSION: count unchanged at 92; fingerprint moves because the
     // asm-cases read now flows through the shared predicate.
@@ -203,7 +211,11 @@ const EXPECTED = Object.freeze({
     // a snapshot's recorded scan_quality shown as text, unknown values → "not recorded".
     // Certificate logs retired: 107 -> 106 across 38 -> 37 files, exactly the
     // deleted provider-cache module's destructured scanQuality read.
-    runtime: { occurrence_count: 106, source_file_count: 37, fingerprint: "98f96303a9035d229b54c5647b10138e123d20fcd02778db89c9fc27018c6e6c" },
+    // Honest coverage: 106 -> 114 across 37 -> 41 files — the four comparisons
+    // above, plus the scan lists (ScansPage, DomainHistory, WorkspaceDetailPage)
+    // and the scan page header handing the recorded quality to StatusBadge,
+    // which shows a completed partial scan as "Partial results".
+    runtime: { occurrence_count: 114, source_file_count: 41, fingerprint: "bd3822241880d881aedc220ee2ecd5db35d36157d656a93200dae33626f29e58" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

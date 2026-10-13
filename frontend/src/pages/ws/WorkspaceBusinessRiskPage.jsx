@@ -65,8 +65,8 @@ function CategoryRow({ label, category, weight }) {
         </div>
       )}
       {(!issues || issues.length === 0) && (
-        <div className="flex items-center gap-1.5 text-xs text-emerald-600">
-          No issues detected
+        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+          No issue found in this category
         </div>
       )}
     </div>

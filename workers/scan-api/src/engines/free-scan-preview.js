@@ -51,7 +51,7 @@ const LIMITATION_BY_DOMAIN = Object.freeze({
   brand_protection:
     "Anonymous preview does not validate lookalike registrations. Unlock the watchlist after ownership verification.",
   attack_surface:
-    "Subdomain discovery, takeover, CVE/KEV and asset checks unlock after verification.",
+    "Subdomain discovery, takeover and exposed-service checks unlock after verification.",
   certificates_trust:
     "The served certificate is inspected in the full scan; this preview does not inspect it.",
   cyber_essentials_readiness:
@@ -332,7 +332,7 @@ export function buildFreeScanPreview({
     limitations: {
       snapshot: "One bounded public snapshot; no monitoring history and no report is stored.",
       ownership: "Full results require a free account and canonical domain-ownership verification.",
-      deep_checks: "Takeover, CVE/KEV, asset fan-out and active checks are not run anonymously.",
+      deep_checks: "Takeover, asset fan-out and exposed-service checks are not run anonymously.",
     },
     execution: execution ? {
       subrequest_limit: FREE_SCAN_SUBREQUEST_LIMIT,

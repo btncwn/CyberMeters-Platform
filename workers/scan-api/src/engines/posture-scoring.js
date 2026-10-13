@@ -315,7 +315,7 @@ export function computeSecurityPosture(sc, report) {
     result[key] = {
       score,
       status:  scoreStatus(score),
-      reasons: reasons.length > 0 ? reasons : (score === null ? [] : ['No issues detected']),
+      reasons: reasons.length > 0 ? reasons : (score === null ? [] : ['No issue found in this category']),
       // Canonical remediation identities promoted from this category's risk
       // signals. Consumers (e.g. the Executive PDF) render these instead of
       // re-labelling a reason string or fabricating an "Improve X" action.

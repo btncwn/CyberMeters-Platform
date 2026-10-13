@@ -81,6 +81,8 @@ const registry = Object.freeze([
     expected: [
       "F3_OWN_DISCOVERY_COVERAGE_IS_BOUNDED_AND_DECLARED",
       "F4_OWN_DISCOVERY_WITHOUT_HOSTNAME_NEVER_CLAIMS_COMPLETE",
+      // A discovery called complete also stops stating its DNS-question budget.
+      "F_DISCOVERY_QUESTION_BUDGET_IS_STATED",
     ],
   },
   {

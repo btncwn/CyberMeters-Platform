@@ -625,8 +625,8 @@ export function buildScorecardSections(scorecard) {
       title:   'Security Findings',
       status:  scorecard.critical_findings > 0 ? 'critical' : scorecard.high_findings > 0 ? 'warning' : 'ok',
       summary: (scorecard.critical_findings + scorecard.high_findings) === 0
-        ? `No critical or high findings.` +
-          (scorecard.medium_findings + scorecard.low_findings > 0 ? ` ${scorecard.medium_findings + scorecard.low_findings} lower-severity finding${(scorecard.medium_findings + scorecard.low_findings) !== 1 ? 's' : ''} noted.` : ' Clean scan.')
+        ? `No critical or high findings in what this scan checked.` +
+          (scorecard.medium_findings + scorecard.low_findings > 0 ? ` ${scorecard.medium_findings + scorecard.low_findings} lower-severity finding${(scorecard.medium_findings + scorecard.low_findings) !== 1 ? 's' : ''} noted.` : '')
         : `${scorecard.critical_findings} critical, ${scorecard.high_findings} high, ${scorecard.medium_findings} medium, ${scorecard.low_findings} low findings.`,
       data: { critical: scorecard.critical_findings, high: scorecard.high_findings, medium: scorecard.medium_findings, low: scorecard.low_findings },
     },

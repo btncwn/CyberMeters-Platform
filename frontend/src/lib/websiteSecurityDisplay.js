@@ -35,12 +35,14 @@ export const SEVERITY_META = {
 }
 
 // Scan quality the condition was last graded on. Anything but `complete` means the state
-// is provisional, and the UI must not present it as settled.
+// is provisional, and the UI must not present it as settled. The labels describe whether
+// the scan's checks completed, never that coverage was total: a complete scan still has
+// declared limits.
 export const SCAN_QUALITY_META = {
-  complete: { label: 'Complete evidence', tone: 'green' },
-  partial:  { label: 'Partial evidence',  tone: 'amber' },
-  degraded: { label: 'Degraded evidence', tone: 'amber' },
-  unknown:  { label: 'Evidence unknown',  tone: 'slate' },
+  complete: { label: 'All checks completed',  tone: 'green' },
+  partial:  { label: 'Some checks incomplete', tone: 'amber' },
+  degraded: { label: 'Some checks degraded',   tone: 'amber' },
+  unknown:  { label: 'Check completion unknown', tone: 'slate' },
 }
 
 export const TONE_CLASS = {
@@ -56,7 +58,7 @@ export const toneClass = (tone) => TONE_CLASS[tone] || TONE_CLASS.slate
 // this build does not recognise is not evidence that nothing is wrong.
 export const monitoringMeta = (s) => MONITORING_META[s] || { label: s || 'Unknown', tone: 'slate', hint: 'State not recognised by this version.' }
 export const severityMeta   = (s) => SEVERITY_META[s]   || { label: s || 'Unrated', tone: 'slate' }
-export const scanQualityMeta = (q) => SCAN_QUALITY_META[q] || { label: 'Evidence unknown', tone: 'slate' }
+export const scanQualityMeta = (q) => SCAN_QUALITY_META[q] || SCAN_QUALITY_META.unknown
 export const unknownReasonText = (r) => UNKNOWN_REASON_META[r] || (r ? String(r).replace(/_/g, ' ') : null)
 
 // A condition is only settled when it is gone AND the evidence was complete. Used to

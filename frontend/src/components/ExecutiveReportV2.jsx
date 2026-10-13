@@ -288,6 +288,14 @@ function AssessmentCoverage({ coverage }) {
   )
 }
 
+// An empty findings list covers only what the scan checked, and only a scan
+// whose checks all completed may read as one (the backend's scan_quality decides).
+function observedFindingsEmptyLabel(report) {
+  return report?.evidence_completeness?.scan_quality === 'complete'
+    ? 'No material findings were observed in this assessment. An absence of findings does not establish an absence of risk.'
+    : 'Scan coverage was not confirmed for this assessment, so an empty list here is not a clean result.'
+}
+
 // Scanner module identifiers read as the check a customer recognises; any other
 // backend code keeps its own words without underscores.
 const MODULE_TEXT = Object.freeze({
@@ -406,7 +414,7 @@ export default function ExecutiveReportV2({ report }) {
       )}
 
       <SectionCard title="Observed Findings" count={summary.observed_findings_count ?? report.observed_findings?.length ?? 0}>
-        <ItemList items={report.observed_findings} emptyLabel="No material findings were observed in this assessment." />
+        <ItemList items={report.observed_findings} emptyLabel={observedFindingsEmptyLabel(report)} />
       </SectionCard>
 
       <SectionCard title="Observations" count={summary.observations_count ?? report.observations?.length ?? 0}>

@@ -132,7 +132,7 @@ export default function DomainHistory() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <StatusBadge status={scan.status} />
+                      <StatusBadge status={scan.status} quality={scan.scan_quality} />
                       {i === 0 && (
                         <span className="text-[12px] text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-2 py-0.5 font-bold uppercase tracking-wider">
                           Latest

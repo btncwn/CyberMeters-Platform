@@ -129,12 +129,27 @@ function signal(state, reason, {
 // together with the wildcard check that decides which wordlist answers are
 // real. A fixed wordlist can never prove that no other hostname exists, so
 // coverage is always bounded.
-function discoveryCoverage(brute) {
+// Discovery spends a fixed number of DNS questions per scan (discovery-
+// confirmation.js). The coverage states how many it asked and whether a source
+// was refused one, so a customer sees where the bounded method stopped.
+function discoveryQuestionBudget(sub) {
+  const budget = sub?.discovery_budget;
+  if (!budget || typeof budget !== "object") return null;
+  if (!Number.isSafeInteger(budget.total) || !Number.isSafeInteger(budget.spent)) return null;
+  const refused = budget.refused && typeof budget.refused === "object"
+    ? Object.values(budget.refused).reduce((sum, count) => sum + (Number.isSafeInteger(count) && count > 0 ? count : 0), 0)
+    : 0;
+  return { total: budget.total, spent: budget.spent, reached: refused > 0 };
+}
+
+function discoveryCoverage(brute, sub) {
   const checked = Number(brute?.checked);
+  const questionBudget = discoveryQuestionBudget(sub);
   return {
     coverage_state: "bounded",
     basis: "own_observation",
     wordlist_checked: Number.isFinite(checked) ? checked : null,
+    ...(questionBudget ? { question_budget: questionBudget } : {}),
   };
 }
 
@@ -142,7 +157,7 @@ function resolveSubdomainDiscovery(modules) {
   const sub = modules?.subdomains;
   const brute = modules?.dns_bruteforce;
   const tech = modules?.technology_detection;
-  const coverage = discoveryCoverage(brute);
+  const coverage = discoveryCoverage(brute, sub);
   const discoverySignal = (state, reason, detail = {}) => signal(state, reason, {
     ...detail,
     coverage_state: coverage.coverage_state,
