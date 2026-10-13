@@ -1,5 +1,5 @@
 import { isProbeHostname, isPublicProbeAddress } from './contract.js';
-import { TLS_CONTROLS, TLS_PROTOCOLS, TLS_SLICE_LIMITS, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONSENT_VERSION, TLS_TRUST_BUNDLE, applicableTlsControl, isTlsService, tlsEndpointIdentity, tlsEngineControl } from '../../../shared/tls/catalog.js';
+import { TLS_CONTROLS, TLS_PROTOCOLS, TLS_SLICE_LIMITS, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONTROLS_AVAILABLE, TLS_SPECIAL_CONSENT_VERSION, TLS_TRUST_BUNDLE, applicableTlsControl, isTlsService, tlsEndpointIdentity, tlsEngineControl } from '../../../shared/tls/catalog.js';
 
 const id = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value);
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(key => keys.includes(key));
@@ -50,6 +50,7 @@ export function validateTlsAssessmentRequest(input, now = Date.now()) {
     seen.add(key);
   }
   if (input.checks.some(check => TLS_SPECIAL_CONTROLS.includes(check.control)) && !input.scope.special_consent) return fail('special_consent_required');
+  if (input.checks.some(check => TLS_SPECIAL_CONTROLS.includes(check.control)) && !TLS_SPECIAL_CONTROLS_AVAILABLE) return fail('control_unavailable');
   return { ok: true, endpoint_identity: tlsEndpointIdentity(e) };
 }
 

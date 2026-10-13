@@ -1,6 +1,6 @@
 import { dnsQuery } from './dns.js';
 import { isPublicProbeAddress, isProbeHostname } from '../../../network-probe/src/contract.js';
-import { TLS_PROFILE_VERSION, TLS_POLICY_VERSION, TLS_PROTOCOLS, TLS_SPECIAL_CONSENT_VERSION, TLS_SPECIAL_CONTROLS, applicableTlsControl, isTlsService, tlsEndpointIdentity } from '../../../../shared/tls/catalog.js';
+import { TLS_PROFILE_VERSION, TLS_POLICY_VERSION, TLS_PROTOCOLS, TLS_SPECIAL_CONSENT_VERSION, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONTROLS_AVAILABLE, applicableTlsControl, isTlsService, tlsEndpointIdentity } from '../../../../shared/tls/catalog.js';
 
 const MAX_SERVICES_PER_SCAN = 4;
 const MAX_ENDPOINTS_PER_SCAN = 8;
@@ -133,9 +133,12 @@ export function buildTlsCheckPlan({endpoints,cipherCatalog=[],previousFindings=[
     for (const protocol of TLS_PROTOCOLS) {
       for (const control of productControls) {
         const check = {control,protocol,cipher_id:null};
+        const special = TLS_SPECIAL_CONTROLS.includes(control);
         const status = !applicableTlsControl(control,protocol) ? 'not_applicable'
-          : TLS_SPECIAL_CONTROLS.includes(control) && !entry.scope.special_consent ? 'not_authorized' : 'pending';
-        all.push({endpoint_index:endpointIndex,check,state:status,reason:status === 'pending' ? null : status});
+          : special && !entry.scope.special_consent ? 'not_authorized'
+          : special && !TLS_SPECIAL_CONTROLS_AVAILABLE ? 'unexecutable' : 'pending';
+        all.push({endpoint_index:endpointIndex,check,state:status,
+          reason:status === 'unexecutable' ? 'engine_capability_limit' : status === 'pending' ? null : status});
       }
       const ciphers = cipherCatalog.filter(row => row.protocol === protocol && typeof row.name === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(row.name));
       for (const cipher of ciphers) all.push({endpoint_index:endpointIndex,

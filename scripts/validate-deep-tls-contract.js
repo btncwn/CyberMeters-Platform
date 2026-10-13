@@ -53,7 +53,7 @@ assert.throws(()=>projectTlsCollectorReceipt(request,fakeNetwork,{now:now+100}),
 const secret=structuredClone(receipt);secret.results[0].evidence.raw_server_text='password';
 assert.equal(validateTlsAssessmentReceipt(request,secret,{now:now+100}).ok,false,'receipt must reject extra server text');
 const unknown={...request,checks:[{control:'heartbleed',protocol:'tls1_2',cipher_id:null}],scope:{...request.scope,special_consent:true,consent_version:'tls-special-2026-10-13'}};
-assert.equal(validateTlsAssessmentRequest(unknown,now).ok,true);
+assert.deepEqual(validateTlsAssessmentRequest(unknown,now),{ok:false,reason:'control_unavailable'});
 assert.deepEqual(parseTlsDnsAnswers([
   ['A',{Status:0,Answer:[{type:5,name:'mail.acme.org.',data:'edge.provider.net.'},{type:1,name:'edge.provider.net.',data:'8.8.8.8'},
     {type:1,name:'evilmail.acme.org.',data:'1.1.1.1'},{type:1,name:'mail.acme.org.',data:'127.0.0.1'}]}],
@@ -64,6 +64,11 @@ const plan=buildTlsCheckPlan({endpoints:[endpoint],cipherCatalog:[{protocol:'tls
   {protocol:'ssl2',name:'EXP-RC4-MD5',executable:false,reason:'engine_unsupported'}],maxChecks:100});
 assert(plan.selected.some(row=>row.check.control==='cipher'&&row.check.protocol==='tls1_2'));
 assert(plan.static_results.some(row=>row.check.control==='heartbleed'&&row.state==='not_authorized'));
+const consentedPlan=buildTlsCheckPlan({endpoints:[{...endpoint,scope:{...endpoint.scope,special_consent:true,
+  consent_version:'tls-special-2026-10-13'}}],maxChecks:100});
+assert(consentedPlan.static_results.some(row=>row.check.control==='heartbleed'&&row.state==='unexecutable'
+  &&row.reason==='engine_capability_limit'));
+assert(!consentedPlan.selected.some(row=>['heartbleed','robot','ccs'].includes(row.check.control)));
 assert(plan.static_results.some(row=>row.check.control==='early_data'&&row.check.protocol==='tls1_2'&&row.state==='not_applicable'));
 assert(plan.static_results.some(row=>row.check.control==='cipher'&&row.check.protocol==='ssl2'&&row.state==='unexecutable'));
 const stop=new AbortController();

@@ -19,6 +19,9 @@ export const TLS_APPLICATIONS = Object.freeze({
   pop3s:Object.freeze([995]),
 });
 export const TLS_SPECIAL_CONTROLS = Object.freeze(['heartbleed','robot','ccs']);
+// The pinned engine currently reports these as unexecutable without a network
+// attempt. Keep them visible in coverage but do not spend a scan slice on them.
+export const TLS_SPECIAL_CONTROLS_AVAILABLE = false;
 export const TLS_CONTROLS = Object.freeze([
   'protocol','cipher','key_exchange','certificate','ocsp','compression',
   'secure_renegotiation','fallback_scsv','extended_master_secret',
