@@ -224,6 +224,15 @@ class BaselineTests(unittest.TestCase):
              '-rsigner', cls.cert, '-rkey', cls.key, '-issuer', cls.cert,
              '-serial', '0x' + serial, '-respout', bad, '-ndays', '1', '-badsig'])
         cls.ocsp['bad_signature'] = bad
+        stale = cls.fixture / 'stale.der'
+        prefix = BUILD / 'install-modern'
+        lib = prefix / ('lib64' if (prefix / 'lib64/libssl.a').exists() else 'lib')
+        helper = BUILD / 'bin/ocsp-stale-fixture'
+        run(['cc', '-I' + str(prefix / 'include'), ENGINE / 'src/ocsp-stale-fixture.c',
+             lib / 'libcrypto.a', *(['-lpthread', '-ldl'] if platform.system() == 'Linux' else []),
+             '-o', helper])
+        run([helper, cls.cert, cls.key, stale])
+        cls.ocsp['stale'] = stale
 
     @classmethod
     def tearDownClass(cls):
@@ -358,7 +367,7 @@ class BaselineTests(unittest.TestCase):
 
     def test_stapled_ocsp_status_and_signature_are_verified(self):
         for fixture, expected in [('good', 'good'), ('revoked', 'revoked'),
-                                  ('bad_signature', 'invalid')]:
+                                  ('bad_signature', 'invalid'), ('stale', 'invalid')]:
             with self.subTest(fixture=fixture):
                 with server(self.modern, self.cert, self.key, 'tls1_2',
                             staple=self.ocsp[fixture]) as port:
@@ -366,7 +375,7 @@ class BaselineTests(unittest.TestCase):
                 self.assertEqual(result['state'], 'accepted', result)
                 self.assertEqual(result['ocsp']['state'], expected, result)
                 self.assertTrue(result['ocsp']['cert_id_match'])
-                self.assertTrue(result['ocsp']['fresh'])
+                self.assertEqual(result['ocsp']['fresh'], fixture != 'stale')
                 self.assertEqual(result['ocsp']['signature_valid'], fixture != 'bad_signature')
 
     def test_one_bounded_client_renegotiation(self):
