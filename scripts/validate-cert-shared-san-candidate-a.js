@@ -557,8 +557,13 @@ const parity = states.map(parityOutputs);
 // r74-c8030e1a -> r96-d432058a. Replacing that one snapshot field with the old
 // value reproduces both previous golden hashes exactly, including rendered PDFs.
 // Finding, score, coverage and all five SAN projection states remain unchanged.
-const GOLDEN_F13 = "ce5111b4987587e69954821bf6e82b64c98355f3b7cc0dcbeac457186cb22314";
-const GOLDEN_F14 = "0bc040bcc81dafb7ae9d983e5f0f9020dc0e106a387811d800f7fac36155f975";
+// Thirteen endpoint-TLS remediation entries advance that frozen stamp again.
+// Temporarily substituting only the predecessor remediation registry reproduces
+// both previous hashes byte-for-byte; this fixture has no live TLS finding.
+// The two new hashes therefore pin the additive registry version in every SAN
+// projection state without treating absent TLS evidence as a clean result.
+const GOLDEN_F13 = "f7836c0daa5a8feffc913d3e4c45e0c2fc6f5b39fffca5703908f032d23c1f3e";
+const GOLDEN_F14 = "e8dcf501e4371f82e6c48a8182215bb45d2727677b79579fb7a9c288c763105d";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
