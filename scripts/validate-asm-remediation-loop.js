@@ -15,6 +15,7 @@ const asm = await import(pathToFileURL(path.join(root, "workers", "scan-api", "s
 
 const {
   assignManagedCaseOwner,
+  caseGuidanceForRow,
   createManagedAsmCasesForScan,
   getManagedCase,
   listManagedCaseEvents,
@@ -115,8 +116,20 @@ ok("customer cannot self-resolve a case", !selfResolve.ok);
 const dbStatusAfterSelf = (await getManagedCase(env, "ws_case", cases[0].id)).status;
 ok("case stays awaiting verification after blocked self-resolve", dbStatusAfterSelf === "verification_requested");
 
-// Absence only verifies when the DETECTING module can be shown to have run clean.
-const completeAdminScan = { modules: { admin_surface_detection: {} }, scanQuality: { status: "complete", modules_skipped: [] } };
+// The scan's probe record for a host that answered: by default a page that is not
+// a management tool.
+const answered = (host, extra = {}) => ({
+  host, url: `https://${host}/`, status: 200, reachable: true, title: "Welcome", server: "nginx", tech: [],
+  attempts: [{ protocol: "https", port: 443, outcome: "responded", status: 200 }], ...extra,
+});
+
+// Absence only verifies when the DETECTING module can be shown to have run clean,
+// and the affected host (here the domain itself: the finding names no host) was
+// re-checked and answered without the tool.
+const completeAdminScan = {
+  modules: { admin_surface_detection: {}, asset_exposure: { assets: [answered("case-example.com")] } },
+  scanQuality: { status: "complete", modules_skipped: [] },
+};
 const resolved = await verifyManagedAsmCasesForScan("scan_2", "dom_case", "case-example.com", [], env, completeAdminScan);
 row = await getManagedCase(env, "ws_case", cases[0].id);
 ok("fresh scan with finding absent resolves case", resolved.resolved === 1 && row.status === "resolved" && row.resolved_at);
@@ -191,9 +204,10 @@ const partialRun = await verifyManagedAsmCasesForScan("scan_g3", "dom_case", "ca
 });
 ok("partial scan defers verification", partialRun.deferred === 1 && partialRun.resolved === 0);
 
-// Same finding absent, module completed cleanly on a complete scan → resolve.
+// Same finding absent, module completed cleanly on a complete scan, and the
+// affected host answered without the tool → resolve.
 const cleanRun = await verifyManagedAsmCasesForScan("scan_g4", "dom_case", "case-example.com", [], env, {
-  modules: { admin_surface_detection: {} },
+  modules: { admin_surface_detection: {}, asset_exposure: { assets: [answered("case-example.com")] } },
   scanQuality: { status: "complete", modules_skipped: [] },
 });
 gRow = await getManagedCase(env, "ws_case", gCase.id);
@@ -320,6 +334,169 @@ eq("host-less finding falls back to the domain", (await getManagedCase(env, "ws_
   }], [], env);
   eq("re-observing identical hosts is idempotent (no event churn)",
      (await listManagedCaseEvents(env, "ws_case", "case_legacy")).length, eventsBefore);
+}
+
+// ── The re-check must re-test the old problem on the affected host ───────────
+// A management-page case closes only when the same host answers without the
+// tool, or its name is confirmed removed. Silence, a refused connection, a
+// filter's 401/403/429, an origin or edge 5xx, a name that stopped resolving but
+// is not yet confirmed removed, or a host the scan did not probe leave it
+// waiting, with the reason recorded — none of them re-tests the problem.
+{
+  const host = "tools.case-example.com";
+  await createManagedAsmCasesForScan("scan_r0", "dom_case", "case-example.com", [{
+    id: "admin_surface_medium", module: "admin_surface_detection", severity: "medium",
+    title: "Admin page exposed", affected_hosts: [host],
+  }], [], env);
+  const recheckCase = (await listManagedCases(env, "ws_case")).find((c) => c.finding_id === "admin_surface_medium");
+  let r = await getManagedCase(env, "ws_case", recheckCase.id);
+  r = (await transitionManagedCase(env, r, "triage", { actor_type: "customer", actor_id: "user1" })).case;
+  r = (await assignManagedCaseOwner(env, r, { owner_type: "team", owner_ref: "IT", assigned_by: "customer", actor_id: "user1" })).case;
+  r = (await transitionManagedCase(env, r, "remediation_in_progress", { actor_type: "customer", actor_id: "user1" })).case;
+  await transitionManagedCase(env, r, "verification_requested", { actor_type: "customer", actor_id: "user1", action: "fix_completed" });
+  const complete = { status: "complete", modules_skipped: [] };
+  const scanWith = (assets) => ({ modules: { admin_surface_detection: {}, asset_exposure: { assets } }, scanQuality: complete, observedAt: "2026-10-05T10:00:00.000Z" });
+  const waiting = [
+    ["a timeout", [{ host, status: null, reachable: null, probe_status: "timed_out" }], "affected_host_timed_out", "timed_out"],
+    ["a refused connection", [{ host, status: null, reachable: false, attempts: [{ protocol: "https", port: 443, outcome: "refused" }, { protocol: "http", port: 80, outcome: "refused" }] }], "affected_host_no_answer", "no_answer"],
+    ["a filter's 403", [answered(host, { status: 403, title: null })], "affected_host_access_restricted", "access_restricted"],
+    ["an edge answer with no origin behind it", [{ host, status: 530, reachable: false, probe_status: "origin_unreachable" }], "affected_host_no_origin", "no_origin"],
+    ["an origin 5xx", [{ host, status: 503, reachable: false, probe_status: "server_error" }], "affected_host_server_error", "server_error"],
+    ["a host this scan did not probe", [], "affected_host_not_rechecked", "not_rechecked"],
+    ["a name that stopped resolving, removal not confirmed", [{ host, status: null, reachable: null, probe_status: "not_applicable" }], "affected_host_name_not_resolving", "name_not_resolving"],
+  ];
+  for (const [label, assets, reason, outcome] of waiting) {
+    const scanId = `scan_r_${outcome}`;
+    const run = await verifyManagedAsmCasesForScan(scanId, "dom_case", "case-example.com", [], env, scanWith(assets));
+    const current = await getManagedCase(env, "ws_case", recheckCase.id);
+    const deferral = (await listManagedCaseEvents(env, "ws_case", recheckCase.id))
+      .find((e) => e.action === "verification_deferred" && e.detail?.scan_id === scanId);
+    ok(`${label} never closes the case`, run.resolved === 0 && current.status === "verification_requested");
+    ok(`${label} is recorded as the reason it stays open`,
+      deferral?.detail?.reason === reason && deferral?.detail?.recheck?.hosts?.[0]?.outcome === outcome);
+  }
+  const stillThere = await verifyManagedAsmCasesForScan("scan_r_present", "dom_case", "case-example.com", [], env,
+    scanWith([answered(host, { title: "Jira Dashboard" })]));
+  r = await getManagedCase(env, "ws_case", recheckCase.id);
+  ok("the tool still answering on the host fails verification, with the host's re-check",
+    stillThere.failed === 1 && r.status === "verification_failed" &&
+      (await listManagedCaseEvents(env, "ws_case", recheckCase.id)).some((e) => e.action === "verification_failed" && e.detail?.recheck?.hosts?.[0]?.outcome === "still_present"));
+  r = (await transitionManagedCase(env, r, "remediation_in_progress", { actor_type: "customer", actor_id: "user1" })).case;
+  await transitionManagedCase(env, r, "verification_requested", { actor_type: "customer", actor_id: "user1", action: "fix_completed" });
+  const fixedRun = await verifyManagedAsmCasesForScan("scan_r_fixed", "dom_case", "case-example.com", [], env,
+    scanWith([answered(host, { status: 302, title: null, attempts: [{ protocol: "https", port: 443, outcome: "responded", status: 302 }] }),
+      { host: "gone.case-example.com", status: null, reachable: null, probe_status: "not_applicable" }]));
+  r = await getManagedCase(env, "ws_case", recheckCase.id);
+  ok("the host answering without the tool closes the case, though another name stopped resolving",
+    fixedRun.resolved >= 1 && r.status === "resolved");
+  const verifiedEvent = (await listManagedCaseEvents(env, "ws_case", recheckCase.id)).find((e) => e.action === "verified_resolved");
+  const evidence = verifiedEvent?.detail?.verification_evidence;
+  ok("the closure keeps its evidence: method, result, type, the scan's time and each host's re-check",
+    evidence?.verification_method === "rescan" && evidence?.verification_result === "fixed" &&
+      evidence?.evidence_type === "host_reobservation" && evidence?.observed_at === "2026-10-05T10:00:00.000Z" &&
+      JSON.stringify(evidence?.observation?.recheck?.hosts) === JSON.stringify([{ hostname: host, outcome: "answered_without_tool", status: 302, protocol: "https", port: 443 }]));
+
+  // ── What the case page says (engines/case-guidance.js) ─────────────────────
+  const rawEvents = db.prepare("SELECT action, detail_json, created_at FROM managed_case_events WHERE case_id = ? ORDER BY rowid").all(recheckCase.id);
+  const upTo = (scanId, action) => rawEvents.slice(0, rawEvents.findIndex((e) => e.action === action && JSON.parse(e.detail_json || "{}").scan_id === scanId) + 1);
+  const resolvedRow = await getManagedCase(env, "ws_case", recheckCase.id);
+  const waitingGuidance = caseGuidanceForRow({ ...resolvedRow, status: "verification_requested" },
+    { phase: "awaiting_verification", support: "automated", events: upTo("scan_r_no_answer", "verification_deferred") });
+  ok("the case page states the canonical action and how the fix is re-checked, never an invented one",
+    waitingGuidance.remediation?.recommended_action === "Limit each admin interface to trusted IP ranges, or place it behind a VPN or MFA-protected gateway." &&
+      waitingGuidance.recheck?.method === "rescan" && /never closes the case/.test(waitingGuidance.recheck?.rule || ""));
+  ok("a refused connection reads as not confirmed, with the host's answer and why it is not proof",
+    waitingGuidance.last_recheck?.outcome === "waiting" && waitingGuidance.last_recheck?.label === "Not confirmed yet" &&
+      /A blocked connection is not proof/.test(waitingGuidance.last_recheck?.reason || "") &&
+      waitingGuidance.last_recheck?.hosts?.[0]?.label === `${host} refused or dropped the connection.` &&
+      waitingGuidance.closure === null);
+  const failedGuidance = caseGuidanceForRow({ ...resolvedRow, status: "verification_failed" },
+    { phase: "action_in_progress", support: "automated", events: upTo("scan_r_present", "verification_failed") });
+  ok("a tool still answering reads as still present on that host",
+    failedGuidance.last_recheck?.outcome === "still_present" && /still answers with the tool \(HTTPS port 443, HTTP 200\)/.test(failedGuidance.last_recheck?.hosts?.[0]?.label || ""));
+  const verifiedGuidance = caseGuidanceForRow(resolvedRow, { phase: "verified", support: "automated", events: rawEvents });
+  ok("a verified case states CyberMeters verified it, at the scan's time, on the host's own answer",
+    verifiedGuidance.closure?.kind === "verified" && verifiedGuidance.closure?.at === "2026-10-05T10:00:00.000Z" &&
+      verifiedGuidance.last_recheck?.label === "Fixed — verified by CyberMeters" &&
+      verifiedGuidance.last_recheck?.hosts?.[0]?.label === `${host} answered without the tool (HTTPS port 443, HTTP 302).`);
+  ok("a case your team closed, accepted or attested is never worded as verified by CyberMeters",
+    caseGuidanceForRow({ ...resolvedRow, verified_at: null, status: "closed", closed_at: "2026-10-06T09:00:00Z" }, { phase: "closed_no_action", support: "automated", events: [] }).closure?.kind === "closed_by_customer" &&
+      caseGuidanceForRow({ ...resolvedRow, status: "risk_accepted", risk_accepted_until: "2026-09-30T00:00:00Z" }, { phase: "accepted_risk", support: "automated", events: [] }).closure?.label === "Risk accepted by your team until 2026-09-30" &&
+      caseGuidanceForRow({ ...resolvedRow, case_type: "identity_case" }, { phase: "verified", support: "manual", events: [] }).closure?.kind === "attested");
+
+  // The tool comes back: the scan's own sighting is the latest re-check, so the
+  // reopened case never still reads "fixed".
+  await createManagedAsmCasesForScan("scan_r_back", "dom_case", "case-example.com", [{
+    id: "admin_surface_medium", module: "admin_surface_detection", severity: "medium",
+    title: "Admin page exposed", affected_hosts: [host],
+  }], [], env);
+  const reopenedRow = await getManagedCase(env, "ws_case", recheckCase.id);
+  const reopenedGuidance = caseGuidanceForRow(reopenedRow, { phase: "action_in_progress", support: "automated",
+    events: db.prepare("SELECT action, actor_type, to_status, detail_json, created_at FROM managed_case_events WHERE case_id = ? ORDER BY rowid").all(recheckCase.id) });
+  ok("a case CyberMeters reopened shows the scan that saw it again, never the earlier fix",
+    reopenedRow.status === "remediation_in_progress" && Number(reopenedRow.reopened_count) === 1 &&
+      reopenedGuidance.last_recheck?.outcome === "still_present" && reopenedGuidance.last_recheck?.scan_id === "scan_r_back" &&
+      reopenedGuidance.last_recheck?.label === "Seen again — the case was reopened" && reopenedGuidance.closure === null);
+}
+
+// ── Closed outcomes stay distinct, and a finding seen again keeps its history ──
+// A finding your team marked as not a real problem is not re-opened as a new
+// case while it is seen on the same hosts; seen on new hosts, it opens a case
+// that points back. A finding seen again after your team closed its case opens a
+// new case linked both ways (closed is terminal; nothing is reopened in place).
+{
+  const fpHost = "legacy-app.case-example.com";
+  const fpFinding = { id: "asset_exposure_dev_env", module: "asset_exposure", severity: "medium", title: "Dev env exposed", affected_hosts: [fpHost] };
+  db.prepare("DELETE FROM managed_cases WHERE workspace_id = 'ws_case' AND finding_id = 'asset_exposure_dev_env'").run();
+  await createManagedAsmCasesForScan("scan_fp1", "dom_case", "case-example.com", [fpFinding], [], env);
+  let fp = (await listManagedCases(env, "ws_case")).find((c) => c.finding_id === "asset_exposure_dev_env");
+  let fpRow = await getManagedCase(env, "ws_case", fp.id);
+  fpRow = (await transitionManagedCase(env, fpRow, "triage", { actor_type: "customer", actor_id: "user1" })).case;
+  const marked = await transitionManagedCase(env, fpRow, "false_positive", { actor_type: "customer", actor_id: "user1", reason: "A test page, not reachable by customers" });
+  ok("your team can mark a finding as not a real problem, with a reason", marked.ok && marked.case.status === "false_positive");
+  await createManagedAsmCasesForScan("scan_fp2", "dom_case", "case-example.com", [fpFinding], [], env);
+  await createManagedAsmCasesForScan("scan_fp3", "dom_case", "case-example.com", [fpFinding], [], env);
+  const devCases = () => db.prepare("SELECT * FROM managed_cases WHERE workspace_id = 'ws_case' AND finding_id = 'asset_exposure_dev_env' ORDER BY created_at, id").all();
+  ok("a finding marked not a real problem is not opened again on the same hosts", devCases().length === 1);
+  const fpEvents = await listManagedCaseEvents(env, "ws_case", fp.id);
+  ok("each later sighting is recorded on the marked case, once per scan",
+    fpEvents.filter((e) => e.action === "seen_again_marked_not_a_problem").length === 2);
+  ok("the case page says it is still seen and stays marked",
+    /stays marked as not a real problem/.test(caseGuidanceForRow(await getManagedCase(env, "ws_case", fp.id), { phase: "false_positive", support: "automated", events: db.prepare("SELECT action, detail_json, created_at FROM managed_case_events WHERE case_id = ? ORDER BY rowid").all(fp.id) }).continuity?.still_seen?.label || ""));
+  await createManagedAsmCasesForScan("scan_fp4", "dom_case", "case-example.com", [{ ...fpFinding, affected_hosts: [fpHost, "new-dev.case-example.com"] }], [], env);
+  const afterNewHost = devCases();
+  ok("seen on a new host, it opens a new case that points back to the marked one",
+    afterNewHost.length === 2 && JSON.parse(afterNewHost[1].evidence_json).previous_case?.id === fp.id &&
+      JSON.parse(afterNewHost[1].evidence_json).previous_case?.status === "false_positive");
+
+  // Closed by your team, then seen again.
+  let open = await getManagedCase(env, "ws_case", afterNewHost[1].id);
+  open = (await transitionManagedCase(env, open, "triage", { actor_type: "customer", actor_id: "user1" })).case;
+  open = (await assignManagedCaseOwner(env, open, { owner_type: "team", owner_ref: "IT", assigned_by: "customer", actor_id: "user1" })).case;
+  open = (await transitionManagedCase(env, open, "remediation_in_progress", { actor_type: "customer", actor_id: "user1" })).case;
+  const closed = await transitionManagedCase(env, open, "closed", { actor_type: "customer", actor_id: "user1" });
+  ok("your team can close a case without a re-check", closed.ok && closed.case.status === "closed");
+  // The latest earlier case is now the closed one; the host your team marked
+  // stays marked all the same.
+  await createManagedAsmCasesForScan("scan_fp4b", "dom_case", "case-example.com", [fpFinding], [], env);
+  ok("a host your team marked is not opened again because a later case on other hosts was closed",
+    devCases().length === 2 &&
+      (await listManagedCaseEvents(env, "ws_case", fp.id)).some((e) => e.action === "seen_again_marked_not_a_problem" && e.detail?.scan_id === "scan_fp4b"));
+  await createManagedAsmCasesForScan("scan_fp5", "dom_case", "case-example.com", [{ ...fpFinding, affected_hosts: ["new-dev.case-example.com"] }], [], env);
+  const afterClose = devCases();
+  const reopenedAs = afterClose[2];
+  ok("seen again after a closure, it opens a new case linked to the closed one",
+    afterClose.length === 3 && JSON.parse(reopenedAs.evidence_json).previous_case?.id === closed.case.id &&
+      JSON.parse(reopenedAs.evidence_json).previous_case?.status === "closed");
+  const closedEvents = db.prepare("SELECT action, to_status, detail_json, created_at FROM managed_case_events WHERE case_id = ? ORDER BY rowid").all(closed.case.id);
+  ok("the closed case records that it was seen again, and keeps its whole history",
+    closedEvents.some((e) => e.action === "seen_again" && JSON.parse(e.detail_json).new_case_id === reopenedAs.id) &&
+      closedEvents.some((e) => e.action === "case_created") && closedEvents.some((e) => e.to_status === "closed"));
+  const closedGuidance = caseGuidanceForRow(await getManagedCase(env, "ws_case", closed.case.id), { phase: "closed_no_action", support: "automated", events: closedEvents });
+  const newGuidance = caseGuidanceForRow(reopenedAs, { phase: "detected", support: "automated", events: [] });
+  ok("both cases point at each other on the case page, and the closure reads as your team's, not a verification",
+    closedGuidance.closure?.kind === "closed_by_customer" && closedGuidance.continuity?.next_case?.case_id === reopenedAs.id &&
+      newGuidance.continuity?.previous_case?.case_id === closed.case.id && /closed/.test(newGuidance.continuity?.previous_case?.label || ""));
 }
 
 console.log(`\nASM remediation loop: ${pass}/${pass + fail} passed`);

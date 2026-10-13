@@ -272,4 +272,52 @@ export const DELTA_SCANS = DELTA_STEPS.length;
 export const deltaAt = (i) => deltaWorld(DELTA_STEPS[Math.min(i, DELTA_STEPS.length - 1)]);
 export const delta = deltaAt(0);
 
+// Echo: one exposed management tool, fixed and re-checked — for closing a case
+// only on a re-test of the problem. Scan by scan (echoAt): phpMyAdmin answers
+// (a case opens); the host stops answering in time (a timeout); it refuses
+// connections; a filter answers 403; the host now sends visitors to the main
+// site (fixed); phpMyAdmin is back (the same case reopens); the name is taken
+// down and stays gone (removal confirmed over three scans, then re-observed).
+const ECHO = "cmlab-echo.co.uk";
+const e = (label) => (label ? `${label}.${ECHO}` : ECHO);
+const PHPMYADMIN = { status: 200, body: page("phpMyAdmin", '<form><input type="password" name="pma_password"></form>') };
+function echoWorld({ admin = "tool" } = {}) {
+  const adminSite = {
+    tool: { fallback: PHPMYADMIN },
+    timeout: { timeout: true },
+    refuse: { refuse: true },
+    filtered: { fallback: { status: 403, body: page("Forbidden") } },
+    moved: { fallback: { status: 302, headers: { location: `https://${ECHO}/` } } },
+  }[admin];
+  return {
+    name: "echo",
+    domain: ECHO,
+    zones: {
+      [e()]: { SOA: true, A: ["34.124.0.1"], NS: [e("ns1")] },
+      [e("ns1")]: { A: ["34.124.0.2"] },
+      [e("www")]: { CNAME: e() },
+      ...(admin === "removed" ? {} : { [e("admin")]: { A: ["34.124.0.5"] } }),
+    },
+    sites: {
+      [e()]: { routes: { "/": { status: 200, headers: { server: "nginx" }, body: page("Echo Ltd") } }, fallback: { status: 404, body: "" } },
+      [e("www")]: { fallback: { status: 301, headers: { location: `https://${ECHO}/` } } },
+      ...(adminSite ? { [e("admin")]: adminSite } : {}),
+      [e("ns1")]: { refuse: true },
+    },
+    defaultSite: { status: 404, body: "" },
+    tls: { [ECHO]: { days: 90, dnsNames: [ECHO, e("www")] } },
+    customerList: [],
+    truth: {
+      discoverable: ["www", "ns1", ...(admin === "removed" ? [] : ["admin"])].map(e),
+      unconfirmable: [],
+      hidden: [],
+      decoys: [],
+      families: {},
+    },
+  };
+}
+const ECHO_STEPS = ["tool", "timeout", "refuse", "filtered", "moved", "tool", "removed", "removed", "removed", "removed"];
+export const ECHO_SCANS = ECHO_STEPS.length;
+export const echoAt = (i) => echoWorld({ admin: ECHO_STEPS[Math.min(i, ECHO_STEPS.length - 1)] });
+
 export const WORLDS = Object.freeze({ alpha, bravo, charlie });

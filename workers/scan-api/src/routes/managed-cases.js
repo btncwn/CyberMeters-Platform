@@ -17,7 +17,7 @@ import {
   isDmarcPolicyCaseRequest,
 } from "../engines/dmarcbis-managed-lifecycle.js";
 import { newCaseEventId } from "../engines/case-workflow.js";
-import { deriveAsmCaseTraceability } from "../engines/asm-cases.js";
+import { caseGuidanceForRow, deriveAsmCaseTraceability } from "../engines/asm-cases.js";
 import { parseBoundedInteger } from "../lib/util.js";
 
 // Customer-safe projection of a case row + its canonical phase.
@@ -214,7 +214,7 @@ export async function managedCasesRoutes(rctx) {
       if (t) projected.traceability = t;
     } catch { /* omit rather than guess */ }
     return json({
-      case: projected,
+      case: { ...projected, guidance: caseGuidanceForRow(row, { phase: projected.canonical_phase, support: projected.verification_support, events: events.results || [] }) },
       events: events.results || [],
       can_manage: canManage,
       available_transitions,

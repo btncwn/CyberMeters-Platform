@@ -2770,6 +2770,7 @@ function buildCanonicalUrlProfile(modules) {
         // status are durable. P3 lifecycle verification must never infer this
         // from "the engine returned"; publishability is explicit.
         scanPublished: true,
+        observedAt: completedAt,
       });
     } catch { /* non-fatal — managed cases catch up on the next scan */ }
 

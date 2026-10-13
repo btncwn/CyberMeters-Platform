@@ -160,6 +160,20 @@ export function managedVerificationDomainKey(findingId) {
   return VERIFICATION_DISPATCH[String(findingId || "")]?.domain_key || "attack_surface";
 }
 
+// The same presence predicate this profile uses, applied to a probe record a scan
+// already holds — so a scan's re-check of a case and this single-case re-check can
+// never disagree about whether the tool is still there. Null for a finding type that
+// is not re-checked over HTTP.
+export function isHttpAssetVerification(findingId) {
+  const entry = VERIFICATION_DISPATCH[String(findingId || "")];
+  return Boolean(entry && entry.technique === "http_asset" && typeof entry.present === "function");
+}
+
+export function httpAssetStillPresent(findingId, asset) {
+  if (!isHttpAssetVerification(findingId)) return null;
+  return Boolean(VERIFICATION_DISPATCH[String(findingId)].present(asset));
+}
+
 // Why a finding type is not verifiable — an explicit, customer-safe statement rather
 // than silence. Unknown types are treated as unsupported (fail closed).
 export function verificationSupportFor(findingId) {
