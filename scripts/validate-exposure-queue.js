@@ -53,6 +53,14 @@ let assertions=0;const check=(value)=>{assert.ok(value);assertions++;};
  check((await processExposureMessage({...body,workspace_id:'foreign'},h.env,{collect:h.collect})).outcome==='identity_mismatch');
 }
 {
+ const h=harness(),{body,scan}=h.seed('foreign_pending');
+ const before=h.sql.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=?').get(scan.id);
+ const result=await processExposureMessage({...body,workspace_id:'foreign'},h.env,{collect:h.collect});
+ check(result.action==='ack'&&result.outcome==='identity_mismatch');
+ check(h.calls===0&&h.sent.length===0);
+ check(JSON.stringify(h.sql.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=?').get(scan.id))===JSON.stringify(before));
+}
+{
  const h=harness(),{body,scan}=h.seed('crash');
  h.sql.prepare("UPDATE external_exposure_jobs SET state='running',lease_until=?,lease_token='dead',charged_requests=12,charged_bytes=?,attempts=1").run(h.now-1,EXPOSURE_JOB_LIMITS.byteReservation);
  await processExposureMessage(body,h.env,{collect:h.collect});

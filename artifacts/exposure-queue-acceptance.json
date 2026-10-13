@@ -7,7 +7,7 @@
   "completed": 1000,
   "charged_requests": 3000,
   "charged_bytes": 120000,
-  "elapsed_ms": 777,
+  "elapsed_ms": 712,
   "fairness_initial_assets_seen": 1000,
-  "assertions": 48
+  "assertions": 51
 }
