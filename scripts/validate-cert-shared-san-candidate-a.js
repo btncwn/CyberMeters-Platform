@@ -548,7 +548,12 @@ const parity = states.map(parityOutputs);
 // critical/high findings no longer says "Clean scan" and is bounded to what the
 // scan checked. A field-by-field diff against the previous tree shows only that
 // one summary string; the snapshot, executive report, PDFs and F14 are unchanged.
-const GOLDEN_F13 = "e69ec51baa9912f81c30dfb7bf2b1eaea95471bf27916fb76b93cccca05c0725";
+// Live TLS checks: the certificate presentation's name-match, expiry and
+// trust-store signals gain an additive backend check outcome. In this fixture,
+// which has no captured leaf, all three read "Not checked"; a field-by-field
+// diff shows only those three fields (in the snapshot and the executive report
+// that carries it). The PDFs and F14 are unchanged.
+const GOLDEN_F13 = "c0d9588af6bbcbeafe340655663c028525febd29e85ef4a43613bcb9f59118d3";
 const GOLDEN_F14 = "72312ba653dbae06ec51c8f638625bea74f6682ca8d3f45179e06046708ce389";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));

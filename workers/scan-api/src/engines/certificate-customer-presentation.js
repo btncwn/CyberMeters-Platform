@@ -98,6 +98,51 @@ function trustStoreName(value) {
   return customerTrustStoreName(asObject(value)?.trust_store_context);
 }
 
+// Name match, expiry and trust-store validation are separate checks on the
+// captured leaf. Each reads as passed or failed only when that check ran on a
+// certificate the live endpoint presented; otherwise it is "not checked", never a
+// pass. The outcome is the backend's, so no screen derives a certificate verdict.
+const CHECK_SIGNAL_KEYS = new Set(["hostname_match", "expiry", "trust_store_validation"]);
+const NOT_CHECKED = Object.freeze({ outcome: "not_checked", label: "Not checked" });
+
+function isoDay(ms) {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function expiryTiming(signal) {
+  const notAfter = Date.parse(typeof signal?.value === "string" ? signal.value : "");
+  const observedAt = Date.parse(String(asObject(signal?.provenance)?.observed_at || ""));
+  if (!Number.isFinite(notAfter) || !Number.isFinite(observedAt)) return null;
+  return { notAfter, observedAt, expired: notAfter <= observedAt };
+}
+
+function checkOutcome(key, signal, state) {
+  if (state !== "observed") return NOT_CHECKED;
+  const value = asObject(signal?.value);
+  if (key === "hostname_match") {
+    const name = typeof value?.reference_hostname === "string" && value.reference_hostname.trim()
+      ? value.reference_hostname.trim().slice(0, 253)
+      : null;
+    if (value?.result === "matched") return { outcome: "passed", label: name ? `Covers ${name}` : "Covers the checked name" };
+    if (value?.result === "mismatched") return { outcome: "failed", label: name ? `Does not cover ${name}` : "Does not cover the checked name" };
+    return NOT_CHECKED;
+  }
+  if (key === "trust_store_validation") {
+    const store = customerTrustStoreName(asObject(value?.trust_store_context)) || "the recorded trust store";
+    if (value?.validation_result === "valid") return { outcome: "passed", label: `Trusted by ${store}` };
+    if (value?.validation_result === "invalid") return { outcome: "failed", label: `Not trusted by ${store}` };
+    return NOT_CHECKED;
+  }
+  const timing = expiryTiming(signal);
+  if (!timing) return NOT_CHECKED;
+  if (timing.expired) return { outcome: "failed", label: `Expired on ${isoDay(timing.notAfter)}` };
+  const days = Math.floor((timing.notAfter - timing.observedAt) / 86_400_000);
+  return {
+    outcome: "passed",
+    label: `In date until ${isoDay(timing.notAfter)} (${days} day${days === 1 ? "" : "s"} left when checked)`,
+  };
+}
+
 function observedMessage(key, signal) {
   const value = signal?.value;
   if (key === "leaf") {
@@ -148,7 +193,9 @@ function observedMessage(key, signal) {
     return "Multiple non-identical certificates were observed simultaneously for the protected hostname across recorded live endpoint contexts. Multiplicity alone is not a fault or maliciousness conclusion.";
   }
   if (key === "expiry") {
-    return "A certificate validity end was observed on the certificate the live site presented. An in-date certificate alone does not establish verified trust.";
+    return expiryTiming(signal)?.expired === true
+      ? "The certificate the live site presented had passed its validity end when it was checked."
+      : "A certificate validity end was observed on the certificate the live site presented. An in-date certificate alone does not establish verified trust.";
   }
   return `${SIGNAL_META[key]?.[0] || key} evidence was observed in the declared scope.`;
 }
@@ -233,6 +280,7 @@ function presentSignal(key, signal, {
     cited_authorities: authorities,
     reasons: Array.isArray(raw?.reasons) ? [...raw.reasons] : [],
     limitations: Array.isArray(raw?.limitations) ? [...raw.limitations] : [],
+    ...(CHECK_SIGNAL_KEYS.has(key) ? { check: checkOutcome(key, raw, state) } : {}),
   };
 }
 
