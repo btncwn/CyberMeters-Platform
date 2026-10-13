@@ -221,9 +221,9 @@ function scanSummary(db, r2, scanId) {
       wildcard_dns: sub.wildcard_dns ?? null,
     },
     outside_data_modules: {
-      cve_intelligence: modules.cve_intelligence ? pick(modules.cve_intelligence, ["cve_coverage", "outcome", "incomplete_reason", "total_cves", "epss_status"]) : null,
-      known_exploited_vulnerabilities: modules.known_exploited_vulnerabilities ? pick(modules.known_exploited_vulnerabilities, ["catalogue_source", "error", "matched", "incomplete_reason"]) : null,
-      whois_intelligence: modules.whois_intelligence ? pick(modules.whois_intelligence, ["source", "error", "incomplete_reason"]) : null,
+      cve_intelligence: modules.cve_intelligence ? pick(modules.cve_intelligence, ["outcome", "cve_coverage", "incomplete_reason", "total_cves", "epss_status"]) : null,
+      known_exploited_vulnerabilities: modules.known_exploited_vulnerabilities ? pick(modules.known_exploited_vulnerabilities, ["outcome", "catalogue_source", "error", "matched", "incomplete_reason"]) : null,
+      whois_intelligence: modules.whois_intelligence ? pick(modules.whois_intelligence, ["source", "optional", "outcome", "reason", "error", "incomplete_reason"]) : null,
     },
     check_pack: report?.check_pack ?? modules.check_pack ?? null,
   };

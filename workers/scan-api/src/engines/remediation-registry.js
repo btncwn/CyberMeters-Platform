@@ -603,10 +603,15 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     verification_evidence_requirements: "The endpoint is restricted or confirmed intentionally public.",
     supporting_evidence_types: ["http_probe"],
   }),
+  // historical: the two entries below were raised while outside vulnerability
+  // data was matched against reported software (check-pack.js). Those findings
+  // are no longer produced; the entries keep old reports readable unchanged.
   entry({
     remediation_id: "asm.vuln.kev",
     domain_key: "attack_surface",
     finding_types: ["kev_active_exploitation"],
+    status: "deprecated",
+    deprecated_at: "2026-10-13",
     customer_title: "Patch a known-exploited vulnerability",
     technical_explanation: "An externally observed technology matches a CISA Known Exploited Vulnerabilities (KEV) entry, indicating active exploitation in the wild.",
     business_impact: "Known-exploited vulnerabilities are being used by attackers now and warrant immediate escalation.",
@@ -622,6 +627,8 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     remediation_id: "asm.vuln.cve",
     domain_key: "attack_surface",
     finding_types: ["cve_high_severity_detected", "known_vulnerable_component"],
+    status: "deprecated",
+    deprecated_at: "2026-10-13",
     customer_title: "Update a vulnerable component",
     technical_explanation: "An externally observed technology version matches a high-severity CVE.",
     business_impact: "Unpatched high-severity vulnerabilities can be exploited to compromise the service.",

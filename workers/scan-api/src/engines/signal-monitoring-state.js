@@ -5,7 +5,7 @@
 // one state per signal. It does not probe, score, compare with an earlier scan,
 // or change scan_quality. Missing or unrecognised evidence fails closed.
 
-export const SIGNAL_MONITORING_STATE_VERSION = "signal-monitoring-state-v2";
+export const SIGNAL_MONITORING_STATE_VERSION = "signal-monitoring-state-v3";
 
 export const SIGNAL_MONITORING_STATES = Object.freeze({
   MONITORING_HEALTHY:  "monitoring_healthy",
@@ -16,8 +16,13 @@ export const SIGNAL_MONITORING_STATES = Object.freeze({
 
 // Canonical evidence ownership. Signal names are stable customer-facing areas;
 // module names remain evidence pointers, not customer verdicts. Every signal is
-// produced by CyberMeters' own observation; no signal depends on a third-party
-// data provider.
+// produced by CyberMeters' own observation of the scanned domain.
+//
+// v3: outside vulnerability data is no longer part of a scan (check-pack.js),
+// so there is no vulnerability-intelligence signal. Registration data is read
+// from the registry's RDAP service and is `optional`: it is still reported
+// honestly, but a registry that does not answer never makes the assessment
+// incomplete, because nothing else in the scan depends on it.
 export const SIGNAL_MONITORING_DEFINITIONS = Object.freeze({
   dns: Object.freeze({
     modules: Object.freeze(["dns"]),
@@ -43,6 +48,22 @@ export const SIGNAL_MONITORING_DEFINITIONS = Object.freeze({
   technology_visibility: Object.freeze({
     modules: Object.freeze(["technology_detection"]),
   }),
+  registration_data: Object.freeze({
+    modules: Object.freeze(["whois_intelligence"]),
+    optional: true,
+  }),
+});
+
+// The signal set every v1/v2 payload was recorded against. A stored payload is
+// always read against the definitions it was produced under, so a historical
+// scan whose vulnerability-intelligence evidence was incomplete reads exactly
+// as it did when it was recorded.
+const LEGACY_SIGNAL_MONITORING_DEFINITIONS = Object.freeze({
+  dns: SIGNAL_MONITORING_DEFINITIONS.dns,
+  website_security: SIGNAL_MONITORING_DEFINITIONS.website_security,
+  email_protection: SIGNAL_MONITORING_DEFINITIONS.email_protection,
+  attack_surface: SIGNAL_MONITORING_DEFINITIONS.attack_surface,
+  technology_visibility: SIGNAL_MONITORING_DEFINITIONS.technology_visibility,
   vulnerability_intelligence: Object.freeze({
     modules: Object.freeze([
       "cve_intelligence",
@@ -53,6 +74,30 @@ export const SIGNAL_MONITORING_DEFINITIONS = Object.freeze({
     modules: Object.freeze(["whois_intelligence"]),
   }),
 });
+const LEGACY_SIGNAL_MONITORING_VERSIONS = new Set([
+  "signal-monitoring-state-v1",
+  "signal-monitoring-state-v2",
+]);
+// The version an unversioned payload is normalised to: the set it is read with.
+const LEGACY_SIGNAL_MONITORING_DEFAULT_VERSION = "signal-monitoring-state-v2";
+
+// Every producer stamps a version, so an unversioned payload can only come from
+// a report recorded before monitoring states existed; it is read against the
+// legacy set too. Unknown future versions read against the current set.
+export function signalMonitoringDefinitionsFor(monitoringStates) {
+  const version = monitoringStates?.version;
+  return version == null || LEGACY_SIGNAL_MONITORING_VERSIONS.has(version)
+    ? LEGACY_SIGNAL_MONITORING_DEFINITIONS
+    : SIGNAL_MONITORING_DEFINITIONS;
+}
+
+// The signals whose state decides whether a scan's evidence coverage was
+// complete. Optional signals are reported, never required.
+export function requiredMonitoringSignals(monitoringStates) {
+  return Object.entries(signalMonitoringDefinitionsFor(monitoringStates))
+    .filter(([, definition]) => definition.optional !== true)
+    .map(([signal]) => signal);
+}
 
 // Canonical customer wording map. Keep this calm, signal-specific, and limited
 // to what the current run proves. A monitoring state describes evidence coverage,
@@ -88,6 +133,7 @@ export const SIGNAL_MONITORING_WORDING = Object.freeze({
     signal_unavailable:  "Technology visibility data was unavailable in this run.",
     evidence_incomplete: "Technology visibility checks did not complete in this run.",
   }),
+  // Read only for v1/v2 payloads recorded while vulnerability data was a source.
   vulnerability_intelligence: Object.freeze({
     monitoring_healthy:  "Vulnerability intelligence checks completed normally in this run.",
     monitoring_degraded: "We could not fully verify vulnerability intelligence data in this run.",
@@ -110,7 +156,7 @@ const RECOGNISED_MONITORING_STATES = new Set(Object.values(SIGNAL_MONITORING_STA
 // same fail-closed contract instead of inventing its own optimistic fallback.
 export function normalizeSignalMonitoringStates(monitoringStates) {
   const signals = {};
-  for (const [signal, definition] of Object.entries(SIGNAL_MONITORING_DEFINITIONS)) {
+  for (const [signal, definition] of Object.entries(signalMonitoringDefinitionsFor(monitoringStates))) {
     const raw = monitoringStates?.signals?.[signal];
     const recognised = RECOGNISED_MONITORING_STATES.has(raw?.state);
     const state = recognised
@@ -127,10 +173,11 @@ export function normalizeSignalMonitoringStates(monitoringStates) {
         modules: [...definition.modules],
         incomplete_modules: [...definition.modules],
       },
+      ...(definition.optional === true ? { optional: true } : {}),
     };
   }
   return {
-    version: monitoringStates?.version || SIGNAL_MONITORING_STATE_VERSION,
+    version: monitoringStates?.version || LEGACY_SIGNAL_MONITORING_DEFAULT_VERSION,
     signals,
   };
 }
@@ -271,6 +318,7 @@ export function deriveSignalMonitoringStates({
         modules: [...definition.modules],
         incomplete_modules: incompleteModules,
       },
+      ...(definition.optional === true ? { optional: true } : {}),
     };
   }
 

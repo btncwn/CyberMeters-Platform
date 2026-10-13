@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 //
-// Item 10 P1: deterministic proof for the pure nine-signal completeness model
-// and the mutation-pinned confirmed-removal product policy.
+// Item 10 P1: deterministic proof for the pure seven-signal completeness model
+// (v4: the two outside vulnerability-data signals are gone, check-pack.js) and
+// the mutation-pinned confirmed-removal product policy.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -22,16 +23,16 @@ const mutation =
 function mutateSource(source) {
   const mutations = {
     "collapse-siblings": [
-      "signals.kev = resolveKev(modules, signals.technology);",
-      "signals.kev = signals.cve;",
+      "signals.takeover_candidate = resolveTakeoverCandidate(modules);",
+      "signals.takeover_candidate = signals.exposure_admin_surface;",
     ],
     "unavailable-as-absent": [
       'return signal("unavailable", "authoritative_dns_evidence_unavailable"',
       'return signal("absent", "authoritative_dns_evidence_unavailable"',
     ],
-    "cve-zero-is-clean": [
-      'return signal("incomplete", "cve_provider_outcome_not_recorded"',
-      'return signal("not_observed", "cve_provider_outcome_not_recorded"',
+    "missing-marker-is-clean": [
+      'return signal("incomplete", "takeover_completion_not_recorded"',
+      'return signal("not_observed", "takeover_completion_not_recorded"',
     ],
     "one-scan-removes": [
       "required_qualifying_observations: 3,",
@@ -71,7 +72,12 @@ function mutateSource(source) {
 
 async function loadModel() {
   if (!mutation) return import(pathToFileURL(modelPath).href);
-  const source = mutateSource(fs.readFileSync(modelPath, "utf8"));
+  // The mutant is loaded from a data: URL, which cannot resolve the model's
+  // relative imports; point them at the real sibling modules so the mutant
+  // runs and is judged by the assertions, not by a failed import.
+  const siblings = `${pathToFileURL(path.dirname(modelPath)).href}/`;
+  const source = mutateSource(fs.readFileSync(modelPath, "utf8"))
+    .replace(/from "\.\//g, `from "${siblings}`);
   return import(
     `data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${mutation}`
   );
@@ -82,6 +88,7 @@ const {
   ATTACK_SURFACE_SIGNAL_STATES,
   ASSET_REMOVAL_CONFIRMATION_POLICY,
   applyAssetRemovalConfirmation,
+  attackSurfaceSignalKeysFor,
   deriveAttackSurfaceSignalCompleteness,
   deriveRemovalObservation,
 } = await loadModel();
@@ -95,7 +102,16 @@ const ok = (name, condition, detail = "") => {
 const eq = (name, got, want) =>
   ok(name, got === want, `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
-eq("exactly nine independent signals", ATTACK_SURFACE_SIGNAL_KEYS.length, 9);
+eq("exactly seven independent signals", ATTACK_SURFACE_SIGNAL_KEYS.length, 7);
+ok("no signal depends on outside vulnerability data",
+  !ATTACK_SURFACE_SIGNAL_KEYS.includes("cve") && !ATTACK_SURFACE_SIGNAL_KEYS.includes("kev"));
+ok("a stored v1–v3 model keeps the nine signals it was recorded with",
+  ["v1", "v2", "v3"].every((version) => {
+    const keys = attackSurfaceSignalKeysFor(`attack-surface-signal-completeness-${version}`);
+    return keys.length === 9 && keys.includes("cve") && keys.includes("kev");
+  }));
+eq("an unrecorded or current model uses the current signals",
+  attackSurfaceSignalKeysFor(null), ATTACK_SURFACE_SIGNAL_KEYS);
 eq("exactly six non-overlapping states", ATTACK_SURFACE_SIGNAL_STATES.length, 6);
 eq("state vocabulary is unique", new Set(ATTACK_SURFACE_SIGNAL_STATES).size, 6);
 
@@ -164,9 +180,8 @@ eq("exposure positive remains observed despite technology failure",
   mixed.signals.exposure_admin_surface.state, "observed");
 eq("completed takeover zero is not_observed",
   mixed.signals.takeover_candidate.state, "not_observed");
-eq("CVE depends on unavailable technology", mixed.signals.cve.state, "incomplete");
-eq("positive KEV remains observed despite technology failure",
-  mixed.signals.kev.state, "observed");
+ok("a stored vulnerability-data module creates no signal",
+  !("cve" in mixed.signals) && !("kev" in mixed.signals));
 eq("cloud negative with incomplete source evidence is incomplete",
   mixed.signals.cloud_storage.state, "incomplete");
 
@@ -241,8 +256,6 @@ for (const key of [
   "technology",
   "exposure_admin_surface",
   "takeover_candidate",
-  "cve",
-  "kev",
   "cloud_storage",
 ]) {
   eq(`${key}: completed zero is not_observed`,
@@ -252,37 +265,12 @@ for (const key of [
 const missingCompletionMarkers = deriveAttackSurfaceSignalCompleteness({
   technology_detection: {},
   subdomain_takeover: {},
-  cve_intelligence: {},
-  known_exploited_vulnerabilities: {},
   cloud_storage_discovery: {},
 });
-for (const key of ["technology", "takeover_candidate", "cve", "kev", "cloud_storage"]) {
+for (const key of ["technology", "takeover_candidate", "cloud_storage"]) {
   eq(`${key}: missing completion markers fail incomplete`,
     missingCompletionMarkers.signals[key].state, "incomplete");
 }
-
-const ambiguousCve = deriveAttackSurfaceSignalCompleteness({
-  technology_detection: { technologies: ["nginx"] },
-  cve_intelligence: {
-    technologies_checked: ["nginx"],
-    results: {},
-    total_cves: 0,
-  },
-}).signals.cve;
-eq("current queried CVE zero remains incomplete until provider outcomes exist",
-  ambiguousCve.state, "incomplete");
-
-const provenCveZero = deriveAttackSurfaceSignalCompleteness({
-  technology_detection: { technologies: ["nginx"] },
-  cve_intelligence: {
-    technologies_checked: ["nginx"],
-    lookup_statuses: { nginx: { status: "complete" } },
-    results: {},
-    total_cves: 0,
-  },
-}).signals.cve;
-eq("proven provider-complete CVE zero is not_observed",
-  provenCveZero.state, "not_observed");
 
 eq("removal requires three observations",
   ASSET_REMOVAL_CONFIRMATION_POLICY.required_qualifying_observations, 3);

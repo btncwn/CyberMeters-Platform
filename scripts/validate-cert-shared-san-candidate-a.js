@@ -532,8 +532,16 @@ const parity = states.map(parityOutputs);
 // Each Attack Surface signal gains three additive presentation fields
 // (statement, caveat, coverage_message); with only those fields removed the
 // previous F13 hash (333f92db…) reproduces exactly and F14 is unchanged.
-const GOLDEN_F13 = "6605b94fc426d5db924e3bffdf835f899321c67607eac5164928beeebea963d7";
-const GOLDEN_F14 = "aff8c25fb24ad7dc04883b188b7e72c3f5abca3b34b5706638183ce57bf07465";
+// Outside vulnerability data leaves the check pack: a field-by-field diff
+// against the previous tree shows only moved stamps — score methodology and
+// snapshot builder 2026-10-13.1, registry fingerprint r74-c8030e1a, the reader's
+// attack-surface contract v4 and the new methodology.check_pack_version (null:
+// this fixture predates the check pack, so its not-recorded Attack Surface
+// notice keeps the signal set of its time). No score, state, finding or
+// customer statement moved; all five SAN projection states stay identical.
+// The PDF appendix names the new stamp "Check pack" (only F13's PDF bytes).
+const GOLDEN_F13 = "cce1a81259841880d9607f68813e5298086b3f51899302bf3c4a070f5d6a9a40";
+const GOLDEN_F14 = "72312ba653dbae06ec51c8f638625bea74f6682ca8d3f45179e06046708ce389";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

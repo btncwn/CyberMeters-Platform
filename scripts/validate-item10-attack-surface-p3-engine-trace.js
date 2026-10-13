@@ -275,9 +275,9 @@ async function run(scanId, when, mode) {
   const report = JSON.parse(reports.get(`reports/${scanId}.json`) || "{}");
   eq(`${scanId} terminal R2 report is durable before case processing`,
     report.scan_id, scanId);
-  eq(`${scanId} report retains all nine independent signals`,
+  eq(`${scanId} report retains all seven independent signals`,
     Object.keys(report.modules?.attack_surface_signal_completeness?.signals || {}).length,
-    9);
+    7);
   return { report, scan };
 }
 

@@ -103,8 +103,8 @@ import { runTechModule } from "./tech-scan.js";
 import { runVendorRelationshipModule } from "./vendor-relationship.js";
 import { recomputeVendorRiskScoresForDomain } from "./vendor-risk.js";
 import { detectVendorsFromModules } from "./vendor-signatures.js";
-import { runCveModule, runKevModule } from "./vuln-intel.js";
-import { runWhoisModule } from "./whois-scan.js";
+import { checkForFinding, checkPackSummary, moduleNotInCheckPack } from "./check-pack.js";
+import { REGISTRATION_DATA_OPTIONAL, runWhoisModule } from "./whois-scan.js";
 import { collectDegradations, mayGradeDegraded } from "./scan-degradation-contract.js";
 import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
 
@@ -160,6 +160,9 @@ export function computeScanBudget(bruteforceChecked) {
 // double read: one logical fact, read twice from a live source. The default
 // remains a generated value ONLY for callers that have no scan context (fixtures
 // and the 50 validator call sites); the engine always passes the persisted value.
+// Modules whose evidence is optional: see buildScanQuality.
+const OPTIONAL_EVIDENCE_MODULES = new Set(["whois_intelligence"]);
+
 export function buildScanQuality(modules = {}, observedAt = undefined, capacity = null) {
   // F-026 capacity truth. 10,000 is the authenticated Workers Paid provider
   // default ceiling, NOT the application's effective admission/report limit and
@@ -177,6 +180,13 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
   const estimated = budget.estimated_subrequests_total ?? 0;
   const warnings = [];
   const modulesSkipped = [];
+  // Optional evidence (registration data from the registry's RDAP service) is
+  // reported by its own module and monitoring signal; it never decides whether
+  // the scan's checks completed. Only a result that states it is optional and
+  // belongs to an optional module qualifies, so a stored scan graded before
+  // registration data became optional keeps its recorded meaning.
+  const isOptionalEvidence = (name, value) =>
+    OPTIONAL_EVIDENCE_MODULES.has(name) && value?.optional === true;
 
   // Sprint 10C: "subdomains" (discovery) is NOT a core module. DNS, SSL,
   // Headers, Email directly assess the domain's own config.
@@ -188,6 +198,7 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
   // does not degrade scan_quality status through this path.
   for (const [name, value] of Object.entries(modules)) {
     if (name === "subdomains") continue;
+    if (isOptionalEvidence(name, value)) continue;
     const error = String(value?.error || "").toLowerCase();
     if (error.includes("skipped_due_to_subrequest_budget") || error.includes("timed out")) {
       modulesSkipped.push(name);
@@ -200,7 +211,7 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
   // findings is never presented as a clean result and downstream verification /
   // managed-case resolution defers. This does not change module order/estimator.
   const incompleteModules = Object.entries(modules)
-    .filter(([, value]) => value?.incomplete === true)
+    .filter(([name, value]) => value?.incomplete === true && !isOptionalEvidence(name, value))
     .map(([name]) => name);
   // The evidence proposition, kept SEPARATE from the execution proposition.
   //
@@ -225,7 +236,7 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
   // absence, never a clean result. List it as skipped + warn; a skipped CORE module
   // (dns/ssl/headers/email) degrades the scan to "partial". Legacy never sets skipped.
   const budgetSkippedModules = Object.entries(modules)
-    .filter(([, value]) => value?.skipped === true)
+    .filter(([name, value]) => value?.skipped === true && !isOptionalEvidence(name, value))
     .map(([name]) => name);
   for (const name of budgetSkippedModules) {
     if (!modulesSkipped.includes(name)) modulesSkipped.push(name);
@@ -508,7 +519,7 @@ const TELEMETRY_TRACKED_MODULES = Object.freeze([
   "dns", "ssl", "headers", "email_security", "dmarc_core", "dmarc_external_rua",
   "subdomains", "technology_detection",
   "whois_intelligence", "dns_bruteforce", "subdomain_takeover", "asset_exposure",
-  "cve_intelligence", "known_exploited_vulnerabilities", "email_security_intelligence",
+  "email_security_intelligence",
   "cloud_storage_discovery",
 ]);
 
@@ -1075,7 +1086,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           }),
           runCappedModule("subdomains",           { fallback: subdomainsFallback, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, subOps: subOpTelemetry, budget: discoveryBudget }) }),
           runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal, remainingMs }) => runTechModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal, remainingMs: durableInvocation ? remainingMs : null }) }),
-          runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ source: "rdap" }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
+          runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ ...REGISTRATION_DATA_OPTIONAL }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
           runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal, cache: dnsCache, budget: discoveryBudget }) }),
         ]);
       const settledValue = (s) => s.status === "fulfilled" ? s.value : null;
@@ -1132,7 +1143,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
             wildcard_dns: false, wildcard_dns_addresses: [], wildcard_dns_ipv6_addresses: [], wildcard_test_host: null, wildcard_warning: null,
             error: customerSafeFailure("scan/subdomains", subdomainsSettled.value?.thrown || subdomainsSettled.reason, "Subdomain module failed") };
       techResult = techSettled.status === "fulfilled" && !techSettled.value.thrown ? techSettled.value.value : { error: customerSafeFailure("scan/technology", techSettled.value?.thrown || techSettled.reason, "Technology module failed") };
-      whoisResult = whoisSettled.status === "fulfilled" && !whoisSettled.value.thrown ? whoisSettled.value.value : { error: customerSafeFailure("scan/whois", whoisSettled.value?.thrown || whoisSettled.reason, "WHOIS module failed") };
+      whoisResult = whoisSettled.status === "fulfilled" && !whoisSettled.value.thrown ? whoisSettled.value.value : { ...REGISTRATION_DATA_OPTIONAL, error: customerSafeFailure("scan/whois", whoisSettled.value?.thrown || whoisSettled.reason, "WHOIS module failed") };
 
       const rawBruteforceResult = bruteforceSettled.status === "fulfilled" && !bruteforceSettled.value.thrown
         ? bruteforceSettled.value.value
@@ -1607,22 +1618,24 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       };
     }
 
-    // Phase 5: CVE + KEV + Email Intelligence (all parallel)
-    // • CVE: queries NVD for high/critical CVEs per detected technology
-    // • KEV: fetches CISA catalog and matches by technology keyword
-    // • EmailIntel: enriches SPF/DMARC/DKIM, adds MTA-STS + TLS-RPT, computes email score
-    // In reserved mode these are budget-permitting enrichment: skipped honestly (no fetch
-    // attempted) when the exposure-first budget is already spent.
-    const phase5Cost = MODULE_SUBREQUEST_COST.cve + MODULE_SUBREQUEST_COST.kev + 4;
+    // Phase 5: email intelligence — MTA-STS, TLS-RPT and email detail from the
+    // scan's own DNS and HTTPS observations. Matching reported software against
+    // outside vulnerability databases and exploited-vulnerability catalogues is
+    // not part of the check pack (check-pack.js): those two modules record that
+    // in the report, so no reader mistakes their absence for a failure.
+    modules.cve_intelligence = moduleNotInCheckPack("vulnerability_database_matching", "outside_vulnerability_data_not_used");
+    modules.known_exploited_vulnerabilities = moduleNotInCheckPack("exploited_vulnerability_data", "outside_vulnerability_data_not_used");
+    // In reserved mode email intelligence is budget-permitting enrichment:
+    // skipped honestly (no fetch attempted) when the exposure-first budget is
+    // already spent.
+    const phase5Cost = 4;
     const durablePhase5 = executionContext === "queue" || executionContext === "cron";
-    // Queue/Cron runs the trio concurrently with independent source-envelope caps,
-    // so global admission reserves the longest possible sibling, never their sum.
-    // Legacy waitUntil/unknown retains the original one-second shared race below.
     const phase5LaunchEstimate = durablePhase5
-      ? Math.max(...Object.values(SCAN_DURABLE_PHASE5_MODULE_BUDGETS))
+      ? SCAN_DURABLE_PHASE5_MODULE_BUDGETS.email_security_intelligence
       : SCAN_MODULE_BUDGETS.phase5_intelligence;
-    // Deadline first: if the enrichment trio can't finish in budget, defer it honestly
-    // (partial scan) rather than risk the whole invocation being cancelled mid-write.
+    // Deadline first: if email intelligence can't finish in budget, defer it
+    // honestly (partial scan) rather than risk the whole invocation being
+    // cancelled mid-write.
     await heartbeatScan(env, scanId, "phase5_intelligence", telemetry.rows.filter((r) => r.outcome === "ok").length);
     // Admission is evaluated after the heartbeat write so time spent reaching
     // this boundary is included; a phase never launches on a stale clock sample.
@@ -1631,33 +1644,23 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       const phase5LaunchCause = durablePhase5
         ? { reason: "scan_deadline_exhausted", timeoutSource: "launch_gate" }
         : {};
-      modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" }, phase5LaunchCause);
-      modules.known_exploited_vulnerabilities = markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" }, phase5LaunchCause);
       modules.email_security_intelligence = markDeadlineDeferred({ source: "email_intelligence" }, phase5LaunchCause);
-      telemetry.record("cve_intelligence", { outcome: "deadline_exceeded", allocated_ms: 0, timeout_source: "launch_gate" });
-      telemetry.record("known_exploited_vulnerabilities", { outcome: "deadline_exceeded", allocated_ms: 0, timeout_source: "launch_gate" });
       telemetry.record("email_security_intelligence", { outcome: "deadline_exceeded", allocated_ms: 0, timeout_source: "launch_gate" });
     } else if (reservedMode && reservedBudget && reservedBudget.wouldExceed(phase5Cost)) {
-      modules.cve_intelligence = skippedModuleResult("cve", { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0 });
-      modules.known_exploited_vulnerabilities = skippedModuleResult("kev", { matches: [], checked: 0, matched: 0 });
       modules.email_security_intelligence = skippedModuleResult("email_intelligence");
     } else {
     if (reservedMode && reservedBudget) reservedBudget.spend("phase5", phase5Cost);
     if (!durablePhase5) {
-      // Byte-compatible legacy path: waitUntil/unknown callers retain one shared
-      // one-second race and the established all-three terminal fallback.
+      // Byte-compatible legacy path: waitUntil/unknown callers retain one
+      // shared one-second race and the established terminal fallback.
       const PHASE5_DEADLINE = "__phase5_deadline__";
       let phase5AllocatedMs = null;
       const phase5StartedMs = now();
       const phase5Controller = createChildSignal();
-      const cveOutbound = outboundContext("cve_intelligence", phase5Controller.signal);
-      const kevOutbound = outboundContext("known_exploited_vulnerabilities", phase5Controller.signal);
       const emailIntelOutbound = outboundContext("email_security_intelligence", phase5Controller.signal);
       const settled = await raceModuleDeadline(
         deadline,
         () => Promise.allSettled([
-          runCveModule(modules.technology_detection, { accounting: cveOutbound, signal: phase5Controller.signal, env }),
-          runKevModule(modules.technology_detection, env, { accounting: kevOutbound, signal: phase5Controller.signal }),
           runEmailIntelModule(domain, modules.email_security, modules.dns, {
             accounting: emailIntelOutbound,
             signal: phase5Controller.signal,
@@ -1671,49 +1674,19 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         { hardMs: SCAN_MODULE_BUDGETS.phase5_intelligence, onStart: (capMs) => { phase5AllocatedMs = capMs; } },
       );
       if (settled === PHASE5_DEADLINE) {
-        modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
-        modules.known_exploited_vulnerabilities = markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" });
         modules.email_security_intelligence = markDeadlineDeferred({ source: "email_intelligence" });
       } else {
-        const [cveSettled, kevSettled, emailIntelSettled] = settled;
-        modules.cve_intelligence = cveSettled.status === "fulfilled"
-          ? cveSettled.value
-          : { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0,
-              source: "nvd_api", error: customerSafeFailure("scan/cve", cveSettled.reason, "CVE module failed") };
-        modules.known_exploited_vulnerabilities = kevSettled.status === "fulfilled"
-          ? kevSettled.value
-          : { matches: [], checked: 0, matched: 0,
-              source: "cisa_kev", error: customerSafeFailure("scan/kev", kevSettled.reason, "KEV module failed") };
+        const [emailIntelSettled] = settled;
         modules.email_security_intelligence = emailIntelSettled.status === "fulfilled"
           ? emailIntelSettled.value
           : { error: customerSafeFailure("scan/email-intelligence", emailIntelSettled.reason, "Email intelligence module failed") };
-      }
-      if (cveOutbound?.physicalBudgetExhausted?.()) {
-        modules.cve_intelligence = markPhysicalBudgetIncomplete("cve_intelligence", modules.cve_intelligence, cveOutbound);
-      }
-      if (kevOutbound?.physicalBudgetExhausted?.()) {
-        modules.known_exploited_vulnerabilities = markPhysicalBudgetIncomplete("known_exploited_vulnerabilities", modules.known_exploited_vulnerabilities, kevOutbound);
       }
       if (emailIntelOutbound?.physicalBudgetExhausted?.()) {
         modules.email_security_intelligence = markPhysicalBudgetIncomplete("email_security_intelligence", modules.email_security_intelligence, emailIntelOutbound);
       }
       const phase5WallMs = now() - phase5StartedMs;
       const phase5Raced = settled === PHASE5_DEADLINE;
-      const cveOutboundSnapshot = phase5Raced ? abandonOutbound(cveOutbound, "cve_intelligence", "module_race") : settleOutboundValue(cveOutbound, "cve_intelligence", modules.cve_intelligence);
-      const kevOutboundSnapshot = phase5Raced ? abandonOutbound(kevOutbound, "known_exploited_vulnerabilities", "module_race") : settleOutboundValue(kevOutbound, "known_exploited_vulnerabilities", modules.known_exploited_vulnerabilities);
       const emailIntelOutboundSnapshot = phase5Raced ? abandonOutbound(emailIntelOutbound, "email_security_intelligence", "module_race") : settleOutboundValue(emailIntelOutbound, "email_security_intelligence", modules.email_security_intelligence);
-      telemetry.record("cve_intelligence", {
-        outcome: telemetry.outcomeOf(modules.cve_intelligence), timeout: modules.cve_intelligence?.outcome === "deadline_exceeded",
-        duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
-        outbound: cveOutboundSnapshot,
-        outbound_calls: cveOutboundSnapshot.outbound_measurement_complete ? cveOutboundSnapshot.outbound_attempts_observed : null,
-      });
-      telemetry.record("known_exploited_vulnerabilities", {
-        outcome: telemetry.outcomeOf(modules.known_exploited_vulnerabilities), timeout: modules.known_exploited_vulnerabilities?.outcome === "deadline_exceeded",
-        duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
-        outbound: kevOutboundSnapshot,
-        outbound_calls: kevOutboundSnapshot.outbound_measurement_complete ? kevOutboundSnapshot.outbound_attempts_observed : null,
-      });
       telemetry.record("email_security_intelligence", {
         outcome: telemetry.outcomeOf(modules.email_security_intelligence), timeout: modules.email_security_intelligence?.outcome === "deadline_exceeded",
         duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
@@ -1721,69 +1694,35 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         outbound_calls: emailIntelOutboundSnapshot.outbound_measurement_complete ? emailIntelOutboundSnapshot.outbound_attempts_observed : null,
       });
     } else {
-      const cveFallback = () => markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
-      const kevFallback = () => markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" });
       const emailIntelFallback = () => markDeadlineDeferred({ source: "email_intelligence" });
-      const [cveRun, kevRun, emailIntelRun] = await Promise.all([
-        runCappedModule("cve_intelligence", {
-          fallback: cveFallback,
-          estimateMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.cve_intelligence,
-          hardMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.cve_intelligence,
-          run: ({ accounting, signal }) => runCveModule(modules.technology_detection, { accounting, signal, env }),
+      const emailIntelRun = await runCappedModule("email_security_intelligence", {
+        fallback: emailIntelFallback,
+        estimateMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.email_security_intelligence,
+        hardMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.email_security_intelligence,
+        run: ({ accounting, signal }) => runEmailIntelModule(domain, modules.email_security, modules.dns, {
+          accounting,
+          signal,
+          cache: dnsCache,
         }),
-        runCappedModule("known_exploited_vulnerabilities", {
-          fallback: kevFallback,
-          estimateMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.known_exploited_vulnerabilities,
-          hardMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.known_exploited_vulnerabilities,
-          run: ({ accounting, signal }) => runKevModule(modules.technology_detection, env, { accounting, signal }),
-        }),
-        runCappedModule("email_security_intelligence", {
-          fallback: emailIntelFallback,
-          estimateMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.email_security_intelligence,
-          hardMs: SCAN_DURABLE_PHASE5_MODULE_BUDGETS.email_security_intelligence,
-          run: ({ accounting, signal }) => runEmailIntelModule(domain, modules.email_security, modules.dns, {
-            accounting,
-            signal,
-            cache: dnsCache,
-          }),
-        }),
-      ]);
-
-      modules.cve_intelligence = cveRun.thrown
-        ? { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0,
-            source: "nvd_api", error: customerSafeFailure("scan/cve", cveRun.thrown, "CVE module failed") }
-        : cveRun.value;
-      modules.known_exploited_vulnerabilities = kevRun.thrown
-        ? { matches: [], checked: 0, matched: 0,
-            source: "cisa_kev", error: customerSafeFailure("scan/kev", kevRun.thrown, "KEV module failed") }
-        : kevRun.value;
+      });
       modules.email_security_intelligence = emailIntelRun.thrown
         ? { error: customerSafeFailure("scan/email-intelligence", emailIntelRun.thrown, "Email intelligence module failed") }
         : emailIntelRun.value;
-
-      // Each late work promise can finish only into its own discarded local value;
-      // no promise writes modules/report state after its race resolves. KEV's
-      // existing R2 catalogue cache put is explicitly accepted as an idempotent,
-      // domain-independent cache refresh — never scan/customer report state.
-      const recordDurablePhase5 = (module, run) => {
-        const value = modules[module];
-        const durationMs = run.durationMs;
-        const outbound = run.timedOut
-          ? abandonOutbound(run.ctx, module, run.timeoutSource || "module_race")
-          : settleOutboundValue(run.ctx, module, value);
-        telemetry.record(module, {
-          outcome: telemetry.outcomeOf(value),
-          timeout: value?.outcome === "deadline_exceeded",
-          duration_ms: durationMs,
-          allocated_ms: run.allocatedMs,
-          timeout_source: run.timeoutSource,
-          outbound,
-          outbound_calls: outbound.outbound_measurement_complete ? outbound.outbound_attempts_observed : null,
-        });
-      };
-      recordDurablePhase5("cve_intelligence", cveRun);
-      recordDurablePhase5("known_exploited_vulnerabilities", kevRun);
-      recordDurablePhase5("email_security_intelligence", emailIntelRun);
+      // A late work promise can finish only into its own discarded local value;
+      // no promise writes modules/report state after its race resolves.
+      const value = modules.email_security_intelligence;
+      const outbound = emailIntelRun.timedOut
+        ? abandonOutbound(emailIntelRun.ctx, "email_security_intelligence", emailIntelRun.timeoutSource || "module_race")
+        : settleOutboundValue(emailIntelRun.ctx, "email_security_intelligence", value);
+      telemetry.record("email_security_intelligence", {
+        outcome: telemetry.outcomeOf(value),
+        timeout: value?.outcome === "deadline_exceeded",
+        duration_ms: emailIntelRun.durationMs,
+        allocated_ms: emailIntelRun.allocatedMs,
+        timeout_source: emailIntelRun.timeoutSource,
+        outbound,
+        outbound_calls: outbound.outbound_measurement_complete ? outbound.outbound_attempts_observed : null,
+      });
     }
     }
     // One module never stands in as the completion guard for the other:
@@ -1877,7 +1816,6 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           "dns", "ssl", "headers", "email_security", "dmarc_core",
           "subdomains", "technology_detection", "whois_intelligence",
           "dns_bruteforce", "subdomain_takeover", "asset_exposure",
-          "cve_intelligence", "known_exploited_vulnerabilities",
           "email_security_intelligence",
         ],
       });
@@ -2024,11 +1962,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
 
     // Phase 6: Risk intelligence + Remediation plan (pure computation — no I/O)
     // Risk module enriches all findings with business-impact language and risk categories.
-    // Remediation module converts findings + KEV matches into P1/P2/P3 roadmap.
+    // Remediation module converts findings + takeover risks into a P1/P2/P3 roadmap.
     modules.risk_intelligence = runRiskModule(findings, modules);
     modules.remediation_plan  = runRemediationModule(
       findings,
-      modules.known_exploited_vulnerabilities,
       modules.subdomain_takeover,
     );
     // Canonical Phase-5 customer findings are produced after the score has been
@@ -2547,7 +2484,11 @@ function buildCanonicalUrlProfile(modules) {
     // Sprint 9A: Normalise all findings to v2 schema before report assembly.
     // Additive only — existing fields are preserved; missing fields default to
     // null / [] so every finding exposes a consistent shape to consumers.
-    const normalizedFindings = findings.map(normalizeFindingSchema);
+    // Every finding names the check (and check-pack version) that produced it.
+    const normalizedFindings = findings.map(normalizeFindingSchema)
+      .map((finding) => (finding && typeof finding === "object" && !finding.check
+        ? { ...finding, check: checkForFinding(finding) }
+        : finding));
     const managedAsmFindings = normalizedFindings.filter((finding) => {
       if (!isActionableFinding(finding)) return false;
       const isDomainSecurityEnrichment =
@@ -2580,6 +2521,8 @@ function buildCanonicalUrlProfile(modules) {
       scan_quality:         scanQuality,
       monitoring_states:    monitoringStates,
       timeline_trust:       buildAssetTimelineTrustMetadata(),
+      // The check pack (rules, outside sources, what is not checked) in force.
+      check_pack:           checkPackSummary(),
       modules,
     };
 

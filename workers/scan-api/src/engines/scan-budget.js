@@ -69,8 +69,6 @@ export const MODULE_SUBREQUEST_COST = Object.freeze({
   whois_intelligence:   4,
   subdomain_takeover:   12,
   dns_bruteforce:       56,   // 40 A + 8 MX + 8 SRV lookups
-  cve:                  4,
-  kev:                  4,
   cloud_storage:        12,
 });
 
@@ -274,8 +272,6 @@ export const SCAN_MODULE_BUDGETS = Object.freeze({
   subdomains:                 12_000,
   subdomain_takeover:            750,
   asset_exposure:              2_500,
-  cve_intelligence:            1_000,
-  known_exploited_vulnerabilities: 1_000,
   email_security_intelligence: 1_000,
   phase5_intelligence:         1_000,
   cloud_storage_discovery:       500,
@@ -303,15 +299,13 @@ export function durableCoreModuleBudget(module) {
     : null;
 }
 
-// Queue/Cron Phase-5 source envelopes. These are hard module ceilings, not
-// expected durations: CVE can make three sequential 10s NVD calls with two
-// 300ms pacing gaps; KEV and Email Intelligence each contain a 10s HTTP leaf
-// plus bounded parsing/cache or parallel DNS work. The global 115s executable
-// deadline remains the upper authority. Legacy waitUntil/unknown callers retain
-// the 1s SCAN_MODULE_BUDGETS contract above.
+// Queue/Cron Phase-5 source envelope. A hard module ceiling, not an expected
+// duration: Email Intelligence contains a 10s HTTP leaf plus bounded parallel
+// DNS work. The global 115s executable deadline remains the upper authority.
+// Legacy waitUntil/unknown callers retain the 1s SCAN_MODULE_BUDGETS contract
+// above. (Phase 5 no longer queries outside vulnerability data; see
+// check-pack.js.)
 export const SCAN_DURABLE_PHASE5_MODULE_BUDGETS = Object.freeze({
-  cve_intelligence:                  32_000,
-  known_exploited_vulnerabilities:   12_000,
   email_security_intelligence:       12_000,
 });
 
@@ -569,8 +563,6 @@ export const OUTBOUND_FULLY_INSTRUMENTED_MODULES = Object.freeze(new Set([
   "subdomain_takeover",
   "asset_exposure",
   "cloud_storage_discovery",
-  "cve_intelligence",
-  "known_exploited_vulnerabilities",
   "email_security_intelligence",
 ]));
 

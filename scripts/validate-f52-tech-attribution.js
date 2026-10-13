@@ -40,7 +40,9 @@ for (const [name, response, unavailable, expectedReason] of [
         ? "origin_error_no_serviceable_response" : "origin_not_observed"));
     const signals = deriveAttackSurfaceSignalCompleteness({ technology_detection: result });
     ok(`${name}: resolver is incomplete`, signals.signals.technology.state === "incomplete");
-    ok(`${name}: CVE/KEV do not admit input`, signals.signals.cve.state !== "observed" && signals.signals.kev.state !== "observed");
+    // No signal reads outside vulnerability data any more (check-pack.js), so
+    // an unavailable technology result can feed none.
+    ok(`${name}: no vulnerability-data signal exists to admit input`, !("cve" in signals.signals) && !("kev" in signals.signals));
   }
 }
 
