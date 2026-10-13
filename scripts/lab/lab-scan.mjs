@@ -123,9 +123,15 @@ export function labR2(counters = { reads: 0, writes: 0 }) {
   };
 }
 
-export function seedTenant(db, { userId, workspaceId, domainId, domain, customerList = [], createdAt }) {
+// `subscription` names a paid plan for the owner (alerts are a paid feature);
+// without one the tenant is on the free plan, as a fresh sign-up is.
+export function seedTenant(db, { userId, workspaceId, domainId, domain, customerList = [], createdAt, subscription = null }) {
   db.prepare("INSERT OR IGNORE INTO users (id, email, name, plan, status, email_verified, mfa_enabled) VALUES (?, ?, ?, 'professional', 'active', 1, 0)")
     .run(userId, `${userId}@lab.invalid`, userId);
+  if (subscription) {
+    db.prepare(`INSERT INTO subscriptions (id, owner_user_id, plan, subscription_status, status, current_period_end, created_at, updated_at)
+      VALUES (?, ?, ?, 'active', 'active', '2099-01-01T00:00:00.000Z', ?, ?)`).run(`sub_${userId}`, userId, subscription, createdAt, createdAt);
+  }
   db.prepare("INSERT INTO workspaces (id, name, owner_user_id, created_at) VALUES (?, ?, ?, ?)").run(workspaceId, `Lab ${workspaceId}`, userId, createdAt);
   db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES (?, ?, ?, 'owner')").run(`wm_${workspaceId}`, workspaceId, userId);
   db.prepare("INSERT INTO domains (id, user_id, domain, verification_status, verified_at) VALUES (?, ?, ?, 'verified', ?)").run(domainId, userId, domain, createdAt);
@@ -242,6 +248,14 @@ function scanSummary(db, r2, scanId) {
       whois_intelligence: modules.whois_intelligence ? pick(modules.whois_intelligence, ["source", "optional", "outcome", "reason", "error", "incomplete_reason"]) : null,
     },
     check_pack: report?.check_pack ?? modules.check_pack ?? null,
+    changes: {
+      events: db.prepare("SELECT event_type, hostname, severity FROM asset_events WHERE scan_id = ? ORDER BY event_type, hostname").all(scanId)
+        .map((row) => ({ ...row })),
+      notification: (() => {
+        const row = db.prepare("SELECT workspace_id, severity, status, error FROM asset_alert_records WHERE scan_id = ?").get(scanId);
+        return row ? { ...row } : null;
+      })(),
+    },
   };
 }
 
@@ -250,17 +264,25 @@ function scanSummary(db, r2, scanId) {
  * inventory measurement after the last scan, a summary of every scan and the
  * request accounting split per scan. `linkedWorkspaces` adds other workspaces
  * of the same owner on the same domain row; `scanAs(i)` names the workspace
- * that runs scan i (the tenant's own by default).
+ * that runs scan i (the tenant's own by default). `worldAt(i)` gives the world
+ * as it is at scan i, for a world that changes between scans (one request log
+ * runs across its versions). `env` adds bindings (an email sender, say).
+ * `afterScan(i, { env, scanId, workspaceId, domainId })` runs inside the lab
+ * after scan i — to replay a step the way a queue redelivery would.
+ * `subscription` gives the owner a paid plan.
  */
-export async function runLabWorld({ root, world, egress = "open", scans = 2, startAt = "2026-10-01T09:00:00.000Z", tenant = "a", quiet = true, linkedWorkspaces = [], scanAs = null }) {
+export async function runLabWorld({ root, world, worldAt = null, egress = "open", scans = 2, startAt = "2026-10-01T09:00:00.000Z", tenant = "a", quiet = true, linkedWorkspaces = [], scanAs = null, env: extraEnv = {}, afterScan = null, subscription = null }) {
+  const worldFor = (i) => (typeof worldAt === "function" ? worldAt(i) : world);
+  world = worldFor(0);
   const db = await buildLabDb(root);
   const counters = { reads: 0, writes: 0 };
   const r2Counters = { reads: 0, writes: 0 };
   const r2 = labR2(r2Counters);
-  const lab = createLabWorld(world, { egress, root });
+  const log = [];
+  let lab = createLabWorld(world, { egress, root, log });
   const { runScanEngine } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "scan-engine.js")).href);
   const ids = { userId: `usr_${tenant}`, workspaceId: `ws_${tenant}`, domainId: `dom_${tenant}` };
-  seedTenant(db, { ...ids, domain: world.domain, customerList: world.customerList || [], createdAt: startAt });
+  seedTenant(db, { ...ids, domain: world.domain, customerList: world.customerList || [], createdAt: startAt, subscription });
   for (const linked of linkedWorkspaces) {
     seedLinkedWorkspace(db, { userId: ids.userId, domainId: ids.domainId, createdAt: startAt, ...linked });
   }
@@ -273,6 +295,7 @@ export async function runLabWorld({ root, world, egress = "open", scans = 2, sta
     APP_VERSION: "discovery-lab",
     RESEND_API_KEY: "",
     FRONTEND_URL: "https://app.cybermeters.com",
+    ...extraEnv,
   };
   const realFetch = globalThis.fetch;
   const clock = labClock();
@@ -287,12 +310,18 @@ export async function runLabWorld({ root, world, egress = "open", scans = 2, sta
     for (let i = 0; i < scans; i++) {
       const at = Date.parse(startAt) + i * LAB_SCAN_SPACING_MS;
       clock.set(at);
+      if (i > 0 && typeof worldAt === "function") {
+        lab = createLabWorld(worldFor(i), { egress, root, log });
+        lab.setClock(() => Date.now());
+        globalThis.fetch = lab.fetch;
+        env.NETWORK_PROBE = lab.probe;
+      }
       const wallStart = clock.real();
       const scanId = `scan_${tenant}_${i + 1}`;
       const scanWorkspaceId = typeof scanAs === "function" ? scanAs(i) : ids.workspaceId;
       db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, status, created_at) VALUES (?, ?, ?, ?, 'queued', ?)")
         .run(scanId, scanWorkspaceId, ids.domainId, world.domain, new Date(at).toISOString());
-      const logStart = lab.log.length;
+      const logStart = log.length;
       const before = { ...counters }, r2Before = { ...r2Counters };
       let error = null;
       try {
@@ -302,6 +331,9 @@ export async function runLabWorld({ root, world, egress = "open", scans = 2, sta
           trigger: "manual",
         });
       } catch (caught) { error = caught?.message || String(caught); }
+      if (typeof afterScan === "function") {
+        await afterScan(i, { env, scanId, workspaceId: scanWorkspaceId, domainId: ids.domainId, domain: world.domain });
+      }
       runs.push({
         scan_id: scanId,
         workspace_id: scanWorkspaceId,
@@ -309,8 +341,9 @@ export async function runLabWorld({ root, world, egress = "open", scans = 2, sta
         elapsed_ms: clock.real() - wallStart,
         error,
         ...scanSummary(db, r2, scanId),
-        requests: summarizeRequests(lab.log.slice(logStart)),
-        log_range: [logStart, lab.log.length],
+        requests: summarizeRequests(log.slice(logStart)),
+        emails: log.slice(logStart).filter((entry) => entry.kind === "email").map((entry) => ({ to: entry.email?.to ?? null, subject: entry.email?.subject ?? null })),
+        log_range: [logStart, log.length],
         storage: { d1_reads: counters.reads - before.reads, d1_writes: counters.writes - before.writes, r2_reads: r2Counters.reads - r2Before.reads, r2_writes: r2Counters.writes - r2Before.writes },
       });
     }
@@ -324,12 +357,12 @@ export async function runLabWorld({ root, world, egress = "open", scans = 2, sta
     domain: world.domain,
     egress,
     scans: runs,
-    inventory: measureInventory(db, world, ids.workspaceId),
-    unexpected_hosts: sorted(new Set(lab.log.filter((e) => e.kind === "unexpected").map((e) => e.host))),
+    inventory: measureInventory(db, worldFor(Math.max(0, scans - 1)), ids.workspaceId),
+    unexpected_hosts: sorted(new Set(log.filter((e) => e.kind === "unexpected").map((e) => e.host))),
     engine_log: engineLog,
     db,
     env,
     r2,
-    log: lab.log,
+    log,
   };
 }

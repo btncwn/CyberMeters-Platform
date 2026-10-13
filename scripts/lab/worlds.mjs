@@ -210,4 +210,66 @@ export const charlie = {
   },
 };
 
+// Delta: one small organisation scanned ten times, a day apart, while it
+// changes — for change notifications. Scan by scan (deltaAt): the starting
+// inventory; a shop appears (a new name, nothing more); a management page
+// appears; the app's DNS fails once (a partial scan); everything answers again
+// and a monitoring dashboard appears in the same scan; the shop is taken down
+// and stays gone for three scans (a confirmed removal); the shop comes back;
+// then a second workspace on the same domain takes its first scan.
+const DELTA = "cmlab-delta.co.uk";
+const d = (label) => (label ? `${label}.${DELTA}` : DELTA);
+function deltaWorld({ shop = false, admin = false, grafana = false, appFault = null } = {}) {
+  return {
+    name: "delta",
+    domain: DELTA,
+    zones: {
+      [d()]: { SOA: true, A: ["34.123.0.1"], NS: [d("ns1")], MX: ["10 " + d("mail")] },
+      [d("ns1")]: { A: ["34.123.0.2"] },
+      [d("mail")]: { A: ["34.123.0.3"] },
+      [d("www")]: { CNAME: d() },
+      [d("app")]: { A: ["34.123.0.4"], AAAA: ["2a05:d014:d::4"] },
+      ...(shop ? { [d("shop")]: { A: ["34.123.0.6"] } } : {}),
+      ...(admin ? { [d("admin")]: { A: ["34.123.0.5"] } } : {}),
+      ...(grafana ? { [d("grafana")]: { A: ["34.123.0.7"] } } : {}),
+    },
+    faults: appFault ? { [d("app")]: { "*": appFault } } : {},
+    sites: {
+      [d()]: { routes: { "/": { status: 200, headers: { server: "nginx" }, body: page("Delta Ltd") } }, fallback: { status: 404, body: "" } },
+      [d("www")]: { fallback: { status: 301, headers: { location: `https://${DELTA}/` } } },
+      [d("app")]: { fallback: { status: 200, body: page("App") } },
+      ...(shop ? { [d("shop")]: { fallback: { status: 200, body: page("Shop") } } } : {}),
+      ...(admin ? { [d("admin")]: { fallback: { status: 200, body: page("phpMyAdmin", '<form><input type="password" name="pma_password"></form>') } } } : {}),
+      ...(grafana ? { [d("grafana")]: { fallback: { status: 200, body: page("Grafana") } } } : {}),
+      [d("mail")]: { refuse: true },
+      [d("ns1")]: { refuse: true },
+    },
+    defaultSite: { status: 404, body: "" },
+    tls: { [DELTA]: { days: 90, dnsNames: [DELTA, d("www")] } },
+    customerList: [],
+    truth: {
+      discoverable: ["www", "mail", "ns1", "app", ...(shop ? ["shop"] : []), ...(admin ? ["admin"] : []), ...(grafana ? ["grafana"] : [])].map(d),
+      unconfirmable: appFault ? [d("app")] : [],
+      hidden: [],
+      decoys: [],
+      families: {},
+    },
+  };
+}
+const DELTA_STEPS = [
+  {},
+  { shop: true },
+  { shop: true, admin: true },
+  { shop: true, admin: true, appFault: "servfail" },
+  { shop: true, admin: true, grafana: true },
+  { admin: true, grafana: true },
+  { admin: true, grafana: true },
+  { admin: true, grafana: true },
+  { shop: true, admin: true, grafana: true },
+  { shop: true, admin: true, grafana: true },
+];
+export const DELTA_SCANS = DELTA_STEPS.length;
+export const deltaAt = (i) => deltaWorld(DELTA_STEPS[Math.min(i, DELTA_STEPS.length - 1)]);
+export const delta = deltaAt(0);
+
 export const WORLDS = Object.freeze({ alpha, bravo, charlie });

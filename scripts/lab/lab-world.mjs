@@ -48,13 +48,20 @@ function timeoutError(message = "The operation timed out") {
  *   outsideData: { nvd, epss, kev, rdap } canned bodies (used only when egress is open)
  * }
  * options.egress: "open" serves outside data hosts; "blocked" refuses them.
+ * options.log: the request log to append to (a world that changes between
+ * scans keeps one log across its versions).
+ *
+ * The email provider's send endpoint is stood in for as well: a message the
+ * engine sends is recorded (recipients, subject, text) and accepted, so a lab
+ * run can count and read every notification without a real send.
  */
-export function createLabWorld(world, { egress = "open", root = DEFAULT_ROOT } = {}) {
+export const EMAIL_PROVIDER_HOST = "api.resend.com";
+
+export function createLabWorld(world, { egress = "open", root = DEFAULT_ROOT, log = [] } = {}) {
   const zones = new Map(Object.entries(world.zones || {}).map(([name, records]) => [lower(name), records]));
   const wildcards = new Map(Object.entries(world.wildcards || {}).map(([name, records]) => [lower(name), records]));
   const faults = new Map(Object.entries(world.faults || {}).map(([name, value]) => [lower(name), value]));
   const sites = new Map(Object.entries(world.sites || {}).map(([name, value]) => [lower(name), value]));
-  const log = [];
   let clock = () => Date.now();
   // Zone apexes the world is authoritative for.
   const apexes = [...zones.entries()].filter(([, records]) => records?.SOA).map(([name]) => name);
@@ -197,6 +204,15 @@ export function createLabWorld(world, { egress = "open", root = DEFAULT_ROOT } =
         entry.outcome = "timeout";
         throw error;
       }
+    }
+
+    if (host === EMAIL_PROVIDER_HOST && method === "POST" && url.pathname === "/emails") {
+      entry.kind = "email";
+      let message = null;
+      try { message = JSON.parse(String(init.body ?? (request ? await request.text() : ""))); } catch { message = null; }
+      entry.outcome = message ? "accepted" : "rejected";
+      entry.email = message ? { to: message.to, subject: message.subject, text: message.text } : null;
+      return message ? json({ id: `lab-email-${log.filter((e) => e.kind === "email").length}` }) : json({ name: "validation_error" }, 422);
     }
 
     const outside = outsideDataLabel(host);

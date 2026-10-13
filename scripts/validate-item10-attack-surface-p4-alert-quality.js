@@ -22,10 +22,13 @@ const deliveryUrl = process.env.ITEM10_P4_DELIVERY_MODULE_URL ||
 const {
   ASSET_ALERT_ELIGIBILITY_REASON_CODES,
   ASSET_ALERT_EVENTS,
+  ASSET_INVENTORY_EVENTS,
+  ASSET_NOTABLE_EVENTS,
   assetAlertCounts,
   assetAlertSeverity,
   assetAlertWorthy,
   buildAssetAlertEmail,
+  buildAssetChangeRecords,
   evaluateAssetAlertEligibility,
 } = await import(alertsUrl);
 const {
@@ -64,6 +67,8 @@ const expectedReasons = [
   "withheld_lifecycle_timestamp_invalid",
   "withheld_lifecycle_replay_truncated",
   "withheld_all_claims_unsupported",
+  // Every supported claim was an inventory change: recorded, not notified.
+  "inventory_changes_only",
 ];
 eq(
   "frozen reason-code vocabulary",
@@ -284,7 +289,10 @@ const confirmedCounts = assetAlertCounts(
   confirmedDecision.eligible_events,
   confirmedDecision.record,
 );
-ok("genuine confirmed removal is alert-worthy", assetAlertWorthy(confirmedCounts));
+// A confirmed removal is an inventory change: eligible and recorded, but it
+// never starts a notification on its own.
+ok("genuine confirmed removal is eligible but not a notification on its own",
+  confirmedCounts.asset_no_longer_seen === 1 && !assetAlertWorthy(confirmedCounts));
 
 // Removal needs every active source. The same three observations with the
 // HTTP/HTTPS source missing from their recorded detail cannot confirm removal.
@@ -479,6 +487,68 @@ ok(
   "customer wording does not claim attacker or compromise",
   !/\b(?:attacker|compromise(?:d)?)\b/i.test(`${email.subject}\n${email.text}`),
 );
+
+// ── Notable changes and inventory changes ───────────────────────────────────
+eq("notable and inventory changes partition the alert vocabulary",
+  JSON.stringify([...ASSET_NOTABLE_EVENTS, ...ASSET_INVENTORY_EVENTS].sort()),
+  JSON.stringify([...ASSET_ALERT_EVENTS].sort()));
+ok("a new name alone is an inventory change, never a notification",
+  !assetAlertWorthy({ new_asset_discovered: 5 }) && assetAlertSeverity({ new_asset_discovered: 5 }) === "info");
+ok("a renewed certificate alone is never a notification",
+  !assetAlertWorthy({ certificate_new_detected: 1 }));
+eq("a newly reachable admin page is high, not critical", assetAlertSeverity({ admin_surface_detected: 1, new_asset_discovered: 3 }), "high");
+ok("inventory changes ride along with a notable change", assetAlertWorthy({ admin_surface_detected: 1, new_asset_discovered: 3 }));
+const changeRecords = buildAssetChangeRecords([
+  { event_type: "new_asset_discovered", hostname: "new-one.example.com" },
+  { event_type: "admin_surface_detected", hostname: "admin.example.com", severity: "high" },
+  { event_type: "takeover_risk_detected", hostname: "dangling.example.com" },
+], {
+  domain: "example.com",
+  observedAt: "2026-07-28T10:00:00.000Z",
+  previousScanAt: "2026-07-27T10:00:00.000Z",
+  modules: {
+    subdomain_takeover: { risks: [{ host: "dangling.example.com", cname: "gone.hosting-lab.net", provider: "Hosting" }] },
+    admin_surface_detection: { services: [{ hostname: "admin.example.com", product: "Jenkins", finding_type: "finding", confidence: "confirmed", evidence_signals: ["product_title", "server_header"] }] },
+    asset_exposure: { assets: [{ host: "admin.example.com", status: 200, attempts: [{ protocol: "https", port: 443, outcome: "responded", status: 200 }] }] },
+  },
+});
+const [takeoverChange, adminChange] = changeRecords.changes;
+ok("changes are ordered most severe first", takeoverChange?.type === "takeover_risk_detected" && adminChange?.type === "admin_surface_detected");
+ok("a takeover change states before, now, time and the registry action",
+  /previous scan \(2026-07-27 10:00 UTC\)/.test(takeoverChange?.before || "") &&
+    /alias for gone\.hosting-lab\.net \(Hosting\)/.test(takeoverChange?.now || "") &&
+    takeoverChange?.observed_at === "2026-07-28T10:00:00.000Z" &&
+    /reclaim the referenced service/i.test(takeoverChange?.action || ""), JSON.stringify(takeoverChange));
+ok("an admin change keeps reachability, match confidence and what it does not mean apart",
+  /HTTPS port 443 answered with HTTP 200/.test(adminChange?.evidence || "") &&
+    /confirmed confidence/.test(adminChange?.evidence || "") &&
+    /does not mean anyone has signed in/.test(adminChange?.severity_reason || "") &&
+    /trusted IP ranges/.test(adminChange?.action || ""), JSON.stringify(adminChange));
+const severityOf = (eventSeverity) => buildAssetChangeRecords(
+  [{ event_type: "admin_surface_detected", hostname: "db-admin.example.com", severity: eventSeverity }],
+  { modules: { admin_surface_detection: { services: [{ hostname: "db-admin.example.com", product: "phpMyAdmin", finding_type: "finding", confidence: "high", evidence_signals: ["product_title"] }] } } },
+);
+ok("an admin change takes its severity from the tool's classification, and the notification from its most severe change",
+  severityOf("critical").severity === "critical" && severityOf("critical").changes[0].severity === "critical" &&
+    /classed critical/.test(severityOf("critical").changes[0].severity_reason) &&
+    severityOf("medium").severity === "medium" && severityOf("unexpected").changes[0].severity === "high" &&
+    changeRecords.severity === "critical",
+  JSON.stringify([severityOf("critical").changes[0], severityOf("medium").severity, severityOf("unexpected").severity]));
+const wildcardRecord = buildAssetChangeRecords([{ event_type: "wildcard_dns_detected", hostname: "example.com" }], { domain: "example.com" }).changes[0];
+ok("a wildcard change borrows no certificate advice from another registry entry",
+  wildcardRecord?.action === null && !/certificate/i.test(JSON.stringify(wildcardRecord)), JSON.stringify(wildcardRecord));
+eq("new names are summarised beside the changes, not listed as changes",
+  JSON.stringify(changeRecords.inventory.new_names), JSON.stringify(["new-one.example.com"]));
+const detailedEmail = buildAssetAlertEmail("example.com", "ws", "scan", { admin_surface_detected: 1, takeover_risk_detected: 1 }, [],
+  "critical", "https://app.example/assets", "complete", { ...changeRecords, settings_url: "https://app.example/settings" });
+ok("the email states before, now, evidence, severity reason and the recommended action for each change",
+  ["Before:", "Now:", "Observed: 2026-07-28 10:00 UTC", "Evidence:", "Why this severity:", "Recommended:"].every((part) => detailedEmail.text.includes(part)) &&
+    detailedEmail.text.includes("Also in the inventory: 1 new name (new-one.example.com)."), detailedEmail.text);
+ok("the email links the notification settings and never shows the raw workspace id",
+  detailedEmail.text.includes("Notification settings: https://app.example/settings") &&
+    !/\bws\b/.test(detailedEmail.text.replace(/https?:\/\/\S+/g, "")), detailedEmail.text);
+ok("the detailed email still claims no attacker or compromise",
+  !/\b(?:attacker|compromise(?:d)?)\b/i.test(`${detailedEmail.subject}\n${detailedEmail.text}`));
 
 function makeD1(db, counters) {
   const statement = (sql, args = []) => ({

@@ -9,7 +9,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createLabWorld } from "./lab-world.mjs";
 import { runLabWorld } from "./lab-scan.mjs";
-import { WORLDS } from "./worlds.mjs";
+import { DELTA_SCANS, deltaAt, WORLDS } from "./worlds.mjs";
 
 const json = (value) => JSON.stringify(value);
 const parse = (value) => { try { return JSON.parse(value); } catch { return null; } };
@@ -208,6 +208,103 @@ export async function runLabChecks({ ok, root }) {
   ok("lab shared domain: the other workspace's scan never asks about a name only the first listed",
     !secondScanLog.some((entry) => entry.name === host("listed-v6") || entry.host === host("listed-v6")),
     json(secondScanLog.filter((entry) => entry.name === host("listed-v6") || entry.host === host("listed-v6")).slice(0, 3)));
+
+  // ── Change notifications: real changes, once ───────────────────────────────
+  // Delta changes between scans (worlds.mjs). The owner has a paid plan, so
+  // notifications are really sent — to the lab's stand-in email provider. The
+  // third scan's steps are replayed the way a queue redelivery would.
+  const { sendAssetChangeAlert } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "asset-alert-delivery.js")).href);
+  const { upsertAssetInventory } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "asset-inventory.js")).href);
+  const { runScanEngine, insertAdminSurfaceEvents } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "scan-engine.js")).href);
+  const replay = {};
+  const delta = await runLabWorld({
+    root, worldAt: deltaAt, scans: DELTA_SCANS, tenant: "d", subscription: "professional",
+    linkedWorkspaces: [{ workspaceId: "ws_d_other" }],
+    scanAs: (i) => (i === DELTA_SCANS - 1 ? "ws_d_other" : "ws_d"),
+    env: { RESEND_API_KEY: "lab", ALERT_EMAIL_FROM: "alerts@lab.invalid" },
+    afterScan: async (i, { env, scanId, workspaceId, domainId, domain }) => {
+      if (i !== 2) return;
+      const eventCount = () => env.cybermeters_db.prepare("SELECT COUNT(*) AS n FROM asset_events").first("n");
+      replay.before = await eventCount();
+      replay.engine = await runScanEngine(scanId, domainId, workspaceId, domain, env, { now: () => Date.now(), executionContext: "queue", trigger: "manual" }).catch((error) => ({ error: error.message }));
+      const report = JSON.parse(await (await env.cybermeters_reports.get(`reports/${scanId}.json`)).text());
+      await upsertAssetInventory(scanId, domainId, domain, report.modules, env, { currentReport: report, workspaceId });
+      await insertAdminSurfaceEvents(scanId, domainId, report.modules.admin_surface_detection, env, { currentReport: report });
+      await sendAssetChangeAlert(domainId, domain, scanId, env, "complete", { modules: report.modules });
+      replay.after = await eventCount();
+    },
+  });
+  const dScan = (n) => delta.scans[n - 1];
+  const eventTypes = (n) => dScan(n).changes.events.map((event) => event.event_type);
+  const changeEmails = (n) => dScan(n).emails.filter((email) => /^(?:🚨 |⚠ )?CyberMeters: /.test(email.subject || ""));
+  const allChangeEmails = delta.scans.flatMap((scan, index) => changeEmails(index + 1).map((email) => ({ scan: scan.scan_id, ...email })));
+  ok("lab delta: every scan completes and every request stays inside the lab",
+    delta.scans.every((scan) => scan.status === "completed" && !scan.error) && delta.unexpected_hosts.length === 0,
+    json({ scans: delta.scans.map((scan) => [scan.scan_id, scan.status, scan.error]), unexpected: delta.unexpected_hosts }));
+  ok("lab delta: the first scan is the starting inventory — names recorded, nothing announced",
+    eventTypes(1).length === 0 && dScan(1).changes.notification === null && changeEmails(1).length === 0 &&
+      delta.db.prepare("SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = 'ws_d'").get().n >= 5,
+    json(dScan(1).changes));
+  ok("lab delta: a new name alone is an inventory event — recorded, not notified",
+    json(eventTypes(2)) === json(["new_asset_discovered"]) && dScan(2).changes.events[0].severity === "info" &&
+      dScan(2).changes.notification?.status === "skipped" && dScan(2).changes.notification?.error === "inventory_changes_only" &&
+      changeEmails(2).length === 0,
+    json(dScan(2).changes));
+  const adminRecord = parse(delta.db.prepare("SELECT event_counts FROM asset_alert_records WHERE scan_id = 'scan_d_3'").get()?.event_counts)?._changes;
+  const adminChange = adminRecord?.changes?.[0];
+  const adminEmail = delta.log.find((entry) => entry.kind === "email" && /Management page now reachable/.test(entry.email?.subject || ""))?.email;
+  ok("lab delta: a newly reachable management page is one notification",
+    eventTypes(3).filter((type) => type === "admin_surface_detected").length === 1 &&
+      dScan(3).changes.notification?.status === "sent" && changeEmails(3).length === 1 && Boolean(adminEmail),
+    json({ events: eventTypes(3), notification: dScan(3).changes.notification, emails: dScan(3).emails }));
+  ok("lab delta: the notification states before, now, time, evidence, why this severity and the recommended action",
+    ["Before: Not reachable as phpMyAdmin in the previous scan (2026-10-02 10:00 UTC)", "Now: phpMyAdmin answered on admin.cmlab-delta.co.uk",
+      "Observed: 2026-10-03 11:00 UTC", "Evidence: HTTPS port 443 answered with HTTP 200", "Why this severity:", "Recommended: Limit each admin interface"]
+      .every((part) => adminEmail?.text?.includes(part)) &&
+      adminEmail.text.includes("Also in the inventory: 1 new name (admin.cmlab-delta.co.uk)."),
+    adminEmail?.text ?? "no email");
+  ok("lab delta: severity, match confidence and reachability are kept apart, and reachable is not called a compromise",
+    adminChange?.severity === "critical" && adminRecord?.severity === "critical" &&
+      /matched on the page title \(high confidence\)/.test(adminChange?.evidence || "") &&
+      /Reachable does not mean anyone has signed in/.test(adminChange?.severity_reason || "") &&
+      !/\b(?:attacker|compromise(?:d)?|breach(?:ed)?)\b/i.test(adminEmail?.text || ""),
+    json(adminChange));
+  ok("lab delta: a redelivered scan and replayed steps add no event, record or email",
+    replay.engine?.completed === true && replay.before === replay.after &&
+      delta.db.prepare("SELECT COUNT(*) AS n FROM asset_alert_records WHERE scan_id = 'scan_d_3'").get().n === 1 &&
+      allChangeEmails.filter((email) => email.scan === "scan_d_3").length === 1,
+    json({ replay, emails: allChangeEmails }));
+  const adminEventsFor = (n, label) => dScan(n).changes.events
+    .filter((event) => event.event_type === "admin_surface_detected" && event.hostname === `${label}.cmlab-delta.co.uk`);
+  ok("lab delta: a management page that stays reachable is not announced again",
+    [4, 5, 6, 7, 8, 9].every((n) => adminEventsFor(n, "admin").length === 0), json([4, 5, 6, 7, 8, 9].map((n) => eventTypes(n))));
+  ok("lab delta: a DNS failure is stated, and is neither a disappearance nor a return",
+    dScan(4).incomplete_modules.includes("asset_exposure:dns_resolution_unavailable") &&
+      eventTypes(4).length === 0 && changeEmails(4).length === 0 &&
+      [4, 5].every((n) => !dScan(n).changes.events.some((event) => event.hostname === "app.cmlab-delta.co.uk")),
+    json([4, 5].map((n) => ({ incomplete: dScan(n).incomplete_modules, events: dScan(n).changes.events }))));
+  ok("lab delta: a change right after a partial scan is compared with the last complete scan and announced once",
+    adminEventsFor(5, "grafana").length === 1 && adminEventsFor(5, "admin").length === 0 &&
+      changeEmails(5).length === 1 && /^⚠ CyberMeters: Management page now reachable/.test(changeEmails(5)[0].subject) &&
+      [6, 7, 8, 9].every((n) => adminEventsFor(n, "grafana").length === 0),
+    json({ events: dScan(5).changes.events, emails: dScan(5).emails }));
+  ok("lab delta: a name gone for one or two scans is not yet removed; three checks over two days confirm it, as an inventory event",
+    [6, 7].every((n) => !eventTypes(n).includes("asset_no_longer_seen")) &&
+      json(eventTypes(8)) === json(["asset_no_longer_seen"]) &&
+      dScan(8).changes.notification?.error === "inventory_changes_only" && changeEmails(8).length === 0,
+    json([6, 7, 8].map((n) => ({ events: eventTypes(n), notification: dScan(n).changes.notification }))));
+  ok("lab delta: a name confirmed gone that answers again is one notification",
+    json(eventTypes(9)) === json(["asset_reappeared"]) && changeEmails(9).length === 1 &&
+      /A name confirmed gone answers again/.test(changeEmails(9)[0].subject),
+    json({ events: eventTypes(9), emails: dScan(9).emails }));
+  ok("lab delta: another workspace's first scan of the same domain is its own starting inventory",
+    dScan(10).workspace_id === "ws_d_other" && eventTypes(10).length === 0 && dScan(10).changes.notification === null && changeEmails(10).length === 0,
+    json(dScan(10).changes));
+  ok("lab delta: change notifications go only to the workspace whose scan found the change — three in ten scans",
+    allChangeEmails.length === 3 &&
+      delta.db.prepare("SELECT DISTINCT workspace_id FROM asset_alert_records").all().every((row) => row.workspace_id === "ws_d") &&
+      delta.db.prepare("SELECT COUNT(*) AS n FROM asset_events WHERE workspace_id = 'ws_d_other'").get().n === 0,
+    json(allChangeEmails));
 
   const wildcard = await runLabWorld({ root, world: WORLDS.bravo, scans: 1 });
   ok("lab bravo: a zone that answers every name adds no guessed names", wildcard.inventory.false_positive.length === 0, json(wildcard.inventory.false_positive));

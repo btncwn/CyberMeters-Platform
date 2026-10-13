@@ -540,7 +540,11 @@ const parity = states.map(parityOutputs);
 // notice keeps the signal set of its time). No score, state, finding or
 // customer statement moved; all five SAN projection states stay identical.
 // The PDF appendix names the new stamp "Check pack" (only F13's PDF bytes).
-const GOLDEN_F13 = "cce1a81259841880d9607f68813e5298086b3f51899302bf3c4a070f5d6a9a40";
+// Change notifications: the snapshot's frozen alert reason-code vocabulary
+// gains "inventory_changes_only" (17 -> 18 codes). A field-by-field snapshot
+// diff against the previous tree shows only that list; the executive report
+// carries the snapshot, the PDFs and F14 are unchanged.
+const GOLDEN_F13 = "d8c01e6401a17be691bd391deef6966a4ae485e4695f9fde960766d5d04add2c";
 const GOLDEN_F14 = "72312ba653dbae06ec51c8f638625bea74f6682ca8d3f45179e06046708ce389";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
