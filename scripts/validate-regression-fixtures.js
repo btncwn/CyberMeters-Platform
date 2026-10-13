@@ -3074,14 +3074,16 @@ results.push(await asyncSecurityContract("asset_alert_failed_delivery_recorded_f
   // A failed asset-alert email must flip its dedupe row to status='failed' so
   // the hourly cron re-sends it — never remain a silent permanent skip (the
   // 2026-07-08 network_error incident). RESEND_API_KEY is omitted so delivery
-  // short-circuits without a network call.
+  // short-circuits without a network call. The change is a notable one (a new
+  // name alone is an inventory change and never notifies), found by the
+  // workspace's own scan (only that workspace is notified).
   const statements = []; const updates = [];
   const env = { FRONTEND_URL: ORIGIN, ALERT_EMAIL_FROM: "alerts@cybermeters.com", ALERT_EMAIL_TO: "ops@cybermeters.com",
     cybermeters_db: { prepare(sql) { statements.push(sql); return {
       _sql: sql, _b: null, bind(...a) { this._b = a; return this },
       async all() {
         if (this._sql.includes("FROM workspace_domains")) return { results: [{ workspace_id: "w1" }] };
-        if (this._sql.includes("FROM asset_events")) return { results: [{ workspace_id: "w1", event_type: "new_asset_discovered", hostname: "dev.example.com" }] };
+        if (this._sql.includes("FROM asset_events")) return { results: [{ workspace_id: "w1", event_type: "wildcard_dns_detected", hostname: "example.com" }] };
         // The canonical plan resolver reads ALL subscription rows (.all());
         // present the same entitled subscription the first() stub declares.
         if (this._sql.includes("FROM subscriptions")) return { results: [
@@ -3098,6 +3100,7 @@ results.push(await asyncSecurityContract("asset_alert_failed_delivery_recorded_f
       // the delivery path this contract is about. Present an entitled workspace.
       async first() {
         if (this._sql.includes("FROM workspaces")) return { owner_user_id: "u1" };
+        if (this._sql.includes("FROM scans")) return { workspace_id: "w1", scan_quality: "complete" };
         if (this._sql.includes("FROM subscriptions")) {
           return { plan: "professional", subscription_status: "active", current_period_end: "2099-01-01T00:00:00.000Z", payment_failed_at: null };
         }

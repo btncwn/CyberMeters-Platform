@@ -16,6 +16,7 @@ import { computeScore } from "./scoring.js";
 import { normalizeFindingSchema } from "./findings.js";
 import { detectVendorsFromModules } from "./vendor-signatures.js";
 import { runVendorRelationshipModule } from "./vendor-relationship.js";
+import { moduleNotInCheckPack } from "./check-pack.js";
 import {
   filterFreeScanFindings,
   FREE_SCAN_MODULE_STATES,
@@ -33,8 +34,6 @@ export const FREE_SCAN_DEEP_MODULES = Object.freeze([
   "admin_surface_detection",
   "cloud_storage_discovery",
   "whois_intelligence",
-  "cve_intelligence",
-  "known_exploited_vulnerabilities",
   "email_security_intelligence",
 ]);
 
@@ -204,6 +203,9 @@ export function buildFreeScanPreview({
   for (const moduleName of FREE_SCAN_DEEP_MODULES) {
     modules[moduleName] = { skipped: true, incomplete: true, reason: "preview_scope" };
   }
+  // Not part of any scan, free or full (check-pack.js): stated, never skipped.
+  modules.cve_intelligence = moduleNotInCheckPack("vulnerability_database_matching", "outside_vulnerability_data_not_used");
+  modules.known_exploited_vulnerabilities = moduleNotInCheckPack("exploited_vulnerability_data", "outside_vulnerability_data_not_used");
   modules.subdomain_takeover = { skipped: true, incomplete: true, risks: [] };
   modules.asset_exposure = { skipped: true, incomplete: true, assets: [] };
   modules.dns_bruteforce = { skipped: true, incomplete: true, items: [] };

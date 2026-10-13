@@ -40,7 +40,7 @@ import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, buildDkimDetail, buildDmarcPolicy
 import { runEmailModule } from "./engines/email-scan.js";
 import { runTechModule } from "./engines/tech-scan.js";
 import { runWhoisModule } from "./engines/whois-scan.js";
-import { runCveModule, runKevModule } from "./engines/vuln-intel.js";
+// Outside vulnerability data is not part of a scan (engines/check-pack.js).
 import { runTakeoverModule } from "./engines/takeover-scan.js";
 import { filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./engines/subdomains-scan.js";
 import { hostnameFromValue, runCloudStorageModule } from "./engines/cloud-storage-scan.js";
@@ -1302,8 +1302,11 @@ async function purgeWorkspaceData(env, workspaceId) {
 // in `.catch(() => {})`:
 //   • oauth_states has NO user_id column at all (state, provider, redirect_uri,
 //     created_at, expires_at) — `DELETE ... WHERE user_id = ?` raised an SQL
-//     error on every run. It carries no user linkage of any kind and is
-//     expiry-bounded, so it is REMOVED rather than given an invented predicate.
+//     error on every run. A pending Microsoft sign-in result ('ms_exchange')
+//     names a user inside its JSON for at most five minutes; the exchange
+//     re-reads the user, so a purged account gets no session. Rows are
+//     expiry-bounded, so the table is REMOVED here rather than given an
+//     invented predicate.
 //   • customer_profiles keys on owner_user_id, not user_id.
 const ACCOUNT_PURGE_TABLES = [
   { table: "user_sessions",         column: "user_id" },

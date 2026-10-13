@@ -2,10 +2,11 @@
 // Hostnames under the scanned domain that the customer's own published
 // configuration names: the live certificate, the website's security and link
 // headers, its redirects, and the domain's mail, name-server, SPF, DMARC and
-// BIMI records. They are read from evidence this scan already holds — nothing extra
-// is fetched to find them — and each is confirmed with one bounded DNS lookup
-// before it joins discovery. A name only counts as discovered when DNS answers
-// for it; a reference alone never does.
+// BIMI records, the SRV targets the fixed name check read and the hosts the home
+// page links to. They are read from evidence this scan already holds — nothing
+// extra is fetched to find them — and each is confirmed through the shared DNS
+// rule (A and AAAA) before it joins discovery. A name only counts as discovered
+// when DNS answers for it; a reference alone never does.
 import { dnsQuery } from "./dns.js";
 import { extractHostnameCandidates, normalizeHostname } from "./hostname-candidates.js";
 import {
@@ -16,14 +17,15 @@ import {
   extractFromRedirectChain,
 } from "./discovery-extractors.js";
 import { extractFromSpfRecords } from "./discovery-dns-extractors.js";
-import { confirmationOf, confirmedHost, lookupNames, wildcardAddressSet } from "./discovery-confirmation.js";
+import { confirmationOf, confirmedHost, lookupNames, tallyConfirmation, wildcardAddressSet } from "./discovery-confirmation.js";
 
 export const REFERENCED_HOSTNAMES_VERSION = "referenced-hostnames-v1";
 
 // At most maxChecks names are looked up per scan; the rest are counted, never
-// silently dropped. The lookups run in parallel and each DoH request carries
-// its own 6s timeout, so budgetMs (the step's hard bound) always outlasts them
-// and no lookup is left in flight when the step returns.
+// silently dropped. Both address questions of every name run in parallel and
+// each DoH request carries its own 6s timeout, so budgetMs (the step's hard
+// bound) always outlasts them and no lookup is left in flight when the step
+// returns.
 export const REFERENCED_HOSTNAME_LIMITS = Object.freeze({
   maxChecks: 50,
   budgetMs: 7_000,
@@ -32,16 +34,18 @@ export const REFERENCED_HOSTNAME_LIMITS = Object.freeze({
 // Evidence source → the asset source recorded for a confirmed name. Key order
 // is precedence: a name named in several places keeps the first source listed.
 export const REFERENCED_HOSTNAME_ASSET_SOURCES = Object.freeze({
-  live_tls_san:   "tls_certificate_name",
-  mx:             "mx_target",
-  ns:             "ns_target",
-  spf:            "spf_reference",
-  dmarc:          "dmarc_reference",
-  bimi:           "bimi_reference",
-  redirect_chain: "redirect_reference",
-  csp:            "csp_reference",
-  link_header:    "link_header_reference",
-  cors_header:    "cors_reference",
+  live_tls_san:     "tls_certificate_name",
+  mx:               "mx_target",
+  ns:               "ns_target",
+  srv:              "dns_srv",
+  spf:              "spf_reference",
+  dmarc:            "dmarc_reference",
+  bimi:             "bimi_reference",
+  redirect_chain:   "redirect_reference",
+  csp:              "csp_reference",
+  link_header:      "link_header_reference",
+  cors_header:      "cors_reference",
+  linked_hostnames: "html_link",
 });
 
 const SOURCE_RANK = new Map(Object.keys(REFERENCED_HOSTNAME_ASSET_SOURCES).map((source, index) => [source, index]));
@@ -81,7 +85,7 @@ function redirectPairs(ssl, headers) {
  * Pure: no network, storage or clock. Names outside the scanned domain, the
  * domain itself, wildcard names and malformed values are never candidates.
  */
-export function collectReferencedHostnames(domain, { ssl = null, headers = null, dns = null, spfRecord = null, dmarcRecord = null, bimiRecord = null, observedAt = null } = {}) {
+export function collectReferencedHostnames(domain, { ssl = null, headers = null, dns = null, spfRecord = null, dmarcRecord = null, bimiRecord = null, srvTargets = [], linkedHostnames = [], observedAt = null } = {}) {
   const root = normalizeHostname(domain);
   const evidence = [];
   const sets = [];
@@ -98,11 +102,15 @@ export function collectReferencedHostnames(domain, { ssl = null, headers = null,
   const csp = [text(snapshot["content-security-policy"]), text(snapshot["content-security-policy-report-only"])]
     .filter(Boolean).join(", ") || null;
 
+  const srv = strings((Array.isArray(srvTargets) ? srvTargets : []).map((item) => (typeof item === "string" ? item : item?.hostname)));
+  const links = strings(linkedHostnames);
   const core = {};
   if (liveNames.length) { core.liveTlsDnsNames = liveNames; evidence.push("live_tls_san"); }
   if (mxValues.length) { core.mxValues = mxValues; evidence.push("mx"); }
   if (nameservers.length) { core.nameservers = nameservers; evidence.push("ns"); }
   if (csp) { core.csp = csp; evidence.push("csp"); }
+  if (srv.length) { core.srvTargets = srv; evidence.push("srv"); }
+  if (links.length) { core.linkedHostnames = links; evidence.push("linked_hostnames"); }
   if (Object.keys(core).length) sets.push(extractHostnameCandidates({ domain: root, observedAt, sources: core }));
 
   const link = text(snapshot.link);
@@ -160,14 +168,17 @@ export function referencedHostnamesNotExecuted(reason, collected = null) {
 }
 
 /**
- * Confirm candidates with one DNS A lookup each. A name that answers with an
- * address, or with an alias chain whose end has no address, joins discovery;
- * a name DNS says does not exist, or has no IPv4 address, does not. Names
- * already discovered (`exclude`) are not looked up again.
+ * Confirm candidates through the shared rule: A and AAAA for each name. A name
+ * DNS answers for (an address in either family, or an alias) joins discovery;
+ * a name DNS says does not exist, or that has no address in either family,
+ * does not, and a failed lookup is counted as unknown. Names already
+ * discovered (`exclude`) are not looked up again.
  */
 export async function confirmReferencedHostnames(domain, collected, {
   exclude = [],
   wildcardAddresses = [],
+  wildcardIpv6Addresses = [],
+  budget = null,
   accounting = null,
   cache = null,
   signal = null,
@@ -178,44 +189,52 @@ export async function confirmReferencedHostnames(domain, collected, {
   const pending = (collected?.candidates || []).filter((candidate) => !known.has(candidate.hostname) && candidate.hostname !== root);
   const checks = pending.slice(0, REFERENCED_HOSTNAME_LIMITS.maxChecks);
   const notChecked = pending.length - checks.length;
-  const wildcardSet = wildcardAddressSet(wildcardAddresses);
+  const wildcardSet = wildcardAddressSet(wildcardAddresses, wildcardIpv6Addresses);
 
   // One batch: every check runs in parallel and each DoH question carries its
   // own timeout, so nothing is left in flight when the step returns.
-  const { observations } = await lookupNames(checks.map((candidate) => candidate.hostname), lookup, {
+  const { observations, unasked_budget: notAsked } = await lookupNames(checks.map((candidate) => candidate.hostname), lookup, {
     batchSize: REFERENCED_HOSTNAME_LIMITS.maxChecks,
+    budget,
+    source: "referenced_hostnames",
+    mode: "parallel",
   });
+  const byHost = new Map(observations.map((observation) => [observation.hostname, observation]));
 
   const confirmed = [];
-  let notFound = 0, noAddress = 0, lookupFailed = 0;
-  checks.forEach((candidate, index) => {
+  const counts = {};
+  for (const candidate of checks) {
+    const observation = byHost.get(candidate.hostname);
+    if (!observation) continue;
     // A referenced name is not a guess: a wildcard-shaped answer is flagged.
-    const confirmation = confirmationOf(observations[index], { wildcardSet, filterWildcard: false });
+    const confirmation = confirmationOf(observation, { wildcardSet, filterWildcard: false });
+    tallyConfirmation(counts, confirmation);
     if (confirmation.status === "confirmed") {
       confirmed.push(confirmedHost(candidate.hostname, confirmation, {
         sources: candidate.sources,
         asset_source: assetSourceForReferencedSources(candidate.sources),
       }));
-    } else if (confirmation.status === "not_found") notFound++;
-    else if (confirmation.status === "no_address") noAddress++;
-    else lookupFailed++;
-  });
+    }
+  }
 
   const reasons = [];
   if (notChecked > 0) reasons.push("check_cap_reached");
-  if (lookupFailed > 0) reasons.push("lookup_failed");
+  if (notAsked > 0) reasons.push("question_budget_reached");
+  if ((counts.lookup_failed || 0) > 0) reasons.push("lookup_failed");
   return {
     version: REFERENCED_HOSTNAMES_VERSION,
     executed: true,
     reason: null,
     evidence_inputs: collected?.evidence_inputs ?? [],
     candidates_found: pending.length,
-    checked: checks.length,
-    not_checked: notChecked,
+    checked: observations.length,
+    not_checked: notChecked + notAsked,
     confirmed,
-    not_found: notFound,
-    no_address: noAddress,
-    lookup_failed: lookupFailed,
+    not_found: counts.not_found || 0,
+    no_address: counts.no_address || 0,
+    lookup_failed: counts.lookup_failed || 0,
+    not_asked: notAsked,
+    families: counts.families || { ipv4_only: 0, ipv6_only: 0, dual_stack: 0, alias_only: 0 },
     incomplete: reasons.length > 0,
     incomplete_reason: reasons[0] ?? null,
     ...(reasons.length > 1 ? { incomplete_reasons: reasons } : {}),

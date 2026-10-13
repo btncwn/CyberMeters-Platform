@@ -365,8 +365,9 @@ eq("legacy inactive stays separate from lifecycle",
 eq("migration-102-absent API lifecycle is not_recorded",
   routeResult.body.attack_surface_assurance?.[0]?.lifecycle?.status,
   "not_recorded");
+// The live route presents the current signal set (seven since the check pack).
 ok("migration-102-absent API is explicit, not silently empty",
-  routeResult.body.attack_surface_assurance?.[0]?.signal_order?.length === 9 &&
+  routeResult.body.attack_surface_assurance?.[0]?.signal_order?.length === 7 &&
   Boolean(
     routeResult.body.attack_surface_assurance?.[0]
       ?.lifecycle?.customer_message,
@@ -650,7 +651,7 @@ const snapshot = composeSnapshot({
 eq("new snapshot freezes one ASM projection",
   snapshot.attack_surface_assurance.schema, fixture.schema);
 eq("snapshot builder version stamps the additive ASM shape",
-  snapshot.methodology.snapshot_builder_version, "2026-10-12.1");
+  snapshot.methodology.snapshot_builder_version, "2026-10-13.1");
 
 const apiProjection = attackSurfaceAssuranceApiProjection(snapshot);
 const read = {

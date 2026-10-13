@@ -1,5 +1,5 @@
 import { isPublishableModuleEvidence } from "./scan-budget.js";
-import { applyKevCveDeduction, SCORE_BEARING_MODULES } from "./scoring.js";
+import { SCORE_BEARING_MODULES } from "./scoring.js";
 import {
   normalizeQuality,
   resolveAssessmentPresentation,
@@ -17,6 +17,7 @@ import { isResolverVersionAtLeast, FIRST_HONEST_RESOLVER_VERSION } from "./cyber
 // to the #422 lane and is NOT edited here; importing it is what keeps the historical
 // read projection and the live producer deciding serviceability the same way.
 import { classifyServiceability, maySupportDefectConclusion } from "../lib/serviceability.js";
+import { isNotInCheckPack } from "./check-pack.js";
 
 export const PHASE5_EVIDENCE_MODULES = Object.freeze({
   cve: "cve_intelligence",
@@ -70,6 +71,11 @@ function hasMeasuredCvePositive(moduleResult) {
 }
 
 function resolveCveEvidence(moduleResult) {
+  // A scan whose check pack does not match software against vulnerability
+  // databases has nothing to assess here: nothing is missing, nothing is shown.
+  if (isNotInCheckPack(moduleResult)) {
+    return { coverage: "not_in_check_pack", negative_complete: true, positive_publishable: false };
+  }
   const coverage = resolveCveCoverage(moduleResult);
   const carrierUsable = !!moduleResult && typeof moduleResult === "object" &&
     !moduleResult.error && moduleResult.skipped !== true &&
@@ -85,6 +91,7 @@ function resolveCveEvidence(moduleResult) {
 }
 
 function cveCustomerMessage(moduleResult) {
+  if (isNotInCheckPack(moduleResult)) return moduleResult.customer_message ?? null;
   switch (resolveCveCoverage(moduleResult)) {
     case "unavailable":
       return CVE_CUSTOMER_MESSAGES.provider_unavailable;
@@ -124,14 +131,16 @@ export function resolvePhase5EvidenceContract(modules = {}) {
   const cveEvidence = resolveCveEvidence(
     modules?.[PHASE5_EVIDENCE_MODULES.cve],
   );
+  const kevNotInPack = isNotInCheckPack(modules?.[PHASE5_EVIDENCE_MODULES.kev]);
   const publishable = {
     cve: cveEvidence.positive_publishable,
-    kev: isPublishableModuleEvidence(modules?.[PHASE5_EVIDENCE_MODULES.kev]),
+    kev: !kevNotInPack && isPublishableModuleEvidence(modules?.[PHASE5_EVIDENCE_MODULES.kev]),
     email: isPublishableModuleEvidence(modules?.[PHASE5_EVIDENCE_MODULES.email]),
   };
   const completeByModule = {
     cve: cveEvidence.negative_complete,
-    kev: publishable.kev,
+    // Not part of the check pack: complete, with nothing to publish.
+    kev: kevNotInPack || publishable.kev,
     email: publishable.email,
   };
   const incompleteModules = Object.entries(PHASE5_EVIDENCE_MODULES)
@@ -225,9 +234,8 @@ export function resolvePhase5CustomerAssessment({
   const evidence = resolvePhase5EvidenceContract(modules);
   const skippedScored = skippedScoreBearingModules(modules);
   if (skippedScored.length > 0 || (suppressOnEvidenceGaps && !evidence.complete)) {
-    // Cannot-assess: no customer score, no risk band, and NO KEV/CVE deduction —
-    // never a guessed deduction on an unpublishable module (evidence-floor). The
-    // suppression carries an honest cause line so no surface renders a bare "—".
+    // Cannot-assess: no customer score and no risk band. The suppression
+    // carries an honest cause line so no surface renders a bare "—".
     return {
       score: null,
       // The same withheld-band rule as the complete/no-score branch below: the
@@ -256,8 +264,9 @@ export function resolvePhase5CustomerAssessment({
   }
   // Historical rows and immutable reports persist the output of this transform,
   // not its raw input. Read-time projection must still run the SAME suppression
-  // decision above, but must never charge KEV/CVE a second time (90 -> 60 at
-  // finalisation must remain 60 on every later read, never become 30).
+  // decision above, but must never recompute the number: a score finalised under
+  // an earlier methodology (one that charged exploited-vulnerability matches)
+  // keeps exactly the value it was finalised with.
   if (persistedScoreAlreadyAdjusted === true) {
     return {
       score,
@@ -266,29 +275,12 @@ export function resolvePhase5CustomerAssessment({
       persisted_score_already_adjusted: true,
     };
   }
-  // AS-B2: KEV/CVE evidence moves the customer Cyber Metrics Score. Pure orchestration:
-  // ALL score arithmetic, the [0,100] clamp, and the canonical band mapping live in the
-  // single owner (scoring.applyKevCveDeduction). This function contributes no formula and
-  // no band ladder — it only wires phase5 evidence in and stamps the honest per-note
-  // magnitude. The deduction is gated by the publishable contract and matched evidence.
-  const { score: adjustedScore, riskLevel: adjustedRiskLevel, deduction } =
-    applyKevCveDeduction({ score, modules, evidence });
-  // Stamp the applied per-note magnitude onto the modules so the asset-intel display
-  // notes (kev_active_exploitation / cve_high_severity_detected) show the honest
-  // score_impact instead of a lying 0 — single source of truth, no double counting
-  // (this function is the ONLY place the score is adjusted).
-  if (modules?.known_exploited_vulnerabilities && typeof modules.known_exploited_vulnerabilities === "object") {
-    modules.known_exploited_vulnerabilities.score_impact_applied = deduction.kev;
-    modules.known_exploited_vulnerabilities.score_evidence_applied = deduction.scored_matches;
-    modules.known_exploited_vulnerabilities.score_matched_technologies = deduction.matched_technologies;
-  }
-  if (modules?.cve_intelligence && typeof modules.cve_intelligence === "object") {
-    modules.cve_intelligence.score_impact_applied = deduction.cve;
-  }
+  // Outside vulnerability data is not part of the check pack, so nothing moves
+  // the computed score here: the score and its band are exactly what the score
+  // owner (scoring.computeScore) produced.
   return {
-    score: adjustedScore,
-    risk_level: adjustedRiskLevel,
-    kev_cve_deduction: deduction,
+    score,
+    risk_level: riskLevel,
     evidence,
   };
 }

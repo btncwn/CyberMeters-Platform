@@ -337,7 +337,7 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m8-score-methodology-moved",
     file: "workers/scan-api/src/engines/scoring.js",
-    anchor: 'export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-08-26.1";',
+    anchor: 'export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-10-13.1";',
     replacement: 'export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-08-30.1";',
     expectedFailures: ["score methodology version remains frozen"],
   },

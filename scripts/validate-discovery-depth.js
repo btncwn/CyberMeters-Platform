@@ -10,6 +10,11 @@
 //     admitted; names the zone itself lists are admitted and flagged instead;
 //   • names already known are never asked about again, and every name that
 //     could not be confirmed or was not asked is counted;
+//   • every guess asks A, and AAAA unless A proved the name does not exist, so
+//     an IPv6-only name is found; a dangling alias is kept as the name it is;
+//   • every question spends the shared discovery budget, and names left
+//     unasked by it are stated; variants below a sub-zone that answers every
+//     name are not admitted;
 //   • the soft time budget stops new lookups and says so;
 //   • a durable scan admits confirmed names into discovery, takeover checks and
 //     the inventory with their source; the waitUntil path runs nothing; a scan
@@ -33,6 +38,7 @@ const ok = (name, condition, detail = "") => {
 };
 
 const answer = (name, ip) => ({ Status: 0, Answer: [{ name, type: 1, TTL: 60, data: ip }] });
+const answer6 = (name, ip) => ({ Status: 0, Answer: [{ name, type: 28, TTL: 60, data: ip }] });
 const nxdomain = { Status: 3, Answer: [] };
 const nsecRecord = (owner, next, types = "A RRSIG NSEC") => ({ name: `${owner}.`, type: 47, TTL: 300, data: `${next}. ${types}` });
 // A signed zone whose NSEC chain lists `labels` (one-label names, canonical
@@ -91,11 +97,15 @@ async function fixtures(api) {
     knownHosts: known, discoveredHosts: ["api.example.com", "shop01.example.com"], wildcardAddresses: ["198.51.100.9"],
     rotationIndex: 0, lookup, nsecLookup: unsignedNsecLookup,
   });
-  assert.ok(!asked.includes(`A ${firstSlice[6]}`) && !asked.includes("A api.example.com") && !asked.includes("A shop01.example.com"), "known names are never asked again"); checks++;
-  assert.ok(asked.every((question) => question.startsWith("A ")), "lookups are A questions"); checks++;
-  assert.equal(new Set(asked).size, asked.length, "no name is asked twice"); checks++;
+  assert.ok(!asked.some((question) => question.endsWith(` ${firstSlice[6]}`) || question.endsWith(" api.example.com") || question.endsWith(" shop01.example.com")), "known names are never asked again"); checks++;
+  assert.ok(asked.every((question) => question.startsWith("A ") || question.startsWith("AAAA ")), "lookups are address questions"); checks++;
+  const askedAaaa = asked.filter((question) => question.startsWith("AAAA ")).map((question) => question.slice(5));
+  assert.ok(!askedAaaa.includes(firstSlice[7]), "a name whose A answer is NXDOMAIN is not asked for AAAA"); checks++;
+  assert.ok(askedAaaa.includes(firstSlice[3]) && askedAaaa.includes(firstSlice[4]), "a name A did not rule out is asked for AAAA"); checks++;
+  assert.ok(!askedAaaa.includes(firstSlice[1]), "a guess A shows is the wildcard's answer is not asked for AAAA"); checks++;
+  assert.equal(new Set(asked).size, asked.length, "no question is asked twice"); checks++;
   assert.equal(result.wordlist.checked, firstSlice.filter((name) => !known.includes(name)).length, "the slice is checked except for known names"); checks++;
-  assert.ok(asked.length <= limits.wordlistSlice + limits.variants, "lookups stay within the slice and variant bounds"); checks++;
+  assert.ok(asked.length <= 2 * (limits.wordlistSlice + limits.variants), "lookups stay within the slice and variant bounds"); checks++;
   const sources = Object.fromEntries(result.confirmed.map((item) => [item.hostname, item.source]));
   assert.equal(sources[firstSlice[0]], "dns_wordlist", "a word-list name DNS answers for is confirmed"); checks++;
   assert.ok(!(firstSlice[1] in sources) && result.wordlist.wildcard_filtered === 1, "a guess answered exactly by the wildcard is not admitted"); checks++;
@@ -107,6 +117,47 @@ async function fixtures(api) {
   assert.equal(result.nsec.outcome, "no_dnssec", "an unsigned zone stops the NSEC walk"); checks++;
   assert.equal(result.nsec.queries, 1, "an unsigned zone costs one NSEC question"); checks++;
   assert.ok(result.incomplete === true && result.incomplete_reason === "lookup_failed", "failed lookups leave the step incomplete"); checks++;
+
+  // Both families: an IPv6-only guess is found with its address; a dual-stack
+  // guess keeps both; a dangling alias is kept; one family failing never
+  // erases the other's answer.
+  const families = await api.runDiscoveryDepth("example.com", {
+    rotationIndex: 0, nsecLookup: unsignedNsecLookup,
+    lookup: async (name, type) => {
+      if (name === firstSlice[0]) return type === "AAAA" ? answer6(name, "2001:db8::10") : { Status: 0, Answer: [] };
+      if (name === firstSlice[1]) return type === "AAAA" ? answer6(name, "2001:db8::11") : answer(name, "203.0.113.11");
+      if (name === firstSlice[2]) return { Status: 3, Answer: [{ name, type: 5, TTL: 60, data: "gone.provider.test." }] };
+      if (name === firstSlice[3]) return type === "AAAA" ? { Status: 2, Answer: [] } : answer(name, "203.0.113.13");
+      return nxdomain;
+    },
+  });
+  const byName = Object.fromEntries(families.confirmed.map((item) => [item.hostname, item]));
+  assert.deepEqual(byName[firstSlice[0]]?.ip_addresses, ["2001:db8::10"], "an IPv6-only guess is confirmed with its address"); checks++;
+  assert.equal(byName[firstSlice[0]]?.dns?.A?.outcome, "nodata", "its A outcome is kept as NODATA"); checks++;
+  assert.deepEqual(byName[firstSlice[1]]?.ip_addresses, ["203.0.113.11", "2001:db8::11"], "a dual-stack guess keeps both families"); checks++;
+  assert.ok(byName[firstSlice[2]]?.alias_only === true && byName[firstSlice[2]]?.dangling_alias === true, "an alias whose target does not exist is kept as a dangling alias"); checks++;
+  assert.deepEqual(byName[firstSlice[3]]?.ip_addresses, ["203.0.113.13"], "an A answer survives a failed AAAA question"); checks++;
+  assert.deepEqual(byName[firstSlice[3]]?.dns?.uncertain, ["AAAA"], "the failed family is stated as uncertain"); checks++;
+  assert.equal(families.wordlist.families?.ipv6_only ?? null, null, "per-family counts do not leak into the word-list tallies"); checks++;
+
+  // The shared budget: questions beyond it are not asked, and say so.
+  const { createDiscoveryQuestionBudget } = await eng("discovery-confirmation.js");
+  const small = createDiscoveryQuestionBudget({ total: 30 });
+  let budgetQuestions = 0;
+  const budgeted = await api.runDiscoveryDepth("example.com", {
+    rotationIndex: 0, budget: small, nsecLookup: async () => { budgetQuestions++; return { Status: 0, Answer: [] }; },
+    lookup: async (name) => { budgetQuestions++; return name === firstSlice[0] ? answer(name, "203.0.113.50") : nxdomain; },
+  });
+  assert.ok(budgetQuestions <= 30 && small.snapshot().spent === budgetQuestions, "no question is asked beyond the shared budget"); checks++;
+  assert.ok(budgeted.not_asked > 0 && (budgeted.incomplete_reasons || [budgeted.incomplete_reason]).includes("question_budget_reached"), "names the budget left unasked are stated"); checks++;
+
+  // A sub-zone that answers every name: variants below it are not evidence.
+  const subzone = await api.runDiscoveryDepth("example.com", {
+    discoveredHosts: ["app01.preview.example.com"], rotationIndex: 0, nsecLookup: unsignedNsecLookup, random: () => 0.5,
+    lookup: async (name, type) => (name.endsWith(".preview.example.com") && type === "A" ? answer(name, "203.0.113.99") : nxdomain),
+  });
+  assert.ok(!subzone.confirmed.some((item) => item.hostname.endsWith(".preview.example.com")), "variants answered by a sub-zone wildcard are not admitted"); checks++;
+  assert.ok(subzone.variants.subzone_wildcards.some((item) => item.parent === "preview.example.com" && item.outcome === "wildcard"), "the sub-zone wildcard is stated"); checks++;
 
   // A signed zone: the walk lists names a word list would never guess, and a
   // name the word list also asks keeps the NSEC source and is never filtered.
@@ -179,21 +230,25 @@ const dataUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).t
 const absoluteImports = (source, overrides = {}) => source.replace(/from "\.\/([^"]+)"/g,
   (_, file) => `from "${overrides[file] ?? pathToFileURL(enginePath(file)).href}"`);
 const MUTANTS = [
-  ["module", "const wordlist = tally(sliceRun.observations, DISCOVERY_DEPTH_ASSET_SOURCES.wordlist, { wildcardSet, filterWildcard: true, listed });",
-    "const wordlist = tally(sliceRun.observations, DISCOVERY_DEPTH_ASSET_SOURCES.wordlist, { wildcardSet, filterWildcard: false, listed });", "wildcard guesses are admitted"],
-  ["module", "const confirmation = confirmationOf(observation, { wildcardSet, filterWildcard: filterWildcard && !isListed });",
-    "const confirmation = confirmationOf(observation, { wildcardSet, filterWildcard });", "a listed name asked by a guess is wildcard-filtered"],
+  ["module", "const wordlist = tally(sliceRun.observations, DISCOVERY_DEPTH_ASSET_SOURCES.wordlist, { wildcardFor: () => apexWildcard, filterWildcard: true, listed });",
+    "const wordlist = tally(sliceRun.observations, DISCOVERY_DEPTH_ASSET_SOURCES.wordlist, { wildcardFor: () => apexWildcard, filterWildcard: false, listed });", "wildcard guesses are admitted"],
+  ["module", "filterWildcard: filterWildcard && !isListed,", "filterWildcard,", "a listed name asked by a guess is wildcard-filtered"],
   ["module", "source: isListed ? DISCOVERY_DEPTH_ASSET_SOURCES.nsec : source,", "source,", "a listed name asked by a guess loses its NSEC source"],
   ["module", "if (!name || asked.has(name)) continue;", "if (!name) continue;", "known names are asked again"],
   ["module", "const cursor = (index * size) % DISCOVERY_WORDLIST.length;", "const cursor = 0;", "the slice never rotates"],
   ["module", "[\"budget_exhausted\", \"lookup_failed\"", "[\"lookup_failed\"", "an unfinished walk is hidden"],
   ["module", "if (confirmation.status === \"confirmed\") {", "if (confirmation.status !== \"not_found\") {", "unconfirmed guesses are admitted"],
-  ["helper", "if (wildcardMatch && filterWildcard) return { status: \"wildcard_filtered\" };", "", "the shared rule admits wildcard guesses"],
-  ["helper", "if (outcome === \"answer\" || outcome === \"cname_only\") {", "if (outcome !== \"nxdomain\") {", "the shared rule admits names without an answer"],
-  ["helper", "if (clock() >= deadlineAt) { unasked = names.length - start; break; }", "", "the shared batches ignore the soft budget"],
-  ["helper", "try { response = await lookup(hostname, \"A\"); } catch (err) { error = err ?? new Error(\"lookup_failed\"); }",
-    "try { response = await lookup(hostname, \"A\"); } catch { response = { Status: 3, Answer: [] }; }", "the shared rule reads a failed lookup as absence"],
-  ["helper", "alias_only: outcome === \"cname_only\",", "alias_only: false,", "the shared rule hides alias-only answers"],
+  ["helper", "if (wildcardMatch && filterWildcard) return { status: \"wildcard_filtered\", dns };", "", "the shared rule admits wildcard guesses"],
+  ["helper", "if (positive || alias || dangling) {", "if (positive || alias || dangling || A.outcome === \"nodata\") {", "the shared rule admits names without an answer"],
+  ["helper", "if (clock() >= deadlineAt) { unaskedTime += list.length - start; break; }", "", "the shared batches ignore the soft budget"],
+  ["helper", "try { response = await lookup(hostname, type); } catch (err) { error = err ?? new Error(\"lookup_failed\"); }",
+    "try { response = await lookup(hostname, type); } catch { response = { Status: 3, Answer: [] }; }", "the shared rule reads a failed lookup as absence"],
+  ["helper", "alias_only: !positive,", "alias_only: false,", "the shared rule hides alias-only answers"],
+  ["helper", "return { hostname, A, AAAA: await ask(lookup, hostname, \"AAAA\"), aaaa_skipped: null };",
+    "return { hostname, A, AAAA: null, aaaa_skipped: null };", "guesses are never asked for AAAA"],
+  ["helper", "? { outcome: \"dangling_alias\", addresses: [] }", "? { outcome: \"nxdomain\", addresses: [] }", "a dangling alias is dropped as absent"],
+  ["helper", "if (budget && !budget.take(source, 1)) return { hostname, A: null, AAAA: null, not_asked: \"budget\" };", "", "guesses ignore the shared budget"],
+  ["module", "return (parent && subzones.results.get(parent)) || apexWildcard;", "return apexWildcard;", "variants under a sub-zone wildcard are admitted"],
 ];
 for (const [target, before, after, label] of MUTANTS) {
   const source = target === "helper" ? helperSource : moduleSource;

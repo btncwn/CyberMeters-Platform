@@ -91,9 +91,14 @@ const EXPECTED = Object.freeze({
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
-    predicate_occurrences: 35,
-    unique_query_sites: 26,
-    source_file_count: 15,
+    // Change notifications: 35 -> 36 predicates, 26 -> 27 query sites, 15 -> 16
+    // files, 19 -> 20 sinks — exactly one addition: timeline-trust.js picks the
+    // workspace's last scan with scan_quality = 'complete' as the change
+    // baseline, so a partial scan is skipped rather than blocking the next
+    // comparison. The two-tree --dump-current diff shows no other SQL delta.
+    predicate_occurrences: 36,
+    unique_query_sites: 27,
+    source_file_count: 16,
     // The QA-benchmark admin gate shifts workspace-insights.js source lines;
     // all 35 predicate snippets and 26 query sites remain unchanged.
     // A single-source CT read in historical-scan.js moved its one static/query-sink
@@ -101,9 +106,9 @@ const EXPECTED = Object.freeze({
     // Certificate logs retired: the same file and the scan engine shift their
     // SQL sites again; the two-tree --dump-current diff shows every SQL site,
     // static site and sink unchanged apart from position.
-    fingerprint: "c7947dcaf35b3ea5e92c2ea1cac5d2b091d9dd0c19731fc9e88f721d194dd078",
-    resolved_query_sink_count: 19,
-    resolved_query_sink_fingerprint: "84f1eca55a6261292e80d534461d026e8f29e669f615cbec178a37bc3e41d4e6",
+    fingerprint: "9ef8ad125899773ec633aa62576aefa97447c30eeedd3e5de3541f40ea584f98",
+    resolved_query_sink_count: 20,
+    resolved_query_sink_fingerprint: "4ffef8f79a535d8be3cff7b5ffc46b337ffc7b208b5991806506ca666d9adfee",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -235,7 +240,12 @@ const EXPECTED = Object.freeze({
   // Maturity history (domain JOIN) and workspace restore shift source positions only.
   // Hostname-list routes and the domain-unlink cascade shift source positions only.
   // Asset lifecycle labels and counts in the assets route shift source positions only.
-  sql_reads: { projection_occurrences: 23, fingerprint: "f0a9af64145715d61d3265c7bfe6575c8a45787fd9483739fe7d6806999bf4af" },
+  // One discovery question budget across sources (scan engine) shifts source positions only.
+  // Change notifications: 23 -> 22. The current-scan read in timeline-trust.js
+  // also projects workspace_id; the baseline read now filters on scan_quality
+  // (counted with the SQL predicates above), so it leaves this projection set.
+  // The asset-alert delivery reads shift source positions only.
+  sql_reads: { projection_occurrences: 22, fingerprint: "aee939440ef293ad2b9aef359cf278ae8bfff32ae5c33d7070a2193eda37d41a" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

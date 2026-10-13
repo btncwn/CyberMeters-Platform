@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isNotInCheckPack,
   isPhase5EvidenceAvailable,
   phase5KnownCount,
 } from '../phase5EvidencePresentation'
@@ -34,5 +35,18 @@ describe('Phase-5 evidence presentation', () => {
   it('retains completed positive evidence', () => {
     const completed = { evidence_publishable: true, critical_count: 2 }
     expect(phase5KnownCount(completed, completed.critical_count)).toBe(2)
+  })
+
+  it('reads a module outside the check pack as stated, not as missing or measured', () => {
+    const stated = {
+      executed: false,
+      outcome: 'not_in_check_pack',
+      evidence_publishable: false,
+      customer_message: 'Reported software versions are not matched against outside vulnerability databases.',
+    }
+    expect(isNotInCheckPack(stated)).toBe(true)
+    expect(phase5KnownCount(stated, 0)).toBeNull()
+    expect(isNotInCheckPack({ evidence_publishable: true, critical_count: 0 })).toBe(false)
+    expect(isNotInCheckPack(undefined)).toBe(false)
   })
 })

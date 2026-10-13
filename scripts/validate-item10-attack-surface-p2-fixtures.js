@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 // Item 10 P2 production fixtures: complete, degraded, provider timeout, deadline.
+// The one outside provider a scan still depends on is the public DNS resolver;
+// outside vulnerability data is not part of the check pack (check-pack.js).
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -12,7 +14,6 @@ const {
   deriveRemovalObservation,
 } = await import(engine("attack-surface-signal-completeness.js"));
 const { unavailableRemovalObservations } = await import(engine("asset-intel.js"));
-const { runCveModule } = await import(engine("vuln-intel.js"));
 const {
   SCAN_DEADLINE_DEFAULTS,
   SCAN_MODULE_BUDGETS,
@@ -89,34 +90,27 @@ eq("degraded fixture retains reliable DNS sibling",
 eq("degraded fixture marks failed technology independently",
   degraded.signals.technology.state, "unavailable");
 
-const originalFetch = globalThis.fetch;
-try {
-  globalThis.fetch = async () => new Response(JSON.stringify({ vulnerabilities: [] }), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  });
-  const zero = await runCveModule({ technologies: ["nginx"] });
-  eq("valid provider zero records complete lookup",
-    zero.lookup_statuses.nginx.status, "complete");
-
-  globalThis.fetch = async () => {
-    throw new DOMException("provider timeout", "TimeoutError");
-  };
-  const timedOut = await runCveModule({ technologies: ["nginx"] });
-  eq("provider-timeout fixture records unavailable lookup",
-    timedOut.lookup_statuses.nginx.status, "unavailable");
-  eq("provider-timeout fixture resolves CVE signal unavailable",
-    deriveAttackSurfaceSignalCompleteness({
-      technology_detection: {
-        status_code: 200,
-        technologies: ["nginx"],
-      },
-      cve_intelligence: timedOut,
-    }).signals.cve.state,
-    "unavailable");
-} finally {
-  globalThis.fetch = originalFetch;
-}
+// Provider timeout: the public resolver did not answer. DNS is unavailable —
+// never absent — and the reliable HTTP sibling is kept.
+const resolverTimeout = deriveAttackSurfaceSignalCompleteness({
+  dns: {
+    resolution_assessed: false,
+    resolves_any: false,
+    incomplete: true,
+    incomplete_reason: "dns_resolution_unavailable",
+  },
+  asset_exposure: {
+    checked: 1,
+    reachable: 1,
+    assets: [{ host: "app.example.com", reachable: true, status: 200 }],
+  },
+});
+eq("provider-timeout fixture resolves DNS unavailable, never absent",
+  resolverTimeout.signals.dns_resolution.state, "unavailable");
+eq("provider-timeout fixture keeps the reliable HTTP sibling",
+  resolverTimeout.signals.http_https_service.state, "observed");
+eq("a stored vulnerability-data module creates no signal",
+  Object.hasOwn(complete.signals, "cve") || Object.hasOwn(complete.signals, "kev"), false);
 
 const deadlineEvidence = unavailableRemovalObservations(
   ["gone.example.com"],

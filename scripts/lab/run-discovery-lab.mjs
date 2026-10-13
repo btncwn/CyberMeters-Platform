@@ -11,7 +11,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runLabWorld } from "./lab-scan.mjs";
-import { WORLDS } from "./worlds.mjs";
+import { DELTA_SCANS, deltaAt, WORLDS } from "./worlds.mjs";
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => {
@@ -26,10 +26,20 @@ const asJson = args.includes("--json");
 
 const results = [];
 for (const name of worlds) {
-  const world = WORLDS[name];
-  if (!world) throw new Error(`unknown world ${name}`);
-  const run = await runLabWorld({ root, world, egress, scans });
-  const { db, r2, log, engine_log: _engineLog, ...measurement } = run;
+  // delta changes between scans and sends its notifications to the lab's
+  // stand-in email provider; it always runs its own number of scans.
+  const run = name === "delta"
+    ? await runLabWorld({
+      root, worldAt: deltaAt, egress, scans: DELTA_SCANS, tenant: "d", subscription: "professional",
+      linkedWorkspaces: [{ workspaceId: "ws_d_other" }],
+      scanAs: (i) => (i === DELTA_SCANS - 1 ? "ws_d_other" : "ws_d"),
+      env: { RESEND_API_KEY: "lab", ALERT_EMAIL_FROM: "alerts@lab.invalid" },
+    })
+    : WORLDS[name]
+      ? await runLabWorld({ root, world: WORLDS[name], egress, scans })
+      : null;
+  if (!run) throw new Error(`unknown world ${name}`);
+  const { db, env, r2, log, engine_log: _engineLog, ...measurement } = run;
   results.push(measurement);
 }
 
@@ -51,6 +61,9 @@ if (asJson) {
       console.log(`   scan ${scan.scan_id}: ${scan.status}/${scan.quality} in ${scan.elapsed_ms} ms · requests ${req.total} (dns ${req.dns_questions}, target ${req.by_kind.target || 0}, outside data ${req.by_kind.outside_data || 0}) · D1 r/w ${scan.storage.d1_reads}/${scan.storage.d1_writes} · findings ${scan.findings}${scan.error ? ` · error ${scan.error}` : ""}`);
       if (scan.incomplete_modules.length) console.log(`     incomplete: ${scan.incomplete_modules.join(", ")}`);
       if (Object.keys(req.outside_data).length) console.log(`     outside data: ${JSON.stringify(req.outside_data)}`);
+      if (scan.changes?.events?.length) console.log(`     events: ${scan.changes.events.map((event) => `${event.event_type}:${event.hostname.split(".")[0]}`).join(", ")}`);
+      if (scan.changes?.notification) console.log(`     change notification: ${scan.changes.notification.status}${scan.changes.notification.error ? ` (${scan.changes.notification.error})` : ""}, ${scan.changes.notification.severity}`);
+      if (scan.emails?.length) console.log(`     emails: ${scan.emails.map((email) => email.subject).join(" | ")}`);
     }
     if (result.unexpected_hosts.length) console.log(`   unexpected hosts: ${result.unexpected_hosts.join(", ")}`);
   }

@@ -3,7 +3,7 @@
 // services. Reads the previous completed scan report from R2, compares it with
 // the current in-memory modules, and writes asset_events. All failures are
 // non-fatal so scan completion never depends on timeline event generation.
-import { createId } from "../lib/util.js";
+import { hashToken } from "../lib/auth-crypto.js";
 import { loadTimelineComparisonContext } from "./timeline-trust.js";
 import {
   diffResolvedAuthorizations,
@@ -215,6 +215,14 @@ export function buildPostureDiffEvents(domain, prevModules, currentModules, opts
   return events;
 }
 
+// One event per (workspace, scan, type, name): a replayed scan writes nothing twice.
+async function postureEventId(workspaceId, scanId, eventType, hostname) {
+  const digest = await hashToken(JSON.stringify(["posture-event-v1", workspaceId, scanId, eventType, hostname]));
+  return `evt-${digest.slice(0, 32)}`;
+}
+
+// Written for the scanning workspace only (live and still linked to the
+// domain): its own previous scan is the baseline the diff was taken against.
 export async function recordPostureEvents(scanId, domainId, domain, modules, env, opts = {}) {
   try {
     const comparison = await loadTimelineComparisonContext(env, {
@@ -232,9 +240,15 @@ export async function recordPostureEvents(scanId, domainId, domain, modules, env
     ];
     if (events.length === 0) return;
 
+    const scanWorkspaceId = comparison.currentScan?.workspace_id ?? null;
+    if (!scanWorkspaceId) return;
     const r = await env.cybermeters_db
-      .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
-      .bind(domainId)
+      .prepare(
+        `SELECT wd.workspace_id FROM workspace_domains wd
+         JOIN workspaces w ON w.id = wd.workspace_id
+         WHERE wd.domain_id = ? AND wd.workspace_id = ? AND w.deleted_at IS NULL`
+      )
+      .bind(domainId, scanWorkspaceId)
       .all();
     const wsRows = r.results || [];
     if (wsRows.length === 0) return;
@@ -245,7 +259,7 @@ export async function recordPostureEvents(scanId, domainId, domain, modules, env
         .prepare(
           `SELECT event_type, hostname FROM asset_events
            WHERE workspace_id = ? AND domain_id = ?
-             AND created_at >= datetime('now', '-24 hours')`
+             AND julianday(created_at) >= julianday('now', '-24 hours')`
         )
         .bind(workspace_id, domainId)
         .all();
@@ -271,13 +285,13 @@ export async function recordPostureEvents(scanId, domainId, domain, modules, env
 
         await env.cybermeters_db
           .prepare(
-            `INSERT INTO asset_events
+            `INSERT OR IGNORE INTO asset_events
                (id, workspace_id, domain_id, asset_id, scan_id, event_type,
                 hostname, severity, description, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .bind(
-            createId("evt"),
+            await postureEventId(workspace_id, scanId, event.event_type, event.hostname),
             workspace_id,
             domainId,
             assetId,

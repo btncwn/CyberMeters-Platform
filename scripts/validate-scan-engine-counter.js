@@ -41,8 +41,10 @@ const realFetch = globalThis.fetch;
   eq("legacy probeAsset method GET", lastOpts.method, "GET");
   ok("legacy probeAsset keeps AbortSignal timeout", !!lastOpts.signal);
   ok("legacy probeAsset sets redirect:\"manual\" for per-hop SSRF validation (C1)", lastOpts.redirect === "manual");
-  eq("probeAsset retains legacy fields and adds bounded authentication evidence",
-     Object.keys(r).sort().join(","), "authentication_observation,content_type,host,reachable,server,status,tech,title,url");
+  eq("probeAsset retains legacy fields and adds bounded authentication evidence and its attempts",
+     Object.keys(r).sort().join(","), "attempts,authentication_observation,content_type,host,reachable,server,status,tech,title,url");
+  eq("probeAsset records which protocol and port answered, and nothing else of the request",
+     JSON.stringify(r.attempts), JSON.stringify([{ protocol: "https", port: 443, outcome: "responded", status: r.status }]));
   eq("an absent field remains unknown", r.authentication_observation.password_form_observed, null);
   ok("authentication observation is dated", Number.isFinite(Date.parse(r.authentication_observation.measured_at)));
   globalThis.fetch = realFetch;
@@ -378,8 +380,12 @@ async function runEngineLedger(mode, {
   const referenced = bounded.report?.modules?.subdomains?.referenced_hostnames;
   eq("max-fanout: referenced-hostname lookups keep their cap",
     referenced?.checked, 50);
+  // SRV targets (capped at 50) and home-page links (capped at 25) are now
+  // references confirmed by DNS like the CSP names: 60 + 50 + 25 candidates.
+  eq("max-fanout: referenced candidates include SRV targets and home-page links",
+    referenced?.candidates_found, 135);
   eq("max-fanout: referenced names beyond the cap are counted, not hidden",
-    referenced?.not_checked, 10);
+    referenced?.not_checked, 85);
   ok("max-fanout: the referenced cap makes the step incomplete, not complete",
     referenced?.executed === true && referenced?.incomplete === true &&
       referenced?.incomplete_reason === "check_cap_reached",
@@ -402,8 +408,18 @@ async function runEngineLedger(mode, {
   ok("max-fanout: discovery depth asks each word-list name once",
     sliceQuestions.length > 0 && new Set(sliceQuestions).size === sliceQuestions.length,
     `${sliceQuestions.length} questions, ${new Set(sliceQuestions).size} names`);
-  eq("max-fanout: each referenced name costs at most one DNS question",
-    bounded.counter.dnsQuestions.filter((question) => /^csp\d+\.example\.com$/.test(question.name) && question.type === "A").length, 50);
+  const referenceQuestions = bounded.counter.dnsQuestions
+    .filter((question) => /^(?:csp|ref|link)\d+\.example\.com$/.test(question.name) && (question.type === "A" || question.type === "AAAA"));
+  const perReference = new Map();
+  for (const question of referenceQuestions) perReference.set(question.name, (perReference.get(question.name) || 0) + 1);
+  ok("max-fanout: each checked referenced name costs at most two DNS questions (A and AAAA)",
+    perReference.size === 50 && [...perReference.values()].every((count) => count <= 2) && referenceQuestions.length <= 100,
+    JSON.stringify({ names: perReference.size, questions: referenceQuestions.length }));
+  const discoveryBudget = bounded.report?.modules?.subdomains?.discovery_budget;
+  ok("max-fanout: every discovery question is charged to one budget that is never exceeded",
+    discoveryBudget?.total === 786 && discoveryBudget.spent <= discoveryBudget.total &&
+      Object.values(discoveryBudget.by_source || {}).reduce((a, b) => a + b, 0) === discoveryBudget.spent,
+    JSON.stringify(discoveryBudget));
   eq("max-fanout: takeover reports all adversarial matching candidates",
     bounded.report?.modules?.subdomain_takeover?.totals?.candidates_matched, 10_000);
   eq("max-fanout: takeover admits only the governed candidate cap",

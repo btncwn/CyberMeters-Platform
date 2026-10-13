@@ -248,10 +248,18 @@ function mockFetch(variant, { onLateResolve = null } = {}) {
         if (name === "_dmarc.example.com" && type === "TXT") return json({ Status: 0, Answer: [{ type: 16, data: `"${dmarcRecord}"` }] });
         return json({ Status: 0, Answer: [] });
       };
+      // Real DoH answers name the owner of every record; discovery's DNS
+      // classifier reads an answer only for the name that was asked.
+      const owned = async () => {
+        const response = answer();
+        const body = await response.clone().json().catch(() => null);
+        if (!Array.isArray(body?.Answer) || body.Answer.every((record) => record.name)) return response;
+        return json({ ...body, Answer: body.Answer.map((record) => ({ name, ...record })) });
+      };
       if (variant === "deferred-email" && (name.includes("._domainkey.") || name.startsWith("default._bimi."))) {
-        return new Promise((res) => setTimeout(() => res(answer()), 1_500));
+        return new Promise((res) => setTimeout(() => res(owned()), 1_500));
       }
-      return answer();
+      return owned();
     }
     if (host === "services.nvd.nist.gov") {
       if (variant === "slow-cve") {
@@ -1256,8 +1264,10 @@ ok("B2: …and the spf_missing remediation action IS created",
 ok("B2: the genuine p=none policy still surfaces monitoring-only remediation",
   t2.emailActions.includes("dmarc_policy_monitoring_only"), JSON.stringify(t2.emailActions));
 
-// ── B3. Durable Phase-5: slow Email Intel cannot erase CVE/KEV siblings ──────
-console.log("\n── B3. durable Phase-5 preserves completed siblings ──");
+// ── B3. Durable Phase-5: a slow Email Intelligence module defers alone ──────
+// Phase 5 runs one module. The two outside vulnerability-data modules are not
+// part of the check pack: they are recorded as such, never as a deadline loss.
+console.log("\n── B3. durable Phase-5 defers only Email Intelligence ──");
 const t3 = await trace("deferred-intel");
 ok("B3: scan completed terminally", t3.dbStatus === "completed", JSON.stringify({ db: t3.dbStatus, err: t3.reportError }));
 ok("B3: only Email Intelligence took its independent deadline fallback",
@@ -1268,26 +1278,19 @@ ok("B3: module record attributes the timeout to its own source envelope",
     t3.intel?.timeout_source === "module_race" &&
     t3.intel?.reason !== "scan_deadline_exhausted",
   JSON.stringify(t3.intel));
-ok("B3: completed CVE sibling survives the slow Email Intelligence module",
-  t3.report?.modules?.cve_intelligence?.executed !== false &&
-    t3.report?.modules?.cve_intelligence?.outcome !== "deadline_exceeded",
-  JSON.stringify(t3.report?.modules?.cve_intelligence));
-ok("B3: completed KEV sibling survives the slow Email Intelligence module",
-  t3.report?.modules?.known_exploited_vulnerabilities?.executed !== false &&
-    t3.report?.modules?.known_exploited_vulnerabilities?.outcome !== "deadline_exceeded",
-  JSON.stringify(t3.report?.modules?.known_exploited_vulnerabilities));
+ok("B3: vulnerability matching is stated as outside the check pack, not lost to the deadline",
+  t3.report?.modules?.cve_intelligence?.outcome === "not_in_check_pack" &&
+    t3.report?.modules?.known_exploited_vulnerabilities?.outcome === "not_in_check_pack",
+  JSON.stringify([t3.report?.modules?.cve_intelligence, t3.report?.modules?.known_exploited_vulnerabilities]));
 const t3Telemetry = Object.fromEntries(
   (t3.diagnostics?.modules || []).map((row) => [row.module, row]),
 );
-ok("B3: telemetry records independent 32s/12s/12s allocations",
-  t3Telemetry.cve_intelligence?.allocated_ms === 32_000 &&
-    t3Telemetry.known_exploited_vulnerabilities?.allocated_ms === 12_000 &&
-    t3Telemetry.email_security_intelligence?.allocated_ms === 12_000,
+ok("B3: telemetry records the 12s Email Intelligence allocation and no outside-data module",
+  t3Telemetry.email_security_intelligence?.allocated_ms === 12_000 &&
+    !("cve_intelligence" in t3Telemetry) && !("known_exploited_vulnerabilities" in t3Telemetry),
   JSON.stringify(t3Telemetry));
-ok("B3: only Email Intelligence telemetry is a module_race timeout",
-  t3Telemetry.cve_intelligence?.timeout === false &&
-    t3Telemetry.known_exploited_vulnerabilities?.timeout === false &&
-    t3Telemetry.email_security_intelligence?.timeout === true &&
+ok("B3: Email Intelligence telemetry is a module_race timeout",
+  t3Telemetry.email_security_intelligence?.timeout === true &&
     t3Telemetry.email_security_intelligence?.timeout_source === "module_race",
   JSON.stringify(t3Telemetry));
 ok("B3: deferred intel no longer fabricates transport detail for checks that never ran",
@@ -1571,7 +1574,7 @@ function certificateCxPositive(name, candidate, expected) {
       !candidate.pdf_text.includes(`[CRITICAL] ${expected.title}`));
   ok(`B3e ${name}: score and methodology remain independently frozen`,
     candidate.score === candidate.paired_score_control &&
-      candidate.score_methodology === "2026-08-26.1" &&
+      candidate.score_methodology === "2026-10-13.1" &&
       candidate.resolver_version === "2026-10-12.1");
 }
 
@@ -1635,36 +1638,35 @@ ok("B3e absence history reuses S3b resolved versus not-reobserved proof",
 
 // ── B4. Legacy waitUntil byte/terminal compatibility ────────────────────────
 const t4 = await trace("deferred-intel", { executionContext: "waituntil" });
-ok("B4: waitUntil retains the shared all-three 1s terminal fallback",
-  [t4.report?.modules?.cve_intelligence, t4.report?.modules?.known_exploited_vulnerabilities, t4.intel]
-    .every((module) => module?.executed === false && module?.outcome === "deadline_exceeded"));
+ok("B4: waitUntil Email Intelligence keeps the shared 1s terminal fallback",
+  t4.intel?.executed === false && t4.intel?.outcome === "deadline_exceeded",
+  JSON.stringify(t4.intel));
+ok("B4: waitUntil states vulnerability matching outside the check pack, never deferred",
+  [t4.report?.modules?.cve_intelligence, t4.report?.modules?.known_exploited_vulnerabilities]
+    .every((module) => module?.outcome === "not_in_check_pack"));
 const t4Telemetry = (t4.diagnostics?.modules || []).filter((row) =>
   ["cve_intelligence", "known_exploited_vulnerabilities", "email_security_intelligence"].includes(row.module));
-ok("B4: waitUntil telemetry remains three shared 1000ms module-race rows",
-  t4Telemetry.length === 3 && t4Telemetry.every((row) =>
+ok("B4: waitUntil telemetry is one 1000ms module-race row, for Email Intelligence",
+  t4Telemetry.length === 1 && t4Telemetry.every((row) =>
+    row.module === "email_security_intelligence" &&
     row.allocated_ms === 1_000 && row.timeout === true && row.timeout_source === "module_race"),
   JSON.stringify(t4Telemetry));
 ok("B4: waitUntil retains the legacy scan-deadline fallback bytes",
-  [t4.report?.modules?.cve_intelligence, t4.report?.modules?.known_exploited_vulnerabilities, t4.intel]
-    .every((module) => module?.reason === "scan_deadline_exhausted"
-      && !Object.prototype.hasOwnProperty.call(module, "timeout_source")));
+  t4.intel?.reason === "scan_deadline_exhausted"
+    && !Object.prototype.hasOwnProperty.call(t4.intel, "timeout_source"));
 
-// ── B5. Other timeout directions preserve their completed siblings ─────────
-console.log("\n── B5. slow CVE / slow KEV sibling-preservation directions ──");
-const slowCve = await trace("slow-cve", { accelerateDurableCaps: true });
-ok("B5: slow CVE alone reaches its module-local fallback",
-  slowCve.report?.modules?.cve_intelligence?.reason === "module_budget_exhausted" &&
-    slowCve.report?.modules?.cve_intelligence?.timeout_source === "module_race");
-ok("B5: slow CVE preserves completed KEV and Email Intelligence",
-  slowCve.report?.modules?.known_exploited_vulnerabilities?.outcome !== "deadline_exceeded" &&
-    slowCve.intel?.outcome !== "deadline_exceeded");
-const slowKev = await trace("slow-kev", { accelerateDurableCaps: true });
-ok("B5: slow KEV alone reaches its module-local fallback",
-  slowKev.report?.modules?.known_exploited_vulnerabilities?.reason === "module_budget_exhausted" &&
-    slowKev.report?.modules?.known_exploited_vulnerabilities?.timeout_source === "module_race");
-ok("B5: slow KEV preserves completed CVE and Email Intelligence",
-  slowKev.report?.modules?.cve_intelligence?.outcome !== "deadline_exceeded" &&
-    slowKev.intel?.outcome !== "deadline_exceeded");
+// ── B5. A slow outside vulnerability service cannot touch a scan ────────────
+// The fixtures still answer slowly; the scan never asks them.
+console.log("\n── B5. slow outside vulnerability services are never asked ──");
+for (const variant of ["slow-cve", "slow-kev"]) {
+  const slow = await trace(variant, { accelerateDurableCaps: true });
+  ok(`B5: ${variant} — the outside service is never asked and nothing defers`,
+    slow.lateResolvedAfterEngine === false &&
+      slow.report?.modules?.cve_intelligence?.outcome === "not_in_check_pack" &&
+      slow.report?.modules?.known_exploited_vulnerabilities?.outcome === "not_in_check_pack" &&
+      slow.intel?.outcome !== "deadline_exceeded" && slow.dbStatus === "completed",
+    JSON.stringify({ late: slow.lateResolvedAfterEngine, intel: slow.intel?.outcome, db: slow.dbStatus }));
+}
 
 // ── B6. A real abandoned Phase-5 promise resolves after terminal finalization ─
 console.log("\n── B6. late Phase-5 completion cannot mutate finalized report ──");
@@ -1683,20 +1685,16 @@ for (const executionContext of ["queue", "cron"]) {
   const boundary = await trace("complete", { executionContext, phase5ElapsedMs: 70_000 });
   ok(`B7: ${executionContext} reaches the 70s Phase-5 boundary`,
     boundary.diagnostics?.engine_wall_ms === 70_000);
-  ok(`B7: ${executionContext} admits all siblings when 32s max fits but 56s sum does not`,
-    70_000 + 32_000 < 115_000 && 70_000 + 56_000 >= 115_000 &&
-      [
-        boundary.report?.modules?.cve_intelligence,
-        boundary.report?.modules?.known_exploited_vulnerabilities,
-        boundary.intel,
-      ].every((module) => module?.outcome !== "deadline_exceeded"),
+  ok(`B7: ${executionContext} admits Email Intelligence when its 12s cap fits`,
+    70_000 + SCAN_DURABLE_PHASE5_MODULE_BUDGETS.email_security_intelligence < 115_000 &&
+      boundary.intel?.outcome !== "deadline_exceeded",
     JSON.stringify(boundary.diagnostics?.modules));
 }
 
 // The same real-engine seam proves a module rejected before launch is never
-// represented as a measured zero-duration execution. The outer max-cap gate
-// sees max+1ms and passes; before the three individual admissions the virtual
-// clock advances to min-1ms, so every sibling is rejected by runCappedModule.
+// represented as a measured zero-duration execution. The outer gate sees
+// cap+1ms and passes; before the module's own admission the virtual clock
+// advances to cap-1ms, so runCappedModule rejects it.
 const phase5MaxCap = Math.max(...Object.values(SCAN_DURABLE_PHASE5_MODULE_BUDGETS));
 const phase5MinCap = Math.min(...Object.values(SCAN_DURABLE_PHASE5_MODULE_BUDGETS));
 const phase5OuterElapsed = SCAN_DURABLE_INVOCATION_DEADLINE_DEFAULTS.budgetMs - (phase5MaxCap + 1);
@@ -1715,7 +1713,7 @@ for (const executionContext of ["queue", "cron"]) {
   const diagnostics = (gated.diagnostics?.modules || [])
     .filter((row) => phase5Names.has(row.module));
   ok(`B7 launch gate: ${executionContext} preserves null duration in R2 diagnostics`,
-    diagnostics.length === 3 && diagnostics.every((row) =>
+    diagnostics.length === 1 && diagnostics.every((row) =>
       row.timeout_source === "launch_gate"
         && row.wall_ms === null
         && row.allocated_ms === 0
@@ -1725,7 +1723,7 @@ for (const executionContext of ["queue", "cron"]) {
     "SELECT module, started_at, completed_at, duration_ms, outcome FROM scan_module_telemetry WHERE scan_id='scan-em'"
   ).all().filter((row) => phase5Names.has(row.module));
   ok(`B7 launch gate: ${executionContext} preserves null duration in D1 telemetry`,
-    persisted.length === 3 && persisted.every((row) =>
+    persisted.length === 1 && persisted.every((row) =>
       row.started_at === null
         && row.completed_at === null
         && row.duration_ms === null
@@ -1911,7 +1909,7 @@ ok("B9 CX: PDF renders exact backend title/severity and canonical action",
     && b2bVcenterCx.pdf_text.includes("Restrict administrative interfaces"));
 ok("B9 CX: score and score methodology equal the paired no-bucket control",
   b2bVcenterCx.score === b2bVcenterCx.paired_score_control
-    && b2bVcenterCx.score_methodology === "2026-08-26.1"
+    && b2bVcenterCx.score_methodology === "2026-10-13.1"
     && b2bVcenterCx.resolver_version === "2026-10-12.1",
   JSON.stringify({
     score: b2bVcenterCx.score,
@@ -2333,12 +2331,12 @@ const MUTATIONS = [
     name: "Lane-A Phase-5 launch refusal is collapsed to zero duration",
     edits: [{
       target: SCAN_ENGINE,
-      from: "        const durationMs = run.durationMs;",
-      to:   "        const durationMs = run.durationMs ?? 0;",
+      from: "        duration_ms: emailIntelRun.durationMs,",
+      to:   "        duration_ms: emailIntelRun.durationMs ?? 0,",
     }],
     check: () => {
       const rows = runChild("phase5-launch-gate").diagnostics || [];
-      return rows.length === 3 && rows.every((row) =>
+      return rows.length === 1 && rows.every((row) =>
         row.timeout_source === "launch_gate" && row.wall_ms === 0);
     },
   },

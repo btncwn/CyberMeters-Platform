@@ -627,21 +627,19 @@ async function runEnginePhysicalProvenanceFixture(scanId, counter) {
     (() => {
       const emailRow = diag(zeroReport, "email_security_intelligence");
       const emailValue = zeroReport?.modules?.email_security_intelligence;
-      const dependencyOnly = ["cve_intelligence", "known_exploited_vulnerabilities"];
+      const notInCheckPack = ["cve_intelligence", "known_exploited_vulnerabilities"];
       return emailValue?.incomplete_reason === "subrequest_budget_exhausted"
         && emailValue?.timeout_source === "subrequest_budget"
         && emailRow?.timeout === false
         && emailRow?.timeout_source === "subrequest_budget"
-        // CVE/KEV never reach a provider attempt in this fixture because their
-        // technology dependency is unavailable. They must not inherit the
-        // sibling's physical refusal provenance.
-        && dependencyOnly.every((module) => {
-          const row = diag(zeroReport, module);
+        // Outside vulnerability data is not part of the check pack: those two
+        // modules make no attempt, record no telemetry row and never inherit
+        // the sibling's physical refusal provenance.
+        && notInCheckPack.every((module) => {
           const value = zeroReport?.modules?.[module];
-          return value?.timeout_source == null
-            && row?.timeout === false
-            && row?.outcome === "dependency_unavailable"
-            && row?.timeout_source == null;
+          return value?.outcome === "not_in_check_pack"
+            && value?.timeout_source == null
+            && diag(zeroReport, module) == null;
         });
     })(),
     JSON.stringify(zeroReport?.execution_diagnostics?.modules),

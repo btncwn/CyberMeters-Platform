@@ -255,9 +255,11 @@ function ok(name, cond, detail = "") {
   ok("D3 isolation: complete evidence + skipped score-bearing module STILL nulls the score",
     completePlusSkip.score === null && completePlusSkip.suppressed === true);
 
-  // Persistence boundary: the live transform owns the one KEV deduction. A
-  // historical projection receives that already-adjusted score and must preserve
-  // it byte-for-value while still applying the shared suppression decision.
+  // Persistence boundary. Outside vulnerability data is not part of the check
+  // pack (2026-10-13.1), so an exploited-vulnerability match carried by a module
+  // no longer moves a live score. A score finalised under the earlier
+  // methodology (one that charged the match: 90 -> 85) is read back exactly as
+  // persisted, while the shared suppression decision still applies.
   const kevModules = {
     ...completeMods(),
     known_exploited_vulnerabilities: { matches: [{
@@ -274,13 +276,13 @@ function ok(name, cond, detail = "") {
     modules: kevModules,
   });
   const historicalKev = resolvePhase5HistoricalCustomerProjection({
-    score: liveKev.score,
-    riskLevel: liveKev.risk_level,
+    score: 85,
+    riskLevel: "good",
     scanQuality: "complete",
     modules: kevModules,
   });
-  ok("D3 persistence boundary: live KEV adjustment applies exactly once (90 to 85)",
-    liveKev.score === 85 && liveKev.risk_level === "good");
+  ok("D3 persistence boundary: an exploited-vulnerability match no longer moves a live score (90 stays 90)",
+    liveKev.score === 90 && liveKev.risk_level === "good");
   ok("D3 persistence boundary: historical projection preserves persisted 85/good",
     historicalKev.score === 85 &&
       historicalKev.risk_level === "good" &&

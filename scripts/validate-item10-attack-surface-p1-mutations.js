@@ -11,7 +11,7 @@ const validator = path.join(root, "scripts", "validate-item10-attack-surface-p1.
 const mutations = [
   "collapse-siblings",
   "unavailable-as-absent",
-  "cve-zero-is-clean",
+  "missing-marker-is-clean",
   "one-scan-removes",
   "drop-spacing",
   "drop-window",

@@ -132,6 +132,26 @@ runIntegrationMutant("reappeared creates new identity", {
   ),
 });
 
+runIntegrationMutant("another workspace on the domain is written", {
+  mutateLifecycle: (source) => source.replace(
+    "WHERE wd.domain_id = ? AND wd.workspace_id = ? AND w.deleted_at IS NULL`\n    )\n    .bind(domainId, workspaceId)",
+    "WHERE wd.domain_id = ? AND w.deleted_at IS NULL`\n    )\n    .bind(domainId)",
+  ),
+});
+
+runIntegrationMutant("another workspace's names become re-check targets", {
+  mutateLifecycle: (source) => source
+    .replace("WHERE wa.workspace_id = ? AND wa.hostname LIKE ? AND wa.hostname <> ?", "WHERE wa.hostname LIKE ? AND wa.hostname <> ?")
+    .replace(".bind(domainId, windowStart, workspaceId, `%.${root}`, root, MAX_RECHECK_HOSTS)", ".bind(domainId, windowStart, `%.${root}`, root, MAX_RECHECK_HOSTS)"),
+});
+
+runIntegrationMutant("asset evidence is dropped", {
+  mutateLifecycle: (source) => source.replace(
+    "evidence: assetEvidence.get(normalizeHostname(asset.hostname)) ?? evidenceNotCheckedThisScan(),",
+    "evidence: evidenceNotCheckedThisScan(),",
+  ),
+});
+
 sequence += 1;
 const missingName = `.attack-surface-signal-completeness.item10-p2-mutant.${process.pid}.${sequence}.js`;
 const missingPath = path.join(engines, missingName);

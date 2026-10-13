@@ -1343,6 +1343,9 @@ jobs:
       - name: B5 OAuth callback readiness (state CSRF single-use/TTL, config/error gates, OTC single-use, nonce binding)
         run: node scripts/validate-oauth-callback-readiness.js
 
+      - name: Validate Microsoft sign-in browser binding (other browser refused, single delivery, legacy rows refused, signed provider round trip)
+        run: node scripts/validate-microsoft-login-binding.js
+
       - name: Validate Email Protection canonical lifecycle (windowed evidence / baseline / recovery / re-entry)
         run: node scripts/validate-alert-b3-email-protection.js
 

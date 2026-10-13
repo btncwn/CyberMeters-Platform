@@ -10,7 +10,35 @@ import { RDAP_UA, safeFetch } from "../lib/http.js";
 // replacement for port-43 WHOIS, which is blocked in Cloudflare Workers.
 // Queries authoritative TLD registries first (Verisign, Nominet, PIR), then
 // falls back to rdap.org as a universal aggregator.
-// Never throws — returns { error } on any failure so the scan continues.
+//
+// Registration data is optional (check-pack.js): discovery, findings on the
+// domain's own services and the score never depend on it. A registry that does
+// not answer leaves the registration notes out of this scan — reported as
+// unavailable, never as an error that makes the scan incomplete. The result
+// names the registry services asked and how each answered; it never records a
+// request URL or a raw network error.
+// Never throws.
+
+// Every result of this module carries this marker; buildScanQuality reads it to
+// keep an unanswered registry out of the scan's completeness.
+export const REGISTRATION_DATA_OPTIONAL = Object.freeze({ source: "rdap", optional: true });
+
+function registryHost(url) {
+  try { return new URL(url).hostname; } catch { return null; }
+}
+
+function registrationUnavailable(reason, registriesAsked = [], registeredDomain = null) {
+  return {
+    ...REGISTRATION_DATA_OPTIONAL,
+    domain: registeredDomain,
+    outcome: "unavailable",
+    unavailable: true,
+    reason,
+    registries_asked: registriesAsked,
+    findings: [],
+    recommendations: [],
+  };
+}
 
 /**
  * Extract the registered (eTLD+1) domain from any hostname.
@@ -103,9 +131,10 @@ export async function runWhoisModule(domain, opts = {}) {
     // Skip on 403/404 and continue — only fail if every provider fails.
     const rdapUrls  = getRdapUrls(registeredDomain);
     let   data      = null;
-    const errors    = [];
+    const asked     = [];
 
     for (const rdapUrl of rdapUrls) {
+      const registry = registryHost(rdapUrl);
       let res;
       try {
         res = await safeFetch(rdapUrl, {
@@ -117,7 +146,7 @@ export async function runWhoisModule(domain, opts = {}) {
           accounting,
         });
       } catch (fetchErr) {
-        errors.push(`${rdapUrl} → network error: ${fetchErr.message ?? "timeout"}`);
+        asked.push({ registry, outcome: fetchErr?.name === "TimeoutError" ? "timeout" : "no_response" });
         continue;
       }
 
@@ -125,18 +154,19 @@ export async function runWhoisModule(domain, opts = {}) {
         try {
           data = await res.json();
         } catch {
-          errors.push(`${rdapUrl} → JSON parse failed`);
+          asked.push({ registry, outcome: "unreadable_answer" });
           continue;
         }
+        asked.push({ registry, outcome: "answered" });
         break; // success — stop trying further providers
       }
 
       // 404 = domain not in this registry (try next), 403 = blocked (try next)
-      errors.push(`${rdapUrl} → HTTP ${res?.status ?? "unknown"}`);
+      asked.push({ registry, outcome: res ? `http_${res.status}` : "no_response" });
     }
 
     if (!data) {
-      return { error: `All RDAP providers failed: ${errors.join("; ")}` };
+      return registrationUnavailable("registry_not_answering", asked, registeredDomain);
     }
 
     // ── Extract dates from the events array ───────────────────────────────────
@@ -282,9 +312,10 @@ export async function runWhoisModule(domain, opts = {}) {
       risk_level:          riskLevel,
       findings,
       recommendations,
-      source:              "rdap",
+      ...REGISTRATION_DATA_OPTIONAL,
+      registries_asked:    asked,
     };
-  } catch (err) {
-    return { error: err?.message ?? "WHOIS/RDAP lookup failed" };
+  } catch {
+    return registrationUnavailable("lookup_failed");
   }
 }

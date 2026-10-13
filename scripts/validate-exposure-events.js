@@ -2,6 +2,11 @@
 //
 // Exposure-timeline regression: asset inventory emits DNS-level change events
 // when an existing asset's IP, CNAME or redirect target changes between scans.
+// Also: only the scanning workspace's inventory is written, each row keeps the
+// first and last time every source named it, a redirect location is kept
+// without its query, fragment or path parameters, a lookup or probe that failed
+// never reads as a change, and a standing condition (a takeover candidate, a
+// wildcard) is announced once when it appears, not on every scan.
 // Drives upsertAssetInventory against a real in-memory SQLite schema
 // (schema.sql + migrations) via the same D1 adapter pattern used by the
 // request-pipeline harness. Requires Node 24+ (node:sqlite). CI-blocking.
@@ -43,26 +48,28 @@ function makeD1(db) {
   };
 }
 
-function report() {
+function report(modules = {}) {
   return {
     scan_quality: { status: "complete" },
     timeline_trust: buildAssetTimelineTrustMetadata(),
-    modules: {},
+    modules,
   };
 }
 
-function makeR2() {
+// The previous scan's stored report; its modules are what a standing
+// condition is compared against.
+function makeR2(previousModules = {}) {
   return {
     async get(key) {
       if (key !== "reports/scan_prev.json") return null;
-      return { json: async () => report() };
+      return { json: async () => report(previousModules) };
     },
   };
 }
 
-function harness() {
+function harness({ previousModules = {} } = {}) {
   const db = buildDb();
-  const env = { cybermeters_db: makeD1(db), cybermeters_reports: makeR2() };
+  const env = { cybermeters_db: makeD1(db), cybermeters_reports: makeR2(previousModules) };
   db.prepare("INSERT INTO users (id, email) VALUES (?, ?)").run("usr_1", "owner@example.co.uk");
   db.prepare("INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)").run("dom_1", "usr_1", "example.co.uk");
   db.prepare("INSERT INTO workspaces (id, name) VALUES (?, ?)").run("ws_1", "Acme");
@@ -84,13 +91,13 @@ function seedAsset(db, { hostname = "www.example.co.uk", ip_addresses = null, cn
   ).run(`asset_${hostname.replace(/[^a-z0-9]+/gi, "_")}`, hostname, ip_addresses, cname, redirect_to);
 }
 
-async function runInventory(env, modules) {
-  await upsertAssetInventory("scan_1", "dom_1", "example.co.uk", {
+async function runInventory(env, modules, opts = {}) {
+  return upsertAssetInventory(opts.scanId ?? "scan_1", "dom_1", "example.co.uk", {
     subdomains: { items: [], wildcard_dns: false },
     dns_bruteforce: { items: [] },
     asset_exposure: { assets: [] },
     ...modules,
-  }, env, { currentReport: report() });
+  }, env, { currentReport: report(), workspaceId: "ws_1", ...opts });
 }
 
 const rows = (db, eventType) => db.prepare("SELECT event_type, hostname, severity, description FROM asset_events WHERE event_type = ? ORDER BY created_at").all(eventType);
@@ -124,22 +131,24 @@ const rows = (db, eventType) => db.prepare("SELECT event_type, hostname, severit
   const { db, env } = harness();
   seedAsset(db, { hostname: "app.example.co.uk", redirect_to: null });
   await runInventory(env, {
-    asset_exposure: { assets: [{ host: "app.example.co.uk", redirect_to: "https://external.example.net/path" }] },
+    asset_exposure: { assets: [{ host: "app.example.co.uk", status: 200, redirect_to: "https://external.example.net/path" }] },
   });
   ok("redirect null -> value does not emit dns_redirect_changed", rows(db, "dns_redirect_changed").length === 0);
 }
 
-// 4. redirect_to A -> external B emits high-severity redirect change.
+// 4. redirect_to A -> external B emits high-severity redirect change. The
+//    description names where the name sends people (scheme, host, port), never
+//    a path or query.
 {
   const { db, env } = harness();
   seedAsset(db, { hostname: "app.example.co.uk", redirect_to: "https://old.example.co.uk/start" });
   await runInventory(env, {
-    asset_exposure: { assets: [{ host: "app.example.co.uk", redirect_to: "https://external.example.net/path" }] },
+    asset_exposure: { assets: [{ host: "app.example.co.uk", status: 200, redirect_to: "https://external.example.net/path" }] },
   });
   const events = rows(db, "dns_redirect_changed");
   ok("external redirect change emits one dns_redirect_changed event", events.length === 1);
   ok("external redirect change severity is high", events[0]?.severity === "high");
-  ok("redirect description contains old and new values", events[0]?.description === "app.example.co.uk now redirects to https://external.example.net/path (was https://old.example.co.uk/start)");
+  ok("redirect description contains old and new values", events[0]?.description === "app.example.co.uk now redirects to https://external.example.net (was https://old.example.co.uk)");
 }
 
 // 5. Same IP on the next scan does not emit a change event.
@@ -165,24 +174,38 @@ const rows = (db, eventType) => db.prepare("SELECT event_type, hostname, severit
   ok("second IP change within 24h is deduped", rows(db, "dns_ip_changed").length === 1);
 }
 
-// 7. First-party references persist with their own source; a name another
-//    source already found keeps that source, and a third party is never added.
+// 7. Configuration references (SRV targets, hosts the home page links to)
+//    persist only once DNS answered for them, with their own source; a
+//    reference DNS never confirmed is not an asset; a name another source
+//    already found keeps the most specific source; a third party is never added.
 {
   const { db, env } = harness();
   await runInventory(env, {
-    subdomains: { items: ["portal.example.co.uk", "vpn.example.co.uk"], wildcard_dns: false },
+    subdomains: {
+      items: ["portal.example.co.uk", "vpn.example.co.uk"],
+      wildcard_dns: false,
+      referenced_hostnames: {
+        confirmed: [
+          { hostname: "autodiscover.example.co.uk", asset_source: "dns_srv", ip_addresses: ["192.0.2.10"] },
+          { hostname: "status.example.co.uk", asset_source: "html_link", ip_addresses: ["192.0.2.11"] },
+          { hostname: "portal.example.co.uk", asset_source: "dns_srv", ip_addresses: ["192.0.2.12"] },
+        ],
+      },
+    },
     dns_bruteforce: {
       items: [],
       srv_items: [
-        { hostname: "autodiscover.example.co.uk", source: "dns_srv", record: "_autodiscover._tcp.example.co.uk" },
-        { hostname: "portal.example.co.uk", source: "dns_srv", record: "_sip._tls.example.co.uk" },
+        { hostname: "stale-target.example.co.uk", source: "dns_srv", record: "_sip._tls.example.co.uk" },
       ],
     },
-    technology_detection: { linked_hostnames: ["status.example.co.uk", "portal.example.co.uk"] },
+    technology_detection: { linked_hostnames: ["old-link.example.co.uk", "partner.example.org"] },
   });
   const sourceOf = (hostname) => db.prepare("SELECT source FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = ?").get(hostname)?.source ?? null;
-  ok("SRV target persists as dns_srv", sourceOf("autodiscover.example.co.uk") === "dns_srv");
-  ok("home-page link persists as html_link", sourceOf("status.example.co.uk") === "html_link");
+  ok("SRV target confirmed by DNS persists as dns_srv", sourceOf("autodiscover.example.co.uk") === "dns_srv");
+  ok("home-page link confirmed by DNS persists as html_link", sourceOf("status.example.co.uk") === "html_link");
+  ok("an SRV target or link DNS never confirmed is not an asset",
+    sourceOf("stale-target.example.co.uk") === null && sourceOf("old-link.example.co.uk") === null);
+  ok("a link to another organisation's domain is never an asset", sourceOf("partner.example.org") === null);
   ok("a name several sources found keeps the most specific source", sourceOf("portal.example.co.uk") === "dns_srv");
   ok("a name only the merged discovery set carries persists as dns_discovery", sourceOf("vpn.example.co.uk") === "dns_discovery");
   ok("each referenced host is stored once",
@@ -222,6 +245,213 @@ const rows = (db, eventType) => db.prepare("SELECT event_type, hostname, severit
   ok("without removal observations an unanswered probe is not a sighting", lastSeen() === before);
   await runInventory(env, { asset_exposure: { assets: [{ host: "legacy.example.co.uk", reachable: true, status: 200 }] } });
   ok("without removal observations an HTTP response is a sighting", lastSeen() !== before);
+}
+
+// 8. Only the scanning workspace is written. Another workspace linked to the
+//    same domain keeps its own inventory; nothing is written without one.
+{
+  const { db, env } = harness();
+  db.prepare("INSERT INTO workspaces (id, name) VALUES (?, ?)").run("ws_2", "Other");
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?, ?)").run("ws_2", "dom_1");
+  const result = await runInventory(env, {
+    subdomains: {
+      items: ["private.example.co.uk"],
+      wildcard_dns: false,
+      customer_hostnames: { confirmed: [{ hostname: "private.example.co.uk", source: "customer_list", ip_addresses: ["192.0.2.20"] }] },
+    },
+  });
+  const count = (workspace) => db.prepare("SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ?").get(workspace).n;
+  ok("the scanning workspace's inventory is written", result?.written === true && count("ws_1") === 2);
+  ok("a name one workspace listed never reaches another workspace on the same domain", count("ws_2") === 0);
+  const unbound = await upsertAssetInventory("scan_1", "dom_1", "example.co.uk", {
+    subdomains: { items: ["another.example.co.uk"], wildcard_dns: false }, dns_bruteforce: { items: [] }, asset_exposure: { assets: [] },
+  }, env, { currentReport: report() });
+  ok("without a workspace nothing is written", unbound?.written === false && unbound?.reason === "no_workspace" &&
+    db.prepare("SELECT COUNT(*) AS n FROM workspace_assets WHERE hostname = 'another.example.co.uk'").get().n === 0);
+  db.prepare("UPDATE workspaces SET deleted_at = datetime('now') WHERE id = 'ws_1'").run();
+  const deleted = await runInventory(env, { subdomains: { items: ["late.example.co.uk"], wildcard_dns: false } });
+  ok("a deleted workspace is not written", deleted?.written === false &&
+    db.prepare("SELECT COUNT(*) AS n FROM workspace_assets WHERE hostname = 'late.example.co.uk'").get().n === 0);
+}
+
+// 9. Each row keeps where it was seen, per source: first and last time.
+{
+  const { db, env } = harness();
+  const sightings = (hostname) => JSON.parse(db.prepare("SELECT sightings_json FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = ?").get(hostname)?.sightings_json ?? "null");
+  const seen = {
+    subdomains: {
+      items: ["app.example.co.uk"],
+      wildcard_dns: false,
+      referenced_hostnames: { confirmed: [{ hostname: "app.example.co.uk", asset_source: "tls_certificate_name", sources: ["live_tls_san", "csp"], ip_addresses: ["192.0.2.30"] }] },
+    },
+    dns_bruteforce: { items: [{ hostname: "app.example.co.uk", ip_addresses: ["192.0.2.30"] }] },
+  };
+  await runInventory(env, seen, { observedAt: "2026-07-18T10:00:00.000Z" });
+  const first = sightings("app.example.co.uk");
+  ok("a new name records every source that named it",
+    JSON.stringify(Object.keys(first?.sources || {}).sort()) === JSON.stringify(["csp_reference", "dns_bruteforce", "tls_certificate_name"]));
+  ok("a new name's record starts with the scan that found it",
+    first?.recorded_since === "2026-07-18T10:00:00.000Z" && first?.sources?.dns_bruteforce?.first_scan_id === "scan_1");
+  await runInventory(env, { dns_bruteforce: { items: [{ hostname: "app.example.co.uk", ip_addresses: ["192.0.2.30"] }] } },
+    { observedAt: "2026-07-19T10:00:00.000Z", scanId: "scan_2" });
+  const second = sightings("app.example.co.uk");
+  ok("a later scan moves only the sources that named the name again",
+    second?.sources?.dns_bruteforce?.first_seen_at === "2026-07-18T10:00:00.000Z" &&
+      second?.sources?.dns_bruteforce?.last_seen_at === "2026-07-19T10:00:00.000Z" &&
+      second?.sources?.dns_bruteforce?.last_scan_id === "scan_2" &&
+      second?.sources?.tls_certificate_name?.last_seen_at === "2026-07-18T10:00:00.000Z");
+  await runInventory(env, seen, { observedAt: "2026-07-18T10:00:00.000Z" });
+  ok("replaying an older scan never moves a sighting backwards",
+    sightings("app.example.co.uk")?.sources?.dns_bruteforce?.last_seen_at === "2026-07-19T10:00:00.000Z");
+  seedAsset(db, { hostname: "legacy.example.co.uk" });
+  await runInventory(env, { asset_exposure: { assets: [{ host: "legacy.example.co.uk", reachable: true, status: 200 }] } },
+    { observedAt: "2026-07-20T10:00:00.000Z", scanId: "scan_3" });
+  ok("a row recorded before sightings gets none invented when no source names it", sightings("legacy.example.co.uk") === null);
+  await runInventory(env, { dns_bruteforce: { items: [{ hostname: "legacy.example.co.uk", ip_addresses: ["192.0.2.31"] }] } },
+    { observedAt: "2026-07-21T10:00:00.000Z", scanId: "scan_4" });
+  const legacy = sightings("legacy.example.co.uk");
+  ok("its record starts the first time a source names it, and says so",
+    legacy?.recorded_since === "2026-07-21T10:00:00.000Z" && Object.keys(legacy?.sources || {}).join() === "dns_bruteforce");
+}
+
+// 10. A redirect location is kept without its query, fragment or path
+//     parameters; an old row stored with them is compared without them.
+{
+  const { db, env } = harness();
+  seedAsset(db, { hostname: "login.example.co.uk", redirect_to: "https://idp.example.co.uk/authorize?state=OLDSECRET#x" });
+  await runInventory(env, {
+    asset_exposure: { assets: [{ host: "login.example.co.uk", status: 200, redirect_to: "https://idp.example.co.uk/authorize;jsessionid=ABC?state=NEWSECRET&code=123#frag" }] },
+  });
+  const stored = db.prepare("SELECT redirect_to FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = 'login.example.co.uk'").get().redirect_to;
+  ok("the stored redirect keeps scheme, host and path only", stored === "https://idp.example.co.uk/authorize");
+  ok("a query that changed is not a redirect change", rows(db, "dns_redirect_changed").length === 0);
+  ok("no secret reaches the inventory or its events",
+    !/SECRET|code=|jsessionid/.test(JSON.stringify(db.prepare("SELECT * FROM workspace_assets").all()) + JSON.stringify(db.prepare("SELECT * FROM asset_events").all())));
+}
+
+// 11. Only a probe that got an answer says where a name sends people. A probe
+//     that failed (its URL is only the address it tried) keeps the stored
+//     location and is no change; a scheme flip or another page on the same
+//     host is not a redirect change; a name that starts sending visitors
+//     elsewhere, or stops, is.
+{
+  const { db, env } = harness();
+  seedAsset(db, { hostname: "shop.example.co.uk", redirect_to: "https://shop-provider.example.net/" });
+  seedAsset(db, { hostname: "www.example.co.uk", redirect_to: "https://www.example.co.uk/en" });
+  seedAsset(db, { hostname: "news.example.co.uk", redirect_to: "https://news.example.co.uk/" });
+  seedAsset(db, { hostname: "old.example.co.uk", redirect_to: "https://partner.example.net/" });
+  await runInventory(env, {
+    dns_bruteforce: { items: [{ hostname: "shop.example.co.uk", ip_addresses: ["192.0.2.60"] }] },
+    asset_exposure: {
+      assets: [
+        { host: "shop.example.co.uk", url: "https://shop.example.co.uk", status: null, reachable: null, probe_status: "timed_out" },
+        { host: "www.example.co.uk", url: "http://www.example.co.uk/de", status: 200, reachable: true },
+        { host: "news.example.co.uk", url: "https://elsewhere.example.org/landing?ref=abc", status: 200, reachable: true },
+        { host: "old.example.co.uk", url: "https://old.example.co.uk/", status: 200, reachable: true },
+      ],
+    },
+  });
+  const stored = (hostname) => db.prepare("SELECT redirect_to FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = ?").get(hostname)?.redirect_to;
+  const events = rows(db, "dns_redirect_changed");
+  const forHost = (hostname) => events.filter((event) => event.hostname === hostname);
+  ok("a probe that failed keeps the stored location", stored("shop.example.co.uk") === "https://shop-provider.example.net/");
+  ok("a probe that failed is not a redirect change", forHost("shop.example.co.uk").length === 0);
+  ok("another page or a scheme flip on the same host is not a redirect change", forHost("www.example.co.uk").length === 0);
+  ok("a name that starts sending visitors elsewhere is one change, named by where it now lands",
+    forHost("news.example.co.uk").length === 1 &&
+      forHost("news.example.co.uk")[0].description === "news.example.co.uk now redirects to https://elsewhere.example.org (it previously answered on its own name)" &&
+      forHost("news.example.co.uk")[0].severity === "high");
+  ok("a name that stops redirecting says so, at low severity",
+    forHost("old.example.co.uk").length === 1 &&
+      forHost("old.example.co.uk")[0].description === "old.example.co.uk no longer redirects to https://partner.example.net; it answers on its own name" &&
+      forHost("old.example.co.uk")[0].severity === "low");
+  ok("no query reaches the stored location", !/ref=abc/.test(JSON.stringify(db.prepare("SELECT redirect_to FROM workspace_assets").all())));
+}
+
+// 12. Per-family DNS: a family whose question failed keeps its stored
+//     addresses, so a lookup failure is never an address change; a family DNS
+//     answered definitively replaces them.
+{
+  const { db, env } = harness();
+  seedAsset(db, { hostname: "dual.example.co.uk", ip_addresses: JSON.stringify(["192.0.2.40", "2001:db8::40"]) });
+  seedAsset(db, { hostname: "v6gone.example.co.uk", ip_addresses: JSON.stringify(["192.0.2.41", "2001:db8::41"]) });
+  const family = (outcome, values = []) => ({ outcome, values });
+  const assetEvidence = new Map([
+    ["dual.example.co.uk", { dns: { A: family("answer", ["192.0.2.40"]), AAAA: family("timeout") } }],
+    ["v6gone.example.co.uk", { dns: { A: family("answer", ["192.0.2.41"]), AAAA: family("nodata") } }],
+  ]);
+  await runInventory(env, {
+    dns_bruteforce: {
+      items: [
+        { hostname: "dual.example.co.uk", ip_addresses: ["192.0.2.40"] },
+        { hostname: "v6gone.example.co.uk", ip_addresses: ["192.0.2.41"] },
+      ],
+    },
+  }, { assetEvidence });
+  const stored = (hostname) => JSON.parse(db.prepare("SELECT ip_addresses FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = ?").get(hostname)?.ip_addresses ?? "null");
+  const changes = (hostname) => rows(db, "dns_ip_changed").filter((event) => event.hostname === hostname);
+  ok("an IPv6 question that timed out keeps the stored IPv6 address", JSON.stringify(stored("dual.example.co.uk")) === JSON.stringify(["192.0.2.40", "2001:db8::40"]));
+  ok("an IPv6 question that timed out is not an address change", changes("dual.example.co.uk").length === 0);
+  ok("an IPv6 answer that the name has none replaces the stored IPv6 address", JSON.stringify(stored("v6gone.example.co.uk")) === JSON.stringify(["192.0.2.41"]));
+  ok("and is one address change", changes("v6gone.example.co.uk").length === 1 &&
+    changes("v6gone.example.co.uk")[0].description === "IP address for v6gone.example.co.uk changed: 192.0.2.41, 2001:db8::41 → 192.0.2.41");
+}
+
+// 13. A standing condition is announced when it appears: a takeover candidate
+//     or a wildcard the previous comparable scan already had is not announced
+//     again; one it did not have is announced once, however often the step runs.
+{
+  const takeover = { host: "promo.example.co.uk", cname: "promo-example.unclaimed-host.example", provider: "Static hosting" };
+  const modules = {
+    subdomains: { items: ["promo.example.co.uk"], wildcard_dns: true },
+    subdomain_takeover: { risks: [takeover] },
+  };
+  const fresh = harness();
+  await runInventory(fresh.env, modules);
+  await runInventory(fresh.env, modules);
+  ok("a takeover candidate the previous scan did not have is announced once", rows(fresh.db, "takeover_risk_detected").length === 1);
+  ok("a wildcard the previous scan did not have is announced once", rows(fresh.db, "wildcard_dns_detected").length === 1);
+  const standing = harness({ previousModules: { subdomains: { items: [], wildcard_dns: true }, subdomain_takeover: { risks: [takeover] } } });
+  await runInventory(standing.env, modules);
+  ok("a takeover candidate the previous scan already had is not announced again", rows(standing.db, "takeover_risk_detected").length === 0);
+  ok("a wildcard the previous scan already had is not announced again", rows(standing.db, "wildcard_dns_detected").length === 0);
+  const moved = harness({ previousModules: { subdomain_takeover: { risks: [{ ...takeover, cname: "promo-old.unclaimed-host.example" }] } } });
+  await runInventory(moved.env, { subdomain_takeover: { risks: [takeover] } });
+  ok("a candidate that now points somewhere else is a new announcement", rows(moved.db, "takeover_risk_detected").length === 1);
+}
+
+// 14. The first completed scan of a workspace is its starting inventory: names
+//     are recorded, and nothing is announced as a change.
+{
+  const { db, env } = harness();
+  db.prepare("DELETE FROM scans WHERE id = 'scan_prev'").run();
+  await runInventory(env, {
+    subdomains: { items: ["first.example.co.uk"], wildcard_dns: true },
+    dns_bruteforce: { items: [{ hostname: "first.example.co.uk", ip_addresses: ["192.0.2.50"] }] },
+    subdomain_takeover: { risks: [{ host: "first.example.co.uk", cname: "x.unclaimed-host.example", provider: "Static hosting" }] },
+  });
+  ok("the first scan records its names", db.prepare("SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = 'ws_1' AND hostname = 'first.example.co.uk'").get().n === 1);
+  ok("the first scan announces nothing", db.prepare("SELECT COUNT(*) AS n FROM asset_events").get().n === 0);
+}
+
+// 15. The change baseline is the workspace's own last complete scan: a partial
+//     scan in between is skipped (a change right after it is still announced),
+//     and another workspace's scan of the same domain is never a baseline.
+{
+  const takeover = { host: "promo.example.co.uk", cname: "promo-example.unclaimed-host.example", provider: "Static hosting" };
+  const modules = { subdomains: { items: ["promo.example.co.uk"], wildcard_dns: false }, subdomain_takeover: { risks: [takeover] } };
+  const skipped = harness();
+  skipped.db.prepare("INSERT INTO scans (id, domain_id, domain, status, scan_quality, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run("scan_mid", "dom_1", "example.co.uk", "completed", "partial", "ws_1", "2026-07-17T22:00:00.000Z");
+  await runInventory(skipped.env, modules);
+  ok("a partial scan in between is skipped; the change is compared with the last complete scan",
+    rows(skipped.db, "takeover_risk_detected").length === 1);
+  const foreign = harness();
+  foreign.db.prepare("INSERT INTO workspaces (id, name) VALUES (?, ?)").run("ws_2", "Other");
+  foreign.db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?, ?)").run("ws_2", "dom_1");
+  foreign.db.prepare("UPDATE scans SET workspace_id = 'ws_2' WHERE id = 'scan_prev'").run();
+  await runInventory(foreign.env, modules);
+  ok("another workspace's scan of the same domain is never a baseline", foreign.db.prepare("SELECT COUNT(*) AS n FROM asset_events").get().n === 0);
 }
 
 console.log(`\nExposure events: ${pass}/${pass + fail} passed`);

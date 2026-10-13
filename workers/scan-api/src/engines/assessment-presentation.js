@@ -17,7 +17,7 @@ import {
   riskLevelForScore,
 } from "./scoring.js";
 import {
-  SIGNAL_MONITORING_DEFINITIONS,
+  requiredMonitoringSignals,
   resolveSignalMonitoringCoverage,
 } from "./signal-monitoring-state.js";
 
@@ -79,7 +79,10 @@ export function scanCompletionQualityDisclosure(scanQuality) {
 // normally" is safe only when scan_quality is complete and exactly one signal is
 // non-healthy; otherwise every attributable limitation is stated without it.
 export function signalMonitoringDisclosure(monitoringStates, { otherChecksCompleted = false } = {}) {
-  const entries = Object.values(monitoringStates?.signals ?? {});
+  // An optional signal (registration data) is reported in its own section; it
+  // never caveats the completion of the scan's required checks.
+  const entries = Object.values(monitoringStates?.signals ?? {})
+    .filter((entry) => entry?.optional !== true);
   const nonHealthy = entries.filter((entry) =>
     entry?.state !== "monitoring_healthy"
   );
@@ -107,7 +110,7 @@ export function buildScanCompletionPresentation({
   const monitoringCoverage = monitoringStates
     ? resolveSignalMonitoringCoverage(
         monitoringStates,
-        Object.keys(SIGNAL_MONITORING_DEFINITIONS)
+        requiredMonitoringSignals(monitoringStates)
       )
     : null;
   // A scan may finish all core execution without collecting every decisive
@@ -175,7 +178,7 @@ export function resolveAssessmentPresentation({
   const monitoringCoverage = monitoringEvaluated
     ? resolveSignalMonitoringCoverage(
         monitoringStates,
-        Object.keys(SIGNAL_MONITORING_DEFINITIONS)
+        requiredMonitoringSignals(monitoringStates)
       )
     : null;
   const quality =

@@ -29,7 +29,7 @@ import { runSslModule } from "./ssl-scan.js";
 import { SUBDOMAIN_DISCOVERY_SOURCE, filterWildcardBruteforceResults, isSensitiveSubdomain, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
 import { runTakeoverModule } from "./takeover-scan.js";
 import { runTechModule } from "./tech-scan.js";
-import { runWhoisModule } from "./whois-scan.js";
+import { REGISTRATION_DATA_OPTIONAL, runWhoisModule } from "./whois-scan.js";
 
 function hasAnswer(ans) { return !!ans && Array.isArray(ans.Answer) && ans.Answer.length > 0; }
 
@@ -507,7 +507,7 @@ export async function runReservedScan(domain, {
   }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] }, signal,
   reservedSubdomainsFallback("scan_global_deadline"));
   const technology_detection = await gateModule(budget, physicalCounter, "technology_detection", (accounting) => runTechModule(domain, { dnsResolver: dnsQuery, dnsCache, accounting, signal }), {}, signal);
-  const whois_intelligence   = await gateModule(budget, physicalCounter, "whois_intelligence", (accounting) => runWhoisModule(domain, { accounting, signal }), {}, signal);
+  const whois_intelligence   = await gateModule(budget, physicalCounter, "whois_intelligence", (accounting) => runWhoisModule(domain, { accounting, signal }), { ...REGISTRATION_DATA_OPTIONAL }, signal);
 
   // Takeover uses the discovered host list: the critical-prefix names found
   // above (the reserved path's own DNS discovery).
