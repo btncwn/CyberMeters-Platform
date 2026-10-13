@@ -125,6 +125,8 @@ async function main() {
   seed.member("mAna", "wsA", "uAna", "analyst");
   seed.member("mDown", "wsA", "uDown", "analyst");
   seed.member("mKick", "wsA", "uKick", "analyst");
+  seed.user("uB2", "b2@b.co", "AnalystB");
+  seed.member("mB2", "wsB", "uB2", "analyst"); // B's own member: positive control for B's member changes
   // wsA's billing owner holds an active plan, so a permitted caller is stopped by
   // the domain-ownership gate — not by billing — and the positive control is real.
   db.prepare(`INSERT INTO subscriptions (id, owner_user_id, plan, subscription_status, status, current_period_end, created_at, updated_at)
@@ -139,6 +141,13 @@ async function main() {
   // below vacuous. Nothing is ever fetched — no request here reaches the engine.
   const SCAN_DOMAIN = "cybermeters-tenant-test.com";
   const scanInA = (token) => call("POST", "/api/scan", token, { domain: SCAN_DOMAIN, workspace_id: "wsA" });
+  // Each permitted member already holds the name in wsA, linked but NOT
+  // verified, so a permitted request is stopped by the ownership gate rather
+  // than by the plan's domain allowance.
+  for (const u of ["uAna", "uDown", "uKick"]) {
+    db.prepare("INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)").run(`d_${u}`, u, SCAN_DOMAIN);
+    db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id, verification_status) VALUES ('wsA', ?, 'pending')").run(`d_${u}`);
+  }
   // Past the role gate means the request reached the LATER domain-ownership gate
   // — and stopped there, because nothing in wsA is verified.
   const pastRoleGate = (r) => r.status === 403 && r.data?.error === "domain_verification_required";
@@ -156,7 +165,8 @@ async function main() {
   const viewerScan = await scanInA(T.view);
   ok("viewer naming wsA → 403 role refusal", viewerScan.status === 403 && viewerScan.data?.error === ROLE_DENIED);
   const viewerAuto = await call("POST", "/api/scan", T.view, { domain: SCAN_DOMAIN });
-  ok("viewer with no workspace named → 403 (no workspace silently chosen)", viewerAuto.status === 403);
+  ok("viewer with no workspace named → 403 (no workspace silently chosen)",
+     viewerAuto.status === 403 && viewerAuto.data?.error === "No workspace available for scan creation");
   ok("viewer attempts created no scan row", scanRows() === scans0);
 
   const analystScan = await scanInA(T.ana);
@@ -172,6 +182,7 @@ async function main() {
   ok("downgraded member can still read wsA (viewer)", leaks(await call("GET", "/api/workspaces/wsA", T.down), "AlphaWS-SECRET"));
 
   ok("before removal: member reads wsA", leaks(await call("GET", "/api/workspaces/wsA", T.kick), "AlphaWS-SECRET"));
+  ok("before removal: member passes the role gate", pastRoleGate(await scanInA(T.kick)));
   const removal = await call("DELETE", "/api/workspaces/wsA/members/mKick", T.A);
   ok("owner removes member through the route (200)", removal.status === 200);
   ok("removed member's existing session cannot read wsA", denied(await call("GET", "/api/workspaces/wsA", T.kick), "AlphaWS-SECRET"));
@@ -184,10 +195,19 @@ async function main() {
   const memberRow = (id) => db.prepare("SELECT role FROM workspace_members WHERE id = ?").get(id);
   ok("foreign owner DELETE on wsA member → 403", (await call("DELETE", "/api/workspaces/wsA/members/mView", T.B)).status === 403);
   ok("foreign owner PATCH on wsA member → 403", (await call("PATCH", "/api/workspaces/wsA/members/mView", T.B, { role: "admin" })).status === 403);
-  ok("foreign owner using own workspace path with wsA member id → 404",
-     (await call("DELETE", "/api/workspaces/wsB/members/mView", T.B)).status === 404 &&
-     (await call("PATCH", "/api/workspaces/wsB/members/mView", T.B, { role: "admin" })).status === 404);
+  const crossDel = await call("DELETE", "/api/workspaces/wsB/members/mView", T.B);
+  const crossPatch = await call("PATCH", "/api/workspaces/wsB/members/mView", T.B, { role: "admin" });
+  ok("foreign owner using own workspace path with wsA member id → 404", crossDel.status === 404 && crossPatch.status === 404);
+  const fakeDel = await call("DELETE", "/api/workspaces/wsB/members/m_nope", T.B);
+  const fakePatch = await call("PATCH", "/api/workspaces/wsB/members/m_nope", T.B, { role: "admin" });
+  ok("wsA member id and nonexistent member id answer identically",
+     crossDel.status === fakeDel.status && crossDel.text === fakeDel.text &&
+     crossPatch.status === fakePatch.status && crossPatch.text === fakePatch.text);
   ok("wsA member untouched by every foreign attempt", memberRow("mView")?.role === "viewer");
+  ok("positive control: foreign owner changes a role in their own workspace (200)",
+     (await call("PATCH", "/api/workspaces/wsB/members/mB2", T.B, { role: "viewer" })).status === 200 && memberRow("mB2")?.role === "viewer");
+  ok("positive control: foreign owner removes a member of their own workspace (200)",
+     (await call("DELETE", "/api/workspaces/wsB/members/mB2", T.B)).status === 200 && memberRow("mB2") === undefined);
   ok("viewer cannot change roles in own workspace (403)", (await call("PATCH", "/api/workspaces/wsA/members/mAna", T.view, { role: "viewer" })).status === 403 && memberRow("mAna")?.role === "analyst");
 
   sec("Report download — cross-tenant id never reaches storage");
@@ -207,7 +227,11 @@ async function main() {
   ok("foreign wsA path and nonexistent workspace answer identically",
      directDl.status === (await call("GET", "/api/workspaces/ws_nope/reports/rptA/download", T.B)).status);
   ok("no foreign request read storage at all", r2Keys.length === 0);
-  ok("foreign owner cannot read wsA report metadata through wsB", (await call("GET", "/api/workspaces/wsB/reports/rptA", T.B)).status === 404);
+  ok("positive control: owner reads own report metadata (200)", (await call("GET", "/api/workspaces/wsA/reports/rptA", T.A)).status === 200);
+  const crossMeta = await call("GET", "/api/workspaces/wsB/reports/rptA", T.B);
+  const fakeMeta = await call("GET", "/api/workspaces/wsB/reports/rpt_nope", T.B);
+  ok("foreign owner cannot read wsA report metadata through wsB (same as nonexistent)",
+     crossMeta.status === 404 && crossMeta.status === fakeMeta.status && crossMeta.text === fakeMeta.text);
   env.cybermeters_reports.get = r2Get;
 
   sec("Session revocation — a revoked device loses access at once");
@@ -226,6 +250,8 @@ async function main() {
   const linked = () => db.prepare("SELECT linked_case_id AS c FROM related_changes WHERE id = 'rcA'").get().c;
   const foreignCase = await call("POST", "/api/workspaces/wsA/related-changes/rcA/link-case", T.A, { case_id: "caseB" });
   ok("owner A linking wsA change to wsB's case → 404", foreignCase.status === 404);
+  const fakeCase = await call("POST", "/api/workspaces/wsA/related-changes/rcA/link-case", T.A, { case_id: "case_nope" });
+  ok("wsB case id and nonexistent case id answer identically", foreignCase.status === fakeCase.status && foreignCase.text === fakeCase.text);
   ok("link refused: nothing written", linked() === null);
   const viaB = await call("POST", "/api/workspaces/wsB/related-changes/rcA/link-case", T.B, { case_id: "caseB" });
   ok("foreign owner linking wsA change via wsB path → 404", viaB.status === 404 && linked() === null);
