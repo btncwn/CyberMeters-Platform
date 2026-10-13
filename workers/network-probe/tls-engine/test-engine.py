@@ -165,7 +165,8 @@ class BaselineTests(unittest.TestCase):
         for family in ['legacy','modern']:
             prefix = BUILD / ('install-' + family)
             lib = prefix / ('lib64' if (prefix / 'lib64/libssl.a').exists() else 'lib')
-            linker = ['-lpthread', *(['-ldl'] if platform.system() == 'Linux' else [])]
+            linker = ['-lpthread', *(['-lz'] if family == 'legacy' else []),
+                      *(['-ldl'] if platform.system() == 'Linux' else [])]
             run(['cc', '-Wno-deprecated-declarations', '-I' + str(prefix / 'include'), ENGINE / 'src/fixture-server.c', lib / 'libssl.a', lib / 'libcrypto.a', *linker, '-o', BUILD / 'bin' / ('fixture-server-' + family)])
         cls.directory = tempfile.TemporaryDirectory(prefix='tls-rig-', dir=BUILD)
         cls.fixture = Path(cls.directory.name)
@@ -447,14 +448,29 @@ class BaselineTests(unittest.TestCase):
         self.assertTrue(result['extensions']['renegotiation_completed'])
         self.assertEqual(result['telemetry']['connections'], 1)
 
-    def test_unoffered_compression_is_not_a_clean_result(self):
-        result = self.assess('tls1_2', control='compression')
-        self.assertEqual(result['state'], 'unexecutable')
-        self.assertEqual(result['telemetry']['connections'], 0)
-        self.assertIn('compression_not_offered', result['limitations'])
-        with server(self.modern, self.cert, self.key, 'tls1_2') as port:
-            handshake = self.assess('tls1_2', port, family='modern')
-        self.assertIsNone(handshake['extensions']['compression'])
+    def test_compression_is_measured_only_by_dedicated_legacy_check(self):
+        for protocol in ('ssl3', 'tls1', 'tls1_1', 'tls1_2'):
+            with self.subTest(protocol=protocol):
+                with server(self.legacy, self.cert, self.key, protocol) as port:
+                    offered = self.assess(protocol, port, control='compression')
+                    ordinary = self.assess(protocol, port)
+                    offered_reference = run([self.legacy, 's_client', '-connect', f'127.0.0.1:{port}',
+                                             '-servername', 'localhost', '-' + protocol], input=b'', timeout=5)
+                self.assertEqual(offered['state'], 'accepted', offered)
+                self.assertTrue(offered['authenticated_finished'])
+                self.assertTrue(offered['extensions']['compression'])
+                self.assertIsNone(ordinary['extensions']['compression'])
+                self.assertIn('Compression: zlib compression',
+                              (offered_reference.stdout + offered_reference.stderr).decode())
+                with server(self.legacy, self.cert, self.key, protocol + '_nocomp') as port:
+                    refused = self.assess(protocol, port, control='compression')
+                    refused_reference = run([self.legacy, 's_client', '-connect', f'127.0.0.1:{port}',
+                                             '-servername', 'localhost', '-' + protocol], input=b'', timeout=5)
+                self.assertEqual(refused['state'], 'accepted', refused)
+                self.assertTrue(refused['authenticated_finished'])
+                self.assertFalse(refused['extensions']['compression'])
+                self.assertIn('Compression: NONE',
+                              (refused_reference.stdout + refused_reference.stderr).decode())
 
     def test_version_rejection_is_not_engine_unsupported(self):
         with server(self.modern, self.cert, self.key, 'tls1_3') as port:

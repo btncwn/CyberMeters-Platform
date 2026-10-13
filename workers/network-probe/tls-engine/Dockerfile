@@ -17,6 +17,8 @@ COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/trus
 COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/LICENSE.openssl-1.0.2u /opt/cybermeters/licenses/LICENSE.openssl-1.0.2u
 COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/LICENSE.openssl-3.5.9 /opt/cybermeters/licenses/LICENSE.openssl-3.5.9
 COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/LICENSE.mpl-2.0 /opt/cybermeters/licenses/LICENSE.mpl-2.0
+RUN cp /usr/share/doc/zlib1g/copyright /opt/cybermeters/licenses/LICENSE.zlib1g && \
+    ldd /opt/cybermeters/tls-baseline-legacy | grep -q 'libz.so.1'
 USER node
 WORKDIR /home/node
 CMD ["sleep", "infinity"]

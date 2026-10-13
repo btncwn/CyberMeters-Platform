@@ -12,19 +12,23 @@ import { projectTlsCollectorReceipt } from '../src/tls-contract.js';
 
 const root=resolve(fileURLToPath(new URL('../../../',import.meta.url)));
 const build=join(root,'workers/network-probe/tls-engine/.build');
+const runtimeRoot=process.env.CM_TLS_TEST_RUNTIME_ROOT;
 const directory=mkdtempSync(join(tmpdir(),'cybermeters-tls-parent-'));
-const certificate=join(directory,'localhost.pem'),key=join(directory,'localhost.key');
+const certificate=process.env.CM_TLS_TEST_CERTIFICATE || join(directory,'localhost.pem');
+const key=process.env.CM_TLS_TEST_KEY || join(directory,'localhost.key');
 const config=join(directory,'openssl.cnf');
-writeFileSync(config,'[req]\ndistinguished_name=dn\nprompt=no\n[dn]\nCN=localhost\n');
-const openssl=join(build,'install-modern/bin/openssl');
-const issue=spawnSync(openssl,['req','-x509','-newkey','rsa:2048','-nodes','-sha256','-days','2',
-  '-config',config,'-subj','/CN=localhost','-addext','subjectAltName=DNS:localhost','-out',certificate,'-keyout',key],
-  {stdio:['ignore','ignore','pipe'],timeout:5000});
-if(issue.status!==0)throw new Error('local_fixture_certificate_failed: '+String(issue.stderr||issue.error||'').slice(-300));
+if(!process.env.CM_TLS_TEST_CERTIFICATE || !process.env.CM_TLS_TEST_KEY){
+  writeFileSync(config,'[req]\ndistinguished_name=dn\nprompt=no\n[dn]\nCN=localhost\n');
+  const openssl=join(build,'install-modern/bin/openssl');
+  const issue=spawnSync(openssl,['req','-x509','-newkey','rsa:2048','-nodes','-sha256','-days','2',
+    '-config',config,'-subj','/CN=localhost','-addext','subjectAltName=DNS:localhost','-out',certificate,'-keyout',key],
+    {stdio:['ignore','ignore','pipe'],timeout:5000});
+  if(issue.status!==0)throw new Error('local_fixture_certificate_failed: '+String(issue.stderr||issue.error||'').slice(-300));
+}
 let source=readFileSync(join(root,'workers/network-probe/src/tls-collector-runtime.js'),'utf8');
 for(const [from,to] of [
-  ['/opt/cybermeters/tls-baseline-legacy',join(build,'bin/tls-baseline-legacy')],
-  ['/opt/cybermeters/tls-baseline-modern',join(build,'bin/tls-baseline-modern')],
+  ['/opt/cybermeters/tls-baseline-legacy',runtimeRoot?join(runtimeRoot,'tls-baseline-legacy'):join(build,'bin/tls-baseline-legacy')],
+  ['/opt/cybermeters/tls-baseline-modern',runtimeRoot?join(runtimeRoot,'tls-baseline-modern'):join(build,'bin/tls-baseline-modern')],
   ['/opt/cybermeters/trust/ca-bundle.pem',certificate],
 ])source=source.replaceAll(from,to);
 source=source.replace('!publicAddress(endpoint.address)',"!(endpoint.address === '127.0.0.1' || endpoint.address === '127.0.0.2' || endpoint.address === '::1')");
@@ -111,6 +115,14 @@ try{
   assert.equal(raw13.results[0].engine_result?.engine?.family,'modern');
   assert.equal(raw13.results[0].engine_result?.negotiated?.cipher,'TLS_AES_128_GCM_SHA256');
   assert.equal(projectTlsCollectorReceipt(tls13,raw13,{requireSandbox:false}).results[0].state,'accepted');
+  const compression={...request,request_id:'local_parent_compression',
+    checks:[{control:'compression',protocol:'tls1_2',cipher_id:null}],
+    deadline_at:new Date(Date.now()+20000).toISOString()};
+  const rawCompression=await __runTlsCollector(compression);
+  assert.equal(rawCompression.results[0].engine_result?.engine?.family,'legacy');
+  assert.equal(rawCompression.results[0].engine_result?.state,'accepted');
+  assert.equal(rawCompression.results[0].engine_result?.extensions?.compression,false);
+  assert.equal(projectTlsCollectorReceipt(compression,rawCompression,{requireSandbox:false}).results[0].state,'accepted');
   const ipv6=createServer(socket=>smtpSocket(socket,context6));
   extraServers.push(ipv6);
   await new Promise((resolve,reject)=>ipv6.once('error',reject).listen(0,'::1',resolve));

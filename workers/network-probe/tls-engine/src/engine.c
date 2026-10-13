@@ -331,7 +331,15 @@ static SSL_CTX *context(void) {
 #endif
     if(!ctx){state="unexecutable";reason="protocol_unavailable";return NULL;}
     SSL_CTX_set_verify(ctx,SSL_VERIFY_NONE,NULL);
-    SSL_CTX_set_options(ctx,SSL_OP_NO_COMPRESSION);
+    if(!strcmp(opt.control,"compression")) {
+#if CM_LEGACY
+        if(sk_SSL_COMP_num(SSL_COMP_get_compression_methods())<1) {
+            state="unexecutable";reason="control_unavailable";limit("compression_not_offered");SSL_CTX_free(ctx);return NULL;
+        }
+#else
+        state="unexecutable";reason="control_unavailable";limit("compression_not_offered");SSL_CTX_free(ctx);return NULL;
+#endif
+    } else SSL_CTX_set_options(ctx,SSL_OP_NO_COMPRESSION);
     SSL_CTX_set_session_cache_mode(ctx,SSL_SESS_CACHE_CLIENT|SSL_SESS_CACHE_NO_INTERNAL_STORE);
     SSL_CTX_sess_set_new_cb(ctx,save_session);
     if(opt.group) {
@@ -590,8 +598,9 @@ static void extensions_json(SSL *s) {
     if(strcmp(opt.protocol,"tls1_3"))ems=SSL_get_extms_support(s);
     if(new_session)early=SSL_SESSION_get_max_early_data(new_session);
 #endif
-    /* This build never offers compression; absence in a handshake is unknown. */
-    append("{\"ems\":%s,\"compression\":%s,\"secure_renegotiation\":%s,\"fallback_scsv\":%s,\"session_reused\":%s,\"early_data_max\":",boolean(ems),boolean(SSL_get_current_compression(s)!=NULL?1:-1),boolean(!strcmp(opt.protocol,"ssl2")?-1:(int)SSL_get_secure_renegotiation_support(s)),boolean(!strcmp(opt.control,"fallback")?peer_alert==86:-1),boolean(SSL_session_reused(s)));
+    /* Only the dedicated bounded check offers compression. Ordinary handshakes
+     * disable it, so their absence is not a server rejection. */
+    append("{\"ems\":%s,\"compression\":%s,\"secure_renegotiation\":%s,\"fallback_scsv\":%s,\"session_reused\":%s,\"early_data_max\":",boolean(ems),boolean(!strcmp(opt.control,"compression")?SSL_get_current_compression(s)!=NULL:-1),boolean(!strcmp(opt.protocol,"ssl2")?-1:(int)SSL_get_secure_renegotiation_support(s)),boolean(!strcmp(opt.control,"fallback")?peer_alert==86:-1),boolean(SSL_session_reused(s)));
     if(!strcmp(opt.protocol,"tls1_3")&&observed_early_data)append("%u",observed_early_data_max);
     else if(!strcmp(opt.protocol,"tls1_3")&&new_session)append("%u",early);
     else append("null");
@@ -664,7 +673,6 @@ int main(int argc,char **argv) {
     if(!strcmp(opt.protocol,"ssl2")){limit("ssl2_export_unavailable");limit("ssl2_single_des_unavailable");}
     if(!ctx)goto done;
     if(!strcmp(opt.control,"catalog")){state="accepted";reason="catalog_ready";goto done;}
-    if(!strcmp(opt.control,"compression")){state="unexecutable";reason="control_unavailable";limit("compression_not_offered");goto done;}
     if(!strcmp(opt.control,"heartbleed")||!strcmp(opt.control,"robot")||!strcmp(opt.control,"ccs")) {
         state="unexecutable";reason="control_unavailable";limit("engine_capability_limit");goto done;
     }
