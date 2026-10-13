@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
-import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, tlsEndpointIdentity } from '../shared/tls/catalog.js';
+import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, tlsEndpointIdentity } from '../shared/tls/catalog.js';
 import { projectTlsCollectorReceipt } from '../workers/network-probe/src/tls-contract.js';
 import { processExposureMessage, readTlsAssessmentForScan } from '../workers/scan-api/src/engines/exposure-jobs.js';
 
@@ -62,6 +62,47 @@ assert.equal(rows.filter(row=>row.state==='complete').length,1000);
 assert.equal(rows.reduce((sum,row)=>sum+row.charged_requests,0),1000);
 assert.equal(rows.reduce((sum,row)=>sum+row.charged_bytes,0),430000);
 assert.equal(collectorCalls,1000);
+// A collector interruption consumes its reserved network budget. A later Queue
+// delivery resumes the same cursor and can charge only the remaining allowance.
+function interruptedJob(scanId) {
+  const workspace='w_interrupt',domain=`${scanId}.example.org`,domainId=`d_${scanId}`,now=Date.now();
+  sql.prepare('INSERT OR IGNORE INTO workspaces VALUES(?,NULL)').run(workspace);
+  sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId,workspace,domainId,domain,'queued');
+  sql.prepare("INSERT INTO workspace_domains VALUES(?,?,'verified')").run(workspace,domainId);
+  const endpoint={hostname:domain,sni:domain,address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
+    dns_addresses:['8.8.8.8'],dns_observed_at:new Date(now).toISOString()};
+  const plan={content_state:'not_requested',checks:[],tls:{profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
+    endpoints:[{endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind:'standard_https',service_authorization_id:null,
+      generation:0,special_consent:false,consent_version:null}}],selected:[{endpoint_index:0,check}],static_results:[],results:[],
+    cursor:0,gaps:[],omitted_checks:0,omitted_services:0,state:'pending'}};
+  sql.prepare('INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at) VALUES(?,?,?,?,?,?,?,?)')
+    .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
+  return {kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
+}
+const retryMessage=interruptedJob('tls_retry');
+const interruptedCollector=async()=>{throw new Error('simulated collector interruption');};
+assert.equal((await processExposureMessage(retryMessage,env,{lookupTlsDns,collectTlsAssessment:interruptedCollector})).outcome,
+  'tls_uncertain_attempt_charged');
+let interrupted=sql.prepare('SELECT charged_requests,charged_bytes,unknown_attempts,plan_json FROM external_exposure_jobs WHERE scan_id=?').get('tls_retry');
+assert.equal(interrupted.charged_requests,TLS_SLICE_LIMITS.connections);
+assert.equal(interrupted.charged_bytes,TLS_SLICE_LIMITS.bytes+TLS_SLICE_LIMITS.overreadBytes);
+assert.equal(interrupted.unknown_attempts,1);
+assert.equal(JSON.parse(interrupted.plan_json).tls.cursor,0);
+assert.equal((await processExposureMessage(retryMessage,env,{lookupTlsDns,collectTlsAssessment})).outcome,'complete');
+interrupted=sql.prepare('SELECT charged_requests,unknown_attempts,plan_json FROM external_exposure_jobs WHERE scan_id=?').get('tls_retry');
+assert.equal(interrupted.charged_requests,TLS_SLICE_LIMITS.connections+1);
+assert.equal(interrupted.unknown_attempts,1);
+assert.equal(JSON.parse(interrupted.plan_json).tls.results.length,1);
+assert.equal((await processExposureMessage(retryMessage,env,{lookupTlsDns,collectTlsAssessment})).outcome,'terminal');
+const cancelMessage=interruptedJob('tls_cancel');
+assert.equal((await processExposureMessage(cancelMessage,env,{lookupTlsDns,collectTlsAssessment:interruptedCollector})).outcome,
+  'tls_uncertain_attempt_charged');
+sql.prepare("UPDATE scans SET status='cancelled' WHERE id=?").run('tls_cancel');
+assert.equal((await processExposureMessage(cancelMessage,env,{lookupTlsDns,collectTlsAssessment})).outcome,'authority_lost');
+interrupted=sql.prepare('SELECT state,charged_requests,plan_json FROM external_exposure_jobs WHERE scan_id=?').get('tls_cancel');
+assert.equal(interrupted.state,'cancelled');
+assert.equal(interrupted.charged_requests,TLS_SLICE_LIMITS.connections);
+assert.equal(JSON.parse(interrupted.plan_json).tls.results.length,0);
 // Revocation during DNS must prevent dispatch; revocation after collection
 // must prevent the accepted evidence from crossing the atomic write fence.
 const scopeWorkspace='w_scope',scopeDomain='mail.example.org',scopeDomainId='d_scope';
@@ -95,7 +136,7 @@ const revokeDuringDns=async(host,type)=>{
 };
 assert.equal((await processExposureMessage(first.message,env,{lookupTlsDns:revokeDuringDns,collectTlsAssessment})).outcome,'scope_changed');
 assert.equal(JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get('scope_dns').plan_json).tls.results[0].state,'not_authorized');
-assert.equal(collectorCalls,1000);
+assert.equal(collectorCalls,1001);
 sql.prepare("UPDATE workspace_tls_service_authorizations SET authorization_status='active' WHERE id='service_scope'").run();
 const second=scopedJob('scope_receipt',2);
 const revokeBeforeReceipt=async(...args)=>{
@@ -109,7 +150,9 @@ assert.equal(fenced.tls.results.length,0);
 assert.equal((await processExposureMessage(second.message,env,{lookupTlsDns,collectTlsAssessment,now:()=>second.now+31000})).outcome,'scope_changed');
 fenced=JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get('scope_receipt').plan_json);
 assert.equal(fenced.tls.results[0].state,'not_authorized');
-console.log(JSON.stringify({synthetic_tls_jobs:1000,live_customer_domains:0,deliveries:2000,collector_calls:collectorCalls,
-  completed:1000,charged_connections:1000,charged_bytes:430000,scope_revocation_races:2,
+console.log(JSON.stringify({synthetic_tls_jobs:1000,live_customer_domains:0,load_deliveries:2000,
+  load_completed:1000,load_charged_connections:1000,load_charged_bytes:430000,
+  total_collector_calls:collectorCalls,scope_revocation_races:2,
+  interruption_recovery_cases:2,
   elapsed_ms:Math.round(performance.now()-started)}));
 sql.close();
