@@ -9,7 +9,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createLabWorld } from "./lab-world.mjs";
 import { runLabWorld } from "./lab-scan.mjs";
-import { DELTA_SCANS, deltaAt, ECHO_SCANS, echoAt, WORLDS } from "./worlds.mjs";
+import { DELTA_SCANS, deltaAt, ECHO_SCANS, echoAt, FOXTROT_SCANS, foxtrotAt, WORLDS } from "./worlds.mjs";
 
 const json = (value) => JSON.stringify(value);
 const parse = (value) => { try { return JSON.parse(value); } catch { return null; } };
@@ -375,9 +375,122 @@ export async function runLabChecks({ ok, root }) {
       echoEvents.filter((event) => event.to_status === "resolved").length === 2,
     json(echoEvents.filter((event) => event.to_status === "resolved").map((event) => [event.actor_type, event.action])));
 
+  // ── Certificates, and the edges of what a scan may fetch ───────────────────
+  // Foxtrot (worlds.mjs): the site's certificate is valid, expired, for another
+  // name, self-signed, not reachable, then renewed; the certificate names a
+  // host with no DNS; the page links to a redirect loop, to two hosts that
+  // redirect into a private network, and to a multi-megabyte page; the app
+  // moves to a new address after the first scan.
+  const { certificateAssuranceFromSnapshot } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "certificate-customer-presentation.js")).href);
+  const fox = await runLabWorld({
+    root, worldAt: foxtrotAt, scans: FOXTROT_SCANS, tenant: "f", subscription: "professional",
+    env: { RESEND_API_KEY: "lab", ALERT_EMAIL_FROM: "alerts@lab.invalid" },
+  });
+  const foxHost = (label) => (label ? `${label}.${foxtrotAt(0).domain}` : foxtrotAt(0).domain);
+  const checksOf = (n) => {
+    const row = fox.db.prepare("SELECT r2_key FROM scan_report_snapshots WHERE scan_id = ?").get(`scan_f_${n}`);
+    const signals = row ? certificateAssuranceFromSnapshot(JSON.parse(fox.r2.store.get(row.r2_key))).signals : {};
+    return Object.fromEntries([["name", "hostname_match"], ["expiry", "expiry"], ["trust", "trust_store_validation"]]
+      .map(([label, key]) => [label, signals?.[key]?.check ?? null]));
+  };
+  const outcomes = (n) => Object.values(checksOf(n)).map((check) => check?.outcome).join(",");
+  const foxLog = (n) => fox.log.slice(...fox.scans[n - 1].log_range);
+  ok("lab foxtrot: every scan completes and every request stays inside the lab",
+    fox.scans.every((scan) => scan.status === "completed" && !scan.error) && fox.unexpected_hosts.length === 0,
+    json({ scans: fox.scans.map((scan) => [scan.scan_id, scan.status, scan.error]), unexpected: fox.unexpected_hosts }));
+  ok("lab foxtrot: a valid certificate passes the name, expiry and trust checks", outcomes(1) === "passed,passed,passed", json(checksOf(1)));
+  ok("lab foxtrot: an expired certificate fails expiry and trust, and still covers its name",
+    outcomes(2) === "passed,failed,failed" && /^Expired on /.test(checksOf(2).expiry?.label || ""), json(checksOf(2)));
+  ok("lab foxtrot: a certificate for another name fails the name check only",
+    outcomes(3) === "failed,passed,passed" && checksOf(3).name?.label === `Does not cover ${foxHost()}`, json(checksOf(3)));
+  ok("lab foxtrot: a self-signed certificate fails the trust check only", outcomes(4) === "passed,passed,failed", json(checksOf(4)));
+  ok("lab foxtrot: with no certificate captured every check reads not checked — never passed — and the scan is partial",
+    outcomes(5) === "not_checked,not_checked,not_checked" && fox.scans[4].quality === "partial", json({ checks: checksOf(5), quality: fox.scans[4].quality }));
+  const foxEvents = (n) => fox.scans[n - 1].changes.events.map((event) => event.event_type);
+  ok("lab foxtrot: the renewed certificate passes and is recorded as a new certificate, from an issuer seen before",
+    outcomes(6) === "passed,passed,passed" && foxEvents(6).includes("certificate_new_detected") && !foxEvents(6).includes("certificate_new_issuer_detected"),
+    json({ checks: checksOf(6), events: foxEvents(6) }));
+  const expiryLine = fox.db.prepare("SELECT description FROM asset_events WHERE scan_id = 'scan_f_2' AND event_type = 'certificate_expiring_soon'").get()?.description;
+  ok("lab foxtrot: the timeline says an expired certificate expired — not that it expires in a negative number of days",
+    /^Certificate expired 3 days ago \(/.test(expiryLine || "") && !/in -\d/.test(expiryLine || ""), expiryLine);
+  ok("lab foxtrot: a certificate name with no DNS is never listed", !fox.inventory.rows.some((row) => row.hostname === foxHost("ghost")) && fox.inventory.false_positive.length === 0,
+    json(fox.inventory.rows.map((row) => row.hostname)));
+  const loopAsks = fox.scans.map((scan, i) => foxLog(i + 1).filter((entry) => entry.host === foxHost("loop")).length);
+  ok("lab foxtrot: a host whose redirects never end is asked a bounded number of times", loopAsks.every((n) => n > 0 && n <= 10), json(loopAsks));
+  const privateAsks = fox.log.filter((entry) => entry.kind === "private_refused" || entry.host === "10.0.0.8" || entry.host === foxHost("internal"));
+  ok("lab foxtrot: nothing is fetched from a private network — not a redirect target, not a name that resolves into one",
+    privateAsks.length === 0 && fox.inventory.rows.some((row) => row.hostname === foxHost("internal")), json(privateAsks.slice(0, 3)));
+  const largest = Math.max(...fox.log.filter((entry) => entry.body_bytes).map((entry) => entry.bytes_served));
+  ok("lab foxtrot: no reader takes more than 256 KB of a 3 MB page", fox.log.some((entry) => entry.body_bytes > 3_000_000) && largest <= 262_144, String(largest));
+  const moved = fox.db.prepare("SELECT scan_id, description FROM asset_events WHERE event_type = 'dns_ip_changed'").all();
+  const foxEmails = fox.scans.flatMap((scan) => scan.emails.map((email) => email.subject || ""));
+  ok("lab foxtrot: the app's new address is one timeline event, and not a notification",
+    moved.length === 1 && moved[0].scan_id === "scan_f_2" && /34\.125\.0\.4 → 34\.125\.0\.44/.test(moved[0].description) &&
+      !foxEmails.some((subject) => /address|IP/i.test(subject)), json({ moved, foxEmails }));
+  ok("lab foxtrot: a new name on the certificate and a new issuer are one notification each",
+    fox.scans[2].emails.filter((email) => /A new name on the live certificate/.test(email.subject || "")).length === 1 &&
+      fox.scans[3].emails.filter((email) => /A new certificate issuer/.test(email.subject || "")).length === 1 &&
+      foxEmails.filter((subject) => /A new (name on the live certificate|certificate issuer)/.test(subject)).length === 2,
+    json(foxEmails));
+
   const wildcard = await runLabWorld({ root, world: WORLDS.bravo, scans: 1 });
   ok("lab bravo: a zone that answers every name adds no guessed names", wildcard.inventory.false_positive.length === 0, json(wildcard.inventory.false_positive));
   const again = await runLabWorld({ root, world: WORLDS.bravo, scans: 1 });
   ok("lab: the same world measures the same inventory twice",
     json(again.inventory.rows.map((row) => [row.hostname, row.source])) === json(wildcard.inventory.rows.map((row) => [row.hostname, row.source])));
+
+  // ── Two customers, end to end, through the Worker's own routes ────────────
+  // scripts/lab/two-customer-journey.mjs: sign-up to recurrence for two
+  // customers, and a third person who tries to use the first one's domain.
+  const { runTwoCustomerJourney } = await import(pathToFileURL(path.join(root, "scripts", "lab", "two-customer-journey.mjs")).href);
+  const journey = await runTwoCustomerJourney({ root });
+  for (const entry of journey.steps) ok(`journey (${entry.customer}): ${entry.step}`, entry.ok, json(entry.detail));
+  ok("journey: every request stayed inside the lab", journey.unexpected.length === 0, json(journey.unexpected));
+
+  // ── Many customers at once ─────────────────────────────────────────────────
+  // A day of scheduled and manual scans for a provider with sixty client
+  // domains, forty-two small businesses, two Business accounts and sixteen
+  // schedules that can never run again, through the real cron, admission,
+  // queue consumer and engine (scripts/lab/load-lab.mjs). The full-size run
+  // is scripts/lab/run-load-lab.mjs.
+  const { runLoadLab, summarizeLoad } = await import(pathToFileURL(path.join(root, "scripts", "lab", "load-lab.mjs")).href);
+  const { ACCOUNT_WAITING_SCAN_LIMIT } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "plan-usage.js")).href);
+  const load = await runLoadLab({
+    root, days: 1, seed: 3,
+    population: { msp: { workspaces: 6, domainsPerWorkspace: 10 }, professional: 30, starter: 10, business: 2, stuckRevoked: 14, stuckExpiredTrial: 2 },
+    demand: { mspBurstAt: 10 * 3_600_000 },
+    queue: { duplicateRate: 0.05, interruptRate: 0.04 },
+  });
+  const loadSummary = summarizeLoad(load);
+  const runnable = load.schedules.filter((schedule) => !schedule.kind.startsWith("stuck"));
+  const ran = new Set(load.jobs.filter((job) => job.trigger === "scheduled" && job.claimed_at != null).map((job) => job.scheduled_scan_id));
+  ok("load: every schedule that can run starts during the day, even with more stuck schedules than a tick has places",
+    runnable.length > 0 && runnable.every((schedule) => ran.has(schedule.id)), json(runnable.filter((schedule) => !ran.has(schedule.id)).slice(0, 5)));
+  const stuckIds = new Set(load.schedules.filter((schedule) => schedule.kind.startsWith("stuck")).map((schedule) => schedule.id));
+  ok("load: a schedule whose domain is no longer verified, or whose trial ended, never starts a scan",
+    stuckIds.size === 16 && !load.jobs.some((job) => stuckIds.has(job.scheduled_scan_id)), json(loadSummary.scheduler.skipped_by_reason));
+  const kindOf = new Map(load.accounts.map((account) => [account.id, account.kind]));
+  const bigClaims = load.jobs.filter((job) => kindOf.get(job.account) === "msp" && job.claimed_at != null).map((job) => job.claimed_at);
+  const behind = load.jobs.filter((job) => kindOf.get(job.account) === "small" && job.claimed_at != null)
+    .map((job) => bigClaims.filter((at) => at > job.enqueued_at && at < job.claimed_at).length);
+  ok("load: a small customer's scan never waits behind more than one account's allowance of the big customer's scans",
+    behind.length > 0 && Math.max(...behind) <= ACCOUNT_WAITING_SCAN_LIMIT, String(Math.max(...behind)));
+  const bigIntervals = load.jobs.filter((job) => kindOf.get(job.account) === "msp" && job.enqueued_at != null)
+    .map((job) => [job.enqueued_at, job.first_delivery_at ?? Infinity]);
+  const mostWaiting = Math.max(...bigIntervals.map(([start]) => bigIntervals.filter(([s, e]) => s <= start && start < e).length));
+  ok("load: the big customer never has more scans waiting than its allowance, and the rest of its burst is refused with a reason",
+    mostWaiting <= ACCOUNT_WAITING_SCAN_LIMIT && load.api.some((call) => call.kind === "msp" && call.status === 429 && /already waiting to start/.test(call.error || "")),
+    json({ mostWaiting, refused: load.api.filter((call) => call.status === 429).length }));
+  ok("load: duplicate deliveries never run a scan twice", load.queue.duplicates_injected > 0 && !load.jobs.some((job) => (job.engine_runs || 0) > 1),
+    json(loadSummary.reprocessing));
+  const killed = load.jobs.filter((job) => job.killed);
+  ok("load: a scan whose run was cut off ends failed, honestly, and nothing is left waiting or running",
+    killed.length > 0 && killed.every((job) => job.status === "failed") && loadSummary.jobs.still_waiting_or_running_at_end === 0,
+    json(killed.map((job) => [job.scan_id, job.status])));
+  ok("load: no scan that was only waiting its turn is failed as interrupted", loadSummary.reprocessing.recovered_while_still_queued === 0,
+    json(load.recovered.slice(0, 3)));
+  ok("load: every cron tick stays far inside the 1,000-query budget of one invocation", Math.max(...load.ticks.map((tick) => tick.d1_reads + tick.d1_writes)) <= 600,
+    json(loadSummary.scheduler.d1_per_tick));
+  ok("load: every request stays inside the lab and no API call fails", loadSummary.totals.unexpected_requests === 0 && loadSummary.errors.api_5xx === 0,
+    json({ unexpected: loadSummary.totals.unexpected_requests, errors: loadSummary.errors }));
 }

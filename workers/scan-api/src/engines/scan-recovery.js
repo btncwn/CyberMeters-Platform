@@ -36,10 +36,10 @@ import { createAuditEvent, scanCompletionAuditStatement } from "../lib/events.js
 //   - "queued"   — a dispatched-but-never-consumed row (lost/expired Queue
 //     message, dead-lettered delivery, or a failed compensation after a
 //     dispatch-setup error). A queued row has no heartbeat, so the heartbeat
-//     gate below falls back to created_at and the age threshold alone decides
-//     — 30 min comfortably exceeds worst-case delivery latency + bounded
-//     retries (~20 min), so a message still working through its retries can
-//     never be stolen from.
+//     gate below falls back to created_at — 30 min comfortably exceeds
+//     worst-case delivery latency + bounded retries (~20 min), so a message
+//     still working through its retries can never be stolen from. Age alone
+//     is not enough while the queue is busy: see RECOVERY_QUEUED_MAX_WAIT_MS.
 // "retrying" is intentionally absent: PR-3 v1 never persists it (Queue
 // delivery metadata is authoritative for retry state), and the recovery set
 // only contains statuses that can actually occur.
@@ -51,6 +51,15 @@ export const RECOVERY_ACTIVE_STATUSES = ["queued", "running"];
 // clears BOTH by a wide margin, so a genuinely executing scan can never qualify.
 export const RECOVERY_MIN_AGE_MS = 30 * 60 * 1000;
 export const RECOVERY_HEARTBEAT_STALE_MS = 10 * 60 * 1000;
+
+// A queued scan is not lost merely because it is old: every scan waits in one
+// queue in arrival order, and when many are started together the last of them
+// waits longer than RECOVERY_MIN_AGE_MS for its turn (scripts/lab/load-lab.mjs
+// measured waits of over an hour). While the consumer is still working through
+// the queue — some scan running with a fresh heartbeat — a queued scan is left
+// to wait, up to this bound. When nothing is running, a queued scan older than
+// RECOVERY_MIN_AGE_MS has nothing ahead of it, so its message is gone.
+export const RECOVERY_QUEUED_MAX_WAIT_MS = 6 * 60 * 60 * 1000;
 
 // Bounded work per cron tick — recovery shares the tick's subrequest budget with
 // every other task, and a pathological backlog must degrade gracefully, not
@@ -81,8 +90,25 @@ function isTerminalReport(raw) {
  * summary object for cron telemetry. Never throws.
  */
 export async function recoverInterruptedScans(env, { now = Date.now() } = {}) {
-  const summary = { examined: 0, recovered_interrupted: 0, converged_from_r2: 0, skipped: 0 };
+  const summary = { examined: 0, recovered_interrupted: 0, converged_from_r2: 0, skipped: 0, waiting_in_queue: 0 };
   const statusPlaceholders = RECOVERY_ACTIVE_STATUSES.map(() => "?").join(",");
+
+  // Is the queue still being worked through? A running scan with a fresh
+  // heartbeat says so. Any failure to tell reads as "not working" — the
+  // conservative pre-existing behaviour.
+  let queueWorking = false;
+  try {
+    const running = await env.cybermeters_db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM scans
+          WHERE status IN ('queued', 'running', 'retrying') AND status = ?
+            AND julianday(last_heartbeat_at) >= julianday(?)`
+      )
+      .bind("running", new Date(now - RECOVERY_HEARTBEAT_STALE_MS).toISOString())
+      .first();
+    queueWorking = Number(running?.n) > 0;
+  } catch { queueWorking = false; }
+  const queuedCutoff = new Date(now - RECOVERY_QUEUED_MAX_WAIT_MS).toISOString();
 
   let rows;
   try {
@@ -90,11 +116,14 @@ export async function recoverInterruptedScans(env, { now = Date.now() } = {}) {
       .prepare(
         `SELECT id, workspace_id, domain_id, domain, status, created_at, last_heartbeat_at
            FROM scans
-          WHERE status IN (${statusPlaceholders})
+          WHERE status IN (${statusPlaceholders})${queueWorking
+            ? `
+            AND (status <> 'queued' OR julianday(created_at) <= julianday(?))`
+            : ""}
           ORDER BY created_at ASC
           LIMIT ${RECOVERY_BATCH_LIMIT}`
       )
-      .bind(...RECOVERY_ACTIVE_STATUSES)
+      .bind(...RECOVERY_ACTIVE_STATUSES, ...(queueWorking ? [queuedCutoff] : []))
       .all();
   } catch {
     return summary; // D1 read failure — nothing safe to do this tick
@@ -108,6 +137,13 @@ export async function recoverInterruptedScans(env, { now = Date.now() } = {}) {
     const heartbeatMs = parseDbTime(s.last_heartbeat_at) ?? createdMs;
     if (!createdMs || now - createdMs < RECOVERY_MIN_AGE_MS) { summary.skipped++; continue; }
     if (!heartbeatMs || now - heartbeatMs < RECOVERY_HEARTBEAT_STALE_MS) { summary.skipped++; continue; }
+    // A queued scan behind others in a queue that is still moving is waiting
+    // its turn, not lost.
+    if (s.status === "queued" && queueWorking && now - createdMs < RECOVERY_QUEUED_MAX_WAIT_MS) {
+      summary.skipped++;
+      summary.waiting_in_queue++;
+      continue;
+    }
 
     const reportKey = `reports/${s.id}.json`;
     let raw = null;

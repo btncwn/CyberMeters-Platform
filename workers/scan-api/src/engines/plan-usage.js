@@ -946,7 +946,8 @@ export async function checkScheduledScanLimit(user, workspaceId, env) {
  *        stays free of the index.js rate limiter (avoids a circular import).
  * @returns {{ok: true} | {ok: false, reason: string}}
  *   reasons: workspace_not_accessible | domain_verification_required |
- *            feature_not_entitled | scan_limit_exceeded | rate_limit_unavailable
+ *            feature_not_entitled | scan_limit_exceeded | account_scans_waiting |
+ *            rate_limit_unavailable
  */
 export async function evaluateScheduledScanEligibility(env, { workspaceId, domainId, ownerUserId, consumeRateLimit } = {}) {
   // 1 + 3 + 6. Workspace must exist, not be soft-deleted, and be resolvable.
@@ -973,6 +974,12 @@ export async function evaluateScheduledScanEligibility(env, { workspaceId, domai
   const quota = await checkScanLimit({ id: ownerUserId }, workspaceId, env);
   if (quota) return { ok: false, reason: "scan_limit_exceeded" };
 
+  // 6b. The account's scans waiting in the queue (none exist outside queue
+  // mode). Checked before the rate limit, so a schedule refused for a full
+  // queue does not spend a scan-start token; admission re-checks atomically.
+  const waiting = await env.cybermeters_db.prepare(`SELECT ${WAITING_SCANS_SQL} AS n`).bind(billingOwnerId).first().catch(() => null);
+  if (Number(waiting?.n) >= ACCOUNT_WAITING_SCAN_LIMIT) return { ok: false, reason: ACCOUNT_WAITING_SCANS_CODE };
+
   // 7. Scan-start rate limit — fail CLOSED (expensive action). Consumes a token, so last.
   if (typeof consumeRateLimit === "function") {
     const rl = await consumeRateLimit({ billingOwnerId, plan });
@@ -991,22 +998,55 @@ export async function getOperationAdmission(env, workspaceId, fallbackUserId, re
   if (state.source === "error") throw Object.assign(new Error("plan_state_unavailable"), {
     quota: { status: 503, body: { error: "plan_state_unavailable", message: "Your plan could not be checked. Please try again." } },
   });
-  if (state.plan === "free") return { sql: "0", args: [], state, rejection: async () => inactivePlanError(state) };
-  if (!state.is_trial) return { sql: "1", args: [], state, rejection: async () => ({ status: 503, body: { error: "operation_unavailable" } }) };
+  if (state.plan === "free") return { sql: "0", args: [], state, ownerId, rejection: async () => inactivePlanError(state) };
+  if (!state.is_trial) return { sql: "1", args: [], state, ownerId, rejection: async () => ({ status: 503, body: { error: "operation_unavailable" } }) };
   const query = trialUsageSql(resource, ownerId, null);
-  return { sql: `${query.sql} < ? AND julianday('now') < julianday(?)`, args: [...query.args, TRIAL_SPEC[`${resource}_per_day`], state.trial_end], state,
+  return { sql: `${query.sql} < ? AND julianday('now') < julianday(?)`, args: [...query.args, TRIAL_SPEC[`${resource}_per_day`], state.trial_end], state, ownerId,
     rejection: async () => Date.parse(state.trial_end) <= Date.now()
       ? inactivePlanError({ trial_expired: true })
       : trialQuotaError(resource, await trialUsage(env, resource, ownerId)),
   };
 }
 
+// Scans waiting in the queue, per account. Every scan, from every customer,
+// waits in one queue in arrival order, so a customer who starts hundreds of
+// scans at once would put everyone who comes after them behind all of them.
+// An account may have this many waiting at once; a scan stops counting the
+// moment it starts running. Running scans, and scans started outside the
+// queue, are not limited by it.
+export const ACCOUNT_WAITING_SCAN_LIMIT = 12;
+export const ACCOUNT_WAITING_SCANS_CODE = "account_scans_waiting";
+const WAITING_SCANS_SQL = `(SELECT COUNT(*) FROM scans waiting
+     JOIN workspaces owned ON owned.id = waiting.workspace_id
+    WHERE owned.owner_user_id = ?
+      AND waiting.status IN ('queued', 'running', 'retrying')
+      AND waiting.status = 'queued')`;
+
+export function accountWaitingScansRejection(limit = ACCOUNT_WAITING_SCAN_LIMIT) {
+  const message = `${limit} scans from your account are already waiting to start. Start this one again when one of them has begun.`;
+  return {
+    status: 429,
+    body: { error: message, message, code: ACCOUNT_WAITING_SCANS_CODE, reason: ACCOUNT_WAITING_SCANS_CODE, limit },
+  };
+}
+
 export async function admitDomainScan(env, { scanId, domainId, workspaceId, domain, status, userId }) {
   const guard = await getOperationAdmission(env, workspaceId, userId, "scans");
+  // The waiting cap is part of the same atomic admission: two requests racing
+  // for the last place cannot both take it.
+  const waitingCap = status === "queued" && guard.ownerId;
   const result = await env.cybermeters_db.prepare(
-    `INSERT INTO scans (id, domain_id, workspace_id, domain, status) SELECT ?, ?, ?, ?, ? WHERE ${guard.sql}`
-  ).bind(scanId, domainId, workspaceId, domain, status, ...guard.args).run();
-  return result?.meta?.changes === 1 ? null : guard.rejection();
+    `INSERT INTO scans (id, domain_id, workspace_id, domain, status) SELECT ?, ?, ?, ?, ? WHERE ${guard.sql}${waitingCap ? ` AND ${WAITING_SCANS_SQL} < ?` : ""}`
+  ).bind(scanId, domainId, workspaceId, domain, status, ...guard.args, ...(waitingCap ? [guard.ownerId, ACCOUNT_WAITING_SCAN_LIMIT] : [])).run();
+  if (result?.meta?.changes === 1) return null;
+  if (waitingCap) {
+    // On a paid plan the plan guard always admits, so the waiting cap was the
+    // reason even if a waiting scan has started since the insert was refused.
+    if (guard.sql === "1") return accountWaitingScansRejection();
+    const waiting = await env.cybermeters_db.prepare(`SELECT ${WAITING_SCANS_SQL} AS n`).bind(guard.ownerId).first().catch(() => null);
+    if (Number(waiting?.n) >= ACCOUNT_WAITING_SCAN_LIMIT) return accountWaitingScansRejection();
+  }
+  return guard.rejection();
 }
 
 // Technical PDFs generated during a trial are stored once. The existing scan
