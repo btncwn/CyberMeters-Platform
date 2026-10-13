@@ -732,6 +732,17 @@ export function cappedModuleCutoffProvenance(value, timedOut) {
   return timedOut ? "module_race" : null;
 }
 
+export async function loadTlsAssessmentModuleForScan(env, { workspaceId, scanId, durableInvocation }) {
+  if (!workspaceId || !durableInvocation) return null;
+  try {
+    // A rollout flag stops new TLS work, but a queued scan can still contain
+    // previously planned controls. Preserve their partial result in the report.
+    return await readTlsAssessmentForScan(env, { workspaceId, scanId });
+  } catch {
+    return { source: "tls_assessment", quality: "unavailable", coverage: "unknown", endpoints: [], gaps: ["result_unavailable"] };
+  }
+}
+
 export async function runScanEngine(scanId, domainId, workspaceId, domain, env, opts = {}) {
   // Injectable clock (tests drive it deterministically); production uses Date.now.
   const now = typeof opts.now === "function" ? opts.now : Date.now;
@@ -2042,13 +2053,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     if (workspaceId) {
       try { exposureReceipt = await readExposureForScan(env, { workspaceId, scanId }); } catch { /* unavailable is explicit below */ }
     }
-    if (workspaceId && durableInvocation && env.TLS_ASSESSMENT_MODE === "evidence-v1") {
-      try {
-        modules.tls_assessment = await readTlsAssessmentForScan(env, { workspaceId, scanId });
-      } catch {
-        modules.tls_assessment = { source: "tls_assessment", quality: "unavailable", coverage: "unknown", endpoints: [], gaps: ["result_unavailable"] };
-      }
-    }
+    const tlsAssessment = await loadTlsAssessmentModuleForScan(env, { workspaceId, scanId, durableInvocation });
+    if (tlsAssessment) modules.tls_assessment = tlsAssessment;
 
     // Phase 7a: Website important-page discovery (engines/page-discovery.js).
     // Bounded passive GETs of the site's own pages (homepage links, sitemap,

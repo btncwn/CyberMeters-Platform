@@ -5,6 +5,8 @@ import { performance } from 'node:perf_hooks';
 import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, tlsEndpointIdentity } from '../shared/tls/catalog.js';
 import { projectTlsCollectorReceipt } from '../workers/network-probe/src/tls-contract.js';
 import { processExposureMessage, readTlsAssessmentForScan } from '../workers/scan-api/src/engines/exposure-jobs.js';
+import { loadTlsAssessmentModuleForScan } from '../workers/scan-api/src/engines/scan-engine.js';
+import { resolveCyberMotDomainStates } from '../workers/scan-api/src/engines/cyber-mot-domains.js';
 
 const sql=new DatabaseSync(':memory:');
 sql.exec(`CREATE TABLE workspaces(id TEXT PRIMARY KEY,deleted_at TEXT);
@@ -122,6 +124,14 @@ assert(JSON.parse(rollbackRow.plan_json).tls.results.every(result=>result.state=
 const rollbackAssessment=await readTlsAssessmentForScan(env,{workspaceId:'w_interrupt',scanId:'tls_flag_off'});
 assert.equal(rollbackAssessment.quality,'partial');
 assert.equal(rollbackAssessment.coverage.unexecutable,TLS_SLICE_LIMITS.checks+1);
+const resumedTlsModule=await loadTlsAssessmentModuleForScan(env,{workspaceId:'w_interrupt',scanId:'tls_flag_off',durableInvocation:true});
+assert.deepEqual(resumedTlsModule,rollbackAssessment);
+const resumedReport={scan_quality:{status:'complete',modules_skipped:[]},
+  modules:{certificate_intelligence:{},tls_assessment:resumedTlsModule},findings:[]};
+const certificateState=resolveCyberMotDomainStates(resumedReport).find(row=>row.domain_key==='certificates_trust');
+assert.equal(certificateState.state,'evidence_insufficient');
+assert.equal(await loadTlsAssessmentModuleForScan(env,{workspaceId:'w_interrupt',scanId:'not_planned',durableInvocation:true}),null);
+assert.equal(await loadTlsAssessmentModuleForScan(env,{workspaceId:'w_interrupt',scanId:'tls_flag_off',durableInvocation:false}),null);
 assert.equal(collectorCalls,callsBeforeRollback);
 env.TLS_ASSESSMENT_MODE='evidence-v1';
 // Revocation during DNS must prevent dispatch; revocation after collection
