@@ -21,6 +21,7 @@ export const PAGE_REFERENCE_ASSET_SOURCES = Object.freeze({
   robots_txt: "robots_reference",
   sitemap:    "sitemap_reference",
   javascript: "script_reference",
+  exposure_content: "content_reference",
 });
 const RANK = new Map(Object.keys(PAGE_REFERENCE_ASSET_SOURCES).map((source, index) => [source, index]));
 const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);

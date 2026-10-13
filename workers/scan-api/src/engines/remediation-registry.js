@@ -27,6 +27,7 @@
 // schema. resolveRemediation is pure and deterministic.
 
 import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
+import { EXPOSURE_RULES } from "../../../../shared/exposure/catalog.js";
 
 // The eight canonical domain keys are DERIVED from the Cyber MOT domain model so
 // they can never drift from it. Every registry entry must use one of these.
@@ -84,6 +85,22 @@ function entry(e) {
 }
 
 export const REMEDIATION_REGISTRY = Object.freeze([
+  ...EXPOSURE_RULES.map((rule) => entry({
+    remediation_id: `web.exposure.${rule.id.replaceAll("-", "_")}`,
+    domain_key: "website_security",
+    finding_types: [`external_exposure_${rule.id}`],
+    customer_title: `Review: ${rule.title}`,
+    technical_explanation: rule.evidence.positive,
+    business_impact: rule.risk || "Public operational or source information may expose details intended only for the service owner. No credential validity or unauthorised operation is tested.",
+    recommended_action: rule.remediation.join(" "),
+    verification_method: rule.observationOnly ? "unsupported" : "rescan",
+    verification_evidence_requirements: "A later successful bounded check of the same rule and exact original URL finds the condition absent. Missing, blocked, incomplete and untested responses cannot verify remediation.",
+    supporting_evidence_types: ["bounded_http_content"],
+    managed_workflow_compatible: !rule.observationOnly,
+    case_type: rule.observationOnly ? null : "website_case",
+    limitations: [rule.evidence.uncertain, "No authentication bypass, credential validity, data modification or code execution is attempted."],
+    introduced_at: "2026-10-13",
+  })),
   // ─────────────────────────── EMAIL PROTECTION ──────────────────────────────
   entry({
     remediation_id: "email.dmarc.publish",
@@ -1382,6 +1399,8 @@ export const FINDING_TYPE_ALIASES = Object.freeze({
 function normalizeFindingType(rawType) {
   const ft = String(rawType || "").trim();
   if (!ft) return "";
+  const exposure = /^(external_exposure_[a-z][a-z0-9-]+)__[a-f0-9]{64}$/.exec(ft);
+  if (exposure) return exposure[1];
   if (ft.startsWith("subdomain_sensitive_")) return "subdomain_sensitive";
   return ft;
 }

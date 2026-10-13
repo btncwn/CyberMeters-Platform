@@ -132,6 +132,18 @@ jobs:
           node --check workers/scan-api/src/index.js
           node --check workers/email-ingest/src/index.js
 
+      - name: Validate versioned exposure catalog and template provenance
+        run: node scripts/validate-exposure-catalog.js
+
+      - name: Validate bounded exposure collector over actual local HTTP
+        run: node scripts/validate-exposure-collector.js
+
+      - name: Validate exposure continuations and 1000 synthetic jobs
+        run: node scripts/validate-exposure-queue.js
+
+      - name: Validate exposure finding lifecycle and honest retests
+        run: node scripts/validate-exposure-lifecycle.js
+
       - name: Validate private network collector and live TLS evidence
         run: node scripts/validate-network-probe.js
 

@@ -4,6 +4,7 @@ import { api } from '../api'
 import { parseServerDate } from '../utils/dates'
 import { scanQualityMeta, toneClass } from '../lib/websiteSecurityDisplay'
 import { SERVICE_COLORS } from '../theme/serviceColors'
+import ExternalExposureChecks from './ExternalExposureChecks'
 
 const colors = SERVICE_COLORS.website
 
@@ -122,6 +123,7 @@ export default function WebsiteScanOverview({ workspaceId, refresh = 0 }) {
           <Link className="btn-secondary" to={evidenceUrl}>View latest scan evidence</Link>
           <Link className="btn-primary" to={`/scans/new?domain=${encodeURIComponent(scan.domain)}`}>Recheck this website</Link>
         </div>}
+        {report && <ExternalExposureChecks exposure={report.modules?.external_exposure} domain={scan?.domain} scanId={scan?.id} />}
         {scans.length >= 20 && <p className="mt-4 text-sm text-gray-500">Site selection uses this workspace’s 20 most recent scan records. <Link className="underline" to="/scans">View scan history</Link></p>}
       </div>
     </section>

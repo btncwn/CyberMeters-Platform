@@ -1,0 +1,13 @@
+{
+  "kind": "controlled_synthetic_queue",
+  "live_customer_domains": 0,
+  "synthetic_asset_jobs": 1000,
+  "deliveries": 2000,
+  "collector_calls": 1000,
+  "completed": 1000,
+  "charged_requests": 3000,
+  "charged_bytes": 120000,
+  "elapsed_ms": 777,
+  "fairness_initial_assets_seen": 1000,
+  "assertions": 48
+}

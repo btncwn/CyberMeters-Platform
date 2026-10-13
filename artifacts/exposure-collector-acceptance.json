@@ -1,0 +1,1005 @@
+{
+  "schema_version": "exposure-local-acceptance-v1",
+  "measured_at": "2026-10-13T15:26:54.739Z",
+  "source_baseline": "asset-intel.js probeAsset + runAdminSurfaceModule at a227d1fd",
+  "corpus_size": 44,
+  "active_rules": 22,
+  "scope": "Actual HTTP over loopback only; injected public DNS plan and verified local peer adapter. Not production acceptance.",
+  "byte_metric": "Encoded HTTP response body bytes delivered to the client; excludes request/response headers, TCP/TLS overhead, and kernel-buffer bytes not delivered to JavaScript. Actual final-chunk overread is counted.",
+  "baseline_limits": "Existing host title/technology/admin classifier has no sensitive-file content coverage. The same fixture response is given to its public fetcher seam; no fictional legacy content detector is substituted.",
+  "candidate_limits": "Two random-path controls per slice; max 12 HTTP requests, 32KiB body processing per response, 512KiB aggregate cut-off, 15s deadline; final chunks can cross the threshold and are honestly counted.",
+  "baseline": {
+    "requests": 44,
+    "bytes_wire": 938,
+    "duration_ms": 26.168,
+    "tp": 0,
+    "fp": 1,
+    "fn": 20,
+    "tn": 23,
+    "precision": 0,
+    "recall": 0
+  },
+  "candidate": {
+    "requests": 132,
+    "bytes_wire": 4451,
+    "bytes_decoded": 4451,
+    "duration_ms": 80,
+    "tp": 20,
+    "fp": 0,
+    "fn": 0,
+    "tn": 24,
+    "uncertain": 0,
+    "precision": 1,
+    "recall": 1
+  },
+  "records": [
+    {
+      "fixture_id": "env-config-positive",
+      "rule_id": "env-config",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 8.469
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 102,
+        "bytes_decoded": 102,
+        "duration_ms": 6,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "env-config-negative",
+      "rule_id": "env-config",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 1.039
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 98,
+        "bytes_decoded": 98,
+        "duration_ms": 3,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "application-config-positive",
+      "rule_id": "application-config",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.56
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 93,
+        "bytes_decoded": 93,
+        "duration_ms": 3,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "application-config-negative",
+      "rule_id": "application-config",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.524
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 73,
+        "bytes_decoded": 73,
+        "duration_ms": 3,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "package-auth-positive",
+      "rule_id": "package-auth",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.489
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 115,
+        "bytes_decoded": 115,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "package-auth-negative",
+      "rule_id": "package-auth",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.408
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 64,
+        "bytes_decoded": 64,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "git-metadata-positive",
+      "rule_id": "git-metadata",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.388
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 120,
+        "bytes_decoded": 120,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "git-metadata-negative",
+      "rule_id": "git-metadata",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.365
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 44,
+        "bytes_decoded": 44,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "svn-metadata-positive",
+      "rule_id": "svn-metadata",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.406
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 88,
+        "bytes_decoded": 88,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "svn-metadata-negative",
+      "rule_id": "svn-metadata",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.438
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 74,
+        "bytes_decoded": 74,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "project-metadata-positive",
+      "rule_id": "project-metadata",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.374
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 129,
+        "bytes_decoded": 129,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "project-metadata-negative",
+      "rule_id": "project-metadata",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.358
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 48,
+        "bytes_decoded": 48,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "database-export-positive",
+      "rule_id": "database-export",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.39
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 146,
+        "bytes_decoded": 146,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "database-export-negative",
+      "rule_id": "database-export",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.351
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 77,
+        "bytes_decoded": 77,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "backup-archive-positive",
+      "rule_id": "backup-archive",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.344
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 75,
+        "bytes_decoded": 75,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "backup-archive-negative",
+      "rule_id": "backup-archive",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.334
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 67,
+        "bytes_decoded": 67,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "directory-listing-positive",
+      "rule_id": "directory-listing",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 135,
+        "duration_ms": 1.028
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 153,
+        "bytes_decoded": 153,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "directory-listing-negative",
+      "rule_id": "directory-listing",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 84,
+        "duration_ms": 0.419
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 102,
+        "bytes_decoded": 102,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "backup-source-positive",
+      "rule_id": "backup-source",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 89,
+        "duration_ms": 0.359
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 107,
+        "bytes_decoded": 107,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "backup-source-negative",
+      "rule_id": "backup-source",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 72,
+        "duration_ms": 0.392
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 90,
+        "bytes_decoded": 90,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "runtime-debug-positive",
+      "rule_id": "runtime-debug",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 212,
+        "duration_ms": 0.392
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 230,
+        "bytes_decoded": 230,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "runtime-debug-negative",
+      "rule_id": "runtime-debug",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 92,
+        "duration_ms": 1.07
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 110,
+        "bytes_decoded": 110,
+        "duration_ms": 3,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "exposed-log-positive",
+      "rule_id": "exposed-log",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.311
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 166,
+        "bytes_decoded": 166,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "exposed-log-negative",
+      "rule_id": "exposed-log",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.331
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 70,
+        "bytes_decoded": 70,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "admin-interface-positive",
+      "rule_id": "admin-interface",
+      "expected_state": "observed",
+      "baseline_finding": true,
+      "candidate_state": "observed",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 170,
+        "duration_ms": 0.494
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 188,
+        "bytes_decoded": 188,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "admin-interface-negative",
+      "rule_id": "admin-interface",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 84,
+        "duration_ms": 0.363
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 102,
+        "bytes_decoded": 102,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "admin-data-positive",
+      "rule_id": "admin-data",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.331
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 119,
+        "bytes_decoded": 119,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "admin-data-negative",
+      "rule_id": "admin-data",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.327
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 56,
+        "bytes_decoded": 56,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "prometheus-metrics-positive",
+      "rule_id": "prometheus-metrics",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.316
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 143,
+        "bytes_decoded": 143,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "prometheus-metrics-negative",
+      "rule_id": "prometheus-metrics",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.327
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 49,
+        "bytes_decoded": 49,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "actuator-env-positive",
+      "rule_id": "actuator-env",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.326
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 171,
+        "bytes_decoded": 171,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "actuator-env-negative",
+      "rule_id": "actuator-env",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.308
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 33,
+        "bytes_decoded": 33,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "client-secret-positive",
+      "rule_id": "client-secret",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.311
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 82,
+        "bytes_decoded": 82,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "client-secret-negative",
+      "rule_id": "client-secret",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.297
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 193,
+        "bytes_decoded": 193,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "source-map-positive",
+      "rule_id": "source-map",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.324
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 177,
+        "bytes_decoded": 177,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "source-map-negative",
+      "rule_id": "source-map",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.332
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 67,
+        "bytes_decoded": 67,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "api-schema-positive",
+      "rule_id": "api-schema",
+      "expected_state": "observed",
+      "baseline_finding": false,
+      "candidate_state": "observed",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.308
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 218,
+        "bytes_decoded": 218,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "api-schema-negative",
+      "rule_id": "api-schema",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.311
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 66,
+        "bytes_decoded": 66,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "elasticsearch-indices-positive",
+      "rule_id": "elasticsearch-indices",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.303
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 73,
+        "bytes_decoded": 73,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "elasticsearch-indices-negative",
+      "rule_id": "elasticsearch-indices",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.347
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 65,
+        "bytes_decoded": 65,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "couchdb-databases-positive",
+      "rule_id": "couchdb-databases",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.329
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 62,
+        "bytes_decoded": 62,
+        "duration_ms": 2,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "couchdb-databases-negative",
+      "rule_id": "couchdb-databases",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.304
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 51,
+        "bytes_decoded": 51,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "ignition-health-positive",
+      "rule_id": "ignition-health",
+      "expected_state": "finding",
+      "baseline_finding": false,
+      "candidate_state": "finding",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.306
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 47,
+        "bytes_decoded": 47,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    },
+    {
+      "fixture_id": "ignition-health-negative",
+      "rule_id": "ignition-health",
+      "expected_state": "not_found",
+      "baseline_finding": false,
+      "candidate_state": "not_found",
+      "baseline": {
+        "requests": 1,
+        "bytes_wire": 0,
+        "duration_ms": 0.364
+      },
+      "candidate": {
+        "requests": 3,
+        "redirects": 0,
+        "retries": 0,
+        "bytes_wire": 48,
+        "bytes_decoded": 48,
+        "duration_ms": 1,
+        "byte_limit_exceeded": false,
+        "controls_completed": 2
+      }
+    }
+  ]
+}

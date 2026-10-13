@@ -2,6 +2,7 @@ import { handleInboundEmail } from "./email/inbound.js";
 import { runScheduled } from "./cron/scheduled.js";
 import { handleScanDispatchBatch, dispatchAdmittedScan, isScheduledQueueDispatchMode } from "./engines/scan-dispatch.js";
 import { handleNetworkScanBatch, recoverNetworkScans } from "./engines/network-scan-dispatch.js";
+import { handleExposureBatch } from "./engines/exposure-jobs.js";
 import { networkAssetRoutes } from "./routes/network-assets.js";
 import { handleScanDlqBatch } from "./queues/scan-dlq-observer.js";
 import { recordAlertDeliveryOutcome, routeQueueBatch } from "./lib/operational-events.js";
@@ -1104,6 +1105,7 @@ const WORKSPACE_PURGE_TABLES = [
   "identity_public_source_checks",
   "dns_provider_changes", "dns_provider_connections",
   "network_assets", "network_scans", "network_targets",
+  "external_exposure_jobs", "external_exposure_visits",
   // email_protection_events holds no FK to either record family it describes
   // (hosted_dns_entries is hard-deleted on removal, and one column carries ids
   // from both), so it is purged on its own workspace_id ahead of them.
@@ -2812,7 +2814,9 @@ export default {
     dlq:      handleScanDlqBatch,
     dispatch: async (batch, env, ctx, deps) => {
       const network = batch.messages.filter(message => message.body?.kind === "network_probe");
-      const domain = batch.messages.filter(message => message.body?.kind !== "network_probe");
+      const exposure = batch.messages.filter(message => message.body?.kind === "external_exposure");
+      const domain = batch.messages.filter(message => !["network_probe", "external_exposure"].includes(message.body?.kind));
+      if (exposure.length) await handleExposureBatch({ ...batch, messages: exposure }, env, ctx);
       if (network.length) await handleNetworkScanBatch({ ...batch, messages: network }, env, ctx);
       if (domain.length) await handleScanDispatchBatch({ ...batch, messages: domain }, env, ctx, deps);
     },

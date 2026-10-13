@@ -804,10 +804,11 @@ const stripToml = wranglerSrc.replace(/#[^\n]*/g, "");
   };
   walk(srcPath());
   const expectedProducers = [
+    "workers/scan-api/src/engines/exposure-jobs.js",
     "workers/scan-api/src/engines/scan-dispatch.js",
     "workers/scan-api/src/routes/network-assets.js",
   ];
-  ok("E1 SCAN_QUEUE is referenced ONLY by the domain dispatch and admitted network route",
+  ok("E1 SCAN_QUEUE is referenced ONLY by admitted scan dispatch, exposure continuations and network route",
     JSON.stringify(files.sort()) === JSON.stringify(expectedProducers),
     JSON.stringify(files));
 }

@@ -35,6 +35,7 @@ import {
 } from "./tls-evidence.js";
 import { maySupportDefectConclusion, mayGroundRedirectAbsence } from "../lib/serviceability.js";
 import { isSignInConditionKey, evaluateSignInCondition } from "./signin-page-findings.js";
+import { isExposureConditionKey, evaluateExposureCondition } from "./exposure-findings.js";
 
 export const WEBSITE_SECURITY_DOMAIN_KEY = "website_security";
 
@@ -94,6 +95,7 @@ const WS_CONDITION_PREFIXES = Object.freeze([
 export function websiteConditionSpec(conditionKey) {
   const key = String(conditionKey || "");
   if (WS_CONDITIONS[key]) return WS_CONDITIONS[key];
+  if (isExposureConditionKey(key)) return { recurrence: "external_content_exposed", module: "external_exposure" };
   for (const p of WS_CONDITION_PREFIXES) {
     if (key.startsWith(p.prefix)) return { recurrence: p.recurrence, module: p.module };
   }
@@ -175,14 +177,15 @@ function gradeFindings(findings, modules, gate) {
     // The cookie set is explicitly lifecycle-managed at its canonical finding
     // severities, including the existing low-severity SameSite finding. Other low/info
     // Website signals retain the established evidence-uncertain behaviour.
-    const material = isCookieFindingType(f.id) || isMaterial(f.severity);
+    const material = isCookieFindingType(f.id) || (isExposureConditionKey(f.id) ? f.finding_type === "finding" : isMaterial(f.severity));
     const prev = graded.get(f.id);
     // Highest grade wins if a key somehow appears twice in one scan.
     if (prev && SEV_RANK[prev.severity] >= (SEV_RANK[String(f.severity || "").toLowerCase()] ?? 0)) continue;
     graded.set(f.id, {
       condition_key: f.id,
       severity: String(f.severity || "").toLowerCase(),
-      title: f.title || null,
+      title: f.exposure?.affected_url ? `${f.title} (${f.exposure.affected_url})` : f.title || null,
+      affected_url: f.exposure?.affected_url || null,
       module: spec.module,
       recurrence: spec.recurrence,
       material,
@@ -292,6 +295,13 @@ export async function evaluateWebsiteSecurityForScan(env, {
         continue;
       }
 
+      const exposureObservation = isExposureConditionKey(key)
+        ? evaluateExposureCondition(key, modules?.external_exposure) : null;
+      // Unavailability is not a new occurrence, recovery or evidence replacement.
+      // Keep the prior finding/case identity and observation; current coverage is
+      // visible separately in the scan receipt. A different URL cannot clear it.
+      if (exposureObservation?.state === "deferred") continue;
+
       // ── What is the condition's state, honestly? ────────────────────────────
       let status, reason = null, unknown_reason = null;
       let recurrence = null, band = null;
@@ -305,7 +315,8 @@ export async function evaluateWebsiteSecurityForScan(env, {
         : null;
       if (obs && obs.material && mayIssueFromModule(modules, spec.module)
           && (!cookieObservation || cookieObservation.state === "present")
-          && (!signInObservation || signInObservation.state === "present")) {
+          && (!signInObservation || signInObservation.state === "present")
+          && (!exposureObservation || exposureObservation.state === "present")) {
         status = "observed";
         recurrence = obs.recurrence;
         band = obs.severity;            // the band IS the grade: worsening escalates
@@ -315,6 +326,11 @@ export async function evaluateWebsiteSecurityForScan(env, {
         status = "unknown";
         unknown_reason = "evidence_insufficient";
         reason = "condition_observation_not_serviceable";
+      } else if (exposureObservation?.state === "clear" && gate.qualityAuthoritative && !gate.scanPartial) {
+        status = "no_longer_observed";
+        reason = "exact_content_condition_retested_clear";
+      } else if (exposureObservation) {
+        continue; // a non-authoritative scan cannot verify a fix
       } else if (cookieObservation?.state === "clear") {
         // Cookie absence is conclusive only when cookies were actually observed and
         // the canonical predicate evaluated false. A zero-cookie response never enters.
@@ -400,12 +416,12 @@ export async function evaluateWebsiteSecurityForScan(env, {
           // The case BEFORE the alert: an alert that names a case must be able to link to
           // one, so the case has to exist by the time the alert is built.
           const opened = await openWebsiteCase(env, {
-            workspace_id, record_id: id, entity: `${domain}:${key}`, domain,
+            workspace_id, record_id: id, entity: obs?.affected_url || `${domain}:${key}`, domain,
             recurrence, condition_key: key, severity: obs.severity, scan_id,
           });
           const r = await emitLifecycleAlert(env, {
             workspace_id, domain_key: WEBSITE_SECURITY_DOMAIN_KEY,
-            record_id: id, entity: `${domain}:${key}`, hostname: domain,
+            record_id: id, entity: obs?.affected_url || `${domain}:${key}`, hostname: domain,
             recurrence, record_severity: obs.severity, finding_type: key,
             case_id: opened?.case_id || null,
             module_evidence: modules?.[spec.module] || null,
@@ -464,7 +480,7 @@ export async function evaluateWebsiteSecurityForScan(env, {
         // of trusting the branch it was called from.
         await verifyWebsiteCaseFromResolution(env, {
           workspace_id, record_id: rec.id, recovery_event_type: WS_EVENT_RESOLVED,
-          module_assessed: gate.canVerify(spec.module), detecting_module: spec.module, scan_id,
+          module_assessed: exposureObservation ? exposureObservation.state === "clear" && gate.qualityAuthoritative && !gate.scanPartial : gate.canVerify(spec.module), detecting_module: spec.module, scan_id,
         }).catch(() => {});
         resolved++;
         continue;
@@ -500,12 +516,12 @@ export async function evaluateWebsiteSecurityForScan(env, {
       // recurrence on the open one. Either way the case is resolved BEFORE the alert, so the
       // link is the case that exists now — not the stale pointer on the row we read.
       const opened = await openWebsiteCase(env, {
-        workspace_id, record_id: rec.id, entity: `${domain}:${key}`, domain,
+        workspace_id, record_id: rec.id, entity: obs?.affected_url || `${domain}:${key}`, domain,
         recurrence, condition_key: key, severity: obs.severity, scan_id,
       });
       const r = await emitLifecycleAlert(env, {
         workspace_id, domain_key: WEBSITE_SECURITY_DOMAIN_KEY,
-        record_id: rec.id, entity: `${domain}:${key}`, hostname: domain,
+        record_id: rec.id, entity: obs?.affected_url || `${domain}:${key}`, hostname: domain,
         recurrence, record_severity: obs.severity, finding_type: key,
         case_id: opened?.case_id || rec.linked_case_id || null,
         module_evidence: modules?.[spec.module] || null,

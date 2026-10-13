@@ -17,6 +17,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { EXPOSURE_RULES } from "../shared/exposure/catalog.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const enginesDir = path.join(root, "workers", "scan-api", "src", "engines");
@@ -29,6 +30,7 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
 // ── ACTIONABLE production finding types (from the finding-emitter audit) ──────
 // Each MUST resolve to exactly one primary canonical remediation.
 const ACTIONABLE = [
+  ...EXPOSURE_RULES.filter(rule => !rule.observationOnly).map(rule => `external_exposure_${rule.id}`),
   // email — scoring.js
   "email_missing_dmarc", "email_dmarc_policy_none", "email_missing_spf",
   // email — email-intel.js
@@ -66,6 +68,7 @@ const ACTIONABLE = [
 // Declared explicitly so none is silently forgotten. Some are ALSO registry-
 // mapped (a remediation is available but not required); that is allowed.
 const REMEDIATION_NOT_REQUIRED = new Set([
+  ...EXPOSURE_RULES.filter(rule => rule.observationOnly).map(rule => `external_exposure_${rule.id}`),
   "dns_resolver_disagreement", "canonical_url_uncertain", "security_headers_not_observed",
   "email_not_applicable", "email_dkim_not_detected", "email_intel_dkim_not_found",
   "dkim_verification_uncertain", "bimi_not_configured", "bimi_certificate_not_listed",
@@ -95,7 +98,7 @@ const REMEDIATION_NOT_REQUIRED = new Set([
 ]);
 
 // Dynamic / suffixed emitters normalise to a stable prefix the resolver handles.
-const DYNAMIC_PREFIXES = ["subdomain_sensitive_", "header_missing_", "header_malformed_"];
+const DYNAMIC_PREFIXES = ["external_exposure_", "subdomain_sensitive_", "header_missing_", "header_malformed_"];
 
 // ── 1. Every actionable finding type → exactly one primary remediation ───────
 const missing = [];
@@ -129,13 +132,14 @@ ok("all other remediation identities remain version 1",
 // The original 67 records are unchanged; live hostname/trust findings add two;
 // sign-in page conditions add three (web.signin.form_offsite / form_http / cookie_secure);
 // the home-page availability observations add two (web.homepage.not_served / unavailable).
-ok("registry has exactly 74 entries including live TLS, sign-in page and home-page remediations", REMEDIATION_REGISTRY.length === 74);
+ok("registry has exactly 96 entries including 22 bounded public-content rules", REMEDIATION_REGISTRY.length === 96);
 // Certificate logs retired: evidence types and wording move to the live TLS
 // observation and cert.ct_incomplete becomes a deprecated historical entry, so
 // the fingerprint moves r74-05b42c41 -> r74-ad711388 with the count unchanged.
 // Outside vulnerability data retired (check-pack.js): asm.vuln.kev and
 // asm.vuln.cve become deprecated historical entries, r74-ad711388 -> r74-c8030e1a.
-ok("registry fingerprint including live TLS, sign-in forms and home page is exact", remediationRegistryFingerprint() === "r74-c8030e1a", remediationRegistryFingerprint());
+// The 22 local public-content rules add canonical remediations; legacy entries stay unchanged.
+ok("registry fingerprint including bounded public-content rules is exact", remediationRegistryFingerprint() === "r96-d432058a", remediationRegistryFingerprint());
 ok("vulnerability-database remediations are historical only",
   ["asm.vuln.kev", "asm.vuln.cve"].every((id) => byId.get(id)?.status === "deprecated"));
 ok("certificate_expiring_critical maps to expiring, never expired",
@@ -159,13 +163,13 @@ ok("cookie remediation names SameSite and preserves zero-cookie inconclusive sem
 const EMITTER_FILES = [
   "scoring.js", "email-intel.js", "email-analysis.js", "cloud-storage-scan.js",
   "asset-intel.js", "tech-scan.js", "whois-scan.js", "cert-trust-l2.js", "scan-engine.js",
-  "network-probe.js", "signin-page-findings.js", "website-availability.js",
+  "network-probe.js", "signin-page-findings.js", "website-availability.js", "exposure-findings.js",
 ];
 // Literals that appear as id:/type: but are NOT finding types (evidence types,
 // module names, classifications, hosted-service ids, workflow states…).
 const NON_FINDING = new Set([
   // evidence_type values
-  "dns_lookup", "dns_cross_check", "dnssec_lookup", "https_probe", "http_redirect_probe",
+  "bounded_http_content", "dns_lookup", "dns_cross_check", "dnssec_lookup", "https_probe", "http_redirect_probe",
   "canonical_url_probe", "http_header_probe", "dns_mx_lookup", "dns_txt_lookup",
   "certificate_transparency", "certificate_transparency_observation", "supporting_infrastructure_observation",
   "http_fingerprint_observation", "http_probe", "whois", "self_attestation", "scan_findings",

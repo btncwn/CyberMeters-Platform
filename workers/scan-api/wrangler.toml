@@ -106,6 +106,8 @@ max_retries = 5
 # RESEND_API_KEY must be set as a Wrangler secret (never committed):
 #   wrangler secret put RESEND_API_KEY
 [vars]
+# Requires migration 119; set to disabled for rollback. Continuations still drain.
+EXPOSURE_SCAN_MODE = "evidence-v1"
 # Human-readable release version, surfaced by GET /health. Bump on each
 # production release (date-based: YYYY.MM.DD).
 APP_VERSION = "2026.10.13-fair-scan-queue.7f244a7b6910"
