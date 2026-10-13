@@ -298,6 +298,10 @@ async function storeUnrunTlsSlice(env,row,plan,items,state,reason,now) {
 async function processTlsSlice(env,row,plan,now,deps={}) {
   const tls=plan.tls,items=nextTlsChecks(plan),entry=tls.endpoints[items[0]?.endpoint_index];
   if(!items.length||!entry)return finishWithoutProbe(env,row,'complete','tls_complete',now);
+  // A rollout rollback must also stop TLS slices planned by an earlier Worker
+  // version. Keep ordinary exposure work and the scan continuation intact.
+  if(env.TLS_ASSESSMENT_MODE!=='evidence-v1')
+    return storeUnrunTlsSlice(env,row,plan,tls.selected.slice(tls.cursor),'unexecutable','feature_disabled',now);
   const scan={id:row.scan_id,workspace_id:row.workspace_id,domain_id:row.domain_id,domain:row.domain};
   if(!await tlsScopeStillAuthorized(env,scan,entry))
     return storeUnrunTlsSlice(env,row,plan,items,'not_authorized','scope_changed',now);
