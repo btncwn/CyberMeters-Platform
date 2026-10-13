@@ -331,6 +331,30 @@ class BaselineTests(unittest.TestCase):
         self.assertTrue(result['negotiated']['sni_sent'])
         self.assertEqual(result['negotiated']['alpn'], 'h2')
 
+    def test_pinned_openssl_reference_agrees_on_same_endpoint(self):
+        for protocol, cipher in [('tls1_2', 'ECDHE-RSA-AES128-GCM-SHA256'),
+                                 ('tls1_3', 'TLS_AES_128_GCM_SHA256')]:
+            with self.subTest(protocol=protocol):
+                with server(self.modern, self.cert, self.key, protocol) as port:
+                    result = self.assess(protocol, port, family='modern', control='certificate',
+                                         extra=['--cipher', cipher])
+                    command = [self.modern, 's_client', '-brief', '-connect', f'127.0.0.1:{port}',
+                               '-servername', 'localhost', '-verify_hostname', 'localhost',
+                               '-CAfile', self.cert, '-' + protocol]
+                    if protocol == 'tls1_2':
+                        command.extend(['-cipher', cipher])
+                    else:
+                        command.extend(['-ciphersuites', cipher])
+                    reference = run(command, input=b'', timeout=5)
+                output = (reference.stdout + reference.stderr).decode()
+                self.assertEqual(result['state'], 'accepted', result)
+                self.assertEqual(result['negotiated']['cipher'], cipher)
+                self.assertEqual(result['certificates']['trust'], 'valid')
+                self.assertTrue(result['certificates']['hostname'])
+                self.assertIn('Protocol version: ' + protocol.replace('tls', 'TLSv').replace('_', '.'), output)
+                self.assertIn('Ciphersuite: ' + cipher, output)
+                self.assertIn('Verification: OK', output)
+
     def test_same_ip_selects_different_certificates_by_sni(self):
         alternate=(self.alternate_cert,self.alternate_key,'other.example.org')
         with server(self.modern,self.cert,self.key,'tls1_2',alternate=alternate) as port:
