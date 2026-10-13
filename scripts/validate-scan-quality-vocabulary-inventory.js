@@ -135,7 +135,10 @@ const EXPECTED = Object.freeze({
     // five comparisons of the three deleted certificate-log scripts (telemetry
     // analysis 2, first-success 2, live blackout acceptance 1). Every other
     // delta in the two-tree --dump-current diff is a line shift.
-    comparison_occurrences: 80,
+    // Queued-scan authority: 80 -> 81, additive only — the queue validator
+    // asserts that a scan failed for lost authority writes a failed report
+    // whose scan_quality is null (validate-scan-queue-dispatch.js).
+    comparison_occurrences: 81,
     source_file_count: 29,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
@@ -155,7 +158,7 @@ const EXPECTED = Object.freeze({
     // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
     // Subtracting these two sites reproduces the preceding exact fingerprint;
     // runtime, SQL and direct-read inventories are unchanged.
-    fingerprint: "bcf24f42886f6c039b66c10ad15d9caaf1191f18e39d17363d027d51988809de",
+    fingerprint: "91c1ad1cbc81ee145fd114970a49502172af760f3797da803884fec21960b355",
   },
   // Certificate logs retired: the deleted provider-cache module leaves the
   // runtime source set, 33 -> 32.
@@ -231,7 +234,8 @@ const EXPECTED = Object.freeze({
     // in the two-tree --dump-current diff is a line shift.
     // Discovery lab: 114 -> 115 across 35 -> 36 files, additive only — the one
     // read in scripts/lab/lab-scan.mjs that reports each lab scan's quality.
-    governance: { occurrence_count: 115, source_file_count: 36, fingerprint: "9be3f16adba80ed819d368e9dc8e660de93c5c7aa702ed13338c8ffedc61df5f" },
+    // Queued-scan authority: 115 -> 116, the read behind that one assertion.
+    governance: { occurrence_count: 116, source_file_count: 36, fingerprint: "06668a4c98d2948e053137544cb3b59732265f781d0646121ada327b391b704b" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
