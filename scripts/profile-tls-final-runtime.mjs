@@ -71,6 +71,7 @@ console.log(JSON.stringify({
   kind: "tls-final-runtime-loopback-profile-v1",
   iterations,
   target_scope: "isolated_loopback_only",
+  fixture_image_variant: process.env.CM_TLS_TEST_BASELINE_IMAGE === "1" ? "foundation_without_compression" : "compression_candidate",
   runtime_root: process.env.CM_TLS_TEST_RUNTIME_ROOT,
   cgroup_limits: { cpu_max: read("cpu.max"), memory_max: read("memory.max") },
   duration_ms: {

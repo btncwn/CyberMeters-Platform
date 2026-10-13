@@ -154,9 +154,10 @@ try{
     deadline_at:new Date(Date.now()+20000).toISOString()};
   const rawCompression=await measuredCollector(compression);
   assert.equal(rawCompression.results[0].engine_result?.engine?.family,'legacy');
-  assert.equal(rawCompression.results[0].engine_result?.state,'accepted');
-  assert.equal(rawCompression.results[0].engine_result?.extensions?.compression,false);
-  assert.equal(projectTlsCollectorReceipt(compression,rawCompression,{requireSandbox:false}).results[0].state,'accepted');
+  const expectedCompression=process.env.CM_TLS_TEST_BASELINE_IMAGE==='1'?'unexecutable':'accepted';
+  assert.equal(rawCompression.results[0].engine_result?.state,expectedCompression);
+  if(expectedCompression==='accepted')assert.equal(rawCompression.results[0].engine_result?.extensions?.compression,false);
+  assert.equal(projectTlsCollectorReceipt(compression,rawCompression,{requireSandbox:false}).results[0].state,expectedCompression);
   const ipv6=createServer(socket=>smtpSocket(socket,context6));
   extraServers.push(ipv6);
   await new Promise((resolve,reject)=>ipv6.once('error',reject).listen(0,'::1',resolve));
