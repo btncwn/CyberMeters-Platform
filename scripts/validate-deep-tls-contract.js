@@ -45,6 +45,23 @@ assert.equal(validateTlsEngineResult(noSandbox,request.checks[0]).ok,false,'unsa
 assert.equal(validateTlsEngineResult(noSandbox,request.checks[0],{requireSandbox:false}).ok,true,'local fixture can test native binary');
 const falseAccepted=structuredClone(engine);falseAccepted.authenticated_finished=false;
 assert.equal(validateTlsEngineResult(falseAccepted,request.checks[0]).ok,false,'no Finished is not accepted');
+const heartbleedCheck={control:'heartbleed',protocol:'tls1_2',cipher_id:null};
+const heartbleed={...structuredClone(engine),engine:{...engine.engine,family:'active_legacy',version:'1.0.2u'},
+  control:'heartbleed',reason:'active_confirmed',vulnerability:{status:'confirmed',profile:'heartbleed-minimal-v1',completed_vectors:3,planned_vectors:3}};
+assert.equal(validateTlsEngineResult(heartbleed,heartbleedCheck).ok,true,'bounded positive evidence accepted');
+const interrupted={...structuredClone(heartbleed),state:'uncertain',reason:'aborted',authenticated_finished:false,
+  negotiated:null,vulnerability:{...heartbleed.vulnerability,status:'unknown',completed_vectors:0},
+  telemetry:{connections:1,bytes_sent:0,bytes_received:0,duration_ms:2}};
+assert.equal(validateTlsEngineResult(interrupted,heartbleedCheck).ok,true,'aborted special check stays unknown');
+for(const mutation of [
+  row=>{row.authenticated_finished=false;row.negotiated=null;},
+  row=>{row.vulnerability.profile='ccs-finished-v1';},
+  row=>{row.vulnerability.completed_vectors=2;},
+  row=>{row.vulnerability.status='not_observed';},
+]) {
+  const row=structuredClone(heartbleed);mutation(row);
+  assert.equal(validateTlsEngineResult(row,heartbleedCheck).ok,false,'unproved special verdict rejected');
+}
 const raw={schema_version:'tls-collector-raw-v1',request_id:'r1',started_at:iso(0),finished_at:iso(100),
   results:[{check:request.checks[0],engine_result:engine,reason:null,observed_at:iso(99),
     physical_telemetry:{connections:1,bytes_sent:150,bytes_received:350,duration_ms:30}}],

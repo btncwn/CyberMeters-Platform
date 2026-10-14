@@ -95,7 +95,16 @@ int main(int argc,char **argv) {
     for(;;) {
         int peer=accept(fd,NULL,NULL);if(peer<0)return 5;
         SSL *ssl=SSL_new(ctx);SSL_set_fd(ssl,peer);
-        if(SSL_accept(ssl)==1) {unsigned char byte;SSL_read(ssl,&byte,1);}
+        if(strstr(protocol,"_hb"))SSL_set_mode(ssl,SSL_MODE_AUTO_RETRY);
+        if(SSL_accept(ssl)==1) {
+            unsigned char byte;
+            if(strstr(protocol,"_hb")) {
+                for(int i=0;i<8;i++) {
+                    int ret=SSL_read(ssl,&byte,1);
+                    if(ret>0||SSL_get_error(ssl,ret)!=SSL_ERROR_WANT_READ)break;
+                }
+            } else SSL_read(ssl,&byte,1);
+        }
         SSL_free(ssl);close(peer);
     }
 }

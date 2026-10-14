@@ -109,7 +109,13 @@ export function validateTlsEngineResult(value, check, { requireSandbox = true } 
       !integer(v.completed_vectors,64) || !integer(v.planned_vectors,64,1) || v.completed_vectors > v.planned_vectors ||
       !TLS_SPECIAL_CONTROLS.includes(check.control))) return fail('vulnerability_shape');
   if (TLS_SPECIAL_CONTROLS.includes(check.control) && v === null && !['not_applicable','unexecutable'].includes(value.state)) return fail('vulnerability_missing');
-  if (v?.status === 'confirmed' && (v.completed_vectors !== v.planned_vectors || value.reason !== 'active_confirmed')) return fail('vulnerability_unproved');
+  if (v && (v.profile !== ({heartbleed:'heartbleed-minimal-v1',robot:'robot-finite-v1',ccs:'ccs-finished-v1'})[check.control] ||
+      (check.control === 'heartbleed' && v.planned_vectors !== 3) ||
+      (v.status === 'confirmed' && (value.state !== 'accepted' || value.reason !== 'active_confirmed')) ||
+      (v.status === 'not_observed' && (value.state !== 'rejected' || value.reason !== 'active_not_observed')) ||
+      (v.status === 'unknown' && (value.state !== 'uncertain' || !['active_inconclusive','aborted','budget_exhausted',
+        'transport_timeout','transport_eof','malformed_ipc','peer_alert','handshake_failed'].includes(value.reason))) ||
+      (v.status !== 'unknown' && (!value.authenticated_finished || v.completed_vectors !== v.planned_vectors)))) return fail('vulnerability_unproved');
   const n = value.negotiated;
   if (n !== null && (!keys(n,['version','cipher','cipher_bits','group','group_bits','pfs','alpn','sni_sent']) ||
       !choice(n.version,TLS_PROTOCOLS) || !token(n.cipher) || !integer(n.cipher_bits,512) ||
@@ -137,6 +143,7 @@ export function validateTlsEngineResult(value, check, { requireSandbox = true } 
   const t = value.telemetry;
   if (!keys(t,['connections','bytes_sent','bytes_received','duration_ms']) || !integer(t.connections,64) ||
       !integer(t.bytes_sent,16777216) || !integer(t.bytes_received,16777216) || !integer(t.duration_ms,30000)) return fail('telemetry_shape');
+  if (v && v.status !== 'unknown' && (!t.connections || !t.bytes_sent || !t.bytes_received)) return fail('vulnerability_unproved');
   if (!Array.isArray(value.limitations) || value.limitations.length > 12 ||
       new Set(value.limitations).size !== value.limitations.length ||
       !value.limitations.every(x => choice(x,enums.limitation)) || value.catalog !== null) return fail('unsafe_output');

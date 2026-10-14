@@ -59,6 +59,8 @@ static unsigned limitation_count;
 static SSL_SESSION *new_session;
 static uint32_t observed_early_data_max;
 static int observed_early_data;
+static const char *active_status, *active_profile;
+static unsigned active_completed, active_planned;
 
 static uint64_t now_ms(void) {
     struct timespec t;
@@ -207,6 +209,99 @@ static int close_parent(void) {
     }
     return 0;
 }
+
+#ifdef CM_SPECIAL_ENGINE
+static void active_unknown(void) {
+    static const char *transport_reasons[]={"aborted","budget_exhausted","transport_timeout","transport_eof",
+        "malformed_ipc","peer_alert","handshake_failed",NULL};
+    state="uncertain";active_status="unknown";
+    if(!in_list(reason,transport_reasons))reason="active_inconclusive";
+}
+/* This symbol is part of our pinned 1.0.2u static library, which uses it to
+ * send its own heartbeat messages. The active adapter alone calls it with a
+ * bounded malformed payload after a verified Finished exchange. */
+extern int ssl3_write_bytes(SSL *s,int type,const void *buf,int len);
+struct heartbeat_observation { unsigned char first,second,malformed;int first_seen,second_seen,malformed_seen; };
+static void heartbeat_message(int write_p,int version,int content_type,const void *buf,size_t len,SSL *ssl,void *arg) {
+    (void)version;(void)ssl;
+    struct heartbeat_observation *seen=arg;
+    if(write_p||content_type!=TLS1_RT_HEARTBEAT||!seen||len<4)return;
+    const unsigned char *data=buf;
+    if(data[0]!=2)return;
+    size_t payload=((size_t)data[1]<<8)|data[2];
+    if(payload==1&&len>=3+1+16) {
+        if(data[3]==seen->first)seen->first_seen=1;
+        if(data[3]==seen->second)seen->second_seen=1;
+    }
+    if(payload==18&&len>=3+18+16&&data[3]==seen->malformed)seen->malformed_seen=1;
+    /* Do not copy, print, hash or persist bytes after the echoed marker. */
+}
+static int send_heartbeat(SSL *ssl,BIO *wire,unsigned char *message,size_t n) {
+    for(;;) {
+        if(now_ms()>=deadline)return 0;
+        ERR_clear_error();int ret=ssl3_write_bytes(ssl,TLS1_RT_HEARTBEAT,message,(int)n);
+        int error=SSL_get_error(ssl,ret);
+        if(!drain(wire))return 0;
+        if(ret==(int)n)return 1;
+        if(error==SSL_ERROR_WANT_WRITE)continue;
+        if(error==SSL_ERROR_WANT_READ){if(!receive(wire))return 0;continue;}
+        return 0;
+    }
+}
+static int heartbeat_seen(const struct heartbeat_observation *seen,int wanted,int accept_malformed) {
+    return (wanted==1&&seen->first_seen)||(wanted==2&&seen->second_seen)||(accept_malformed&&seen->malformed_seen);
+}
+static int read_heartbeat_until(SSL *ssl,BIO *wire,struct heartbeat_observation *seen,int wanted,int accept_malformed,uint64_t until) {
+    unsigned reads=0;
+    while(now_ms()<until&&reads++<64) {
+        if(heartbeat_seen(seen,wanted,accept_malformed))return 1;
+        unsigned char discard;
+        ERR_clear_error();int ret=SSL_read(ssl,&discard,1),error=SSL_get_error(ssl,ret);
+        if(!drain(wire))return -1;
+        if(heartbeat_seen(seen,wanted,accept_malformed))return 1;
+        if(ret>0)continue;
+        if(error==SSL_ERROR_WANT_WRITE)continue;
+        if(error!=SSL_ERROR_WANT_READ)return -1;
+        uint64_t saved=deadline;deadline=until<deadline?until:deadline;
+        int received_ok=receive(wire);deadline=saved;
+        if(!received_ok)return connected&&!strcmp(reason,"transport_timeout")?0:-1;
+    }
+    if(heartbeat_seen(seen,wanted,accept_malformed))return 1;
+    return now_ms()>=until?0:-1;
+}
+static void assess_heartbleed(SSL *ssl,BIO *wire) {
+    struct heartbeat_observation seen={0};
+    unsigned char valid[3+1+16]={1,0,1,0};
+    unsigned char malformed[3+1+16]={1,0,18,0};
+    active_status="unknown";active_profile="heartbleed-minimal-v1";
+    active_planned=3;active_completed=0;
+    if(RAND_bytes(&seen.first,1)!=1||RAND_bytes(valid+4,16)!=1||RAND_bytes(malformed+4,16)!=1)goto finish;
+    seen.second=seen.first^0xaa;seen.malformed=seen.first^0x55;
+    valid[3]=seen.first;malformed[3]=seen.malformed;
+    SSL_set_msg_callback(ssl,heartbeat_message);
+    SSL_set_msg_callback_arg(ssl,&seen);
+    if(!send_heartbeat(ssl,wire,valid,sizeof(valid)))goto finish;
+    if(read_heartbeat_until(ssl,wire,&seen,1,0,deadline)!=1)goto finish;
+    active_completed=1;
+    /* Declared payload 18, actual payload 1 plus mandatory padding 16:
+     * at most one byte can be copied beyond the supplied record. */
+    if(!send_heartbeat(ssl,wire,malformed,sizeof(malformed)))goto finish;
+    active_completed=2;
+    uint64_t observation_end=now_ms()+1000;
+    if(observation_end>deadline)observation_end=deadline;
+    if(read_heartbeat_until(ssl,wire,&seen,0,1,observation_end)<0)goto finish;
+    if(!connected)goto finish;
+    valid[3]=seen.second;
+    if(!send_heartbeat(ssl,wire,valid,sizeof(valid)))goto finish;
+    if(read_heartbeat_until(ssl,wire,&seen,2,0,deadline)!=1)goto finish;
+    active_completed=3;
+ finish:
+    SSL_set_msg_callback(ssl,NULL);SSL_set_msg_callback_arg(ssl,NULL);
+    if(active_completed==active_planned&&seen.malformed_seen){state="accepted";reason="active_confirmed";active_status="confirmed";}
+    else if(active_completed==active_planned){state="rejected";reason="active_not_observed";active_status="not_observed";}
+    else active_unknown();
+}
+#endif
 static void info(const SSL *s,int where,int ret) {
     (void)s;
     if((where&SSL_CB_ALERT)&&(where&SSL_CB_READ)&&((ret>>8)==SSL3_AL_FATAL))peer_alert=ret&255;
@@ -638,7 +733,10 @@ static void catalog_json(SSL_CTX *ctx) {
 static void result(SSL_CTX *ctx,SSL *ssl) {
     uint64_t duration=now_ms()-started;X509 *leaf=NULL;STACK_OF(X509) *built=NULL;
     json_len=0;
-    append("{\"schema\":\"tls-engine-result-v1\",\"engine\":{\"family\":\"%s\",\"version\":\"%s\",\"build_id\":\"%s\",\"sandboxed\":%s},\"control\":\"%s\",\"protocol\":\"%s\",\"state\":\"%s\",\"reason\":\"%s\",\"authenticated_finished\":%s,\"vulnerability\":null,\"negotiated\":",CM_ENGINE_FAMILY,CM_LEGACY?"1.0.2u":"3.5.9",CM_BUILD_ID,boolean(sandboxed),opt.control,opt.protocol,state,reason,boolean(finished));
+    append("{\"schema\":\"tls-engine-result-v1\",\"engine\":{\"family\":\"%s\",\"version\":\"%s\",\"build_id\":\"%s\",\"sandboxed\":%s},\"control\":\"%s\",\"protocol\":\"%s\",\"state\":\"%s\",\"reason\":\"%s\",\"authenticated_finished\":%s,\"vulnerability\":",CM_ENGINE_FAMILY,CM_LEGACY?"1.0.2u":"3.5.9",CM_BUILD_ID,boolean(sandboxed),opt.control,opt.protocol,state,reason,boolean(finished));
+    if(active_status)append("{\"status\":\"%s\",\"profile\":\"%s\",\"completed_vectors\":%u,\"planned_vectors\":%u}",active_status,active_profile,active_completed,active_planned);
+    else append("null");
+    append(",\"negotiated\":");
     if(finished&&ssl)negotiated_json(ssl);else append("null");
     append(",\"certificates\":");if(finished&&ssl)built=certificates_json(ssl,&leaf);else append("null");
     append(",\"ocsp\":");if(finished&&ssl)ocsp_json(ssl,leaf,built);else append("null");
@@ -674,6 +772,20 @@ int main(int argc,char **argv) {
     if(!ctx)goto done;
     if(!strcmp(opt.control,"catalog")){state="accepted";reason="catalog_ready";goto done;}
     if(!strcmp(opt.control,"heartbleed")||!strcmp(opt.control,"robot")||!strcmp(opt.control,"ccs")) {
+#ifdef CM_SPECIAL_ENGINE
+        if(!strcmp(opt.control,"heartbleed")) {
+            if(start_tls(ctx,NULL,&ssl,&wire)) {
+                finished=1;
+                assess_heartbleed(ssl,wire);
+            } else {
+                active_status="unknown";active_profile="heartbleed-minimal-v1";
+                active_planned=3;active_completed=0;
+                active_unknown();
+            }
+            if(connected){const char *saved=reason;close_parent();reason=saved;}
+            goto done;
+        }
+#endif
         state="unexecutable";reason="control_unavailable";limit("engine_capability_limit");goto done;
     }
     if(!strcmp(opt.control,"renegotiation")&&!strcmp(opt.protocol,"tls1_3")) {state="not_applicable";reason="protocol_not_applicable";goto done;}

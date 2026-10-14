@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import platform
 import selectors
+import shutil
 import socket
 import struct
 import subprocess
@@ -133,12 +134,12 @@ def bridge(binary, arguments, port=None, mutate=None, abort=False):
 
 
 @contextlib.contextmanager
-def server(openssl, certificate, key, protocol, extra=(), staple=None, alternate=None):
+def server(openssl, certificate, key, protocol, extra=(), staple=None, alternate=None, binary=None):
     with socket.socket() as reservation:
         reservation.bind(('127.0.0.1', 0))
         port = reservation.getsockname()[1]
     family = 'modern' if 'modern' in str(openssl) else 'legacy'
-    args = [BUILD / 'bin' / ('fixture-server-' + family), str(port), certificate, key, protocol]
+    args = [binary or BUILD / 'bin' / ('fixture-server-' + family), str(port), certificate, key, protocol]
     if extra or staple or alternate: args.append(extra[1] if extra else 'ALL:eNULL:!PSK:!SRP')
     if staple or alternate: args.append(staple or '-')
     if alternate: args.extend(alternate)
@@ -283,7 +284,8 @@ class BaselineTests(unittest.TestCase):
     def assess(self, protocol, port=None, control='handshake', family=None, extra=(),
                hostname='localhost', trust=None, **kwargs):
         family = family or ('modern' if protocol == 'tls1_3' else 'legacy')
-        result = bridge(BUILD / 'bin' / ('tls-baseline-' + family),
+        binary = 'tls-active-legacy' if family == 'active_legacy' else 'tls-baseline-' + family
+        result = bridge(BUILD / 'bin' / binary,
                         ['--protocol', protocol, '--control', control, '--hostname', hostname,
                          '--trust-bundle', str(trust or self.cert), '--timeout-ms', '5000', *extra], port, **kwargs)
         if port is not None:
@@ -545,6 +547,69 @@ class BaselineTests(unittest.TestCase):
                 self.assertFalse(refused['extensions']['compression'])
                 self.assertIn('Compression: NONE',
                               (refused_reference.stdout + refused_reference.stderr).decode())
+
+    def test_heartbleed_patched_server_is_not_observed(self):
+        with server(self.legacy, self.cert, self.key, 'tls1_2_hb') as port:
+            result = self.assess('tls1_2', port, control='heartbleed', family='active_legacy')
+        self.assertEqual(result['engine']['family'], 'active_legacy')
+        self.assertEqual(result['state'], 'rejected', result)
+        self.assertEqual(result['reason'], 'active_not_observed')
+        self.assertTrue(result['authenticated_finished'])
+        self.assertEqual(result['vulnerability'], {
+            'status': 'not_observed', 'profile': 'heartbleed-minimal-v1',
+            'completed_vectors': 3, 'planned_vectors': 3,
+        })
+        self.assertEqual(result['telemetry']['connections'], 1)
+        self.assertNotIn('localhost', json.dumps(result))
+
+    def test_heartbleed_abort_preserves_unknown_and_stops_before_tls(self):
+        result = self.assess('tls1_2', control='heartbleed', family='active_legacy', abort=True)
+        self.assertEqual(result['state'], 'uncertain')
+        self.assertEqual(result['reason'], 'aborted')
+        self.assertEqual(result['vulnerability']['status'], 'unknown')
+        self.assertEqual(result['vulnerability']['completed_vectors'], 0)
+        self.assertFalse(result['authenticated_finished'])
+        self.assertEqual(result['telemetry']['connections'], 1)
+        self.assertEqual(result['telemetry']['bytes_sent'], 0)
+
+    def test_heartbleed_one_byte_overread_is_confirmed_in_loopback_lab(self):
+        # Change one bounds check in a disposable copy of the pinned 1.0.2u
+        # object. No vulnerable library, fixture or key enters the runtime.
+        source_tree = BUILD / 'openssl-1.0.2u'
+        source = (source_tree / 'ssl/t1_lib.c').read_text()
+        guard = ('    if (1 + 2 + payload + 16 > s->s3->rrec.length)\n'
+                 '        return 0;               /* silently discard per RFC 6520 sec. 4 */\n')
+        self.assertEqual(source.count(guard), 1)
+        patched = self.fixture / 't1_lib.c'
+        patched.write_text(source.replace(guard, '', 1))
+        replacement = self.fixture / 't1_lib.o'
+        run(['cc', '-DOPENSSL_THREADS', '-pthread', '-D_THREAD_SAFE', '-D_REENTRANT',
+             '-O3', '-Wall', '-I' + str(source_tree / 'crypto'), '-I' + str(source_tree),
+             '-I' + str(source_tree / 'include'), '-I' + str(source_tree / 'ssl'),
+             '-c', patched, '-o', replacement])
+        prefix = BUILD / 'install-legacy'
+        lib = prefix / ('lib64' if (prefix / 'lib64/libssl.a').exists() else 'lib')
+        vulnerable_lib = self.fixture / 'libssl.a'
+        shutil.copy2(lib / 'libssl.a', vulnerable_lib)
+        run(['ar', 'r', vulnerable_lib, replacement])
+        run(['ranlib', vulnerable_lib])
+        fixture_binary = self.fixture / 'fixture-vulnerable-heartbleed'
+        run(['cc', '-Wno-deprecated-declarations', '-I' + str(prefix / 'include'),
+             ENGINE / 'src/fixture-server.c', vulnerable_lib, lib / 'libcrypto.a',
+             '-lpthread', '-lz', *(['-ldl'] if platform.system() == 'Linux' else []),
+             '-o', fixture_binary])
+        with server(self.legacy, self.cert, self.key, 'tls1_2_hb', binary=fixture_binary) as port:
+            result = self.assess('tls1_2', port, control='heartbleed', family='active_legacy')
+        self.assertEqual(result['state'], 'accepted', result)
+        self.assertEqual(result['reason'], 'active_confirmed')
+        self.assertTrue(result['authenticated_finished'])
+        self.assertEqual(result['vulnerability'], {
+            'status': 'confirmed', 'profile': 'heartbleed-minimal-v1',
+            'completed_vectors': 3, 'planned_vectors': 3,
+        })
+        self.assertEqual(result['telemetry']['connections'], 1)
+        self.assertLess(result['telemetry']['bytes_received'], 4096)
+        self.assertNotIn('localhost', json.dumps(result))
 
     def test_version_rejection_is_not_engine_unsupported(self):
         with server(self.modern, self.cert, self.key, 'tls1_3') as port:

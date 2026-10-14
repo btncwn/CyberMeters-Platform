@@ -3,14 +3,17 @@ FROM python:3.14-bookworm@sha256:7ee7e4d4fb42c3ad45b8fdc473b64ec69c3cf6e80ae5d52
 RUN command -v gcc && command -v make && command -v perl && command -v python3
 WORKDIR /build
 COPY scripts/build-tls-engine.py scripts/build-tls-engine.py
-COPY workers/network-probe/tls-engine/ workers/network-probe/tls-engine/
-RUN printf '%s  %s\n' 'a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505' \
-    'workers/network-probe/tls-engine/trust/ca-bundle.pem' | sha256sum -c -
+COPY workers/network-probe/tls-engine/sources.json workers/network-probe/tls-engine/sources.json
+COPY workers/network-probe/tls-engine/LICENSE.openssl-1.0.2u workers/network-probe/tls-engine/LICENSE.openssl-1.0.2u
+COPY workers/network-probe/tls-engine/LICENSE.openssl-3.5.9 workers/network-probe/tls-engine/LICENSE.openssl-3.5.9
 # OpenSSL 1.0.2's recursive make occasionally loses GNU make jobserver FDs
 # under Docker BuildKit. Build each pinned library serially in its own cached
 # layer; binary linking then reuses the finished libraries.
 RUN python3 scripts/build-tls-engine.py --engine legacy --jobs 1 --libraries-only
 RUN python3 scripts/build-tls-engine.py --engine modern --jobs 1 --libraries-only
+COPY workers/network-probe/tls-engine/ workers/network-probe/tls-engine/
+RUN printf '%s  %s\n' 'a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505' \
+    'workers/network-probe/tls-engine/trust/ca-bundle.pem' | sha256sum -c -
 # Wrangler builds linux/amd64 even on arm64 hosts. QEMU cannot install this
 # child's seccomp filter, so execute the binaries in native amd64 CI and the
 # controlled production canary, never inside the emulated image build.
@@ -20,6 +23,7 @@ FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca92
 RUN mkdir -p /opt/cybermeters/trust /opt/cybermeters/licenses && chown -R node:node /opt/cybermeters
 COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/.build/bin/tls-baseline-legacy /opt/cybermeters/tls-baseline-legacy
 COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/.build/bin/tls-baseline-modern /opt/cybermeters/tls-baseline-modern
+COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/.build/bin/tls-active-legacy /opt/cybermeters/tls-active-legacy
 COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/trust/ca-bundle.pem /opt/cybermeters/trust/ca-bundle.pem
 COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/LICENSE.openssl-1.0.2u /opt/cybermeters/licenses/LICENSE.openssl-1.0.2u
 COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/LICENSE.openssl-3.5.9 /opt/cybermeters/licenses/LICENSE.openssl-3.5.9

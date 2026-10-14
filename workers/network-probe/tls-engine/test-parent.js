@@ -28,6 +28,7 @@ if(!process.env.CM_TLS_TEST_CERTIFICATE || !process.env.CM_TLS_TEST_KEY){
 let source=readFileSync(join(root,'workers/network-probe/src/tls-collector-runtime.js'),'utf8');
 for(const [from,to] of [
   ['/opt/cybermeters/tls-baseline-legacy',runtimeRoot?join(runtimeRoot,'tls-baseline-legacy'):join(build,'bin/tls-baseline-legacy')],
+  ['/opt/cybermeters/tls-active-legacy',runtimeRoot?join(runtimeRoot,'tls-active-legacy'):join(build,'bin/tls-active-legacy')],
   ['/opt/cybermeters/tls-baseline-modern',runtimeRoot?join(runtimeRoot,'tls-baseline-modern'):join(build,'bin/tls-baseline-modern')],
   ['/opt/cybermeters/trust/ca-bundle.pem',certificate],
 ])source=source.replaceAll(from,to);
@@ -182,6 +183,11 @@ try{
   assert.equal(noActive.results[0].engine_result?.state,'unexecutable');
   assert.equal(noActive.results[0].engine_result?.reason,'control_unavailable');
   assert.equal(noActive.telemetry.connections,0);
+  const consentedUnavailable={...unavailable,request_id:'local_parent_special_consented_but_disabled',
+    scope:{...unavailable.scope,special_consent:true,consent_version:'tls-special-2026-10-13'}};
+  const noActiveEvenWithConsent=await measuredCollector(consentedUnavailable);
+  assert.equal(noActiveEvenWithConsent.results[0].engine_result?.state,'unexecutable');
+  assert.equal(noActiveEvenWithConsent.telemetry.connections,0);
   await checkMailUpgrade(request,'imap');
   await checkMailUpgrade(request,'pop3');
   await checkMailUpgrade(request,'imap','missing');
