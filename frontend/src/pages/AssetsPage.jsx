@@ -12,6 +12,7 @@ import HostnameListPanel from '../components/HostnameListPanel'
 import AssetEvidence from '../components/AssetEvidence'
 import { assetLifecycleClaimDisplay, projectedCountDisplay } from '../lib/assetLifecycleClaimDisplay'
 import { assetSourceLabel } from '../lib/assetSourceLabel'
+import { hostingNetworkRows, hostingNetworkShort, hostingSummaryItems } from '../lib/hostingNetworkDisplay'
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 
@@ -254,6 +255,56 @@ function SummaryCard({ icon: Icon, label, value, iconCls = 'text-brand-600', bgC
 
 // ── Asset Detail Panel ─────────────────────────────────────────────────────────
 
+// Which published provider network the asset's addresses are in. The backend
+// decides the match and writes the limits; this only lays them out.
+function HostingNetworkDetail({ hostingNetwork }) {
+  const short = hostingNetworkShort(hostingNetwork)
+  if (!short) return null
+  const rows = hostingNetworkRows(hostingNetwork)
+  return (
+    <div className="col-span-2">
+      <div className="label mb-1">Hosting network</div>
+      {rows.length === 0 ? (
+        <span className="text-xs text-gray-600">{short.text}</span>
+      ) : (
+        <ul className="space-y-1">
+          {rows.map(r => (
+            <li key={r.key} className="text-xs text-gray-700">
+              <span className="mono">{r.address}</span>
+              <span className="text-gray-400"> — </span>
+              <span className="font-medium">{r.provider}</span>
+              {r.detail && <span className="text-gray-500"> · {r.detail}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {(hostingNetwork.limitations || []).map(text => (
+        <p key={text} className="text-[12px] text-gray-400 mt-1">{text}</p>
+      ))}
+    </div>
+  )
+}
+
+function HostingSummary({ summary }) {
+  const items = hostingSummaryItems(summary)
+  if (!items.length) return null
+  return (
+    <div className="card px-5 py-3 flex flex-wrap items-baseline gap-x-5 gap-y-1" aria-label="Hosting networks">
+      <span className="text-sm font-semibold text-gray-900">Where these assets answer from</span>
+      {items.map(item => (
+        <span key={item.key} className="text-sm text-gray-700">
+          {item.label} <span className="font-semibold">{item.count}</span>
+        </span>
+      ))}
+      <span className="w-full text-[12px] text-gray-400">
+        Assets still observed, matched against the address ranges each provider publishes
+        {summary.checked_providers?.length ? ` (${summary.checked_providers.join(', ')})` : ''}.
+        A match does not show whose account runs the server.
+      </span>
+    </div>
+  )
+}
+
 function AssetDetailPanel({ workspaceId, assetId, onClose }) {
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
@@ -368,6 +419,7 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
                     </div>
                   )
                 })()}
+                <HostingNetworkDetail hostingNetwork={data.asset.hosting_network} />
               </div>
 
               {/* Why the name is listed and what was measured for it */}
@@ -495,6 +547,7 @@ export default function AssetsPage() {
 
   const [summary,      setSummary]      = useState(null)
   const [assets,       setAssets]       = useState([])
+  const [hostingSummary, setHostingSummary] = useState(null)
   const [assurance,    setAssurance]    = useState([])
   const [assuranceCoverage, setAssuranceCoverage] = useState(null)
   const [timeline,     setTimeline]     = useState([])
@@ -518,6 +571,7 @@ export default function AssetsPage() {
       ])
       setSummary(sumData)
       setAssets(assetsData.assets || [])
+      setHostingSummary(assetsData.hosting_summary || null)
       setAssurance(assetsData.attack_surface_assurance || [])
       setAssuranceCoverage(assetsData.attack_surface_assurance_coverage || null)
       setTimeline(timelineData.timeline || [])
@@ -624,6 +678,8 @@ export default function AssetsPage() {
             </div>
           )}
 
+          <HostingSummary summary={hostingSummary} />
+
           {/* ── Filters ───────────────────────────────────────────────────── */}
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-1.5">
@@ -672,6 +728,7 @@ export default function AssetsPage() {
                       <th>Type</th>
                       <th>Status</th>
                       <th>Source</th>
+                      <th>Network</th>
                       <th>Risk</th>
                       <th>Last Seen</th>
                     </tr>
@@ -692,6 +749,7 @@ export default function AssetsPage() {
                         <td><TypeBadge type={asset.asset_type} /></td>
                         <td><StatusPill asset={asset} /></td>
                         <td className="text-xs text-gray-500">{assetSourceLabel(asset.source)}</td>
+                        <td className="text-xs text-gray-500">{hostingNetworkShort(asset.hosting_network)?.text ?? '—'}</td>
                         <td><RiskBadge level={asset.risk_level} /></td>
                         <td className="text-xs text-gray-500">{fmtDate(asset.last_seen)}</td>
                       </tr>

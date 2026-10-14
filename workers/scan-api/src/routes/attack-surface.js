@@ -30,6 +30,7 @@ import {
   summariseLifecycleClaimProjection,
 } from "../engines/asset-lifecycle-event-support.js";
 import { loadAssetEvidence } from "../engines/asset-evidence.js";
+import { describeHostingNetwork, summariseHostingNetworks } from "../lib/cloud-networks.js";
 
 // Projection is assembled before customer-facing collapse. Legacy counters are
 // copied unchanged; unsupported/uncertain projected lifecycle rows contribute
@@ -78,6 +79,20 @@ const ASSET_LIFECYCLE_COLUMNS = `,
 
 const ATTACK_SURFACE_LIFECYCLE_EVIDENCE_BOUND = 500;
 
+// Which published provider network each asset's recorded addresses are in
+// (lib/cloud-networks.js). Reference data only: it never changes the stored row.
+async function withHostingNetworks(rows) {
+  return Promise.all(rows.map(async (row) => {
+    let hosting_network;
+    try {
+      hosting_network = await describeHostingNetwork(row.ip_addresses);
+    } catch {
+      hosting_network = { status: "unavailable", list_version: null, networks: [], providers: [], limitations: [] };
+    }
+    return { ...row, hosting_network };
+  }));
+}
+
 async function loadAssetPresentationRows(env, workspaceId, {
   assetId = null,
   status = null,
@@ -108,10 +123,10 @@ async function loadAssetPresentationRows(env, workspaceId, {
       .bind(...binds)
       .all();
     return {
-      rows: (result.results || []).map((row) => ({
+      rows: await withHostingNetworks((result.results || []).map((row) => ({
         ...row,
         lifecycle_state_label: attackSurfaceLifecycleStateLabel(row.lifecycle_state),
-      })),
+      }))),
       lifecycle_available: true,
     };
   } catch (error) {
@@ -126,7 +141,7 @@ async function loadAssetPresentationRows(env, workspaceId, {
       .bind(...binds)
       .all();
     return {
-      rows: result.results || [],
+      rows: await withHostingNetworks(result.results || []),
       lifecycle_available: false,
     };
   }
@@ -759,6 +774,10 @@ export async function attackSurfaceRoutes(rctx) {
             workspace_id: wsId,
             count: result.rows.length,
             assets: result.rows,
+            // Only assets still observed: a removed host keeps its last addresses.
+            hosting_summary: summariseHostingNetworks(result.rows
+              .filter((row) => row.status === "active" && row.lifecycle_state !== "confirmed_removed")
+              .map((row) => row.hosting_network)),
             attack_surface_assurance: assurance.domains,
             attack_surface_assurance_coverage: assurance.coverage,
           });

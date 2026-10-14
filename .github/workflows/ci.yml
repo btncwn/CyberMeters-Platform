@@ -189,6 +189,9 @@ jobs:
       - name: Validate local common-password screening and reset isolation
         run: node scripts/validate-common-passwords.js
 
+      - name: Validate provider network recognition for asset addresses
+        run: node scripts/validate-cloud-networks.js
+
       - name: Validate scoped DNS connections and reversible changes
         run: node scripts/validate-dns-remediation.js
 
