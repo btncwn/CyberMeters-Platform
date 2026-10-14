@@ -18,7 +18,7 @@ partial coverage keeps Certificates & Trust evidence-insufficient. Heartbleed,
 ROBOT and CCS active tests remain unavailable and explicitly `unexecutable`
 until delivery 2C passes its separate fixtures and review. PRs #602 and #604
 merged after 16/16 exact-head checks and independent R1 review; customer
-presentation corrections are PRs #605 and #607. The canary exposed a separate
+presentation corrections #605 and #607 passed exact-head CI and merged. The canary exposed a separate
 score-honesty defect: omitted and inconclusive supported checks still showed
 an unqualified 100/100 Excellent. The correction retains the measured numeric
 score as provisional, withholds its final rating, and excludes it from
@@ -26,20 +26,21 @@ complete-scan portfolio averages until coverage is sufficient.
 
 Before additive D1 migrations 119/120, a Time Travel bookmark and private SQL
 export were captured. The migrations and four new tables were verified. Email
-Worker `079c8615-d4c0-4c39-84cc-02bbd63b5f94` replaced
-`b29fac30-dd1b-4ab2-ae99-0092b7580192`; private probe
+Worker `9206e119-3880-4246-9bc1-277ea28a8686` replaced
+`079c8615-d4c0-4c39-84cc-02bbd63b5f94` after the shared-code closure changed; private probe
 `97f0d3dc-99ae-48bb-908a-e1d7483fb85d` replaced
 `108b7685-00f4-45d8-8f2f-d00090692793`. API
-`e4806fca-c3b0-406a-bfca-ab2ee975669a` runs
-`2026.10.14-tls-core.0e8f3f4ef478` with the supported profile on. API
+`e79e3e4e-e54a-496f-88eb-70c7e43f3eac` runs
+`2026.10.14-tls-quality.70ac5c3e01cb` with the supported profile on, replacing
+`e4806fca-c3b0-406a-bfca-ab2ee975669a`. API
 `d9950558-b236-45ad-be6c-bcbe9c4d4d9e` is the immediate feature-off
 rollback target. API health/readiness and anonymous 401 passed.
 
 One authorized `cybermeters.com` scan
 `scan_9ef6a971-8270-435f-b361-5d64d0f26937` completed in production.
 Four endpoints showed TLS 1.2 compression disabled; legacy compression checks
-were uncertain where handshakes failed. The report kept partial coverage, 395
-uncertain outcomes and 1,176 checks outside the scan budget visible. The
+were uncertain where handshakes failed. The live report shows partial coverage, a provisional 100/100 without a final band, 395
+uncertain outcomes and 1,176 checks outside the scan budget. The
 [acceptance ledger](docs/WORK-ORDER-2-TLS-ACCEPTANCE.md) records collector
 cost, Cloudflare container billing-window units and remaining 2C/cost limits.
 This company-domain canary does not certify every customer domain or replace a
