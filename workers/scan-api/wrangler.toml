@@ -108,6 +108,9 @@ max_retries = 5
 [vars]
 # Requires migration 119; set to disabled for rollback. Continuations still drain.
 EXPOSURE_SCAN_MODE = "evidence-v1"
+# Supported TLS checks only; Heartbleed, ROBOT and CCS remain unexecutable.
+# Set to disabled to stop new TLS dispatch while queued work drains honestly.
+TLS_ASSESSMENT_MODE = "evidence-v1"
 # Human-readable release version, surfaced by GET /health. Bump on each
 # production release (date-based: YYYY.MM.DD).
 APP_VERSION = "2026.10.14-tls-core.0e8f3f4ef478"
