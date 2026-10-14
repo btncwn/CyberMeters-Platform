@@ -77,11 +77,23 @@
   body {
     /* Cooler, slightly deeper canvas so white cards read as deliberate surfaces
        (Linear/Vanta-style layering) instead of floating on flat white. */
-    @apply text-gray-900 antialiased;
+    @apply text-black antialiased;
     background-color: #EEF1F6;
     font-family: 'Computer Modern Text', 'Computer Modern Serif', Georgia, serif;
   }
   ::selection { background-color: rgba(0,135,106,.18); }
+  /* Product type floor (founder, 14 Oct): inside the app a page title is at
+     least 24px, a section title at least 18px, and no heading is ever smaller
+     than the body text. The public website sets its own sizes. */
+  .cm-app :where(h1) { font-size: 1.5rem; line-height: 1.2; font-weight: 700; }
+  .cm-app :where(h2) { font-size: 1.125rem; line-height: 1.3; font-weight: 700; }
+  .cm-app :where(h3, h4) { font-size: 1.0625rem; line-height: 1.35; font-weight: 600; }
+  .cm-app :where(h1, h2, h3, h4) { color: #000; }
+  /* A heading carrying a small size utility is lifted to the floor; larger
+     utilities (text-2xl, text-3xl…) still apply. */
+  .cm-app h1:where(.text-xs, .text-sm, .text-base, .text-lg, .text-xl, .text-\[13px\], .text-\[14px\], .text-\[15px\], .text-\[16px\]) { font-size: 1.5rem; }
+  .cm-app h2:where(.text-xs, .text-sm, .text-base, .text-\[13px\], .text-\[14px\], .text-\[15px\], .text-\[16px\]) { font-size: 1.125rem; }
+  .cm-app :is(h3, h4):where(.text-xs, .text-sm, .text-\[13px\], .text-\[14px\], .text-\[15px\]) { font-size: 1.0625rem; }
   * { -webkit-font-smoothing: antialiased; }
   * {
     scrollbar-width: thin;
@@ -231,15 +243,20 @@
   }
 
   /* Nav */
-  .nav-link {
-    @apply flex items-center gap-2 px-3 py-2 rounded-lg
-           text-gray-600 hover:text-gray-900 hover:bg-gray-100
-           transition-all duration-150 text-sm font-medium;
+  /* Top navigation: the brand amber as text, deep orange running to amber,
+     like the wordmark. The active item carries an amber underline. */
+  .nav-link, .nav-link-active {
+    @apply flex items-center gap-2 px-3 py-2 rounded-lg text-[17px] font-bold
+           transition-all duration-150;
+    background-image: linear-gradient(90deg, #D6792D 0%, #E29535 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    border-bottom: 3px solid transparent; border-radius: 0;
   }
-  /* Active = confident solid-green pill (matches the brand-forward direction). */
-  .nav-link-active {
-    @apply flex items-center gap-2 px-3 py-2 rounded-lg
-           text-white bg-brand-600 text-sm font-semibold shadow-btn-brand;
+  .nav-link:hover { background-image: linear-gradient(90deg, #BD6723 0%, #CB822B 100%); }
+  .nav-link-active { border-bottom-color: #D6792D; }
+  .text-amber-brand {
+    background-image: linear-gradient(90deg, #D6792D 0%, #E29535 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
   }
 
   /* Risk badges */

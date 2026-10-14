@@ -121,7 +121,7 @@ function ActionCard({ severity, title, body }) {
       <div className="flex-1">
         <div className="flex items-center justify-between gap-2 mb-1">
           <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-          <span className={`text-[12px] uppercase font-bold px-2 py-0.5 rounded-full border ${cfg.chip}`}>{severity}</span>
+          <span className={`text-[13px] uppercase font-bold px-2 py-0.5 rounded-full border ${cfg.chip}`}>{severity}</span>
         </div>
         <p className="text-xs text-gray-500 leading-relaxed">{body}</p>
       </div>
@@ -156,7 +156,7 @@ function FindingPill({ finding }) {
           <p className="text-sm font-semibold text-gray-900">{finding.title || finding.type}</p>
           <p className="text-xs text-gray-500 mt-1">{finding.reasons?.[0] || 'Certificate evidence needs review.'}</p>
         </div>
-        <span className={`text-[12px] uppercase font-bold px-2 py-0.5 rounded-full border ${cls}`}>{finding.severity || 'info'}</span>
+        <span className={`text-[13px] uppercase font-bold px-2 py-0.5 rounded-full border ${cls}`}>{finding.severity || 'info'}</span>
       </div>
     </div>
   )

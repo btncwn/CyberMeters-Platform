@@ -32,7 +32,7 @@ function DeltaChip({ delta }) {
   if (delta == null) return null
   const pos = delta >= 0
   return (
-    <span className={`text-[12px] font-bold px-1.5 py-0.5 rounded-full ${
+    <span className={`text-[13px] font-bold px-1.5 py-0.5 rounded-full ${
       pos ? 'bg-brand-50 text-brand-700' : 'bg-red-50 text-red-700'
     }`}>
       {pos ? '+' : ''}{delta}
@@ -193,7 +193,7 @@ function AlertsList({ alerts }) {
           <div className="min-w-0">
             <p className="text-sm text-gray-800 leading-snug">{a.message}</p>
             {a.workspace_name && (
-              <p className="text-[12px] text-gray-400 mt-0.5 capitalize">{a.type.replace(/_/g, ' ')} · {a.workspace_name}</p>
+              <p className="text-[13px] text-gray-400 mt-0.5 capitalize">{a.type.replace(/_/g, ' ')} · {a.workspace_name}</p>
             )}
           </div>
         </li>

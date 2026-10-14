@@ -75,7 +75,7 @@ function FeaturedCard({ article }) {
       className="group relative flex flex-col bg-white rounded-xl border border-gray-100 hover:border-brand-200 hover:shadow-md transition-all p-6 gap-4"
     >
       <div>
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-semibold uppercase tracking-wider ${c.badge} mb-2`}>
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[13px] font-semibold uppercase tracking-wider ${c.badge} mb-2`}>
           {cat?.label}
         </span>
         <h3 className="text-base font-bold text-gray-900 group-hover:text-brand-600 transition-colors leading-snug">

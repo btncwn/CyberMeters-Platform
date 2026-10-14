@@ -29,7 +29,7 @@ function Flags({ flags }) {
   return (
     <div className="flex flex-wrap gap-1 mt-1 justify-end">
       {chips.map((c, i) => (
-        <span key={i} className={`inline-block text-[12px] font-medium px-1.5 py-0.5 rounded border ${c.cls}`}>{c.text}</span>
+        <span key={i} className={`inline-block text-[13px] font-medium px-1.5 py-0.5 rounded border ${c.cls}`}>{c.text}</span>
       ))}
     </div>
   )

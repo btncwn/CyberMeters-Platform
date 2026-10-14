@@ -132,7 +132,7 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
         <div className="flex items-center gap-2">
           <h3 className="font-semibold text-gray-900 text-sm">Team Members</h3>
           {members.length > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full text-[12px] font-bold bg-gray-100 text-gray-500">
+            <span className="px-1.5 py-0.5 rounded-full text-[13px] font-bold bg-gray-100 text-gray-500">
               {members.length}
             </span>
           )}
@@ -214,7 +214,7 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
               <li key={inv.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-gray-50">
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-gray-700 truncate">{inv.email}</p>
-                  <p className="text-[12px] text-gray-400">Expires {inv.expires_at ? parseServerDate(inv.expires_at).toLocaleDateString() : '—'}</p>
+                  <p className="text-[13px] text-gray-400">Expires {inv.expires_at ? parseServerDate(inv.expires_at).toLocaleDateString() : '—'}</p>
                 </div>
                 <RoleBadge role={inv.role} />
               </li>
@@ -267,7 +267,7 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
               </div>
             )}
           </form>
-          <p className="text-[12px] text-gray-400 mt-2">
+          <p className="text-[13px] text-gray-400 mt-2">
             We email the invitee an accept link. You can also share the generated link manually as a backup.
           </p>
         </div>

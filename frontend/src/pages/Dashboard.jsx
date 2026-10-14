@@ -856,7 +856,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-base font-bold text-gray-900">Security Health</h2>
             {report && (
-              <span className="text-[12px] text-gray-400 font-medium">{report.domain}</span>
+              <span className="text-[13px] text-gray-400 font-medium">{report.domain}</span>
             )}
           </div>
           <div className="grid grid-cols-3 gap-x-4 gap-y-6">

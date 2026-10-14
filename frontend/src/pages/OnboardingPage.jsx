@@ -110,7 +110,7 @@ function CopyButton({ value }) {
       type="button"
       onClick={handleCopy}
       aria-label={`Copy ${value}`}
-      className="flex items-center gap-1 text-[12px] font-semibold text-brand-700 hover:text-brand-800 transition-colors"
+      className="flex items-center gap-1 text-[13px] font-semibold text-brand-700 hover:text-brand-800 transition-colors"
     >
       {copied ? 'Copied' : 'Copy'}
     </button>
@@ -401,7 +401,7 @@ export default function OnboardingPage() {
               <dl className="rounded-xl border border-gray-200 divide-y divide-gray-100">
                 {[['Type', 'TXT'], ['Host', dnsHost], ['TXT Value', dnsValue]].map(([label, value]) => (
                   <div key={label} className="grid grid-cols-1 sm:grid-cols-[110px_minmax(0,1fr)_auto] gap-1 sm:gap-4 items-start sm:items-center px-4 py-3">
-                    <dt className="text-[12px] font-semibold uppercase tracking-widest text-gray-500">{label}</dt>
+                    <dt className="text-[13px] font-semibold uppercase tracking-widest text-gray-500">{label}</dt>
                     <dd className="min-w-0"><code className="text-sm text-gray-800 break-all">{value}</code></dd>
                     <dd>{label !== 'Type' && <CopyButton value={value} />}</dd>
                   </div>

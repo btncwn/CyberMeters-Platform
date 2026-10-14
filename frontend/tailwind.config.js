@@ -7,6 +7,16 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Product text is black (founder, 14 Oct): the grey text steps that
+        // carried body copy, captions and labels now resolve to near-black so
+        // nothing on a product page reads as faded. Lighter steps (50–300)
+        // stay as surfaces and borders.
+        gray: {
+          50: '#F9FAFB', 100: '#F3F4F6', 200: '#E5E7EB', 300: '#D1D5DB',
+          400: '#3A3F4B', 500: '#20242E', 600: '#14171F', 700: '#0D1016',
+          800: '#07090D', 900: '#000000', 950: '#000000',
+        },
+        coral: { DEFAULT: '#D9634A', 50: '#FBEEEA', 600: '#C2503A' },
         brand: {
           50:  '#E6F4F1',
           100: '#C1E4DA',

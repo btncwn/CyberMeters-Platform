@@ -98,7 +98,7 @@ function WorkspaceSelector() {
 
       {open && (
         <div className="absolute top-full mt-2 left-0 sm:left-auto sm:right-0 w-56 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
-          <div className="px-3 py-1.5 text-[12px] font-semibold text-gray-400 uppercase tracking-wider">
+          <div className="px-3 py-1.5 text-[13px] font-semibold text-gray-400 uppercase tracking-wider">
             Switch workspace
           </div>
 
@@ -202,7 +202,7 @@ function UserMenu() {
               </div>
             </div>
             {displayPlan && (
-              <span className="mt-2 inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-semibold uppercase tracking-wider bg-brand-50 text-brand-700">
+              <span className="mt-2 inline-flex items-center px-2 py-0.5 rounded-full text-[13px] font-semibold uppercase tracking-wider bg-brand-50 text-brand-700">
                 {displayPlan}
               </span>
             )}
@@ -218,7 +218,7 @@ function UserMenu() {
 
           {/* Secondary tools — kept reachable out of the lean top nav. */}
           <div className="border-t border-gray-100 mt-1 pt-1">
-            <p className="px-4 pt-1 pb-0.5 text-[12px] font-semibold text-gray-400 uppercase tracking-widest">Tools</p>
+            <p className="px-4 pt-1 pb-0.5 text-[13px] font-semibold text-gray-400 uppercase tracking-widest">Tools</p>
             {MORE_LINKS.map(({ to, label }) => (
               <button
                 key={to}
@@ -383,7 +383,7 @@ export default function Layout() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="cm-app min-h-screen bg-gray-50 flex flex-col">
       <UpgradePromptModal />
 
       {/* Top nav */}

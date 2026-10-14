@@ -69,18 +69,18 @@ function SignalRow({ signal, showEvidence }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-semibold text-slate-800">{signal.label}</p>
         {signal.check?.label ? (
-          <span className={`rounded-full border px-2 py-0.5 text-[12px] font-semibold ${CHECK_STYLE[signal.check.outcome] || CHECK_STYLE.not_checked}`}>
+          <span className={`rounded-full border px-2 py-0.5 text-[13px] font-semibold ${CHECK_STYLE[signal.check.outcome] || CHECK_STYLE.not_checked}`}>
             {signal.check.label}
           </span>
         ) : (
-          <span className={`rounded-full border px-2 py-0.5 text-[12px] font-semibold ${STATE_STYLE[signal.state] || STATE_STYLE.not_observed}`}>
+          <span className={`rounded-full border px-2 py-0.5 text-[13px] font-semibold ${STATE_STYLE[signal.state] || STATE_STYLE.not_observed}`}>
             {stateLabel(signal)}
           </span>
         )}
       </div>
       <p className="mt-1 text-xs leading-relaxed text-slate-500">{customerEvidenceText(signal.customer_message)}</p>
       {showEvidence && (
-        <div className="mt-2 space-y-0.5 border-t border-slate-100 pt-2 text-[12px] leading-relaxed text-slate-400">
+        <div className="mt-2 space-y-0.5 border-t border-slate-100 pt-2 text-[13px] leading-relaxed text-slate-400">
           <p>
             Evidence grade {grade.achieved || 'L0'} · {SOURCE_TYPE_TEXT[signal.source_type] || readable(signal.source_type) || 'source not recorded'}
             {observedAt(signal) ? ` · observed ${observedAt(signal)}` : ''}

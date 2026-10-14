@@ -42,8 +42,8 @@ function ExposureCard({ exp }) {
       </div>
 
       <div className="mt-3 pt-3 border-t border-gray-50 flex items-center gap-3">
-        <span className="text-[12px] text-gray-400">Confidence: <span className="capitalize font-medium">{exp.confidence}</span></span>
-        <span className="text-[12px] text-gray-400">Category: <span className="capitalize">{exp.category}</span></span>
+        <span className="text-[13px] text-gray-400">Confidence: <span className="capitalize font-medium">{exp.confidence}</span></span>
+        <span className="text-[13px] text-gray-400">Category: <span className="capitalize">{exp.category}</span></span>
       </div>
     </div>
   )
