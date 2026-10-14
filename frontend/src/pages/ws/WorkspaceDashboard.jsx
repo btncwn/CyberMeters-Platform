@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   BarChart2, Shield, Server, AlertTriangle,
   Package2, Zap, Tag, Terminal,
@@ -596,7 +596,7 @@ export default function WorkspaceDashboard() {
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Executive Dashboard</h1>
+              <h1 className="text-2xl font-bold text-gray-900">Workspace administration</h1>
               <p className="text-sm text-gray-400 mt-0.5">
                 {wsName}
                 {sc?.last_scan_at ? ` · Last scan ${fmt(sc.last_scan_at)}` : ''}
@@ -688,9 +688,9 @@ export default function WorkspaceDashboard() {
                     email security posture, exposed assets, and subdomains — producing a scored risk report in minutes.
                   </p>
                 </div>
-                <a href="/scans/new" className="btn-primary flex-shrink-0 inline-flex items-center gap-2">
+                <Link to="/scans/new" className="btn-primary flex-shrink-0 inline-flex items-center gap-2">
                   Start Scan
-                </a>
+                </Link>
               </div>
               {/* What a scan checks */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -797,9 +797,9 @@ export default function WorkspaceDashboard() {
                 <div className="card p-10 text-center">
                   <p className="text-gray-500 font-medium mb-1">No executive summary yet.</p>
                   <p className="text-sm text-gray-400 mb-5">Generate your first executive report to see an AI-powered summary here.</p>
-                  <a href="/ws/reports" className="btn-secondary mx-auto inline-flex items-center gap-2">
+                  <Link to="/ws/reports" className="btn-secondary mx-auto inline-flex items-center gap-2">
                     Generate Report
-                  </a>
+                  </Link>
                 </div>
               )}
             </>

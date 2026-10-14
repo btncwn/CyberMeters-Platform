@@ -599,8 +599,8 @@ export default function Dashboard() {
               </span>
             )}
           </div>
-          <h1 className="page-title">CyberMeters Dashboard</h1>
-          <p className="page-subtitle max-w-2xl">Monitor all eight Cyber MOT domains across your workspaces.</p>
+          <h1 className="page-title">Security overview</h1>
+          <p className="page-subtitle max-w-2xl">Monitor the eight Cyber MOT areas for {activeWorkspaceName || 'the selected workspace'}.</p>
           <p className="text-xs text-gray-400 mt-1">
             {latestScan
               ? `Last assessment: ${latestScan.domain} · ${relativeTime(latestScan.created_at)}`
@@ -612,9 +612,6 @@ export default function Dashboard() {
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </button>
-          <Link to="/scans/new" className="btn-primary">
-            New Scan
-          </Link>
         </div>
       </div>
 

@@ -18,12 +18,13 @@ const THEME = Object.fromEntries(
 
 // ── Canonical Cyber MOT domains — the primary sections in the sidebar ─────────
 // Founder order (14 Oct): strongest evidence first, down to the readiness area.
+// The area name itself opens its overview, so no sub-item repeats that
+// destination: every visible link in the sidebar goes somewhere different.
 const SERVICES = [
   {
     key: 'email', domainKey: 'email_protection', title: 'Email Protection', to: '/ws/email-protection',
     match: p => p.startsWith('/ws/email-protection'),
     items: [
-      { to: '/ws/email-protection', label: 'Overview', end: true },
       { hash: '#dmarc-setup',       label: 'DMARC Setup' },
       { hash: '#sender-inventory',  label: 'Sender Inventory' },
       { hash: '#auth-detail',       label: 'Authentication Detail' },
@@ -34,9 +35,7 @@ const SERVICES = [
     match: p => p.startsWith('/assets') || p.startsWith('/exposure') || p.startsWith('/ws/admin-surfaces')
       || p.startsWith('/ws/cloud-assets') || p.startsWith('/scans') || p.startsWith('/schedules'),
     items: [
-      { to: '/assets',            label: 'Overview', end: true },
       { to: '/exposure',          label: 'Timeline' },
-      { to: '/assets',            label: 'Assets' },
       { to: '/scans',             label: 'Scans' },
       { to: '/schedules',         label: 'Schedules' },
       { to: '/ws/admin-surfaces', label: 'Admin Surfaces' },
@@ -46,22 +45,17 @@ const SERVICES = [
   {
     key: 'website', domainKey: 'website_security', title: 'Website Security', to: '/ws/website-security',
     match: p => p.startsWith('/ws/website-security'),
-    items: [
-      { to: '/ws/website-security', label: 'Overview', end: true },
-    ],
+    items: [],
   },
   {
     key: 'identity', domainKey: 'identity_exposure', title: 'Identity Exposure', to: '/ws/identity-exposure',
     match: p => p.startsWith('/ws/identity-exposure'),
-    items: [
-      { to: '/ws/identity-exposure', label: 'Overview', end: true },
-    ],
+    items: [],
   },
   {
     key: 'shadow_it', domainKey: 'shadow_it_unmanaged_technology', title: 'Shadow IT & Unmanaged Technology', to: '/ws/shadow-it',
     match: p => p.startsWith('/ws/shadow-it') || p.startsWith('/ws/saas-exposure') || p.startsWith('/ws/third-party'),
     items: [
-      { to: '/ws/shadow-it',       label: 'Overview', end: true },
       { to: '/ws/saas-exposure',   label: 'SaaS Exposure' },
       { to: '/ws/third-party',     label: 'Third-Party' },
     ],
@@ -70,7 +64,6 @@ const SERVICES = [
     key: 'certs', domainKey: 'certificates_trust', title: 'Certificates & Trust', to: '/ws/certificates',
     match: p => p.startsWith('/ws/certificates'),
     items: [
-      { to: '/ws/certificates',  label: 'Overview', end: true },
       { to: '/ws/certificates/lifecycle', label: 'Managed Lifecycle' },
       { hash: '#cert-inventory', label: 'Inventory' },
       { hash: '#cert-expiry',    label: 'Expiry Risk' },
@@ -82,7 +75,6 @@ const SERVICES = [
     key: 'brand', domainKey: 'brand_protection', title: 'Brand Protection', to: '/ws/brand-monitoring',
     match: p => p.startsWith('/ws/brand-monitoring'),
     items: [
-      { to: '/ws/brand-monitoring', label: 'Overview', end: true },
       { hash: '#typosquats',        label: 'Typosquat Candidates' },
       { hash: '#brand-summary',     label: 'Brand Findings' },
     ],
@@ -90,18 +82,16 @@ const SERVICES = [
   {
     key: 'cyber_essentials', domainKey: 'cyber_essentials_readiness', title: 'Cyber Essentials Readiness', to: '/ws/cyber-essentials',
     match: p => p.startsWith('/ws/cyber-essentials'),
-    items: [
-      { to: '/ws/cyber-essentials', label: 'Overview', end: true },
-    ],
+    items: [],
   },
 ]
 
 // Secondary workspace/admin links — tucked into a small footer dropdown so they
 // never dominate the coloured service suite.
 const WORKSPACE_TOOLS = [
-  { to: '/ws/dashboard',           label: 'Dashboard'    },
+  { to: '/ws/dashboard',           label: 'Administration' },
   { to: '/ws/scorecard',           label: 'Scorecard'    },
-  { to: '/ws/executive-dashboard', label: 'Executive'    },
+  { to: '/ws/executive-dashboard', label: 'Executive dashboard' },
   { to: '/ws/cases',               label: 'Managed Cases' },
   { to: '/ws/related-changes',     label: 'Related Changes' },
   { to: '/ws/audit-log',           label: 'Audit Log'    },
@@ -167,33 +157,44 @@ export default function WorkspaceNav({ wsName }) {
           const t = THEME[svc.key]
           return (
             <div key={svc.key}>
-              <Link
-                to={svc.to}
+              {/* The row is two controls: the name opens the area; the chevron
+                  only expands or collapses its sub-navigation. */}
+              <div
                 onMouseEnter={() => { setHoverKey(svc.key); handlePreload(svc.to) }}
                 onMouseLeave={() => setHoverKey(null)}
-                onFocus={() => handlePreload(svc.to)}
-                onClick={() => setExpandedKey(prev => prev === svc.key ? null : svc.key)}
                 style={active
                   ? { backgroundColor: t.bg, borderLeftColor: t.accent }
                   : hovered ? { backgroundColor: t.tint, borderLeftColor: 'transparent' } : { borderLeftColor: 'transparent' }}
-                className={`flex items-center gap-3 pl-3 pr-2.5 py-2.5 rounded-xl border-l-[3px] transition-colors ${
+                className={`flex items-center gap-2 pl-3 pr-1.5 rounded-xl border-l-[3px] transition-colors ${
                   active ? 'font-semibold' : 'font-medium text-black'
                 }`}
               >
-                <span
-                  className="flex-1 min-w-0 text-[17px] leading-snug"
-                  style={active ? { color: t.text } : undefined}
+                <Link
+                  to={svc.to}
+                  onFocus={() => handlePreload(svc.to)}
+                  className="flex-1 min-w-0 py-2.5 text-[17px] leading-snug"
+                  style={{ color: active ? t.text : '#000000' }}
                 >
                   {svc.title}
-                </span>
-                {expanded
-                  ? <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: t.accent }} />
-                  : <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />}
-              </Link>
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setExpandedKey(prev => prev === svc.key ? null : svc.key)}
+                  aria-expanded={expanded}
+                  aria-controls={`ws-nav-${svc.key}`}
+                  aria-label={`${expanded ? 'Collapse' : 'Expand'} ${svc.title}`}
+                  className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-black/5 flex-shrink-0"
+                >
+                  {expanded
+                    ? <ChevronDown className="w-4 h-4" style={{ color: t.accent }} />
+                    : <ChevronRight className="w-4 h-4 text-gray-500" />}
+                </button>
+              </div>
 
               {/* The expanded service reveals its coloured sub-items */}
               {expanded && (
                 <div
+                  id={`ws-nav-${svc.key}`}
                   className="ml-3 mt-1 mb-1.5 pl-3.5 space-y-0.5 border-l-2"
                   style={{ borderColor: t.bg }}
                 >
