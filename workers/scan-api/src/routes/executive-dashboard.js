@@ -23,8 +23,9 @@ export async function executiveDashboardRoutes(rctx) {
 
     // ── GET /api/workspaces/:id/cyber-mot-domains ────────────────────────────
     // Canonical eight-domain Cyber MOT coverage states for a workspace, resolved
-    // server-side from the authoritative (latest-complete) scan — or the canonical
-    // NO-SCAN states when none exists. ALWAYS returns eight domains so the Dashboard
+    // server-side from the latest completed scan's evidence, including a newer
+    // provisional scan — or the canonical NO-SCAN states when none exists.
+    // ALWAYS returns eight domains so the Dashboard
     // renders all eight even before any scan, and the frontend never invents states.
     // Core coverage: workspace:read only, NO feature gate. Never fails to fewer than
     // eight (any error returns the canonical no-scan set).
@@ -40,21 +41,21 @@ export async function executiveDashboardRoutes(rctx) {
         // A provider-degraded completed scan is not an authoritative score, but
         // its domain evidence is still useful. Resolve the latest provisional
         // report so unrelated domains retain their own completed conclusions.
-        const authScanId =
-          posture?.authoritative_scan_id ??
+        const sourceScanId =
           posture?.latest_provisional_scan_id ??
+          posture?.authoritative_scan_id ??
           null;
         let report = null;
-        if (authScanId) {
-          const obj = await env.cybermeters_reports.get(`reports/${authScanId}.json`);
+        if (sourceScanId) {
+          const obj = await env.cybermeters_reports.get(`reports/${sourceScanId}.json`);
           report = obj ? await obj.json() : null;
         }
         let ceSnap = null;
         try { ceSnap = await getCyberEssentialsSnapshot(wsId, env); } catch { ceSnap = null; }
         return json({
           workspace_id:   wsId,
-          source_scan_id: authScanId,
-          cyber_mot_domains: resolveCyberMotDomainStates(report, { scanId: authScanId, cyberEssentials: ceSnap }),
+          source_scan_id: sourceScanId,
+          cyber_mot_domains: resolveCyberMotDomainStates(report, { scanId: sourceScanId, cyberEssentials: ceSnap }),
         });
       } catch (e) {
         return json({ workspace_id: wsId, source_scan_id: null, cyber_mot_domains: resolveCyberMotDomainStates(null) });
