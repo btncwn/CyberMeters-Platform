@@ -11,7 +11,7 @@ import ErrorAlert from '../components/ErrorAlert'
 import ExecutiveReportV2 from '../components/ExecutiveReportV2'
 import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
 import CyberMotDomains from '../components/CyberMotDomains'
-import LiveTlsEvidence from '../components/LiveTlsEvidence'
+import LiveTlsEvidence, { TlsAssessmentEvidence } from '../components/LiveTlsEvidence'
 import WebsiteResponseEvidence from '../components/WebsiteResponseEvidence'
 import { assessmentBandLabel, bandMeta } from '../lib/score-presentation'
 import {
@@ -1262,6 +1262,7 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
         <SectionHeader title="SSL / HTTPS" />
         <SslPanel ssl={modules?.ssl} />
         {modules?.ssl?.certificate_evidence?.live_tls && <div className="p-4"><LiveTlsEvidence evidence={modules.ssl.certificate_evidence.live_tls} /></div>}
+        {modules?.tls_assessment && <div className="p-4"><TlsAssessmentEvidence assessment={modules.tls_assessment} /></div>}
       </div>
 
       {/* Security Headers */}

@@ -148,6 +148,21 @@ beforeEach(() => {
 })
 
 describe('ScanDetail evidence honesty', () => {
+  it('shows the scan TLS assessment and its omitted checks even without a live-leaf capture', async () => {
+    await renderFixture({ report: reportFixture({ modules: { tls_assessment: {
+      source: 'tls_assessment', version: 'cybermeters-tls-profile/2', policy_version: 'rfc9325-2022/1',
+      quality: 'partial', coverage: { planned: 2024, completed: 117, uncertain: 395,
+        unexecutable: 336, not_authorized: 0, not_applicable: 0, omitted_checks: 1176, endpoint_gaps: 0 },
+      endpoints: [], costs: { connections: 522, bytes_sent: 165582, bytes_received: 356838,
+        duration_ms: 11178, unknown_attempts: 0, charged_connections: 1008, charged_bytes: 1896553 },
+    } } }) })
+
+    const ssl = cardForHeading('SSL / HTTPS')
+    expect(within(ssl).getByRole('region', { name: 'TLS security assessment' })).toBeInTheDocument()
+    expect(within(ssl).getByText('Outside scan budget: 1176')).toBeInTheDocument()
+    expect(within(ssl).getByText(/cybermeters-tls-profile\/2/)).toBeInTheDocument()
+  })
+
   it('retains a live leaf receipt even when the separate HTTPS module could not complete', async () => {
     await renderFixture({ report: reportFixture({ modules: { ssl: { error: 'HTTP measurement incomplete', certificate_evidence: { live_tls: {
       leaf_collected: true, leaf_certificate: { collection_performed: true, collection_complete: true, certificate_identity: 'sha256:synthetic-leaf', subject: 'CN=Recorded leaf', not_after: '2026-11-01T00:00:00Z' }, endpoint: { address: '8.8.8.8', port: 443 }, all_planned_endpoints_observed: false,
