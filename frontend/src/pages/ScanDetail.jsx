@@ -422,7 +422,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
             {/* Sprint 11A — Academy Learn More link */}
             {academySlug && (
               <Link
-                to={`/academy/${academySlug}`}
+                to={`/guide/${academySlug}`}
                 className="flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-800 transition-colors"
               >
                 Learn more

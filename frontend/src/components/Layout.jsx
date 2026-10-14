@@ -16,7 +16,7 @@ import NotificationBell from './NotificationBell'
 // - Pricing is a public marketing page already linked in the footer.
 // Top nav is intentionally lean — high-level destinations only. Service-specific
 // areas (Email/Brand/Attack Surface/Certificates) live behind Services and the
-// service sidebars; secondary tools (Scans, Schedules, Academy) live in the user
+// service sidebars; secondary tools (Scans, Schedules, Field Guide) live in the user
 // menu. No routes are removed — everything stays reachable.
 // Founder decision (14 Oct 2026): the top bar reads left to right from the
 // deepest amber to the lightest, two items per step, and Settings lives only in
@@ -34,7 +34,7 @@ const NAV = [
 const MORE_LINKS = [
   { to: '/scans',     label: 'Scans'     },
   { to: '/schedules', label: 'Schedules' },
-  { to: '/academy',   label: 'Academy'   },
+  { to: '/guide',     label: 'Field Guide' },
   { to: '/support',   label: 'Support'   },
 ]
 
