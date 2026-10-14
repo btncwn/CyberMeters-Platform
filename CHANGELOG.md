@@ -18,11 +18,15 @@ partial coverage keeps Certificates & Trust evidence-insufficient. Heartbleed,
 ROBOT and CCS active tests remain unavailable and explicitly `unexecutable`
 until delivery 2C passes its separate fixtures and review. PRs #602 and #604
 merged after 16/16 exact-head checks and independent R1 review; customer
-presentation corrections #605 and #607 passed exact-head CI and merged. The canary exposed a separate
+presentation corrections #605, #607 and #608 passed exact-head CI and merged. The canary exposed a separate
 score-honesty defect: omitted and inconclusive supported checks still showed
 an unqualified 100/100 Excellent. The correction retains the measured numeric
 score as provisional, withholds its final rating, and excludes it from
-complete-scan portfolio averages until coverage is sufficient.
+complete-scan portfolio averages until coverage is sufficient. PR #608 carries
+that same authority into the signed-in dashboard's headline, trend and recent
+scan rows; Cloudflare Pages production deployment
+`0b1c4d9c-8038-4fad-a3bf-f4ec9c430c92` was read back against the company
+workspace.
 
 Before additive D1 migrations 119/120, a Time Travel bookmark and private SQL
 export were captured. The migrations and four new tables were verified. Email
