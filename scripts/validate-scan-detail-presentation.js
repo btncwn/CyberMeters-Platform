@@ -20,7 +20,7 @@ const frontendRequire = createRequire(path.join(frontend, "package.json"));
 const ts = frontendRequire("typescript");
 
 // The pinned set includes the direct Website Security evidence-link render.
-const EXPECTED_ASSERTIONS = 27;
+const EXPECTED_ASSERTIONS = 29;
 const UI_TEST_TITLES = Object.freeze([
   "A: partial canonical score and null rating override divergent raw scan presentation",
   "reason A: canonical assessment message outranks skipped modules and warnings",
@@ -39,6 +39,8 @@ const UI_TEST_TITLES = Object.freeze([
   "F2: a withheld historical redirect conclusion renders no stale score, band or BRI",
   "G: observed partial finding stays visible without becoming a new-change claim",
   "retains a live leaf receipt even when the separate HTTPS module could not complete",
+  "shows the scan TLS assessment and its omitted checks even without a live-leaf capture",
+  "presents the live leaf and scan TLS assessment without contradictory missing-evidence copy",
   "opens the recorded website evidence directly from the condition link",
 ]);
 
