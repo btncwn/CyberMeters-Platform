@@ -170,13 +170,19 @@ describe('ScanDetail evidence honesty', () => {
         leaf_certificate: { collection_performed: true, collection_complete: true,
           certificate_identity: 'sha256:synthetic-leaf', subject: 'CN=Recorded leaf' },
         endpoint: { address: '8.8.8.8', port: 443 },
+        endpoint_observations: [{ address: '8.8.8.8', port: 443, state: 'open', tls: {
+          leaf_collected: true,
+          leaf_certificate: { collection_performed: true, collection_complete: true,
+            certificate_identity: 'sha256:synthetic-endpoint-leaf', subject: 'CN=Endpoint leaf' },
+          endpoint: { address: '8.8.8.8', port: 443 },
+        } }],
       } } },
       tls_assessment: { version: 'cybermeters-tls-profile/2', quality: 'partial',
         coverage: { omitted_checks: 1176 }, endpoints: [] },
     } }) })
 
     const ssl = cardForHeading('SSL / HTTPS')
-    expect(within(ssl).getByTestId('live-tls-evidence')).toBeInTheDocument()
+    expect(within(ssl).getAllByTestId('live-tls-evidence')).toHaveLength(2)
     expect(within(ssl).getAllByRole('region', { name: 'TLS security assessment' })).toHaveLength(1)
     expect(within(ssl).getByText('Outside scan budget: 1176')).toBeInTheDocument()
     expect(within(ssl).queryByText('Deep TLS checks: not recorded.')).not.toBeInTheDocument()

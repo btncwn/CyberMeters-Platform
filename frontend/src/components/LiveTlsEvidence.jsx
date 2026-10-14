@@ -123,8 +123,10 @@ export default function LiveTlsEvidence({ evidence, assessment, showEndpoints = 
           {runtimeChain.length ? <ol className="mt-3 space-y-3">{runtimeChain.map((certificate, index) => <li key={`${certificate.certificate_identity || 'unknown'}-${index}`} className="border-t border-gray-100 pt-2"><dl className="space-y-1"><Field label={`Certificate ${index + 1}`}>{text(certificate.certificate_identity)}</Field><Field label="Subject">{text(certificate.subject)}</Field><Field label="Issuer">{text(certificate.issuer)}</Field><Field label="Valid until">{time(certificate.not_after)}</Field></dl></li>)}</ol> : <p className="mt-2 text-xs text-gray-500">No runtime issuer certificates recorded.</p>}
         </details>
       </>}
-      <p className="text-xs text-gray-500">{deepAssessment ? 'The live-leaf capture above does not establish the exact presented chain or revocation status. Additional measurements are shown below.' : 'Exact presented chain: unknown. Revocation / OCSP status: not assessed.'}</p>
-      <TlsAssessmentEvidence assessment={deepAssessment} />
+      {showEndpoints && <>
+        <p className="text-xs text-gray-500">{deepAssessment ? 'The live-leaf capture above does not establish the exact presented chain or revocation status. Additional measurements are shown below.' : 'Exact presented chain: unknown. Revocation / OCSP status: not assessed.'}</p>
+        <TlsAssessmentEvidence assessment={deepAssessment} />
+      </>}
       {endpoints.length > 0 && <div className="space-y-2"><h4 className="text-sm font-semibold">Endpoint observations ({endpoints.length})</h4>{endpoints.map((row, index) => <div key={`${row.address}:${row.port}:${index}`} className="rounded border border-gray-100 p-3 space-y-2"><p className="text-sm break-all">{endpoint(row)} — {stateLabels[row.state] || 'Not assessed'}</p>{row.tls ? <LiveTlsEvidence evidence={row.tls} showEndpoints={false} /> : <p className="text-xs text-gray-500">Live TLS was not observed for this endpoint.</p>}</div>)}</div>}
     </div>
   </details>
