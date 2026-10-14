@@ -136,11 +136,24 @@ const files = walk(S);
   ok("scan-history API selects scan_quality", /s\.score, s\.rating, s\.scan_quality, s\.created_at/.test(sc));
 }
 
-// ── 4b. Main Dashboard hero is completeness-aware (authoritative = latest complete) ─
+// ── 4b. Main Dashboard honors the projected assessment, including monitoring ─
 {
   const dash = fs.readFileSync(path.join(root, "frontend", "src", "pages", "Dashboard.jsx"), "utf8");
-  ok("Dashboard authoritative posture = latest complete-quality scan", /scan_quality === 'complete'/.test(dash));
-  ok("Dashboard suppresses the rating for a provisional latest", /postureProvisional \? null : ins\.riskLevel/.test(dash));
+  ok("Dashboard final rating requires backend assessment authority and complete quality",
+    /scan_quality === 'complete'/.test(dash)
+      && /assessment\?\.quality === 'complete'/.test(dash)
+      && /assessment\?\.authoritative === true/.test(dash)
+      && /assessment\?\.provisional === false/.test(dash)
+      && /assessment\?\.display_rating != null/.test(dash)
+      && /riskLevel = latestAssessment\.rating/.test(dash));
+  ok("Dashboard shows a non-authoritative latest result as provisional and unrated",
+    /postureProvisional = !!latest && !postureEstablished/.test(dash)
+      && /<ScoreRing score=\{ins\.score\} riskLevel=\{ins\.riskLevel\} provisional=\{ins\.postureProvisional\}/.test(dash));
+  ok("Dashboard trend requires assessment comparability",
+    /\.filter\(s => assessedScan\(s\)\.comparable\)/.test(dash));
+  ok("Dashboard recent rows use the same authority decision",
+    /scanAssessment\.authoritative \? 'text-brand-600' : 'text-amber-700'/.test(dash)
+      && /scanAssessment\.score/.test(dash));
 }
 
 // ── 5. Report + PDF delegate to the resolver (customer artifacts) ────────────
