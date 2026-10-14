@@ -1261,8 +1261,8 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
       <div id="website-evidence" className="card overflow-hidden scroll-mt-24">
         <SectionHeader title="SSL / HTTPS" />
         <SslPanel ssl={modules?.ssl} />
-        {modules?.ssl?.certificate_evidence?.live_tls && <div className="p-4"><LiveTlsEvidence evidence={modules.ssl.certificate_evidence.live_tls} /></div>}
-        {modules?.tls_assessment && <div className="p-4"><TlsAssessmentEvidence assessment={modules.tls_assessment} /></div>}
+        {modules?.ssl?.certificate_evidence?.live_tls && <div className="p-4"><LiveTlsEvidence evidence={modules.ssl.certificate_evidence.live_tls} assessment={modules.tls_assessment} /></div>}
+        {!modules?.ssl?.certificate_evidence?.live_tls && modules?.tls_assessment && <div className="p-4"><TlsAssessmentEvidence assessment={modules.tls_assessment} /></div>}
       </div>
 
       {/* Security Headers */}

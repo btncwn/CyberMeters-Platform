@@ -163,6 +163,26 @@ describe('ScanDetail evidence honesty', () => {
     expect(within(ssl).getByText(/cybermeters-tls-profile\/2/)).toBeInTheDocument()
   })
 
+  it('presents the live leaf and scan TLS assessment without contradictory missing-evidence copy', async () => {
+    await renderFixture({ report: reportFixture({ modules: {
+      ssl: { certificate_evidence: { live_tls: {
+        leaf_collected: true,
+        leaf_certificate: { collection_performed: true, collection_complete: true,
+          certificate_identity: 'sha256:synthetic-leaf', subject: 'CN=Recorded leaf' },
+        endpoint: { address: '8.8.8.8', port: 443 },
+      } } },
+      tls_assessment: { version: 'cybermeters-tls-profile/2', quality: 'partial',
+        coverage: { omitted_checks: 1176 }, endpoints: [] },
+    } }) })
+
+    const ssl = cardForHeading('SSL / HTTPS')
+    expect(within(ssl).getByTestId('live-tls-evidence')).toBeInTheDocument()
+    expect(within(ssl).getAllByRole('region', { name: 'TLS security assessment' })).toHaveLength(1)
+    expect(within(ssl).getByText('Outside scan budget: 1176')).toBeInTheDocument()
+    expect(within(ssl).queryByText('Deep TLS checks: not recorded.')).not.toBeInTheDocument()
+    expect(within(ssl).queryByText('Exact presented chain: unknown. Revocation / OCSP status: not assessed.')).not.toBeInTheDocument()
+  })
+
   it('retains a live leaf receipt even when the separate HTTPS module could not complete', async () => {
     await renderFixture({ report: reportFixture({ modules: { ssl: { error: 'HTTP measurement incomplete', certificate_evidence: { live_tls: {
       leaf_collected: true, leaf_certificate: { collection_performed: true, collection_complete: true, certificate_identity: 'sha256:synthetic-leaf', subject: 'CN=Recorded leaf', not_after: '2026-11-01T00:00:00Z' }, endpoint: { address: '8.8.8.8', port: 443 }, all_planned_endpoints_observed: false,
