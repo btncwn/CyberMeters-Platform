@@ -7,6 +7,45 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.10.14-2 — Work Order 2C controlled release — 14 October 2026
+
+PR #610 added separately permitted, bounded active checks for Heartbleed,
+ROBOT and OpenSSL CCS on authorized endpoints. Positive and negative local
+fixtures, cancellation, scope/consent, queue budgets, independent R1 review and
+all 16 exact-head checks passed; it merged as `87fb2b76`. Its first main CI
+run found an unrelated concurrency-test ordering assumption: the login limiter
+correctly allowed 20 requests and denied one, but the fixture expected the
+denial to belong to the last input. PR #611 corrected only that fixture,
+passed 16/16 exact-head checks and merged as `41d25409`. The deployed source
+tree matches that tested head.
+
+The coordinated production rollout deployed email Worker
+`abfec745-6de0-44cf-816e-7a65fd64155b` (rollback
+`9206e119-3880-4246-9bc1-277ea28a8686`), private probe
+`bc567a06-dde6-4b86-8364-27bc7ebdc4b4` (rollback
+`97f0d3dc-99ae-48bb-908a-e1d7483fb85d`), and API
+`285ae695-aa3b-4b79-9be7-64b1b62b72f2` (rollback
+`04dd67fe-dcc0-4528-9309-fdb723cf9dc1`). The pinned private TLS image is
+`sha256:6a3b88ce09b2eb690502fd8f85f4d90fa4acbed9701b01690ec9fe118c42c378`.
+Both public Workers report `2026.10.14-tls-2c.5f4d069c66b6`; email D1
+readiness, API D1/R2 readiness and anonymous workspace 401 passed. The
+company workspace's special-check permission was initially off. After it was
+explicitly saved, one `cybermeters.com` canary completed all 512 selected TLS
+checks, including all 40 Heartbleed, ROBOT and CCS outcomes, across four
+Cloudflare edge endpoints. ROBOT and CCS each returned four TLS 1.2
+`not_observed` outcomes; Heartbleed's four TLS 1.2 checks were
+`heartbeat_unavailable` and remained inconclusive. Legacy handshakes and peer
+alerts stayed unknown. The signed-in report showed partial coverage,
+`Evidence insufficient` for Certificates & Trust and a provisional, unrated
+score, with the special reasons visible per endpoint. The job recorded no
+failed or unknown-cost attempt and stayed within its connection and byte
+budgets. The [acceptance ledger](docs/WORK-ORDER-2-TLS-ACCEPTANCE.md) records
+the scan ID, exact result counts, physical telemetry and remaining limits.
+Previous Worker versions remain available as rollback targets; a live rollback
+drill was not performed. This completes Work Order 2 engineering acceptance
+for the measured, consented workflow. It does not certify customer-wide safety
+or establish customer-scale unit economics.
+
 ## v2026.10.14-1 — supported TLS security assessment — 14 October 2026
 
 Work Order 2 deliveries 2A/2B are available to customers. Authorized scans
