@@ -17,8 +17,12 @@ shows the recorded checks, uncertain results and checks outside its budget;
 partial coverage keeps Certificates & Trust evidence-insufficient. Heartbleed,
 ROBOT and CCS active tests remain unavailable and explicitly `unexecutable`
 until delivery 2C passes its separate fixtures and review. PRs #602 and #604
-merged after 16/16 exact-head checks and independent R1 review; the frontend
-report correction is PR #605.
+merged after 16/16 exact-head checks and independent R1 review; customer
+presentation corrections are PRs #605 and #607. The canary exposed a separate
+score-honesty defect: omitted and inconclusive supported checks still showed
+an unqualified 100/100 Excellent. The correction retains the measured numeric
+score as provisional, withholds its final rating, and excludes it from
+complete-scan portfolio averages until coverage is sufficient.
 
 Before additive D1 migrations 119/120, a Time Travel bookmark and private SQL
 export were captured. The migrations and four new tables were verified. Email
