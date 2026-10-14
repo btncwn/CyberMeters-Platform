@@ -666,6 +666,8 @@ export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
 
   if (projection.suppressed !== true) {
     const bri = overall.business_risk_indicator ?? {};
+    const notFullyAssessed = Array.isArray(overall.not_fully_assessed)
+      ? overall.not_fully_assessed : [];
     return {
       ...websiteSnapshot,
       domains: (Array.isArray(websiteSnapshot.domains) ? websiteSnapshot.domains : []).map((entry) => ({
@@ -690,9 +692,11 @@ export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
           assessment_quality: projection.scan_quality,
           tls_gap_reason: tlsGapReason,
         },
-        not_fully_assessed: [
-          ...new Set([...(Array.isArray(overall.not_fully_assessed) ? overall.not_fully_assessed : []), "tls_assessment"]),
-        ],
+        not_fully_assessed: notFullyAssessed.some((entry) => entry?.domain_key === "tls_assessment")
+          ? notFullyAssessed
+          : [...notFullyAssessed, {
+              domain_key: "tls_assessment", state: "evidence_insufficient", reason: tlsGapReason,
+            }],
       },
       customer_projection: {
         ...(websiteSnapshot.customer_projection ?? {}),

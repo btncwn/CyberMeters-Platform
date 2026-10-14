@@ -129,6 +129,8 @@ assert.equal(customerSnapshot.overall.score_band,null);
 assert.equal(customerSnapshot.overall.assessment.provisional,true);
 assert.equal(customerSnapshot.overall.business_risk_indicator.band,null);
 assert.equal(customerSnapshot.domains[0].trend.comparable_basis,false);
+assert.equal(customerSnapshot.overall.not_fully_assessed.find(row=>row.domain_key==='tls_assessment')?.reason,
+  'tls_checks_outside_scan_budget');
 assert.equal(storedSnapshot.overall.score_band,'excellent','immutable snapshot facts are untouched');
 const stop=new AbortController();
 const hung=collectTlsAssessment({NETWORK_PROBE:{fetch:()=>new Promise(()=>{})}},request,{signal:stop.signal});
