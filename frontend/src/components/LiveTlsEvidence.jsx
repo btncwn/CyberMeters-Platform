@@ -60,9 +60,9 @@ export function TlsAssessmentEvidence({ assessment }) {
   const costs = assessment.costs
   return <section className="space-y-3 border-t border-gray-100 pt-3" aria-label="TLS security assessment">
     <h4 className="text-sm font-semibold">TLS security assessment</h4>
-    <p className="text-xs text-gray-600">Coverage: {{complete:'Complete for the recorded scope',partial:'Partial — some checks remain unresolved',not_run:'Not run'}[assessment.quality] || 'Not established'}. Results apply to the recorded endpoints and time.</p>
+    <p className="text-xs text-gray-600">Coverage: {{complete:'Complete for the recorded scope',partial:'Partial — some checks remain unresolved or outside this scan budget',not_run:'Not run'}[assessment.quality] || 'Not established'}. Results apply to the recorded endpoints and time.</p>
     <p className="text-xs text-gray-500">Profile: {text(assessment.version)} · Policy: {text(assessment.policy_version)}</p>
-    <ul className="flex flex-wrap gap-2 text-xs" aria-label="TLS check coverage">{[['planned','Planned'],['completed','Completed'],['uncertain','Uncertain'],['unexecutable','Could not execute'],['not_authorized','Not authorized'],['not_applicable','Not applicable']].map(([key,label]) => <li key={key}>{label}: {number(coverage[key])}</li>)}</ul>
+    <ul className="flex flex-wrap gap-2 text-xs" aria-label="TLS check coverage">{[['planned','Planned'],['completed','Completed'],['uncertain','Uncertain'],['unexecutable','Could not execute'],['not_authorized','Not authorized'],['not_applicable','Not applicable'],['omitted_checks','Outside scan budget'],['endpoint_gaps','Endpoint gaps']].map(([key,label]) => <li key={key}>{label}: {number(coverage[key])}</li>)}</ul>
     <p className="text-xs text-gray-500">Trust store: {store ? `${text(store.name)} · ${text(store.version)} · ${text(store.sha256)}` : 'Not recorded for this assessment'}{store?.observed_at ? ` · ${time(store.observed_at)}` : ''}</p>
     {costs && <p className="text-xs text-gray-500">Recorded cost: {number(costs.connections)} connections · {number(costs.bytes_sent)} bytes sent · {number(costs.bytes_received)} bytes received · {number(costs.duration_ms)} ms · {number(costs.unknown_attempts)} attempts with unknown cost. Budget charged: {number(costs.charged_connections)} connections / {number(costs.charged_bytes)} bytes.</p>}
     {!endpoints.length && <p className="text-sm text-gray-600">No endpoint checks recorded. Their TLS status remains unknown.</p>}
@@ -74,7 +74,7 @@ export function TlsAssessmentEvidence({ assessment }) {
 
 // This is an evidence view, not a second certificate verdict. A received leaf,
 // name match and validation against the named trust store are separate facts.
-export default function LiveTlsEvidence({ evidence, showEndpoints = true }) {
+export default function LiveTlsEvidence({ evidence, assessment, showEndpoints = true }) {
   if (!evidence || typeof evidence !== 'object') return null
   const leaf = evidence.leaf_certificate || {}
   const collected = evidence.leaf_collected === true && leaf.collection_performed === true && leaf.collection_complete === true && typeof leaf.certificate_identity === 'string' && !!leaf.certificate_identity
@@ -86,6 +86,7 @@ export default function LiveTlsEvidence({ evidence, showEndpoints = true }) {
   const runtimeChain = evidence.runtime_chain?.collection_performed === true && Array.isArray(evidence.runtime_chain.certificates) ? evidence.runtime_chain.certificates : []
   const endpoints = showEndpoints && Array.isArray(evidence.endpoint_observations) ? evidence.endpoint_observations : []
   const names = Array.isArray(leaf.dns_names) ? leaf.dns_names.filter(value => typeof value === 'string') : []
+  const deepAssessment = assessment || evidence.tls_assessment
 
   return <details className="rounded-lg border border-gray-200 bg-white p-3" data-testid="live-tls-evidence">
     <summary className="cursor-pointer text-sm font-semibold text-gray-800">Live TLS evidence — {collected ? 'certificate observed' : 'not fully observed'}</summary>
@@ -122,8 +123,10 @@ export default function LiveTlsEvidence({ evidence, showEndpoints = true }) {
           {runtimeChain.length ? <ol className="mt-3 space-y-3">{runtimeChain.map((certificate, index) => <li key={`${certificate.certificate_identity || 'unknown'}-${index}`} className="border-t border-gray-100 pt-2"><dl className="space-y-1"><Field label={`Certificate ${index + 1}`}>{text(certificate.certificate_identity)}</Field><Field label="Subject">{text(certificate.subject)}</Field><Field label="Issuer">{text(certificate.issuer)}</Field><Field label="Valid until">{time(certificate.not_after)}</Field></dl></li>)}</ol> : <p className="mt-2 text-xs text-gray-500">No runtime issuer certificates recorded.</p>}
         </details>
       </>}
-      <p className="text-xs text-gray-500">{evidence.tls_assessment ? 'The live-leaf capture above does not establish the exact presented chain or revocation status. Additional measurements are shown below.' : 'Exact presented chain: unknown. Revocation / OCSP status: not assessed.'}</p>
-      <TlsAssessmentEvidence assessment={evidence.tls_assessment} />
+      {showEndpoints && <>
+        <p className="text-xs text-gray-500">{deepAssessment ? 'The live-leaf capture above does not establish the exact presented chain or revocation status. Additional measurements are shown below.' : 'Exact presented chain: unknown. Revocation / OCSP status: not assessed.'}</p>
+        <TlsAssessmentEvidence assessment={deepAssessment} />
+      </>}
       {endpoints.length > 0 && <div className="space-y-2"><h4 className="text-sm font-semibold">Endpoint observations ({endpoints.length})</h4>{endpoints.map((row, index) => <div key={`${row.address}:${row.port}:${index}`} className="rounded border border-gray-100 p-3 space-y-2"><p className="text-sm break-all">{endpoint(row)} — {stateLabels[row.state] || 'Not assessed'}</p>{row.tls ? <LiveTlsEvidence evidence={row.tls} showEndpoints={false} /> : <p className="text-xs text-gray-500">Live TLS was not observed for this endpoint.</p>}</div>)}</div>}
     </div>
   </details>
