@@ -72,8 +72,8 @@ const mutants = [
     to:   "  if (customer.evidence.complete) {",
     mustContain: "FAIL D3 historical: complete phase5 plus skip cannot retain a stale numeric score" },
   { id: "TRIAGE-M10-D3-snapshot-stale-conclusions-revived", file: "workers/scan-api/src/engines/phase5-evidence.js",
-    from: "  if (projection.suppressed !== true) return websiteSnapshot;",
-    to:   "  if (projection.evidence.complete) return websiteSnapshot;",
+    from: "  if (projection.suppressed !== true && !tlsGapReason) return websiteSnapshot;",
+    to:   "  if (projection.evidence.complete && !tlsGapReason) return websiteSnapshot;",
     mustContain: "FAIL D3 snapshot: suppression nulls score, band, summary and BRI together" },
   { id: "TRIAGE-M11-D3-current-posture-revived", file: "workers/scan-api/src/engines/current-posture.js",
     // Anchor re-derived after the P1-2 websiteWithheld ternary replaced the

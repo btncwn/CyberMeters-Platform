@@ -11,6 +11,7 @@ import {
   resolveTlsRuntimeState,
   TLS_RUNTIME_STATES,
 } from "./tls-evidence.js";
+import { tlsSupportedCoverageGapReason } from "./tls-quality.js";
 import { buildIdentityEvidenceProjection, summarizeIdentityClaims } from "./identity-evidence-contract.js";
 import { isResolverVersionAtLeast, FIRST_HONEST_RESOLVER_VERSION } from "./cyber-mot-domains.js";
 // READ-ONLY consumption of the canonical authority. `lib/serviceability.js` belongs
@@ -398,6 +399,8 @@ export function resolvePhase5HistoricalCustomerProjection({
   monitoringStates = undefined,
   suppressOnEvidenceGaps = true,
 } = {}) {
+  const tlsGapReason = tlsSupportedCoverageGapReason(modules?.tls_assessment);
+  const effectiveScanQuality = tlsGapReason ? incompleteCustomerQuality(scanQuality) : scanQuality;
   const customer = resolvePhase5CustomerAssessment({
     score,
     riskLevel,
@@ -412,11 +415,15 @@ export function resolvePhase5HistoricalCustomerProjection({
   if (customer.suppressed !== true) {
     return {
       ...customer,
-      scan_quality: normalizeQuality(scanQuality),
-      assessment: assessment ?? resolveAssessmentPresentation({
+      risk_level: tlsGapReason ? null : customer.risk_level,
+      scan_quality: normalizeQuality(effectiveScanQuality),
+      assessment: !tlsGapReason && assessment ? assessment : resolveAssessmentPresentation({
         score: customer.score,
-        scanQuality,
+        scanQuality: effectiveScanQuality,
         status: "completed",
+        coverage: tlsGapReason
+          ? { ...(assessment?.coverage ?? {}), tls_gap_reason: tlsGapReason }
+          : (assessment?.coverage ?? null),
         ...(monitoringStates !== undefined
           ? { monitoringStates, requireMonitoring: true }
           : {}),
@@ -424,7 +431,7 @@ export function resolvePhase5HistoricalCustomerProjection({
     };
   }
 
-  const quality = incompleteCustomerQuality(scanQuality);
+  const quality = incompleteCustomerQuality(effectiveScanQuality);
   return {
     ...customer,
     scan_quality: quality,
@@ -654,7 +661,51 @@ export function projectPhase5SnapshotForCustomer(snapshot, modules = {}) {
       null,
     modules,
   });
-  if (projection.suppressed !== true) return websiteSnapshot;
+  const tlsGapReason = tlsSupportedCoverageGapReason(modules?.tls_assessment);
+  if (projection.suppressed !== true && !tlsGapReason) return websiteSnapshot;
+
+  if (projection.suppressed !== true) {
+    const bri = overall.business_risk_indicator ?? {};
+    const notFullyAssessed = Array.isArray(overall.not_fully_assessed)
+      ? overall.not_fully_assessed : [];
+    return {
+      ...websiteSnapshot,
+      domains: (Array.isArray(websiteSnapshot.domains) ? websiteSnapshot.domains : []).map((entry) => ({
+        ...entry,
+        trend: entry?.trend ? { ...entry.trend, scan_quality: projection.scan_quality, comparable_basis: false } : entry?.trend,
+      })),
+      overall: {
+        ...overall,
+        score_band: null,
+        assessment: projection.assessment,
+        summary: null,
+        business_risk_indicator: {
+          ...bri,
+          band: null,
+          provisional: true,
+          explanation: "Business Risk Indicator is provisional because supported TLS checks did not establish complete coverage.",
+          internal_metrics: { ...(bri.internal_metrics ?? {}), score: null },
+        },
+        evidence_completeness: {
+          ...(overall.evidence_completeness ?? {}),
+          scan_quality: projection.scan_quality,
+          assessment_quality: projection.scan_quality,
+          tls_gap_reason: tlsGapReason,
+        },
+        not_fully_assessed: notFullyAssessed.some((entry) => entry?.domain_key === "tls_assessment")
+          ? notFullyAssessed
+          : [...notFullyAssessed, {
+              domain_key: "tls_assessment", state: "evidence_insufficient", reason: tlsGapReason,
+            }],
+      },
+      customer_projection: {
+        ...(websiteSnapshot.customer_projection ?? {}),
+        applied: true,
+        tls_coverage_partial: true,
+        tls_gap_reason: tlsGapReason,
+      },
+    };
+  }
 
   const bri = overall.business_risk_indicator ?? {};
   const suppressedModules = projection.skipped_score_bearing_modules ?? [];
@@ -848,16 +899,13 @@ export function phase5EvidenceReadCoverage(rows) {
 export function resolvePhase5CustomerAggregate(rows = []) {
   const coverage = phase5EvidenceReadCoverage(rows);
   const candidates = (rows ?? []).filter((row) => row?.status === "completed");
-  const incompleteRows = candidates.filter((row) =>
-    row?.phase5_evidence_read?.state !== "verified" ||
-    row?.phase5_evidence?.complete !== true ||
-    !Number.isFinite(row?.score)
-  );
-  const assessedRows = candidates.filter((row) =>
+  const isAssessed = (row) =>
     row?.phase5_evidence_read?.state === "verified" &&
     row?.phase5_evidence?.complete === true &&
-    Number.isFinite(row?.score)
-  );
+    Number.isFinite(row?.score) &&
+    row?.scan_quality === SCAN_QUALITY.COMPLETE;
+  const incompleteRows = candidates.filter((row) => !isAssessed(row));
+  const assessedRows = candidates.filter(isAssessed);
   const complete = coverage.complete === true && incompleteRows.length === 0;
   const scores = assessedRows.map((row) => row.score);
   return {
