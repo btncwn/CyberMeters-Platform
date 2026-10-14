@@ -254,17 +254,19 @@
   }
 
   /* Nav */
-  /* Top navigation: the brand amber as text, deep orange running to amber,
-     like the wordmark. The active item carries an amber underline. */
-  .nav-link, .nav-link-active {
-    @apply flex items-center gap-2 px-3 py-2 rounded-lg text-[17px] font-bold
-           transition-all duration-150;
-    background-image: linear-gradient(90deg, #D6792D 0%, #E29535 100%);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
-    border-bottom: 3px solid transparent; border-radius: 0;
+  /* App top bar (founder, 14 Oct): deep navy, darkest behind the brand and
+     opening towards the right; links carry their own amber step inline and
+     underline when active. */
+  .cm-topbar {
+    background: linear-gradient(90deg, #02081A 0%, #071B40 45%, #0D2A62 100%);
+    color: #fff;
   }
-  .nav-link:hover { background-image: linear-gradient(90deg, #BD6723 0%, #CB822B 100%); }
-  .nav-link-active { border-bottom-color: #D6792D; }
+  .cm-topbar-link {
+    @apply inline-flex items-center text-[17px] lg:text-[19px] font-bold whitespace-nowrap transition-opacity duration-150;
+  }
+  .cm-topbar-link:hover { opacity: .85; }
+  .cm-topbar-link > span { padding: 6px 0; border-bottom: 3px solid transparent; }
+  .cm-topbar-link-active > span { border-bottom-color: currentColor; }
   .text-amber-brand {
     background-image: linear-gradient(90deg, #D6792D 0%, #E29535 100%);
     -webkit-background-clip: text; background-clip: text; color: transparent;

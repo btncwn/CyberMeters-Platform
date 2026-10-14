@@ -179,8 +179,8 @@ export default function NotificationBell() {
   // If no workspace selected, render a plain non-interactive bell
   if (!wsId) {
     return (
-      <button className="relative w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors" aria-label="Notifications">
-        <Bell className="w-[18px] h-[18px]" />
+      <button className="relative w-11 h-11 flex items-center justify-center rounded-[8px] text-white hover:bg-white/10 transition-colors" aria-label="Notifications">
+        <Bell className="w-[22px] h-[22px]" />
       </button>
     )
   }
@@ -192,12 +192,12 @@ export default function NotificationBell() {
       {/* Bell button */}
       <button
         onClick={() => setOpen(v => !v)}
-        className="relative w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+        className="relative w-11 h-11 flex items-center justify-center rounded-[8px] text-white hover:bg-white/10 transition-colors"
         aria-label={`Notifications${hasUnread ? ` (${unreadCount} unread)` : ''}`}
       >
-        <Bell className="w-[18px] h-[18px]" />
+        <Bell className="w-[22px] h-[22px]" />
         {hasUnread && (
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 border-2 border-white" />
+          <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-[#E29535] border-2 border-[#071B40]" />
         )}
       </button>
 

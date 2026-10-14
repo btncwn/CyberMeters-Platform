@@ -19,13 +19,15 @@ import FeedbackWidget from './FeedbackWidget'
 // areas (Email/Brand/Attack Surface/Certificates) live behind Services and the
 // service sidebars; secondary tools (Scans, Schedules, Academy) live in the user
 // menu. No routes are removed — everything stays reachable.
+// Founder decision (14 Oct 2026): the top bar reads left to right from the
+// deepest amber to the lightest, two items per step, and Settings lives only in
+// the workspace sidebar (a control never appears in three places).
 const NAV = [
-  { to: '/dashboard',  label: 'Dashboard'  },
-  { to: '/services',   label: 'Services'   },
-  { to: '/workspaces', label: 'Workspaces' },
-  { to: '/reports',    label: 'Reports'    },
-  { to: '/billing',    label: 'Billing'    },
-  { to: '/settings',   label: 'Settings'   },
+  { to: '/dashboard',  label: 'Dashboard',  color: '#CB6629' },
+  { to: '/services',   label: 'Services',   color: '#CB6629' },
+  { to: '/workspaces', label: 'Workspaces', color: '#D57B2E' },
+  { to: '/reports',    label: 'Reports',    color: '#D57B2E' },
+  { to: '/billing',    label: 'Billing',    color: '#DE8E33' },
 ]
 
 // Secondary destinations surfaced in the user menu so they stay reachable
@@ -90,10 +92,10 @@ function WorkspaceSelector() {
     <div className="relative" ref={ref}>
       <button
         onClick={handleOpen}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+        className="h-11 flex items-center gap-2 px-3 sm:px-4 rounded-[8px] text-[15px] font-semibold text-white border border-white/30 bg-white/10 hover:bg-white/20 transition-colors"
       >
-        <span className="max-w-[88px] sm:max-w-[120px] truncate">{activeName || 'Workspace'}</span>
-        <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <span className="max-w-[88px] sm:max-w-[140px] truncate">{activeName || 'Workspace'}</span>
+        <ChevronDown className={`w-3.5 h-3.5 text-white transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
@@ -180,12 +182,13 @@ function UserMenu() {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-xl hover:bg-gray-100 transition-colors ml-1"
+        className="flex items-center gap-1.5 rounded-full hover:bg-white/10 transition-colors"
+        aria-label="Account menu"
       >
-        <div className="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white">
+        <div className="w-11 h-11 rounded-full border-2 border-[#E29535] flex items-center justify-center text-[16px] font-bold text-white">
           {initial}
         </div>
-        <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+        <ChevronDown className="w-3.5 h-3.5 text-white" />
       </button>
 
       {open && (
@@ -386,34 +389,37 @@ export default function Layout() {
     <div className="cm-app min-h-screen bg-gray-50 flex flex-col">
       <UpgradePromptModal />
 
-      {/* Top nav */}
-      <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 shadow-header sticky top-0 z-50">
-        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 pt-3 flex flex-wrap items-center gap-3 xl:gap-4">
+      {/* Top bar: deep navy, darkest at the brand and lighter towards the
+          right; brand and navigation in the amber steps of the wordmark. */}
+      <header className="cm-topbar sticky top-0 z-50">
+        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-10 min-h-[96px] lg:min-h-[144px] flex flex-wrap items-center gap-x-6 gap-y-2 lg:gap-x-11 py-3 lg:py-0">
 
           {/* Logo */}
           <button
             onClick={() => navigate('/dashboard')}
             className="flex-shrink-0 group"
+            aria-label="Dashboard"
           >
-            <CyberMetersLogo size={30} showWordmark animated />
+            <CyberMetersLogo size={38} showWordmark animated darkMode wordmarkColor="#C65B26" />
           </button>
 
-          {/* Nav — always its own row under the brand and account controls, so
-              it never collides with them at any width. */}
-          <nav aria-label="Main navigation" className="order-3 w-full min-w-0 flex flex-wrap items-center gap-1 pb-2.5">
-            {NAV.map(({ to, label }) => (
+          {/* Nav: on wide screens it sits beside the brand; on phones it takes
+              its own row under the brand and the account controls. */}
+          <nav aria-label="Main navigation" className="order-3 lg:order-none w-full lg:w-auto lg:flex-1 min-w-0 flex flex-wrap items-center gap-x-5 lg:gap-x-8 gap-y-1">
+            {NAV.map(({ to, label, color }) => (
               <NavLink
                 key={to}
                 to={to}
-                className={({ isActive }) => isActive ? 'nav-link-active' : 'nav-link'}
+                style={{ color }}
+                className={({ isActive }) => `cm-topbar-link${isActive ? ' cm-topbar-link-active' : ''}`}
               >
-                {label}
+                <span>{label}</span>
               </NavLink>
             ))}
           </nav>
 
           {/* Right */}
-          <div className="sm:ml-auto w-full sm:w-auto min-w-0 flex items-center justify-between gap-1 sm:gap-2">
+          <div className="ml-auto min-w-0 flex items-center gap-2 sm:gap-3">
             <WorkspaceSelector />
 
             <NotificationBell />
@@ -425,7 +431,7 @@ export default function Layout() {
                 navigate('/scans/new')
                 window.dispatchEvent(new CustomEvent('cybermeters:new-scan-reset'))
               }}
-              className="btn-primary whitespace-nowrap !px-3 sm:!px-5"
+              className="btn-amber h-11 lg:h-12 px-4 sm:px-6 rounded-[8px] text-[16px] lg:text-[17px] whitespace-nowrap"
               aria-label="New Scan"
             >
               <span>New Scan</span>
