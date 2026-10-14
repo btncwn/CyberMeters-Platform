@@ -280,9 +280,9 @@ const EXPECTED = Object.freeze({
   // (counted with the SQL predicates above), so it leaves this projection set.
   // The asset-alert delivery reads shift source positions only.
   // TLS report projection adds route source lines; the 22 SQL reads are unchanged.
-  // Hosting networks on asset rows move two attack-surface.js scan reads by 16
-  // lines (1202/1215 -> 1218/1231); the 22 SQL reads are unchanged.
-  sql_reads: { projection_occurrences: 22, fingerprint: "4899d46570d7e85dd34108472030835110f89959ab54edf955ea8b459f972a08" },
+  // Hosting networks on asset rows move two attack-surface.js scan reads by 19
+  // lines (1202/1215 -> 1221/1234); the 22 SQL reads are unchanged.
+  sql_reads: { projection_occurrences: 22, fingerprint: "1ee3456957adbbeb934e1d6f3a4072a5f6c002a3bb150e4ef46d2935aea20284" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

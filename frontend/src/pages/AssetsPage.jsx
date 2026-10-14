@@ -296,7 +296,11 @@ function HostingSummary({ summary }) {
           {item.label} <span className="font-semibold">{item.count}</span>
         </span>
       ))}
-      <span className="w-full text-[12px] text-gray-400">From the address ranges each provider publishes. A match does not show whose account runs the server.</span>
+      <span className="w-full text-[12px] text-gray-400">
+        Assets still observed, matched against the address ranges each provider publishes
+        {summary.checked_providers?.length ? ` (${summary.checked_providers.join(', ')})` : ''}.
+        A match does not show whose account runs the server.
+      </span>
     </div>
   )
 }

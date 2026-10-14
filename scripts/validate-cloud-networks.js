@@ -173,7 +173,9 @@ await test("a missing, truncated or altered list attributes nothing", async () =
 await test("an asset's stored addresses are described honestly, per kind of network", async () => {
   const lookup = createNetworkLookup(listOf(fixtureEntries()));
   const d = (v) => describeHostingNetwork(v, { lookup });
-  for (const none of [null, "", "[]", "not json", '["nope"]']) assert.equal((await d(none)).status, "no_address", String(none));
+  for (const none of [null, "", "[]"]) assert.equal((await d(none)).status, "no_address", String(none));
+  for (const bad of ["not json", '["nope"]', '["fe80::1%eth0"]']) assert.equal((await d(bad)).status, "unreadable", bad);
+  assert.equal((await d('["::ffff:104.16.1.1"]')).providers[0], "cloudflare", "IPv4-mapped IPv6 is the IPv4 address");
   const cloud = await d('["52.94.5.10","192.0.2.1"]');
   assert.equal(cloud.status, "attributed");
   assert.deepEqual(cloud.networks.map((n) => [n.address, n.provider, n.kind, n.region, n.service]), [["52.94.5.10", "aws", "cloud", "us-east-1", "EC2"]]);
@@ -185,10 +187,22 @@ await test("an asset's stored addresses are described honestly, per kind of netw
   const mixed = await d(["20.26.0.1", "104.16.0.1"]);
   assert.deepEqual(mixed.providers, ["azure", "cloudflare"]);
   assert.deepEqual(new Set(mixed.limitations), new Set([HOSTING_LIMITATIONS.cloud, HOSTING_LIMITATIONS.edge]));
-  assert.equal((await d('["192.0.2.1","198.51.100.1"]')).status, "unattributed");
+  const other = await d('["192.0.2.1","198.51.100.1"]');
+  assert.equal(other.status, "unattributed");
+  assert.deepEqual(other.limitations, [HOSTING_LIMITATIONS.unattributed]);
+  for (const name of ["Amazon Web Services", "Microsoft Azure", "Google Cloud", "Cloudflare"]) assert.ok(HOSTING_LIMITATIONS.unattributed.includes(name), name);
+  assert.match(HOSTING_LIMITATIONS.unattributed, /may still be hosted by another provider/);
+  const umbrella = await d('["52.94.6.1"]');
+  assert.ok(umbrella.limitations.includes(HOSTING_LIMITATIONS.unnamed_service), "an Amazon range with no named service says so");
   assert.deepEqual(addressesFromStored('["1.1.1.1","1.1.1.1"," 2.2.2.2 "]'), ["1.1.1.1", "2.2.2.2"]);
   const many = Array.from({ length: 40 }, (_, i) => `52.94.5.${i}`);
-  assert.equal((await d(many)).networks.length, 16, "bounded per asset");
+  const bounded = await d(many);
+  assert.equal(bounded.networks.length, 16, "bounded per asset");
+  assert.deepEqual([bounded.addresses_checked, bounded.addresses_total], [16, 40]);
+  assert.ok(bounded.limitations.includes(HOSTING_LIMITATIONS.partial), "says only some addresses were checked");
+  const hidden = await d([...Array.from({ length: 16 }, (_, i) => `192.0.2.${i}`), "104.16.0.1"]);
+  assert.equal(hidden.status, "unattributed");
+  assert.ok(hidden.limitations.includes(HOSTING_LIMITATIONS.partial), "an unchecked 17th address is not claimed");
   const summary = summariseHostingNetworks([cloud, edge, mixed, await d(null), await d('["192.0.2.1"]'), { status: "unavailable" }]);
   assert.equal(summary.assets, 6);
   assert.deepEqual(summary.by_provider.map((p) => [p.provider, p.count]), [["aws", 2], ["cloudflare", 2], ["azure", 1]]);
@@ -212,6 +226,8 @@ await test("the asset list and detail carry the network, per workspace, with no 
   asset("a2", "mail.alpha-net.co.uk", '["192.0.2.10"]');
   asset("a3", "old.alpha-net.co.uk", null);
   asset("a4", "legacy.alpha-net.co.uk", "104.16.0.1, 192.0.2.1");
+  asset("a5", "gone.alpha-net.co.uk", '["104.16.9.9"]');
+  db.prepare("UPDATE workspace_assets SET status = 'inactive' WHERE id = 'a5'").run();
   const before = outbound;
   const list = await call("GET", "/api/workspaces/wsA/assets", "tok-A");
   assert.equal(list.status, 200);
@@ -223,7 +239,8 @@ await test("the asset list and detail carry the network, per workspace, with no 
   assert.equal(byHost["legacy.alpha-net.co.uk"].status, "attributed");
   assert.equal(byHost["www.alpha-net.co.uk"].list_version, CLOUD_NETWORK_LIST.version);
   const s = list.data.hosting_summary;
-  assert.deepEqual([s.assets, s.other_networks, s.no_address, s.unavailable], [4, 1, 1, 0]);
+  assert.deepEqual([s.assets, s.other_networks, s.no_address, s.unavailable], [4, 1, 1, 0], "the removed host is not counted");
+  assert.equal(byHost["gone.alpha-net.co.uk"].status, "attributed", "its own row still shows its last addresses");
   assert.deepEqual(s.by_provider.map((p) => [p.provider, p.count]), [["cloudflare", 2]]);
   const detail = await call("GET", "/api/workspaces/wsA/assets/a1", "tok-A");
   assert.equal(detail.status, 200);

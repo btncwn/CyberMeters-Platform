@@ -774,7 +774,10 @@ export async function attackSurfaceRoutes(rctx) {
             workspace_id: wsId,
             count: result.rows.length,
             assets: result.rows,
-            hosting_summary: summariseHostingNetworks(result.rows.map((row) => row.hosting_network)),
+            // Only assets still observed: a removed host keeps its last addresses.
+            hosting_summary: summariseHostingNetworks(result.rows
+              .filter((row) => row.status === "active" && row.lifecycle_state !== "confirmed_removed")
+              .map((row) => row.hosting_network)),
             attack_surface_assurance: assurance.domains,
             attack_surface_assurance_coverage: assurance.coverage,
           });

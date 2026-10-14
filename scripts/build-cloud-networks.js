@@ -7,9 +7,10 @@
 //
 // Without --from it downloads each list from the provider's own published
 // address (SOURCES below). With --from it reads the same files from a folder
-// (names in SOURCES[].file), so a build can be repeated byte for byte. The
-// output records each input's address, retrieval date and SHA-256, the entry
-// count and the SHA-256 of the entries.
+// (names in SOURCES[].file), so the same inputs give the same entries (count
+// and SHA-256). The output records each input's address, retrieval date and
+// SHA-256 — with --from, the date is the build date and the weekly list is
+// recorded by its download page.
 //
 // Updating: re-run with a new version, review the count change, update the
 // pinned values in scripts/validate-cloud-networks.js, and commit both. The

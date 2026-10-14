@@ -118,14 +118,14 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | POST | `/^\/api\/workspaces\/([^/` | 592 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `/^\/api\/workspaces\/([^/` | 617 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `/^\/api\/workspaces\/([^/` | 739 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 988 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 1096 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 1459 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 1752 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 1857 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 1989 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 2134 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 2236 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 991 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 1099 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 1462 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 1755 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 1860 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 1992 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 2137 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 2239 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/auth.js`
 

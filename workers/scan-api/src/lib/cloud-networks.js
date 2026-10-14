@@ -22,10 +22,21 @@ import {
 
 export { canonicalCidr, networkKind, NETWORK_PROVIDERS, parseCidr, parseIpAddress };
 
+export const CHECKED_PROVIDERS = Object.freeze(Object.values(NETWORK_PROVIDERS).map((p) => p.label));
+
 export const HOSTING_LIMITATIONS = Object.freeze({
   cloud: "The address is in a range the provider publishes for its cloud. It does not show whose account runs the server.",
   edge: "The address belongs to an edge network in front of the site. The server behind it is not visible from outside.",
+  unnamed_service: "Amazon publishes this range without naming a service; Amazon may use it itself rather than for a customer's cloud service.",
+  unattributed: `Not in the published ranges of the providers checked (${CHECKED_PROVIDERS.join(", ")}). It may still be hosted by another provider.`,
+  partial: "Only some of the recorded addresses were checked.",
 });
+
+// An IPv4-mapped IPv6 address (::ffff:a.b.c.d) is the IPv4 address.
+function unmapIpv4(address) {
+  const m = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(String(address).trim());
+  return m ? m[1] : address;
+}
 
 async function sha256Hex(text) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -127,14 +138,25 @@ const MAX_ADDRESSES = 16;
 
 /**
  * Describe the provider networks behind a set of observed addresses.
- *   status: "no_address" | "unavailable" | "attributed" | "unattributed"
- * "unattributed" means every address was checked and none is in a published
- * provider range — it is not a claim about where the server is.
+ *   status: "no_address" | "unreadable" | "unavailable" | "attributed" | "unattributed"
+ * "unattributed" means no checked address is in a published range of the
+ * providers checked — it is not a claim about where the server is.
+ * "unreadable" means addresses are stored but none of them parses.
  */
 export async function describeHostingNetwork(addresses, { lookup = bundledLookup } = {}) {
-  const list = addressesFromStored(addresses).filter((a) => parseIpAddress(a)).slice(0, MAX_ADDRESSES);
-  const base = { list_version: lookup.version ?? null, networks: [], providers: [], limitations: [] };
-  if (!list.length) return { status: "no_address", ...base };
+  const stored = addressesFromStored(addresses).map(unmapIpv4);
+  const readable = [...new Set(stored.filter((a) => parseIpAddress(a)))];
+  const list = readable.slice(0, MAX_ADDRESSES);
+  const base = {
+    list_version: lookup.version ?? null,
+    checked_providers: CHECKED_PROVIDERS,
+    addresses_checked: list.length,
+    addresses_total: readable.length,
+    networks: [], providers: [], limitations: [],
+  };
+  if (!stored.length) return { status: "no_address", ...base };
+  if (!list.length) return { status: "unreadable", ...base };
+  const partial = readable.length > list.length ? [HOSTING_LIMITATIONS.partial] : [];
   const networks = [];
   for (const address of list) {
     const hit = await lookup(address);
@@ -151,21 +173,28 @@ export async function describeHostingNetwork(addresses, { lookup = bundledLookup
       range: hit.cidr,
     });
   }
-  if (!networks.length) return { status: "unattributed", ...base };
+  if (!networks.length) {
+    return { status: "unattributed", ...base, limitations: [HOSTING_LIMITATIONS.unattributed, ...partial] };
+  }
   const providers = [...new Set(networks.map((n) => n.provider))];
   // An address can be both (e.g. a provider's edge in front of its own cloud);
   // each kind present carries its own limitation.
   const kinds = [...new Set(networks.map((n) => n.kind))];
+  const unnamed = networks.some((n) => n.provider === "aws" && !n.service) ? [HOSTING_LIMITATIONS.unnamed_service] : [];
   return {
     status: "attributed",
     ...base,
     networks,
     providers,
-    limitations: kinds.map((k) => HOSTING_LIMITATIONS[k]),
+    limitations: [...kinds.map((k) => HOSTING_LIMITATIONS[k]), ...unnamed, ...partial],
   };
 }
 
-/** Count assets by provider network for a list of describeHostingNetwork results. */
+/**
+ * Count assets by provider network for a list of describeHostingNetwork
+ * results. Callers pass only assets that are still observed: a removed host
+ * keeps its last addresses, which say nothing about where it answers now.
+ */
 export function summariseHostingNetworks(descriptions) {
   const by_provider = {};
   let unattributed = 0, no_address = 0, unavailable = 0;
@@ -181,6 +210,7 @@ export function summariseHostingNetworks(descriptions) {
       .map(([provider, count]) => ({ provider, provider_label: NETWORK_PROVIDERS[provider].label, kind: NETWORK_PROVIDERS[provider].kind, count }))
       .sort((a, b) => b.count - a.count || a.provider.localeCompare(b.provider)),
     other_networks: unattributed,
+    checked_providers: CHECKED_PROVIDERS,
     no_address,
     unavailable,
     list_version: descriptions[0]?.list_version ?? null,
