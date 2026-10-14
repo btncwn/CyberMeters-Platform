@@ -776,7 +776,10 @@ int main(int argc,char **argv) {
         if(!strcmp(opt.control,"heartbleed")) {
             if(start_tls(ctx,NULL,&ssl,&wire)) {
                 finished=1;
-                assess_heartbleed(ssl,wire);
+                if(!(ssl->tlsext_heartbeat&SSL_TLSEXT_HB_ENABLED) ||
+                   (ssl->tlsext_heartbeat&SSL_TLSEXT_HB_DONT_SEND_REQUESTS)) {
+                    state="unexecutable";reason="heartbeat_unavailable";
+                } else assess_heartbleed(ssl,wire);
             } else {
                 active_status="unknown";active_profile="heartbleed-minimal-v1";
                 active_planned=3;active_completed=0;

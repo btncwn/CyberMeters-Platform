@@ -574,6 +574,15 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(result['telemetry']['connections'], 1)
         self.assertEqual(result['telemetry']['bytes_sent'], 0)
 
+    def test_heartbleed_without_negotiated_extension_stays_unexecutable(self):
+        with server(self.modern, self.cert, self.key, 'tls1_2') as port:
+            result = self.assess('tls1_2', port, control='heartbleed', family='active_legacy')
+        self.assertEqual(result['state'], 'unexecutable', result)
+        self.assertEqual(result['reason'], 'heartbeat_unavailable')
+        self.assertIsNone(result['vulnerability'])
+        self.assertTrue(result['authenticated_finished'])
+        self.assertEqual(result['telemetry']['connections'], 1)
+
     def test_heartbleed_one_byte_overread_is_confirmed_in_loopback_lab(self):
         # Change one bounds check in a disposable copy of the pinned 1.0.2u
         # object. No vulnerable library, fixture or key enters the runtime.
