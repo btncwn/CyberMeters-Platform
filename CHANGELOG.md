@@ -7,6 +7,56 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.10.14-1 — supported TLS security assessment — 14 October 2026
+
+Work Order 2 deliveries 2A/2B are available to customers. Authorized scans
+measure endpoint-specific protocol and cipher acceptance, certificate/trust and
+stapled OCSP evidence, key exchange, fallback, renegotiation, resumption,
+authorized STARTTLS and a dedicated TLS compression check. The scan report
+shows the recorded checks, uncertain results and checks outside its budget;
+partial coverage keeps Certificates & Trust evidence-insufficient. Heartbleed,
+ROBOT and CCS active tests remain unavailable and explicitly `unexecutable`
+until delivery 2C passes its separate fixtures and review. PRs #602 and #604
+merged after 16/16 exact-head checks and independent R1 review; customer
+presentation corrections #605, #607, #608 and #609 passed exact-head CI and
+merged. The canary exposed a separate
+score-honesty defect: omitted and inconclusive supported checks still showed
+an unqualified 100/100 Excellent. The correction retains the measured numeric
+score as provisional, withholds its final rating, and excludes it from
+complete-scan portfolio averages until coverage is sufficient. PR #608 carries
+that same authority into the signed-in dashboard's headline, trend and recent
+scan rows. PR #609 makes eight-domain coverage use the newest provisional
+scan's evidence instead of an older complete scan. In the signed-in company
+workspace, Certificates & Trust changed from an incorrect `Healthy` to
+`Evidence insufficient` while the score stayed provisional. Cloudflare Pages
+production deployment `e631cf15-5053-4bd0-b968-ab6ed6a8bede` serves
+`main @ f6e039a7`; its previous deployment after #608 was
+`0b1c4d9c-8038-4fad-a3bf-f4ec9c430c92`.
+
+Before additive D1 migrations 119/120, a Time Travel bookmark and private SQL
+export were captured. The migrations and four new tables were verified. Email
+Worker `9206e119-3880-4246-9bc1-277ea28a8686` replaced
+`079c8615-d4c0-4c39-84cc-02bbd63b5f94` after the shared-code closure changed; private probe
+`97f0d3dc-99ae-48bb-908a-e1d7483fb85d` replaced
+`108b7685-00f4-45d8-8f2f-d00090692793`. API
+`04dd67fe-dcc0-4528-9309-fdb723cf9dc1` runs
+`2026.10.14-tls-quality.70ac5c3e01cb` with the supported profile on, replacing
+`e79e3e4e-e54a-496f-88eb-70c7e43f3eac` after #609; that previous API
+version is the immediate route rollback target. Earlier flag-on API
+`e4806fca-c3b0-406a-bfca-ab2ee975669a` remains in deployment history. API
+`d9950558-b236-45ad-be6c-bcbe9c4d4d9e` is the immediate feature-off
+rollback target. API health/readiness and anonymous 401 passed.
+
+One authorized `cybermeters.com` scan
+`scan_9ef6a971-8270-435f-b361-5d64d0f26937` completed in production.
+Four endpoints showed TLS 1.2 compression disabled; legacy compression checks
+were uncertain where handshakes failed. The live report shows partial coverage, a provisional 100/100 without a final band, 395
+uncertain outcomes and 1,176 checks outside the scan budget. The
+[acceptance ledger](docs/WORK-ORDER-2-TLS-ACCEPTANCE.md) records collector
+cost, Cloudflare container billing-window units and remaining 2C/cost limits.
+This company-domain canary does not certify every customer domain or replace a
+live rollback drill.
+
 ## RECORDED AFTER THE FACT — baseline reconciliation — 13 October 2026
 
 Before the shared-content release, read-only Cloudflare inspection found API
