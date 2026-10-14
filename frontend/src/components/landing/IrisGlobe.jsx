@@ -60,16 +60,30 @@ function context(canvas, cssSize, maxDpr) {
 
 const polar = (c, r, a) => [c + Math.cos(a) * r, c + Math.sin(a) * r]
 
+// Share of the eye's radius the globe fills. A larger share gives a bigger
+// world in the same eye; the pupil and its tick ring grow with it.
+export const GLOBE = 0.29
+export const HERO_GLOBE_MAX = 0.4
+
+// The desktop hero has more room beside its heading as the screen widens. The
+// world keeps the standard size up to 1200px and grows to its largest by
+// 1300px, staying clear of the heading at every width in between.
+export function heroGlobe(width) {
+  const t = Math.min(1, Math.max(0, (width - 1200) / 100))
+  return Math.round((GLOBE + t * (HERO_GLOBE_MAX - GLOBE)) * 100) / 100
+}
+
 // The iris: a deep blue disc fading outwards, with a fine tick ring on the
 // pupil edge.
-export function paintIris(canvas, size) {
+export function paintIris(canvas, size, globe = GLOBE) {
   const ctx = context(canvas, size, 1.5)
   if (!ctx) return false
   const c = size / 2
   const R = size / 2
+  const k = globe / GLOBE
 
   // A deeper iris disc so the eye reads as light on a lighter page.
-  const disc = ctx.createRadialGradient(c, c, R * 0.33, c, c, R * 0.97)
+  const disc = ctx.createRadialGradient(c, c, R * 0.33 * k, c, c, R * 0.97)
   disc.addColorStop(0, 'rgba(6,22,78,0.62)')
   disc.addColorStop(0.45, 'rgba(10,34,104,0.38)')
   disc.addColorStop(0.8, 'rgba(14,44,124,0.14)')
@@ -85,18 +99,18 @@ export function paintIris(canvas, size) {
   ctx.lineWidth = 1
   for (let i = 0; i < 180; i++) {
     const a = (i / 180) * TAU
-    const [x0, y0] = polar(c, R * 0.338, a)
-    const [x1, y1] = polar(c, R * (i % 5 === 0 ? 0.354 : 0.347), a)
+    const [x0, y0] = polar(c, R * 0.338 * k, a)
+    const [x1, y1] = polar(c, R * (i % 5 === 0 ? 0.354 : 0.347) * k, a)
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
   }
 
   ctx.globalCompositeOperation = 'source-over'
-  const pupil = ctx.createRadialGradient(c, c, 0, c, c, R * 0.34)
+  const pupil = ctx.createRadialGradient(c, c, 0, c, c, R * 0.34 * k)
   pupil.addColorStop(0, '#0C1E4C')
   pupil.addColorStop(0.85, '#091840')
   pupil.addColorStop(1, '#0A1B46')
   ctx.fillStyle = pupil
-  ctx.beginPath(); ctx.arc(c, c, R * 0.334, 0, TAU); ctx.fill()
+  ctx.beginPath(); ctx.arc(c, c, R * 0.334 * k, 0, TAU); ctx.fill()
   return true
 }
 
@@ -321,7 +335,7 @@ function drawGlobe(ctx, canvas, box, R, spin, tilt, active, now, fx, scene) {
   return placed
 }
 
-export default function IrisGlobe({ size, labels = true, preferRight = false, avoidRef = null, className = '', style }) {
+export default function IrisGlobe({ size, globe = GLOBE, labels = true, preferRight = false, avoidRef = null, className = '', style }) {
   const rootRef = useRef(null)
   const shakeRef = useRef(null)
   const irisRef = useRef(null)
@@ -331,14 +345,14 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
   const labelRefs = useRef([])
 
   const globeBox = Math.round(size * 0.9)
-  const globeR = size * 0.5 * 0.29
+  const globeR = size * 0.5 * globe
 
   useEffect(() => {
     const iris = irisRef.current
     let cancelled = false
     const paint = () => {
       if (cancelled || !iris) return
-      if (paintIris(iris, size)) iris.dataset.ready = 'true'
+      if (paintIris(iris, size, globe)) iris.dataset.ready = 'true'
     }
     // Let the first paint of the page happen before the iris is drawn.
     const id = window.requestIdleCallback ? window.requestIdleCallback(paint, { timeout: 400 }) : window.setTimeout(paint, 60)
@@ -347,7 +361,7 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
       if (window.cancelIdleCallback) window.cancelIdleCallback(id)
       window.clearTimeout(id)
     }
-  }, [size])
+  }, [size, globe])
 
   useEffect(() => {
     const canvas = globeRef.current

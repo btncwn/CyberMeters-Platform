@@ -3,7 +3,7 @@ import { render, screen, within, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import PublicLandingPage from '../PublicLandingPage'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
-import IrisGlobe, { EXAMPLE_FINDINGS, paintIris } from '../../components/landing/IrisGlobe'
+import IrisGlobe, { EXAMPLE_FINDINGS, GLOBE, HERO_GLOBE_MAX, heroGlobe, paintIris } from '../../components/landing/IrisGlobe'
 
 function renderLanding() {
   return render(<MemoryRouter><PublicLandingPage /></MemoryRouter>)
@@ -165,5 +165,17 @@ describe('IrisGlobe illustration', () => {
 
   it('draws nothing when the browser has no 2D canvas', () => {
     expect(paintIris(document.createElement('canvas'), 400)).toBe(false)
+    expect(paintIris(document.createElement('canvas'), 1000, HERO_GLOBE_MAX)).toBe(false)
+  })
+
+  it('gives wide screens a bigger world and keeps the standard size up to 1200px', () => {
+    expect(heroGlobe(800)).toBe(GLOBE)
+    expect(heroGlobe(1024)).toBe(GLOBE)
+    expect(heroGlobe(1200)).toBe(GLOBE)
+    const mid = heroGlobe(1250)
+    expect(mid).toBeGreaterThan(GLOBE)
+    expect(mid).toBeLessThan(HERO_GLOBE_MAX)
+    expect(heroGlobe(1300)).toBe(HERO_GLOBE_MAX)
+    expect(heroGlobe(2560)).toBe(HERO_GLOBE_MAX)
   })
 })
