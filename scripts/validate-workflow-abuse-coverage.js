@@ -577,6 +577,7 @@ async function main() {
     const accountRows = actionRows(db, "login_account", windowStart);
     const loginRows = actionRows(db, "login", windowStart);
     const response = responseObservation(responses);
+    const deniedResponse = responses.find((item) => item.status === 429);
     const observation = {
       ...response,
       login_account_count: accountRow?.request_count ?? null,
@@ -585,10 +586,12 @@ async function main() {
       login_row_counts: loginRows.map((row) => row.request_count),
       deferred_reads: barrier.deferredReadCount(),
     };
-    recordF4Pr2Fixture("X2", "distributed account concurrency allows exactly 20 before one scoped 429", response.allowed === 20 &&
+    // Promise.all preserves input order, not the order in which concurrent D1
+    // reservations complete. The account counter and response totals prove the
+    // limit without assuming which request receives the scoped denial.
+    recordF4Pr2Fixture("X2", "distributed account concurrency allows exactly 20 and denies one", response.allowed === 20 &&
       response.unauthorized === 20 && response.denied429 === 1 &&
-      responses.slice(0, 20).every((item) => item.status === 401) &&
-      responses[20]?.status === 429 && responses[20]?.data?.action !== "global_write" &&
+      deniedResponse?.data?.action !== "global_write" &&
       accountRow?.scope === "user" && accountRow?.scope_id === accountScopeId &&
       accountRow?.action === "login_account" && accountRow?.window_start === windowStart &&
       accountRow?.window_seconds === 900 && accountRow?.request_count === 21 &&
