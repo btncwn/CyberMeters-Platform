@@ -43,18 +43,6 @@ const ROUTES = [
   ['Mexico City', 'Los Angeles'], ['Nairobi', 'Dubai'], ['Seoul', 'Shanghai'], ['São Paulo', 'Lagos'],
 ]
 
-// Small deterministic generator so the iris looks the same on every load.
-function mulberry32(seed) {
-  let a = seed >>> 0
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
 const reducedMotion = () => Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
 // Phones and tablets: a touch screen is the main input and nothing hovers.
 const touchScreen = () => Boolean(window.matchMedia?.('(hover: none) and (pointer: coarse)').matches)
@@ -72,16 +60,15 @@ function context(canvas, cssSize, maxDpr) {
 
 const polar = (c, r, a) => [c + Math.cos(a) * r, c + Math.sin(a) * r]
 
-// Iris fibres radiate from the pupil edge, sweep a little, and fade outwards.
-// Additive blending makes overlapping fibres glow.
+// The iris: a deep blue disc fading outwards, with a fine tick ring on the
+// pupil edge.
 export function paintIris(canvas, size) {
   const ctx = context(canvas, size, 1.5)
   if (!ctx) return false
   const c = size / 2
   const R = size / 2
-  const rnd = mulberry32(20261011)
 
-  // A deeper iris disc under the fibres so they read as light on a lighter page.
+  // A deeper iris disc so the eye reads as light on a lighter page.
   const disc = ctx.createRadialGradient(c, c, R * 0.33, c, c, R * 0.97)
   disc.addColorStop(0, 'rgba(6,22,78,0.62)')
   disc.addColorStop(0.45, 'rgba(10,34,104,0.38)')
@@ -92,37 +79,6 @@ export function paintIris(canvas, size) {
 
   ctx.globalCompositeOperation = 'lighter'
   ctx.lineCap = 'round'
-  const fibres = size > 700 ? 3600 : 2200
-  for (let i = 0; i < fibres; i++) {
-    const a = rnd() * TAU
-    const r0 = R * (0.355 + rnd() * 0.05)
-    const reach = Math.pow(rnd(), 0.6)
-    const r1 = R * (0.47 + reach * 0.5)
-    const sweep = (rnd() - 0.5) * 0.55
-    const mid = 0.45 + rnd() * 0.15
-    const [x0, y0] = polar(c, r0, a)
-    const [xm, ym] = polar(c, r0 + (r1 - r0) * mid, a + sweep * 0.45 + (rnd() - 0.5) * 0.04)
-    const [x1, y1] = polar(c, r1, a + sweep)
-    const pick = rnd()
-    const hue = pick < 0.62 ? 190 + rnd() * 12 : pick < 0.94 ? 208 + rnd() * 14 : 250 + rnd() * 16
-    const light = 48 + rnd() * 24
-    const alpha = (0.07 + rnd() * 0.17) * (1 - reach * 0.55)
-    ctx.strokeStyle = `hsla(${hue.toFixed(0)},100%,${light.toFixed(0)}%,${alpha.toFixed(3)})`
-    ctx.lineWidth = 0.5 + rnd() * 1.2
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(xm, ym, x1, y1); ctx.stroke()
-  }
-
-  // Bright collarette just outside the pupil.
-  for (let i = 0; i < fibres * 0.4; i++) {
-    const a = rnd() * TAU
-    const r0 = R * (0.36 + rnd() * 0.01)
-    const r1 = r0 + R * (0.03 + rnd() * 0.1)
-    const [x0, y0] = polar(c, r0, a)
-    const [x1, y1] = polar(c, r1, a + (rnd() - 0.5) * 0.06)
-    ctx.strokeStyle = `hsla(${(190 + rnd() * 20).toFixed(0)},100%,${(72 + rnd() * 20).toFixed(0)}%,${(0.08 + rnd() * 0.2).toFixed(3)})`
-    ctx.lineWidth = 0.6 + rnd() * 0.9
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
-  }
 
   // Fine tick ring on the pupil edge.
   ctx.strokeStyle = 'rgba(150,225,255,0.45)'
@@ -384,7 +340,7 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
       if (cancelled || !iris) return
       if (paintIris(iris, size)) iris.dataset.ready = 'true'
     }
-    // Let the first paint of the page happen before the fibres are drawn.
+    // Let the first paint of the page happen before the iris is drawn.
     const id = window.requestIdleCallback ? window.requestIdleCallback(paint, { timeout: 400 }) : window.setTimeout(paint, 60)
     return () => {
       cancelled = true
