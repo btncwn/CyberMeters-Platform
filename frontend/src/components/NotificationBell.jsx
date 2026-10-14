@@ -209,7 +209,7 @@ export default function NotificationBell() {
             <div className="flex items-center gap-2">
               <span className="font-semibold text-gray-900 text-sm">Notifications</span>
               {hasUnread && (
-                <span className="px-1.5 py-0.5 rounded-full text-[13px] font-bold bg-red-500 text-white leading-none">
+                <span className="px-1.5 py-0.5 rounded-full text-xs font-bold bg-red-500 text-white leading-none">
                   {unreadCount > 99 ? '99+' : unreadCount}
                 </span>
               )}
@@ -316,7 +316,7 @@ export default function NotificationBell() {
                           </p>
                           <div className="flex items-center gap-1 flex-shrink-0">
                             {link && (
-                              <span className="text-[13px] text-brand-500 font-medium">→</span>
+                              <span className="text-xs text-brand-500 font-medium">→</span>
                             )}
                             {isUnread && (
                               <button
@@ -334,12 +334,12 @@ export default function NotificationBell() {
                           <p className="text-xs text-gray-400 mt-0.5 leading-relaxed line-clamp-2">{n.message}</p>
                         )}
                         <div className="flex items-center gap-2 mt-1.5">
-                          <span className={`inline-flex items-center gap-1 text-[13px] font-semibold uppercase tracking-wider ${cfg.text}`}>
+                          <span className={`inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider ${cfg.text}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
                             {n.severity}
                           </span>
-                          <span className="text-[13px] text-gray-300">·</span>
-                          <span className="text-[13px] text-gray-400">{fmtRelative(n.created_at)}</span>
+                          <span className="text-xs text-gray-300">·</span>
+                          <span className="text-xs text-gray-400">{fmtRelative(n.created_at)}</span>
                         </div>
                       </div>
                         </li>
@@ -353,7 +353,7 @@ export default function NotificationBell() {
 
           {/* Footer */}
           <div className="border-t border-gray-100 px-4 py-2.5 flex items-center justify-between">
-            <p className="text-[13px] text-gray-300">
+            <p className="text-xs text-gray-300">
               {notifications.length > 0
                 ? `${notifications.length} shown · refreshes every 60s`
                 : 'Auto-refreshes every 60s'}
@@ -361,7 +361,7 @@ export default function NotificationBell() {
             <Link
               to="/notifications"
               onClick={() => setOpen(false)}
-              className="text-[13px] font-medium text-brand-600 hover:text-brand-700 transition-colors"
+              className="text-xs font-medium text-brand-600 hover:text-brand-700 transition-colors"
             >
               View all →
             </Link>

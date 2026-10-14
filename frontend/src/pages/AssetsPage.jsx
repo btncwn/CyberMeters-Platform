@@ -279,7 +279,7 @@ function HostingNetworkDetail({ hostingNetwork }) {
         </ul>
       )}
       {(hostingNetwork.limitations || []).map(text => (
-        <p key={text} className="text-[13px] text-gray-400 mt-1">{text}</p>
+        <p key={text} className="text-xs text-gray-400 mt-1">{text}</p>
       ))}
     </div>
   )
@@ -296,7 +296,7 @@ function HostingSummary({ summary }) {
           {item.label} <span className="font-semibold">{item.count}</span>
         </span>
       ))}
-      <span className="w-full text-[13px] text-gray-400">
+      <span className="w-full text-xs text-gray-400">
         Assets still observed, matched against the address ranges each provider publishes
         {summary.checked_providers?.length ? ` (${summary.checked_providers.join(', ')})` : ''}.
         A match does not show whose account runs the server.
@@ -337,7 +337,7 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
-            aria-label="Close"
+            aria-label="Close asset detail"
           >
             <X className="w-4 h-4" />
           </button>
@@ -442,8 +442,8 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
                           {claimDisplay.description && (
                             <div className="text-xs text-gray-400 mt-0.5">{claimDisplay.description}</div>
                           )}
-                          {claimDisplay.supportLabel && <div className="text-[13px] text-gray-400 mt-1">{claimDisplay.supportLabel}</div>}
-                          <div className="text-[13px] text-gray-400 mt-1">{fmtDateTime(ev.created_at)}</div>
+                          {claimDisplay.supportLabel && <div className="text-xs text-gray-400 mt-1">{claimDisplay.supportLabel}</div>}
+                          <div className="text-xs text-gray-400 mt-1">{fmtDateTime(ev.created_at)}</div>
                         </div>
                       </div>
                     )})}
@@ -503,7 +503,7 @@ function Timeline({ rows, projection }) {
                 return (
                   <td key={c.key} className="text-center">
                     {count.value == null
-                      ? <span className="text-gray-400 text-[13px]">{count.label}</span>
+                      ? <span className="text-gray-400 text-xs">{count.label}</span>
                       : count.value > 0
                       ? (
                         <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-50 text-brand-700 text-xs font-semibold">
@@ -743,7 +743,7 @@ export default function AssetsPage() {
                         <td>
                           <span className="mono text-xs font-medium text-gray-800">{asset.hostname}</span>
                           {asset.wildcard_dns === 1 && (
-                            <span className="ml-2 text-[13px] text-amber-500 font-semibold">WILDCARD</span>
+                            <span className="ml-2 text-xs text-amber-500 font-semibold">WILDCARD</span>
                           )}
                         </td>
                         <td><TypeBadge type={asset.asset_type} /></td>

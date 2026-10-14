@@ -64,7 +64,7 @@ function SecretModal({ secret, onClose }) {
               (hex HMAC-SHA256 of the raw request body, prefixed <code className="text-xs bg-gray-100 px-1 rounded">sha256=</code>).
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Close"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Close signing secret"><X className="w-5 h-5" /></button>
         </div>
         <div className="mt-4 flex items-center gap-2">
           <code className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 break-all">{secret}</code>

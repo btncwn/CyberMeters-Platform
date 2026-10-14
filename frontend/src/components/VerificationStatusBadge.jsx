@@ -37,7 +37,7 @@ export default function VerificationStatusBadge({ status, size = 'sm' }) {
     }
   })()
 
-  const textSize = size === 'md' ? 'text-xs' : 'text-[13px]'
+  const textSize = size === 'md' ? 'text-xs' : 'text-xs'
   const px       = size === 'md' ? 'px-2.5 py-1' : 'px-2 py-0.5'
 
   return (

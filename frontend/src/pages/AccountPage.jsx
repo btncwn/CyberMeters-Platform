@@ -164,7 +164,7 @@ function PlanLimitsCard({ planLimits }) {
       {plan === 'free' || plan === 'starter' ? (
         <div className="mt-4 pt-4 border-t border-gray-50">
           <p className="text-xs text-brand-600 font-medium">Upgrade for higher limits →</p>
-          <p className="text-[13px] text-gray-400 mt-0.5">Billing available in an upcoming release.</p>
+          <p className="text-xs text-gray-400 mt-0.5">Billing available in an upcoming release.</p>
         </div>
       ) : null}
     </div>
@@ -597,7 +597,7 @@ export default function AccountPage() {
                   <p className="text-xs text-brand-600 leading-relaxed">
                     Unlock unlimited domains, advanced reporting, and MSP portfolio features.
                   </p>
-                  <p className="text-[13px] text-brand-400 mt-2">Billing available in an upcoming release.</p>
+                  <p className="text-xs text-brand-400 mt-2">Billing available in an upcoming release.</p>
                 </div>
               </Section>
 
@@ -677,7 +677,7 @@ export default function AccountPage() {
                           {copiedSecret ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                         </button>
                       </div>
-                      <p className="text-[13px] text-gray-400 mt-1">Issuer: CyberMeters · Algorithm: SHA-1 · Digits: 6 · Period: 30s</p>
+                      <p className="text-xs text-gray-400 mt-1">Issuer: CyberMeters · Algorithm: SHA-1 · Digits: 6 · Period: 30s</p>
                     </div>
 
                     <div>
@@ -848,15 +848,15 @@ export default function AccountPage() {
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <p className="text-sm font-semibold text-gray-900 truncate">{token.name}</p>
-                              <p className="text-[13px] text-gray-400 mt-0.5">
+                              <p className="text-xs text-gray-400 mt-0.5">
                                 Created {token.created_at ? parseServerDate(token.created_at).toLocaleDateString() : 'unknown'}
                               </p>
-                              <p className="text-[13px] text-gray-400">
+                              <p className="text-xs text-gray-400">
                                 Last used {token.last_used_at ? parseServerDate(token.last_used_at).toLocaleDateString() : 'never'}
                               </p>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
-                              <span className={`text-[13px] font-semibold uppercase ${token.status === 'active' ? 'text-green-600' : 'text-gray-400'}`}>
+                              <span className={`text-xs font-semibold uppercase ${token.status === 'active' ? 'text-green-600' : 'text-gray-400'}`}>
                                 {token.status}
                               </span>
                               {token.status === 'active' && (

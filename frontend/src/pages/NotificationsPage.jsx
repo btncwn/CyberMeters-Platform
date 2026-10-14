@@ -170,15 +170,15 @@ function NotificationCard({ n, onMarkRead }) {
             )}
             <div className="flex flex-wrap items-center gap-2 mt-2">
               {/* Severity pill */}
-              <span className={`inline-flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${cfg.pill}`}>
+              <span className={`inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${cfg.pill}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
                 {cfg.label}
               </span>
               {/* Timestamp */}
-              <span className="text-[13px] text-gray-400">{fmtRelative(n.created_at)}</span>
+              <span className="text-xs text-gray-400">{fmtRelative(n.created_at)}</span>
               {/* Domain tag */}
               {domain && (
-                <span className="text-[13px] text-gray-400">· {domain}</span>
+                <span className="text-xs text-gray-400">· {domain}</span>
               )}
             </div>
           </div>
@@ -428,7 +428,7 @@ export default function NotificationsPage() {
                 >
                   {label}
                   {value === 'unread' && unreadCount > 0 && (
-                    <span className="ml-1 text-[13px] text-red-500 font-bold">
+                    <span className="ml-1 text-xs text-red-500 font-bold">
                       {unreadCount > 99 ? '99+' : unreadCount}
                     </span>
                   )}
@@ -445,7 +445,7 @@ export default function NotificationsPage() {
                   <button
                     key={value}
                     onClick={() => setSeverityFilter(value)}
-                    className={`px-2.5 py-1 text-[13px] font-semibold rounded-full transition-colors ${
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-full transition-colors ${
                       isActive
                         ? value === 'all'
                           ? 'bg-gray-900 text-white'
@@ -535,7 +535,7 @@ export default function NotificationsPage() {
         </div>
 
         {/* Footer note */}
-        <p className="text-[13px] text-gray-300 text-center">
+        <p className="text-xs text-gray-300 text-center">
           Notifications are workspace-scoped · auto-generated after each scan
         </p>
       </div>

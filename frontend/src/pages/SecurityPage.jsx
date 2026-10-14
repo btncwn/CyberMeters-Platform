@@ -205,7 +205,7 @@ function ActiveSessions() {
                     {shortUA(s.user_agent)}
                   </span>
                   {s.current && (
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[13px] font-semibold bg-brand-100 text-brand-700 uppercase tracking-wide">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-brand-100 text-brand-700 uppercase tracking-wide">
                       This session
                     </span>
                   )}

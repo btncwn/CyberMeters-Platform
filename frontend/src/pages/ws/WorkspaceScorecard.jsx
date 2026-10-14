@@ -40,7 +40,7 @@ function statusColors(status) {
 function StatusBadge({ status }) {
   const c = statusColors(status)
   return (
-    <span className={`text-[13px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${c.bg} ${c.text}`}>
+    <span className={`text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${c.bg} ${c.text}`}>
       {status ?? 'unknown'}
     </span>
   )

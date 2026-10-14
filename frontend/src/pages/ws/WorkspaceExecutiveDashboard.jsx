@@ -152,7 +152,7 @@ function SevBadge({ severity }) {
     info:     'bg-gray-100 text-gray-600',
   }[s] ?? 'bg-gray-100 text-gray-500'
   return (
-    <span className={`text-[13px] font-bold uppercase px-2 py-0.5 rounded-full ${cls}`}>
+    <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded-full ${cls}`}>
       {severity ?? '—'}
     </span>
   )
@@ -270,7 +270,7 @@ function KpiBar({ kpis }) {
         {items.map(({ label, value }) => (
           <div key={label} className="flex flex-col items-center py-4 px-3 text-center">
             <span className="text-xl font-bold text-gray-900">{value}</span>
-            <span className="text-[13px] text-gray-400 uppercase tracking-wide mt-0.5">{label}</span>
+            <span className="text-xs text-gray-400 uppercase tracking-wide mt-0.5">{label}</span>
           </div>
         ))}
       </div>

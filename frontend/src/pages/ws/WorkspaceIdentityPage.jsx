@@ -48,7 +48,7 @@ function IdentityAssetCard({ asset }) {
           </p>
           <p className="text-xs text-gray-400 capitalize mt-0.5">{cfg.label}</p>
         </div>
-        <span className={`text-[13px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${toneClass(claimMeta.tone)}`}>
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${toneClass(claimMeta.tone)}`}>
           {claimMeta.label}
         </span>
       </div>
@@ -59,7 +59,7 @@ function IdentityAssetCard({ asset }) {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-3 text-[13px] text-gray-400">
+      <div className="flex flex-wrap gap-3 text-xs text-gray-400">
         <span>Reachability: <span className="font-medium text-gray-600">{claim?.reachability?.status?.replace(/_/g, ' ') || 'not evaluated'}</span></span>
         <span>{confidenceDetailLabel(asset.confidence_detail)}</span>
         {claim?.reachability?.password_form_observed === true && <span>Password-field markup observed (sign-in behavior not tested)</span>}
@@ -75,7 +75,7 @@ function IdentityAssetCard({ asset }) {
         </p>
       )}
 
-      <div className="mt-3 pt-3 border-t border-gray-50 flex justify-between text-[13px] text-gray-400">
+      <div className="mt-3 pt-3 border-t border-gray-50 flex justify-between text-xs text-gray-400">
         <span>First seen: {asset.first_seen ? parseServerDate(asset.first_seen).toLocaleDateString() : '—'}</span>
         <span>Last seen: {asset.last_seen  ? parseServerDate(asset.last_seen).toLocaleDateString()  : '—'}</span>
       </div>

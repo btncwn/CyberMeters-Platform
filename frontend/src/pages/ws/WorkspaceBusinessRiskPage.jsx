@@ -315,7 +315,7 @@ export default function WorkspaceBusinessRiskPage() {
                     <Line type="monotone" dataKey="ASM" stroke="#94a3b8" strokeWidth={1.5} dot={false} name="ASM" strokeDasharray="4 2" />
                   </LineChart>
                 </ResponsiveContainer>
-                <p className="text-[13px] text-gray-400 mt-2 text-center">
+                <p className="text-xs text-gray-400 mt-2 text-center">
                   BRS (indigo) vs ASM technical score (gray dashed) — last {trendData.length} scans
                 </p>
               </div>

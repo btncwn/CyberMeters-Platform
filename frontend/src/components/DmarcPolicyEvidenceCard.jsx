@@ -22,7 +22,7 @@ const TONE = {
 function TagValue({ value }) {
   if (!value?.present) return null
   return (
-    <span className={`rounded-md border px-2 py-1 font-mono text-[13px] ${
+    <span className={`rounded-md border px-2 py-1 font-mono text-xs ${
       value.valid
         ? 'border-slate-200 bg-white text-slate-700'
         : 'border-amber-200 bg-amber-50 text-amber-800'
@@ -36,14 +36,14 @@ function EvidenceGrade({ grade }) {
   if (!grade?.grade) return null
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-      <p className="text-[13px] font-semibold text-slate-700">
+      <p className="text-xs font-semibold text-slate-700">
         Evidence Grade {grade.grade}
       </p>
-      <p className="mt-0.5 text-[13px] leading-relaxed text-slate-500">
+      <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
         {grade.basis || 'No evidence basis was recorded.'}
       </p>
       {grade.limits?.length > 0 && (
-        <p className="mt-1 text-[13px] leading-relaxed text-slate-500">
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">
           <span className="font-semibold text-slate-600">Limits:</span>{' '}
           {grade.limits.join(' ')}
         </p>
@@ -64,22 +64,22 @@ function TechnicalAppendix({ appendix }) {
         <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
           {(appendix.facts || []).map((fact) => (
             <div key={`${fact.label}:${fact.value}`} className="min-w-0">
-              <dt className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 {fact.label}
               </dt>
-              <dd className="break-all text-[13px] text-slate-600">{fact.value}</dd>
+              <dd className="break-all text-xs text-slate-600">{fact.value}</dd>
             </div>
           ))}
         </dl>
 
         {appendix.lookup_path?.length > 0 && (
           <div>
-            <p className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
               Ordered lookup evidence
             </p>
             <ol className="mt-1 space-y-1">
               {appendix.lookup_path.map((step, index) => (
-                <li key={`${step?.question?.name || 'lookup'}:${index}`} className="text-[13px] text-slate-600">
+                <li key={`${step?.question?.name || 'lookup'}:${index}`} className="text-xs text-slate-600">
                   {index + 1}. {step?.question?.type || 'DNS'}{' '}
                   <span className="font-mono">{step?.question?.name || 'name not recorded'}</span>
                   {' '}— {step?.outcome || 'outcome not recorded'}
@@ -92,12 +92,12 @@ function TechnicalAppendix({ appendix }) {
 
         {appendix.raw_records?.length > 0 && (
           <div>
-            <p className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
               Observed record data
             </p>
             <div className="mt-1 space-y-1">
               {appendix.raw_records.map((record, index) => (
-                <p key={index} className="break-all rounded bg-slate-50 px-2 py-1 font-mono text-[13px] text-slate-600">
+                <p key={index} className="break-all rounded bg-slate-50 px-2 py-1 font-mono text-xs text-slate-600">
                   {String(record?.raw ?? record?.value ?? record)}
                 </p>
               ))}
@@ -151,7 +151,7 @@ export default function DmarcPolicyEvidenceCard({
                 {presentation.customer_message}
               </p>
             </div>
-            <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[13px] font-semibold text-slate-600">
+            <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600">
               {presentation.completeness?.core_label || 'Unavailable'}
             </span>
           </div>
@@ -183,7 +183,7 @@ export default function DmarcPolicyEvidenceCard({
           {!compact && (
             <dl className="mt-3 grid gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-3">
               <div>
-                <dt className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                   Policy source
                 </dt>
                 <dd className="mt-0.5 text-xs text-slate-700">
@@ -192,7 +192,7 @@ export default function DmarcPolicyEvidenceCard({
                 </dd>
               </div>
               <div>
-                <dt className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                   Organisational domain
                 </dt>
                 <dd className="mt-0.5 text-xs text-slate-700">
@@ -200,7 +200,7 @@ export default function DmarcPolicyEvidenceCard({
                 </dd>
               </div>
               <div>
-                <dt className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                   Monitoring
                 </dt>
                 <dd className="mt-0.5 text-xs text-slate-700">
@@ -211,7 +211,7 @@ export default function DmarcPolicyEvidenceCard({
           )}
 
           {presentation.monitoring?.message && (
-            <p className={`mt-2 flex items-start gap-1.5 text-[13px] leading-relaxed ${
+            <p className={`mt-2 flex items-start gap-1.5 text-xs leading-relaxed ${
               presentation.monitoring.state === 'monitoring_degraded'
                 ? 'text-amber-800'
                 : 'text-slate-500'
@@ -222,21 +222,21 @@ export default function DmarcPolicyEvidenceCard({
 
           {!compact && presentation.external_rua?.destinations?.length > 0 && (
             <div className="mt-3">
-              <p className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 Aggregate-report destinations
               </p>
               <ul className="mt-1 space-y-2">
                 {presentation.external_rua.destinations.map((destination) => (
                   <li key={`${destination.destination_index}:${destination.uri}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="break-all font-mono text-[13px] text-slate-700">
+                      <span className="break-all font-mono text-xs text-slate-700">
                         {destination.uri || 'Destination not recorded'}
                       </span>
-                      <span className="text-[13px] font-semibold text-slate-600">
+                      <span className="text-xs font-semibold text-slate-600">
                         {destination.status_label}
                       </span>
                     </div>
-                    <p className="mt-1 text-[13px] leading-relaxed text-slate-500">
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">
                       {destination.message}
                     </p>
                   </li>
@@ -252,7 +252,7 @@ export default function DmarcPolicyEvidenceCard({
             </div>
           )}
 
-          <p className="mt-2 flex items-start gap-1.5 text-[13px] leading-relaxed text-slate-500">
+          <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-slate-500">
             A requested DMARC policy does not prove how every receiver handled mail.
           </p>
         </div>

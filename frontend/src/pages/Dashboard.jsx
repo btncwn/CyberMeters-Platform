@@ -420,7 +420,7 @@ function ServiceKpiCard({ title, to, cta, accentTone, kpis, fallback, status, th
         <h3 className="text-sm font-bold text-gray-900">{title}</h3>
       </div>
       {status && (
-        <p className="text-[13px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{status}</p>
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{status}</p>
       )}
       {kpis && kpis.length ? (
         <dl className="space-y-1.5 flex-1">
@@ -771,7 +771,7 @@ export default function Dashboard() {
             <span className="eyebrow">{ins.postureProvisional && ins.score != null ? 'Provisional Score' : 'Cyber Metrics Score'}</span>
             <ScoreRing score={ins.score} riskLevel={ins.riskLevel} provisional={ins.postureProvisional} />
             {ins.postureProvisional && (
-              <p className="text-[13px] text-amber-700 text-center leading-relaxed max-w-[200px] font-medium">
+              <p className="text-xs text-amber-700 text-center leading-relaxed max-w-[200px] font-medium">
                 {ins.score != null
                   ? 'Some checks or required evidence are incomplete. This score is provisional.'
                   : 'Some checks or required evidence are incomplete, so no score is shown for this scan.'}
@@ -853,7 +853,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-base font-bold text-gray-900">Security Health</h2>
             {report && (
-              <span className="text-[13px] text-gray-400 font-medium">{report.domain}</span>
+              <span className="text-xs text-gray-400 font-medium">{report.domain}</span>
             )}
           </div>
           <div className="grid grid-cols-3 gap-x-4 gap-y-6">
@@ -899,7 +899,7 @@ export default function Dashboard() {
                   onClick={() => f.scanId ? navigate(`/scans/${f.scanId}`) : navigate('/scans')}
                   className="flex items-start gap-4 px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
                 >
-                  <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[13px] font-bold text-white flex-shrink-0 mt-0.5 ${
+                  <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 ${
                     f.risk === 'critical' ? 'bg-red-500'    :
                     f.risk === 'high'     ? 'bg-orange-500' :
                     f.risk === 'medium'   ? 'bg-amber-400'  : 'bg-blue-400'
@@ -947,7 +947,7 @@ export default function Dashboard() {
             {ins.actions.slice(0, 3).map((action, i) => (
               <div key={action.id} className="card p-5 flex flex-col gap-4 hover:shadow-card-md transition-shadow">
                 <div className="flex items-start gap-3">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[13px] font-bold text-white flex-shrink-0 mt-0.5 ${
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 ${
                     i === 0 ? 'bg-red-500' : i === 1 ? 'bg-amber-500' : 'bg-brand-600'
                   }`}>{action.priority}</div>
                   <div>
