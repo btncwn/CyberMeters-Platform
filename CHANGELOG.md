@@ -7,7 +7,7 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
-## Work Order 2C production rollout — controlled acceptance pending — 14 October 2026
+## v2026.10.14-2 — Work Order 2C controlled release — 14 October 2026
 
 PR #610 added separately permitted, bounded active checks for Heartbleed,
 ROBOT and OpenSSL CCS on authorized endpoints. Positive and negative local
@@ -29,10 +29,22 @@ The coordinated production rollout deployed email Worker
 `sha256:6a3b88ce09b2eb690502fd8f85f4d90fa4acbed9701b01690ec9fe118c42c378`.
 Both public Workers report `2026.10.14-tls-2c.5f4d069c66b6`; email D1
 readiness, API D1/R2 readiness and anonymous workspace 401 passed. The
-company workspace's special-check permission remained off after deployment.
-Controlled company-domain acceptance and a live rollback drill have not yet
-been performed. These checks assess observed endpoints and do not change a
-customer's TLS configuration or establish safety for every domain.
+company workspace's special-check permission was initially off. After it was
+explicitly saved, one `cybermeters.com` canary completed all 512 selected TLS
+checks, including all 40 Heartbleed, ROBOT and CCS outcomes, across four
+Cloudflare edge endpoints. ROBOT and CCS each returned four TLS 1.2
+`not_observed` outcomes; Heartbleed's four TLS 1.2 checks were
+`heartbeat_unavailable` and remained inconclusive. Legacy handshakes and peer
+alerts stayed unknown. The signed-in report showed partial coverage,
+`Evidence insufficient` for Certificates & Trust and a provisional, unrated
+score, with the special reasons visible per endpoint. The job recorded no
+failed or unknown-cost attempt and stayed within its connection and byte
+budgets. The [acceptance ledger](docs/WORK-ORDER-2-TLS-ACCEPTANCE.md) records
+the scan ID, exact result counts, physical telemetry and remaining limits.
+Previous Worker versions remain available as rollback targets; a live rollback
+drill was not performed. This completes Work Order 2 engineering acceptance
+for the measured, consented workflow. It does not certify customer-wide safety
+or establish customer-scale unit economics.
 
 ## v2026.10.14-1 — supported TLS security assessment — 14 October 2026
 
