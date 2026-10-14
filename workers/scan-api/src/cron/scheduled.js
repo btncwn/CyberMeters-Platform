@@ -25,6 +25,23 @@ export const HOURLY_CRON = "0 * * * *";
 export const DISPATCH_CRON = "10,20,30,40,50 * * * *";
 export const DISPATCH_TICK_MS = 10 * 60 * 1000;
 
+// Free previews use one-hour windows and also write the shared five-minute
+// per-IP API guard. Delete only these expired public API counter families;
+// login, scan admission and email rate limits are outside this policy.
+export async function cleanupExpiredPublicApiRateLimits(env, nowIso) {
+  const nowMs = Date.parse(nowIso);
+  if (!Number.isFinite(nowMs)) throw new TypeError("Invalid public API cleanup time");
+  const freeCutoff = new Date(nowMs - (24 * 60 * 60 + 3600) * 1000).toISOString();
+  const globalCutoff = new Date(nowMs - (24 * 60 * 60 + 300) * 1000).toISOString();
+  return env.cybermeters_db.prepare(
+    `DELETE FROM api_rate_limits
+     WHERE (action IN ('free_scan', 'free_scan_domain', 'free_scan_global')
+            AND window_seconds = 3600 AND window_start < ?)
+        OR (action IN ('global_read', 'global_write')
+            AND window_seconds = 300 AND window_start < ?)`,
+  ).bind(freeCutoff, globalCutoff).run();
+}
+
 // Due schedules are picked one account at a time: every account's oldest due
 // schedule first (oldest account first), then every account's second, and so
 // on. An account with hundreds of schedules due at once takes its turn beside
@@ -249,6 +266,7 @@ export async function runScheduled(event, env, ctx, tasks) {
   // and run retention once daily at 02:00 UTC.
   if (new Date(now).getUTCHours() === 2) {
     ctx.waitUntil(runCronTask(env, "report_retention", () => tasks.cleanupExpiredReports(now, env)));
+    ctx.waitUntil(runCronTask(env, "public_api_rate_limit_retention", () => cleanupExpiredPublicApiRateLimits(env, now)));
   }
 
   // ── Ops-health heartbeat ─────────────────────────────────────────────

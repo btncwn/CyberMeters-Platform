@@ -242,6 +242,17 @@ function websiteRow() {
 }
 
 describe('ExecutiveReportV2 report-first corrective', () => {
+  it('explains the baseline OCSP limit only when endpoint TLS evidence is recorded', () => {
+    const report = reportFixture()
+    const baseline = render(<ExecutiveReportV2 report={report} />)
+    expect(baseline.container).not.toHaveTextContent('stapled-OCSP evidence')
+    baseline.unmount()
+
+    const measured = render(<ExecutiveReportV2 report={report} hasTlsAssessment />)
+    expect(measured.container).toHaveTextContent('stapled-OCSP evidence')
+    expect(measured.container).toHaveTextContent('A missing staple does not establish revocation status')
+  })
+
   it('places the first three canonical actions immediately after the overall summary and keeps the full list', () => {
     const { container } = render(<ExecutiveReportV2 report={reportFixture()} />)
 

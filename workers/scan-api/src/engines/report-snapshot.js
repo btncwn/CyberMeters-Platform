@@ -182,15 +182,21 @@ function liveCertificateSnapshotEvidence(report) {
   const nameResult = admitted(name) && ["matched", "mismatched"].includes(name.value?.result)
     ? name.value.result : null;
   const store = trust?.value?.trust_store_context;
+  const endpointAssessmentRecorded = Array.isArray(report?.modules?.tls_assessment?.endpoints) &&
+    report.modules.tls_assessment.endpoints.length > 0;
   const trustResult = admitted(trust) && store?.name && store?.version &&
     ["valid", "invalid"].includes(trust.value?.validation_result)
     ? trust.value.validation_result : null;
   const limits = [
     "Live TLS results apply only to the endpoints and observation time recorded in this scan.",
-    "Runtime issuer-chain metadata is not proof of the exact certificate chain sent on the wire.",
+    endpointAssessmentRecorded
+      ? "Baseline runtime issuer-chain metadata alone is not proof of the wire chain; separately measured offered-chain evidence is in the endpoint TLS assessment where available."
+      : "Runtime issuer-chain metadata is not proof of the exact certificate chain sent on the wire.",
   ];
   if (!admitted(signals?.revocation_assurance)) {
-    limits.push("OCSP and revocation status were not assessed.");
+    limits.push(endpointAssessmentRecorded
+      ? "The baseline certificate signal does not establish revocation status. Stapled OCSP observations are reported separately in the endpoint TLS assessment; no external revocation lookup was performed."
+      : "OCSP and revocation status were not assessed.");
   }
   if (leaf.value.all_planned_endpoints_observed !== true) {
     limits.push("Not all planned live TLS endpoints were observed.");

@@ -79,6 +79,23 @@ async function runAtHour(hourUTC, { throwers } = {}) {
 
   const RealDate = Date;
   const fixed = new RealDate(RealDate.UTC(2026, 0, 5, hourUTC, 30, 0)); // Mon Jan 5 2026, hh:30
+  const freeCutoff = new RealDate(fixed.getTime() - 25 * 60 * 60 * 1000).toISOString();
+  const globalCutoff = new RealDate(fixed.getTime() - (24 * 60 * 60 + 300) * 1000).toISOString();
+  const rows = [
+    ["old_ip", "free_scan", 3600, new RealDate(fixed.getTime() - 26 * 60 * 60 * 1000).toISOString()],
+    ["old_domain", "free_scan_domain", 3600, new RealDate(fixed.getTime() - 26 * 60 * 60 * 1000).toISOString()],
+    ["old_global", "free_scan_global", 3600, new RealDate(fixed.getTime() - 26 * 60 * 60 * 1000).toISOString()],
+    ["old_global_read", "global_read", 300, new RealDate(fixed.getTime() - 25 * 60 * 60 * 1000).toISOString()],
+    ["old_global_write", "global_write", 300, new RealDate(fixed.getTime() - 25 * 60 * 60 * 1000).toISOString()],
+    ["fresh_free", "free_scan", 3600, new RealDate(fixed.getTime() - 60 * 60 * 1000).toISOString()],
+    ["fresh_global_write", "global_write", 300, new RealDate(fixed.getTime() - 60 * 60 * 1000).toISOString()],
+    ["boundary_free", "free_scan", 3600, freeCutoff],
+    ["boundary_global_write", "global_write", 300, globalCutoff],
+    ["old_account", "login", 3600, new RealDate(fixed.getTime() - 25 * 60 * 60 * 1000).toISOString()],
+    ["old_long_window", "free_scan", 86400, new RealDate(fixed.getTime() - 25 * 60 * 60 * 1000).toISOString()],
+  ];
+  const insertLimit = db.prepare("INSERT INTO api_rate_limits (id, scope, scope_id, action, window_start, window_seconds, request_count) VALUES (?, 'ip', 'test', ?, ?, ?, 1)");
+  for (const [id, action, seconds, start] of rows) insertLimit.run(id, action, start, seconds);
   class FakeDate extends RealDate {
     constructor(...args) { if (args.length === 0) super(fixed.getTime()); else super(...args); }
     static now() { return fixed.getTime(); }
@@ -90,6 +107,7 @@ async function runAtHour(hourUTC, { throwers } = {}) {
   } finally {
     globalThis.Date = RealDate;
   }
+  calls.rateLimitIds = db.prepare("SELECT id FROM api_rate_limits ORDER BY id").all().map((row) => row.id);
   return calls;
 }
 
@@ -103,11 +121,14 @@ for (const t of ALWAYS) ok(`13:00 runs always-on task: ${t}`, mid[t] === 1);
 ok("13:00 dispatches the due scheduled scan", mid.triggerScheduledScan === 1);
 ok("13:00 passes the seeded schedule to triggerScheduledScan", mid.lastSchedule?.id === "sched_test");
 ok("13:00 does NOT run report_retention (hour!=2)", !mid.cleanupExpiredReports);
+ok("13:00 leaves old free-check counters for daily cleanup", mid.rateLimitIds.includes("old_ip"));
 ok("13:00 does NOT run ops_health (hour!=8)", !mid.opsHealthHeartbeat);
 
 // ── Daily-gated tasks fire only at their hour ────────────────────────────────
 const h2 = await runAtHour(2);
 ok("02:00 runs report_retention", h2.cleanupExpiredReports === 1);
+ok("02:00 removes expired free-check and API-wide counters", ["old_ip", "old_domain", "old_global", "old_global_read", "old_global_write"].every((id) => !h2.rateLimitIds.includes(id)));
+ok("02:00 retains current, boundary, account and long-window counters", ["fresh_free", "fresh_global_write", "boundary_free", "boundary_global_write", "old_account", "old_long_window"].every((id) => h2.rateLimitIds.includes(id)));
 ok("02:00 does NOT run ops_health", !h2.opsHealthHeartbeat);
 
 const h8 = await runAtHour(8);

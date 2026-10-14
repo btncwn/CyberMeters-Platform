@@ -376,6 +376,38 @@ async function main() {
      /the served certificate was not captured in this scan/.test(certDomain?.state_reason || "") &&
      certDomain?.evidence_grade?.grade === "L1" &&
      certDomain?.evidence_grade?.limits?.some((limit) => /OCSP/.test(limit)));
+  const liveLeaf = {
+    publishable: true, observation_scope: "live_tls",
+    completeness_state: "monitoring_healthy", observation: "present",
+    value: { certificate_identity: "sha256:recorded-leaf", all_planned_endpoints_observed: true },
+  };
+  const baselineCertReport = {
+    ...report1,
+    modules: {
+      ...report1.modules,
+      certificate_intelligence: { signal_completeness: { signals: { leaf: liveLeaf } } },
+    },
+  };
+  const certSnapshot = (report, id) => composeSnapshot({
+    snapshotId: id, workspaceId: "ws1", domainId: "dom1", scanId: "scan1",
+    domain: "shared.example", report, cyberEssentials: null, ceReadiness: null,
+    caseRows: [], questionSetVersions: [], certificateLifecycleRecords: [],
+    attackSurfaceLifecycleRecords: [], supersedesSnapshotId: null,
+    builtAt: "2026-07-16T12:00:00.000Z",
+  }).domains.find((entry) => entry.domain_key === "certificates_trust");
+  const baselineCert = certSnapshot(baselineCertReport, "baseline-cert");
+  ok("baseline certificate summary alone keeps the unmeasured OCSP limit",
+     baselineCert?.limitations?.some((limit) => limit === "OCSP and revocation status were not assessed."));
+  const assessedCert = certSnapshot({
+    ...baselineCertReport,
+    modules: {
+      ...baselineCertReport.modules,
+      tls_assessment: { endpoints: [{ address: "192.0.2.1", port: 443 }] },
+    },
+  }, "assessed-cert");
+  ok("endpoint assessment separates stapled OCSP observations from external revocation lookup",
+     assessedCert?.limitations?.some((limit) => /Stapled OCSP observations are reported separately/.test(limit)) &&
+     !assessedCert?.limitations?.includes("OCSP and revocation status were not assessed."));
   const gradeRank = Object.fromEntries(EVIDENCE_GRADES.map((grade, rank) => [grade, rank]));
   const expectedOverallGrade = (snap1?.domains || []).reduce(
     (lowest, domain) =>

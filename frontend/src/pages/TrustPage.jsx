@@ -13,8 +13,8 @@ function Item({ children }) {
 }
 
 // Dated, operator-published observation; deliberately not a live trust badge.
-// Evidence: the owned-domain scan completed 2026-10-09T02:15:48Z. Do not turn
-// its provisional score or unmeasured checks into a security certification.
+// Evidence: the separately authorised owned-domain scan completed
+// 2026-10-14T11:16:05.640Z. Its score and incomplete checks remain provisional.
 export default function TrustPage() {
   return <div className="min-h-screen bg-gray-50">
       <PublicSiteHeader />
@@ -25,15 +25,15 @@ export default function TrustPage() {
         <Link to="/status" className="mt-5 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-700">System status</Link>
 
         <Section title="We use CyberMeters on our own domain">
-          <p>This is a summary published by the operator from a real CyberMeters scan of <strong className="text-gray-900">cybermeters.com</strong>, completed <time dateTime="2026-10-09T02:15:48Z">9 October 2026 at 02:15:48 UTC</time>. It is a dated observation, not a live status or an independent audit.</p>
+          <p>This is a summary published by the operator from a real CyberMeters scan of <strong className="text-gray-900">cybermeters.com</strong>, completed <time dateTime="2026-10-14T11:16:05.640Z">14 October 2026 at 11:16:05 UTC</time>. It is a dated observation of our Cloudflare edge endpoints, not a live status or an independent audit.</p>
           <dl className="rounded-xl border border-gray-200 divide-y divide-gray-100">
-            <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Reported score</dt><dd>90 — provisional</dd></div>
-            <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Scan scope</dt><dd>16 scan modules recorded</dd></div>
-            <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Live TLS evidence</dt><dd>4 endpoints</dd></div>
-            <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Evidence source coverage</dt><dd>Partial</dd></div>
+            <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Reported score</dt><dd>100/100 — provisional, unrated</dd></div>
+            <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Live TLS evidence</dt><dd>4 Cloudflare edge endpoints</dd></div>
+            <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Scan and TLS coverage</dt><dd>Partial</dd></div>
           </dl>
-          <p><strong className="text-gray-800">Why provisional?</strong> One evidence source used at the time did not complete while the others returned results. A completed scan does not make every evidence source complete.</p>
-          <p><strong className="text-gray-800">TLS limits.</strong> Live certificate, hostname and trust checks refer to the captured endpoints and the recorded runtime trust store. The runtime-observed issuer chain is not proof of the exact chain sent on the wire. The exact wire chain, OCSP and revocation status were not measured.</p>
+          <p><strong className="text-gray-800">Why provisional?</strong> The TLS assessment completed 162 of 2,024 planned check outcomes; 346 were uncertain, 212 could not execute and 1,216 were outside this scan budget. Exposed-content coverage was also partial. The numeric score has no final assessment band and is not a clean result.</p>
+          <p><strong className="text-gray-800">Special checks.</strong> The separately permitted Heartbleed, ROBOT and OpenSSL CCS tests ran on the recorded endpoints. ROBOT and CCS were not observed in their four TLS 1.2 tests; Heartbleed remained inconclusive because a heartbeat response was unavailable. These observations do not establish safety for other endpoints or later dates.</p>
+          <p><strong className="text-gray-800">TLS limits.</strong> The endpoint assessment records offered certificate-chain and stapled-OCSP evidence where available. A missing staple does not establish revocation status; no external revocation lookup was performed. These TCP checks do not assess QUIC or the origin behind Cloudflare.</p>
           <p>This result is not a clean bill of health, a guarantee against vulnerabilities or proof of complete security. The example.co.uk sample on our home page is a separate, clearly labelled illustration.</p>
         </Section>
 

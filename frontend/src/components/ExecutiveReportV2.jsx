@@ -326,7 +326,7 @@ function SectionCard({ title, count, children }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export default function ExecutiveReportV2({ report }) {
+export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) {
   if (!report) return null
   if (report.report_availability?.status === 'historical_scan_no_canonical_snapshot') {
     return (
@@ -400,6 +400,11 @@ export default function ExecutiveReportV2({ report }) {
 
       {/* Eight canonical domains — backend-owned states, rendered verbatim */}
       <CyberMotDomains domains={report.cyber_mot_domains} />
+      {hasTlsAssessment && (
+        <p className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          The Certificates &amp; Trust summary describes the baseline certificate signal. The endpoint TLS assessment in Technical Details may show offered-chain and stapled-OCSP evidence where measured. A missing staple does not establish revocation status.
+        </p>
+      )}
 
       <CertificateAssuranceSummary
         presentation={report.certificate_assurance}
