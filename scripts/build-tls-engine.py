@@ -72,6 +72,8 @@ def main():
     parser.add_argument('--build-dir', type=Path, default=ENGINE / '.build')
     parser.add_argument('--jobs', type=int, default=4)
     parser.add_argument('--libraries-only', action='store_true')
+    parser.add_argument('--skip-catalog', action='store_true',
+                        help='Cross-build only: do not execute the target binary under emulation')
     args = parser.parse_args()
     build = args.build_dir.resolve()
     if not (build.is_relative_to(ROOT) or build.is_relative_to(Path('/private/tmp'))
@@ -161,7 +163,7 @@ def main():
                       'baseline_upstream_modified': False}
             (binary_dir / (output.name + '.json')).write_text(json.dumps(record, indent=2) + '\n')
         print('Ready: ' + identity, flush=True)
-    if not args.libraries_only:
+    if not args.libraries_only and not args.skip_catalog:
         write_catalog(build)
 
 
